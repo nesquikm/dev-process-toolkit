@@ -36,6 +36,7 @@ This ensures scaffolding uses up-to-date patterns, not stale defaults.
 #### 2b. Scaffold the project
 
 Key requirements for **every stack**:
+- **Git repo** — Run `git init` if not already in a git repository
 - **ESM/modern module format** — Use the current module standard (e.g., `"type": "module"` for Node)
 - **Placeholder source file** — Prevents "no inputs found" errors (e.g., `src/index.ts`, `src/__init__.py`, `main.go`)
 - **Test runner configured to pass with no tests** — Critical for gate-check on empty project (e.g., Vitest `passWithNoTests: true`)
@@ -45,7 +46,7 @@ Key requirements for **every stack**:
 
 **Stack-specific guidance** (use as a starting point — verify against your web research):
 
-- **TypeScript/Node:** `npm init -y`, set `"type": "module"`, install typescript + vitest + eslint, create tsconfig.json (strict, ESM, src/dist dirs), vitest.config.ts, eslint config, src/index.ts, tests/ dir
+- **TypeScript/Node:** `npm init -y`, set `"type": "module"`, install typescript + vitest + eslint, create tsconfig.json (strict, ESM, src/dist dirs), vitest.config.ts, eslint config (if using `projectService: true`, add `allowDefaultProject: ['*.config.ts', '*.config.mjs']` so root-level config files are linted correctly), src/index.ts, tests/ dir
 - **Flutter/Dart:** `flutter create .` (or `fvm flutter create .`), add bloc_test and mocktail as dev deps, verify test/ dir exists
 - **Python:** `uv init` (or poetry init), add pytest + mypy + ruff as dev deps, create src/__init__.py, tests/ dir, verify pyproject.toml has tool configs
 - **Go:** `go mod init <module>`, create main.go, install golangci-lint

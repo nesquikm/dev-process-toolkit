@@ -1,7 +1,6 @@
 ---
 name: spec-write
 description: Guide the user through writing or completing spec files (requirements, technical spec, testing spec, plan). Use after /setup to fill in specs before implementation, or to update existing specs.
-disable-model-invocation: true
 argument-hint: '[requirements | technical | testing | plan | all]'
 ---
 
