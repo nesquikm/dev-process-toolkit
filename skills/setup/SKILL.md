@@ -1,0 +1,97 @@
+---
+name: setup
+description: Set up SDD/TDD development process for the current project. Creates CLAUDE.md, configures settings, and optionally creates spec files. Use when starting a new project or adding process to an existing one.
+disable-model-invocation: true
+argument-hint: '[new or existing]'
+---
+
+# Project Setup
+
+Set up the Spec-Driven Development and TDD workflow for this project.
+
+## Process
+
+### 1. Detect the project
+
+Examine the current project to determine:
+- **Language and framework** — Check for `package.json`, `pubspec.yaml`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `build.gradle`, etc.
+- **Existing toolchain** — What test runner, linter, and typecheck commands are available
+- **Project structure** — Source directory layout (`src/`, `lib/`, `app/`, etc.)
+- **Existing CLAUDE.md** — If one exists, read it to understand current conventions
+- **New vs existing** — Is there source code already, or is this a fresh project?
+
+### 2. Handle new projects
+
+If the project is empty or has no toolchain:
+
+1. **Ask what stack the user wants** (TypeScript/Node, Flutter/Dart, Python, Go, etc.)
+2. **Offer to scaffold the toolchain** — propose specific commands to initialize:
+   - TypeScript/Node: `npm init -y`, install `typescript`, `vitest`, `eslint`, create `tsconfig.json`
+   - Flutter/Dart: `flutter create`, add `bloc_test` and `mocktail` to dev dependencies
+   - Python: `uv init` or `poetry init`, install `pytest`, `mypy`, `ruff`
+   - Go: `go mod init`, install `golangci-lint`
+3. **Run the initialization** after user approval
+4. **Continue to step 3** once the toolchain is in place
+
+### 3. Read the templates
+
+Load the reference material from the plugin directory:
+- `${CLAUDE_PLUGIN_ROOT}/templates/CLAUDE.md.template` — Base template for CLAUDE.md
+- `${CLAUDE_PLUGIN_ROOT}/examples/` — Stack-specific gate commands and patterns
+- `${CLAUDE_PLUGIN_ROOT}/docs/adaptation-guide.md` — For reference on what to configure
+
+Match the detected stack to the closest example in `${CLAUDE_PLUGIN_ROOT}/examples/` (typescript-node, flutter-dart, or python). For other stacks, use the adaptation guide's gate command table.
+
+### 4. Present the plan
+
+Show the user what you'll create and ask for approval:
+- **CLAUDE.md** — With their project's actual commands, patterns, and conventions filled in
+- **.claude/settings.json** — With tool permissions for their stack (or merge into existing)
+- **specs/** (optional) — Spec file templates if they want the full SDD workflow
+
+### 5. Generate CLAUDE.md
+
+Create `CLAUDE.md` in the project root based on the template, filling in:
+- Project name and description
+- Detected tech stack
+- Actual directory structure (from the project, not the template example)
+- Real gate commands for their stack
+- Key patterns (infer from existing code, or leave as TODOs for the user to fill in)
+- Testing conventions (detected from existing tests, or from the stack example)
+- DO NOT section with sensible defaults
+
+**Important:** Generate real content, not template placeholders. If you can detect the test framework from config files, write it. If you can see the directory structure, document it. Only leave `<!-- TODO -->` markers for things you genuinely can't determine.
+
+### 6. Configure settings
+
+Create or update `.claude/settings.json` with tool permissions appropriate for the stack. Use the examples from `${CLAUDE_PLUGIN_ROOT}/examples/` as reference.
+
+If `.claude/settings.json` already exists, merge permissions — don't overwrite existing settings.
+
+### 7. Create specs (optional)
+
+If the user wants the full SDD workflow (or if `$ARGUMENTS` contains "new"):
+- Create `specs/` directory
+- Copy and adapt spec templates from `${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/`
+- Pre-fill what you can (project name, stack info) and leave the rest for the user
+
+If the user has an existing project and didn't ask for specs, skip this step.
+
+### 8. Verify
+
+Run the gate check commands you configured to verify they work:
+- If all pass: report success
+- If any fail: explain what needs to be fixed (missing dependencies, wrong commands, etc.)
+
+### 9. Report
+
+Summarize what was created:
+- Files created/modified
+- Plugin skills now available (`/dev-process-toolkit:gate-check`, `/dev-process-toolkit:tdd`, etc.)
+- Next steps for the user
+
+## Rules
+
+- Always ask for approval before creating or modifying files
+- Never overwrite an existing CLAUDE.md without confirmation — offer to merge instead
+- Generate real content based on what you detect, not empty templates

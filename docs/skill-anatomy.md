@@ -35,6 +35,11 @@ agent: Explore                    # Which subagent type (with context: fork)
 
 ## Skill Types in the SDD Toolkit
 
+### 0. Setup (project onboarding)
+- **Purpose**: Detect stack, generate CLAUDE.md, configure settings, create spec files
+- **Invocation**: User-invoked once when setting up a project
+- **Key pattern**: Reads templates from plugin directory, adapts to detected toolchain
+
 ### 1. Gate Check (deterministic quality gate)
 - **Purpose**: Run typecheck + lint + test and report pass/fail
 - **Invocation**: User-invoked after completing work

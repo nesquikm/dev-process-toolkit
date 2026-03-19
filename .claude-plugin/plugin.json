@@ -1,0 +1,13 @@
+{
+  "name": "dev-process-toolkit",
+  "version": "1.0.0",
+  "description": "Portable skills, agents, and templates that add Spec-Driven Development and TDD workflows to any Claude Code project.",
+  "author": {
+    "name": "nesquikm",
+    "url": "https://github.com/nesquikm"
+  },
+  "homepage": "https://github.com/nesquikm/dev-process-toolkit",
+  "repository": "https://github.com/nesquikm/dev-process-toolkit",
+  "license": "MIT",
+  "keywords": ["sdd", "tdd", "spec-driven", "testing", "gate-check", "code-quality"]
+}

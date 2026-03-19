@@ -2,6 +2,8 @@
 
 How to adapt the SDD toolkit for your specific project and tech stack.
 
+> **Plugin users:** If you installed the plugin, run `/dev-process-toolkit:setup` — it automates most of these steps. This guide is for manual setup or for understanding what the setup skill does.
+
 ## Step 1: Identify Your Gate Commands
 
 The most important adaptation is mapping gate check commands to your toolchain.
@@ -94,7 +96,7 @@ Not every project needs every skill. Here's a recommended progression:
 
 ### Domain-specific additions
 - **Flutter**: `/codegen`, `/build-run`, `/l10n`, `/feature-scaffold`, `/bump-version`
-- **MCP servers**: `/tool-review`, `/setup`
+- **MCP servers**: `/tool-review`
 - **Web SPA**: `/visual-check`
 
 ## Step 6: Configure Agents (Optional)
