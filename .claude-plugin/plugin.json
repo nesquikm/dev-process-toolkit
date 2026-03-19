@@ -11,5 +11,8 @@
   "license": "MIT",
   "keywords": ["sdd", "tdd", "spec-driven", "testing", "gate-check", "code-quality"],
   "skills": "./skills/",
-  "agents": "./agents/"
+  "agents": [
+    "./agents/code-reviewer.md",
+    "./agents/test-writer.md"
+  ]
 }
