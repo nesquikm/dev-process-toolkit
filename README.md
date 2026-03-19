@@ -35,6 +35,14 @@ dev-process-toolkit/
 
 ## Quick Start
 
+The easiest way to get started is to point Claude Code at this repository and let it do the setup for you:
+
+```
+Add SDD/TDD process to my project using https://github.com/nesquikm/dev-process-toolkit
+```
+
+Claude Code will read the toolkit's CLAUDE.md, copy the relevant skills and templates, and adapt them to your stack. You can also set it up manually:
+
 ### New project
 
 Starting from scratch — no code, no toolchain yet.
