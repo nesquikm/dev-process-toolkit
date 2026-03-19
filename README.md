@@ -60,8 +60,7 @@ dev-process-toolkit/
 │   └── dev-process-toolkit/         # The plugin
 │       ├── .claude-plugin/
 │       │   └── plugin.json          # Plugin manifest
-│       ├── commands/                # 9 slash commands
-│       ├── skills/                  # Same as commands (for manual copy)
+│       ├── skills/                  # 9 skills (slash commands)
 │       ├── agents/                  # 2 specialist agents
 │       ├── templates/               # CLAUDE.md and spec templates
 │       ├── docs/                    # Methodology and guides
