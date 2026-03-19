@@ -1,0 +1,35 @@
+# Testing Specification
+
+## 1. Test Framework
+- **Runner:** <!-- Vitest, Jest, pytest, flutter_test -->
+- **Mocking:** <!-- vi.mock, mocktail, unittest.mock -->
+- **Coverage:** <!-- v8, istanbul, coverage.py -->
+
+## 2. Test Structure
+```
+tests/
+├── unit/
+├── integration/
+└── e2e/
+```
+
+## 3. Conventions
+
+### Naming
+- Files: `*.test.ts` / `*_test.dart` / `test_*.py`
+- Names: Describe expected behavior
+
+### What to Test
+- Happy path, error cases, edge cases, integration points
+
+### What NOT to Test
+- Implementation details, third-party internals, generated code
+
+## 4. Coverage Targets
+| Layer   | Target | Minimum |
+|---------|--------|---------|
+|         | >=90%  | 80%     |
+| Overall | >=75%  | 65%     |
+
+## 5. Test Data
+<!-- Factories, fixtures, seeds, frozen times -->

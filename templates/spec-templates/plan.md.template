@@ -1,0 +1,55 @@
+# Implementation Plan
+
+## Milestone Order
+
+<!-- Each milestone should be independently gatable -->
+<!-- Don't proceed to M(n+1) until M(n) gates pass -->
+
+## M1: [Foundation / Scaffolding]
+
+**Goal:** <!-- What this milestone achieves -->
+**Prerequisites:** None
+
+**Tasks:**
+1. <!-- Task in dependency order -->
+2.
+3.
+
+**Tests:**
+- <!-- What to test -->
+
+**Acceptance Criteria:**
+- [ ] <!-- Binary criterion -->
+- [ ]
+
+**Gate:** `<your gate check commands>`
+
+---
+
+## M2: [Core Feature]
+
+**Goal:** <!-- What this milestone achieves -->
+**Prerequisites:** M1
+
+**Tasks:**
+1.
+2.
+3.
+
+**Tests:**
+-
+
+**Acceptance Criteria:**
+- [ ]
+- [ ]
+
+**Gate:** `<your gate check commands>`
+
+---
+
+## Milestone Dependency Graph
+
+```
+M1 → M2 → M3
+       ↘ M4 → M5
+```

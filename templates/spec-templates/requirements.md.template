@@ -1,0 +1,41 @@
+# Requirements
+
+## 1. Overview
+
+<!-- What is this project/feature? Who is it for? What problem does it solve? -->
+
+## 2. Functional Requirements
+
+### FR-1: [Feature Name]
+
+**Description:** <!-- What this feature does -->
+
+**Acceptance Criteria:**
+- AC-1.1: <!-- Binary pass/fail criterion -->
+- AC-1.2: <!-- Binary pass/fail criterion -->
+- AC-1.3: <!-- Binary pass/fail criterion -->
+
+### FR-2: [Feature Name]
+
+**Description:** <!-- What this feature does -->
+
+**Acceptance Criteria:**
+- AC-2.1: <!-- Binary pass/fail criterion -->
+- AC-2.2: <!-- Binary pass/fail criterion -->
+
+## 3. Non-Functional Requirements
+
+### NFR-1: Performance
+### NFR-2: Security
+### NFR-3: Accessibility
+
+## 4. Out of Scope
+
+- <!-- Explicit list of things NOT to build -->
+
+## 5. Traceability Matrix
+
+| Requirement | Implementation | Tests |
+|-------------|---------------|-------|
+| AC-1.1      |               |       |
+| AC-1.2      |               |       |

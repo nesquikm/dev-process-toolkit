@@ -1,0 +1,77 @@
+# Project Name
+
+<!-- Replace "Project Name" and this line with a one-line description -->
+
+## Tech Stack
+
+<!-- Fill in your technologies -->
+- **Language:** <!-- e.g., TypeScript, Dart, Python, Go -->
+- **Framework:** <!-- e.g., React, Flutter, FastAPI, Echo -->
+- **Build:** <!-- e.g., Vite, fvm flutter build, setuptools -->
+- **Testing:** <!-- e.g., Vitest, flutter_test, pytest -->
+- **Validation:** <!-- e.g., Zod, Pydantic, Freezed -->
+
+## Architecture
+
+<!-- Replace with your project's directory structure -->
+```
+src/
+├── models/         # Data types and schemas
+├── services/       # Business logic
+├── handlers/       # Request handlers / UI components
+└── utils/          # Shared utilities
+```
+
+## Key Commands
+
+<!-- Uncomment and adapt the lines for your stack -->
+```bash
+# Development
+# npm run dev / fvm flutter run / python manage.py runserver
+
+# Build
+# npm run build / fvm flutter build / python -m build
+
+# Test
+# npm run test / fvm flutter test / pytest
+
+# Lint
+# npm run lint / fvm flutter analyze / ruff check .
+
+# Typecheck
+# npm run typecheck / mypy . / (included in analyze)
+```
+
+**Gating rule:** Every feature must pass before merging:
+
+```bash
+# ADAPT: Replace with your gate check commands (must match /gate-check skill)
+npm run typecheck && npm run lint && npm run test
+```
+
+## Key Patterns
+
+<!-- List the conventions Claude should follow in this project. -->
+<!-- Delete the examples below and replace with your own. -->
+- Example: Zod schemas are the single source of truth for types
+- Example: Services are pure functions — `(input) → typed result`
+- Example: All state classes use `@freezed` with named constructors
+
+## Testing Conventions
+
+<!-- How tests are organized and written in this project -->
+- **Framework:** <!-- e.g., Vitest, pytest, flutter_test -->
+- **Mocking:** <!-- e.g., vi.mock(), mocktail, unittest.mock -->
+- **File naming:** <!-- e.g., *.test.ts, *_test.dart, test_*.py -->
+- **Structure:** <!-- e.g., tests/ mirrors src/, colocated with source -->
+- **Coverage target:** <!-- e.g., >=80% for services -->
+
+## DO NOT
+
+<!-- Explicit boundaries — tell Claude what it must never do -->
+- Do not commit without user approval
+- Do not add features not in the spec
+<!-- Add your own: -->
+<!-- - Do not connect to real external services -->
+<!-- - Do not store PII -->
+<!-- - Do not edit generated files (*.g.dart, *.freezed.dart) -->
