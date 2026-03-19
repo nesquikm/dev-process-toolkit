@@ -55,8 +55,7 @@ See `docs/adaptation-guide.md` for detailed instructions.
 ```
 dev-process-toolkit/
 ├── .claude-plugin/             # Plugin metadata
-│   ├── plugin.json             # Plugin manifest
-│   └── marketplace.json        # Self-hosted marketplace
+│   └── plugin.json             # Plugin manifest
 ├── commands/                   # Plugin commands (9 slash commands)
 │   ├── setup.md                # Project onboarding
 │   ├── spec-write.md           # Guided spec writing
