@@ -57,16 +57,17 @@ dev-process-toolkit/
 ├── .claude-plugin/             # Plugin metadata
 │   ├── plugin.json             # Plugin manifest
 │   └── marketplace.json        # Self-hosted marketplace
-├── skills/                     # Plugin skills (9 total)
-│   ├── setup/                  # Project onboarding
-│   ├── spec-write/             # Guided spec writing
-│   ├── gate-check/             # Deterministic quality gates
-│   ├── implement/              # End-to-end feature implementation
-│   ├── tdd/                    # RED → GREEN → VERIFY cycle
-│   ├── spec-review/            # Audit code against specs
-│   ├── visual-check/           # Browser-based UI verification
-│   ├── pr/                     # Pull request creation
-│   └── simplify/               # Code quality review
+├── commands/                   # Plugin commands (9 slash commands)
+│   ├── setup.md                # Project onboarding
+│   ├── spec-write.md           # Guided spec writing
+│   ├── gate-check.md           # Deterministic quality gates
+│   ├── implement.md            # End-to-end feature implementation
+│   ├── tdd.md                  # RED → GREEN → VERIFY cycle
+│   ├── spec-review.md          # Audit code against specs
+│   ├── visual-check.md         # Browser-based UI verification
+│   ├── pr.md                   # Pull request creation
+│   └── simplify.md             # Code quality review
+├── skills/                     # Same commands as skills (for manual copy)
 ├── agents/                     # Plugin agents
 │   ├── code-reviewer.md
 │   └── test-writer.md
