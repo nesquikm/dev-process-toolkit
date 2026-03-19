@@ -10,7 +10,10 @@
   "plugins": [
     {
       "name": "dev-process-toolkit",
-      "source": ".",
+      "source": {
+        "source": "github",
+        "repo": "nesquikm/dev-process-toolkit"
+      },
       "description": "Portable skills, agents, and templates that add SDD and TDD workflows to any Claude Code project.",
       "version": "1.0.0",
       "author": {
