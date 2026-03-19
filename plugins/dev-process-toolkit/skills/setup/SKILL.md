@@ -95,12 +95,12 @@ If `.claude/settings.json` already exists, merge permissions — don't overwrite
 If the user wants the full SDD workflow (or if `$ARGUMENTS` contains "new"):
 - Create `specs/` directory
 - Copy templates from `${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/`
-- **Pre-fill aggressively** from what you already know:
-  - **requirements.md:** Project name, overview, detected stack
-  - **technical-spec.md:** Directory structure, dependencies with versions, key design decisions
-  - **testing-spec.md:** Test framework, mocking library, coverage tool, file naming, test structure
-  - **plan.md:** M1 skeleton for the foundation that setup just built
-- Leave requirements, acceptance criteria, and milestone tasks for the user
+- **Pre-fill with concrete values** from what you already know — replace every placeholder you can with real data:
+  - **requirements.md:** Project name, overview, detected stack. Fill the traceability matrix header rows with AC IDs from any existing requirements.
+  - **technical-spec.md:** Actual directory structure (run `ls`), actual dependencies with pinned versions (from lock file or package manifest), module boundaries you can infer from the code
+  - **testing-spec.md:** Exact test framework + version, mocking library, coverage tool, file naming convention (detected from existing tests or config), test directory path
+  - **plan.md:** M1 skeleton for the foundation that setup just built, with concrete file paths and gate commands
+- Leave requirements, acceptance criteria, and milestone tasks for the user — but everything else should be filled in, not left as `<!-- placeholder -->`
 
 If the user didn't ask for specs, skip this step.
 

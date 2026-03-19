@@ -2,7 +2,7 @@
 name: implement
 description: Implement a feature or fix end-to-end. Analyzes the request, builds in TDD order, runs gate checks, self-reviews with bounded loops, and reports for human approval before committing.
 disable-model-invocation: true
-argument-hint: '<milestone, task description, issue number, or "next">'
+argument-hint: '<milestone, task description, issue number, "next", or "all">'
 ---
 
 # Implement
@@ -15,6 +15,8 @@ Implement the following end-to-end: `$ARGUMENTS`
 
 2. **Resolve the target** — Determine what to implement:
    - If `$ARGUMENTS` is "next", read `specs/plan.md` and find the first milestone with unchecked acceptance criteria (`- [ ]`). Use that milestone as the target. If all milestones are complete, report "All milestones complete."
+   - If `$ARGUMENTS` is "all" or "remaining", read `specs/plan.md` and collect all milestones with unchecked acceptance criteria. Run them sequentially — complete the full Phase 1–4 cycle for each milestone before starting the next. Present the list of milestones to the user for approval before starting.
+   - If `$ARGUMENTS` names multiple milestones (e.g., "M2 and M3"), run them sequentially in the listed order — full Phase 1–4 cycle per milestone.
    - If `$ARGUMENTS` matches a milestone name (e.g., "M1", "M2"), read that milestone from `specs/plan.md`
    - If `$ARGUMENTS` is a number, try `gh issue view $ARGUMENTS` for GitHub issue
    - If `$ARGUMENTS` matches a file in `.tasks/`, read that task file
@@ -39,7 +41,7 @@ Implement the following end-to-end: `$ARGUMENTS`
 7. **Execute in TDD order:**
    - For each change:
      a. Write tests first
-     b. Run tests — confirm RED (failing)
+     b. Run tests — confirm RED (failing). If tests pass unexpectedly, the test isn't validating new behavior — fix the test assertions so they actually require the unwritten code before proceeding.
      c. Implement the code
      d. Run tests — confirm GREEN (passing)
    - Follow project patterns from CLAUDE.md
@@ -51,6 +53,8 @@ Implement the following end-to-end: `$ARGUMENTS`
 ## Phase 3: Self-Review Loop (max 2 rounds)
 
 > The gate check is the hard stop. This review loop is the smart stop.
+
+**Proportional review:** Scale the review depth to the change size. For trivial changes (single function, <20 lines, no new modules), a quick AC check + gate check is sufficient — skip the full code audit and cross-module coverage analysis. Reserve the deep review for changes that touch multiple modules or introduce new patterns.
 
 9. **Round N (N = 1, 2):**
 
@@ -89,7 +93,9 @@ Implement the following end-to-end: `$ARGUMENTS`
 
 ## Phase 4: Report & Handoff
 
-10. **Update plan.md** — If implementing a milestone from `specs/plan.md`, update the milestone's acceptance criteria from `- [ ]` to `- [x]` for each AC that passed. This keeps plan.md as the single source of progress truth.
+10. **Update specs** — If implementing a milestone from `specs/plan.md`:
+    - Update the milestone's acceptance criteria from `- [ ]` to `- [x]` for each AC that passed. This keeps plan.md as the single source of progress truth.
+    - If `specs/requirements.md` has a traceability matrix, update the Implementation and Tests columns for each AC with the actual file paths (e.g., `src/calculator.ts`, `tests/calculator.test.ts`).
 
 11. **Report** — Present to the user:
    - AC checklist with final pass/fail status
