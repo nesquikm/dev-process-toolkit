@@ -1,0 +1,14 @@
+{
+  "name": "dev-process-toolkit",
+  "owner": {
+    "name": "nesquikm"
+  },
+  "plugins": [
+    {
+      "name": "dev-process-toolkit",
+      "source": "./plugins/dev-process-toolkit",
+      "description": "Portable skills, agents, and templates that add SDD and TDD workflows to any Claude Code project.",
+      "version": "1.3.0"
+    }
+  ]
+}

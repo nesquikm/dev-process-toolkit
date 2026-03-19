@@ -1,41 +1,34 @@
 # Dev Process Toolkit
 
-A Claude Code plugin for bootstrapping **Spec-Driven Development (SDD)** and **TDD** workflows in any project.
+A Claude Code plugin marketplace for bootstrapping **Spec-Driven Development (SDD)** and **TDD** workflows in any project.
 
 ## What This Is
 
-This is a **Claude Code plugin** and **meta-toolkit**. It provides skills, agents, templates, and docs that set up development processes in other projects. It is also usable without the plugin system — users can copy skills and agents manually.
+This repo is a **Claude Code plugin marketplace** containing one plugin. The plugin provides commands, agents, templates, and docs that set up development processes in other projects.
 
-## Plugin Structure
+## Structure
 
-This repository follows the Claude Code plugin format:
-
-| Path | Purpose |
-|------|---------|
-| `.claude-plugin/` | Plugin manifest |
-| `commands/` | 9 plugin commands (setup, spec-write, gate-check, implement, tdd, spec-review, visual-check, pr, simplify) |
-| `skills/` | Same commands as skills format (for manual copy to `.claude/skills/`) |
-| `agents/` | 2 subagent templates (code-reviewer, test-writer) |
-| `templates/` | CLAUDE.md template, spec file templates, settings.json |
-| `docs/` | Methodology docs, skill anatomy, adaptation guide, patterns |
-| `examples/` | Stack-specific configs (TypeScript, Flutter, Python) |
+```
+.claude-plugin/marketplace.json          → Marketplace catalog
+plugins/dev-process-toolkit/             → The plugin
+├── .claude-plugin/plugin.json           → Plugin manifest
+├── commands/                            → 9 slash commands (setup, spec-write, gate-check, implement, tdd, spec-review, visual-check, pr, simplify)
+├── skills/                              → Same commands as skills (for manual copy to .claude/skills/)
+├── agents/                              → 2 subagent templates (code-reviewer, test-writer)
+├── templates/                           → CLAUDE.md template, spec file templates, settings.json
+├── docs/                                → Methodology, skill anatomy, adaptation guide, patterns
+└── examples/                            → Stack-specific configs (TypeScript, Flutter, Python)
+```
 
 ## How It Works
 
 ### As a plugin
 
-Users install the plugin, then run `/dev-process-toolkit:setup` in their project. The setup skill detects the stack, generates CLAUDE.md, configures settings, and optionally creates spec files.
+Users add the marketplace, install the plugin, then run `/dev-process-toolkit:setup`. The setup command detects the stack, generates CLAUDE.md, configures settings, and optionally creates spec files.
 
 ### Manual setup
 
-Users copy `skills/` to their `.claude/skills/` and `agents/` to their `.claude/agents/`, then adapt `<!-- ADAPT -->` markers. See `docs/adaptation-guide.md` for step-by-step instructions.
-
-## Key Docs
-
-- `docs/sdd-methodology.md` — What SDD is and how it works
-- `docs/skill-anatomy.md` — How Claude Code skills work (frontmatter, substitutions, subagents)
-- `docs/adaptation-guide.md` — Step-by-step guide to adapt for any stack
-- `docs/patterns.md` — 10 proven patterns + anti-patterns from real projects
+Users copy `plugins/dev-process-toolkit/skills/` to their `.claude/skills/` and `agents/` to their `.claude/agents/`, then adapt `<!-- ADAPT -->` markers. See `plugins/dev-process-toolkit/docs/adaptation-guide.md`.
 
 ## Core Principles
 
@@ -44,12 +37,3 @@ Users copy `skills/` to their `.claude/skills/` and `agents/` to their `.claude/
 3. **Self-review is bounded** — max 2 rounds, then escalate to human
 4. **Human approval before commit** — agent never commits without explicit OK
 5. **Specs are the source of truth** — code follows specs, not the other way around
-
-## Proven Stacks
-
-This toolkit was extracted from three production projects:
-- **TypeScript/React/Vite** — web analytics dashboard (npm-based gates)
-- **TypeScript/Node/MCP** — MCP server (npm-based gates + build step)
-- **Flutter/Dart** — mobile app (fvm flutter analyze + test, make codegen)
-
-See `examples/` for stack-specific details.

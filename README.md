@@ -1,6 +1,6 @@
 # Dev Process Toolkit
 
-A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 9 skills, 2 agents, spec templates, and documentation.
+A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 9 commands, 2 agents, spec templates, and documentation.
 
 ## Install as Plugin
 
@@ -9,7 +9,7 @@ A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** wor
 /plugin install dev-process-toolkit@nesquikm-dev-process-toolkit
 ```
 
-Then run the setup skill in your project:
+Then run the setup command in your project:
 
 ```
 /dev-process-toolkit:setup
@@ -19,10 +19,10 @@ This detects your stack, generates a CLAUDE.md, configures settings, and optiona
 
 ## What You Get
 
-### Skills
+### Commands
 
-| Skill | Purpose |
-|-------|---------|
+| Command | Purpose |
+|---------|---------|
 | `/dev-process-toolkit:setup` | Set up SDD/TDD process for your project |
 | `/dev-process-toolkit:spec-write` | Guide through writing spec files (requirements, technical, testing, plan) |
 | `/dev-process-toolkit:implement` | End-to-end feature implementation with TDD and self-review |
@@ -40,7 +40,7 @@ This detects your stack, generates a CLAUDE.md, configures settings, and optiona
 
 ## Manual Setup
 
-If you prefer not to install the plugin, you can copy skills manually:
+If you prefer not to install the plugin, you can copy files manually from `plugins/dev-process-toolkit/`:
 
 1. Copy `skills/` contents to your project's `.claude/skills/` directory
 2. Copy `agents/` contents to your project's `.claude/agents/` directory
@@ -48,41 +48,27 @@ If you prefer not to install the plugin, you can copy skills manually:
 4. Create your `CLAUDE.md` using `templates/CLAUDE.md.template`
 5. Run `/gate-check` to verify everything works
 
-See `docs/adaptation-guide.md` for detailed instructions.
+See `plugins/dev-process-toolkit/docs/adaptation-guide.md` for detailed instructions.
 
 ## What's Inside
 
 ```
 dev-process-toolkit/
-├── .claude-plugin/             # Plugin metadata
-│   └── plugin.json             # Plugin manifest
-├── commands/                   # Plugin commands (9 slash commands)
-│   ├── setup.md                # Project onboarding
-│   ├── spec-write.md           # Guided spec writing
-│   ├── gate-check.md           # Deterministic quality gates
-│   ├── implement.md            # End-to-end feature implementation
-│   ├── tdd.md                  # RED → GREEN → VERIFY cycle
-│   ├── spec-review.md          # Audit code against specs
-│   ├── visual-check.md         # Browser-based UI verification
-│   ├── pr.md                   # Pull request creation
-│   └── simplify.md             # Code quality review
-├── skills/                     # Same commands as skills (for manual copy)
-├── agents/                     # Plugin agents
-│   ├── code-reviewer.md
-│   └── test-writer.md
-├── templates/
-│   ├── CLAUDE.md.template      # CLAUDE.md starter for new projects
-│   ├── spec-templates/         # Spec file templates
-│   └── settings.json           # Recommended settings
-├── docs/
-│   ├── sdd-methodology.md      # SDD explained
-│   ├── skill-anatomy.md        # How skills work
-│   ├── adaptation-guide.md     # How to adapt for your stack
-│   └── patterns.md             # Patterns from real projects
-└── examples/
-    ├── typescript-node/         # Example config for TS/Node
-    ├── flutter-dart/            # Example config for Flutter
-    └── python/                  # Example config for Python
+├── .claude-plugin/
+│   └── marketplace.json            # Marketplace catalog
+├── plugins/
+│   └── dev-process-toolkit/         # The plugin
+│       ├── .claude-plugin/
+│       │   └── plugin.json          # Plugin manifest
+│       ├── commands/                # 9 slash commands
+│       ├── skills/                  # Same as commands (for manual copy)
+│       ├── agents/                  # 2 specialist agents
+│       ├── templates/               # CLAUDE.md and spec templates
+│       ├── docs/                    # Methodology and guides
+│       └── examples/                # Stack-specific configs
+├── CLAUDE.md
+├── README.md
+└── LICENSE
 ```
 
 ## Core Philosophy
@@ -103,9 +89,9 @@ The key insight: **deterministic checks always override LLM judgment**. A failin
 
 ## Documentation
 
-- `docs/sdd-methodology.md` — What SDD is and how it works
-- `docs/skill-anatomy.md` — How Claude Code skills work
-- `docs/adaptation-guide.md` — Step-by-step guide to adapt for any stack
-- `docs/patterns.md` — 10 proven patterns + anti-patterns
+- `plugins/dev-process-toolkit/docs/sdd-methodology.md` — What SDD is and how it works
+- `plugins/dev-process-toolkit/docs/skill-anatomy.md` — How Claude Code skills work
+- `plugins/dev-process-toolkit/docs/adaptation-guide.md` — Step-by-step guide to adapt for any stack
+- `plugins/dev-process-toolkit/docs/patterns.md` — 10 proven patterns + anti-patterns
 
 **Claude Code official docs:** https://code.claude.com/docs/en
