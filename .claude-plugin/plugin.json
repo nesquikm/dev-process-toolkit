@@ -9,5 +9,7 @@
   "homepage": "https://github.com/nesquikm/dev-process-toolkit",
   "repository": "https://github.com/nesquikm/dev-process-toolkit",
   "license": "MIT",
-  "keywords": ["sdd", "tdd", "spec-driven", "testing", "gate-check", "code-quality"]
+  "keywords": ["sdd", "tdd", "spec-driven", "testing", "gate-check", "code-quality"],
+  "skills": "./skills/",
+  "agents": "./agents/"
 }
