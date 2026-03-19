@@ -1,6 +1,6 @@
 # Dev Process Toolkit
 
-A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 8 skills, 2 agents, spec templates, and documentation.
+A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 9 skills, 2 agents, spec templates, and documentation.
 
 ## Install as Plugin
 
@@ -24,9 +24,10 @@ This detects your stack, generates a CLAUDE.md, configures settings, and optiona
 | Skill | Purpose |
 |-------|---------|
 | `/dev-process-toolkit:setup` | Set up SDD/TDD process for your project |
-| `/dev-process-toolkit:gate-check` | Deterministic quality gates (typecheck + lint + test) |
+| `/dev-process-toolkit:spec-write` | Guide through writing spec files (requirements, technical, testing, plan) |
 | `/dev-process-toolkit:implement` | End-to-end feature implementation with TDD and self-review |
 | `/dev-process-toolkit:tdd` | RED → GREEN → VERIFY cycle |
+| `/dev-process-toolkit:gate-check` | Deterministic quality gates (typecheck + lint + test) |
 | `/dev-process-toolkit:spec-review` | Audit code against spec requirements |
 | `/dev-process-toolkit:visual-check` | Browser-based UI verification via MCP |
 | `/dev-process-toolkit:pr` | Pull request creation |
@@ -56,8 +57,9 @@ dev-process-toolkit/
 ├── .claude-plugin/             # Plugin metadata
 │   ├── plugin.json             # Plugin manifest
 │   └── marketplace.json        # Self-hosted marketplace
-├── skills/                     # Plugin skills (8 total)
+├── skills/                     # Plugin skills (9 total)
 │   ├── setup/                  # Project onboarding
+│   ├── spec-write/             # Guided spec writing
 │   ├── gate-check/             # Deterministic quality gates
 │   ├── implement/              # End-to-end feature implementation
 │   ├── tdd/                    # RED → GREEN → VERIFY cycle

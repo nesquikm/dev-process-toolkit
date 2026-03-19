@@ -13,7 +13,7 @@ This repository follows the Claude Code plugin format:
 | Path | Purpose |
 |------|---------|
 | `.claude-plugin/` | Plugin manifest and marketplace metadata |
-| `skills/` | 8 plugin skills (setup, gate-check, implement, tdd, spec-review, visual-check, pr, simplify) |
+| `skills/` | 9 plugin skills (setup, spec-write, gate-check, implement, tdd, spec-review, visual-check, pr, simplify) |
 | `agents/` | 2 subagent templates (code-reviewer, test-writer) |
 | `templates/` | CLAUDE.md template, spec file templates, settings.json |
 | `docs/` | Methodology docs, skill anatomy, adaptation guide, patterns |

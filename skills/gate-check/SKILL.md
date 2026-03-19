@@ -10,9 +10,10 @@ Run the project's gating checks and report a clear pass/fail for each.
 
 ## Commands
 
-Adapt these to your project's toolchain:
+Read the project's CLAUDE.md to find the gate check commands (look for "Key Commands" or "Gating rule" section). If no CLAUDE.md exists, ask the user what commands to run.
 
-<!-- ADAPT: Replace with your project's commands -->
+Typical commands by stack (use as fallback if CLAUDE.md doesn't specify):
+<!-- ADAPT: If copying this skill manually, replace with your project's commands -->
 1. Run typecheck: `npm run typecheck` (or `fvm flutter analyze`, `mypy .`, etc.)
 2. Run lint: `npm run lint $ARGUMENTS` (if `$ARGUMENTS` contains `--fix`, add `-- --fix`)
 3. Run tests: `npm run test` (or `fvm flutter test`, `pytest`, etc.)

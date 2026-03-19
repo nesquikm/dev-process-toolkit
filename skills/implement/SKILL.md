@@ -11,14 +11,16 @@ Implement the following end-to-end: `$ARGUMENTS`
 
 ## Phase 1: Understand
 
-1. **Understand the request** — Determine the source:
+1. **Check for specs** — If `specs/` exists, check whether spec files have real content (not just template placeholders). If specs exist but are mostly empty, warn the user: "Specs appear to be incomplete. SDD works best when specs are filled in first. Consider running `/dev-process-toolkit:spec-write` or continue with what's available?" Let the user decide.
+
+2. **Understand the request** — Determine the source:
    - If `$ARGUMENTS` is a number, try `gh issue view $ARGUMENTS` for GitHub issue
    - If `$ARGUMENTS` matches a file in `.tasks/`, read that task file
    - If specs exist in `specs/`, read relevant specs
    - Otherwise, treat `$ARGUMENTS` as the task description
-2. **Read relevant code** — Find the files that need to change
-3. **Build the AC checklist** — Extract every acceptance criterion as a binary pass/fail checklist. If no explicit ACs exist, derive them from the description. This checklist is your **definition of done**.
-4. **Present the plan** — Show the user:
+3. **Read relevant code** — Find the files that need to change
+4. **Build the AC checklist** — Extract every acceptance criterion as a binary pass/fail checklist. If no explicit ACs exist, derive them from the description. This checklist is your **definition of done**.
+5. **Present the plan** — Show the user:
    - AC checklist
    - Files to create/modify
    - Test strategy
@@ -26,7 +28,7 @@ Implement the following end-to-end: `$ARGUMENTS`
 
 ## Phase 2: Build (TDD)
 
-5. **Execute in TDD order:**
+6. **Execute in TDD order:**
    - For each change:
      a. Write tests first
      b. Run tests — confirm RED (failing)
@@ -34,8 +36,8 @@ Implement the following end-to-end: `$ARGUMENTS`
      d. Run tests — confirm GREEN (passing)
    - Follow project patterns from CLAUDE.md
 
-<!-- ADAPT: Replace with your project's gate commands -->
-6. **Gate check** — Run your project's gate commands (e.g., `npm run typecheck && npm run lint && npm run test`)
+<!-- ADAPT: If copying this skill manually, replace with your project's gate commands -->
+7. **Gate check** — Read the gate commands from CLAUDE.md and run them (e.g., `npm run typecheck && npm run lint && npm run test`)
    - This is the **deterministic kill switch** — if it fails, fix before proceeding
    - Do NOT let judgment override a failing gate
 
@@ -43,7 +45,7 @@ Implement the following end-to-end: `$ARGUMENTS`
 
 > The gate check is the hard stop. This review loop is the smart stop.
 
-7. **Round N (N = 1, 2):**
+8. **Round N (N = 1, 2):**
 
    a. **AC check** — Walk the checklist from Phase 1. For each AC:
    - ✓ Pass — implemented and tested
@@ -77,7 +79,7 @@ Implement the following end-to-end: `$ARGUMENTS`
 
 ## Phase 4: Report & Handoff
 
-8. **Report** — Present to the user:
+9. **Report** — Present to the user:
    - AC checklist with final pass/fail status
    - Files created/modified
    - Test coverage (which cases are tested)
@@ -85,7 +87,7 @@ Implement the following end-to-end: `$ARGUMENTS`
    - Gate check result
    - Number of review rounds used
 
-9. **Wait for approval** — Ask the user to review before committing. Do NOT commit until the user explicitly says so.
+10. **Wait for approval** — Ask the user to review before committing. Do NOT commit until the user explicitly says so.
 
 ## Rules
 

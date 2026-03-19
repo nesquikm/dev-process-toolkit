@@ -86,6 +86,7 @@ Not every project needs every skill. Here's a recommended progression:
 - `/pr` — Pull request creation
 
 ### Full SDD (spec-driven projects)
+- `/spec-write` — Guided spec authoring
 - `/gate-check`
 - `/tdd`
 - `/implement`

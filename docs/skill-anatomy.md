@@ -40,6 +40,11 @@ agent: Explore                    # Which subagent type (with context: fork)
 - **Invocation**: User-invoked once when setting up a project
 - **Key pattern**: Reads templates from plugin directory, adapts to detected toolchain
 
+### 0b. Spec Write (guided spec authoring)
+- **Purpose**: Walk the user through filling in spec files in precedence order
+- **Invocation**: User-invoked after setup, before implementation
+- **Key pattern**: Interactive Q&A to extract requirements, then generates structured specs
+
 ### 1. Gate Check (deterministic quality gate)
 - **Purpose**: Run typecheck + lint + test and report pass/fail
 - **Invocation**: User-invoked after completing work

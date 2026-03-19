@@ -72,8 +72,13 @@ If `.claude/settings.json` already exists, merge permissions — don't overwrite
 
 If the user wants the full SDD workflow (or if `$ARGUMENTS` contains "new"):
 - Create `specs/` directory
-- Copy and adapt spec templates from `${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/`
-- Pre-fill what you can (project name, stack info) and leave the rest for the user
+- Copy spec templates from `${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/`
+- **Pre-fill aggressively** based on what you already know from detection:
+  - **requirements.md:** Fill in project name, overview, and detected stack in the Overview section
+  - **technical-spec.md:** Fill in architecture (detected directory structure), dependencies (from package.json/pubspec.yaml/pyproject.toml with versions), key design decisions based on detected patterns
+  - **testing-spec.md:** Fill in test framework, mocking library, coverage tool, file naming convention, and test structure — all detectable from config files and the stack example
+  - **plan.md:** Create an M1 skeleton for foundation/scaffolding based on what setup just built
+- Leave requirements, acceptance criteria, and milestone tasks for the user to fill in — those require domain knowledge
 
 If the user has an existing project and didn't ask for specs, skip this step.
 
@@ -85,10 +90,37 @@ Run the gate check commands you configured to verify they work:
 
 ### 9. Report
 
-Summarize what was created:
-- Files created/modified
-- Plugin skills now available (`/dev-process-toolkit:gate-check`, `/dev-process-toolkit:tdd`, etc.)
-- Next steps for the user
+Summarize what was created, then present the SDD workflow:
+
+**Files created/modified:** list them.
+
+**Your SDD Workflow:**
+
+```
+1. Write specs     → Fill in specs/*.md (requirements first, then technical, testing, plan)
+2. /implement      → Builds features with TDD + self-review (the main entry point)
+3. /gate-check     → Verify quality gates pass
+4. /spec-review    → Audit implementation against specs
+5. /simplify       → Clean up changed code
+6. /pr             → Create pull request
+```
+
+**Next steps:**
+
+If spec files were created:
+1. Fill in `specs/requirements.md` — define what to build (functional requirements + acceptance criteria)
+2. Fill in `specs/technical-spec.md` — define how to build it (architecture, data model, key patterns)
+3. Fill in `specs/testing-spec.md` — define how to test it (conventions, coverage targets)
+4. Fill in `specs/plan.md` — break work into milestones with task order
+5. Run `/dev-process-toolkit:implement <milestone>` to start building
+
+If no spec files were created (existing project, lightweight setup):
+1. Run `/dev-process-toolkit:implement <task description>` to build features
+2. Add specs later if you want the full SDD workflow
+
+**Key principle:** Specs are the source of truth. `/implement` reads specs to understand what to build, writes tests first, self-reviews against acceptance criteria, and reports for human approval before committing.
+
+**For advanced configuration** (hooks, domain-specific checks, CI/CD integration), see the adaptation guide in the plugin docs.
 
 ## Rules
 
