@@ -59,7 +59,8 @@ Kill the dev server if you started it.
 
 ## Prerequisites
 
-- A rubber duck MCP server with Chrome/browser tools must be configured (e.g., `mcp-rubber-duck`). Without it, the `ask_duck` calls will fail.
+- **Optional:** [mcp-rubber-duck](https://github.com/nesquikm/mcp-rubber-duck) — an MCP server that delegates tasks to independent AI "ducks," each with their own tools and context. Improves quality through cross-model evaluation and enables this skill to have a duck visually inspect pages in Chrome. Without it, the `ask_duck` calls will fail and this skill won't work.
+- `chrome-devtools-mcp` should be configured in `.mcp.json` for direct Chrome access from Claude Code. The duck may also have its own Chrome MCP tools configured separately. `/setup` configures `.mcp.json` automatically for web-based stacks.
 
 ## Notes
 

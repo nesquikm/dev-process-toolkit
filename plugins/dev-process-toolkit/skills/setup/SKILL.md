@@ -90,7 +90,27 @@ Create or update `.claude/settings.json` with tool permissions for the stack. Us
 
 If `.claude/settings.json` already exists, merge permissions — don't overwrite.
 
-### 7. Create specs (optional)
+### 7. Configure MCP servers
+
+**Optionally offer [mcp-rubber-duck](https://github.com/nesquikm/mcp-rubber-duck)** — an MCP server that delegates tasks to independent AI "ducks," each with their own tools and context. It improves quality through cross-model evaluation (different models reviewing each other's work) and enables the `/visual-check` skill for visual UI verification. Explain this to the user and let them decide whether to set it up. Useful for any stack.
+
+**For web-based projects only** (TypeScript/Node with a UI, React, Next.js, Vue, Svelte, etc.), also add `chrome-devtools-mcp` to `.mcp.json` so that Chrome can be used directly from Claude Code:
+
+```json
+{
+  "mcpServers": {
+    "chrome": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["chrome-devtools-mcp@latest"]
+    }
+  }
+}
+```
+
+If `.mcp.json` already exists, merge — don't overwrite.
+
+### 8. Create specs (optional)
 
 If the user wants the full SDD workflow (or if `$ARGUMENTS` contains "new"):
 - Create `specs/` directory
@@ -104,17 +124,17 @@ If the user wants the full SDD workflow (or if `$ARGUMENTS` contains "new"):
 
 If the user didn't ask for specs, skip this step.
 
-### 8. Verify
+### 9. Verify
 
 Run gate check commands to verify they all pass. If any fail, fix immediately — don't report a broken setup.
 
-### 9. Offer to fill specs
+### 10. Offer to fill specs
 
 If spec files were created, ask the user:
 
 > "Spec templates are ready. Want me to help you fill them in now? I can walk you through defining requirements, technical decisions, and the implementation plan. (Run `/dev-process-toolkit:spec-write`)"
 
-### 10. Report
+### 11. Report
 
 Summarize what was created, then present the SDD workflow:
 
