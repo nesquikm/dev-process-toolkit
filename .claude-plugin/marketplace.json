@@ -3,11 +3,16 @@
   "owner": {
     "name": "nesquikm"
   },
+  "metadata": {
+    "description": "A plugin marketplace for bootstrapping Spec-Driven Development and TDD workflows in any Claude Code project."
+  },
   "plugins": [
     {
       "name": "dev-process-toolkit",
       "source": "./plugins/dev-process-toolkit",
-      "description": "Portable skills, agents, and templates that add SDD and TDD workflows to any Claude Code project."
+      "description": "Portable skills, agents, and templates that add SDD and TDD workflows to any Claude Code project.",
+      "category": "development-workflow",
+      "tags": ["sdd", "tdd", "spec-driven", "testing", "gate-check", "code-quality", "code-review"]
     }
   ]
 }
