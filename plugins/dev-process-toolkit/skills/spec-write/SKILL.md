@@ -80,10 +80,34 @@ After completing each spec file:
 - Ask for approval before saving
 - Note any open questions or decisions that need human input
 
-### 5. Report
+### 5. Cross-check consistency
+
+After saving any spec file, automatically check all other existing specs for consistency. Each spec builds on the ones before it, so changes can ripple.
+
+#### What to check
+
+- **requirements.md changed:** Check that `technical-spec.md` covers all functional requirements (architecture, data model, APIs). Check that `testing-spec.md` has test strategies for all ACs. Check that `plan.md` milestones cover all requirements and no milestone references removed/renamed FRs.
+- **technical-spec.md changed:** Check that implementation details are consistent with `requirements.md` scope (no undocumented features, no missing requirements). Check that `testing-spec.md` mocking and test strategies match the chosen architecture. Check that `plan.md` task breakdowns match the technical approach.
+- **testing-spec.md changed:** Check that test coverage targets and strategies align with `requirements.md` ACs and `technical-spec.md` module boundaries.
+- **plan.md changed:** Check that milestones reference valid FRs/ACs from `requirements.md` and that task descriptions match `technical-spec.md`.
+
+#### How to report
+
+For each inconsistency found, report:
+
+| Spec file | Issue | Suggestion |
+| --- | --- | --- |
+| technical-spec.md | FR-3 has no architecture section | Add data model for user preferences |
+| plan.md | M2 references removed FR-2.1 | Remove or replace with FR-2.2 |
+
+- If **no inconsistencies** found, report "All specs are consistent" and move on.
+- If **inconsistencies found**, offer to fix them right now by updating the affected specs. Walk the user through each change and get approval before saving, just like step 4.
+
+### 6. Report
 
 Summarize what was completed:
 - Which specs are done vs. still need work
+- Any inconsistencies found and resolved (or still pending)
 - Any open questions flagged during the process
 - Remind: "Run `/dev-process-toolkit:implement <milestone>` when specs are ready"
 
