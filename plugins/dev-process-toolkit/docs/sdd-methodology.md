@@ -64,9 +64,15 @@ The gate check is deterministic code (compiler, linter, test runner). It always 
 
 ### 5. Self-Review Is Bounded
 
-After implementation, a self-review loop runs **at most 2 rounds**:
+After implementation, a self-review loop runs **at most 2 rounds**. Each round has two sequential stages:
 
-- Round 1: Walk AC checklist, audit code, fix issues, re-run gates
+- **Stage A — Spec Compliance**: Walk the AC checklist, check cross-module coverage. Fix any gaps before moving to Stage B.
+- **Stage B — Code Quality**: Audit for logic bugs, pattern violations, and security issues.
+
+If Stage A finds issues, fix them before Stage B. This separation prevents "the code is clean, therefore it meets the spec" conflation.
+
+Round convergence:
+- Round 1: Fix issues, re-run gates
 - Round 2: If still finding issues, check for convergence
   - Same issues as round 1 → **deadlock detected**, escalate to human
   - New issues → fix, re-run gates, escalate to human

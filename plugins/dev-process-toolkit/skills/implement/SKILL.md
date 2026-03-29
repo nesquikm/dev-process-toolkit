@@ -9,6 +9,26 @@ argument-hint: '<milestone, task description, issue number, "next", or "all">'
 
 Implement the following end-to-end: `$ARGUMENTS`
 
+## Pre-flight: Branch Isolation
+
+Before starting, ask the user:
+
+> "Work in a **git worktree** (isolated branch) or on the **current branch**?
+> - Worktree: creates a clean branch — failed runs can be discarded without affecting your working tree.
+> - Current branch: start immediately on whatever is checked out."
+
+If the user chooses worktree:
+
+1. Derive a branch name from the task (e.g., `feat/user-auth`)
+2. Create: `git worktree add ../<branch-name> -b <branch-name>`
+3. Install dependencies in the new worktree based on detected project type:
+   - npm/yarn/pnpm: `npm install` (or equivalent)
+   - pip/uv: `uv sync` or `pip install -e .`
+   - cargo: `cargo build` (fetches dependencies)
+   - go: `go mod download`
+4. All Phase 1–4 work happens inside the new worktree directory
+5. If the run succeeds, tell the user how to merge back. If it fails, offer to discard: `git worktree remove <path> --force`
+
 ## Phase 1: Understand
 
 1. **Check for specs** — If `specs/` exists, check whether spec files have real content (not just template placeholders). If specs exist but are mostly empty, warn the user: "Specs appear to be incomplete. SDD works best when specs are filled in first. Consider running `/dev-process-toolkit:spec-write` or continue with what's available?" Let the user decide.
@@ -49,14 +69,19 @@ Implement the following end-to-end: `$ARGUMENTS`
 8. **Gate check** — Run the gate commands from step 3
    - This is the **deterministic kill switch** — if it fails, fix before proceeding
    - Do NOT let judgment override a failing gate
+   - If the failure cause is unclear, use `/dev-process-toolkit:debug` for structured investigation
 
 ## Phase 3: Self-Review Loop (max 2 rounds)
 
 > The gate check is the hard stop. This review loop is the smart stop.
 
-**Proportional review:** Scale the review depth to the change size. For trivial changes (single function, <20 lines, no new modules), a quick AC check + gate check is sufficient — skip the full code audit and cross-module coverage analysis. Reserve the deep review for changes that touch multiple modules or introduce new patterns.
+**Proportional review:** Scale the review depth to the change size. For trivial changes (single function, <20 lines, no new modules), a quick AC check + gate check is sufficient. Reserve the deep review for changes that touch multiple modules or introduce new patterns.
+
+Each round has two sequential stages. **Complete Stage A before starting Stage B.** If Stage A finds issues, fix them and re-run the gate before proceeding to Stage B.
 
 9. **Round N (N = 1, 2):**
+
+   ### Stage A — Spec Compliance
 
    a. **AC check** — Walk the checklist from Phase 1. For each AC:
    - ✓ Pass — implemented and **directly tested** (not just indirectly covered)
@@ -65,14 +90,18 @@ Implement the following end-to-end: `$ARGUMENTS`
 
    If an AC explicitly names a module or function (e.g., "Validation helpers throw correct error types"), verify that a test file directly tests that module. Indirect coverage through other tests does NOT satisfy an explicit AC.
 
-   b. **Code audit** — Re-read every file created/modified. Look for:
+   b. **Cross-module coverage check** — For every module that was created or significantly modified, verify it has direct test coverage. If an AC references a specific module that has no dedicated test file, flag it as a gap.
+
+   **If Stage A finds any issues:** fix them, re-run the gate check, then proceed to Stage B.
+
+   ### Stage B — Code Quality
+
+   c. **Code audit** — Re-read every file created/modified. Look for:
    - Logic bugs, off-by-one errors, wrong comparisons
    - Missing edge cases the tests don't cover
    - Pattern violations (check CLAUDE.md for project patterns)
    - Hardcoded values that should come from config
    - Security issues (unsanitized input, injection risks)
-
-   c. **Cross-module coverage check** — For every module that was created or significantly modified, verify it has direct test coverage. If an AC references a specific module that has no dedicated test file, flag it as a gap.
 
    <!-- ADAPT: Add domain-specific checks for your framework/stack -->
    <!-- Examples: -->
@@ -82,14 +111,16 @@ Implement the following end-to-end: `$ARGUMENTS`
    <!-- API server: Input validation at boundaries, error response format, auth checks -->
    d. **Stack-specific checks** — Verify framework patterns are followed
 
-   e. **Decision (deterministic, not vibes):**
-   - **All ACs pass + no issues found** → exit loop, go to Phase 4
+   ### Decision (deterministic, not vibes)
+
+   e. **Decision:**
+   - **Both stages pass + gate confirms clean** → exit loop, go to Phase 4
    - **Issues found, round 1** → fix issues, re-run gate check, go to round 2
    - **Issues found, round 2** → check for convergence:
      - Same issue types as round 1 → **STOP and escalate** to user (going in circles)
      - New/different issues → fix, re-run gate check, then escalate to user (diminishing returns)
 
-   f. **After any fix** — always re-run the full gate check before continuing
+   f. **After any fix** — always re-run the full gate check before continuing. Read the actual output and report the numbers (e.g., "47 tests, 0 failures, 0 errors"). Do not claim clean from memory of a previous run.
 
 ## Phase 4: Report & Handoff
 
@@ -102,7 +133,7 @@ Implement the following end-to-end: `$ARGUMENTS`
    - Files created/modified
    - Test coverage (which cases are tested, flag any modules without direct tests)
    - Self-review findings (what was caught and fixed, what remains)
-   - Gate check result
+   - Gate check result — cite the actual output (e.g., "0 failures, 0 errors"), not just "passed"
    - Number of review rounds used
 
 12. **Wait for approval** — Ask the user to review before committing. Do NOT commit until the user explicitly says so.
@@ -116,3 +147,17 @@ Implement the following end-to-end: `$ARGUMENTS`
 - The gate check (deterministic) always overrides judgment about quality
 - ACs are binary (pass/fail) — no "good enough"
 - Every AC that names a specific module requires a direct test for that module
+- Stage A (spec compliance) must complete before Stage B (code quality) — do not blend them
+- Before claiming any phase complete, run the gate command fresh and cite the actual output. Do NOT claim completion from memory of a previous run.
+- Forbidden: "tests pass", "should be fine", "I verified" without citing actual command output
+
+## Red Flags
+
+If you hear yourself thinking any of these, stop and apply the rule anyway:
+
+- "I'll run gate-check after the next task" → run it now
+- "This is too simple to need a failing test first" → write the test
+- "I know the tests pass" → run them and read the actual output
+- "Just this once" → there is no just this once
+- "I'll test after, it's almost done" → write the test first
+- "It should work now" → "should" is not a gate result
