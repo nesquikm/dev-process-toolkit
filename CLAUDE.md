@@ -12,8 +12,7 @@ This repo is a **Claude Code plugin marketplace** containing one plugin. The plu
 .claude-plugin/marketplace.json          → Marketplace catalog
 plugins/dev-process-toolkit/             → The plugin
 ├── .claude-plugin/plugin.json           → Plugin manifest
-├── commands/                            → 9 slash commands (setup, spec-write, gate-check, implement, tdd, spec-review, visual-check, pr, simplify)
-├── skills/                              → Same commands as skills (for manual copy to .claude/skills/)
+├── skills/                              → 11 slash commands (setup, brainstorm, spec-write, implement, tdd, gate-check, debug, spec-review, visual-check, pr, simplify)
 ├── agents/                              → 2 subagent templates (code-reviewer, test-writer)
 ├── templates/                           → CLAUDE.md template, spec file templates, settings.json
 ├── docs/                                → Methodology, skill anatomy, adaptation guide, patterns
