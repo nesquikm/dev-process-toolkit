@@ -1,6 +1,6 @@
 # Dev Process Toolkit
 
-A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 9 commands, 2 agents, spec templates, and documentation.
+A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 11 commands, 2 agents, spec templates, and documentation.
 
 ## Install as Plugin
 
@@ -24,10 +24,12 @@ This detects your stack, generates a CLAUDE.md, configures settings, and optiona
 | Command | Purpose |
 |---------|---------|
 | `/dev-process-toolkit:setup` | Set up SDD/TDD process for your project |
+| `/dev-process-toolkit:brainstorm` | Socratic design session before writing specs (for open-ended features) |
 | `/dev-process-toolkit:spec-write` | Guide through writing spec files (requirements, technical, testing, plan) |
-| `/dev-process-toolkit:implement` | End-to-end feature implementation with TDD and self-review |
+| `/dev-process-toolkit:implement` | End-to-end feature implementation with TDD and two-stage self-review |
 | `/dev-process-toolkit:tdd` | RED → GREEN → VERIFY cycle |
 | `/dev-process-toolkit:gate-check` | Deterministic quality gates (typecheck + lint + test) |
+| `/dev-process-toolkit:debug` | Structured debugging protocol for failing tests or unclear gate failures |
 | `/dev-process-toolkit:spec-review` | Audit code against spec requirements |
 | `/dev-process-toolkit:visual-check` | Browser-based UI verification via MCP |
 | `/dev-process-toolkit:pr` | Pull request creation |
@@ -60,7 +62,7 @@ dev-process-toolkit/
 │   └── dev-process-toolkit/         # The plugin
 │       ├── .claude-plugin/
 │       │   └── plugin.json          # Plugin manifest
-│       ├── skills/                  # 9 skills (slash commands)
+│       ├── skills/                  # 11 skills (slash commands)
 │       ├── agents/                  # 2 specialist agents
 │       ├── templates/               # CLAUDE.md and spec templates
 │       ├── docs/                    # Methodology and guides
@@ -91,6 +93,6 @@ The key insight: **deterministic checks always override LLM judgment**. A failin
 - `plugins/dev-process-toolkit/docs/sdd-methodology.md` — What SDD is and how it works
 - `plugins/dev-process-toolkit/docs/skill-anatomy.md` — How Claude Code skills work
 - `plugins/dev-process-toolkit/docs/adaptation-guide.md` — Step-by-step guide to adapt for any stack
-- `plugins/dev-process-toolkit/docs/patterns.md` — 10 proven patterns + anti-patterns
+- `plugins/dev-process-toolkit/docs/patterns.md` — 14 proven patterns + anti-patterns
 
 **Claude Code official docs:** https://code.claude.com/docs/en

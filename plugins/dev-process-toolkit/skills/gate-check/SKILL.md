@@ -23,13 +23,27 @@ Typical commands by stack (use as fallback if CLAUDE.md doesn't specify):
 
 For each step:
 
-- If it passes, report ✓ with a one-line summary
+- If it passes, report ✓ with the actual output summary (e.g., "✓ Tests: 47 passed, 0 failed")
 - If it fails, report ✗ with the specific errors (include file:line references)
 
 At the end, give a clear verdict: **GATE PASSED** or **GATE FAILED** with what needs fixing.
+
+**Cite actual output numbers** — do not report GATE PASSED from memory of a previous run. Run each command fresh and read the result.
+
+If a failure cause is unclear after reading the error output, use `/dev-process-toolkit:debug` for structured investigation.
 
 ## Rules
 
 - This is a **deterministic kill switch** — if it fails, the gate fails. Period.
 - Do NOT let judgment override a failing gate
 - Do NOT skip any step
+- Do NOT report GATE PASSED without running commands fresh this session
+
+## Red Flags
+
+If you hear yourself thinking any of these, stop and run the gate anyway:
+
+- "I'll run gate-check after the next task" → run it now
+- "I know the tests pass" → run them and read the actual output
+- "It should work now" → "should" is not a gate result
+- "Just this once I'll skip it" → there is no just this once

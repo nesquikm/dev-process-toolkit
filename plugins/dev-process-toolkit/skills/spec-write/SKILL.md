@@ -8,6 +8,8 @@ argument-hint: '[requirements | technical | testing | plan | all]'
 
 Guide the user through writing or completing the project specification files.
 
+> **For greenfield features with an open solution space** — where the right approach is genuinely unclear — consider running `/dev-process-toolkit:brainstorm` first. Brainstorm explores approaches and gets design approval before you commit to a spec structure. For features where the design is already clear, start here directly.
+
 ## Process
 
 ### 1. Assess current state
