@@ -20,8 +20,10 @@ SDD doesn't replace TDD — it wraps it. Tests are still written first, but they
 ## The SDD Lifecycle
 
 ```
-Specs → Milestones → TDD (per task) → Gate Check → Self-Review → Human Review → Commit
+[Brainstorm] → Specs → Milestones → TDD (per task) → Gate Check [→ Debug] → Self-Review → Human Review → Commit
 ```
+
+`[Brainstorm]` is optional — run `/brainstorm` before writing specs when the solution space is genuinely open. `[→ Debug]` is the path when a gate check fails and the cause isn't immediately clear.
 
 ### 1. Specs Define the Contract
 
@@ -62,11 +64,19 @@ Gate checks run the project's quality commands (typecheck, lint, test, build). T
 
 The gate check is deterministic code (compiler, linter, test runner). It always overrides LLM judgment about quality.
 
+If a gate check fails and the cause isn't immediately clear from reading the error output, use `/debug` — it structures the investigation into 4 phases (Root Cause → Pattern Analysis → Hypothesis Testing → Implementation) and enforces the 3-Fix Rule to prevent thrashing.
+
 ### 5. Self-Review Is Bounded
 
-After implementation, a self-review loop runs **at most 2 rounds**:
+After implementation, a self-review loop runs **at most 2 rounds**. Each round has two sequential stages:
 
-- Round 1: Walk AC checklist, audit code, fix issues, re-run gates
+- **Stage A — Spec Compliance**: Walk the AC checklist, check cross-module coverage. Fix any gaps before moving to Stage B.
+- **Stage B — Code Quality**: Audit for logic bugs, pattern violations, and security issues.
+
+If Stage A finds issues, fix them before Stage B. This separation prevents "the code is clean, therefore it meets the spec" conflation.
+
+Round convergence:
+- Round 1: Fix issues, re-run gates
 - Round 2: If still finding issues, check for convergence
   - Same issues as round 1 → **deadlock detected**, escalate to human
   - New issues → fix, re-run gates, escalate to human

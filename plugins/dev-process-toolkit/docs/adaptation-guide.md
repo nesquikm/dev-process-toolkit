@@ -77,18 +77,22 @@ Not every project needs every skill. Here's a recommended progression:
 ### Minimum viable (any project)
 - `/gate-check` — Deterministic quality gate
 - `/tdd` — RED → GREEN → VERIFY cycle
+- `/debug` — Structured debugging when gate or tests fail
 
 ### Standard (projects with specs or issues)
 - `/gate-check`
 - `/tdd`
+- `/debug`
 - `/implement` — End-to-end feature implementation
 - `/simplify` — Code quality cleanup after features
 - `/pr` — Pull request creation
 
 ### Full SDD (spec-driven projects)
+- `/brainstorm` — Pre-spec design session for open-ended features
 - `/spec-write` — Guided spec authoring
 - `/gate-check`
 - `/tdd`
+- `/debug`
 - `/implement`
 - `/spec-review` — Compliance audit
 - `/visual-check` — UI verification (web projects)

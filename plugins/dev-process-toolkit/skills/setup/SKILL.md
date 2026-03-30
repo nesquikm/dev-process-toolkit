@@ -143,12 +143,14 @@ Summarize what was created, then present the SDD workflow:
 **Your SDD Workflow:**
 
 ```
+0. /brainstorm       → (Optional) Explore approaches before writing specs
 1. Write specs       → specs/*.md (requirements first, then technical, testing, plan)
-2. /implement        → Builds features with TDD + self-review (the main entry point)
+2. /implement        → Builds features with TDD + two-stage self-review (the main entry point)
 3. /gate-check       → Verify quality gates pass
-4. /spec-review      → Audit implementation against specs
-5. /simplify         → Clean up changed code
-6. /pr               → Create pull request
+4. /debug            → Investigate failing tests or unclear gate failures
+5. /spec-review      → Audit implementation against specs
+6. /simplify         → Clean up changed code
+7. /pr               → Create pull request
 ```
 
 **Next steps:**

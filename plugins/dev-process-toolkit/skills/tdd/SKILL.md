@@ -33,3 +33,14 @@ Read the project's CLAUDE.md for the gate check commands. If not specified, use 
 - Run full test suite (e.g., `npm run test`, `fvm flutter test`, `pytest`)
 
 Report each phase clearly. If VERIFY fails, fix issues and re-verify before declaring done.
+
+If VERIFY fails and the cause is unclear, use `/dev-process-toolkit:debug` to investigate systematically before attempting fixes.
+
+## Red Flags
+
+If you hear yourself thinking any of these, stop and apply the rule anyway:
+
+- "This is too simple to need a failing test first" → write the test
+- "I'll test after — I just need to get it working" → write the test first
+- "I know the tests pass, no need to re-verify" → run VERIFY and read the output
+- "Just this once, then I'll go back to TDD" → there is no just this once
