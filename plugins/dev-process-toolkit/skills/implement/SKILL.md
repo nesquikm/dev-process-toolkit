@@ -45,11 +45,13 @@ If the user chooses worktree:
 
 3. **Read the gate commands** — Read CLAUDE.md and find the gate check commands (look for "Key Commands" or "Gating rule" section). These are the commands you'll use throughout.
 
-4. **Read relevant code** — Find the files that need to change
+4. **Verify baseline health** — Run the gate commands now, before writing any code. If the project is already broken, fix it first (or tell the user). Do not build new features on a broken foundation.
 
-5. **Build the AC checklist** — Extract every acceptance criterion as a binary pass/fail checklist. If no explicit ACs exist, derive them from the description. This checklist is your **definition of done**.
+5. **Read relevant code** — Find the files that need to change
 
-6. **Present the plan** — Show the user:
+6. **Build the AC checklist** — Extract every acceptance criterion as a binary pass/fail checklist. If no explicit ACs exist, derive them from the description. This checklist is your **definition of done**.
+
+7. **Present the plan** — Show the user:
    - AC checklist
    - Files to create/modify
    - Test strategy
@@ -58,7 +60,7 @@ If the user chooses worktree:
 
 ## Phase 2: Build (TDD)
 
-7. **Execute in TDD order:**
+8. **Execute in TDD order:**
    - For each change:
      a. Write tests first
      b. Run tests — confirm RED (failing). If tests pass unexpectedly, the test isn't validating new behavior — fix the test assertions so they actually require the unwritten code before proceeding.
@@ -66,7 +68,26 @@ If the user chooses worktree:
      d. Run tests — confirm GREEN (passing)
    - Follow project patterns from CLAUDE.md
 
-8. **Gate check** — Run the gate commands from step 3
+9. **Spec deviation check** — If during implementation you discover that a spec is **wrong, infeasible, or contradictory** (e.g., an API doesn't exist, a requirement conflicts with another, performance constraints make the approach unviable):
+
+   a. **STOP coding forward.** Do not work around the spec — the spec is the source of truth, and if reality contradicts it, the spec must be updated first.
+
+   b. **Assess already-written code** — If significant code was already written based on the incorrect spec, evaluate whether to revert to the last checkpoint (git commit) or adapt the existing code. Prefer reverting if the spec change alters the fundamental approach.
+
+   c. **Classify the issue:**
+      - **Underspecified** — spec doesn't mention this case but the behavior is clearly implied → add the edge case to specs, add a test, continue. No user approval needed.
+      - **Ambiguous** — spec doesn't say and reasonable people could disagree → propose the most conservative behavior, log it as a provisional decision in specs, add a test, ask the user to confirm at Phase 4. Continue.
+      - **Contradicts spec** — what the spec says cannot work or conflicts with another requirement → present the contradiction, propose 2+ options with tradeoffs, and **wait for user decision** before proceeding. Update the spec with the decision.
+      - **Infeasible** — the specified approach hits a hard technical wall → explain why, propose alternatives, **wait for user decision**.
+
+   d. **Always backfill specs** — Any edge case discovered during implementation (whether it blocks you or not) must be:
+      - Logged in `specs/requirements.md` edge cases section (or `specs/technical-spec.md` if architectural)
+      - Covered by a test
+      - This prevents "tribal knowledge" from living only in code.
+
+10. **Checkpoint** — After completing each logical unit of work (a TDD cycle for a meaningful chunk), create a git commit on the working branch. These intermediate commits are recovery points — if a later change breaks things, you can revert to the last known-good state instead of starting over.
+
+11. **Gate check** — Run the gate commands from step 3
    - This is the **deterministic kill switch** — if it fails, fix before proceeding
    - Do NOT let judgment override a failing gate
    - If the failure cause is unclear, use `/dev-process-toolkit:debug` for structured investigation
@@ -77,9 +98,9 @@ If the user chooses worktree:
 
 **Proportional review:** Scale the review depth to the change size. For trivial changes (single function, <20 lines, no new modules), a quick AC check + gate check is sufficient. Reserve the deep review for changes that touch multiple modules or introduce new patterns.
 
-Each round has two sequential stages. **Complete Stage A before starting Stage B.** If Stage A finds issues, fix them and re-run the gate before proceeding to Stage B.
+Each round has three sequential stages. **Complete each stage before starting the next.** If a stage finds issues, fix them and re-run the gate before proceeding.
 
-9. **Round N (N = 1, 2):**
+12. **Round N (N = 1, 2):**
 
    ### Stage A — Spec Compliance
 
@@ -98,10 +119,10 @@ Each round has two sequential stages. **Complete Stage A before starting Stage B
 
    c. **Code audit** — Re-read every file created/modified. Look for:
    - Logic bugs, off-by-one errors, wrong comparisons
-   - Missing edge cases the tests don't cover
    - Pattern violations (check CLAUDE.md for project patterns)
    - Hardcoded values that should come from config
    - Security issues (unsanitized input, injection risks)
+   - Note: edge-case test coverage is checked in Stage C — here, focus on the implementation logic itself
 
    <!-- ADAPT: Add domain-specific checks for your framework/stack -->
    <!-- Examples: -->
@@ -111,32 +132,51 @@ Each round has two sequential stages. **Complete Stage A before starting Stage B
    <!-- API server: Input validation at boundaries, error response format, auth checks -->
    d. **Stack-specific checks** — Verify framework patterns are followed
 
+   ### Stage C — Hardening (first round only)
+
+   After Stage B passes on round 1, run a hardening pass before declaring victory. Skip this on round 2 (diminishing returns).
+
+   e. **Negative & edge-case tests** — For each module created/modified, ask:
+      - What happens with empty/null/missing input?
+      - What happens at boundary values (0, -1, MAX_INT, empty string, empty array)?
+      - What happens when an external dependency fails (network error, timeout, invalid response)?
+      - Are there race conditions or ordering assumptions?
+
+      You don't need to test every combination — focus on the cases most likely to cause real bugs. Add tests for any gaps found.
+
+   f. **Error path audit** — Verify that error handling:
+      - Doesn't swallow errors silently
+      - Doesn't leak sensitive information in error messages
+      - Returns appropriate error types/codes at system boundaries
+
    ### Decision (deterministic, not vibes)
 
-   e. **Decision:**
-   - **Both stages pass + gate confirms clean** → exit loop, go to Phase 4
+   g. **Decision:**
+   - **All stages pass + gate confirms clean (GATE PASSED)** → exit loop, go to Phase 4
+   - **Gate returns GATE PASSED WITH NOTES** → treat non-critical notes as informational, include them in the Phase 4 report for the user to review. Exit loop.
    - **Issues found, round 1** → fix issues, re-run gate check, go to round 2
    - **Issues found, round 2** → check for convergence:
      - Same issue types as round 1 → **STOP and escalate** to user (going in circles)
      - New/different issues → fix, re-run gate check, then escalate to user (diminishing returns)
 
-   f. **After any fix** — always re-run the full gate check before continuing. Read the actual output and report the numbers (e.g., "47 tests, 0 failures, 0 errors"). Do not claim clean from memory of a previous run.
+   h. **After any fix** — always re-run the full gate check before continuing. Read the actual output and report the numbers (e.g., "47 tests, 0 failures, 0 errors"). Do not claim clean from memory of a previous run.
 
 ## Phase 4: Report & Handoff
 
-10. **Update specs** — If implementing a milestone from `specs/plan.md`:
+13. **Update specs** — If implementing a milestone from `specs/plan.md`:
     - Update the milestone's acceptance criteria from `- [ ]` to `- [x]` for each AC that passed. This keeps plan.md as the single source of progress truth.
     - If `specs/requirements.md` has a traceability matrix, update the Implementation and Tests columns for each AC with the actual file paths (e.g., `src/calculator.ts`, `tests/calculator.test.ts`).
 
-11. **Report** — Present to the user:
+14. **Report** — Present to the user:
    - AC checklist with final pass/fail status
    - Files created/modified
    - Test coverage (which cases are tested, flag any modules without direct tests)
    - Self-review findings (what was caught and fixed, what remains)
+   - Spec changes made (edge cases added, deviations resolved, provisional decisions needing confirmation)
    - Gate check result — cite the actual output (e.g., "0 failures, 0 errors"), not just "passed"
    - Number of review rounds used
 
-12. **Wait for approval** — Ask the user to review before committing. Do NOT commit until the user explicitly says so.
+15. **Wait for approval** — Ask the user to review before committing. Do NOT commit until the user explicitly says so.
 
 ## Rules
 
@@ -144,10 +184,13 @@ Each round has two sequential stages. **Complete Stage A before starting Stage B
 - Do NOT skip tests — always write tests before implementation
 - Do NOT commit without user approval
 - Do NOT self-review more than 2 rounds — escalate instead of looping
+- Do NOT silently work around a broken spec — update the spec first (see Phase 2 step 9)
+- Do NOT let edge cases live only in code — always backfill specs
+- Do NOT modify or delete existing tests to make new code pass — if an existing test fails, either the new code is wrong or the spec changed (and spec changes need user approval)
 - The gate check (deterministic) always overrides judgment about quality
 - ACs are binary (pass/fail) — no "good enough"
 - Every AC that names a specific module requires a direct test for that module
-- Stage A (spec compliance) must complete before Stage B (code quality) — do not blend them
+- Stage A (spec compliance) must complete before Stage B (code quality), then Stage C (hardening) — do not blend them
 - Before claiming any phase complete, run the gate command fresh and cite the actual output. Do NOT claim completion from memory of a previous run.
 - Forbidden: "tests pass", "should be fine", "I verified" without citing actual command output
 
@@ -161,3 +204,5 @@ If you hear yourself thinking any of these, stop and apply the rule anyway:
 - "Just this once" → there is no just this once
 - "I'll test after, it's almost done" → write the test first
 - "It should work now" → "should" is not a gate result
+- "The spec says X but Y works better" → update the spec first, don't silently diverge
+- "It's just a small edge case, no need to update specs" → backfill it now

@@ -141,11 +141,11 @@ Same commands, same order, same flags.
 
 This catches styling issues, layout problems, and rendering bugs that unit tests can't detect.
 
-## Pattern 11: Two-Stage Self-Review
+## Pattern 11: Three-Stage Self-Review
 
-**Problem**: A single combined review pass conflates spec compliance with code quality. The reviewer finds a style issue and considers the review thorough; the spec gap goes unnoticed. "The code is clean, therefore it meets the spec" is a rationalization the combined review enables.
+**Problem**: A single combined review pass conflates spec compliance with code quality. The reviewer finds a style issue and considers the review thorough; the spec gap goes unnoticed. "The code is clean, therefore it meets the spec" is a rationalization the combined review enables. Additionally, happy-path code that passes all checks can still be fragile — negative and boundary cases are systematically missed unless explicitly checked.
 
-**Solution**: Split the self-review into two sequential stages:
+**Solution**: Split the self-review into three sequential stages:
 
 ```
 Stage A — Spec Compliance: Does the code match what was specified?
@@ -155,9 +155,14 @@ Stage A — Spec Compliance: Does the code match what was specified?
 Stage B — Code Quality: Is the code well-written?
   → Audit for logic bugs, pattern violations, security issues
   → Fix any quality issues
+
+Stage C — Hardening (first round only): Is the code robust?
+  → Negative & edge-case tests (null, empty, boundary, failure modes)
+  → Error path audit (no swallowed errors, no leaked secrets)
+  → Focus on cases most likely to cause real bugs
 ```
 
-Complete Stage A before starting Stage B. If Stage A finds issues, fix them and re-run the gate first. This prevents code quality findings from obscuring spec compliance gaps.
+Complete stages in order: A → B → C. If any stage finds issues, fix them and re-run the gate before proceeding to the next. Stage C runs only on round 1 to avoid diminishing returns.
 
 ## Pattern 12: Verification-Before-Completion
 
@@ -204,6 +209,56 @@ Common sources of flaky tests: `sleep()` calls (replace with condition-based wai
 
 These Red Flags sections appear in /implement, /tdd, and /gate-check at the point of decision, not as a reference doc to consult separately.
 
+## Pattern 15: Spec Deviation Classification
+
+**Problem**: During implementation, the agent discovers the spec is wrong or incomplete. It silently works around the issue, and the spec and code drift apart. The next person (human or agent) to read the spec gets a false picture.
+
+**Solution**: Classify every spec deviation into one of four categories, each with a different action:
+
+```
+Underspecified → Add edge case to specs + test, continue
+Ambiguous      → Propose conservative default, log as provisional, continue
+Contradicts    → STOP, present options to user, wait for decision
+Infeasible     → STOP, explain why, propose alternatives, wait for decision
+```
+
+Always backfill specs with what you learned. Edge cases discovered during implementation must be logged in specs and covered by tests — code is not documentation.
+
+## Pattern 16: Pre-Implementation Risk Scan
+
+**Problem**: Surprises during implementation (missing APIs, migration issues, concurrency bugs) are expensive to fix. Many could have been identified before coding started.
+
+**Solution**: After specs are complete and before implementation begins, scan for risks in known categories:
+
+```
+External dependencies → Could they be unavailable or change?
+Data migrations       → Schema changes, backwards compatibility?
+Concurrency           → Shared state, race conditions?
+Auth & security       → New endpoints, permission changes?
+Performance           → Large data sets, unbounded loops?
+Unclear ACs           → Subjective, hard to test?
+```
+
+Flag each risk in the relevant spec. Don't invent risks — only flag things that would genuinely surprise someone during implementation.
+
+## Pattern 17: Baseline Health Check
+
+**Problem**: An agent starts building a new feature on a codebase that's already broken. All of Phase 2 (TDD) is wasted because the failures are pre-existing, not caused by the new code.
+
+**Solution**: Run the full gate check before writing any code. If it fails, fix it first (or inform the user). Never build on a broken foundation.
+
+## Pattern 18: Test Integrity Lock
+
+**Problem**: When new code breaks existing tests, the agent modifies the tests instead of fixing the code. This silently weakens the test suite — tests that used to catch bugs now don't.
+
+**Solution**: Treat existing tests as immutable unless the spec has changed. If an existing test fails after new code is added, either the new code is wrong or the spec changed. Spec changes require user approval. The agent must never delete or weaken tests to make its implementation pass.
+
+## Pattern 19: Git Checkpoints for Recovery
+
+**Problem**: The self-review loop (Phase 3) discovers the implementation went in the wrong direction. But all changes are uncommitted — there's no way to partially revert to a known-good state.
+
+**Solution**: After each meaningful TDD cycle, create an intermediate git commit. These are recovery points, not PR-ready commits. If a later change breaks things, the agent can revert to the last checkpoint instead of starting over.
+
 ## Anti-Patterns to Avoid
 
 ### The Infinite Refinement Loop
@@ -220,3 +275,9 @@ Implementing everything before running any gates. Fix: gate check after each tas
 
 ### The Scope Creep Review
 Self-review that starts "improving" code beyond the AC scope. Fix: binary AC checklist as the only review criteria.
+
+### The Silent Spec Divergence
+Agent finds the spec is wrong, works around it in code, never updates the spec. The spec becomes fiction. Fix: spec deviation classification + mandatory backfill.
+
+### The Test Weakener
+New code breaks existing tests, so the agent "fixes" the tests instead of the code. Fix: treat existing tests as immutable unless the spec changed (with user approval).

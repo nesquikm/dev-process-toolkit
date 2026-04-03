@@ -32,3 +32,8 @@
 | Package | Version | Purpose |
 |---------|---------|---------|
 |         |         |         |
+
+## 6. Risks & Considerations
+
+<!-- Technical risks identified during spec review or implementation -->
+<!-- Categories: external dependencies, data migrations, concurrency, auth/security, performance -->
