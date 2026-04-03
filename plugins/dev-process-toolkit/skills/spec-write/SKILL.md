@@ -105,11 +105,32 @@ For each inconsistency found, report:
 - If **no inconsistencies** found, report "All specs are consistent" and move on.
 - If **inconsistencies found**, offer to fix them right now by updating the affected specs. Walk the user through each change and get approval before saving, just like step 4.
 
-### 6. Report
+### 6. Risk scan
+
+Before handing off to implementation, do a quick scan for likely pitfalls. Read all specs and the existing codebase, then flag risks in these categories:
+
+| Category | What to look for |
+|----------|-----------------|
+| **External dependencies** | New APIs, services, or libraries that could be unavailable, rate-limited, or change |
+| **Data migrations** | Schema changes, data format changes, backwards compatibility |
+| **Concurrency** | Shared state, race conditions, ordering assumptions |
+| **Auth & security boundaries** | New endpoints, permission changes, token handling |
+| **Performance hotspots** | Large data sets, N+1 queries, unbounded loops, heavy computation |
+| **Unclear acceptance criteria** | ACs that are subjective, hard to test, or depend on external factors |
+
+For each risk found, add it to the relevant spec:
+- Technical risks → `specs/technical-spec.md` (risks/considerations section)
+- Unclear ACs → `specs/requirements.md` (flag the specific AC with a note)
+- Testing risks → `specs/testing-spec.md` (note what's hard to test and the strategy)
+
+If **no significant risks** found, report "No major risks identified" and move on. Don't invent risks — only flag things that would genuinely surprise someone during implementation.
+
+### 7. Report
 
 Summarize what was completed:
 - Which specs are done vs. still need work
 - Any inconsistencies found and resolved (or still pending)
+- Risks identified (if any)
 - Any open questions flagged during the process
 - Remind: "Run `/dev-process-toolkit:implement <milestone>` when specs are ready"
 

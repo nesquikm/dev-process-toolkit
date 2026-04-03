@@ -63,14 +63,14 @@ shell: bash                       # Shell for !`command` blocks: bash (default) 
 - **Key pattern**: Interactive Q&A to extract requirements, then generates structured specs
 
 ### 1. Gate Check (deterministic quality gate)
-- **Purpose**: Run typecheck + lint + test and report pass/fail with actual output
+- **Purpose**: Run typecheck + lint + test, review changed code, and report a verdict with actual output
 - **Invocation**: User-invoked after completing work
-- **Key pattern**: Deterministic — no LLM judgment, just command results, actual numbers cited
+- **Key pattern**: Commands are deterministic (always override LLM judgment); code review is an advisory layer that can elevate concerns but can't downgrade a failing command
 
 ### 2. Implement (end-to-end orchestrator)
-- **Purpose**: Full feature lifecycle from understanding → TDD → two-stage review → handoff
+- **Purpose**: Full feature lifecycle from understanding → TDD → three-stage review → handoff
 - **Invocation**: User-invoked with task reference
-- **Key pattern**: 4-phase pipeline with two-stage bounded self-review loop
+- **Key pattern**: 4-phase pipeline with three-stage bounded self-review loop (spec compliance → code quality → hardening)
 
 ### 3. TDD (micro-cycle)
 - **Purpose**: RED → GREEN → VERIFY for a single test/feature

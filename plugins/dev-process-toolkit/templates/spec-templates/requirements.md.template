@@ -29,11 +29,16 @@
 ### NFR-2: Security
 ### NFR-3: Accessibility
 
-## 4. Out of Scope
+## 4. Edge Cases
+
+<!-- Edge cases discovered during spec review or implementation -->
+<!-- Each entry: scenario, expected behavior, test reference -->
+
+## 5. Out of Scope
 
 - <!-- Explicit list of things NOT to build -->
 
-## 5. Traceability Matrix
+## 6. Traceability Matrix
 
 | Requirement | Implementation | Tests |
 |-------------|---------------|-------|

@@ -68,12 +68,13 @@ If a gate check fails and the cause isn't immediately clear from reading the err
 
 ### 5. Self-Review Is Bounded
 
-After implementation, a self-review loop runs **at most 2 rounds**. Each round has two sequential stages:
+After implementation, a self-review loop runs **at most 2 rounds**. Each round has three sequential stages:
 
 - **Stage A — Spec Compliance**: Walk the AC checklist, check cross-module coverage. Fix any gaps before moving to Stage B.
 - **Stage B — Code Quality**: Audit for logic bugs, pattern violations, and security issues.
+- **Stage C — Hardening** (first round only): Negative & edge-case tests, error path audit. Focus on boundary values, null/empty inputs, and failure modes.
 
-If Stage A finds issues, fix them before Stage B. This separation prevents "the code is clean, therefore it meets the spec" conflation.
+Complete stages in order: A → B → C. If any stage finds issues, fix them and re-run the gate before proceeding to the next. This separation prevents "the code is clean, therefore it meets the spec" conflation.
 
 Round convergence:
 - Round 1: Fix issues, re-run gates
@@ -98,7 +99,7 @@ The agent never commits without explicit human approval. The report includes:
 Every AC is pass or fail. No "mostly done" or "good enough." This makes the self-review loop deterministic — it has a clear exit condition.
 
 ### Specs Win Over Code
-If the implementation contradicts a spec, the spec is right. If you must deviate, add `SPEC_DEVIATION: [reason]` in the code and flag it for review.
+If the implementation contradicts a spec, the spec is right. If you discover a spec is wrong, incomplete, or infeasible during implementation, classify the deviation (underspecified, ambiguous, contradicts, infeasible) and follow the appropriate action — from silently backfilling minor edge cases to stopping and waiting for user decision on fundamental contradictions. Always backfill specs with what you learn. If you must deviate in code, add `SPEC_DEVIATION: [reason]` in the code and flag it for review.
 
 ### Deterministic Over Probabilistic
 Gate checks (compiler, linter, tests) are deterministic. LLM judgment is probabilistic. When they disagree, the deterministic check wins.
