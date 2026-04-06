@@ -29,6 +29,14 @@ Users add the marketplace, install the plugin, then run `/dev-process-toolkit:se
 
 Users copy `plugins/dev-process-toolkit/skills/` to their `.claude/skills/` and `agents/` to their `.claude/agents/`, then adapt `<!-- ADAPT -->` markers. See `plugins/dev-process-toolkit/docs/adaptation-guide.md`.
 
+## Release Checklist
+
+When bumping the version:
+1. `plugins/dev-process-toolkit/.claude-plugin/plugin.json` — `"version"` field
+2. `.claude-plugin/marketplace.json` — `"version"` field in the plugin entry
+
+Both must stay in sync. Bump on every feature-significant change.
+
 ## Core Principles
 
 1. **Deterministic gates override LLM judgment** — compiler/linter/tests always win
