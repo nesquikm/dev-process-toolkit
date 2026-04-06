@@ -19,6 +19,21 @@ If **no project files are found** (empty directory or only basic files), this is
 
 If project files exist, skip to step 3.
 
+### 1b. Doctor Validation
+
+For **existing projects** (project files found in step 1), validate prerequisites before proceeding:
+
+| Check | How | Remediation |
+|-------|-----|-------------|
+| Required tools installed | Run version commands: `node -v`, `flutter --version`, `python3 --version`, etc. | Install the missing tool or update PATH |
+| Gate commands runnable | Run the gating rule from CLAUDE.md (e.g., `npm run typecheck && npm run lint && npm run test`) | Fix failing commands or update CLAUDE.md gating rule |
+| CLAUDE.md present | Check if `CLAUDE.md` exists in project root | Will be created in step 5 |
+| .claude/settings.json present | Check if `.claude/settings.json` exists | Will be created in step 6 |
+
+Report pass/fail for each check with remediation instructions.
+
+For **new projects** (no project files found), skip this step — tools and configs will be set up during scaffolding.
+
 ### 2. Scaffold new projects
 
 Ask the user what stack they want, then scaffold a **working, gate-check-ready** project. Every generated config must work out of the box — no manual fixup required.
@@ -152,6 +167,12 @@ Summarize what was created, then present the SDD workflow:
 6. /simplify         → Clean up changed code
 7. /pr               → Create pull request
 ```
+
+**Workflows** — choose the path that matches your task:
+
+**Bugfix:** `/debug → /implement → /gate-check → /pr`
+**Feature:** `/brainstorm → /spec-write → /implement → /spec-review → /gate-check → /pr`
+**Refactor:** `/implement → /simplify → /gate-check → /pr`
 
 **Next steps:**
 
