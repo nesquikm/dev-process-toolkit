@@ -22,7 +22,19 @@ Audit the implementation against the project specifications for: `$ARGUMENTS`
    - Check if the implementation matches the spec
    - Check if tests exist and cover the acceptance criteria
 
-3. **Report findings** as a table:
+3. **Generate traceability map** — For each AC, trace to the implementing code and tests:
+
+   ```
+   AC-1.1 → src/feature.ts:42, tests/feature.test.ts:10
+   AC-1.2 → (not found)
+   AC-2.1 → src/service.ts:15, tests/service.test.ts:8
+   ```
+
+   - One line per AC, format: `AC-X.Y → file:line, test-file:line`
+   - If no implementing code is found, use the literal marker `(not found)`
+   - If code in changed files has no corresponding AC, flag it with the label `potential drift`
+
+4. **Report findings** as a table:
 
 | Requirement | Status    | Implementation     | Notes                    |
 | ----------- | --------- | ------------------ | ------------------------ |
@@ -30,4 +42,4 @@ Audit the implementation against the project specifications for: `$ARGUMENTS`
 | AC-1.2      | ✗ Missing | —                  | Not implemented          |
 | AC-1.3      | ⚠ Partial | src/feature.ts:15  | Missing edge case        |
 
-4. **Summary** — Overall completion %, critical gaps, and recommended next steps.
+5. **Summary** — Overall completion %, critical gaps, and recommended next steps.

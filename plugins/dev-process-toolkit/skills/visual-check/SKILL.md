@@ -10,6 +10,35 @@ Visually verify the web UI by using a rubber duck (MCP) with Chrome browser tool
 
 ## Process
 
+### 0. Check MCP availability
+
+Before anything else, check if the rubber duck MCP is available:
+
+1. Attempt a `list_ducks` MCP call
+2. If the call succeeds, proceed to step 1
+
+If the call fails or returns an error, MCP is unavailable. Display:
+
+> ⚠️ `mcp-rubber-duck is not configured`. See [setup instructions](https://github.com/nesquikm/mcp-rubber-duck) to enable automated visual verification.
+
+Then fall back to the manual verification path below.
+
+### Manual Verification Checklist
+
+When MCP is unavailable, guide the user through manual checks:
+
+- [ ] **Layout correctness** — Page structure matches the design, no overlapping or misaligned elements
+- [ ] **Responsive behavior** — Page renders correctly at mobile (375px), tablet (768px), and desktop (1280px) widths
+- [ ] **Accessibility basics** — Interactive elements are keyboard-navigable, images have alt text, color contrast is sufficient
+- [ ] **Browser console errors** — No JavaScript errors or unhandled promise rejections in the console
+- [ ] **Visual regressions** — No unintended changes compared to the previous known-good state
+
+Report results as a pass/fail summary:
+- ✓ Description of what passed
+- ✗ Description of what failed
+
+Then skip to step 4 (clean up).
+
 ### 1. Ensure the dev server is running
 
 <!-- ADAPT: Replace with your dev server URL and start command -->
