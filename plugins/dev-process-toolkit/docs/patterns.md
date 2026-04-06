@@ -281,3 +281,32 @@ Agent finds the spec is wrong, works around it in code, never updates the spec. 
 
 ### The Test Weakener
 New code breaks existing tests, so the agent "fixes" the tests instead of the code. Fix: treat existing tests as immutable unless the spec changed (with user approval).
+
+### The Shallow Test
+Test exists and passes, but asserts nothing meaningful (`expect(fn).not.toThrow()`, `assert result is not None`). Fix: assertion quality checks that flag tests without value/behavior assertions.
+
+## Pattern 20: Spec-Code Drift Detection
+
+**Problem**: Specs and code drift apart over time. An AC says "must validate input" but no validation code exists. Nobody notices because the gate check only runs deterministic commands — it doesn't compare spec to code.
+
+**Solution**: After gate commands pass, run a drift check that traces each AC to implementing code:
+
+```
+AC-1.1 → src/feature.ts:42    (implemented)
+AC-1.2 → (not found)           (drift!)
+AC-2.1 → src/service.ts:15    (implemented)
+```
+
+Drift findings are **advisory** (GATE PASSED WITH NOTES, never GATE FAILED) because the traceability is heuristic — false positives would erode trust in the deterministic gate. But they surface gaps early.
+
+## Pattern 21: Spec Breakout Protocol
+
+**Problem**: The agent discovers 4+ spec contradictions in a single milestone but keeps pushing forward, writing increasingly contorted workarounds. The resulting code is a mess of provisional decisions.
+
+**Solution**: Set a threshold (default 3) for `contradicts` or `infeasible` spec deviations within a milestone. When the threshold is reached, stop implementation and issue a Spec Breakout report — listing all accumulated deviations and recommending a spec rewrite before continuing. A spec breakout is a valid output, not a failure.
+
+## Pattern 22: Shallow Test Detection
+
+**Problem**: Tests exist and pass, but they don't actually verify behavior. Common anti-patterns: `expect(fn).not.toThrow()` as the sole assertion, `assert result is not None` without checking the value, type-only checks without verifying content. These tests create false confidence.
+
+**Solution**: Add assertion quality checks in TDD (RED phase) and self-review (Stage A). Flag tests that only use these patterns and require assertions on actual return values, state changes, or side effects.
