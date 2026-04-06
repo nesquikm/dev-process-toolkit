@@ -49,6 +49,14 @@ src/
 npm run typecheck && npm run lint && npm run test
 ```
 
+## Workflows
+
+<!-- Choose the path that matches your task -->
+
+**Bugfix:** `/debug → /implement → /gate-check → /pr`
+**Feature:** `/brainstorm → /spec-write → /implement → /spec-review → /gate-check → /pr`
+**Refactor:** `/implement → /simplify → /gate-check → /pr`
+
 ## Key Patterns
 
 <!-- List the conventions Claude should follow in this project. -->

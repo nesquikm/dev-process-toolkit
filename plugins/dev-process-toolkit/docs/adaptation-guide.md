@@ -215,7 +215,26 @@ Other useful hook events include `SessionStart`, `UserPromptSubmit`, `SubagentSt
 - Use /gate-check and /tdd as standalone tools
 - Gradually add specs for new features
 
-### CI/CD integration
-- Gate check commands should mirror CI pipeline
-- PR skill can add CI status checks
-- Hook into pre-commit for automated gate checks
+## CI/CD Parity
+
+Keep your gate-check commands in sync with your CI pipeline so that local checks match what CI enforces.
+
+### Principle
+
+The gate-check commands in CLAUDE.md and `/gate-check` should be **identical** to (or a strict subset of) what your CI pipeline runs. If CI runs additional checks (e.g., integration tests, deploy previews), that's fine — but everything gate-check runs locally must also run in CI.
+
+### How to Sync
+
+1. **Start from CI** — Define your CI pipeline first, then extract the check commands into CLAUDE.md's gating rule
+2. **Single source** — Keep the command list in CLAUDE.md and reference it from both `/gate-check` and your CI config
+3. **Version-lock tools** — Pin linter/formatter versions in both environments to avoid drift (e.g., `ruff==0.4.0` locally and in CI)
+4. **Test locally** — Run `act` (GitHub Actions) or equivalent to test CI configs locally before pushing
+
+### Starter Configs
+
+See `examples/` for GitHub Actions starter configs:
+- `examples/typescript-node/.github/workflows/gate-check.yml`
+- `examples/python/.github/workflows/gate-check.yml`
+- `examples/flutter-dart/.github/workflows/gate-check.yml`
+
+These are **starting points** — adapt them to your project's specific tools and versions.

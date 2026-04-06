@@ -13,7 +13,7 @@
 **Acceptance Criteria:**
 - AC-1.1: <!-- Binary pass/fail criterion -->
 - AC-1.2: <!-- Binary pass/fail criterion -->
-- AC-1.3: <!-- Binary pass/fail criterion -->
+- AC-1.3: <!-- Negative criterion: System must NOT... e.g., "must NOT expose internal error details to the client" -->
 
 ### FR-2: [Feature Name]
 
@@ -22,17 +22,32 @@
 **Acceptance Criteria:**
 - AC-2.1: <!-- Binary pass/fail criterion -->
 - AC-2.2: <!-- Binary pass/fail criterion -->
+- AC-2.3: <!-- Negative criterion: must NOT... e.g., "must NOT allow unauthenticated access to protected endpoints" -->
 
 ## 3. Non-Functional Requirements
 
 ### NFR-1: Performance
+<!-- ADAPT: Examples — p95 latency < 200ms, page load < 3s, batch processing < 5min for 10k records (TypeScript); cold start < 2s, frame render < 16ms (Flutter); API response p99 < 500ms (Python) -->
+
 ### NFR-2: Security
-### NFR-3: Accessibility
+<!-- ADAPT: Examples — OWASP Top 10 compliance, secrets rotated every 90 days (TypeScript); certificate pinning enabled, ProGuard obfuscation (Flutter); dependency audit clean, no known CVEs (Python) -->
+
+### NFR-3: Availability
+<!-- ADAPT: Examples — availability >= 99.9%, graceful degradation on dependency failure (TypeScript); offline mode for core features, sync within 30s of reconnect (Flutter); health check endpoint, auto-restart on crash (Python) -->
 
 ## 4. Edge Cases
 
 <!-- Edge cases discovered during spec review or implementation -->
 <!-- Each entry: scenario, expected behavior, test reference -->
+
+## Security / Abuse Cases
+
+<!-- Who might misuse this system, how, and what prevents it? -->
+
+| Attacker Goal | Attack Vector | Mitigation |
+|--------------|---------------|------------|
+| <!-- e.g., Exfiltrate user data --> | <!-- e.g., SQL injection via search input --> | <!-- e.g., Parameterized queries, input validation --> |
+| <!-- e.g., Deny service to other users --> | <!-- e.g., Flood API with expensive queries --> | <!-- e.g., Rate limiting, request size caps --> |
 
 ## 5. Out of Scope
 

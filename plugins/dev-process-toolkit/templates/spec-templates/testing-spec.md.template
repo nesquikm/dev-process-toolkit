@@ -4,6 +4,7 @@
 - **Runner:** <!-- Vitest, Jest, pytest, flutter_test -->
 - **Mocking:** <!-- vi.mock, mocktail, unittest.mock -->
 - **Coverage:** <!-- v8, istanbul, coverage.py -->
+<!-- ADAPT: Examples — Vitest with jsdom for unit, Playwright for e2e (TypeScript); flutter_test with mocktail, integration_test for e2e (Flutter); pytest with pytest-asyncio, httpx for API tests (Python) -->
 
 ## 2. Test Structure
 ```
@@ -21,6 +22,7 @@ tests/
 
 ### What to Test
 - Happy path, error cases, edge cases, integration points
+<!-- ADAPT: Examples — API contract tests, snapshot tests for components (TypeScript); golden tests for widgets, BLoC state transition tests (Flutter); parametrized tests for edge cases, fixture-based integration tests (Python) -->
 
 ### What NOT to Test
 - Implementation details, third-party internals, generated code

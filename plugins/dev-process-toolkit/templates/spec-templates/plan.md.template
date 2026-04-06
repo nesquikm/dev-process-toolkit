@@ -11,6 +11,7 @@
 **Prerequisites:** None
 
 **Tasks:**
+<!-- ADAPT: Structure tasks by dependency order. Examples — schema first, then API routes, then UI (TypeScript); models first, then BLoC, then widgets (Flutter); models first, then services, then views (Python) -->
 1. <!-- Task in dependency order -->
 2.
 3.
@@ -23,6 +24,7 @@
 - [ ]
 
 **Gate:** `<your gate check commands>`
+<!-- ADAPT: Examples — `npm run typecheck && npm run lint && npm run test` (TypeScript); `fvm flutter analyze && fvm flutter test` (Flutter); `mypy . && ruff check . && pytest` (Python) -->
 
 ---
 
