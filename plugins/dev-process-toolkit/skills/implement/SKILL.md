@@ -29,6 +29,30 @@ If the user chooses worktree:
 4. All Phase 1–4 work happens inside the new worktree directory
 5. If the run succeeds, tell the user how to merge back. If it fails, offer to discard: `git worktree remove <path> --force`
 
+### Partial Failure Recovery
+
+If a multi-milestone run partially succeeds in a worktree:
+
+- **Completed work:** List milestones/commits that succeeded
+- **Failed work:** List the milestone that failed and what broke
+
+**Recovery options:**
+
+1. **Cherry-pick completed commits** to the main branch:
+   ```bash
+   git checkout main
+   git cherry-pick <commit-hash-1> <commit-hash-2>
+   ```
+2. **Continue in the worktree** after fixing the failure:
+   ```bash
+   cd <worktree-path>
+   # fix the issue, then resume /implement
+   ```
+3. **Discard the worktree** entirely:
+   ```bash
+   git worktree remove <worktree-path> --force
+   ```
+
 ## Phase 1: Understand
 
 1. **Check for specs** — If `specs/` exists, check whether spec files have real content (not just template placeholders). If specs exist but are mostly empty, warn the user: "Specs appear to be incomplete. SDD works best when specs are filled in first. Consider running `/dev-process-toolkit:spec-write` or continue with what's available?" Let the user decide.
@@ -85,6 +109,17 @@ If the user chooses worktree:
       - Covered by a test
       - This prevents "tribal knowledge" from living only in code.
 
+### Spec Breakout
+
+If the current milestone accumulates 3 or more `contradicts` or `infeasible` deviations:
+<!-- ADAPT: adjust threshold for your project -->
+
+1. **STOP implementation** — do not push forward on a broken spec
+2. Present a **Spec Breakout report** listing all accumulated deviations, their classifications, and proposed resolutions
+3. Recommend a spec rewrite for the affected areas before resuming implementation
+
+Spec Breakout is a valid output, not a failure. It means the spec needs work before code can proceed.
+
 10. **Checkpoint** — After completing each logical unit of work (a TDD cycle for a meaningful chunk), create a git commit on the working branch. These intermediate commits are recovery points — if a later change breaks things, you can revert to the last known-good state instead of starting over.
 
 11. **Gate check** — Run the gate commands from step 3
@@ -113,11 +148,19 @@ Each round has three sequential stages. **Complete each stage before starting th
 
    b. **Cross-module coverage check** — For every module that was created or significantly modified, verify it has direct test coverage. If an AC references a specific module that has no dedicated test file, flag it as a gap.
 
+   c. **Assertion quality check** — Scan test files for shallow assertions. Flag these anti-patterns:
+
+   1. `expect(fn).not.toThrow()` or `assert not raises` as the sole assertion
+   2. `assert result is not None` / `expect(result).toBeDefined()` without checking the value
+   3. Type-only checks (`isinstance()`, `typeof`) without verifying the actual content
+
+   Tests using only these patterns are not validating behavior — strengthen them.
+
    **If Stage A finds any issues:** fix them, re-run the gate check, then proceed to Stage B.
 
    ### Stage B — Code Quality
 
-   c. **Code audit** — Re-read every file created/modified. Look for:
+   d. **Code audit** — Re-read every file created/modified. Look for:
    - Logic bugs, off-by-one errors, wrong comparisons
    - Pattern violations (check CLAUDE.md for project patterns)
    - Hardcoded values that should come from config
@@ -130,13 +173,13 @@ Each round has three sequential stages. **Complete each stage before starting th
    <!-- React/Web: URL state management, component prop types, accessibility -->
    <!-- MCP server: Response format compliance, ESM import extensions, tool registration -->
    <!-- API server: Input validation at boundaries, error response format, auth checks -->
-   d. **Stack-specific checks** — Verify framework patterns are followed
+   e. **Stack-specific checks** — Verify framework patterns are followed
 
    ### Stage C — Hardening (first round only)
 
    After Stage B passes on round 1, run a hardening pass before declaring victory. Skip this on round 2 (diminishing returns).
 
-   e. **Negative & edge-case tests** — For each module created/modified, ask:
+   f. **Negative & edge-case tests** — For each module created/modified, ask:
       - What happens with empty/null/missing input?
       - What happens at boundary values (0, -1, MAX_INT, empty string, empty array)?
       - What happens when an external dependency fails (network error, timeout, invalid response)?
@@ -144,14 +187,14 @@ Each round has three sequential stages. **Complete each stage before starting th
 
       You don't need to test every combination — focus on the cases most likely to cause real bugs. Add tests for any gaps found.
 
-   f. **Error path audit** — Verify that error handling:
+   g. **Error path audit** — Verify that error handling:
       - Doesn't swallow errors silently
       - Doesn't leak sensitive information in error messages
       - Returns appropriate error types/codes at system boundaries
 
    ### Decision (deterministic, not vibes)
 
-   g. **Decision:**
+   h. **Decision:**
    - **All stages pass + gate confirms clean (GATE PASSED)** → exit loop, go to Phase 4
    - **Gate returns GATE PASSED WITH NOTES** → treat non-critical notes as informational, include them in the Phase 4 report for the user to review. Exit loop.
    - **Issues found, round 1** → fix issues, re-run gate check, go to round 2
@@ -159,9 +202,21 @@ Each round has three sequential stages. **Complete each stage before starting th
      - Same issue types as round 1 → **STOP and escalate** to user (going in circles)
      - New/different issues → fix, re-run gate check, then escalate to user (diminishing returns)
 
-   h. **After any fix** — always re-run the full gate check before continuing. Read the actual output and report the numbers (e.g., "47 tests, 0 failures, 0 errors"). Do not claim clean from memory of a previous run.
+   i. **After any fix** — always re-run the full gate check before continuing. Read the actual output and report the numbers (e.g., "47 tests, 0 failures, 0 errors"). Do not claim clean from memory of a previous run.
 
 ## Phase 4: Report & Handoff
+
+### Spec Deviation Summary
+
+Before updating specs, compile all deviations discovered during Phase 2:
+
+| Deviation | Classification | Resolution | Needs Confirmation? |
+|-----------|---------------|------------|---------------------|
+| *description* | underspecified / ambiguous / contradicts / infeasible | *what was done* | No / **Yes** |
+
+Classification types (matching Phase 2 step 9): `underspecified`, `ambiguous`, `contradicts`, `infeasible`.
+
+Rule: any row with Classification = `ambiguous` must have Needs Confirmation? = `**Yes**` (these are provisional decisions requiring user approval).
 
 13. **Update specs** — If implementing a milestone from `specs/plan.md`:
     - Update the milestone's acceptance criteria from `- [ ]` to `- [x]` for each AC that passed. This keeps plan.md as the single source of progress truth.
@@ -173,6 +228,7 @@ Each round has three sequential stages. **Complete each stage before starting th
    - Test coverage (which cases are tested, flag any modules without direct tests)
    - Self-review findings (what was caught and fixed, what remains)
    - Spec changes made (edge cases added, deviations resolved, provisional decisions needing confirmation)
+   - Drift findings (if specs/ exists and gate-check was run)
    - Gate check result — cite the actual output (e.g., "0 failures, 0 errors"), not just "passed"
    - Number of review rounds used
 
