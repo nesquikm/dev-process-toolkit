@@ -66,6 +66,8 @@ The gate check is deterministic code (compiler, linter, test runner). It always 
 
 If a gate check fails and the cause isn't immediately clear from reading the error output, use `/debug` — it structures the investigation into 4 phases (Root Cause → Pattern Analysis → Hypothesis Testing → Implementation) and enforces the 3-Fix Rule to prevent thrashing.
 
+When specs exist, gate-check also runs a **drift check** — tracing each AC to implementing code and flagging gaps. Drift findings are advisory (GATE PASSED WITH NOTES, never GATE FAILED) because the traceability is heuristic.
+
 ### 5. Self-Review Is Bounded
 
 After implementation, a self-review loop runs **at most 2 rounds**. Each round has three sequential stages:
