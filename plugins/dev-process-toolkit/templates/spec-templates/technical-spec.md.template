@@ -37,3 +37,11 @@
 
 <!-- Technical risks identified during spec review or implementation -->
 <!-- Categories: external dependencies, data migrations, concurrency, auth/security, performance -->
+
+## Architecture Decision Records
+
+<!-- ADAPT: Log decisions that shaped the architecture. Examples — ORM choice, state management library (TypeScript); state management (Bloc vs Riverpod), navigation (GoRouter vs auto_route) (Flutter); async framework (asyncio vs trio), ORM (SQLAlchemy vs Django ORM) (Python) -->
+
+| Decision | Options Considered | Choice | Rationale |
+|----------|-------------------|--------|-----------|
+| <!-- e.g., State management approach --> | <!-- e.g., Redux, Zustand, Jotai --> | <!-- e.g., Zustand --> | <!-- e.g., Simpler API, less boilerplate for our scale --> |
