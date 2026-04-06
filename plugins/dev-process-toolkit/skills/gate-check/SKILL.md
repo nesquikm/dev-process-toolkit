@@ -18,6 +18,7 @@ Typical commands by stack (use as fallback if CLAUDE.md doesn't specify):
 2. Run lint: `npm run lint $ARGUMENTS` (if `$ARGUMENTS` contains `--fix`, add `-- --fix`)
 3. Run tests: `npm run test` (or `fvm flutter test`, `pytest`, etc.)
 4. Run build: `npm run build` (optional — include if your project has a build step)
+5. Run security audit (optional): `npm audit` (or `pip-audit`, `cargo audit`, `flutter pub audit`). Flag known vulnerabilities. This step is advisory — failures here produce NOTES, not GATE FAILED, unless your project explicitly gates on audit.
 
 ## Reporting
 
@@ -39,7 +40,7 @@ Grade against this rubric:
 | Criterion | Critical? | What to check |
 |-----------|-----------|---------------|
 | **Spec compliance** | Yes | Every AC has a corresponding test. No undocumented behavior added. |
-| **Security** | Yes | Input validated at boundaries. No injection risks. No secrets in code. |
+| **Security** | Yes | Input validated at boundaries. No injection risks. No secrets in code. Run `npm audit` / `pip-audit` if available. |
 | **Edge cases** | No | Empty/null inputs handled. Boundary values tested. Error paths exercised. |
 | **Consistency** | No | Follows project patterns from CLAUDE.md. No style drift. |
 
@@ -48,18 +49,63 @@ Grade against this rubric:
 <!-- Flutter: Widget tests for UI, no missing l10n keys, proper disposal -->
 <!-- API: Auth on all endpoints, rate limiting, error response format -->
 <!-- Web: Accessibility, XSS prevention, CSP headers -->
+<!-- Security: OWASP dependency check (npm audit / pip-audit), secrets scanner (gitleaks, trufflehog) -->
+<!-- Security: Check for hardcoded credentials, API keys, or tokens in source files -->
 
 For each criterion, report: **OK** or **CONCERN** with specifics.
+
+## Drift Check
+
+If `specs/` directory exists, check whether the implementation has drifted from the spec:
+
+1. Read `specs/requirements.md` and extract all ACs
+2. For each AC, search the codebase for implementing code and tests
+3. Build a traceability table:
+
+| AC ID | Status | Location |
+|-------|--------|----------|
+| AC-1.1 | implemented | src/feature.ts:42 |
+| AC-1.2 | not found | — |
+| AC-2.1 | implemented | src/service.ts:15 |
+
+- **implemented** — code and/or tests found matching the AC
+- **not found** — no implementing code found
+- **no AC** — code exists in changed files with no corresponding spec AC (`potential drift`)
+
+If `specs/` directory does not exist, skip this section silently.
+
+Drift findings do NOT cause GATE FAILED. They appear under GATE PASSED WITH NOTES as informational items for the developer to review.
 
 ## Verdict
 
 Combine command results + code review into a final verdict:
 
 - **GATE PASSED** — all commands pass AND no concerns in code review
-- **GATE PASSED WITH NOTES** — all commands pass but code review found non-critical concerns (list them). These are things the user should be aware of but that don't block merging.
+- **GATE PASSED WITH NOTES** — all commands pass but code review found non-critical concerns or drift check found spec-implementation gaps (list them). These are things the user should be aware of but that don't block merging.
 - **GATE FAILED** — any command failed OR code review found critical concerns (spec compliance or security issues)
 
 Always state what needs fixing if not a clean pass.
+
+## Structured Output
+
+Optionally produce a JSON summary alongside the Markdown report. This enables CI pipelines to parse gate results programmatically.
+
+````json
+{
+  "steps": [
+    { "step": "typecheck", "status": "pass", "summary": "No type errors" },
+    { "step": "lint", "status": "pass", "summary": "0 warnings" },
+    { "step": "test", "status": "pass", "summary": "47 passed, 0 failed" },
+    { "step": "build", "status": "pass", "summary": "Build succeeded" },
+    { "step": "security-audit", "status": "pass", "summary": "0 vulnerabilities" },
+    { "step": "code-review", "status": "pass", "summary": "No critical concerns" },
+    { "step": "drift-check", "status": "notes", "summary": "2 ACs not found" }
+  ],
+  "verdict": "GATE PASSED WITH NOTES"
+}
+````
+
+The `verdict` field uses one of: `GATE PASSED`, `GATE PASSED WITH NOTES`, `GATE FAILED`.
 
 ## Rules
 
