@@ -107,16 +107,23 @@ For each inconsistency found, report:
 
 ### 6. Risk scan
 
-Before handing off to implementation, do a quick scan for likely pitfalls. Read all specs and the existing codebase, then flag risks in these categories:
+Before handing off to implementation, do a structured risk scan. Read all specs and the existing codebase, then assess risks using this table:
 
-| Category | What to look for |
-|----------|-----------------|
-| **External dependencies** | New APIs, services, or libraries that could be unavailable, rate-limited, or change |
-| **Data migrations** | Schema changes, data format changes, backwards compatibility |
-| **Concurrency** | Shared state, race conditions, ordering assumptions |
-| **Auth & security boundaries** | New endpoints, permission changes, token handling |
-| **Performance hotspots** | Large data sets, N+1 queries, unbounded loops, heavy computation |
-| **Unclear acceptance criteria** | ACs that are subjective, hard to test, or depend on external factors |
+| Category | Risk | Severity | Mitigation |
+|----------|------|----------|------------|
+| **External dependencies** | <!-- e.g., Third-party API has no SLA --> | high / medium / low | <!-- e.g., Add circuit breaker, cache responses --> |
+| **Breaking changes** | <!-- e.g., DB schema migration on live data --> | high / medium / low | <!-- e.g., Blue-green migration, rollback script --> |
+| **Security surface** | <!-- e.g., New user input endpoint --> | high / medium / low | <!-- e.g., Input validation, rate limiting --> |
+| **Performance impact** | <!-- e.g., N+1 query on large dataset --> | high / medium / low | <!-- e.g., Eager loading, pagination --> |
+| **Data migration** | <!-- e.g., Format change breaks old clients --> | high / medium / low | <!-- e.g., Versioned API, backward compat --> |
+| **Unclear acceptance criteria** | <!-- e.g., AC-2.1 is subjective --> | high / medium / low | <!-- e.g., Add measurable threshold --> |
+
+**Severity levels:**
+- **high** — Could block release or cause data loss/security breach
+- **medium** — Significant effort to fix if discovered late
+- **low** — Minor inconvenience, easy to address
+
+**Any high-severity risk must be resolved or explicitly accepted before proceeding to implementation.**
 
 For each risk found, add it to the relevant spec:
 - Technical risks → `specs/technical-spec.md` (risks/considerations section)
