@@ -18,6 +18,16 @@ Execute a TDD workflow for: `$ARGUMENTS`
 - Run the test and confirm it FAILS (red)
 - If the test file already exists and passes, skip to VERIFY
 
+### Assertion Quality
+
+Tests must assert on **output and behavior**, not just that code runs. Flag these anti-patterns:
+
+1. `expect(fn).not.toThrow()` or `assert not raises` as the sole assertion
+2. `assert result is not None` / `expect(result).toBeDefined()` without checking the value
+3. Type-only checks (`isinstance()`, `typeof`) without verifying the actual content
+
+If a test only uses these patterns, it's shallow — add assertions on the actual return value, state change, or side effect.
+
 ### 2. GREEN — Implement
 
 - Write the minimum code to make tests pass
