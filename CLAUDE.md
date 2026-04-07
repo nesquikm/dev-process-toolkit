@@ -25,10 +25,6 @@ plugins/dev-process-toolkit/             → The plugin
 
 Users add the marketplace, install the plugin, then run `/dev-process-toolkit:setup`. The setup command detects the stack, generates CLAUDE.md, configures settings, and optionally creates spec files.
 
-### Manual setup
-
-Users copy `plugins/dev-process-toolkit/skills/` to their `.claude/skills/` and `agents/` to their `.claude/agents/`, then adapt `<!-- ADAPT -->` markers. See `plugins/dev-process-toolkit/docs/adaptation-guide.md`.
-
 ## Release Checklist
 
 When bumping the version:

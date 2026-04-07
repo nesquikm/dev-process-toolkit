@@ -37,7 +37,6 @@ If a test only uses these patterns, it's shallow — add assertions on the actua
 ### 3. VERIFY — Gate Check
 
 Read the project's CLAUDE.md for the gate check commands. If not specified, use typical commands for the stack:
-<!-- ADAPT: If copying this skill manually, replace with your project's commands -->
 - Run typecheck (e.g., `npm run typecheck`, `fvm flutter analyze`, `mypy .`)
 - Run lint (e.g., `npm run lint`, `ruff check .`)
 - Run full test suite (e.g., `npm run test`, `fvm flutter test`, `pytest`)

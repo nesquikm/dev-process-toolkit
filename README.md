@@ -40,18 +40,6 @@ This detects your stack, generates a CLAUDE.md, configures settings, and optiona
 - **code-reviewer** — Reviews code for quality, patterns, and security
 - **test-writer** — Writes tests following project conventions
 
-## Manual Setup
-
-If you prefer not to install the plugin, you can copy files manually from `plugins/dev-process-toolkit/`:
-
-1. Copy `skills/` contents to your project's `.claude/skills/` directory
-2. Copy `agents/` contents to your project's `.claude/agents/` directory
-3. Look for `<!-- ADAPT -->` comments in each skill and replace with your project's commands
-4. Create your `CLAUDE.md` using `templates/CLAUDE.md.template`
-5. Run `/gate-check` to verify everything works
-
-See `plugins/dev-process-toolkit/docs/adaptation-guide.md` for detailed instructions.
-
 ## What's Inside
 
 ```
@@ -92,7 +80,7 @@ The key insight: **deterministic checks always override LLM judgment**. A failin
 
 - `plugins/dev-process-toolkit/docs/sdd-methodology.md` — What SDD is and how it works
 - `plugins/dev-process-toolkit/docs/skill-anatomy.md` — How Claude Code skills work
-- `plugins/dev-process-toolkit/docs/adaptation-guide.md` — Step-by-step guide to adapt for any stack
+- `plugins/dev-process-toolkit/docs/adaptation-guide.md` — Reference for customizing skills and configuration after `/setup`
 - `plugins/dev-process-toolkit/docs/patterns.md` — 14 proven patterns + anti-patterns
 
 **Claude Code official docs:** https://code.claude.com/docs/en
