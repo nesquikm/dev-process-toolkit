@@ -2,11 +2,11 @@
 
 How to adapt the SDD toolkit for your specific project and tech stack.
 
-> **Plugin users:** If you installed the plugin, run `/dev-process-toolkit:setup` — it automates most of these steps. This guide is for manual setup or for understanding what the setup skill does.
+> Run `/dev-process-toolkit:setup` to configure your project automatically. This guide is a reference for what `/setup` does and how to customize the configuration afterward.
 
-## Step 1: Identify Your Gate Commands
+## Step 1: Configure Your Gate Commands
 
-The most important adaptation is mapping gate check commands to your toolchain.
+The most important adaptation is mapping gate check commands to your toolchain. `/setup` writes these into your project's CLAUDE.md under the "Key Commands" section. To customize, edit your CLAUDE.md directly.
 
 | Stack | Typecheck | Lint | Test | Build |
 |-------|-----------|------|------|-------|
@@ -17,7 +17,7 @@ The most important adaptation is mapping gate check commands to your toolchain.
 | Rust | `cargo check` | `cargo clippy` | `cargo test` | `cargo build` |
 | Java/Kotlin | `./gradlew compileJava` | `./gradlew spotlessCheck` | `./gradlew test` | `./gradlew build` |
 
-Update `gate-check/SKILL.md` and `tdd/SKILL.md` with your project's commands.
+Skills like `/gate-check` and `/tdd` read these commands from your CLAUDE.md at runtime.
 
 ## Step 2: Set Up CLAUDE.md
 
@@ -31,23 +31,25 @@ Use `templates/CLAUDE.md.template` as a starting point. Key sections:
 6. **Testing conventions** — Test framework, mocking approach, naming
 7. **DO NOT** — Explicit boundaries for Claude
 
-## Step 3: Adapt the /implement Skill
+## Step 3: Customize /implement Behavior
 
-The `/implement` skill is the main orchestrator. Adapt it by changing:
+The `/implement` skill reads configuration from your CLAUDE.md at runtime. Customize by adding these sections to your CLAUDE.md:
 
 ### Input source
+`/implement` auto-detects the input source in this order:
+- **Spec milestones**: Read `specs/plan.md`
 - **GitHub issues**: Use `gh issue view $ARGUMENTS`
 - **Task files**: Read `.tasks/$ARGUMENTS.md`
 - **Inline description**: Use `$ARGUMENTS` directly
-- **Spec milestones**: Read `specs/plan.md`
 
 ### TDD patterns
+Document your testing conventions in CLAUDE.md so `/implement` and `/tdd` follow them:
 - **TS/Node**: `vi.useFakeTimers()`, Vitest, seed-based data
 - **Flutter**: `mocktail`, `bloc_test`, mirror `lib/` in `test/`
 - **Python**: `pytest`, `unittest.mock`, fixtures
 
 ### Domain-specific review checks
-Add checks specific to your stack in the self-review phase:
+`/implement` reads domain-specific checks from your CLAUDE.md during self-review. Common patterns:
 
 - **Flutter**: `const` constructors, `BlocProvider` usage, codegen files not edited
 - **MCP server**: Response format compliance, tool registration

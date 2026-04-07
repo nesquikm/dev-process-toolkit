@@ -111,8 +111,7 @@ If a multi-milestone run partially succeeds in a worktree:
 
 ### Spec Breakout
 
-If the current milestone accumulates 3 or more `contradicts` or `infeasible` deviations:
-<!-- ADAPT: adjust threshold for your project -->
+If the current milestone accumulates 3 or more `contradicts` or `infeasible` deviations (check the project's CLAUDE.md for a custom threshold; default is 3):
 
 1. **STOP implementation** — do not push forward on a broken spec
 2. Present a **Spec Breakout report** listing all accumulated deviations, their classifications, and proposed resolutions
@@ -167,13 +166,11 @@ Each round has three sequential stages. **Complete each stage before starting th
    - Security issues (unsanitized input, injection risks)
    - Note: edge-case test coverage is checked in Stage C — here, focus on the implementation logic itself
 
-   <!-- ADAPT: Add domain-specific checks for your framework/stack -->
-   <!-- Examples: -->
-   <!-- Flutter: const constructors, tryEmit() usage, codegen files not edited, l10n strings -->
-   <!-- React/Web: URL state management, component prop types, accessibility -->
-   <!-- MCP server: Response format compliance, ESM import extensions, tool registration -->
-   <!-- API server: Input validation at boundaries, error response format, auth checks -->
-   e. **Stack-specific checks** — Verify framework patterns are followed
+   e. **Stack-specific checks** — Check the project's CLAUDE.md for domain-specific patterns and verify they are followed. Common examples:
+   - Flutter: const constructors, tryEmit() usage, codegen files not edited, l10n strings
+   - React/Web: URL state management, component prop types, accessibility
+   - MCP server: Response format compliance, ESM import extensions, tool registration
+   - API server: Input validation at boundaries, error response format, auth checks
 
    ### Stage C — Hardening (first round only)
 

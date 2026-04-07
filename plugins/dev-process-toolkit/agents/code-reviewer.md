@@ -9,9 +9,8 @@ You are a senior developer reviewing code changes.
 
 ## Review Checklist
 
-1. **Architecture compliance**:
-   <!-- ADAPT: Replace with your project's patterns -->
-   - Follows the project's established patterns (see CLAUDE.md)
+1. **Architecture compliance** (read the project's CLAUDE.md for architecture patterns and conventions):
+   - Follows the project's established patterns
    - Proper separation of concerns
    - Dependencies flow in the right direction
 

@@ -13,7 +13,6 @@ Run the project's gating checks and report a clear pass/fail for each.
 Read the project's CLAUDE.md to find the gate check commands (look for "Key Commands" or "Gating rule" section). If no CLAUDE.md exists, ask the user what commands to run.
 
 Typical commands by stack (use as fallback if CLAUDE.md doesn't specify):
-<!-- ADAPT: If copying this skill manually, replace with your project's commands -->
 1. Run typecheck: `npm run typecheck` (or `fvm flutter analyze`, `mypy .`, etc.)
 2. Run lint: `npm run lint $ARGUMENTS` (if `$ARGUMENTS` contains `--fix`, add `-- --fix`)
 3. Run tests: `npm run test` (or `fvm flutter test`, `pytest`, etc.)
@@ -44,13 +43,12 @@ Grade against this rubric:
 | **Edge cases** | No | Empty/null inputs handled. Boundary values tested. Error paths exercised. |
 | **Consistency** | No | Follows project patterns from CLAUDE.md. No style drift. |
 
-<!-- ADAPT: Add domain-specific criteria for your stack -->
-<!-- Examples: -->
-<!-- Flutter: Widget tests for UI, no missing l10n keys, proper disposal -->
-<!-- API: Auth on all endpoints, rate limiting, error response format -->
-<!-- Web: Accessibility, XSS prevention, CSP headers -->
-<!-- Security: OWASP dependency check (npm audit / pip-audit), secrets scanner (gitleaks, trufflehog) -->
-<!-- Security: Check for hardcoded credentials, API keys, or tokens in source files -->
+Also check for domain-specific criteria from the project's CLAUDE.md. Common examples by stack:
+- Flutter: Widget tests for UI, no missing l10n keys, proper disposal
+- API: Auth on all endpoints, rate limiting, error response format
+- Web: Accessibility, XSS prevention, CSP headers
+- Security: OWASP dependency check (`npm audit` / `pip-audit`), secrets scanner (`gitleaks`, `trufflehog`)
+- Security: Check for hardcoded credentials, API keys, or tokens in source files
 
 For each criterion, report: **OK** or **CONCERN** with specifics.
 

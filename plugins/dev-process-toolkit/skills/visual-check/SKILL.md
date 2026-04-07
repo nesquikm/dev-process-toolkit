@@ -41,8 +41,9 @@ Then skip to step 4 (clean up).
 
 ### 1. Ensure the dev server is running
 
-<!-- ADAPT: Replace with your dev server URL and start command -->
-Check if http://localhost:5173 is reachable:
+Detect the dev server URL from the project's CLAUDE.md or config files (e.g., package.json scripts, vite.config). Default: `http://localhost:5173`.
+
+Check if the dev server is reachable:
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}" http://localhost:5173
