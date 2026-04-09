@@ -239,4 +239,31 @@ See `examples/` for GitHub Actions starter configs:
 - `examples/python/.github/workflows/gate-check.yml`
 - `examples/flutter-dart/.github/workflows/gate-check.yml`
 
+## Customizing Archival
+
+As of v1.10.0 (FR-16 through FR-20), completed milestones are auto-archived out of live spec files into `specs/archive/` when `/implement` Phase 4 is approved. This keeps `plan.md` and `requirements.md` size bounded regardless of project age. The archival mechanism is fully opt-in and fully overridable.
+
+### Opting out entirely
+
+Delete `specs/archive/` from your project (or never create it). `/implement` Phase 4 checks for the directory before doing any archival work and **silently skips** archival if it's missing (AC-16.7). Your specs stay whole, nothing moves, and no pointers are written. This is the right choice for small projects, short-lived experiments, or any situation where you don't want the extra directory.
+
+If you opted out initially and want to opt in later, run `/dev-process-toolkit:setup` again or create the directory manually:
+
+```bash
+mkdir -p specs/archive
+cp ${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/archive-index.md.template specs/archive/index.md
+```
+
+Subsequent `/implement` runs will pick it up automatically.
+
+### Manual archival via `/spec-archive`
+
+For content the auto-path can't reach — reopened milestones, cross-cutting ACs not tied to a single milestone, aborted work you want to preserve, explicit user-directed compaction — use `/dev-process-toolkit:spec-archive {#M3}` (or `{#FR-7}`, or an explicit heading string). The skill shows you a diff before touching any file and waits for explicit approval. It never auto-scans for completed work — you name what to archive.
+
+See `skills/spec-archive/SKILL.md` for the full protocol, including the reopen/revision naming rule (`M{N}-r2-{slug}.md`) and the `technical-spec.md` archival warning.
+
+### Adjusting the archive directory layout
+
+The default layout is flat: `specs/archive/M{N}-{slug}.md` for milestones, plus a single `specs/archive/index.md` rolling index. Changing this layout is out of scope for v1.10.0 — the `/implement` and `/spec-archive` skills hardcode the pattern. If you need a different layout (e.g., nested by year, split by source file), file an issue or fork the skills.
+
 These are **starting points** — adapt them to your project's specific tools and versions.

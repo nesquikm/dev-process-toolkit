@@ -1,6 +1,6 @@
 # Dev Process Toolkit
 
-A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 11 commands, 2 agents, spec templates, and documentation.
+A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 12 commands, 2 agents, spec templates, and documentation.
 
 ## Install as Plugin
 
@@ -31,6 +31,7 @@ This detects your stack, generates a CLAUDE.md, configures settings, and optiona
 | `/dev-process-toolkit:gate-check` | Deterministic quality gates (typecheck + lint + test) |
 | `/dev-process-toolkit:debug` | Structured debugging protocol for failing tests or unclear gate failures |
 | `/dev-process-toolkit:spec-review` | Audit code against spec requirements |
+| `/dev-process-toolkit:spec-archive` | Manually archive a milestone, FR, or AC block into `specs/archive/` with diff approval (FR-17) |
 | `/dev-process-toolkit:visual-check` | Browser-based UI verification via MCP |
 | `/dev-process-toolkit:pr` | Pull request creation |
 | `/dev-process-toolkit:simplify` | Code quality review and cleanup |
@@ -50,7 +51,7 @@ dev-process-toolkit/
 │   └── dev-process-toolkit/         # The plugin
 │       ├── .claude-plugin/
 │       │   └── plugin.json          # Plugin manifest
-│       ├── skills/                  # 11 skills (slash commands)
+│       ├── skills/                  # 12 skills (slash commands)
 │       ├── agents/                  # 2 specialist agents
 │       ├── templates/               # CLAUDE.md and spec templates
 │       ├── docs/                    # Methodology and guides
@@ -59,6 +60,10 @@ dev-process-toolkit/
 ├── README.md
 └── LICENSE
 ```
+
+## Release Notes
+
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.10.0 — "Bounded Context"** (spec archival, `/spec-archive` skill, stable anchor IDs, `specs/archive/` convention).
 
 ## Core Philosophy
 

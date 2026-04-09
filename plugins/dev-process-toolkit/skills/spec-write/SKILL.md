@@ -44,6 +44,8 @@ Ask the user:
 
 Write the answers into the spec using the template structure (FR-1, AC-1.1, etc.).
 
+**Stable anchor IDs (FR-18):** Every `### FR-{N}:` heading you generate or edit must carry its `{#FR-{N}}` anchor on the same line, matching the template form `### FR-3: User login {#FR-3}`. Same rule applies in `plan.md` for `## M{N}: ...` headings — the `{#M{N}}` anchor must be present. These anchors are the pointer targets for archival (FR-16) and for cross-references in the traceability matrix, so they must survive heading renames. If you encounter any milestone or FR heading without its anchor, **flag it as a warning** in the report (step 7) and offer to add it — never silently edit around it.
+
 #### technical-spec.md (HOW to build it)
 
 Read `requirements.md` first to understand what needs building. Then ask:

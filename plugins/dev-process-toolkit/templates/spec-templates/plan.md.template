@@ -4,8 +4,9 @@
 
 <!-- Each milestone should be independently gatable -->
 <!-- Don't proceed to M(n+1) until M(n) gates pass -->
+<!-- Every milestone heading must carry its stable anchor ID `{#M{N}}` — this is the archival pointer target (see docs/patterns.md#stable-anchor-ids) -->
 
-## M1: [Foundation / Scaffolding]
+## M1: [Foundation / Scaffolding] {#M1}
 
 **Goal:** <!-- What this milestone achieves -->
 **Prerequisites:** None
@@ -28,7 +29,7 @@
 
 ---
 
-## M2: [Core Feature]
+## M2: [Core Feature] {#M2}
 
 **Goal:** <!-- What this milestone achieves -->
 **Prerequisites:** M1

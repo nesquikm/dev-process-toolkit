@@ -34,6 +34,12 @@ Audit the implementation against the project specifications for: `$ARGUMENTS`
    - If no implementing code is found, use the literal marker `(not found)`
    - If code in changed files has no corresponding AC, flag it with the label `potential drift`
 
+### Optional: Consult Archive Index
+
+If — and only if — the user's query references a milestone ID or FR ID that is **not present** in the live `specs/plan.md` or `specs/requirements.md`, read `specs/archive/index.md` (if it exists) and look for a matching row. If the row exists, read the linked archive file for historical context, then proceed with the review. If `specs/archive/index.md` does not exist, skip this step silently — do not error.
+
+Never read the archive during a normal review — only live spec files count. The archive is historical context for explicit queries, not a drift source.
+
 4. **Report findings** as a table:
 
 | Requirement | Status    | Implementation     | Notes                    |

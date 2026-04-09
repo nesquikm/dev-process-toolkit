@@ -87,6 +87,11 @@ shell: bash                       # Shell for !`command` blocks: bash (default) 
 - **Invocation**: User-invoked or within /implement (Stage A of self-review)
 - **Key pattern**: Read-only analysis with traceability matrix
 
+### 5b. Spec Archive (manual archival escape hatch)
+- **Purpose**: Move a user-selected milestone, FR, or AC block out of live specs into `specs/archive/` with a diff approval gate (FR-17)
+- **Invocation**: User-invoked for reopens, cross-cutting ACs, aborted work, or explicit compaction; never auto-scans
+- **Key pattern**: Resolve anchor target → build Schema G archive body → present diff → wait for approval → write-then-excise → append index row; reopens produce `-r2` / `-r3` revision files
+
 ### 6. Visual Check (UI verification)
 - **Purpose**: Verify web UI renders correctly in a real browser
 - **Invocation**: User-invoked or within /implement (for web milestones)

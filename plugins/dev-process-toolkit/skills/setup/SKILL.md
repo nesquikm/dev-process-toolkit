@@ -29,8 +29,9 @@ For **existing projects** (project files found in step 1), validate prerequisite
 | Gate commands runnable | Run the gating rule from CLAUDE.md (e.g., `npm run typecheck && npm run lint && npm run test`) | Fix failing commands or update CLAUDE.md gating rule |
 | CLAUDE.md present | Check if `CLAUDE.md` exists in project root | Will be created in step 5 |
 | .claude/settings.json present | Check if `.claude/settings.json` exists | Will be created in step 6 |
+| Spec anchor IDs (if `specs/` exists) | Grep `specs/plan.md` for every `## M{N}:` and `specs/requirements.md` for every `### FR-{N}:` heading; each must carry a matching `{#M{N}}` or `{#FR-{N}}` anchor on the same line | Add the missing `{#M{N}}` / `{#FR-{N}}` anchor to the heading. Missing anchors do NOT cause doctor failure — they report under `GATE PASSED WITH NOTES` so archival pointers stay stable (FR-18) |
 
-Report pass/fail for each check with remediation instructions.
+Report pass/fail for each check with remediation instructions. Missing anchor IDs surface under `GATE PASSED WITH NOTES`, never as a hard failure.
 
 For **new projects** (no project files found), skip this step — tools and configs will be set up during scaffolding.
 
@@ -129,6 +130,8 @@ If `.mcp.json` already exists, merge — don't overwrite.
 
 If the user wants the full SDD workflow (or if `$ARGUMENTS` contains "new"):
 - Create `specs/` directory
+- Create `specs/archive/` directory alongside it (empty — populated later by `/implement` Phase 4 auto-archival and `/spec-archive`, see FR-16/FR-19)
+- Copy `${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/archive-index.md.template` to `specs/archive/index.md` so the rolling archive index exists from day one with its `| Milestone | Title | Archived | Archive File |` header row
 - Copy templates from `${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/`
 - **Pre-fill with concrete values** from what you already know — replace every placeholder you can with real data:
   - **requirements.md:** Project name, overview, detected stack. Fill the traceability matrix header rows with AC IDs from any existing requirements.

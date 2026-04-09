@@ -6,7 +6,9 @@
 
 ## 2. Functional Requirements
 
-### FR-1: [Feature Name]
+<!-- Every FR heading must carry its stable anchor ID `{#FR-{N}}` — this is the archival pointer target (see docs/patterns.md#stable-anchor-ids) -->
+
+### FR-1: [Feature Name] {#FR-1}
 
 **Description:** <!-- What this feature does -->
 
@@ -15,7 +17,7 @@
 - AC-1.2: <!-- Binary pass/fail criterion -->
 - AC-1.3: <!-- Negative criterion: System must NOT... e.g., "must NOT expose internal error details to the client" -->
 
-### FR-2: [Feature Name]
+### FR-2: [Feature Name] {#FR-2}
 
 **Description:** <!-- What this feature does -->
 

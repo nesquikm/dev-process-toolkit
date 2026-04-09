@@ -54,6 +54,8 @@ For each criterion, report: **OK** or **CONCERN** with specifics.
 
 ## Drift Check
 
+> Never read specs/archive/ — only live spec files count for drift detection.
+
 If `specs/` directory exists, check whether the implementation has drifted from the spec:
 
 1. Read `specs/requirements.md` and extract all ACs
