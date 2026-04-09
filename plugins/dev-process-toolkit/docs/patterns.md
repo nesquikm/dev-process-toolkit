@@ -310,3 +310,45 @@ Drift findings are **advisory** (GATE PASSED WITH NOTES, never GATE FAILED) beca
 **Problem**: Tests exist and pass, but they don't actually verify behavior. Common anti-patterns: `expect(fn).not.toThrow()` as the sole assertion, `assert result is not None` without checking the value, type-only checks without verifying content. These tests create false confidence.
 
 **Solution**: Add assertion quality checks in TDD (RED phase) and self-review (Stage A). Flag tests that only use these patterns and require assertions on actual return values, state changes, or side effects.
+
+### Stable Anchor IDs
+
+**Problem (FR-18)**: Archival pointers, traceability matrices, and cross-links between spec files all depend on identifiers that survive heading renames and reordering. A pointer like `M3 → specs/archive/M3-user-auth.md` is only stable if "M3" itself is a stable identifier on the heading — not a positional guess. The first time someone renames a milestone, every positional reference rots silently.
+
+**Solution**: Embed explicit Markdown anchor IDs on every archivable unit at creation time. Templates ship with the anchor syntax pre-filled; `/spec-write` enforces the rule on generated or edited headings; `/setup` doctor validation warns if any heading lacks its anchor. Anchors are CommonMark-friendly, render as empty spans, and survive all mainstream Markdown viewers.
+
+| Unit type | Heading form | Anchor format | Source of truth |
+|-----------|-------------|---------------|-----------------|
+| Milestone | `## M{N}: {title}` | `{#M{N}}` — appended to the heading line | `templates/spec-templates/plan.md.template` |
+| FR | `### FR-{N}: {title}` | `{#FR-{N}}` — appended to the heading line | `templates/spec-templates/requirements.md.template` |
+| AC | `- AC-{N}.{M}: {text}` | The AC ID itself acts as the anchor — existing convention, no change | list-item line in requirements.md |
+
+Example of a properly anchored milestone heading:
+
+```markdown
+## M3: User authentication {#M3}
+```
+
+Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+FR-[0-9]+:` in `requirements.md` — any match whose line does NOT also contain `{#M` / `{#FR-` is a doctor warning. Archival (FR-16) and `/spec-archive` (FR-17) resolve pointer targets through these anchors.
+
+### Pattern: Archival Lifecycle
+
+**Problem (FR-16 through FR-20)**: Spec files grow unboundedly as a project matures. Every `/implement`, `/gate-check`, and `/spec-review` invocation reads the full `plan.md` and `requirements.md`, inflating hot-path context cost on work that's already shipped. Simply splitting files by hand breaks prompt caching (the cache-hot prefix moves on every rewrite), duplicates still-current content, and loses grep-friendliness.
+
+**Solution**: Milestones are the natural unit of completion. When `/implement` finishes a milestone and the human approves the Phase 4 report, the milestone block and all traceability-matched ACs are **moved** (not copied) from live specs into a single archive file at `specs/archive/M{N}-{slug}.md`, replaced by Schema H pointer lines. For content the auto-path can't reach (reopens, cross-cutting ACs, aborted work), `/spec-archive` is the manual escape hatch with a diff approval gate.
+
+**What moves:**
+- The `## M{N}: ...` block from `plan.md` (verbatim, in full).
+- Every AC in `requirements.md` whose traceability-matrix row resolved in this milestone. FRs whose ACs are all archived collapse to a single Schema H pointer; FRs with mixed status retain only their non-archived ACs.
+- The matched rows of the traceability matrix, bundled into the archive file for auditability.
+
+**What does NOT move:**
+- `technical-spec.md` — architectural decisions use `Superseded-by:` in place (ADR convention: adr.github.io, Nygard). Auto-archiving ADRs would destroy load-bearing context for future implementation.
+- `testing-spec.md` — test conventions stay live.
+- In-flight milestones, future milestones, or ACs without a populated traceability row.
+
+**Rationale:**
+- **Prompt caching stability** — archival is a surgical move, so the cache-hot prefix of the live files stays stable between milestones and only invalidates at the moment of archival (once per milestone, not once per run).
+- **Bounded hot-path context cost** — live `plan.md` and `requirements.md` never accumulate shipped content; hot-path token cost is roughly constant regardless of project age (NFR-5).
+- **Auditability** — archive files are append-only. Reopens create `-r2`, `-r3` revision files, never in-place mutations. History is trivially greppable (`^> archived:`).
+- **Escape hatch** — `/spec-archive` covers everything auto-archival can't reach, with an explicit diff approval gate so users see exactly what's moving.

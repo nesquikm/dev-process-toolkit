@@ -12,7 +12,7 @@ This repo is a **Claude Code plugin marketplace** containing one plugin. The plu
 .claude-plugin/marketplace.json          → Marketplace catalog
 plugins/dev-process-toolkit/             → The plugin
 ├── .claude-plugin/plugin.json           → Plugin manifest
-├── skills/                              → 11 slash commands (setup, brainstorm, spec-write, implement, tdd, gate-check, debug, spec-review, visual-check, pr, simplify)
+├── skills/                              → 12 slash commands (setup, brainstorm, spec-write, implement, tdd, gate-check, debug, spec-review, spec-archive, visual-check, pr, simplify)
 ├── agents/                              → 2 subagent templates (code-reviewer, test-writer)
 ├── templates/                           → CLAUDE.md template, spec file templates, settings.json
 ├── docs/                                → Methodology, skill anatomy, adaptation guide, patterns
@@ -27,11 +27,13 @@ Users add the marketplace, install the plugin, then run `/dev-process-toolkit:se
 
 ## Release Checklist
 
-When bumping the version:
+When bumping the version, these three files MUST all be updated together. Missing any of them is a release bug.
+
 1. `plugins/dev-process-toolkit/.claude-plugin/plugin.json` — `"version"` field
 2. `.claude-plugin/marketplace.json` — `"version"` field in the plugin entry
+3. `CHANGELOG.md` — add a new `## [X.Y.Z] — YYYY-MM-DD — "Codename"` section at the top (below the intro), following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Use `### Added` / `### Changed` / `### Removed` / `### Fixed` subsections as needed. Cross-reference the FRs that landed in the release.
 
-Both must stay in sync. Bump on every feature-significant change.
+All three must stay in sync. Bump on every feature-significant change. Never ship a version bump without a CHANGELOG entry — that's how release notes rot into the README.
 
 ## Core Principles
 

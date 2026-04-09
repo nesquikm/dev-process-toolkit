@@ -55,6 +55,8 @@ If a multi-milestone run partially succeeds in a worktree:
 
 ## Phase 1: Understand
 
+> Do not read specs/archive/ during implementation — archived milestones are historical context only.
+
 1. **Check for specs** — If `specs/` exists, check whether spec files have real content (not just template placeholders). If specs exist but are mostly empty, warn the user: "Specs appear to be incomplete. SDD works best when specs are filled in first. Consider running `/dev-process-toolkit:spec-write` or continue with what's available?" Let the user decide.
 
 2. **Resolve the target** — Determine what to implement:
@@ -174,20 +176,7 @@ Each round has three sequential stages. **Complete each stage before starting th
 
    ### Stage C — Hardening (first round only)
 
-   After Stage B passes on round 1, run a hardening pass before declaring victory. Skip this on round 2 (diminishing returns).
-
-   f. **Negative & edge-case tests** — For each module created/modified, ask:
-      - What happens with empty/null/missing input?
-      - What happens at boundary values (0, -1, MAX_INT, empty string, empty array)?
-      - What happens when an external dependency fails (network error, timeout, invalid response)?
-      - Are there race conditions or ordering assumptions?
-
-      You don't need to test every combination — focus on the cases most likely to cause real bugs. Add tests for any gaps found.
-
-   g. **Error path audit** — Verify that error handling:
-      - Doesn't swallow errors silently
-      - Doesn't leak sensitive information in error messages
-      - Returns appropriate error types/codes at system boundaries
+   After Stage B passes on round 1, run a hardening pass before declaring victory. Skip on round 2 (diminishing returns). Cover negative/edge-case tests and an error-path audit. See `docs/implement-reference.md` for the full Stage C checklist, stack-specific hardening examples, and the round-resolution decision matrix.
 
    ### Decision (deterministic, not vibes)
 
@@ -214,6 +203,28 @@ Before updating specs, compile all deviations discovered during Phase 2:
 Classification types (matching Phase 2 step 9): `underspecified`, `ambiguous`, `contradicts`, `infeasible`.
 
 Rule: any row with Classification = `ambiguous` must have Needs Confirmation? = `**Yes**` (these are provisional decisions requiring user approval).
+
+### Milestone Archival
+
+After the human approves the Phase 4 report (step 15), and **only then**, archive the completed milestone block out of the live spec files into `specs/archive/`. This keeps `plan.md` and `requirements.md` size bounded regardless of project age.
+
+- **Archival is skipped if specs/archive/ does not exist** — legacy projects (pre-v1.10.0) without the archive directory get no archival, and no error.
+- **technical-spec.md is never auto-archived** — architectural decisions use `Superseded-by:` in place (the ADR convention). `/implement` touches only `plan.md` and `requirements.md`.
+- Run archival **only after explicit human approval in step 15**, never before. If the user asks for changes instead, abort archival entirely.
+
+**Procedure** (write-then-delete ordering so an interrupted run leaves recoverable state). Sub-steps are lettered to avoid clashing with the Phase 4 flow numbering (steps 13–15 below):
+
+a. Resolve the archive target: `specs/archive/M{N}-{slug}.md`, where `{slug}` is the lowercased hyphen-separated milestone title.
+b. Consult the `specs/requirements.md` traceability matrix: find every AC whose row was populated (Implementation and Tests columns) during this milestone.
+c. **Collapse rule:** for any FR whose ACs are *all* archived by this operation, the live `requirements.md` keeps only a Schema H pointer line in place of the FR block. FRs with mixed status keep their FR header and any non-archived ACs; only the archived ACs move.
+d. Build the archive file body following Schema G (see `specs/technical-spec.md` §4): YAML frontmatter (`milestone`, `title`, `archived`, `revision: 1`, `source_files`), then three sections in order — `## Plan block (from plan.md)` with the verbatim milestone block, `## Requirements block (from requirements.md)` with the verbatim archived FR/AC content, `## Traceability (from requirements.md matrix)` with the matched matrix rows.
+e. **Write the archive file first**, before excising anything from the live specs. If the subsequent live-file edit fails, the user still has both the archive and the untouched original.
+f. **Move (do not copy)** the `## M{N}: {title} {#M{N}}` block out of `plan.md`, leaving in its place exactly one Schema H blockquote pointer line at the original location: `> archived: M{N} — {title} → specs/archive/M{N}-{slug}.md ({YYYY-MM-DD})`. The em-dash and right-arrow are literal.
+g. For every wholly-archived FR in `requirements.md`, collapse the block to the same Schema H pointer line. For FRs with mixed status, remove only the archived ACs.
+h. Append one new row to `specs/archive/index.md` per archival: `| M{N} | {title} | {YYYY-MM-DD} | [M{N}-{slug}.md](M{N}-{slug}.md) |`. Never rewrite existing rows.
+i. If the traceability matrix is incomplete (some AC rows for this milestone have no Implementation/Tests entries), **move only the plan block** and emit a warning asking the user to archive the orphaned ACs manually via `/dev-process-toolkit:spec-archive`.
+
+For reopens, cross-cutting ACs, or anything this auto-path can't reach, `/dev-process-toolkit:spec-archive` is the escape hatch.
 
 13. **Update specs** — If implementing a milestone from `specs/plan.md`:
     - Update the milestone's acceptance criteria from `- [ ]` to `- [x]` for each AC that passed. This keeps plan.md as the single source of progress truth.

@@ -1,0 +1,6 @@
+# Archive Index
+
+Rolling index of archived milestones. Append one row per archival (via `/implement` Phase 4 or `/spec-archive`). Never rewrite existing rows — revisions get their own row pointing at `M{N}-r{K}-{slug}.md`. See FR-19 and `docs/patterns.md` for the archival lifecycle.
+
+| Milestone | Title | Archived | Archive File |
+|-----------|-------|----------|--------------|

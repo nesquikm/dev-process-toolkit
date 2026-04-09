@@ -34,10 +34,15 @@ specs/
 ├── requirements.md     # WHAT to build (FRs, ACs, NFRs)
 ├── technical-spec.md   # HOW to build it (architecture, patterns)
 ├── testing-spec.md     # HOW to test it (conventions, coverage)
-└── plan.md             # WHEN to build it (milestones, task order)
+├── plan.md             # WHEN to build it (milestones, task order)
+└── archive/            # Archived milestones (auto-managed, historical context)
+    ├── index.md        # Rolling index
+    └── M{N}-{slug}.md  # One file per archived milestone
 ```
 
 **Spec precedence:** requirements.md > testing-spec.md > technical-spec.md > plan.md
+
+**Specs are compactable (FR-16..20).** Live spec files never grow unboundedly. When `/implement` completes a milestone and the human approves the Phase 4 report, the milestone block and its traceability-matched ACs move automatically into `specs/archive/M{N}-{slug}.md`, leaving Schema H pointer lines in their place. This is part of normal SDD, not an advanced feature — the hot-path token cost of every skill invocation stays roughly constant regardless of project age. `technical-spec.md` is never auto-archived (ADRs use `Superseded-by:` in place). See the Archival Lifecycle pattern in `docs/patterns.md` for details, and `/spec-archive` for manual archival of content the auto-path can't reach.
 
 ### 2. Milestones Break Work into Gates
 
