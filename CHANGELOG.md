@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [1.11.0] — 2026-04-10 — "Residue Scan"
+
+### Added
+
+- **Post-archive drift check (FR-21)** — Every archival operation (both `/spec-archive` and `/implement` Phase 4 auto-archival) now runs a two-pass drift check and emits a unified Schema I advisory report. **Pass A** greps live spec files for orphan `M{N}` / `FR-{N}` / `AC-{N}.` token references that survived the archival (severity `high`). **Pass B** has Claude re-read each live spec with a bounded brief — just-archived IDs plus a one-paragraph title+goal excerpt of each new archive file — to flag scope-limiting narrative that assumes the archived milestones were the whole project (severity `medium`).
+- **3-choice UX, never blocks archival** — When the drift report is non-empty, the user picks between addressing flags inline (with per-edit approval), saving the report to `specs/drift-{YYYY-MM-DD}.md` for later, or acknowledging and continuing. Empty reports emit the literal `No drift detected` and continue silently. The archival operation itself is never blocked by drift findings, and Pass B never auto-edits narrative.
+- **`docs/patterns.md` — `### Pattern: Post-Archive Drift Check`** — Documents the two-pass rationale, the Flutter dogfood canary example verbatim, why Pass B is load-bearing despite its false-positive rate, and the accuracy-first tradeoff decision from the brainstorm session.
+
+### Motivation
+
+The v1.10.0 dogfood run on a Flutter project surfaced the residue problem: archiving M1–M4 (documentation milestones) cleanly moved the blocks and ACs, but left `requirements.md` Overview calling the project a "layered documentation set" and Out-of-Scope saying "Code changes — documentation only" while M5 (a code milestone) was in flight. Pure grep missed it — the phrasing uses no literal `M{N}` tokens — and a manual four-file consistency pass after every archival was the cost. FR-21 makes that scan automatic and advisory, keeping the archival flow fast and the live specs honest.
+
 ## [1.10.0] — 2026-04-09 — "Bounded Context"
 
 ### Added

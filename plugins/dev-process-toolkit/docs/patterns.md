@@ -352,3 +352,22 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 - **Bounded hot-path context cost** — live `plan.md` and `requirements.md` never accumulate shipped content; hot-path token cost is roughly constant regardless of project age (NFR-5).
 - **Auditability** — archive files are append-only. Reopens create `-r2`, `-r3` revision files, never in-place mutations. History is trivially greppable (`^> archived:`).
 - **Escape hatch** — `/spec-archive` covers everything auto-archival can't reach, with an explicit diff approval gate so users see exactly what's moving.
+
+### Pattern: Post-Archive Drift Check
+
+**Problem (FR-21)**: Archival (FR-16, FR-17) surgically moves the milestone block and every traceability-matched AC, but it cannot detect **narrative residue** — scope-limiting framing like "documentation-only deliverable" or "layered X set" that assumed the archived milestones were the whole project. The canary was the v1.10.0 Flutter dogfood run: archiving M1–M4 (documentation milestones) left `requirements.md` Overview calling the project a "layered documentation set" and Out-of-Scope saying "Code changes — documentation only", while M5 (a code milestone) was still in flight. Manual consistency passes across four files every time a milestone ships are the problem this pattern solves.
+
+**Solution**: Immediately after any archival operation, run a two-pass drift check whose output is a **unified advisory report** — never an auto-rewrite, never a blocker on the archival itself.
+
+- **Pass A — Token grep (deterministic):** scan live spec files for the exact identifiers just archived (`M{N}`, `FR-{N}`, `AC-{N}.`), excluding Schema H pointer lines (`^> archived:`). Every hit is an orphan token reference. Severity: `high`. Pass A is zero-noise on explicit references — if the traceability matrix was clean at archival time, Pass A will usually emit zero rows.
+- **Pass B — Semantic scan (judgment):** read each live spec with a bounded brief containing the just-archived ID list, a one-paragraph title+goal excerpt of each new archive file (not the full body — bounding Pass B context is load-bearing), and the scope-framing instruction. Flag sections whose wording frames the project by the archived scope. Severity: `medium`.
+
+**Why Pass B is load-bearing despite false positives**: the Flutter canary uses no literal `M{N}` tokens anywhere in the "layered documentation set" phrasing — pure Pass A grep would see a clean file. Only judgment can recognize that the Overview is describing a project that no longer exists. Semantic scans have false-positive risk, but the tradeoff is accuracy-first: a medium-severity flag the user dismisses in one keystroke is far cheaper than a narrative inconsistency that survives into the next release. The 3-choice UX (inline / save-for-later / acknowledge) means flags never block archival, so false positives are annoying but never disruptive.
+
+**Pass B prompt construction tips:**
+- Title + goal only, never the full archive body. Archive files grow; the Pass B prompt must stay bounded regardless of archive size.
+- Always name the canary pattern with the Flutter example verbatim. Without the concrete example, Pass B's instruction is too abstract and miscalibrates on edge cases.
+- Keep Pass A results in the same call context so Pass B can cross-reference deterministic hits while judging framing.
+- `technical-spec.md` is Pass B advisory-only — flags surface, but `Suggested action` never recommends deletion. Architectural decisions use `Superseded-by:` markers in place per the ADR convention.
+
+**Rationale (accuracy-first tradeoff):** the hybrid Pass A + Pass B approach was chosen over grep-only, semantic-only, or convention-based scope tags because (1) grep alone misses the canary, (2) a pure semantic pass is non-deterministic on explicit tokens grep would never miss, (3) scope tags require retrofitting existing specs and ongoing discipline and would have failed the exact Flutter case that motivated the pattern. Running both is essentially free since the skill already runs inside Claude Code — no separate API call. The false-positive cost on Pass B is paid for by the accuracy of catching scope-limiting narrative the grep pass can never see.

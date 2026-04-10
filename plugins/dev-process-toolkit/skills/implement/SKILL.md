@@ -224,6 +224,10 @@ g. For every wholly-archived FR in `requirements.md`, collapse the block to the 
 h. Append one new row to `specs/archive/index.md` per archival: `| M{N} | {title} | {YYYY-MM-DD} | [M{N}-{slug}.md](M{N}-{slug}.md) |`. Never rewrite existing rows.
 i. If the traceability matrix is incomplete (some AC rows for this milestone have no Implementation/Tests entries), **move only the plan block** and emit a warning asking the user to archive the orphaned ACs manually via `/dev-process-toolkit:spec-archive`.
 
+#### Post-Archive Drift Check
+
+After the archive move sub-steps (a–i) complete and before the final Phase 4 report rendering, run the post-archive drift check from `skills/spec-archive/SKILL.md` § Post-Archive Drift Check. Do **not** re-inline the two-pass logic here — point at it to stay DRY. For Pass B, build the brief from this milestone's context: (a) the just-archived milestone and FR IDs, (b) a one-paragraph excerpt of the new archive file's title and goal lines only (not the full body), (c) the standard scope-framing instruction from the spec-archive section. Render the unified Schema I table, apply the `No drift detected` empty path, and offer the same 3-choice UX (address inline / save to `specs/drift-{YYYY-MM-DD}.md` / acknowledge). The drift check never blocks the already-completed archival.
+
 For reopens, cross-cutting ACs, or anything this auto-path can't reach, `/dev-process-toolkit:spec-archive` is the escape hatch.
 
 13. **Update specs** — If implementing a milestone from `specs/plan.md`:
