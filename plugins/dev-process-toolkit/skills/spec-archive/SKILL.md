@@ -150,6 +150,55 @@ If the user reopens a previously-archived milestone (e.g., they add a new `## M3
 
 Archive files are **append-only by convention**. History must be auditable (matches ADR immutability principle and AC-19.7).
 
+## Post-Archive Drift Check
+
+After file modifications complete (steps 6–8) and before the final report, run a two-pass drift check against the live spec files to surface content that no longer matches the post-archive state. The drift check is **advisory only** — it never auto-rewrites narrative and never blocks the archival operation itself.
+
+### Pass A — Token grep (deterministic)
+
+Grep the live spec files — `specs/requirements.md`, `specs/technical-spec.md`, `specs/testing-spec.md`, `specs/plan.md` — for the exact identifiers just archived. Search literally for `M{N}`, `FR-{N}`, and `AC-{N}.` patterns (the trailing dot on the AC token keeps the grep anchored). **Exclude the Schema H pointer lines the archival operation wrote** by filtering out any line matching `^> archived:` — those pointers are expected references, not drift.
+
+Every remaining hit is an orphan token reference: the live spec names content that no longer lives in the live files. Pass A findings are `high` severity. Pass A runs **before** Pass B and its rows appear first in the unified report so deterministic findings are reviewed before judgment findings.
+
+### Pass B — Semantic scan (judgment)
+
+Read each live spec file in turn with the following brief:
+
+- **(a) Archived ID list:** the milestone and FR IDs just archived in this operation.
+- **(b) Archive excerpt:** a one-paragraph excerpt of the new archive file's title line and goal statement only — **not** the full body. Keeping the Pass B context bounded to title + goal keeps the prompt size stable regardless of how long the archived milestone was.
+- **(c) Scope-framing instruction:** flag narrative sections whose framing assumes the archived scope is the entire project. Look for wording that labels the project by the just-archived milestones when the remaining live milestones contradict that framing.
+
+**Canary pattern:** narrative that labels the project by the archived scope. The load-bearing example is the Flutter dogfood run — archiving M1–M4 (documentation milestones) left `requirements.md` Overview calling the project a "layered documentation set" and Out-of-Scope saying "Code changes — documentation only", while M5 (a code milestone) was still in flight. Any similar framing — "documentation-only", "docs-only deliverable", "layered X set" where X is the archived scope — is the signal Pass B must catch. Pass B findings are `medium` severity.
+
+Pass B is inherently subjective; the canary example bounds the judgment but edge cases will vary between runs. False positives are accepted as the cost of catching semantic drift that grep cannot see.
+
+> technical-spec.md uses Superseded-by markers, not archival — Pass B flags for this file are advisory only, never push for removal
+
+### Unified report (Schema I)
+
+Merge Pass A and Pass B findings into a single table following Schema I (see `specs/technical-spec.md` §4). Pass A rows appear first, then Pass B rows.
+
+```markdown
+| File | Section | Severity | Reason | Suggested action |
+|------|---------|----------|--------|------------------|
+| requirements.md | §6 Traceability Matrix | high | Orphan row `AC-3.2` references archived FR-3 | Remove row |
+| requirements.md | Overview (§1) | medium | "layered documentation set" framing assumes archived scope; contradicts in-flight M5 code milestone | Rewrite Overview to reflect current milestone mix |
+```
+
+Exactly 5 columns in the order `File`, `Section`, `Severity`, `Reason`, `Suggested action`. Exactly 2 severity values: `high` (Pass A) and `medium` (Pass B).
+
+**Empty report:** if both passes found nothing, print the literal string `No drift detected` and continue to the final report without prompting the user.
+
+### User choice (advisory — never blocks archival)
+
+If the drift report is non-empty, offer the user exactly three choices:
+
+1. **Address inline now** — walk through each flagged row, propose the edit, and wait for explicit per-edit approval. Pass A findings may be offered as mechanical deletions but still require explicit user approval before any file is modified; the drift check **never auto-edits narrative** based on Pass B findings.
+2. **Save for later** — write the Schema I table to `specs/drift-{YYYY-MM-DD}.md` for later review. Archival completes; no narrative edits are made.
+3. **Acknowledge and continue** — no file is written, no edits are made. Archival is complete.
+
+The drift check **never blocks the archival operation itself**. The archive file, the Schema H pointers, and the index row are already committed to disk by the time this check runs; the user's choice only governs what happens to the drift report.
+
 ## Rules
 
 - This skill operates ONLY on user-selected sections. Never auto-scan live specs for "done" milestones, checked boxes, or completion heuristics.
