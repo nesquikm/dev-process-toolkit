@@ -6,16 +6,16 @@ argument-hint: '[focus area]'
 
 # Simplify
 
-Review recently changed files for code quality issues and fix them.
+Review recently changed files for code quality issues and fix them. This skill complements `agents/code-reviewer.md` (the canonical defect/security rubric used by `/implement` Stage B and `/gate-check` Code Review) by focusing on *cleanup* — reuse, clarity, and efficiency — on files that have already passed review. Where wording overlaps (naming, hardcoded values, pattern compliance), follow the code-reviewer rubric as the source of truth.
 
 ## Process
 
 1. **Find changed files** — Check `git diff --name-only HEAD~1` (or `git diff --name-only` for uncommitted changes)
 
 2. **Review for:**
-   - **Reuse** — Is there duplicated logic that should be extracted?
-   - **Quality** — Are there code smells, unclear names, or unnecessary complexity?
-   - **Efficiency** — Are there obvious performance issues?
+   - **Reuse** — Is there duplicated logic that should be extracted? Any shared helper already exists?
+   - **Quality** — Unclear names, unnecessary complexity, or hardcoded values that should come from config (same standard as `agents/code-reviewer.md` § Code quality)
+   - **Efficiency** — Obvious performance issues (N+1 queries, unbounded loops, unnecessary allocations)
 
 3. **Fix issues** — Apply changes directly, keeping fixes minimal and focused
 

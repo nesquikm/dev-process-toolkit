@@ -108,17 +108,13 @@ Not every project needs every skill. Here's a recommended progression:
 
 ## Step 6: Configure Agents (Optional)
 
-Agents are specialist personas spawned by Claude for specific tasks. Common agents:
+Agents are specialist personas spawned by Claude via the `Agent` tool. As of v1.12.0 the plugin ships exactly one agent:
 
-- **code-reviewer** — Reviews code quality and pattern compliance
-- **test-writer** — Writes tests following project conventions
-- **debugger** — Investigates and fixes issues
+- **code-reviewer** — The canonical code review rubric (quality, security, patterns, stack-specific). `/implement` Phase 3 Stage B delegates to it via explicit `Agent`-tool invocation — see `docs/skill-anatomy.md` § Subagent Execution for the concrete example. `/gate-check` also references `agents/code-reviewer.md` as its rubric source, but runs the review inline so the verdict returns in one turn. Spec-compliance checks are **not** code-reviewer's job — `/spec-review` owns AC→code traceability.
 
-Agents go in `.claude/agents/` and need:
-- `name` and `description` in frontmatter
-- Domain expertise description
-- Step-by-step methodology
-- Output format specification
+Agents live in `.claude/agents/` (or `plugins/<plugin>/agents/` for plugins) and need `name` and `description` in frontmatter, a domain expertise description, and an explicit return shape so the calling skill can parse findings deterministically.
+
+To add project-specific agents, follow the same pattern: give them a focused rubric, a machine-parseable return shape, and a single canonical home — then have skills delegate to them via `Agent`-tool invocations rather than inlining the rubric in multiple places.
 
 ## Step 7: Configure Settings
 

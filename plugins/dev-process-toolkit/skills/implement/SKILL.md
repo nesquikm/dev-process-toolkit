@@ -11,47 +11,17 @@ Implement the following end-to-end: `$ARGUMENTS`
 
 ## Pre-flight: Branch Isolation
 
-Before starting, ask the user:
+Ask the user: "Work in a **git worktree** (isolated branch) or on the **current branch**?" — worktrees let failed runs be discarded cleanly; current branch starts immediately.
 
-> "Work in a **git worktree** (isolated branch) or on the **current branch**?
-> - Worktree: creates a clean branch — failed runs can be discarded without affecting your working tree.
-> - Current branch: start immediately on whatever is checked out."
-
-If the user chooses worktree:
-
-1. Derive a branch name from the task (e.g., `feat/user-auth`)
-2. Create: `git worktree add ../<branch-name> -b <branch-name>`
-3. Install dependencies in the new worktree based on detected project type:
-   - npm/yarn/pnpm: `npm install` (or equivalent)
-   - pip/uv: `uv sync` or `pip install -e .`
-   - cargo: `cargo build` (fetches dependencies)
-   - go: `go mod download`
-4. All Phase 1–4 work happens inside the new worktree directory
-5. If the run succeeds, tell the user how to merge back. If it fails, offer to discard: `git worktree remove <path> --force`
+If worktree: derive a branch name from the task (e.g., `feat/user-auth`), run `git worktree add ../<branch-name> -b <branch-name>`, install dependencies for the detected stack (`npm install`, `uv sync`, `cargo build`, `go mod download`, etc.), and perform all Phase 1–4 work inside the new directory. On success, tell the user how to merge back; on failure, offer `git worktree remove <path> --force`.
 
 ### Partial Failure Recovery
 
-If a multi-milestone run partially succeeds in a worktree:
+If a multi-milestone run partially succeeds in a worktree, list completed work (milestones + commit hashes) and failed work (which milestone broke and why), then offer three recovery options:
 
-- **Completed work:** List milestones/commits that succeeded
-- **Failed work:** List the milestone that failed and what broke
-
-**Recovery options:**
-
-1. **Cherry-pick completed commits** to the main branch:
-   ```bash
-   git checkout main
-   git cherry-pick <commit-hash-1> <commit-hash-2>
-   ```
-2. **Continue in the worktree** after fixing the failure:
-   ```bash
-   cd <worktree-path>
-   # fix the issue, then resume /implement
-   ```
-3. **Discard the worktree** entirely:
-   ```bash
-   git worktree remove <worktree-path> --force
-   ```
+1. **Cherry-pick completed commits** onto `main` (`git checkout main && git cherry-pick <hash>...`).
+2. **Continue in the worktree** after fixing the failure (`cd <worktree-path>`, fix, resume `/implement`).
+3. **Discard the worktree** entirely (`git worktree remove <worktree-path> --force`).
 
 ## Phase 1: Understand
 
@@ -123,10 +93,7 @@ Spec Breakout is a valid output, not a failure. It means the spec needs work bef
 
 10. **Checkpoint** — After completing each logical unit of work (a TDD cycle for a meaningful chunk), create a git commit on the working branch. These intermediate commits are recovery points — if a later change breaks things, you can revert to the last known-good state instead of starting over.
 
-11. **Gate check** — Run the gate commands from step 3
-   - This is the **deterministic kill switch** — if it fails, fix before proceeding
-   - Do NOT let judgment override a failing gate
-   - If the failure cause is unclear, use `/dev-process-toolkit:debug` for structured investigation
+11. **Gate check** — Run the gate commands from step 3. This is the **deterministic kill switch**: if it fails, fix before proceeding, never let judgment override a failing gate. If the failure cause is unclear, use `/dev-process-toolkit:debug` for structured investigation.
 
 ## Phase 3: Self-Review Loop (max 2 rounds)
 
@@ -159,20 +126,28 @@ Each round has three sequential stages. **Complete each stage before starting th
 
    **If Stage A finds any issues:** fix them, re-run the gate check, then proceed to Stage B.
 
-   ### Stage B — Code Quality
+   ### Stage B — Code Quality (delegated to `code-reviewer`)
 
-   d. **Code audit** — Re-read every file created/modified. Look for:
-   - Logic bugs, off-by-one errors, wrong comparisons
-   - Pattern violations (check CLAUDE.md for project patterns)
-   - Hardcoded values that should come from config
-   - Security issues (unsanitized input, injection risks)
-   - Note: edge-case test coverage is checked in Stage C — here, focus on the implementation logic itself
+   Stage B delegates to the `code-reviewer` subagent via an explicit `Agent`-tool invocation. The canonical rubric — quality, security, patterns, stack-specific — lives in `agents/code-reviewer.md`. Delegation keeps the review in a separate context so the parent skill's own reasoning doesn't contaminate it.
 
-   e. **Stack-specific checks** — Check the project's CLAUDE.md for domain-specific patterns and verify they are followed. Common examples:
-   - Flutter: const constructors, tryEmit() usage, codegen files not edited, l10n strings
-   - React/Web: URL state management, component prop types, accessibility
-   - MCP server: Response format compliance, ESM import extensions, tool registration
-   - API server: Input validation at boundaries, error response format, auth checks
+   d. **Invoke `code-reviewer` via the `Agent` tool** with a prompt built from this template. Resolve `<base-ref>` before pasting: use the feature branch's merge base (e.g., `git merge-base HEAD main`) on a branch run, `HEAD~1` on a hotfix on main, or `HEAD` if Phase 2 left uncommitted changes you need reviewed.
+
+   ```
+   Review the changes in this branch against the code-reviewer rubric (quality, security, patterns, stack-specific). Do NOT check spec compliance — /spec-review owns that and Stage A already covered it.
+
+   Changed files (name + status):
+   <paste output of: git diff --name-status <base-ref>>
+
+   Acceptance criteria from Phase 1 (context only, not your concern):
+   <paste AC checklist>
+
+   Read the project's CLAUDE.md for stack-specific patterns. Use your Read tool to open each changed file you need to inspect — the caller has not inlined the diff bodies. Return findings in the exact shape documented at the bottom of agents/code-reviewer.md.
+   ```
+
+   e. **Expected return shape** — one line per criterion, either `<criterion> — OK` or `<criterion> — CONCERN: file:line — <one-sentence reason>`, ending with `OVERALL: OK` or `OVERALL: CONCERNS (N)`. Integrate as follows:
+   - `OVERALL: OK` → Stage B passes; proceed to Stage C.
+   - `OVERALL: CONCERNS` → fix each concern, re-run the gate check, then re-invoke `code-reviewer` if you're still on round 1. On round 2, escalate per the Decision section.
+   - **Subagent errors or returns an unparseable shape** → fall back to reading `agents/code-reviewer.md` and executing the rubric inline. Never skip Stage B because delegation failed.
 
    ### Stage C — Hardening (first round only)
 
@@ -212,21 +187,11 @@ After the human approves the Phase 4 report (step 15), and **only then**, archiv
 - **technical-spec.md is never auto-archived** — architectural decisions use `Superseded-by:` in place (the ADR convention). `/implement` touches only `plan.md` and `requirements.md`.
 - Run archival **only after explicit human approval in step 15**, never before. If the user asks for changes instead, abort archival entirely.
 
-**Procedure** (write-then-delete ordering so an interrupted run leaves recoverable state). Sub-steps are lettered to avoid clashing with the Phase 4 flow numbering (steps 13–15 below):
-
-a. Resolve the archive target: `specs/archive/M{N}-{slug}.md`, where `{slug}` is the lowercased hyphen-separated milestone title.
-b. Consult the `specs/requirements.md` traceability matrix: find every AC whose row was populated (Implementation and Tests columns) during this milestone.
-c. **Collapse rule:** for any FR whose ACs are *all* archived by this operation, the live `requirements.md` keeps only a Schema H pointer line in place of the FR block. FRs with mixed status keep their FR header and any non-archived ACs; only the archived ACs move.
-d. Build the archive file body following Schema G (see `specs/technical-spec.md` §4): YAML frontmatter (`milestone`, `title`, `archived`, `revision: 1`, `source_files`), then three sections in order — `## Plan block (from plan.md)` with the verbatim milestone block, `## Requirements block (from requirements.md)` with the verbatim archived FR/AC content, `## Traceability (from requirements.md matrix)` with the matched matrix rows.
-e. **Write the archive file first**, before excising anything from the live specs. If the subsequent live-file edit fails, the user still has both the archive and the untouched original.
-f. **Move (do not copy)** the `## M{N}: {title} {#M{N}}` block out of `plan.md`, leaving in its place exactly one Schema H blockquote pointer line at the original location: `> archived: M{N} — {title} → specs/archive/M{N}-{slug}.md ({YYYY-MM-DD})`. The em-dash and right-arrow are literal.
-g. For every wholly-archived FR in `requirements.md`, collapse the block to the same Schema H pointer line. For FRs with mixed status, remove only the archived ACs.
-h. Append one new row to `specs/archive/index.md` per archival: `| M{N} | {title} | {YYYY-MM-DD} | [M{N}-{slug}.md](M{N}-{slug}.md) |`. Never rewrite existing rows.
-i. If the traceability matrix is incomplete (some AC rows for this milestone have no Implementation/Tests entries), **move only the plan block** and emit a warning asking the user to archive the orphaned ACs manually via `/dev-process-toolkit:spec-archive`.
+**Procedure.** Write-then-delete ordering so an interrupted run leaves recoverable state: build and write the Schema G archive file first (under `specs/archive/M{N}-{slug}.md`), then excise the plan block and the traceability-matched ACs from the live specs, leaving Schema H pointer lines in place, and append one row to `specs/archive/index.md`. The collapse rule (FRs with all ACs archived collapse to a pointer; FRs with mixed status keep their header) and the incomplete-matrix fallback (move only the plan block, warn the user to archive orphan ACs via `/dev-process-toolkit:spec-archive`) are detailed in `docs/implement-reference.md` § Milestone Archival Procedure along with the exact sub-step ordering.
 
 #### Post-Archive Drift Check
 
-After the archive move sub-steps (a–i) complete and before the final Phase 4 report rendering, run the post-archive drift check from `skills/spec-archive/SKILL.md` § Post-Archive Drift Check. Do **not** re-inline the two-pass logic here — point at it to stay DRY. For Pass B, build the brief from this milestone's context: (a) the just-archived milestone and FR IDs, (b) a one-paragraph excerpt of the new archive file's title and goal lines only (not the full body), (c) the standard scope-framing instruction from the spec-archive section. Render the unified Schema I table, apply the `No drift detected` empty path, and offer the same 3-choice UX (address inline / save to `specs/drift-{YYYY-MM-DD}.md` / acknowledge). The drift check never blocks the already-completed archival.
+After the archive move completes and before the final Phase 4 report rendering, run the post-archive drift check from `skills/spec-archive/SKILL.md` § Post-Archive Drift Check. Do **not** re-inline the two-pass logic here — point at it to stay DRY. For Pass B, build the brief from this milestone's context: (a) the just-archived milestone and FR IDs, (b) a one-paragraph excerpt of the new archive file's title and goal lines only (not the full body), (c) the standard scope-framing instruction from the spec-archive section. Render the unified Schema I table, apply the `No drift detected` empty path, and offer the same 3-choice UX (address inline / save to `specs/drift-{YYYY-MM-DD}.md` / acknowledge). The drift check never blocks the already-completed archival.
 
 For reopens, cross-cutting ACs, or anything this auto-path can't reach, `/dev-process-toolkit:spec-archive` is the escape hatch.
 
@@ -266,11 +231,8 @@ For reopens, cross-cutting ACs, or anything this auto-path can't reach, `/dev-pr
 
 If you hear yourself thinking any of these, stop and apply the rule anyway:
 
-- "I'll run gate-check after the next task" → run it now
-- "This is too simple to need a failing test first" → write the test
-- "I know the tests pass" → run them and read the actual output
-- "Just this once" → there is no just this once
-- "I'll test after, it's almost done" → write the test first
+- "I'll run gate-check after the next task" / "I know the tests pass" → run it now, read the actual output
+- "This is too simple to need a failing test first" / "I'll test after, it's almost done" → write the test first
 - "It should work now" → "should" is not a gate result
-- "The spec says X but Y works better" → update the spec first, don't silently diverge
-- "It's just a small edge case, no need to update specs" → backfill it now
+- "The spec says X but Y works better" / "It's just a small edge case, no need to update specs" → update the spec first, backfill now
+- "Just this once" → there is no just this once

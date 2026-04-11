@@ -1,6 +1,6 @@
 # Dev Process Toolkit
 
-A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 12 commands, 2 agents, spec templates, and documentation.
+A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 12 commands, 1 agent, spec templates, and documentation.
 
 ## Install as Plugin
 
@@ -26,7 +26,7 @@ This detects your stack, generates a CLAUDE.md, configures settings, and optiona
 | `/dev-process-toolkit:setup` | Set up SDD/TDD process for your project |
 | `/dev-process-toolkit:brainstorm` | Socratic design session before writing specs (for open-ended features) |
 | `/dev-process-toolkit:spec-write` | Guide through writing spec files (requirements, technical, testing, plan) |
-| `/dev-process-toolkit:implement` | End-to-end feature implementation with TDD and two-stage self-review |
+| `/dev-process-toolkit:implement` | End-to-end feature implementation with TDD and bounded three-stage self-review (Stage A spec compliance → Stage B delegated code review → Stage C hardening) |
 | `/dev-process-toolkit:tdd` | RED → GREEN → VERIFY cycle |
 | `/dev-process-toolkit:gate-check` | Deterministic quality gates (typecheck + lint + test) |
 | `/dev-process-toolkit:debug` | Structured debugging protocol for failing tests or unclear gate failures |
@@ -38,8 +38,7 @@ This detects your stack, generates a CLAUDE.md, configures settings, and optiona
 
 ### Agents
 
-- **code-reviewer** — Reviews code for quality, patterns, and security
-- **test-writer** — Writes tests following project conventions
+- **code-reviewer** — Canonical code review rubric (quality, security, patterns, stack-specific). Delegated to by `/implement` Phase 3 Stage B via explicit `Agent`-tool invocation; referenced inline by `/gate-check` Code Review.
 
 ## What's Inside
 
@@ -52,7 +51,7 @@ dev-process-toolkit/
 │       ├── .claude-plugin/
 │       │   └── plugin.json          # Plugin manifest
 │       ├── skills/                  # 12 skills (slash commands)
-│       ├── agents/                  # 2 specialist agents
+│       ├── agents/                  # 1 specialist agent (code-reviewer)
 │       ├── templates/               # CLAUDE.md and spec templates
 │       ├── docs/                    # Methodology and guides
 │       └── examples/                # Stack-specific configs
@@ -63,7 +62,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.11.0 — "Residue Scan"** (post-archive drift check: Pass A token grep + Pass B semantic scan, advisory-only Schema I report).
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.12.0 — "Dead Branches"** (wires `code-reviewer` into `/implement` Phase 3 Stage B via explicit `Agent`-tool delegation, deletes unused `test-writer` agent, consolidates review rubric into a single canonical home, drops `implement/SKILL.md` from 276 to 238 lines).
 
 ## Core Philosophy
 
