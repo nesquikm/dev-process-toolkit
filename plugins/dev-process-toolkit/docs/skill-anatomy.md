@@ -130,7 +130,37 @@ Use `` !`command` `` to run shell commands before the skill content is sent to C
 
 ## Subagent Execution
 
-Add `context: fork` to run a skill in isolation (separate context, no conversation history):
+There are two ways to run work in a separate context (isolated from the parent skill's conversation history): **explicit `Agent`-tool invocation from inside a skill body** (the pattern this plugin actually uses) and **`context: fork` frontmatter** (a documented alternative that this plugin does not exercise).
+
+### Explicit `Agent`-tool invocation (reference implementation)
+
+This is how `/implement` Phase 3 Stage B delegates to `code-reviewer`. The skill body tells Claude to invoke the `Agent` tool with a named subagent, a prompt built from runtime context, and an expected return shape that the caller parses to make a decision.
+
+Minimal example, adapted from `skills/implement/SKILL.md` Stage B. The real Stage B template also passes the Phase 1 AC checklist as context and tells the subagent "Do NOT check spec compliance — /spec-review owns that"; those lines are stripped here for clarity but should be included verbatim when copying the pattern for a new delegation point.
+
+```markdown
+d. **Invoke `code-reviewer` via the `Agent` tool** with a prompt built from this template:
+
+   \```
+   Review the changes in this branch against the code-reviewer rubric (quality, security, patterns, stack-specific).
+
+   Changed files (name + status):
+   <paste output of: git diff --name-status <base-ref>>
+
+   Return findings in the shape documented at the bottom of agents/code-reviewer.md.
+   \```
+
+e. **Expected return shape** — one line per criterion, `<criterion> — OK` or `<criterion> — CONCERN: file:line — <reason>`, ending with `OVERALL: OK` or `OVERALL: CONCERNS (N)`. Integrate:
+   - `OVERALL: OK` → continue
+   - `OVERALL: CONCERNS` → fix each concern and re-invoke
+   - Subagent errors or unparseable shape → fall back to running the rubric inline
+```
+
+Why this pattern: the skill author has explicit control over the prompt and the return shape, the caller parses a deterministic format instead of free-form text, and the fallback path (run inline if delegation fails) is explicit. The delegated agent lives in `.claude/agents/<name>.md` (or `plugins/<plugin>/agents/<name>.md`) and documents its own return shape.
+
+### Alternative — `context: fork` (unexercised in this plugin as of v1.12.0)
+
+Add `context: fork` to the skill frontmatter to run the whole skill in a forked context:
 
 ```yaml
 ---
@@ -138,6 +168,8 @@ context: fork
 agent: Explore    # Built-in: Explore, Plan, general-purpose, or a custom name from .claude/agents/
 ---
 ```
+
+As of v1.12.0, **0 of 12 skills in this plugin use this frontmatter** — the failure modes and prompt-passing ergonomics are not road-tested here. Prefer the explicit `Agent`-tool invocation pattern above for new delegation points. `context: fork` remains documented for readers adapting the plugin to other contexts where whole-skill forking is a better fit.
 
 ## Agents vs Skills
 

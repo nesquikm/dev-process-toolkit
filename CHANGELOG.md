@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [1.12.0] — 2026-04-11 — "Dead Branches"
+
+### Added
+
+- **`/implement` Phase 3 Stage B now delegates to `code-reviewer` via explicit `Agent`-tool invocation (FR-22 / AC-22.2)** — Stage B is no longer an inline rubric copy. The skill spells out the exact prompt template (changed files from `git diff --name-status <base-ref>`, Phase 1 AC checklist as context, stack hints from CLAUDE.md, explicit instruction to **not** check spec compliance), the expected return shape (`<criterion> — OK` / `<criterion> — CONCERN: file:line — <reason>`, ending with `OVERALL: OK` or `OVERALL: CONCERNS (N)`), and the Stage B pass/fail integration logic including an inline-fallback path if the subagent errors or returns an unparseable shape.
+- **`docs/skill-anatomy.md` gains a concrete `Agent`-tool delegation example (AC-22.8)** — The Subagent Execution section now leads with a copy-pasteable example adapted from `/implement` Phase 3 Stage B as the reference implementation. The existing abstract `context: fork` example is retained but explicitly labeled "Alternative — unexercised in this plugin as of v1.12.0" since 0 of 12 skills use that frontmatter.
+- **`docs/implement-reference.md` gains a Milestone Archival Procedure section** — Sub-steps a–i (archive target resolution, collapse rule, write-then-delete ordering, incomplete-matrix fallback) moved here from the skill body to free up line budget for the new delegation block while keeping the procedure fully documented.
+
+### Changed
+
+- **`agents/code-reviewer.md` is now the canonical review rubric for the plugin (AC-22.3, AC-22.5)** — Stack-specific review checklist (Flutter / React / MCP / API) moved here from `implement/SKILL.md` Stage B. The old Spec Compliance section is deleted — `/spec-review` remains the sole canonical home for AC→code traceability, and `code-reviewer` now covers quality, security, patterns, and stack-specific only. The agent file documents its exact return shape at the bottom so callers can parse findings deterministically.
+- **`gate-check/SKILL.md` Code Review section points at `agents/code-reviewer.md` as its rubric source (AC-22.4)** — Gate-check continues to run the review **inline** (synchronous, no delegation) because a gate verdict must return in one turn. Only the rubric source is unified, not the execution path.
+- **`simplify/SKILL.md` wording aligned with `code-reviewer.md` where they overlap (AC-22.6)** — Simplify is not converted to delegation; its scope (reuse / quality / efficiency cleanup) remains distinct. Where criteria overlap (naming, hardcoded values, pattern compliance), simplify now explicitly defers to the code-reviewer rubric to prevent contradictory guidance.
+- **`docs/adaptation-guide.md` Step 6 rewritten (AC-22.7)** — The stale `test-writer` and `debugger` bullets are gone; `code-reviewer` is described as the canonical review agent with `/implement` Phase 3 Stage B as the reference delegation point and a link to the `docs/skill-anatomy.md` example.
+- **`plugins/dev-process-toolkit/skills/implement/SKILL.md` shrunk from 276 → 238 lines (AC-22.9)** — 38-line reduction buffers NFR-1 (300-line skill cap) for future Phase 3 additions. Achieved by compressing Pre-flight + Partial Failure Recovery, moving the Milestone Archival sub-steps to `implement-reference.md`, and delegating the Stage B rubric body to `code-reviewer.md`.
+- **Skill and agent count across `CLAUDE.md` and `README.md`** updated to reflect the single remaining agent.
+
+### Removed
+
+- **`plugins/dev-process-toolkit/agents/test-writer.md` deleted (AC-22.1)** — Orphaned since inception: zero skill invocation sites, weaker duplicate of `/tdd` (RED → GREEN → VERIFY with shallow-assertion anti-patterns). `rg 'test-writer' plugins/` now returns zero matches (CHANGELOG.md is the only remaining reference).
+- **Spec Compliance section in `agents/code-reviewer.md`** — Deleted outright (not relocated). `/spec-review` was already the canonical home for AC→code traceability, and `code-reviewer` now covers quality, security, patterns, and stack-specific only.
+
+### Motivation
+
+A plugin audit on 2026-04-11 turned up two dead subagents (`code-reviewer` and `test-writer`) with zero invocation sites since the plugin's inception, plus duplicate review-rubric logic spread across four files (`gate-check`, `implement` Phase 3 Stage B, `simplify`, `code-reviewer.md`). `docs/skill-anatomy.md` documented `context: fork` + custom-agent delegation, but 0 of 12 skills exercised it — an advertised pattern that had never been road-tested. Meanwhile `implement/SKILL.md` sat at 276/300 against NFR-1 and its Stage B inlined ~60 lines of review rubric that would benefit from context-isolated delegation. v1.12.0 picks the boring, known-to-work path (explicit `Agent`-tool invocation from inside the skill body) rather than the unexercised `context: fork` alternative, gives `code-reviewer` a real delegation point so it stops being dead code, deletes `test-writer` so the plugin stops advertising an entry point that doesn't exist, and consolidates the review rubric into a single canonical home.
+
+### Dogfood validation
+
+As part of task 11 in M9, `/implement` was run against M9 itself and the new Stage B delegation was used to spawn `code-reviewer` on the in-flight change set. The subagent returned findings in the exact `OVERALL: CONCERNS (N)` shape the Stage B integration logic parses, caught legitimate issues (stale `test-writer` references in `CLAUDE.md` and `README.md`, an unresolved `<base-ref>` placeholder in the Stage B prompt template, skill-anatomy example missing an exclusion clause), and proved the delegation pattern is round-trip-executable by a fresh Claude instance reading the skill cold. All findings were resolved before the version bump.
+
 ## [1.11.0] — 2026-04-10 — "Residue Scan"
 
 ### Added

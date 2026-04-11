@@ -34,23 +34,9 @@ If a failure cause is unclear after reading the error output, use `/dev-process-
 
 After all commands pass, review the **changed code**. Use `git diff` against the base branch (e.g., `git diff main...HEAD`) if on a feature branch, or `git diff HEAD~1` if on the main branch. If there are uncommitted changes, include `git diff` (unstaged) and `git diff --cached` (staged) as well. Your job here is to find problems, not to praise the work. Approach this as if reviewing someone else's code — look for what's wrong, not what's right.
 
-Grade against this rubric:
+Use the canonical review rubric in `agents/code-reviewer.md` as the source of truth for criteria (quality, security, patterns, stack-specific). **Run the review inline** — gate-check must return a verdict in one turn, so do not delegate to the `code-reviewer` subagent from here. Also check spec compliance: every AC has a corresponding test, and no undocumented behavior has been added (security and spec-compliance concerns are the only critical criteria in gate-check; other concerns are non-critical).
 
-| Criterion | Critical? | What to check |
-|-----------|-----------|---------------|
-| **Spec compliance** | Yes | Every AC has a corresponding test. No undocumented behavior added. |
-| **Security** | Yes | Input validated at boundaries. No injection risks. No secrets in code. Run `npm audit` / `pip-audit` if available. |
-| **Edge cases** | No | Empty/null inputs handled. Boundary values tested. Error paths exercised. |
-| **Consistency** | No | Follows project patterns from CLAUDE.md. No style drift. |
-
-Also check for domain-specific criteria from the project's CLAUDE.md. Common examples by stack:
-- Flutter: Widget tests for UI, no missing l10n keys, proper disposal
-- API: Auth on all endpoints, rate limiting, error response format
-- Web: Accessibility, XSS prevention, CSP headers
-- Security: OWASP dependency check (`npm audit` / `pip-audit`), secrets scanner (`gitleaks`, `trufflehog`)
-- Security: Check for hardcoded credentials, API keys, or tokens in source files
-
-For each criterion, report: **OK** or **CONCERN** with specifics.
+For each criterion, report: **OK** or **CONCERN** with specifics. Use the exact shape documented at the bottom of `agents/code-reviewer.md` (`<criterion> — OK` or `<criterion> — CONCERN: file:line — <reason>`).
 
 ## Drift Check
 
