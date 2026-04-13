@@ -24,7 +24,7 @@ Skills follow the [Agent Skills](https://agentskills.io) open standard, which wo
 name: my-skill                    # Display name, becomes /my-skill. Lowercase, hyphens, max 64 chars.
 description: What it does         # Claude uses this to decide relevance. Under 250 chars; front-load the key use case.
 argument-hint: '<arg> [optional]' # Shown in autocomplete
-disable-model-invocation: true    # Only user can trigger (not Claude). Use for side-effect workflows.
+disable-model-invocation: true    # Only user can trigger (not Claude/subagents). Reserve for bootstrap-style skills that rewrite project scaffolding (e.g., /setup). Avoid on composable skills — it blocks legitimate agent-team composition.
 user-invocable: false             # Only Claude can trigger (hidden from / menu). Use for background knowledge.
 allowed-tools: Read, Grep, Glob   # Tool restrictions when skill is active
 model: sonnet                     # Model override
@@ -158,6 +158,8 @@ e. **Expected return shape** — one line per criterion, `<criterion> — OK` or
 
 Why this pattern: the skill author has explicit control over the prompt and the return shape, the caller parses a deterministic format instead of free-form text, and the fallback path (run inline if delegation fails) is explicit. The delegated agent lives in `.claude/agents/<name>.md` (or `plugins/<plugin>/agents/<name>.md`) and documents its own return shape.
 
+**Sequential multi-pass variant.** `/implement` Phase 3 Stage B uses this primitive twice in a row (Pass 1 — Spec Compliance, Pass 2 — Code Quality) with two different prompts against the same subagent, a fail-fast rule between them, and a literal skipped-pass reporting line when Pass 1 finds critical findings. See `skills/implement/SKILL.md` § Stage B for the full template and `agents/code-reviewer.md` § Pass-Specific Return Contracts for the two prompt shapes. When you need different scrutiny levels on the same diff, the multi-pass variant lets you order them deterministically (cheapest gate first) instead of conflating them into one prompt.
+
 ### Alternative — `context: fork` (unexercised in this plugin as of v1.12.0)
 
 Add `context: fork` to the skill frontmatter to run the whole skill in a forked context:
@@ -188,7 +190,7 @@ See the official docs for the full list of agent fields: https://code.claude.com
 ## Best Practices
 
 1. **Keep SKILL.md under 500 lines** — move reference material to separate files
-2. **Use `disable-model-invocation: true`** for skills with side effects (deploy, commit, PR)
+2. **Reserve `disable-model-invocation: true` for bootstrap skills** — use it on skills that rewrite project scaffolding (e.g., `/setup`) where a subagent re-running the skill mid-flight would clobber the working tree. Do **not** use it on composable skills like `/implement` or `/pr`; the flag blocks agent-team subagents from invoking them via the `Skill` tool, forcing the leaky workaround of reading `SKILL.md` body manually.
 3. **Use `allowed-tools`** to restrict what Claude can do (e.g., read-only for review skills)
 4. **Reference supporting files** so Claude knows when to load them
 5. **Include clear phase structure** — skills with phases are easier for Claude to follow

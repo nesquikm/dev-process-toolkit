@@ -75,6 +75,8 @@ Read all other specs. Then:
 - For each milestone: list tasks in dependency order, acceptance criteria, and gate commands
 - Draw the milestone dependency graph
 
+**Task Sizing:** generated tasks must follow the Task Sizing guidance in `templates/spec-templates/plan.md.template` — each task ≈ one commit's worth of work, written as a 2-line entry (action line + indented `verify:` line). If you can't name a single verification step, split the task. See the template's anti-pattern callout for examples of tasks that are too large.
+
 Present the plan and ask for approval.
 
 ### 4. Review and confirm

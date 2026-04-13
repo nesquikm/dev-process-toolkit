@@ -6,6 +6,21 @@
 <!-- Don't proceed to M(n+1) until M(n) gates pass -->
 <!-- Every milestone heading must carry its stable anchor ID `{#M{N}}` — this is the archival pointer target (see docs/patterns.md#stable-anchor-ids) -->
 
+### Task Sizing
+
+Each task should be ≈ one commit's worth of work — small enough that the verification step is unambiguous. Write tasks as 2-line entries:
+
+- line 1 — the action as a checkbox bullet, e.g. `- [ ] Add X`
+- line 2 — an indented `verify:` line stating the command or observation that proves the task is done
+
+If you can't write the `verify:` line in one sentence, the task is too big. Split it.
+
+**Anti-patterns — tasks too large to verify cleanly:**
+
+- `- [ ] Implement entire feature` — "entire feature" is a milestone, not a task; you can't verify it in one step
+- `- [ ] Refactor and add tests and update docs` — conjunctions hide three separate commits' worth of work; each clause needs its own `verify:` line
+- `- [ ] Clean up technical debt` — no observable end state; can't tell when it's done
+
 ## M1: [Foundation / Scaffolding] {#M1}
 
 **Goal:** <!-- What this milestone achieves -->
@@ -13,9 +28,12 @@
 
 **Tasks:**
 <!-- ADAPT: Structure tasks by dependency order. Examples — schema first, then API routes, then UI (TypeScript); models first, then BLoC, then widgets (Flutter); models first, then services, then views (Python) -->
-1. <!-- Task in dependency order -->
-2.
-3.
+- [ ] <!-- Task 1 action in dependency order -->
+  verify: <!-- command or observation that proves task 1 is done -->
+- [ ] <!-- Task 2 action -->
+  verify: <!-- command or observation -->
+- [ ] <!-- Task 3 action -->
+  verify: <!-- command or observation -->
 
 **Tests:**
 - <!-- What to test -->
@@ -35,9 +53,12 @@
 **Prerequisites:** M1
 
 **Tasks:**
-1.
-2.
-3.
+- [ ] <!-- Task 1 action -->
+  verify: <!-- command or observation -->
+- [ ] <!-- Task 2 action -->
+  verify: <!-- command or observation -->
+- [ ] <!-- Task 3 action -->
+  verify: <!-- command or observation -->
 
 **Tests:**
 -
