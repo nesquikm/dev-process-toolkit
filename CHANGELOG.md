@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [1.13.0] — 2026-04-13 — "Second Look"
+
+### Added
+
+- **Two-pass `/implement` Phase 3 Stage B (FR-23 / AC-23.1..23.8)** — Stage B now delegates to `code-reviewer` **twice in sequence** via the `Agent` tool. **Pass 1 — Spec Compliance** (gated on `specs/requirements.md` existing; silently skipped when `specs/` is absent) asks the subagent whether every change in the diff traces to an AC and flags any undocumented behavior. **Pass 2 — Code Quality** runs only if Pass 1 returned `OVERALL: OK` or Pass 1 was skipped, and applies the canonical 5-criterion rubric. The literal fail-fast rule `If Pass 1 returns critical findings, do NOT run Pass 2; surface Pass 1 findings and stop.` is in the skill body verbatim. Skipped Pass 2 is reported as the literal line `Pass 2: Skipped (Pass 1 critical findings)` under a `### Pass 2: Code Quality` subheading — never silently omitted. `implement/SKILL.md` grew from 238 → 274 lines (still 26 under NFR-1).
+- **`### Pass-Specific Return Contracts` in `agents/code-reviewer.md` (FR-23 / AC-23.6)** — New subsection documents the two prompt shapes. Pass 1 returns one `AC-X.Y — OK|CONCERN` line per AC plus one catch-all `Undocumented behavior` line; Pass 2 returns one line per rubric criterion. Both end with `OVERALL: OK` or `OVERALL: CONCERNS (N)` — the existing Schema J shape, reused unchanged at the line level.
+- **`### Rationalization Prevention` table in `gate-check/SKILL.md` Red Flags (FR-24 / AC-24.1..24.4)** — Two-column table (`Excuse` | `Reality`) borrowed from the `superpowers` plugin with the 6 canonical rows (`Should work now` / `Run the verification`, `I'm confident` / `Confidence ≠ evidence`, `Just this once` / `No exceptions`, `Linter passed` / `Linter ≠ compiler / tests`, `Agent said success` / `Verify independently`, `Partial check is enough` / `Partial proves nothing`) in that order. No verdict strings changed (NFR-4 preserved).
+- **`plugins/dev-process-toolkit/docs/parallel-execution.md` (FR-25 / AC-25.1..25.8)** — New 75-line advisory doc (budget ≤200) covering `## Native Subagents` (links `https://code.claude.com/docs/en/sub-agents`), `## Agent-Teams` (links `https://code.claude.com/docs/en/agent-teams`), and `## Worktree-per-Subagent Isolation`. The top-of-file **Advisory only** disclaimer makes the opt-in framing explicit. The worktree section documents merge-back via `/implement`'s existing recovery options and file-partitioning for conflict avoidance.
+- **`## Parallelization` subsection in `implement/SKILL.md` (FR-25 / AC-25.6)** — Placed immediately before `## Phase 3` (not buried in Phase 2 prose) with the literal pointer line `For parallelizable work, see docs/parallel-execution.md before dispatching.` Ensures the new doc is consulted on every `/implement` run instead of becoming dead weight.
+- **`### Task Sizing` in `templates/spec-templates/plan.md.template` (FR-26 / AC-26.1..26.3)** — Tasks now render as 2-line entries (`- [ ] Action` + indented `verify:` line). New sizing note carries the literal `Each task should be ≈ one commit's worth of work — small enough that the verification step is unambiguous`. Anti-pattern callout lists three bad task shapes (`Implement entire feature`, `Refactor and add tests and update docs`, `Clean up technical debt`) each with a one-line reason.
+- **`Task Sizing` reference in `spec-write/SKILL.md` (FR-26 / AC-26.4)** — `plan.md` step now instructs `/spec-write` to generate tasks conforming to the template's 2-line shape and points back at the template for the anti-pattern callout.
+
+### Changed
+
+- **`disable-model-invocation: true` dropped from `/implement` and `/pr` (FR-27 / AC-27.1..27.6)** — The flag was a leaky workaround blocking legitimate composition from agent-teams subagents (a subagent could not invoke `/implement` via the `Skill` tool and had to read `SKILL.md` body manually). Flag is retained on `/setup` only (bootstrap skill — a subagent re-running `/setup` mid-flight would clobber the working tree). `docs/skill-anatomy.md` Best Practices narrowed to recommend the flag only for bootstrap-style skills.
+- **`docs/skill-anatomy.md` § Subagent Execution** — Gained a brief "Sequential multi-pass variant" note pointing at the Stage B two-pass template as the canonical example of stacking the `Agent`-tool primitive.
+- **Root `CLAUDE.md` agent line** — Updated to describe `code-reviewer` as "invoked twice by /implement Stage B: Pass 1 spec-compliance, Pass 2 code-quality".
+- **`README.md`** — `/implement` row describes the two-pass Stage B; `code-reviewer` agent bullet enumerates the pass-specific return contracts; Latest-release pointer updated to v1.13.0.
+
+### Motivation
+
+The single Stage B review from v1.12.0 conflated "did we build the right thing" (spec compliance) with "did we build it well" (code quality), leaving the subagent with no way to escalate a wrong-feature finding over a minor style nit. Splitting Pass 1 and Pass 2 with fail-fast between them makes the cheaper gate (spec compliance) the one that runs first and stops the review early when the change is fundamentally wrong. The rationalization-prevention table in `/gate-check` is the cheap deterrent against "should work now" / "I'm confident" / "linter passed" reasoning — same cost as a single bullet list, roughly one order of magnitude higher salience. `docs/parallel-execution.md` closes the documentation gap for the worktree + subagents + agent-teams patterns the toolkit already relies on (M10 itself was implemented under a team-lead + implementer pair inside a worktree) without pushing implementation-pattern prose into the ~270-line `implement/SKILL.md`. The `plan.md.template` tightening is the lesson from prior milestones where "Task 1 — Implement entire feature" showed up and there was no obvious verification step to gate on.
+
+### Dogfood validation
+
+Task 12 of M10 ran `/implement` on M10 itself end-to-end through the new two-pass Stage B. Pass 1 and Pass 2 both fired on the M10 change set and returned `OVERALL: OK`; a synthetic spec-drift variant (adding an undocumented function) was reasoned through to confirm Pass 2 is reported as `Pass 2: Skipped (Pass 1 critical findings)` on fail-fast, per AC-23.5. All four FRs passed Tier 1 static verification and Tier 2 behavioral scenarios.
+
 ## [1.12.0] — 2026-04-11 — "Dead Branches"
 
 ### Added

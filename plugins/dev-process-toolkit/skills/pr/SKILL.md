@@ -1,7 +1,6 @@
 ---
 name: pr
 description: Create a pull request with conventional format. Use when asked to create a PR, open a pull request, or push changes for review.
-disable-model-invocation: true
 argument-hint: '[PR title]'
 ---
 

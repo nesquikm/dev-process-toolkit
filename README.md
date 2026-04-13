@@ -26,7 +26,7 @@ This detects your stack, generates a CLAUDE.md, configures settings, and optiona
 | `/dev-process-toolkit:setup` | Set up SDD/TDD process for your project |
 | `/dev-process-toolkit:brainstorm` | Socratic design session before writing specs (for open-ended features) |
 | `/dev-process-toolkit:spec-write` | Guide through writing spec files (requirements, technical, testing, plan) |
-| `/dev-process-toolkit:implement` | End-to-end feature implementation with TDD and bounded three-stage self-review (Stage A spec compliance → Stage B delegated code review → Stage C hardening) |
+| `/dev-process-toolkit:implement` | End-to-end feature implementation with TDD and bounded three-stage self-review (Stage A spec compliance → Stage B two-pass delegated review: Pass 1 spec compliance, Pass 2 code quality, fail-fast → Stage C hardening) |
 | `/dev-process-toolkit:tdd` | RED → GREEN → VERIFY cycle |
 | `/dev-process-toolkit:gate-check` | Deterministic quality gates (typecheck + lint + test) |
 | `/dev-process-toolkit:debug` | Structured debugging protocol for failing tests or unclear gate failures |
@@ -38,7 +38,7 @@ This detects your stack, generates a CLAUDE.md, configures settings, and optiona
 
 ### Agents
 
-- **code-reviewer** — Canonical code review rubric (quality, security, patterns, stack-specific). Delegated to by `/implement` Phase 3 Stage B via explicit `Agent`-tool invocation; referenced inline by `/gate-check` Code Review.
+- **code-reviewer** — Canonical code review rubric (quality, security, patterns, stack-specific) plus pass-specific return contracts for the Stage B two-pass flow. Invoked twice by `/implement` Phase 3 Stage B via `Agent`-tool delegation — Pass 1 spec compliance (gated on `specs/requirements.md` existing; fail-fast), Pass 2 code quality; referenced inline by `/gate-check` Code Review.
 
 ## What's Inside
 
@@ -62,7 +62,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.12.0 — "Dead Branches"** (wires `code-reviewer` into `/implement` Phase 3 Stage B via explicit `Agent`-tool delegation, deletes unused `test-writer` agent, consolidates review rubric into a single canonical home, drops `implement/SKILL.md` from 276 to 238 lines).
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.13.0 — "Second Look"** (splits `/implement` Phase 3 Stage B into two sequential `code-reviewer` passes — Pass 1 spec compliance, Pass 2 code quality, fail-fast; adds a rationalization-prevention table to `/gate-check`; introduces `docs/parallel-execution.md` with a `## Parallelization` pointer from `/implement`; tightens `plan.md.template` task-sizing discipline).
 
 ## Core Philosophy
 
