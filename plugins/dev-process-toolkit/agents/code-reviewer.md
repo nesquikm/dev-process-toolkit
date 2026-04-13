@@ -55,3 +55,18 @@ Report one line per criterion in this exact shape so callers can parse the resul
 - `CONCERN: file:line — <one-sentence explanation>` — concrete, actionable finding with a file reference. Multiple concerns under the same criterion get separate lines.
 
 End with a short overall verdict: `OVERALL: OK` or `OVERALL: CONCERNS (N)` where N is the total number of concern lines.
+
+### Pass-Specific Return Contracts
+
+`/implement` Phase 3 Stage B invokes this agent twice with different prompt shapes. Both reuse the OK / CONCERN line format above — the criteria list changes, the shape does not.
+
+**Pass 1 — Spec Compliance.** Prompt references AC IDs from `specs/requirements.md` and the changed-files list. Report one line per AC (`AC-X.Y — OK` or `AC-X.Y — CONCERN: file:line — <reason>`) plus one catch-all line for any code in the diff that has no corresponding AC (`Undocumented behavior — CONCERN: file:line — <reason>` or `Undocumented behavior — OK`). End with `OVERALL: OK` or `OVERALL: CONCERNS (N)`.
+
+```
+AC-3.1 — OK
+AC-3.2 — CONCERN: src/auth.ts:42 — retry budget not enforced
+Undocumented behavior — CONCERN: src/auth.ts:88 — cache eviction logic has no AC
+OVERALL: CONCERNS (2)
+```
+
+**Pass 2 — Code Quality.** Prompt references the canonical 5-criterion rubric above (architecture, code quality, common issues, security, stack-specific). Report one line per rubric criterion in the same OK / CONCERN format, ending with `OVERALL: OK` or `OVERALL: CONCERNS (N)`. Example already shown above.

@@ -13,7 +13,7 @@ This repo is a **Claude Code plugin marketplace** containing one plugin. The plu
 plugins/dev-process-toolkit/             → The plugin
 ├── .claude-plugin/plugin.json           → Plugin manifest
 ├── skills/                              → 12 slash commands (setup, brainstorm, spec-write, implement, tdd, gate-check, debug, spec-review, spec-archive, visual-check, pr, simplify)
-├── agents/                              → 1 subagent template (code-reviewer — canonical review rubric, delegated from /implement Stage B)
+├── agents/                              → 1 subagent template (code-reviewer — canonical review rubric, invoked twice by /implement Stage B: Pass 1 spec-compliance, Pass 2 code-quality)
 ├── templates/                           → CLAUDE.md template, spec file templates, settings.json
 ├── docs/                                → Methodology, skill anatomy, adaptation guide, patterns
 └── examples/                            → Stack-specific configs (TypeScript, Flutter, Python)

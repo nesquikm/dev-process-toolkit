@@ -108,3 +108,14 @@ If you hear yourself thinking any of these, stop and run the gate anyway:
 - "I know the tests pass" → run them and read the actual output
 - "It should work now" → "should" is not a gate result
 - "Just this once I'll skip it" → there is no just this once
+
+### Rationalization Prevention
+
+| Excuse | Reality |
+|--------|---------|
+| Should work now | Run the verification |
+| I'm confident | Confidence ≠ evidence |
+| Just this once | No exceptions |
+| Linter passed | Linter ≠ compiler / tests |
+| Agent said success | Verify independently |
+| Partial check is enough | Partial proves nothing |
