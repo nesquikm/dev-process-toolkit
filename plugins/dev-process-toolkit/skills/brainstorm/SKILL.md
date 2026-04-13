@@ -51,8 +51,19 @@ Once the design is approved:
 
 ## Rules
 
-- Ask one clarifying question at a time — don't interrogate
+- Ask one clarifying question per turn. Wait for the answer before asking the next. This rule holds at phase transitions too — when two questions look independent, still ask the first, wait, then ask the second.
 - Present real tradeoffs, not strawmen — each approach should be genuinely viable
 - Do NOT write code or spec content during brainstorming
 - Do NOT proceed to spec writing without explicit design approval
 - The goal is a clear, approved design decision — not an exhaustive analysis
+
+### Rationalization Prevention
+
+The one-at-a-time rule fails most often at phase transitions and when the user is being responsive. The excuses below are the ones to watch for — stop and ask only the first question each time.
+
+| Excuse | Reality |
+|--------|---------|
+| These two questions are independent | Ask the first, wait, then the second |
+| Efficiency wins — batch them | Efficiency ≠ batching; the socratic form is the gate |
+| The user is responsive, I'll batch | Responsiveness is not license to batch |
+| We're at the handoff, last chance | Phase transitions are where batching happens most — same rule applies |
