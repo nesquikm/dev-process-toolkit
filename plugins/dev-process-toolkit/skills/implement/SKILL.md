@@ -1,7 +1,6 @@
 ---
 name: implement
 description: Implement a feature or fix end-to-end. Analyzes the request, builds in TDD order, runs gate checks, self-reviews with bounded loops, and reports for human approval before committing.
-disable-model-invocation: true
 argument-hint: '<milestone, task description, issue number, "next", or "all">'
 ---
 
@@ -95,6 +94,10 @@ Spec Breakout is a valid output, not a failure. It means the spec needs work bef
 
 11. **Gate check** — Run the gate commands from step 3. This is the **deterministic kill switch**: if it fails, fix before proceeding, never let judgment override a failing gate. If the failure cause is unclear, use `/dev-process-toolkit:debug` for structured investigation.
 
+## Parallelization
+
+When a milestone has fan-out-friendly tasks (independent files, ≥3 workers worth of work), parallel dispatch via native subagents, agent-teams, or worktree-per-subagent isolation can keep each context clean and shorten wall-clock. For parallelizable work, see `docs/parallel-execution.md` before dispatching.
+
 ## Phase 3: Self-Review Loop (max 2 rounds)
 
 > The gate check is the hard stop. This review loop is the smart stop.
@@ -126,14 +129,44 @@ Each round has three sequential stages. **Complete each stage before starting th
 
    **If Stage A finds any issues:** fix them, re-run the gate check, then proceed to Stage B.
 
-   ### Stage B — Code Quality (delegated to `code-reviewer`)
+   ### Stage B — Two-Pass Review (delegated to `code-reviewer`)
 
-   Stage B delegates to the `code-reviewer` subagent via an explicit `Agent`-tool invocation. The canonical rubric — quality, security, patterns, stack-specific — lives in `agents/code-reviewer.md`. Delegation keeps the review in a separate context so the parent skill's own reasoning doesn't contaminate it.
+   Stage B runs two sequential `code-reviewer` invocations via the `Agent` tool: **Pass 1 — Spec Compliance** (did we build the right thing?) then **Pass 2 — Code Quality** (did we build it well?). Both passes use the canonical rubric in `agents/code-reviewer.md`; only the prompt differs. Delegation keeps each review in an isolated context.
 
-   d. **Invoke `code-reviewer` via the `Agent` tool** with a prompt built from this template. Resolve `<base-ref>` before pasting: use the feature branch's merge base (e.g., `git merge-base HEAD main`) on a branch run, `HEAD~1` on a hotfix on main, or `HEAD` if Phase 2 left uncommitted changes you need reviewed.
+   **If Pass 1 returns critical findings, do NOT run Pass 2; surface Pass 1 findings and stop.**
+
+   Resolve `<base-ref>` once before either pass: use the feature branch's merge base (e.g., `git merge-base HEAD main`) on a branch run, `HEAD~1` on a hotfix on main, or `HEAD` if Phase 2 left uncommitted changes you need reviewed.
+
+   ### Pass 1: Spec Compliance
+
+   Runs only if `specs/requirements.md` exists. If `specs/` does not exist, skip Pass 1 silently and run Pass 2 as the sole review (graceful degradation for non-spec projects).
+
+   d. **Invoke `code-reviewer` via the `Agent` tool** with this prompt:
 
    ```
-   Review the changes in this branch against the code-reviewer rubric (quality, security, patterns, stack-specific). Do NOT check spec compliance — /spec-review owns that and Stage A already covered it.
+   Pass 1 — Spec Compliance. Check whether every change in the diff traces to an acceptance criterion in specs/requirements.md, and flag any code that has no corresponding AC (undocumented behavior).
+
+   Changed files (name + status):
+   <paste output of: git diff --name-status <base-ref>>
+
+   Acceptance criteria from Phase 1 (this IS your concern):
+   <paste AC checklist>
+
+   Read specs/requirements.md directly. Use your Read tool to open each changed file. Return findings in the Pass-Specific Return Contracts shape documented in agents/code-reviewer.md (one line per AC: OK or CONCERN, plus OVERALL).
+   ```
+
+   e. **Integrate Pass 1:**
+   - `OVERALL: OK` → Pass 1 passes; run Pass 2.
+   - `OVERALL: CONCERNS` (critical: undocumented features or missing AC coverage) → fail-fast. Skip Pass 2. Report Pass 2 as the literal line `Pass 2: Skipped (Pass 1 critical findings)` — never silently omitted. Fix findings, re-run the gate check, then re-invoke Pass 1 on round 2 — if round 2 still fails, escalate per the Decision section.
+
+   ### Pass 2: Code Quality
+
+   Runs only if Pass 1 returned `OVERALL: OK`, or if Pass 1 was skipped because `specs/` does not exist.
+
+   f. **Invoke `code-reviewer` via the `Agent` tool** with this prompt:
+
+   ```
+   Pass 2 — Code Quality. Review the changes against the canonical rubric (quality, security, patterns, stack-specific). Do NOT check spec compliance — Pass 1 (or /spec-review) owns that.
 
    Changed files (name + status):
    <paste output of: git diff --name-status <base-ref>>
@@ -144,10 +177,12 @@ Each round has three sequential stages. **Complete each stage before starting th
    Read the project's CLAUDE.md for stack-specific patterns. Use your Read tool to open each changed file you need to inspect — the caller has not inlined the diff bodies. Return findings in the exact shape documented at the bottom of agents/code-reviewer.md.
    ```
 
-   e. **Expected return shape** — one line per criterion, either `<criterion> — OK` or `<criterion> — CONCERN: file:line — <one-sentence reason>`, ending with `OVERALL: OK` or `OVERALL: CONCERNS (N)`. Integrate as follows:
+   g. **Integrate Pass 2** — one line per criterion, either `<criterion> — OK` or `<criterion> — CONCERN: file:line — <one-sentence reason>`, ending with `OVERALL: OK` or `OVERALL: CONCERNS (N)`.
    - `OVERALL: OK` → Stage B passes; proceed to Stage C.
-   - `OVERALL: CONCERNS` → fix each concern, re-run the gate check, then re-invoke `code-reviewer` if you're still on round 1. On round 2, escalate per the Decision section.
-   - **Subagent errors or returns an unparseable shape** → fall back to reading `agents/code-reviewer.md` and executing the rubric inline. Never skip Stage B because delegation failed.
+   - `OVERALL: CONCERNS` → fix each concern, re-run the gate check, then re-invoke Pass 2 if you're still on round 1. On round 2, escalate per the Decision section.
+   - **Either subagent errors or returns an unparseable shape** → fall back to reading `agents/code-reviewer.md` and executing the corresponding pass's rubric inline. Never skip Stage B because delegation failed.
+
+   **Stage B report aggregates under two subheadings:** `### Pass 1: Spec Compliance` and `### Pass 2: Code Quality`. The Pass 2 block must exist even when skipped (use the literal skipped line above).
 
    ### Stage C — Hardening (first round only)
 
