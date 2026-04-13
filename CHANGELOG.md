@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [1.14.0] — 2026-04-13 — "Single File"
+
+### Added
+
+- **Canonical one-at-a-time sentence in `brainstorm/SKILL.md` and `spec-write/SKILL.md` Rules (FR-28 / AC-28.1, AC-28.4, AC-28.5)** — Both skills now carry the byte-identical sentence `Ask one clarifying question per turn. Wait for the answer before asking the next. This rule holds at phase transitions too — when two questions look independent, still ask the first, wait, then ask the second.` as a Rules bullet. Treated as a cross-skill schema (NFR-4 precedent): a Tier 1 `diff` check catches drift on future edits.
+- **`### Rationalization Prevention` subsection in `brainstorm/SKILL.md` (FR-28 / AC-28.2)** — New 2-column table (`Excuse` | `Reality`) with 4 rows targeting the specific excuses observed in the v1.13.0-session violation: "These two questions are independent" / "Ask the first, wait, then the second"; "Efficiency wins — batch them" / "Efficiency ≠ batching; the socratic form is the gate"; "The user is responsive, I'll batch" / "Responsiveness is not license to batch"; "We're at the handoff, last chance" / "Phase transitions are where batching happens most — same rule applies". Mirrors the pattern shipped by FR-24 in `/gate-check`.
+
+### Changed
+
+- **Per-section question blocks in `spec-write/SKILL.md` (FR-28 / AC-28.3, AC-28.7)** — The 4 blocks under `#### requirements.md`, `#### technical-spec.md`, `#### testing-spec.md`, `#### plan.md` reshaped from bulleted simultaneous-question lists to explicit ordered-waiting prose ("Ask {Q1}. Wait for the answer. Then ask {Q2}."). Same questions, same steps — only framing changed. No heading renames, no removed steps, no new required user-facing questions.
+
+### Motivation
+
+At the tail of the v1.13.0 session, Claude batched two independent scope-lock questions at the `/brainstorm` → `/spec-write` handoff despite both skills' explicit one-question-at-a-time rule. The rule was documented but not followed rigorously at phase transitions, and `/spec-write`'s bulleted per-section question blocks implicitly encouraged the same batching. This release tightens the wording in both skill files (where downstream-project memory cannot reach) and reshapes `/spec-write`'s structure so the socratic form is visible in the skill body itself. The Rationalization Prevention table targets the three rationalizations observed in-session ("these are independent", "efficiency", "responsive user") plus the phase-transition trap explicitly. Both skills remain well under the NFR-1 300-line budget (`brainstorm` 69, `spec-write` 146).
+
 ## [1.13.0] — 2026-04-13 — "Second Look"
 
 ### Added

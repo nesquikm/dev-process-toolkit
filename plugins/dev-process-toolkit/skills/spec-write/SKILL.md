@@ -35,12 +35,9 @@ This order matters because each spec builds on the previous one.
 
 #### requirements.md (WHAT to build)
 
-Ask the user:
-- What is this project? Who is it for? What problem does it solve?
-- What are the main features? (List them as functional requirements)
-- For each feature: what are the acceptance criteria? (Binary pass/fail)
-- What is explicitly out of scope?
-- Any non-functional requirements? (Performance, security, accessibility)
+Ask the questions in this order, one at a time. Wait for each answer before asking the next — do not bundle them into a single turn even when the user is responsive.
+
+Ask what this project is, who it is for, and what problem it solves. Wait for the answer. Then ask what the main features are (list them as functional requirements). Wait for the answer. Then ask, for each feature, what the acceptance criteria are (binary pass/fail). Wait for the answer. Then ask what is explicitly out of scope. Wait for the answer. Then ask whether there are any non-functional requirements (performance, security, accessibility).
 
 Write the answers into the spec using the template structure (FR-1, AC-1.1, etc.).
 
@@ -48,32 +45,25 @@ Write the answers into the spec using the template structure (FR-1, AC-1.1, etc.
 
 #### technical-spec.md (HOW to build it)
 
-Read `requirements.md` first to understand what needs building. Then ask:
-- What's the high-level architecture? (Read existing code if any)
-- What are the key design decisions and their rationale?
-- What's the data model? (Schemas, types, database tables)
-- What APIs or interfaces are needed?
-- What are the key patterns? (State management, error handling, etc.)
+Read `requirements.md` first to understand what needs building. Then ask the questions below in order, one at a time — wait for each answer before asking the next.
+
+Ask what the high-level architecture looks like (read existing code if any). Wait for the answer. Then ask what the key design decisions are and their rationale. Wait for the answer. Then ask what the data model is (schemas, types, database tables). Wait for the answer. Then ask what APIs or interfaces are needed. Wait for the answer. Then ask what the key patterns are (state management, error handling, etc.).
 
 Pre-fill what you can from the codebase and CLAUDE.md. Ask the user to confirm or correct.
 
 #### testing-spec.md (HOW to test it)
 
-Read `requirements.md` and `technical-spec.md`. Then:
-- Pre-fill the test framework, mocking approach, and file conventions from CLAUDE.md
-- Ask about coverage targets per layer
-- Ask about test data strategy (factories, fixtures, seeds, frozen times)
-- Identify what NOT to test (generated code, third-party internals)
+Read `requirements.md` and `technical-spec.md`. Then pre-fill the test framework, mocking approach, and file conventions from CLAUDE.md, and identify what NOT to test (generated code, third-party internals).
+
+For the two items that need user input, ask them in order, one at a time — wait for each answer before asking the next. Ask about coverage targets per layer. Wait for the answer. Then ask about the test data strategy (factories, fixtures, seeds, frozen times).
 
 Most of this can be inferred — present your best guess and let the user correct.
 
 #### plan.md (WHEN to build it)
 
-Read all other specs. Then:
-- Break the requirements into milestones (each independently gatable)
-- Order milestones by dependency
-- For each milestone: list tasks in dependency order, acceptance criteria, and gate commands
-- Draw the milestone dependency graph
+Read all other specs. Then work through the steps below in order, one at a time — if any step surfaces a question for the user, ask it, wait for the answer, and only then move to the next step. Do not bundle the step-questions into a single turn.
+
+First, break the requirements into milestones (each independently gatable). Then order the milestones by dependency. Then, for each milestone, list tasks in dependency order, acceptance criteria, and gate commands. Finally, draw the milestone dependency graph.
 
 **Task Sizing:** generated tasks must follow the Task Sizing guidance in `templates/spec-templates/plan.md.template` — each task ≈ one commit's worth of work, written as a 2-line entry (action line + indented `verify:` line). If you can't name a single verification step, split the task. See the template's anti-pattern callout for examples of tasks that are too large.
 
@@ -147,6 +137,7 @@ Summarize what was completed:
 
 ## Rules
 
+- Ask one clarifying question per turn. Wait for the answer before asking the next. This rule holds at phase transitions too — when two questions look independent, still ask the first, wait, then ask the second.
 - Work through specs in precedence order (requirements → technical → testing → plan)
 - Each later spec should reference and build on earlier ones
 - Ask the user for domain knowledge — don't invent requirements
