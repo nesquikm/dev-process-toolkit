@@ -62,7 +62,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.13.0 — "Second Look"** (splits `/implement` Phase 3 Stage B into two sequential `code-reviewer` passes — Pass 1 spec compliance, Pass 2 code quality, fail-fast; adds a rationalization-prevention table to `/gate-check`; introduces `docs/parallel-execution.md` with a `## Parallelization` pointer from `/implement`; tightens `plan.md.template` task-sizing discipline).
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.14.1 — "Drift Catcher"** (fixes two stale README facts caught in audit — the "Latest:" line that had missed the v1.14.0 bump and the pattern count that had drifted from 14 to 22; promotes `README.md` into the Release Checklist in `CLAUDE.md` as item #4 so future version bumps can't skip it).
 
 ## Core Philosophy
 
@@ -85,6 +85,6 @@ The key insight: **deterministic checks always override LLM judgment**. A failin
 - `plugins/dev-process-toolkit/docs/sdd-methodology.md` — What SDD is and how it works
 - `plugins/dev-process-toolkit/docs/skill-anatomy.md` — How Claude Code skills work
 - `plugins/dev-process-toolkit/docs/adaptation-guide.md` — Reference for customizing skills and configuration after `/setup`
-- `plugins/dev-process-toolkit/docs/patterns.md` — 14 proven patterns + anti-patterns
+- `plugins/dev-process-toolkit/docs/patterns.md` — 22 proven patterns + anti-patterns
 
 **Claude Code official docs:** https://code.claude.com/docs/en

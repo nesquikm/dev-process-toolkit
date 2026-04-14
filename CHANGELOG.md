@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [1.14.1] — 2026-04-14 — "Drift Catcher"
+
+### Fixed
+
+- **`README.md` "Latest:" line refreshed to v1.14.0 "Single File"** — The release line had been left at v1.13.0 "Second Look" during the v1.14.0 bump, advertising the wrong release to new users on the main entry point.
+- **`README.md` pattern count corrected from 14 to 22** — The Structure list claimed `docs/patterns.md` held "14 proven patterns"; the file has carried 22 numbered patterns since v1.12.x. Count had drifted silently across multiple releases.
+
+### Changed
+
+- **`CLAUDE.md` Release Checklist promoted from 3 files to 4** — `README.md` added as item #4, with explicit guidance to refresh the "Latest:" line and any counts in the Structure list that the release changed (skill count, pattern count, etc.). Trailing "All three must stay in sync" updated to "All four." Prevents the two drift patterns caught this release from recurring.
+
+### Motivation
+
+Two audit passes on v1.14.0 surfaced that the README had been silently drifting across releases: the "Latest:" line was one version stale, and the `patterns.md` count was 8 patterns behind reality. Root cause: the Release Checklist in `CLAUDE.md` only listed three files, so `README.md` was never on the sync-at-release list. This patch fixes the stale facts and adds the guardrail so future bumps can't miss the README.
+
 ## [1.14.0] — 2026-04-13 — "Single File"
 
 ### Added
