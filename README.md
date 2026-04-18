@@ -52,8 +52,10 @@ dev-process-toolkit/
 │       │   └── plugin.json          # Plugin manifest
 │       ├── skills/                  # 12 skills (slash commands)
 │       ├── agents/                  # 1 specialist agent (code-reviewer)
+│       ├── adapters/                # 4 tracker adapters (linear, jira, asana, _template) + _shared helpers
 │       ├── templates/               # CLAUDE.md and spec templates
 │       ├── docs/                    # Methodology and guides
+│       ├── tests/                   # Pattern 9 regression fixture + capture/verify scripts + MCP/project fixtures
 │       └── examples/                # Stack-specific configs
 ├── CLAUDE.md
 ├── README.md
@@ -62,7 +64,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.14.1 — "Drift Catcher"** (fixes two stale README facts caught in audit — the "Latest:" line that had missed the v1.14.0 bump and the pattern count that had drifted from 14 to 22; promotes `README.md` into the Release Checklist in `CLAUDE.md` as item #4 so future version bumps can't skip it).
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.15.0 — "Tracker Integration"** (opt-in tracker mode for teams whose ACs live in Linear / Jira / Asana / custom — bidirectional AC sync with per-AC B-style conflict prompts, live MCP + `updatedAt` optimistic concurrency, no persistent cache, source-only distribution via Bun; `mode: none` default is byte-identical to pre-M12 per Pattern 9 regression gate; FR-29..39, 11 FRs, 80+ ACs).
 
 ## Core Philosophy
 
