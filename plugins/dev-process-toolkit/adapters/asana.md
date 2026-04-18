@@ -65,7 +65,7 @@ and Tier 2 (`active_ticket:`) both fail, `/implement`, `/gate-check`, and
 Paste Asana task URL (https://app.asana.com/0/<proj>/<gid>):
 ```
 
-The prompt handler extracts `<gid>` via the regex `https?://app\.asana\.com/0/\d+/(\d+)`.
+The prompt handler pipes the pasted URL through `bun run adapters/asana/src/extract_gid.ts` (Schema P pure helper). The regex is `^https?://app\.asana\.com/0/\d+/(\d+)(?:[/?#].*)?$`. Tested in `extract_gid.test.ts` (10 cases covering trailing slash, query string, fragment, wrong host, and empty input).
 
 ## Operations
 
