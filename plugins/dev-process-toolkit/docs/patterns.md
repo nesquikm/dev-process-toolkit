@@ -371,3 +371,32 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 - `technical-spec.md` is Pass B advisory-only — flags surface, but `Suggested action` never recommends deletion. Architectural decisions use `Superseded-by:` markers in place per the ADR convention.
 
 **Rationale (accuracy-first tradeoff):** the hybrid Pass A + Pass B approach was chosen over grep-only, semantic-only, or convention-based scope tags because (1) grep alone misses the canary, (2) a pure semantic pass is non-deterministic on explicit tokens grep would never miss, (3) scope tags require retrofitting existing specs and ongoing discipline and would have failed the exact Flutter case that motivated the pattern. Running both is essentially free since the skill already runs inside Claude Code — no separate API call. The false-positive cost on Pass B is paid for by the accuracy of catching scope-limiting narrative the grep pass can never see.
+
+### Pattern: Tracker Mode Probe (Schema L)
+
+**Problem (FR-29, FR-34, Pattern 9)**: M12 adds an opt-in tracker mode (Linear, Jira, Asana, custom) for teams whose ACs live in a task tracker. Every affected skill — `/setup`, `/spec-write`, `/implement`, `/gate-check`, `/pr`, `/spec-review`, `/spec-archive` — must behave differently in `mode: none` (default, pre-M12) and `mode: <tracker>`. If any skill guesses mode inconsistently or reads tracker state when the section is absent, the backward-compat invariant (Pattern 9) breaks silently.
+
+**Solution**: Every mode-aware skill begins with the same probe. The probe reads `CLAUDE.md` for the `## Task Tracking` section; section absence ≡ `mode: none` (the canonical pre-M12 path); section presence means parse the `key: value` block per Schema L (technical-spec §7.3). Only after the probe resolves does the skill branch.
+
+**Canonical probe (run at skill entry, before any side effect):**
+
+```
+1. Read CLAUDE.md if it exists. If it doesn't, mode = none. Stop probing.
+2. grep -c '^## Task Tracking$' CLAUDE.md
+   - 0 → mode = none (default, pre-M12 code path runs unchanged)
+   - 1 → section exists; continue to step 3
+   - >1 → malformed file; fail with NFR-10 canonical error shape
+3. Extract `mode: <value>` between `## Task Tracking` and the next `##` / `###` heading (or EOF); lines under `### Sync log` are excluded from key: value parsing.
+4. If the extracted mode is `none`, treat as Step-2-zero — the explicit form is accepted but `/setup` never emits it (AC-29.5).
+5. For any tracker mode, resolve ticket-ID via Pattern 6 (branch regex → active_ticket: → interactive prompt) before any MCP call.
+```
+
+**Backward-compat invariant (Pattern 9):** in `mode: none`, **every** mode-aware skill behavior is byte-identical to pre-M12. The probe step is the single insertion; if `## Task Tracking` is absent, the skill runs its pre-M12 body unchanged. Tracker-mode branches are gated behind the probe — they are never entered in `none` mode.
+
+**Why the section heading is the single probe anchor:** a literal heading check is cheaper than YAML frontmatter parsing, deterministic across markdown renderers, and survives CLAUDE.md edits that preserve structure. Keys inside the section are parsed only after the heading is confirmed present, so malformed key lines never break the `none` path.
+
+**Rules:**
+- The probe must be the first action any mode-aware skill takes after reading its arguments — before branch inspection, before MCP calls, before file writes.
+- Skills that are not applicable in the current mode exit cleanly with a one-line message (AC-34.2).
+- In `mode: none`, no skill makes MCP calls or reads tracker state (AC-34.4). The tracker-mode branches are literally unreachable.
+- Duplicate keys in the section fail with NFR-10 canonical shape (Schema L).

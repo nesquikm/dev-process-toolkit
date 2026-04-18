@@ -11,6 +11,8 @@ Audit the implementation against the project specifications for: `$ARGUMENTS`
 
 ## Process
 
+0. **Tracker mode probe** — Before any other step, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and this skill runs unchanged — ACs are read from `specs/requirements.md`. If a tracker mode is active, AC traversal pulls the canonical AC list from the active adapter's `pull_acs(ticket_id)` instead of parsing `specs/requirements.md` FR sections; local `specs/` still provides FR titles, descriptions, and traceability context (Path B). See `docs/spec-review-tracker-mode.md` for the full tracker-mode flow.
+
 1. **Read specs** — Load the relevant sections from specs/ directory:
    - Requirements (functional requirements and acceptance criteria)
    - Technical spec (architecture and implementation details)
