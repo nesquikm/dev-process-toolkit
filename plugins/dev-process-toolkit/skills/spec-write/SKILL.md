@@ -14,7 +14,12 @@ Guide the user through writing or completing the project specification files.
 
 ### 0. Tracker mode probe
 
-Before any other step, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and the rest of this skill runs unchanged. If a tracker mode is active, after saving any FR-level AC edit run the FR-39 diff/resolve loop via the active adapter before pushing via `upsert_ticket_metadata` (AC-34.7, AC-39.9). See `docs/spec-write-tracker-mode.md` for the full tracker-mode flow.
+Before any other step, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and the rest of this skill runs unchanged. If a tracker mode is active:
+
+- Run the 3-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md` (FR-32) the first time the session edits an FR bound to a ticket — decline exits cleanly with zero side effects (AC-32.4).
+- After saving any FR-level AC edit, run the FR-39 diff/resolve loop via the active adapter before pushing via `upsert_ticket_metadata` (AC-34.7, AC-39.9).
+
+See `docs/spec-write-tracker-mode.md` for the full tracker-mode flow.
 
 ### 1. Assess current state
 

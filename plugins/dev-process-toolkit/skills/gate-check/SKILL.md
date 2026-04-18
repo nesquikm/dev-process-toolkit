@@ -10,7 +10,13 @@ Run the project's gating checks and report a clear pass/fail for each.
 
 ## Tracker Mode Probe
 
-Before running any commands, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and the rest of this skill runs unchanged. If a tracker mode is active, additionally re-fetch the ticket's `updatedAt`, warn on mismatch against the value recorded at `/implement` start (AC-33.3), and push the AC toggle on pass via the active adapter (capability permitting; FR-38 AC-38.6). See `docs/gate-check-tracker-mode.md` for the full tracker-mode flow.
+Before running any commands, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and the rest of this skill runs unchanged. If a tracker mode is active:
+
+- Run the 3-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md` (FR-32). Decline exits cleanly with zero side effects (AC-32.4).
+- Re-fetch the ticket's `updatedAt` and warn on mismatch against the value recorded at `/implement` start (AC-33.3); do NOT run FR-39 resolution here (AC-39.10).
+- On gate pass, push the AC toggle via the active adapter's `push_ac_toggle` (capability permitting; FR-38 AC-38.6 degrades with a canonical-shape warning otherwise).
+
+See `docs/gate-check-tracker-mode.md` for the full tracker-mode flow.
 
 ## Commands
 
