@@ -1,0 +1,49 @@
+# `/spec-write` Tracker Mode Flow
+
+Detailed tracker-mode procedures for `/spec-write`. Pointed at from
+`skills/spec-write/SKILL.md` step 0 to keep the skill under NFR-1.
+
+In `mode: none`, this document is unused.
+
+## Post-save behavior (tracker mode)
+
+After each FR-level AC save in `specs/requirements.md`:
+
+1. Resolve ticket-id for the edited FR via the traceability matrix row
+   (FR-{N} → ticket-id). If the matrix has no row yet, prompt the user
+   for a fresh `upsert_ticket_metadata(null, ...)` invocation that
+   creates the ticket and writes the returned ID back into the matrix.
+2. Run ticket-binding confirmation per `docs/ticket-binding.md` (FR-32).
+3. Call `pull_acs(ticket_id)` — fresh fetch, just like `/implement` does.
+4. Classify the local AC list vs the tracker AC list via the FR-39 diff
+   classifier (`adapters/_shared/src/classify_diff.ts`). Full procedure
+   in `docs/fr-39-sync.md`.
+5. If any AC is non-`identical`, surface the Schema K diff and run the
+   per-AC prompt loop. **Cancel aborts the save** — local changes revert
+   to the in-memory draft state (the user re-decides).
+6. On resolution (including `all identical` fast path), call
+   `upsert_ticket_metadata(ticket_id, title, <rebuilt description>)` to
+   push the converged state to the tracker (AC-39.9, AC-34.7).
+7. Append one `### Sync log` entry per AC-39.8.
+
+`/spec-write` on a brand-new FR (no ticket bound yet) skips steps 1–5 and
+goes straight to `upsert_ticket_metadata(null, title, description)` to
+mint a new ticket; the returned ID is written to the traceability matrix
+(FR-36 AC-36.4 pattern reused).
+
+## Cancel semantics
+
+- **During diff/resolve cancel (step 5):** local draft stays in memory;
+  tracker untouched; CLAUDE.md sync-log untouched. User can retry or
+  abandon.
+- **During mint-new cancel:** no `upsert_ticket_metadata` call; no
+  traceability matrix update; `specs/requirements.md` keeps whatever the
+  user just saved (it's already on disk — cancel here means "don't push
+  to tracker yet").
+
+## MCP call budget (NFR-8)
+
+Per FR save: at most **1** MCP call (`upsert_ticket_metadata`, ≤ 1 per
+spec). The additional `pull_acs` in step 3 is shared with the same skill's
+pre-flight work and counts toward the 2-call `/implement` budget in
+sessions where `/spec-write` chains into `/implement`.
