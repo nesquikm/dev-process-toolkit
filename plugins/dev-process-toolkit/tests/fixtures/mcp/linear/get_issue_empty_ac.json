@@ -1,0 +1,8 @@
+{
+  "id": "issue-uuid-99",
+  "identifier": "LIN-99",
+  "title": "Stub ticket without ACs",
+  "description": "# Overview\n\nPlaceholder description with no Acceptance Criteria section.\n\n## Notes\n\nOpen question for the PM — reply in-ticket.",
+  "updatedAt": "2026-04-15T08:00:00Z",
+  "state": { "name": "Backlog", "id": "state-uuid-backlog" }
+}
