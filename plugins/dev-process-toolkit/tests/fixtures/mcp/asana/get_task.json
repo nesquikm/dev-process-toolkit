@@ -1,0 +1,6 @@
+{
+  "gid": "1209876543210",
+  "name": "FR-7: Export audit log",
+  "html_notes": "<body><h2>Goal</h2><p>Let admins download audit entries as CSV.</p><ul><li>Filter by date range</li><li>Include actor + action</li></ul></body>",
+  "completed": false
+}
