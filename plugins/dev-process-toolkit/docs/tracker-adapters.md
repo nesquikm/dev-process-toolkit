@@ -98,6 +98,14 @@ against a real tracker instance before release. No automated harness in v1
 (test accounts + OAuth + teardown are too heavy); pass markers are recorded
 in the adapter's PR description.
 
+**Tier 5 status at v1.15.0 ship:** the checklist is documented; execution
+against live Linear/Jira/Asana tenants has **not** been performed in the
+v1.15.0 implementation session. MCP tool names in each adapter are marked
+"provisional (Phase H conformance)" and must be verified once an
+authenticated MCP is available. Phase H Task 1 (mode-none regression) is
+the hard v1.15.0 ship gate; Tier 5 completion is the next operator's
+responsibility.
+
 ### Prerequisites
 
 - [ ] Bun ≥ 1.2 installed: `bun --version`
