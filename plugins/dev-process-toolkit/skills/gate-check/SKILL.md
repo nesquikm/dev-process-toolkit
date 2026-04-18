@@ -8,6 +8,10 @@ argument-hint: '[--fix to auto-fix lint issues]'
 
 Run the project's gating checks and report a clear pass/fail for each.
 
+## Tracker Mode Probe
+
+Before running any commands, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and the rest of this skill runs unchanged. If a tracker mode is active, additionally re-fetch the ticket's `updatedAt`, warn on mismatch against the value recorded at `/implement` start (AC-33.3), and push the AC toggle on pass via the active adapter (capability permitting; FR-38 AC-38.6). See `docs/gate-check-tracker-mode.md` for the full tracker-mode flow.
+
 ## Commands
 
 Read the project's CLAUDE.md to find the gate check commands (look for "Key Commands" or "Gating rule" section). If no CLAUDE.md exists, ask the user what commands to run.

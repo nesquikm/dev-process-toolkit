@@ -10,6 +10,10 @@ Archive the user-selected section identified by `$ARGUMENTS` into `specs/archive
 
 ## Process
 
+### 0. Tracker mode probe
+
+Before any other step, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and this skill runs unchanged. If a tracker mode is active, `/spec-archive` still operates only on local `specs/` content (plan blocks, FR blocks, traceability rows, technical-spec ADRs via `Superseded-by:`) — archival of completed **tracker tickets** is the tracker's own concern (per its native conventions) and is out of scope here. See the edge case note in `specs/requirements.md` §4.
+
 ### 1. Resolve the target
 
 Parse `$ARGUMENTS`. The accepted forms are:

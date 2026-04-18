@@ -26,6 +26,8 @@ If a multi-milestone run partially succeeds in a worktree, list completed work (
 
 > Do not read specs/archive/ during implementation — archived milestones are historical context only.
 
+0. **Tracker mode probe** — Before any other action, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and the rest of this skill runs its pre-M12 body unchanged. If a tracker mode is active, additionally run the ticket-binding pre-flight (FR-32), record `updatedAt` in-session (FR-33), and run the FR-39 diff/resolve loop before proceeding. See `docs/implement-tracker-mode.md` for the full tracker-mode flow.
+
 1. **Check for specs** — If `specs/` exists, check whether spec files have real content (not just template placeholders). If specs exist but are mostly empty, warn the user: "Specs appear to be incomplete. SDD works best when specs are filled in first. Consider running `/dev-process-toolkit:spec-write` or continue with what's available?" Let the user decide.
 
 2. **Resolve the target** — Determine what to implement:

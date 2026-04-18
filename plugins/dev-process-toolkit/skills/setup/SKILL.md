@@ -11,6 +11,10 @@ Set up the Spec-Driven Development and TDD workflow for this project.
 
 ## Process
 
+### 0. Tracker mode probe (existing projects)
+
+Before any detection or setup, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` already exists and contains a `## Task Tracking` section, this is an existing tracker-mode project — `/setup --migrate` is the right entry point for changing modes (FR-36 AC-36.1). If `CLAUDE.md` is absent, empty of `## Task Tracking`, or `$ARGUMENTS` contains `new`, run the normal fresh-setup flow below.
+
 ### 1. Detect the project
 
 Check for project files (`package.json`, `pubspec.yaml`, `pyproject.toml`, `go.mod`, `Cargo.toml`, etc.) and source directories.
