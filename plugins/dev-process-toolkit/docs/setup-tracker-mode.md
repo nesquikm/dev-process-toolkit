@@ -32,6 +32,19 @@ default) never reads this document — the pre-M12 path runs unchanged.
   convention (AC-30.7). Records `jira_ac_field` or
   `asana_status_convention` in `## Task Tracking`.
 
+## Task map (Phase C traceability)
+
+| Task | Section in this doc | AC refs |
+|------|---------------------|---------|
+| C.1 — Mode question (default `none`, skippable) | The tracker-mode question | AC-29.1, AC-29.2, AC-29.5 |
+| C.2 — Bun install check, hard-stop | Bun prerequisite check | AC-30.8, NFR-10 |
+| C.3 — Linear V1 SSE → V2 migration dry-run | Linear V1 SSE migration | AC-30.9 |
+| C.4 — MCP detection via `claude mcp list` + dry-run settings.json diff | MCP detection | AC-30.1, AC-30.2 |
+| C.5 — settings.json confirm + write on approval | MCP detection | AC-30.3, DD-12.9 |
+| C.6 — Test-call verification, hard-stop on fail | Test-call verification | AC-30.4, AC-30.5, NFR-10 |
+| C.7 — Jira custom-field discovery (one-time) | Per-tenant discovery / Jira | AC-30.6 |
+| C.8 — Asana status-convention discovery | Per-tenant discovery / Asana | AC-30.7 |
+
 ## The tracker-mode question
 
 Ask exactly once, near the end of `/setup` (after CLAUDE.md is drafted but
