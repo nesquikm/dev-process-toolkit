@@ -1,0 +1,130 @@
+=== file tree ===
+CLAUDE.md
+specs/archive/index.md
+specs/plan.md
+specs/requirements.md
+specs/technical-spec.md
+specs/testing-spec.md
+
+=== file content (path + sha256 + size + full content) ===
+--- CLAUDE.md (sha256=f181759fcf63b197dee4636631dbe51f7c4928a9adac9d654bc56d600517c755 size=885) ---
+# Baseline Fixture
+
+Minimal downstream project used to lock pre-M12 `mode: none` behavior.
+This file intentionally omits any `## Task Tracking` section — absence
+is the canonical form for `mode: none` (FR-29 AC-29.5).
+
+## Tech Stack
+
+- **Language:** TypeScript
+- **Framework:** Node
+- **Build:** tsc
+- **Testing:** Vitest
+- **Validation:** Zod
+
+## Architecture
+
+```
+src/
+├── index.ts
+└── util.ts
+```
+
+## Key Commands
+
+```bash
+npm run typecheck
+npm run lint
+npm run test
+```
+
+**Gating rule:** `npm run typecheck && npm run lint && npm run test`
+
+## Workflows
+
+**Bugfix:** `/debug → /implement → /gate-check → /pr`
+**Feature:** `/brainstorm → /spec-write → /implement → /spec-review → /gate-check → /pr`
+**Refactor:** `/implement → /simplify → /gate-check → /pr`
+
+## DO NOT
+
+- Do not commit without user approval
+- Do not add features not in the spec
+
+--- specs/archive/index.md (sha256=8c8f75f2f246fb91f4292f63a9e409205397e78d132eb6e80cbe411cda506a44 size=113) ---
+# Archive Index
+
+| Milestone | Title | Archived | Archive File |
+|-----------|-------|----------|--------------|
+
+--- specs/plan.md (sha256=31d4e33e20848ecafeef9f88b4d3013f9d8564e841d5a4f508474cade4a9af85 size=142) ---
+# Plan
+
+## M1: Helpers {#M1}
+
+- [ ] Implement `greet`
+  verify: `npm run test -- util`
+- [ ] Implement `sum`
+  verify: `npm run test -- util`
+
+--- specs/requirements.md (sha256=eeaf182ed8757af46ec78e54986ef9defc0f91d6d2c7d5e383971749f335978d size=815) ---
+# Requirements
+
+## 1. Overview
+
+Baseline fixture project. Two FRs. No tracker integration.
+
+## 2. Functional Requirements
+
+### FR-1: Greet a named user {#FR-1}
+
+**Acceptance Criteria:**
+- AC-1.1: `greet(name)` returns `Hello, {name}!`
+- AC-1.2: Empty name returns `Hello, world!`
+
+### FR-2: Sum two numbers {#FR-2}
+
+**Acceptance Criteria:**
+- AC-2.1: `sum(a, b)` returns `a + b`
+- AC-2.2: Non-number inputs throw `TypeError`
+
+## 3. Non-Functional Requirements
+
+- NFR-1: Each source file ≤ 200 lines.
+
+## 6. Traceability Matrix
+
+| Requirement | Implementation | Tests |
+|-------------|---------------|-------|
+| FR-1 AC-1.1 | src/util.ts | tests/util.test.ts |
+| FR-1 AC-1.2 | src/util.ts | tests/util.test.ts |
+| FR-2 AC-2.1 | src/util.ts | tests/util.test.ts |
+| FR-2 AC-2.2 | src/util.ts | tests/util.test.ts |
+
+--- specs/technical-spec.md (sha256=9403ee03c149509f55447684648d1f350e3d584ff7fdccb9ef9ae471ca6b6594 size=186) ---
+# Technical Spec
+
+## 1. Architecture
+
+Single-module TypeScript library with colocated tests.
+
+## 2. Data Model
+
+None.
+
+## 3. Dependencies
+
+- Vitest (test runner)
+- TypeScript (compiler)
+
+--- specs/testing-spec.md (sha256=4b02434e2b41193bb9dd25b4dcff9f348c01fdced24cb6372f8bbb64ad4e08c4 size=147) ---
+# Testing Spec
+
+## 1. Framework
+
+Vitest. Files at `tests/*.test.ts`. No mocking library needed.
+
+## 2. Coverage
+
+100% on the two helper functions.
+

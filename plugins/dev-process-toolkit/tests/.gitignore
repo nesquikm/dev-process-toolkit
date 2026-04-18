@@ -1,0 +1,5 @@
+# Re-include fixture `specs/` directories that would otherwise match the
+# repo-root `specs/` rule. The top-level rule hides design docs; fixtures
+# under this tree are versioned regression inputs and MUST be tracked.
+!fixtures/projects/*/specs/
+!fixtures/projects/*/specs/**
