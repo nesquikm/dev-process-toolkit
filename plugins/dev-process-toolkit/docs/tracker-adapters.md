@@ -156,6 +156,25 @@ in the adapter's PR description.
 - [ ] `/setup --migrate <tracker> → none` pulls ACs into local
       `specs/requirements.md` and leaves tracker tickets intact
 
+## Capability-aware degradation (FR-38 AC-38.6)
+
+Each adapter's `capabilities:` frontmatter list declares which of the four
+ops it supports. A missing capability is an **opt-out**, not a failure:
+skills surface an NFR-10 canonical-shape warning and continue. Gate/PR/save
+verdicts are unaffected by missing capabilities — they only affect the
+tracker-side side effect.
+
+| Missing op | Where it matters | Degradation |
+|-----------|-------------------|-------------|
+| `pull_acs` | `/implement`, `/gate-check`, `/spec-review`, `/spec-write`, migration | Hard fail — adapter without `pull_acs` can't function; skills fail with NFR-10 canonical shape at pre-flight. |
+| `push_ac_toggle` | `/gate-check` on gate pass | Skip the push; print canonical-shape warning telling the user to toggle manually. Gate verdict unchanged. |
+| `transition_status` | `/pr` post-create, migration `tracker → none` "close tickets" prompt | Skip the transition; print canonical-shape warning. PR still created; migration still completes. |
+| `upsert_ticket_metadata` | `/spec-write` post-save, FR-39 `keep local` / `merge`, `/pr` PR-link update, migration `none → tracker` / `<tracker> → <other>` | Skip the push; print canonical-shape warning. Local save still commits; PR still created; migration to-tracker becomes impossible (the user has to pick a different target). |
+
+`pull_acs` is the only hard requirement — it's the foundation of every
+skill's tracker-mode branch. The other three are each opt-outable with a
+user-visible warning.
+
 ## Latency expectations (NFR-6)
 
 Each MCP op should complete within ~5s under normal network conditions.
