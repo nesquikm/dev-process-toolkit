@@ -15,6 +15,18 @@ Set up the Spec-Driven Development and TDD workflow for this project.
 
 Before any detection or setup, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` already exists and contains a `## Task Tracking` section, this is an existing tracker-mode project — `/setup --migrate` is the right entry point for changing modes (FR-36 AC-36.1). If `CLAUDE.md` is absent, empty of `## Task Tracking`, or `$ARGUMENTS` contains `new`, run the normal fresh-setup flow below.
 
+### 0b. Migration invocation (`/setup --migrate`)
+
+When `$ARGUMENTS` contains `--migrate`, skip steps 1–8 and route into FR-36 migration handling in `docs/setup-migrate.md`:
+
+1. Detect current mode via Schema L probe (AC-36.2).
+2. Prompt for target mode; refuse no-op (`current === target`).
+3. Supported transitions: `none → <tracker>` (AC-36.4), `<tracker> → none` (AC-36.5), `<tracker> → <other>` (AC-36.6). Any other transition is a one-line refusal with NFR-10 canonical shape.
+4. Execute the transition per the atomicity guarantee — CLAUDE.md `mode:` line is never rewritten until the migration finishes successfully. Partial mid-bulk failures surface the retry/rollback prompt (AC-36.7, AC-36.8) in NFR-10 canonical shape.
+5. On success, append the migration completion entry to the sync log.
+
+The migration procedures, atomicity guarantee, partial-failure rollback prompt, and sync-log entry format are all documented in `docs/setup-migrate.md` — do not inline them here (NFR-1).
+
 ### 1. Detect the project
 
 Check for project files (`package.json`, `pubspec.yaml`, `pyproject.toml`, `go.mod`, `Cargo.toml`, etc.) and source directories.
