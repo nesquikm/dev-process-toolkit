@@ -170,3 +170,23 @@ describe("regenerateIndex — empty tree", () => {
     expect(existsSync(join(work, "specs", ".INDEX.md.tmp"))).toBe(false);
   });
 });
+
+describe("regenerateIndex — v2-minimal fixture self-consistency (Schema M probe, AC-49.8)", () => {
+  test("regenerating against the committed fixture reproduces the committed INDEX.md byte-for-byte", async () => {
+    // Copy the committed v2-minimal fixture into work/ so the test doesn't
+    // mutate the fixture on disk.
+    const { cpSync } = require("node:fs") as typeof import("node:fs");
+    const fixtureSpecs = join(__dirname, "..", "..", "..", "tests", "fixtures", "v2-minimal", "specs");
+    const workSpecs = join(work, "specs-v2");
+    cpSync(fixtureSpecs, workSpecs, { recursive: true });
+
+    const committed = readFileSync(join(workSpecs, "INDEX.md"), "utf-8");
+    const nowMatch = /^Generated:\s*(.+)$/m.exec(committed);
+    const now = nowMatch?.[1]?.trim() ?? "2026-04-21T10:30:00Z";
+
+    await regenerateIndex(workSpecs, { now });
+    const regenerated = readFileSync(join(workSpecs, "INDEX.md"), "utf-8");
+
+    expect(regenerated).toBe(committed);
+  });
+});

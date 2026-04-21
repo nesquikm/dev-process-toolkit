@@ -10,9 +10,29 @@ Archive the user-selected section identified by `$ARGUMENTS` into `specs/archive
 
 ## Process
 
-### 0. Tracker mode probe
+### 0. Layout + tracker-mode probes
 
-Before any other step, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and this skill runs unchanged. If a tracker mode is active, `/spec-archive` still operates only on local `specs/` content (plan blocks, FR blocks, traceability rows, technical-spec ADRs via `Superseded-by:`) — archival of completed **tracker tickets** is the tracker's own concern (per its native conventions) and is out of scope here. See the edge case note in `specs/requirements.md` §4.
+Before any other step:
+
+- **Layout probe** — Read `specs/.dpt-layout` via `bun run adapters/_shared/src/layout.ts`. If `version: v2`, `$ARGUMENTS` is interpreted as either a ULID (`fr_01HZ...`) or a milestone id (`M13`). The archival mechanism switches to `git mv` + frontmatter flip (see § v2 Archival below). If marker absent, use v1 anchor-based archival unchanged. If version > v2, exit with canonical message (AC-47.3).
+- **Tracker-mode probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none`. Tracker-mode `/spec-archive` still operates only on local `specs/` content — archival of completed **tracker tickets** is the tracker's own concern.
+
+### 0b. v2 archival procedure (FR-45, AC-49.4)
+
+When layout=v2, archival uses the same code path as `/implement` Phase 4:
+
+1. Resolve `$ARGUMENTS`:
+   - ULID (`fr_01HZ...`): archive that single FR.
+   - Milestone id (`M<N>`): archive every FR where frontmatter `milestone == M<N>` (AC-45.6) PLUS the plan file itself.
+2. For each target FR:
+   - `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md` — preserves filename stem (AC-41.4).
+   - Flip frontmatter `status: active` → `status: archived` and set `archived_at: <ISO now>`.
+3. For milestone archival: also `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md`.
+4. All moves + flips land in one atomic commit (AC-45.2).
+5. Regenerate `specs/INDEX.md` via `regenerateIndex(specsDir)` — archived FRs drop out (AC-45.3).
+6. Run the Post-Archive Drift Check (unchanged from v1).
+
+After archival, no skill writes to files under `specs/frs/archive/` except frontmatter `status` flip at move time (AC-45.5). Full reference: `docs/v2-layout-reference.md` § `/spec-archive`.
 
 ### 1. Resolve the target
 

@@ -12,14 +12,26 @@ Guide the user through writing or completing the project specification files.
 
 ## Process
 
-### 0. Tracker mode probe
+### 0. Layout + tracker-mode probes
 
-Before any other step, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and the rest of this skill runs unchanged. If a tracker mode is active:
+Before any other step:
 
-- Run the 3-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md` (FR-32) the first time the session edits an FR bound to a ticket — decline exits cleanly with zero side effects (AC-32.4).
-- After saving any FR-level AC edit, run the FR-39 diff/resolve loop via the active adapter before pushing via `upsert_ticket_metadata` (AC-34.7, AC-39.9).
+- **Layout probe** — Read `specs/.dpt-layout` via `bun run adapters/_shared/src/layout.ts`. If `version: v2`, FR creation goes to `specs/frs/<ulid>.md` (never `specs/requirements.md`) and `Provider.sync()` fires on save. If marker absent + `specs/requirements.md` exists, run v1 behavior unchanged. If version > v2, exit with the canonical message (AC-47.3). Full reference: `docs/v2-layout-reference.md` § `/spec-write`.
+- **Provider resolution** — In v2 mode, resolve `Provider` once per invocation (AC-43.3) using the same rule as `/implement` (LocalProvider for `mode: none`, TrackerProvider otherwise).
+- **Tracker-mode probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none`. If a tracker mode is active:
+  - Run the 3-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md` (FR-32) the first time the session edits an FR bound to a ticket — decline exits cleanly with zero side effects (AC-32.4).
+  - After saving any FR-level AC edit, run the FR-39 diff/resolve loop via the active adapter before pushing via `upsert_ticket_metadata` (AC-34.7, AC-39.9).
+  See `docs/spec-write-tracker-mode.md` for the full tracker-mode flow.
 
-See `docs/spec-write-tracker-mode.md` for the full tracker-mode flow.
+### 0b. v2 FR creation path (AC-49.2)
+
+In v2 mode, creating a new FR means:
+
+1. Mint a ULID via `Provider.mintId()` — always local (AC-43.5), offline-safe.
+2. Write `specs/frs/<ulid>.md` with Schema Q frontmatter (`id`, `title`, `milestone`, `status: active`, `archived_at: null`, `tracker: {}`, `created_at`) and the five required sections in order: `## Requirement`, `## Acceptance Criteria`, `## Technical Design`, `## Testing`, `## Notes` (AC-40.2).
+3. Call `Provider.sync(spec)` — no-op in `LocalProvider`, pushes to tracker in `TrackerProvider`.
+4. Regenerate `specs/INDEX.md` via `regenerateIndex(specsDir)`.
+5. Never write to `specs/requirements.md` on v2 projects — that file is slimmed to cross-cutting content only (AC-40.3).
 
 ### 1. Assess current state
 

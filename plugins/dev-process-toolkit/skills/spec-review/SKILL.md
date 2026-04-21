@@ -11,13 +11,14 @@ Audit the implementation against the project specifications for: `$ARGUMENTS`
 
 ## Process
 
-0. **Tracker mode probe** — Before any other step, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and this skill runs unchanged — ACs are read from `specs/requirements.md`. If a tracker mode is active, AC traversal pulls the canonical AC list from the active adapter's `pull_acs(ticket_id)` instead of parsing `specs/requirements.md` FR sections; local `specs/` still provides FR titles, descriptions, and traceability context (Path B). See `docs/spec-review-tracker-mode.md` for the full tracker-mode flow.
+0. **Layout + tracker-mode probes** — Before any other step:
 
-1. **Read specs** — Load the relevant sections from specs/ directory:
-   - Requirements (functional requirements and acceptance criteria)
-   - Technical spec (architecture and implementation details)
-   - Testing spec (test coverage and conventions)
-   - Plan (milestone definitions)
+   - **Layout probe** — Read `specs/.dpt-layout`. If `version: v2`, source ACs from `specs/frs/<ulid>.md` files (glob the active set, not archive/). If marker absent + `specs/requirements.md` exists, run v1 behavior unchanged. If version > v2, exit with canonical message (AC-47.3). Full reference: `docs/v2-layout-reference.md` § `/spec-review`.
+   - **Tracker-mode probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and ACs are read from specs (v1 `requirements.md` or v2 `frs/`). If a tracker mode is active, AC traversal pulls the canonical AC list from the active adapter's `pull_acs(ticket_id)` instead of parsing local specs; local `specs/` still provides FR titles, descriptions, and traceability context (Path B). See `docs/spec-review-tracker-mode.md` for the full tracker-mode flow.
+
+1. **Read specs** — Load the relevant sections:
+   - **v2 mode:** glob `specs/frs/*.md` (excluding `archive/`); each FR file contains Requirement, ACs, Technical Design, Testing, Notes (AC-40.2). Plan files under `specs/plan/<M#>.md`.
+   - **v1 mode:** the four top-level files (requirements, technical-spec, testing-spec, plan).
 
 2. **Scan implementation** — For each requirement/AC:
    - Find the implementing code (service, component, route, test)
