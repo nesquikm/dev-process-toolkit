@@ -125,3 +125,95 @@ describe("LocalProvider offline / pure-local invariants (AC-43.5)", () => {
     expect(id).toMatch(ULID_REGEX);
   });
 });
+
+// Phase F tests — remote-scan + stale-lock cleanup
+describe("LocalProvider Phase F — remote-branch lock detection (AC-46.2)", () => {
+  test("skipFetch=true still claims cleanly when no remote branches have the lock", async () => {
+    const id = "fr_01HZ7XJFKP0000000000000SKIP1X";
+    const p = new LocalProvider({ repoRoot: work, skipFetch: true });
+    const result = await p.claimLock(id, "feat/test");
+    expect(result.kind).toBe("claimed");
+  });
+
+  test("DPT_SKIP_FETCH=1 env var acts as the default when skipFetch option is unset", async () => {
+    const prev = process.env["DPT_SKIP_FETCH"];
+    process.env["DPT_SKIP_FETCH"] = "1";
+    try {
+      const id = "fr_01HZ7XJFKP0000000000000SKIPENV";
+      const p = new LocalProvider({ repoRoot: work });
+      const result = await p.claimLock(id, "feat/test");
+      expect(result.kind).toBe("claimed");
+    } finally {
+      if (prev === undefined) delete process.env["DPT_SKIP_FETCH"];
+      else process.env["DPT_SKIP_FETCH"] = prev;
+    }
+  });
+
+  test("refuses claim when an origin remote-tracking branch has the lock", async () => {
+    const id = "fr_01HZ7XJFKP0000000000000REMOTE1";
+    // Set up a bare remote and push feat/other with the lock
+    const remoteDir = mkdtempSync(join(tmpdir(), "dpt-local-remote-bare-"));
+    rmSync(remoteDir, { recursive: true, force: true });
+    await $`git init --bare -q ${remoteDir}`.cwd(work);
+    await $`git remote add origin ${remoteDir}`.cwd(work);
+    // Create the lock on feat/other and push
+    await $`git checkout -q -b feat/other`.cwd(work);
+    const p = new LocalProvider({ repoRoot: work, skipFetch: true });
+    await p.claimLock(id, "feat/other");
+    await $`git push -q origin feat/other`.cwd(work);
+    // Switch back to main and remove local lock file from working tree
+    await $`git checkout -q main`.cwd(work);
+    await $`git branch -q -D feat/other`.cwd(work);
+    if (existsSync(join(work, ".dpt-locks", id))) {
+      rmSync(join(work, ".dpt-locks", id));
+    }
+    // Now the lock only exists on origin/feat/other (remote-tracking ref)
+    const result = await p.claimLock(id, "main");
+    expect(result.kind).toBe("taken-elsewhere");
+    rmSync(remoteDir, { recursive: true, force: true });
+  });
+});
+
+describe("LocalProvider Phase F — stale lock cleanup (AC-46.5)", () => {
+  test("findStaleLocks reports locks on merged-and-deleted branches", async () => {
+    const id = "fr_01HZ7XJFKP0000000000000MERGE1X";
+    const p = new LocalProvider({ repoRoot: work, skipFetch: true });
+    await $`git checkout -q -b feat/merged-then-deleted`.cwd(work);
+    await p.claimLock(id, "feat/merged-then-deleted");
+    await $`git checkout -q main`.cwd(work);
+    await $`git merge -q --no-ff feat/merged-then-deleted -m "merge feat/merged"`.cwd(work);
+    await $`git branch -q -D feat/merged-then-deleted`.cwd(work);
+    // Now .dpt-locks/<id> is on main's working tree, but the claiming branch is gone
+    const stale = await p.findStaleLocks();
+    expect(stale.map((s) => s.id)).toContain(id);
+    expect(stale.find((s) => s.id === id)?.reason).toBe("deleted");
+  });
+
+  test("cleanupStaleLocks deletes stale locks in a single commit (AC-46.5)", async () => {
+    const id1 = "fr_01HZ7XJFKP0000000000000CLEAN01";
+    const id2 = "fr_01HZ7XJFKP0000000000000CLEAN02";
+    const p = new LocalProvider({ repoRoot: work, skipFetch: true });
+    // Each lock claimed on its own branch, merged to main, then branch deleted
+    await $`git checkout -q -b feat/a`.cwd(work);
+    await p.claimLock(id1, "feat/a");
+    await $`git checkout -q main`.cwd(work);
+    await $`git merge -q --no-ff feat/a -m merge-a`.cwd(work);
+    await $`git branch -q -D feat/a`.cwd(work);
+    await $`git checkout -q -b feat/b`.cwd(work);
+    await p.claimLock(id2, "feat/b");
+    await $`git checkout -q main`.cwd(work);
+    await $`git merge -q --no-ff feat/b -m merge-b`.cwd(work);
+    await $`git branch -q -D feat/b`.cwd(work);
+    const preSha = (await $`git rev-parse HEAD`.cwd(work).text()).trim();
+    const result = await p.cleanupStaleLocks();
+    expect(result.count).toBe(2);
+    const postSha = (await $`git rev-parse HEAD`.cwd(work).text()).trim();
+    expect(preSha).not.toBe(postSha);
+    // HEAD is the cleanup commit, its single parent is the pre-cleanup commit
+    const parent = (await $`git rev-parse HEAD^`.cwd(work).text()).trim();
+    expect(parent).toBe(preSha);
+    // Cleanup commit message names the count
+    const msg = (await $`git log -1 --format=%s`.cwd(work).text()).trim();
+    expect(msg).toMatch(/clean up 2 stale locks/);
+  });
+});
