@@ -176,14 +176,9 @@ export async function migrate(options: MigrateOptions): Promise<MigrateResult> {
   const colocated = colocate(techText, testingText);
   const planSplit = splitPlan(planText);
 
-  // 6. Mint ULIDs — active FRs first, then archived (stable order by FR id)
-  const activeIds = [...activeBlocks.keys()].sort((a, b) => oldFrOrder(a, b));
-  const activeIdMap = new Map<string, string>();
-  for (const oldId of activeIds) {
-    activeIdMap.set(oldId, mintId());
-  }
-
-  // Parse each archive file to get its FRs
+  // First: parse each archive file to get its FRs. Archive wins over live
+  // requirements for any duplicated FR id — this resolves the "live
+  // requirements.md still holds an FR whose milestone was archived" drift.
   interface ArchivedEntry {
     sourceFile: string;
     milestone: string;
@@ -195,10 +190,12 @@ export async function migrate(options: MigrateOptions): Promise<MigrateResult> {
     newId: string;
   }
   const archivedEntries: ArchivedEntry[] = [];
+  const archivedIdSet = new Set<string>();
   for (const file of archiveFiles) {
     const text = readFileSync(join(specsDir, "archive", file), "utf-8");
     const parsed = convertArchiveFile(text);
     for (const fr of parsed.frs) {
+      archivedIdSet.add(fr.oldId);
       archivedEntries.push({
         sourceFile: `specs/archive/${file}`,
         milestone: parsed.milestone,
@@ -207,9 +204,24 @@ export async function migrate(options: MigrateOptions): Promise<MigrateResult> {
         title: fr.title,
         body: fr.body,
         acceptanceCriteria: fr.acceptanceCriteria,
-        newId: mintId(),
+        newId: "", // minted after dedup in the active-first pass
       });
     }
+  }
+
+  // 6. Mint ULIDs — active FRs first (skipping duplicates already in archive),
+  // then archived FRs. Stable order by FR id keeps DPT_TEST_ULID_SEED output
+  // deterministic for fixture tests.
+  const activeIds = [...activeBlocks.keys()]
+    .filter((id) => !archivedIdSet.has(id))
+    .sort((a, b) => oldFrOrder(a, b));
+  const activeIdMap = new Map<string, string>();
+  for (const oldId of activeIds) {
+    activeIdMap.set(oldId, mintId());
+  }
+  // Now mint ULIDs for archived entries in their insertion order
+  for (const e of archivedEntries) {
+    e.newId = mintId();
   }
 
   // 7. Stage new tree in memory
