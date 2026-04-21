@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dev-process-toolkit/schemas/lock.schema.json",
+  "title": "Lock File (Schema S)",
+  "description": ".dpt-locks/<ulid> tracker-less lock file committed to the claiming branch. See technical-spec.md §8.3, AC-46.3.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ulid", "branch", "claimed_at", "claimer"],
+  "properties": {
+    "ulid": {
+      "type": "string",
+      "pattern": "^fr_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "FR ULID; matches the filename under .dpt-locks/."
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Branch name holding the lock."
+    },
+    "claimed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO datetime the lock was claimed."
+    },
+    "claimer": {
+      "type": "string",
+      "minLength": 1,
+      "description": "git user.email (audit trail; advisory)."
+    }
+  }
+}

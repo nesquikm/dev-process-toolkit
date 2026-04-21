@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dev-process-toolkit/schemas/index.schema.json",
+  "title": "FR Index Entry (Schema U, row-level data model)",
+  "description": "In-memory FRIndexEntry shape that index_gen.ts renders into specs/INDEX.md. Schema U at the markdown level is a rendered view of a sorted array of these entries. See technical-spec.md §8.3/§8.7.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "milestone", "status", "path"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^fr_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "FR ULID."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "milestone": {
+      "type": "string",
+      "pattern": "^M\\d+$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "in_progress", "draft"],
+      "description": "Archived FRs excluded from the default index (AC-45.3)."
+    },
+    "path": {
+      "type": "string",
+      "pattern": "^frs/fr_[0-9A-HJKMNP-TV-Z]{26}\\.md$",
+      "description": "Relative path from specs/ used as the link target."
+    },
+    "primary_tracker": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "id"],
+          "properties": {
+            "key": { "type": "string", "minLength": 1 },
+            "id": { "type": "string", "minLength": 1 },
+            "url": { "type": "string" }
+          }
+        },
+        { "type": "null" }
+      ],
+      "description": "Primary tracker ref shown in the INDEX; alphabetical-first key in frontmatter.tracker."
+    }
+  }
+}

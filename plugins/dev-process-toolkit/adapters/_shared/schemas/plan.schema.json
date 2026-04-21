@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dev-process-toolkit/schemas/plan.schema.json",
+  "title": "Plan File Frontmatter (Schema T)",
+  "description": "YAML frontmatter required on specs/plan/<M#>.md files. See technical-spec.md §8.3, FR-44.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["milestone", "status", "kickoff_branch", "frozen_at", "revision"],
+  "properties": {
+    "milestone": {
+      "type": "string",
+      "pattern": "^M\\d+$",
+      "description": "Milestone identifier; matches filename stem."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "active", "complete"],
+      "description": "Plan lifecycle state (AC-44.2)."
+    },
+    "kickoff_branch": {
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "null" }
+      ],
+      "description": "Kickoff branch name; null iff status=draft."
+    },
+    "frozen_at": {
+      "oneOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ],
+      "description": "ISO datetime the plan was frozen; null iff status=draft (AC-44.3)."
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Incremented on each replan branch (AC-44.4)."
+    }
+  },
+  "allOf": [
+    {
+      "description": "status=draft requires both kickoff_branch and frozen_at to be null (AC-44.2)",
+      "if": { "properties": { "status": { "const": "draft" } } },
+      "then": {
+        "properties": {
+          "kickoff_branch": { "type": "null" },
+          "frozen_at": { "type": "null" }
+        }
+      }
+    }
+  ],
+  "$comment": "status=active|complete SHOULD have kickoff_branch + frozen_at set; migrated plans intentionally leave them null per AC-48.7 — a documented spec exception. /gate-check enforces the tighter invariant at the behavioral layer for non-migrated plans only."
+}
