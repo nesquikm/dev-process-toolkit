@@ -26,11 +26,16 @@ If a multi-milestone run partially succeeds in a worktree, list completed work (
 
 > Do not read specs/archive/ during implementation — archived milestones are historical context only.
 
-0. **Tracker mode probe** — Before any other action, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and the rest of this skill runs its pre-M12 body unchanged. If a tracker mode is active:
-   - **0.1 Ticket-binding pre-flight** — Run the 3-tier resolver and mandatory confirmation prompt per `docs/ticket-binding.md` (FR-32). Branch-regex mismatch with CLAUDE.md `active_ticket:` fails loudly (AC-32.3); decline exits cleanly with zero side effects (AC-32.4).
-   - **0.2 Record `updatedAt`** — Call the active adapter's `pull_acs(ticket_id)` and record the returned ticket's `updatedAt` in-session for `/gate-check` to compare later (AC-33.2).
-   - **0.3 FR-39 diff/resolve** — Run the bidirectional AC sync loop before proceeding past Phase 1 (AC-39.1, AC-39.3, AC-39.4).
-   See `docs/implement-tracker-mode.md` for the full tracker-mode flow.
+0. **Layout + tracker-mode probes** — Before any other action:
+
+   - **0.a Layout probe** — Read `specs/.dpt-layout` via `bun run adapters/_shared/src/layout.ts`. If `version: v2`, run v2 behavior (ACs come from `specs/frs/<ulid>.md`; Phase 4 archives via `git mv`; `Provider.claimLock`/`releaseLock` gates entry/exit per FR-46). If the marker is absent and `specs/requirements.md` exists, run v1 behavior unchanged. If version > v2, exit with the canonical message: `"Layout v<actual> detected; /implement requires v2. Run /dev-process-toolkit:setup to migrate."` (AC-47.3). Full v2 reference: `docs/v2-layout-reference.md`.
+   - **0.b Provider resolution** — In v2 mode, resolve `Provider` once per invocation: `LocalProvider` if `mode: none`, `TrackerProvider` wrapping the configured tracker adapter otherwise (AC-43.3). No re-resolution mid-execution.
+   - **0.c `Provider.claimLock(id, currentBranch)`** — Entry gate in v2 mode. `claimed` → proceed; `already-ours` → resume; `taken-elsewhere` → STOP with the message naming the holding branch (AC-46.1/2).
+   - **0.d Tracker-mode probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and tracker hooks below skip. If a tracker mode is active:
+     - **Ticket-binding pre-flight** — 3-tier resolver + confirmation prompt per `docs/ticket-binding.md` (FR-32). Branch-regex mismatch fails loudly (AC-32.3); decline exits cleanly (AC-32.4).
+     - **Record `updatedAt`** — Call the adapter's `pull_acs(ticket_id)` and store the ticket's `updatedAt` in-session for `/gate-check` to compare later (AC-33.2).
+     - **FR-39 diff/resolve** — Run the bidirectional AC sync loop before proceeding past Phase 1 (AC-39.1, AC-39.3, AC-39.4).
+     See `docs/implement-tracker-mode.md` for the full tracker-mode flow.
 
 1. **Check for specs** — If `specs/` exists, check whether spec files have real content (not just template placeholders). If specs exist but are mostly empty, warn the user: "Specs appear to be incomplete. SDD works best when specs are filled in first. Consider running `/dev-process-toolkit:spec-write` or continue with what's available?" Let the user decide.
 
@@ -228,7 +233,9 @@ After the human approves the Phase 4 report (step 15), and **only then**, archiv
 - **technical-spec.md is never auto-archived** — architectural decisions use `Superseded-by:` in place (the ADR convention). `/implement` touches only `plan.md` and `requirements.md`.
 - Run archival **only after explicit human approval in step 15**, never before. If the user asks for changes instead, abort archival entirely.
 
-**Procedure.** Write-then-delete ordering so an interrupted run leaves recoverable state: build and write the Schema G archive file first (under `specs/archive/M{N}-{slug}.md`), then excise the plan block and the traceability-matched ACs from the live specs, leaving Schema H pointer lines in place, and append one row to `specs/archive/index.md`. The collapse rule (FRs with all ACs archived collapse to a pointer; FRs with mixed status keep their header) and the incomplete-matrix fallback (move only the plan block, warn the user to archive orphan ACs via `/dev-process-toolkit:spec-archive`) are detailed in `docs/implement-reference.md` § Milestone Archival Procedure along with the exact sub-step ordering.
+**v1 procedure (legacy layout).** Write-then-delete ordering so an interrupted run leaves recoverable state: build and write the Schema G archive file first (under `specs/archive/M{N}-{slug}.md`), then excise the plan block and the traceability-matched ACs from the live specs, leaving Schema H pointer lines in place, and append one row to `specs/archive/index.md`. The collapse rule (FRs with all ACs archived collapse to a pointer; FRs with mixed status keep their header) and the incomplete-matrix fallback (move only the plan block, warn the user to archive orphan ACs via `/dev-process-toolkit:spec-archive`) are detailed in `docs/implement-reference.md` § Milestone Archival Procedure along with the exact sub-step ordering.
+
+**v2 procedure (file-per-FR layout, FR-45).** For every FR with `milestone == <current>`: `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md` + flip frontmatter `status: active` → `status: archived` + set `archived_at: <ISO now>`. All N moves and N flips land in one atomic commit (AC-45.2, AC-45.6). Then `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md` (AC-44.5) in the same commit. Call `Provider.releaseLock(id)` for each released FR (AC-46.4). Finally, regenerate `specs/INDEX.md` via `regenerateIndex(specsDir)` — archived FRs drop out of the default listing (AC-45.3). Full details: `docs/v2-layout-reference.md` § `/implement`.
 
 #### Post-Archive Drift Check
 

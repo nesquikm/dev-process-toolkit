@@ -15,17 +15,33 @@ Set up the Spec-Driven Development and TDD workflow for this project.
 
 Before any detection or setup, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` already exists and contains a `## Task Tracking` section, this is an existing tracker-mode project — `/setup --migrate` is the right entry point for changing modes (FR-36 AC-36.1). If `CLAUDE.md` is absent, empty of `## Task Tracking`, or `$ARGUMENTS` contains `new`, run the normal fresh-setup flow below.
 
-### 0b. Migration invocation (`/setup --migrate`)
+### 0b. Migration invocation (`/setup --migrate` / `--migrate-dry-run`)
 
-When `$ARGUMENTS` contains `--migrate`, skip steps 1–8 and route into FR-36 migration handling in `docs/setup-migrate.md`:
+When `$ARGUMENTS` contains `--migrate` or `--migrate-dry-run`, skip steps 1–8 and route into migration handling.
 
-1. Detect current mode via Schema L probe (AC-36.2).
-2. Prompt for target mode; refuse no-op (`current === target`).
-3. Supported transitions: `none → <tracker>` (AC-36.4), `<tracker> → none` (AC-36.5), `<tracker> → <other>` (AC-36.6). Any other transition is a one-line refusal with NFR-10 canonical shape.
-4. Execute the transition per the atomicity guarantee — CLAUDE.md `mode:` line is never rewritten until the migration finishes successfully. Partial mid-bulk failures surface the retry/rollback prompt (AC-36.7, AC-36.8) in NFR-10 canonical shape.
-5. On success, append the migration completion entry to the sync log.
+**Two migration flavors are supported:**
 
-The migration procedures, atomicity guarantee, partial-failure rollback prompt, and sync-log entry format are all documented in `docs/setup-migrate.md` — do not inline them here (NFR-1).
+1. **Layout v1 → v2 migration** (FR-48, M13). Detected when `specs/requirements.md` is present AND `specs/.dpt-layout` is absent. Route to `adapters/_shared/src/migrate/index.ts` via `bun run`:
+   - Refuse on dirty working tree (AC-48.3).
+   - Create `dpt-v1-snapshot-<YYYYMMDD-HHMMSS>` tag at HEAD (AC-48.5).
+   - `--migrate-dry-run` writes preview to `specs/.migration-preview/` without commits (AC-48.4).
+   - Live run produces two commits: `feat(specs): migrate to v2 layout` + `chore(specs): record v2 layout marker` (AC-48.10/11).
+   - Print structured summary (AC-48.12).
+   - Idempotent on already-v2 tree (AC-48.13).
+   - Full reference: `docs/v2-layout-reference.md` § `/setup --migrate`.
+
+2. **Tracker-mode migration** (FR-36, M12). Detected when `CLAUDE.md` already has a `## Task Tracking` section. Route per `docs/setup-migrate.md`:
+   - Detect current mode via Schema L probe (AC-36.2).
+   - Prompt for target mode; refuse no-op.
+   - Supported transitions: `none → <tracker>` / `<tracker> → none` / `<tracker> → <other>`. Unsupported = NFR-10 canonical refusal.
+   - Atomicity: CLAUDE.md `mode:` line never rewritten until migration succeeds (AC-36.7/8).
+   - Append migration entry to sync log on success.
+
+If both conditions are present (v1 layout AND tracker mode configured), layout migration runs first; tracker-mode migration can follow in a separate `/setup --migrate` invocation.
+
+Exemption from the layout-version gate: `/setup` itself is the migration (AC-47.4) — it calls `readLayoutVersion(specsDir, { allowMissing: true })` instead of failing on missing marker.
+
+Detailed migration procedures, atomicity guarantee, partial-failure rollback prompt, and sync-log entry format live in `docs/setup-migrate.md` (tracker mode) and `docs/v2-layout-reference.md` (layout v2) — do not inline here (NFR-1).
 
 ### 1. Detect the project
 

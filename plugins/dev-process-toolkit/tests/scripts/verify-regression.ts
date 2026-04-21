@@ -48,6 +48,15 @@ const FIXTURES = [
 // here must have a CLAUDE.md at its root.
 const PROBE_FIXTURES = ["mode-none-baseline", "mode-none-fresh-setup"];
 
+// Layer 3 — Schema M probe (M13, AC-49.8). Validates v2 layout invariants
+// on the golden v2 fixture. Checks:
+//   - every specs/frs/**/*.md filename matches ^fr_[0-9A-HJKMNP-TV-Z]{26}\.md$
+//   - frontmatter id: field equals filename stem byte-for-byte (NFR-15 invariant 2)
+//   - specs/.dpt-layout has version: v2
+//   - regenerateIndex(specsDir) produces the committed INDEX.md byte-for-byte
+// A probe failure here means the v2 fixture drifted or the generator regressed.
+const V2_FIXTURE = "v2-minimal";
+
 /**
  * Canonical Schema L probe (docs/patterns.md § Tracker Mode Probe).
  *
@@ -164,13 +173,76 @@ if (import.meta.main) {
     }
   }
 
+  // Layer 3 — Schema M probe (AC-49.8, v2 layout invariants).
+  const v2Failures = runSchemaMProbe();
+  failures += v2Failures;
+
   if (failures > 0) {
     console.error(`\n${failures} regression check(s) failed.`);
     process.exit(1);
   }
 
   console.log(
-    `\nAll ${FIXTURES.length} mode-none fixtures byte-identical to baseline; Schema L probe clean on ${PROBE_FIXTURES.length} fixtures.`,
+    `\nAll ${FIXTURES.length} mode-none fixtures byte-identical to baseline; Schema L probe clean on ${PROBE_FIXTURES.length} fixtures; Schema M probe clean on ${V2_FIXTURE}.`,
   );
   process.exit(0);
+}
+
+// Schema M probe (AC-49.8). Synchronous invariant checks against the
+// committed v2-minimal fixture — no subprocess, no async. The INDEX.md
+// regenerate-and-diff determinism check lives in index_gen.test.ts (bun
+// test) so this script stays synchronous and fast.
+function runSchemaMProbe(): number {
+  const fixtureSpecsDir = join(pluginRoot, "tests", "fixtures", V2_FIXTURE, "specs");
+  if (!existsSync(fixtureSpecsDir)) {
+    console.error(`verify-regression: Schema M probe skipped — ${fixtureSpecsDir} not present.`);
+    return 0;
+  }
+
+  let failures = 0;
+  const ulidFilenameRe = /^fr_[0-9A-HJKMNP-TV-Z]{26}\.md$/;
+
+  const layoutPath = join(fixtureSpecsDir, ".dpt-layout");
+  if (!existsSync(layoutPath)) {
+    failures++;
+    console.error(`SCHEMA M PROBE FAILURE: missing ${layoutPath}`);
+  } else {
+    const body = readFileSync(layoutPath, "utf8");
+    if (!/^version:\s*v2\s*$/m.test(body)) {
+      failures++;
+      console.error(`SCHEMA M PROBE FAILURE: ${layoutPath} missing 'version: v2' line`);
+    }
+  }
+
+  const { readdirSync, statSync } = require("node:fs") as typeof import("node:fs");
+  const frsDir = join(fixtureSpecsDir, "frs");
+  const scan = (dir: string) => {
+    if (!existsSync(dir)) return;
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) {
+        scan(full);
+        continue;
+      }
+      if (!entry.endsWith(".md")) continue;
+      if (!ulidFilenameRe.test(entry)) {
+        failures++;
+        console.error(`SCHEMA M PROBE FAILURE: ${full} — filename does not match ULID regex (AC-41.1)`);
+        continue;
+      }
+      const stem = entry.replace(/\.md$/, "");
+      const text = readFileSync(full, "utf8");
+      const idMatch = /^id:\s*(\S+)\s*$/m.exec(text);
+      if (!idMatch || idMatch[1] !== stem) {
+        failures++;
+        console.error(
+          `SCHEMA M PROBE FAILURE: ${full} — frontmatter id='${idMatch?.[1] ?? "<missing>"}' != filename stem '${stem}' (NFR-15 invariant 2)`,
+        );
+      }
+    }
+  };
+  scan(frsDir);
+
+  if (failures === 0) console.log(`Schema M probe clean: ${V2_FIXTURE} v2-layout invariants hold (AC-49.8).`);
+  return failures;
 }

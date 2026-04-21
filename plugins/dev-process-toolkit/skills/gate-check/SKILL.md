@@ -8,15 +8,29 @@ argument-hint: '[--fix to auto-fix lint issues]'
 
 Run the project's gating checks and report a clear pass/fail for each.
 
-## Tracker Mode Probe
+## Layout + Tracker Mode Probes
 
-Before running any commands, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and the rest of this skill runs unchanged. If a tracker mode is active:
+Before running any commands:
 
-- Run the 3-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md` (FR-32). Decline exits cleanly with zero side effects (AC-32.4).
-- Re-fetch the ticket's `updatedAt` and warn on mismatch against the value recorded at `/implement` start (AC-33.3); do NOT run FR-39 resolution here (AC-39.10).
-- On gate pass, push the AC toggle via the active adapter's `push_ac_toggle` (capability permitting; FR-38 AC-38.6 degrades with a canonical-shape warning otherwise).
+- **Layout probe** — Read `specs/.dpt-layout` via `bun run adapters/_shared/src/layout.ts`. If `version: v2`, run the v2 conformance probes below in addition to the standard gate checks. If marker absent, run v1 behavior unchanged. If version > v2, exit with the canonical message (AC-47.3).
+- **Tracker Mode Probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and tracker-mode hooks skip. If a tracker mode is active:
+  - Run the 3-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md` (FR-32). Decline exits cleanly with zero side effects (AC-32.4).
+  - Re-fetch the ticket's `updatedAt` and warn on mismatch against the value recorded at `/implement` start (AC-33.3); do NOT run FR-39 resolution here (AC-39.10).
+  - On gate pass, push the AC toggle via the active adapter's `push_ac_toggle` (capability permitting; FR-38 AC-38.6 degrades with a canonical-shape warning otherwise).
+  See `docs/gate-check-tracker-mode.md` for the full tracker-mode flow.
 
-See `docs/gate-check-tracker-mode.md` for the full tracker-mode flow.
+## v2 Conformance Probes (AC-49.5, NFR-15)
+
+When the layout probe reports `v2`, run these deterministic probes in addition to the normal gate:
+
+1. **Filename ↔ `id:` equality** — for every `specs/frs/**/*.md`, parse the YAML frontmatter and verify `id == filename_stem` byte-for-byte. Mismatch → **GATE FAILED** naming the offending file (AC-41.2, AC-41.5).
+2. **ULID filename regex** — every active/archived FR filename must match `^fr_[0-9A-HJKMNP-TV-Z]{26}\.md$` (AC-41.1). Non-matching filename → **GATE FAILED**.
+3. **Required frontmatter fields** — every FR file must have `id`, `title`, `milestone`, `status`, `archived_at`, `tracker`, `created_at` present. Missing a field → **GATE FAILED** naming the file and field.
+4. **Layout version match** — `.dpt-layout` must report the expected version. Missing marker with `specs/requirements.md` present → **GATE FAILED** with the canonical pointer to `/setup --migrate` (AC-47.5).
+5. **Stale lock scan** — list every `.dpt-locks/<ulid>` entry whose `branch` field names a merged-into-main or deleted branch. Each stale lock → **GATE PASSED WITH NOTES**. Offer `$ARGUMENTS --cleanup-stale-locks` action that deletes them in a single commit (AC-46.5).
+6. **Plan post-freeze edit scan** — for each `specs/plan/<M#>.md` with `status: active` + non-null `frozen_at`, scan `git log --follow` for commits to that path authored after `frozen_at`. Each post-freeze commit → **GATE PASSED WITH NOTES** listing the SHA. No auto-revert — user decides (AC-44.4).
+
+Full details: `docs/v2-layout-reference.md` § `/gate-check`.
 
 ## Commands
 
