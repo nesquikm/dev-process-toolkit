@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [1.17.0] — 2026-04-21 — "Tracker-native Entry"
+
+Accepts tracker IDs (`LIN-1234`, `PROJ-42`, `#982`) and full tracker URLs as first-class arguments to `/spec-write`, `/implement`, and `/spec-archive`. A shared resolver at each skill's entry detects the argument kind (ULID / tracker-ID / URL / fallthrough) and routes through a single code path; a shared import helper handles the "tracker ref with no local FR yet" case so the three skills cannot drift. Tracker teams no longer need to look up an internal ULID to work on a ticket whose "real" ID is `LIN-1234` — the plugin accepts what they already know.
+
+Pre-M14 argument forms continue unchanged: ULIDs, milestone codes (`M12`), anchors (`{#M3}`, `{#FR-7}`), and keywords (`all`, `requirements`, `technical`, `testing`, `plan`) all fall through to their pre-existing handlers byte-for-byte (NFR-18).
+
+### Added
+
+- **Resolver utility** (FR-51 / AC-51.1..9): `adapters/_shared/src/resolve.ts` — `resolveFRArgument(arg, config)` returns `{kind: 'ulid' | 'tracker-id' | 'url' | 'fallthrough', …}` via deterministic string parsing + config lookup (pure function, no I/O — NFR-17). `findFRByTrackerRef(specsDir, trackerKey, trackerId, {includeArchive?})` scans `specs/frs/**` frontmatter for a matching `tracker.<key>: <id>` and returns the ULID or null; archive excluded by default. Ordering: explicit-prefix → ULID → URL → tracker-ID → fallthrough (§9.4). Ambiguity across configured trackers throws `AmbiguousArgumentError` with both `<tracker>:<id>` candidates — never silently picks a winner (NFR-20).
+- **Import helper** (FR-52/FR-53 shared): `adapters/_shared/src/import.ts` — `importFromTracker(trackerKey, trackerId, provider, specsDir, promptMilestone)` mints a ULID, writes `specs/frs/<ulid>.md` with tracker ACs auto-accepted (no FR-39 per-AC prompt loop on initial import — AC-52.5), calls `Provider.sync`, and regenerates `INDEX.md`. Empty-AC tickets get a TODO marker under `## Acceptance Criteria` (AC-52.7).
+- **Schema W adapter metadata**: `resolver:` frontmatter block on `adapters/{linear,jira,_template}.md` declaring `id_pattern`, `url_host`, and `url_path_regex`. Adapter authors opt in to auto-resolution by adding this block; adapters omitting it continue to work via ULID-only arguments.
+- **`/spec-write` tracker import** (FR-52 / AC-52.1..8): resolver at entry after FR-47 layout gate; tracker-id/url + find hit → edit existing, no import; miss → `importFromTracker` with auto-accepted ACs; fallthrough → pre-M14 free-form handling unchanged.
+- **`/implement` tracker-ID entry** (FR-53 / AC-53.1..7): resolver between Provider resolution (FR-43) and `Provider.claimLock` (FR-46); tracker-id/url + miss → `importFromTracker` then lock claim; branch-name interop (FR-32) — argument wins with NFR-10-shape warning when branch name disagrees (AC-53.5).
+- **`/spec-archive` tracker-ID resolution** (FR-54 / AC-54.1..6): resolver at entry; tracker-id/url + hit → archive via `git mv` + status flip on resolved ULID; miss → refuse with NFR-10 canonical error (never auto-imports — AC-54.4); milestone codes (`M12`), anchors, and heading strings fall through unchanged.
+- **Documentation** (FR-55 / AC-55.1..5): `docs/patterns.md` § Pattern 24 "Tracker-ID Auto-Resolution" (user-facing story + decision table); `docs/tracker-adapters.md` § "Registering tracker ID patterns for the resolver" (Schema W reference + custom-adapter example); `docs/resolver-entry.md` (canonical per-skill decision table — referenced from each skill to keep them under the NFR-1 300-line cap).
+- **Regression fixtures**: `tests/fixtures/resolver/{linear-only,linear-and-jira,overlapping-prefixes,no-trackers}/` — four paired `CLAUDE.md` + `specs/frs/` trees covering AC-51.2..7 configuration combinations. Integration tests exercise resolver + `findFRByTrackerRef` against each.
+
+### Changed
+
+- `plugin.json` + `.claude-plugin/marketplace.json` version → `1.17.0`.
+- `README.md` Latest: line → `v1.17.0 — "Tracker-native Entry"`.
+- `/spec-write`, `/implement`, and `/spec-archive` each gained one resolver entry step (step 0a or 0.b′) before any side effect; v1-layout and fallthrough argument paths remain byte-identical.
+
+### Known follow-ups
+
+- **Tier 5 manual walkthrough** (AC-55.1 verify bullet): the live-Linear end-to-end walk documented in the M14 plan is deferred pending a configured Linear workspace — same precedent as M12's Tier 5 deferral documented in the v1.15.0 release. Executing `/spec-write https://linear.app/<workspace>/issue/<real-ticket>/...` against a real workspace remains post-ship verification work.
+- CHANGELOG date refresh at merge (this section's date stamp will update to the actual merge day).
+
+### Cross-references
+
+FRs: FR-51..FR-55 (5 FRs, ~32 ACs). NFRs: NFR-17..NFR-21. Design: `technical-spec.md` §9. Test strategy: `testing-spec.md` §8. Total M14 shared-adapter test count: 51 new tests (42 resolve + 9 import); full shared-adapter suite: 155 tests, 0 failures.
+
 ## [1.16.0] — 2026-04-21 — "Parallel-safe"
 
 Restructures `specs/` from the monolithic 4-file layout (v1) to a file-per-FR + ULID layout (v2). Introduces a typed `Provider` interface that unifies ID lifecycle and tracker sync behind one contract, so skills never branch on "tracker configured vs. not." Eliminates the three merge-collision classes (ID, content, archival-hotspot) that made parallel-branch spec edits painful under v1. Ships with `/setup --migrate` as the one-way v1 → v2 path, backed by a backup tag, dry-run preview, clean-tree precondition, and two-commit sequence.

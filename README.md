@@ -64,7 +64,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.16.0 — "Parallel-safe"** (file-per-FR + ULID spec layout eliminates merge-collision classes on shared `requirements.md` / `plan.md` / `archive/*.md`; typed `Provider` interface unifies ID lifecycle + tracker sync so skills never branch on mode; `/setup --migrate` is the one-way v1→v2 path with backup tag + dry-run preview + clean-tree precondition; FR-40..50, 11 FRs, 65+ ACs; v1 projects continue to work unchanged via Pattern 9 layout probe).
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.17.0 — "Tracker-native Entry"** (tracker IDs like `LIN-1234`, `PROJ-42`, `#982`, and full tracker URLs become first-class arguments to `/spec-write`, `/implement`, and `/spec-archive`; a shared resolver dispatches by kind — ULID / tracker-ID / URL / fallthrough — with a shared `importFromTracker` helper keeping `/spec-write` and `/implement` from drifting; `/spec-archive` refuses tracker-ID misses instead of auto-importing; Schema W adapter metadata block registers new tracker ID patterns; FR-51..55, 5 FRs, ~32 ACs; pre-M14 argument forms including milestone codes and keywords remain byte-identical per NFR-18).
 
 ## Core Philosophy
 

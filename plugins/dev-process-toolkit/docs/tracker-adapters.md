@@ -290,3 +290,49 @@ export interface Provider {
 **`mintId()` invariant**: always local, never network-bound, for any provider. This is what makes offline authoring work uniformly across tracker-less and tracker modes (AC-43.5). Tracker binding happens in `sync()`, not at mint time.
 
 Full behavioral reference: `docs/v2-layout-reference.md`. Pattern summary: `docs/patterns.md` § Pattern 23.
+
+## Registering tracker ID patterns for the resolver
+
+**Ships at v1.17.0 (M14, FR-51 / FR-55).** The argument resolver at the entry of `/spec-write`, `/implement`, and `/spec-archive` (see `docs/resolver-entry.md`) detects tracker-shaped arguments by consulting adapter-supplied metadata. Adapters register their resolver surface via an optional **Schema W** frontmatter block:
+
+```yaml
+---
+name: linear
+# ... existing Schema M fields (mcp_server, ticket_id_regex, capabilities, …) …
+resolver:
+  id_pattern: '^[A-Z]+-\d+$'
+  url_host: 'linear.app'
+  url_path_regex: '/[^/]+/issue/([A-Z]+-\d+)'
+---
+```
+
+**Schema W fields**:
+
+| Field | Purpose | Example |
+|-------|---------|---------|
+| `id_pattern` | Regex matching bare tracker IDs as users paste them into `$ARGUMENTS`. Anchored with `^…$`. | `'^[A-Z]+-\d+$'` (Linear/Jira), `'^#?\d+$'` (GitHub) |
+| `url_host` | Exact host portion of ticket URLs — the NFR-19 allowlist. Unknown hosts fall through the resolver (`kind: 'fallthrough'`); the resolver never "best-guesses." | `'linear.app'`, `'github.com'`, `'example.atlassian.net'` |
+| `url_path_regex` | Regex with one capture group extracting the tracker ID from `url.pathname`. Keep the capture group tight. | `'/[^/]+/issue/([A-Z]+-\d+)'` (Linear) |
+
+**Optional disambiguation**: when two trackers declare the same `id_pattern` shape (e.g., Linear and Jira both use `^[A-Z]+-\d+$`), the resolver disambiguates by *project prefix*. The shipped Linear and Jira adapters expose project prefixes via `ticket_id_regex` (Schema M, pre-existing); the resolver layer derives the prefix list from that regex. If a custom adapter has a single unambiguous prefix, encode it directly in `id_pattern` — explicit disambiguation data is only needed when your adapter's pattern collides with another configured adapter.
+
+**Adapters that omit `resolver:`** remain usable through pre-M14 code paths — users pass ULIDs to `/spec-write`, `/implement`, `/spec-archive`. Auto-resolution is opt-in.
+
+**Example: adding resolver metadata to a custom adapter**:
+
+```yaml
+---
+name: clubhouse
+mcp_server: clubhouse
+ticket_id_regex: '^ch(\d+)$'
+# ... other Schema M fields …
+resolver:
+  id_pattern: '^ch\d+$'
+  url_host: 'app.clubhouse.io'
+  url_path_regex: '/\d+/story/(\d+)/'
+---
+```
+
+After editing the adapter file and re-running `/setup` (or restarting a session), `/spec-write ch123`, `/implement ch123`, and `/spec-archive ch123` will all resolve to the Clubhouse-linked local FR.
+
+**Cross-refs**: `technical-spec.md` §9.3 (Schema W canonical), `docs/resolver-entry.md` (full decision table), `docs/patterns.md` § Pattern 24 (user-facing story).
