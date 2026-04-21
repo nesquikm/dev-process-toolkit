@@ -1,0 +1,123 @@
+=== file tree ===
+CLAUDE.md
+specs/archive/index.md
+specs/plan.md
+specs/requirements.md
+specs/technical-spec.md
+specs/testing-spec.md
+
+=== file content (path + sha256 + size + full content) ===
+--- CLAUDE.md (sha256=7e804978d2e8f670f51e83c6a06bd1e11b4a2dcae7111021589f490ebf6304cc size=1319) ---
+# Flutter Fixture
+
+Real-shape downstream Flutter project used to widen pre-M12 `mode: none`
+baseline coverage beyond the Node/TypeScript canonical fixture.
+This file intentionally omits any `## Task Tracking` section — absence
+is the canonical form for `mode: none` (FR-29 AC-29.5).
+
+## Tech Stack
+
+- **Language:** Dart
+- **Framework:** Flutter (stable channel)
+- **Build:** flutter build
+- **Testing:** flutter test
+- **Linting:** flutter analyze (`analysis_options.yaml`)
+
+## Architecture
+
+```
+lib/
+├── main.dart
+├── app/
+│   ├── router.dart
+│   └── theme.dart
+└── features/
+    └── home/
+        ├── home_page.dart
+        └── home_view_model.dart
+test/
+└── home_test.dart
+```
+
+## Key Commands
+
+```bash
+flutter analyze
+flutter test
+flutter pub get
+```
+
+**Gating rule:** `flutter analyze && flutter test`
+
+## Workflows
+
+**Bugfix:** `/debug → /implement → /gate-check → /pr`
+**Feature:** `/brainstorm → /spec-write → /implement → /spec-review → /gate-check → /pr`
+**Refactor:** `/implement → /simplify → /gate-check → /pr`
+
+## DO NOT
+
+- Do not commit without user approval
+- Do not add features not in the spec
+- Do not edit generated files (*.g.dart, *.freezed.dart, *.mocks.dart)
+- Do not connect to real external services from tests
+
+--- specs/archive/index.md (sha256=ceff259001c04b917965b8b8a075fda4fff36306ab36c6391f741f31741be52c size=45) ---
+# Archive Index
+
+No archived milestones yet.
+
+--- specs/plan.md (sha256=59f3d7676f4162844046c8f20a3490f88563ecd0efc3a3fc51d31680faebab18 size=265) ---
+# Implementation Plan
+
+## M1: Skeleton
+
+- [ ] Scaffold `lib/main.dart` and a single home route.
+- [ ] Wire view model with explicit state class.
+
+## M2: Theming
+
+- [ ] Read `MediaQuery.platformBrightnessOf` at app start.
+- [ ] React to platform brightness changes.
+
+--- specs/requirements.md (sha256=eef64b83916ddb1433b7e2e4c26bf3a6d0694ed216e1f829ce5b3100cf75e5fa size=433) ---
+# Requirements
+
+## FR-1: Home page renders greeting
+
+- AC-1.1: App launches without runtime errors on supported platforms.
+- AC-1.2: Home page displays a greeting string from the view model.
+- AC-1.3: Greeting updates when the view model state changes.
+
+## FR-2: Theme honors system brightness
+
+- AC-2.1: App reads system brightness on launch and selects matching theme.
+- AC-2.2: Theme switches live when system brightness changes.
+
+--- specs/technical-spec.md (sha256=c84cd08a4fdabfb106ab68829f4b10a9080b12d5f449c52dc0eda78f67f28353 size=483) ---
+# Technical Spec
+
+## Architecture
+
+Single-package Flutter app, no plugins. View-model layer is plain Dart
+(no state-management library) until complexity warrants one.
+
+## ADR-1: No state-management library at M1
+
+- **Context:** Two screens, three pieces of state. A library adds boilerplate
+  and a learning surface that isn't justified yet.
+- **Decision:** Plain `ChangeNotifier` view models for M1–M2.
+- **Reconsider when:** A third feature lands or cross-cutting state appears.
+
+--- specs/testing-spec.md (sha256=69d01c6a5b7e9250ae0bb51fca011431952adf1ca5b61976fd0880f1f6ed815d size=177) ---
+# Testing Spec
+
+## Unit (`test/`)
+
+- View models tested with explicit state assertions.
+- No widget tests until UI stabilizes past M2.
+
+## Integration
+
+- Out of scope until M3.
+

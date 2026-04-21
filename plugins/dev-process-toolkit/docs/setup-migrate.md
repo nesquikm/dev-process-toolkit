@@ -60,6 +60,43 @@ On **any** step failure during migration:
 - CLAUDE.md `mode:` line is **never** rewritten until the migration
   finishes successfully (AC-36.7 transactional guarantee).
 
+## Pre-migration on-disk backup (defensive)
+
+The atomicity guarantee above is an in-session contract — it depends on
+the skill following this document on every run. As a defense-in-depth
+safeguard for the two paths that **write to local source-of-truth files**
+(`<tracker> → none` and `<tracker> → <other tracker>`, both via FR-39
+reconciliation), copy the files that the migration may rewrite to
+timestamped backups **before any local mutation**:
+
+```
+cp CLAUDE.md                 CLAUDE.md.pre-migrate-backup-<ISO>
+cp specs/requirements.md     specs/requirements.md.pre-migrate-backup-<ISO>
+```
+
+`<ISO>` is `YYYY-MM-DDTHH-MM-SSZ` (colons replaced with dashes for
+filename portability). Print one line so the operator knows the backup
+exists and can recover from it:
+
+```
+Pre-migrate backup written: CLAUDE.md.pre-migrate-backup-<ISO>, specs/requirements.md.pre-migrate-backup-<ISO>
+If anything looks wrong after migration, restore with: mv <backup> <original>
+```
+
+Rules:
+
+- Skip this step for `none → <tracker>` migrations — that path does not
+  touch local files until success, so the in-session in-memory snapshot
+  in the Atomicity section above is sufficient.
+- Backups are **not** auto-deleted on success. The operator decides when
+  to remove them. They sort lexically by timestamp, so a follow-up run
+  never overwrites an earlier backup.
+- Add `*.pre-migrate-backup-*` to `.gitignore` if the project has one
+  (offer to do this automatically).
+- A failed `cp` (disk full, permissions) hard-stops the migration with
+  an NFR-10 canonical-shape error before any further work — no backup,
+  no migration.
+
 ## `none → <tracker>` procedure (AC-36.4, AC-36.8)
 
 1. Verify Bun (AC-30.8), MCP configured, test call passes. Fail fast.
@@ -78,6 +115,10 @@ Mid-bulk failure triggers the retry/rollback prompt above.
 
 ## `<tracker> → none` procedure (AC-36.5)
 
+0. **Pre-migration backup** — copy CLAUDE.md and `specs/requirements.md`
+   to `*.pre-migrate-backup-<ISO>` per the section above. This is the
+   highest-risk migration direction (local file becomes the new source
+   of truth); the on-disk backup is the recovery path of last resort.
 1. For each FR in the traceability matrix with a `ticket=<id>` entry:
    1. Call `pull_acs(ticket_id)`.
    2. Diff against local FR's AC list via FR-39 classifier.
@@ -92,6 +133,10 @@ Mid-bulk failure triggers the retry/rollback prompt above.
 
 ## `<tracker> → <other>` procedure (AC-36.6)
 
+0. **Pre-migration backup** — copy CLAUDE.md and `specs/requirements.md`
+   to `*.pre-migrate-backup-<ISO>` per the section above. This path runs
+   `<tracker> → none` reconciliation internally, which writes to local
+   files; the backup covers a partial-FR-39 failure scenario.
 1. Run `<tracker> → none` internally (steps 1–2 above) but **don't**
    write the none-form yet.
 2. Run `none → <other>` internally (steps 1–3 of the none→tracker

@@ -43,10 +43,13 @@ Opt-in tracker mode (Linear, Jira, custom) for teams whose ACs live in a task tr
 ### Fixed
 
 - `/gate-check` tracker-mode branch explicitly does **not** run full FR-39 resolution (AC-39.10) — it only warns on `updatedAt` mismatch with a two-option response. This prevents bidirectional writes from sneaking into gate checks, which are supposed to be read-mostly.
+- **Pre-migration on-disk backup** for `<tracker> → none` and `<tracker> → <other tracker>` migrations (`docs/setup-migrate.md` § Pre-migration on-disk backup). Both paths copy `CLAUDE.md` and `specs/requirements.md` to timestamped `*.pre-migrate-backup-<ISO>` files **before any local mutation**. Defense-in-depth for the FR-39 reconciliation phases: if a partial failure or unwanted merge corrupts local source-of-truth, the operator restores with `mv`. `none → <tracker>` skips the backup (path doesn't write locally until success). Failed `cp` hard-stops migration. Backups are not auto-deleted; sort lexically by ISO timestamp so re-runs never overwrite earlier backups.
 
 ### Pattern 9 regression
 
 - `diff <regression-output> tests/fixtures/baselines/m1-m11-regression.snapshot` is empty. `mode: none` output byte-identical to pre-M12 baseline. Stop-ship gate passed.
+- **Coverage widened** post-review: `verify-regression.sh` now iterates over three real-shape fixtures — `mode-none-baseline` (Node/TypeScript, original), `mode-none-flutter` (Dart/Flutter), and `mode-none-archived` (Python/FastAPI with archive content that deliberately quotes the `## Task Tracking` heading to prove the Schema L probe only reads `CLAUDE.md`). All three byte-identical to baseline.
+- **Probe-wording parity gate** added (`tests/probe-parity.test.ts`, 15 tests): all 7 mode-aware skills must reference the canonical `Schema L probe (see docs/patterns.md § Tracker Mode Probe)` anchor, and the 6 non-`setup` skills must carry the verbatim `mode: none` no-op guard sentence. Catches silent drift if a future edit "improves" the probe in one skill but forgets the others.
 
 ### FRs covered
 

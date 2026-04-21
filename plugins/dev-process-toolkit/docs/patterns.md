@@ -400,3 +400,15 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 - Skills that are not applicable in the current mode exit cleanly with a one-line message (AC-34.2).
 - In `mode: none`, no skill makes MCP calls or reads tracker state (AC-34.4). The tracker-mode branches are literally unreachable.
 - Duplicate keys in the section fail with NFR-10 canonical shape (Schema L).
+
+### Pattern: `/implement` Runs In-Process
+
+**Problem**: `/implement` handles long milestone runs and noticeably bloats the main session with exploration, gate output, and TDD iteration noise. A natural optimization is to add `context: fork` to `skills/implement/SKILL.md` so `/implement` runs as a subagent with a fresh context and only its final report returns to the main session. This doesn't work, and the reason is load-bearing enough to document.
+
+**Why `context: fork` breaks Stage B**: Phase 3 Stage B (Pattern 11) invokes the `code-reviewer` subagent via the `Agent` tool twice per round — Pass 1 Spec Compliance, Pass 2 Code Quality. Claude Code's sub-agent docs state: *"Subagents cannot spawn other subagents. If your workflow requires nested delegation, use Skills or chain subagents from the main conversation."* Agent teams impose the same restriction (*"teammates cannot spawn their own teams or teammates"*). So the moment `/implement` runs as a subagent — via `context: fork`, an explicit `Agent`-tool wrapper, or an agent-teams teammate — both Stage B spawns fail at invocation.
+
+**Why "chain the reviewer after `/implement` returns" also fails**: The obvious workaround is to strip Stage B out of `/implement`, let it return to the main session, and have the main session spawn the reviewer itself. But Phase 3 is a **bounded review-fix loop** (Pattern 2 + Pattern 11): reviewer findings flow back into the implementer, which fixes them and may trigger another round. The implementer and reviewer must share the same in-session actor — otherwise the fix step happens in a fresh subagent that has none of the original implementation context, and the bounded-loop contract collapses.
+
+**What we do instead**: Keep `/implement` running in-process (the default — no `context: fork`). The cost is main-session context pollution during long runs; the benefit is that Stage B's nested spawns work and the review-fix loop stays coherent. Users who want a clean context for a specific `/implement` run should start a fresh Claude Code session.
+
+**When this could change**: If Claude Code lifts the no-nested-spawn restriction, or if Stage B is restructured so the `agents/code-reviewer.md` rubric runs as inline skill content inside a forked `/implement` (accepting the trade of a less independent reviewer), `context: fork` becomes viable. Until then, treat `/implement` as main-session-only.
