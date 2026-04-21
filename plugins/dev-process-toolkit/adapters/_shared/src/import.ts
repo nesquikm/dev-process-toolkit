@@ -13,10 +13,11 @@
 //   6. regenerateIndex(specsDir) — INDEX.md refreshed
 //
 // Any step 1–4 failure means no sync and no INDEX regen. Step 5 failures
-// propagate up so the caller can surface per NFR-10 — the partial FR file
-// is intentionally left on disk so the user has recovery state.
+// (sync throws) trigger atomic rollback — we delete the FR file so the
+// working tree stays clean. Per M14 plan Phase B verify-bullet: "all
+// error-path tests assert no partial file written on failure."
 
-import { writeFileSync } from "node:fs";
+import { unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { regenerateIndex } from "./index_gen";
 import type { FRSpec, Provider } from "./provider";
@@ -70,7 +71,16 @@ export async function importFromTracker(
     },
     body,
   };
-  await provider.sync(spec);
+  try {
+    await provider.sync(spec);
+  } catch (err) {
+    try {
+      unlinkSync(path);
+    } catch {
+      // best-effort; if we can't delete it, rethrow the original sync error below
+    }
+    throw err;
+  }
   await regenerateIndex(specsDir, { now: createdAt });
   return ulid;
 }
