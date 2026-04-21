@@ -1,8 +1,14 @@
 // Sync-log entry formatter (AC-39.8, Schema L bulleted append-only form).
 //
-// One bullet per resolution event. Pure function (Schema P). Reads
-// DPT_TEST_FROZEN_TIME env var when set so tests are deterministic; falls
-// back to Date.now() otherwise.
+// One bullet per resolution event. Pure function (Schema P). Production-
+// safe time source:
+//
+//   1. Explicit `now` option wins — callers inject the timestamp.
+//   2. DPT_TEST_FROZEN_TIME is honored ONLY when NODE_ENV === "test"
+//      (AC-39.11). This prevents a misconfigured production process
+//      from emitting a frozen timestamp if the env var leaks in from
+//      a shell parent, CI, or container template.
+//   3. Otherwise, `new Date().toISOString()`.
 //
 // Form: `- <ISO> — <N> AC conflicts resolved on <ticket-id>`
 
@@ -12,7 +18,9 @@ export function formatSyncLogEntry(options: {
   now?: string;
 }): string {
   const { conflictCount, ticketId, now } = options;
-  const timestamp = now ?? process.env["DPT_TEST_FROZEN_TIME"] ?? new Date().toISOString();
+  const frozen =
+    process.env["NODE_ENV"] === "test" ? process.env["DPT_TEST_FROZEN_TIME"] : undefined;
+  const timestamp = now ?? frozen ?? new Date().toISOString();
   return `- ${timestamp} — ${conflictCount} AC conflicts resolved on ${ticketId}`;
 }
 

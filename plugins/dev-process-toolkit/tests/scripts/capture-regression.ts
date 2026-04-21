@@ -1,20 +1,32 @@
 #!/usr/bin/env bun
-// Capture the mode: none baseline snapshot for Pattern 9 regression checks.
+// Capture a `mode: none` baseline snapshot for Pattern 9 regression checks.
 //
-// Writes the snapshot to stdout. Deterministic: `find`-equivalent walk over
-// CLAUDE.md and specs/ under the mode-none-baseline fixture, with sha256 and
-// byte size per file. Kept in TypeScript so the capture primitive is
-// portable with the rest of the plugin's tracker helpers (Bun ≥ 1.2).
+// Writes the snapshot to stdout. Deterministic: walks CLAUDE.md and specs/
+// under the named fixture, with sha256 and byte size per file. Kept in
+// TypeScript so the capture primitive is portable with the rest of the
+// plugin's tracker helpers (Bun ≥ 1.2).
+//
+// Usage:
+//   bun run capture-regression.ts                 → mode-none-baseline (default)
+//   bun run capture-regression.ts <fixture-name>  → tests/fixtures/projects/<name>
 
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const scriptDir = new URL(".", import.meta.url).pathname;
 const pluginRoot = join(scriptDir, "..", "..");
-const fixtureDir = join(pluginRoot, "tests", "fixtures", "projects", "mode-none-baseline");
+
+const fixtureName = process.argv[2] ?? "mode-none-baseline";
+const fixtureDir = join(pluginRoot, "tests", "fixtures", "projects", fixtureName);
+
+if (!existsSync(fixtureDir)) {
+  process.stderr.write(`capture-regression: fixture not found: ${fixtureDir}\n`);
+  process.exit(2);
+}
 
 function walk(dir: string, acc: string[] = []): string[] {
+  if (!existsSync(dir)) return acc;
   for (const name of readdirSync(dir).sort()) {
     if (name.startsWith(".")) continue;
     const full = join(dir, name);
@@ -26,7 +38,7 @@ function walk(dir: string, acc: string[] = []): string[] {
 }
 
 const targets = [
-  join(fixtureDir, "CLAUDE.md"),
+  ...(existsSync(join(fixtureDir, "CLAUDE.md")) ? [join(fixtureDir, "CLAUDE.md")] : []),
   ...walk(join(fixtureDir, "specs")),
 ];
 

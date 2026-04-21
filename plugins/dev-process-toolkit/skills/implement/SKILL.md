@@ -277,3 +277,7 @@ If you hear yourself thinking any of these, stop and apply the rule anyway:
 - "It should work now" → "should" is not a gate result
 - "The spec says X but Y works better" / "It's just a small edge case, no need to update specs" → update the spec first, backfill now
 - "Just this once" → there is no just this once
+
+## Architecture Note
+
+This skill runs in-process in the main session — deliberately **not** `context: fork`. Phase 3 Stage B spawns the `code-reviewer` subagent via the `Agent` tool, and Claude Code forbids nested subagent spawns (*"Subagents cannot spawn other subagents"*). The review-fix loop additionally requires findings to flow back to the same implementer that wrote the code, so the chain-the-reviewer-after-`/implement`-returns workaround also breaks. See `docs/patterns.md` § Pattern: `/implement` Runs In-Process for the full rationale.
