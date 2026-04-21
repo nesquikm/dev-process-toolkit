@@ -13,6 +13,7 @@
 
 import { readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { parseFrontmatter } from "./frontmatter";
 
 export interface FRIndexEntry {
   id: string;
@@ -28,47 +29,6 @@ export interface RegenerateOptions {
 }
 
 const STATUS_RANK: Record<string, number> = { active: 0, in_progress: 1, draft: 2 };
-
-function parseFrontmatter(md: string): Record<string, unknown> {
-  const match = /^---\n([\s\S]*?)\n---/m.exec(md);
-  if (!match) throw new Error("index_gen: FR file has no YAML frontmatter");
-  const lines = match[1]!.split("\n");
-  const out: Record<string, unknown> = {};
-  let currentKey: string | null = null;
-  for (const raw of lines) {
-    if (raw.length === 0) continue;
-    if ((raw.startsWith("  ") || raw.startsWith("\t")) && currentKey !== null) {
-      const inner = raw.trim();
-      const c = inner.indexOf(":");
-      if (c < 0) continue;
-      const k = inner.slice(0, c).trim();
-      const v = inner.slice(c + 1).trim();
-      const map = out[currentKey] as Record<string, unknown> | undefined;
-      if (map && typeof map === "object") {
-        (map as Record<string, unknown>)[k] = v === "null" ? null : v;
-      }
-      continue;
-    }
-    const c = raw.indexOf(":");
-    if (c < 0) continue;
-    const key = raw.slice(0, c).trim();
-    const rest = raw.slice(c + 1).trim();
-    if (rest === "") {
-      out[key] = {};
-      currentKey = key;
-    } else if (rest === "{}") {
-      out[key] = {};
-      currentKey = null;
-    } else if (rest === "null") {
-      out[key] = null;
-      currentKey = null;
-    } else {
-      out[key] = rest;
-      currentKey = null;
-    }
-  }
-  return out;
-}
 
 function toEntry(relPath: string, full: string): FRIndexEntry | null {
   const text = readFileSync(full, "utf-8");

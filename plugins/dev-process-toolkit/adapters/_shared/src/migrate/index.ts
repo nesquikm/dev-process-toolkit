@@ -396,11 +396,70 @@ function oldFrOrder(a: string, b: string): number {
   return na - nb;
 }
 
+/**
+ * Resolve an FR's milestone by scanning plan bodies.
+ *
+ * Strategy (in order):
+ *   1. Look for the canonical declaration line `**FRs covered:** FR-N..M`
+ *      (or comma-separated variants like `FR-N, FR-M, FR-P`) in each
+ *      milestone body. This is the unambiguous author-declared mapping.
+ *   2. If no milestone has the canonical line, fall back to a substring
+ *      match — but only on the first `- [ ]` task-line occurrence (task
+ *      lines reference the FR they're implementing), not the whole body.
+ *      This avoids the old bug where cross-milestone commentary caused
+ *      mis-attribution (e.g., M12's body mentioned FR-41..50 in its
+ *      co-development paragraph, so the substring match incorrectly
+ *      bucketed M13's FRs into M12).
+ *
+ * Returns null if no milestone claims the FR; caller falls back to
+ * fallbackMilestone.
+ */
 function findMilestoneForFr(oldId: string, planSplit: ReturnType<typeof splitPlan>): string | null {
+  // Pass 1: canonical `**FRs covered:**` declaration
+  const n = parseInt(oldId.replace(/^FR-/, ""), 10);
+  if (!Number.isNaN(n)) {
+    for (const m of planSplit.milestones) {
+      const declared = extractDeclaredFrRange(m.body);
+      if (declared.has(n)) return m.id;
+    }
+  }
+  // Pass 2: scoped-body substring (task-line only, not commentary)
+  const targetRe = new RegExp(`^\\s*-\\s+\\[\\s*[ x]\\s*\\]\\s.*\\b${oldId}\\b`, "m");
   for (const m of planSplit.milestones) {
-    if (m.body.includes(`${oldId}`) || m.body.includes(`Build ${oldId}`)) return m.id;
+    if (targetRe.test(m.body)) return m.id;
   }
   return null;
+}
+
+/**
+ * Parse `**FRs covered:** FR-29..39` or `**FRs covered:** FR-1, FR-2, FR-5`
+ * into a Set of FR numbers. Used by findMilestoneForFr to make milestone
+ * attribution unambiguous.
+ */
+function extractDeclaredFrRange(planBody: string): Set<number> {
+  const out = new Set<number>();
+  const m = /\*\*FRs covered:\*\*\s*([^\n]+)/i.exec(planBody);
+  if (!m) return out;
+  const list = m[1]!;
+  // Match ranges like FR-29..39 and individual FR-N
+  const rangeRe = /FR-(\d+)\.\.(\d+)/g;
+  const singleRe = /FR-(\d+)(?!\.\.\d)/g;
+  let match: RegExpExecArray | null;
+  const consumed = new Set<string>();
+  while ((match = rangeRe.exec(list)) !== null) {
+    const a = parseInt(match[1]!, 10);
+    const b = parseInt(match[2]!, 10);
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    for (let i = lo; i <= hi; i++) {
+      out.add(i);
+      consumed.add(`FR-${i}`);
+    }
+  }
+  while ((match = singleRe.exec(list)) !== null) {
+    out.add(parseInt(match[1]!, 10));
+  }
+  return out;
 }
 
 function fallbackMilestone(planSplit: ReturnType<typeof splitPlan>): string {

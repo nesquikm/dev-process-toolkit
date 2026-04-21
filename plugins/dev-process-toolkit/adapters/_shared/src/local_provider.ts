@@ -14,6 +14,7 @@
 import { $ } from "bun";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { parseFrontmatter } from "./frontmatter";
 import type { FRMetadata, FRSpec, LockResult, Provider, SyncResult } from "./provider";
 import { mintId as mintIdImpl } from "./ulid";
 
@@ -30,45 +31,6 @@ export interface LocalProviderOptions {
    * fetched yet will be missed.
    */
   skipFetch?: boolean;
-}
-
-function parseFrontmatter(md: string): Record<string, unknown> {
-  const match = /^---\n([\s\S]*?)\n---/m.exec(md);
-  if (!match) throw new Error("local_provider: FR file has no YAML frontmatter");
-  const lines = match[1]!.split("\n");
-  const out: Record<string, unknown> = {};
-  let currentKey: string | null = null;
-  for (const raw of lines) {
-    if (raw.length === 0) continue;
-    if (raw.startsWith("  ") && currentKey !== null) {
-      // nested map (tracker: {key: val})
-      const inner = raw.trim();
-      const c = inner.indexOf(":");
-      if (c < 0) continue;
-      const k = inner.slice(0, c).trim();
-      const v = inner.slice(c + 1).trim();
-      const map = out[currentKey] as Record<string, unknown> | undefined;
-      if (map && typeof map === "object") {
-        map[k] = v === "null" ? null : v;
-      }
-      continue;
-    }
-    const c = raw.indexOf(":");
-    if (c < 0) continue;
-    const key = raw.slice(0, c).trim();
-    const rest = raw.slice(c + 1).trim();
-    if (rest === "" || rest === "{}") {
-      out[key] = rest === "{}" ? {} : null;
-      currentKey = rest === "" ? key : null;
-    } else if (rest === "null") {
-      out[key] = null;
-      currentKey = null;
-    } else {
-      out[key] = rest;
-      currentKey = null;
-    }
-  }
-  return out;
 }
 
 function getFrPath(specsDir: string, id: string): string {
