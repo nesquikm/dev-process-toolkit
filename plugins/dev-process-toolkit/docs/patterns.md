@@ -412,3 +412,31 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 **What we do instead**: Keep `/implement` running in-process (the default — no `context: fork`). The cost is main-session context pollution during long runs; the benefit is that Stage B's nested spawns work and the review-fix loop stays coherent. Users who want a clean context for a specific `/implement` run should start a fresh Claude Code session.
 
 **When this could change**: If Claude Code lifts the no-nested-spawn restriction, or if Stage B is restructured so the `agents/code-reviewer.md` rubric runs as inline skill content inside a forked `/implement` (accepting the trade of a less independent reviewer), `context: fork` becomes viable. Until then, treat `/implement` as main-session-only.
+
+
+## Pattern 23: ULID File-per-FR Layout
+
+**When to use**: Team collaborates on the same spec tree from multiple parallel branches, and merge conflicts on shared spec files (`plan.md`, `requirements.md`, `archive/*.md`) are a recurring friction point.
+
+**The pattern**:
+
+- **One FR, one file, one repo-stable ULID**. Each functional requirement lives at `specs/frs/<ulid>.md` where `<ulid>` is a Crockford base32 ULID (26 chars) minted locally at creation time. The ULID appears in both the filename and the `id:` frontmatter field, byte-for-byte equal (NFR-15 invariants 1+2).
+- **Immutable filenames**. Renames are forbidden. The only path change permitted is archival via `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md`, which preserves the stem (FR-41 AC-41.4).
+- **Tracker IDs as attributes**. `tracker.linear`, `tracker.jira`, `tracker.github` are frontmatter fields — zero-to-many. Tracker IDs never participate in filenames. Multi-tracker FRs are supported; cross-tracker reconciliation is out of scope (the frontmatter is a fact store, not a reconciler).
+- **Provider interface**. `LocalProvider` + `TrackerProvider` implement a single typed contract (`mintId`, `getMetadata`, `sync`, `getUrl`, `claimLock`, `releaseLock`). Skills inject the Provider — they never branch on "tracker configured vs. not."
+- **Per-milestone plan files**. `specs/plan/<M#>.md` replaces the monolithic `plan.md`. Once `status: active`, the plan file is frozen — edits require a `plan/<M#>-replan-<N>` branch.
+- **Move-based archival**. `git mv` for the path change + frontmatter `status` flip in a single atomic commit. Disjoint paths per ULID ⇒ no merge conflicts. Replaces the rewrite-shared-`archive/*.md` hotspot from v1.
+- **Generated `specs/INDEX.md`**. Regenerated on every write under `specs/frs/`; deterministic (same input ⇒ byte-identical output, NFR-13). Commit the generated file so PRs show the current listing.
+
+**Why this matters**:
+1. **Disjoint filenames eliminate the content-collision class.** Two branches creating new FRs mint different ULIDs → different filenames → `git merge` just concatenates. No fabricated conflicts.
+2. **Local minting is offline-safe.** `mintId()` never touches the network. Teams can author FRs offline; tracker binding happens later via `sync()`.
+3. **Tracker lifecycle is decoupled from the canonical ID.** Tracker rename / delete / multi-tracker adoption never forces a filesystem rename cascade through git history, INDEX, cross-refs.
+
+**Invariants enforced by `/gate-check`** (v2 conformance probes):
+- Filename regex: `^fr_[0-9A-HJKMNP-TV-Z]{26}\.md$` (AC-41.1)
+- `id:` frontmatter equals filename stem byte-for-byte (AC-41.2)
+- Required frontmatter fields: `id, title, milestone, status, archived_at, tracker, created_at`
+- `specs/.dpt-layout` reports the expected version
+
+**Cross-refs**: FR-40..FR-46 (requirements), `technical-spec.md` §8 (design), `docs/v2-layout-reference.md` (behavioral reference for every spec-touching skill).

@@ -260,3 +260,33 @@ tracker we don't bundle.
 Run the Conformance Checklist against a real GitHub repo. If any op can't
 be expressed cleanly (GitHub has no native status enum), drop it from
 `capabilities` — the skill degrades per FR-38 AC-38.6 rather than failing.
+
+## Provider Interface (M13, v1.16.0)
+
+v2 layout introduces a typed `Provider` interface that unifies ID lifecycle, tracker sync, and lock management behind a single contract. Adapters compose under `TrackerProvider`; the 4-op M12 surface (`pull_acs`, `push_ac_toggle`, `transition_status`, `upsert_ticket_metadata`) is unchanged.
+
+**TypeScript signatures** (from `adapters/_shared/src/provider.ts`, matching technical-spec.md §8.4 byte-for-byte):
+
+```typescript
+export interface Provider {
+  mintId(): string;                                    // pure local; offline-safe
+  getMetadata(id: string): Promise<FRMetadata>;
+  sync(spec: FRSpec): Promise<SyncResult>;
+  getUrl(id: string, trackerKey?: string): string | null;
+  claimLock(id: string, branch: string): Promise<LockResult>;
+  releaseLock(id: string): Promise<void>;
+}
+```
+
+**Two implementations ship at v1.16.0:**
+
+- **`LocalProvider`** — tracker-less path. `sync()` no-ops (`kind: 'skipped'`); `claimLock()` uses `.dpt-locks/<ulid>` files committed to the claiming branch + `git fetch --all` + cross-branch `ls-tree` scan (skippable via `DPT_SKIP_FETCH=1`).
+- **`TrackerProvider`** — composes over the M12 adapter surface. `sync()` calls `upsertTicketMetadata`; `claimLock()` uses `getTicketStatus` → `transitionStatus('in_progress')` + `upsertTicketMetadata({assignee})`; `releaseLock()` → `transitionStatus('done')`.
+
+**How adapters compose under `TrackerProvider`**:
+
+`TrackerProvider` depends on an `AdapterDriver` interface that maps the 4-op contract to MCP tool calls. Real drivers make MCP calls; tests inject stubs. Existing adapter markdown files (`adapters/linear.md`, `adapters/jira.md`, `adapters/_template.md`) describe the MCP tool mappings; the driver glue layer (a TypeScript wrapper that turns those mappings into `AdapterDriver` method implementations) is wired at skill invocation time. **Existing adapter declarative markdown is unchanged from M12** — Provider is a compositional layer above it, not a replacement.
+
+**`mintId()` invariant**: always local, never network-bound, for any provider. This is what makes offline authoring work uniformly across tracker-less and tracker modes (AC-43.5). Tracker binding happens in `sync()`, not at mint time.
+
+Full behavioral reference: `docs/v2-layout-reference.md`. Pattern summary: `docs/patterns.md` § Pattern 23.

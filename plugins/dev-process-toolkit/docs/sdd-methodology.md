@@ -122,6 +122,24 @@ When the self-review loop doesn't converge, escalate to a human rather than tryi
 4. **Bounded loops prevent runaway costs** — Max 2 rounds prevents the infinite refinement problem
 5. **Human review catches what automation misses** — The agent knows it can't be the final judge
 
+## Parallel-safe layout (v2, M13)
+
+v1 stored all FRs in a single `specs/requirements.md` and a single `specs/plan.md`. Two branches editing spec content fought over those shared files — `git merge` surfaced fabricated conflicts whenever the edits landed in the same sections (new FRs, archival rewrites, matrix rows). v2 restructures the tree so the three collision classes are eliminated by construction.
+
+**The three eliminated collision classes:**
+
+1. **ID collisions.** Two branches couldn't mint new FR numbers independently — whoever merged first claimed FR-N and the other branch had to renumber. v2 mints ULIDs locally per branch; uniqueness is statistical, filenames are disjoint. Merge is concat.
+2. **Content collisions.** Two branches editing `requirements.md` in the same FR block produced a textual conflict even when the changes were semantically independent. v2 puts each FR in its own file — edits don't share paths.
+3. **Archival-hotspot collisions.** `/implement` Phase 4 rewrote `specs/archive/*.md` + `plan.md` pointer lines — the busiest write paths. v2 archival is `git mv` on a single FR file + frontmatter flip. Disjoint paths, no shared-file edit.
+
+**Migration story.** `/setup --migrate` is the entry point. Clean-tree precondition + backup tag (`dpt-v1-snapshot-<timestamp>`) + dry-run preview (`--migrate-dry-run`) + idempotent-on-v2 check + two-commit sequence (`feat(specs): migrate to v2 layout` + `chore(specs): record v2 layout marker`). Rollback is `git reset --hard <backup-tag>`. Migration tooling lives under `adapters/_shared/src/migrate/`.
+
+**One-ticket-one-branch discipline.** Before `/implement` writes any code, `Provider.claimLock(id, branch)` runs. Tracker mode is strict — ticket status + assignee is the authoritative gate. Tracker-less mode is best-effort: `.dpt-locks/<ulid>` files + remote fetch + refuse-on-conflict. Merge-time path conflicts on `.dpt-locks/` catch races in tracker-less mode. `DPT_SKIP_FETCH=1` is the documented escape hatch for large-repo contexts.
+
+**Plan-file kickoff discipline.** Plan files (`specs/plan/<M#>.md`) are single-writer artifacts. Once `status: active`, edits require a sanctioned `plan/<M#>-replan-<N>` branch. `/gate-check` warns on post-freeze commits without auto-reverting — the human decides whether a post-freeze edit is legitimate (correction) or drift (scope creep).
+
+See `docs/v2-layout-reference.md` for the behavioral contract every spec-touching skill follows and `docs/patterns.md` § Pattern 23 for the canonical pattern summary.
+
 ## References
 
 - "Your Agents Run Forever — Here's How I Make Mine Stop" — Bounded loops and termination strategies
