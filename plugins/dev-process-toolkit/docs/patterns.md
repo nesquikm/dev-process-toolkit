@@ -440,3 +440,39 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 - `specs/.dpt-layout` reports the expected version
 
 **Cross-refs**: FR-40..FR-46 (requirements), `technical-spec.md` §8 (design), `docs/v2-layout-reference.md` (behavioral reference for every spec-touching skill).
+
+## Pattern 24: Tracker-ID Auto-Resolution
+
+**When to use**: You have a tracker mode configured (Linear, Jira, GitHub) and want skills to accept *tracker-native* arguments (`LIN-1234`, `PROJ-42`, `#982`, or a full ticket URL) without forcing users to look up the local ULID.
+
+**The pattern**:
+
+A shared `resolveFRArgument(arg, config)` utility classifies a skill argument as one of four kinds before any side effect:
+
+- **`ulid`** — matches `^fr_[0-9A-HJKMNP-TV-Z]{26}$`; route to the pre-M14 by-ULID code path unchanged.
+- **`tracker-id`** — matches one or more adapter-registered `id_pattern` regexes (Schema W). If multiple trackers match, disambiguation by project prefix (e.g., `LIN` for Linear, `PROJ` for Jira) resolves the winner. Still ambiguous → throw `AmbiguousArgumentError` with both candidates.
+- **`url`** — host must match an adapter-registered `url_host` (NFR-19 allowlist — unknown hosts fall through; no "best guess"). Path regex extracts the tracker ID.
+- **`fallthrough`** — everything else (free-form titles, milestone codes like `M12`, keywords like `all` / `requirements`). Each skill handles these per its pre-M14 contract.
+
+The resolver is **pure**: no network I/O, no filesystem reads (both are downstream of the dispatcher). Resolution is deterministic — identical inputs always return identical outputs, and ambiguity is an error (not an interactive prompt), so non-interactive callers behave the same way as interactive ones (NFR-20).
+
+**The `<tracker>:<id>` disambiguation escape hatch**:
+
+When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira project `FOO`), users disambiguate with the explicit `<tracker>:<id>` form: `linear:FOO-42` or `jira:FOO-42`. Case-insensitive on the tracker key (`LINEAR:FOO-42` works). The explicit form **always wins** over inference — this is the documented remedy the ambiguity error surfaces.
+
+**Skill-specific continuations** (FR-52..54):
+
+| Kind + lookup result | `/spec-write` | `/implement` | `/spec-archive` |
+|----------------------|---------------|--------------|-----------------|
+| `ulid` | Edit existing | Claim lock + implement | Archive (git mv + status flip) |
+| Tracker-id/url, find-by-tracker-ref **hit** | Edit existing (no import) | Claim lock on resolved ULID | Archive resolved ULID |
+| Tracker-id/url, find-by-tracker-ref **miss** | Import via `importFromTracker` (no FR-39 dance — AC-52.5) | Import then claim lock | **Refuse** per AC-54.4 (never auto-imports) |
+| `fallthrough` | Pre-M14 free-form handling | Pre-M14 (milestone code, issue number, task text) | Pre-M14 (anchor, heading text, milestone id) |
+
+**Why this matters**:
+
+1. **Eliminates ULID lookup friction.** Users pass the tracker-native ID they already know.
+2. **No drift between three skill dispatchers.** One resolver + one `importFromTracker` helper means `/spec-write` and `/implement` cannot implement the same behavior two different ways.
+3. **Non-interactive safe.** The resolver never prompts — CI, scripts, and agent harnesses get the same deterministic errors humans see interactively.
+
+**Cross-refs**: FR-51..FR-54 (requirements), `technical-spec.md` §9 (design), `docs/resolver-entry.md` (per-skill decision table), `docs/tracker-adapters.md` § Registering tracker ID patterns for the resolver.
