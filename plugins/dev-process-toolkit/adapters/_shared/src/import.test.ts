@@ -4,7 +4,7 @@
 // sync failure), and milestone prompt callback invocation.
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importFromTracker } from "./import";
@@ -213,18 +213,33 @@ describe("importFromTracker — error paths (AC-52.8 / ordering)", () => {
         importFromTracker("linear", "LIN-1", provider, specsDir, async () => "M14"),
       ).rejects.toThrow("tracker unreachable");
       expect(provider.syncCalls).toHaveLength(0);
-      // No stray FR files written
-      const frs = join(specsDir, "frs");
-      const files = Array.from(
-        (await import("node:fs/promises")).readdir(frs).then((xs) => xs),
-      );
-      void files;
+      // No stray FR files written (plan Phase B verify: "no partial file on failure")
+      const files = readdirSync(join(specsDir, "frs"));
+      expect(files).toHaveLength(0);
     } finally {
       rmSync(specsDir, { recursive: true, force: true });
     }
   });
 
-  test("sync failure propagates after file write (no silent swallow)", async () => {
+  test("promptMilestone throws → no mint, no file, no sync", async () => {
+    const specsDir = makeSpecsDir();
+    try {
+      const provider = new StubProvider();
+      await expect(
+        importFromTracker("linear", "LIN-1", provider, specsDir, async () => {
+          throw new Error("user cancelled milestone pick");
+        }),
+      ).rejects.toThrow("user cancelled milestone pick");
+      expect(provider.mintCount).toBe(0);
+      expect(provider.syncCalls).toHaveLength(0);
+      const files = readdirSync(join(specsDir, "frs"));
+      expect(files).toHaveLength(0);
+    } finally {
+      rmSync(specsDir, { recursive: true, force: true });
+    }
+  });
+
+  test("sync failure propagates AND rolls back partial FR file (plan Phase B)", async () => {
     const specsDir = makeSpecsDir();
     try {
       const provider = new StubProvider({
@@ -234,8 +249,12 @@ describe("importFromTracker — error paths (AC-52.8 / ordering)", () => {
       await expect(
         importFromTracker("linear", "LIN-1", provider, specsDir, async () => "M14"),
       ).rejects.toThrow("sync failed");
-      // File was written before sync was called
-      expect(existsSync(join(specsDir, "frs", "fr_01SYNCFAILURETESTFIX00001.md"))).toBe(true);
+      // Atomic rollback: partial file must not remain after sync failure
+      expect(
+        existsSync(join(specsDir, "frs", "fr_01SYNCFAILURETESTFIX00001.md")),
+      ).toBe(false);
+      const files = readdirSync(join(specsDir, "frs"));
+      expect(files).toHaveLength(0);
     } finally {
       rmSync(specsDir, { recursive: true, force: true });
     }

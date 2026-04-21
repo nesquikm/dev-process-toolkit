@@ -103,7 +103,9 @@ describe("resolveFRArgument — explicit prefix form (AC-51.5)", () => {
   });
 
   test("explicit prefix with unknown tracker key → fall through to other detection", () => {
-    // unknown-prefix:fr_01... should still parse as ULID via the next step
+    // After the unknown prefix is rejected, later branches are tested against
+    // the FULL original argument (not the id portion), so "unknowntracker:fr_…"
+    // fails the ^fr_-anchored ULID regex and every other branch → fallthrough.
     const r = resolveFRArgument("unknowntracker:fr_01KPR3M74XA75GJKT4Z4HG95TC", onlyLinear);
     expect(r.kind).toBe("fallthrough");
   });
@@ -253,6 +255,16 @@ describe("resolveFRArgument — fallthrough (AC-51.7, NFR-18)", () => {
 
   test("empty string → fallthrough", () => {
     const r = resolveFRArgument("", fullStack);
+    expect(r.kind).toBe("fallthrough");
+  });
+
+  test("whitespace-only → fallthrough", () => {
+    expect(resolveFRArgument("   ", fullStack).kind).toBe("fallthrough");
+    expect(resolveFRArgument("\t\n", fullStack).kind).toBe("fallthrough");
+  });
+
+  test("very-long garbage string → fallthrough (no crash)", () => {
+    const r = resolveFRArgument("x".repeat(10_000), fullStack);
     expect(r.kind).toBe("fallthrough");
   });
 });
