@@ -110,16 +110,18 @@ export function mintId(): string {
   return `fr_${encodeTimestamp(ts)}${randomnessCharsToString(lastRandomness)}`;
 }
 
-export function mintUniqueId(options: { exists: (id: string) => boolean | Promise<boolean> }): string {
+/**
+ * Mint a ULID guaranteed not to already exist per the caller's predicate.
+ * `exists` MUST be synchronous — async predicates would silently fall
+ * through the collision retry. Callers with async lookups resolve the
+ * Promise before invoking this.
+ */
+export function mintUniqueId(options: { exists: (id: string) => boolean }): string {
   for (let attempt = 0; attempt < 3; attempt++) {
     const id = mintId();
-    const hit = options.exists(id);
-    // Only synchronous existence checks are supported here to keep the hot
-    // path sync. Async callers resolve the Promise externally before calling.
-    if (typeof hit === "boolean" ? !hit : true) {
-      if (typeof hit === "boolean" && !hit) return id;
-    }
-    if (hit === false) return id;
+    if (!options.exists(id)) return id;
   }
-  throw new Error("ulid: mintUniqueId failed after 3 collisions; the filesystem reports every minted ID already exists");
+  throw new Error(
+    "ulid: mintUniqueId failed after 3 collisions; the filesystem reports every minted ID already exists",
+  );
 }

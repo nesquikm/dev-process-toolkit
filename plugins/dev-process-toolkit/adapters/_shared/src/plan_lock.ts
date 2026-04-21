@@ -10,6 +10,7 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { parseFrontmatter } from "./frontmatter";
 
 export const PLAN_FROZEN_MESSAGE = (milestone: string): string =>
   `Plan for ${milestone} is frozen. Create a \`plan/${milestone}-replan-<N>\` branch to revise.`;
@@ -20,20 +21,6 @@ export interface PlanWriteCheckResult {
   message?: string;
 }
 
-function parsePlanFrontmatter(md: string): Record<string, string | null> {
-  const match = /^---\n([\s\S]*?)\n---/m.exec(md);
-  if (!match) return {};
-  const out: Record<string, string | null> = {};
-  for (const raw of match[1]!.split("\n")) {
-    const c = raw.indexOf(":");
-    if (c < 0) continue;
-    const key = raw.slice(0, c).trim();
-    const rest = raw.slice(c + 1).trim();
-    out[key] = rest === "null" || rest === "" ? null : rest;
-  }
-  return out;
-}
-
 export function checkPlanWriteAllowed(planPath: string, currentBranch: string): PlanWriteCheckResult {
   let text: string;
   try {
@@ -41,18 +28,25 @@ export function checkPlanWriteAllowed(planPath: string, currentBranch: string): 
   } catch {
     return { allowed: true };
   }
-  const fm = parsePlanFrontmatter(text);
-  const milestone = (fm["milestone"] ?? "").replace(/^M?/, "M").replace(/^MM/, "M");
+  const fm = parseFrontmatter(text, { lenient: true });
+  const milestone = normalizeMilestone(fm["milestone"]);
   const status = fm["status"];
   if (status !== "active") return { allowed: true, milestone };
   // Active plan — only allow from the sanctioned replan branch
-  const replanRe = new RegExp(`^plan/${milestone.replace("M", "M")}-replan-\\d+$`);
+  const replanRe = new RegExp(`^plan/${milestone}-replan-\\d+$`);
   if (replanRe.test(currentBranch)) return { allowed: true, milestone };
   return {
     allowed: false,
     milestone,
     message: PLAN_FROZEN_MESSAGE(milestone),
   };
+}
+
+function normalizeMilestone(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return "";
+  return /^M\d+$/.test(trimmed) ? trimmed : `M${trimmed.replace(/^M/, "")}`;
 }
 
 export interface PostFreezeEdit {
@@ -80,9 +74,9 @@ export async function findPostFreezeEdits(repoRoot: string): Promise<PostFreezeE
     } catch {
       continue;
     }
-    const fm = parsePlanFrontmatter(text);
+    const fm = parseFrontmatter(text, { lenient: true });
     const frozen = fm["frozen_at"];
-    if (fm["status"] !== "active" || !frozen) continue;
+    if (fm["status"] !== "active" || !frozen || typeof frozen !== "string") continue;
     const relPath = `specs/plan/${file}`;
     const commits = await gitLogAfter(repoRoot, relPath, frozen);
     for (const c of commits) {

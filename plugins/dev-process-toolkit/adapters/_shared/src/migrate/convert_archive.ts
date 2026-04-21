@@ -2,6 +2,7 @@
 // (Schema G) into its constituent FR blocks, preserving archival date
 // (AC-48.9).
 
+import { parseFrontmatterFlat } from "../frontmatter";
 import { splitFrs } from "./split_fr";
 
 export interface ArchivedFr {
@@ -18,20 +19,6 @@ export interface ArchiveFileResult {
   frs: ArchivedFr[];
 }
 
-function parseFrontmatter(md: string): Record<string, string> {
-  const match = /^---\n([\s\S]*?)\n---/m.exec(md);
-  if (!match) return {};
-  const out: Record<string, string> = {};
-  for (const line of match[1]!.split("\n")) {
-    const c = line.indexOf(":");
-    if (c < 0) continue;
-    const k = line.slice(0, c).trim();
-    const v = line.slice(c + 1).trim();
-    if (k.length > 0) out[k] = v;
-  }
-  return out;
-}
-
 function normalizeDate(raw: string): string {
   const trimmed = raw.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return `${trimmed}T00:00:00Z`;
@@ -41,7 +28,7 @@ function normalizeDate(raw: string): string {
 }
 
 export function convertArchiveFile(markdown: string): ArchiveFileResult {
-  const fm = parseFrontmatter(markdown);
+  const fm = parseFrontmatterFlat(markdown);
   const milestone = fm["milestone"] ?? "";
   const title = fm["title"] ?? "";
   const archivedAt = normalizeDate(fm["archived"] ?? "");

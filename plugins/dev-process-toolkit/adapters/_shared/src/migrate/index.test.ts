@@ -162,3 +162,83 @@ describe("migrate — summary output (AC-48.12)", () => {
     expect(result.tag).toMatch(/^dpt-v1-snapshot-/);
   });
 });
+
+describe("migrate — milestone attribution (regression: cross-milestone body cross-refs)", () => {
+  test("canonical `**FRs covered:** FR-N..M` declaration wins over body substring", async () => {
+    // Reset fixture + build a case where M1's body mentions M2's FRs in
+    // a cross-reference paragraph. Old heuristic would bucket M2's FRs
+    // into M1; new logic respects the **FRs covered** declaration.
+    rmSync(work, { recursive: true, force: true });
+    work = mkdtempSync(join(tmpdir(), "dpt-migrate-attr-"));
+    await initRepo(work);
+    const specsDir = join(work, "specs");
+    const archiveDir = join(specsDir, "archive");
+    require("node:fs").mkdirSync(archiveDir, { recursive: true });
+    writeFileSync(
+      join(specsDir, "requirements.md"),
+      [
+        "# Requirements",
+        "",
+        "## 2. Functional Requirements",
+        "",
+        "### FR-1: First {#FR-1}",
+        "",
+        "Body.",
+        "",
+        "**Acceptance Criteria:**",
+        "- AC-1.1: one",
+        "",
+        "### FR-2: Second {#FR-2}",
+        "",
+        "Body.",
+        "",
+        "**Acceptance Criteria:**",
+        "- AC-2.1: one",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(join(specsDir, "technical-spec.md"), "# Tech\n");
+    writeFileSync(join(specsDir, "testing-spec.md"), "# Testing\n");
+    writeFileSync(
+      join(specsDir, "plan.md"),
+      [
+        "# Plan",
+        "",
+        "## M1: First Milestone {#M1}",
+        "",
+        "**Status:** active.",
+        "",
+        "**FRs covered:** FR-1 (1 FR).",
+        "",
+        "M1 depends on M2, which ships FR-2. When M2 lands, FR-2 can be wired in.",
+        "",
+        "- [ ] Build FR-1",
+        "  verify: unit test",
+        "",
+        "## M2: Second Milestone {#M2}",
+        "",
+        "**Status:** active.",
+        "",
+        "**FRs covered:** FR-2 (1 FR).",
+        "",
+        "- [ ] Build FR-2",
+        "  verify: unit test",
+        "",
+      ].join("\n"),
+    );
+    await $`git add .`.cwd(work).quiet();
+    await $`git commit -q -m baseline`.cwd(work).quiet();
+
+    process.env["NODE_ENV"] = "test";
+    process.env["DPT_TEST_ULID_SEED"] = "01HZ";
+    delete (globalThis as Record<string, unknown>)["__dpt_ulid_test_counter"];
+
+    await migrate({ repoRoot: work, mode: "live", now: "2026-04-21T10:30:00Z" });
+
+    const fr1 = readFileSync(join(specsDir, "frs", "fr_01HZ0000000000000000000001.md"), "utf-8");
+    const fr2 = readFileSync(join(specsDir, "frs", "fr_01HZ0000000000000000000002.md"), "utf-8");
+    expect(/^milestone:\s*M1\s*$/m.test(fr1)).toBe(true);
+    // FR-2 must land on M2 even though M1's body mentions "FR-2" in commentary
+    expect(/^milestone:\s*M2\s*$/m.test(fr2)).toBe(true);
+  });
+});
