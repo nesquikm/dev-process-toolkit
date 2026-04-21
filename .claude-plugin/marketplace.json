@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "dev-process-toolkit",
-      "version": "1.15.0",
+      "version": "1.16.0",
       "source": "./plugins/dev-process-toolkit",
       "description": "Portable skills, agents, and templates that add SDD and TDD workflows to any Claude Code project.",
       "category": "development-workflow",

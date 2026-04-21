@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [1.16.0] — 2026-04-21 — "Parallel-safe"
+
+Restructures `specs/` from the monolithic 4-file layout (v1) to a file-per-FR + ULID layout (v2). Introduces a typed `Provider` interface that unifies ID lifecycle and tracker sync behind one contract, so skills never branch on "tracker configured vs. not." Eliminates the three merge-collision classes (ID, content, archival-hotspot) that made parallel-branch spec edits painful under v1. Ships with `/setup --migrate` as the one-way v1 → v2 path, backed by a backup tag, dry-run preview, clean-tree precondition, and two-commit sequence.
+
+**Migration is explicit user invocation only.** Existing v1 projects continue to work unchanged — every spec-touching skill starts with a layout probe that falls through to v1 behavior when `specs/.dpt-layout` is absent. Pattern 9 byte-for-byte regression is preserved across all 3 mode-none baselines.
+
+### Added
+
+- **v2 spec tree** (FR-40 / AC-40.1..5): `specs/frs/<ulid>.md` per FR (active) with `specs/frs/archive/<ulid>.md` (archived), `specs/plan/<M#>.md` per milestone, generated `specs/INDEX.md` (deterministic, sort: milestone ASC → status → ULID ASC), `specs/.dpt-layout` YAML marker.
+- **ULID minter** (FR-41 / AC-41.1..5): `adapters/_shared/src/ulid.ts`. `fr_` prefix + Crockford base32 (26 chars, excludes I/L/O/U). Monotonic within-millisecond, random across processes, always local (no network). NODE_ENV=test + DPT_TEST_ULID_SEED produces a deterministic sequence (AC-39.11 discipline). Filename ↔ `id:` frontmatter equality enforced by `/gate-check` conformance probe (NFR-15 invariants 1+2).
+- **Provider interface** (FR-42, FR-43 / AC-42.1..5, AC-43.1..6): `adapters/_shared/src/provider.ts` — `mintId/getMetadata/sync/getUrl/claimLock/releaseLock`. Two implementations ship: `LocalProvider` (tracker-less, `.dpt-locks/` + remote scan) and `TrackerProvider` (composes over M12 adapter surface with injectable `AdapterDriver`).
+- **Per-milestone plan files + kickoff discipline** (FR-44 / AC-44.1..6): `specs/plan/<M#>.md` with Schema T frontmatter (`milestone, status, kickoff_branch, frozen_at, revision`). Once `status: active`, edits require a sanctioned `plan/<M#>-replan-<N>` branch. `adapters/_shared/src/plan_lock.ts` exports `checkPlanWriteAllowed` + `findPostFreezeEdits` for `/gate-check` probe wiring.
+- **Move-based archival** (FR-45 / AC-45.1..6): `/implement` Phase 4 and `/spec-archive` both use `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md` + frontmatter `status` flip in a single atomic commit. Milestone-level archival performs N moves + N flips + plan-file move in one commit.
+- **One-ticket-one-branch enforcement** (FR-46 / AC-46.1..7): `Provider.claimLock/releaseLock` at `/implement` entry/exit. Tracker mode strict (status + assignee); tracker-less mode best-effort (`.dpt-locks/` + `git fetch --all` cross-branch scan). `DPT_SKIP_FETCH=1` escape hatch documented.
+- **Layout version gate** (FR-47 / AC-47.1..5): `adapters/_shared/src/layout.ts` `readLayoutVersion(specsDir, {allowMissing?})`. `/setup` exempt via `allowMissing: true`. Mismatch → canonical message: `"Layout v<actual> detected; <skill> requires v2. Run /dev-process-toolkit:setup to migrate."`
+- **Migration tooling** (FR-48 / AC-48.1..13, NFR-14): `adapters/_shared/src/migrate/{split_fr,colocate,split_plan,convert_archive,index}.ts`. `/setup --migrate` + `--migrate-dry-run` flags. Clean-tree precondition, `dpt-v1-snapshot-<ts>` backup tag, memory-staged transform, two-commit sequence (`feat(specs): migrate to v2 layout` + `chore(specs): record v2 layout marker`), structured summary (FR count / milestone count / archive count / tag). Idempotent on already-v2 trees. Graceful degradation for gitignored-specs/ repos (filesystem-only path).
+- **v2 skill retrofit** (FR-49 / AC-49.1..8): 6 spec-touching skills (`/setup`, `/spec-write`, `/implement`, `/gate-check`, `/spec-archive`, `/spec-review`) gained layout + Provider probes. Read-only skills (`/brainstorm`, `/tdd`, `/simplify`, `/debug`, `/pr`, `/visual-check`) verified layout-agnostic via regression fixture.
+- **JSON Schema files** — `adapters/_shared/schemas/{fr,layout,lock,plan,index}.schema.json` (Schemas Q–U as machine-readable JSON Schema; canonical examples live in `technical-spec.md` §8.3).
+- **Regression infrastructure** — `tests/fixtures/v2-minimal/` (golden v2 tree), `tests/fixtures/migration/v1-to-v2/{input,expected}/` (round-trip fixture with deterministic ULIDs), Schema M probe layer in `verify-regression.ts` (filename↔id equality, ULID regex, layout marker — AC-49.8).
+- **Documentation** (FR-50 / AC-50.1..7): `docs/patterns.md` § Pattern 23 (ULID File-per-FR Layout), `docs/sdd-methodology.md` § Parallel-safe layout, `docs/v2-layout-reference.md` (canonical behavioral contract), `docs/tracker-adapters.md` § Provider Interface, `templates/CLAUDE.md.template` v2 tree description.
+
+### Changed
+
+- `plugin.json` + `.claude-plugin/marketplace.json` version → `1.16.0`.
+- `README.md` Latest: line → `v1.16.0 — "Parallel-safe"`.
+- Skills' first steps now run a layout probe before tracker-mode probe; v1 path preserved byte-for-byte when `.dpt-layout` is absent (Pattern 9 invariant).
+
+### Spec deviations documented
+
+- **AC-44.2 vs AC-48.7** — migrated active plans have `kickoff_branch: null` + `frozen_at: null` (AC-48.7), while AC-44.2 says those fields are null only for `status: draft`. Resolution: `plan.schema.json` permissive (allOf enforces draft-only null case); migration exception documented in `$comment`. `/gate-check` enforces the tighter AC-44.2 invariant behaviorally for non-migrated plans.
+- **AC-49.8 interpretation** — "byte-identical skill outputs against v2-minimal" is structurally validated (Schema M probe: layout marker, ULID regex, filename↔id equality, INDEX.md determinism) rather than by executing each of 12 markdown skills against the fixture. Skills are documentation-style `.md` files, not shell-executable primitives.
+
+### Known follow-ups
+
+- CHANGELOG date refresh at merge (this section's date stamp will update to the actual merge day; AC-50.4 placeholder).
+- Regenerated-per-archive `specs/frs/archive/INDEX.md` not shipped (out of scope per technical-spec §8.11).
+
+### Cross-references
+
+FRs: FR-40..FR-50 (11 FRs, 65+ ACs). NFRs: NFR-11..NFR-16. Design: `technical-spec.md` §8. Test strategy: `testing-spec.md` §7.
+
 ## [1.15.0] — 2026-04-17 — "Tracker Integration"
 
 Opt-in tracker mode (Linear, Jira, custom) for teams whose ACs live in a task tracker. Default `mode: none` is byte-identical to pre-M12 — Pattern 9 regression gate (`tests/fixtures/baselines/m1-m11-regression.snapshot`) is the stop-ship guardrail.

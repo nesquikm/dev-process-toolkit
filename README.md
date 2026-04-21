@@ -64,7 +64,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.15.0 — "Tracker Integration"** (opt-in tracker mode for teams whose ACs live in Linear / Jira / custom — bidirectional AC sync with per-AC B-style conflict prompts, live MCP + `updatedAt` optimistic concurrency, no persistent cache, source-only distribution via Bun; `mode: none` default is byte-identical to pre-M12 per Pattern 9 regression gate; FR-29..39, 11 FRs, 80+ ACs).
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.16.0 — "Parallel-safe"** (file-per-FR + ULID spec layout eliminates merge-collision classes on shared `requirements.md` / `plan.md` / `archive/*.md`; typed `Provider` interface unifies ID lifecycle + tracker sync so skills never branch on mode; `/setup --migrate` is the one-way v1→v2 path with backup tag + dry-run preview + clean-tree precondition; FR-40..50, 11 FRs, 65+ ACs; v1 projects continue to work unchanged via Pattern 9 layout probe).
 
 ## Core Philosophy
 
@@ -87,6 +87,7 @@ The key insight: **deterministic checks always override LLM judgment**. A failin
 - `plugins/dev-process-toolkit/docs/sdd-methodology.md` — What SDD is and how it works
 - `plugins/dev-process-toolkit/docs/skill-anatomy.md` — How Claude Code skills work
 - `plugins/dev-process-toolkit/docs/adaptation-guide.md` — Reference for customizing skills and configuration after `/setup`
-- `plugins/dev-process-toolkit/docs/patterns.md` — 22 proven patterns + anti-patterns
+- `plugins/dev-process-toolkit/docs/patterns.md` — 23 proven patterns + anti-patterns
+- `plugins/dev-process-toolkit/docs/v2-layout-reference.md` — v2 spec layout behavioral contract (file-per-FR + ULID; Provider interface; skill integration map)
 
 **Claude Code official docs:** https://code.claude.com/docs/en
