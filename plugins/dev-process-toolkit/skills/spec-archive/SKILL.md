@@ -17,11 +17,23 @@ Before any other step:
 - **Layout probe** — Read `specs/.dpt-layout` via `bun run adapters/_shared/src/layout.ts`. If `version: v2`, `$ARGUMENTS` is interpreted as either a ULID (`fr_01HZ...`) or a milestone id (`M13`). The archival mechanism switches to `git mv` + frontmatter flip (see § v2 Archival below). If marker absent, use v1 anchor-based archival unchanged. If version > v2, exit with canonical message (AC-47.3).
 - **Tracker-mode probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none`. Tracker-mode `/spec-archive` still operates only on local `specs/` content — archival of completed **tracker tickets** is the tracker's own concern.
 
+### 0a. Resolver entry (AC-54.1)
+
+In v2 mode, after the layout probe and before the rest of step 0b runs, call `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`:
+
+- **`ulid`** → feed the ULID into step 0b.1 below (existing single-FR archival).
+- **`tracker-id` / `url`** + `findFRByTrackerRef` hit → resolve to the ULID and feed into 0b.1 (AC-54.3). No import, no tracker network call.
+- **`tracker-id` / `url`** + `findFRByTrackerRef` miss → **refuse** with the NFR-10 canonical error: `"No local FR mapped to <tracker>:<id>. Archival never auto-imports. To dismiss the tracker ticket, close it in the tracker directly."` Exit non-zero. No side effects. `/spec-archive` **never** auto-imports (AC-54.4).
+- **`fallthrough`** → continue to step 0b.1 with `$ARGUMENTS` unchanged. Milestone codes (`M12`), anchors (`{#M3}`, `{#FR-7}`), and heading strings fall through here — pre-M14 behavior is preserved (AC-54.5, AC-54.6, NFR-18).
+- `AmbiguousArgumentError` → surface per NFR-10 with the `<tracker>:<id>` disambiguation remedy; exit non-zero.
+
+Full decision table: `docs/resolver-entry.md`.
+
 ### 0b. v2 archival procedure (FR-45, AC-49.4)
 
 When layout=v2, archival uses the same code path as `/implement` Phase 4:
 
-1. Resolve `$ARGUMENTS`:
+1. Resolve `$ARGUMENTS` (after 0a routing above):
    - ULID (`fr_01HZ...`): archive that single FR.
    - Milestone id (`M<N>`): archive every FR where frontmatter `milestone == M<N>` (AC-45.6) PLUS the plan file itself.
 2. For each target FR:

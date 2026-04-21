@@ -23,6 +23,22 @@ Before any other step:
   - After saving any FR-level AC edit, run the FR-39 diff/resolve loop via the active adapter before pushing via `upsert_ticket_metadata` (AC-34.7, AC-39.9).
   See `docs/spec-write-tracker-mode.md` for the full tracker-mode flow.
 
+### 0a. Resolver entry (AC-52.1)
+
+In v2 mode, after the layout version gate and before any FR write:
+
+1. Call `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. Build `config` from `CLAUDE.md` `## Task Tracking` + each active adapter's Schema W `resolver:` block.
+2. Route by `kind`:
+   - **`ulid`** → open `specs/frs/<ulid>.md` for editing (AC-52.2). Skip step 0b below.
+   - **`tracker-id` / `url`** → call `findFRByTrackerRef(specsDir, trackerKey, trackerId)`:
+     - **Hit** → open that FR for editing; no import, no tracker network call beyond resolve (AC-52.3). Skip 0b.
+     - **Miss** → run the shared import helper `importFromTracker(trackerKey, trackerId, provider, specsDir, promptMilestone)` from `adapters/_shared/src/import.ts`. Tracker ACs are auto-accepted — **never run the FR-39 per-AC prompt loop here** (AC-52.5); the local side is empty so there is nothing to diff against. Empty-AC tickets get a TODO marker in the new FR's `## Acceptance Criteria` section (AC-52.7).
+   - **`fallthrough`** → continue with pre-M14 free-form handling (step 1 below). NFR-18 requires byte-identical behavior for `all`, `requirements`, `technical`, `testing`, `plan`.
+3. On `AmbiguousArgumentError`, surface the NFR-10-shape error from `docs/resolver-entry.md` § Ambiguity and exit non-zero. Never silently pick a winner (NFR-20).
+4. All tracker/network failures during `importFromTracker` surface per NFR-10 (AC-52.8).
+
+Full decision table and edge cases: `docs/resolver-entry.md`. Subsequent `/spec-write` calls on the same tracker ID run FR-39's normal diff/resolve flow (AC-52.6) because both sides are now populated.
+
 ### 0b. v2 FR creation path (AC-49.2)
 
 In v2 mode, creating a new FR means:
