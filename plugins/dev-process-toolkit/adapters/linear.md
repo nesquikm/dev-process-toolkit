@@ -20,6 +20,10 @@ ticket_description_template: |
 
   Source: specs/requirements.md#{fr_anchor}
 helpers_dir: adapters/linear/src
+resolver:
+  id_pattern: '^[A-Z]+-\d+$'
+  url_host: 'linear.app'
+  url_path_regex: '/[^/]+/issue/([A-Z]+-\d+)'
 ---
 
 # Linear Adapter

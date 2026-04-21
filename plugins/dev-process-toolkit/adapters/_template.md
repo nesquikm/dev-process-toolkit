@@ -20,6 +20,12 @@ ticket_description_template: |
 
   Source: specs/requirements.md#{fr_anchor}
 helpers_dir: adapters/_template/src
+resolver:
+  # Schema W — optional. If present, argument auto-resolution via FR-51 works
+  # for this tracker; if absent, users must pass ULIDs (see docs/tracker-adapters.md).
+  id_pattern: '^TPL-\d+$'
+  url_host: '<host, e.g., your-tracker.example.com>'
+  url_path_regex: '/issue/(TPL-\d+)'
 ---
 
 # `_template` Adapter
