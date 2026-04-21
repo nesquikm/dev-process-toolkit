@@ -20,6 +20,10 @@ ticket_description_template: |
 
   Source: specs/requirements.md#{fr_anchor}
 helpers_dir: adapters/jira/src
+resolver:
+  id_pattern: '^[A-Z][A-Z0-9]{1,9}-\d+$'
+  url_host: '<your Jira host, e.g., example.atlassian.net>'
+  url_path_regex: '/browse/([A-Z][A-Z0-9]{1,9}-\d+)'
 ---
 
 # Jira Adapter
