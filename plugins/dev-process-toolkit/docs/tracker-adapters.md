@@ -1,6 +1,6 @@
 # Tracker Adapters
 
-How the plugin talks to Linear, Jira, Asana, and any custom tracker without
+How the plugin talks to Linear, Jira, and any custom tracker without
 hard-coding tracker-specific logic anywhere in the skills.
 
 Applies to v1.15.0+ (M12, "Tracker Integration"). In `mode: none` (default),
@@ -47,7 +47,7 @@ code directly:
 Adapters are markdown (`adapters/<tracker>.md`) plus optional TypeScript
 helpers (`adapters/<tracker>/src/*.ts`). The markdown routes each op to the
 right MCP tool; helpers handle tracker-specific text massaging (Linear
-normalization, Jira field discovery, Asana HTML ↔ Markdown).
+normalization, Jira field discovery).
 
 ## Schemas (technical-spec §7.3)
 
@@ -55,9 +55,8 @@ Full definitions live in `specs/technical-spec.md` §7.3. Summary:
 
 - **Schema L — `## Task Tracking` section format.** Cross-skill. Heading
   presence is the mode probe; absence ≡ `mode: none`. Keys: `mode`,
-  `mcp_server`, `active_ticket`, `jira_ac_field`, `asana_status_convention`.
-  Duplicate keys are a malformed file and fail the skill with NFR-10
-  canonical shape.
+  `mcp_server`, `active_ticket`, `jira_ac_field`. Duplicate keys are a
+  malformed file and fail the skill with NFR-10 canonical shape.
 - **Schema M — Adapter frontmatter.** Nine fields: `name`, `mcp_server`,
   `ticket_id_regex`, `ticket_id_source`, `ac_storage_convention`,
   `status_mapping`, `capabilities`, `ticket_description_template`,
@@ -93,13 +92,13 @@ Full definitions live in `specs/technical-spec.md` §7.3. Summary:
 
 ## Conformance Checklist
 
-Each shipped adapter (Linear, Jira, Asana, custom) must pass this checklist
+Each shipped adapter (Linear, Jira, custom) must pass this checklist
 against a real tracker instance before release. No automated harness in v1
 (test accounts + OAuth + teardown are too heavy); pass markers are recorded
 in the adapter's PR description.
 
 **Tier 5 status at v1.15.0 ship:** the checklist is documented; execution
-against live Linear/Jira/Asana tenants has **not** been performed in the
+against live Linear/Jira tenants has **not** been performed in the
 v1.15.0 implementation session. MCP tool names in each adapter are marked
 "provisional (Phase H conformance)" and must be verified once an
 authenticated MCP is available. Phase H Task 1 (mode-none regression) is
@@ -120,7 +119,7 @@ responsibility.
 - [ ] Empty-AC ticket fails the skill with `"No acceptance criteria found in
       ticket <ID>"` in NFR-10 canonical shape (AC-35.4)
 - [ ] Normalization round-trips: `normalize(normalize(x)) === normalize(x)`
-      holds for Linear; equivalent invariant for Jira / Asana
+      holds for Linear; equivalent invariant for Jira
 
 ### `push_ac_toggle`
 
@@ -151,7 +150,7 @@ responsibility.
 
 ### End-to-end flow
 
-- [ ] Fresh-project `/setup → linear|jira|asana → pull_acs` round-trip
+- [ ] Fresh-project `/setup → linear|jira → pull_acs` round-trip
       succeeds; `mode: <tracker>` recorded in CLAUDE.md
 - [ ] `/implement` pre-flight fetches ticket, records `updatedAt`, and runs
       FR-39 diff/resolve loop
@@ -210,20 +209,6 @@ these bounds should document the slow path here so users aren't surprised.
   lookup.
 - Self-hosted Jira is **explicitly not supported** in v1 (specs/requirements
   §5 M12 out-of-scope). Cloud Atlassian MCP only.
-
-### Asana
-
-- ACs live as subtasks; checkbox state = subtask `completed` boolean
-  (AC-37.3).
-- Asana descriptions use restricted HTML, not Markdown. The adapter rounds
-  tripping through `adapters/asana/src/html_to_md.ts` +
-  `md_to_html.ts` — the round-trip invariant
-  `html → md → html === html` must hold.
-- Branch names rarely carry Asana gids; FR-32 AC-32.5 supports **URL paste**
-  as the interactive fallback (`https://app.asana.com/0/<proj>/<id>`).
-- Status convention varies per workspace (`section` / `custom_enum` /
-  `completed_boolean`); `/setup` discovers it and records in
-  `asana_status_convention`.
 
 ### Custom
 

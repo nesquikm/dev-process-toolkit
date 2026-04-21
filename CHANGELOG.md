@@ -8,26 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [1.15.0] — 2026-04-17 — "Tracker Integration"
 
-Opt-in tracker mode (Linear, Jira, Asana, custom) for teams whose ACs live in a task tracker. Default `mode: none` is byte-identical to pre-M12 — Pattern 9 regression gate (`tests/fixtures/baselines/m1-m11-regression.snapshot`) is the stop-ship guardrail.
+Opt-in tracker mode (Linear, Jira, custom) for teams whose ACs live in a task tracker. Default `mode: none` is byte-identical to pre-M12 — Pattern 9 regression gate (`tests/fixtures/baselines/m1-m11-regression.snapshot`) is the stop-ship guardrail.
 
 ### Added
 
 - **`## Task Tracking` section in `templates/CLAUDE.md.template` (FR-29 / AC-29.1..5, Schema L)** — Optional block gated behind an HTML comment so `mode: none` renders byte-identical to pre-M12. Section presence = canonical mode probe anchor (see `docs/patterns.md` § Tracker Mode Probe).
-- **`plugins/dev-process-toolkit/adapters/` with four adapters (FR-31 / AC-31.1..6, FR-38 / AC-38.1..6):**
+- **`plugins/dev-process-toolkit/adapters/` with three adapters (FR-31 / AC-31.1..6, FR-38 / AC-38.1..6):**
   - `_template.md` + `_template/src/stub.ts` — starting point for custom trackers.
   - `linear.md` + `linear/src/normalize.ts` — description-section storage, round-trip idempotence (AC-39.6, AC-37.5), 12 unit tests.
   - `jira.md` + `jira/src/discover_field.ts` — per-tenant custom-field GID discovery against `/rest/api/3/field` fixture (AC-30.6), 6 unit tests.
-  - `asana.md` + `asana/src/{html_to_md,md_to_html,extract_gid}.ts` — subtask-based AC storage, Asana-restricted HTML round-trip (`html → md → html === html`), URL-paste gid extraction (AC-32.5), 23 unit tests across three helper files.
   - `_shared/src/{classify_diff,sync_log}.ts` — adapter-agnostic FR-39 diff classifier (Schema K) and AC-39.8 sync-log formatter (Schema L), 14 unit tests.
 - **`docs/tracker-adapters.md`** — 4-op contract (`pull_acs`, `push_ac_toggle`, `transition_status`, `upsert_ticket_metadata`), Schemas L–P walkthrough, conformance checklist (Tier 5, 35+ items), capability-degradation reference table (FR-38 AC-38.6), Bun-runtime prerequisite section, worked custom-tracker example (FR-38 / AC-38.5).
 - **`docs/patterns.md` § Tracker Mode Probe** — the canonical Schema L probe every mode-aware skill runs as its first action.
-- **`docs/ticket-binding.md` (FR-32 / AC-32.1..5, Pattern 6)** — 3-tier resolver (branch regex → `active_ticket:` → interactive prompt), mandatory confirmation, conflict handling, Asana URL-paste fallback.
+- **`docs/ticket-binding.md` (FR-32 / AC-32.1..5, Pattern 6)** — 3-tier resolver (branch regex → `active_ticket:` → interactive prompt), mandatory confirmation, conflict handling, URL-paste fallback for custom adapters.
 - **`docs/fr-39-sync.md` (FR-39 / AC-39.1..10)** — diff classifier + per-AC prompt (4 options, no bulk shortcuts per AC-39.7) + two-side convergence + sync-log append + cancel semantics + round-trip idempotence.
-- **`docs/setup-tracker-mode.md` (FR-30 / AC-30.1..9)** — mode question + Bun check + Linear V1 SSE→V2 migration + `claude mcp list` detection + dry-run `settings.json` diff + test-call verification with hard-stop + Jira/Asana per-tenant discovery.
+- **`docs/setup-tracker-mode.md` (FR-30 / AC-30.1..9)** — mode question + Bun check + Linear V1 SSE→V2 migration + `claude mcp list` detection + dry-run `settings.json` diff + test-call verification with hard-stop + Jira per-tenant discovery.
 - **`docs/setup-migrate.md` (FR-36 / AC-36.1..8)** — `/setup --migrate` entry point with atomicity guarantee, retry/rollback prompt in NFR-10 canonical shape, and `none→tracker` / `tracker→none` / `<tracker>→<other>` transition procedures.
 - **`docs/implement-tracker-mode.md`, `docs/gate-check-tracker-mode.md`, `docs/pr-tracker-mode.md`, `docs/spec-write-tracker-mode.md`, `docs/spec-review-tracker-mode.md`** — per-skill companion docs keeping each skill under NFR-1 (≤300 lines).
-- **`tests/fixtures/projects/`** — 11 scenario fixtures (`mode-none-baseline`, `clean-sync`, `tracker-only-ac`, `edited-both`, `tracker-edited-mid-session`, `empty-ac`, `asana-url-paste`, `migration-none-to-linear`, `migration-tracker-to-none`, `migration-linear-to-jira`, `migration-atomicity-fail`, `capability-degradation`, `spec-review-tracker-only-ac`) — each documents the expected flow, fail conditions, and AC refs.
-- **`tests/fixtures/mcp/{linear,jira,asana}/`** — hand-crafted JSON response fixtures (no recorded PII).
+- **`tests/fixtures/projects/`** — scenario fixtures (`mode-none-baseline`, `clean-sync`, `tracker-only-ac`, `edited-both`, `tracker-edited-mid-session`, `empty-ac`, `migration-none-to-linear`, `migration-tracker-to-none`, `migration-linear-to-jira`, `migration-atomicity-fail`, `capability-degradation`, `spec-review-tracker-only-ac`) — each documents the expected flow, fail conditions, and AC refs.
+- **`tests/fixtures/mcp/{linear,jira}/`** — hand-crafted JSON response fixtures (no recorded PII).
 - **`tests/scripts/{capture,verify}-regression.{sh,ts}`** — Pattern 9 byte-diff gate against `tests/fixtures/baselines/m1-m11-regression.snapshot`.
 
 ### Changed
@@ -55,7 +54,7 @@ FR-29, FR-30, FR-31, FR-32, FR-33, FR-34, FR-35, FR-36, FR-37, FR-38, FR-39 (11 
 
 ### Known limitations at ship
 
-- **Tier 5 manual conformance** shipped as documented checklist; **not executed** against live Linear / Jira / Asana at v1.15.0. MCP tool names in each adapter are marked "provisional (Phase H conformance)" — they follow each tracker's public MCP documentation but have not been verified via authenticated `tools/list` introspection. First operator to authenticate against live MCPs should lock the names.
+- **Tier 5 manual conformance** shipped as documented checklist; **not executed** against live Linear / Jira at v1.15.0. MCP tool names in each adapter are marked "provisional (Phase H conformance)" — they follow each tracker's public MCP documentation but have not been verified via authenticated `tools/list` introspection. First operator to authenticate against live MCPs should lock the names.
 - Skill file sizes for companion-doc extraction (`docs/*-tracker-mode.md`) chosen conservatively to leave buffer under NFR-1.
 
 ## [1.14.1] — 2026-04-14 — "Drift Catcher"

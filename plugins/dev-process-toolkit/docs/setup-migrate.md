@@ -19,8 +19,7 @@ one-line "nothing to migrate" message.
 Report the detected current mode and prompt:
 
 > Migrate from `<current>` to which mode? `1. none` / `2. linear` /
-> `3. jira` / `4. asana` / `5. custom`. Enter 1–5 (must differ from
-> current).
+> `3. jira` / `4. custom`. Enter 1–4 (must differ from current).
 
 Refuse a no-op migration (`current === target`).
 
@@ -64,8 +63,7 @@ On **any** step failure during migration:
 ## `none → <tracker>` procedure (AC-36.4, AC-36.8)
 
 1. Verify Bun (AC-30.8), MCP configured, test call passes. Fail fast.
-2. Run any tenant-specific discovery (Jira `jira_ac_field`, Asana
-   `asana_status_convention`).
+2. Run any tenant-specific discovery (Jira `jira_ac_field`).
 3. Iterate over each live FR in `specs/requirements.md`:
    1. Call `upsert_ticket_metadata(null, FR title, rendered description)`.
    2. Capture returned ticket id.

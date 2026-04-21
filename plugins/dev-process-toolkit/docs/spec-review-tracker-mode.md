@@ -20,7 +20,7 @@ still supplies FR titles, descriptions, and traceability context (Path B).
 4. Build the traceability map against the **adapter-returned AC list**,
    not `specs/requirements.md`. Each AC's `id` is the leading `AC-X.Y`
    token (when present) or the adapter-local fallback (`linear-<n>`,
-   `jira-<n>`, `asana-<subtask.gid>`).
+   `jira-<n>`).
 5. For each AC, search the codebase for implementing code and tests;
    render the same report table format as `none` mode.
 

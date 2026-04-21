@@ -37,7 +37,7 @@ describe("formatSyncLogEntry", () => {
   test("leading bullet marker is exact Schema L form", () => {
     const line = formatSyncLogEntry({
       conflictCount: 0,
-      ticketId: "ASANA-1",
+      ticketId: "PROJ-1",
       now: "2026-04-18T10:00:00Z",
     });
     expect(line.startsWith("- ")).toBe(true);

@@ -1,9 +1,9 @@
 # `empty-ac` fixture
 
 Scenario: tracker ticket has no `## Acceptance Criteria` section (Linear) /
-empty custom field (Jira) / no subtasks (Asana). The adapter's parser
-returns an empty list. Every mode-aware skill that calls `pull_acs` must
-fail with NFR-10 canonical shape per AC-35.4 — **never** silently proceed.
+empty custom field (Jira). The adapter's parser returns an empty list.
+Every mode-aware skill that calls `pull_acs` must fail with NFR-10 canonical
+shape per AC-35.4 — **never** silently proceed.
 
 ## Inputs
 

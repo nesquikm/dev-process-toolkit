@@ -27,8 +27,7 @@ AC-39.10. `/pr` does not run FR-39 at all.
 
 Both lists are normalized through the adapter's normalizer before diffing
 (AC-39.6). For Linear this is `adapters/linear/src/normalize.ts`; other
-adapters normalize equivalently (Jira: trim + collapse whitespace; Asana:
-subtask-name trim).
+adapters normalize equivalently (Jira: trim + collapse whitespace).
 
 ## Classifier (Schema K format)
 
@@ -92,9 +91,7 @@ After the user answers all prompts:
    (`{#FR-{N}}`), and any non-AC content.
 3. **Tracker side write** — call `upsert_ticket_metadata(ticket_id, title,
    <rebuilt description>)`. For Linear, the description includes the
-   normalized AC block. For Jira, the custom field; for Asana, delete
-   old subtasks and create new ones (or flip `completed` on existing
-   subtasks when only state changed).
+   normalized AC block. For Jira, the custom field.
 4. **Verify convergence** — if `tracker_ticket_description_template`
    normalization is deterministic, a second `pull_acs` after this push
    classifies everything as `identical` (AC-39.6 round-trip invariant).

@@ -38,10 +38,9 @@ No ticket ID resolvable for branch <branch> and CLAUDE.md active_ticket is unset
 Paste the ticket ID (<prefix>-<number>) or tracker URL:
 ```
 
-**Asana-specific** (AC-32.5): Asana task names don't follow a branch-friendly
-convention, so the adapter declares `ticket_id_source: ticket-url-paste`.
-The prompt accepts a full URL `https://app.asana.com/0/<proj>/<gid>` and
-extracts `<gid>` via the regex `https?://app\.asana\.com/0/\d+/(\d+)`.
+Custom adapters whose ticket IDs don't fit a branch-name convention can set
+`ticket_id_source: ticket-url-paste` in their Schema M frontmatter to route
+resolution through this Tier 3 prompt directly, bypassing Tier 1.
 
 ## Conflict handling (AC-32.3)
 
@@ -88,13 +87,13 @@ exits the skill cleanly with zero side effects (AC-32.4).
 - **Tier 1 misses, Tier 2 blank** → prompt user (AC-32.2 Tier 3).
 - **Tier 3 prompt declined** → skill exits cleanly; nothing written.
 
-## Asana URL paste (AC-32.5)
+## URL paste fallback (AC-32.5)
 
-When `ticket_id_source: ticket-url-paste`:
+When `ticket_id_source: ticket-url-paste` is declared by a custom adapter:
 
-1. Tier 1 is effectively disabled (Asana branches rarely carry gids).
-2. Tier 2 still runs — if `active_ticket: <gid>` is set, use it.
-3. Tier 3's prompt wording is the URL paste variant (above).
-4. The URL→gid regex is the same across all Asana adapter invocations.
-5. On successful extraction, treat `<gid>` identically to any other
+1. Tier 1 is effectively disabled (the tracker's IDs don't live in branch names).
+2. Tier 2 still runs — if `active_ticket: <id>` is set, use it.
+3. Tier 3's prompt accepts the tracker's URL form; the adapter owns the
+   URL→ID extraction regex (Schema P pure helper).
+4. On successful extraction, treat the resolved ID identically to any other
    tracker ID — confirmation is still mandatory (AC-32.1).
