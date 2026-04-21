@@ -374,7 +374,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 
 ### Pattern: Tracker Mode Probe (Schema L)
 
-**Problem (FR-29, FR-34, Pattern 9)**: M12 adds an opt-in tracker mode (Linear, Jira, Asana, custom) for teams whose ACs live in a task tracker. Every affected skill — `/setup`, `/spec-write`, `/implement`, `/gate-check`, `/pr`, `/spec-review`, `/spec-archive` — must behave differently in `mode: none` (default, pre-M12) and `mode: <tracker>`. If any skill guesses mode inconsistently or reads tracker state when the section is absent, the backward-compat invariant (Pattern 9) breaks silently.
+**Problem (FR-29, FR-34, Pattern 9)**: M12 adds an opt-in tracker mode (Linear, Jira, custom) for teams whose ACs live in a task tracker. Every affected skill — `/setup`, `/spec-write`, `/implement`, `/gate-check`, `/pr`, `/spec-review`, `/spec-archive` — must behave differently in `mode: none` (default, pre-M12) and `mode: <tracker>`. If any skill guesses mode inconsistently or reads tracker state when the section is absent, the backward-compat invariant (Pattern 9) breaks silently.
 
 **Solution**: Every mode-aware skill begins with the same probe. The probe reads `CLAUDE.md` for the `## Task Tracking` section; section absence ≡ `mode: none` (the canonical pre-M12 path); section presence means parse the `key: value` block per Schema L (technical-spec §7.3). Only after the probe resolves does the skill branch.
 

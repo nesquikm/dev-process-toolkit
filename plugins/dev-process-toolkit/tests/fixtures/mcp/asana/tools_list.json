@@ -1,4 +1,0 @@
-{
-  "with_create_task_story": ["get_task", "get_subtasks_for_task", "update_task", "create_task", "create_task_story", "get_workspaces"],
-  "without_create_task_story": ["get_task", "get_subtasks_for_task", "update_task", "create_task", "get_workspaces"]
-}

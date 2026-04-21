@@ -146,19 +146,18 @@ If `.mcp.json` already exists, merge — don't overwrite.
 
 Ask exactly once, near the end of the flow — after CLAUDE.md is drafted but before it's written:
 
-> Task Tracking (optional): where do ACs live? `1. none` (default — ACs stay in `specs/requirements.md`) / `2. linear` / `3. jira` / `4. asana` / `5. custom` (copy `adapters/_template`). Enter 1–5; default 1.
+> Task Tracking (optional): where do ACs live? `1. none` (default — ACs stay in `specs/requirements.md`) / `2. linear` / `3. jira` / `4. custom` (copy `adapters/_template`). Enter 1–4; default 1.
 
 If the user picks `1` or skips, do NOT emit a `## Task Tracking` section in CLAUDE.md — absence is the canonical form for `mode: none` (FR-29 AC-29.5). Continue to step 8.
 
-If the user picks 2–5, run the flow in `docs/setup-tracker-mode.md` in full:
+If the user picks 2–4, run the flow in `docs/setup-tracker-mode.md` in full:
 
 1. Verify `bun --version` ≥ 1.2; absence hard-stops mode recording with an NFR-10 canonical-shape error (AC-30.8).
 2. Linear only: if `claude mcp list` contains `https://mcp.linear.app/sse`, offer the dry-run migration to V2 `https://mcp.linear.app/mcp` (AC-30.9). User decline is fine — they can skip migration and still proceed on V1 until the 2026-05-11 shutdown.
 3. Detect the target MCP via `claude mcp list`. If absent, render a dry-run JSON diff of the proposed `mcpServers.<name>` entry and require explicit confirmation before writing `settings.json` (AC-30.1, AC-30.2, AC-30.3, DD-12.9).
-4. Run a harmless test call (Linear `list_teams` / Jira empty `search` / Asana `list_workspaces`). On failure, surface an NFR-10 canonical-shape error and refuse to record mode — the project remains `mode: none` (AC-30.4, AC-30.5).
+4. Run a harmless test call (Linear `list_teams` / Jira empty `search`). On failure, surface an NFR-10 canonical-shape error and refuse to record mode — the project remains `mode: none` (AC-30.4, AC-30.5).
 5. For Jira: pipe `GET /rest/api/3/field` response into `bun run adapters/jira/src/discover_field.ts` and record `jira_ac_field: customfield_XXXXX` in the section (AC-30.6).
-6. For Asana: detect the workspace's status convention (section / custom_enum / completed_boolean) and record `asana_status_convention` (AC-30.7).
-7. Append the `## Task Tracking` section to CLAUDE.md per Schema L with the resolved keys (one per line) and an empty `### Sync log` subsection.
+6. Append the `## Task Tracking` section to CLAUDE.md per Schema L with the resolved keys (one per line) and an empty `### Sync log` subsection.
 
 See `docs/setup-tracker-mode.md` for the exact question prompt, canonical error shapes, JSON diff preview format, and migration wording. Do not inline those procedures here — NFR-1 keeps this skill under 300 lines.
 

@@ -1,6 +1,6 @@
 ---
 name: _template
-mcp_server: <exact name from `claude mcp list`, e.g., "linear", "atlassian", "asana">
+mcp_server: <exact name from `claude mcp list`, e.g., "linear", "atlassian">
 ticket_id_regex: '^(?:TPL)-([0-9]+)$'
 ticket_id_source: branch-name
 ac_storage_convention: description-section
@@ -78,7 +78,7 @@ Toggle a single AC checkbox. Never rewrites untoggled ACs.
 **MCP tool:** *(replace)*
 
 **Implementation note:** push only the minimal diff (per AC-37.5 for Linear,
-per subtask PATCH for Asana, per custom-field set for Jira).
+per custom-field set for Jira).
 
 ### `transition_status(ticket_id, status) → void`
 
@@ -113,8 +113,6 @@ Typical helpers:
 - `normalize.ts` — canonical-form normalization for description-section
   adapters (Linear, custom markdown trackers).
 - `discover_field.ts` — one-time tenant-specific ID resolution (Jira field GIDs).
-- `html_to_md.ts` / `md_to_html.ts` — for trackers that store rich text
-  (Asana).
 
 Tests live next to the helpers as `*.test.ts`, run via `bun test`. Aim for
 100% coverage of helper behavior (testing-spec §6.3 Tier 4). All tests must
