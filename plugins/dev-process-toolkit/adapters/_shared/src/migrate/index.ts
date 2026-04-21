@@ -61,6 +61,14 @@ async function isCleanTree(repoRoot: string): Promise<{ clean: boolean; uncommit
   return { clean: out.length === 0, uncommitted: out };
 }
 
+async function isSpecsTracked(repoRoot: string): Promise<boolean> {
+  const proc = Bun.spawnSync({
+    cmd: ["git", "ls-files", "--error-unmatch", "specs/requirements.md"],
+    cwd: repoRoot,
+  });
+  return proc.exitCode === 0;
+}
+
 function readTextIfExists(path: string): string | null {
   if (!existsSync(path)) return null;
   return readFileSync(path, "utf-8");
@@ -317,11 +325,43 @@ export async function migrate(options: MigrateOptions): Promise<MigrateResult> {
     return { kind: "dry-run", previewDir, summary };
   }
 
-  // Live: backup tag
+  // Detect whether specs/ is git-tracked. Some repos (like DPT's own) keep
+  // specs/ in .gitignore and maintain it locally without commits. In that
+  // case we still produce the v2 tree on disk, skip git ops, and return
+  // the migrated kind with a null tag + "untracked" message.
+  const specsIsTracked = await isSpecsTracked(repoRoot);
+
+  if (!specsIsTracked) {
+    // Filesystem-only migration: delete old files, write new tree, regen INDEX.
+    const toRemoveFs: string[] = [];
+    for (const f of ["requirements.md", "technical-spec.md", "testing-spec.md", "plan.md"]) {
+      if (existsSync(join(specsDir, f))) toRemoveFs.push(join(specsDir, f));
+    }
+    const oldArchiveDir = join(specsDir, "archive");
+    if (existsSync(oldArchiveDir)) {
+      for (const f of readdirSync(oldArchiveDir)) {
+        toRemoveFs.push(join(oldArchiveDir, f));
+      }
+      toRemoveFs.push(oldArchiveDir);
+    }
+    for (const full of toRemoveFs) {
+      try {
+        rmSync(full, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+    }
+    await writeFiles(repoRoot, staged);
+    await regenerateIndex(specsDir, { now });
+    const marker = [`version: v2`, `migrated_at: ${now}`, `migration_commit: null`, ""].join("\n");
+    writeFileSync(layoutPath, marker);
+    return { kind: "migrated", tag: "untracked-specs-no-tag", summary };
+  }
+
+  // Live tracked path: backup tag + two-commit sequence.
   const tag = `dpt-v1-snapshot-${formatTagTimestamp(now)}`;
   await $`git tag ${tag}`.cwd(repoRoot).quiet();
 
-  // Remove all old spec files (requirements, tech, testing, plan, archive/*)
   const toRemove: string[] = [];
   for (const f of ["requirements.md", "technical-spec.md", "testing-spec.md", "plan.md"]) {
     if (existsSync(join(specsDir, f))) toRemove.push(join("specs", f));
@@ -336,17 +376,12 @@ export async function migrate(options: MigrateOptions): Promise<MigrateResult> {
     await $`git rm -q ${rel}`.cwd(repoRoot).quiet();
   }
 
-  // Write staged files
   await writeFiles(repoRoot, staged);
-
-  // Regenerate INDEX.md
   await regenerateIndex(specsDir, { now });
 
-  // Stage + commit 1
   await $`git add specs/`.cwd(repoRoot).quiet();
   await $`git commit -q -m "feat(specs): migrate to v2 layout"`.cwd(repoRoot).quiet();
 
-  // Write layout marker
   const marker = [`version: v2`, `migrated_at: ${now}`, `migration_commit: null`, ""].join("\n");
   writeFileSync(layoutPath, marker);
   await $`git add ${layoutPath}`.cwd(repoRoot).quiet();
