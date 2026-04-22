@@ -258,7 +258,15 @@ For reopens, cross-cutting ACs, or anything this auto-path can't reach, `/dev-pr
    - Gate check result — cite the actual output (e.g., "0 failures, 0 errors"), not just "passed"
    - Number of review rounds used
 
-15. **Wait for approval** — Ask the user to review before committing. Do NOT commit until the user explicitly says so.
+15. **Wait for approval, then release locks** — Ask the user to review before committing. Do NOT commit until the user explicitly says so.
+
+    **After the user approves AND `git commit` lands** (for each commit in this run), for every ticket that was claimed during Phase 1 in v2 tracker mode, call `Provider.releaseLock(<id>)` — the Done transition in tracker mode, the `.dpt-locks/<id>` cleanup in `mode: none`. This is the only place an FR-scope run (FR subset of an in-flight milestone, no archival) releases the lock; leaving it out strands the tracker at `In Progress` after the commit lands.
+
+    **Abort boundary (AC-68.3) — do NOT call `releaseLock`** when any of the following happen: a gate-check failure, a Spec Breakout, a user rejection at this step, or any Phase 1–3 early exit. In every abort case, the lock stays so a follow-up run can resume through the `already-ours` path (AC-46.1).
+
+    **Double-call avoidance (AC-68.6).** On a full-milestone run where § Milestone Archival fires, the archival path already calls `releaseLock` per archived FR (AC-46.4) — skip the per-ticket call here for those same FRs. On an FR-scope run (archival does not fire), this step is the sole caller.
+
+    In `mode: none`, `LocalProvider.releaseLock` deletes `.dpt-locks/<id>` regardless of tracker configuration (AC-68.4); the Pattern 9 byte-diff regression gate against the `mode-none-v2-migration` fixture continues to pass because the cleanup was already part of the existing mode-none flow.
 
 ## Rules
 

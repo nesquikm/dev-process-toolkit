@@ -102,6 +102,19 @@ with the local-only half of the resolution applied (tracker side left as-is
 for manual correction). `pull_acs` is a hard requirement — an adapter that
 doesn't declare it fails the skill at step 0.2.
 
+## Phase 4 — post-commit `releaseLock` (FR-68)
+
+After the user approves and `git commit` lands (step 15 in `skills/implement/SKILL.md`), the skill must call `Provider.releaseLock(<id>)` for every ticket claimed during Phase 1 — this performs the **Done transition** on the tracker side (`transitionStatus(ticket_id, "done")` via the active adapter) and writes the tracker's Done state. Without this call, an FR-scope run — implementing a subset of an in-flight milestone where no archival fires — leaves the ticket stuck at `In Progress` after the commit lands, producing a lying tracker.
+
+Mirror of SKILL.md Phase 4 step 15:
+
+- **When to call:** once per touched ticket, immediately after `git commit` succeeds on a user-approved commit.
+- **Done transition wording:** `releaseLock` routes through the adapter's `transition_status(done)` op; in Linear, that's `mcp__linear__save_issue(id, state="Done")`. The `TrackerProvider` post-call `updatedAt` guard (FR-67) fires on a silent no-op.
+- **Abort boundary (AC-68.3):** skip `releaseLock` on gate failure, Spec Breakout, user rejection at step 15, or any Phase 1–3 early exit — the in-flight claim must survive for the `already-ours` resume path (AC-46.1).
+- **Double-call avoidance (AC-68.6):** on a full-milestone run where § Milestone Archival fires, the archival path's `releaseLock` call per archived FR (AC-46.4) consumes the responsibility — step 15 skips those FRs.
+
+The tracker silent no-op trap (FR-67) means `releaseLock` itself must re-fetch `updatedAt` and assert it advanced — otherwise a bogus Linear response reads as success and the ticket stays at `In Progress`. `TrackerProvider.releaseLock` handles this in shared code; adapter drivers just need to populate `TicketStatusSummary.updatedAt`.
+
 ## Parallelization interaction (Pattern 9 invariant)
 
 `/implement` parallel dispatch is documented in `docs/parallel-execution.md`.
