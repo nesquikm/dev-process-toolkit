@@ -43,3 +43,14 @@ All four must stay in sync. Bump on every feature-significant change. Never ship
 3. **Self-review is bounded** — max 2 rounds, then escalate to human
 4. **Human approval before commit** — agent never commits without explicit OK
 5. **Specs are the source of truth** — code follows specs, not the other way around
+
+## Task Tracking
+
+mode: linear
+mcp_server: linear
+active_ticket:
+jira_ac_field:
+
+### Sync log
+
+- 2026-04-22T07:59:54Z — Migration complete: none → linear, 27 FRs moved
