@@ -13,7 +13,7 @@ Set up the Spec-Driven Development and TDD workflow for this project.
 
 ### 0. Tracker mode probe (existing projects)
 
-Before any detection or setup, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` already exists and contains a `## Task Tracking` section, this is an existing tracker-mode project — `/setup --migrate` is the right entry point for changing modes (FR-36 AC-36.1). If `CLAUDE.md` is absent, empty of `## Task Tracking`, or `$ARGUMENTS` contains `new`, run the normal fresh-setup flow below.
+Before any detection or setup, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` already exists and contains a `## Task Tracking` section, this is an existing tracker-mode project — `/setup --migrate` is the right entry point for changing modes (FR-36 AC-36.1). If `CLAUDE.md` is absent, empty of `## Task Tracking`, or `$ARGUMENTS` contains `new` — and `$ARGUMENTS` does **not** contain `--migrate` or `--migrate-dry-run` — run the normal fresh-setup flow below. When `--migrate` is present, section 0b overrides this routing regardless of `## Task Tracking` presence (AC-56.2).
 
 ### 0b. Migration invocation (`/setup --migrate` / `--migrate-dry-run`)
 
@@ -30,9 +30,9 @@ When `$ARGUMENTS` contains `--migrate` or `--migrate-dry-run`, skip steps 1–8 
    - Idempotent on already-v2 tree (AC-48.13).
    - Full reference: `docs/v2-layout-reference.md` § `/setup --migrate`.
 
-2. **Tracker-mode migration** (FR-36, M12). Detected when `CLAUDE.md` already has a `## Task Tracking` section. Route per `docs/setup-migrate.md`:
+2. **Tracker-mode migration** (FR-36, M12). The default migration flavor once layout v1→v2 is ruled out — handles all transitions between modes. Current mode is detected via Schema L probe (AC-36.2): absence of `## Task Tracking` = `mode: none` (canonical form per AC-29.5); presence = parse `mode: <value>`. All modes (including `none`) are valid starting states (AC-56.1). Route per `docs/setup-migrate.md`:
    - Detect current mode via Schema L probe (AC-36.2).
-   - Prompt for target mode; refuse no-op.
+   - Prompt for target mode; refuse no-op via NFR-10 canonical shape: `Detected current mode: <current>. Supported targets: <others>. Migration must change mode.` (AC-56.5)
    - Supported transitions: `none → <tracker>` / `<tracker> → none` / `<tracker> → <other>`. Unsupported = NFR-10 canonical refusal.
    - Atomicity: CLAUDE.md `mode:` line never rewritten until migration succeeds (AC-36.7/8).
    - Append migration entry to sync log on success.
