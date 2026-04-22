@@ -141,10 +141,38 @@ Rules:
    3. Append to a pending `bindings` buffer (in memory) as
       `{ frPath, trackerKey, ticketId }`.
 4. **Only after all FRs pushed successfully:** write the `## Task Tracking`
-   section with `mode: <tracker>` + discovered keys to CLAUDE.md, and
-   update the traceability matrix's Implementation column with
-   `ticket=<id>` rows (v1 layout) or write `tracker: { <key>: <id> }`
-   to each FR's frontmatter under `specs/frs/` (v2 layout).
+   section with `mode: <tracker>` + discovered keys to CLAUDE.md, then
+   record each binding (AC-58.1, AC-58.3):
+
+   - **v2 layout** — for each entry in the `bindings` buffer, call
+     `setTrackerBinding(frFileContents, trackerKey, ticketId)` from
+     `adapters/_shared/src/frontmatter.ts` and write the updated body
+     back to `specs/frs/<ulid>.md`. The helper produces the canonical
+     multi-line form (`tracker:\n  <key>: <id>`) that the parser + INDEX
+     generator expect — never the ad-hoc inline `{}` form (AC-58.4).
+     Existing `tracker:` entries are preserved alphabetically so a
+     second migration into a different tracker (`<tracker> → <other>`,
+     AC-58.2 / AC-42.5) merges instead of overwriting. `tracker: {}` is
+     valid only as the empty-state seed emitted by FR creation.
+
+   - **v1 layout** — update the traceability matrix's Implementation
+     column with `ticket=<id>` rows (AC-58.3, backward compat).
+
+   **Frontmatter write failure after a successful push is a partial
+   failure (AC-58.5).** If disk-full / permission errors interrupt the
+   per-FR binding write after `upsert_ticket_metadata` has already
+   created the ticket, the CLAUDE.md `mode:` line is NOT written and
+   migration surfaces an NFR-10 canonical-shape error:
+
+   ```
+   Migration failed mid-bind: K of N frontmatter writes succeeded before <file> failed (<reason>).
+   Remedy: choose — (a) retry the remaining N-K bindings, or (b) roll back: delete the K tracker tickets via `upsert_ticket_metadata` and re-run migration from scratch.
+   Un-bound FRs (tickets created, frontmatter NOT updated): <list of FR ULIDs + ticket IDs>
+   Context: mode=none, ticket=bulk, skill=setup --migrate
+   ```
+
+   The operator resolves before CLAUDE.md is touched — atomicity
+   guarantee (AC-36.7) extends through step 4.
 5. **Regenerate `specs/INDEX.md`** (FR-61 AC-61.1/AC-61.4) — call
    `regenerateIndex(specsDir)` from
    `adapters/_shared/src/index_gen.ts`. This runs inside the atomicity
