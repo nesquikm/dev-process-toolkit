@@ -135,11 +135,75 @@ Rules:
    exits cleanly per AC-36.7 atomicity (nothing written, no tickets
    created).
 
-   For each discovered FR:
-   1. Call `upsert_ticket_metadata(null, FR title, rendered description)`.
-   2. Capture returned ticket id.
-   3. Append to a pending `bindings` buffer (in memory) as
-      `{ frPath, trackerKey, ticketId }`.
+   **3a. Initial ticket state (FR-60 AC-60.1/60.4).** Before the bulk
+   push — after the count-confirm above but **prior to** any
+   `upsert_ticket_metadata` / `save_issue` call — prompt once, verbatim:
+
+   ```
+   Create all N tickets as: [1] Backlog (new work) / [2] Done (shipped work) / [3] In Progress (in flight) / [4] ask per-FR. Enter 1-4; default 1.
+   ```
+
+   Resolve the chosen canonical state to a tracker-side label via the
+   active adapter's `status_mapping` (Schema M). `status_mapping` doubles
+   as the initial-state **allowlist**: a canonical state not in the
+   adapter's map fails the prompt immediately with NFR-10 canonical
+   shape naming the valid options:
+
+   ```
+   Initial state '<choice>' is not in adapter '<name>'.status_mapping.
+   Remedy: choose one of: <comma-separated valid states from status_mapping>. Retry.
+   Context: mode=<target>, ticket=bulk, skill=setup --migrate
+   ```
+
+   Option 4 (`ask per-FR`, AC-60.2) defers the choice to each FR in
+   step 3c: the per-FR default comes from the FR's frontmatter
+   `status:` — `active → Backlog`, `in_progress → In Progress`.
+   Archived FRs are always excluded from the push per AC-45.3
+   regardless of this choice.
+
+   **3b. Project milestone mapping (FR-59 AC-59.1/59.2/59.3).** If the
+   active adapter declares `project_milestone: true` in its Schema M
+   frontmatter, scan the discovered FR list for distinct
+   `milestone: M<N>` values, then resolve each to a tracker milestone
+   whose name starts with `M<N>` (case-sensitive, exact-prefix) on the
+   configured project. For every `M<N>` with no matching tracker
+   milestone, prompt once per missing milestone, verbatim:
+
+   ```
+   Linear milestone 'M<N>' not found on project '<name>'. [1] Create it / [2] Skip milestone binding for these N FRs / [3] Cancel migration. Enter 1-3.
+   ```
+
+   Option 2 records the `M<N>` as skip, so the per-FR push in step 3c
+   omits the milestone argument for FRs carrying that `M<N>`. Option
+   3 hard-stops migration atomically (nothing written, no tickets
+   created, CLAUDE.md untouched). Cache the resolved
+   `M<N> → tracker-milestone-id` map in memory for the bulk push.
+
+   Adapters with `project_milestone: false` (Jira, `_template`) skip
+   this step entirely and log exactly one line so the operator isn't
+   surprised by the absence:
+
+   ```
+   Jira does not map milestones at push time; use Jira fixVersions manually.
+   ```
+
+   **3c. Per-FR push loop.** For each discovered FR:
+   1. Resolve the effective initial state for this FR: the bulk choice
+      from step 3a, or the per-FR frontmatter default when option 4
+      was picked.
+   2. Call `upsert_ticket_metadata(null, FR title, rendered description)`
+      with adapter-equivalent extra arguments (AC-60.3, AC-59.1):
+      - **Linear** — `save_issue(title=…, description=…, state=<chosen state>, milestone=<resolved M<N>-id>, project=<configured>)`.
+        The `state` argument flows from step 3a; the `milestone`
+        argument flows from step 3b and is omitted when the `M<N>`
+        was marked skip or the adapter declares
+        `project_milestone: false`.
+      - **Jira / adapters with `project_milestone: false`** — pass
+        only the `state` argument; never pass a milestone (the
+        one-liner already warned the operator).
+   3. Capture returned ticket id.
+   4. Append to a pending `bindings` buffer (in memory) as
+      `{ frPath, trackerKey, ticketId, state, milestone? }`.
 4. **Only after all FRs pushed successfully:** write the `## Task Tracking`
    section with `mode: <tracker>` + discovered keys to CLAUDE.md, then
    record each binding (AC-58.1, AC-58.3):
@@ -182,7 +246,10 @@ Rules:
    the bindings manually. FR-40 AC-40.4 requires INDEX to be rebuilt
    by any skill that writes under `specs/frs/`; migration wrote N
    bindings, so regen is mandatory.
-6. Sync-log append: `- <ISO> — <N> FRs migrated to <tracker>`.
+6. Sync-log append (FR-60 AC-60.5): `- <ISO> — Migration complete: none → <tracker>, <N> FRs moved (initial state: <Name>)`.
+   When option 4 (per-FR) was chosen in step 3a, record
+   `(initial state: per-FR)` so the log still shows that the initial
+   state was a deliberate choice rather than a silent default.
 
 Mid-bulk failure triggers the retry/rollback prompt above.
 

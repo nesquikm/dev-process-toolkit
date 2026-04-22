@@ -48,6 +48,27 @@ describe("parseFrontmatter", () => {
     expect(fm.b).toBe("single");
     expect(fm.c).toBe("plain");
   });
+
+  test("coerces bare true/false to booleans (YAML scalar literals)", () => {
+    // Adapter metadata fields like `project_milestone: true` (FR-59) need
+    // the parser to surface real booleans, not the string "true" — without
+    // coercion, every downstream `if (fm.flag)` silently passes on
+    // `"false"` too. Quoted literals stay strings.
+    const md = [
+      "---",
+      "flag_on: true",
+      "flag_off: false",
+      "quoted_string: 'true'",
+      "bare_string: maybe",
+      "---",
+      "",
+    ].join("\n");
+    const fm = parseFrontmatter(md);
+    expect(fm.flag_on).toBe(true);
+    expect(fm.flag_off).toBe(false);
+    expect(fm.quoted_string).toBe("true");
+    expect(fm.bare_string).toBe("maybe");
+  });
 });
 
 describe("setTrackerBinding — FR-58 migration binding writer", () => {

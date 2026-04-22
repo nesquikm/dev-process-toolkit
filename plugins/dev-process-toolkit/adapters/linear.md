@@ -13,6 +13,7 @@ capabilities:
   - push_ac_toggle
   - transition_status
   - upsert_ticket_metadata
+project_milestone: true
 ticket_description_template: |
   {fr_body}
 

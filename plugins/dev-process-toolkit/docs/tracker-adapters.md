@@ -57,10 +57,12 @@ Full definitions live in `specs/technical-spec.md` §7.3. Summary:
   presence is the mode probe; absence ≡ `mode: none`. Keys: `mode`,
   `mcp_server`, `active_ticket`, `jira_ac_field`. Duplicate keys are a
   malformed file and fail the skill with NFR-10 canonical shape.
-- **Schema M — Adapter frontmatter.** Nine fields: `name`, `mcp_server`,
+- **Schema M — Adapter frontmatter.** Ten fields: `name`, `mcp_server`,
   `ticket_id_regex`, `ticket_id_source`, `ac_storage_convention`,
-  `status_mapping`, `capabilities`, `ticket_description_template`,
-  `helpers_dir`. Capabilities drive FR-38 AC-38.6 graceful degradation.
+  `status_mapping`, `capabilities`, `project_milestone`,
+  `ticket_description_template`, `helpers_dir`. Capabilities drive
+  FR-38 AC-38.6 graceful degradation; `project_milestone` (FR-59)
+  opts the adapter into migration-time milestone binding.
 - **Schema N — `AcceptanceCriterion` list.** Returned by `pull_acs`. Fields:
   `id`, `text`, `completed`.
 - **Schema O — `TicketMetadata`.** Internal; tracked for concurrency via
@@ -181,6 +183,49 @@ tracker-side side effect.
 `pull_acs` is the only hard requirement — it's the foundation of every
 skill's tracker-mode branch. The other three are each opt-outable with a
 user-visible warning.
+
+## Migration-time adapter behaviours (FR-59, FR-60)
+
+`/setup --migrate none → <tracker>` surfaces two adapter-configurable
+behaviours beyond the 4-op contract above. Both live in Schema M
+frontmatter and keep tracker-specific logic out of the skill.
+
+### Project Milestone mapping (FR-59)
+
+Each FR declares its local milestone via frontmatter `milestone: M<N>`.
+Migration can bind the pushed ticket to a tracker-native release or
+project milestone so the tracker view mirrors the spec's milestone
+grouping. Opt in via the `project_milestone: true` boolean (Schema M).
+
+Side-by-side per-adapter behaviour:
+
+| Adapter | `project_milestone` | FR `milestone:` → tracker field | Missing-milestone handling |
+|---------|---------------------|---------------------------------|----------------------------|
+| Linear  | `true`              | `save_issue.milestone` — matched by name starting with `M<N>` (case-sensitive, exact-prefix) on the configured project. | Prompt once per missing `M<N>`: `[1] Create it / [2] Skip milestone binding for these N FRs / [3] Cancel migration`. |
+| Jira    | `false`             | Not mapped at push time — log one line `"Jira does not map milestones at push time; use Jira fixVersions manually."`; operators bind `fixVersions` manually after migration. | N/A (skipped). |
+| Custom (`_template`) | `false` (default) | Opt in by flipping to `true`; use the Linear section in `docs/setup-migrate.md` § `3b. Project milestone mapping` as the reference implementation. | Implementer's choice — follow the Linear 3-way prompt shape if adding support. |
+
+Custom adapters that add a native "release milestone" field should flip
+`project_milestone` to `true` and wire the mapping into their
+`upsert_ticket_metadata` implementation. See
+`docs/setup-migrate.md` § `3b` for the full procedure the LLM follows.
+
+### Initial ticket state (FR-60)
+
+Bulk-creating tickets without picking an initial state lands everything
+in Backlog, which misrepresents already-shipped migrations. The
+migration procedure (`docs/setup-migrate.md` § `3a`) prompts once for
+the bulk default.
+
+`status_mapping` (Schema M) is the declarative allowlist of legal
+initial states: migration resolves the operator's canonical choice
+(`in_progress` / `in_review` / `done`) through the adapter's
+`status_mapping` and fails the prompt with NFR-10 canonical shape if
+the choice isn't mapped. Adapter authors who want to support
+non-default initial states in migration simply add those mappings —
+there is no parallel allowlist field to keep in sync. The chosen
+default is captured in the sync-log entry so future audits can see
+which bulk-state each migration picked (AC-60.5).
 
 ## Latency expectations (NFR-6)
 
