@@ -6,6 +6,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [1.18.0] — 2026-04-22 — "Migration Hardening"
+
+Tightens every surface that M13 (`/setup --migrate`) + M14 (tracker-native entry) shipped. M15 is a **dogfooding milestone**: running `/setup --migrate none → linear` against the plugin's own repo, then `/implement` against the resulting Linear tickets, surfaced 14 concrete doc-code gaps that the earlier milestones had not exercised end-to-end. Each gap became a dedicated FR filed as `Finding #N of M`, bundled into one "Hardening" milestone rather than drip-fed across patch releases. A 15th FR (this one — FR-64) carries the release work.
+
+The headline user-visible changes: migration now walks the v2 layout (`specs/frs/`, not just v1's `specs/requirements.md`), writes tracker bindings to FR frontmatter in the canonical multi-line form, populates Linear's native project-milestone field, prompts for initial ticket state instead of defaulting silently to Backlog, and regenerates `INDEX.md` after any frontmatter write. Under the hood, `TrackerProvider` now detects Linear's silent-no-op write behavior (where `save_issue` returns a successful-looking payload for unknown keys), a shared `buildResolverConfig()` removes inline config assembly from every tracker-aware skill, and `/implement` Phase 4 releases the tracker lock on FR-scope runs instead of leaving tickets In Progress.
+
+No behavior changes for `mode: none` projects — Pattern 9 mode-none byte-for-byte regression preserved across all 3 baselines.
+
+### Added
+
+- **Shared `buildResolverConfig()` loader** (FR-65 / AC-65.1..8): `adapters/_shared/src/resolver_config.ts` — single entry point that reads `CLAUDE.md` `mcp_server:` + adapter Schema W frontmatter and assembles the `ResolverConfig` every tracker-aware skill (`/spec-write`, `/implement`, `/spec-archive`) hands to `resolveFRArgument`. Eliminates the three inline config-assembly sites that M14 shipped; adapter-metadata errors now surface once as `MalformedAdapterMetadataError` in NFR-10 canonical shape instead of three silently diverging constructions.
+- **Resolver FR-N code route** (FR-69 / AC-69.1..6): `resolveFRArgument` now accepts bare `FR-<N>` codes (e.g., `FR-42`) by scanning FR files' AC prefixes (`AC-<N>.*`) for a match. `{kind: 'fr-code', ulid}` on hit, `AmbiguousFRCodeError` (NFR-20 shape) if multiple active FRs share the number, `FRCodeNotFoundError` (NFR-10 shape) on miss. Enables `/implement FR-42` and `/spec-archive FR-42` as first-class arguments alongside ULIDs, tracker IDs, and URLs.
+- **Linear `save_issue` silent no-op guard** (FR-67 / AC-67.1..6): `TrackerProvider.claimLock` + `releaseLock` now call `verifyWriteLanded(trackerRef, preUpdatedAt, operation)` after every `transition_status` + `upsert_ticket_metadata` call. If the post-write `updatedAt` didn't advance past the pre-call value, the write silently no-op'd (unknown-key echo) — surfaces as `TrackerWriteNoOpError` with NFR-10 canonical shape. Opt-in per adapter: drivers declaring `updatedAt` in `TicketStatusSummary` engage the guard; adapters that don't degrade gracefully.
+- **Pattern 25: Dogfooding Discovery** (FR-64 / AC-64.5): `docs/patterns.md` gains a new entry capturing the M15 methodology — run the plugin on its own repo, log every judgment-call / workaround as an NFR-10-shape deviation, file each deviation as a dedicated FR with `Finding #N of M`, bundle into one hardening milestone. The pattern is the canonical escape hatch when doc-drift exceeds patch-release scope.
+- **Gate probe: stale release marker scan** (FR-62 AC-62.5): `/gate-check` greps `specs/requirements.md` for `(in flight — v<X.Y.Z>)` / `(planned — v<X.Y.Z>)` markers whose CHANGELOG entry has already shipped, emits **GATE PASSED WITH NOTES** so the operator can rewrite the overview to past-tense. Catches the "changelog-by-accident" rot observed 2026-04-22.
+- **Gate probe: per-milestone heading strip** (FR-63 AC-63.6): `/gate-check` greps `specs/technical-spec.md` and `specs/testing-spec.md` for `^#{1,3} M\d+` matches — any hit is **GATE FAILED** with a pointer to AC-40.3 (post-migration cross-cutting files must carry zero per-milestone headings).
+
+### Changed
+
+- **`/setup --migrate` detection** (FR-56 / AC-56.1..4): detection rule now covers the `mode: none → <tracker>` path explicitly. The SKILL.md:33 exclusion has been replaced with a mode-transition table enumerating every supported pair (`none → <tracker>`, `<tracker> → none`, `<tracker> → <other>`). Previously, migrating out of `mode: none` hit the migration-unsupported branch despite the procedure doc supporting it.
+- **v2 layout-aware FR iteration** (FR-57 / AC-57.1..5): the `none → <tracker>` procedure now reads `specs/.dpt-layout` and branches iteration accordingly — `readdirSync(specsDir + '/frs')` on v2, `### FR-{N}:` blocks in `specs/requirements.md` on v1. Empty-tree refusal (both markers absent) surfaces the NFR-10 canonical shape with a `/setup` remedy pointer. Structured count summary + explicit user confirm precede any `upsert_ticket_metadata` call (AC-57.4).
+- **Canonical tracker-binding writes** (FR-58 / AC-58.1..5): `setTrackerBinding(frFileContents, trackerKey, ticketId)` in `adapters/_shared/src/frontmatter.ts` writes the canonical multi-line `tracker:\n  <key>: <id>` form. Existing `tracker:` entries preserved alphabetically so `<tracker> → <other>` migrations merge instead of overwriting. Frontmatter-write failure after a successful push surfaces NFR-10 partial-failure shape listing un-bound FRs (tickets created, frontmatter NOT updated) so the operator can reverse before the CLAUDE.md `mode:` line is touched (atomicity AC-36.7 extended through step 4).
+- **Linear project-milestone population on migration** (FR-59 / AC-59.1..3): adapters declaring `project_milestone: true` (Linear) now resolve each distinct `milestone: M<N>` to a tracker-milestone whose name starts with `M<N>` (case-sensitive, exact-prefix) on the configured project. Missing tracker-milestones prompt once per `M<N>` with [1] Create / [2] Skip / [3] Cancel. Adapters with `project_milestone: false` (Jira, `_template`) log one surprise-guard line and skip. Previously, shipped projects lost their milestone taxonomy on migration.
+- **Initial ticket state prompt on migration** (FR-60 / AC-60.1..5): migration now prompts once before the bulk push: `[1] Backlog (new work) / [2] Done (shipped work) / [3] In Progress (in flight) / [4] ask per-FR. Default 1.` The chosen canonical state is resolved via the adapter's `status_mapping` (Schema M doubles as initial-state allowlist — unknown state fails the prompt with NFR-10 shape naming valid options). Option 4 defaults per-FR to frontmatter `status:` (`active → Backlog`, `in_progress → In Progress`). Sync-log records `(initial state: <Name>)` or `(initial state: per-FR)` so the log shows the choice was deliberate.
+- **`INDEX.md` regeneration on migration** (FR-61 / AC-61.1..5): `/setup --migrate` now calls `regenerateIndex(specsDir)` inside the atomicity boundary after any frontmatter write (both directions). Required by FR-40 AC-40.4; previously, migration wrote N bindings and left INDEX stale.
+- **`requirements.md` overview refresh** (FR-62 / AC-62.1..5): shipped releases now appear past-tense in the overview; in-flight markers were stripped. Gate probe (AC-62.5, listed under Added above) enforces the new discipline on future releases.
+- **Cross-cutting spec files slimmed** (FR-63 / AC-63.1..6): the v1→v2 migration tool previously left per-milestone blocks in `specs/technical-spec.md` (1213 lines) and `specs/testing-spec.md` (578 lines), violating AC-40.3. Per-milestone content moved into `specs/frs/<ulid>.md` / `specs/plan/<M#>.md`; cross-cutting files now carry only cross-cutting content. Gate probe (AC-63.6, listed under Added above) enforces.
+- **`updatedAt` recording timing** (FR-66 / AC-66.1..5): `/implement` Phase 1 step 0.d now records the ticket's `updatedAt` **after** `claimLock` has succeeded, not at skill entry. Recording earlier caused `/gate-check` Phase 4 drift probe to flag the skill's own claimLock write as external drift (dogfood-observed 2026-04-22). Rule applies to any tracker-writing pre-flight step.
+- **`/implement` Phase 4 releaseLock on FR-scope runs** (FR-68 / AC-68.1..4): FR-scope runs (`/implement STE-43`, `/implement fr_…`) now call `Provider.releaseLock(id)` after commit approval, moving the tracker ticket to Done. Previously, releaseLock only fired during milestone archival, leaving FR-scope-completed tickets stranded In Progress.
+- **`resolver_config` replaces inline assembly** in `/spec-write`, `/implement`, `/spec-archive` (FR-65 AC-65.5): all three skills now call `buildResolverConfig(claudeMdPath, adaptersDir)` at entry. The Linear adapter doc, Jira adapter doc, and `_template` adapter doc no longer have to document the config shape separately — Schema W is the single declaration surface.
+- **Linear adapter doc** (FR-67 / AC-67.1, AC-67.4): `adapters/linear.md` now documents `state` (not `status`) and `assignee` (not `assigneeId`/`assigneeEmail`) as the canonical `save_issue` parameters, with a "Silent no-op trap" warning box and cross-reference to `TrackerWriteNoOpError`.
+
+### Fixed
+
+- **FR-56 / STE-35** — `/setup --migrate` correctly handles `mode: none → <tracker>` (previously hit migration-unsupported branch).
+- **FR-58 / STE-37** — migration writes tracker bindings to FR frontmatter in canonical form (previously skipped on v2).
+- **FR-60 / STE-39** — migration no longer defaults silently to Backlog (prompts for initial state).
+- **FR-61 / STE-40** — INDEX.md regenerated after migration frontmatter writes (previously stale).
+- **FR-66 / STE-45** — `/gate-check` no longer flags `/implement`'s own claimLock write as external drift.
+- **FR-67 / STE-46** — Linear `save_issue` silent-no-op writes (unknown keys) surfaced as `TrackerWriteNoOpError` instead of falsely treated as successful.
+- **FR-68 / STE-47** — FR-scope `/implement` runs releaseLock the ticket on completion (previously stranded In Progress).
+
+### Removed
+
+- **v1 `specs/archive/` path purged** (FR-70 / AC-70.1..5): README, three docs (`sdd-methodology.md`, `adaptation-guide.md`, `skill-anatomy.md`), three skills (`implement`, `spec-archive`, `spec-write`), and the cross-cutting live specs all referenced the dead v1 archive path (flat `specs/archive/M<N>-<slug>.md` + rolling `index.md`). FR-45 superseded it with per-unit archives at `specs/frs/archive/<ulid>.md` + `specs/plan/archive/<M#>.md`. Every reference rewritten to the v2 path; Schema G / Schema H / "traceability matrix" vocabulary replaced with FR-45 frontmatter-flip language.
+
+### Cross-references
+
+FRs: FR-56..FR-70 (15 FRs, ~80 ACs across Phase A skill+resolver fixes, Phase B adapter extensions, Phase C cross-cutting cleanup, Phase D release). M15 plan: `specs/plan/archive/M15.md`. Dogfood findings: 14 (#1..#14) plus the release FR. Total test count at release: 315 tests, 0 failures, 0 errors.
+
 ## [1.17.0] — 2026-04-21 — "Tracker-native Entry"
 
 Accepts tracker IDs (`LIN-1234`, `PROJ-42`, `#982`) and full tracker URLs as first-class arguments to `/spec-write`, `/implement`, and `/spec-archive`. A shared resolver at each skill's entry detects the argument kind (ULID / tracker-ID / URL / fallthrough) and routes through a single code path; a shared import helper handles the "tracker ref with no local FR yet" case so the three skills cannot drift. Tracker teams no longer need to look up an internal ULID to work on a ticket whose "real" ID is `LIN-1234` — the plugin accepts what they already know.
@@ -31,8 +81,7 @@ Pre-M14 argument forms continue unchanged: ULIDs, milestone codes (`M12`), ancho
 
 ### Known follow-ups
 
-- **Tier 5 manual walkthrough** (AC-55.1 verify bullet): the live-Linear end-to-end walk documented in the M14 plan is deferred pending a configured Linear workspace — same precedent as M12's Tier 5 deferral documented in the v1.15.0 release. Executing `/spec-write https://linear.app/<workspace>/issue/<real-ticket>/...` against a real workspace remains post-ship verification work.
-- CHANGELOG date refresh at merge (this section's date stamp will update to the actual merge day).
+- **Tier 5 manual walkthrough** (AC-55.1 verify bullet): the live-Linear end-to-end walk documented in the M14 plan is deferred pending a configured Linear workspace — same precedent as M12's Tier 5 deferral documented in the v1.15.0 release. Executing `/spec-write https://linear.app/<workspace>/issue/<real-ticket>/...` against a real workspace remains post-ship verification work. **Status update from v1.18.0:** M15's dogfooding milestone exercised the `/setup --migrate` and `/implement` surfaces against a live Linear workspace end-to-end, which is adjacent to the Tier 5 target and surfaced the 14 gaps M15 closed.
 
 ### Cross-references
 
