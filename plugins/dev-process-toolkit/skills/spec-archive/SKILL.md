@@ -19,7 +19,7 @@ Before any other step:
 
 ### 0a. Resolver entry (AC-54.1)
 
-In v2 mode, after the layout probe and before the rest of step 0b runs, call `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`:
+In v2 mode, after the layout probe and before the rest of step 0b runs, call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src/resolver_config.ts` once at entry (FR-65 AC-65.5), then pass the result to `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. Malformed adapter metadata surfaces as `MalformedAdapterMetadataError` → NFR-10 canonical refusal (AC-65.6).
 
 - **`ulid`** → feed the ULID into step 0b.1 below (existing single-FR archival).
 - **`tracker-id` / `url`** + `findFRByTrackerRef` hit → resolve to the ULID and feed into 0b.1 (AC-54.3). No import, no tracker network call.
