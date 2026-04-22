@@ -88,9 +88,9 @@ shell: bash                       # Shell for !`command` blocks: bash (default) 
 - **Key pattern**: Read-only analysis with traceability matrix
 
 ### 5b. Spec Archive (manual archival escape hatch)
-- **Purpose**: Move a user-selected milestone, FR, or AC block out of live specs into `specs/archive/` with a diff approval gate (FR-17)
-- **Invocation**: User-invoked for reopens, cross-cutting ACs, aborted work, or explicit compaction; never auto-scans
-- **Key pattern**: Resolve anchor target → build Schema G archive body → present diff → wait for approval → write-then-excise → append index row; reopens produce `-r2` / `-r3` revision files
+- **Purpose**: Archive user-selected FRs (by ULID or tracker ref) or a milestone group (`M<N>`) by `git mv`-ing FR files into `specs/frs/archive/` and plan files into `specs/plan/archive/`, with a diff approval gate (FR-45)
+- **Invocation**: User-invoked for reopens, cross-cutting FRs, aborted work, or explicit compaction; never auto-scans
+- **Key pattern**: Resolve arg → present diff (git mv + frontmatter flip + releaseLock) → wait for approval → atomic commit → regenerate `INDEX.md` → post-archive drift check. Reopens are a plain reverse move + status flip; no revision-suffix mechanism is needed because ULIDs are stable.
 
 ### 6. Visual Check (UI verification)
 - **Purpose**: Verify web UI renders correctly in a real browser

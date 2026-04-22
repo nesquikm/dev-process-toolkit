@@ -52,7 +52,8 @@ calls; latency scales with the number of linked tickets. For
 
 ## Archive fallback
 
-If the user's query references a milestone or FR ID not in live
-`specs/plan.md` / `specs/requirements.md`, consult `specs/archive/index.md`
-as in `none` mode (unchanged). Archived FRs have no live tracker mirror —
-historical context only.
+If the user's query references a milestone or FR ULID not in the live
+`specs/plan/` / `specs/frs/` tree, look it up directly in
+`specs/plan/archive/<M#>.md` or `specs/frs/archive/<ulid>.md` (v2 layout —
+no rolling index). Archived FRs have no live tracker mirror — historical
+context only.

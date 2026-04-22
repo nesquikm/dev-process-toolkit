@@ -42,17 +42,16 @@ These are illustrative — use the patterns in your project's CLAUDE.md as the a
 
 ## Milestone Archival Procedure
 
-Full sub-step ordering for the Phase 4 Milestone Archival block. The skill itself carries a condensed summary; consult this section when executing the archival or debugging an interrupted run. Sub-steps are lettered to avoid clashing with the Phase 4 flow numbering (steps 13–15 in the skill).
+Full sub-step ordering for the Phase 4 Milestone Archival block (FR-45). The skill itself carries a condensed summary; consult this section when executing the archival or debugging an interrupted run. Sub-steps are lettered to avoid clashing with the Phase 4 flow numbering (steps 13–15 in the skill).
 
-a. Resolve the archive target: `specs/archive/M{N}-{slug}.md`, where `{slug}` is the lowercased hyphen-separated milestone title.
-b. Consult the `specs/requirements.md` traceability matrix: find every AC whose row was populated (Implementation and Tests columns) during this milestone.
-c. **Collapse rule:** for any FR whose ACs are *all* archived by this operation, the live `requirements.md` keeps only a Schema H pointer line in place of the FR block. FRs with mixed status keep their FR header and any non-archived ACs; only the archived ACs move.
-d. Build the archive file body following Schema G (see `specs/technical-spec.md` §4): YAML frontmatter (`milestone`, `title`, `archived`, `revision: 1`, `source_files`), then three sections in order — `## Plan block (from plan.md)` with the verbatim milestone block, `## Requirements block (from requirements.md)` with the verbatim archived FR/AC content, `## Traceability (from requirements.md matrix)` with the matched matrix rows.
-e. **Write the archive file first**, before excising anything from the live specs. If the subsequent live-file edit fails, the user still has both the archive and the untouched original.
-f. **Move (do not copy)** the `## M{N}: {title} {#M{N}}` block out of `plan.md`, leaving in its place exactly one Schema H blockquote pointer line at the original location: `> archived: M{N} — {title} → specs/archive/M{N}-{slug}.md ({YYYY-MM-DD})`. The em-dash and right-arrow are literal.
-g. For every wholly-archived FR in `requirements.md`, collapse the block to the same Schema H pointer line. For FRs with mixed status, remove only the archived ACs.
-h. Append one new row to `specs/archive/index.md` per archival: `| M{N} | {title} | {YYYY-MM-DD} | [M{N}-{slug}.md](M{N}-{slug}.md) |`. Never rewrite existing rows.
-i. If the traceability matrix is incomplete (some AC rows for this milestone have no Implementation/Tests entries), **move only the plan block** and emit a warning asking the user to archive the orphaned ACs manually via `/dev-process-toolkit:spec-archive`.
+a. Scan `specs/frs/*.md` for every FR with frontmatter `milestone == <current>`. Build the FR batch.
+b. For each batched FR: plan one `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md` + frontmatter flip (`status: active → archived`; set `archived_at: <ISO now>`) + one `Provider.releaseLock(<ulid>)` call.
+c. If `specs/plan/<M#>.md` exists, plan one `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md` (AC-44.5) to batch alongside the FR moves.
+d. Present the full batch as a diff preview — list every `git mv`, every frontmatter flip, every `releaseLock`. Do not summarize.
+e. On explicit human approval (Phase 4 step 15): execute all moves + flips + `releaseLock` calls and commit atomically in a single commit (AC-45.2, AC-45.6). Any error aborts the entire batch — no partial archival.
+f. Regenerate `specs/INDEX.md` via `regenerateIndex(specsDir)` — archived FRs drop out of the default listing (AC-45.3).
+g. Run the Post-Archive Drift Check from `skills/spec-archive/SKILL.md` § Post-Archive Drift Check. Render the unified Schema I table; offer the 3-choice UX (address inline / save to `specs/drift-<date>.md` / acknowledge). The drift check never blocks the already-committed archival.
+h. `specs/technical-spec.md` is **never** archived — ADRs use `Superseded-by:` in place (ADR convention).
 
 ## Decision matrix (round resolution)
 

@@ -313,7 +313,7 @@ Drift findings are **advisory** (GATE PASSED WITH NOTES, never GATE FAILED) beca
 
 ### Stable Anchor IDs
 
-**Problem (FR-18)**: Archival pointers, traceability matrices, and cross-links between spec files all depend on identifiers that survive heading renames and reordering. A pointer like `M3 → specs/archive/M3-user-auth.md` is only stable if "M3" itself is a stable identifier on the heading — not a positional guess. The first time someone renames a milestone, every positional reference rots silently.
+**Problem (FR-18)**: Archival pointers, traceability matrices, and cross-links between spec files all depend on identifiers that survive heading renames and reordering. A pointer like `M3 → specs/plan/archive/M3.md` is only stable if "M3" itself is a stable identifier on the heading — not a positional guess. The first time someone renames a milestone, every positional reference rots silently.
 
 **Solution**: Embed explicit Markdown anchor IDs on every archivable unit at creation time. Templates ship with the anchor syntax pre-filled; `/spec-write` enforces the rule on generated or edited headings; `/setup` doctor validation warns if any heading lacks its anchor. Anchors are CommonMark-friendly, render as empty spans, and survive all mainstream Markdown viewers.
 
@@ -333,25 +333,26 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 
 ### Pattern: Archival Lifecycle
 
-**Problem (FR-16 through FR-20)**: Spec files grow unboundedly as a project matures. Every `/implement`, `/gate-check`, and `/spec-review` invocation reads the full `plan.md` and `requirements.md`, inflating hot-path context cost on work that's already shipped. Simply splitting files by hand breaks prompt caching (the cache-hot prefix moves on every rewrite), duplicates still-current content, and loses grep-friendliness.
+**Problem**: Spec files grow unboundedly as a project matures. Every `/implement`, `/gate-check`, and `/spec-review` invocation reads the full spec tree, inflating hot-path context cost on work that's already shipped. Simply splitting files by hand breaks prompt caching (the cache-hot prefix moves on every rewrite), duplicates still-current content, and loses grep-friendliness.
 
-**Solution**: Milestones are the natural unit of completion. When `/implement` finishes a milestone and the human approves the Phase 4 report, the milestone block and all traceability-matched ACs are **moved** (not copied) from live specs into a single archive file at `specs/archive/M{N}-{slug}.md`, replaced by Schema H pointer lines. For content the auto-path can't reach (reopens, cross-cutting ACs, aborted work), `/spec-archive` is the manual escape hatch with a diff approval gate.
+**Solution (v2, FR-45)**: Per-unit archival. Each FR lives in its own file `specs/frs/<ulid>.md`; each milestone has its own plan file `specs/plan/<M#>.md`. When `/implement` finishes a milestone and the human approves the Phase 4 report, every FR belonging to that milestone is `git mv`d into `specs/frs/archive/<ulid>.md` with frontmatter `status: active` → `status: archived` + `archived_at: <ISO now>`; the milestone plan file is `git mv`d into `specs/plan/archive/<M#>.md`; `specs/INDEX.md` is regenerated so archived FRs drop out of the default listing. `Provider.releaseLock(<ulid>)` finalizes each FR's lifecycle (tracker mode transitions the ticket to `done`; tracker-less removes the lock file). For content the auto-path can't reach (reopens, cross-cutting FRs, aborted work), `/spec-archive <ULID | M<N> | tracker-ref>` is the manual escape hatch with a diff approval gate.
 
 **What moves:**
-- The `## M{N}: ...` block from `plan.md` (verbatim, in full).
-- Every AC in `requirements.md` whose traceability-matrix row resolved in this milestone. FRs whose ACs are all archived collapse to a single Schema H pointer; FRs with mixed status retain only their non-archived ACs.
-- The matched rows of the traceability matrix, bundled into the archive file for auditability.
+- Every FR file whose frontmatter `milestone == <current>` — `git mv` to `specs/frs/archive/`, frontmatter flip.
+- The milestone's plan file — `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md`.
+- `specs/INDEX.md` regenerates — no archived FR appears in the default active index.
 
 **What does NOT move:**
-- `technical-spec.md` — architectural decisions use `Superseded-by:` in place (ADR convention: adr.github.io, Nygard). Auto-archiving ADRs would destroy load-bearing context for future implementation.
-- `testing-spec.md` — test conventions stay live.
-- In-flight milestones, future milestones, or ACs without a populated traceability row.
+- `specs/technical-spec.md` — architectural decisions use `Superseded-by:` in place (ADR convention: adr.github.io, Nygard). Auto-archiving ADRs would destroy load-bearing context for future implementation.
+- `specs/testing-spec.md` and `specs/requirements.md` — cross-cutting narrative stays live.
+- In-flight milestones and active FRs outside the completed milestone.
 
 **Rationale:**
-- **Prompt caching stability** — archival is a surgical move, so the cache-hot prefix of the live files stays stable between milestones and only invalidates at the moment of archival (once per milestone, not once per run).
-- **Bounded hot-path context cost** — live `plan.md` and `requirements.md` never accumulate shipped content; hot-path token cost is roughly constant regardless of project age (NFR-5).
-- **Auditability** — archive files are append-only. Reopens create `-r2`, `-r3` revision files, never in-place mutations. History is trivially greppable (`^> archived:`).
-- **Escape hatch** — `/spec-archive` covers everything auto-archival can't reach, with an explicit diff approval gate so users see exactly what's moving.
+- **Prompt caching stability** — archival is a surgical git rename, so the cache-hot prefix of the live files stays stable between milestones and only invalidates at the moment of archival (once per milestone, not once per run).
+- **Bounded hot-path context cost** — live `specs/frs/` and `specs/plan/` never accumulate shipped content; hot-path token cost is roughly constant regardless of project age (NFR-5).
+- **Merge-conflict-free** — v1's rolling index file was a write hotspot; v2 archival touches disjoint paths per ULID, so parallel-branch merges don't fight over archival state.
+- **Auditability** — archived FR files preserve full content + tracker refs + ACs; `git log --follow specs/frs/archive/<ulid>.md` replays the FR's history trivially.
+- **Escape hatch** — `/spec-archive` covers everything auto-archival can't reach (reopens, cross-cutting FRs, explicit user-directed compaction), with a diff approval gate so users see exactly what's moving.
 
 ### Pattern: Post-Archive Drift Check
 

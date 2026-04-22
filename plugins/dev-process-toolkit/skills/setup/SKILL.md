@@ -180,10 +180,9 @@ See `docs/setup-tracker-mode.md` for the exact question prompt, canonical error 
 ### 8. Create specs (optional)
 
 If the user wants the full SDD workflow (or if `$ARGUMENTS` contains "new"):
-- Create `specs/` directory
-- Create `specs/archive/` directory alongside it (empty — populated later by `/implement` Phase 4 auto-archival and `/spec-archive`, see FR-16/FR-19)
-- Copy `${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/archive-index.md.template` to `specs/archive/index.md` so the rolling archive index exists from day one with its `| Milestone | Title | Archived | Archive File |` header row
-- Copy templates from `${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/`
+- Create `specs/` directory plus `specs/frs/`, `specs/frs/archive/`, `specs/plan/`, `specs/plan/archive/` (the v2 layout — per-unit archival; no rolling index file).
+- Write `specs/.dpt-layout` with `version: v2`, `migrated_at: <now>`, `migration_commit: null` (fresh project marker; see Schema R in `specs/technical-spec.md`).
+- Copy cross-cutting templates from `${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/` (`requirements.md`, `technical-spec.md`, `testing-spec.md`). Do not create or copy any `archive-index.md` file — v2 archival is `git mv` + frontmatter flip (FR-45); there is no index template.
 - **Pre-fill with concrete values** from what you already know — replace every placeholder you can with real data:
   - **requirements.md:** Project name, overview, detected stack. Fill the traceability matrix header rows with AC IDs from any existing requirements.
   - **technical-spec.md:** Actual directory structure (run `ls`), actual dependencies with pinned versions (from lock file or package manifest), module boundaries you can infer from the code

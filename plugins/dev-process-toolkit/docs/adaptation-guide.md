@@ -237,29 +237,20 @@ See `examples/` for GitHub Actions starter configs:
 
 ## Customizing Archival
 
-As of v1.10.0 (FR-16 through FR-20), completed milestones are auto-archived out of live spec files into `specs/archive/` when `/implement` Phase 4 is approved. This keeps `plan.md` and `requirements.md` size bounded regardless of project age. The archival mechanism is fully opt-in and fully overridable.
+Completed milestones are auto-archived when `/implement` Phase 4 is approved (FR-45). Every FR belonging to the milestone is moved from `specs/frs/<ulid>.md` to `specs/frs/archive/<ulid>.md` via `git mv` with a frontmatter `status: active → archived` + `archived_at` flip; the milestone's plan file is moved from `specs/plan/<M#>.md` to `specs/plan/archive/<M#>.md`. `specs/INDEX.md` is regenerated so archived FRs drop out of the default listing. There is no rolling `index.md` — per-unit archives are their own index, addressable directly by ULID or milestone ID.
 
 ### Opting out entirely
 
-Delete `specs/archive/` from your project (or never create it). `/implement` Phase 4 checks for the directory before doing any archival work and **silently skips** archival if it's missing (AC-16.7). Your specs stay whole, nothing moves, and no pointers are written. This is the right choice for small projects, short-lived experiments, or any situation where you don't want the extra directory.
-
-If you opted out initially and want to opt in later, run `/dev-process-toolkit:setup` again or create the directory manually:
-
-```bash
-mkdir -p specs/archive
-cp ${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/archive-index.md.template specs/archive/index.md
-```
-
-Subsequent `/implement` runs will pick it up automatically.
+If you don't want archival, delete `specs/frs/archive/` and `specs/plan/archive/` (or never create them). `/implement` Phase 4 will run the archival step anyway, which recreates those directories on first archival. Opting out cleanly is not a first-class feature of the v2 layout — the v2 mechanism is `git mv` between sibling directories, not an optional write. Projects that want `plan.md` / `requirements.md` style monoliths should stay on pre-M13 releases (v1.15.x).
 
 ### Manual archival via `/spec-archive`
 
-For content the auto-path can't reach — reopened milestones, cross-cutting ACs not tied to a single milestone, aborted work you want to preserve, explicit user-directed compaction — use `/dev-process-toolkit:spec-archive {#M3}` (or `{#FR-7}`, or an explicit heading string). The skill shows you a diff before touching any file and waits for explicit approval. It never auto-scans for completed work — you name what to archive.
+For content the auto-path can't reach — reopened milestones, cross-cutting FRs, aborted work you want to preserve, explicit user-directed compaction — use `/dev-process-toolkit:spec-archive <ULID>` or `/dev-process-toolkit:spec-archive M<N>` (milestone group) or `/dev-process-toolkit:spec-archive LIN-1234` (tracker ref → resolves to the bound ULID). The skill shows a diff before touching any file and waits for explicit approval; it never auto-scans for completed work.
 
-See `skills/spec-archive/SKILL.md` for the full protocol, including the reopen/revision naming rule (`M{N}-r2-{slug}.md`) and the `technical-spec.md` archival warning.
+See `skills/spec-archive/SKILL.md` for the full protocol, including the reopen path (move the file back from `specs/frs/archive/` and flip frontmatter status) and the `technical-spec.md` "supersede-in-place, never archive" rule.
 
 ### Adjusting the archive directory layout
 
-The default layout is flat: `specs/archive/M{N}-{slug}.md` for milestones, plus a single `specs/archive/index.md` rolling index. Changing this layout is out of scope for v1.10.0 — the `/implement` and `/spec-archive` skills hardcode the pattern. If you need a different layout (e.g., nested by year, split by source file), file an issue or fork the skills.
+The default v2 layout is flat per-unit: archived FRs at `specs/frs/archive/<ulid>.md`, archived milestones at `specs/plan/archive/M<N>.md`. Changing this layout is out of scope — `/implement` and `/spec-archive` hardcode the pattern. If you need a different layout (nested by year, split by source file), file an issue or fork the skills.
 
 These are **starting points** — adapt them to your project's specific tools and versions.

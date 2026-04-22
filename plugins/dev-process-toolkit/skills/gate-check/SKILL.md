@@ -30,6 +30,7 @@ When the layout probe reports `v2`, run these deterministic probes in addition t
 5. **Stale lock scan** — list every `.dpt-locks/<ulid>` entry whose `branch` field names a merged-into-main or deleted branch. Each stale lock → **GATE PASSED WITH NOTES**. Offer `$ARGUMENTS --cleanup-stale-locks` action that deletes them in a single commit (AC-46.5).
 6. **Plan post-freeze edit scan** — for each `specs/plan/<M#>.md` with `status: active` + non-null `frozen_at`, scan `git log --follow` for commits to that path authored after `frozen_at`. Each post-freeze commit → **GATE PASSED WITH NOTES** listing the SHA. No auto-revert — user decides (AC-44.4).
 7. **Stale release marker scan** (FR-62 AC-62.5) — grep `specs/requirements.md` for markers of the form `(in flight — v<X.Y.Z>)` or `(planned — v<X.Y.Z>)`. For each captured version, check whether `CHANGELOG.md` already contains a `## [X.Y.Z]` header (i.e., that version has shipped). Every match where the CHANGELOG says shipped → **GATE PASSED WITH NOTES** listing the stale marker + its line number + the shipped release so the operator can rewrite the overview to past-tense. Warn-only, never **GATE FAILED** — prose drift shouldn't block the gate. Catches the "changelog-by-accident" rot where the overview narrative trails the actual release history (observed 2026-04-22 on the plugin's own repo).
+8. **Per-milestone heading strip** (FR-63 AC-63.6) — grep `specs/technical-spec.md` and `specs/testing-spec.md` for `^#{1,3} M\d+` (matches `# M<N>:`, `## <N>. M<N> — …`, or any other milestone-framed heading). Any match → **GATE FAILED** naming the file and line with a pointer to AC-40.3 (post-migration cross-cutting files must carry zero per-milestone headings). Per-FR design / per-milestone narrative belongs in `specs/frs/<ulid>.md` or `specs/plan/<M#>.md`, not in the cross-cutting spec files.
 
 Full details: `docs/v2-layout-reference.md` § `/gate-check`.
 
@@ -65,7 +66,7 @@ For each criterion, report: **OK** or **CONCERN** with specifics. Use the exact 
 
 ## Drift Check
 
-> Never read specs/archive/ — only live spec files count for drift detection.
+> Never read `specs/frs/archive/` or `specs/plan/archive/` — only live spec files count for drift detection.
 
 If `specs/` directory exists, check whether the implementation has drifted from the spec:
 
