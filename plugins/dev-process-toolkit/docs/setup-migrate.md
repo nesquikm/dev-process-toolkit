@@ -108,8 +108,18 @@ Rules:
 4. **Only after all FRs pushed successfully:** write the `## Task Tracking`
    section with `mode: <tracker>` + discovered keys to CLAUDE.md, and
    update the traceability matrix's Implementation column with
-   `ticket=<id>` rows.
-5. Sync-log append: `- <ISO> — <N> FRs migrated to <tracker>`.
+   `ticket=<id>` rows (v1 layout) or write `tracker: { <key>: <id> }`
+   to each FR's frontmatter under `specs/frs/` (v2 layout).
+5. **Regenerate `specs/INDEX.md`** (FR-61 AC-61.1/AC-61.4) — call
+   `regenerateIndex(specsDir)` from
+   `adapters/_shared/src/index_gen.ts`. This runs inside the atomicity
+   boundary (AC-36.7, AC-61.2): if regen fails, the CLAUDE.md `mode:`
+   line is NOT written and migration surfaces an NFR-10 canonical-shape
+   error listing the frontmatter-bound FRs so the operator can reverse
+   the bindings manually. FR-40 AC-40.4 requires INDEX to be rebuilt
+   by any skill that writes under `specs/frs/`; migration wrote N
+   bindings, so regen is mandatory.
+6. Sync-log append: `- <ISO> — <N> FRs migrated to <tracker>`.
 
 Mid-bulk failure triggers the retry/rollback prompt above.
 
@@ -125,9 +135,19 @@ Mid-bulk failure triggers the retry/rollback prompt above.
    3. If any classification is non-`identical`, prompt per-AC
       (`keep local` / `keep tracker` / `merge` / `cancel`).
    4. Write the resolved AC list into `specs/requirements.md`.
-2. **Only after all FRs reconciled successfully:** remove `## Task Tracking`
-   from CLAUDE.md (back to canonical `none` form per AC-29.5).
-3. Prompt the user: "Close the former tracker tickets now? [y/N]" — on
+2. **Only after all FRs reconciled successfully:** remove the `tracker:`
+   entry for the departing tracker from each FR's frontmatter under
+   `specs/frs/` (v2) or clear the traceability-matrix `ticket=<id>`
+   column (v1).
+3. **Regenerate `specs/INDEX.md`** (FR-61 AC-61.5) — call
+   `regenerateIndex(specsDir)` from
+   `adapters/_shared/src/index_gen.ts`. Same rule as `none → <tracker>`
+   direction: any frontmatter write triggers regen per FR-40 AC-40.4.
+   Inside the atomicity boundary (AC-36.7): if regen fails, CLAUDE.md
+   mode line stays untouched.
+4. Remove `## Task Tracking` from CLAUDE.md (back to canonical `none`
+   form per AC-29.5).
+5. Prompt the user: "Close the former tracker tickets now? [y/N]" — on
    `y`, call `transition_status(ticket, done)` for each. Declining leaves
    them open; the plugin never deletes tickets.
 
@@ -141,9 +161,15 @@ Mid-bulk failure triggers the retry/rollback prompt above.
    write the none-form yet.
 2. Run `none → <other>` internally (steps 1–3 of the none→tracker
    procedure).
-3. Write the new `## Task Tracking` section with `mode: <other>` only
-   after both halves succeed. Old tracker tickets untouched.
-4. Traceability matrix rows updated with new ticket IDs.
+3. **Regenerate `specs/INDEX.md`** (FR-61 AC-61.5) — call
+   `regenerateIndex(specsDir)` once, after both halves have written
+   their frontmatter changes. Inside the atomicity boundary
+   (AC-36.7): if regen fails, the new `## Task Tracking` section is
+   NOT written.
+4. Write the new `## Task Tracking` section with `mode: <other>` only
+   after both halves succeed AND INDEX regenerated. Old tracker
+   tickets untouched.
+5. Traceability matrix rows / FR frontmatter updated with new ticket IDs.
 
 ## Sync-log entry
 
