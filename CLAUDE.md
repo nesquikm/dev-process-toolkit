@@ -56,3 +56,4 @@ jira_ac_field:
 - 2026-04-22T07:59:54Z — Migration complete: none → linear, 27 FRs moved
 - 2026-04-22T11:56:15Z — 3 FRs added to M15 (FR-67..69); STE-46..48 created
 - 2026-04-22T13:46:41Z — 1 FR added to M15 (FR-70, archive-path drift); STE-49 created
+- 2026-04-22T17:02:28Z — FR-63 (STE-42) + FR-70 (STE-49) landed in commit 1dd870c; both Done
