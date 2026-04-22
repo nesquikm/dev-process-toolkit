@@ -25,24 +25,33 @@ Refuse a no-op migration (`current === target`).
 
 ## Supported transitions (AC-36.3)
 
-1. `none → <tracker>` — bulk-create tracker tickets for each FR in
-   `specs/requirements.md`; record IDs in the traceability matrix. Local
-   AC content is preserved unchanged (Path B, AC-36.4).
+1. `none → <tracker>` — bulk-create tracker tickets for each FR in the
+   local spec tree (v2: `specs/frs/<ulid>.md` files; v1:
+   `specs/requirements.md` blocks — iteration branches per FR-57); record
+   IDs in the canonical multi-line `tracker:` frontmatter map (v2) or the
+   traceability matrix (v1). Local AC content is preserved unchanged
+   (Path B, AC-36.4).
 2. `<tracker> → none` — pull ACs from each FR's tracker ticket, reconcile
-   via FR-39 if drift exists, write the resolved state into
-   `specs/requirements.md`. Tracker tickets left intact; user prompted
-   to optionally close them (AC-36.5).
+   via FR-39 if drift exists, write the resolved state back to the local
+   FR file (v2: `specs/frs/<ulid>.md` body; v1: `specs/requirements.md`).
+   Tracker tickets left intact; user prompted to optionally close them
+   (AC-36.5).
 3. `<tracker> → <other tracker>` — pull from old, reconcile with local
    via FR-39, push to new via `upsert_ticket_metadata`. Old tracker
-   tickets NOT deleted. Traceability matrix rows updated (AC-36.6).
+   tickets NOT deleted. Binding rows updated in FR frontmatter (v2) or
+   the traceability matrix (v1) (AC-36.6).
 
 ## Atomicity guarantee (AC-36.7)
 
-Before any mutation:
+Before any mutation, snapshot the current state in-memory — layout-aware:
 
-- Read the current CLAUDE.md mode line (save in memory).
-- Read the traceability matrix (save in memory).
-- Read the full live `specs/requirements.md` (save in memory).
+- Read the current CLAUDE.md mode line.
+- **v2 layout** — enumerate `specs/frs/**/*.md` (active + archived)
+  and snapshot each file's frontmatter `tracker:` map so a mid-flight
+  failure can roll back per-FR binding state without touching the
+  on-disk files.
+- **v1 layout** — snapshot the traceability matrix and the full live
+  `specs/requirements.md` body.
 
 On **any** step failure during migration:
 
@@ -67,7 +76,17 @@ the skill following this document on every run. As a defense-in-depth
 safeguard for the two paths that **write to local source-of-truth files**
 (`<tracker> → none` and `<tracker> → <other tracker>`, both via FR-39
 reconciliation), copy the files that the migration may rewrite to
-timestamped backups **before any local mutation**:
+timestamped backups **before any local mutation** — layout-aware:
+
+**v2 layout** — the spec tree is a directory of per-FR files, so archive
+the whole tree:
+
+```
+cp CLAUDE.md                 CLAUDE.md.pre-migrate-backup-<ISO>
+tar -czf specs.pre-migrate-backup-<ISO>.tgz specs/frs specs/plan specs/INDEX.md
+```
+
+**v1 layout** — the spec tree is the single `specs/requirements.md` file:
 
 ```
 cp CLAUDE.md                 CLAUDE.md.pre-migrate-backup-<ISO>
@@ -76,11 +95,11 @@ cp specs/requirements.md     specs/requirements.md.pre-migrate-backup-<ISO>
 
 `<ISO>` is `YYYY-MM-DDTHH-MM-SSZ` (colons replaced with dashes for
 filename portability). Print one line so the operator knows the backup
-exists and can recover from it:
+exists and can recover from it (example for v2):
 
 ```
-Pre-migrate backup written: CLAUDE.md.pre-migrate-backup-<ISO>, specs/requirements.md.pre-migrate-backup-<ISO>
-If anything looks wrong after migration, restore with: mv <backup> <original>
+Pre-migrate backup written: CLAUDE.md.pre-migrate-backup-<ISO>, specs.pre-migrate-backup-<ISO>.tgz
+If anything looks wrong after migration, restore CLAUDE.md with: mv <backup> <original>; restore specs with: rm -rf specs && tar -xzf specs.pre-migrate-backup-<ISO>.tgz
 ```
 
 Rules:
@@ -92,10 +111,11 @@ Rules:
   to remove them. They sort lexically by timestamp, so a follow-up run
   never overwrites an earlier backup.
 - Add `*.pre-migrate-backup-*` to `.gitignore` if the project has one
-  (offer to do this automatically).
-- A failed `cp` (disk full, permissions) hard-stops the migration with
-  an NFR-10 canonical-shape error before any further work — no backup,
-  no migration.
+  (offer to do this automatically). Applies to both the scalar v1 file
+  backup and the `*.tgz` v2 tree archive.
+- A failed `cp` or `tar` (disk full, permissions) hard-stops the
+  migration with an NFR-10 canonical-shape error before any further
+  work — no backup, no migration.
 
 ## `none → <tracker>` procedure (AC-36.4, AC-36.8)
 
@@ -255,16 +275,30 @@ Mid-bulk failure triggers the retry/rollback prompt above.
 
 ## `<tracker> → none` procedure (AC-36.5)
 
-0. **Pre-migration backup** — copy CLAUDE.md and `specs/requirements.md`
-   to `*.pre-migrate-backup-<ISO>` per the section above. This is the
-   highest-risk migration direction (local file becomes the new source
-   of truth); the on-disk backup is the recovery path of last resort.
-1. For each FR in the traceability matrix with a `ticket=<id>` entry:
+0. **Pre-migration backup** — back up CLAUDE.md and the live spec tree
+   per the section above (v2: `CLAUDE.md` + `specs.pre-migrate-backup-<ISO>.tgz`;
+   v1: `CLAUDE.md` + `specs/requirements.md.pre-migrate-backup-<ISO>`).
+   This is the highest-risk migration direction (local files become the
+   new source of truth); the on-disk backup is the recovery path of
+   last resort.
+1. **Iterate FRs — layout-aware (FR-57 AC-57.1).** For each FR bound to
+   the departing tracker:
+   - **v2 layout** — iterate `readdirSync(specsDir + '/frs')`, parse
+     frontmatter via `parseFrontmatter`, filter to those whose
+     `tracker:` map contains the departing key, skip `specs/frs/archive/`.
+   - **v1 layout** — iterate rows in the traceability matrix with a
+     `ticket=<id>` entry.
+
+   For each FR:
    1. Call `pull_acs(ticket_id)`.
    2. Diff against local FR's AC list via FR-39 classifier.
    3. If any classification is non-`identical`, prompt per-AC
       (`keep local` / `keep tracker` / `merge` / `cancel`).
-   4. Write the resolved AC list into `specs/requirements.md`.
+   4. Write the resolved AC list back to the local FR:
+      - **v2** — update the `## Acceptance Criteria` section of
+        `specs/frs/<ulid>.md` in place; frontmatter otherwise untouched.
+      - **v1** — update the `### FR-{N}:` block in
+        `specs/requirements.md`.
 2. **Only after all FRs reconciled successfully:** remove the `tracker:`
    entry for the departing tracker from each FR's frontmatter under
    `specs/frs/` (v2) or clear the traceability-matrix `ticket=<id>`
@@ -283,10 +317,12 @@ Mid-bulk failure triggers the retry/rollback prompt above.
 
 ## `<tracker> → <other>` procedure (AC-36.6)
 
-0. **Pre-migration backup** — copy CLAUDE.md and `specs/requirements.md`
-   to `*.pre-migrate-backup-<ISO>` per the section above. This path runs
-   `<tracker> → none` reconciliation internally, which writes to local
-   files; the backup covers a partial-FR-39 failure scenario.
+0. **Pre-migration backup** — back up CLAUDE.md and the live spec tree
+   per the section above (v2: `CLAUDE.md` + `specs.pre-migrate-backup-<ISO>.tgz`;
+   v1: `CLAUDE.md` + `specs/requirements.md.pre-migrate-backup-<ISO>`).
+   This path runs `<tracker> → none` reconciliation internally, which
+   writes to local files; the backup covers a partial-FR-39 failure
+   scenario.
 1. Run `<tracker> → none` internally (steps 1–2 above) but **don't**
    write the none-form yet.
 2. Run `none → <other>` internally (steps 1–3 of the none→tracker
@@ -299,7 +335,9 @@ Mid-bulk failure triggers the retry/rollback prompt above.
 4. Write the new `## Task Tracking` section with `mode: <other>` only
    after both halves succeed AND INDEX regenerated. Old tracker
    tickets untouched.
-5. Traceability matrix rows / FR frontmatter updated with new ticket IDs.
+5. Binding rows updated with the new ticket IDs — in FR frontmatter
+   `tracker:` map (v2, via `setTrackerBinding` per FR-58) or the
+   traceability matrix (v1).
 
 ## Sync-log entry
 

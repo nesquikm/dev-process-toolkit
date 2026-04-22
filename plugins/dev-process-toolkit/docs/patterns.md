@@ -477,3 +477,30 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 3. **Non-interactive safe.** The resolver never prompts — CI, scripts, and agent harnesses get the same deterministic errors humans see interactively.
 
 **Cross-refs**: FR-51..FR-54 (requirements), `technical-spec.md` §9 (design), `docs/resolver-entry.md` (per-skill decision table), `docs/tracker-adapters.md` § Registering tracker ID patterns for the resolver.
+
+## Pattern 25: Dogfooding Discovery
+
+**When to use**: You've shipped a cross-cutting feature (a new skill, a new layout, a tracker integration) and the test suite is green — but you suspect the doc-code surface hasn't been exercised end-to-end against a *real* project. The green suite only proves the happy paths the tests remembered to cover.
+
+**The pattern**:
+
+1. **Pick the plugin's own repo as the project.** The toolkit is the most realistic test subject available — it has the full spec tree, real git history, real tracker configuration potential, and every skill used against it will hit the same surfaces a user's project would. Running `/setup --migrate none → linear` on the plugin's own repo is not "eating your own dog food" in the marketing sense — it's the cheapest possible way to find gaps that unit tests could not.
+2. **Log every judgment-call as a deviation.** When a skill asks you to do something and you find yourself *thinking* ("the doc says X but I'll do Y because X doesn't match what the code actually does") — that is a deviation. Do not quietly fix it and move on. Write the deviation down in NFR-10 canonical shape, with the file:line of the doc-code mismatch and the workaround you applied to keep the session moving.
+3. **File each deviation as a dedicated FR.** Not a batched "cleanup" FR; not a bullet on a "backlog" list. One FR per deviation, carrying a `Finding #N of M` note in its frontmatter or requirement prose so the release narrative makes the source of the fix legible. This discipline is what keeps the hardening milestone auditable — someone reading the CHANGELOG a year later can trace every fix back to the exact dogfooded workaround that surfaced it.
+4. **Bundle into a single "Hardening" milestone.** Not a string of patch releases across weeks. The milestone's existence telegraphs to the next user: "these gaps were all found in one pass; there is likely a Finding #N+1 we didn't surface." It also lets the release carry one coherent narrative ("M13 + M14 surfaces hardened") instead of 14 tiny version bumps nobody can remember the theme of.
+5. **Run the milestone again after it ships.** The dogfood that discovered the gaps should be re-run on the *hardened* plugin — if the session is now frictionless, the hardening worked. If it isn't, you have the next hardening milestone's Finding #1.
+
+**Why this matters**:
+
+1. **Unit tests test what you remembered to test.** Dogfooding tests what the user will actually hit. The plugin's M12 + M13 + M14 tests were all green; M15 surfaced 14 real gaps anyway.
+2. **Doc-code drift is invisible from inside the implementation.** The code works, the doc reads fine in isolation, the test fixture is minimal — but the three together don't line up on the paths no test walked. Only a full end-to-end invocation catches it.
+3. **The "Finding #N of M" discipline prevents scope creep.** Without it, the temptation is to bundle "while I'm in here" fixes into one FR. The rule: if it isn't traceable to a specific Finding #N, it doesn't belong in the hardening milestone — file it separately or defer it.
+4. **The methodology is itself a release artifact.** Future maintainers know that M15 wasn't a random bug-fix pass — it was the result of a specific, repeatable procedure. They can re-run it themselves after their own cross-cutting ships.
+
+**What this costs**:
+
+- The dogfooding session is not free — expect a half-day to a day of hands-on invocation work per cross-cutting milestone.
+- The resulting FR pile looks overwhelming on first scan (M15 had 15 FRs). The "Finding #N of M" frontmatter + one bundled milestone keep it auditable.
+- Not every deviation is a hardening candidate. Some are genuine feature requests or rare-edge-case nits that belong in later milestones — classify per Pattern 15 (Spec Deviation Classification) before filing.
+
+**Cross-refs**: FR-56..FR-70 (the M15 FR set in this plugin's own spec tree — 15 FRs, 14 findings + 1 release; note that `specs/` is gitignored in the plugin source repo, so the milestone archive at `specs/plan/archive/M15.md` lives in the maintainer workspace, not in the shipped plugin bundle), Pattern 15 (Spec Deviation Classification — the filter that separates hardening findings from feature work), Pattern 21 (Spec Breakout Protocol — the escalation path when dogfood findings exceed 3 `contradicts` / `infeasible` deviations).

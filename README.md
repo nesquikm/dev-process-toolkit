@@ -64,7 +64,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.17.0 — "Tracker-native Entry"** (tracker IDs like `LIN-1234`, `PROJ-42`, `#982`, and full tracker URLs become first-class arguments to `/spec-write`, `/implement`, and `/spec-archive`; a shared resolver dispatches by kind — ULID / tracker-ID / URL / fallthrough — with a shared `importFromTracker` helper keeping `/spec-write` and `/implement` from drifting; `/spec-archive` refuses tracker-ID misses instead of auto-importing; Schema W adapter metadata block registers new tracker ID patterns; FR-51..55, 5 FRs, ~32 ACs; pre-M14 argument forms including milestone codes and keywords remain byte-identical per NFR-18).
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.18.0 — "Migration Hardening"** (dogfooding milestone that tightened the M13 + M14 surface by running the plugin on its own repo: migration now walks the v2 `specs/frs/` layout, writes canonical multi-line `tracker:` bindings to FR frontmatter, populates Linear's native project-milestone field, prompts for initial ticket state instead of defaulting silently to Backlog, and regenerates `INDEX.md` after any frontmatter write; `TrackerProvider` detects Linear `save_issue` silent-no-op writes; a shared `buildResolverConfig()` removes inline resolver-config assembly from three skills; `/implement` Phase 4 releases the tracker lock on FR-scope runs; the legacy v1 flat-archive-directory path is purged across README/docs/skills/specs in favor of the per-unit archive form FR-45 shipped; FR-56..FR-70, 15 FRs / ~80 ACs; `mode: none` byte-for-byte regression preserved).
 
 ## Core Philosophy
 
@@ -87,7 +87,7 @@ The key insight: **deterministic checks always override LLM judgment**. A failin
 - `plugins/dev-process-toolkit/docs/sdd-methodology.md` — What SDD is and how it works
 - `plugins/dev-process-toolkit/docs/skill-anatomy.md` — How Claude Code skills work
 - `plugins/dev-process-toolkit/docs/adaptation-guide.md` — Reference for customizing skills and configuration after `/setup`
-- `plugins/dev-process-toolkit/docs/patterns.md` — 23 proven patterns + anti-patterns
+- `plugins/dev-process-toolkit/docs/patterns.md` — 25 proven patterns + anti-patterns
 - `plugins/dev-process-toolkit/docs/v2-layout-reference.md` — v2 spec layout behavioral contract (file-per-FR + ULID; Provider interface; skill integration map)
 
 **Claude Code official docs:** https://code.claude.com/docs/en
