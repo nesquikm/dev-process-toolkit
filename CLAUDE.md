@@ -54,3 +54,4 @@ jira_ac_field:
 ### Sync log
 
 - 2026-04-22T07:59:54Z — Migration complete: none → linear, 27 FRs moved
+- 2026-04-22T11:56:15Z — 3 FRs added to M15 (FR-67..69); STE-46..48 created

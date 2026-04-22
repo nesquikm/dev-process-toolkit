@@ -37,19 +37,45 @@ AC-37.5).
 
 ## MCP tool names
 
-> **Status: provisional (Phase H conformance).** This env has Linear MCP
-> configured at the deprecated V1 SSE endpoint and unauthenticated, so
-> `tools/list` introspection couldn't be performed at implementation time.
-> Names below follow Linear's public MCP documentation and the
-> `mcp__<server>__<tool>` convention. Phase H Task 2 (Tier 5 manual
-> conformance) re-verifies against a live authenticated Linear MCP.
+> **Verified 2026-04-22 against the live authenticated Linear MCP.** The
+> introspected surface is a single `mcp__linear__save_issue` tool for
+> creates + updates; `mcp__linear__get_issue` is the sole read. Earlier
+> `create_issue` / `update_issue` references in this adapter were incorrect
+> and have been removed (FR-67).
 
-| Operation | MCP tool | Notes |
-|-----------|----------|-------|
-| `pull_acs` | `mcp__linear__get_issue` | Parse description section `## Acceptance Criteria`. |
-| `push_ac_toggle` | `mcp__linear__update_issue` | Rewrite description with toggled box via semantic markdown diff (AC-37.5). |
-| `transition_status` | `mcp__linear__update_issue` | Pass `stateId` resolved via `status_mapping`. |
-| `upsert_ticket_metadata` | `mcp__linear__create_issue` (new) / `mcp__linear__update_issue` (existing) | Body MUST include the back-link (AC-37.6). |
+| Operation | MCP tool | Canonical parameters | Notes |
+|-----------|----------|----------------------|-------|
+| `pull_acs` | `mcp__linear__get_issue` | `id` | Parse description section `## Acceptance Criteria`. |
+| `push_ac_toggle` | `mcp__linear__save_issue` | `id`, `description` | Rewrite description with toggled box via semantic markdown diff (AC-37.5). |
+| `transition_status` | `mcp__linear__save_issue` | `id`, **`state`** (accepts state type, name, or ID — no team.states lookup needed) | Pass the canonical status name resolved via `status_mapping` (e.g., `"In Progress"`). **Never** pass `stateId`, `status`, or any other variant — Linear silently ignores unknown keys. |
+| `upsert_ticket_metadata` | `mcp__linear__save_issue` (omit `id` to create, pass `id` to update) | `id?`, `title`, `description`, **`assignee`** (accepts user ID, name, email, or `"me"`) | Body MUST include the back-link (AC-37.6). **Never** pass `assigneeId` or `assigneeEmail` — Linear silently ignores unknown keys. |
+
+### Silent no-op trap (FR-67 AC-67.2)
+
+`mcp__linear__save_issue` accepts *any* keys in its input and returns a
+successful-looking response even when the keys it received are unknown —
+the server echoes the pre-call state and never mutates the ticket. There
+is no validation error.
+
+Dogfooded 2026-04-22 during `/implement FR-57 FR-58`: `claimLock`'s
+first attempt passed `status: "In Progress"` + `assigneeEmail: "..."`.
+The response echoed the pre-call `updatedAt` and `status: "Backlog"`;
+the session falsely believed the transition landed.
+
+**Rule for every `save_issue` caller:** after the call, re-fetch the
+ticket via `mcp__linear__get_issue` (or the returned payload) and assert
+that at least one of `updatedAt` / `startedAt` / `completedAt` advanced
+past the pre-call value before treating the call as successful. If none
+advanced, the write was silently no-op'd — treat it as a hard failure
+and surface an NFR-10 canonical-shape error.
+
+`adapters/_shared/src/tracker_provider.ts` encodes this as
+`TrackerWriteNoOpError`; `TrackerProvider.claimLock` and
+`TrackerProvider.releaseLock` perform the post-call `updatedAt` check
+automatically. Adapter driver implementations MUST populate
+`TicketStatusSummary.updatedAt` so the guard can fire — see
+`docs/tracker-adapters.md` § Silent no-op trap for the cross-adapter
+pattern.
 
 ## Endpoint migration (AC-30.9)
 
@@ -86,30 +112,38 @@ compatible.
    bullets byte-identical to the canonical form (semantic markdown diff —
    AC-37.5).
 4. Reassemble the full description: preamble + canonical block + suffix.
-5. `mcp__linear__update_issue(id=ticket_id, description=<new body>)`.
+5. `mcp__linear__save_issue(id=ticket_id, description=<new body>)`.
 6. On Linear's server-side re-normalization round-trip, the canonical form
    is a fixpoint (AC-39.6); `pull_acs` immediately after push returns the
    same list.
 
 ### `transition_status(ticket_id, status) → void`
 
-1. Resolve the target Linear state ID: look up `status_mapping[status]`
-   (e.g., `in_review → "In Review"`), then query the team's states via
-   `mcp__linear__list_teams` / team.states to get the state ID.
-2. `mcp__linear__update_issue(id=ticket_id, stateId=<resolved>)`.
+1. Resolve the target status name: look up `status_mapping[status]` (e.g.,
+   `in_review → "In Review"`). No team.states lookup is needed — Linear's
+   `save_issue` accepts the state name directly via the `state` parameter.
+2. `mcp__linear__save_issue(id=ticket_id, state=<resolved name>)`. **Never
+   pass `stateId` or `status`** — Linear silently ignores unknown keys
+   (§ Silent no-op trap). Callers MUST verify `updatedAt`/`startedAt`
+   advanced before treating the call as successful.
 3. Unknown `status` values fail with NFR-10 canonical shape.
 
 ### `upsert_ticket_metadata(ticket_id_or_null, title, description) → ticket_id`
 
 1. If `ticket_id_or_null === null`:
-   - `mcp__linear__create_issue(teamId=<project team>, title, description=<rendered template>)`.
+   - `mcp__linear__save_issue(team=<project team>, title, description=<rendered template>)` (create: omit `id`).
    - Capture the returned issue ID.
 2. Else:
-   - `mcp__linear__update_issue(id=ticket_id_or_null, title, description=<rendered template>)`.
-3. Render `ticket_description_template` with `{fr_body}` = full FR
+   - `mcp__linear__save_issue(id=ticket_id_or_null, title, description=<rendered template>)` (update: pass `id`).
+3. When setting the assignee, pass `assignee` (accepts ID, name, email, or
+   `"me"`). **Never pass `assigneeId` or `assigneeEmail`** — Linear
+   silently ignores unknown keys (§ Silent no-op trap).
+4. Render `ticket_description_template` with `{fr_body}` = full FR
    description body and `{fr_anchor}` = `FR-{N}`. The back-link line
    `Source: specs/requirements.md#{fr_anchor}` is mandatory (AC-37.6).
-4. Return the issue ID.
+5. Return the issue ID. After the call, the `TrackerProvider` post-write
+   guard verifies `updatedAt` advanced; a silent no-op raises
+   `TrackerWriteNoOpError`.
 
 ## Helper: `normalize.ts`
 
