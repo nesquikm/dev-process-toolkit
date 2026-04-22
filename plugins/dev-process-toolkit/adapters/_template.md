@@ -13,6 +13,11 @@ capabilities:
   - push_ac_toggle
   - transition_status
   - upsert_ticket_metadata
+# Opt-in: set true if your tracker has a native "release milestone" or
+# "project milestone" field that migration should populate from the FR's
+# `milestone: M<N>` frontmatter. See adapters/linear.md for the shipped
+# reference implementation (Linear Project Milestone → save_issue).
+project_milestone: false
 ticket_description_template: |
   {fr_body}
 
@@ -52,6 +57,7 @@ and `/pr`.
 | `ac_storage_convention` | How ACs live in the tracker: `description-section`, `custom-field`, or `subtasks`. |
 | `status_mapping` | Canonical states (`in_progress` / `in_review` / `done`) → tracker-side labels. `/pr` calls `transition_status(in_review)` after a PR is opened. |
 | `capabilities` | Subset of `[pull_acs, push_ac_toggle, transition_status, upsert_ticket_metadata]`. A missing capability triggers FR-38 AC-38.6 graceful degradation (NFR-10 warning + proceed). |
+| `project_milestone` | Boolean. `true` declares that migration should bind each pushed ticket to a tracker-native release/project milestone matching the FR's `milestone: M<N>` frontmatter (FR-59). Linear (`true`) is the reference implementation; Jira and custom default to `false`. |
 | `ticket_description_template` | Body written by `upsert_ticket_metadata`. MUST contain a back-link to `specs/requirements.md#{fr_anchor}` per AC-37.6. |
 | `helpers_dir` | Path to TypeScript helper sources, invoked via `bun run`. No compiled binaries. |
 

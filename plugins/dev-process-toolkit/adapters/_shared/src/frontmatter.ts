@@ -43,7 +43,7 @@ export function parseFrontmatter(
       const v = inner.slice(c + 1).trim();
       const map = out[currentKey] as Record<string, unknown> | undefined;
       if (map && typeof map === "object") {
-        (map as Record<string, unknown>)[k] = v === "null" ? null : stripQuotes(v);
+        (map as Record<string, unknown>)[k] = coerceScalar(v);
       }
       continue;
     }
@@ -57,11 +57,8 @@ export function parseFrontmatter(
     } else if (rest === "{}") {
       out[key] = {};
       currentKey = null;
-    } else if (rest === "null") {
-      out[key] = null;
-      currentKey = null;
     } else {
-      out[key] = stripQuotes(rest);
+      out[key] = coerceScalar(rest);
       currentKey = null;
     }
   }
@@ -92,6 +89,16 @@ function stripQuotes(v: string): string {
     if (v.startsWith("'") && v.endsWith("'")) return v.slice(1, -1);
   }
   return v;
+}
+
+// YAML-literal coercion for scalar values: `null` → null, bare `true`/`false`
+// → booleans, everything else → quote-stripped string. Quoted literals
+// (`"true"`, `'null'`) stay strings — users asked for a string explicitly.
+function coerceScalar(v: string): string | boolean | null {
+  if (v === "null") return null;
+  if (v === "true") return true;
+  if (v === "false") return false;
+  return stripQuotes(v);
 }
 
 /**
