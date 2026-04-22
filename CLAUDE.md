@@ -58,3 +58,4 @@ jira_ac_field:
 - 2026-04-22T13:46:41Z — 1 FR added to M15 (FR-70, archive-path drift); STE-49 created
 - 2026-04-22T17:02:28Z — FR-63 (STE-42) + FR-70 (STE-49) landed in commit 1dd870c; both Done
 - 2026-04-22T17:51:25Z — M15 shipped: v1.18.0 "Migration Hardening" (commit e1dc67e); FR-64 (STE-43) Done; M15 archived (15 FRs → specs/frs/archive/, specs/plan/M15.md → specs/plan/archive/)
+- 2026-04-22T19:53:54Z — M16 shipped: v1.19.0 "FR Identity Stability" (commit b850377); STE-50/STE-51/STE-52 Done; M16 archived (3 FRs + M16.md). Legacy FR-N purged from active non-archive surface (0 ripgrep matches); findFRByFRCode resolver branch deleted.
