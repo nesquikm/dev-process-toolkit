@@ -34,7 +34,7 @@ If a multi-milestone run partially succeeds in a worktree, list completed work (
    - **0.c `Provider.claimLock(id, currentBranch)`** — Entry gate in v2 mode. `claimed` → proceed; `already-ours` → resume; `taken-elsewhere` → STOP with the message naming the holding branch (AC-46.1/2).
    - **0.d Tracker-mode probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and tracker hooks below skip. If a tracker mode is active:
      - **Ticket-binding pre-flight** — 3-tier resolver + confirmation prompt per `docs/ticket-binding.md` (FR-32). Branch-regex mismatch fails loudly (AC-32.3); decline exits cleanly (AC-32.4).
-     - **Record `updatedAt`** — Call the adapter's `pull_acs(ticket_id)` and store the ticket's `updatedAt` in-session for `/gate-check` to compare later (AC-33.2).
+     - **Record `updatedAt` (post-claimLock)** — After step 0.c `claimLock` has succeeded, call the adapter's `pull_acs(ticket_id)` and store the ticket's `updatedAt` in-session for `/gate-check` to compare later (AC-33.2, FR-66 AC-66.1). Recording **after** claimLock is load-bearing: `claimLock` itself mutates the ticket (sets status + assignee), so recording before would cause `/gate-check` to flag the skill's own write as drift. Same rule applies to any other tracker-writing pre-flight step — record `updatedAt` after all pre-flight side effects settle (AC-66.5).
      - **FR-39 diff/resolve** — Run the bidirectional AC sync loop before proceeding past Phase 1 (AC-39.1, AC-39.3, AC-39.4).
      See `docs/implement-tracker-mode.md` for the full tracker-mode flow.
 

@@ -14,14 +14,31 @@ Run the 3-tier resolver and mandatory confirmation prompt per
 (AC-32.4). Branch-regex ↔ CLAUDE.md `active_ticket:` conflict fails loudly
 (AC-32.3).
 
-### 0.2 `pull_acs` + `updatedAt` recording (FR-33)
+### 0.2 `pull_acs` + `updatedAt` recording (FR-33, FR-66)
 
-Call the active adapter's `pull_acs(ticket_id)` exactly once at skill entry.
+> **Record `updatedAt` AFTER `claimLock` — the claim itself mutates the ticket** (FR-66 AC-66.7). Recording before `claimLock` causes `/gate-check` to fire a false-positive drift warning on the skill's own write (AC-66.1).
+
+Call the active adapter's `pull_acs(ticket_id)` exactly once at skill entry
+— **after** step 0.c `claimLock` has returned `claimed` or `already-ours`.
 Capture the returned ticket's `updatedAt` (Schema O) into session memory —
 not disk. `/gate-check` re-fetches later and compares against this value
 (AC-33.3). If the adapter's parser returns an empty AC list, fail the skill
 with NFR-10 canonical shape `"No acceptance criteria found in ticket <ID>"`
 (AC-35.4). Never silently proceed.
+
+**General rule (AC-66.5).** Record `updatedAt` after all pre-flight side
+effects settle — not just `claimLock`. Any pre-flight step that mutates
+the tracker (including branch-name interop warning writes, if any future
+adapter adds them) bumps `updatedAt`; the session snapshot must reflect
+the post-mutation state so `/gate-check`'s drift detection is comparing
+against a stable baseline.
+
+**`already-ours` edge case (AC-66.6).** When `claimLock` returns
+`already-ours` (a resume on an existing claim) and `pull_acs` returns an
+`updatedAt` older than one already recorded for this ticket in the current
+session, prefer the newer value. This guards against tracker-API quirks
+where a stale read could cause apparent backslide; the session should only
+ever advance its recorded `updatedAt` forward in time.
 
 Only feed the parser-returned AC list to the rest of the skill — never the
 raw ticket description blob (FR-35 AC-35.2, AC-35.3). Comments, history,
