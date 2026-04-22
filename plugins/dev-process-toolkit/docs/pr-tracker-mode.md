@@ -8,7 +8,7 @@ In `mode: none`, this document is unused — the pre-M12 body runs unchanged.
 ## Pre-flight (before PR creation)
 
 1. Schema L probe → if `mode: none`, exit to `none` path.
-2. Ticket-binding pre-flight per `docs/ticket-binding.md` (FR-32). Decline
+2. Ticket-binding pre-flight per `docs/ticket-binding.md` (STE-27). Decline
    exits cleanly with zero side effects.
 
 ## Post-create (after `gh pr create` returns)
@@ -27,7 +27,7 @@ Both calls are best-effort: if either fails, surface a canonical-shape
 warning and continue. PR creation is the primary side effect; tracker
 updates are supplementary.
 
-## Capability degradation (FR-38 AC-38.6)
+## Capability degradation (STE-16 AC-STE-16.6)
 
 - **Adapter missing `transition_status`** → skip the status call; print:
 

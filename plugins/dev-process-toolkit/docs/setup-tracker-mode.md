@@ -15,32 +15,32 @@ default) never reads this document — the pre-M12 path runs unchanged.
   `none`; skipping or pressing Enter keeps `mode: none`.
 - **Recording.** A recorded mode adds a `## Task Tracking` section to
   `CLAUDE.md` per Schema L (technical-spec §7.3). Absence ≡ `none`
-  (AC-29.5) — `/setup` never writes a `mode: none` line.
+  (AC-STE-8.5) — `/setup` never writes a `mode: none` line.
 - **Never silent writes.** Every `settings.json` and `CLAUDE.md` edit is
-  preview + explicit confirm (AC-30.3, DD-12.9).
+  preview + explicit confirm (AC-STE-9.3, DD-12.9).
 - **Bun prerequisite.** `bun --version` runs before any tracker recording
-  (AC-30.8); absence is an NFR-10 canonical-shape error.
+  (AC-STE-9.8); absence is an NFR-10 canonical-shape error.
 - **Linear V1 SSE migration.** If Linear MCP is configured at
   `https://mcp.linear.app/sse`, `/setup` offers a dry-run migration to
-  `https://mcp.linear.app/mcp` (AC-30.9).
+  `https://mcp.linear.app/mcp` (AC-STE-9.9).
 - **Test call on completion.** After MCP detection / install /
   confirmation, `/setup` runs a harmless live call (Linear
   `list_teams`, Jira `search` no-criteria). On failure, surface NFR-10
-  canonical shape and refuse to record mode (AC-30.4, AC-30.5).
-- **Per-tenant discovery.** Jira AC custom-field (AC-30.6). Records
+  canonical shape and refuse to record mode (AC-STE-9.4, AC-STE-9.5).
+- **Per-tenant discovery.** Jira AC custom-field (AC-STE-9.6). Records
   `jira_ac_field` in `## Task Tracking`.
 
 ## Task map (Phase C traceability)
 
 | Task | Section in this doc | AC refs |
 |------|---------------------|---------|
-| C.1 — Mode question (default `none`, skippable) | The tracker-mode question | AC-29.1, AC-29.2, AC-29.5 |
-| C.2 — Bun install check, hard-stop | Bun prerequisite check | AC-30.8, NFR-10 |
-| C.3 — Linear V1 SSE → V2 migration dry-run | Linear V1 SSE migration | AC-30.9 |
-| C.4 — MCP detection via `claude mcp list` + dry-run settings.json diff | MCP detection | AC-30.1, AC-30.2 |
-| C.5 — settings.json confirm + write on approval | MCP detection | AC-30.3, DD-12.9 |
-| C.6 — Test-call verification, hard-stop on fail | Test-call verification | AC-30.4, AC-30.5, NFR-10 |
-| C.7 — Jira custom-field discovery (one-time) | Per-tenant discovery / Jira | AC-30.6 |
+| C.1 — Mode question (default `none`, skippable) | The tracker-mode question | AC-STE-8.1, AC-STE-8.2, AC-STE-8.5 |
+| C.2 — Bun install check, hard-stop | Bun prerequisite check | AC-STE-9.8, NFR-10 |
+| C.3 — Linear V1 SSE → V2 migration dry-run | Linear V1 SSE migration | AC-STE-9.9 |
+| C.4 — MCP detection via `claude mcp list` + dry-run settings.json diff | MCP detection | AC-STE-9.1, AC-STE-9.2 |
+| C.5 — settings.json confirm + write on approval | MCP detection | AC-STE-9.3, DD-12.9 |
+| C.6 — Test-call verification, hard-stop on fail | Test-call verification | AC-STE-9.4, AC-STE-9.5, NFR-10 |
+| C.7 — Jira custom-field discovery (one-time) | Per-tenant discovery / Jira | AC-STE-9.6 |
 
 ## The tracker-mode question
 
@@ -58,10 +58,10 @@ before it's written):
 > ```
 
 If the user picks `1` or skips, do NOT add `## Task Tracking` to CLAUDE.md
-(AC-29.5). Continue the existing fresh-setup flow. If the user picks 2–4,
+(AC-STE-8.5). Continue the existing fresh-setup flow. If the user picks 2–4,
 proceed through the remaining tracker-mode steps in order.
 
-## Bun prerequisite check (AC-30.8)
+## Bun prerequisite check (AC-STE-9.8)
 
 Before any MCP work, verify:
 
@@ -78,7 +78,7 @@ Remedy: install Bun ≥ 1.2 (macOS: brew install bun; Linux: curl -fsSL https://
 Context: mode=<picked>, ticket=unbound, skill=setup
 ```
 
-## Linear V1 SSE migration (AC-30.9)
+## Linear V1 SSE migration (AC-STE-9.9)
 
 If the user picks `linear`, inspect `claude mcp list` output before doing
 anything else. If it contains the exact substring `https://mcp.linear.app/sse`,
@@ -92,9 +92,9 @@ without confirmation. [y/N]:
 
 On `y`, render the exact JSON diff: delete the `sse` URL, add the V2
 `https://mcp.linear.app/mcp` entry with Streamable-HTTP transport. Do not
-write until the user confirms the rendered diff (AC-30.3).
+write until the user confirms the rendered diff (AC-STE-9.3).
 
-## MCP detection (AC-30.1, AC-30.2)
+## MCP detection (AC-STE-9.1, AC-STE-9.2)
 
 Shell out to `claude mcp list` to enumerate currently configured MCP servers
 across enterprise / user / project / local scopes (DD-12.8). If the adapter
@@ -118,9 +118,9 @@ Apply? [y/N]:
 ```
 
 On `n`, abort the tracker-mode portion cleanly; leave all files untouched.
-`mode: none` remains in effect (AC-30.3).
+`mode: none` remains in effect (AC-STE-9.3).
 
-## Test-call verification (AC-30.4, AC-30.5)
+## Test-call verification (AC-STE-9.4, AC-STE-9.5)
 
 After detection / install / confirmation, run exactly one harmless call:
 
@@ -143,7 +143,7 @@ section to CLAUDE.md.
 
 ## Per-tenant discovery
 
-### Jira (AC-30.6)
+### Jira (AC-STE-9.6)
 
 After test-call success, run one-time AC custom-field discovery:
 
@@ -175,10 +175,10 @@ jira_ac_field: <customfield_XXXXX or blank>
 
 Blank values for keys that don't apply to the picked mode are legal (Schema L).
 The `### Sync log` subsection is created empty; `/implement`, `/spec-write`,
-and `/gate-check` append audit entries per AC-39.8.
+and `/gate-check` append audit entries per AC-STE-17.8.
 
 ## `/setup --migrate` entry
 
 When invoked as `/setup --migrate`, skip steps 1–7 (project detection,
-scaffolding, template write) and route directly into FR-36 migration
+scaffolding, template write) and route directly into STE-14 migration
 handling — see `docs/setup-migrate.md`.

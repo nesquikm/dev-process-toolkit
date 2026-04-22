@@ -19,6 +19,7 @@
 
 import { unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { acPrefix } from "./ac_prefix";
 import { regenerateIndex } from "./index_gen";
 import type { FRSpec, Provider } from "./provider";
 
@@ -97,9 +98,16 @@ interface RenderParams {
 }
 
 function renderFRFile(p: RenderParams): string {
+  const prefix = acPrefix({
+    frontmatter: {
+      id: p.id,
+      tracker: { [p.trackerKey]: p.trackerId },
+    },
+    body: "",
+  });
   const acsBlock = p.acs.length === 0
     ? "- TODO: AC list from tracker was empty. Add ACs here or in the tracker; FR-39 sync will reconcile.\n"
-    : p.acs.map((ac) => `- ${ac}\n`).join("");
+    : p.acs.map((ac, i) => `- AC-${prefix}.${i + 1}: ${ac}\n`).join("");
   return `---
 id: ${p.id}
 title: ${p.title}

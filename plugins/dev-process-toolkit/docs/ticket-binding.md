@@ -1,9 +1,9 @@
-# Ticket Binding (Pattern 6 + FR-32)
+# Ticket Binding (Pattern 6 + STE-27)
 
 Every skill that mutates the tracker (`/implement`, `/spec-write`, `/gate-check`,
 `/pr`) resolves and **confirms** the active ticket before any side effect.
 Silent mutation on a misidentified ticket is the #1 duck-council trust risk
-(DD-12.10); FR-32 makes confirmation mandatory.
+(DD-12.10); STE-27 makes confirmation mandatory.
 
 In `mode: none`, this entire document is unused — the pre-M12 path runs
 unchanged.
@@ -42,7 +42,7 @@ Custom adapters whose ticket IDs don't fit a branch-name convention can set
 `ticket_id_source: ticket-url-paste` in their Schema M frontmatter to route
 resolution through this Tier 3 prompt directly, bypassing Tier 1.
 
-## Conflict handling (AC-32.3)
+## Conflict handling (AC-STE-27.3)
 
 If Tier 1 captures an ID **and** Tier 2 has a different `active_ticket:`, the
 skill fails loudly rather than silently picking one:
@@ -56,7 +56,7 @@ Context: mode=<mode>, ticket=unbound, skill=<skill>
 
 Equal IDs between tiers is a clean hit; move to confirmation.
 
-## Mandatory confirmation (AC-32.1, AC-32.4)
+## Mandatory confirmation (AC-STE-27.1, AC-STE-27.4)
 
 After resolving the ID, **every** mutating skill prints:
 
@@ -67,7 +67,7 @@ Operating on ticket <ID>: <title> — proceed? [y/N]
 The skill fetches `<title>` via the active adapter's `pull_acs(ticket_id)`
 (which also returns Schema O `TicketMetadata` implicitly — title is bundled).
 `[y/N]` defaults to no; any answer other than `y` / `yes` / `Y` / `Yes`
-exits the skill cleanly with zero side effects (AC-32.4).
+exits the skill cleanly with zero side effects (AC-STE-27.4).
 
 ## Where this applies
 
@@ -83,11 +83,11 @@ exits the skill cleanly with zero side effects (AC-32.4).
 - **Tier 1 matches, Tier 2 blank** → use Tier 1; silent win (Pattern 6).
 - **Tier 1 misses, Tier 2 set** → use Tier 2; silent win.
 - **Tier 1 matches, Tier 2 set, equal IDs** → clean hit; silent win.
-- **Tier 1 matches, Tier 2 set, different IDs** → fail loudly (AC-32.3).
-- **Tier 1 misses, Tier 2 blank** → prompt user (AC-32.2 Tier 3).
+- **Tier 1 matches, Tier 2 set, different IDs** → fail loudly (AC-STE-27.3).
+- **Tier 1 misses, Tier 2 blank** → prompt user (AC-STE-27.2 Tier 3).
 - **Tier 3 prompt declined** → skill exits cleanly; nothing written.
 
-## URL paste fallback (AC-32.5)
+## URL paste fallback (AC-STE-27.5)
 
 When `ticket_id_source: ticket-url-paste` is declared by a custom adapter:
 
@@ -96,4 +96,4 @@ When `ticket_id_source: ticket-url-paste` is declared by a custom adapter:
 3. Tier 3's prompt accepts the tracker's URL form; the adapter owns the
    URL→ID extraction regex (Schema P pure helper).
 4. On successful extraction, treat the resolved ID identically to any other
-   tracker ID — confirmation is still mandatory (AC-32.1).
+   tracker ID — confirmation is still mandatory (AC-STE-27.1).
