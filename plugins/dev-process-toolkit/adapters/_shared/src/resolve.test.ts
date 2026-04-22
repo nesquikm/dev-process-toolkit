@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   AmbiguousArgumentError,
+  findFRByFRCode,
   findFRByTrackerRef,
   resolveFRArgument,
   type ResolverConfig,
@@ -389,6 +390,240 @@ describe("findFRByTrackerRef (AC-51.8)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("resolveFRArgument — FR-N code route (AC-69.1)", () => {
+  test("FR-57 returns {kind: 'fr-code', frNumber: 57}", () => {
+    const r = resolveFRArgument("FR-57", noTrackers);
+    expect(r.kind).toBe("fr-code");
+    expect(r.frNumber).toBe(57);
+  });
+
+  test("FR-1 (single-digit) works", () => {
+    const r = resolveFRArgument("FR-1", noTrackers);
+    expect(r.kind).toBe("fr-code");
+    expect(r.frNumber).toBe(1);
+  });
+
+  test("FR-1234 (wide N) works", () => {
+    const r = resolveFRArgument("FR-1234", noTrackers);
+    expect(r.kind).toBe("fr-code");
+    expect(r.frNumber).toBe(1234);
+  });
+
+  test("FR-N works even with trackers configured (no conflict with tracker-id shapes)", () => {
+    const r = resolveFRArgument("FR-57", fullStack);
+    expect(r.kind).toBe("fr-code");
+    expect(r.frNumber).toBe(57);
+  });
+
+  test("lowercase fr-57 does not match (regex is case-sensitive)", () => {
+    const r = resolveFRArgument("fr-57", noTrackers);
+    expect(r.kind).toBe("fallthrough");
+  });
+
+  test("FR- (no digits) does not match", () => {
+    const r = resolveFRArgument("FR-", noTrackers);
+    expect(r.kind).toBe("fallthrough");
+  });
+
+  test("FR-0 edge case returns frNumber 0", () => {
+    const r = resolveFRArgument("FR-0", noTrackers);
+    expect(r.kind).toBe("fr-code");
+    expect(r.frNumber).toBe(0);
+  });
+
+  test("FR-N takes precedence over fallthrough only (not over ULID)", () => {
+    // ULID prefix is 'fr_' (underscore), FR-N prefix is 'FR-' (uppercase dash).
+    // Constructed check: a ULID should still win its own branch.
+    const r = resolveFRArgument("fr_01KPR3M74XA75GJKT4Z4HG95TC", fullStack);
+    expect(r.kind).toBe("ulid");
+  });
+});
+
+describe("findFRByFRCode (AC-69.2, AC-69.3)", () => {
+  function makeFRSpecs(
+    frs: Array<{ id: string; acPrefixes: string[]; archived?: boolean }>,
+  ): string {
+    const dir = mkdtempSync(join(tmpdir(), "frcode-test-"));
+    mkdirSync(join(dir, "frs"), { recursive: true });
+    mkdirSync(join(dir, "frs", "archive"), { recursive: true });
+    for (const fr of frs) {
+      const acLines = fr.acPrefixes.map((p) => `- ${p}: placeholder`).join("\n");
+      const body = `---\nid: ${fr.id}\ntitle: test\nmilestone: M1\nstatus: ${fr.archived ? "archived" : "active"}\ntracker: {}\n---\n\n## Acceptance Criteria\n\n${acLines}\n`;
+      const target = fr.archived
+        ? join(dir, "frs", "archive", `${fr.id}.md`)
+        : join(dir, "frs", `${fr.id}.md`);
+      writeFileSync(target, body);
+    }
+    return dir;
+  }
+
+  test("single match returns ULID", async () => {
+    const dir = makeFRSpecs([
+      { id: "fr_01A", acPrefixes: ["AC-1.1", "AC-1.2"] },
+      { id: "fr_01B", acPrefixes: ["AC-2.1"] },
+    ]);
+    try {
+      const r = await findFRByFRCode(dir, 1);
+      expect(r).toBe("fr_01A");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("no match returns null", async () => {
+    const dir = makeFRSpecs([
+      { id: "fr_01A", acPrefixes: ["AC-1.1"] },
+    ]);
+    try {
+      const r = await findFRByFRCode(dir, 99);
+      expect(r).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("archived FRs are excluded by default", async () => {
+    const dir = makeFRSpecs([
+      { id: "fr_01A", acPrefixes: ["AC-1.1"] },
+      { id: "fr_01X", acPrefixes: ["AC-7.1"], archived: true },
+    ]);
+    try {
+      const r = await findFRByFRCode(dir, 7);
+      expect(r).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("multiple FRs with same AC-N prefix throws AmbiguousArgumentError", async () => {
+    const dir = makeFRSpecs([
+      { id: "fr_01A", acPrefixes: ["AC-5.1"] },
+      { id: "fr_01B", acPrefixes: ["AC-5.1"] },
+    ]);
+    try {
+      await expect(findFRByFRCode(dir, 5)).rejects.toThrow(AmbiguousArgumentError);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("ambiguity error enumerates all matching ULIDs", async () => {
+    const dir = makeFRSpecs([
+      { id: "fr_01A", acPrefixes: ["AC-5.1"] },
+      { id: "fr_01B", acPrefixes: ["AC-5.2"] },
+      { id: "fr_01C", acPrefixes: ["AC-6.1"] },
+    ]);
+    try {
+      let caught: unknown = null;
+      try {
+        await findFRByFRCode(dir, 5);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(AmbiguousArgumentError);
+      const e = caught as AmbiguousArgumentError;
+      expect(e.candidates).toContain("fr_01A");
+      expect(e.candidates).toContain("fr_01B");
+      expect(e.candidates).not.toContain("fr_01C");
+      expect(e.message).toContain("fr_01A");
+      expect(e.message).toContain("fr_01B");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("AC-N.M only matches line in Acceptance Criteria section (not arbitrary body text)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "frcode-scope-"));
+    mkdirSync(join(dir, "frs"), { recursive: true });
+    // FR file where AC-99.1 appears only in a prose section, not under Acceptance Criteria
+    const body = `---\nid: fr_01Q\ntitle: test\nmilestone: M1\nstatus: active\ntracker: {}\n---\n\n## Requirement\n\nSome reference to AC-99.1 inside prose.\n\n## Acceptance Criteria\n\n- AC-1.1: real AC\n`;
+    writeFileSync(join(dir, "frs", "fr_01Q.md"), body);
+    try {
+      const r = await findFRByFRCode(dir, 99);
+      expect(r).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("tolerates asterisk bullets (- and * both allowed)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "frcode-bullets-"));
+    mkdirSync(join(dir, "frs"), { recursive: true });
+    const body = `---\nid: fr_01R\ntitle: test\nmilestone: M1\nstatus: active\ntracker: {}\n---\n\n## Acceptance Criteria\n\n* AC-42.1: Linear-rendered asterisk bullet\n`;
+    writeFileSync(join(dir, "frs", "fr_01R.md"), body);
+    try {
+      const r = await findFRByFRCode(dir, 42);
+      expect(r).toBe("fr_01R");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("missing specs/frs directory returns null without throwing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "frcode-empty-"));
+    try {
+      const r = await findFRByFRCode(dir, 1);
+      expect(r).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("AC-12.1 does not match query for N=1 (prefix must end in '.', not be a substring)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "frcode-prefix-"));
+    mkdirSync(join(dir, "frs"), { recursive: true });
+    const body = `---\nid: fr_01S\ntitle: test\nmilestone: M1\nstatus: active\ntracker: {}\n---\n\n## Acceptance Criteria\n\n- AC-12.1: two-digit AC\n`;
+    writeFileSync(join(dir, "frs", "fr_01S.md"), body);
+    try {
+      const r = await findFRByFRCode(dir, 1);
+      expect(r).toBeNull();
+      const r12 = await findFRByFRCode(dir, 12);
+      expect(r12).toBe("fr_01S");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Fixture-driven FR-code lookup (tests/fixtures/resolver/fr-code-lookup/)", () => {
+  const FIXTURES_ROOT = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "tests",
+    "fixtures",
+    "resolver",
+    "fr-code-lookup",
+  );
+
+  test("FR-1 resolves unambiguously", async () => {
+    const specsDir = join(FIXTURES_ROOT, "specs");
+    const r = resolveFRArgument("FR-1", noTrackers);
+    expect(r.kind).toBe("fr-code");
+    expect(r.frNumber).toBe(1);
+    const ulid = await findFRByFRCode(specsDir, 1);
+    expect(ulid).toBe("fr_01MFRCODEFIXTUREONE00001");
+  });
+
+  test("FR-2 resolves unambiguously to a different FR", async () => {
+    const specsDir = join(FIXTURES_ROOT, "specs");
+    const ulid = await findFRByFRCode(specsDir, 2);
+    expect(ulid).toBe("fr_01MFRCODEFIXTURETWO00002");
+  });
+
+  test("FR-99 is ambiguous across two FR files in the fixture", async () => {
+    const specsDir = join(FIXTURES_ROOT, "specs");
+    await expect(findFRByFRCode(specsDir, 99)).rejects.toThrow(AmbiguousArgumentError);
+  });
+
+  test("FR-404 misses (no AC-404 anywhere)", async () => {
+    const specsDir = join(FIXTURES_ROOT, "specs");
+    const ulid = await findFRByFRCode(specsDir, 404);
+    expect(ulid).toBeNull();
   });
 });
 

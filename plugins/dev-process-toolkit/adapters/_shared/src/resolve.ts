@@ -19,13 +19,14 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseFrontmatter } from "./frontmatter";
 
-export type ResolveKind = "ulid" | "tracker-id" | "url" | "fallthrough";
+export type ResolveKind = "ulid" | "tracker-id" | "url" | "fr-code" | "fallthrough";
 
 export interface ResolveResult {
   kind: ResolveKind;
   ulid?: string;
   trackerKey?: string;
   trackerId?: string;
+  frNumber?: number;
 }
 
 export interface TrackerConfig {
@@ -45,16 +46,33 @@ export interface ResolverConfig {
  * prefix-based disambiguation can't pick a single winner. Callers catch
  * this and re-render as NFR-10 canonical error.
  */
+export type AmbiguousArgumentKind = "tracker" | "fr-code";
+
 export class AmbiguousArgumentError extends Error {
   readonly argument: string;
   readonly candidates: string[];
-  constructor(argument: string, candidates: string[]) {
+  readonly kind: AmbiguousArgumentKind;
+  constructor(
+    argument: string,
+    candidates: string[],
+    opts: { kind?: AmbiguousArgumentKind } = {},
+  ) {
+    const kind = opts.kind ?? "tracker";
+    const remedy =
+      kind === "tracker"
+        ? `disambiguate using <tracker>:<id> explicit prefix (e.g., ${candidates[0]})`
+        : `pass the ULID directly (e.g., ${candidates[0]}) — multiple FR files declare ACs for this number`;
+    const scope =
+      kind === "tracker"
+        ? "across configured trackers"
+        : "across FR files in specs/frs/";
     super(
-      `Argument "${argument}" is ambiguous across configured trackers. Candidates: ${candidates.join(", ")}. Remedy: disambiguate using <tracker>:<id> explicit prefix (e.g., ${candidates[0]}).`,
+      `Argument "${argument}" is ambiguous ${scope}. Candidates: ${candidates.join(", ")}. Remedy: ${remedy}.`,
     );
     this.name = "AmbiguousArgumentError";
     this.argument = argument;
     this.candidates = candidates;
+    this.kind = kind;
   }
 }
 
@@ -62,6 +80,7 @@ const ULID_RE = /^fr_[0-9A-HJKMNP-TV-Z]{26}$/;
 const EXPLICIT_PREFIX_RE = /^([a-z]+):(.+)$/i;
 const URL_RE = /^https?:\/\//;
 const LEADING_ID_PREFIX_RE = /^([A-Z]+)-/;
+const FR_CODE_RE = /^FR-(\d+)$/;
 
 export function resolveFRArgument(arg: string, config: ResolverConfig): ResolveResult {
   // 1. Explicit prefix form always wins when the key is configured.
@@ -80,6 +99,14 @@ export function resolveFRArgument(arg: string, config: ResolverConfig): ResolveR
   // 2. ULID regex (after explicit to allow "someprefix:fr_..." fallthrough).
   if (ULID_RE.test(arg)) {
     return { kind: "ulid", ulid: arg };
+  }
+
+  // 2.5. FR-code route (FR-69 AC-69.1). DPT-internal codes like FR-57 map to
+  //      a filesystem scan of specs/frs/*.md AC-<N>.M lines. Pure parse here;
+  //      the scan lives in findFRByFRCode.
+  const frCode = FR_CODE_RE.exec(arg);
+  if (frCode) {
+    return { kind: "fr-code", frNumber: Number.parseInt(frCode[1]!, 10) };
   }
 
   // 3. URL detection — allowlist by host (NFR-19). Unknown hosts fallthrough.
@@ -126,6 +153,67 @@ export function resolveFRArgument(arg: string, config: ResolverConfig): ResolveR
 
 export interface FindOptions {
   includeArchive?: boolean;
+}
+
+/**
+ * Scan `specs/frs/*.md` (excluding `archive/`) for an FR whose
+ * `## Acceptance Criteria` section contains any line starting with
+ * `AC-<N>.` (after stripping an optional `- ` or `* ` bullet prefix).
+ *
+ * Returns the matching FR ULID or `null`. Multiple matches throw
+ * `AmbiguousArgumentError` (kind: "fr-code") per NFR-20 — callers re-render
+ * in NFR-10 canonical shape. Miss is `null` (never a throw); callers pick
+ * the miss remedy. Archive is never scanned (AC-69.2).
+ */
+export async function findFRByFRCode(
+  specsDir: string,
+  frNumber: number,
+): Promise<string | null> {
+  const dir = join(specsDir, "frs");
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return null;
+  }
+  entries.sort();
+  const matches: string[] = [];
+  for (const name of entries) {
+    if (!name.endsWith(".md")) continue;
+    const path = join(dir, name);
+    let text: string;
+    try {
+      text = await readFile(path, "utf-8");
+    } catch {
+      continue;
+    }
+    if (!hasACInAcceptanceCriteria(text, frNumber)) continue;
+    const fm = parseFrontmatter(text, { lenient: true });
+    const id = fm["id"];
+    if (typeof id === "string" && id.length > 0) matches.push(id);
+  }
+  if (matches.length === 0) return null;
+  if (matches.length === 1) return matches[0]!;
+  throw new AmbiguousArgumentError(`FR-${frNumber}`, matches, { kind: "fr-code" });
+}
+
+const BULLET_PREFIX_RE = /^\s*[-*]\s+/;
+
+function hasACInAcceptanceCriteria(text: string, frNumber: number): boolean {
+  const lines = text.split("\n");
+  const needle = `AC-${frNumber}.`;
+  let inSection = false;
+  for (const raw of lines) {
+    const line = raw.replace(/\r$/, "");
+    if (/^## /.test(line)) {
+      inSection = /^##\s+Acceptance Criteria\b/i.test(line);
+      continue;
+    }
+    if (!inSection) continue;
+    const stripped = line.replace(BULLET_PREFIX_RE, "");
+    if (stripped.startsWith(needle)) return true;
+  }
+  return false;
 }
 
 /**
