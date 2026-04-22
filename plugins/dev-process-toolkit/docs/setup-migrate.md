@@ -101,10 +101,45 @@ Rules:
 
 1. Verify Bun (AC-30.8), MCP configured, test call passes. Fail fast.
 2. Run any tenant-specific discovery (Jira `jira_ac_field`).
-3. Iterate over each live FR in `specs/requirements.md`:
+3. **Discover the FR list — layout-aware.** Read `specs/.dpt-layout`
+   version and branch (AC-57.1):
+
+   - **v2 layout** — iterate `readdirSync(specsDir + '/frs')` (same
+     parser used by `regenerateIndex`), parse each file's YAML
+     frontmatter via `parseFrontmatter`, and skip anything under
+     `specs/frs/archive/` (AC-57.2). Archived FRs (`status: archived`
+     / files under the `archive/` subdir) are excluded because they
+     shipped in a prior release and have no active tracker target.
+   - **v1 layout** — iterate `### FR-{N}:` blocks in
+     `specs/requirements.md` as today.
+
+   **Refuse an empty tree (AC-57.5).** If `specs/.dpt-layout` is absent
+   AND `specs/requirements.md` is absent AND `specs/frs/` is absent,
+   stop migration with the NFR-10 canonical shape:
+
+   ```
+   No specs/ content found; nothing to migrate.
+   Remedy: run `/setup` to scaffold specs first, then retry `/setup --migrate`.
+   Context: mode=none, ticket=none, skill=setup --migrate
+   ```
+
+   **Emit a structured summary + confirm (AC-57.4).** Before any
+   `upsert_ticket_metadata` call, print exactly:
+
+   ```
+   Found N FRs in <layout> layout; will create N tracker tickets.
+   ```
+
+   where `<layout>` is `v1` or `v2` and `N` is the discovered count.
+   Require explicit user confirmation before proceeding — declining
+   exits cleanly per AC-36.7 atomicity (nothing written, no tickets
+   created).
+
+   For each discovered FR:
    1. Call `upsert_ticket_metadata(null, FR title, rendered description)`.
    2. Capture returned ticket id.
-   3. Append to a pending `traceability-updates` buffer (in memory).
+   3. Append to a pending `bindings` buffer (in memory) as
+      `{ frPath, trackerKey, ticketId }`.
 4. **Only after all FRs pushed successfully:** write the `## Task Tracking`
    section with `mode: <tracker>` + discovered keys to CLAUDE.md, and
    update the traceability matrix's Implementation column with

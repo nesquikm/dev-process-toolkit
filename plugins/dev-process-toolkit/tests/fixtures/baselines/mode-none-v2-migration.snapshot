@@ -1,6 +1,8 @@
 === file tree ===
 CLAUDE.md
 specs/frs/fr_01HZ7XJFKP0000000000000M01.md
+specs/frs/fr_01HZ7XJFKP0000000000000M02.md
+specs/frs/fr_01HZ7XJFKP0000000000000M03.md
 specs/INDEX.md
 specs/plan/M1.md
 specs/requirements.md
@@ -83,12 +85,83 @@ A single sample FR proving v2 + mode: none is a valid shape.
 
 Fixture data for FR-56 Pattern 9 coverage.
 
---- specs/INDEX.md (sha256=110145da6ec799e33098edcdb4cd5f392c553956984a199950c462876e70954c size=273) ---
+--- specs/frs/fr_01HZ7XJFKP0000000000000M02.md (sha256=a521b3f349215127cd5d56f2eead36fb6ecc8b8874701f25398caccaa4a192f4 size=604) ---
+---
+id: fr_01HZ7XJFKP0000000000000M02
+title: Second sample FR for migration iteration coverage
+milestone: M1
+status: active
+archived_at: null
+tracker: {}
+created_at: 2026-04-22T00:00:00.000Z
+---
+
+## Requirement
+
+A second active FR so the v2 iteration proves it enumerates more than one
+file (AC-57.3 requires ≥3 FRs in the regression fixture).
+
+## Acceptance Criteria
+
+- AC-2.1: `src/util.ts` exports `shout(name: string): string`
+- AC-2.2: `shout("world")` returns `"HELLO, WORLD"`
+
+## Technical Design
+
+*(not filled)*
+
+## Testing
+
+*(not filled)*
+
+## Notes
+
+Fixture data for FR-57 iteration coverage.
+
+--- specs/frs/fr_01HZ7XJFKP0000000000000M03.md (sha256=dac3d9e20e04d480881d3cbdd0d92c79da0586c3ba73c9d80a330afaf920c737 size=770) ---
+---
+id: fr_01HZ7XJFKP0000000000000M03
+title: Third sample FR with existing tracker binding for alphabetical preservation
+milestone: M1
+status: active
+archived_at: null
+tracker:
+  jira: PROJ-1
+created_at: 2026-04-22T00:00:00.000Z
+---
+
+## Requirement
+
+A third active FR with a pre-existing tracker binding so a downstream
+`<tracker> → <other>` regression proves the alphabetical-merge rule
+(AC-58.2) on real fixture shape, not just unit-test shape.
+
+## Acceptance Criteria
+
+- AC-3.1: `src/util.ts` exports `whisper(name: string): string`
+- AC-3.2: `whisper("world")` returns `"hello, world"` in lowercase
+
+## Technical Design
+
+*(not filled)*
+
+## Testing
+
+*(not filled)*
+
+## Notes
+
+Fixture data for FR-57 iteration coverage + FR-58 alphabetical-merge
+regression surface.
+
+--- specs/INDEX.md (sha256=d4af72e5a572c20db1303d772ba75eb83587721400a1b9bda27d61ef667100cd size=599) ---
 # Active FRs
 
 | ULID | Title | Milestone | Status | Tracker |
 |------|-------|-----------|--------|---------|
 | [fr_01HZ7XJFKP0000000000000M01](frs/fr_01HZ7XJFKP0000000000000M01.md) | Sample tracker-less FR for M1 | M1 | active | — |
+| [fr_01HZ7XJFKP0000000000000M02](frs/fr_01HZ7XJFKP0000000000000M02.md) | Second sample FR for migration iteration coverage | M1 | active | — |
+| [fr_01HZ7XJFKP0000000000000M03](frs/fr_01HZ7XJFKP0000000000000M03.md) | Third sample FR with existing tracker binding for alphabetical preservation | M1 | active | jira:PROJ-1 |
 
 Generated: 2026-04-22T00:00:00.000Z
 
