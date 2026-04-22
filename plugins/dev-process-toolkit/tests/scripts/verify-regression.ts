@@ -40,13 +40,16 @@ const FIXTURES = [
   { name: "mode-none-baseline", snapshot: "m1-m11-regression.snapshot" },
   { name: "mode-none-flutter", snapshot: "mode-none-flutter.snapshot" },
   { name: "mode-none-archived", snapshot: "mode-none-archived.snapshot" },
+  { name: "mode-none-v2-migration", snapshot: "mode-none-v2-migration.snapshot" },
 ];
 
 // Fixtures that MUST probe to mode=none (AC-34.8). Includes mode-none-baseline
-// (the canonical fixture used across M12) and mode-none-fresh-setup (the
-// template-derived fixture proving AC-29.7 end-to-end). Any fixture listed
-// here must have a CLAUDE.md at its root.
-const PROBE_FIXTURES = ["mode-none-baseline", "mode-none-fresh-setup"];
+// (the canonical fixture used across M12), mode-none-fresh-setup (the
+// template-derived fixture proving AC-29.7 end-to-end), and mode-none-v2-migration
+// (FR-56 AC-56.3 — v2-layout mode: none shape that `/setup --migrate` must route
+// into tracker-mode migration, not fresh-setup). Any fixture listed here must
+// have a CLAUDE.md at its root.
+const PROBE_FIXTURES = ["mode-none-baseline", "mode-none-fresh-setup", "mode-none-v2-migration"];
 
 // Layer 3 — Schema M probe (M13, AC-49.8). Validates v2 layout invariants
 // on the golden v2 fixture. Checks:
