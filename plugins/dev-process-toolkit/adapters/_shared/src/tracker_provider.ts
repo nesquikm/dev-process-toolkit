@@ -26,6 +26,14 @@ export type TicketStatus = "unstarted" | "backlog" | "in_progress" | "done" | "c
 export interface TicketStatusSummary {
   status: TicketStatus;
   assignee: string | null;
+  /**
+   * ISO-8601 timestamp of the ticket's last mutation. Drivers SHOULD return
+   * this so `TrackerProvider` can verify writes actually landed (FR-67
+   * AC-67.5 silent-no-op guard). A driver that omits `updatedAt` disables
+   * the guard for its tickets — see adapters/<tracker>.md § Silent no-op
+   * trap.
+   */
+  updatedAt?: string;
 }
 
 export interface UpsertMetadataInput {
@@ -58,8 +66,54 @@ export interface TrackerProviderOptions {
   resolveTrackerRef?: (idOrRef: string) => Promise<string | null>;
 }
 
+export type TrackerWriteOperation = "claimLock" | "releaseLock";
+
+/**
+ * Thrown when a tracker write (`claimLock`, `releaseLock`) reported success
+ * but the ticket's `updatedAt` did not advance past the pre-call value —
+ * signaling that the adapter's MCP call silently no-op'd (often because the
+ * caller used unknown parameter names, e.g., `status` instead of `state` on
+ * Linear `save_issue`). NFR-10 canonical shape: the message fuses verdict,
+ * remedy, and context so callers can print it directly.
+ */
+export class TrackerWriteNoOpError extends Error {
+  readonly ticketRef: string;
+  readonly trackerKey: string;
+  readonly operation: TrackerWriteOperation;
+  readonly preUpdatedAt: string;
+  readonly postUpdatedAt: string;
+  constructor(args: {
+    ticketRef: string;
+    trackerKey: string;
+    operation: TrackerWriteOperation;
+    preUpdatedAt: string;
+    postUpdatedAt: string;
+  }) {
+    super(
+      `TrackerProvider.${args.operation}: post-call updatedAt did not advance for ticket ${args.ticketRef} (pre=${args.preUpdatedAt}, post=${args.postUpdatedAt}) — the tracker MCP call silently no-op'd.\n` +
+        `Remedy: verify the driver's transitionStatus/upsertTicketMetadata is using adapter-canonical parameter names (see adapters/${args.trackerKey}.md § Silent no-op trap).\n` +
+        `Context: trackerKey=${args.trackerKey}, ticket=${args.ticketRef}, operation=${args.operation}`,
+    );
+    this.name = "TrackerWriteNoOpError";
+    this.ticketRef = args.ticketRef;
+    this.trackerKey = args.trackerKey;
+    this.operation = args.operation;
+    this.preUpdatedAt = args.preUpdatedAt;
+    this.postUpdatedAt = args.postUpdatedAt;
+  }
+}
+
 function isInProgress(s: TicketStatus): boolean {
   return s === "in_progress";
+}
+
+function isStrictlyAfter(post: string, pre: string): boolean {
+  const preNum = Date.parse(pre);
+  const postNum = Date.parse(post);
+  if (Number.isFinite(preNum) && Number.isFinite(postNum)) {
+    return postNum > preNum;
+  }
+  return post > pre;
 }
 
 function isClaimable(s: TicketStatus): boolean {
@@ -169,14 +223,51 @@ export class TrackerProvider implements Provider {
       };
     }
     await this.driver.transitionStatus(trackerRef, "in_progress");
+    // Guard transitionStatus independently — if it no-op'd, the assignee
+    // write would otherwise paper over it on a single combined re-fetch.
+    const afterTransition = await this.verifyWriteLanded(trackerRef, summary.updatedAt, "claimLock");
     await this.driver.upsertTicketMetadata(trackerRef, { assignee: this.currentUser });
+    await this.verifyWriteLanded(trackerRef, afterTransition, "claimLock");
     return { kind: "claimed", branch, message: `Lock claimed on ${branch} via ${this.driver.trackerKey}:${trackerRef}` };
   }
 
   async releaseLock(id: string): Promise<void> {
     const trackerRef = await this.resolveTrackerRef(id);
     if (!trackerRef) return;
+    const pre = await this.driver.getTicketStatus(trackerRef);
     await this.driver.transitionStatus(trackerRef, "done");
+    await this.verifyWriteLanded(trackerRef, pre.updatedAt, "releaseLock");
+  }
+
+  /**
+   * Guard is opt-in: drivers that don't surface `updatedAt` disable the
+   * silent-no-op check (FR-67 AC-67.5). Real adapters MUST return it.
+   * Returns the post-write `updatedAt` so chained writes can use it as the
+   * next baseline without double-fetching.
+   *
+   * Comparison strategy: Schema O canonical form is ISO-8601 UTC
+   * (`YYYY-MM-DDTHH:MM:SS.sssZ`), which lexicographically sorts correctly.
+   * We primarily rely on `Date.parse` so non-UTC offsets from driver quirks
+   * (e.g., `+00:00` vs `Z`) still compare by absolute instant; if either
+   * timestamp fails to parse we fall back to string compare rather than
+   * disabling the guard silently.
+   */
+  private async verifyWriteLanded(
+    trackerRef: string,
+    preUpdatedAt: string | undefined,
+    operation: TrackerWriteOperation,
+  ): Promise<string | undefined> {
+    if (!preUpdatedAt) return undefined;
+    const post = await this.driver.getTicketStatus(trackerRef);
+    if (!post.updatedAt) return undefined;
+    if (isStrictlyAfter(post.updatedAt, preUpdatedAt)) return post.updatedAt;
+    throw new TrackerWriteNoOpError({
+      ticketRef: trackerRef,
+      trackerKey: this.driver.trackerKey,
+      operation,
+      preUpdatedAt,
+      postUpdatedAt: post.updatedAt,
+    });
   }
 
   private async resolveTrackerRef(id: string): Promise<string | null> {

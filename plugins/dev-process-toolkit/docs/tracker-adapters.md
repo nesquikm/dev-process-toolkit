@@ -234,6 +234,32 @@ Skills show a `"waiting on tracker..."` indicator if any single call exceeds
 2s. Latency is not a runtime gate, but adapters that consistently exceed
 these bounds should document the slow path here so users aren't surprised.
 
+## Silent no-op trap (cross-adapter)
+
+Some tracker MCP tools — notably Linear's `mcp__linear__save_issue` —
+accept unknown parameter names without raising a validation error and
+return a successful-looking payload even when nothing mutated. If an
+adapter driver passes the wrong key (`status` instead of `state`,
+`assigneeEmail` instead of `assignee`, etc.), the write silently
+no-ops and the skill thinks the transition landed. Observed
+2026-04-22 during `/implement FR-57 FR-58` (FR-67).
+
+**Rule for every adapter driver:** after any write (`transition_status`,
+`upsert_ticket_metadata`, `push_ac_toggle`), re-fetch the ticket and
+assert the ticket's `updatedAt` (or `startedAt` / `completedAt`) advanced
+past the pre-call value before reporting success.
+
+`adapters/_shared/src/tracker_provider.ts` encodes this uniformly:
+`TrackerProvider.claimLock` and `TrackerProvider.releaseLock` perform a
+post-call `getTicketStatus` and throw `TrackerWriteNoOpError` (NFR-10
+canonical shape) if `updatedAt` did not advance. Drivers MUST populate
+`TicketStatusSummary.updatedAt` for the guard to fire; a driver that
+omits the field silently disables the guard.
+
+See `adapters/linear.md` § Silent no-op trap for the Linear-specific
+parameter name table. New adapters SHOULD mirror that pattern in their
+own adapter markdown.
+
 ## Known adapter quirks
 
 ### Linear
