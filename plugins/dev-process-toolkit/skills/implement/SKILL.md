@@ -24,7 +24,7 @@ If a multi-milestone run partially succeeds in a worktree, list completed work (
 
 ## Phase 1: Understand
 
-> Do not read specs/archive/ during implementation — archived milestones are historical context only.
+> Do not read `specs/frs/archive/` or `specs/plan/archive/` during implementation — archived FRs and milestones are historical context only.
 
 0. **Layout + tracker-mode probes** — Before any other action:
 
@@ -228,15 +228,12 @@ Rule: any row with Classification = `ambiguous` must have Needs Confirmation? = 
 
 ### Milestone Archival
 
-After the human approves the Phase 4 report (step 15), and **only then**, archive the completed milestone block out of the live spec files into `specs/archive/`. This keeps `plan.md` and `requirements.md` size bounded regardless of project age.
+After the human approves the Phase 4 report (step 15), and **only then**, archive every FR belonging to the completed milestone plus the milestone's plan file. This keeps `specs/frs/` and `specs/plan/` size bounded regardless of project age.
 
-- **Archival is skipped if specs/archive/ does not exist** — legacy projects (pre-v1.10.0) without the archive directory get no archival, and no error.
-- **technical-spec.md is never auto-archived** — architectural decisions use `Superseded-by:` in place (the ADR convention). `/implement` touches only `plan.md` and `requirements.md`.
+- **technical-spec.md is never auto-archived** — architectural decisions use `Superseded-by:` in place (the ADR convention). `/implement` archival touches only `specs/frs/**` and `specs/plan/<M#>.md`.
 - Run archival **only after explicit human approval in step 15**, never before. If the user asks for changes instead, abort archival entirely.
 
-**v1 procedure (legacy layout).** Write-then-delete ordering so an interrupted run leaves recoverable state: build and write the Schema G archive file first (under `specs/archive/M{N}-{slug}.md`), then excise the plan block and the traceability-matched ACs from the live specs, leaving Schema H pointer lines in place, and append one row to `specs/archive/index.md`. The collapse rule (FRs with all ACs archived collapse to a pointer; FRs with mixed status keep their header) and the incomplete-matrix fallback (move only the plan block, warn the user to archive orphan ACs via `/dev-process-toolkit:spec-archive`) are detailed in `docs/implement-reference.md` § Milestone Archival Procedure along with the exact sub-step ordering.
-
-**v2 procedure (file-per-FR layout, FR-45).** For every FR with `milestone == <current>`: `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md` + flip frontmatter `status: active` → `status: archived` + set `archived_at: <ISO now>`. All N moves and N flips land in one atomic commit (AC-45.2, AC-45.6). Then `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md` (AC-44.5) in the same commit. Call `Provider.releaseLock(id)` for each released FR (AC-46.4). Finally, regenerate `specs/INDEX.md` via `regenerateIndex(specsDir)` — archived FRs drop out of the default listing (AC-45.3). Full details: `docs/v2-layout-reference.md` § `/implement`.
+**Procedure (FR-45).** For every FR with frontmatter `milestone == <current>`: `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md` + flip frontmatter `status: active` → `status: archived` + set `archived_at: <ISO now>`. All N moves and N flips land in one atomic commit (AC-45.2, AC-45.6). Then `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md` (AC-44.5) in the same commit. Call `Provider.releaseLock(id)` for each released FR (AC-46.4). Finally, regenerate `specs/INDEX.md` via `regenerateIndex(specsDir)` — archived FRs drop out of the default listing (AC-45.3). Full details: `docs/v2-layout-reference.md` § `/implement`.
 
 #### Post-Archive Drift Check
 

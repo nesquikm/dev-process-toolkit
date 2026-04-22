@@ -1,12 +1,12 @@
 ---
 name: spec-archive
-description: Manually archive a specific milestone, FR, or AC block from live spec files into specs/archive/. Operates only on user-selected sections identified by stable anchor IDs or explicit heading text — never auto-scans for checked boxes. Use when /implement Phase 4 auto-archival can't reach content (reopened milestones, cross-cutting ACs, aborted work, explicit user-directed compaction).
-argument-hint: '<anchor like {#M3} or {#FR-7}, or explicit heading text>'
+description: Manually archive a specific FR, milestone, or tracker-mapped ticket by moving the FR file(s) into `specs/frs/archive/` (and optionally the plan file into `specs/plan/archive/`) with a diff approval gate. Operates only on user-selected units resolved via ULID, tracker ID/URL, or `M<N>` — never auto-scans. Use when /implement Phase 4 auto-archival can't reach content (reopened milestones, cross-cutting FRs, aborted work, explicit user-directed compaction).
+argument-hint: '<ULID, tracker ID, tracker URL, or M<N>>'
 ---
 
 # Spec Archive
 
-Archive the user-selected section identified by `$ARGUMENTS` into `specs/archive/`. This is the **escape hatch** for situations `/implement` Phase 4 auto-archival can't reach. It never scans the spec files for completed milestones or checked-box ACs — the caller must name what to archive.
+Archive the user-selected FR(s) identified by `$ARGUMENTS`. This is the **escape hatch** for situations `/implement` Phase 4 auto-archival can't reach. It never scans the spec files for completed milestones or checked-box ACs — the caller must name what to archive.
 
 ## Process
 
@@ -14,195 +14,99 @@ Archive the user-selected section identified by `$ARGUMENTS` into `specs/archive
 
 Before any other step:
 
-- **Layout probe** — Read `specs/.dpt-layout` via `bun run adapters/_shared/src/layout.ts`. If `version: v2`, `$ARGUMENTS` is interpreted as either a ULID (`fr_01HZ...`) or a milestone id (`M13`). The archival mechanism switches to `git mv` + frontmatter flip (see § v2 Archival below). If marker absent, use v1 anchor-based archival unchanged. If version > v2, exit with canonical message (AC-47.3).
+- **Layout probe** — Read `specs/.dpt-layout` via `bun run adapters/_shared/src/layout.ts`. `version: v2` is the only supported layout. If marker absent with `specs/requirements.md` present, exit with the canonical pointer to `/setup --migrate` (AC-47.5). If version > v2, exit with the canonical message (AC-47.3).
 - **Tracker-mode probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none`. Tracker-mode `/spec-archive` still operates only on local `specs/` content — archival of completed **tracker tickets** is the tracker's own concern.
 
 ### 0a. Resolver entry (AC-54.1)
 
-In v2 mode, after the layout probe and before the rest of step 0b runs, call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src/resolver_config.ts` once at entry (FR-65 AC-65.5), then pass the result to `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. Malformed adapter metadata surfaces as `MalformedAdapterMetadataError` → NFR-10 canonical refusal (AC-65.6).
+After the layout probe, call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src/resolver_config.ts` once at entry (FR-65 AC-65.5), then pass the result to `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. Malformed adapter metadata surfaces as `MalformedAdapterMetadataError` → NFR-10 canonical refusal (AC-65.6).
 
-- **`ulid`** → feed the ULID into step 0b.1 below (existing single-FR archival).
-- **`tracker-id` / `url`** + `findFRByTrackerRef` hit → resolve to the ULID and feed into 0b.1 (AC-54.3). No import, no tracker network call.
+- **`ulid`** → archive that single FR (step 1).
+- **`tracker-id` / `url`** + `findFRByTrackerRef` hit → resolve to the ULID and archive that single FR (AC-54.3). No import, no tracker network call.
 - **`tracker-id` / `url`** + `findFRByTrackerRef` miss → **refuse** with the NFR-10 canonical error: `"No local FR mapped to <tracker>:<id>. Archival never auto-imports. To dismiss the tracker ticket, close it in the tracker directly."` Exit non-zero. No side effects. `/spec-archive` **never** auto-imports (AC-54.4).
-- **`fallthrough`** → continue to step 0b.1 with `$ARGUMENTS` unchanged. Milestone codes (`M12`), anchors (`{#M3}`, `{#FR-7}`), and heading strings fall through here — pre-M14 behavior is preserved (AC-54.5, AC-54.6, NFR-18).
+- **`fallthrough`** and `$ARGUMENTS` matches `^M\d+$` → batch archival of every FR with `milestone == <M<N>>` plus the plan file (step 1). `/spec-archive M12` is the canonical group form.
+- **`fallthrough`** otherwise → refuse and prompt the user for a valid ULID / tracker ref / `M<N>` (AC-54.5, AC-54.6, NFR-18).
 - `AmbiguousArgumentError` → surface per NFR-10 with the `<tracker>:<id>` disambiguation remedy; exit non-zero.
 
 Full decision table: `docs/resolver-entry.md`.
 
-### 0b. v2 archival procedure (FR-45, AC-49.4)
+### 1. Archival procedure (v2 primitives, FR-45)
 
-When layout=v2, archival uses the same code path as `/implement` Phase 4:
+Archival uses the same code path as `/implement` Phase 4.
 
-1. Resolve `$ARGUMENTS` (after 0a routing above):
-   - ULID (`fr_01HZ...`): archive that single FR.
-   - Milestone id (`M<N>`): archive every FR where frontmatter `milestone == M<N>` (AC-45.6) PLUS the plan file itself.
-2. For each target FR:
-   - `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md` — preserves filename stem (AC-41.4).
-   - Flip frontmatter `status: active` → `status: archived` and set `archived_at: <ISO now>`.
-3. For milestone archival: also `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md`.
-4. All moves + flips land in one atomic commit (AC-45.2).
-5. Regenerate `specs/INDEX.md` via `regenerateIndex(specsDir)` — archived FRs drop out (AC-45.3).
-6. Run the Post-Archive Drift Check (unchanged from v1).
+**Single-FR archival** (argument resolved to one ULID):
 
-After archival, no skill writes to files under `specs/frs/archive/` except frontmatter `status` flip at move time (AC-45.5). Full reference: `docs/v2-layout-reference.md` § `/spec-archive`.
+1. Read `specs/frs/<ulid>.md`; verify frontmatter `status: active` or `status: in_progress`.
+2. Present the Diff Preview (§ Diff Preview below) — the filename move, the frontmatter flip, and any `Provider.releaseLock` call.
+3. On explicit approval:
+   - `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md` — filename stem preserved (AC-41.4).
+   - Flip frontmatter `status: active` → `status: archived`; set `archived_at: <ISO now>`.
+   - `Provider.releaseLock(<ulid>)` (AC-46.4). In tracker mode this transitions the ticket to `done`; in tracker-less mode it removes the in-flight lock file.
+   - All of the above land in a single atomic commit (AC-45.2).
+4. Regenerate `specs/INDEX.md` via `regenerateIndex(specsDir)` — the archived FR drops out of the default index (AC-45.3).
+5. Run the Post-Archive Drift Check (§ Post-Archive Drift Check below).
 
-### 1. Resolve the target
+**Milestone-group archival** (argument is `M<N>`):
 
-Parse `$ARGUMENTS`. The accepted forms are:
+1. Scan `specs/frs/*.md` for every FR with frontmatter `milestone == M<N>`. Refuse cleanly if the match set is empty ("No active FRs found for milestone M<N>"); exit non-zero, no side effects.
+2. Build the batch:
+   - One `git mv` + frontmatter flip + `Provider.releaseLock` per matched FR.
+   - If `specs/plan/M<N>.md` exists, include `git mv specs/plan/M<N>.md specs/plan/archive/M<N>.md` (AC-44.5).
+3. Present the Diff Preview covering every move + flip + release.
+4. On approval, land all N moves + N flips + N `releaseLock` calls + the optional plan-file move in a **single atomic commit** (AC-45.6). Any error aborts the commit entirely — no partial archival.
+5. Regenerate `specs/INDEX.md` (AC-45.3).
+6. Run the Post-Archive Drift Check.
 
-- A stable anchor: `{#M3}`, `{#FR-7}` — match the heading whose line ends with that anchor
-- An explicit heading string: `M3: User authentication` or `FR-7: Audit log export` — match the first live heading equal to this string
+No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` except the frontmatter `status` flip at move time (AC-45.5). Full reference: `docs/v2-layout-reference.md` § `/spec-archive`.
 
-If `$ARGUMENTS` is empty, unrecognised, or does not match any live heading in `specs/plan.md` or `specs/requirements.md`, **refuse and prompt the user** for a specific `{#M{N}}` or `{#FR-{N}}` anchor. Do NOT auto-scan for checked boxes, finished milestones, or other heuristics — this skill operates **only on user-selected sections**.
+### 2. Technical-spec.md — never archive
 
-If `specs/archive/` does not exist, refuse and tell the user to run `/dev-process-toolkit:setup` (or create the directory manually). Archival silently depends on this directory.
+`specs/technical-spec.md` holds ongoing architectural truth, not shippable work. Architectural decisions are marked `Superseded-by: FR-<N>` in place — that matches the ADR convention (adr.github.io, Nygard) and preserves the decision trail where future implementers look for it. `/spec-archive` does not edit `technical-spec.md`. If the user asks to "archive" an ADR, direct them to supersede it in place instead.
 
-### 2. Extract the block
+### Diff Preview
 
-For the resolved target:
-
-- **Milestone (`{#M{N}}`):** collect the entire `## M{N}: {title} {#M{N}}` block from `specs/plan.md` up to (but not including) the next `## ` heading at the same level or the `## Milestone Dependency Graph` / end-of-file, whichever comes first.
-- **FR (`{#FR-{N}}`):** collect the entire `### FR-{N}: {title} {#FR-{N}}` block from `specs/requirements.md` up to (but not including) the next `### FR-` heading or the next `## ` section.
-- **Traceability matrix rows:** for every AC ID appearing in the extracted block, grab the corresponding row from the traceability matrix in `specs/requirements.md` (use literal match on `| AC-X.Y |`).
-- **Related ACs (milestone archival):** also collect every AC whose traceability-matrix row references a file touched during the target milestone — these get bundled into the same archive file if and only if the user confirms in the diff step.
-
-### 3. Compute the archive filename
-
-- `specs/archive/M{N}-{slug}.md` — one file per milestone archival. Archive files are always milestone-scoped so Schema G's `milestone:` frontmatter field always holds an `M{N}` identifier.
-- `{slug}` is the lowercased, hyphen-separated title (`M3: User Auth` → `m3-user-auth`, stored as `M3-user-auth.md`).
-- **FR-only or AC-only archival:** add the FR/AC content to the nearest enclosing milestone's archive file's Requirements block, or — if the content genuinely doesn't belong to any milestone — ask the user to name a synthetic milestone ID (e.g., `M-adhoc-permissions-cleanup`) that serves as the Schema G `milestone:` value. Never create files outside the `M{N}-{slug}.md` pattern.
-- **If the file already exists**, see `### Reopening an Archived Milestone` below — do NOT overwrite, use a `-r2` / `-r3` revision suffix.
-
-### 4. Archiving from `technical-spec.md`
-
-> **Warning:** `technical-spec.md` holds ongoing architectural truth, not shippable work. **Architectural decisions should usually be marked `Superseded-by: ...` in place rather than archived** — that matches the ADR convention (adr.github.io, Nygard) and preserves the decision trail where future implementers look for it.
->
-> Archive from `technical-spec.md` ONLY when the user explicitly asks for it AND the section is dead content (e.g., a deleted subsystem that's been fully removed from the code). Refuse by default when `$ARGUMENTS` targets a technical-spec section, ask the user to confirm with `--force-technical-spec` or equivalent explicit acknowledgement, and record the rationale in the archive file's frontmatter.
-
-### 5. Build the archive file body (Schema G)
-
-Assemble the archive content following Schema G (see `specs/technical-spec.md` §4):
-
-```markdown
----
-milestone: M{N}
-title: {original heading title}
-archived: {YYYY-MM-DD}
-revision: 1
-source_files: [plan.md, requirements.md]
----
-
-# M{N}: {title}
-
-## Plan block (from plan.md)
-
-{verbatim copy of the extracted `## M{N}: ...` block — goal, prerequisites, tasks, acceptance criteria, gate, etc.}
-
-## Requirements block (from requirements.md)
-
-{verbatim copy of every archived FR/AC, grouped under their parent FR. If all of an FR's ACs are archived here, include the full FR block; if only some, include only the FR title line plus the archived ACs.}
-
-## Traceability (from requirements.md matrix)
-
-| AC | Implementation | Tests |
-|----|---------------|-------|
-{one row per archived AC, copied verbatim from the live traceability matrix at archival time.}
-```
-
-**Rules:**
-- YAML frontmatter has exactly 5 fields as shown.
-- `revision` starts at `1` for first-time archival; reopens use `2`, `3`, etc., with a matching filename suffix.
-- Content inside each section is verbatim — no summarization, no paraphrase, no reformatting.
-- Three sections in exact order: Plan block → Requirements block → Traceability.
-
-## Present Diff for Approval
-
-Before touching any file, render a **diff preview** showing exactly what will change:
+Before any filesystem change, render a diff preview the user can confirm or reject. For single-FR archival:
 
 ```
---- specs/plan.md (before)
-+++ specs/plan.md (after)
-@@ ... @@
--## M{N}: {title} {#M{N}}
--... (full block) ...
-+> archived: M{N} — {title} → specs/archive/M{N}-{slug}.md ({YYYY-MM-DD})
+--- specs/frs/<ulid>.md  →  specs/frs/archive/<ulid>.md  (git mv)
+@@ frontmatter @@
+-status: active
+-archived_at: null
++status: archived
++archived_at: 2026-04-22T15:00:00Z
 
---- specs/requirements.md (before)
-+++ specs/requirements.md (after)
-@@ ... @@
--### FR-{N}: {title} {#FR-{N}}
--... (full block if all ACs archived) ...
-+> archived: M{N} — {title} → specs/archive/M{N}-{slug}.md ({YYYY-MM-DD})
+--- Provider.releaseLock(<ulid>)
++++ (tracker mode: transition_status → done)
++++ (tracker-less: rm .dpt-locks/<ulid>)
 
---- specs/archive/M{N}-{slug}.md (new file)
-+++ {full archive body from step 5}
-
---- specs/archive/index.md
-+++ (one new row appended)
+--- specs/INDEX.md  (regenerated — this FR row removed)
 ```
 
-Show the exact lines to be moved — not a summary. The user must be able to read the diff and confirm or reject.
+For milestone-group archival, list each `git mv`, each frontmatter flip, each `releaseLock`, and the optional plan-file move explicitly. Do not summarize — the user must be able to read the full plan and confirm or reject.
 
-**Approval gate:** Do NOT proceed to any file modification until the user **explicitly approves** the diff. If the user rejects, asks for changes, or is ambiguous, stop and restart at step 1 with their feedback. Under no circumstances modify `specs/plan.md`, `specs/requirements.md`, `specs/archive/` files, or `specs/archive/index.md` before explicit approval.
+**Approval gate:** do NOT perform any `git mv`, frontmatter write, or `releaseLock` until the user explicitly approves. If the user rejects, asks for changes, or is ambiguous, stop and restart at step 0a with their feedback.
 
-### 6. Write the archive file
+### Reopening an Archived FR
 
-On approval, write the new file to `specs/archive/M{N}-{slug}.md` (or the revision name from step 7 below). Write the full archive file **first**, before excising anything from the live specs — this way, if the live-spec edit fails, the user still has both the archive and the untouched original.
-
-### 7. Excise live content, insert pointers (Schema H)
-
-Replace the extracted content in `specs/plan.md` (and `specs/requirements.md` for any wholly-archived FRs) with one **blockquote pointer line** each, matching Schema H verbatim:
-
-```
-> archived: M{N} — {title} → specs/archive/M{N}-{slug}.md ({YYYY-MM-DD})
-```
-
-Rules:
-- Blockquote marker `> ` prefix.
-- `—` is an em-dash, not a hyphen.
-- `→` is a right-arrow, not `->` or `=>`.
-- `{YYYY-MM-DD}` is the `archived:` date from the archive file's frontmatter.
-- For FRs with **only some** ACs archived, do NOT remove the FR block — leave the remaining ACs in place and add the pointer as a note under the FR heading.
-- For wholly-archived FRs, collapse the FR block to a single pointer line.
-
-### 8. Append to the archive index
-
-Append exactly one new row to `specs/archive/index.md` per archival operation, using the table's header order:
-
-```
-| M{N} | {title} | {YYYY-MM-DD} | [M{N}-{slug}.md](M{N}-{slug}.md) |
-```
-
-Never rewrite existing rows — append-only.
-
-### Reopening an Archived Milestone
-
-If the user reopens a previously-archived milestone (e.g., they add a new `## M3: {title} {#M3}` block to live `plan.md` after `M3-user-auth.md` already exists):
-
-1. The next `/spec-archive {#M3}` run must produce `specs/archive/M3-r2-{slug}.md` — **never mutate the original `M3-{slug}.md`**. Revisions are named `-r2`, `-r3`, etc.
-2. Bump the frontmatter `revision` field accordingly (`revision: 2` for the second archival).
-3. Update the pointer line in `plan.md` to reference the latest revision file (`specs/archive/M3-r2-{slug}.md`).
-4. Append a new row to `specs/archive/index.md` for the revision — do not edit the original row.
-
-Archive files are **append-only by convention**. History must be auditable (matches ADR immutability principle and AC-19.7).
+If the user reopens an archived FR (e.g., they discover post-ship rework is needed), the canonical path is to `git mv specs/frs/archive/<ulid>.md specs/frs/<ulid>.md` and flip `status: archived` → `status: active` with `archived_at: null`. This is NOT a `/spec-archive` operation — reopens are performed by the user directly or by `/spec-write` on the reopened FR. The ULID is stable across open/archive cycles (NFR-15); no revision-suffix mechanism is required.
 
 ## Post-Archive Drift Check
 
-After file modifications complete (steps 6–8) and before the final report, run a two-pass drift check against the live spec files to surface content that no longer matches the post-archive state. The drift check is **advisory only** — it never auto-rewrites narrative and never blocks the archival operation itself.
+After the archive move(s) and `INDEX.md` regeneration complete, and before the final report, run a two-pass drift check against the live spec files. The drift check is **advisory only** — it never auto-rewrites narrative and never blocks the archival operation itself.
 
 ### Pass A — Token grep (deterministic)
 
-Grep the live spec files — `specs/requirements.md`, `specs/technical-spec.md`, `specs/testing-spec.md`, `specs/plan.md` — for the exact identifiers just archived. Search literally for `M{N}`, `FR-{N}`, and `AC-{N}.` patterns (the trailing dot on the AC token keeps the grep anchored). **Exclude the Schema H pointer lines the archival operation wrote** by filtering out any line matching `^> archived:` — those pointers are expected references, not drift.
+Grep `specs/requirements.md`, `specs/technical-spec.md`, `specs/testing-spec.md`, and every `specs/plan/*.md` (excluding `specs/plan/archive/**`) for the exact identifiers just archived. Search literally for `M{N}`, `FR-{N}` (if still referenced by legacy FR numbers in prose), and `AC-{N}.` patterns (the trailing dot anchors the AC token).
 
-Every remaining hit is an orphan token reference: the live spec names content that no longer lives in the live files. Pass A findings are `high` severity. Pass A runs **before** Pass B and its rows appear first in the unified report so deterministic findings are reviewed before judgment findings.
+Every hit is an orphan token reference: the live spec names content that no longer lives in the active tree. Pass A findings are `high` severity. Pass A runs **before** Pass B and its rows appear first in the unified report so deterministic findings are reviewed before judgment findings.
 
 ### Pass B — Semantic scan (judgment)
 
 Read each live spec file in turn with the following brief:
 
-- **(a) Archived ID list:** the milestone and FR IDs just archived in this operation.
-- **(b) Archive excerpt:** a one-paragraph excerpt of the new archive file's title line and goal statement only — **not** the full body. Keeping the Pass B context bounded to title + goal keeps the prompt size stable regardless of how long the archived milestone was.
-- **(c) Scope-framing instruction:** flag narrative sections whose framing assumes the archived scope is the entire project. Look for wording that labels the project by the just-archived milestones when the remaining live milestones contradict that framing.
+- **(a) Archived ID list:** the ULIDs (and/or milestone ID) just archived in this operation.
+- **(b) Archive excerpt:** a one-paragraph excerpt of the archived FR's title line + requirement statement (and, for milestone archival, the plan file's goal line) — **not** the full body. Keeping the Pass B context bounded to title + goal keeps the prompt size stable regardless of archive size.
+- **(c) Scope-framing instruction:** flag narrative sections whose framing assumes the archived scope is the entire project. Look for wording that labels the project by the just-archived FRs/milestones when the remaining active content contradicts that framing.
 
 **Canary pattern:** narrative that labels the project by the archived scope. The load-bearing example is the Flutter dogfood run — archiving M1–M4 (documentation milestones) left `requirements.md` Overview calling the project a "layered documentation set" and Out-of-Scope saying "Code changes — documentation only", while M5 (a code milestone) was still in flight. Any similar framing — "documentation-only", "docs-only deliverable", "layered X set" where X is the archived scope — is the signal Pass B must catch. Pass B findings are `medium` severity.
 
@@ -212,7 +116,7 @@ Pass B is inherently subjective; the canary example bounds the judgment but edge
 
 ### Unified report (Schema I)
 
-Merge Pass A and Pass B findings into a single table following Schema I (see `specs/technical-spec.md` §4). Pass A rows appear first, then Pass B rows.
+Merge Pass A and Pass B findings into a single table following Schema I (see `specs/technical-spec.md` § 3). Pass A rows appear first, then Pass B rows.
 
 ```markdown
 | File | Section | Severity | Reason | Suggested action |
@@ -229,19 +133,19 @@ Exactly 5 columns in the order `File`, `Section`, `Severity`, `Reason`, `Suggest
 
 If the drift report is non-empty, offer the user exactly three choices:
 
-1. **Address inline now** — walk through each flagged row, propose the edit, and wait for explicit per-edit approval. Pass A findings may be offered as mechanical deletions but still require explicit user approval before any file is modified; the drift check **never auto-edits narrative** based on Pass B findings.
+1. **Address inline now** — walk through each flagged row, propose the edit, and wait for explicit per-edit approval. Pass A findings may be offered as mechanical deletions but still require explicit user approval; the drift check **never auto-edits narrative** based on Pass B findings.
 2. **Save for later** — write the Schema I table to `specs/drift-{YYYY-MM-DD}.md` for later review. Archival completes; no narrative edits are made.
 3. **Acknowledge and continue** — no file is written, no edits are made. Archival is complete.
 
-The drift check **never blocks the archival operation itself**. The archive file, the Schema H pointers, and the index row are already committed to disk by the time this check runs; the user's choice only governs what happens to the drift report.
+The drift check **never blocks the archival operation itself**. The archive moves, frontmatter flips, `releaseLock` calls, and `INDEX.md` regeneration are already committed to disk by the time this check runs; the user's choice only governs what happens to the drift report.
 
 ## Rules
 
-- This skill operates ONLY on user-selected sections. Never auto-scan live specs for "done" milestones, checked boxes, or completion heuristics.
-- Always present the diff and wait for explicit approval before any file modification.
-- Archive file is written **before** the live-spec excision (write-then-delete ordering) so interrupted runs leave recoverable state.
-- Never mutate an existing archive file — reopens create `-r2`, `-r3` revisions.
-- Never auto-archive from `technical-spec.md`. Architectural decisions use `Superseded-by:` in place.
-- Append one and only one new row to `specs/archive/index.md` per archival operation.
-- Schema G (archive body) and Schema H (pointer line) are defined in `specs/technical-spec.md` §4 — follow them verbatim.
-- If `specs/archive/` does not exist, refuse and tell the user to create it (or run `/dev-process-toolkit:setup`).
+- This skill operates ONLY on user-selected units (ULID, tracker ref, or `M<N>`). Never auto-scan live specs for "done" milestones, checked boxes, or completion heuristics.
+- Always present the diff preview and wait for explicit approval before any `git mv`, frontmatter write, or `releaseLock` call.
+- Every archival lands in one atomic commit (single FR or milestone group).
+- Tracker-ref miss → refuse and exit; never auto-import to archive.
+- Never edit `specs/technical-spec.md` — ADRs use `Superseded-by:` in place.
+- Never write under `specs/frs/archive/**` or `specs/plan/archive/**` except the `status` / `archived_at` frontmatter flip at move time (AC-45.5).
+- Call `Provider.releaseLock(id)` for every archived FR (AC-46.4).
+- Regenerate `specs/INDEX.md` after every archival operation (AC-45.3).

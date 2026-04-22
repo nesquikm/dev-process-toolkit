@@ -6,6 +6,14 @@
 // treated as a per-FR section. The block extends to the next `##` or `###`
 // heading. After extraction, parent `##` sections whose only children were
 // per-FR blocks become empty and are dropped from the residual.
+//
+// Per-milestone strip (FR-63 AC-63.1/63.2/63.5): before per-FR extraction,
+// drop any `## <N>. M<N> — ...` H2 block (and its H3 children) and any
+// `# M<N>:` H1 block (and all following content until the next H1). These
+// represent per-milestone narrative that must not survive in cross-cutting
+// files. Cross-cutting subsections previously embedded there (schemas,
+// provider contracts) are expected to have been moved to the appropriate
+// cross-cutting section before this strip runs.
 
 export interface ColocateResult {
   perFrTech: Map<string, string>;
@@ -143,15 +151,55 @@ function render(preamble: string[], sections: Section[]): string {
   return text;
 }
 
+// Matches `## <N>. M<N> — …` H2 headings used as milestone frames.
+const MILESTONE_H2_RE = /^##\s+\d+\.\s+M\d+\s+[—-]/;
+// Matches `# M<N>:` H1 headings used inside archive/legacy files.
+const MILESTONE_H1_RE = /^#\s+M\d+:/;
+
+function stripMilestoneBlocks(markdown: string): string {
+  if (markdown === "") return markdown;
+  const lines = markdown.split("\n");
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i]!;
+    if (MILESTONE_H1_RE.test(line)) {
+      // Drop this H1 and everything until the next H1 (or EOF).
+      i++;
+      while (i < lines.length && !/^#\s/.test(lines[i]!)) i++;
+      continue;
+    }
+    if (MILESTONE_H2_RE.test(line)) {
+      // Drop this H2 and all following H3/H4/… lines until the next H1/H2.
+      i++;
+      while (i < lines.length) {
+        const l = lines[i]!;
+        if (/^#{1,2}\s/.test(l) && !MILESTONE_H2_RE.test(l)) break;
+        if (MILESTONE_H2_RE.test(l)) break;
+        i++;
+      }
+      continue;
+    }
+    out.push(line);
+    i++;
+  }
+  let text = out.join("\n");
+  text = text.replace(/\n{3,}/g, "\n\n");
+  if (markdown.endsWith("\n") && !text.endsWith("\n")) text += "\n";
+  return text;
+}
+
 export function colocate(technicalSpec: string, testingSpec: string): ColocateResult {
-  const tech = parseSections(technicalSpec);
+  const strippedTech = stripMilestoneBlocks(technicalSpec);
+  const strippedTesting = stripMilestoneBlocks(testingSpec);
+  const tech = parseSections(strippedTech);
   const { perFrMap: perFrTech, kept: keptTech } = extractPerFr(tech.sections);
-  const testing = parseSections(testingSpec);
+  const testing = parseSections(strippedTesting);
   const { perFrMap: perFrTesting, kept: keptTesting } = extractPerFr(testing.sections);
   return {
     perFrTech,
     perFrTesting,
-    residualTech: technicalSpec === "" ? "" : render(tech.preamble, keptTech),
-    residualTesting: testingSpec === "" ? "" : render(testing.preamble, keptTesting),
+    residualTech: strippedTech === "" ? "" : render(tech.preamble, keptTech),
+    residualTesting: strippedTesting === "" ? "" : render(testing.preamble, keptTesting),
   };
 }

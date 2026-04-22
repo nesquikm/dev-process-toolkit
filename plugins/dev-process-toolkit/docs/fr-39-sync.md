@@ -114,8 +114,8 @@ After a successful resolution event, append exactly one line to the
 No resolution event ⇒ no sync-log entry (`identical`-only runs stay
 silent; `cancel` runs stay silent per AC-39.5).
 
-The log is append-only. `/spec-archive` eventually rotates old entries to
-`specs/archive/sync-log-<YYYY-MM>.md` to preserve NFR-5 (Pattern 5).
+The log is append-only (NFR-5 / Pattern 5). Skills never parse or mutate
+prior entries; they only append.
 
 ## Idempotence
 
