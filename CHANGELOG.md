@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [1.19.0] — 2026-04-22 — "FR Identity Stability"
+
+Retires the scan-and-increment `FR-<N>` identifier in favor of collision-proof AC prefixes: the bound tracker ID in tracker mode (`AC-STE-50.1`), or the last 6 chars of the FR's ULID random portion in `mode: none` (`AC-VDTAF4.1`). The brainstorm question that motivated the milestone — *"is FR-N safe under concurrent FR creation across parallel branches?"* — answered no: FR-N was the one identifier derived from "scan + next-free-number," the classic race-condition shape. ULIDs (file identity) and server-allocated tracker IDs are collision-proof by construction; M16 brings AC prefixes and FR-facing references under the same rule.
+
+The tail slice of the random portion (`slice(23, 29)`) is chosen deliberately over the head (`slice(13, 19)`): `ulid.ts` implements monotonic ULIDs — within the same millisecond, randomness is incremented at the least-significant byte, so burst mints share the leading random chars but differ in the tail (observed in this repo's own `fr_01KPTSA7W8N116XWSXXE0G1PY3` and `…PY4`, which share `slice(13, 19) == "N116XW"` but differ in `slice(23, 29)`). This spec deviation from the original M16 brainstorm (AC-STE-50.2) was caught during Phase A TDD and resolved before any code was written.
+
+No behavior changes for `mode: none` projects aside from the new short-ULID AC-prefix form for **newly created** FRs — existing FRs in external projects keep their legacy `AC-<N>.M` prefixes (no backfill). The one-off purge of legacy references (STE-51) runs only on this repo.
+
+### Added
+
+- **STE-50 — Collision-proof AC prefixes.** New helper `acPrefix(spec)` in `adapters/_shared/src/ac_prefix.ts` derives the AC-prefix segment from an FR's frontmatter: in tracker mode, returns the first non-null tracker ID from the `tracker:` block (e.g., `STE-50`); in `mode: none`, returns `spec.id.slice(23, 29)` — the monotonic tail of the ULID's random portion (e.g., `VDTAF4`). `ShortUlidCollisionError` and a pre-write `scanShortUlidCollision(specsDir, spec)` abort `mode: none` writes that would collide with an existing FR's short-ULID tail (AC-STE-50.3). Tracker-bound FRs bypass the scan since tracker IDs are collision-proof by the allocator. The helper is wired into `importFromTracker` (tracker-imported FRs now emit `- AC-<TRACKER_ID>.<N>:` lines, AC-STE-50.1) and documented in `/spec-write` step 0b.
+- **STE-50 — `ac_lint` module.** `adapters/_shared/src/ac_lint.ts` walks every active `specs/frs/*.md` (excluding `archive/`), extracts each `## Acceptance Criteria` section, and reports any `AC-<prefix>.<N>` pair appearing more than once within a single file. Added as v2 conformance probe #9 in `/gate-check`; cross-file duplicates are allowed (different FRs can legitimately share the same `.N` suffix).
+
+### Changed
+
+- **STE-51 — In-repo rewrite.** One-off mechanical rewrite of every legacy `FR-<N>` heading, `{#FR-N}` anchor, `AC-<N>.<M>` prefix, and prose citation across `specs/frs/`, `specs/plan/`, `plugins/dev-process-toolkit/docs/`, `plugins/dev-process-toolkit/skills/`, and `plugins/dev-process-toolkit/tests/` to the STE-50-derived prefix form. `CHANGELOG.md`, git commit history, top-level `README.md`, and anything under `specs/**/archive/` remain as historical record. Post-rewrite `rg '\bFR-\d+\b'` over the non-archive surface returns zero matches; the `ac_lint` duplicate-AC probe returns zero matches across the rewritten files. No reusable migration skill is packaged — the plugin has no external adopters yet, so a throwaway rewrite suffices.
+
+### Removed
+
+- **STE-52 — `findFRByFRCode` resolver branch.** `findFRByFRCode`, `FR_CODE_RE`, the `FRCode` type, the `kind: "fr-code"` branch, and `AmbiguousArgumentKind` are gone from `adapters/_shared/src/resolve.ts`; `ResolveKind` narrows to `ulid | tracker-id | url | fallthrough`. Passing a literal `FR-<N>` argument to `/spec-write`, `/implement`, or `/spec-archive` now resolves as `fallthrough` (skill-specific handling per pre-M14 contract). The FR-69 resolver test block and the `tests/fixtures/resolver/fr-code-lookup/` fixture are deleted; a replacement regression test in `resolve.test.ts` locks the branch removal. `docs/resolver-entry.md` decision table loses the `fr-code` row. `rg -n 'fr-code|FRCode|findFRByFRCode|FR_CODE_RE' plugins/` returns zero matches.
+
 ## [1.18.0] — 2026-04-22 — "Migration Hardening"
 
 Tightens every surface that M13 (`/setup --migrate`) + M14 (tracker-native entry) shipped. M15 is a **dogfooding milestone**: running `/setup --migrate none → linear` against the plugin's own repo, then `/implement` against the resulting Linear tickets, surfaced 14 concrete doc-code gaps that the earlier milestones had not exercised end-to-end. Each gap became a dedicated FR filed as `Finding #N of M`, bundled into one "Hardening" milestone rather than drip-fed across patch releases. A 15th FR (this one — FR-64) carries the release work.

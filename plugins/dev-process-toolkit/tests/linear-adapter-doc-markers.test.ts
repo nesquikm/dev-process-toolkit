@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// FR-67 AC-67.4 — doc-conformance test asserts adapters/linear.md carries
+// STE-46 AC-STE-46.4 — doc-conformance test asserts adapters/linear.md carries
 // the canonical markers so the LLM reaches for the right MCP tool and
 // parameter names, and so the silent-no-op warning is co-located with the
 // operation table.
@@ -28,7 +28,7 @@ function readLinearDoc(): string {
   return readFileSync(linearDocPath, "utf8");
 }
 
-describe("FR-67 AC-67.1 — adapters/linear.md uses save_issue", () => {
+describe("STE-46 AC-STE-46.1 — adapters/linear.md uses save_issue", () => {
   test("references save_issue", () => {
     const body = readLinearDoc();
     expect(body).toContain("save_issue");
@@ -50,7 +50,7 @@ describe("FR-67 AC-67.1 — adapters/linear.md uses save_issue", () => {
   });
 });
 
-describe("FR-67 AC-67.1 — canonical parameter names state / assignee", () => {
+describe("STE-46 AC-STE-46.1 — canonical parameter names state / assignee", () => {
   test("state: parameter name is documented", () => {
     const body = readLinearDoc();
     expect(body).toContain("`state`");
@@ -64,7 +64,7 @@ describe("FR-67 AC-67.1 — canonical parameter names state / assignee", () => {
   });
 });
 
-describe("FR-67 AC-67.2 — Silent no-op trap section", () => {
+describe("STE-46 AC-STE-46.2 — Silent no-op trap section", () => {
   test("dedicated Silent no-op trap subsection exists", () => {
     const body = readLinearDoc();
     expect(body).toMatch(/###?\s+Silent no-op trap/i);
@@ -90,7 +90,7 @@ describe("FR-67 AC-67.2 — Silent no-op trap section", () => {
   });
 });
 
-describe("FR-67 AC-67.3 — docs/tracker-adapters.md cross-references Linear guidance", () => {
+describe("STE-46 AC-STE-46.3 — docs/tracker-adapters.md cross-references Linear guidance", () => {
   test("tracker-adapters.md points at adapters/linear.md § Silent no-op trap", () => {
     const body = readFileSync(trackerAdaptersDocPath, "utf8");
     expect(body).toContain("Silent no-op trap");

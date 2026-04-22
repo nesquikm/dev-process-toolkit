@@ -88,7 +88,7 @@ shell: bash                       # Shell for !`command` blocks: bash (default) 
 - **Key pattern**: Read-only analysis with traceability matrix
 
 ### 5b. Spec Archive (manual archival escape hatch)
-- **Purpose**: Archive user-selected FRs (by ULID or tracker ref) or a milestone group (`M<N>`) by `git mv`-ing FR files into `specs/frs/archive/` and plan files into `specs/plan/archive/`, with a diff approval gate (FR-45)
+- **Purpose**: Archive user-selected FRs (by ULID or tracker ref) or a milestone group (`M<N>`) by `git mv`-ing FR files into `specs/frs/archive/` and plan files into `specs/plan/archive/`, with a diff approval gate (STE-22)
 - **Invocation**: User-invoked for reopens, cross-cutting FRs, aborted work, or explicit compaction; never auto-scans
 - **Key pattern**: Resolve arg → present diff (git mv + frontmatter flip + releaseLock) → wait for approval → atomic commit → regenerate `INDEX.md` → post-archive drift check. Reopens are a plain reverse move + status flip; no revision-suffix mechanism is needed because ULIDs are stable.
 

@@ -1,4 +1,4 @@
-# FR-39 — Bidirectional AC Sync
+# STE-17 — Bidirectional AC Sync
 
 The diff/resolve loop that runs before `/implement` and after `/spec-write`
 save. Pointed at from `docs/implement-tracker-mode.md` and
@@ -6,14 +6,14 @@ save. Pointed at from `docs/implement-tracker-mode.md` and
 
 In `mode: none`, this document is unused.
 
-## When FR-39 fires
+## When STE-17 fires
 
 - `/implement` pre-flight (after ticket-binding + `pull_acs`, before Phase 1).
 - `/spec-write` post-save of any FR-level AC edit (before `upsert_ticket_metadata`).
 
-`/gate-check` detects `updatedAt` mismatch (AC-33.3) but does **not** run
-FR-39 — it offers two options (retry-via-`/implement`, proceed-stale) per
-AC-39.10. `/pr` does not run FR-39 at all.
+`/gate-check` detects `updatedAt` mismatch (AC-STE-11.3) but does **not** run
+STE-17 — it offers two options (retry-via-`/implement`, proceed-stale) per
+AC-STE-17.10. `/pr` does not run STE-17 at all.
 
 ## Inputs
 
@@ -26,7 +26,7 @@ AC-39.10. `/pr` does not run FR-39 at all.
    `pull_acs(ticket_id)` as Schema N `AcceptanceCriterion[]`.
 
 Both lists are normalized through the adapter's normalizer before diffing
-(AC-39.6). For Linear this is `adapters/linear/src/normalize.ts`; other
+(AC-STE-17.6). For Linear this is `adapters/linear/src/normalize.ts`; other
 adapters normalize equivalently (Jira: trim + collapse whitespace).
 
 ## Classifier (Schema K format)
@@ -50,7 +50,7 @@ For `local-only`, `tracker` is `"<absent>"`; for `tracker-only`, `local`
 is `"<absent>"`. Skills render this table before the per-AC prompt so
 users can see the full diff at once.
 
-## Per-AC prompt (AC-39.3)
+## Per-AC prompt (AC-STE-17.3)
 
 For each non-`identical` AC:
 
@@ -75,13 +75,13 @@ Responses:
    versions as commented context; user writes the merged text; apply to
    both sides.
 4. **Cancel** — abort the entire skill cleanly with zero state mutation
-   on either side (AC-39.5). Cancel on any AC cancels the whole
+   on either side (AC-STE-17.5). Cancel on any AC cancels the whole
    resolution event, not just that AC.
 
-No bulk shortcuts like `accept all tracker` (AC-39.7). Shortcuts hide the
+No bulk shortcuts like `accept all tracker` (AC-STE-17.7). Shortcuts hide the
 drift the sync is supposed to surface.
 
-## Two-side convergence (AC-39.4)
+## Two-side convergence (AC-STE-17.4)
 
 After the user answers all prompts:
 
@@ -94,9 +94,9 @@ After the user answers all prompts:
    normalized AC block. For Jira, the custom field.
 4. **Verify convergence** — if `tracker_ticket_description_template`
    normalization is deterministic, a second `pull_acs` after this push
-   classifies everything as `identical` (AC-39.6 round-trip invariant).
+   classifies everything as `identical` (AC-STE-17.6 round-trip invariant).
 
-## Sync-log append (AC-39.8)
+## Sync-log append (AC-STE-17.8)
 
 After a successful resolution event, append exactly one line to the
 `### Sync log` subsection under `## Task Tracking` in CLAUDE.md:
@@ -112,19 +112,19 @@ After a successful resolution event, append exactly one line to the
 - `<ticket-id>` is the resolved ticket.
 
 No resolution event ⇒ no sync-log entry (`identical`-only runs stay
-silent; `cancel` runs stay silent per AC-39.5).
+silent; `cancel` runs stay silent per AC-STE-17.5).
 
 The log is append-only (NFR-5 / Pattern 5). Skills never parse or mutate
 prior entries; they only append.
 
 ## Idempotence
 
-Running FR-39 twice in a row on an already-converged state emits **zero
+Running STE-17 twice in a row on an already-converged state emits **zero
 prompts** (all `identical`) and **zero side effects** (no pushes, no
-sync-log entry). This is the round-trip invariant that AC-39.6 guarantees
+sync-log entry). This is the round-trip invariant that AC-STE-17.6 guarantees
 via adapter normalization.
 
-## Cancel semantics (AC-39.5)
+## Cancel semantics (AC-STE-17.5)
 
 Cancel on **any** prompt:
 

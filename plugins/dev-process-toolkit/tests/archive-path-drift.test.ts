@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-// FR-70 AC-70.1 / AC-70.10 regression — no file under the AC-70.1 path set
+// STE-49 AC-STE-49.1 / AC-STE-49.10 regression — no file under the AC-STE-49.1 path set
 // may contain the literal v1-archive path. Fails loudly if any future change
 // reintroduces `specs/archive/` in tracked prose under docs, skills,
 // README.md, or the live cross-cutting spec files.
@@ -11,7 +11,7 @@ import { join } from "node:path";
 const pluginRoot = join(import.meta.dir, "..");
 const repoRoot = join(pluginRoot, "..", "..");
 
-// The full AC-70.1 scope includes the live cross-cutting specs, but this
+// The full AC-STE-49.1 scope includes the live cross-cutting specs, but this
 // repo's own `specs/` is gitignored (dogfood workspace). Scan the tracked
 // targets (always present) plus any dogfood specs that happen to exist. A
 // downstream project running this plugin's `/gate-check` will exercise the
@@ -29,8 +29,8 @@ const optionalTargets = [
 ].filter(existsSync);
 const scanTargets = [...baseTargets, ...optionalTargets];
 
-describe("FR-70 AC-70.1 — v1 archive path is absent from tracked prose", () => {
-  test("grep 'specs/archive' over the AC-70.1 path set returns zero matches", () => {
+describe("STE-49 AC-STE-49.1 — v1 archive path is absent from tracked prose", () => {
+  test("grep 'specs/archive' over the AC-STE-49.1 path set returns zero matches", () => {
     for (const target of baseTargets) {
       expect(existsSync(target)).toBe(true);
     }
@@ -41,7 +41,7 @@ describe("FR-70 AC-70.1 — v1 archive path is absent from tracked prose", () =>
     if (proc.status !== 1) {
       const matches = proc.stdout.trim();
       throw new Error(
-        `FR-70 AC-70.1 regression: 'specs/archive' found in tracked prose.\n${matches}`,
+        `STE-49 AC-STE-49.1 regression: 'specs/archive' found in tracked prose.\n${matches}`,
       );
     }
     expect(proc.status).toBe(1);

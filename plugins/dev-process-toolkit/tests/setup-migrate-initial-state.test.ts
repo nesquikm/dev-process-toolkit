@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// FR-60 conformance — /setup --migrate none→tracker must prompt once for
+// STE-39 conformance — /setup --migrate none→tracker must prompt once for
 // the initial state of newly created tickets instead of silently defaulting
 // every bulk-created ticket to Backlog. Shipped-work migrations need to
 // land in Done; in-flight work in In Progress.
@@ -19,8 +19,8 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-describe("FR-60 — migration prompts for initial ticket state", () => {
-  test("AC-60.1 — verbatim bulk prompt with 4 options and default 1", () => {
+describe("STE-39 — migration prompts for initial ticket state", () => {
+  test("AC-STE-39.1 — verbatim bulk prompt with 4 options and default 1", () => {
     const body = read(migrateDocPath);
     // The exact wording is the operator's last chance to pick the right
     // default before N tickets land in the tracker — any drift would
@@ -30,7 +30,7 @@ describe("FR-60 — migration prompts for initial ticket state", () => {
     );
   });
 
-  test("AC-60.1 — prompt runs before the bulk push in the none→tracker procedure", () => {
+  test("AC-STE-39.1 — prompt runs before the bulk push in the none→tracker procedure", () => {
     const body = read(migrateDocPath);
     const section = body.match(/## `none → <tracker>` procedure[\s\S]*?(?=^## )/m);
     expect(section).not.toBeNull();
@@ -47,19 +47,19 @@ describe("FR-60 — migration prompts for initial ticket state", () => {
     expect(section![0]).toMatch(/[Bb]efore (the )?bulk push|[Bb]efore.*upsert_ticket_metadata|[Pp]rior to/);
   });
 
-  test("AC-60.2 — option 4 per-FR path defaults from frontmatter status", () => {
+  test("AC-STE-39.2 — option 4 per-FR path defaults from frontmatter status", () => {
     const body = read(migrateDocPath);
     // Must name the per-FR fallback and the mapping rules so a reader
     // drafting the prompt knows which default to pre-fill.
     expect(body).toMatch(/per-FR|Option 4|option 4/);
     expect(body).toMatch(/active\s*→\s*`?Backlog`?/);
     expect(body).toMatch(/in_progress\s*→\s*`?In Progress`?/);
-    // Archived FRs must be excluded per AC-45.3 — cross-reference keeps
+    // Archived FRs must be excluded per AC-STE-22.3 — cross-reference keeps
     // the invariant visible to maintainers.
-    expect(body).toMatch(/archived FRs[\s\S]{0,120}excluded|AC-45\.3/);
+    expect(body).toMatch(/archived FRs[\s\S]{0,120}excluded|AC-STE-22\.3/);
   });
 
-  test("AC-60.3 — chosen state applied via save_issue state param", () => {
+  test("AC-STE-39.3 — chosen state applied via save_issue state param", () => {
     const body = read(migrateDocPath);
     const match = body.match(/## `none → <tracker>` procedure[\s\S]*?(?=^## )/m);
     expect(match).not.toBeNull();
@@ -71,7 +71,7 @@ describe("FR-60 — migration prompts for initial ticket state", () => {
     expect(section).toMatch(/save_issue.*state|state.*save_issue|upsert_ticket_metadata.*state/);
   });
 
-  test("AC-60.4 — allowlist check calls out status_mapping + NFR-10 shape on miss", () => {
+  test("AC-STE-39.4 — allowlist check calls out status_mapping + NFR-10 shape on miss", () => {
     const body = read(migrateDocPath);
     // status_mapping is the declarative allowlist — naming it points
     // adapter authors at the field that defines legal inputs.
@@ -82,7 +82,7 @@ describe("FR-60 — migration prompts for initial ticket state", () => {
     expect(miss).not.toBeNull();
   });
 
-  test("AC-60.5 — sync-log entry includes the chosen default state", () => {
+  test("AC-STE-39.5 — sync-log entry includes the chosen default state", () => {
     const body = read(migrateDocPath);
     // The exact entry form — "(initial state: <Name>)" — is the
     // searchable artifact that lets future audits confirm which
@@ -90,7 +90,7 @@ describe("FR-60 — migration prompts for initial ticket state", () => {
     expect(body).toMatch(/Migration complete:[\s\S]{0,120}\(initial state: <.+?>\)/);
   });
 
-  test("AC-60.4 — tracker-adapters doc points at status_mapping as the initial-state allowlist", () => {
+  test("AC-STE-39.4 — tracker-adapters doc points at status_mapping as the initial-state allowlist", () => {
     const body = read(trackerAdaptersDocPath);
     // Adapter authors need to discover this field's second role
     // (initial-state allowlist) from the canonical doc, not just the

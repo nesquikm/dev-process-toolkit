@@ -13,9 +13,9 @@ After each FR-level AC save in `specs/requirements.md`:
    (FR-{N} → ticket-id). If the matrix has no row yet, prompt the user
    for a fresh `upsert_ticket_metadata(null, ...)` invocation that
    creates the ticket and writes the returned ID back into the matrix.
-2. Run ticket-binding confirmation per `docs/ticket-binding.md` (FR-32).
+2. Run ticket-binding confirmation per `docs/ticket-binding.md` (STE-27).
 3. Call `pull_acs(ticket_id)` — fresh fetch, just like `/implement` does.
-4. Classify the local AC list vs the tracker AC list via the FR-39 diff
+4. Classify the local AC list vs the tracker AC list via the STE-17 diff
    classifier (`adapters/_shared/src/classify_diff.ts`). Full procedure
    in `docs/fr-39-sync.md`.
 5. If any AC is non-`identical`, surface the Schema K diff and run the
@@ -23,13 +23,13 @@ After each FR-level AC save in `specs/requirements.md`:
    to the in-memory draft state (the user re-decides).
 6. On resolution (including `all identical` fast path), call
    `upsert_ticket_metadata(ticket_id, title, <rebuilt description>)` to
-   push the converged state to the tracker (AC-39.9, AC-34.7).
-7. Append one `### Sync log` entry per AC-39.8.
+   push the converged state to the tracker (AC-STE-17.9, AC-STE-12.7).
+7. Append one `### Sync log` entry per AC-STE-17.8.
 
 `/spec-write` on a brand-new FR (no ticket bound yet) skips steps 1–5 and
 goes straight to `upsert_ticket_metadata(null, title, description)` to
 mint a new ticket; the returned ID is written to the traceability matrix
-(FR-36 AC-36.4 pattern reused).
+(STE-14 AC-STE-14.4 pattern reused).
 
 ## Cancel semantics
 

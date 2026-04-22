@@ -14,23 +14,23 @@ Archive the user-selected FR(s) identified by `$ARGUMENTS`. This is the **escape
 
 Before any other step:
 
-- **Layout probe** — Read `specs/.dpt-layout` via `bun run adapters/_shared/src/layout.ts`. `version: v2` is the only supported layout. If marker absent with `specs/requirements.md` present, exit with the canonical pointer to `/setup --migrate` (AC-47.5). If version > v2, exit with the canonical message (AC-47.3).
+- **Layout probe** — Read `specs/.dpt-layout` via `bun run adapters/_shared/src/layout.ts`. `version: v2` is the only supported layout. If marker absent with `specs/requirements.md` present, exit with the canonical pointer to `/setup --migrate` (AC-STE-29.5). If version > v2, exit with the canonical message (AC-STE-29.3).
 - **Tracker-mode probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none`. Tracker-mode `/spec-archive` still operates only on local `specs/` content — archival of completed **tracker tickets** is the tracker's own concern.
 
-### 0a. Resolver entry (AC-54.1)
+### 0a. Resolver entry (AC-STE-33.1)
 
-After the layout probe, call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src/resolver_config.ts` once at entry (FR-65 AC-65.5), then pass the result to `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. Malformed adapter metadata surfaces as `MalformedAdapterMetadataError` → NFR-10 canonical refusal (AC-65.6).
+After the layout probe, call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src/resolver_config.ts` once at entry (STE-44 AC-STE-44.5), then pass the result to `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. Malformed adapter metadata surfaces as `MalformedAdapterMetadataError` → NFR-10 canonical refusal (AC-STE-44.6).
 
 - **`ulid`** → archive that single FR (step 1).
-- **`tracker-id` / `url`** + `findFRByTrackerRef` hit → resolve to the ULID and archive that single FR (AC-54.3). No import, no tracker network call.
-- **`tracker-id` / `url`** + `findFRByTrackerRef` miss → **refuse** with the NFR-10 canonical error: `"No local FR mapped to <tracker>:<id>. Archival never auto-imports. To dismiss the tracker ticket, close it in the tracker directly."` Exit non-zero. No side effects. `/spec-archive` **never** auto-imports (AC-54.4).
+- **`tracker-id` / `url`** + `findFRByTrackerRef` hit → resolve to the ULID and archive that single FR (AC-STE-33.3). No import, no tracker network call.
+- **`tracker-id` / `url`** + `findFRByTrackerRef` miss → **refuse** with the NFR-10 canonical error: `"No local FR mapped to <tracker>:<id>. Archival never auto-imports. To dismiss the tracker ticket, close it in the tracker directly."` Exit non-zero. No side effects. `/spec-archive` **never** auto-imports (AC-STE-33.4).
 - **`fallthrough`** and `$ARGUMENTS` matches `^M\d+$` → batch archival of every FR with `milestone == <M<N>>` plus the plan file (step 1). `/spec-archive M12` is the canonical group form.
-- **`fallthrough`** otherwise → refuse and prompt the user for a valid ULID / tracker ref / `M<N>` (AC-54.5, AC-54.6, NFR-18).
+- **`fallthrough`** otherwise → refuse and prompt the user for a valid ULID / tracker ref / `M<N>` (AC-STE-33.5, AC-STE-33.6, NFR-18).
 - `AmbiguousArgumentError` → surface per NFR-10 with the `<tracker>:<id>` disambiguation remedy; exit non-zero.
 
 Full decision table: `docs/resolver-entry.md`.
 
-### 1. Archival procedure (v2 primitives, FR-45)
+### 1. Archival procedure (v2 primitives, STE-22)
 
 Archival uses the same code path as `/implement` Phase 4.
 
@@ -39,11 +39,11 @@ Archival uses the same code path as `/implement` Phase 4.
 1. Read `specs/frs/<ulid>.md`; verify frontmatter `status: active` or `status: in_progress`.
 2. Present the Diff Preview (§ Diff Preview below) — the filename move, the frontmatter flip, and any `Provider.releaseLock` call.
 3. On explicit approval:
-   - `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md` — filename stem preserved (AC-41.4).
+   - `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md` — filename stem preserved (AC-STE-18.4).
    - Flip frontmatter `status: active` → `status: archived`; set `archived_at: <ISO now>`.
-   - `Provider.releaseLock(<ulid>)` (AC-46.4). In tracker mode this transitions the ticket to `done`; in tracker-less mode it removes the in-flight lock file.
-   - All of the above land in a single atomic commit (AC-45.2).
-4. Regenerate `specs/INDEX.md` via `regenerateIndex(specsDir)` — the archived FR drops out of the default index (AC-45.3).
+   - `Provider.releaseLock(<ulid>)` (AC-STE-28.4). In tracker mode this transitions the ticket to `done`; in tracker-less mode it removes the in-flight lock file.
+   - All of the above land in a single atomic commit (AC-STE-22.2).
+4. Regenerate `specs/INDEX.md` via `regenerateIndex(specsDir)` — the archived FR drops out of the default index (AC-STE-22.3).
 5. Run the Post-Archive Drift Check (§ Post-Archive Drift Check below).
 
 **Milestone-group archival** (argument is `M<N>`):
@@ -51,13 +51,13 @@ Archival uses the same code path as `/implement` Phase 4.
 1. Scan `specs/frs/*.md` for every FR with frontmatter `milestone == M<N>`. Refuse cleanly if the match set is empty ("No active FRs found for milestone M<N>"); exit non-zero, no side effects.
 2. Build the batch:
    - One `git mv` + frontmatter flip + `Provider.releaseLock` per matched FR.
-   - If `specs/plan/M<N>.md` exists, include `git mv specs/plan/M<N>.md specs/plan/archive/M<N>.md` (AC-44.5).
+   - If `specs/plan/M<N>.md` exists, include `git mv specs/plan/M<N>.md specs/plan/archive/M<N>.md` (AC-STE-21.5).
 3. Present the Diff Preview covering every move + flip + release.
-4. On approval, land all N moves + N flips + N `releaseLock` calls + the optional plan-file move in a **single atomic commit** (AC-45.6). Any error aborts the commit entirely — no partial archival.
-5. Regenerate `specs/INDEX.md` (AC-45.3).
+4. On approval, land all N moves + N flips + N `releaseLock` calls + the optional plan-file move in a **single atomic commit** (AC-STE-22.6). Any error aborts the commit entirely — no partial archival.
+5. Regenerate `specs/INDEX.md` (AC-STE-22.3).
 6. Run the Post-Archive Drift Check.
 
-No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` except the frontmatter `status` flip at move time (AC-45.5). Full reference: `docs/v2-layout-reference.md` § `/spec-archive`.
+No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` except the frontmatter `status` flip at move time (AC-STE-22.5). Full reference: `docs/v2-layout-reference.md` § `/spec-archive`.
 
 ### 2. Technical-spec.md — never archive
 
@@ -121,7 +121,7 @@ Merge Pass A and Pass B findings into a single table following Schema I (see `sp
 ```markdown
 | File | Section | Severity | Reason | Suggested action |
 |------|---------|----------|--------|------------------|
-| requirements.md | §6 Traceability Matrix | high | Orphan row `AC-3.2` references archived FR-3 | Remove row |
+| requirements.md | §6 Traceability Matrix | high | Orphan row `AC-HG95TZ.2` references archived HG95TZ | Remove row |
 | requirements.md | Overview (§1) | medium | "layered documentation set" framing assumes archived scope; contradicts in-flight M5 code milestone | Rewrite Overview to reflect current milestone mix |
 ```
 
@@ -146,6 +146,6 @@ The drift check **never blocks the archival operation itself**. The archive move
 - Every archival lands in one atomic commit (single FR or milestone group).
 - Tracker-ref miss → refuse and exit; never auto-import to archive.
 - Never edit `specs/technical-spec.md` — ADRs use `Superseded-by:` in place.
-- Never write under `specs/frs/archive/**` or `specs/plan/archive/**` except the `status` / `archived_at` frontmatter flip at move time (AC-45.5).
-- Call `Provider.releaseLock(id)` for every archived FR (AC-46.4).
-- Regenerate `specs/INDEX.md` after every archival operation (AC-45.3).
+- Never write under `specs/frs/archive/**` or `specs/plan/archive/**` except the `status` / `archived_at` frontmatter flip at move time (AC-STE-22.5).
+- Call `Provider.releaseLock(id)` for every archived FR (AC-STE-28.4).
+- Regenerate `specs/INDEX.md` after every archival operation (AC-STE-22.3).

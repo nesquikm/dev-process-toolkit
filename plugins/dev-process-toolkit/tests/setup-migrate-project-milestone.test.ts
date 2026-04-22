@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFrontmatter } from "../adapters/_shared/src/frontmatter";
 
-// FR-59 conformance — /setup --migrate must bind each pushed Linear ticket
+// STE-38 conformance — /setup --migrate must bind each pushed Linear ticket
 // to the Linear Project Milestone whose name begins with the FR's
 // frontmatter `milestone: M<N>` value, so the tracker view mirrors the
 // spec's milestone grouping instead of piling every FR into one flat
@@ -13,7 +13,7 @@ import { parseFrontmatter } from "../adapters/_shared/src/frontmatter";
 //   1. The procedure-doc wording the LLM follows during migration
 //      (mapping step, missing-milestone prompt, Jira one-liner).
 //   2. The declarative adapter metadata — Linear declares the capability
-//      true, Jira/template declare it false so FR-38 AC-38.6 graceful
+//      true, Jira/template declare it false so STE-16 AC-STE-16.6 graceful
 //      degradation skips the milestone step on adapters that don't
 //      support it.
 //   3. The side-by-side documentation table so adapter authors can see
@@ -30,8 +30,8 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-describe("FR-59 — migration populates Linear Project Milestone field", () => {
-  test("AC-59.1 — none→tracker procedure names the prefix-match rule + save_issue milestone param", () => {
+describe("STE-38 — migration populates Linear Project Milestone field", () => {
+  test("AC-STE-38.1 — none→tracker procedure names the prefix-match rule + save_issue milestone param", () => {
     const body = read(migrateDocPath);
     const section = body.match(/## `none → <tracker>` procedure[\s\S]*?(?=^## )/m);
     expect(section).not.toBeNull();
@@ -50,7 +50,7 @@ describe("FR-59 — migration populates Linear Project Milestone field", () => {
     expect(section![0]).toMatch(/save_issue.*milestone|milestone.*save_issue/);
   });
 
-  test("AC-59.2 — missing-milestone prompt is verbatim with the 3-way choice", () => {
+  test("AC-STE-38.2 — missing-milestone prompt is verbatim with the 3-way choice", () => {
     const body = read(migrateDocPath);
     // The prompt wording is how the LLM signals an off-ramp to the
     // operator — paraphrasing it would cause drift.
@@ -63,7 +63,7 @@ describe("FR-59 — migration populates Linear Project Milestone field", () => {
     expect(body).toMatch(/Enter 1-3/);
   });
 
-  test("AC-59.3 — Jira branch logs the one-liner and skips milestone binding", () => {
+  test("AC-STE-38.3 — Jira branch logs the one-liner and skips milestone binding", () => {
     const body = read(migrateDocPath);
     // Verbatim message so operators using Jira get the same guidance
     // every time and can grep for it in logs.
@@ -72,17 +72,17 @@ describe("FR-59 — migration populates Linear Project Milestone field", () => {
     );
   });
 
-  test("AC-59.4 — Linear adapter declares project_milestone: true", () => {
+  test("AC-STE-38.4 — Linear adapter declares project_milestone: true", () => {
     const fm = parseFrontmatter(read(linearAdapterPath));
     expect(fm.project_milestone).toBe(true);
   });
 
-  test("AC-59.4 — Jira adapter declares project_milestone: false", () => {
+  test("AC-STE-38.4 — Jira adapter declares project_milestone: false", () => {
     const fm = parseFrontmatter(read(jiraAdapterPath));
     expect(fm.project_milestone).toBe(false);
   });
 
-  test("AC-59.4 — _template adapter declares project_milestone: false with a pointer comment", () => {
+  test("AC-STE-38.4 — _template adapter declares project_milestone: false with a pointer comment", () => {
     const fm = parseFrontmatter(read(templateAdapterPath));
     expect(fm.project_milestone).toBe(false);
     const body = read(templateAdapterPath);
@@ -91,7 +91,7 @@ describe("FR-59 — migration populates Linear Project Milestone field", () => {
     expect(body).toMatch(/project_milestone[\s\S]{0,300}Linear/);
   });
 
-  test("AC-59.5 — tracker-adapters.md has a side-by-side milestone-mapping table", () => {
+  test("AC-STE-38.5 — tracker-adapters.md has a side-by-side milestone-mapping table", () => {
     const body = read(trackerAdaptersDocPath);
     // Dedicated section + table so the behaviour is discoverable from
     // the doc entry point rather than hidden inside per-adapter files.

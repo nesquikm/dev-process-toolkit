@@ -292,9 +292,9 @@ Test exists and passes, but asserts nothing meaningful (`expect(fn).not.toThrow(
 **Solution**: After gate commands pass, run a drift check that traces each AC to implementing code:
 
 ```
-AC-1.1 → src/feature.ts:42    (implemented)
-AC-1.2 → (not found)           (drift!)
-AC-2.1 → src/service.ts:15    (implemented)
+AC-STE-42.1 → src/feature.ts:42    (implemented)
+AC-STE-42.2 → (not found)           (drift!)
+AC-STE-43.1 → src/service.ts:15    (implemented)
 ```
 
 Drift findings are **advisory** (GATE PASSED WITH NOTES, never GATE FAILED) because the traceability is heuristic — false positives would erode trust in the deterministic gate. But they surface gaps early.
@@ -313,7 +313,7 @@ Drift findings are **advisory** (GATE PASSED WITH NOTES, never GATE FAILED) beca
 
 ### Stable Anchor IDs
 
-**Problem (FR-18)**: Archival pointers, traceability matrices, and cross-links between spec files all depend on identifiers that survive heading renames and reordering. A pointer like `M3 → specs/plan/archive/M3.md` is only stable if "M3" itself is a stable identifier on the heading — not a positional guess. The first time someone renames a milestone, every positional reference rots silently.
+**Problem (HG95VB)**: Archival pointers, traceability matrices, and cross-links between spec files all depend on identifiers that survive heading renames and reordering. A pointer like `M3 → specs/plan/archive/M3.md` is only stable if "M3" itself is a stable identifier on the heading — not a positional guess. The first time someone renames a milestone, every positional reference rots silently.
 
 **Solution**: Embed explicit Markdown anchor IDs on every archivable unit at creation time. Templates ship with the anchor syntax pre-filled; `/spec-write` enforces the rule on generated or edited headings; `/setup` doctor validation warns if any heading lacks its anchor. Anchors are CommonMark-friendly, render as empty spans, and survive all mainstream Markdown viewers.
 
@@ -329,13 +329,13 @@ Example of a properly anchored milestone heading:
 ## M3: User authentication {#M3}
 ```
 
-Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+FR-[0-9]+:` in `requirements.md` — any match whose line does NOT also contain `{#M` / `{#FR-` is a doctor warning. Archival (FR-16) and `/spec-archive` (FR-17) resolve pointer targets through these anchors.
+Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+FR-[0-9]+:` in `requirements.md` — any match whose line does NOT also contain `{#M` / `{#FR-` is a doctor warning. Archival (HG95V9) and `/spec-archive` (HG95VA) resolve pointer targets through these anchors.
 
 ### Pattern: Archival Lifecycle
 
 **Problem**: Spec files grow unboundedly as a project matures. Every `/implement`, `/gate-check`, and `/spec-review` invocation reads the full spec tree, inflating hot-path context cost on work that's already shipped. Simply splitting files by hand breaks prompt caching (the cache-hot prefix moves on every rewrite), duplicates still-current content, and loses grep-friendliness.
 
-**Solution (v2, FR-45)**: Per-unit archival. Each FR lives in its own file `specs/frs/<ulid>.md`; each milestone has its own plan file `specs/plan/<M#>.md`. When `/implement` finishes a milestone and the human approves the Phase 4 report, every FR belonging to that milestone is `git mv`d into `specs/frs/archive/<ulid>.md` with frontmatter `status: active` → `status: archived` + `archived_at: <ISO now>`; the milestone plan file is `git mv`d into `specs/plan/archive/<M#>.md`; `specs/INDEX.md` is regenerated so archived FRs drop out of the default listing. `Provider.releaseLock(<ulid>)` finalizes each FR's lifecycle (tracker mode transitions the ticket to `done`; tracker-less removes the lock file). For content the auto-path can't reach (reopens, cross-cutting FRs, aborted work), `/spec-archive <ULID | M<N> | tracker-ref>` is the manual escape hatch with a diff approval gate.
+**Solution (v2, STE-22)**: Per-unit archival. Each FR lives in its own file `specs/frs/<ulid>.md`; each milestone has its own plan file `specs/plan/<M#>.md`. When `/implement` finishes a milestone and the human approves the Phase 4 report, every FR belonging to that milestone is `git mv`d into `specs/frs/archive/<ulid>.md` with frontmatter `status: active` → `status: archived` + `archived_at: <ISO now>`; the milestone plan file is `git mv`d into `specs/plan/archive/<M#>.md`; `specs/INDEX.md` is regenerated so archived FRs drop out of the default listing. `Provider.releaseLock(<ulid>)` finalizes each FR's lifecycle (tracker mode transitions the ticket to `done`; tracker-less removes the lock file). For content the auto-path can't reach (reopens, cross-cutting FRs, aborted work), `/spec-archive <ULID | M<N> | tracker-ref>` is the manual escape hatch with a diff approval gate.
 
 **What moves:**
 - Every FR file whose frontmatter `milestone == <current>` — `git mv` to `specs/frs/archive/`, frontmatter flip.
@@ -356,7 +356,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 
 ### Pattern: Post-Archive Drift Check
 
-**Problem (FR-21)**: Archival (FR-16, FR-17) surgically moves the milestone block and every traceability-matched AC, but it cannot detect **narrative residue** — scope-limiting framing like "documentation-only deliverable" or "layered X set" that assumed the archived milestones were the whole project. The canary was the v1.10.0 Flutter dogfood run: archiving M1–M4 (documentation milestones) left `requirements.md` Overview calling the project a "layered documentation set" and Out-of-Scope saying "Code changes — documentation only", while M5 (a code milestone) was still in flight. Manual consistency passes across four files every time a milestone ships are the problem this pattern solves.
+**Problem (HG95VE)**: Archival (HG95V9, HG95VA) surgically moves the milestone block and every traceability-matched AC, but it cannot detect **narrative residue** — scope-limiting framing like "documentation-only deliverable" or "layered X set" that assumed the archived milestones were the whole project. The canary was the v1.10.0 Flutter dogfood run: archiving M1–M4 (documentation milestones) left `requirements.md` Overview calling the project a "layered documentation set" and Out-of-Scope saying "Code changes — documentation only", while M5 (a code milestone) was still in flight. Manual consistency passes across four files every time a milestone ships are the problem this pattern solves.
 
 **Solution**: Immediately after any archival operation, run a two-pass drift check whose output is a **unified advisory report** — never an auto-rewrite, never a blocker on the archival itself.
 
@@ -375,7 +375,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 
 ### Pattern: Tracker Mode Probe (Schema L)
 
-**Problem (FR-29, FR-34, Pattern 9)**: M12 adds an opt-in tracker mode (Linear, Jira, custom) for teams whose ACs live in a task tracker. Every affected skill — `/setup`, `/spec-write`, `/implement`, `/gate-check`, `/pr`, `/spec-review`, `/spec-archive` — must behave differently in `mode: none` (default, pre-M12) and `mode: <tracker>`. If any skill guesses mode inconsistently or reads tracker state when the section is absent, the backward-compat invariant (Pattern 9) breaks silently.
+**Problem (STE-8, STE-12, Pattern 9)**: M12 adds an opt-in tracker mode (Linear, Jira, custom) for teams whose ACs live in a task tracker. Every affected skill — `/setup`, `/spec-write`, `/implement`, `/gate-check`, `/pr`, `/spec-review`, `/spec-archive` — must behave differently in `mode: none` (default, pre-M12) and `mode: <tracker>`. If any skill guesses mode inconsistently or reads tracker state when the section is absent, the backward-compat invariant (Pattern 9) breaks silently.
 
 **Solution**: Every mode-aware skill begins with the same probe. The probe reads `CLAUDE.md` for the `## Task Tracking` section; section absence ≡ `mode: none` (the canonical pre-M12 path); section presence means parse the `key: value` block per Schema L (technical-spec §7.3). Only after the probe resolves does the skill branch.
 
@@ -388,7 +388,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
    - 1 → section exists; continue to step 3
    - >1 → malformed file; fail with NFR-10 canonical error shape
 3. Extract `mode: <value>` between `## Task Tracking` and the next `##` / `###` heading (or EOF); lines under `### Sync log` are excluded from key: value parsing.
-4. If the extracted mode is `none`, treat as Step-2-zero — the explicit form is accepted but `/setup` never emits it (AC-29.5).
+4. If the extracted mode is `none`, treat as Step-2-zero — the explicit form is accepted but `/setup` never emits it (AC-STE-8.5).
 5. For any tracker mode, resolve ticket-ID via Pattern 6 (branch regex → active_ticket: → interactive prompt) before any MCP call.
 ```
 
@@ -398,8 +398,8 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 
 **Rules:**
 - The probe must be the first action any mode-aware skill takes after reading its arguments — before branch inspection, before MCP calls, before file writes.
-- Skills that are not applicable in the current mode exit cleanly with a one-line message (AC-34.2).
-- In `mode: none`, no skill makes MCP calls or reads tracker state (AC-34.4). The tracker-mode branches are literally unreachable.
+- Skills that are not applicable in the current mode exit cleanly with a one-line message (AC-STE-12.2).
+- In `mode: none`, no skill makes MCP calls or reads tracker state (AC-STE-12.4). The tracker-mode branches are literally unreachable.
 - Duplicate keys in the section fail with NFR-10 canonical shape (Schema L).
 
 ### Pattern: `/implement` Runs In-Process
@@ -422,7 +422,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 **The pattern**:
 
 - **One FR, one file, one repo-stable ULID**. Each functional requirement lives at `specs/frs/<ulid>.md` where `<ulid>` is a Crockford base32 ULID (26 chars) minted locally at creation time. The ULID appears in both the filename and the `id:` frontmatter field, byte-for-byte equal (NFR-15 invariants 1+2).
-- **Immutable filenames**. Renames are forbidden. The only path change permitted is archival via `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md`, which preserves the stem (FR-41 AC-41.4).
+- **Immutable filenames**. Renames are forbidden. The only path change permitted is archival via `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md`, which preserves the stem (STE-18 AC-STE-18.4).
 - **Tracker IDs as attributes**. `tracker.linear`, `tracker.jira`, `tracker.github` are frontmatter fields — zero-to-many. Tracker IDs never participate in filenames. Multi-tracker FRs are supported; cross-tracker reconciliation is out of scope (the frontmatter is a fact store, not a reconciler).
 - **Provider interface**. `LocalProvider` + `TrackerProvider` implement a single typed contract (`mintId`, `getMetadata`, `sync`, `getUrl`, `claimLock`, `releaseLock`). Skills inject the Provider — they never branch on "tracker configured vs. not."
 - **Per-milestone plan files**. `specs/plan/<M#>.md` replaces the monolithic `plan.md`. Once `status: active`, the plan file is frozen — edits require a `plan/<M#>-replan-<N>` branch.
@@ -435,12 +435,12 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 3. **Tracker lifecycle is decoupled from the canonical ID.** Tracker rename / delete / multi-tracker adoption never forces a filesystem rename cascade through git history, INDEX, cross-refs.
 
 **Invariants enforced by `/gate-check`** (v2 conformance probes):
-- Filename regex: `^fr_[0-9A-HJKMNP-TV-Z]{26}\.md$` (AC-41.1)
-- `id:` frontmatter equals filename stem byte-for-byte (AC-41.2)
+- Filename regex: `^fr_[0-9A-HJKMNP-TV-Z]{26}\.md$` (AC-STE-18.1)
+- `id:` frontmatter equals filename stem byte-for-byte (AC-STE-18.2)
 - Required frontmatter fields: `id, title, milestone, status, archived_at, tracker, created_at`
 - `specs/.dpt-layout` reports the expected version
 
-**Cross-refs**: FR-40..FR-46 (requirements), `technical-spec.md` §8 (design), `docs/v2-layout-reference.md` (behavioral reference for every spec-touching skill).
+**Cross-refs**: STE-26..STE-28 (requirements), `technical-spec.md` §8 (design), `docs/v2-layout-reference.md` (behavioral reference for every spec-touching skill).
 
 ## Pattern 24: Tracker-ID Auto-Resolution
 
@@ -461,13 +461,13 @@ The resolver is **pure**: no network I/O, no filesystem reads (both are downstre
 
 When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira project `FOO`), users disambiguate with the explicit `<tracker>:<id>` form: `linear:FOO-42` or `jira:FOO-42`. Case-insensitive on the tracker key (`LINEAR:FOO-42` works). The explicit form **always wins** over inference — this is the documented remedy the ambiguity error surfaces.
 
-**Skill-specific continuations** (FR-52..54):
+**Skill-specific continuations** (STE-31..54):
 
 | Kind + lookup result | `/spec-write` | `/implement` | `/spec-archive` |
 |----------------------|---------------|--------------|-----------------|
 | `ulid` | Edit existing | Claim lock + implement | Archive (git mv + status flip) |
 | Tracker-id/url, find-by-tracker-ref **hit** | Edit existing (no import) | Claim lock on resolved ULID | Archive resolved ULID |
-| Tracker-id/url, find-by-tracker-ref **miss** | Import via `importFromTracker` (no FR-39 dance — AC-52.5) | Import then claim lock | **Refuse** per AC-54.4 (never auto-imports) |
+| Tracker-id/url, find-by-tracker-ref **miss** | Import via `importFromTracker` (no STE-17 dance — AC-STE-31.5) | Import then claim lock | **Refuse** per AC-STE-33.4 (never auto-imports) |
 | `fallthrough` | Pre-M14 free-form handling | Pre-M14 (milestone code, issue number, task text) | Pre-M14 (anchor, heading text, milestone id) |
 
 **Why this matters**:
@@ -476,7 +476,7 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 2. **No drift between three skill dispatchers.** One resolver + one `importFromTracker` helper means `/spec-write` and `/implement` cannot implement the same behavior two different ways.
 3. **Non-interactive safe.** The resolver never prompts — CI, scripts, and agent harnesses get the same deterministic errors humans see interactively.
 
-**Cross-refs**: FR-51..FR-54 (requirements), `technical-spec.md` §9 (design), `docs/resolver-entry.md` (per-skill decision table), `docs/tracker-adapters.md` § Registering tracker ID patterns for the resolver.
+**Cross-refs**: STE-30..STE-33 (requirements), `technical-spec.md` §9 (design), `docs/resolver-entry.md` (per-skill decision table), `docs/tracker-adapters.md` § Registering tracker ID patterns for the resolver.
 
 ## Pattern 25: Dogfooding Discovery
 
@@ -503,4 +503,4 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 - The resulting FR pile looks overwhelming on first scan (M15 had 15 FRs). The "Finding #N of M" frontmatter + one bundled milestone keep it auditable.
 - Not every deviation is a hardening candidate. Some are genuine feature requests or rare-edge-case nits that belong in later milestones — classify per Pattern 15 (Spec Deviation Classification) before filing.
 
-**Cross-refs**: FR-56..FR-70 (the M15 FR set in this plugin's own spec tree — 15 FRs, 14 findings + 1 release; note that `specs/` is gitignored in the plugin source repo, so the milestone archive at `specs/plan/archive/M15.md` lives in the maintainer workspace, not in the shipped plugin bundle), Pattern 15 (Spec Deviation Classification — the filter that separates hardening findings from feature work), Pattern 21 (Spec Breakout Protocol — the escalation path when dogfood findings exceed 3 `contradicts` / `infeasible` deviations).
+**Cross-refs**: STE-35..FR-70 (the M15 FR set in this plugin's own spec tree — 15 FRs, 14 findings + 1 release; note that `specs/` is gitignored in the plugin source repo, so the milestone archive at `specs/plan/archive/M15.md` lives in the maintainer workspace, not in the shipped plugin bundle), Pattern 15 (Spec Deviation Classification — the filter that separates hardening findings from feature work), Pattern 21 (Spec Breakout Protocol — the escalation path when dogfood findings exceed 3 `contradicts` / `infeasible` deviations).

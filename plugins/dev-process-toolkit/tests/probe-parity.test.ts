@@ -68,13 +68,13 @@ describe("Schema L probe parity across mode-aware skills", () => {
   });
 });
 
-// Template + fresh-setup fixture probe-safety (AC-29.6, AC-29.7).
+// Template + fresh-setup fixture probe-safety (AC-STE-8.6, AC-STE-8.7).
 //
 // The Schema L probe is `grep -c '^## Task Tracking$'`. A literal heading
 // inside a trailing HTML comment cannot be distinguished by that regex,
 // so the template MUST NOT contain the heading at all — even in comments.
 // The canonical mode-none `/setup` output is equally bound: absence of
-// the heading ≡ mode: none (AC-29.5).
+// the heading ≡ mode: none (AC-STE-8.5).
 
 function countProbeAnchorHits(body: string): number {
   // Replicates `grep -c '^## Task Tracking$'` exactly: only lines whose
@@ -86,13 +86,13 @@ function countProbeAnchorHits(body: string): number {
   return n;
 }
 
-describe("Schema L probe anchor absence (AC-29.6, AC-29.7)", () => {
-  test("templates/CLAUDE.md.template contains no `^## Task Tracking$` line (AC-29.6)", () => {
+describe("Schema L probe anchor absence (AC-STE-8.6, AC-STE-8.7)", () => {
+  test("templates/CLAUDE.md.template contains no `^## Task Tracking$` line (AC-STE-8.6)", () => {
     const body = readFileSync(join(pluginRoot, "templates", "CLAUDE.md.template"), "utf8");
     expect(countProbeAnchorHits(body)).toBe(0);
   });
 
-  test("mode-none-fresh-setup fixture contains no `^## Task Tracking$` line (AC-29.7)", () => {
+  test("mode-none-fresh-setup fixture contains no `^## Task Tracking$` line (AC-STE-8.7)", () => {
     const body = readFileSync(
       join(pluginRoot, "tests", "fixtures", "projects", "mode-none-fresh-setup", "CLAUDE.md"),
       "utf8",

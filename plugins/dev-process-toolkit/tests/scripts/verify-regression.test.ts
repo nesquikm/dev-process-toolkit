@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runSchemaLProbe } from "./verify-regression";
 
-// AC-34.8 regression-gate probe-parity coverage. Two layers of tests:
+// AC-STE-12.8 regression-gate probe-parity coverage. Two layers of tests:
 //
 //   (1) Direct unit tests for the exported `runSchemaLProbe` helper —
 //       fast, no subprocess.
@@ -27,7 +27,7 @@ const scriptDir = import.meta.dir;
 const pluginRoot = join(scriptDir, "..", "..");
 const projectsDir = join(pluginRoot, "tests", "fixtures", "projects");
 
-describe("runSchemaLProbe (AC-34.8)", () => {
+describe("runSchemaLProbe (AC-STE-12.8)", () => {
   test("returns mode=none when CLAUDE.md is missing", () => {
     const result = runSchemaLProbe(join(projectsDir, "__does_not_exist__", "CLAUDE.md"));
     expect(result).toEqual({ mode: "none" });
@@ -38,7 +38,7 @@ describe("runSchemaLProbe (AC-34.8)", () => {
     expect(runSchemaLProbe(path)).toEqual({ mode: "none" });
   });
 
-  test("returns mode=none on mode-none-fresh-setup fixture (AC-29.7)", () => {
+  test("returns mode=none on mode-none-fresh-setup fixture (AC-STE-8.7)", () => {
     const path = join(projectsDir, "mode-none-fresh-setup", "CLAUDE.md");
     expect(runSchemaLProbe(path)).toEqual({ mode: "none" });
   });
@@ -131,7 +131,7 @@ describe("runSchemaLProbe (AC-34.8)", () => {
   });
 
   test("mutation: commented `## Task Tracking` in trailing HTML comment still trips probe", () => {
-    // Guards AC-29.6 semantics: the probe is a literal grep and CANNOT
+    // Guards AC-STE-8.6 semantics: the probe is a literal grep and CANNOT
     // distinguish commented from live headings. If someone re-adds the
     // heading inside a template comment, this must surface as a probe
     // miss — forcing the fix back into the template, not the probe.
@@ -148,7 +148,7 @@ describe("runSchemaLProbe (AC-34.8)", () => {
   });
 });
 
-describe("verify-regression.ts operational exit (AC-34.8)", () => {
+describe("verify-regression.ts operational exit (AC-STE-12.8)", () => {
   test("exits 0 in the clean case", () => {
     const result = spawnSync(
       "bun",

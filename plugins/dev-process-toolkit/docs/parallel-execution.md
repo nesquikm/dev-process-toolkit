@@ -28,7 +28,7 @@ See the [Claude Code agent-teams documentation](https://code.claude.com/docs/en/
 
 **Differential with subagents:** teams for ongoing collaboration; subagents for one-shot task isolation. A team persists across multiple turns and can hand tasks back and forth; a subagent runs once and returns.
 
-**Direct skill invocation from subagents.** As of v1.13.0, a team-member subagent can invoke `/implement` and `/pr` directly via the `Skill` tool — both skills dropped their `disable-model-invocation` flag (FR-27). No workaround (reading `SKILL.md` body manually to execute its phases by hand) is needed; the lead dispatches the milestone and the worker runs `/dev-process-toolkit:implement M{N}` from its own context. `/setup` keeps the flag because a subagent re-running project bootstrap mid-flight would clobber the working tree.
+**Direct skill invocation from subagents.** As of v1.13.0, a team-member subagent can invoke `/implement` and `/pr` directly via the `Skill` tool — both skills dropped their `disable-model-invocation` flag (HG95TQ). No workaround (reading `SKILL.md` body manually to execute its phases by hand) is needed; the lead dispatches the milestone and the worker runs `/dev-process-toolkit:implement M{N}` from its own context. `/setup` keeps the flag because a subagent re-running project bootstrap mid-flight would clobber the working tree.
 
 **When to use with `/implement`:**
 

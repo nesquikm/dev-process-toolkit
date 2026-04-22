@@ -7,12 +7,12 @@ In `mode: none`, this document is unused — the pre-M12 body runs unchanged.
 
 ## Pre-flight sequence (mode-gated, in order)
 
-### 1. Ticket-binding pre-flight (FR-32)
+### 1. Ticket-binding pre-flight (STE-27)
 
 Run the 3-tier resolver and mandatory confirmation prompt per
 `docs/ticket-binding.md`. Decline exits cleanly with zero side effects.
 
-### 2. `updatedAt` re-check (AC-33.3)
+### 2. `updatedAt` re-check (AC-STE-11.3)
 
 Call the active adapter's `pull_acs(ticket_id)` exactly once at skill
 entry, and capture the returned ticket's `updatedAt`. Compare against the
@@ -20,11 +20,11 @@ value recorded at `/implement` start (session state — not disk).
 
 - **Match** → continue to the gate commands.
 - **Mismatch** → surface this canonical-shape warning and offer exactly
-  two options (AC-39.10; `/gate-check` does **not** run FR-39 resolution):
+  two options (AC-STE-17.10; `/gate-check` does **not** run STE-17 resolution):
 
   ```
   Ticket was modified since /implement — review changes before proceeding.
-  Remedy: choose — (a) retry after /implement (runs FR-39 diff/resolve), or (b) proceed knowing the session is stale.
+  Remedy: choose — (a) retry after /implement (runs STE-17 diff/resolve), or (b) proceed knowing the session is stale.
   Context: mode=<mode>, ticket=<ID>, skill=gate-check
   ```
 
@@ -50,7 +50,7 @@ state=true)` for each AC whose implementation newly satisfies its test.
 AC state transitions `false → true` fire the call; already-true ACs are
 skipped (idempotent).
 
-## Capability degradation (FR-38 AC-38.6)
+## Capability degradation (STE-16 AC-STE-16.6)
 
 If the active adapter's `capabilities:` frontmatter list does **not**
 include `push_ac_toggle`, replace the step-5 push calls with this
@@ -78,4 +78,4 @@ change, total = 2.
 parallelization concerns are minimal. If two parallel subagents both run
 `/gate-check` against the same ticket, the second one's `pull_acs` sees
 the first one's `push_ac_toggle` side effects — which is exactly the
-detection intent of AC-33.3 (`updatedAt` mismatch warns the user).
+detection intent of AC-STE-11.3 (`updatedAt` mismatch warns the user).

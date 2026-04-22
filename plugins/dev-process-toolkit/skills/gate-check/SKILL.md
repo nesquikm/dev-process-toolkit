@@ -12,25 +12,26 @@ Run the project's gating checks and report a clear pass/fail for each.
 
 Before running any commands:
 
-- **Layout probe** — Read `specs/.dpt-layout` via `bun run adapters/_shared/src/layout.ts`. If `version: v2`, run the v2 conformance probes below in addition to the standard gate checks. If marker absent, run v1 behavior unchanged. If version > v2, exit with the canonical message (AC-47.3).
+- **Layout probe** — Read `specs/.dpt-layout` via `bun run adapters/_shared/src/layout.ts`. If `version: v2`, run the v2 conformance probes below in addition to the standard gate checks. If marker absent, run v1 behavior unchanged. If version > v2, exit with the canonical message (AC-STE-29.3).
 - **Tracker Mode Probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and tracker-mode hooks skip. If a tracker mode is active:
-  - Run the 3-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md` (FR-32). Decline exits cleanly with zero side effects (AC-32.4).
-  - Re-fetch the ticket's `updatedAt` and warn on mismatch against the value recorded at `/implement` start (AC-33.3); do NOT run FR-39 resolution here (AC-39.10).
-  - On gate pass, push the AC toggle via the active adapter's `push_ac_toggle` (capability permitting; FR-38 AC-38.6 degrades with a canonical-shape warning otherwise).
+  - Run the 3-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md` (STE-27). Decline exits cleanly with zero side effects (AC-STE-27.4).
+  - Re-fetch the ticket's `updatedAt` and warn on mismatch against the value recorded at `/implement` start (AC-STE-11.3); do NOT run STE-17 resolution here (AC-STE-17.10).
+  - On gate pass, push the AC toggle via the active adapter's `push_ac_toggle` (capability permitting; STE-16 AC-STE-16.6 degrades with a canonical-shape warning otherwise).
   See `docs/gate-check-tracker-mode.md` for the full tracker-mode flow.
 
-## v2 Conformance Probes (AC-49.5, NFR-15)
+## v2 Conformance Probes (AC-STE-24.5, NFR-15)
 
 When the layout probe reports `v2`, run these deterministic probes in addition to the normal gate:
 
-1. **Filename ↔ `id:` equality** — for every `specs/frs/**/*.md`, parse the YAML frontmatter and verify `id == filename_stem` byte-for-byte. Mismatch → **GATE FAILED** naming the offending file (AC-41.2, AC-41.5).
-2. **ULID filename regex** — every active/archived FR filename must match `^fr_[0-9A-HJKMNP-TV-Z]{26}\.md$` (AC-41.1). Non-matching filename → **GATE FAILED**.
+1. **Filename ↔ `id:` equality** — for every `specs/frs/**/*.md`, parse the YAML frontmatter and verify `id == filename_stem` byte-for-byte. Mismatch → **GATE FAILED** naming the offending file (AC-STE-18.2, AC-STE-18.5).
+2. **ULID filename regex** — every active/archived FR filename must match `^fr_[0-9A-HJKMNP-TV-Z]{26}\.md$` (AC-STE-18.1). Non-matching filename → **GATE FAILED**.
 3. **Required frontmatter fields** — every FR file must have `id`, `title`, `milestone`, `status`, `archived_at`, `tracker`, `created_at` present. Missing a field → **GATE FAILED** naming the file and field.
-4. **Layout version match** — `.dpt-layout` must report the expected version. Missing marker with `specs/requirements.md` present → **GATE FAILED** with the canonical pointer to `/setup --migrate` (AC-47.5).
-5. **Stale lock scan** — list every `.dpt-locks/<ulid>` entry whose `branch` field names a merged-into-main or deleted branch. Each stale lock → **GATE PASSED WITH NOTES**. Offer `$ARGUMENTS --cleanup-stale-locks` action that deletes them in a single commit (AC-46.5).
-6. **Plan post-freeze edit scan** — for each `specs/plan/<M#>.md` with `status: active` + non-null `frozen_at`, scan `git log --follow` for commits to that path authored after `frozen_at`. Each post-freeze commit → **GATE PASSED WITH NOTES** listing the SHA. No auto-revert — user decides (AC-44.4).
-7. **Stale release marker scan** (FR-62 AC-62.5) — grep `specs/requirements.md` for markers of the form `(in flight — v<X.Y.Z>)` or `(planned — v<X.Y.Z>)`. For each captured version, check whether `CHANGELOG.md` already contains a `## [X.Y.Z]` header (i.e., that version has shipped). Every match where the CHANGELOG says shipped → **GATE PASSED WITH NOTES** listing the stale marker + its line number + the shipped release so the operator can rewrite the overview to past-tense. Warn-only, never **GATE FAILED** — prose drift shouldn't block the gate. Catches the "changelog-by-accident" rot where the overview narrative trails the actual release history (observed 2026-04-22 on the plugin's own repo).
-8. **Per-milestone heading strip** (FR-63 AC-63.6) — grep `specs/technical-spec.md` and `specs/testing-spec.md` for `^#{1,3} M\d+` (matches `# M<N>:`, `## <N>. M<N> — …`, or any other milestone-framed heading). Any match → **GATE FAILED** naming the file and line with a pointer to AC-40.3 (post-migration cross-cutting files must carry zero per-milestone headings). Per-FR design / per-milestone narrative belongs in `specs/frs/<ulid>.md` or `specs/plan/<M#>.md`, not in the cross-cutting spec files.
+4. **Layout version match** — `.dpt-layout` must report the expected version. Missing marker with `specs/requirements.md` present → **GATE FAILED** with the canonical pointer to `/setup --migrate` (AC-STE-29.5).
+5. **Stale lock scan** — list every `.dpt-locks/<ulid>` entry whose `branch` field names a merged-into-main or deleted branch. Each stale lock → **GATE PASSED WITH NOTES**. Offer `$ARGUMENTS --cleanup-stale-locks` action that deletes them in a single commit (AC-STE-28.5).
+6. **Plan post-freeze edit scan** — for each `specs/plan/<M#>.md` with `status: active` + non-null `frozen_at`, scan `git log --follow` for commits to that path authored after `frozen_at`. Each post-freeze commit → **GATE PASSED WITH NOTES** listing the SHA. No auto-revert — user decides (AC-STE-21.4).
+7. **Stale release marker scan** (STE-41 AC-STE-41.5) — grep `specs/requirements.md` for markers of the form `(in flight — v<X.Y.Z>)` or `(planned — v<X.Y.Z>)`. For each captured version, check whether `CHANGELOG.md` already contains a `## [X.Y.Z]` header (i.e., that version has shipped). Every match where the CHANGELOG says shipped → **GATE PASSED WITH NOTES** listing the stale marker + its line number + the shipped release so the operator can rewrite the overview to past-tense. Warn-only, never **GATE FAILED** — prose drift shouldn't block the gate. Catches the "changelog-by-accident" rot where the overview narrative trails the actual release history (observed 2026-04-22 on the plugin's own repo).
+8. **Per-milestone heading strip** (STE-42 AC-STE-42.6) — grep `specs/technical-spec.md` and `specs/testing-spec.md` for `^#{1,3} M\d+` (matches `# M<N>:`, `## <N>. M<N> — …`, or any other milestone-framed heading). Any match → **GATE FAILED** naming the file and line with a pointer to AC-STE-26.3 (post-migration cross-cutting files must carry zero per-milestone headings). Per-FR design / per-milestone narrative belongs in `specs/frs/<ulid>.md` or `specs/plan/<M#>.md`, not in the cross-cutting spec files.
+9. **Duplicate AC-prefix scan** (STE-50 AC-STE-50.5) — call `acLint(specsDir)` from `adapters/_shared/src/ac_lint.ts`. It walks every active `specs/frs/*.md` (excluding `archive/`), extracts each file's `## Acceptance Criteria` section, and counts `AC-<prefix>.<N>` occurrences per file. Any count > 1 → **GATE FAILED** naming the file + `AC-<prefix>.<N>` pair + occurrence count. The `<prefix>` is tracker-mode-aware (tracker ID or short-ULID tail per STE-50), so both prefix shapes are checked by the same probe.
 
 Full details: `docs/v2-layout-reference.md` § `/gate-check`.
 
@@ -76,9 +77,9 @@ If `specs/` directory exists, check whether the implementation has drifted from 
 
 | AC ID | Status | Location |
 |-------|--------|----------|
-| AC-1.1 | implemented | src/feature.ts:42 |
-| AC-1.2 | not found | — |
-| AC-2.1 | implemented | src/service.ts:15 |
+| AC-STE-42.1 | implemented | src/feature.ts:42 |
+| AC-STE-42.2 | not found | — |
+| AC-STE-43.1 | implemented | src/service.ts:15 |
 
 - **implemented** — code and/or tests found matching the AC
 - **not found** — no implementing code found

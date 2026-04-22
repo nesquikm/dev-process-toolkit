@@ -105,8 +105,9 @@ describe("importFromTracker — happy path (AC-52.4)", () => {
       expect(content).toContain("status: active");
       expect(content).toContain("  linear: LIN-1234");
       expect(content).toContain("Users can't log in via SSO.");
-      expect(content).toContain("- Login works with SSO");
-      expect(content).toContain("- Error messages clear");
+      // FR-73 AC-73.1: imported ACs carry `AC-<TRACKER_ID>.<N>:` prefix.
+      expect(content).toContain("- AC-LIN-1234.1: Login works with SSO");
+      expect(content).toContain("- AC-LIN-1234.2: Error messages clear");
     } finally {
       rmSync(specsDir, { recursive: true, force: true });
     }

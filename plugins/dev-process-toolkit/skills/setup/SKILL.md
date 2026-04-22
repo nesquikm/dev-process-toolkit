@@ -13,7 +13,7 @@ Set up the Spec-Driven Development and TDD workflow for this project.
 
 ### 0. Tracker mode probe (existing projects)
 
-Before any detection or setup, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` already exists and contains a `## Task Tracking` section, this is an existing tracker-mode project — `/setup --migrate` is the right entry point for changing modes (FR-36 AC-36.1). If `CLAUDE.md` is absent, empty of `## Task Tracking`, or `$ARGUMENTS` contains `new` — and `$ARGUMENTS` does **not** contain `--migrate` or `--migrate-dry-run` — run the normal fresh-setup flow below. When `--migrate` is present, section 0b overrides this routing regardless of `## Task Tracking` presence (AC-56.2).
+Before any detection or setup, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` already exists and contains a `## Task Tracking` section, this is an existing tracker-mode project — `/setup --migrate` is the right entry point for changing modes (STE-14 AC-STE-14.1). If `CLAUDE.md` is absent, empty of `## Task Tracking`, or `$ARGUMENTS` contains `new` — and `$ARGUMENTS` does **not** contain `--migrate` or `--migrate-dry-run` — run the normal fresh-setup flow below. When `--migrate` is present, section 0b overrides this routing regardless of `## Task Tracking` presence (AC-STE-35.2).
 
 ### 0b. Migration invocation (`/setup --migrate` / `--migrate-dry-run`)
 
@@ -21,25 +21,25 @@ When `$ARGUMENTS` contains `--migrate` or `--migrate-dry-run`, skip steps 1–8 
 
 **Two migration flavors are supported:**
 
-1. **Layout v1 → v2 migration** (FR-48, M13). Detected when `specs/requirements.md` is present AND `specs/.dpt-layout` is absent. Route to `adapters/_shared/src/migrate/index.ts` via `bun run`:
-   - Refuse on dirty working tree (AC-48.3).
-   - Create `dpt-v1-snapshot-<YYYYMMDD-HHMMSS>` tag at HEAD (AC-48.5).
-   - `--migrate-dry-run` writes preview to `specs/.migration-preview/` without commits (AC-48.4).
-   - Live run produces two commits: `feat(specs): migrate to v2 layout` + `chore(specs): record v2 layout marker` (AC-48.10/11).
-   - Print structured summary (AC-48.12).
-   - Idempotent on already-v2 tree (AC-48.13).
+1. **Layout v1 → v2 migration** (STE-23, M13). Detected when `specs/requirements.md` is present AND `specs/.dpt-layout` is absent. Route to `adapters/_shared/src/migrate/index.ts` via `bun run`:
+   - Refuse on dirty working tree (AC-STE-23.3).
+   - Create `dpt-v1-snapshot-<YYYYMMDD-HHMMSS>` tag at HEAD (AC-STE-23.5).
+   - `--migrate-dry-run` writes preview to `specs/.migration-preview/` without commits (AC-STE-23.4).
+   - Live run produces two commits: `feat(specs): migrate to v2 layout` + `chore(specs): record v2 layout marker` (AC-STE-23.10/11).
+   - Print structured summary (AC-STE-23.12).
+   - Idempotent on already-v2 tree (AC-STE-23.13).
    - Full reference: `docs/v2-layout-reference.md` § `/setup --migrate`.
 
-2. **Tracker-mode migration** (FR-36, M12). The default migration flavor once layout v1→v2 is ruled out — handles all transitions between modes. Current mode is detected via Schema L probe (AC-36.2): absence of `## Task Tracking` = `mode: none` (canonical form per AC-29.5); presence = parse `mode: <value>`. All modes (including `none`) are valid starting states (AC-56.1). Route per `docs/setup-migrate.md`:
-   - Detect current mode via Schema L probe (AC-36.2).
-   - Prompt for target mode; refuse no-op via NFR-10 canonical shape: `Detected current mode: <current>. Supported targets: <others>. Migration must change mode.` (AC-56.5)
+2. **Tracker-mode migration** (STE-14, M12). The default migration flavor once layout v1→v2 is ruled out — handles all transitions between modes. Current mode is detected via Schema L probe (AC-STE-14.2): absence of `## Task Tracking` = `mode: none` (canonical form per AC-STE-8.5); presence = parse `mode: <value>`. All modes (including `none`) are valid starting states (AC-STE-35.1). Route per `docs/setup-migrate.md`:
+   - Detect current mode via Schema L probe (AC-STE-14.2).
+   - Prompt for target mode; refuse no-op via NFR-10 canonical shape: `Detected current mode: <current>. Supported targets: <others>. Migration must change mode.` (AC-STE-35.5)
    - Supported transitions: `none → <tracker>` / `<tracker> → none` / `<tracker> → <other>`. Unsupported = NFR-10 canonical refusal.
-   - Atomicity: CLAUDE.md `mode:` line never rewritten until migration succeeds (AC-36.7/8).
+   - Atomicity: CLAUDE.md `mode:` line never rewritten until migration succeeds (AC-STE-14.7/8).
    - Append migration entry to sync log on success.
 
 If both conditions are present (v1 layout AND tracker mode configured), layout migration runs first; tracker-mode migration can follow in a separate `/setup --migrate` invocation.
 
-Exemption from the layout-version gate: `/setup` itself is the migration (AC-47.4) — it calls `readLayoutVersion(specsDir, { allowMissing: true })` instead of failing on missing marker.
+Exemption from the layout-version gate: `/setup` itself is the migration (AC-STE-29.4) — it calls `readLayoutVersion(specsDir, { allowMissing: true })` instead of failing on missing marker.
 
 Detailed migration procedures, atomicity guarantee, partial-failure rollback prompt, and sync-log entry format live in `docs/setup-migrate.md` (tracker mode) and `docs/v2-layout-reference.md` (layout v2) — do not inline here (NFR-1).
 
@@ -61,7 +61,7 @@ For **existing projects** (project files found in step 1), validate prerequisite
 | Gate commands runnable | Run the gating rule from CLAUDE.md (e.g., `npm run typecheck && npm run lint && npm run test`) | Fix failing commands or update CLAUDE.md gating rule |
 | CLAUDE.md present | Check if `CLAUDE.md` exists in project root | Will be created in step 5 |
 | .claude/settings.json present | Check if `.claude/settings.json` exists | Will be created in step 6 |
-| Spec anchor IDs (if `specs/` exists) | Grep `specs/plan.md` for every `## M{N}:` and `specs/requirements.md` for every `### FR-{N}:` heading; each must carry a matching `{#M{N}}` or `{#FR-{N}}` anchor on the same line | Add the missing `{#M{N}}` / `{#FR-{N}}` anchor to the heading. Missing anchors do NOT cause doctor failure — they report under `GATE PASSED WITH NOTES` so archival pointers stay stable (FR-18) |
+| Spec anchor IDs (if `specs/` exists) | Grep `specs/plan.md` for every `## M{N}:` and `specs/requirements.md` for every `### FR-{N}:` heading; each must carry a matching `{#M{N}}` or `{#FR-{N}}` anchor on the same line | Add the missing `{#M{N}}` / `{#FR-{N}}` anchor to the heading. Missing anchors do NOT cause doctor failure — they report under `GATE PASSED WITH NOTES` so archival pointers stay stable (HG95VB) |
 
 Report pass/fail for each check with remediation instructions. Missing anchor IDs surface under `GATE PASSED WITH NOTES`, never as a hard failure.
 
@@ -164,15 +164,15 @@ Ask exactly once, near the end of the flow — after CLAUDE.md is drafted but be
 
 > Task Tracking (optional): where do ACs live? `1. none` (default — ACs stay in `specs/requirements.md`) / `2. linear` / `3. jira` / `4. custom` (copy `adapters/_template`). Enter 1–4; default 1.
 
-If the user picks `1` or skips, do NOT emit a `## Task Tracking` section in CLAUDE.md — absence is the canonical form for `mode: none` (FR-29 AC-29.5). Continue to step 8.
+If the user picks `1` or skips, do NOT emit a `## Task Tracking` section in CLAUDE.md — absence is the canonical form for `mode: none` (STE-8 AC-STE-8.5). Continue to step 8.
 
 If the user picks 2–4, run the flow in `docs/setup-tracker-mode.md` in full:
 
-1. Verify `bun --version` ≥ 1.2; absence hard-stops mode recording with an NFR-10 canonical-shape error (AC-30.8).
-2. Linear only: if `claude mcp list` contains `https://mcp.linear.app/sse`, offer the dry-run migration to V2 `https://mcp.linear.app/mcp` (AC-30.9). User decline is fine — they can skip migration and still proceed on V1 until the 2026-05-11 shutdown.
-3. Detect the target MCP via `claude mcp list`. If absent, render a dry-run JSON diff of the proposed `mcpServers.<name>` entry and require explicit confirmation before writing `settings.json` (AC-30.1, AC-30.2, AC-30.3, DD-12.9).
-4. Run a harmless test call (Linear `list_teams` / Jira empty `search`). On failure, surface an NFR-10 canonical-shape error and refuse to record mode — the project remains `mode: none` (AC-30.4, AC-30.5).
-5. For Jira: pipe `GET /rest/api/3/field` response into `bun run adapters/jira/src/discover_field.ts` and record `jira_ac_field: customfield_XXXXX` in the section (AC-30.6).
+1. Verify `bun --version` ≥ 1.2; absence hard-stops mode recording with an NFR-10 canonical-shape error (AC-STE-9.8).
+2. Linear only: if `claude mcp list` contains `https://mcp.linear.app/sse`, offer the dry-run migration to V2 `https://mcp.linear.app/mcp` (AC-STE-9.9). User decline is fine — they can skip migration and still proceed on V1 until the 2026-05-11 shutdown.
+3. Detect the target MCP via `claude mcp list`. If absent, render a dry-run JSON diff of the proposed `mcpServers.<name>` entry and require explicit confirmation before writing `settings.json` (AC-STE-9.1, AC-STE-9.2, AC-STE-9.3, DD-12.9).
+4. Run a harmless test call (Linear `list_teams` / Jira empty `search`). On failure, surface an NFR-10 canonical-shape error and refuse to record mode — the project remains `mode: none` (AC-STE-9.4, AC-STE-9.5).
+5. For Jira: pipe `GET /rest/api/3/field` response into `bun run adapters/jira/src/discover_field.ts` and record `jira_ac_field: customfield_XXXXX` in the section (AC-STE-9.6).
 6. Append the `## Task Tracking` section to CLAUDE.md per Schema L with the resolved keys (one per line) and an empty `### Sync log` subsection.
 
 See `docs/setup-tracker-mode.md` for the exact question prompt, canonical error shapes, JSON diff preview format, and migration wording. Do not inline those procedures here — NFR-1 keeps this skill under 300 lines.
@@ -182,7 +182,7 @@ See `docs/setup-tracker-mode.md` for the exact question prompt, canonical error 
 If the user wants the full SDD workflow (or if `$ARGUMENTS` contains "new"):
 - Create `specs/` directory plus `specs/frs/`, `specs/frs/archive/`, `specs/plan/`, `specs/plan/archive/` (the v2 layout — per-unit archival; no rolling index file).
 - Write `specs/.dpt-layout` with `version: v2`, `migrated_at: <now>`, `migration_commit: null` (fresh project marker; see Schema R in `specs/technical-spec.md`).
-- Copy cross-cutting templates from `${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/` (`requirements.md`, `technical-spec.md`, `testing-spec.md`). Do not create or copy any `archive-index.md` file — v2 archival is `git mv` + frontmatter flip (FR-45); there is no index template.
+- Copy cross-cutting templates from `${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/` (`requirements.md`, `technical-spec.md`, `testing-spec.md`). Do not create or copy any `archive-index.md` file — v2 archival is `git mv` + frontmatter flip (STE-22); there is no index template.
 - **Pre-fill with concrete values** from what you already know — replace every placeholder you can with real data:
   - **requirements.md:** Project name, overview, detected stack. Fill the traceability matrix header rows with AC IDs from any existing requirements.
   - **technical-spec.md:** Actual directory structure (run `ls`), actual dependencies with pinned versions (from lock file or package manifest), module boundaries you can infer from the code

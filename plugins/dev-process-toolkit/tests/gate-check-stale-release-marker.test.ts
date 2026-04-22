@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// FR-62 AC-62.5 conformance — /gate-check carries a warn-only lint rule
+// STE-41 AC-STE-41.5 conformance — /gate-check carries a warn-only lint rule
 // that catches "(in flight — v<X.Y.Z>)" / "(planned — v<X.Y.Z>)" markers
 // in specs/requirements.md when the referenced version already ships in
 // CHANGELOG.md. Stops the "changelog-by-accident" rot observed 2026-04-22
@@ -16,11 +16,11 @@ function readGateCheckSkill(): string {
   return readFileSync(gateCheckSkillPath, "utf8");
 }
 
-describe("FR-62 AC-62.5 — /gate-check stale-release-marker lint rule", () => {
+describe("STE-41 AC-STE-41.5 — /gate-check stale-release-marker lint rule", () => {
   test("SKILL.md names the Stale release marker probe and its FR reference", () => {
     const body = readGateCheckSkill();
     expect(body).toContain("Stale release marker");
-    expect(body).toMatch(/AC-62\.5/);
+    expect(body).toMatch(/AC-STE-41\.5/);
   });
 
   test("probe describes the marker detection (in flight / planned) + CHANGELOG cross-reference", () => {

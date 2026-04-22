@@ -1,7 +1,7 @@
-# `/setup --migrate` — Mode Migration (FR-36)
+# `/setup --migrate` — Mode Migration (STE-14)
 
 Distinct invocation of `/setup` that moves an existing project between
-modes. Atomic per AC-36.7: any step failure leaves CLAUDE.md `mode:` and
+modes. Atomic per AC-STE-14.7: any step failure leaves CLAUDE.md `mode:` and
 `specs/` unchanged; partial tracker-side side effects are reported with a
 retry/rollback prompt in NFR-10 canonical shape.
 
@@ -10,7 +10,7 @@ transitions out of `mode: none`. Running `/setup --migrate` on a project
 that's already in `mode: none` with no tracker picked exits cleanly with a
 one-line "nothing to migrate" message.
 
-## Detect the current mode (AC-36.2)
+## Detect the current mode (AC-STE-14.2)
 
 1. Read CLAUDE.md and run the Schema L probe.
 2. If no `## Task Tracking` section → current mode is `none`.
@@ -23,25 +23,25 @@ Report the detected current mode and prompt:
 
 Refuse a no-op migration (`current === target`).
 
-## Supported transitions (AC-36.3)
+## Supported transitions (AC-STE-14.3)
 
 1. `none → <tracker>` — bulk-create tracker tickets for each FR in the
    local spec tree (v2: `specs/frs/<ulid>.md` files; v1:
-   `specs/requirements.md` blocks — iteration branches per FR-57); record
+   `specs/requirements.md` blocks — iteration branches per STE-36); record
    IDs in the canonical multi-line `tracker:` frontmatter map (v2) or the
    traceability matrix (v1). Local AC content is preserved unchanged
-   (Path B, AC-36.4).
+   (Path B, AC-STE-14.4).
 2. `<tracker> → none` — pull ACs from each FR's tracker ticket, reconcile
-   via FR-39 if drift exists, write the resolved state back to the local
+   via STE-17 if drift exists, write the resolved state back to the local
    FR file (v2: `specs/frs/<ulid>.md` body; v1: `specs/requirements.md`).
    Tracker tickets left intact; user prompted to optionally close them
-   (AC-36.5).
+   (AC-STE-14.5).
 3. `<tracker> → <other tracker>` — pull from old, reconcile with local
-   via FR-39, push to new via `upsert_ticket_metadata`. Old tracker
+   via STE-17, push to new via `upsert_ticket_metadata`. Old tracker
    tickets NOT deleted. Binding rows updated in FR frontmatter (v2) or
-   the traceability matrix (v1) (AC-36.6).
+   the traceability matrix (v1) (AC-STE-14.6).
 
-## Atomicity guarantee (AC-36.7)
+## Atomicity guarantee (AC-STE-14.7)
 
 Before any mutation, snapshot the current state in-memory — layout-aware:
 
@@ -67,14 +67,14 @@ On **any** step failure during migration:
   ```
 
 - CLAUDE.md `mode:` line is **never** rewritten until the migration
-  finishes successfully (AC-36.7 transactional guarantee).
+  finishes successfully (AC-STE-14.7 transactional guarantee).
 
 ## Pre-migration on-disk backup (defensive)
 
 The atomicity guarantee above is an in-session contract — it depends on
 the skill following this document on every run. As a defense-in-depth
 safeguard for the two paths that **write to local source-of-truth files**
-(`<tracker> → none` and `<tracker> → <other tracker>`, both via FR-39
+(`<tracker> → none` and `<tracker> → <other tracker>`, both via STE-17
 reconciliation), copy the files that the migration may rewrite to
 timestamped backups **before any local mutation** — layout-aware:
 
@@ -117,23 +117,23 @@ Rules:
   migration with an NFR-10 canonical-shape error before any further
   work — no backup, no migration.
 
-## `none → <tracker>` procedure (AC-36.4, AC-36.8)
+## `none → <tracker>` procedure (AC-STE-14.4, AC-STE-14.8)
 
-1. Verify Bun (AC-30.8), MCP configured, test call passes. Fail fast.
+1. Verify Bun (AC-STE-9.8), MCP configured, test call passes. Fail fast.
 2. Run any tenant-specific discovery (Jira `jira_ac_field`).
 3. **Discover the FR list — layout-aware.** Read `specs/.dpt-layout`
-   version and branch (AC-57.1):
+   version and branch (AC-STE-36.1):
 
    - **v2 layout** — iterate `readdirSync(specsDir + '/frs')` (same
      parser used by `regenerateIndex`), parse each file's YAML
      frontmatter via `parseFrontmatter`, and skip anything under
-     `specs/frs/archive/` (AC-57.2). Archived FRs (`status: archived`
+     `specs/frs/archive/` (AC-STE-36.2). Archived FRs (`status: archived`
      / files under the `archive/` subdir) are excluded because they
      shipped in a prior release and have no active tracker target.
    - **v1 layout** — iterate `### FR-{N}:` blocks in
      `specs/requirements.md` as today.
 
-   **Refuse an empty tree (AC-57.5).** If `specs/.dpt-layout` is absent
+   **Refuse an empty tree (AC-STE-36.5).** If `specs/.dpt-layout` is absent
    AND `specs/requirements.md` is absent AND `specs/frs/` is absent,
    stop migration with the NFR-10 canonical shape:
 
@@ -143,7 +143,7 @@ Rules:
    Context: mode=none, ticket=none, skill=setup --migrate
    ```
 
-   **Emit a structured summary + confirm (AC-57.4).** Before any
+   **Emit a structured summary + confirm (AC-STE-36.4).** Before any
    `upsert_ticket_metadata` call, print exactly:
 
    ```
@@ -152,10 +152,10 @@ Rules:
 
    where `<layout>` is `v1` or `v2` and `N` is the discovered count.
    Require explicit user confirmation before proceeding — declining
-   exits cleanly per AC-36.7 atomicity (nothing written, no tickets
+   exits cleanly per AC-STE-14.7 atomicity (nothing written, no tickets
    created).
 
-   **3a. Initial ticket state (FR-60 AC-60.1/60.4).** Before the bulk
+   **3a. Initial ticket state (STE-39 AC-STE-39.1/STE-39.4).** Before the bulk
    push — after the count-confirm above but **prior to** any
    `upsert_ticket_metadata` / `save_issue` call — prompt once, verbatim:
 
@@ -175,13 +175,13 @@ Rules:
    Context: mode=<target>, ticket=bulk, skill=setup --migrate
    ```
 
-   Option 4 (`ask per-FR`, AC-60.2) defers the choice to each FR in
+   Option 4 (`ask per-FR`, AC-STE-39.2) defers the choice to each FR in
    step 3c: the per-FR default comes from the FR's frontmatter
    `status:` — `active → Backlog`, `in_progress → In Progress`.
-   Archived FRs are always excluded from the push per AC-45.3
+   Archived FRs are always excluded from the push per AC-STE-22.3
    regardless of this choice.
 
-   **3b. Project milestone mapping (FR-59 AC-59.1/59.2/59.3).** If the
+   **3b. Project milestone mapping (STE-38 AC-STE-38.1/STE-38.2/59.3).** If the
    active adapter declares `project_milestone: true` in its Schema M
    frontmatter, scan the discovered FR list for distinct
    `milestone: M<N>` values, then resolve each to a tracker milestone
@@ -212,7 +212,7 @@ Rules:
       from step 3a, or the per-FR frontmatter default when option 4
       was picked.
    2. Call `upsert_ticket_metadata(null, FR title, rendered description)`
-      with adapter-equivalent extra arguments (AC-60.3, AC-59.1):
+      with adapter-equivalent extra arguments (AC-STE-39.3, AC-STE-38.1):
       - **Linear** — `save_issue(title=…, description=…, state=<chosen state>, milestone=<resolved M<N>-id>, project=<configured>)`.
         The `state` argument flows from step 3a; the `milestone`
         argument flows from step 3b and is omitted when the `M<N>`
@@ -226,24 +226,24 @@ Rules:
       `{ frPath, trackerKey, ticketId, state, milestone? }`.
 4. **Only after all FRs pushed successfully:** write the `## Task Tracking`
    section with `mode: <tracker>` + discovered keys to CLAUDE.md, then
-   record each binding (AC-58.1, AC-58.3):
+   record each binding (AC-STE-37.1, AC-STE-37.3):
 
    - **v2 layout** — for each entry in the `bindings` buffer, call
      `setTrackerBinding(frFileContents, trackerKey, ticketId)` from
      `adapters/_shared/src/frontmatter.ts` and write the updated body
      back to `specs/frs/<ulid>.md`. The helper produces the canonical
      multi-line form (`tracker:\n  <key>: <id>`) that the parser + INDEX
-     generator expect — never the ad-hoc inline `{}` form (AC-58.4).
+     generator expect — never the ad-hoc inline `{}` form (AC-STE-37.4).
      Existing `tracker:` entries are preserved alphabetically so a
      second migration into a different tracker (`<tracker> → <other>`,
-     AC-58.2 / AC-42.5) merges instead of overwriting. `tracker: {}` is
+     AC-STE-37.2 / AC-STE-19.5) merges instead of overwriting. `tracker: {}` is
      valid only as the empty-state seed emitted by FR creation.
 
    - **v1 layout** — update the traceability matrix's Implementation
-     column with `ticket=<id>` rows (AC-58.3, backward compat).
+     column with `ticket=<id>` rows (AC-STE-37.3, backward compat).
 
    **Frontmatter write failure after a successful push is a partial
-   failure (AC-58.5).** If disk-full / permission errors interrupt the
+   failure (AC-STE-37.5).** If disk-full / permission errors interrupt the
    per-FR binding write after `upsert_ticket_metadata` has already
    created the ticket, the CLAUDE.md `mode:` line is NOT written and
    migration surfaces an NFR-10 canonical-shape error:
@@ -256,24 +256,24 @@ Rules:
    ```
 
    The operator resolves before CLAUDE.md is touched — atomicity
-   guarantee (AC-36.7) extends through step 4.
-5. **Regenerate `specs/INDEX.md`** (FR-61 AC-61.1/AC-61.4) — call
+   guarantee (AC-STE-14.7) extends through step 4.
+5. **Regenerate `specs/INDEX.md`** (STE-40 AC-STE-40.1/AC-STE-40.4) — call
    `regenerateIndex(specsDir)` from
    `adapters/_shared/src/index_gen.ts`. This runs inside the atomicity
-   boundary (AC-36.7, AC-61.2): if regen fails, the CLAUDE.md `mode:`
+   boundary (AC-STE-14.7, AC-STE-40.2): if regen fails, the CLAUDE.md `mode:`
    line is NOT written and migration surfaces an NFR-10 canonical-shape
    error listing the frontmatter-bound FRs so the operator can reverse
-   the bindings manually. FR-40 AC-40.4 requires INDEX to be rebuilt
+   the bindings manually. STE-26 AC-STE-26.4 requires INDEX to be rebuilt
    by any skill that writes under `specs/frs/`; migration wrote N
    bindings, so regen is mandatory.
-6. Sync-log append (FR-60 AC-60.5): `- <ISO> — Migration complete: none → <tracker>, <N> FRs moved (initial state: <Name>)`.
+6. Sync-log append (STE-39 AC-STE-39.5): `- <ISO> — Migration complete: none → <tracker>, <N> FRs moved (initial state: <Name>)`.
    When option 4 (per-FR) was chosen in step 3a, record
    `(initial state: per-FR)` so the log still shows that the initial
    state was a deliberate choice rather than a silent default.
 
 Mid-bulk failure triggers the retry/rollback prompt above.
 
-## `<tracker> → none` procedure (AC-36.5)
+## `<tracker> → none` procedure (AC-STE-14.5)
 
 0. **Pre-migration backup** — back up CLAUDE.md and the live spec tree
    per the section above (v2: `CLAUDE.md` + `specs.pre-migrate-backup-<ISO>.tgz`;
@@ -281,7 +281,7 @@ Mid-bulk failure triggers the retry/rollback prompt above.
    This is the highest-risk migration direction (local files become the
    new source of truth); the on-disk backup is the recovery path of
    last resort.
-1. **Iterate FRs — layout-aware (FR-57 AC-57.1).** For each FR bound to
+1. **Iterate FRs — layout-aware (STE-36 AC-STE-36.1).** For each FR bound to
    the departing tracker:
    - **v2 layout** — iterate `readdirSync(specsDir + '/frs')`, parse
      frontmatter via `parseFrontmatter`, filter to those whose
@@ -291,7 +291,7 @@ Mid-bulk failure triggers the retry/rollback prompt above.
 
    For each FR:
    1. Call `pull_acs(ticket_id)`.
-   2. Diff against local FR's AC list via FR-39 classifier.
+   2. Diff against local FR's AC list via STE-17 classifier.
    3. If any classification is non-`identical`, prompt per-AC
       (`keep local` / `keep tracker` / `merge` / `cancel`).
    4. Write the resolved AC list back to the local FR:
@@ -303,45 +303,45 @@ Mid-bulk failure triggers the retry/rollback prompt above.
    entry for the departing tracker from each FR's frontmatter under
    `specs/frs/` (v2) or clear the traceability-matrix `ticket=<id>`
    column (v1).
-3. **Regenerate `specs/INDEX.md`** (FR-61 AC-61.5) — call
+3. **Regenerate `specs/INDEX.md`** (STE-40 AC-STE-40.5) — call
    `regenerateIndex(specsDir)` from
    `adapters/_shared/src/index_gen.ts`. Same rule as `none → <tracker>`
-   direction: any frontmatter write triggers regen per FR-40 AC-40.4.
-   Inside the atomicity boundary (AC-36.7): if regen fails, CLAUDE.md
+   direction: any frontmatter write triggers regen per STE-26 AC-STE-26.4.
+   Inside the atomicity boundary (AC-STE-14.7): if regen fails, CLAUDE.md
    mode line stays untouched.
 4. Remove `## Task Tracking` from CLAUDE.md (back to canonical `none`
-   form per AC-29.5).
+   form per AC-STE-8.5).
 5. Prompt the user: "Close the former tracker tickets now? [y/N]" — on
    `y`, call `transition_status(ticket, done)` for each. Declining leaves
    them open; the plugin never deletes tickets.
 
-## `<tracker> → <other>` procedure (AC-36.6)
+## `<tracker> → <other>` procedure (AC-STE-14.6)
 
 0. **Pre-migration backup** — back up CLAUDE.md and the live spec tree
    per the section above (v2: `CLAUDE.md` + `specs.pre-migrate-backup-<ISO>.tgz`;
    v1: `CLAUDE.md` + `specs/requirements.md.pre-migrate-backup-<ISO>`).
    This path runs `<tracker> → none` reconciliation internally, which
-   writes to local files; the backup covers a partial-FR-39 failure
+   writes to local files; the backup covers a partial-STE-17 failure
    scenario.
 1. Run `<tracker> → none` internally (steps 1–2 above) but **don't**
    write the none-form yet.
 2. Run `none → <other>` internally (steps 1–3 of the none→tracker
    procedure).
-3. **Regenerate `specs/INDEX.md`** (FR-61 AC-61.5) — call
+3. **Regenerate `specs/INDEX.md`** (STE-40 AC-STE-40.5) — call
    `regenerateIndex(specsDir)` once, after both halves have written
    their frontmatter changes. Inside the atomicity boundary
-   (AC-36.7): if regen fails, the new `## Task Tracking` section is
+   (AC-STE-14.7): if regen fails, the new `## Task Tracking` section is
    NOT written.
 4. Write the new `## Task Tracking` section with `mode: <other>` only
    after both halves succeed AND INDEX regenerated. Old tracker
    tickets untouched.
 5. Binding rows updated with the new ticket IDs — in FR frontmatter
-   `tracker:` map (v2, via `setTrackerBinding` per FR-58) or the
+   `tracker:` map (v2, via `setTrackerBinding` per STE-37) or the
    traceability matrix (v1).
 
 ## Sync-log entry
 
-After a completed migration, append one entry per AC-39.8 (same form,
+After a completed migration, append one entry per AC-STE-17.8 (same form,
 different message):
 
 ```

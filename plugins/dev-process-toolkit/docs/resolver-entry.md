@@ -9,7 +9,7 @@
 ## When to run
 
 **Every v2-layout invocation of `/spec-write`, `/implement`, `/spec-archive`.**
-Runs *after* the layout version gate (FR-47) and, for `/implement`, *before*
+Runs *after* the layout version gate (STE-29) and, for `/implement`, *before*
 `Provider.claimLock`. In v1 projects (`specs/.dpt-layout` absent) the resolver
 step is skipped entirely — pre-M14 argument handling is preserved byte-for-byte
 per NFR-18.
@@ -28,9 +28,8 @@ per NFR-18.
 |--------|----------------------------|---------------------------|------------------------------|
 | `ulid` | Open `specs/frs/<ulid>.md` for editing (pre-M14 path) | Proceed to `Provider.claimLock(ulid, branch)` | Archive via `git mv` + frontmatter flip (pre-M14 path) |
 | `tracker-id` or `url`, find-by-tracker-ref hit | Open that existing FR for editing. **No network call.** | Proceed to `Provider.claimLock(ulid, branch)` on the resolved ULID | Archive via `git mv` + frontmatter flip on the resolved ULID |
-| `tracker-id` or `url`, find-by-tracker-ref miss | Run `importFromTracker` — mints ULID, writes new FR file with tracker ACs auto-accepted (**no FR-39 per-AC prompts**, AC-52.5), regenerates INDEX | Run `importFromTracker` then `Provider.claimLock` on the new ULID | **Refuse** with NFR-10 shape: `"No local FR mapped to <tracker>:<id>. Archival never auto-imports. To dismiss the tracker ticket, close it in the tracker directly."` Non-zero exit, no side effects. |
-| `fr-code` (FR-69) — AC-prefix scan via `findFRByFRCode(specsDir, N)` | Scan hit → open resolved ULID. Multiple matches → `AmbiguousArgumentError` (kind: `fr-code`) → NFR-10 refusal; remedy enumerates ULIDs, suggests passing the ULID directly. Miss → NFR-10 refusal: `"No local FR carries AC-<N>. lines. Remedy: run /spec-write FR-<N> to scaffold it, or pass the ULID directly if it exists under archive/"`. | Same as `/spec-write` — if hit, proceed to `Provider.claimLock(ulid, branch)`. Ambiguous → NFR-10 refusal. Miss → NFR-10 refusal with same scaffold remedy. | Same as `/spec-write` — if hit, archive via `git mv` + frontmatter flip on the resolved ULID. Ambiguous → NFR-10 refusal. Miss → NFR-10 refusal. Archive scope is excluded from the scan. |
-| `fallthrough` | Handle per pre-M14 contract (`all`, `requirements`, `technical-spec`, `testing-spec`, `plan`) | Handle per pre-M14 contract (milestone code like `M13`, GitHub issue number, task description) | Handle per pre-M14 contract (anchor `{#M3}`, heading text, milestone id `M12`) |
+| `tracker-id` or `url`, find-by-tracker-ref miss | Run `importFromTracker` — mints ULID, writes new FR file with tracker ACs auto-accepted (**no STE-17 per-AC prompts**, AC-STE-31.5), regenerates INDEX | Run `importFromTracker` then `Provider.claimLock` on the new ULID | **Refuse** with NFR-10 shape: `"No local FR mapped to <tracker>:<id>. Archival never auto-imports. To dismiss the tracker ticket, close it in the tracker directly."` Non-zero exit, no side effects. |
+| `fallthrough` | Handle per pre-M14 contract (`all`, `requirements`, `technical-spec`, `testing-spec`, `plan`). Literal `FR-<N>` arguments land here post-STE-52. | Handle per pre-M14 contract (milestone code like `M13`, GitHub issue number, task description). Literal `FR-<N>` arguments land here post-STE-52. | Handle per pre-M14 contract (anchor `{#M3}`, heading text, milestone id `M12`). Literal `FR-<N>` arguments land here post-STE-52. |
 
 ## Ambiguity & disambiguation
 
@@ -50,7 +49,7 @@ and always wins over inference — use it as the documented escape hatch.
 ## Branch-name interop (/implement only)
 
 If the branch name contains a ticket ID via the adapter's `ticket_id_regex`
-(FR-32) AND the argument resolves to a different ticket ID, the argument wins.
+(STE-27) AND the argument resolves to a different ticket ID, the argument wins.
 Emit an NFR-10-shape warning naming both IDs; implementation proceeds on the
 argument's ticket unless the user cancels the confirmation prompt.
 

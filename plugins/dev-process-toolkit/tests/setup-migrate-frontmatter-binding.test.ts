@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// FR-58 conformance — /setup --migrate must record tracker bindings in the
+// STE-37 conformance — /setup --migrate must record tracker bindings in the
 // right place for the detected layout. On v2, that means writing to each
 // FR's frontmatter `tracker:` map via the shared setTrackerBinding writer
 // (not the traceability matrix, which v2 slimmed away); on v1, it means
@@ -19,8 +19,8 @@ function readMigrateDoc(): string {
   return readFileSync(migrateDocPath, "utf8");
 }
 
-describe("FR-58 — migration writes tracker bindings to FR frontmatter", () => {
-  test("AC-58.1/58.4 — v2 branch names the setTrackerBinding helper (canonical writer)", () => {
+describe("STE-37 — migration writes tracker bindings to FR frontmatter", () => {
+  test("AC-STE-37.1/STE-37.4 — v2 branch names the setTrackerBinding helper (canonical writer)", () => {
     const body = readMigrateDoc();
     const section = body.match(/## `none → <tracker>` procedure[\s\S]*?(?=^## )/m);
     expect(section).not.toBeNull();
@@ -30,22 +30,22 @@ describe("FR-58 — migration writes tracker bindings to FR frontmatter", () => 
     // Explicit path so the import target is obvious.
     expect(section![0]).toContain("adapters/_shared/src/frontmatter.ts");
     // Must name the canonical multi-line form and forbid the inline-{}
-    // shortcut (AC-58.4).
+    // shortcut (AC-STE-37.4).
     expect(section![0]).toMatch(/tracker:\\n\s*<key>: <id>|tracker:\n  <key>: <id>/);
   });
 
-  test("AC-58.2 — alphabetical preservation rule is stated in the v2 branch", () => {
+  test("AC-STE-37.2 — alphabetical preservation rule is stated in the v2 branch", () => {
     const body = readMigrateDoc();
     const section = body.match(/## `none → <tracker>` procedure[\s\S]*?(?=^## )/m)![0];
     // The rule must be present explicitly — it's the difference between a
     // merging bind and an overwriting bind on the multi-tracker path.
     expect(section).toMatch(/preserv.*alphabetical/i);
-    // AC-42.5 cross-reference keeps the pointer stable when readers chase
+    // AC-STE-19.5 cross-reference keeps the pointer stable when readers chase
     // the alphabetical-ordering invariant.
-    expect(section).toContain("AC-42.5");
+    expect(section).toContain("AC-STE-19.5");
   });
 
-  test("AC-58.3 — v1 branch keeps the traceability-matrix write as today", () => {
+  test("AC-STE-37.3 — v1 branch keeps the traceability-matrix write as today", () => {
     const body = readMigrateDoc();
     const section = body.match(/## `none → <tracker>` procedure[\s\S]*?(?=^## )/m)![0];
     // Must explicitly name the v1 backward-compat path so a reader doesn't
@@ -55,9 +55,9 @@ describe("FR-58 — migration writes tracker bindings to FR frontmatter", () => 
     expect(section).toMatch(/ticket=<id>/);
   });
 
-  test("AC-58.5 — partial-failure NFR-10 prompt enumerates un-bound FRs and blocks mode-line write", () => {
+  test("AC-STE-37.5 — partial-failure NFR-10 prompt enumerates un-bound FRs and blocks mode-line write", () => {
     const body = readMigrateDoc();
-    // The exact header phrase from AC-58.5 — locks the load-bearing
+    // The exact header phrase from AC-STE-37.5 — locks the load-bearing
     // "K of N frontmatter writes succeeded" wording that tells the
     // operator how far the bulk got before the failure.
     expect(body).toMatch(/Migration failed mid-bind: K of N frontmatter writes succeeded/);

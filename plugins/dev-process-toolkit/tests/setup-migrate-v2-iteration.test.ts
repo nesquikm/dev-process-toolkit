@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFrontmatter } from "../adapters/_shared/src/frontmatter";
 
-// FR-57 conformance — /setup --migrate none→tracker must walk the correct
+// STE-36 conformance — /setup --migrate none→tracker must walk the correct
 // FR list for the detected layout. On v2 layout, FRs live one-per-file
 // under specs/frs/*.md (not in specs/requirements.md), so the procedure
 // must branch on .dpt-layout version or find zero FRs and silently do
@@ -11,7 +11,7 @@ import { parseFrontmatter } from "../adapters/_shared/src/frontmatter";
 //
 // These tests lock the procedure-doc wording at the markers that determine
 // whether the LLM driving the migration branches correctly. Plus an
-// existence test on the regression fixture that AC-57.3 requires.
+// existence test on the regression fixture that AC-STE-36.3 requires.
 
 const pluginRoot = join(import.meta.dir, "..");
 const migrateDocPath = join(pluginRoot, "docs", "setup-migrate.md");
@@ -29,8 +29,8 @@ function readMigrateDoc(): string {
   return readFileSync(migrateDocPath, "utf8");
 }
 
-describe("FR-57 — none→tracker migration walks the correct layout", () => {
-  test("AC-57.1 — procedure branches on specs/.dpt-layout version", () => {
+describe("STE-36 — none→tracker migration walks the correct layout", () => {
+  test("AC-STE-36.1 — procedure branches on specs/.dpt-layout version", () => {
     const body = readMigrateDoc();
     const section = body.match(/## `none → <tracker>` procedure[\s\S]*?(?=^## )/m);
     expect(section).not.toBeNull();
@@ -42,7 +42,7 @@ describe("FR-57 — none→tracker migration walks the correct layout", () => {
     expect(section![0]).toMatch(/v1 layout/);
   });
 
-  test("AC-57.2 — v2 iteration uses readdirSync + frontmatter parser, excludes archive/", () => {
+  test("AC-STE-36.2 — v2 iteration uses readdirSync + frontmatter parser, excludes archive/", () => {
     const body = readMigrateDoc();
     const section = body.match(/## `none → <tracker>` procedure[\s\S]*?(?=^## )/m);
     expect(section).not.toBeNull();
@@ -54,7 +54,7 @@ describe("FR-57 — none→tracker migration walks the correct layout", () => {
     expect(section![0]).toMatch(/specs\/frs\/archive/);
   });
 
-  test("AC-57.4 — emits the exact summary prompt before pushing", () => {
+  test("AC-STE-36.4 — emits the exact summary prompt before pushing", () => {
     const body = readMigrateDoc();
     // The wording is load-bearing — it's the user's last off-ramp before
     // the migration mutates the tracker. A drifted phrase means the LLM
@@ -67,9 +67,9 @@ describe("FR-57 — none→tracker migration walks the correct layout", () => {
     expect(section).toMatch(/explicit user confirmation/i);
   });
 
-  test("AC-57.5 — refuses when all three spec signals are absent (NFR-10 canonical shape)", () => {
+  test("AC-STE-36.5 — refuses when all three spec signals are absent (NFR-10 canonical shape)", () => {
     const body = readMigrateDoc();
-    // Exact refusal message from AC-57.5.
+    // Exact refusal message from AC-STE-36.5.
     expect(body).toContain("No specs/ content found; nothing to migrate.");
     // Must be in NFR-10 canonical shape — includes Remedy + Context lines.
     const section = body.match(/No specs\/ content found[\s\S]{0,400}/)![0];
@@ -78,14 +78,14 @@ describe("FR-57 — none→tracker migration walks the correct layout", () => {
     expect(section).toMatch(/skill=setup --migrate/);
   });
 
-  test("AC-57.3 — regression fixture mode-none-v2-migration has ≥3 FR files", () => {
+  test("AC-STE-36.3 — regression fixture mode-none-v2-migration has ≥3 FR files", () => {
     const frFiles = readdirSync(fixtureFrsDir).filter(
       (f) => f.startsWith("fr_") && f.endsWith(".md"),
     );
     expect(frFiles.length).toBeGreaterThanOrEqual(3);
 
     // Every FR must have valid frontmatter with `status: active` so the
-    // v2 iteration discovers them (AC-57.2). Archived FRs would drop out
+    // v2 iteration discovers them (AC-STE-36.2). Archived FRs would drop out
     // and regress the "≥3 discovered" invariant.
     const active = frFiles.filter((f) => {
       const text = readFileSync(join(fixtureFrsDir, f), "utf8");

@@ -20,7 +20,7 @@ Install guidance:
 - **Windows:** `powershell -c "irm bun.sh/install.ps1 | iex"`
 
 `/setup` verifies Bun with `bun --version` when the user picks a tracker
-mode (AC-30.8). If Bun is absent, `/setup` surfaces an NFR-10 canonical-shape
+mode (AC-STE-9.8). If Bun is absent, `/setup` surfaces an NFR-10 canonical-shape
 error with install guidance and **does not record `mode: <tracker>`** — the
 project remains in `mode: none` until Bun is available.
 
@@ -61,12 +61,12 @@ Full definitions live in `specs/technical-spec.md` §7.3. Summary:
   `ticket_id_regex`, `ticket_id_source`, `ac_storage_convention`,
   `status_mapping`, `capabilities`, `project_milestone`,
   `ticket_description_template`, `helpers_dir`. Capabilities drive
-  FR-38 AC-38.6 graceful degradation; `project_milestone` (FR-59)
+  STE-16 AC-STE-16.6 graceful degradation; `project_milestone` (STE-38)
   opts the adapter into migration-time milestone binding.
 - **Schema N — `AcceptanceCriterion` list.** Returned by `pull_acs`. Fields:
   `id`, `text`, `completed`.
 - **Schema O — `TicketMetadata`.** Internal; tracked for concurrency via
-  `updated_at` (AC-33.2, AC-33.3).
+  `updated_at` (AC-STE-11.2, AC-STE-11.3).
 - **Schema P — Helper script I/O contract.** JSON on stdin → JSON on
   stdout, errors on stderr + non-zero exit, no network, deterministic pure
   functions.
@@ -81,7 +81,7 @@ Full definitions live in `specs/technical-spec.md` §7.3. Summary:
    - `ticket_id_regex` captures the numeric/ID portion of a branch name.
    - `capabilities` lists only what your adapter supports. Omit any op you
      can't implement — `/gate-check` and `/pr` degrade gracefully with an
-     NFR-10 canonical-shape warning (FR-38 AC-38.6).
+     NFR-10 canonical-shape warning (STE-16 AC-STE-16.6).
 4. Author the four operation sections in your markdown. Each section names
    the MCP tool and notes any tracker-specific quirks (normalization,
    field discovery, HTML rendering).
@@ -117,9 +117,9 @@ responsibility.
 
 - [ ] Returns Schema N list (objects with `id`, `text`, `completed`)
 - [ ] Non-AC content (comments, description preamble, attachments) discarded at
-      parser boundary (FR-35)
+      parser boundary (STE-13)
 - [ ] Empty-AC ticket fails the skill with `"No acceptance criteria found in
-      ticket <ID>"` in NFR-10 canonical shape (AC-35.4)
+      ticket <ID>"` in NFR-10 canonical shape (AC-STE-13.4)
 - [ ] Normalization round-trips: `normalize(normalize(x)) === normalize(x)`
       holds for Linear; equivalent invariant for Jira
 
@@ -128,9 +128,9 @@ responsibility.
 - [ ] Toggling a single AC in the tracker updates only that checkbox (other
       ACs unchanged, no description rewrites beyond the minimal diff)
 - [ ] Linear: semantic markdown diff used, not string diff — no Linear
-      server-side normalization loop (AC-37.5)
+      server-side normalization loop (AC-STE-15.5)
 - [ ] If adapter does not declare `push_ac_toggle` in capabilities, skills
-      degrade with an NFR-10 canonical-shape reminder (FR-38 AC-38.6)
+      degrade with an NFR-10 canonical-shape reminder (STE-16 AC-STE-16.6)
 
 ### `transition_status`
 
@@ -145,18 +145,18 @@ responsibility.
 - [ ] Updating an existing ticket rewrites title + description only (no
       status change, no AC toggle — those have dedicated ops)
 - [ ] Description body contains the full FR body **and** a visible back-link
-      to `specs/requirements.md#FR-{N}` (AC-37.6)
-- [ ] FR-39 round-trip: after `upsert` then `pull_acs`, the returned AC list
+      to `specs/requirements.md#FR-{N}` (AC-STE-15.6)
+- [ ] STE-17 round-trip: after `upsert` then `pull_acs`, the returned AC list
       is identical (after normalization) to what was pushed — no infinite
-      reconciliation (AC-39.6)
+      reconciliation (AC-STE-17.6)
 
 ### End-to-end flow
 
 - [ ] Fresh-project `/setup → linear|jira → pull_acs` round-trip
       succeeds; `mode: <tracker>` recorded in CLAUDE.md
 - [ ] `/implement` pre-flight fetches ticket, records `updatedAt`, and runs
-      FR-39 diff/resolve loop
-- [ ] Edit an AC on the tracker side, re-run `/implement` — FR-39 surfaces
+      STE-17 diff/resolve loop
+- [ ] Edit an AC on the tracker side, re-run `/implement` — STE-17 surfaces
       the `tracker-only` or `edited-both` classification and prompts
 - [ ] Pass gate → `/gate-check` toggles the AC on the tracker (unless
       adapter declares no `push_ac_toggle`)
@@ -165,7 +165,7 @@ responsibility.
 - [ ] `/setup --migrate <tracker> → none` pulls ACs into local
       `specs/requirements.md` and leaves tracker tickets intact
 
-## Capability-aware degradation (FR-38 AC-38.6)
+## Capability-aware degradation (STE-16 AC-STE-16.6)
 
 Each adapter's `capabilities:` frontmatter list declares which of the four
 ops it supports. A missing capability is an **opt-out**, not a failure:
@@ -178,19 +178,19 @@ tracker-side side effect.
 | `pull_acs` | `/implement`, `/gate-check`, `/spec-review`, `/spec-write`, migration | Hard fail — adapter without `pull_acs` can't function; skills fail with NFR-10 canonical shape at pre-flight. |
 | `push_ac_toggle` | `/gate-check` on gate pass | Skip the push; print canonical-shape warning telling the user to toggle manually. Gate verdict unchanged. |
 | `transition_status` | `/pr` post-create, migration `tracker → none` "close tickets" prompt | Skip the transition; print canonical-shape warning. PR still created; migration still completes. |
-| `upsert_ticket_metadata` | `/spec-write` post-save, FR-39 `keep local` / `merge`, `/pr` PR-link update, migration `none → tracker` / `<tracker> → <other>` | Skip the push; print canonical-shape warning. Local save still commits; PR still created; migration to-tracker becomes impossible (the user has to pick a different target). |
+| `upsert_ticket_metadata` | `/spec-write` post-save, STE-17 `keep local` / `merge`, `/pr` PR-link update, migration `none → tracker` / `<tracker> → <other>` | Skip the push; print canonical-shape warning. Local save still commits; PR still created; migration to-tracker becomes impossible (the user has to pick a different target). |
 
 `pull_acs` is the only hard requirement — it's the foundation of every
 skill's tracker-mode branch. The other three are each opt-outable with a
 user-visible warning.
 
-## Migration-time adapter behaviours (FR-59, FR-60)
+## Migration-time adapter behaviours (STE-38, STE-39)
 
 `/setup --migrate none → <tracker>` surfaces two adapter-configurable
 behaviours beyond the 4-op contract above. Both live in Schema M
 frontmatter and keep tracker-specific logic out of the skill.
 
-### Project Milestone mapping (FR-59)
+### Project Milestone mapping (STE-38)
 
 Each FR declares its local milestone via frontmatter `milestone: M<N>`.
 Migration can bind the pushed ticket to a tracker-native release or
@@ -210,7 +210,7 @@ Custom adapters that add a native "release milestone" field should flip
 `upsert_ticket_metadata` implementation. See
 `docs/setup-migrate.md` § `3b` for the full procedure the LLM follows.
 
-### Initial ticket state (FR-60)
+### Initial ticket state (STE-39)
 
 Bulk-creating tickets without picking an initial state lands everything
 in Backlog, which misrepresents already-shipped migrations. The
@@ -225,7 +225,7 @@ the choice isn't mapped. Adapter authors who want to support
 non-default initial states in migration simply add those mappings —
 there is no parallel allowlist field to keep in sync. The chosen
 default is captured in the sync-log entry so future audits can see
-which bulk-state each migration picked (AC-60.5).
+which bulk-state each migration picked (AC-STE-39.5).
 
 ## Latency expectations (NFR-6)
 
@@ -242,7 +242,7 @@ return a successful-looking payload even when nothing mutated. If an
 adapter driver passes the wrong key (`status` instead of `state`,
 `assigneeEmail` instead of `assignee`, etc.), the write silently
 no-ops and the skill thinks the transition landed. Observed
-2026-04-22 during `/implement FR-57 FR-58` (FR-67).
+2026-04-22 during `/implement STE-36 STE-37` (STE-46).
 
 **Rule for every adapter driver:** after any write (`transition_status`,
 `upsert_ticket_metadata`, `push_ac_toggle`), re-fetch the ticket and
@@ -266,16 +266,16 @@ own adapter markdown.
 
 - Description-stored ACs; Linear normalizes markdown on the server side, so
   `adapters/linear/src/normalize.ts` is the canonical form on both pull
-  and push (AC-39.6). Without it, reconcile loops fire every run.
+  and push (AC-STE-17.6). Without it, reconcile loops fire every run.
 - **V1 SSE endpoint (`https://mcp.linear.app/sse`) is deprecated** — shutdown
   2026-05-11. `/setup` detects the stale endpoint in `claude mcp list` output
-  and offers a dry-run diff to V2 `https://mcp.linear.app/mcp` (AC-30.9).
+  and offers a dry-run diff to V2 `https://mcp.linear.app/mcp` (AC-STE-9.9).
 
 ### Jira
 
 - AC custom-field GID is **per-tenant**. `/setup` runs one-time discovery
   via `/rest/api/3/field` introspection and records
-  `jira_ac_field: customfield_XXXXX` in `## Task Tracking` (AC-30.6).
+  `jira_ac_field: customfield_XXXXX` in `## Task Tracking` (AC-STE-9.6).
   `adapters/jira/src/discover_field.ts` is the helper that performs the
   lookup.
 - Self-hosted Jira is **explicitly not supported** in v1 (specs/requirements
@@ -330,7 +330,7 @@ tracker we don't bundle.
 
 Run the Conformance Checklist against a real GitHub repo. If any op can't
 be expressed cleanly (GitHub has no native status enum), drop it from
-`capabilities` — the skill degrades per FR-38 AC-38.6 rather than failing.
+`capabilities` — the skill degrades per STE-16 AC-STE-16.6 rather than failing.
 
 ## Provider Interface (M13, v1.16.0)
 
@@ -358,13 +358,13 @@ export interface Provider {
 
 `TrackerProvider` depends on an `AdapterDriver` interface that maps the 4-op contract to MCP tool calls. Real drivers make MCP calls; tests inject stubs. Existing adapter markdown files (`adapters/linear.md`, `adapters/jira.md`, `adapters/_template.md`) describe the MCP tool mappings; the driver glue layer (a TypeScript wrapper that turns those mappings into `AdapterDriver` method implementations) is wired at skill invocation time. **Existing adapter declarative markdown is unchanged from M12** — Provider is a compositional layer above it, not a replacement.
 
-**`mintId()` invariant**: always local, never network-bound, for any provider. This is what makes offline authoring work uniformly across tracker-less and tracker modes (AC-43.5). Tracker binding happens in `sync()`, not at mint time.
+**`mintId()` invariant**: always local, never network-bound, for any provider. This is what makes offline authoring work uniformly across tracker-less and tracker modes (AC-STE-20.5). Tracker binding happens in `sync()`, not at mint time.
 
 Full behavioral reference: `docs/v2-layout-reference.md`. Pattern summary: `docs/patterns.md` § Pattern 23.
 
 ## Registering tracker ID patterns for the resolver
 
-**Ships at v1.17.0 (M14, FR-51 / FR-55).** The argument resolver at the entry of `/spec-write`, `/implement`, and `/spec-archive` (see `docs/resolver-entry.md`) detects tracker-shaped arguments by consulting adapter-supplied metadata. Adapters register their resolver surface via an optional **Schema W** frontmatter block:
+**Ships at v1.17.0 (M14, STE-30 / STE-34).** The argument resolver at the entry of `/spec-write`, `/implement`, and `/spec-archive` (see `docs/resolver-entry.md`) detects tracker-shaped arguments by consulting adapter-supplied metadata. Adapters register their resolver surface via an optional **Schema W** frontmatter block:
 
 ```yaml
 ---
