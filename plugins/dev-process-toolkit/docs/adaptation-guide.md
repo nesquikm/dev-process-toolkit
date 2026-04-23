@@ -237,7 +237,7 @@ See `examples/` for GitHub Actions starter configs:
 
 ## Customizing Archival
 
-Completed milestones are auto-archived when `/implement` Phase 4 is approved (STE-22). Every FR belonging to the milestone is moved from `specs/frs/<ulid>.md` to `specs/frs/archive/<ulid>.md` via `git mv` with a frontmatter `status: active → archived` + `archived_at` flip; the milestone's plan file is moved from `specs/plan/<M#>.md` to `specs/plan/archive/<M#>.md`. There is no rolling index file — per-unit archives are their own index, addressable directly by ULID or milestone ID.
+Completed milestones are auto-archived when `/implement` Phase 4 is approved (STE-22). Every FR belonging to the milestone is moved from `specs/frs/<name>.md` to `specs/frs/archive/<name>.md` via `git mv` — the base `<name>` is whatever `Provider.filenameFor(spec)` returns (tracker ID in tracker mode, short-ULID tail in `mode: none`) and the stem is preserved across the move. The frontmatter `status: active → archived` + `archived_at` flip lands in the same commit; the milestone's plan file is moved from `specs/plan/<M#>.md` to `specs/plan/archive/<M#>.md`. There is no rolling index file — per-unit archives are their own index, addressable directly by tracker ID, short-ULID tail, or milestone ID.
 
 ### Opting out entirely
 
@@ -251,6 +251,6 @@ See `skills/spec-archive/SKILL.md` for the full protocol, including the reopen p
 
 ### Adjusting the archive directory layout
 
-The default v2 layout is flat per-unit: archived FRs at `specs/frs/archive/<ulid>.md`, archived milestones at `specs/plan/archive/M<N>.md`. Changing this layout is out of scope — `/implement` and `/spec-archive` hardcode the pattern. If you need a different layout (nested by year, split by source file), file an issue or fork the skills.
+The default v2 layout is flat per-unit: archived FRs at `specs/frs/archive/<name>.md` (stem preserved from the active location — see M18 STE-60 for the `<name>` shape), archived milestones at `specs/plan/archive/M<N>.md`. Changing this layout is out of scope — `/implement` and `/spec-archive` hardcode the pattern. If you need a different layout (nested by year, split by source file), file an issue or fork the skills.
 
 These are **starting points** — adapt them to your project's specific tools and versions.

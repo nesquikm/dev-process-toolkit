@@ -25,7 +25,7 @@ traceability matrix's Implementation column gains `ticket=LIN-{id}` rows.
       into a pending buffer.
 5. After all 3 succeed:
    - CLAUDE.md gains `## Task Tracking` section with `mode: linear` +
-     `mcp_server: linear` + blank `active_ticket:`.
+     `mcp_server: linear` (M18 STE-62 removed the legacy Tier-2 fallback key in v1.21.0).
    - Traceability matrix Implementation column: `ticket=LIN-101` etc.
    - `git log` captures the migration commit; no separate audit trail is written (STE-58).
 6. Local `specs/requirements.md` AC content byte-unchanged (Path B).

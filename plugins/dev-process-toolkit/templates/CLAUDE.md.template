@@ -22,13 +22,16 @@ src/
 └── utils/          # Shared utilities
 ```
 
-<!-- SDD spec tree. v2 is the baseline layout (file-per-FR + ULID).
+<!-- SDD spec tree. v2 is the baseline layout (file-per-FR; filename keys on
+     the tracker ID in tracker mode or the short-ULID tail in `mode: none` —
+     the full ULID lives in frontmatter `id:`).
      See docs/v2-layout-reference.md for behavior reference. -->
 ```
 specs/
 ├── frs/
-│   ├── fr_01HZ7XJFKP.....md             # one file per FR
-│   └── archive/                         # archived FRs (git mv'd here)
+│   ├── STE-42.md                        # one file per FR (tracker mode: <tracker-id>.md)
+│   ├── VDTAF4.md                        # or short-ULID tail in mode: none
+│   └── archive/                         # archived FRs (git mv'd here, stem preserved)
 ├── plan/
 │   ├── M<N>.md                          # one file per milestone
 │   └── archive/                         # archived milestone plans

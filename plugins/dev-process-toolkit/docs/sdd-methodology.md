@@ -35,8 +35,9 @@ specs/
 ├── technical-spec.md                   # HOW to build it — cross-cutting (architecture, schemas, ADRs)
 ├── testing-spec.md                     # HOW to test it — cross-cutting (framework, strategy)
 ├── frs/
-│   ├── fr_<ulid>.md                    # one file per FR (active)
-│   └── archive/fr_<ulid>.md            # archived FRs (git-moved; status: archived)
+│   ├── <tracker-id>.md                 # tracker mode: one file per FR, keyed on the ticket (e.g., STE-42.md)
+│   ├── <short-ULID>.md                 # mode: none: keyed on spec.id.slice(23, 29) (e.g., VDTAF4.md)
+│   └── archive/<same-stem>.md          # archived FRs (git-moved; status: archived; stem preserved)
 └── plan/
     ├── M<N>.md                         # one file per milestone (active)
     └── archive/M<N>.md                 # archived milestone plans
@@ -44,7 +45,7 @@ specs/
 
 **Spec precedence:** requirements.md > testing-spec.md > technical-spec.md > plan files.
 
-**Specs are compactable.** Live spec files never grow unboundedly. When `/implement` completes a milestone and the human approves the Phase 4 report, every FR belonging to the milestone is `git mv`d into `specs/frs/archive/<ulid>.md` with frontmatter `status` flipped from `active` to `archived`; the milestone's plan file moves from `specs/plan/<M#>.md` to `specs/plan/archive/<M#>.md`. The hot-path token cost of every skill invocation stays roughly constant regardless of project age. `technical-spec.md` is never auto-archived (ADRs use `Superseded-by:` in place). See the Archival Lifecycle pattern in `docs/patterns.md` for details, and `/spec-archive` for manual archival of content the auto-path can't reach.
+**Specs are compactable.** Live spec files never grow unboundedly. When `/implement` completes a milestone and the human approves the Phase 4 report, every FR belonging to the milestone is `git mv`d into `specs/frs/archive/<name>.md` (stem preserved — same base name as the active file) with frontmatter `status` flipped from `active` to `archived`; the milestone's plan file moves from `specs/plan/<M#>.md` to `specs/plan/archive/<M#>.md`. The hot-path token cost of every skill invocation stays roughly constant regardless of project age. `technical-spec.md` is never auto-archived (ADRs use `Superseded-by:` in place). See the Archival Lifecycle pattern in `docs/patterns.md` for details, and `/spec-archive` for manual archival of content the auto-path can't reach.
 
 ### 2. Milestones Break Work into Gates
 

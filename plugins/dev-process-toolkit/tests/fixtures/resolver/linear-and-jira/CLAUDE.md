@@ -10,5 +10,4 @@ mode: linear
 mcp_server: linear
 secondary_tracker: jira
 secondary_mcp_server: atlassian
-active_ticket:
 jira_ac_field:

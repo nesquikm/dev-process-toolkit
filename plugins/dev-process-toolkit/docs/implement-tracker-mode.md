@@ -9,10 +9,10 @@ In `mode: none`, this document is unused — the pre-M12 body runs unchanged.
 
 ### 0.1 Ticket-binding pre-flight (STE-27)
 
-Run the 3-tier resolver and mandatory confirmation prompt per
-`docs/ticket-binding.md`. Decline exits cleanly with zero side effects
-(AC-STE-27.4). Branch-regex ↔ CLAUDE.md `active_ticket:` conflict fails loudly
-(AC-STE-27.3).
+Run the 2-tier resolver and mandatory confirmation prompt per
+`docs/ticket-binding.md` (branch regex → interactive prompt; post-STE-62).
+Decline exits cleanly with zero side effects (AC-STE-27.4). Branch-regex
+mismatch fails loudly (AC-STE-27.3).
 
 ### 0.2 `pull_acs` + `updatedAt` recording (STE-11, STE-45)
 

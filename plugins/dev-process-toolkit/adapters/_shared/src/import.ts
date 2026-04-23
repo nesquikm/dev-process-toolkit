@@ -56,9 +56,6 @@ export async function importFromTracker(
     acs,
   });
 
-  const path = join(specsDir, "frs", `${ulid}.md`);
-  writeFileSync(path, body);
-
   const spec: FRSpec = {
     frontmatter: {
       id: ulid,
@@ -70,6 +67,10 @@ export async function importFromTracker(
     },
     body,
   };
+  // M18 STE-60 AC-STE-60.3 — use Provider.filenameFor for FR creation.
+  const path = join(specsDir, "frs", provider.filenameFor(spec));
+  writeFileSync(path, body);
+
   try {
     await provider.sync(spec);
   } catch (err) {

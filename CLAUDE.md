@@ -48,5 +48,4 @@ All four must stay in sync. Bump on every feature-significant change. Never ship
 
 mode: linear
 mcp_server: linear
-active_ticket:
 jira_ac_field:

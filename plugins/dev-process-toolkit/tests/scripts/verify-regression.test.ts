@@ -91,7 +91,7 @@ describe("runSchemaLProbe (AC-STE-12.8)", () => {
           "",
           "mode: linear",
           "mcp_server: linear",
-          "active_ticket: LIN-1",
+          "jira_ac_field:",
           "",
           "### Notes",
           "- mode: tricky looking entry",

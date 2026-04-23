@@ -15,7 +15,7 @@
 //     non-interactive contexts; the deterministic error lets callers render
 //     NFR-10 shape without threading interactivity into a pure function.
 
-import { readdir, readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { parseFrontmatter } from "./frontmatter";
 
@@ -129,9 +129,16 @@ export interface FindOptions {
 }
 
 /**
- * Scan `specs/frs/*.md` (and optionally `specs/frs/archive/*.md`) for an FR
- * whose frontmatter `tracker.<trackerKey>` equals `trackerId`. Returns the
- * matching ULID or null. Short-circuits on first match (AC-STE-30.8).
+ * Resolve a tracker reference `(trackerKey, trackerId)` to the local FR's
+ * ULID via single-pattern, direct-filename lookup (M18 STE-61 AC-STE-61.4 —
+ * Phase 2 frontmatter scan fallback removed now that every FR has been
+ * renamed to the M18 STE-60 convention):
+ *
+ *   Read `<specsDir>/frs/<trackerId>.md` and, when `includeArchive`,
+ *   `<specsDir>/frs/archive/<trackerId>.md`. Parse the frontmatter, verify
+ *   `tracker[trackerKey] === trackerId`, and return the `id:` field. A
+ *   filename / frontmatter mismatch returns null — the resolver refuses to
+ *   paper over broken files.
  */
 export async function findFRByTrackerRef(
   specsDir: string,
@@ -141,32 +148,27 @@ export async function findFRByTrackerRef(
 ): Promise<string | null> {
   const searchDirs: string[] = [join(specsDir, "frs")];
   if (options.includeArchive) searchDirs.push(join(specsDir, "frs", "archive"));
+
   for (const dir of searchDirs) {
-    let entries: string[];
+    const directPath = join(dir, `${trackerId}.md`);
     try {
-      entries = await readdir(dir);
+      await stat(directPath);
     } catch {
       continue;
     }
-    entries.sort();
-    for (const name of entries) {
-      if (!name.endsWith(".md")) continue;
-      const path = join(dir, name);
-      let text: string;
-      try {
-        text = await readFile(path, "utf-8");
-      } catch {
-        continue;
-      }
-      const fm = parseFrontmatter(text, { lenient: true });
-      const tracker = fm["tracker"];
-      if (typeof tracker === "object" && tracker !== null && !Array.isArray(tracker)) {
-        const val = (tracker as Record<string, unknown>)[trackerKey];
-        if (val === trackerId) {
-          const id = fm["id"];
-          if (typeof id === "string" && id.length > 0) return id;
-        }
-      }
+    let text: string;
+    try {
+      text = await readFile(directPath, "utf-8");
+    } catch {
+      continue;
+    }
+    const fm = parseFrontmatter(text, { lenient: true });
+    const id = fm["id"];
+    if (typeof id !== "string" || id.length === 0) continue;
+    const tracker = fm["tracker"];
+    if (typeof tracker === "object" && tracker !== null && !Array.isArray(tracker)) {
+      const val = (tracker as Record<string, unknown>)[trackerKey];
+      if (val === trackerId) return id;
     }
   }
   return null;

@@ -50,11 +50,12 @@ describe("LocalProvider core (FR-43 AC-43.2)", () => {
   });
 });
 
-describe("LocalProvider.getMetadata", () => {
-  test("reads FR frontmatter from specs/frs/<id>.md", async () => {
+describe("LocalProvider.getMetadata (M18 STE-61: filename = <short-ULID>.md)", () => {
+  test("reads FR frontmatter from specs/frs/<short-ULID>.md", async () => {
     const id = "fr_01HZ7XJFKP0000000000000A01";
+    const shortTail = id.slice(23, 29); // "000A01"
     writeFileSync(
-      join(work, "specs", "frs", `${id}.md`),
+      join(work, "specs", "frs", `${shortTail}.md`),
       `---\nid: ${id}\ntitle: Test FR\nmilestone: M99\nstatus: active\narchived_at: null\ntracker: {}\ncreated_at: 2026-04-21T10:30:00Z\n---\n\n## Requirement\n\nBody.\n`,
     );
     const p = new LocalProvider({ repoRoot: work });
@@ -67,11 +68,12 @@ describe("LocalProvider.getMetadata", () => {
     expect(meta.assignee).toBeNull();
   });
 
-  test("reads from specs/frs/archive/<id>.md when not in active set", async () => {
+  test("reads from specs/frs/archive/<short-ULID>.md when not in active set", async () => {
     const id = "fr_01HZ7XJFKN0000000000000C04";
+    const shortTail = id.slice(23, 29); // "000C04"
     mkdirSync(join(work, "specs", "frs", "archive"), { recursive: true });
     writeFileSync(
-      join(work, "specs", "frs", "archive", `${id}.md`),
+      join(work, "specs", "frs", "archive", `${shortTail}.md`),
       `---\nid: ${id}\ntitle: Archived\nmilestone: M97\nstatus: archived\narchived_at: 2026-01-01T00:00:00Z\ntracker: {}\ncreated_at: 2026-01-01T00:00:00Z\n---\n\n## Requirement\n\nArchived.\n`,
     );
     const p = new LocalProvider({ repoRoot: work });

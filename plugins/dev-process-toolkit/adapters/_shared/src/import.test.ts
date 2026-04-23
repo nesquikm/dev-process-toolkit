@@ -72,6 +72,20 @@ class StubProvider implements Provider {
   async getTicketStatus(): Promise<{ status: string }> {
     return { status: "local-no-tracker" };
   }
+
+  // M18 STE-60: default stub models a TrackerProvider — return
+  // `<tracker-id>.md` when the FR carries a binding, else `<short-ULID>.md`.
+  filenameFor(spec: FRSpec): string {
+    const tracker = spec.frontmatter["tracker"];
+    if (tracker && typeof tracker === "object" && !Array.isArray(tracker)) {
+      for (const value of Object.values(tracker as Record<string, unknown>)) {
+        if (typeof value === "string" && value.length > 0) return `${value}.md`;
+      }
+    }
+    const id = spec.frontmatter["id"];
+    if (typeof id !== "string") throw new TypeError("StubProvider.filenameFor: id missing");
+    return `${id.slice(23, 29)}.md`;
+  }
 }
 
 function makeSpecsDir(): string {
@@ -100,7 +114,8 @@ describe("importFromTracker — happy path (AC-52.4)", () => {
         async () => "M14",
       );
       expect(ulid).toBe("fr_01IMPORTFIXTURE0000000001");
-      const path = join(specsDir, "frs", `${ulid}.md`);
+      // M18 STE-60: tracker-mode FR files are named by tracker ID, not ULID.
+      const path = join(specsDir, "frs", "LIN-1234.md");
       expect(existsSync(path)).toBe(true);
       const content = readFileSync(path, "utf-8");
       expect(content).toContain(`id: ${ulid}`);
@@ -133,8 +148,10 @@ describe("importFromTracker — happy path (AC-52.4)", () => {
         },
       );
       expect(promptCalls).toBe(1);
-      const content = readFileSync(join(specsDir, "frs", `${ulid}.md`), "utf-8");
+      // M18 STE-60: tracker-mode filename is <tracker-id>.md.
+      const content = readFileSync(join(specsDir, "frs", "LIN-1.md"), "utf-8");
       expect(content).toContain("milestone: M99");
+      expect(ulid.startsWith("fr_")).toBe(true);
     } finally {
       rmSync(specsDir, { recursive: true, force: true });
     }
@@ -185,9 +202,11 @@ describe("importFromTracker — empty ACs (AC-52.7)", () => {
         specsDir,
         async () => "M14",
       );
-      const content = readFileSync(join(specsDir, "frs", `${ulid}.md`), "utf-8");
+      // M18 STE-60: tracker-mode filename uses the tracker ID (LIN-2 here).
+      const content = readFileSync(join(specsDir, "frs", "LIN-2.md"), "utf-8");
       expect(content).toContain("## Acceptance Criteria");
       expect(content).toMatch(/TODO:/);
+      expect(ulid.startsWith("fr_")).toBe(true);
     } finally {
       rmSync(specsDir, { recursive: true, force: true });
     }
@@ -241,10 +260,9 @@ describe("importFromTracker — error paths (AC-52.8 / ordering)", () => {
       await expect(
         importFromTracker("linear", "LIN-1", provider, specsDir, async () => "M14"),
       ).rejects.toThrow("sync failed");
-      // Atomic rollback: partial file must not remain after sync failure
-      expect(
-        existsSync(join(specsDir, "frs", "fr_01SYNCFAILURETESTFIX00001.md")),
-      ).toBe(false);
+      // Atomic rollback: partial file must not remain after sync failure.
+      // M18 STE-60: tracker-mode filename uses the tracker ID.
+      expect(existsSync(join(specsDir, "frs", "LIN-1.md"))).toBe(false);
       const files = readdirSync(join(specsDir, "frs"));
       expect(files).toHaveLength(0);
     } finally {
@@ -253,8 +271,8 @@ describe("importFromTracker — error paths (AC-52.8 / ordering)", () => {
   });
 });
 
-describe("importFromTracker — filename ↔ id equality (NFR-15)", () => {
-  test("minted ULID matches both filename and frontmatter id", async () => {
+describe("importFromTracker — filename derives from Provider.filenameFor (M18 STE-60)", () => {
+  test("tracker-mode FR is written under <tracker-id>.md with the minted ULID still in frontmatter", async () => {
     const specsDir = makeSpecsDir();
     try {
       const provider = new StubProvider({
@@ -267,8 +285,10 @@ describe("importFromTracker — filename ↔ id equality (NFR-15)", () => {
         specsDir,
         async () => "M14",
       );
-      const content = readFileSync(join(specsDir, "frs", `${ulid}.md`), "utf-8");
+      // M18 STE-60 AC-STE-60.3: tracker-mode filename keys on the tracker ID.
+      const content = readFileSync(join(specsDir, "frs", "LIN-5.md"), "utf-8");
       expect(content).toContain(`id: ${ulid}`);
+      expect(content).toContain("  linear: LIN-5");
     } finally {
       rmSync(specsDir, { recursive: true, force: true });
     }

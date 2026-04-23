@@ -8,10 +8,11 @@ Silent mutation on a misidentified ticket is the #1 duck-council trust risk
 In `mode: none`, this entire document is unused — the pre-M12 path runs
 unchanged.
 
-## 3-Tier resolution (Pattern 6)
+## 2-Tier resolution (Pattern 6, post-STE-62)
 
-Tiers run in order. **First hit wins silently.** Conflicts between two tiers
-fail loudly (never pick one arbitrarily).
+Tiers run in order. **First hit wins silently.** Prior to M18 STE-62 there was
+a third tier that read a CLAUDE.md fallback key; the key was never wired to
+code and was retired in v1.21.0 (see `CHANGELOG.md`).
 
 ### Tier 1 — Branch-name regex
 
@@ -24,37 +25,33 @@ git rev-parse --abbrev-ref HEAD
 
 and applies the adapter's regex. If the regex captures an ID, use it.
 
-### Tier 2 — `active_ticket:` in CLAUDE.md
+### Tier 2 — Interactive prompt
 
-If Tier 1 misses (no branch name match), read `active_ticket:` from the
-`## Task Tracking` section (Schema L). Blank value = unbound; move to Tier 3.
-
-### Tier 3 — Interactive prompt
-
-If both Tier 1 and Tier 2 miss, prompt the user:
+If Tier 1 misses, prompt the user:
 
 ```
-No ticket ID resolvable for branch <branch> and CLAUDE.md active_ticket is unset.
+No ticket ID resolvable for branch <branch>.
 Paste the ticket ID (<prefix>-<number>) or tracker URL:
 ```
 
 Custom adapters whose ticket IDs don't fit a branch-name convention can set
 `ticket_id_source: ticket-url-paste` in their Schema M frontmatter to route
-resolution through this Tier 3 prompt directly, bypassing Tier 1.
+resolution through this Tier 2 prompt directly, bypassing Tier 1.
 
-## Conflict handling (AC-STE-27.3)
+## Branch-regex mismatch (AC-STE-27.3)
 
-If Tier 1 captures an ID **and** Tier 2 has a different `active_ticket:`, the
-skill fails loudly rather than silently picking one:
+If the branch name contains a ticket-ID-shaped token that *doesn't* match
+the adapter's `ticket_id_regex` (e.g., the regex requires `STE-<N>` but the
+branch is `feat/ste_99`), fail loudly rather than fall through to Tier 2
+— branch-name-encoded tickets are unambiguous evidence of user intent and
+silent fallthrough would surface as "wrong ticket bound" downstream.
 
 ```
-Ticket-binding conflict: branch <branch> resolves to <tier1-id>, but CLAUDE.md
-active_ticket is <tier2-id>. Refusing to guess.
-Remedy: set active_ticket: <intended> in CLAUDE.md, or rename the branch to match.
-Context: mode=<mode>, ticket=unbound, skill=<skill>
+Branch-regex mismatch: branch <branch> contains a ticket-shaped token that
+doesn't match adapter <tracker>'s ticket_id_regex. Refusing to guess.
+Remedy: rename the branch to match the adapter's regex, or pass the
+ticket ID explicitly (e.g., /implement <ID>).
 ```
-
-Equal IDs between tiers is a clean hit; move to confirmation.
 
 ## Mandatory confirmation (AC-STE-27.1, AC-STE-27.4)
 
@@ -80,20 +77,21 @@ exits the skill cleanly with zero side effects (AC-STE-27.4).
 
 ## Mismatch examples
 
-- **Tier 1 matches, Tier 2 blank** → use Tier 1; silent win (Pattern 6).
-- **Tier 1 misses, Tier 2 set** → use Tier 2; silent win.
-- **Tier 1 matches, Tier 2 set, equal IDs** → clean hit; silent win.
-- **Tier 1 matches, Tier 2 set, different IDs** → fail loudly (AC-STE-27.3).
-- **Tier 1 misses, Tier 2 blank** → prompt user (AC-STE-27.2 Tier 3).
-- **Tier 3 prompt declined** → skill exits cleanly; nothing written.
+- **Tier 1 matches** → clean hit; silent win (Pattern 6).
+- **Tier 1 misses (no ticket-shaped token on the branch)** → prompt user (Tier 2).
+- **Tier 1 encounters a ticket-shaped token that doesn't match the adapter's regex** → fail loudly per AC-STE-27.3 above.
+- **Tier 2 prompt declined** → skill exits cleanly; nothing written.
+
+## Mode-transition FR rename (M18 STE-60 AC-STE-60.6)
+
+When `/setup --migrate` flips `mode:` between `none` and a tracker (or between two trackers), every active FR under `specs/frs/*.md` is re-named to the target mode's `Provider.filenameFor(spec)` in the migration commit. Archive is untouched. This is the *only* place skills rename FR files — `/spec-write`, `/implement`, and `/spec-archive` all preserve stems.
 
 ## URL paste fallback (AC-STE-27.5)
 
 When `ticket_id_source: ticket-url-paste` is declared by a custom adapter:
 
 1. Tier 1 is effectively disabled (the tracker's IDs don't live in branch names).
-2. Tier 2 still runs — if `active_ticket: <id>` is set, use it.
-3. Tier 3's prompt accepts the tracker's URL form; the adapter owns the
+2. Tier 2's prompt accepts the tracker's URL form; the adapter owns the
    URL→ID extraction regex (Schema P pure helper).
-4. On successful extraction, treat the resolved ID identically to any other
+3. On successful extraction, treat the resolved ID identically to any other
    tracker ID — confirmation is still mandatory (AC-STE-27.1).

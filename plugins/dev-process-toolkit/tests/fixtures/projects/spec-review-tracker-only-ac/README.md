@@ -10,7 +10,7 @@ In `mode: none` (regression control), `/spec-review` reads only local
 
 ## Inputs
 
-- **Branch/active_ticket:** `LIN-42` (same as clean-sync fixture).
+- **Ticket binding:** `LIN-42` (Tier 1 branch-regex, same as clean-sync fixture).
 - **Local `specs/requirements.md` FR-7:**
   ```
   ### FR-7: Audit log export {#FR-7}

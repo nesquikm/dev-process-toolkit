@@ -55,8 +55,9 @@ Full definitions live in `specs/technical-spec.md` §7.3. Summary:
 
 - **Schema L — `## Task Tracking` section format.** Cross-skill. Heading
   presence is the mode probe; absence ≡ `mode: none`. Keys: `mode`,
-  `mcp_server`, `active_ticket`, `jira_ac_field`. Duplicate keys are a
-  malformed file and fail the skill with NFR-10 canonical shape.
+  `mcp_server`, `jira_ac_field`. Duplicate keys are a malformed file and
+  fail the skill with NFR-10 canonical shape. (Pre-v1.21.0 there was a
+  legacy Tier-2 fallback key; STE-62 retired it as dead surface.)
 - **Schema M — Adapter frontmatter.** Ten fields: `name`, `mcp_server`,
   `ticket_id_regex`, `ticket_id_source`, `ac_storage_convention`,
   `status_mapping`, `capabilities`, `project_milestone`,

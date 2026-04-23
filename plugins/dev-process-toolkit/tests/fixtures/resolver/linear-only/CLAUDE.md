@@ -7,5 +7,4 @@ should resolve unambiguously to Linear.
 
 mode: linear
 mcp_server: linear
-active_ticket:
 jira_ac_field:

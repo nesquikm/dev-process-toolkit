@@ -23,6 +23,7 @@ When `$ARGUMENTS` contains `--migrate` or `--migrate-dry-run`, skip steps 1–8 
 - Prompt for target mode; refuse no-op via NFR-10 canonical shape: `Detected current mode: <current>. Supported targets: <others>. Migration must change mode.` (AC-STE-35.5)
 - Supported transitions: `none → <tracker>` / `<tracker> → none` / `<tracker> → <other>`. Unsupported = NFR-10 canonical refusal.
 - Atomicity: CLAUDE.md `mode:` line never rewritten until migration succeeds (AC-STE-14.7/8).
+- **Active-FR rename (M18 STE-60 AC-STE-60.6).** On any mode change, re-derive filenames for every active FR under `specs/frs/*.md` (not `archive/`) using the *target-mode* `Provider.filenameFor(spec)` and `git mv` each file to its new name. Archive is frozen by mode transitions — historical FRs keep whatever convention they had at archival time. Any self-referencing cross-link inside the moved file (rare — grep before committing) is rewritten in place. All renames + the CLAUDE.md `mode:` flip land in a single atomic commit so the repo is never left half-migrated.
 v2 is the baseline layout — there is no `v1 → v2` migration path. Projects created before v1.13.0 can be ported by hand or recreated via `/setup new`; in-repo dogfooding has been v2 since M13.
 
 Detailed tracker-mode migration procedures, atomicity guarantee, and partial-failure rollback prompt live inline in this section plus `docs/setup-tracker-mode.md` for the per-tracker detail — do not inline those procedures here (NFR-1). `git log` is the audit trail for who did what and when; there is no separate sync log.
