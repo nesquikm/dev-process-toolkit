@@ -78,6 +78,32 @@ automatically. Adapter driver implementations MUST populate
 `docs/tracker-adapters.md` § Silent no-op trap for the cross-adapter
 pattern.
 
+### claimLock-skipped trap (STE-65)
+
+Symmetric trap on the release side. If `/implement` Phase 1 step 0.c
+(`Provider.claimLock`) is skipped — either by a manual invocation that
+started later than entry, or by a session that resumed mid-run without
+the claim firing — the ticket stays in `Backlog` while implementation
+proceeds. At Phase 4 Close, a naive `releaseLock` would call
+`transitionStatus('done')` and leap `Backlog → Done`, skipping
+`In Progress` entirely (no `startedAt` ever set on the Linear ticket —
+exactly what STE-60/STE-61/STE-62 shipped with during M18).
+
+`TrackerProvider.releaseLock` now re-fetches the ticket's current status
+before `transitionStatus` and asserts the pre-state is `"in_progress"`.
+Any other pre-state (`backlog`, `unstarted`, `cancelled`, `done`,
+`completed`) raises `TrackerReleaseLockPreconditionError` without calling
+`transitionStatus`. Complement to the post-write `TrackerWriteNoOpError`:
+pre-write asserts the ticket is in the expected state, post-write asserts
+the write landed. Both layers together make `releaseLock` fail-closed.
+
+No extra MCP call — the pre-state check reuses the `getTicketStatus`
+fetch that the post-write `updatedAt` guard already does (NFR-8 call
+budget preserved). The error carries the ticket ref, tracker key, and
+observed status; operators fix either by transitioning the ticket to
+`In Progress` manually or by rerunning `/implement` from Phase 1 so
+`claimLock` fires.
+
 ## Endpoint migration (AC-30.9)
 
 Linear's V1 SSE endpoint `https://mcp.linear.app/sse` shuts down 2026-05-11.
