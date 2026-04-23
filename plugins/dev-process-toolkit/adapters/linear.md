@@ -20,7 +20,7 @@ ticket_description_template: |
 
   ---
 
-  Source: specs/requirements.md#{fr_anchor}
+  Source: specs/frs/{tracker_id}.md
 helpers_dir: adapters/linear/src
 resolver:
   id_pattern: '^[A-Z]+-\d+$'
@@ -166,8 +166,11 @@ compatible.
    `"me"`). **Never pass `assigneeId` or `assigneeEmail`** — Linear
    silently ignores unknown keys (§ Silent no-op trap).
 4. Render `ticket_description_template` with `{fr_body}` = full FR
-   description body and `{fr_anchor}` = `FR-{N}`. The back-link line
-   `Source: specs/requirements.md#{fr_anchor}` is mandatory (AC-37.6).
+   description body and `{tracker_id}` = the FR's Linear ticket ID (e.g.
+   `STE-67`). The back-link line `Source: specs/frs/{tracker_id}.md` is
+   mandatory (AC-37.6) and routes readers to the file-per-FR spec file.
+   STE-67 retired the old `{fr_anchor}` variable + `specs/requirements.md#...`
+   path — the v1 monolithic-requirements layout has no v2 equivalent.
 5. Return the issue ID. After the call, the `TrackerProvider` post-write
    guard verifies `updatedAt` advanced; a silent no-op raises
    `TrackerWriteNoOpError`.

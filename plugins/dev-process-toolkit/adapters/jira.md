@@ -19,7 +19,7 @@ ticket_description_template: |
 
   ---
 
-  Source: specs/requirements.md#{fr_anchor}
+  Source: specs/frs/{tracker_id}.md
 helpers_dir: adapters/jira/src
 resolver:
   id_pattern: '^[A-Z][A-Z0-9]{1,9}-\d+$'
@@ -100,9 +100,10 @@ adapter may override `mcp_server:` and retest.
    - Capture the returned `key` (e.g., `ABC-123`); that's the ticket id.
 2. Else:
    - `mcp__atlassian__update_issue(issueIdOrKey=ticket_id_or_null, fields={ summary, description })`.
-3. Render `ticket_description_template` with `{fr_body}` and `{fr_anchor}`
-   substituted; back-link to `specs/requirements.md#{fr_anchor}` is
-   mandatory (AC-37.6).
+3. Render `ticket_description_template` with `{fr_body}` and `{tracker_id}`
+   (Jira key, e.g. `ABC-123`) substituted; back-link to
+   `specs/frs/{tracker_id}.md` is mandatory (AC-37.6). STE-67 retired the
+   v1 `{fr_anchor}` + `specs/requirements.md#...` form.
 4. Return the ticket id.
 
 ## Helper: `discover_field.ts`
