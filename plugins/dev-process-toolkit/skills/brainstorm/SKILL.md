@@ -49,6 +49,8 @@ Once the design is approved:
 2. Transition: "Design approved. Run `/dev-process-toolkit:spec-write` and reference this decision, or I can start now."
 3. If the user says to start now, proceed into the `/dev-process-toolkit:spec-write` flow using the approved design as input — the design decision answers the "HOW" questions in `technical-spec.md`
 
+**Placeholder convention (STE-66).** Brainstorm drafts that preview AC text must use `<tracker-id>` placeholders (e.g., `AC-<tracker-id>.1`) rather than guessing the next sequential tracker number. See `/spec-write` § 0b for the full rule — the real ID is assigned by the tracker allocator only after `Provider.sync(spec)` returns.
+
 ## Rules
 
 - Ask one clarifying question per turn. Wait for the answer before asking the next. This rule holds at phase transitions too — when two questions look independent, still ask the first, wait, then ask the second.
