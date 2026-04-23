@@ -76,6 +76,32 @@ export type TrackerWriteOperation = "claimLock" | "releaseLock";
  * Linear `save_issue`). NFR-10 canonical shape: the message fuses verdict,
  * remedy, and context so callers can print it directly.
  */
+/**
+ * Thrown by `TrackerProvider.releaseLock` when the pre-release status
+ * probe returns anything other than `"in_progress"` (STE-65 AC-STE-65.2).
+ * Guards against the `Backlog → Done` silent-leap path that surfaced
+ * in the M18 dogfood — if `claimLock` was skipped or the ticket was
+ * moved out-of-band, the release must fail loudly rather than paper
+ * over the drift by transitioning from whatever state the ticket is in.
+ * NFR-10 canonical shape: verdict + remedy + context fused into the message.
+ */
+export class TrackerReleaseLockPreconditionError extends Error {
+  readonly ticketRef: string;
+  readonly trackerKey: string;
+  readonly observedStatus: TicketStatus;
+  constructor(args: { ticketRef: string; trackerKey: string; observedStatus: TicketStatus }) {
+    super(
+      `TrackerProvider.releaseLock: ticket ${args.trackerKey}:${args.ticketRef} is in "${args.observedStatus}" state; expected "in_progress".\n` +
+        `Remedy: /implement Phase 1 step 0.c (Provider.claimLock) was skipped or the ticket was moved out-of-band. Transition the ticket to In Progress manually (or rerun /implement from Phase 1 so claimLock fires), then re-run Phase 4 Close.\n` +
+        `Context: trackerKey=${args.trackerKey}, ticket=${args.ticketRef}, operation=releaseLock`,
+    );
+    this.name = "TrackerReleaseLockPreconditionError";
+    this.ticketRef = args.ticketRef;
+    this.trackerKey = args.trackerKey;
+    this.observedStatus = args.observedStatus;
+  }
+}
+
 export class TrackerWriteNoOpError extends Error {
   readonly ticketRef: string;
   readonly trackerKey: string;
@@ -235,6 +261,15 @@ export class TrackerProvider implements Provider {
     const trackerRef = await this.resolveTrackerRef(id);
     if (!trackerRef) return;
     const pre = await this.driver.getTicketStatus(trackerRef);
+    // STE-65: guard against claimLock-skipped / out-of-band state. Reuses the
+    // single existing getTicketStatus fetch (AC-STE-65.1) — no extra MCP call.
+    if (pre.status !== "in_progress") {
+      throw new TrackerReleaseLockPreconditionError({
+        ticketRef: trackerRef,
+        trackerKey: this.driver.trackerKey,
+        observedStatus: pre.status,
+      });
+    }
     await this.driver.transitionStatus(trackerRef, "done");
     await this.verifyWriteLanded(trackerRef, pre.updatedAt, "releaseLock");
   }

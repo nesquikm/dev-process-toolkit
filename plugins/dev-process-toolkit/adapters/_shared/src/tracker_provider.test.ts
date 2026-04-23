@@ -4,7 +4,11 @@
 
 import { describe, expect, test } from "bun:test";
 import type { AdapterDriver, TicketStatusSummary } from "./tracker_provider";
-import { TrackerProvider, TrackerWriteNoOpError } from "./tracker_provider";
+import {
+  TrackerProvider,
+  TrackerReleaseLockPreconditionError,
+  TrackerWriteNoOpError,
+} from "./tracker_provider";
 import { ULID_REGEX } from "./ulid";
 
 function makeStub(overrides: Partial<AdapterDriver> = {}): {
@@ -138,7 +142,14 @@ describe("TrackerProvider.claimLock (FR-46 AC-46.1, AC-46.3)", () => {
 
 describe("TrackerProvider.releaseLock (AC-46.4)", () => {
   test("release calls transitionStatus('done') by default (Phase 4 completion)", async () => {
-    const { driver, calls } = makeStub();
+    // STE-65 AC-STE-65.5: releaseLock now requires pre-state in_progress.
+    // The existing happy-path test supplies in_progress explicitly — no
+    // behavioral change on the success path, only setup alignment.
+    const { driver, calls } = makeStub({
+      async getTicketStatus() {
+        return { status: "in_progress", assignee: "u", updatedAt: undefined };
+      },
+    });
     const p = new TrackerProvider({
       driver,
       currentUser: "u",
@@ -146,6 +157,63 @@ describe("TrackerProvider.releaseLock (AC-46.4)", () => {
     });
     await p.releaseLock("fr_01HZ7XJFKP0000000000000B03");
     expect(calls.find((c) => c.startsWith("transitionStatus")) ?? "").toContain("done");
+  });
+});
+
+describe("TrackerProvider.releaseLock — pre-state assertion (STE-65 AC-STE-65.2, AC-STE-65.4)", () => {
+  const REJECTED_STATES: Array<"backlog" | "unstarted" | "cancelled" | "done" | "completed"> = [
+    "backlog",
+    "unstarted",
+    "cancelled",
+    "done",
+    "completed",
+  ];
+
+  for (const rejected of REJECTED_STATES) {
+    test(`rejects pre-state "${rejected}" — throws TrackerReleaseLockPreconditionError and does not call transitionStatus`, async () => {
+      const { driver, calls } = makeStub({
+        async getTicketStatus() {
+          return { status: rejected, assignee: "u", updatedAt: "2026-04-23T10:00:00.000Z" };
+        },
+      });
+      const p = new TrackerProvider({
+        driver,
+        currentUser: "u",
+        resolveTrackerRef: async () => "LIN-1234",
+      });
+      await expect(p.releaseLock("fr_01HZ7XJFKP0000000000000B03")).rejects.toBeInstanceOf(
+        TrackerReleaseLockPreconditionError,
+      );
+      // Critical: no transitionStatus call at all on the rejected path (AC-STE-65.4b)
+      expect(calls.filter((c) => c.startsWith("transitionStatus")).length).toBe(0);
+    });
+  }
+
+  test("error message carries NFR-10 canonical shape substrings (AC-STE-65.4c)", async () => {
+    const { driver } = makeStub({
+      async getTicketStatus() {
+        return { status: "backlog", assignee: null, updatedAt: "2026-04-23T10:00:00.000Z" };
+      },
+    });
+    const p = new TrackerProvider({
+      driver,
+      currentUser: "u",
+      resolveTrackerRef: async () => "LIN-9999",
+    });
+    let err: TrackerReleaseLockPreconditionError | null = null;
+    try {
+      await p.releaseLock("fr_01HZ7XJFKP0000000000000B03");
+    } catch (e) {
+      if (e instanceof TrackerReleaseLockPreconditionError) err = e;
+    }
+    expect(err).not.toBeNull();
+    expect(err!.observedStatus).toBe("backlog");
+    expect(err!.ticketRef).toBe("LIN-9999");
+    expect(err!.trackerKey).toBe("linear");
+    expect(err!.message).toContain('expected "in_progress"');
+    expect(err!.message).toContain("Remedy:");
+    expect(err!.message).toContain("Context: trackerKey=");
+    expect(err!.name).toBe("TrackerReleaseLockPreconditionError");
   });
 });
 
