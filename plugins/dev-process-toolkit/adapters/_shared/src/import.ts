@@ -10,17 +10,15 @@
 //   3. provider.mintId() — ULID minted
 //   4. writeFile(specs/frs/<ulid>.md, ...) — FR file committed to disk
 //   5. provider.sync(spec) — tracker notified of the new binding (if applicable)
-//   6. regenerateIndex(specsDir) — INDEX.md refreshed
 //
-// Any step 1–4 failure means no sync and no INDEX regen. Step 5 failures
-// (sync throws) trigger atomic rollback — we delete the FR file so the
-// working tree stays clean. Per M14 plan Phase B verify-bullet: "all
-// error-path tests assert no partial file written on failure."
+// Any step 1–4 failure means no sync. Step 5 failures (sync throws)
+// trigger atomic rollback — we delete the FR file so the working tree
+// stays clean. Per M14 plan Phase B verify-bullet: "all error-path tests
+// assert no partial file written on failure."
 
 import { unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { acPrefix } from "./ac_prefix";
-import { regenerateIndex } from "./index_gen";
 import type { FRSpec, Provider } from "./provider";
 
 export async function importFromTracker(
@@ -82,7 +80,6 @@ export async function importFromTracker(
     }
     throw err;
   }
-  await regenerateIndex(specsDir, { now: createdAt });
   return ulid;
 }
 

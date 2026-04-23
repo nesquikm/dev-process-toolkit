@@ -67,8 +67,6 @@ Some project.
 
 mode: ${mode}
 ${extras}
-
-### Sync log
 `;
 }
 

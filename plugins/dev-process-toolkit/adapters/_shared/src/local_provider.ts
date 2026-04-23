@@ -153,6 +153,10 @@ export class LocalProvider implements Provider {
     await $`git commit -q -m ${`chore(locks): release lock for ${id}`}`.cwd(this.repoRoot).quiet();
   }
 
+  async getTicketStatus(_ticketId: string): Promise<{ status: string }> {
+    return { status: "local-no-tracker" };
+  }
+
   private async readGitUserEmail(): Promise<string> {
     try {
       const out = await $`git config user.email`.cwd(this.repoRoot).quiet().text();

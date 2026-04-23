@@ -1,6 +1,6 @@
-// Shared YAML frontmatter parser — consolidates the 4 near-duplicate variants
-// that were inlined in local_provider, index_gen, convert_archive, and
-// plan_lock. Minimal-YAML scope: scalar values, single-level `tracker:` map,
+// Shared YAML frontmatter parser — consolidates the near-duplicate variants
+// that were inlined in local_provider and plan_lock. Minimal-YAML scope:
+// scalar values, single-level `tracker:` map,
 // `{}` empty-map literal, `null` literal, quoted string passthrough.
 //
 // Design rationale: we intentionally do NOT pull a YAML library — the
@@ -103,9 +103,9 @@ function coerceScalar(v: string): string | boolean | null {
 
 /**
  * Write a `tracker: { <key>: <id> }` binding into an FR file's frontmatter,
- * producing the canonical multi-line form the parser + INDEX generator
- * expect. Used by `/setup --migrate` (FR-58) to record tracker ticket IDs
- * after a successful bulk push.
+ * producing the canonical multi-line form the parser expects. Used by
+ * `/setup --migrate` (FR-58) to record tracker ticket IDs after a
+ * successful bulk push.
  *
  * Behavior:
  * - The empty-seed `tracker: {}` line is replaced with a multi-line block.

@@ -8,11 +8,11 @@
 
 ## When to run
 
-**Every v2-layout invocation of `/spec-write`, `/implement`, `/spec-archive`.**
-Runs *after* the layout version gate (STE-29) and, for `/implement`, *before*
-`Provider.claimLock`. In v1 projects (`specs/.dpt-layout` absent) the resolver
-step is skipped entirely — pre-M14 argument handling is preserved byte-for-byte
-per NFR-18.
+**Every invocation of `/spec-write`, `/implement`, `/spec-archive`.**
+Runs, for `/implement`, *before* `Provider.claimLock`. v2 is the only
+supported layout; pre-M14 argument shapes (milestone codes, task
+descriptions, GitHub issue numbers) route through the `fallthrough`
+branch of `resolveFRArgument` per NFR-18.
 
 ## Inputs
 

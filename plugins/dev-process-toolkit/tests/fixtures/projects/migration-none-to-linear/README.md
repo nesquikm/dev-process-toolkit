@@ -27,7 +27,7 @@ traceability matrix's Implementation column gains `ticket=LIN-{id}` rows.
    - CLAUDE.md gains `## Task Tracking` section with `mode: linear` +
      `mcp_server: linear` + blank `active_ticket:`.
    - Traceability matrix Implementation column: `ticket=LIN-101` etc.
-   - Sync log gains: `- <ISO> — Migration complete: none → linear, 3 FRs moved`.
+   - `git log` captures the migration commit; no separate audit trail is written (STE-58).
 6. Local `specs/requirements.md` AC content byte-unchanged (Path B).
 
 ## Fail conditions

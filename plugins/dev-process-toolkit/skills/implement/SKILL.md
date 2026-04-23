@@ -26,10 +26,9 @@ If a multi-milestone run partially succeeds in a worktree, list completed work (
 
 > Do not read `specs/frs/archive/` or `specs/plan/archive/` during implementation — archived FRs and milestones are historical context only.
 
-0. **Layout + tracker-mode probes** — Before any other action:
+0. **Tracker-mode probes** — Before any other action:
 
-   - **0.a Layout probe** — Read `specs/.dpt-layout` via `bun run adapters/_shared/src/layout.ts`. If `version: v2`, run v2 behavior (ACs come from `specs/frs/<ulid>.md`; Phase 4 archives via `git mv`; `Provider.claimLock`/`releaseLock` gates entry/exit per STE-28). If the marker is absent and `specs/requirements.md` exists, run v1 behavior unchanged. If version > v2, exit with the canonical message: `"Layout v<actual> detected; /implement requires v2. Run /dev-process-toolkit:setup to migrate."` (AC-STE-29.3). Full v2 reference: `docs/v2-layout-reference.md`.
-   - **0.b Provider resolution** — In v2 mode, resolve `Provider` once per invocation: `LocalProvider` if `mode: none`, `TrackerProvider` wrapping the configured tracker adapter otherwise (AC-STE-20.3). No re-resolution mid-execution.
+   - **0.b Provider resolution** — Resolve `Provider` once per invocation: `LocalProvider` if `mode: none`, `TrackerProvider` wrapping the configured tracker adapter otherwise (AC-STE-20.3). No re-resolution mid-execution. v2 is the only supported layout (ACs come from `specs/frs/<ulid>.md`; Phase 4 archives via `git mv`; `Provider.claimLock`/`releaseLock` gates entry/exit per STE-28).
    - **0.b′ Resolver entry (AC-STE-32.1)** — Call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src/resolver_config.ts` once at entry (STE-44 AC-STE-44.5), then pass the result to `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. Never hand-assemble the config inline; malformed adapter metadata surfaces as `MalformedAdapterMetadataError` → NFR-10 canonical refusal (AC-STE-44.6). Route by `kind`: `ulid` → proceed to 0.c with that ULID; `tracker-id` / `url` + `findFRByTrackerRef` hit → proceed with the resolved ULID; `tracker-id` / `url` + miss → run `importFromTracker(...)` (same helper as `/spec-write`) then proceed to 0.c with the new ULID; `fallthrough` → continue to step 2 for pre-M14 argument handling (milestone code like `M13`, task description, GitHub issue number). Branch-name interop (STE-27): if the branch name contains a ticket ID that disagrees with the argument's resolved ticket, **the argument wins** with an NFR-10-shape warning (AC-STE-32.5). `AmbiguousArgumentError` surfaces per NFR-10 with the `<tracker>:<id>` remedy. Full decision table: `docs/resolver-entry.md`.
    - **0.c `Provider.claimLock(id, currentBranch)`** — Entry gate in v2 mode. `claimed` → proceed; `already-ours` → resume; `taken-elsewhere` → STOP with the message naming the holding branch (AC-STE-28.1/2).
    - **0.d Tracker-mode probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and tracker hooks below skip. If a tracker mode is active:
@@ -233,7 +232,7 @@ After the human approves the Phase 4 report (step 15), and **only then**, archiv
 - **technical-spec.md is never auto-archived** — architectural decisions use `Superseded-by:` in place (the ADR convention). `/implement` archival touches only `specs/frs/**` and `specs/plan/<M#>.md`.
 - Run archival **only after explicit human approval in step 15**, never before. If the user asks for changes instead, abort archival entirely.
 
-**Procedure (STE-22).** For every FR with frontmatter `milestone == <current>`: `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md` + flip frontmatter `status: active` → `status: archived` + set `archived_at: <ISO now>`. All N moves and N flips land in one atomic commit (AC-STE-22.2, AC-STE-22.6). Then `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md` (AC-STE-21.5) in the same commit. Call `Provider.releaseLock(id)` for each released FR (AC-STE-28.4). Finally, regenerate `specs/INDEX.md` via `regenerateIndex(specsDir)` — archived FRs drop out of the default listing (AC-STE-22.3). Full details: `docs/v2-layout-reference.md` § `/implement`.
+**Procedure (STE-22).** For every FR with frontmatter `milestone == <current>`: `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md` + flip frontmatter `status: active` → `status: archived` + set `archived_at: <ISO now>`. All N moves and N flips land in one atomic commit (AC-STE-22.2, AC-STE-22.6). Then `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md` (AC-STE-21.5) in the same commit. Call `Provider.releaseLock(id)` for each released FR (AC-STE-28.4). Full details: `docs/v2-layout-reference.md` § `/implement`.
 
 #### Post-Archive Drift Check
 
@@ -255,15 +254,21 @@ For reopens, cross-cutting ACs, or anything this auto-path can't reach, `/dev-pr
    - Gate check result — cite the actual output (e.g., "0 failures, 0 errors"), not just "passed"
    - Number of review rounds used
 
-15. **Wait for approval, then release locks** — Ask the user to review before committing. Do NOT commit until the user explicitly says so.
+15. **Wait for approval, then run the Close procedure** — Ask the user to review before committing. Do NOT commit until the user explicitly says so.
 
-    **After the user approves AND `git commit` lands** (for each commit in this run), for every ticket that was claimed during Phase 1 in v2 tracker mode, call `Provider.releaseLock(<id>)` — the Done transition in tracker mode, the `.dpt-locks/<id>` cleanup in `mode: none`. This is the only place an FR-scope run (FR subset of an in-flight milestone, no archival) releases the lock; leaving it out strands the tracker at `In Progress` after the commit lands.
+    ### Phase 4 Close (atomic — all three steps required, in order)
 
-    **Abort boundary (AC-STE-47.3) — do NOT call `releaseLock`** when any of the following happen: a gate-check failure, a Spec Breakout, a user rejection at this step, or any Phase 1–3 early exit. In every abort case, the lock stays so a follow-up run can resume through the `already-ours` path (AC-STE-28.1).
+    Once the user approves, execute the Close procedure end-to-end. Phase 4 does not exit cleanly unless all three sub-steps complete; if any sub-step fails, surface the failure and exit non-zero so the next run can resume through the `already-ours` path.
 
-    **Double-call avoidance (AC-STE-47.6).** On a full-milestone run where § Milestone Archival fires, the archival path already calls `releaseLock` per archived FR (AC-STE-28.4) — skip the per-ticket call here for those same FRs. On an FR-scope run (archival does not fire), this step is the sole caller.
+    **(a) `git commit`** — create the final commit (includes any FR archive moves from § Milestone Archival on a full-milestone run).
 
-    In `mode: none`, `LocalProvider.releaseLock` deletes `.dpt-locks/<id>` regardless of tracker configuration (AC-STE-47.4); the Pattern 9 byte-diff regression gate against the `mode-none-v2-migration` fixture continues to pass because the cleanup was already part of the existing mode-none flow.
+    **(b) `Provider.releaseLock(<id>)`** — for every ticket that was claimed during Phase 1 in v2 tracker mode, call `releaseLock`. Tracker mode: transitions the ticket to the adapter's canonical Done status. `mode: none`: deletes `.dpt-locks/<id>`. **No exit path through Phase 4 skips this step.** If any `releaseLock` throws, Phase 4 fails loudly — never swallow the error. On a full-milestone run where § Milestone Archival already called `releaseLock` per archived FR (AC-STE-28.4), skip the per-ticket call here for those same FRs (AC-STE-47.6 double-call avoidance).
+
+    **(c) `Provider.getTicketStatus(<id>)` post-release verification** — for each released FR, call `getTicketStatus` and **assert** the returned `status` matches the adapter's `status_mapping.done` canonical name. A mismatch means `releaseLock` reported success but the tracker didn't move (silent no-op trap). Surface an NFR-10-canonical refusal naming the ticket + observed vs. expected status, and exit Phase 4 non-zero so the human can intervene. In `mode: none`, `LocalProvider.getTicketStatus` returns the `local-no-tracker` sentinel; treat the sentinel as vacuously passing the assertion — the deterministic `.dpt-locks/<id>` deletion in step (b) is the proof-of-release for `mode: none`.
+
+    **Abort boundary (AC-STE-47.3) — do NOT call `releaseLock` or `getTicketStatus`** when any of the following happen: a gate-check failure, a Spec Breakout, a user rejection at step 15, or any Phase 1–3 early exit. In every abort case, the lock stays so a follow-up run can resume through the `already-ours` path (AC-STE-28.1). The Close procedure only runs once the user explicitly approves **and** `git commit` lands.
+
+    The Pattern 9 byte-diff regression gate against the `mode-none-v2` fixture continues to pass because the cleanup was already part of the existing mode-none flow.
 
 ## Rules
 

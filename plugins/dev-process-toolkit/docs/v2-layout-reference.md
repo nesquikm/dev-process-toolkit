@@ -2,20 +2,11 @@
 
 This document is the canonical reference for v2-layout behavior across spec-touching skills (STE-26..STE-25). Skills include a short preamble that points here rather than inlining the full behavior, to keep individual skills under the NFR-1 300-line cap.
 
-## Layout detection (every spec-touching skill entry)
-
-At the start of every spec-touching skill, read `specs/.dpt-layout` via `bun run adapters/_shared/src/layout.ts`:
-
-- **Marker exists, `version: v2`** → v2 mode. All spec reads/writes target the v2 tree (`specs/frs/<ulid>.md`, `specs/plan/<M#>.md`).
-- **Marker missing, `specs/requirements.md` exists** → v1 mode. Every skill continues to operate against `specs/requirements.md`, `specs/plan.md`, `specs/technical-spec.md`, `specs/testing-spec.md`. No behavior change from pre-M13.
-- **Marker missing, `specs/requirements.md` also missing** → no specs; mode-none behavior (unchanged from pre-M13).
-- **Marker exists, `version: v<N>` where N > 2** → skill exits with the canonical message: `"Layout v<N> detected; <skill> requires v2. Run /dev-process-toolkit:setup to migrate."` (AC-STE-29.3).
-
-`/setup` is exempt from the gate because it implements the migration (AC-STE-29.4). All other skills refuse on version mismatch.
+v2 is the only supported layout — spec-touching skills operate against the v2 tree (`specs/frs/<ulid>.md`, `specs/plan/<M#>.md`) unconditionally.
 
 ## Provider resolution (AC-STE-20.3)
 
-After layout detection, skills that interact with trackers or locks resolve a `Provider` implementation **once per invocation**:
+Skills that interact with trackers or locks resolve a `Provider` implementation **once per invocation**:
 
 - Read CLAUDE.md `## Task Tracking` section → if `mode: none`, use `LocalProvider`; otherwise use `TrackerProvider` wrapping the configured tracker adapter.
 - Provider selection never re-resolves mid-execution (AC-STE-20.3).
@@ -26,12 +17,7 @@ Construction example (TypeScript):
 ```typescript
 import { LocalProvider } from "adapters/_shared/src/local_provider";
 import { TrackerProvider } from "adapters/_shared/src/tracker_provider";
-import { readLayoutVersion } from "adapters/_shared/src/layout";
 
-const version = readLayoutVersion(`${repoRoot}/specs`, { allowMissing: true });
-if (version !== null && version !== "v2") {
-  throw new Error(`Layout ${version} detected; this skill requires v2. Run /dev-process-toolkit:setup to migrate.`);
-}
 const provider = mode === "none"
   ? new LocalProvider({ repoRoot })
   : new TrackerProvider({ driver, currentUser });
@@ -51,18 +37,11 @@ const provider = mode === "none"
 - Once `status: active`, content is immutable; any write fails with: *"Plan for <M#> is frozen. Create a `plan/<M#>-replan-<N>` branch to revise."* (AC-STE-21.3).
 - Exception: plan files produced by migration have `kickoff_branch: null` and `frozen_at: null` even when `status: active` — documented in `plan.schema.json` $comment. `/gate-check` treats migrated plans leniently on round 1; the first kickoff-branch ratification backfills the missing fields.
 
-## INDEX.md regeneration
-
-- Regenerate `specs/INDEX.md` by calling `regenerateIndex(specsDir)` from `adapters/_shared/src/index_gen.ts` any time a skill writes under `specs/frs/`.
-- One regeneration per skill invocation (not one per file write). Batched implicitly in the skill's flow.
-- Deterministic output (NFR-13): unchanged input ⇒ byte-identical output ⇒ no commit churn.
-
 ## Skill-specific behavior in v2
 
 ### `/spec-write`
 - Create new FR via `Provider.mintId()` → write `specs/frs/<ulid>.md` with Schema Q frontmatter.
 - Call `Provider.sync(spec)` on save (AC-STE-24.2).
-- Regenerate `INDEX.md` before returning.
 - Never write to `specs/requirements.md` on v2 projects.
 
 ### `/implement`
@@ -78,28 +57,20 @@ const provider = mode === "none"
 - Argument can be a ULID (direct) or `M<N>` (milestone-group; archives all FRs where `milestone == M<N>`). The milestone-group case produces N moves in one commit (AC-STE-22.6).
 
 ### `/gate-check`
-- New v2 conformance probes (run when `.dpt-layout` reports v2):
+- v2 conformance probes:
   1. **Filename ↔ `id:` equality** for every `specs/frs/**/*.md` (NFR-15 invariants 1+2). Mismatch = hard fail (AC-STE-18.5).
   2. **Required frontmatter fields** present for every FR file (id, title, milestone, status, archived_at, tracker, created_at). Missing = fail.
-  3. **Layout version** matches expected (`v2`). Mismatch = fail (AC-STE-24.5).
-  4. **Stale lock scan** — list `.dpt-locks/<ulid>` entries whose branch is merged or deleted. Offer `--cleanup-stale-locks` action that deletes them in one commit (AC-STE-28.5).
-  5. **Plan post-freeze edit scan** — for each `specs/plan/<M#>.md` with `status: active` + non-null `frozen_at`, list commits to that path whose authored date is after `frozen_at`. No auto-revert (AC-STE-21.4 warning semantics).
+  3. **Stale lock scan** — list `.dpt-locks/<ulid>` entries whose branch is merged or deleted. Offer `--cleanup-stale-locks` action that deletes them in one commit (AC-STE-28.5).
+  4. **Plan post-freeze edit scan** — for each `specs/plan/<M#>.md` with `status: active` + non-null `frozen_at`, list commits to that path whose authored date is after `frozen_at`. No auto-revert (AC-STE-21.4 warning semantics).
 
 ### `/spec-review`
 - Read FRs from `specs/frs/` (glob active, optionally archive/).
 - Traceability cross-references resolve against FR files' `## Notes` or inline links.
 - Legacy `requirements.md#FR-N` refs rewritten to `frs/<ulid>.md` where applicable.
 
-### `/setup --migrate` (STE-23)
-- Detects v1 via `specs/requirements.md` present + `specs/.dpt-layout` absent (AC-STE-23.1).
-- Prompts y/N, default No (AC-STE-23.2).
-- Refuses on dirty tree (AC-STE-23.3).
-- `--migrate-dry-run` variant writes preview to `specs/.migration-preview/` (AC-STE-23.4); `.gitignore`d by the migration.
-- Creates `dpt-v1-snapshot-<YYYYMMDD-HHMMSS>` tag (AC-STE-23.5).
-- Runs `adapters/_shared/src/migrate/index.ts` orchestrator.
-- Two-commit sequence: `feat(specs): migrate to v2 layout` + `chore(specs): record v2 layout marker` (AC-STE-23.10/11).
-- Structured summary with FR count, milestone count, archive count, tag (AC-STE-23.12).
-- Idempotent on already-v2 tree (AC-STE-23.13).
+### `/setup --migrate`
+
+Tracker-mode migration only — v2 is the baseline layout, so there is no `v1 → v2` path. See `skills/setup/SKILL.md` § 0b for the full flow: current-mode detection via Schema L probe, target-mode prompt, and atomicity guarantee (CLAUDE.md `mode:` line rewritten only on success).
 
 ### Skills that remain layout-agnostic (read-only or no spec reads)
 
@@ -116,6 +87,5 @@ Tracker-less races (two devs committing locks on separate branches without fetch
 
 ## Test fixtures
 
-- `tests/fixtures/v2-minimal/` — golden v2 tree with 3 active FRs, 1 archived, M12 complete + M13 active plan files, pre-generated INDEX.md, slimmed cross-cutting specs. Used by `verify-regression.ts` Schema M probe.
-- `tests/fixtures/migration/v1-to-v2/{input,expected}/` — round-trip fixture with 3 active FRs, 2 archived milestones, 1 in-flight milestone. ULIDs are deterministic under `DPT_TEST_ULID_SEED=01HZ` + `NODE_ENV=test`.
+- `tests/fixtures/v2-minimal/` — golden v2 tree with 3 active FRs, 1 archived, M12 complete + M13 active plan files, slimmed cross-cutting specs. Used by `verify-regression.ts` Schema M probe.
 - `tests/fixtures/lock-scenarios/` — git-repo fixtures for `LocalProvider.claimLock` tests (fresh, local-held, remote-held, stale-on-merged-branch).

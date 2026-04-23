@@ -25,10 +25,7 @@ prompted to optionally close them (AC-36.5).
    - `specs/requirements.md` FR-3 gains `AC-3.4` bullet.
    - CLAUDE.md `## Task Tracking` section is **removed** entirely
      (canonical `none` form per AC-29.5).
-   - Sync log (before removal): `- <ISO> — Migration complete: linear → none, 3 FRs moved`.
-     Note: removing the section drops the sync log with it; a final copy
-     of the log is archived to `specs/archive/sync-log-<YYYY-MM>.md`
-     per Pattern 5 before deletion.
+   - `git log` captures the migration commit that removes the `## Task Tracking` section; no separate audit trail is written (STE-58).
 5. Prompt: "Close the former Linear tickets now? [y/N]".
    - On `y` → `transition_status(ticket, done)` for each.
    - On `N` → tickets left Open; user can close them manually later.

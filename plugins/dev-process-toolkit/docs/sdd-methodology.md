@@ -31,8 +31,6 @@ Specs live in `specs/` and follow the v2 file-per-FR layout:
 
 ```
 specs/
-├── .dpt-layout                         # version marker (Schema R)
-├── INDEX.md                            # generated — active-FR listing (Schema U)
 ├── requirements.md                     # WHAT to build — cross-cutting (overview, NFRs)
 ├── technical-spec.md                   # HOW to build it — cross-cutting (architecture, schemas, ADRs)
 ├── testing-spec.md                     # HOW to test it — cross-cutting (framework, strategy)
@@ -46,7 +44,7 @@ specs/
 
 **Spec precedence:** requirements.md > testing-spec.md > technical-spec.md > plan files.
 
-**Specs are compactable.** Live spec files never grow unboundedly. When `/implement` completes a milestone and the human approves the Phase 4 report, every FR belonging to the milestone is `git mv`d into `specs/frs/archive/<ulid>.md` with frontmatter `status` flipped from `active` to `archived`; the milestone's plan file moves from `specs/plan/<M#>.md` to `specs/plan/archive/<M#>.md`; `specs/INDEX.md` regenerates so archived FRs drop out of the default listing. The hot-path token cost of every skill invocation stays roughly constant regardless of project age. `technical-spec.md` is never auto-archived (ADRs use `Superseded-by:` in place). See the Archival Lifecycle pattern in `docs/patterns.md` for details, and `/spec-archive` for manual archival of content the auto-path can't reach.
+**Specs are compactable.** Live spec files never grow unboundedly. When `/implement` completes a milestone and the human approves the Phase 4 report, every FR belonging to the milestone is `git mv`d into `specs/frs/archive/<ulid>.md` with frontmatter `status` flipped from `active` to `archived`; the milestone's plan file moves from `specs/plan/<M#>.md` to `specs/plan/archive/<M#>.md`. The hot-path token cost of every skill invocation stays roughly constant regardless of project age. `technical-spec.md` is never auto-archived (ADRs use `Superseded-by:` in place). See the Archival Lifecycle pattern in `docs/patterns.md` for details, and `/spec-archive` for manual archival of content the auto-path can't reach.
 
 ### 2. Milestones Break Work into Gates
 
@@ -136,7 +134,7 @@ v1 stored all FRs in a single `specs/requirements.md` and a single `specs/plan.m
 2. **Content collisions.** Two branches editing `requirements.md` in the same FR block produced a textual conflict even when the changes were semantically independent. v2 puts each FR in its own file — edits don't share paths.
 3. **Archival-hotspot collisions.** v1 archival rewrote a rolling index file plus pointer lines in `plan.md` / `requirements.md` — the busiest write paths. v2 archival is `git mv` per FR into `specs/frs/archive/` + frontmatter flip; milestone plan moves into `specs/plan/archive/`. Disjoint paths, no shared-file edit.
 
-**Migration story.** `/setup --migrate` is the entry point. Clean-tree precondition + backup tag (`dpt-v1-snapshot-<timestamp>`) + dry-run preview (`--migrate-dry-run`) + idempotent-on-v2 check + two-commit sequence (`feat(specs): migrate to v2 layout` + `chore(specs): record v2 layout marker`). Rollback is `git reset --hard <backup-tag>`. Migration tooling lives under `adapters/_shared/src/migrate/`.
+**Baseline.** v2 is the only supported layout. `/setup --migrate` handles tracker-mode transitions (`none ↔ <tracker>` / `<tracker> ↔ <other>`); there is no `v1 → v2` migration path, and no v1 projects remain in production use.
 
 **One-ticket-one-branch discipline.** Before `/implement` writes any code, `Provider.claimLock(id, branch)` runs. Tracker mode is strict — ticket status + assignee is the authoritative gate. Tracker-less mode is best-effort: `.dpt-locks/<ulid>` files + remote fetch + refuse-on-conflict. Merge-time path conflicts on `.dpt-locks/` catch races in tracker-less mode. `DPT_SKIP_FETCH=1` is the documented escape hatch for large-repo contexts.
 

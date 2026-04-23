@@ -68,6 +68,10 @@ class StubProvider implements Provider {
   }
 
   async releaseLock(): Promise<void> {}
+
+  async getTicketStatus(): Promise<{ status: string }> {
+    return { status: "local-no-tracker" };
+  }
 }
 
 function makeSpecsDir(): string {
@@ -161,19 +165,6 @@ describe("importFromTracker — happy path (AC-52.4)", () => {
     }
   });
 
-  test("regenerates INDEX.md after write", async () => {
-    const specsDir = makeSpecsDir();
-    try {
-      const provider = new StubProvider({ mintedUlid: "fr_01REGENINDEXTEST000000001" });
-      await importFromTracker("linear", "LIN-1", provider, specsDir, async () => "M14");
-      const indexPath = join(specsDir, "INDEX.md");
-      expect(existsSync(indexPath)).toBe(true);
-      const index = readFileSync(indexPath, "utf-8");
-      expect(index).toContain("fr_01REGENINDEXTEST000000001");
-    } finally {
-      rmSync(specsDir, { recursive: true, force: true });
-    }
-  });
 });
 
 describe("importFromTracker — empty ACs (AC-52.7)", () => {

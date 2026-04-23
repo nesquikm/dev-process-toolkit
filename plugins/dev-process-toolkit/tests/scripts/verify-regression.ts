@@ -22,7 +22,7 @@
 //   2  — operational error (missing fixture, capture script crash).
 
 import { spawnSync } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const scriptDir = new URL(".", import.meta.url).pathname;
@@ -55,9 +55,7 @@ const PROBE_FIXTURES = ["mode-none-baseline", "mode-none-fresh-setup", "mode-non
 // on the golden v2 fixture. Checks:
 //   - every specs/frs/**/*.md filename matches ^fr_[0-9A-HJKMNP-TV-Z]{26}\.md$
 //   - frontmatter id: field equals filename stem byte-for-byte (NFR-15 invariant 2)
-//   - specs/.dpt-layout has version: v2
-//   - regenerateIndex(specsDir) produces the committed INDEX.md byte-for-byte
-// A probe failure here means the v2 fixture drifted or the generator regressed.
+// A probe failure here means the v2 fixture drifted.
 const V2_FIXTURE = "v2-minimal";
 
 /**
@@ -90,8 +88,7 @@ export function runSchemaLProbe(claudeMdPath: string): SchemaLResult {
 
   // Exactly one anchor — extract `mode: <value>` from the section body.
   // Mirrors Schema L step 3: scan forward from the anchor, stop at the
-  // next `## ` or `### ` heading (including `### Sync log`, which is
-  // explicitly excluded from key: value parsing), or at EOF.
+  // next `## ` or `### ` heading, or at EOF.
   let inSection = false;
   for (const line of lines) {
     if (line === "## Task Tracking") {
@@ -192,9 +189,7 @@ if (import.meta.main) {
 }
 
 // Schema M probe (AC-49.8). Synchronous invariant checks against the
-// committed v2-minimal fixture — no subprocess, no async. The INDEX.md
-// regenerate-and-diff determinism check lives in index_gen.test.ts (bun
-// test) so this script stays synchronous and fast.
+// committed v2-minimal fixture — no subprocess, no async.
 function runSchemaMProbe(): number {
   const fixtureSpecsDir = join(pluginRoot, "tests", "fixtures", V2_FIXTURE, "specs");
   if (!existsSync(fixtureSpecsDir)) {
@@ -205,19 +200,6 @@ function runSchemaMProbe(): number {
   let failures = 0;
   const ulidFilenameRe = /^fr_[0-9A-HJKMNP-TV-Z]{26}\.md$/;
 
-  const layoutPath = join(fixtureSpecsDir, ".dpt-layout");
-  if (!existsSync(layoutPath)) {
-    failures++;
-    console.error(`SCHEMA M PROBE FAILURE: missing ${layoutPath}`);
-  } else {
-    const body = readFileSync(layoutPath, "utf8");
-    if (!/^version:\s*v2\s*$/m.test(body)) {
-      failures++;
-      console.error(`SCHEMA M PROBE FAILURE: ${layoutPath} missing 'version: v2' line`);
-    }
-  }
-
-  const { readdirSync, statSync } = require("node:fs") as typeof import("node:fs");
   const frsDir = join(fixtureSpecsDir, "frs");
   const scan = (dir: string) => {
     if (!existsSync(dir)) return;

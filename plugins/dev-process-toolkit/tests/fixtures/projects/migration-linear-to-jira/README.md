@@ -28,7 +28,7 @@ untouched (AC-36.6).
    - CLAUDE.md `## Task Tracking` rewritten with `mode: jira` +
      `mcp_server: atlassian` + `jira_ac_field: customfield_XXXXX`.
    - Traceability matrix rows updated with the Jira keys.
-   - Sync log: `- <ISO> — Migration complete: linear → jira, 3 FRs moved`.
+   - `git log` captures the migration commit; no separate audit trail is written (STE-58).
 6. Old Linear tickets left intact. User not prompted to close them
    (they're on the "old" tracker — closure is the user's call on the
    Linear UI, not the plugin's).

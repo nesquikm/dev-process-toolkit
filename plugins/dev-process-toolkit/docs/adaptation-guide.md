@@ -237,7 +237,7 @@ See `examples/` for GitHub Actions starter configs:
 
 ## Customizing Archival
 
-Completed milestones are auto-archived when `/implement` Phase 4 is approved (STE-22). Every FR belonging to the milestone is moved from `specs/frs/<ulid>.md` to `specs/frs/archive/<ulid>.md` via `git mv` with a frontmatter `status: active → archived` + `archived_at` flip; the milestone's plan file is moved from `specs/plan/<M#>.md` to `specs/plan/archive/<M#>.md`. `specs/INDEX.md` is regenerated so archived FRs drop out of the default listing. There is no rolling `index.md` — per-unit archives are their own index, addressable directly by ULID or milestone ID.
+Completed milestones are auto-archived when `/implement` Phase 4 is approved (STE-22). Every FR belonging to the milestone is moved from `specs/frs/<ulid>.md` to `specs/frs/archive/<ulid>.md` via `git mv` with a frontmatter `status: active → archived` + `archived_at` flip; the milestone's plan file is moved from `specs/plan/<M#>.md` to `specs/plan/archive/<M#>.md`. There is no rolling index file — per-unit archives are their own index, addressable directly by ULID or milestone ID.
 
 ### Opting out entirely
 

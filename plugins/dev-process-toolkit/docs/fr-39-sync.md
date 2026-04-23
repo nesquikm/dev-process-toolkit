@@ -96,32 +96,20 @@ After the user answers all prompts:
    normalization is deterministic, a second `pull_acs` after this push
    classifies everything as `identical` (AC-STE-17.6 round-trip invariant).
 
-## Sync-log append (AC-STE-17.8)
+## Audit trail
 
-After a successful resolution event, append exactly one line to the
-`### Sync log` subsection under `## Task Tracking` in CLAUDE.md:
-
-```
-- <ISO timestamp> — <N> AC conflicts resolved on <ticket-id>
-```
-
-- `<ISO timestamp>` is `DPT_TEST_FROZEN_TIME` if set (determinism helper
-  per testing-spec §6.7), else `new Date().toISOString()`.
-- `<N>` is the total count of resolved per-AC prompts (not the count of
-  AC options picked).
-- `<ticket-id>` is the resolved ticket.
-
-No resolution event ⇒ no sync-log entry (`identical`-only runs stay
-silent; `cancel` runs stay silent per AC-STE-17.5).
-
-The log is append-only (NFR-5 / Pattern 5). Skills never parse or mutate
-prior entries; they only append.
+`git log` is the audit trail — the commit that captures a resolution event
+records the FR file edit, the `upsert_ticket_metadata` write, the
+timestamp, and the author. `git blame` on the FR file surfaces per-AC
+resolution history. No separate audit trail is written; the pre-M17
+audit-trail subsection under `## Task Tracking` was retired in v1.20.0
+(see `docs/patterns.md` § Audit trail).
 
 ## Idempotence
 
 Running STE-17 twice in a row on an already-converged state emits **zero
 prompts** (all `identical`) and **zero side effects** (no pushes, no
-sync-log entry). This is the round-trip invariant that AC-STE-17.6 guarantees
+commits). This is the round-trip invariant that AC-STE-17.6 guarantees
 via adapter normalization.
 
 ## Cancel semantics (AC-STE-17.5)
@@ -130,7 +118,6 @@ Cancel on **any** prompt:
 
 - **No local file writes** — `specs/requirements.md` unchanged.
 - **No tracker writes** — `upsert_ticket_metadata` not called.
-- **No sync-log entry** — the event didn't complete.
 - Skill exits cleanly; the user can re-run `/implement` later once they've
   decided how to resolve.
 

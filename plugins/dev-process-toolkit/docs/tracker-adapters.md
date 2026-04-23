@@ -203,19 +203,19 @@ Side-by-side per-adapter behaviour:
 |---------|---------------------|---------------------------------|----------------------------|
 | Linear  | `true`              | `save_issue.milestone` — matched by name starting with `M<N>` (case-sensitive, exact-prefix) on the configured project. | Prompt once per missing `M<N>`: `[1] Create it / [2] Skip milestone binding for these N FRs / [3] Cancel migration`. |
 | Jira    | `false`             | Not mapped at push time — log one line `"Jira does not map milestones at push time; use Jira fixVersions manually."`; operators bind `fixVersions` manually after migration. | N/A (skipped). |
-| Custom (`_template`) | `false` (default) | Opt in by flipping to `true`; use the Linear section in `docs/setup-migrate.md` § `3b. Project milestone mapping` as the reference implementation. | Implementer's choice — follow the Linear 3-way prompt shape if adding support. |
+| Custom (`_template`) | `false` (default) | Opt in by flipping to `true`; use the Linear section below as the reference implementation. | Implementer's choice — follow the Linear 3-way prompt shape if adding support. |
 
 Custom adapters that add a native "release milestone" field should flip
 `project_milestone` to `true` and wire the mapping into their
-`upsert_ticket_metadata` implementation. See
-`docs/setup-migrate.md` § `3b` for the full procedure the LLM follows.
+`upsert_ticket_metadata` implementation — the Linear adapter is the
+reference implementation for milestone mapping (see
+`adapters/linear/` and `adapters/linear.md`).
 
 ### Initial ticket state (STE-39)
 
 Bulk-creating tickets without picking an initial state lands everything
 in Backlog, which misrepresents already-shipped migrations. The
-migration procedure (`docs/setup-migrate.md` § `3a`) prompts once for
-the bulk default.
+`/setup --migrate` flow prompts once for the bulk default.
 
 `status_mapping` (Schema M) is the declarative allowlist of legal
 initial states: migration resolves the operator's canonical choice
