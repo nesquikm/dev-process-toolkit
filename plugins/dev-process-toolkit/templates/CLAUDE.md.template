@@ -114,6 +114,15 @@ Schema L probe (`grep -c '^## Task Tracking$' CLAUDE.md`) cannot distinguish
 commented from live headings and would report a false positive, breaking
 the Pattern 9 `mode: none` backward-compat invariant.
 
+Schema L keys `/setup` emits (STE-64):
+  - mode:            none | linear | jira | <custom>
+  - mcp_server:      MCP server name from `claude mcp list`
+  - jira_ac_field:   customfield_XXXXX (Jira only)
+  - branch_template: e.g. `{type}/m{N}-{slug}` (mode: none default)
+                     or `{type}/{ticket-id}-{slug}` (tracker-mode default).
+                     Absent `branch_template:` ⇒ `/implement` branch
+                     automation disabled (AC-STE-64.1). Edit to customize.
+
 For the full live-section contract (keys, sync-log form, per-tracker
 quirks), see docs/tracker-adapters.md. `/setup` emits the section when a
 tracker mode is chosen; leaving this comment intact is purely a hint to

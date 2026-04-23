@@ -162,6 +162,22 @@ If the user picks 2–4, run the flow in `docs/setup-tracker-mode.md` in full:
 
 See `docs/setup-tracker-mode.md` for the exact question prompt, canonical error shapes, JSON diff preview format, and migration wording. Do not inline those procedures here — NFR-1 keeps this skill under 300 lines.
 
+### 7c. Branch-naming template (STE-64)
+
+Ask once, after Schema L has been drafted (or immediately, when 7b picked `mode: none` and no Schema L block will be emitted):
+
+> Branch-naming template? (default: `<default-for-mode>`).
+
+Default-for-mode: `{type}/m{N}-{slug}` in `mode: none`; `{type}/{ticket-id}-{slug}` in any tracker mode. Placeholders: `{type}` → `feat`/`fix`/`chore` (LLM-inferred); `{N}` → milestone number; `{ticket-id}` → tracker ID in tracker mode, short-ULID tail (lowercased) in `mode: none`; `{slug}` → 2–4 word kebab (LLM-inferred).
+
+- Empty response ⇒ accept default.
+- Non-empty response ⇒ use verbatim (`/implement` sanitizes LLM output at render time, so custom templates are safe).
+- Write the resolved value as `branch_template: <value>` in the Schema L block (tracker-mode projects: append to existing keys). `mode: none` projects that elected `1` in step 7b: skip writing; branch automation stays disabled (AC-STE-64.1).
+
+**Skip condition:** if the current CLAUDE.md already has `branch_template:` under `## Task Tracking`, do not re-ask. `/setup --migrate` preserves existing keys unless the user explicitly chooses to edit them.
+
+See `docs/setup-tracker-mode.md` § Branch template for the long-form prompt and examples.
+
 ### 8. Create specs (optional)
 
 If the user wants the full SDD workflow (or if `$ARGUMENTS` contains "new"):
