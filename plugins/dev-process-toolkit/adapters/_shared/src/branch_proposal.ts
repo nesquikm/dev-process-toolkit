@@ -110,6 +110,12 @@ export function buildBranchProposal(ctx: BranchProposalContext): string {
   let finalSlug = cleanSlug;
   if (budget < cleanSlug.length) {
     finalSlug = cleanSlug.slice(0, Math.max(0, budget)).replace(/-+$/g, "");
+    // Non-slug parts alone ate the budget. Truncating to empty would render
+    // a malformed branch like `feat/m19-` — fail loud rather than hand a
+    // trailing-hyphen branch name to `git checkout -b`.
+    if (finalSlug.length === 0) {
+      throw new EmptySlugError(ctx.slug);
+    }
   }
 
   return ctx.template

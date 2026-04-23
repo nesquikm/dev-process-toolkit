@@ -69,14 +69,6 @@ export interface TrackerProviderOptions {
 export type TrackerWriteOperation = "claimLock" | "releaseLock";
 
 /**
- * Thrown when a tracker write (`claimLock`, `releaseLock`) reported success
- * but the ticket's `updatedAt` did not advance past the pre-call value —
- * signaling that the adapter's MCP call silently no-op'd (often because the
- * caller used unknown parameter names, e.g., `status` instead of `state` on
- * Linear `save_issue`). NFR-10 canonical shape: the message fuses verdict,
- * remedy, and context so callers can print it directly.
- */
-/**
  * Thrown by `TrackerProvider.releaseLock` when the pre-release status
  * probe returns anything other than `"in_progress"` (STE-65 AC-STE-65.2).
  * Guards against the `Backlog → Done` silent-leap path that surfaced
@@ -102,6 +94,14 @@ export class TrackerReleaseLockPreconditionError extends Error {
   }
 }
 
+/**
+ * Thrown when a tracker write (`claimLock`, `releaseLock`) reported success
+ * but the ticket's `updatedAt` did not advance past the pre-call value —
+ * signaling that the adapter's MCP call silently no-op'd (often because the
+ * caller used unknown parameter names, e.g., `status` instead of `state` on
+ * Linear `save_issue`). NFR-10 canonical shape: the message fuses verdict,
+ * remedy, and context so callers can print it directly.
+ */
 export class TrackerWriteNoOpError extends Error {
   readonly ticketRef: string;
   readonly trackerKey: string;
