@@ -64,7 +64,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.20.0 — "Fixes and Cleanup"** (two consumer-install bug fixes — portable `${CLAUDE_PLUGIN_ROOT}` paths on five skills so bundled helpers actually resolve outside this repo (STE-53), and an atomic Phase-4 Close step + `/gate-check` ticket-state drift detector so Linear tickets can't get stranded at In Progress after ship (STE-54) — plus a four-item deletion sweep of shipped-but-unused surface: the v1→v2 migrator (STE-55), `specs/.dpt-layout` + layout probes (STE-56), `specs/INDEX.md` + `regenerateIndex` (STE-57), and the `### Sync log` subsection + `sync_log.ts` (STE-58). Closes with a root-spec hygiene gate (STE-59) — `/gate-check` now enforces that `specs/requirements.md` / `specs/technical-spec.md` / `specs/testing-spec.md` stay shape-only, current-only, catching archived-milestone leakage and version drift. STE-53..STE-59, 7 FRs. Release smoke-test: in a fresh consumer project, verify that `/dev-process-toolkit:setup`, `/spec-write`, `/implement`, `/spec-archive`, and `/gate-check` each reach their bundled-helper invocation without silent fallthrough.).
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.21.0 — "Filename Convention"** (FR filenames switch to the human-facing identifier — tracker ID in tracker mode (`STE-42.md`), short-ULID tail in `mode: none` (`VDTAF4.md`); the 26-char ULID stays in frontmatter `id:` as the stable reference. New `Provider.filenameFor(spec)` method consumed by `/spec-write`, `/implement`, `/spec-archive`, and `/setup --migrate`. All 86 existing FRs rewritten to the new convention in a single commit (STE-60 + STE-61). The documented-but-inert `active_ticket:` CLAUDE.md Tier-2 fallback key is retired (STE-62) — ticket binding now runs branch-regex then interactive prompt. STE-60..STE-62, 3 FRs.).
 
 ## Core Philosophy
 
@@ -88,6 +88,6 @@ The key insight: **deterministic checks always override LLM judgment**. A failin
 - `plugins/dev-process-toolkit/docs/skill-anatomy.md` — How Claude Code skills work
 - `plugins/dev-process-toolkit/docs/adaptation-guide.md` — Reference for customizing skills and configuration after `/setup`
 - `plugins/dev-process-toolkit/docs/patterns.md` — 25 proven patterns + anti-patterns
-- `plugins/dev-process-toolkit/docs/v2-layout-reference.md` — v2 spec layout behavioral contract (file-per-FR + ULID; Provider interface; skill integration map)
+- `plugins/dev-process-toolkit/docs/v2-layout-reference.md` — v2 spec layout behavioral contract (file-per-FR keyed by tracker ID / short-ULID; ULID in frontmatter; Provider interface; skill integration map)
 
 **Claude Code official docs:** https://code.claude.com/docs/en

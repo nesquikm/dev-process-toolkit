@@ -1,8 +1,8 @@
 === file tree ===
 CLAUDE.md
-specs/frs/fr_01HZ7XJFKP0000000000000M01.md
-specs/frs/fr_01HZ7XJFKP0000000000000M02.md
-specs/frs/fr_01HZ7XJFKP0000000000000M03.md
+specs/frs/000M01.md
+specs/frs/000M02.md
+specs/frs/000M03.md
 specs/plan/M1.md
 specs/requirements.md
 specs/technical-spec.md
@@ -52,7 +52,7 @@ npm run test
 - Do not commit without user approval
 - Do not add features not in the spec
 
---- specs/frs/fr_01HZ7XJFKP0000000000000M01.md (sha256=0edb9e235a8446147dc603249606919190c59e4a0450aa8ce550cafc4cae1a82 size=511) ---
+--- specs/frs/000M01.md (sha256=0edb9e235a8446147dc603249606919190c59e4a0450aa8ce550cafc4cae1a82 size=511) ---
 ---
 id: fr_01HZ7XJFKP0000000000000M01
 title: Sample tracker-less FR for M1
@@ -84,7 +84,7 @@ A single sample FR proving v2 + mode: none is a valid shape.
 
 Fixture data for FR-56 Pattern 9 coverage.
 
---- specs/frs/fr_01HZ7XJFKP0000000000000M02.md (sha256=a521b3f349215127cd5d56f2eead36fb6ecc8b8874701f25398caccaa4a192f4 size=604) ---
+--- specs/frs/000M02.md (sha256=a521b3f349215127cd5d56f2eead36fb6ecc8b8874701f25398caccaa4a192f4 size=604) ---
 ---
 id: fr_01HZ7XJFKP0000000000000M02
 title: Second sample FR for migration iteration coverage
@@ -117,7 +117,7 @@ file (AC-57.3 requires ≥3 FRs in the regression fixture).
 
 Fixture data for FR-57 iteration coverage.
 
---- specs/frs/fr_01HZ7XJFKP0000000000000M03.md (sha256=dac3d9e20e04d480881d3cbdd0d92c79da0586c3ba73c9d80a330afaf920c737 size=770) ---
+--- specs/frs/000M03.md (sha256=dac3d9e20e04d480881d3cbdd0d92c79da0586c3ba73c9d80a330afaf920c737 size=770) ---
 ---
 id: fr_01HZ7XJFKP0000000000000M03
 title: Third sample FR with existing tracker binding for alphabetical preservation

@@ -300,19 +300,31 @@ describe("findFRByTrackerRef (AC-51.8)", () => {
     const dir = mkdtempSync(join(tmpdir(), "resolve-test-"));
     mkdirSync(join(dir, "frs"), { recursive: true });
     mkdirSync(join(dir, "frs", "archive"), { recursive: true });
+    // M18 STE-61: file under the tracker ID (when present) or the short-ULID
+    // tail — matches Provider.filenameFor's rule so findFRByTrackerRef's
+    // direct-hit lookup resolves cleanly. Synthetic test IDs like `fr_01A`
+    // are shorter than a real ULID; fall back to the full id when the tail
+    // slice would be empty so filenames stay unique.
+    function baseName(fr: { id: string; tracker: Record<string, string> }): string {
+      for (const [, v] of Object.entries(fr.tracker)) {
+        if (typeof v === "string" && v.length > 0) return v;
+      }
+      const tail = fr.id.slice(23, 29);
+      return tail.length > 0 ? tail : fr.id;
+    }
     for (const fr of frs) {
       const trackerYaml = Object.keys(fr.tracker).length === 0
         ? "{}"
         : `\n${Object.entries(fr.tracker).map(([k, v]) => `  ${k}: ${v}`).join("\n")}`;
       const body = `---\nid: ${fr.id}\ntitle: test\nmilestone: M1\nstatus: ${fr.status}\ntracker: ${trackerYaml}\n---\n`;
-      writeFileSync(join(dir, "frs", `${fr.id}.md`), body);
+      writeFileSync(join(dir, "frs", `${baseName(fr)}.md`), body);
     }
     for (const fr of archive) {
       const trackerYaml = Object.keys(fr.tracker).length === 0
         ? "{}"
         : `\n${Object.entries(fr.tracker).map(([k, v]) => `  ${k}: ${v}`).join("\n")}`;
       const body = `---\nid: ${fr.id}\ntitle: test\nmilestone: M1\nstatus: archived\ntracker: ${trackerYaml}\n---\n`;
-      writeFileSync(join(dir, "frs", "archive", `${fr.id}.md`), body);
+      writeFileSync(join(dir, "frs", "archive", `${baseName(fr)}.md`), body);
     }
     return dir;
   }

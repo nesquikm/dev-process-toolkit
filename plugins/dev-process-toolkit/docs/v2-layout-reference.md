@@ -2,7 +2,7 @@
 
 This document is the canonical reference for v2-layout behavior across spec-touching skills (STE-26..STE-25). Skills include a short preamble that points here rather than inlining the full behavior, to keep individual skills under the NFR-1 300-line cap.
 
-v2 is the only supported layout — spec-touching skills operate against the v2 tree (`specs/frs/<ulid>.md`, `specs/plan/<M#>.md`) unconditionally.
+v2 is the only supported layout — spec-touching skills operate against the v2 tree (`specs/frs/<Provider.filenameFor(spec)>`, `specs/plan/<M#>.md`) unconditionally.
 
 ## Provider resolution (AC-STE-20.3)
 
@@ -25,10 +25,11 @@ const provider = mode === "none"
 
 ## FR file access (v2)
 
-- FRs live at `specs/frs/<ulid>.md` (active) or `specs/frs/archive/<ulid>.md` (archived).
+- FR filename is governed by `Provider.filenameFor(spec)` (M18 STE-60 AC-STE-60.1). Tracker mode: `specs/frs/<tracker-id>.md` (e.g., `STE-53.md`). `mode: none`: `specs/frs/<short-ULID>.md` where `<short-ULID>` is `spec.id.slice(23, 29)` (matching M16's AC-prefix tail, e.g., `VDTAF4.md`). The full 26-char ULID is preserved in frontmatter `id:` — filename carries the human-facing identifier, frontmatter carries the collision-proof one.
+- Archived FRs live at `specs/frs/archive/<name>.md` with the same stem as the active file — archival never renames (AC-STE-18.4). Pre-M18 archives keep the legacy `fr_<ULID>.md` shape until STE-61's one-time rewrite lands.
 - Frontmatter is Schema Q (validates against `adapters/_shared/schemas/fr.schema.json`).
 - Each FR has exactly these top-level sections in order: `## Requirement`, `## Acceptance Criteria`, `## Technical Design`, `## Testing`, `## Notes` (AC-STE-26.2).
-- Skills **never rename** FR files after creation (AC-STE-18.4). The only path change permitted is archival via `git mv`.
+- Skills **never rename** FR files after creation except during `/setup --migrate` mode transitions (AC-STE-60.6), which re-run `Provider.filenameFor` for the *new* mode and `git mv` each active FR to its new name in the migration commit. Archive is frozen by mode transitions.
 
 ## Plan file access (v2)
 
@@ -40,7 +41,7 @@ const provider = mode === "none"
 ## Skill-specific behavior in v2
 
 ### `/spec-write`
-- Create new FR via `Provider.mintId()` → write `specs/frs/<ulid>.md` with Schema Q frontmatter.
+- Create new FR via `Provider.mintId()` → write `specs/frs/<Provider.filenameFor(spec)>` (M18 STE-60 AC-STE-60.3) with Schema Q frontmatter. The ULID lives in `id:`; the filename tracks the tracker ID (tracker mode) or the short-ULID tail (`mode: none`).
 - Call `Provider.sync(spec)` on save (AC-STE-24.2).
 - Never write to `specs/requirements.md` on v2 projects.
 
@@ -49,7 +50,7 @@ const provider = mode === "none"
   - `claimed` → proceed.
   - `already-ours` → proceed (session resume).
   - `taken-elsewhere` → STOP with message naming the holding branch (AC-STE-28.1/2).
-- Phase 4 (completion): `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md` + flip frontmatter `status: active` → `status: archived` + set `archived_at: <ISO>`, in one atomic commit (AC-STE-22.2). Then `Provider.releaseLock(id)`.
+- Phase 4 (completion): per FR, `git mv specs/frs/<name> specs/frs/archive/<name>` where `<name>` is `Provider.filenameFor(spec)` (M18 STE-60 AC-STE-60.4) + flip frontmatter `status: active` → `status: archived` + set `archived_at: <ISO>`, in one atomic commit (AC-STE-22.2). Then `Provider.releaseLock(id)`.
 - ACs read from the FR file's `## Acceptance Criteria` section, not `specs/requirements.md`.
 
 ### `/spec-archive`
@@ -58,7 +59,7 @@ const provider = mode === "none"
 
 ### `/gate-check`
 - v2 conformance probes:
-  1. **Filename ↔ `id:` equality** for every `specs/frs/**/*.md` (NFR-15 invariants 1+2). Mismatch = hard fail (AC-STE-18.5).
+  1. **Filename ↔ `Provider.filenameFor(spec)`** for every `specs/frs/**/*.md` (M18 STE-60 AC-STE-60.7 — lenient during the STE-60 → STE-61 transition window so legacy `fr_<ULID>.md` files still pass; STE-61 AC-STE-61.5 flips to strict). Supersedes the pre-M18 filename ↔ `id:` equality assertion.
   2. **Required frontmatter fields** present for every FR file (id, title, milestone, status, archived_at, tracker, created_at). Missing = fail.
   3. **Stale lock scan** — list `.dpt-locks/<ulid>` entries whose branch is merged or deleted. Offer `--cleanup-stale-locks` action that deletes them in one commit (AC-STE-28.5).
   4. **Plan post-freeze edit scan** — for each `specs/plan/<M#>.md` with `status: active` + non-null `frozen_at`, list commits to that path whose authored date is after `frozen_at`. No auto-revert (AC-STE-21.4 warning semantics).

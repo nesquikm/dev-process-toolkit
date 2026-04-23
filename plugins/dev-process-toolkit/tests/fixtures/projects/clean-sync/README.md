@@ -12,8 +12,8 @@ pull_acs result recorded in session memory.
   ```
   mode: linear
   mcp_server: linear
-  active_ticket: LIN-42
   ```
+  (M18 STE-62 retired the legacy Tier-2 fallback key in v1.21.0 — ticket binding now runs branch-regex then interactive prompt.)
 - **Local `specs/requirements.md` FR block:**
   ```
   ### FR-7: Audit log export {#FR-7}
@@ -30,8 +30,9 @@ pull_acs result recorded in session memory.
 ## Expected behavior
 
 1. Schema L probe → `mode: linear`.
-2. Ticket binding: Tier 1 branch regex matches `LIN-42`, Tier 2 matches,
-   IDs equal — clean Tier-1 win, mandatory confirmation proceeds.
+2. Ticket binding: Tier 1 branch regex matches `LIN-42`, mandatory
+   confirmation proceeds (post-STE-62 the 2-tier resolver has no second
+   disagreement surface; any branch-regex mismatch fails loudly).
 3. `pull_acs(LIN-42)` returns three `AcceptanceCriterion` objects; session
    records `updatedAt: 2026-04-17T12:34:56Z` from the fixture.
 4. FR-39 diff: all three ACs classified `identical` after normalization.

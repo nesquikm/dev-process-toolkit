@@ -167,7 +167,6 @@ bottom of CLAUDE.md (Schema L):
 
 mode: <linear | jira | custom>
 mcp_server: <server name from `claude mcp list`>
-active_ticket:
 jira_ac_field: <customfield_XXXXX or blank>
 ```
 

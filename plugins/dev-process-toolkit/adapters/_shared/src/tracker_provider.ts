@@ -251,6 +251,23 @@ export class TrackerProvider implements Provider {
     return { status: String(summary.status) };
   }
 
+  filenameFor(spec: FRSpec): string {
+    const tracker = spec.frontmatter["tracker"];
+    if (tracker && typeof tracker === "object" && !Array.isArray(tracker)) {
+      const ref = (tracker as Record<string, unknown>)[this.driver.trackerKey];
+      if (typeof ref === "string" && ref.length > 0) {
+        return `${ref}.md`;
+      }
+    }
+    const id = spec.frontmatter["id"];
+    if (typeof id !== "string") {
+      throw new TypeError(
+        `TrackerProvider.filenameFor: no tracker[${this.driver.trackerKey}] binding and spec.frontmatter.id is ${typeof id}`,
+      );
+    }
+    return `${id.slice(23, 29)}.md`;
+  }
+
   /**
    * Guard is opt-in: drivers that don't surface `updatedAt` disable the
    * silent-no-op check (FR-67 AC-67.5). Real adapters MUST return it.

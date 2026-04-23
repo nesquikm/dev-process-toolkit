@@ -335,7 +335,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 
 **Problem**: Spec files grow unboundedly as a project matures. Every `/implement`, `/gate-check`, and `/spec-review` invocation reads the full spec tree, inflating hot-path context cost on work that's already shipped. Simply splitting files by hand breaks prompt caching (the cache-hot prefix moves on every rewrite), duplicates still-current content, and loses grep-friendliness.
 
-**Solution (v2, STE-22)**: Per-unit archival. Each FR lives in its own file `specs/frs/<ulid>.md`; each milestone has its own plan file `specs/plan/<M#>.md`. When `/implement` finishes a milestone and the human approves the Phase 4 report, every FR belonging to that milestone is `git mv`d into `specs/frs/archive/<ulid>.md` with frontmatter `status: active` → `status: archived` + `archived_at: <ISO now>`; the milestone plan file is `git mv`d into `specs/plan/archive/<M#>.md`. `Provider.releaseLock(<ulid>)` finalizes each FR's lifecycle (tracker mode transitions the ticket to `done`; tracker-less removes the lock file). For content the auto-path can't reach (reopens, cross-cutting FRs, aborted work), `/spec-archive <ULID | M<N> | tracker-ref>` is the manual escape hatch with a diff approval gate.
+**Solution (v2, STE-22)**: Per-unit archival. Each FR lives in its own file `specs/frs/<name>.md` where `<name>` is `Provider.filenameFor(spec)` (M18 STE-60 — tracker ID in tracker mode, short-ULID tail in `mode: none`); each milestone has its own plan file `specs/plan/<M#>.md`. When `/implement` finishes a milestone and the human approves the Phase 4 report, every FR belonging to that milestone is `git mv`d into `specs/frs/archive/<name>.md` with frontmatter `status: active` → `status: archived` + `archived_at: <ISO now>` (stem preserved across the move); the milestone plan file is `git mv`d into `specs/plan/archive/<M#>.md`. `Provider.releaseLock(<ulid>)` finalizes each FR's lifecycle (tracker mode transitions the ticket to `done`; tracker-less removes the lock file). For content the auto-path can't reach (reopens, cross-cutting FRs, aborted work), `/spec-archive <ULID | M<N> | tracker-ref>` is the manual escape hatch with a diff approval gate.
 
 **What moves:**
 - Every FR file whose frontmatter `milestone == <current>` — `git mv` to `specs/frs/archive/`, frontmatter flip.
@@ -350,7 +350,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 - **Prompt caching stability** — archival is a surgical git rename, so the cache-hot prefix of the live files stays stable between milestones and only invalidates at the moment of archival (once per milestone, not once per run).
 - **Bounded hot-path context cost** — live `specs/frs/` and `specs/plan/` never accumulate shipped content; hot-path token cost is roughly constant regardless of project age (NFR-5).
 - **Merge-conflict-free** — v1's rolling index file was a write hotspot; v2 archival touches disjoint paths per ULID, so parallel-branch merges don't fight over archival state.
-- **Auditability** — archived FR files preserve full content + tracker refs + ACs; `git log --follow specs/frs/archive/<ulid>.md` replays the FR's history trivially.
+- **Auditability** — archived FR files preserve full content + tracker refs + ACs; `git log --follow specs/frs/archive/<name>.md` replays the FR's history trivially.
 - **Escape hatch** — `/spec-archive` covers everything auto-archival can't reach (reopens, cross-cutting FRs, explicit user-directed compaction), with a diff approval gate so users see exactly what's moving.
 
 ### Pattern: Post-Archive Drift Check
@@ -388,7 +388,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
    - >1 → malformed file; fail with NFR-10 canonical error shape
 3. Extract `mode: <value>` between `## Task Tracking` and the next `##` / `###` heading (or EOF).
 4. If the extracted mode is `none`, treat as Step-2-zero — the explicit form is accepted but `/setup` never emits it (AC-STE-8.5).
-5. For any tracker mode, resolve ticket-ID via Pattern 6 (branch regex → active_ticket: → interactive prompt) before any MCP call.
+5. For any tracker mode, resolve ticket-ID via Pattern 6 (branch regex → interactive prompt) before any MCP call.
 ```
 
 **Backward-compat invariant (Pattern 9):** in `mode: none`, **every** mode-aware skill behavior is byte-identical to pre-M12. The probe step is the single insertion; if `## Task Tracking` is absent, the skill runs its pre-M12 body unchanged. Tracker-mode branches are gated behind the probe — they are never entered in `none` mode.
@@ -414,15 +414,17 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 **When this could change**: If Claude Code lifts the no-nested-spawn restriction, or if Stage B is restructured so the `agents/code-reviewer.md` rubric runs as inline skill content inside a forked `/implement` (accepting the trade of a less independent reviewer), `context: fork` becomes viable. Until then, treat `/implement` as main-session-only.
 
 
-## Pattern 23: ULID File-per-FR Layout
+## Pattern 23: File-per-FR Layout
+
+> **Superseded-by M18 STE-60 on the filename-keying rule.** The original pattern keyed filenames on the ULID (`fr_<ULID>.md`); M18 moved filenames to the human-facing identifier (tracker ID in tracker mode, short-ULID tail in `mode: none`) while keeping the ULID in frontmatter `id:` as the stable reference. See `docs/v2-layout-reference.md` § FR file access for the current rule.
 
 **When to use**: Team collaborates on the same spec tree from multiple parallel branches, and merge conflicts on shared spec files (`plan.md`, `requirements.md`, `archive/*.md`) are a recurring friction point.
 
 **The pattern**:
 
-- **One FR, one file, one repo-stable ULID**. Each functional requirement lives at `specs/frs/<ulid>.md` where `<ulid>` is a Crockford base32 ULID (26 chars) minted locally at creation time. The ULID appears in both the filename and the `id:` frontmatter field, byte-for-byte equal (NFR-15 invariants 1+2).
-- **Immutable filenames**. Renames are forbidden. The only path change permitted is archival via `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md`, which preserves the stem (STE-18 AC-STE-18.4).
-- **Tracker IDs as attributes**. `tracker.linear`, `tracker.jira`, `tracker.github` are frontmatter fields — zero-to-many. Tracker IDs never participate in filenames. Multi-tracker FRs are supported; cross-tracker reconciliation is out of scope (the frontmatter is a fact store, not a reconciler).
+- **One FR, one file, one repo-stable ULID**. Each functional requirement lives at `specs/frs/<Provider.filenameFor(spec)>` — a Crockford base32 ULID (26 chars) minted locally at creation time lives in frontmatter `id:`, while the filename uses the tracker ID (tracker mode) or the short-ULID tail (`mode: none`). The ULID is the collision-proof reference; the filename is the human-facing one.
+- **Stems preserved across archival**. `/implement` Phase 4 and `/spec-archive` run `git mv specs/frs/<name> specs/frs/archive/<name>` — the same base name. `/setup --migrate` mode transitions are the only rename path (AC-STE-60.6), since the target mode may use a different filename shape.
+- **Tracker IDs as attributes AND as filename stems (tracker mode)**. `tracker.linear`, `tracker.jira`, `tracker.github` are frontmatter fields — zero-to-many. In tracker mode, the active adapter's ticket ID doubles as the filename stem via `Provider.filenameFor(spec)`. Multi-tracker FRs: the driver's primary tracker wins the filename; other tracker refs are frontmatter-only. Cross-tracker reconciliation is out of scope (the frontmatter is a fact store, not a reconciler).
 - **Provider interface**. `LocalProvider` + `TrackerProvider` implement a single typed contract (`mintId`, `getMetadata`, `sync`, `getUrl`, `claimLock`, `releaseLock`). Skills inject the Provider — they never branch on "tracker configured vs. not."
 - **Per-milestone plan files**. `specs/plan/<M#>.md` replaces the monolithic `plan.md`. Once `status: active`, the plan file is frozen — edits require a `plan/<M#>-replan-<N>` branch.
 - **Move-based archival**. `git mv` for the path change + frontmatter `status` flip in a single atomic commit. Disjoint paths per ULID ⇒ no merge conflicts. Replaces the rewrite-shared-`archive/*.md` hotspot from v1.
@@ -433,8 +435,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 3. **Tracker lifecycle is decoupled from the canonical ID.** Tracker rename / delete / multi-tracker adoption never forces a filesystem rename cascade through git history, INDEX, cross-refs.
 
 **Invariants enforced by `/gate-check`** (v2 conformance probes):
-- Filename regex: `^fr_[0-9A-HJKMNP-TV-Z]{26}\.md$` (AC-STE-18.1)
-- `id:` frontmatter equals filename stem byte-for-byte (AC-STE-18.2)
+- Filename matches `Provider.filenameFor(spec)` (M18 STE-60 AC-STE-60.7 — lenient during transition; STE-61 AC-STE-61.5 flips to strict)
 - Required frontmatter fields: `id, title, milestone, status, archived_at, tracker, created_at`
 
 **Cross-refs**: STE-26..STE-28 (requirements), `technical-spec.md` §8 (design), `docs/v2-layout-reference.md` (behavioral reference for every spec-touching skill).

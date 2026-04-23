@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [1.21.0] — 2026-04-23 — "Filename Convention"
+
+M18 swaps FR filenames to the human-facing identifier (tracker ID in tracker mode, short-ULID tail in `mode: none`), rewrites every existing archive to the new shape, and retires the documented-but-inert `active_ticket:` key. Three FRs (STE-60..STE-62).
+
+### Added
+
+- **STE-60 — `Provider.filenameFor(spec)`.** New method on the `Provider` interface; `LocalProvider` returns `<spec.id.slice(23, 29)>.md` (short-ULID tail, matching M16's AC-prefix rule) and `TrackerProvider` returns `<spec.tracker[driver.trackerKey]>.md` — falling back to the short-ULID form when the FR has no binding for the driver's tracker. `/spec-write` step 0b.2, `/implement` Phase 4 archival, `/spec-archive` single-FR + milestone-group paths, and `/setup --migrate` mode transitions all consume the new method instead of hard-coding `fr_<ULID>.md`. New test `tests/filename-convention.test.ts` covers both provider implementations plus `ShortUlidCollisionError` semantics under the new convention.
+- **STE-60 — Mode-transition FR rename (`/setup --migrate`).** Every mode flip (`none ↔ tracker` / `tracker → tracker`) now re-computes `Provider.filenameFor(spec)` under the target mode and `git mv`s every active FR to its new name in the migration commit. Archive is untouched by mode transitions — pre-flip archives keep whatever shape they had at archival time. The only place skills rename FR files.
+- **STE-61 — Strict filename-matches-frontmatter gate.** `/gate-check` v2 probe 1 flipped from the pre-M18 `filename ↔ id:` byte-equality check to `basename(file) == Provider.filenameFor(spec)`. Any legacy `fr_<ULID>.md` filename now fails the gate. New test `tests/resolver-single-pattern.test.ts` asserts the resolver refuses to find FRs by scanning when filenames don't match the tracker ID / short-ULID convention. Ripgrep gate `rg -n 'fr_[0-9A-HJKMNP-TV-Z]{26}\.md' plugins/ docs/ README.md specs/` returns zero matches (outside `CHANGELOG.md` + frozen byte-diff baseline fixtures).
+
+### Changed
+
+- **All 86 existing FR filenames rewritten.** Three active FRs + 83 archived FRs under `specs/frs/` (and `specs/frs/archive/`) are renamed to the new convention: tracker-bound → `<tracker-id>.md`, tracker-less → `<short-ULID>.md`. Frontmatter `id:` is unchanged (the full 26-char ULID stays as the stable collision-proof reference). The rewrite script is committed at `plugins/dev-process-toolkit/scripts/rewrite-fr-filenames.ts` for auditability.
+- **`findFRByTrackerRef` collapsed to single-pattern.** The Phase 2 frontmatter-scan fallback introduced by STE-60 (transitional — tolerated pre-M18 ULID filenames during the rewrite window) is removed. The resolver now only reads `<specsDir>/frs/<trackerId>.md` (+ the archive mirror). Filename / frontmatter disagreement returns null rather than papering over broken files. The previous dual-pattern test (`resolver-dual-pattern.test.ts`) is deleted and replaced by `resolver-single-pattern.test.ts`.
+- **`LocalProvider.getFrPath` updated.** Only consults `<short-ULID>.md` paths; the legacy `<id>.md` candidates are gone.
+- **Pattern 23 renamed** from "ULID File-per-FR Layout" to "File-per-FR Layout" with a `Superseded-by M18 STE-60` note on the filename-keying rule. The rest of the pattern (stable ULID in frontmatter, stem preserved across archival, tracker refs as attributes) is unchanged.
+- **v2-layout reference, sdd-methodology, skill-anatomy, adaptation-guide, resolver-entry, spec-review-tracker-mode, implement-reference, patterns, and the CLAUDE.md template** all refreshed to describe the new convention. Tree diagrams show `STE-42.md` / `VDTAF4.md` instead of `fr_01HZ7XJFKP.....md`.
+- **STE-62 — `active_ticket:` retired from Schema L.** The documented-but-unwired Tier-2 fallback key is removed from the root `CLAUDE.md`, the `templates/CLAUDE.md.template`, and all three resolver fixture `CLAUDE.md` files (`linear-only`, `linear-and-jira`, `overlapping-prefixes`). `docs/ticket-binding.md` rewritten from the 3-tier resolver to a 2-tier (branch regex → interactive prompt); the old Tier-2 / Tier-1 conflict section is gone. `docs/patterns.md` Pattern 6, `docs/spec-review-tracker-mode.md`, `docs/implement-tracker-mode.md`, `docs/tracker-adapters.md`, `docs/setup-tracker-mode.md`, `specs/technical-spec.md` §7.3, `specs/requirements.md` edge-case table, `tests/scripts/verify-regression.test.ts` synthetic data, and the three fixture project READMEs (`migration-none-to-linear`, `clean-sync`, `spec-review-tracker-only-ac`) are all scrubbed of the literal key. Ripgrep gate `rg -n 'active_ticket' plugins/ specs/ CLAUDE.md` returns zero matches outside the M18 plan / STE-62 FR / archived history. **User-facing impact:** any downstream project that manually set `active_ticket: <id>` in their own `CLAUDE.md` will now fall through to the interactive Tier-2 prompt instead of binding silently. Remedy: rename the branch to encode the ticket ID (the Tier-1 branch-regex path that actually works) — same remedy the old conflict message already suggested.
+
+### Removed
+
+- **Phase 2 frontmatter-scan fallback in `findFRByTrackerRef`.** See "changed" above — retired by STE-61 once the one-time rewrite landed.
+- **Legacy `fr_<ULID>.md` filename regex in `/gate-check`.** Replaced by the strict `Provider.filenameFor(spec)` check.
+- **The `active_ticket:` key from Schema L.** See STE-62 above.
+
 ## [1.20.0] — 2026-04-23 — "Fixes and Cleanup"
 
 Two consumer-install bug fixes plus a four-item deletion sweep of shipped-but-unused surface, plus a new root-spec hygiene gate. Seven FRs (STE-53..STE-59).

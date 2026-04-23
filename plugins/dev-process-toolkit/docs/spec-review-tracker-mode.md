@@ -12,8 +12,9 @@ still supplies FR titles, descriptions, and traceability context (Path B).
 
 1. Run the Schema L probe. If tracker mode, continue; else the pre-M12
    body runs unchanged.
-2. Read CLAUDE.md `## Task Tracking` → `active_ticket:` (if set) or iterate
-   over the traceability matrix's `FR-{N}`-linked ticket IDs.
+2. Iterate over the traceability matrix's `FR-{N}`-linked ticket IDs.
+   (Pre-STE-62 there was a documented-but-inert CLAUDE.md fallback key;
+   it was retired in v1.21.0.)
 3. For each linked ticket: call `pull_acs(ticket_id)`. Parser boundary
    guarantees only AC content is returned — no description preamble,
    comments, or attachments (STE-13 AC-STE-13.2, AC-STE-13.3).
@@ -54,6 +55,6 @@ calls; latency scales with the number of linked tickets. For
 
 If the user's query references a milestone or FR ULID not in the live
 `specs/plan/` / `specs/frs/` tree, look it up directly in
-`specs/plan/archive/<M#>.md` or `specs/frs/archive/<ulid>.md` (v2 layout —
+`specs/plan/archive/<M#>.md` or `specs/frs/archive/<name>.md` (v2 layout —
 no rolling index). Archived FRs have no live tracker mirror — historical
 context only.

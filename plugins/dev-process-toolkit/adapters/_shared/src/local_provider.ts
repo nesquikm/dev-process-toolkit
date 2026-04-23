@@ -12,7 +12,7 @@
 //   - releaseLock(id): deletes and commits; idempotent on missing file.
 
 import { $ } from "bun";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFrontmatter } from "./frontmatter";
 import type { FRMetadata, FRSpec, LockResult, Provider, SyncResult } from "./provider";
@@ -34,10 +34,16 @@ export interface LocalProviderOptions {
 }
 
 function getFrPath(specsDir: string, id: string): string {
-  const active = join(specsDir, "frs", `${id}.md`);
-  if (existsSync(active)) return active;
-  const archived = join(specsDir, "frs", "archive", `${id}.md`);
-  if (existsSync(archived)) return archived;
+  // M18 STE-61: FR filename in `mode: none` is `<spec.id.slice(23, 29)>.md`
+  // (the short-ULID tail). The legacy `<fr_ULID>.md` shape is retired.
+  const shortTail = id.slice(23, 29);
+  const candidates = [
+    join(specsDir, "frs", `${shortTail}.md`),
+    join(specsDir, "frs", "archive", `${shortTail}.md`),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
   throw new Error(`local_provider: FR ${id} not found under ${specsDir}/frs/ or /archive/`);
 }
 
@@ -157,6 +163,14 @@ export class LocalProvider implements Provider {
     return { status: "local-no-tracker" };
   }
 
+  filenameFor(spec: FRSpec): string {
+    const id = spec.frontmatter["id"];
+    if (typeof id !== "string") {
+      throw new TypeError(`LocalProvider.filenameFor: spec.frontmatter.id must be a string, got ${typeof id}`);
+    }
+    return `${id.slice(23, 29)}.md`;
+  }
+
   private async readGitUserEmail(): Promise<string> {
     try {
       const out = await $`git config user.email`.cwd(this.repoRoot).quiet().text();
@@ -175,7 +189,7 @@ export class LocalProvider implements Provider {
     const mainBranch = options.mainBranch ?? "main";
     if (!existsSync(this.locksDir)) return [];
     const stale: Array<{ id: string; branch: string; reason: "merged" | "deleted" }> = [];
-    const entries = require("node:fs").readdirSync(this.locksDir).filter((f: string) => !f.startsWith("."));
+    const entries = readdirSync(this.locksDir).filter((f: string) => !f.startsWith("."));
     const mergedBranchesOutput = await this.safeGit("branch", "--merged", mainBranch);
     const mergedBranches = mergedBranchesOutput
       .split("\n")

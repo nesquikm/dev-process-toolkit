@@ -45,7 +45,7 @@ These are illustrative — use the patterns in your project's CLAUDE.md as the a
 Full sub-step ordering for the Phase 4 Milestone Archival block (STE-22). The skill itself carries a condensed summary; consult this section when executing the archival or debugging an interrupted run. Sub-steps are lettered to avoid clashing with the Phase 4 flow numbering (steps 13–15 in the skill).
 
 a. Scan `specs/frs/*.md` for every FR with frontmatter `milestone == <current>`. Build the FR batch.
-b. For each batched FR: plan one `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md` + frontmatter flip (`status: active → archived`; set `archived_at: <ISO now>`) + one `Provider.releaseLock(<ulid>)` call.
+b. For each batched FR: plan one `git mv specs/frs/<name> specs/frs/archive/<name>` (where `<name>` is `Provider.filenameFor(spec)` — M18 STE-60; stem preserved across the move) + frontmatter flip (`status: active → archived`; set `archived_at: <ISO now>`) + one `Provider.releaseLock(<ulid>)` call.
 c. If `specs/plan/<M#>.md` exists, plan one `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md` (AC-STE-21.5) to batch alongside the FR moves.
 d. Present the full batch as a diff preview — list every `git mv`, every frontmatter flip, every `releaseLock`. Do not summarize.
 e. On explicit human approval (Phase 4 step 15): execute all moves + flips + `releaseLock` calls and commit atomically in a single commit (AC-STE-22.2, AC-STE-22.6). Any error aborts the entire batch — no partial archival.

@@ -35,10 +35,10 @@ Archival uses the same code path as `/implement` Phase 4.
 
 **Single-FR archival** (argument resolved to one ULID):
 
-1. Read `specs/frs/<ulid>.md`; verify frontmatter `status: active` or `status: in_progress`.
+1. Locate the FR file: read the spec's frontmatter and compute its base name via `Provider.filenameFor(spec)` (M18 STE-60 AC-STE-60.5). Verify `status: active` or `status: in_progress`.
 2. Present the Diff Preview (§ Diff Preview below) — the filename move, the frontmatter flip, and any `Provider.releaseLock` call.
 3. On explicit approval:
-   - `git mv specs/frs/<ulid>.md specs/frs/archive/<ulid>.md` — filename stem preserved (AC-STE-18.4).
+   - `git mv specs/frs/<name> specs/frs/archive/<name>` using the `Provider.filenameFor(spec)` base — stem preserved across the move (AC-STE-18.4). Archival never renames.
    - Flip frontmatter `status: active` → `status: archived`; set `archived_at: <ISO now>`.
    - `Provider.releaseLock(<ulid>)` (AC-STE-28.4). In tracker mode this transitions the ticket to `done`; in tracker-less mode it removes the in-flight lock file.
    - All of the above land in a single atomic commit (AC-STE-22.2).
@@ -46,9 +46,9 @@ Archival uses the same code path as `/implement` Phase 4.
 
 **Milestone-group archival** (argument is `M<N>`):
 
-1. Scan `specs/frs/*.md` for every FR with frontmatter `milestone == M<N>`. Refuse cleanly if the match set is empty ("No active FRs found for milestone M<N>"); exit non-zero, no side effects.
+1. Scan every active `specs/frs/*.md` for `milestone == M<N>`. Refuse cleanly if the match set is empty ("No active FRs found for milestone M<N>"); exit non-zero, no side effects.
 2. Build the batch:
-   - One `git mv` + frontmatter flip + `Provider.releaseLock` per matched FR.
+   - Per matched FR: `git mv specs/frs/<Provider.filenameFor(spec)> specs/frs/archive/<same-name>` + frontmatter flip + `Provider.releaseLock` (M18 STE-60 AC-STE-60.5).
    - If `specs/plan/M<N>.md` exists, include `git mv specs/plan/M<N>.md specs/plan/archive/M<N>.md` (AC-STE-21.5).
 3. Present the Diff Preview covering every move + flip + release.
 4. On approval, land all N moves + N flips + N `releaseLock` calls + the optional plan-file move in a **single atomic commit** (AC-STE-22.6). Any error aborts the commit entirely — no partial archival.
@@ -65,7 +65,7 @@ No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` exc
 Before any filesystem change, render a diff preview the user can confirm or reject. For single-FR archival:
 
 ```
---- specs/frs/<ulid>.md  →  specs/frs/archive/<ulid>.md  (git mv)
+--- specs/frs/<name>  →  specs/frs/archive/<name>  (git mv; <name> = Provider.filenameFor(spec), stem preserved)
 @@ frontmatter @@
 -status: active
 -archived_at: null
@@ -83,7 +83,7 @@ For milestone-group archival, list each `git mv`, each frontmatter flip, each `r
 
 ### Reopening an Archived FR
 
-If the user reopens an archived FR (e.g., they discover post-ship rework is needed), the canonical path is to `git mv specs/frs/archive/<ulid>.md specs/frs/<ulid>.md` and flip `status: archived` → `status: active` with `archived_at: null`. This is NOT a `/spec-archive` operation — reopens are performed by the user directly or by `/spec-write` on the reopened FR. The ULID is stable across open/archive cycles (NFR-15); no revision-suffix mechanism is required.
+If the user reopens an archived FR (e.g., they discover post-ship rework is needed), the canonical path is to `git mv specs/frs/archive/<name> specs/frs/<name>` (where `<name>` is whatever `Provider.filenameFor(spec)` returns — tracker ID in tracker mode, short-ULID in `mode: none`) and flip `status: archived` → `status: active` with `archived_at: null`. This is NOT a `/spec-archive` operation — reopens are performed by the user directly or by `/spec-write` on the reopened FR. The ULID in frontmatter is stable across open/archive cycles (NFR-15); no revision-suffix mechanism is required.
 
 ## Post-Archive Drift Check
 

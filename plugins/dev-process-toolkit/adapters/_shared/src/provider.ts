@@ -52,4 +52,14 @@ export interface Provider {
    * driver and returns the driver's canonical status string verbatim.
    */
   getTicketStatus(ticketId: string): Promise<{ status: string }>;
+  /**
+   * Return the base filename (no directory) a newly-created or
+   * about-to-archive FR file should live under (M18 STE-60 AC-STE-60.1).
+   *
+   *   - `LocalProvider`: `<short-ULID>.md` — `spec.id.slice(23, 29)`.
+   *   - `TrackerProvider`: `<tracker-id>.md` via `spec.tracker[driver.trackerKey]`,
+   *     falling back to the short-ULID form when the binding is absent for
+   *     the driver's tracker.
+   */
+  filenameFor(spec: FRSpec): string;
 }
