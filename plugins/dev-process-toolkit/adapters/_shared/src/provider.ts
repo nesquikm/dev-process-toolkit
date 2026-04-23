@@ -44,4 +44,12 @@ export interface Provider {
   getUrl(id: string, trackerKey?: string): string | null;
   claimLock(id: string, branch: string): Promise<LockResult>;
   releaseLock(id: string): Promise<void>;
+  /**
+   * Read-side status probe used by `/implement` Phase 4 post-release
+   * verification (AC-STE-54.2) and `/gate-check` ticket-state drift
+   * detection (AC-STE-54.3). `LocalProvider` returns the
+   * `"local-no-tracker"` sentinel; `TrackerProvider` delegates to the
+   * driver and returns the driver's canonical status string verbatim.
+   */
+  getTicketStatus(ticketId: string): Promise<{ status: string }>;
 }

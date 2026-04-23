@@ -6,13 +6,8 @@
 // hand-assembled the config from CLAUDE.md + adapter metadata — glue that
 // duplicates across /spec-write, /implement, /spec-archive.
 //
-// AC-65.2 spec deviation (underspecified, logged at Phase 4): the AC says
-// "reuse layout.ts / existing probe code — no new parser". layout.ts has
-// only the `.dpt-layout` version reader; the Schema L probe that would
-// parse `## Task Tracking` does not exist as TS code (bash `grep` was the
-// probe in verify-regression.ts). Resolution: add `readTaskTrackingSection`
-// as an INTERNAL helper here rather than a separate module — honors the
-// "no new parser module" spirit while supplying the missing primitive.
+// `readTaskTrackingSection` lives here as an INTERNAL helper rather than a
+// separate module — there is only one caller (the config builder below).
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -41,8 +36,8 @@ export class MalformedAdapterMetadataError extends Error {
  * absent (both = `mode: none` canonical form per AC-29.5).
  *
  * Section terminates at the next heading line (`# `, `## `, `### `,
- * `#### `) so the `### Sync log` subsection is correctly excluded from
- * key parsing.
+ * `#### `) — the canonical Schema L shape contains only flat `key: value`
+ * pairs under the `## Task Tracking` heading.
  *
  * Exported so tests and sibling modules can reuse it without duplicating
  * the probe. Marked internal-to-FR-65 — may graduate to its own module if

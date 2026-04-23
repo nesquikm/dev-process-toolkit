@@ -169,16 +169,17 @@ mode: <linear | jira | custom>
 mcp_server: <server name from `claude mcp list`>
 active_ticket:
 jira_ac_field: <customfield_XXXXX or blank>
-
-### Sync log
 ```
 
 Blank values for keys that don't apply to the picked mode are legal (Schema L).
-The `### Sync log` subsection is created empty; `/implement`, `/spec-write`,
-and `/gate-check` append audit entries per AC-STE-17.8.
+`git log` is the audit trail for sync, migration, and resolution events — no
+separate subsection is maintained.
 
 ## `/setup --migrate` entry
 
 When invoked as `/setup --migrate`, skip steps 1–7 (project detection,
-scaffolding, template write) and route directly into STE-14 migration
-handling — see `docs/setup-migrate.md`.
+scaffolding, template write) and route directly into tracker-mode
+migration (STE-14) — see `skills/setup/SKILL.md` § 0b for the inline
+procedure covering current-mode detection, target-mode prompt, and
+atomicity. `git log` is the audit trail for the migration commit; no
+separate entry is written.

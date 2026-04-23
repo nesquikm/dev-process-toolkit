@@ -22,20 +22,17 @@ src/
 └── utils/          # Shared utilities
 ```
 
-<!-- SDD spec tree. v2 layout (file-per-FR + ULID) is shown; v1 layout
-     (single requirements.md) is still supported. Run /setup --migrate
-     to convert v1 → v2. See docs/v2-layout-reference.md. -->
+<!-- SDD spec tree. v2 is the baseline layout (file-per-FR + ULID).
+     See docs/v2-layout-reference.md for behavior reference. -->
 ```
 specs/
-├── .dpt-layout                          # v2 marker (YAML; version: v2)
 ├── frs/
 │   ├── fr_01HZ7XJFKP.....md             # one file per FR
 │   └── archive/                         # archived FRs (git mv'd here)
 ├── plan/
 │   ├── M<N>.md                          # one file per milestone
 │   └── archive/                         # archived milestone plans
-├── INDEX.md                             # generated; lists active FRs
-├── requirements.md                      # cross-cutting only (v2) / monolithic (v1)
+├── requirements.md                      # cross-cutting only
 ├── technical-spec.md                    # architecture, ADRs, cross-cutting schemas
 └── testing-spec.md                      # framework + conventions
 ```

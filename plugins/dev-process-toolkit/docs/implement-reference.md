@@ -49,9 +49,8 @@ b. For each batched FR: plan one `git mv specs/frs/<ulid>.md specs/frs/archive/<
 c. If `specs/plan/<M#>.md` exists, plan one `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md` (AC-STE-21.5) to batch alongside the FR moves.
 d. Present the full batch as a diff preview — list every `git mv`, every frontmatter flip, every `releaseLock`. Do not summarize.
 e. On explicit human approval (Phase 4 step 15): execute all moves + flips + `releaseLock` calls and commit atomically in a single commit (AC-STE-22.2, AC-STE-22.6). Any error aborts the entire batch — no partial archival.
-f. Regenerate `specs/INDEX.md` via `regenerateIndex(specsDir)` — archived FRs drop out of the default listing (AC-STE-22.3).
-g. Run the Post-Archive Drift Check from `skills/spec-archive/SKILL.md` § Post-Archive Drift Check. Render the unified Schema I table; offer the 3-choice UX (address inline / save to `specs/drift-<date>.md` / acknowledge). The drift check never blocks the already-committed archival.
-h. `specs/technical-spec.md` is **never** archived — ADRs use `Superseded-by:` in place (ADR convention).
+f. Run the Post-Archive Drift Check from `skills/spec-archive/SKILL.md` § Post-Archive Drift Check. Render the unified Schema I table; offer the 3-choice UX (address inline / save to `specs/drift-<date>.md` / acknowledge). The drift check never blocks the already-committed archival.
+g. `specs/technical-spec.md` is **never** archived — ADRs use `Superseded-by:` in place (ADR convention).
 
 ## Decision matrix (round resolution)
 

@@ -240,6 +240,18 @@ export class TrackerProvider implements Provider {
   }
 
   /**
+   * Treat `idOrRef` as a ULID (→ resolve to the tracker ref via
+   * frontmatter) OR as an already-resolved tracker ref (e.g., `STE-53`).
+   * The tracker ref falls through `resolveTrackerRefImpl`, which by
+   * default echoes anything matching `/^[A-Z]+-\d+$/`.
+   */
+  async getTicketStatus(idOrRef: string): Promise<{ status: string }> {
+    const trackerRef = (await this.resolveTrackerRef(idOrRef)) ?? idOrRef;
+    const summary = await this.driver.getTicketStatus(trackerRef);
+    return { status: String(summary.status) };
+  }
+
+  /**
    * Guard is opt-in: drivers that don't surface `updatedAt` disable the
    * silent-no-op check (FR-67 AC-67.5). Real adapters MUST return it.
    * Returns the post-write `updatedAt` so chained writes can use it as the

@@ -26,12 +26,10 @@ file gains AC-7.4.
    ```
 4. User picks `(2) keep tracker` → local `specs/requirements.md` FR-7
    gains AC-7.4 bullet.
-5. Sync log appends: `- 2026-04-18T10:00:00Z — 1 AC conflicts resolved on LIN-42`
-   (with `DPT_TEST_FROZEN_TIME=2026-04-18T10:00:00Z`).
+5. `git log` captures the resolution commit; no separate audit trail is written (STE-58).
 6. `/implement` proceeds past pre-flight with the four-AC list.
 
 ## Fail conditions
 
 - AC-7.4 classified as anything other than `tracker-only`.
-- Sync log entry missing or malformed.
 - No local requirements.md write after `keep tracker`.

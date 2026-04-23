@@ -11,15 +11,13 @@ function readSchema(name: string): Record<string, unknown> {
   return JSON.parse(readFileSync(join(SCHEMAS_DIR, `${name}.schema.json`), "utf-8"));
 }
 
-describe("JSON Schemas (Schemas Q–U)", () => {
+describe("JSON Schemas (Schemas Q, S, T)", () => {
   test("all 5 schema files exist", () => {
     const names = readdirSync(SCHEMAS_DIR)
       .filter((f) => f.endsWith(".schema.json"))
       .sort();
     expect(names).toEqual([
       "fr.schema.json",
-      "index.schema.json",
-      "layout.schema.json",
       "lock.schema.json",
       "plan.schema.json",
     ]);
@@ -37,21 +35,6 @@ describe("JSON Schemas (Schemas Q–U)", () => {
     expect(pattern.test("fr_01HZ000000000000000000001")).toBe(false); // 25 chars
   });
 
-  test("layout schema accepts canonical v2 example", () => {
-    const schema = readSchema("layout");
-    const example = { version: "v2", migrated_at: "2026-04-21T10:30:00Z", migration_commit: null };
-    expect(Object.keys(schema.properties as object).sort()).toEqual([
-      "migrated_at",
-      "migration_commit",
-      "version",
-    ]);
-    expect((schema.required as string[]).includes("version")).toBe(true);
-    // Manual shape check (bun has no ajv without dep)
-    expect(example.version).toMatch(/^v\d+$/);
-    expect(typeof example.migrated_at).toBe("string");
-    expect(example.migration_commit).toBeNull();
-  });
-
   test("lock schema has required fields", () => {
     const schema = readSchema("lock");
     expect((schema.required as string[]).sort()).toEqual(["branch", "claimed_at", "claimer", "ulid"]);
@@ -65,13 +48,6 @@ describe("JSON Schemas (Schemas Q–U)", () => {
     // No strict rule on active|complete — migration exception documented in $comment
     expect(descriptions.some((d) => d.includes("active|complete requires"))).toBe(false);
     expect(typeof schema.$comment).toBe("string");
-  });
-
-  test("index (FRIndexEntry) schema excludes archived status", () => {
-    const schema = readSchema("index");
-    const statusEnum = (schema.properties as Record<string, { enum: string[] }>).status.enum;
-    expect(statusEnum).not.toContain("archived");
-    expect(statusEnum).toEqual(["active", "in_progress", "draft"]);
   });
 
   test("fr schema status enum includes archived", () => {

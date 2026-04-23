@@ -3,7 +3,6 @@ CLAUDE.md
 specs/frs/fr_01HZ7XJFKP0000000000000M01.md
 specs/frs/fr_01HZ7XJFKP0000000000000M02.md
 specs/frs/fr_01HZ7XJFKP0000000000000M03.md
-specs/INDEX.md
 specs/plan/M1.md
 specs/requirements.md
 specs/technical-spec.md
@@ -153,17 +152,6 @@ A third active FR with a pre-existing tracker binding so a downstream
 
 Fixture data for FR-57 iteration coverage + FR-58 alphabetical-merge
 regression surface.
-
---- specs/INDEX.md (sha256=d4af72e5a572c20db1303d772ba75eb83587721400a1b9bda27d61ef667100cd size=599) ---
-# Active FRs
-
-| ULID | Title | Milestone | Status | Tracker |
-|------|-------|-----------|--------|---------|
-| [fr_01HZ7XJFKP0000000000000M01](frs/fr_01HZ7XJFKP0000000000000M01.md) | Sample tracker-less FR for M1 | M1 | active | — |
-| [fr_01HZ7XJFKP0000000000000M02](frs/fr_01HZ7XJFKP0000000000000M02.md) | Second sample FR for migration iteration coverage | M1 | active | — |
-| [fr_01HZ7XJFKP0000000000000M03](frs/fr_01HZ7XJFKP0000000000000M03.md) | Third sample FR with existing tracker binding for alphabetical preservation | M1 | active | jira:PROJ-1 |
-
-Generated: 2026-04-22T00:00:00.000Z
 
 --- specs/plan/M1.md (sha256=c7838355c1fafa985f731bdaee94c949ea2f8694b25875c3ea3406cecf6d01d0 size=195) ---
 ---

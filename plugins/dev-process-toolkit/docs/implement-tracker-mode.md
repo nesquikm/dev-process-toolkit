@@ -71,13 +71,8 @@ If any non-identical AC exists, prompt per-AC with exactly four options
   side (AC-STE-17.5).
 
 After all per-AC resolutions apply, both sides converge to the same list
-(AC-STE-17.4). Then append one Sync-log entry to CLAUDE.md per AC-STE-17.8:
-
-```
-- 2026-04-17T14:30:00Z — 2 AC conflicts resolved on LIN-123
-```
-
-(Entry form is enforced by Schema L's bulleted append-only contract.)
+(AC-STE-17.4). The commit that captures the resolution is the audit trail
+— `git log` + `git blame` on the FR file show the what, who, and when.
 
 ## MCP call budget (NFR-8)
 

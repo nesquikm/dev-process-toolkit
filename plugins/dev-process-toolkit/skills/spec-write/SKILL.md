@@ -16,8 +16,7 @@ Guide the user through writing or completing the project specification files.
 
 Before any other step:
 
-- **Layout probe** — Read `specs/.dpt-layout` via `bun run adapters/_shared/src/layout.ts`. If `version: v2`, FR creation goes to `specs/frs/<ulid>.md` (never `specs/requirements.md`) and `Provider.sync()` fires on save. If marker absent + `specs/requirements.md` exists, run v1 behavior unchanged. If version > v2, exit with the canonical message (AC-STE-29.3). Full reference: `docs/v2-layout-reference.md` § `/spec-write`.
-- **Provider resolution** — In v2 mode, resolve `Provider` once per invocation (AC-STE-20.3) using the same rule as `/implement` (LocalProvider for `mode: none`, TrackerProvider otherwise).
+- **Provider resolution** — Resolve `Provider` once per invocation (AC-STE-20.3) using the same rule as `/implement` (LocalProvider for `mode: none`, TrackerProvider otherwise). FR creation goes to `specs/frs/<ulid>.md` (never `specs/requirements.md`); `Provider.sync()` fires on save. Full reference: `docs/v2-layout-reference.md` § `/spec-write`.
 - **Tracker-mode probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none`. If a tracker mode is active:
   - Run the 3-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md` (STE-27) the first time the session edits an FR bound to a ticket — decline exits cleanly with zero side effects (AC-STE-27.4).
   - After saving any FR-level AC edit, run the STE-17 diff/resolve loop via the active adapter before pushing via `upsert_ticket_metadata` (AC-STE-12.7, AC-STE-17.9).
@@ -47,7 +46,6 @@ In v2 mode, creating a new FR means:
 2. Write `specs/frs/<ulid>.md` with Schema Q frontmatter (`id`, `title`, `milestone`, `status: active`, `archived_at: null`, `tracker: {}`, `created_at`) and the five required sections in order: `## Requirement`, `## Acceptance Criteria`, `## Technical Design`, `## Testing`, `## Notes` (AC-STE-26.2).
 3. **AC prefix (STE-50 AC-STE-50.1/STE-50.2)** — every AC line in the new file uses the shape `- AC-<PREFIX>.<N>: <body>`, where `<PREFIX>` is derived via `acPrefix(spec)` from `adapters/_shared/src/ac_prefix.ts`: in tracker mode it's the bound tracker ID (e.g., `AC-STE-50.1`); in `mode: none` it's `spec.id.slice(23, 29)` — the last 6 chars of the ULID's random portion (e.g., `AC-VDTAF4.1`). Tracker mode requires the `tracker:` block to be populated **before** ACs are written (i.e., bind the ticket first, then author ACs). In `mode: none`, before writing the file, call `scanShortUlidCollision(specsDir, spec)` from the same module; it throws `ShortUlidCollisionError` (NFR-10-shape) if another FR already uses the same short-ULID tail (AC-STE-50.3).
 4. Call `Provider.sync(spec)` — no-op in `LocalProvider`, pushes to tracker in `TrackerProvider`.
-5. Regenerate `specs/INDEX.md` via `regenerateIndex(specsDir)`.
 6. Never write to `specs/requirements.md` on v2 projects — that file is slimmed to cross-cutting content only (AC-STE-26.3).
 
 ### 1. Assess current state

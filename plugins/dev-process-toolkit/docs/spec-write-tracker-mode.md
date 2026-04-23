@@ -24,7 +24,8 @@ After each FR-level AC save in `specs/requirements.md`:
 6. On resolution (including `all identical` fast path), call
    `upsert_ticket_metadata(ticket_id, title, <rebuilt description>)` to
    push the converged state to the tracker (AC-STE-17.9, AC-STE-12.7).
-7. Append one `### Sync log` entry per AC-STE-17.8.
+   `git log` captures the sync event via the commit; no separate audit
+   trail is written.
 
 `/spec-write` on a brand-new FR (no ticket bound yet) skips steps 1–5 and
 goes straight to `upsert_ticket_metadata(null, title, description)` to
@@ -34,8 +35,7 @@ mint a new ticket; the returned ID is written to the traceability matrix
 ## Cancel semantics
 
 - **During diff/resolve cancel (step 5):** local draft stays in memory;
-  tracker untouched; CLAUDE.md sync-log untouched. User can retry or
-  abandon.
+  tracker untouched. User can retry or abandon.
 - **During mint-new cancel:** no `upsert_ticket_metadata` call; no
   traceability matrix update; `specs/requirements.md` keeps whatever the
   user just saved (it's already on disk — cancel here means "don't push

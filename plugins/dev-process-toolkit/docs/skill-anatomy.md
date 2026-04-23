@@ -90,7 +90,7 @@ shell: bash                       # Shell for !`command` blocks: bash (default) 
 ### 5b. Spec Archive (manual archival escape hatch)
 - **Purpose**: Archive user-selected FRs (by ULID or tracker ref) or a milestone group (`M<N>`) by `git mv`-ing FR files into `specs/frs/archive/` and plan files into `specs/plan/archive/`, with a diff approval gate (STE-22)
 - **Invocation**: User-invoked for reopens, cross-cutting FRs, aborted work, or explicit compaction; never auto-scans
-- **Key pattern**: Resolve arg → present diff (git mv + frontmatter flip + releaseLock) → wait for approval → atomic commit → regenerate `INDEX.md` → post-archive drift check. Reopens are a plain reverse move + status flip; no revision-suffix mechanism is needed because ULIDs are stable.
+- **Key pattern**: Resolve arg → present diff (git mv + frontmatter flip + releaseLock) → wait for approval → atomic commit → post-archive drift check. Reopens are a plain reverse move + status flip; no revision-suffix mechanism is needed because ULIDs are stable.
 
 ### 6. Visual Check (UI verification)
 - **Purpose**: Verify web UI renders correctly in a real browser
@@ -115,6 +115,11 @@ shell: bash                       # Shell for !`command` blocks: bash (default) 
 | `$ARGUMENTS[N]` or `$N` | Specific argument by index |
 | `${CLAUDE_SESSION_ID}` | Current session ID |
 | `${CLAUDE_SKILL_DIR}` | Directory containing the SKILL.md |
+| `${CLAUDE_PLUGIN_ROOT}` | Installed plugin root (use for bundled-helper invocation paths) |
+
+### Invocation paths — bundled helpers
+
+When a skill invokes a helper that ships inside the plugin (e.g. `adapters/_shared/src/…`), the invocation path MUST be prefixed with `${CLAUDE_PLUGIN_ROOT}/`, because the model's working directory is always the consumer project's root, not the plugin root. Claude Code substitutes `${CLAUDE_PLUGIN_ROOT}` at shell-exec time; it resolves to the plugin's installed location in consumer installs and to the source tree when dogfooded in-repo. Narrative references that merely name a helper (e.g. "`resolveFRArgument` from `adapters/_shared/src/resolve.ts`") may keep the bare path for readability — only `bun run <path>`, shell commands in setup docs, and hook-target paths need the variable. The `skill-path-portability.test.ts` grep-gate catches regressions.
 
 ## Dynamic Context Injection
 

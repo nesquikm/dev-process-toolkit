@@ -74,10 +74,10 @@ describe("runSchemaLProbe (AC-STE-12.8)", () => {
     }
   });
 
-  test("step 3: `### Sync log` sub-section is excluded from key: value parsing", () => {
-    // Schema L step 3: "lines under `### Sync log` are excluded from
-    // key: value parsing". This protects against a sync-log entry that
-    // happens to look like `mode: tricky` from overriding the real
+  test("step 3: parser stops at the next `### ` sub-section heading", () => {
+    // Schema L step 3: any `### ` heading terminates key: value parsing.
+    // This guards against a stray `### Notes` / `### <anything>` line
+    // with a `mode: tricky` entry underneath from overriding the real
     // mode declaration above it.
     const tmp = mkdtempSync(join(tmpdir(), "dpt-probe-"));
     try {
@@ -93,8 +93,8 @@ describe("runSchemaLProbe (AC-STE-12.8)", () => {
           "mcp_server: linear",
           "active_ticket: LIN-1",
           "",
-          "### Sync log",
-          "- 2026-04-21T00:00:00Z — mode: tricky looking entry",
+          "### Notes",
+          "- mode: tricky looking entry",
           "",
         ].join("\n"),
       );

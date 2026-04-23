@@ -27,7 +27,7 @@ both sides converge on the merged text.
    - Local: `specs/requirements.md` FR-7 AC-7.1 rewritten.
    - Tracker: `upsert_ticket_metadata(LIN-42, ...)` rewrites description
      with the new canonical AC block.
-5. Sync log appends: `- 2026-04-18T10:00:00Z — 1 AC conflicts resolved on LIN-42`.
+5. `git log` captures the resolution commit; no separate audit trail is written (STE-58).
 6. A second `pull_acs` (e.g., on next `/implement`) classifies everything
    as `identical` — convergence in one round (AC-39.6).
 
@@ -37,7 +37,7 @@ If the user types `(4) cancel` instead of merging:
 
 1. `specs/requirements.md` unchanged.
 2. No `upsert_ticket_metadata` call.
-3. No sync log entry.
+3. No commit (nothing to record — skill cancelled cleanly).
 4. Skill exits cleanly (AC-39.5).
 
 ## Fail conditions
