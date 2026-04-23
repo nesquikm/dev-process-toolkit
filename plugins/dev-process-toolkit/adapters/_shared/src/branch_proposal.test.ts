@@ -201,4 +201,19 @@ describe("buildBranchProposal — 60-char truncation (AC-STE-64.5)", () => {
     expect(result.startsWith("feat/ste-64-")).toBe(true);
     expect(result.length).toBeLessThanOrEqual(60);
   });
+
+  test("template prefix alone exceeds 60 chars ⇒ throws EmptySlugError (no `feat/m19-` malformed result)", () => {
+    // If the non-slug portion already spends the entire 60-char budget,
+    // slug gets truncated to empty. Rather than return `prefix-` with a
+    // dangling hyphen, the renderer must throw — the user picks [e] to
+    // supply a shorter prefix or rejects the proposal.
+    expect(() =>
+      buildBranchProposal(
+        ctx({
+          template: "feat/super-long-prefix-that-eats-the-whole-sixty-char-budget-already/{slug}",
+          slug: "short",
+        }),
+      ),
+    ).toThrow(EmptySlugError);
+  });
 });
