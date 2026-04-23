@@ -40,6 +40,46 @@ These are illustrative — use the patterns in your project's CLAUDE.md as the a
 - **Go:** verify every returned `error` is checked; check that deferred `Close()` calls are paired with error handling; confirm context cancellation propagates through goroutines.
 - **Rust:** verify `Result` is not discarded with `let _ = ...`; check that `?` propagates errors to the right boundary; confirm `panic!` is only used for truly unreachable states.
 
+## Branch Proposal (STE-64)
+
+Fires at Phase 1 entry, **between resolver (0.b′) and `claimLock` (0.c)** — the branch identity must settle before the lock binds to it.
+
+### Guard
+
+1. Read `branch_template:` from Schema L (the probe already ran in step 0.d; the value is in-session).
+   - Absent ⇒ skip the whole step. Branch automation disabled (AC-STE-64.1).
+   - Present ⇒ continue.
+2. Extract the run-scope identifier from the resolver result:
+   - Milestone run (`fallthrough` + arg matches `M<N>`) ⇒ `RunScope.kind = "milestone"`, `number = "<N>"`.
+   - Tracker-mode FR run ⇒ `RunScope.kind = "fr-tracker"`, `trackerId = <resolved tracker ID>`.
+   - Mode-none FR run ⇒ `RunScope.kind = "fr-mode-none"`, `shortUlid = spec.id.slice(23, 29).toLowerCase()`.
+3. Call `isCurrentBranchAcceptable(currentBranch, scope)` from `adapters/_shared/src/branch_proposal.ts`. `true` ⇒ skip the proposal (branch already encodes the scope). `false` ⇒ continue.
+
+### Proposal render
+
+4. Run a single LLM pass over the FR's `## Requirement` section (or the milestone plan file's "Why this milestone exists" section for milestone runs) and return `{type, slug}` as structured JSON. `type` ∈ `{feat, fix, chore}`; `slug` is a 2–4 word kebab-case phrase summarizing the work.
+5. Call `buildBranchProposal({template, type, slug, milestone, trackerId, shortUlid})`. The function:
+   - Clamps `{type}` to the allowed set (unknown ⇒ `feat`; AC-STE-64.13).
+   - Sanitizes `{slug}` to `[a-z0-9-]`, collapses hyphen runs, strips leading/trailing hyphens.
+   - Throws `EmptySlugError` if the slug sanitizes to empty (⇒ surface as NFR-10 refusal and re-prompt).
+   - Substitutes `{type}`, `{N}`, `{ticket-id}`, `{slug}` into the template.
+   - Truncates slug-only if the rendered name exceeds 60 chars.
+
+### Prompt
+
+6. Render: `Create branch '<rendered>'? [Y] accept / [e] edit / [n] abort`.
+   - `Y` or `enter` ⇒ `git checkout -b <rendered>`, continue Phase 1 at step 0.c.
+   - `e` ⇒ present the rendered name on an editable input line; re-prompt `Y/e/n` on the edited string. No cap on edit iterations, but the user must ultimately press `Y` or `n`.
+   - `n` ⇒ exit cleanly with `aborted: branch not created` and **zero side effects** (no `claimLock`, no ticket writes, no file changes).
+
+### Failure handling
+
+7. `git checkout -b` fails (branch already exists with different upstream, uncommitted changes conflict, permissions, etc.): surface the git error via NFR-10 canonical shape and exit non-zero. Never silently proceed on the old branch after a failed checkout (AC-STE-64.8).
+
+### Scope boundary (AC-STE-64.9)
+
+Only `/implement` reads `branch_template:`. `/tdd`, `/debug`, `/spec-write`, `/gate-check`, `/pr`, `/spec-archive`, `/spec-review`, `/visual-check`, `/simplify`, `/brainstorm` never read the key and never prompt for branch creation.
+
 ## Milestone Archival Procedure
 
 Full sub-step ordering for the Phase 4 Milestone Archival block (STE-22). The skill itself carries a condensed summary; consult this section when executing the archival or debugging an interrupted run. Sub-steps are lettered to avoid clashing with the Phase 4 flow numbering (steps 13–15 in the skill).

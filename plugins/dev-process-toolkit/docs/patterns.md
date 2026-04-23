@@ -401,6 +401,8 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 - In `mode: none`, no skill makes MCP calls or reads tracker state (AC-STE-12.4). The tracker-mode branches are literally unreachable.
 - Duplicate keys in the section fail with NFR-10 canonical shape (Schema L).
 
+**Branch automation (STE-64).** `branch_template:` is an additive Schema L key consumed **only** by `/implement` Phase 1 (via `buildBranchProposal` in `adapters/_shared/src/branch_proposal.ts`). Default values seeded by `/setup` step 7c: `{type}/m{N}-{slug}` in `mode: none`, `{type}/{ticket-id}-{slug}` in tracker mode. Absent key ⇒ branch automation disabled (AC-STE-64.1) — legacy projects continue to run on whatever branch they're invoked from. Placeholders: `{type}` (LLM-inferred `feat`/`fix`/`chore`), `{N}` (milestone digits), `{ticket-id}` (tracker ID or lowercased short-ULID tail per AC-STE-64.7), `{slug}` (LLM-inferred 2–4 word kebab). Sanitization clamps LLM output to `[a-z0-9-]` before `git checkout -b` (defense in depth — AC-STE-64.13). No other mode-aware skill reads `branch_template:` (AC-STE-64.9).
+
 ### Pattern: `/implement` Runs In-Process
 
 **Problem**: `/implement` handles long milestone runs and noticeably bloats the main session with exploration, gate output, and TDD iteration noise. A natural optimization is to add `context: fork` to `skills/implement/SKILL.md` so `/implement` runs as a subagent with a fresh context and only its final report returns to the main session. This doesn't work, and the reason is load-bearing enough to document.

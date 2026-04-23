@@ -168,11 +168,46 @@ bottom of CLAUDE.md (Schema L):
 mode: <linear | jira | custom>
 mcp_server: <server name from `claude mcp list`>
 jira_ac_field: <customfield_XXXXX or blank>
+branch_template: <default-for-mode or user value>
 ```
 
 Blank values for keys that don't apply to the picked mode are legal (Schema L).
 `git log` is the audit trail for sync, migration, and resolution events — no
 separate subsection is maintained.
+
+## Branch template (STE-64, `/setup` step 7c)
+
+Immediately after Schema L is authored (or after step 7b in `mode: none`),
+prompt once:
+
+> Branch-naming template? (default: `<default-for-mode>`)
+
+**Defaults by mode**
+
+| Mode | Default template |
+|------|------------------|
+| `none` | `{type}/m{N}-{slug}` |
+| `linear` / `jira` / custom | `{type}/{ticket-id}-{slug}` |
+
+**Placeholders (substituted by `/implement` at prompt-time)**
+
+- `{type}` — LLM-inferred `feat` / `fix` / `chore` (unknown values clamp to `feat`; AC-STE-64.13).
+- `{N}` — milestone number for milestone runs (e.g. `19` for `M19`).
+- `{ticket-id}` — tracker ID in tracker mode (e.g. `STE-64`, lowercased); short-ULID tail (chars 23–29, lowercased) in `mode: none` (AC-STE-64.7).
+- `{slug}` — LLM-inferred 2–4 word kebab. `[a-z0-9-]` only after sanitization.
+
+**Response handling**
+
+- Empty ⇒ accept default.
+- Non-empty ⇒ use verbatim. Skill sanitizes LLM output at render time, so templates need not be shell-safe.
+- Rendered branch name > 60 chars ⇒ slug truncated (template prefix preserved; AC-STE-64.5).
+
+**Skip conditions**
+
+- `mode: none` projects that elected `1. none` in step 7b: skip writing `branch_template:`. Branch automation stays disabled (AC-STE-64.1). Users can opt in later by re-running `/setup` or by hand-adding the key to CLAUDE.md.
+- Any project whose CLAUDE.md already has `branch_template:` under `## Task Tracking`: do not re-ask. `/setup --migrate` preserves existing keys by default.
+
+**Consumer scope.** Only `/implement` reads `branch_template:` (AC-STE-64.9). Other skills (`/tdd`, `/debug`, `/spec-write`, `/gate-check`, `/pr`, `/spec-archive`, `/spec-review`, `/visual-check`, `/simplify`, `/brainstorm`) continue to run on whatever branch they're invoked from.
 
 ## `/setup --migrate` entry
 
