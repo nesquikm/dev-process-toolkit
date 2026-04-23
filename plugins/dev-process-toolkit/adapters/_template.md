@@ -23,7 +23,7 @@ ticket_description_template: |
 
   ---
 
-  Source: specs/requirements.md#{fr_anchor}
+  Source: specs/frs/{tracker_id}.md
 helpers_dir: adapters/_template/src
 resolver:
   # Schema W — optional. If present, argument auto-resolution via FR-51 works
@@ -58,7 +58,7 @@ and `/pr`.
 | `status_mapping` | Canonical states (`in_progress` / `in_review` / `done`) → tracker-side labels. `/pr` calls `transition_status(in_review)` after a PR is opened. |
 | `capabilities` | Subset of `[pull_acs, push_ac_toggle, transition_status, upsert_ticket_metadata]`. A missing capability triggers FR-38 AC-38.6 graceful degradation (NFR-10 warning + proceed). |
 | `project_milestone` | Boolean. `true` declares that migration should bind each pushed ticket to a tracker-native release/project milestone matching the FR's `milestone: M<N>` frontmatter (FR-59). Linear (`true`) is the reference implementation; Jira and custom default to `false`. |
-| `ticket_description_template` | Body written by `upsert_ticket_metadata`. MUST contain a back-link to `specs/requirements.md#{fr_anchor}` per AC-37.6. |
+| `ticket_description_template` | Body written by `upsert_ticket_metadata`. MUST contain a back-link to `specs/frs/{tracker_id}.md` per AC-37.6 (STE-67 retired the v1 `{fr_anchor}` + `specs/requirements.md#...` form). |
 | `helpers_dir` | Path to TypeScript helper sources, invoked via `bun run`. No compiled binaries. |
 
 ## 4-Op Interface (Schema N/O)
@@ -106,8 +106,8 @@ ID. Writes title and description only — **never** toggles ACs or changes
 status (those ops are dedicated).
 
 **Required:** the description body MUST include `ticket_description_template`
-rendered with `{fr_body}` and `{fr_anchor}` substituted, so PMs can always
-jump to `specs/requirements.md#FR-N` from the ticket (AC-37.6).
+rendered with `{fr_body}` and `{tracker_id}` substituted, so PMs can always
+jump to `specs/frs/<tracker-id>.md` from the ticket (AC-37.6).
 
 **MCP tool:** *(replace)*
 
