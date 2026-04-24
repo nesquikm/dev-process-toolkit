@@ -64,7 +64,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.25.0 — "Bimodal"** (M21 strips `id: fr_<ULID>` ceremony from tracker-mode FRs — the tracker ID is the canonical identity. Schema Q becomes mode-conditional (required in `mode: none`, absent in tracker mode); the `Provider` interface splits into a base contract + an `IdentityMinter` sub-interface so accidental `mintId()` calls on tracker-mode code paths now fail as `TS2339` at compile time rather than by tribal convention. New `/gate-check` probe 13 `identity_mode_conditional` (warning-severity) enforces the bimodal invariant forward; a mode-aware one-shot migration tool stripped 76 tracker-mode archived FRs while preserving 31 mode-none hybrids byte-identically. Three FRs (STE-76, STE-85, STE-86).).
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.26.0 — "Symmetry"** (M24 completes STE-54's archive/active symmetry with two new `/gate-check` probes — #14 "active-side ticket-state drift" asserts every active FR's tracker shows `in_progress` with the current user as assignee; #15 "guessed tracker-ID scan" asserts every `AC-<PREFIX>` line's prefix equals the file's bound tracker ID. Three skill-local `## Rules` additions close hazards probes cannot catch: `/implement` forbids raw `mcp__<tracker>__save_issue` writes on in-flight FRs (route through `Provider.claimLock`/`releaseLock`); `/brainstorm` + `/spec-write` forbid narrating guessed tracker IDs in chat. Additive Provider widening: `getTicketStatus` returns `assignee` alongside status. One FR (STE-87).).
 
 ## Core Philosophy
 
