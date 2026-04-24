@@ -20,13 +20,27 @@ Detailed reference (CHANGELOG subsection policy, version-bump semver rules, stru
 
 Any of these fire before any file write and exit non-zero with an NFR-10-shape message:
 
-1. **Unshipped FRs** (AC-STE-73.8). Walk `specs/plan/M<N>.md`; if any row links to an FR file whose frontmatter has `status: active` (not yet archived by `/implement` Phase 4), refuse:
+1. **Unshipped FRs** (AC-STE-73.8). Walk `specs/plan/M<N>.md`; if any row links to an FR file whose frontmatter has `status: active` (not yet archived), **probe tracker state** per STE-83 and emit one of two remedy shapes.
 
-   ```
-   /ship-milestone: milestone M<N> has <count> unshipped FR(s): <list>.
-   Remedy: finish each FR via /implement (which archives on success), or move the unfinished FR to a later milestone's plan, then re-run /ship-milestone.
-   Context: milestone=M<N>, unshipped=<count>, skill=ship-milestone
-   ```
+   For each `status: active` FR, call `Provider.getTicketStatus(<tracker-ref>)`. Partition the unshipped set by whether the returned status equals the adapter's `status_mapping.done`:
+
+   - **All unshipped FRs are tracker-Done-but-file-active** — every ticket already reached `status_mapping.done` (typical after per-FR `/implement <FR-id>` runs, which Done-transition each ticket in Phase 4 Close but leave `status: active` because milestone-scope archival is a separate step). Refuse with the `/spec-archive`-pointing remedy:
+
+     ```
+     /ship-milestone: milestone M<N> has <count> unshipped FR(s): <list>. All <count> tracker tickets are already at status_mapping.done — the file side still shows status: active because single-FR /implement runs intentionally skip milestone archival.
+     Remedy: run /spec-archive M<N> to bulk-archive the file side (git mv + frontmatter flip for every FR + the plan file, one atomic commit), then re-run /ship-milestone.
+     Context: milestone=M<N>, unshipped=<count>, skill=ship-milestone
+     ```
+
+   - **Any unshipped FR is genuinely unshipped** — at least one ticket is NOT at `status_mapping.done` (or the tracker returned anything other than Done). `mode: none` falls into this branch too: `LocalProvider.getTicketStatus` returns the `local-no-tracker` sentinel, so it can never match `status_mapping.done`. Refuse with the existing remedy:
+
+     ```
+     /ship-milestone: milestone M<N> has <count> unshipped FR(s): <list>.
+     Remedy: finish each FR via /implement, or move the unfinished FR to a later milestone's plan, then re-run /ship-milestone.
+     Context: milestone=M<N>, unshipped=<count>, skill=ship-milestone
+     ```
+
+   Both shapes exit non-zero and preserve the `Context:` line byte-identically. See `docs/ship-milestone-reference.md` § Refusal #1 remedy shapes for the full decision matrix including mixed tracker-Done / not-Done sets (the "any genuinely unshipped" branch wins on mix — safer than misdirecting to `/spec-archive` when a ticket genuinely isn't done yet).
 
 2. **Dirty working tree outside the expected set** (AC-STE-73.9). The expected-modified set is the four release files plus the `docs/` subtree (for the `/docs --commit --full` step). `git status --porcelain` lines outside that set ⇒ refuse:
 

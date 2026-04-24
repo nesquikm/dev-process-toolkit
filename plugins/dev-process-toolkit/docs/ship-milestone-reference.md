@@ -107,6 +107,18 @@ The first `/ship-milestone` invocation is M20's own release (v1.23.0). If the sk
 - The unified diff at step 6 IS the dogfood test — if the diff looks wrong, refuse.
 - Run `/gate-check` after the commit lands but before `git push` — if the repo fails its own gate, the release isn't ready.
 
+## Refusal #1 remedy shapes (STE-83)
+
+Refusal #1 (unshipped FRs) fires with one of two remedy shapes. The branch probes each `status: active` FR's tracker ticket via `Provider.getTicketStatus` and partitions on equality with the adapter's `status_mapping.done`.
+
+| Partition | When | Remedy emitted |
+|-----------|------|---------------|
+| All unshipped are tracker-Done | Every probed ticket returns `status_mapping.done` | Run `/spec-archive M<N>` to bulk-archive the file side, then re-run `/ship-milestone`. |
+| Any is genuinely unshipped | Any probed ticket returns anything else (including no binding or `local-no-tracker` in `mode: none`) | Finish each FR via `/implement`, or move the unfinished FR to a later milestone's plan, then re-run. |
+| Mixed | Some tracker-Done, some not | Genuinely-unshipped shape wins — safer to not misdirect to `/spec-archive` when a ticket genuinely isn't done yet. |
+
+Both shapes preserve the canonical `Context: milestone=M<N>, unshipped=<count>, skill=ship-milestone` line, and both exit non-zero. `mode: none` always flows through the genuinely-unshipped branch because `LocalProvider.getTicketStatus` returns the `local-no-tracker` sentinel, which never equals any tracker's `status_mapping.done`.
+
 ## Refusal summary (NFR-10 canonical shapes)
 
 All refusals carry the three-line shape: one-line verdict / `Remedy: <action>` / `Context: milestone=..., version=..., skill=ship-milestone`. The four refusal verdicts:

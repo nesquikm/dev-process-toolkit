@@ -231,6 +231,7 @@ After the human approves the Phase 4 report (step 15), and **only then**, archiv
 
 - **technical-spec.md is never auto-archived** — architectural decisions use `Superseded-by:` in place (the ADR convention). `/implement` archival touches only `specs/frs/**` and `specs/plan/<M#>.md`.
 - Run archival **only after explicit human approval in step 15**, never before. If the user asks for changes instead, abort archival entirely.
+- Single-FR runs (`/implement <FR-id>`) intentionally leave `status: active`; bulk archive a completed milestone via `/spec-archive M<N>` before running `/ship-milestone` (STE-83 — this is the canonical pre-step `/ship-milestone` refusal #1 points to in the tracker-Done-but-file-active case).
 
 **Procedure (STE-22).** For every FR with frontmatter `milestone == <current>`: compute the base filename via `Provider.filenameFor(spec)` (M18 STE-60 AC-STE-60.4) and run `git mv specs/frs/<name> specs/frs/archive/<name>` + flip frontmatter `status: active` → `status: archived` + set `archived_at: <ISO now>`. The stem is preserved across the move — `/spec-archive` and `/implement` never rename during archival (NFR-15 filename-permanence holds). All N moves and N flips land in one atomic commit (AC-STE-22.2, AC-STE-22.6). Then `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md` (AC-STE-21.5) in the same commit. Call `Provider.releaseLock(id)` for each released FR (AC-STE-28.4). Full details: `docs/v2-layout-reference.md` § `/implement`.
 
