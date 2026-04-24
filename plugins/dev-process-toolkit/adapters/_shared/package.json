@@ -1,0 +1,10 @@
+{
+  "name": "dpt-shared-adapters",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared TypeScript helpers for Dev Process Toolkit adapters. ts-morph powers STE-71 impact_set + STE-72 signature_extractor.",
+  "dependencies": {
+    "ts-morph": "^22.0.0"
+  }
+}
