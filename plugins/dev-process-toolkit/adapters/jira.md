@@ -51,6 +51,65 @@ writes of AC content pass through that recorded GID — never hard-coded.
 | `transition_status` | `mcp__atlassian__transition_issue` | Resolve transition id via `get_transitions` + `status_mapping`. |
 | `upsert_ticket_metadata` | `mcp__atlassian__create_issue` (new) / `mcp__atlassian__update_issue` (existing) | Body MUST include the back-link (AC-37.6). |
 
+### Silent no-op trap
+
+> **Provisional.** The concrete Jira tool surface in this subsection is
+> tentative until a live authenticated Atlassian MCP is introspected (H3
+> stays open). The shared-code behavior described below fires for every
+> adapter via `adapters/_shared/src/tracker_provider.ts`, so the trap itself
+> is adapter-agnostic — the Jira-specific tool names + parameter lists are
+> what's provisional.
+
+Any write operation that addresses fields or transitions Jira doesn't know
+about (unknown field GIDs, transition IDs that don't exist in the current
+workflow) can return a successful-looking response while mutating nothing
+on the ticket. There is no canonical validation error for "unknown field"
+in every Jira MCP; the caller can't distinguish success from silent no-op
+by the response shape alone.
+
+**Rule for every write caller:** after the call, re-fetch the ticket and
+assert that at least one of `updated` / `statuscategorychangedate` (or the
+Jira-MCP equivalent of Linear's `updatedAt` / `startedAt` / `completedAt`)
+advanced past the pre-call value before treating the call as successful.
+If none advanced, the write was silently no-op'd — treat it as a hard
+failure and surface an NFR-10 canonical-shape error.
+
+`adapters/_shared/src/tracker_provider.ts` encodes this as
+`TrackerWriteNoOpError`; `TrackerProvider.claimLock` and
+`TrackerProvider.releaseLock` perform the post-call `updatedAt` check
+automatically for every adapter, not just Linear. Adapter driver
+implementations MUST populate `TicketStatusSummary.updatedAt` so the guard
+can fire — see `docs/tracker-adapters.md` § Silent no-op trap for the
+cross-adapter pattern and `adapters/linear.md` § Silent no-op trap for the
+reference implementation that was dogfooded against a live MCP.
+
+### claimLock-skipped trap (STE-65)
+
+Symmetric trap on the release side. If `/implement` Phase 1 step 0.c
+(`Provider.claimLock`) is skipped — either by a manual invocation that
+started later than entry, or by a session that resumed mid-run without
+the claim firing — the Jira ticket stays in `Backlog` (or equivalent
+pre-start status) while implementation proceeds. At Phase 4 Close, a
+naive `releaseLock` would call `transitionStatus('done')` and leap
+`Backlog → Done`, skipping `In Progress` entirely (no `startedAt`-like
+timestamp ever set on the Jira ticket).
+
+`TrackerProvider.releaseLock` now re-fetches the ticket's current status
+before `transitionStatus` and asserts the pre-state is `"in_progress"`.
+Any other pre-state (`backlog`, `unstarted`, `cancelled`, `done`,
+`completed`) raises `TrackerReleaseLockPreconditionError` without calling
+`transitionStatus`. Complement to the post-write `TrackerWriteNoOpError`:
+pre-write asserts the ticket is in the expected state, post-write asserts
+the write landed. Both layers together make `releaseLock` fail-closed.
+
+No extra MCP call — the pre-state check reuses the `getTicketStatus`
+fetch that the post-write `updatedAt` guard already does (NFR-8 call
+budget preserved). The error carries the ticket ref, tracker key, and
+observed status; operators fix either by transitioning the ticket to
+`In Progress` manually or by rerunning `/implement` from Phase 1 so
+`claimLock` fires. This guard is adapter-agnostic — the shared code fires
+regardless of whether the driver is `linear`, `jira`, or a custom adapter.
+
 ## Self-hosted Jira
 
 v1 supports Atlassian Cloud only via the Rovo MCP. Self-hosted Jira is

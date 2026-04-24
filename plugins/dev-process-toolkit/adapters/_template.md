@@ -61,6 +61,24 @@ and `/pr`.
 | `ticket_description_template` | Body written by `upsert_ticket_metadata`. MUST contain a back-link to `specs/frs/{tracker_id}.md` per AC-37.6 (STE-67 retired the v1 `{fr_anchor}` + `specs/requirements.md#...` form). |
 | `helpers_dir` | Path to TypeScript helper sources, invoked via `bun run`. No compiled binaries. |
 
+## MCP tool names
+
+Every adapter declares the concrete MCP tool name for each of the four
+operations below. The shipped adapters (`adapters/linear.md`, `adapters/jira.md`)
+render this as a table with columns `Operation | MCP tool | Canonical
+parameters | Notes` — copy that shape:
+
+| Operation | MCP tool | Canonical parameters | Notes |
+|-----------|----------|----------------------|-------|
+| `pull_acs` | *(replace, e.g., `mcp__<server>__get_issue`)* | `id` | |
+| `push_ac_toggle` | *(replace)* | `id`, `description` | |
+| `transition_status` | *(replace)* | `id`, `state` | |
+| `upsert_ticket_metadata` | *(replace)* | `id?`, `title`, `description`, `assignee?` | |
+
+If introspection against a live MCP isn't available when the adapter first
+ships, mark the section **provisional** and cite the outstanding
+verification step (see `adapters/jira.md` for the reference pattern).
+
 ## 4-Op Interface (Schema N/O)
 
 Every adapter implements exactly four operations. They are invoked by the
@@ -110,6 +128,17 @@ rendered with `{fr_body}` and `{tracker_id}` substituted, so PMs can always
 jump to `specs/frs/<tracker-id>.md` from the ticket (AC-37.6).
 
 **MCP tool:** *(replace)*
+
+### Adapter-specific traps
+
+Optional. List any tracker-specific failure modes that the adapter driver
+MUST surface — e.g., a silent-no-op response from a write call, a custom
+auth expiry, or a field type that the shared `verifyWriteLanded` /
+`TrackerReleaseLockPreconditionError` guards don't cover. Render as "N/A"
+when the shared-code guards (`adapters/_shared/src/tracker_provider.ts`)
+are sufficient. See `adapters/linear.md` § Silent no-op trap and
+`adapters/linear.md` § claimLock-skipped trap for reference subsections,
+and `adapters/jira.md` for the backported-but-provisional pattern.
 
 ## Helper scripts (`adapters/<tracker>/src/*.ts`)
 
