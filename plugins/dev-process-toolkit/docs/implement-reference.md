@@ -105,3 +105,97 @@ The self-review loop has hard exit conditions that Stage C feeds into. For refer
 | Issues found on round 2, different issue types | Fix, re-run gate check, escalate to user (diminishing returns) |
 
 After any fix, always re-run the full gate check before continuing. Read the actual output and report the numbers (e.g., `47 tests, 0 failures, 0 errors`). Never claim clean from memory of a previous run.
+
+## Spec Deviation Check
+
+The skill's condensed rule is "if reality contradicts the spec, STOP and classify". Full playbook for Phase 2 step 9:
+
+a. **STOP coding forward.** The spec is the source of truth. If reality contradicts it, the spec must be updated first — do not work around a broken spec.
+
+b. **Assess already-written code.** If significant code was already written against the incorrect spec, evaluate whether to revert to the last checkpoint (git commit) or adapt the existing code. Prefer reverting if the spec change alters the fundamental approach.
+
+c. **Classify the issue** — exactly one of four types (Schema per NFR-4):
+
+| Class | When | Action |
+|-------|------|--------|
+| `underspecified` | spec silent but behavior clearly implied | add edge case to specs + add test + continue. No user approval needed. |
+| `ambiguous` | spec silent, reasonable people disagree | propose most conservative behavior, log as provisional decision in specs, add test, confirm at Phase 4. Continue. |
+| `contradicts` | what the spec says cannot work or conflicts with another requirement | present contradiction + propose 2+ options with tradeoffs. **Wait for user decision.** Update spec with decision. |
+| `infeasible` | specified approach hits a hard technical wall | explain why + propose alternatives. **Wait for user decision.** |
+
+d. **Always backfill specs.** Any edge case discovered during implementation (whether it blocks you or not) must be:
+
+- Logged in `specs/requirements.md` edge-case section (or `specs/technical-spec.md` if architectural).
+- Covered by a test.
+- Never allowed to live only in code — that's tribal knowledge, and it rots.
+
+## Spec Breakout
+
+The skill's condensed rule is "3 or more `contradicts` / `infeasible` deviations ⇒ STOP + Spec Breakout report + recommend rewrite". Full report shape:
+
+1. **Title line.** `Spec Breakout — milestone M<N>` + date.
+2. **Trigger.** Count + list of deviations by ID (e.g., `3 contradicts, 1 infeasible — total 4 ≥ threshold 3`).
+3. **Deviation table.** Schema per NFR-4 Deviation Table: columns `Deviation`, `Classification`, `Resolution` (or `unresolved — awaiting decision`), `Needs Confirmation?`.
+4. **Affected specs.** Named sections of `specs/requirements.md` / `specs/technical-spec.md` that need rewrite.
+5. **Recommended scope.** Proposed rewrite scope (single section, whole FR, whole milestone plan).
+6. **Resume condition.** What must change in the specs before `/implement` can safely resume.
+
+Breakout is a valid skill output, not a failure. Emit the report, update the task list, and wait for the user to update specs. The threshold is configurable via CLAUDE.md (look for a line like `spec_breakout_threshold: <N>`; default `3`).
+
+## Phase 4b Doc Fragment Hook
+
+STE-74 installs this hook. The skill body carries the condensed flow; this section covers edge cases and the diagnostic log shape.
+
+### When it runs
+
+Phase 4b fires after Phase 4a (gate pass) and before Phase 4c (report + approval) / 4d (Close). Its enabling gate is the `## Docs` section of `CLAUDE.md` (read via `readDocsConfig(CLAUDE.md)` from `adapters/_shared/src/docs_config.ts`). Both `userFacingMode` and `packagesMode` false — or the section absent — ⇒ **silent no-op**: no log line, no row, zero output. This preserves byte-identical behavior for projects that don't use docs generation (AC-STE-74.3).
+
+### FR ID resolver order
+
+Phase 4b invokes `/docs --quick` with the resolver that `/docs` itself uses (AC-STE-74.2):
+
+1. **Branch template match.** If `branch_template:` is set in Schema L and the current branch name maps to a tracker ID or ULID under that template, use it.
+2. **Diff scan.** Otherwise, find the most-recent FR whose file appears in the working-tree diff (`git log -1 --format=%H -- specs/frs/<fr>.md`).
+3. **Unbound fallback.** If neither resolves, `/docs --quick` writes `docs/.pending/_unbound-<UTC-timestamp>.md` with a `warning:` line in the frontmatter. No retry — the fragment is still written.
+
+### Success path (AC-STE-74.4)
+
+On successful fragment write, `/implement` appends exactly one row to the existing Phase 4 Spec Deviation Summary table:
+
+```
+| Doc fragment | added | docs/.pending/<fr-id>.md | — |
+```
+
+The `<fr-id>` placeholder resolves to the actual fragment base name (tracker ID, short-ULID tail, or `_unbound-<ts>`).
+
+### Failure path (AC-STE-74.5, AC-STE-74.6)
+
+`/docs --quick` non-zero exit, thrown error, or 60-second timeout — Phase 4b logs one warning line to stdout, then appends:
+
+```
+| Doc fragment | skipped (error) | — | /docs --quick failed: <first-line-of-error>. Run manually after commit to retry. |
+```
+
+The `<first-line-of-error>` is the first line of stderr (or the string `timeout after 60s` on timeout). Phase 4 then continues to Phase 4c normally — the implementation commit does not block on a failed fragment write. The user can re-run `/docs --quick` manually after the commit lands.
+
+### Diagnostic log shape
+
+The single log line printed on success (stdout):
+
+```
+phase-4b: /docs --quick wrote docs/.pending/<fr-id>.md
+```
+
+On failure (stderr, then the skipped row goes to the Deviation table):
+
+```
+phase-4b: warning — /docs --quick failed: <first-line-of-error>
+```
+
+No log line is ever printed when Phase 4b is gated off (both modes false or section absent) — zero-output invariant.
+
+### Out-of-scope
+
+- **Cross-FR fragments.** Phase 4b writes exactly one fragment per `/implement` run, bound to the FR being implemented. If a diff genuinely spans multiple FRs, the human runs `/docs --quick` manually with explicit overrides after the commit.
+- **Retry on failure.** No automatic retry. A single failure appends the skipped row and lets the user decide.
+- **`--skip-docs` flag.** None. AC-STE-74.8 forbids a new `/implement` flag; temporary opt-out is done by flipping Schema L docs keys.

@@ -16,11 +16,7 @@ If worktree: derive a branch name from the task (e.g., `feat/user-auth`), run `g
 
 ### Partial Failure Recovery
 
-If a multi-milestone run partially succeeds in a worktree, list completed work (milestones + commit hashes) and failed work (which milestone broke and why), then offer three recovery options:
-
-1. **Cherry-pick completed commits** onto `main` (`git checkout main && git cherry-pick <hash>...`).
-2. **Continue in the worktree** after fixing the failure (`cd <worktree-path>`, fix, resume `/implement`).
-3. **Discard the worktree** entirely (`git worktree remove <worktree-path> --force`).
+If a multi-milestone worktree run partially succeeds, list completed work (milestones + commit hashes) and the failing milestone, then offer three recovery options: **cherry-pick** completed commits onto `main` (`git cherry-pick <hash>...`), **continue** in the worktree after a fix (`cd <path>`, resume `/implement`), or **discard** the worktree (`git worktree remove <path> --force`).
 
 ## Phase 1: Understand
 
@@ -75,32 +71,11 @@ If a multi-milestone run partially succeeds in a worktree, list completed work (
      d. Run tests — confirm GREEN (passing)
    - Follow project patterns from CLAUDE.md
 
-9. **Spec deviation check** — If during implementation you discover that a spec is **wrong, infeasible, or contradictory** (e.g., an API doesn't exist, a requirement conflicts with another, performance constraints make the approach unviable):
-
-   a. **STOP coding forward.** Do not work around the spec — the spec is the source of truth, and if reality contradicts it, the spec must be updated first.
-
-   b. **Assess already-written code** — If significant code was already written based on the incorrect spec, evaluate whether to revert to the last checkpoint (git commit) or adapt the existing code. Prefer reverting if the spec change alters the fundamental approach.
-
-   c. **Classify the issue:**
-      - **Underspecified** — spec doesn't mention this case but the behavior is clearly implied → add the edge case to specs, add a test, continue. No user approval needed.
-      - **Ambiguous** — spec doesn't say and reasonable people could disagree → propose the most conservative behavior, log it as a provisional decision in specs, add a test, ask the user to confirm at Phase 4. Continue.
-      - **Contradicts spec** — what the spec says cannot work or conflicts with another requirement → present the contradiction, propose 2+ options with tradeoffs, and **wait for user decision** before proceeding. Update the spec with the decision.
-      - **Infeasible** — the specified approach hits a hard technical wall → explain why, propose alternatives, **wait for user decision**.
-
-   d. **Always backfill specs** — Any edge case discovered during implementation (whether it blocks you or not) must be:
-      - Logged in `specs/requirements.md` edge cases section (or `specs/technical-spec.md` if architectural)
-      - Covered by a test
-      - This prevents "tribal knowledge" from living only in code.
+9. **Spec deviation check** — If reality contradicts the spec, STOP coding forward and classify: `underspecified` (backfill + test + continue), `ambiguous` (provisional decision + user confirm at Phase 4), `contradicts` (wait for user decision), `infeasible` (wait). Always backfill edge cases to `specs/requirements.md` / `specs/technical-spec.md` plus a test. Full playbook (assess-already-written-code rule + per-class resolution detail + backfill invariant): `docs/implement-reference.md` § Spec Deviation Check.
 
 ### Spec Breakout
 
-If the current milestone accumulates 3 or more `contradicts` or `infeasible` deviations (check the project's CLAUDE.md for a custom threshold; default is 3):
-
-1. **STOP implementation** — do not push forward on a broken spec
-2. Present a **Spec Breakout report** listing all accumulated deviations, their classifications, and proposed resolutions
-3. Recommend a spec rewrite for the affected areas before resuming implementation
-
-Spec Breakout is a valid output, not a failure. It means the spec needs work before code can proceed.
+If the current milestone accumulates 3 or more `contradicts` / `infeasible` deviations (configurable via CLAUDE.md threshold; default 3), STOP, emit a **Spec Breakout report** listing every deviation with classification + proposed resolution, and recommend a spec rewrite for the affected areas before resuming. Breakout is a valid output, not a failure. Full report shape: `docs/implement-reference.md` § Spec Breakout.
 
 10. **Checkpoint** — After completing each logical unit of work (a TDD cycle for a meaningful chunk), create a git commit on the working branch. These intermediate commits are recovery points — if a later change breaks things, you can revert to the last known-good state instead of starting over.
 
@@ -202,17 +177,41 @@ Each round has three sequential stages. **Complete each stage before starting th
 
    ### Decision (deterministic, not vibes)
 
-   h. **Decision:**
-   - **All stages pass + gate confirms clean (GATE PASSED)** → exit loop, go to Phase 4
-   - **Gate returns GATE PASSED WITH NOTES** → treat non-critical notes as informational, include them in the Phase 4 report for the user to review. Exit loop.
-   - **Issues found, round 1** → fix issues, re-run gate check, go to round 2
-   - **Issues found, round 2** → check for convergence:
-     - Same issue types as round 1 → **STOP and escalate** to user (going in circles)
-     - New/different issues → fix, re-run gate check, then escalate to user (diminishing returns)
+   h. **Decision:** GATE PASSED ⇒ exit loop. GATE PASSED WITH NOTES ⇒ carry notes into the Phase 4 report, exit loop. Issues on round 1 ⇒ fix + re-run gate + go to round 2. Issues on round 2 ⇒ escalate to user (same types = going in circles; new types = diminishing returns). Full decision matrix: `docs/implement-reference.md` § Round Resolution.
 
-   i. **After any fix** — always re-run the full gate check before continuing. Read the actual output and report the numbers (e.g., "47 tests, 0 failures, 0 errors"). Do not claim clean from memory of a previous run.
+   i. **After any fix** — re-run the full gate fresh, cite actual numbers (e.g., "47 tests, 0 failures, 0 errors"). Never claim clean from memory.
 
 ## Phase 4: Report & Handoff
+
+Phase 4 has four labeled sub-steps executed in order:
+
+- **Phase 4a** — gate check passed (final step of Phase 3; no new logic here — the green gate is the entry ticket to Phase 4).
+- **Phase 4b** — doc fragment (STE-74) — writes `docs/.pending/<fr-id>.md` when docs generation is enabled.
+- **Phase 4c** — report (step 14) + human approval (step 15).
+- **Phase 4d** — Close procedure (commit → `Provider.releaseLock` → `Provider.getTicketStatus`).
+
+### Phase 4b: Doc fragment (STE-74)
+
+Non-blocking hook. Sits between Phase 4a (gate pass) and Phase 4c (report + approval) / 4d (Close).
+
+1. **Gate.** Call `readDocsConfig(CLAUDE.md)` from `adapters/_shared/src/docs_config.ts`. Both `userFacingMode` and `packagesMode` `false` — or the `## Docs` section absent — ⇒ **silent no-op**: no log line, no deviation-report row, zero output (AC-STE-74.3). Preserves the byte-identical surface for projects that don't use docs generation.
+2. **Invoke.** Run `/docs --quick` with a 60-second timeout. The current FR ID is resolved the same way manual `/docs --quick` resolves it — via `branch_template:` mapping, diff scan, or `_unbound-<ts>` fallback (see `skills/docs/SKILL.md` § `/docs --quick`) (AC-STE-74.2). No new `/implement` flag is introduced (AC-STE-74.8) — temporarily skip by flipping Schema L docs keys.
+3. **Success row.** Append exactly this row to the Spec Deviation Summary table (AC-STE-74.4):
+
+   ```
+   | Doc fragment | added | docs/.pending/<fr-id>.md | — |
+   ```
+
+4. **Failure or timeout (non-blocking).** A non-zero exit, thrown error, or 60s timeout is logged as a warning and appended as the skipped row (AC-STE-74.5):
+
+   ```
+   | Doc fragment | skipped (error) | — | /docs --quick failed: <first-line-of-error>. Run manually after commit to retry. |
+   ```
+
+   Phase 4 **continues to Phase 4c** — the implementation commit does not block on a failed fragment write. A missing fragment is better than a failed implementation commit.
+5. **Timeout path.** The 60-second cap routes through the failure path with the literal error text `timeout after 60s` (AC-STE-74.6).
+
+Full decision table (resolver fallback ordering, which directory `_unbound-*` fragments live in, diagnostic log shape) lives in `docs/implement-reference.md` § Phase 4b Doc Fragment Hook.
 
 ### Spec Deviation Summary
 
@@ -294,8 +293,7 @@ If you hear yourself thinking any of these, stop and apply the rule anyway:
 - "I'll run gate-check after the next task" / "I know the tests pass" → run it now, read the actual output
 - "This is too simple to need a failing test first" / "I'll test after, it's almost done" → write the test first
 - "It should work now" → "should" is not a gate result
-- "The spec says X but Y works better" / "It's just a small edge case, no need to update specs" → update the spec first, backfill now
-- "Just this once" → there is no just this once
+- "The spec says X but Y works better" / "It's just a small edge case, no need to update specs" → update the spec first, backfill now / "Just this once" → there is no just this once
 
 ## Architecture Note
 
