@@ -64,7 +64,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.24.0 — "Self-Hosted"** (M23 release hardening from the first self-hosted `/ship-milestone` dogfood: `/ship-milestone` pre-flight #1 now probes tracker state and names `/spec-archive M<N>` as the bulk-archive pre-step when tickets are already Done (STE-83); `TrackerProvider.releaseLock` grows an idempotent-terminal branch so bulk `/spec-archive` stops throwing on already-Done tickets while preserving STE-65's `Backlog → Done` silent-leap guardrail (STE-84). Two FRs (STE-83, STE-84).).
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.25.0 — "Bimodal"** (M21 strips `id: fr_<ULID>` ceremony from tracker-mode FRs — the tracker ID is the canonical identity. Schema Q becomes mode-conditional (required in `mode: none`, absent in tracker mode); the `Provider` interface splits into a base contract + an `IdentityMinter` sub-interface so accidental `mintId()` calls on tracker-mode code paths now fail as `TS2339` at compile time rather than by tribal convention. New `/gate-check` probe 13 `identity_mode_conditional` (warning-severity) enforces the bimodal invariant forward; a mode-aware one-shot migration tool stripped 76 tracker-mode archived FRs while preserving 31 mode-none hybrids byte-identically. Three FRs (STE-76, STE-85, STE-86).).
 
 ## Core Philosophy
 
