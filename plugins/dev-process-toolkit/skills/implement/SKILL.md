@@ -270,6 +270,58 @@ For reopens, cross-cutting ACs, or anything this auto-path can't reach, `/dev-pr
 
     The Pattern 9 byte-diff regression gate against the `mode-none-v2` fixture continues to pass because the cleanup was already part of the existing mode-none flow.
 
+## Phase 5: Milestone close prompt (STE-75)
+
+Fires only on a **milestone-scope** invocation (`/implement M<N>`) that shipped every FR cleanly. Opt-in chain into `/ship-milestone M<N>` — a prompt, not a silent chain. Phase 5 is the **last thing** `/implement` does before process exit; nothing else runs between the prompt (or its skip path) and exit.
+
+### Conditions (evaluated in order)
+
+1. **Invocation shape.** Skip entirely if `$ARGUMENTS` is a single-FR arg (e.g., `STE-42`, a ULID, a URL), the literal `all` / `remaining`, or empty / no arg. Only an `M<N>` arg qualifies.
+2. **Milestone completeness.** Re-read `specs/plan/M<N>.md`; confirm every listed FR transitioned from `status: active` to `status: archived` during this run. If any FR remains active or if any FR's gate-check failed this session (partial success), skip entirely. No output about `/ship-milestone`.
+3. **TTY.** Check whether stdin is a TTY (proxy: interactive Claude Code session accepting user replies). Non-TTY / CI context / piped stdin ⇒ print the manual-command hint (AC-STE-75.4), do not prompt, do not read stdin.
+
+If all three conditions pass, print the prompt and read one line from stdin.
+
+### Prompt (AC-STE-75.1, exact format including the blank line)
+
+```
+All FRs in M<N> shipped.
+
+Run /ship-milestone M<N> now? (y/n):
+```
+
+### Branches
+
+- **Accept** — user input is `y` or `yes` (case-insensitive, trimmed). Chain into `/ship-milestone M<N>` in-process. All of `/ship-milestone`'s own gates still fire — the release commit is gated by its own `Apply? [y/N]` prompt on the release diff (AC-STE-75.6). The `y` here does **not** pre-approve the release; it only starts `/ship-milestone`. Refusal at that second gate exits cleanly without a release commit (AC-STE-75.6).
+- **Decline** — user input is `n`, `no`, empty (just Enter), or any other non-matching string (case-insensitive). Do not chain; print the hint below and exit 0.
+
+### Hint (AC-STE-75.3, exact literal — also used on the non-TTY skip path)
+
+```
+Ready to close milestone. Run: /ship-milestone M<N>
+```
+
+### Chain-failure refusal (AC-STE-75.5)
+
+If the user accepts but `/ship-milestone` fails to start (skill not registered, `skills/ship-milestone/` missing, etc.), surface this NFR-10-shape refusal and exit non-zero:
+
+```
+/implement: attempted to chain into /ship-milestone but it failed to start: <error>.
+Remedy: verify the skill is installed (check plugins/dev-process-toolkit/.claude-plugin/plugin.json), then run /ship-milestone M<N> manually.
+Context: milestone=M<N>, chain=ship-milestone, skill=implement
+```
+
+### Skip-case summary
+
+| Case | Behaviour |
+|------|-----------|
+| Single-FR arg (e.g., `STE-42`, ULID, URL) | silent skip — no prompt, no hint |
+| `all` / `remaining` / no arg | silent skip — no prompt, no hint |
+| Any FR in `specs/plan/M<N>.md` still `status: active` | silent skip — milestone isn't done |
+| Any FR's gate-check failed this run | silent skip — partial success |
+| Non-TTY stdin (CI, piped input) | print hint, no prompt, no stdin read |
+| All conditions met | print prompt, accept `y`/`yes` (chain) or anything else (hint + exit 0) |
+
 ## Rules
 
 - Do NOT proceed if the gate check fails — fix first
