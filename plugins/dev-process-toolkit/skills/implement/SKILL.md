@@ -332,6 +332,7 @@ Context: milestone=M<N>, chain=ship-milestone, skill=implement
 - Do NOT silently work around a broken spec — update the spec first (see Phase 2 step 9)
 - Do NOT let edge cases live only in code — always backfill specs
 - Do NOT modify or delete existing tests to make new code pass — if an existing test fails, either the new code is wrong or the spec changed (and spec changes need user approval)
+- Do NOT call raw `mcp__<tracker>__save_issue` / `mcp__<tracker>__transition_status` / equivalent **write** operations for in-flight FRs during an `/implement` session. Route through `Provider.claimLock` / `Provider.releaseLock`. Read operations (`mcp__<tracker>__get_issue` for display) are fine. Rationale: STE-65's guardrail only fires on the Provider path; direct MCP writes bypass it.
 - The gate check (deterministic) always overrides judgment about quality
 - ACs are binary (pass/fail) — no "good enough"
 - Every AC that names a specific module requires a direct test for that module

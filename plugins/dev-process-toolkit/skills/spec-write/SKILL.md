@@ -182,3 +182,4 @@ Summarize what was completed:
 - Pre-fill technical details from the codebase and CLAUDE.md where possible
 - Present drafts for approval before saving — specs are the source of truth
 - Keep acceptance criteria binary (pass/fail, not "good enough")
+- Do NOT narrate a specific unallocated tracker ID (e.g., `STE-87`) in conversation when drafting — use the literal placeholder `<tracker-id>` (or the adapter rendering: `STE-<N>` for Linear, `PROJ-<N>` for Jira) until the tracker allocator returns the real ID. STE-66 covers draft files; this rule covers the conversational hazard that file-level probes cannot catch.

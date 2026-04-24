@@ -1,8 +1,8 @@
 ---
 title: /gate-check active-side ticket-state drift probe + /implement tracker-write routing rule
 milestone: M24
-status: active
-archived_at: null
+status: archived
+archived_at: 2026-04-24T15:45:00Z
 tracker:
   linear: STE-87
 created_at: 2026-04-24T13:42:00Z
@@ -53,9 +53,9 @@ The gate-check probes are the deterministic enforcer (catch drift regardless of 
 
 **`skills/brainstorm/SKILL.md` + `skills/spec-write/SKILL.md` edits** (1 new line each in `## Rules`): the conversational-leak rule.
 
-**New test files** `tests/gate-check-active-ticket-drift.test.ts` (~80 lines) and `tests/gate-check-guessed-tracker-id.test.ts` (~60 lines). Both mirror `tests/gate-check-ticket-state-drift.test.ts` shape. Use stubbed `AdapterDriver` where applicable.
+**New test files** `tests/gate-check-active-ticket-drift.test.ts` (~80 lines) and `tests/gate-check-guessed-tracker-id.test.ts` (~60 lines). Both mirror `tests/gate-check-ticket-state-drift.test.ts` shape. Use stubbed `AdapterDriver` where applicable. A third prose-only test file `tests/tracker-write-routing-rules.test.ts` (~110 lines) covers AC-STE-87.3 / AC-STE-87.9 / AC-STE-87.10 `## Rules` additions.
 
-**No runtime code changes.** Probe #14 reuses existing `Provider.getTicketStatus`. Probe #15 is pure filesystem + frontmatter + regex scan — no tracker calls, no new shared code.
+**Runtime scope: one additive Provider-interface widening.** Probe #14's `assignee == currentUser` assertion (AC-STE-87.1) requires `Provider.getTicketStatus` to expose the ticket's assignee. The pre-M24 Provider interface returned `Promise<{ status: string }>` — the driver layer already carried `TicketStatusSummary.assignee`, but `TrackerProvider.getTicketStatus` stripped it and `LocalProvider.getTicketStatus` had no assignee concept. M24 widens `Provider.getTicketStatus` to `Promise<{ status: string; assignee?: string | null }>` (additive, structurally backwards compatible). `TrackerProvider` forwards `summary.assignee` verbatim; `LocalProvider` continues to return the `local-no-tracker` sentinel with `assignee` left undefined. Probe #15 remains pure filesystem + frontmatter + regex scan — no tracker calls, no shared-code changes.
 
 ## Testing
 
