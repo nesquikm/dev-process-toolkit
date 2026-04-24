@@ -1,6 +1,6 @@
 # Dev Process Toolkit
 
-A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 12 commands, 1 agent, spec templates, and documentation.
+A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 14 commands, 1 agent, spec templates, and documentation.
 
 ## Install as Plugin
 
@@ -50,7 +50,7 @@ dev-process-toolkit/
 │   └── dev-process-toolkit/         # The plugin
 │       ├── .claude-plugin/
 │       │   └── plugin.json          # Plugin manifest
-│       ├── skills/                  # 12 skills (slash commands)
+│       ├── skills/                  # 14 skills (slash commands)
 │       ├── agents/                  # 1 specialist agent (code-reviewer)
 │       ├── adapters/                # 3 tracker adapters (linear, jira, _template) + _shared helpers
 │       ├── templates/               # CLAUDE.md and spec templates
@@ -64,7 +64,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.22.0 — "Branch Convention"** (`/implement` gains optional branch-naming automation via a new Schema L `branch_template:` key — `{type}/m{N}-{slug}` default in `mode: none`, `{type}/{ticket-id}-{slug}` in tracker mode; LLM infers `{type, slug}` from the FR / plan body; sanitizer clamps output to `[a-z0-9-]` before `git checkout -b` (shell-injection defense in depth); absent key ⇒ disabled. `TrackerProvider.releaseLock` gains a pre-state assertion that fails loudly on non-`in_progress` tickets (guards against the `Backlog → Done` silent leap surfaced in the M18 dogfood). `/spec-write` + `/brainstorm` now codify the `<tracker-id>` placeholder convention — never guess the next sequential tracker number. Full 26-char ULIDs are hidden from tracker-mode user-facing prose (Linear descriptions, plan-file FR lists, active CHANGELOG section, README) — the ULID lives in frontmatter `id:` and code-internal references only. One-time PR garbage sweep retired 31 files from the M12–M18 accumulation. STE-63..STE-67, 5 FRs.).
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.23.0 — "Diátaxis"** (M20 adds first-class docs generation: new `/docs` skill with `--quick` fragment writes + `--commit` merge + `--full` regeneration; new `/ship-milestone` skill formalizing the Release Checklist with a single approval gate; `/setup` gains a `## Docs` config block (Schema X); `/implement` gains a non-blocking Phase 4b doc-fragment hook and a Phase 5 opt-in chain prompt into `/ship-milestone` on milestone-scope runs; deterministic `ImpactSet` + `SignatureGroundTruth` extractors ground the LLM prompt against code reality (NFR-22 — canonical docs never invent signatures). Eight FRs (STE-68..STE-75).).
 
 ## Core Philosophy
 
