@@ -4,14 +4,19 @@
 // `/implement` (no-local-FR branch of FR-53). Single implementation so the
 // two skills cannot drift.
 //
-// Order of operations (guaranteed):
+// Order of operations (guaranteed, post-STE-76):
 //   1. provider.getMetadata(trackerKey:trackerId) — throws on tracker error
 //   2. promptMilestone() — user picks milestone
-//   3. provider.mintId() — ULID minted
-//   4. writeFile(specs/frs/<ulid>.md, ...) — FR file committed to disk
-//   5. provider.sync(spec) — tracker notified of the new binding (if applicable)
+//   3. writeFile(specs/frs/<tracker-id>.md, ...) — FR file committed to disk
+//   4. provider.sync(spec) — tracker notified of the new binding (if applicable)
 //
-// Any step 1–4 failure means no sync. Step 5 failures (sync throws)
+// STE-76 AC-STE-76.5: the tracker path no longer mints a ULID or emits an
+// `id:` frontmatter line. Tracker ID is the canonical identity in tracker
+// mode; the resulting FR file frontmatter elides `id:`. `importFromTracker`
+// returns the tracker ID so downstream callers (claimLock, resolver) can
+// chain without a ULID round-trip.
+//
+// Any step 1–3 failure means no sync. Step 4 failures (sync throws)
 // trigger atomic rollback — we delete the FR file so the working tree
 // stays clean. Per M14 plan Phase B verify-bullet: "all error-path tests
 // assert no partial file written on failure."
@@ -30,7 +35,6 @@ export async function importFromTracker(
 ): Promise<string> {
   const metadata = await provider.getMetadata(`${trackerKey}:${trackerId}`);
   const milestone = await promptMilestone();
-  const ulid = provider.mintId();
 
   // getMetadata extensions (description + acs) are adapter-supplied; the
   // base FRMetadata contract doesn't include them, so we treat the return
@@ -46,7 +50,6 @@ export async function importFromTracker(
   const createdAt = new Date().toISOString();
 
   const body = renderFRFile({
-    id: ulid,
     title: metadata.title,
     milestone,
     trackerKey,
@@ -58,7 +61,6 @@ export async function importFromTracker(
 
   const spec: FRSpec = {
     frontmatter: {
-      id: ulid,
       title: metadata.title,
       milestone,
       status: "active",
@@ -81,11 +83,10 @@ export async function importFromTracker(
     }
     throw err;
   }
-  return ulid;
+  return trackerId;
 }
 
 interface RenderParams {
-  id: string;
   title: string;
   milestone: string;
   trackerKey: string;
@@ -96,9 +97,9 @@ interface RenderParams {
 }
 
 function renderFRFile(p: RenderParams): string {
+  // acPrefix in tracker mode keys off the tracker binding — no id: needed.
   const prefix = acPrefix({
     frontmatter: {
-      id: p.id,
       tracker: { [p.trackerKey]: p.trackerId },
     },
     body: "",
@@ -107,7 +108,6 @@ function renderFRFile(p: RenderParams): string {
     ? "- TODO: AC list from tracker was empty. Add ACs here or in the tracker; FR-39 sync will reconcile.\n"
     : p.acs.map((ac, i) => `- AC-${prefix}.${i + 1}: ${ac}\n`).join("");
   return `---
-id: ${p.id}
 title: ${p.title}
 milestone: ${p.milestone}
 status: active

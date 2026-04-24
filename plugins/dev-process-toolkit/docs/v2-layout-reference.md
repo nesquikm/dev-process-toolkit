@@ -25,7 +25,7 @@ const provider = mode === "none"
 
 ## FR file access (v2)
 
-- FR filename is governed by `Provider.filenameFor(spec)` (M18 STE-60 AC-STE-60.1). Tracker mode: `specs/frs/<tracker-id>.md` (e.g., `STE-53.md`). `mode: none`: `specs/frs/<short-ULID>.md` where `<short-ULID>` is `spec.id.slice(23, 29)` (matching M16's AC-prefix tail, e.g., `VDTAF4.md`). The full 26-char ULID is preserved in frontmatter `id:` — filename carries the human-facing identifier, frontmatter carries the collision-proof one.
+- FR filename is governed by `Provider.filenameFor(spec)` (M18 STE-60 AC-STE-60.1). Tracker mode: `specs/frs/<tracker-id>.md` (e.g., `STE-53.md`). `mode: none`: `specs/frs/<short-ULID>.md` where `<short-ULID>` is `spec.id.slice(23, 29)` (matching M16's AC-prefix tail, e.g., `VDTAF4.md`). The full 26-char ULID is preserved in frontmatter `id:` in `mode: none` only; tracker mode has no `id:` line (the tracker ID is the canonical identity — STE-76 AC-STE-76.2).
 - Archived FRs live at `specs/frs/archive/<name>.md` with the same stem as the active file — archival never renames (AC-STE-18.4). Pre-M18 archives keep the legacy `fr_<ULID>.md` shape until STE-61's one-time rewrite lands.
 - Frontmatter is Schema Q (validates against `adapters/_shared/schemas/fr.schema.json`).
 - Each FR has exactly these top-level sections in order: `## Requirement`, `## Acceptance Criteria`, `## Technical Design`, `## Testing`, `## Notes` (AC-STE-26.2).
@@ -41,7 +41,7 @@ const provider = mode === "none"
 ## Skill-specific behavior in v2
 
 ### `/spec-write`
-- Create new FR via `Provider.mintId()` → write `specs/frs/<Provider.filenameFor(spec)>` (M18 STE-60 AC-STE-60.3) with Schema Q frontmatter. The ULID lives in `id:`; the filename tracks the tracker ID (tracker mode) or the short-ULID tail (`mode: none`).
+- Create new FR. In `mode: none`: call `Provider.mintId()` → write `specs/frs/<Provider.filenameFor(spec)>` with the full ULID in frontmatter `id:`, filename = short-ULID tail. In tracker mode (STE-76 AC-STE-76.5): skip the `mintId()` call and omit `id:` from frontmatter; filename = tracker ID (`<tracker-id>.md` per M18 STE-60 AC-STE-60.3). The tracker ID is the canonical identity.
 - Call `Provider.sync(spec)` on save (AC-STE-24.2).
 - Never write to `specs/requirements.md` on v2 projects.
 

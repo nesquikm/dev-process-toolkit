@@ -20,19 +20,15 @@ interface StubOptions {
   metadata?: Partial<FRMetadata> & { description?: string; acs?: string[] };
   syncThrows?: Error;
   getMetadataThrows?: Error;
-  mintedUlid?: string;
 }
 
+// StubProvider implements only `Provider` (not `IdentityMinter`, STE-85) —
+// `importFromTracker` runs on the tracker path post-STE-76 and never mints
+// a ULID; `mintId` is structurally unreachable from this stub.
 class StubProvider implements Provider {
   getMetadataCalls: string[] = [];
   syncCalls: FRSpec[] = [];
-  mintCount = 0;
   constructor(private readonly opts: StubOptions = {}) {}
-
-  mintId(): string {
-    this.mintCount += 1;
-    return this.opts.mintedUlid ?? "fr_01TESTIMPORTFIXTURE00000001";
-  }
 
   async getMetadata(id: string): Promise<FRMetadata> {
     this.getMetadataCalls.push(id);
@@ -96,8 +92,8 @@ function makeSpecsDir(): string {
   return d;
 }
 
-describe("importFromTracker — happy path (AC-52.4)", () => {
-  test("creates FR file with correct frontmatter, body, and tracker ref", async () => {
+describe("importFromTracker — happy path (AC-52.4, STE-76 AC-STE-76.5)", () => {
+  test("creates FR file with correct frontmatter, body, and tracker ref; no id: line emitted", async () => {
     const specsDir = makeSpecsDir();
     try {
       const provider = new StubProvider({
@@ -106,21 +102,22 @@ describe("importFromTracker — happy path (AC-52.4)", () => {
           description: "Users can't log in via SSO.",
           acs: ["Login works with SSO", "Error messages clear"],
         },
-        mintedUlid: "fr_01IMPORTFIXTURE0000000001",
       });
-      const ulid = await importFromTracker(
+      const returned = await importFromTracker(
         "linear",
         "LIN-1234",
         provider,
         specsDir,
         async () => "M14",
       );
-      expect(ulid).toBe("fr_01IMPORTFIXTURE0000000001");
+      // STE-76: return value is the tracker ID — tracker-mode identity.
+      expect(returned).toBe("LIN-1234");
       // M18 STE-60: tracker-mode FR files are named by tracker ID, not ULID.
       const path = join(specsDir, "frs", "LIN-1234.md");
       expect(existsSync(path)).toBe(true);
       const content = readFileSync(path, "utf-8");
-      expect(content).toContain(`id: ${ulid}`);
+      // STE-76 AC-STE-76.5: tracker-mode frontmatter MUST NOT carry id:
+      expect(content).not.toMatch(/^id:\s/m);
       expect(content).toContain("title: Fix login bug");
       expect(content).toContain("milestone: M14");
       expect(content).toContain("status: active");
@@ -139,7 +136,7 @@ describe("importFromTracker — happy path (AC-52.4)", () => {
     try {
       const provider = new StubProvider();
       let promptCalls = 0;
-      const ulid = await importFromTracker(
+      const returned = await importFromTracker(
         "linear",
         "LIN-1",
         provider,
@@ -153,32 +150,31 @@ describe("importFromTracker — happy path (AC-52.4)", () => {
       // M18 STE-60: tracker-mode filename is <tracker-id>.md.
       const content = readFileSync(join(specsDir, "frs", "LIN-1.md"), "utf-8");
       expect(content).toContain("milestone: M99");
-      expect(ulid.startsWith("fr_")).toBe(true);
+      // STE-76: return value is the tracker ID.
+      expect(returned).toBe("LIN-1");
     } finally {
       rmSync(specsDir, { recursive: true, force: true });
     }
   });
 
-  test("Provider.mintId called exactly once", async () => {
+  // STE-76 AC-STE-76.5 note: `provider.mintId()` is never called on the
+  // tracker path. Post-STE-85 this is enforced structurally — `Provider`
+  // has no `mintId` method, so calling it on a `Provider`-typed value is
+  // a `TS2339` error at compile time. No runtime assertion needed; the
+  // type system is the gate.
+
+  test("Provider.sync called after file write with the new FR spec; spec carries no id:", async () => {
     const specsDir = makeSpecsDir();
     try {
       const provider = new StubProvider();
       await importFromTracker("linear", "LIN-1", provider, specsDir, async () => "M14");
-      expect(provider.mintCount).toBe(1);
-    } finally {
-      rmSync(specsDir, { recursive: true, force: true });
-    }
-  });
-
-  test("Provider.sync called after file write with the new FR spec", async () => {
-    const specsDir = makeSpecsDir();
-    try {
-      const provider = new StubProvider({ mintedUlid: "fr_01TESTSYNCCALL000000000001" });
-      await importFromTracker("linear", "LIN-1", provider, specsDir, async () => "M14");
       expect(provider.syncCalls).toHaveLength(1);
       const spec = provider.syncCalls[0]!;
-      expect(spec.frontmatter["id"]).toBe("fr_01TESTSYNCCALL000000000001");
+      // STE-76: frontmatter must not carry id in tracker mode.
+      expect(spec.frontmatter["id"]).toBeUndefined();
       expect(spec.body.length).toBeGreaterThan(0);
+      // Body also must not contain an id: frontmatter line.
+      expect(spec.body).not.toMatch(/^id:\s/m);
     } finally {
       rmSync(specsDir, { recursive: true, force: true });
     }
@@ -197,7 +193,7 @@ describe("importFromTracker — empty ACs (AC-52.7)", () => {
           acs: [],
         },
       });
-      const ulid = await importFromTracker(
+      const returned = await importFromTracker(
         "linear",
         "LIN-2",
         provider,
@@ -208,7 +204,8 @@ describe("importFromTracker — empty ACs (AC-52.7)", () => {
       const content = readFileSync(join(specsDir, "frs", "LIN-2.md"), "utf-8");
       expect(content).toContain("## Acceptance Criteria");
       expect(content).toMatch(/TODO:/);
-      expect(ulid.startsWith("fr_")).toBe(true);
+      // STE-76: return value is the tracker ID.
+      expect(returned).toBe("LIN-2");
     } finally {
       rmSync(specsDir, { recursive: true, force: true });
     }
@@ -243,7 +240,6 @@ describe("importFromTracker — error paths (AC-52.8 / ordering)", () => {
           throw new Error("user cancelled milestone pick");
         }),
       ).rejects.toThrow("user cancelled milestone pick");
-      expect(provider.mintCount).toBe(0);
       expect(provider.syncCalls).toHaveLength(0);
       const files = readdirSync(join(specsDir, "frs"));
       expect(files).toHaveLength(0);
@@ -257,7 +253,6 @@ describe("importFromTracker — error paths (AC-52.8 / ordering)", () => {
     try {
       const provider = new StubProvider({
         syncThrows: new Error("sync failed"),
-        mintedUlid: "fr_01SYNCFAILURETESTFIX00001",
       });
       await expect(
         importFromTracker("linear", "LIN-1", provider, specsDir, async () => "M14"),
@@ -274,13 +269,11 @@ describe("importFromTracker — error paths (AC-52.8 / ordering)", () => {
 });
 
 describe("importFromTracker — filename derives from Provider.filenameFor (M18 STE-60)", () => {
-  test("tracker-mode FR is written under <tracker-id>.md with the minted ULID still in frontmatter", async () => {
+  test("tracker-mode FR is written under <tracker-id>.md with NO id: line in frontmatter (STE-76)", async () => {
     const specsDir = makeSpecsDir();
     try {
-      const provider = new StubProvider({
-        mintedUlid: "fr_01IDEQFILENAMETEST00000001",
-      });
-      const ulid = await importFromTracker(
+      const provider = new StubProvider();
+      const returned = await importFromTracker(
         "linear",
         "LIN-5",
         provider,
@@ -289,8 +282,10 @@ describe("importFromTracker — filename derives from Provider.filenameFor (M18 
       );
       // M18 STE-60 AC-STE-60.3: tracker-mode filename keys on the tracker ID.
       const content = readFileSync(join(specsDir, "frs", "LIN-5.md"), "utf-8");
-      expect(content).toContain(`id: ${ulid}`);
+      // STE-76 AC-STE-76.5: no id: in tracker-mode frontmatter.
+      expect(content).not.toMatch(/^id:\s/m);
       expect(content).toContain("  linear: LIN-5");
+      expect(returned).toBe("LIN-5");
     } finally {
       rmSync(specsDir, { recursive: true, force: true });
     }
