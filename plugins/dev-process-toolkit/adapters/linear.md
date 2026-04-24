@@ -105,11 +105,10 @@ observed status; operators fix either by transitioning the ticket to
 
 ## Endpoint migration (AC-30.9)
 
-Linear's V1 SSE endpoint `https://mcp.linear.app/sse` shuts down 2026-05-11.
-`/setup` detects `https://mcp.linear.app/sse` in `claude mcp list` output and
-offers a dry-run settings.json diff to V2 `https://mcp.linear.app/mcp`. The
-V2 MCP uses the Streamable-HTTP transport; tool names and shapes remain
-compatible.
+Linear's legacy `https://mcp.linear.app/sse` endpoint is retired. `/setup`
+detects the stale URL in `claude mcp list` output and offers a dry-run
+settings.json diff to `https://mcp.linear.app/mcp`. The current MCP uses
+the Streamable-HTTP transport; tool names and shapes remain compatible.
 
 ## Operations
 
