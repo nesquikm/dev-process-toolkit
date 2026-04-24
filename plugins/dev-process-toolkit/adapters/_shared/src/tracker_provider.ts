@@ -6,7 +6,13 @@
 // upsert_ticket_metadata) plus read-side helpers (getTicketStatus, getUrl).
 // Real drivers make MCP calls; tests inject stubs.
 //
-//   - mintId(): always local (AC-43.5) — never consults the driver.
+// Capability boundary (STE-85): TrackerProvider implements the base
+// `Provider` interface only. It does NOT implement `IdentityMinter` —
+// tracker-mode FRs have no ULID identity (STE-76); any code referencing
+// `mintId()` on a `Provider`-typed value is a TypeScript error, which is
+// the structural enforcement of the "tracker-mode code never mints a
+// ULID" invariant.
+//
 //   - sync(): calls upsertTicketMetadata only for the driver's trackerKey;
 //       other keys are foreign-tracker refs and are handled by their own
 //       providers (cross-tracker reconciliation is out of scope per §8.11).
@@ -19,7 +25,6 @@
 //       Phase F if it's needed by /implement --release-lock.
 
 import type { FRMetadata, FRSpec, LockResult, Provider, SyncResult } from "./provider";
-import { mintId as mintIdImpl } from "./ulid";
 
 export type TicketStatus = "unstarted" | "backlog" | "in_progress" | "done" | "cancelled" | "completed";
 
@@ -157,10 +162,6 @@ export class TrackerProvider implements Provider {
     this.resolveTrackerRefImpl =
       options.resolveTrackerRef ??
       (async (idOrRef: string) => (/^[A-Z]+-\d+$/.test(idOrRef) ? idOrRef : null));
-  }
-
-  mintId(): string {
-    return mintIdImpl();
   }
 
   async getMetadata(id: string): Promise<FRMetadata> {

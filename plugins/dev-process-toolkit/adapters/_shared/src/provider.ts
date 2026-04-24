@@ -37,8 +37,19 @@ export interface FRSpec {
   body: string;
 }
 
-export interface Provider {
+/**
+ * Capability sub-interface for ULID minting. Scoped to `mode: none` only
+ * — tracker mode identity is the tracker ID, so `TrackerProvider` does NOT
+ * implement `IdentityMinter` (STE-85 AC-STE-85.1). Any attempt to call
+ * `mintId()` on a value statically typed as the base `Provider` is a
+ * `TS2339` error: the structural invariant "tracker-mode code never mints
+ * a ULID" is now type-enforced rather than by convention.
+ */
+export interface IdentityMinter {
   mintId(): string;
+}
+
+export interface Provider {
   getMetadata(id: string): Promise<FRMetadata>;
   sync(spec: FRSpec): Promise<SyncResult>;
   getUrl(id: string, trackerKey?: string): string | null;
