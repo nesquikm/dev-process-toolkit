@@ -130,3 +130,24 @@ humans editing the file by hand.
 ===============================================================================
 -->
 
+<!-- /setup fills this section; absent section ≡ all three false -->
+
+<!--
+===============================================================================
+Optional: Docs section (STE-68). Populated by `/setup` Step 7d.
+
+Do NOT paste a literal Docs heading into this comment — the `readDocsConfig`
+probe matches any line equal to the live heading, commented or not, and a
+commented copy would be picked up as the real section.
+
+Keys `/setup` emits (STE-68):
+  - user_facing_mode:    true | false   (narrative + mermaid state/flow diagrams)
+  - packages_mode:       true | false   (packages-style API reference)
+  - changelog_ci_owned:  true | false   (if true, /ship-milestone will not write CHANGELOG.md)
+
+At least one of `user_facing_mode` / `packages_mode` must be true for the
+section to be written (AC-STE-68.4). Values are lowercase literal
+`true`/`false` — no quoting, no `yes`/`no`.
+===============================================================================
+-->
+

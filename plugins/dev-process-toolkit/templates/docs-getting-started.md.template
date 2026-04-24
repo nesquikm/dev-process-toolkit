@@ -1,0 +1,25 @@
+# Getting Started with {{project}}
+
+<!--
+Tutorials quadrant (Diátaxis). This file is the single on-ramp for new
+users — walk them through one concrete, working end-to-end path in 10
+minutes or less. Resist the urge to document every feature: that is
+how-to territory (docs/how-to/) and reference territory
+(docs/reference/).
+-->
+
+## Prerequisites
+
+List the runtime(s), package manager, and any required environment
+setup. Link to install pages rather than inlining install instructions.
+
+## A first run
+
+Walk the reader through installing {{project}}, running the smallest
+meaningful command, and observing a result they can verify.
+
+## Where to next
+
+- Task-oriented recipes: [../how-to/](../how-to/)
+- API / state / config reference: [../reference/](../reference/)
+- Architecture and design rationale: [../explanation/architecture.md](../explanation/architecture.md)
