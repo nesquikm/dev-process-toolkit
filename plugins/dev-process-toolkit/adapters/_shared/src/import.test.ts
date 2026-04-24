@@ -67,7 +67,9 @@ class StubProvider implements Provider {
     return { kind: "claimed", branch: null, message: "" };
   }
 
-  async releaseLock(): Promise<void> {}
+  async releaseLock(): Promise<"transitioned" | "already-released"> {
+    return "already-released";
+  }
 
   async getTicketStatus(): Promise<{ status: string }> {
     return { status: "local-no-tracker" };

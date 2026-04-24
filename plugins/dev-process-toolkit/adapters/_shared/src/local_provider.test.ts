@@ -113,8 +113,30 @@ describe("LocalProvider.claimLock / releaseLock (FR-46)", () => {
     await p.claimLock(id, "feat/test");
     await p.releaseLock(id);
     expect(existsSync(join(work, ".dpt-locks", id))).toBe(false);
-    // Idempotent on second call
-    await expect(p.releaseLock(id)).resolves.toBeUndefined();
+    // Idempotent on second call — now returns "already-released" (STE-84 AC-STE-84.3).
+    await expect(p.releaseLock(id)).resolves.toBe("already-released");
+  });
+});
+
+describe("LocalProvider.releaseLock return value (STE-84 AC-STE-84.3)", () => {
+  test("lock-file-present returns 'transitioned' and removes the file", async () => {
+    const id = "fr_01HZ7XJFKP0000000000000RTN01X";
+    const p = new LocalProvider({ repoRoot: work, skipFetch: true });
+    await p.claimLock(id, "feat/test");
+    const outcome = await p.releaseLock(id);
+    expect(outcome).toBe("transitioned");
+    expect(existsSync(join(work, ".dpt-locks", id))).toBe(false);
+  });
+
+  test("lock-file-absent returns 'already-released' without side effects", async () => {
+    const id = "fr_01HZ7XJFKP0000000000000RTN02X";
+    const p = new LocalProvider({ repoRoot: work, skipFetch: true });
+    const preSha = (await $`git rev-parse HEAD`.cwd(work).text()).trim();
+    const outcome = await p.releaseLock(id);
+    expect(outcome).toBe("already-released");
+    // No commit was created — call must not touch git when the lock was never there.
+    const postSha = (await $`git rev-parse HEAD`.cwd(work).text()).trim();
+    expect(postSha).toBe(preSha);
   });
 });
 

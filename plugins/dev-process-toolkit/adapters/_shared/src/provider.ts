@@ -43,7 +43,26 @@ export interface Provider {
   sync(spec: FRSpec): Promise<SyncResult>;
   getUrl(id: string, trackerKey?: string): string | null;
   claimLock(id: string, branch: string): Promise<LockResult>;
-  releaseLock(id: string): Promise<void>;
+  /**
+   * Release the in-flight lock for the given FR.
+   *
+   * Returns `"transitioned"` when the release performed work:
+   *   - `TrackerProvider`: ticket moved from In Progress → Done.
+   *   - `LocalProvider`: `.dpt-locks/<id>` existed and was removed + committed.
+   *
+   * Returns `"already-released"` on the idempotent branch (STE-84 AC-STE-84.2):
+   *   - `TrackerProvider`: ticket was already at the adapter's canonical Done
+   *     status — no `transitionStatus` call is made. Also returned when the
+   *     FR has no binding for the driver's tracker.
+   *   - `LocalProvider`: no lock file was present — silently no-ops without
+   *     touching git.
+   *
+   * Throws `TrackerReleaseLockPreconditionError` (STE-65, narrowed by STE-84
+   * AC-STE-84.5) when the tracker ticket is in any state other than
+   * In Progress or canonical Done — the `Backlog → Done` silent-leap
+   * guardrail is preserved; only the terminal-Done short-circuit is new.
+   */
+  releaseLock(id: string): Promise<"transitioned" | "already-released">;
   /**
    * Read-side status probe used by `/implement` Phase 4 post-release
    * verification (AC-STE-54.2) and `/gate-check` ticket-state drift

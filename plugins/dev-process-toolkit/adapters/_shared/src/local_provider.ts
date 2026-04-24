@@ -152,11 +152,13 @@ export class LocalProvider implements Provider {
     return null;
   }
 
-  async releaseLock(id: string): Promise<void> {
+  async releaseLock(id: string): Promise<"transitioned" | "already-released"> {
     const lockPath = join(this.locksDir, id);
-    if (!existsSync(lockPath)) return;
+    // STE-84 AC-STE-84.3: missing lock → silently idempotent.
+    if (!existsSync(lockPath)) return "already-released";
     await $`git rm -q ${lockPath}`.cwd(this.repoRoot).quiet();
     await $`git commit -q -m ${`chore(locks): release lock for ${id}`}`.cwd(this.repoRoot).quiet();
+    return "transitioned";
   }
 
   async getTicketStatus(_ticketId: string): Promise<{ status: string }> {

@@ -257,12 +257,19 @@ export class TrackerProvider implements Provider {
     return { kind: "claimed", branch, message: `Lock claimed on ${branch} via ${this.driver.trackerKey}:${trackerRef}` };
   }
 
-  async releaseLock(id: string): Promise<void> {
+  async releaseLock(id: string): Promise<"transitioned" | "already-released"> {
     const trackerRef = await this.resolveTrackerRef(id);
-    if (!trackerRef) return;
+    if (!trackerRef) return "already-released";
     const pre = await this.driver.getTicketStatus(trackerRef);
-    // STE-65: guard against claimLock-skipped / out-of-band state. Reuses the
-    // single existing getTicketStatus fetch (AC-STE-65.1) — no extra MCP call.
+    // STE-84: idempotent-terminal short-circuit. A ticket already at the
+    // adapter's canonical Done status has nothing to release — returning
+    // "already-released" without a transitionStatus call keeps bulk
+    // /spec-archive clean when every FR was shipped via single-FR /implement
+    // (which Done-transitions the ticket in its own Phase 4 Close).
+    if (pre.status === "done") return "already-released";
+    // STE-65 (narrowed by STE-84 AC-STE-84.5): guard against claimLock-skipped
+    // / out-of-band state. Non-In-Progress + non-Done pre-states still throw
+    // byte-identically — the Backlog → Done silent-leap guardrail is preserved.
     if (pre.status !== "in_progress") {
       throw new TrackerReleaseLockPreconditionError({
         ticketRef: trackerRef,
@@ -272,6 +279,7 @@ export class TrackerProvider implements Provider {
     }
     await this.driver.transitionStatus(trackerRef, "done");
     await this.verifyWriteLanded(trackerRef, pre.updatedAt, "releaseLock");
+    return "transitioned";
   }
 
   /**
