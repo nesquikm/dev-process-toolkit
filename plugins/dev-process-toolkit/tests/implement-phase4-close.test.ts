@@ -88,3 +88,38 @@ describe("AC-STE-54.2 — post-release status verification", () => {
     expect(phase4).toMatch(/NFR-10|mismatch.*(refus|surface|fail)|exits? non-zero/i);
   });
 });
+
+describe("AC-STE-92.6 — Phase 4 prose flips plan-status on milestone close", () => {
+  test("Procedure prose declares an explicit plan-status flip step", () => {
+    const body = readSkill();
+    const phase4 = phase4Block(body);
+    // The atomic commit must include the milestone plan file's
+    // status: active → status: archived flip plus an archived_at set,
+    // landing in the same atomic commit as the FR moves and the plan file
+    // git mv. Defense-in-depth so probe #16 (STE-92) starts and stays green.
+    // The phrase "plan-status flip" or its semantic equivalent must appear
+    // — generic "plan" + "status" matches on the existing FR-flip prose,
+    // so use a dedicated anchor token.
+    expect(phase4).toMatch(/AC-STE-92\.3|plan-status flip|flip the plan|plan frontmatter/i);
+  });
+
+  test("Procedure prose names the plan path with the status flip + archived_at", () => {
+    const body = readSkill();
+    const phase4 = phase4Block(body);
+    // Find the plan-status anchor and verify its surrounding context names
+    // the plan path and archived_at — the read-side probe enforces both.
+    const idx = phase4.search(/AC-STE-92\.3|plan-status flip|flip the plan|plan frontmatter/i);
+    expect(idx).toBeGreaterThan(-1);
+    const block = phase4.slice(Math.max(0, idx - 200), idx + 600);
+    expect(block).toMatch(/specs\/plan\/<M#>\.md|specs\/plan\/.*M.*\.md/);
+    expect(block).toMatch(/archived_at/);
+  });
+
+  test("Procedure prose ties the plan-status flip to the same atomic commit as the FR moves", () => {
+    const body = readSkill();
+    const phase4 = phase4Block(body);
+    // Same commit invariant — the plan-status flip is not a follow-up
+    // commit. The probe asserts read-side; the prose asserts write-side.
+    expect(phase4).toMatch(/atomic|same commit|one commit/i);
+  });
+});

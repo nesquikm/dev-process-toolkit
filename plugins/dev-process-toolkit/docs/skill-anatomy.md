@@ -176,7 +176,7 @@ agent: Explore    # Built-in: Explore, Plan, general-purpose, or a custom name f
 ---
 ```
 
-As of v1.22.0, **0 of 12 skills in this plugin use this frontmatter** — the failure modes and prompt-passing ergonomics are not road-tested here. Prefer the explicit `Agent`-tool invocation pattern above for new delegation points. `context: fork` remains documented for readers adapting the plugin to other contexts where whole-skill forking is a better fit.
+No skills in this plugin use this frontmatter — the failure modes and prompt-passing ergonomics are not road-tested here. Prefer the explicit `Agent`-tool invocation pattern above for new delegation points. `context: fork` remains documented for readers adapting the plugin to other contexts where whole-skill forking is a better fit.
 
 ## Agents vs Skills
 
