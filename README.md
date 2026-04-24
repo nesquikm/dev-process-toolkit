@@ -64,7 +64,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.23.0 — "Diátaxis"** (M20 adds first-class docs generation: new `/docs` skill with `--quick` fragment writes + `--commit` merge + `--full` regeneration; new `/ship-milestone` skill formalizing the Release Checklist with a single approval gate; `/setup` gains a `## Docs` config block (Schema X); `/implement` gains a non-blocking Phase 4b doc-fragment hook and a Phase 5 opt-in chain prompt into `/ship-milestone` on milestone-scope runs; deterministic `ImpactSet` + `SignatureGroundTruth` extractors ground the LLM prompt against code reality (NFR-22 — canonical docs never invent signatures). Eight FRs (STE-68..STE-75).).
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.24.0 — "Self-Hosted"** (M23 release hardening from the first self-hosted `/ship-milestone` dogfood: `/ship-milestone` pre-flight #1 now probes tracker state and names `/spec-archive M<N>` as the bulk-archive pre-step when tickets are already Done (STE-83); `TrackerProvider.releaseLock` grows an idempotent-terminal branch so bulk `/spec-archive` stops throwing on already-Done tickets while preserving STE-65's `Backlog → Done` silent-leap guardrail (STE-84). Two FRs (STE-83, STE-84).).
 
 ## Core Philosophy
 
