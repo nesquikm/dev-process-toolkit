@@ -6,17 +6,20 @@ import { parseFrontmatter } from "../adapters/_shared/src/frontmatter";
 // STE-82 AC-STE-82.2 + AC-STE-82.7 — gate-check probe #2 integration test.
 //
 // Probe 2 requires every active FR file under `specs/frs/*.md` to carry the
-// Schema Q frontmatter keys: `id`, `title`, `milestone`, `status`,
-// `archived_at`, `tracker`, `created_at`. Missing a field → GATE FAILED
-// naming the file + field.
+// mode-invariant Schema Q keys: `title`, `milestone`, `status`, `archived_at`,
+// `tracker`, `created_at`. Missing a field → GATE FAILED naming the file +
+// field.
 //
-// Positive fixture: a fully-populated FR body parses cleanly and exposes all
-// 7 keys.
+// The `id:` key is handled by probe #13 `identity_mode_conditional` (STE-86
+// AC-STE-86.5) because its presence/absence is mode-conditional post-STE-76:
+// required in `mode: none`, absent in tracker mode.
+//
+// Positive fixture: a fully-populated tracker-mode FR body parses cleanly and
+// exposes all 6 mode-invariant keys.
 // Negative fixture: an FR body missing any one required key reports the
 // specific gap; the probe would emit a `file:field — missing` note.
 
 const REQUIRED_KEYS = [
-  "id",
   "title",
   "milestone",
   "status",
@@ -36,8 +39,8 @@ function missingKeys(frontmatter: Record<string, unknown>): string[] {
   return REQUIRED_KEYS.filter((k) => !(k in frontmatter));
 }
 
+// Tracker-mode canonical fixture (post-STE-76) — no `id:` line.
 const GOOD_FR = `---
-id: fr_01KPZ7GRFN656QFSG79EY53YJV
 title: Sample FR
 milestone: M22
 status: active
@@ -56,7 +59,7 @@ describe("STE-82 AC-STE-82.2 prose — /gate-check probe 2 is documented in SKIL
     expect(body).toMatch(/Required frontmatter fields/);
   });
 
-  test("probe enumerates all 7 required keys", () => {
+  test("probe enumerates all 6 mode-invariant required keys", () => {
     const body = read(gateCheckSkillPath);
     for (const key of REQUIRED_KEYS) {
       expect(body).toContain(`\`${key}\``);
@@ -93,7 +96,7 @@ describe("STE-82 AC-STE-82.2/7 — required-frontmatter fixtures (positive + neg
     expect(missingKeys(fm)).toContain("tracker");
   });
 
-  test("NEGATIVE: FR with empty frontmatter reports all 7 keys missing", () => {
+  test("NEGATIVE: FR with empty frontmatter reports all 6 mode-invariant keys missing", () => {
     const empty = `---\n---\n\nBody.\n`;
     const fm = parseFrontmatter(empty, { lenient: true });
     // The probe note shape follows `file:field — reason`; each missing key
