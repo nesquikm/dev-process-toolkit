@@ -1,5 +1,4 @@
 ---
-id: fr_01KPXFS374YX9YEDFBDFKD3BG4
 title: Mechanical API signature extraction (ground truth for packages-mode reference docs)
 milestone: M20
 status: archived

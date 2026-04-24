@@ -1,5 +1,4 @@
 ---
-id: fr_01KPWH1CMQ7184QNNF5ZKJJ8DB
 title: Delete ### Sync log subsection + sync_log.ts helper
 milestone: M17
 status: archived

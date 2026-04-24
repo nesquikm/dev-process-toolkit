@@ -1,5 +1,4 @@
 ---
-id: fr_01KPYMEND800M23STE83AAAAAA
 title: /ship-milestone pre-flight #1 remedy rewrite
 milestone: M23
 status: archived

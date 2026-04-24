@@ -1,5 +1,4 @@
 ---
-id: fr_01KPZ7GRFS7EK16T50A8EXVE9Q
 title: Adapter contract parity (Jira traps + _template.md + dead capability)
 milestone: M22
 status: archived

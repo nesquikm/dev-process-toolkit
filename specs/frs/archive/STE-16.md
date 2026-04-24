@@ -1,5 +1,4 @@
 ---
-id: fr_01KPR3M74WN5NYPM4D2PSQ8CQV
 title: Ship Linear + Jira + Custom Template in v1
 milestone: M12
 status: archived

@@ -1,5 +1,4 @@
 ---
-id: fr_01KPT4WQPEN17BEYG25GA6H1TR
 title: updatedAt Recording Timing — Record After claimLock to Avoid Self-Drift
 milestone: M15
 status: archived

@@ -1,5 +1,4 @@
 ---
-id: fr_01KPR3M74WN5NYPM4D2PSQ8CQQ
 title: Mode-Consistency Invariant
 milestone: M12
 status: archived

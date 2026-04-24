@@ -1,5 +1,4 @@
 ---
-id: fr_01KPT3RPRGSRW3NF5BT0HQJ2P7
 title: M15 Documentation + Release (v1.18.0)
 milestone: M15
 status: archived

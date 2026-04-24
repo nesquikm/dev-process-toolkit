@@ -1,5 +1,4 @@
 ---
-id: fr_01KPXFS371W2ZY4H1Q87AH326Q
 title: docs/ Diátaxis layout + shared nav contract (tutorials / how-to / reference / explanation)
 milestone: M20
 status: archived

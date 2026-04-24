@@ -1,5 +1,4 @@
 ---
-id: fr_01KPR3M74XA75GJKT4Z4HG95T8
 title: Layout Version Marker + Cross-Skill Gate
 milestone: M14
 status: archived

@@ -1,5 +1,4 @@
 ---
-id: fr_01KPXFS370N34T3SA07WPMTFD3
 title: /setup CHANGELOG + docs-mode prompts (Schema Docs section in CLAUDE.md)
 milestone: M20
 status: archived

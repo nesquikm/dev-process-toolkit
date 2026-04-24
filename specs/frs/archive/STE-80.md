@@ -1,5 +1,4 @@
 ---
-id: fr_01KPZ7GRFS7EK16T50A8EXVE9P
 title: Template <tracker-id> convention comment (STE-66 reach)
 milestone: M22
 status: archived

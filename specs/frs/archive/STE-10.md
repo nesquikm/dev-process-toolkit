@@ -1,5 +1,4 @@
 ---
-id: fr_01KPR3M74WN5NYPM4D2PSQ8CQM
 title: Adapter Pattern (Declarative Metadata + Code Driver)
 milestone: M12
 status: archived

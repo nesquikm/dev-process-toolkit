@@ -1,5 +1,4 @@
 ---
-id: fr_01KPXFS372E153TN794E2A5K9W
 title: /docs skill scaffold — manual --quick / --commit / --full with human-approval gates
 milestone: M20
 status: archived

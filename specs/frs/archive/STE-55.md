@@ -1,5 +1,4 @@
 ---
-id: fr_01KPWH1CMPXN1JSN9XDVNTFEKM
 title: Delete v1→v2 migrator; keep mode transitions only
 milestone: M17
 status: archived

@@ -1,5 +1,4 @@
 ---
-id: fr_01KPXFS376BRD2TRPTP0V1NF7C
 title: /implement Phase 4 → /docs --quick fragment hook (non-blocking)
 milestone: M20
 status: archived

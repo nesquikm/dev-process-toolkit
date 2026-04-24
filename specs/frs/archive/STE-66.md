@@ -1,5 +1,4 @@
 ---
-id: fr_01KPX7SQFND9NGZG1J8CDFHTWX
 title: Forbid guessed tracker IDs in spec drafts — require <tracker-id> placeholder until Linear assigns
 milestone: M19
 status: archived

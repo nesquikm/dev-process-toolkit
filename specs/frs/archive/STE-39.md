@@ -1,5 +1,4 @@
 ---
-id: fr_01KPT3RPR7P1CK6W2894NNBAVT
 title: Migration Prompts for Initial Ticket State (Backlog vs Done)
 milestone: M15
 status: archived

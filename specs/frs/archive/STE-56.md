@@ -1,5 +1,4 @@
 ---
-id: fr_01KPWH1CMQ7184QNNF5ZKJJ8D9
 title: Delete specs/.dpt-layout + layout probes
 milestone: M17
 status: archived

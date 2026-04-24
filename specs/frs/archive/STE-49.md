@@ -1,5 +1,4 @@
 ---
-id: fr_01KPTPNF8B8KGKY7H0PKYB1633
 title: Purge v1 specs/archive/ Drift from Docs, Skills, Specs
 milestone: M15
 status: archived

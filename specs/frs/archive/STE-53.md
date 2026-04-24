@@ -1,5 +1,4 @@
 ---
-id: fr_01KPWH1CMM1ZW1PVH2BQ8M626N
 title: Portable plugin-internal paths (${CLAUDE_PLUGIN_ROOT})
 milestone: M17
 status: archived

@@ -1,5 +1,4 @@
 ---
-id: fr_01KPXFS377P0YE847SRRPRGQH6
 title: /implement M<N> → /ship-milestone prompt (opt-in chain, not auto-close)
 milestone: M20
 status: archived

@@ -1,5 +1,4 @@
 ---
-id: fr_01KPR3M74XA75GJKT4Z4HG95T3
 title: Tracker ID as Frontmatter Attribute
 milestone: M12
 status: archived

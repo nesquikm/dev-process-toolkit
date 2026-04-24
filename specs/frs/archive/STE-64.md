@@ -1,5 +1,4 @@
 ---
-id: fr_01KPX4MKGDV6PDR0KCPQ22J2P6
 title: Branch automation in /implement + /setup (Schema L branch_template)
 milestone: M19
 status: archived

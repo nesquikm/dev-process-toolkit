@@ -1,5 +1,4 @@
 ---
-id: fr_01KPX4MKGAR4600HWCH4A7JPRN
 title: One-time PR garbage sweep (orphans → patterns → per-file judgment)
 milestone: M19
 status: archived

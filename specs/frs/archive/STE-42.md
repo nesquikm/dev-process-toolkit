@@ -1,5 +1,4 @@
 ---
-id: fr_01KPT3RPRE2W8M4TTE5Y67A2GH
 title: Complete v1→v2 Migration — Strip Per-Milestone Blocks from Cross-Cutting Files
 milestone: M15
 status: archived

@@ -1,5 +1,4 @@
 ---
-id: fr_01KPR3M74WN5NYPM4D2PSQ8CQW
 title: Bidirectional AC Sync with B-Style Conflict Resolution
 milestone: M12
 status: archived

@@ -1,5 +1,4 @@
 ---
-id: fr_01KPWH1CMQ7184QNNF5ZKJJ8DA
 title: Delete specs/INDEX.md + regenerateIndex helper
 milestone: M17
 status: archived
