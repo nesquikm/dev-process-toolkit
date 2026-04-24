@@ -1,5 +1,4 @@
 .DS_Store
 .claude/
-/specs/
 .mcp.json
 node_modules/
