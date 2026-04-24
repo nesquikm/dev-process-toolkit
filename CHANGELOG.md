@@ -30,7 +30,7 @@ M19 adds opt-in branch-naming automation to `/implement`, hardens `TrackerProvid
 
 - **Root-spec hygiene baseline.** `specs/technical-spec.md` Schema L narrative paragraph dropped its `M18 STE-62` reference (replaced with the `v1.21.0` version pointer) so the STE-59 root-hygiene probe no longer flags archived-milestone leakage in live specs. Gitignored fix — local baseline only; this repo's `specs/` is not version-controlled.
 
-Total test count at release: 370 tests, 0 failures, 0 errors.
+Total test count at release: 422 tests, 0 failures, 0 errors.
 
 ## [1.21.0] — 2026-04-23 — "Filename Convention"
 
