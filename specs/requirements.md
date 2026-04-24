@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v1.23.0 ("Diátaxis")**.
+**Latest shipped release:** **v1.24.0 ("Self-Hosted")**.
 
 ### Shipped milestones
 
@@ -122,11 +122,16 @@ Each cited AC must reference NFR-10 in its implementation; error text that devia
 
 ### NFR-15: Identity Invariants
 
-Three cross-FR invariants are enforced by `/gate-check` (AC-49.5) and monitored by `/spec-review`:
+Identity is **mode-conditional** — each tracker mode owns its own identity scheme, and cross-mode symmetry is intentionally not enforced:
 
-1. **Filenames are immutable after mint.** Renames are forbidden; archival moves preserve the stem (AC-41.4)
-2. **`id:` ≡ filename stem.** Byte-for-byte equality; any deviation is a gate-check failure (AC-41.2, AC-41.5)
-3. **Providers never modify identity.** `sync()` touches `tracker:` refs and `status:`; it MUST NOT modify `id`, `title`, `milestone`, or filename (AC-42.3)
+- **`mode: none`** — canonical identity is a short-ULID (the 6-char tail of the full ULID). Filename stem, AC prefix, and `id:` frontmatter value all carry that short-ULID; each equals the others byte-for-byte.
+- **`mode: <tracker>`** — canonical identity is the tracker ID. Filename stem is `<tracker-id>.md`; AC prefix is `AC-<tracker-id>.N`; the `id:` frontmatter line is **absent** (ceremony dropped in STE-76; the tracker ID is the single source of truth, and `findFRByTrackerRef` handles tracker-workspace renames).
+
+Cross-mode invariants enforced by `/gate-check` (AC-49.5) and monitored by `/spec-review`:
+
+1. **Filenames are immutable after mint.** Renames are forbidden in either mode; archival moves preserve the stem (AC-41.4, NFR-15 filename-permanence).
+2. **`id:` ≡ filename stem (mode-scoped to `mode: none`).** In `mode: none`, the short-ULID `id:` value equals the filename stem byte-for-byte (AC-41.2, AC-41.5). In tracker mode the `id:` line is absent — the filename stem equals the tracker ID instead. The bimodal invariant is enforced by the `identity_mode_conditional` `/gate-check` probe (STE-86 AC-STE-86.5).
+3. **Providers never modify identity.** `sync()` touches `tracker:` refs and `status:`; it MUST NOT modify filename, title, milestone, or (in `mode: none`) the `id:` value (AC-42.3).
 
 Violations are review-blocking, not advisory. Any skill that would need to violate an invariant is a design bug.
 

@@ -18,9 +18,11 @@ Runtime layers:
                │ resolveProvider(CLAUDE.md ## Task Tracking)
                ▼
 ┌─────────────────────────────────────────────────┐
-│         Provider Interface                      │
-│  mintId() getMetadata() sync()                  │
-│  getUrl() claimLock() releaseLock()             │
+│         Provider Interface (+ IdentityMinter)   │
+│  getMetadata() sync() getUrl()                  │
+│  claimLock() releaseLock() getTicketStatus()    │
+│  filenameFor()                                  │
+│  IdentityMinter { mintId() }  ← LocalProvider   │
 └──────────────┬──────────────────────────────────┘
                │
      ┌─────────┴─────────┐
@@ -263,25 +265,39 @@ Every helper (`adapters/<tracker>/src/<helper>.ts`): JSON on stdin → JSON on s
 
 ### Schema Q: FR file frontmatter
 
-Required for every `specs/frs/**/*.md`:
+Required for every `specs/frs/**/*.md`. The `id:` line is **mode-conditional** (STE-76 AC-STE-76.1):
+
+**`mode: none`** — `id:` is REQUIRED and equals the filename stem byte-for-byte (the 6-char short-ULID tail):
 
 ```yaml
 ---
-id: fr_01HZ7XJFKPXYZ123ABCDEF       # ULID; equals filename stem byte-for-byte (AC-41.2)
+id: fr_01HZ7XJFKPXYZ123ABCDEF       # full ULID; filename stem is its 6-char tail (AC-41.2)
 title: Tracker-backed spec IDs
 milestone: M<N>                      # matches an M<N> in specs/plan/
 status: active                       # active | in_progress | archived
 archived_at: null                    # ISO date | null; set when status flips to archived
-tracker:                             # optional; may be empty
-  linear: LIN-1234                   # tracker_key: ticket_id | null
-  github: 982
+tracker: {}                          # empty map — mode-none has no tracker binding
 created_at: 2026-04-21T10:30:00Z
 ---
 ```
 
-Rules: `id` immutable for the FR's lifetime (NFR-15); equals filename stem. `milestone` must match a key in `specs/plan/`. `tracker` keys written in alphabetical order. `archived_at` null unless `status: archived`.
+**`mode: <tracker>`** — `id:` is ABSENT (STE-76 AC-STE-76.2, cross-mode symmetry dropped). The tracker ID is the canonical identity; filename stem + AC prefix derive from `tracker.<key>`:
 
-Archived FRs live at `specs/frs/archive/<ulid>.md` with the same Schema Q frontmatter plus `status: archived` and a non-null `archived_at`. No separate archive-file schema exists — Schema Q is the single source of truth on both sides of the active/archived boundary.
+```yaml
+---
+title: Tracker-backed spec IDs       # no id: line — tracker ID is the identity
+milestone: M<N>
+status: active
+archived_at: null
+tracker:
+  linear: STE-76                     # tracker_key: ticket_id
+created_at: 2026-04-21T10:30:00Z
+---
+```
+
+Rules: `milestone` must match a key in `specs/plan/`. `tracker` keys written in alphabetical order. `archived_at` null unless `status: archived`. In `mode: none`, `id:` is immutable for the FR's lifetime and equals the filename stem (NFR-15). In tracker mode, the `id:` line is absent; the bimodal invariant is enforced by the `identity_mode_conditional` `/gate-check` probe (STE-86 AC-STE-86.5) and cross-referenced from NFR-15.
+
+Archived FRs live at `specs/frs/archive/<stem>.md` with the same mode-conditional frontmatter plus `status: archived` and a non-null `archived_at`. No separate archive-file schema exists — Schema Q is the single source of truth on both sides of the active/archived boundary.
 
 ### Schema S: Lock file (`.dpt-locks/<ulid>`) — tracker-less mode
 
@@ -435,21 +451,30 @@ The fragment lifecycle spans exactly one milestone: fragments are created during
 ### Provider Interface
 
 ```typescript
+// Base contract — every Provider implementation honors this.
 export interface Provider {
-  mintId(): string;                                            // pure local
   getMetadata(id: string): Promise<FRMetadata>;
   sync(spec: FRSpec): Promise<SyncResult>;
   getUrl(id: string, trackerKey?: string): string | null;
   claimLock(id: string, branch: string): Promise<LockResult>;
   releaseLock(id: string): Promise<"transitioned" | "already-released">;
   getTicketStatus(ticketId: string): Promise<{ status: string }>;  // STE-54 read-side probe
+  filenameFor(spec: FRSpec): string;                               // STE-60
+}
+
+// Capability sub-interface (STE-85) — only mode-none providers implement
+// it. Any attempt to call `mintId()` on a value statically typed as the
+// base `Provider` is a TS2339 error: the invariant "tracker-mode code
+// never mints a ULID" is type-enforced rather than convention.
+export interface IdentityMinter {
+  mintId(): string;                                                // pure local
 }
 ```
 
 Two implementations ship:
 
-- **`LocalProvider`** — `mintId()` returns a ULID; `sync()` returns `{kind: 'skipped', …}`; `claimLock()` performs `git fetch --all` + cross-branch check then writes/commits `.dpt-locks/<ulid>`; `releaseLock()` deletes + commits. `getTicketStatus()` returns the sentinel `{ status: 'local-no-tracker' }`.
-- **`TrackerProvider`** — wraps the adapter surface. `sync()` calls `upsert_ticket_metadata` + `pull_acs`; `claimLock()` → `transition_status('in_progress')` + assignee; `releaseLock()` → `transition_status('done')` or `'unstarted'` per context. `getTicketStatus()` delegates to the driver's `getTicketStatus` and returns the adapter-canonical status string verbatim, used by `/implement` Phase 4 post-release verification (AC-STE-54.2) and `/gate-check` ticket-state drift detection (AC-STE-54.3). `mintId()` is local (tracker binding happens in `sync()`, not mint time).
+- **`LocalProvider implements Provider, IdentityMinter`** — `mintId()` returns a ULID; `sync()` returns `{kind: 'skipped', …}`; `claimLock()` performs `git fetch --all` + cross-branch check then writes/commits `.dpt-locks/<ulid>`; `releaseLock()` deletes + commits. `getTicketStatus()` returns the sentinel `{ status: 'local-no-tracker' }`.
+- **`TrackerProvider implements Provider`** (not `IdentityMinter` — STE-76 dropped the `id:` ceremony from tracker-mode FRs; STE-85 made the ban structural) — wraps the adapter surface. `sync()` calls `upsert_ticket_metadata` + `pull_acs`; `claimLock()` → `transition_status('in_progress')` + assignee; `releaseLock()` → `transition_status('done')` or `'unstarted'` per context. `getTicketStatus()` delegates to the driver's `getTicketStatus` and returns the adapter-canonical status string verbatim, used by `/implement` Phase 4 post-release verification (AC-STE-54.2) and `/gate-check` ticket-state drift detection (AC-STE-54.3).
 
 ### Adapter 4-Op Interface
 
