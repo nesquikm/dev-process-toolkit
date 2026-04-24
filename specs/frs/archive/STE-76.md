@@ -1,8 +1,8 @@
 ---
 title: De-ULID tracker-mode FRs — spec-text + archive migration
 milestone: M21
-status: active
-archived_at: null
+status: archived
+archived_at: 2026-04-24T17:55:00Z
 tracker:
   linear: STE-76
 created_at: 2026-04-23T15:42:00Z

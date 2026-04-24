@@ -1,8 +1,8 @@
 ---
 title: ULID strip migration tool + bimodal identity probe
 milestone: M21
-status: active
-archived_at: null
+status: archived
+archived_at: 2026-04-24T17:55:00Z
 tracker:
   linear: STE-86
 created_at: 2026-04-24T13:15:00Z
