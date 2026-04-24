@@ -1,3 +1,19 @@
+<!--
+  Tracker-ID placeholder convention (STE-66 / STE-80):
+  When drafting FR or AC IDs in tracker mode, use the literal placeholder
+  `<tracker-id>` until the tracker allocator assigns the real ID. Never
+  guess the next sequential tracker number — the allocator decides, not
+  the implementer. Substitute the real ID globally only after
+  Provider.sync / importFromTracker returns it.
+
+  See plugins/dev-process-toolkit/docs/spec-write-tracker-mode.md for the
+  full rule and worked example. In mode: none, use the short-ULID tail
+  instead; the placeholder convention does not apply.
+
+  Example placeholder FR heading:
+    ### <tracker-id>: <Title> {#<tracker-id>}
+-->
+
 # Requirements
 
 ## 1. Overview

@@ -176,7 +176,7 @@ agent: Explore    # Built-in: Explore, Plan, general-purpose, or a custom name f
 ---
 ```
 
-As of v1.12.0, **0 of 12 skills in this plugin use this frontmatter** — the failure modes and prompt-passing ergonomics are not road-tested here. Prefer the explicit `Agent`-tool invocation pattern above for new delegation points. `context: fork` remains documented for readers adapting the plugin to other contexts where whole-skill forking is a better fit.
+As of v1.22.0, **0 of 12 skills in this plugin use this frontmatter** — the failure modes and prompt-passing ergonomics are not road-tested here. Prefer the explicit `Agent`-tool invocation pattern above for new delegation points. `context: fork` remains documented for readers adapting the plugin to other contexts where whole-skill forking is a better fit.
 
 ## Agents vs Skills
 
@@ -191,6 +191,15 @@ As of v1.12.0, **0 of 12 skills in this plugin use this frontmatter** — the fa
 | Optional fields | `model`, `context`, `agent`, `hooks` | `model`, `color`, `maxTurns`, `permissionMode`, `skills`, `mcpServers`, `hooks`, `memory`, `background`, `isolation` |
 
 See the official docs for the full list of agent fields: https://code.claude.com/docs/en/sub-agents
+
+## Bare-vs-qualified skill references
+
+Across this plugin's docs and SKILL.md prose, the convention is:
+
+- **Prose / cross-references** use the bare skill name: `/implement`, `/gate-check`, `/spec-archive`. This keeps sentences readable and matches how the skills are spoken about internally.
+- **Literal user-invocation examples** use the plugin-qualified form: `/dev-process-toolkit:implement`, `/dev-process-toolkit:gate-check`. This is what the end user actually types in a consumer install where the plugin is namespaced.
+
+The README's "Commands" table and the `/setup` output use the qualified form (that's the literal command the reader will type); everything else — SKILL.md prose cross-references, docs narrative, CHANGELOG entries — uses the bare form. A bare reference inside a `code fence` that documents what the user types is the one place to spot-check before shipping; bare-in-prose and qualified-in-fence is the target pattern.
 
 ## Best Practices
 

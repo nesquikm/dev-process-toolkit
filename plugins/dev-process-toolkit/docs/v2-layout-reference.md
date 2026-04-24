@@ -89,4 +89,3 @@ Tracker-less races (two devs committing locks on separate branches without fetch
 ## Test fixtures
 
 - `tests/fixtures/v2-minimal/` — golden v2 tree with 3 active FRs, 1 archived, M12 complete + M13 active plan files, slimmed cross-cutting specs. Used by `verify-regression.ts` Schema M probe.
-- `tests/fixtures/lock-scenarios/` — git-repo fixtures for `LocalProvider.claimLock` tests (fresh, local-held, remote-held, stale-on-merged-branch).
