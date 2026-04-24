@@ -120,7 +120,7 @@ describe("LocalProvider.claimLock / releaseLock (FR-46)", () => {
 
 describe("LocalProvider.releaseLock return value (STE-84 AC-STE-84.3)", () => {
   test("lock-file-present returns 'transitioned' and removes the file", async () => {
-    const id = "fr_01HZ7XJFKP0000000000000RTN01X";
+    const id = "fr_01HZ7XJFKP0000000000000R01";
     const p = new LocalProvider({ repoRoot: work, skipFetch: true });
     await p.claimLock(id, "feat/test");
     const outcome = await p.releaseLock(id);
@@ -129,7 +129,7 @@ describe("LocalProvider.releaseLock return value (STE-84 AC-STE-84.3)", () => {
   });
 
   test("lock-file-absent returns 'already-released' without side effects", async () => {
-    const id = "fr_01HZ7XJFKP0000000000000RTN02X";
+    const id = "fr_01HZ7XJFKP0000000000000R02";
     const p = new LocalProvider({ repoRoot: work, skipFetch: true });
     const preSha = (await $`git rev-parse HEAD`.cwd(work).text()).trim();
     const outcome = await p.releaseLock(id);
