@@ -1,5 +1,4 @@
 ---
-id: fr_01KPT3RPQRXXAAK97S9GHK6Z4W
 title: Fix /setup --migrate Detection for mode:none→tracker Path
 milestone: M15
 status: archived

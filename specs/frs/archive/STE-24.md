@@ -1,5 +1,4 @@
 ---
-id: fr_01KPR3M74XA75GJKT4Z4HG95TA
 title: Skills Retrofit for v2 Layout
 milestone: M12
 status: archived

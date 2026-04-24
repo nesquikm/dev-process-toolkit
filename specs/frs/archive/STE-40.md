@@ -1,5 +1,4 @@
 ---
-id: fr_01KPT3RPR9RMN4F7Y6KD7C3XVF
 title: Migration Regenerates INDEX.md After Frontmatter Writes
 milestone: M15
 status: archived

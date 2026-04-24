@@ -1,5 +1,4 @@
 ---
-id: fr_01KPT4WQP6V2Y9FW3K5QHR5S9X
 title: Shared ResolverConfig Builder (Schema W Loader)
 milestone: M15
 status: archived

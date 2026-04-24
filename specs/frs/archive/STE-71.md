@@ -1,5 +1,4 @@
 ---
-id: fr_01KPXFS3732H11671CYSDF12GH
 title: Code-driven impact set detection (deterministic diff → {symbols, routes, configKeys, stateEvents})
 milestone: M20
 status: archived

@@ -1,5 +1,4 @@
 ---
-id: fr_01KPZ7GRFN656QFSG79EY53YJV
 title: Linear SSE endpoint swap (deadline 2026-05-11)
 milestone: M22
 status: archived

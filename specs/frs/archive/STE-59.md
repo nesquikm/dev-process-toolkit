@@ -1,5 +1,4 @@
 ---
-id: fr_01KPWH1CMQ7184QNNF5ZKJJ8DC
 title: Root spec-file hygiene — cleanup + gate
 milestone: M17
 status: archived

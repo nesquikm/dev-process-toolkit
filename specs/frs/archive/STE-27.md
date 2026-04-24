@@ -1,5 +1,4 @@
 ---
-id: fr_01KPR3M74WN5NYPM4D2PSQ8CQN
 title: Ticket Binding and Session-Start Confirmation
 milestone: M14
 status: archived

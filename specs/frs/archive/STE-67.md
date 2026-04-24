@@ -1,5 +1,4 @@
 ---
-id: fr_01KPX8BYAHRPBSQM56DQB5T0Y1
 title: Hide full 26-char ULIDs from user-facing surfaces in tracker-mode projects
 milestone: M19
 status: archived

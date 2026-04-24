@@ -1,5 +1,4 @@
 ---
-id: fr_01KPTSA7W7NX6R98CBXTVDTAF4
 title: Collision-proof AC prefixes (tracker ID / short-ULID)
 milestone: M16
 status: archived

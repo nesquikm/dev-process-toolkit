@@ -1,5 +1,4 @@
 ---
-id: fr_01KPR3M74WN5NYPM4D2PSQ8CQK
 title: Smart /setup MCP Detection, Install, and OAuth Verification
 milestone: M12
 status: archived

@@ -1,5 +1,4 @@
 ---
-id: fr_01KPWPMA9TKSYYBNCQ3TAYM9BE
 title: Filename convention + code paths (tracker-ID-keyed / short-ULID)
 milestone: M18
 status: archived

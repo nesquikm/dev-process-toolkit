@@ -1,5 +1,4 @@
 ---
-id: fr_01KPR3M74XA75GJKT4Z4HG95T4
 title: Provider Interface for ID Lifecycle
 milestone: M12
 status: archived

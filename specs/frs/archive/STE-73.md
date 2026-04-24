@@ -1,5 +1,4 @@
 ---
-id: fr_01KPXFS375921HRTH6DWPS0SAY
 title: /ship-milestone skill — formalize Release Checklist + invoke /docs --commit --full
 milestone: M20
 status: archived

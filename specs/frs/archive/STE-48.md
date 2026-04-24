@@ -1,5 +1,4 @@
 ---
-id: fr_01KPTGHS9X7KY0DV9QSGFN2JW2
 title: Resolver Accepts FR-N Codes via AC-Prefix Scan
 milestone: M15
 status: archived

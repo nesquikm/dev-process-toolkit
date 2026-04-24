@@ -1,5 +1,4 @@
 ---
-id: fr_01KPT3RPR1ZWZVA004RPHE87AZ
 title: Migration Writes Ticket Bindings to FR Frontmatter (not Traceability Matrix)
 milestone: M15
 status: archived

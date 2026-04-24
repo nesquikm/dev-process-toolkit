@@ -1,5 +1,4 @@
 ---
-id: fr_01KPWQS479GN4YH1RAW146A8NV
 title: Delete `active_ticket:` key from Schema L (dead surface)
 milestone: M18
 status: archived
