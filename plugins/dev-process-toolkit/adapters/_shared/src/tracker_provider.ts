@@ -289,10 +289,10 @@ export class TrackerProvider implements Provider {
    * The tracker ref falls through `resolveTrackerRefImpl`, which by
    * default echoes anything matching `/^[A-Z]+-\d+$/`.
    */
-  async getTicketStatus(idOrRef: string): Promise<{ status: string }> {
+  async getTicketStatus(idOrRef: string): Promise<{ status: string; assignee: string | null }> {
     const trackerRef = (await this.resolveTrackerRef(idOrRef)) ?? idOrRef;
     const summary = await this.driver.getTicketStatus(trackerRef);
-    return { status: String(summary.status) };
+    return { status: String(summary.status), assignee: summary.assignee };
   }
 
   filenameFor(spec: FRSpec): string {

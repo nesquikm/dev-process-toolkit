@@ -77,11 +77,13 @@ export interface Provider {
   /**
    * Read-side status probe used by `/implement` Phase 4 post-release
    * verification (AC-STE-54.2) and `/gate-check` ticket-state drift
-   * detection (AC-STE-54.3). `LocalProvider` returns the
+   * detection (AC-STE-54.3, AC-STE-87.1). `LocalProvider` returns the
    * `"local-no-tracker"` sentinel; `TrackerProvider` delegates to the
-   * driver and returns the driver's canonical status string verbatim.
+   * driver and returns the driver's canonical status string verbatim
+   * plus the ticket's assignee so probe #14 can assert
+   * `assignee == currentUser`.
    */
-  getTicketStatus(ticketId: string): Promise<{ status: string }>;
+  getTicketStatus(ticketId: string): Promise<{ status: string; assignee?: string | null }>;
   /**
    * Return the base filename (no directory) a newly-created or
    * about-to-archive FR file should live under (M18 STE-60 AC-STE-60.1).

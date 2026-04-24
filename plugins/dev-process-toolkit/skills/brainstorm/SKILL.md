@@ -57,6 +57,7 @@ Once the design is approved:
 - Present real tradeoffs, not strawmen — each approach should be genuinely viable
 - Do NOT write code or spec content during brainstorming
 - Do NOT proceed to spec writing without explicit design approval
+- Do NOT narrate a specific unallocated tracker ID (e.g., `STE-87`) in conversation when drafting — use the literal placeholder `<tracker-id>` (or the adapter rendering: `STE-<N>` for Linear, `PROJ-<N>` for Jira) until the tracker allocator returns the real ID. STE-66 covers draft files; this rule covers the conversational hazard that file-level probes cannot catch.
 - The goal is a clear, approved design decision — not an exhaustive analysis
 
 ### Rationalization Prevention
