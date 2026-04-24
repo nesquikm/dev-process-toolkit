@@ -48,11 +48,13 @@ literal `answer y or n`.
 
 **First-run:**
 
-> Generate packages-style API reference docs? (y/n)
+> Generate packages-style API reference docs? (typedoc <detected|not found>, ts-morph <bundled>, stack: <ts|other>) (y/n)
 
 **Re-run:**
 
-> Generate packages-style API reference docs? [current: false] (y/n, empty = keep)
+> Generate packages-style API reference docs? (typedoc <detected|not found>, ts-morph <bundled>, stack: <ts|other>) [current: false] (y/n, empty = keep)
+
+The parenthetical is a signature-extraction probe result (STE-72 AC-STE-72.6). `typedoc` resolves via `<projectRoot>/node_modules/.bin/typedoc` + `PATH`; `ts-morph` is always `bundled` (it ships with `adapters/_shared/package.json`); `stack` is `ts` when `tsconfig.json` exists, otherwise `other`. The probe result is informational — it does not affect the prompt's default or the accepted inputs. It gives the user immediate visibility into which strategy `/docs` will choose at generation time (AC-STE-72.2).
 
 ### Prompt 3 — CHANGELOG.md ownership
 
