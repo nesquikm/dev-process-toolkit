@@ -9,7 +9,6 @@ import {
   TrackerReleaseLockPreconditionError,
   TrackerWriteNoOpError,
 } from "./tracker_provider";
-import { ULID_REGEX } from "./ulid";
 
 function makeStub(overrides: Partial<AdapterDriver> = {}): {
   driver: AdapterDriver;
@@ -44,15 +43,12 @@ function makeStub(overrides: Partial<AdapterDriver> = {}): {
   return { driver, calls };
 }
 
-describe("TrackerProvider.mintId (AC-43.5)", () => {
-  test("mintId is always local — does not consult driver", () => {
-    const { driver, calls } = makeStub();
-    const p = new TrackerProvider({ driver, currentUser: "user@example.com" });
-    const id = p.mintId();
-    expect(id).toMatch(ULID_REGEX);
-    expect(calls).toEqual([]);
-  });
-});
+// STE-85 AC-STE-85.3/6: TrackerProvider does NOT implement IdentityMinter.
+// The pre-STE-85 `mintId (AC-43.5)` describe block was removed here —
+// mintId is now a capability that only `LocalProvider` exposes, enforced
+// by the type system. See `local_provider.test.ts` for the mintId behavior
+// under the new split; the tracker-path invariant is enforced by
+// `tsc --noEmit`.
 
 describe("TrackerProvider.sync (AC-43.2)", () => {
   test("sync calls driver.upsertTicketMetadata for each tracker key", async () => {

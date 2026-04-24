@@ -15,7 +15,7 @@ import { $ } from "bun";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFrontmatter } from "./frontmatter";
-import type { FRMetadata, FRSpec, LockResult, Provider, SyncResult } from "./provider";
+import type { FRMetadata, FRSpec, IdentityMinter, LockResult, Provider, SyncResult } from "./provider";
 import { mintId as mintIdImpl } from "./ulid";
 
 export interface LocalProviderOptions {
@@ -47,7 +47,7 @@ function getFrPath(specsDir: string, id: string): string {
   throw new Error(`local_provider: FR ${id} not found under ${specsDir}/frs/ or /archive/`);
 }
 
-export class LocalProvider implements Provider {
+export class LocalProvider implements Provider, IdentityMinter {
   private readonly repoRoot: string;
   private readonly specsDir: string;
   private readonly locksDir: string;
