@@ -85,12 +85,11 @@ anything else. If it contains the exact substring `https://mcp.linear.app/sse`,
 warn and offer migration:
 
 ```
-Linear MCP is on the deprecated V1 SSE endpoint (shutdown 2026-05-11).
-Migrate now? This will show a dry-run settings.json diff; nothing is written
-without confirmation. [y/N]:
+Linear MCP is on the retired V1 SSE endpoint. Migrate now? This will show
+a dry-run settings.json diff; nothing is written without confirmation. [y/N]:
 ```
 
-On `y`, render the exact JSON diff: delete the `sse` URL, add the V2
+On `y`, render the exact JSON diff: delete the `sse` URL, add the current
 `https://mcp.linear.app/mcp` entry with Streamable-HTTP transport. Do not
 write until the user confirms the rendered diff (AC-STE-9.3).
 
