@@ -2,8 +2,8 @@
 id: fr_01KPYMEND800M23STE84BBBBBB
 title: TrackerProvider.releaseLock idempotent-terminal branch
 milestone: M23
-status: active
-archived_at: null
+status: archived
+archived_at: 2026-04-24T12:55:00Z
 tracker:
   linear: STE-84
 created_at: 2026-04-24T12:31:00Z
