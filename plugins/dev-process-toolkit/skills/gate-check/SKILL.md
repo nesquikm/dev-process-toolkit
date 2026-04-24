@@ -41,6 +41,18 @@ Run these deterministic v2 invariant probes in addition to the normal gate:
 
 Full details: `docs/v2-layout-reference.md` § `/gate-check`.
 
+## Probe authoring contract (STE-82)
+
+Every new `/gate-check` probe ships with a corresponding
+`tests/gate-check-<slug>.test.ts` test file. Self-review refuses a probe
+declaration without its test — a probe advertised in prose without an
+integration test can drift from the implementation without detection. The
+test must cover both a positive fixture (probe passes clean) and a
+negative fixture (probe fires with the documented note shape:
+`file:line — reason`). Probes 1-11 above each have a corresponding
+`tests/gate-check-<slug>.test.ts`; contributors adding probe 12+ must
+ship the matching test file in the same commit.
+
 ## Commands
 
 Read the project's CLAUDE.md to find the gate check commands (look for "Key Commands" or "Gating rule" section). If no CLAUDE.md exists, ask the user what commands to run.
