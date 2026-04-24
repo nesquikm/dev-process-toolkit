@@ -1,0 +1,28 @@
+# {{project}} Architecture
+
+<!--
+Explanation quadrant (Diátaxis). Cover the *why* behind the design:
+context that prompted the architecture, constraints, tradeoffs
+considered, and the path not taken. Keep narrative — reference content
+belongs in docs/reference/, how-to recipes in docs/how-to/.
+
+When /docs --full runs, this file is rewritten from the impact set and
+signature ground truth. Manual edits outside the generated blocks will
+be preserved; edits inside will be replaced. See docs/docs.md for the
+block markers convention (STE-70).
+-->
+
+## Context
+
+Describe the problem {{project}} exists to solve and the operating
+environment (languages, runtimes, deployment model).
+
+## Modules
+
+Top-level module boundaries and who-depends-on-whom.
+
+## Design decisions
+
+One subsection per load-bearing choice. Cite the constraint each decision
+respects; link alternatives that were rejected so future readers can
+revisit with new evidence.
