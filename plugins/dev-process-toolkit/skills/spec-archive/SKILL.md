@@ -73,11 +73,19 @@ Before any filesystem change, render a diff preview the user can confirm or reje
 +archived_at: 2026-04-22T15:00:00Z
 
 --- Provider.releaseLock(<ulid>)
-+++ (tracker mode: transition_status → done)
-+++ (tracker-less: rm .dpt-locks/<ulid>)
++++ (tracker mode: transition_status → done)          — return "transitioned" when the ticket was In Progress
++++ (tracker mode: ticket already at canonical Done)  — return "already-released" (STE-84 idempotent; no write)
++++ (tracker-less: rm .dpt-locks/<ulid>)              — return "transitioned" when the lock file existed
++++ (tracker-less: no lock file present)              — return "already-released" (silent no-op)
 ```
 
-For milestone-group archival, list each `git mv`, each frontmatter flip, each `releaseLock`, and the optional plan-file move explicitly. Do not summarize — the user must be able to read the full plan and confirm or reject.
+For milestone-group archival, list each `git mv`, each frontmatter flip, each `releaseLock`, and the optional plan-file move explicitly. Do not summarize — the user must be able to read the full plan and confirm or reject. Close the bulk Diff Preview with a single aggregate summary row naming the two `releaseLock` return counts:
+
+```
+releaseLock summary: <N transitioned, M already-released>
+```
+
+This aggregate is how the bulk path reports which FRs performed a write versus which were already terminal — the count comes free from `Provider.releaseLock`'s return value, so no extra `getTicketStatus` call is needed (STE-84 NFR-8 call-budget discipline).
 
 **Approval gate:** do NOT perform any `git mv`, frontmatter write, or `releaseLock` until the user explicitly approves. If the user rejects, asks for changes, or is ambiguous, stop and restart at step 0a with their feedback.
 

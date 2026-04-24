@@ -141,10 +141,9 @@ describe("TrackerProvider.claimLock (FR-46 AC-46.1, AC-46.3)", () => {
 });
 
 describe("TrackerProvider.releaseLock (AC-46.4)", () => {
-  test("release calls transitionStatus('done') by default (Phase 4 completion)", async () => {
+  test("release calls transitionStatus('done') and returns 'transitioned' (Phase 4 completion)", async () => {
     // STE-65 AC-STE-65.5: releaseLock now requires pre-state in_progress.
-    // The existing happy-path test supplies in_progress explicitly — no
-    // behavioral change on the success path, only setup alignment.
+    // STE-84 AC-STE-84.2: the in_progress branch returns "transitioned".
     const { driver, calls } = makeStub({
       async getTicketStatus() {
         return { status: "in_progress", assignee: "u", updatedAt: undefined };
@@ -155,17 +154,21 @@ describe("TrackerProvider.releaseLock (AC-46.4)", () => {
       currentUser: "u",
       resolveTrackerRef: async () => "LIN-1234",
     });
-    await p.releaseLock("fr_01HZ7XJFKP0000000000000B03");
+    const outcome = await p.releaseLock("fr_01HZ7XJFKP0000000000000B03");
+    expect(outcome).toBe("transitioned");
     expect(calls.find((c) => c.startsWith("transitionStatus")) ?? "").toContain("done");
   });
 });
 
-describe("TrackerProvider.releaseLock — pre-state assertion (STE-65 AC-STE-65.2, AC-STE-65.4)", () => {
-  const REJECTED_STATES: Array<"backlog" | "unstarted" | "cancelled" | "done" | "completed"> = [
+describe("TrackerProvider.releaseLock — pre-state assertion (STE-65 AC-STE-65.2, AC-STE-65.4; narrowed by STE-84)", () => {
+  // STE-84 AC-STE-84.5: non-In-Progress + non-Done pre-states still throw
+  // byte-identically; "done" is now the idempotent-terminal branch, not an
+  // error. "completed" remains rejected — only the canonical Done status
+  // (status_mapping.done) short-circuits.
+  const REJECTED_STATES: Array<"backlog" | "unstarted" | "cancelled" | "completed"> = [
     "backlog",
     "unstarted",
     "cancelled",
-    "done",
     "completed",
   ];
 
@@ -214,6 +217,77 @@ describe("TrackerProvider.releaseLock — pre-state assertion (STE-65 AC-STE-65.
     expect(err!.message).toContain("Remedy:");
     expect(err!.message).toContain("Context: trackerKey=");
     expect(err!.name).toBe("TrackerReleaseLockPreconditionError");
+  });
+});
+
+describe("TrackerProvider.releaseLock — idempotent-terminal branch (STE-84 AC-STE-84.2, AC-STE-84.6)", () => {
+  test("in_progress pre-state returns 'transitioned' and calls transitionStatus('done')", async () => {
+    const { driver, calls } = makeStub({
+      async getTicketStatus() {
+        return { status: "in_progress", assignee: "u", updatedAt: undefined };
+      },
+    });
+    const p = new TrackerProvider({
+      driver,
+      currentUser: "u",
+      resolveTrackerRef: async () => "LIN-1234",
+    });
+    const outcome = await p.releaseLock("fr_01HZ7XJFKP0000000000000B03");
+    expect(outcome).toBe("transitioned");
+    expect(calls.filter((c) => c.startsWith("transitionStatus")).length).toBe(1);
+    expect(calls.find((c) => c.startsWith("transitionStatus")) ?? "").toContain("done");
+  });
+
+  test("done pre-state returns 'already-released' and does NOT call transitionStatus", async () => {
+    let getStatusFetches = 0;
+    const { driver, calls } = makeStub({
+      async getTicketStatus() {
+        getStatusFetches++;
+        return { status: "done", assignee: "u", updatedAt: "2026-04-24T12:00:00.000Z" };
+      },
+    });
+    const p = new TrackerProvider({
+      driver,
+      currentUser: "u",
+      resolveTrackerRef: async () => "LIN-1234",
+    });
+    const outcome = await p.releaseLock("fr_01HZ7XJFKP0000000000000B03");
+    expect(outcome).toBe("already-released");
+    // Critical: no write — the Done ticket is left alone (AC-STE-84.2)
+    expect(calls.filter((c) => c.startsWith("transitionStatus")).length).toBe(0);
+    // Exactly one getTicketStatus call — no verifyWriteLanded re-fetch on the
+    // idempotent branch (NFR-8 call-budget discipline per STE-84 Notes).
+    expect(getStatusFetches).toBe(1);
+  });
+
+  test("missing tracker ref returns 'already-released' (no binding → no-op)", async () => {
+    const { driver, calls } = makeStub();
+    const p = new TrackerProvider({
+      driver,
+      currentUser: "u",
+      resolveTrackerRef: async () => null,
+    });
+    const outcome = await p.releaseLock("fr_01HZ7XJFKP0000000000000B03");
+    expect(outcome).toBe("already-released");
+    // Zero driver calls — resolve miss short-circuits before any MCP work.
+    expect(calls.length).toBe(0);
+  });
+
+  test("completed pre-state still throws — only canonical Done short-circuits (AC-STE-84.5)", async () => {
+    const { driver, calls } = makeStub({
+      async getTicketStatus() {
+        return { status: "completed", assignee: "u", updatedAt: "2026-04-24T12:00:00.000Z" };
+      },
+    });
+    const p = new TrackerProvider({
+      driver,
+      currentUser: "u",
+      resolveTrackerRef: async () => "LIN-1234",
+    });
+    await expect(p.releaseLock("fr_01HZ7XJFKP0000000000000B03")).rejects.toBeInstanceOf(
+      TrackerReleaseLockPreconditionError,
+    );
+    expect(calls.filter((c) => c.startsWith("transitionStatus")).length).toBe(0);
   });
 });
 
