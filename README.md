@@ -33,8 +33,10 @@ This detects your stack, generates a CLAUDE.md, configures settings, and optiona
 | `/dev-process-toolkit:spec-review` | Audit code against spec requirements |
 | `/dev-process-toolkit:spec-archive` | Manually archive a FR (by ULID or tracker ref) or milestone (`M<N>` group) via `git mv` into `specs/frs/archive/` / `specs/plan/archive/` with diff approval; runs a post-archive drift check (Pass A grep + Pass B semantic scan) on finish (FR-17, FR-21, FR-45) |
 | `/dev-process-toolkit:visual-check` | Browser-based UI verification via MCP |
+| `/dev-process-toolkit:docs` | Generate or update project docs — staged fragments (`--quick`), human-approved merge (`--commit`), or full canonical regeneration (`--full`) |
 | `/dev-process-toolkit:pr` | Pull request creation |
 | `/dev-process-toolkit:simplify` | Code quality review and cleanup |
+| `/dev-process-toolkit:ship-milestone` | Bundle the Release Checklist + `/docs --commit --full` into one atomic, human-approved release commit |
 
 ### Agents
 

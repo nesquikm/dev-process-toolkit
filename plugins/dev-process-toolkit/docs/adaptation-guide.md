@@ -108,7 +108,7 @@ Not every project needs every skill. Here's a recommended progression:
 
 ## Step 6: Configure Agents (Optional)
 
-Agents are specialist personas spawned by Claude via the `Agent` tool. As of v1.12.0 the plugin ships exactly one agent:
+Agents are specialist personas spawned by Claude via the `Agent` tool. The plugin ships exactly one agent:
 
 - **code-reviewer** — The canonical code review rubric (quality, security, patterns, stack-specific). `/implement` Phase 3 Stage B delegates to it via explicit `Agent`-tool invocation — see `docs/skill-anatomy.md` § Subagent Execution for the concrete example. `/gate-check` also references `agents/code-reviewer.md` as its rubric source, but runs the review inline so the verdict returns in one turn. Spec-compliance checks are **not** code-reviewer's job — `/spec-review` owns AC→code traceability.
 

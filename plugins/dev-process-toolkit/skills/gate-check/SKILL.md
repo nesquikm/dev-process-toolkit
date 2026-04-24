@@ -49,6 +49,7 @@ Run these deterministic v2 invariant probes in addition to the normal gate:
 13. **Identity mode conditional** (STE-86 AC-STE-86.5) — call `runIdentityModeConditionalProbe(projectRoot)` from `adapters/_shared/src/identity_mode_conditional.ts`. The probe resolves the CLAUDE.md `## Task Tracking` mode once, then walks every active `specs/frs/*.md` (archive excluded) and enforces the bimodal identity invariant: `mode: none` requires a valid `id: fr_<26-char ULID>` line; any tracker mode requires the `id:` line to be **absent**. Violations surface as `file:line — reason` notes in NFR-10 canonical shape. Severity is **warning** at M21 ship (**GATE PASSED WITH NOTES**); severity flips to `error` in a follow-up after ≥1 dogfood cycle via the in-source TODO anchor. Zero runtime dep on `ulid.ts` (STE-86 AC-STE-86.8) — the ULID regex is inlined so the probe never pulls the module it's enforcing boundaries around.
 14. **Ticket-state drift — active side** (STE-87 AC-STE-87.1, AC-STE-87.2) — mirrors probe #8 symmetrically. For every FR file under `specs/frs/*.md` (excluding `archive/**`) whose frontmatter has `status: active` AND a non-null `tracker.<key>` binding, resolve `Provider` once (same rule as `/implement` / probe #8) and call `Provider.getTicketStatus(<tracker-ref>)`. Assert the returned `status` matches the adapter's `status_mapping.in_progress` canonical name AND `assignee == currentUser`. Every drifted ticket → **GATE FAILED** reporting a row with the FR's **ULID** + **tracker ID** (e.g. `linear:STE-87`) + **observed** status vs. **expected** `in_progress` + **observed** assignee vs. **expected** `currentUser` so the operator can manually transition, reassign, or rerun `/implement` Phase 1 step 0.c. **Skipped for `mode: none`** — `LocalProvider.getTicketStatus` returns the `local-no-tracker` sentinel and there's nothing to compare. The probe is over observed tracker state, not over call-history: the STE-28 `already-ours` shape (`in_progress` + `currentUser`) passes regardless of whether this session or a prior one called `claimLock`. Catches the regression where `/implement` Phase 1 step 0.c is skipped entirely (M23 dogfood: ticket stayed at Backlog while implementation proceeded) and symmetrically completes STE-54's archive-side pair.
 15. **Guessed tracker-ID scan** (STE-87 AC-STE-87.8) — for each `specs/frs/*.md` (active, non-archive) whose frontmatter has a bound `tracker.<key>`, parse every `AC-<PREFIX>.<N>` line (shape from STE-50's `acPrefix`). Every `<PREFIX>` must equal the file's own `tracker.<key>` value. Mismatch → **GATE FAILED** naming the file, the offending prefix used in an AC line, and the expected tracker ID. NFR-10 remedy: "AC prefix does not match the file's bound tracker — did you draft with a guessed ID? Substitute via STE-66's `<tracker-id>` convention and re-save." **Skipped for `mode: none`** — short-ULID prefixes are scanned by the existing `ac_prefix` duplicate-scan suite (STE-50 AC-STE-50.5); the two scopes are mutually exclusive. Catches the regression where an FR is drafted with a guessed tracker number that doesn't match the allocator's return (STE-87 origin: an M24 draft session narrated a specific unallocated ID before the Linear allocator responded).
+16. **Archive plan-status invariant** (STE-92 AC-STE-92.4) — call `runArchivePlanStatusProbe(projectRoot)` from `adapters/_shared/src/archive_plan_status.ts`. The probe walks every `specs/plan/archive/M*.md` and asserts frontmatter `status: archived` AND a non-null `archived_at` ISO-8601 string. Any drift → **GATE FAILED** with a `file:line — reason` note in NFR-10 canonical shape (observed vs. expected). Defense-in-depth — H5's iteration-5 audit downgrade confirmed no live code path consumes archived plan status today (every `specs/plan/` reader excludes `archive/`), but `/implement` Phase 4's plan-status flip prose plus this read-side probe close the door on future drift. Test coverage: `tests/gate-check-archive-plan-status.test.ts` per the STE-82 contract.
 
 Full details: `docs/v2-layout-reference.md` § `/gate-check`.
 
@@ -60,12 +61,14 @@ declaration without its test — a probe advertised in prose without an
 integration test can drift from the implementation without detection. The
 test must cover both a positive fixture (probe passes clean) and a
 negative fixture (probe fires with the documented note shape:
-`file:line — reason`). Probes 1-15 above each have a corresponding
+`file:line — reason`). Probes 1-16 above each have a corresponding
 `tests/gate-check-<slug>.test.ts` — probe #14 (STE-87 active-side
-ticket-state drift) is covered by `tests/gate-check-active-ticket-drift.test.ts`
-and probe #15 (STE-87 guessed tracker-ID scan) by
-`tests/gate-check-guessed-tracker-id.test.ts`. Contributors adding
-probe 16+ must ship the matching test file in the same commit.
+ticket-state drift) is covered by `tests/gate-check-active-ticket-drift.test.ts`,
+probe #15 (STE-87 guessed tracker-ID scan) by
+`tests/gate-check-guessed-tracker-id.test.ts`, and probe #16 (STE-92
+archive plan-status invariant) by
+`tests/gate-check-archive-plan-status.test.ts`. Contributors adding
+probe 17+ must ship the matching test file in the same commit.
 
 ## Commands
 
