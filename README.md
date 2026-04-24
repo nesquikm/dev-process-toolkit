@@ -82,6 +82,10 @@ The key insight: **deterministic checks always override LLM judgment**. A failin
 - **TypeScript/Node/MCP** — MCP server
 - **Flutter/Dart** — retail mobile app
 
+### Examples Provided For
+
+- **Python** — stack-detection config + CLAUDE.md template under `plugins/dev-process-toolkit/examples/python/` (not dogfooded in production by the plugin author, but the `/setup` detection path and example config are maintained alongside the TypeScript and Flutter examples).
+
 ## Documentation
 
 - `plugins/dev-process-toolkit/docs/sdd-methodology.md` — What SDD is and how it works

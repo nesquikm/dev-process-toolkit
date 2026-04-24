@@ -1,3 +1,15 @@
+<!--
+  Tracker-ID placeholder convention (STE-66 / STE-80):
+  When drafting FR rows in tracker mode, use the literal placeholder
+  `<tracker-id>` (e.g., `| STE-<tracker-id> | <Title> | ... |`) until the
+  tracker allocator assigns the real ID. Never guess the next sequential
+  number. Substitute real IDs globally only after Provider.sync returns.
+
+  See plugins/dev-process-toolkit/docs/spec-write-tracker-mode.md for the
+  full rule. In mode: none, use the short-ULID tail instead; the
+  placeholder convention does not apply.
+-->
+
 # Implementation Plan
 
 ## Milestone Order
@@ -25,6 +37,12 @@ If you can't write the `verify:` line in one sentence, the task is too big. Spli
 
 **Goal:** <!-- What this milestone achieves -->
 **Prerequisites:** None
+
+**FR list** (optional; drop in tracker mode when the milestone groups FRs):
+
+| FR | Title | Tracker |
+|----|-------|---------|
+| <tracker-id> | <FR title> | linear:`<tracker-id>` |
 
 **Tasks:**
 <!-- ADAPT: Structure tasks by dependency order. Examples — schema first, then API routes, then UI (TypeScript); models first, then BLoC, then widgets (Flutter); models first, then services, then views (Python) -->

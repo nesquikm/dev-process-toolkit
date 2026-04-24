@@ -1,6 +1,6 @@
 ---
 name: spec-archive
-description: Manually archive a specific FR, milestone, or tracker-mapped ticket by moving the FR file(s) into `specs/frs/archive/` (and optionally the plan file into `specs/plan/archive/`) with a diff approval gate. Operates only on user-selected units resolved via ULID, tracker ID/URL, or `M<N>` — never auto-scans. Use when /implement Phase 4 auto-archival can't reach content (reopened milestones, cross-cutting FRs, aborted work, explicit user-directed compaction).
+description: Manually archive user-selected FRs or milestones by `git mv` into `specs/frs/archive/` (and optionally `specs/plan/archive/`) with a diff approval gate. Accepts ULID, tracker ID/URL, or `M<N>`. Escape hatch for /implement Phase 4 auto-archival gaps.
 argument-hint: '<ULID, tracker ID, tracker URL, or M<N>>'
 ---
 
