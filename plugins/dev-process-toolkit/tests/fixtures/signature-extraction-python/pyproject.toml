@@ -1,0 +1,5 @@
+[project]
+name = "fixture_pkg"
+version = "0.1.0"
+description = "Fixture package for STE-104 griffe signature extraction tests."
+requires-python = ">=3.10"
