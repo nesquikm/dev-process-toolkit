@@ -192,6 +192,40 @@ esac
     expect(ground.warnings.some((w) => w.includes("invalid JSON"))).toBe(true);
   });
 
+  test("dart-analyzer emits valid JSON that is not an array → regex-fallback + 'not a JSON array' warning", () => {
+    const projectRoot = join(work, "dart-only");
+    mkdirSync(join(projectRoot, "lib"), { recursive: true });
+    writeFileSync(join(projectRoot, "pubspec.yaml"), `name: x\n`);
+    writeFileSync(join(projectRoot, "lib/foo.dart"), `int foo() => 1;\n`);
+
+    const stubBin = join(work, "dart-stub.sh");
+    writeFileSync(
+      stubBin,
+      `#!/usr/bin/env bash
+case "$1" in
+  pub) exit 0 ;;
+  run) echo '{"oops": "object instead of array"}' ;;
+  *) exit 1 ;;
+esac
+`,
+    );
+    chmodSync(stubBin, 0o755);
+
+    const helperDir = join(work, "stub-helper");
+    mkdirSync(join(helperDir, ".dart_tool"), { recursive: true });
+    writeFileSync(join(helperDir, "pubspec.yaml"), `name: stub\n`);
+
+    const ground = extractSignatures(projectRoot, bothModes, {
+      typedocBinary: null,
+      dartBinary: stubBin,
+      dartHelperDir: helperDir,
+    });
+    expect(ground.strategy).toBe("regex-fallback");
+    expect(
+      ground.warnings.some((w) => w.includes("not a JSON array")),
+    ).toBe(true);
+  });
+
   test("dart-analyzer non-zero exit → regex-fallback + 'dart-analyzer exit' warning", () => {
     const projectRoot = join(work, "dart-only");
     mkdirSync(join(projectRoot, "lib"), { recursive: true });

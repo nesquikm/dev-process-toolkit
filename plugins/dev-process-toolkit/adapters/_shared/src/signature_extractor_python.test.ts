@@ -154,6 +154,34 @@ exit 99
     ).toBe(true);
   });
 
+  test("non-PEP 8 directory name with __init__.py is rejected by derivePackageName fallback", () => {
+    // Defense against a hostile or accidental directory name reaching
+    // `griffe dump <pkg>` argument array. The fallback only accepts
+    // /^[A-Za-z_][A-Za-z0-9_]*$/ identifiers.
+    const projectRoot = join(work, "py-hostile");
+    mkdirSync(projectRoot, { recursive: true });
+    writeFileSync(join(projectRoot, "setup.cfg"), `[options]\npackages = find:\n`);
+    // A directory whose name contains a hyphen — valid on disk but invalid
+    // as a Python package identifier; the helper must NOT accept it as the
+    // pkg-name fallback.
+    const hostileDir = join(projectRoot, "my-pkg");
+    mkdirSync(hostileDir, { recursive: true });
+    writeFileSync(join(hostileDir, "__init__.py"), `\n`);
+
+    const stubBin = join(work, "griffe-stub.sh");
+    writeFileSync(stubBin, `#!/usr/bin/env bash\necho "[]"\nexit 0\n`);
+    chmodSync(stubBin, 0o755);
+
+    const ground = extractSignatures(projectRoot, bothModes, {
+      typedocBinary: null,
+      griffeBinary: stubBin,
+    });
+    expect(ground.strategy).toBe("regex-fallback");
+    expect(
+      ground.warnings.some((w) => w.includes("could not derive package name")),
+    ).toBe(true);
+  });
+
   test("griffe prints invalid JSON → regex-fallback + 'invalid JSON' warning", () => {
     const projectRoot = join(work, "py-only");
     mkdirSync(projectRoot, { recursive: true });

@@ -26,7 +26,11 @@ export interface ProbeOptions {
 }
 
 function defaultPathLookup(tool: string): string | null {
-  const res = Bun.spawnSync(["which", tool], { stdout: "pipe", stderr: "pipe" });
+  const res = Bun.spawnSync(["which", tool], {
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: 5_000,
+  });
   if (res.exitCode !== 0) return null;
   const resolved = new TextDecoder().decode(res.stdout).trim();
   if (!resolved || !existsSync(resolved)) return null;
@@ -35,7 +39,11 @@ function defaultPathLookup(tool: string): string | null {
 
 function checkVersion(binary: string): boolean {
   try {
-    const res = Bun.spawnSync([binary, "--version"], { stdout: "pipe", stderr: "pipe" });
+    const res = Bun.spawnSync([binary, "--version"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 10_000,
+    });
     if (res.exitCode !== 0) return false;
     const stdout = new TextDecoder().decode(res.stdout).trim();
     const stderr = new TextDecoder().decode(res.stderr).trim();

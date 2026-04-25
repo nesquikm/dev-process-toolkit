@@ -239,6 +239,10 @@ When no supported stack is detected at `projectRoot`, `extractSignatures` return
 
 The banner is mandatory, not optional — reviewers will skim reference diffs as boilerplate, and without a visible warning the LLM-inferred signatures poison the docs (the exact failure mode STE-72 was written to prevent).
 
+## CI / local-dev expectations (AC-STE-103.9 / AC-STE-104.10)
+
+The Dart-analyzer test suite (`signature_extractor_dart.test.ts`) and the griffe test suite (`signature_extractor_python.test.ts`) gate their happy-path `describe` blocks behind `describe.skipIf(!hasDart)` / `describe.skipIf(!hasGriffe)`. Machines without the respective toolchains pass the suite cleanly; the fallthrough branch tests still run because they use stub binaries injected via the `dartBinary` / `griffeBinary` options. CI environments seeking full coverage should install `dart` (matching the `pubspec.yaml` SDK constraint of `^3.0.0`) and `griffe` (`pip install griffe>=0.40.0`) before invoking `bun test`.
+
 ## Toolchain probe + setup config (AC-STE-105.4 / .5)
 
 `probeToolchains(projectRoot)` from `adapters/_shared/src/toolchain_probe.ts` returns the per-stack mechanical-toolchain availability snapshot consumed by `/setup` (to render the AC-STE-105.2 stack-adaptive prompt) and by `/gate-check`'s `signature-strategy-honors-setup` probe (to detect "tool present at setup, gone now" drift). `/setup` records the chosen preferred strategy in `docs/.dpt-docs-toolchain.json` when `packages_mode == true`; the file's absence is the canonical "no recorded preference" form so `/gate-check` skips silently on pre-M27 projects.

@@ -56,22 +56,36 @@ describe("runSignatureStrategyHonorsSetupProbe — AC-STE-105.3", () => {
     expect(r.ok).toBe(true);
   });
 
-  test("recorded python=griffe but griffe missing now → fail with NFR-10 note + remedy", () => {
+  test("recorded python=griffe but griffe missing now → fail with NFR-10 note carrying the per-stack install command + remedy", () => {
     writeConfig({ signature_extraction_preferred_strategy: { python: "griffe" } });
     const r = runSignatureStrategyHonorsSetupProbe(work, { pathLookup: () => null });
     expect(r.ok).toBe(false);
     const note = r.notes.find((n) => n.includes("python") && n.includes("griffe"));
     expect(note).toBeDefined();
     expect(note).toContain('actual is "regex-fallback"');
+    // Per AC-STE-105.3 NFR-10 shape: note carries the install command.
+    expect(note).toContain("pip install griffe>=0.40.0");
     expect(r.remedy).toBeDefined();
     expect(r.remedy).toContain("re-run /setup");
+    expect(r.remedy).toContain("re-run /gate-check");
   });
 
-  test("recorded dart=dart-analyzer but dart missing now → fail naming the dart stack", () => {
+  test("recorded dart=dart-analyzer but dart missing now → fail naming the dart stack + dart.dev install link", () => {
     writeConfig({ signature_extraction_preferred_strategy: { dart: "dart-analyzer" } });
     const r = runSignatureStrategyHonorsSetupProbe(work, { pathLookup: () => null });
     expect(r.ok).toBe(false);
-    expect(r.notes.some((n) => n.includes("dart") && n.includes("dart-analyzer"))).toBe(true);
+    const note = r.notes.find((n) => n.includes("dart") && n.includes("dart-analyzer"));
+    expect(note).toBeDefined();
+    expect(note).toContain("https://dart.dev/get-dart");
+  });
+
+  test("recorded ts=typedoc with typedoc missing → note carries `npm install --save-dev typedoc`", () => {
+    writeConfig({ signature_extraction_preferred_strategy: { ts: "typedoc" } });
+    const r = runSignatureStrategyHonorsSetupProbe(work, { pathLookup: () => null });
+    expect(r.ok).toBe(false);
+    const note = r.notes.find((n) => n.includes("ts") && n.includes("typedoc"));
+    expect(note).toBeDefined();
+    expect(note).toContain("npm install --save-dev typedoc");
   });
 
   test("recorded ts=typedoc with typedoc on PATH → ok", () => {
