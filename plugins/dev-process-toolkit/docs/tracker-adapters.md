@@ -4,7 +4,7 @@ How the plugin talks to Linear, Jira, and any custom tracker without
 hard-coding tracker-specific logic anywhere in the skills.
 
 Applies to v1.15.0+ (M12, "Tracker Integration"). In `mode: none` (default),
-everything on this page is unused — skills run their pre-M12 body unchanged.
+everything on this page is unused — skills run their `mode: none` branch unchanged.
 
 ## Bun runtime prerequisite
 
@@ -29,8 +29,8 @@ project remains in `mode: none` until Bun is available.
 Every mode-aware skill — `/setup`, `/spec-write`, `/implement`, `/gate-check`,
 `/pr`, `/spec-review`, `/spec-archive` — runs the Schema L tracker-mode probe
 first (see `docs/patterns.md` § Tracker Mode Probe). Absence of
-`## Task Tracking` in `CLAUDE.md` means `mode: none` and the pre-M12 path
-runs unchanged. When a tracker is active, skills resolve the **active
+`## Task Tracking` in `CLAUDE.md` means `mode: none` and the `mode: none`
+branch runs unchanged. When a tracker is active, skills resolve the **active
 adapter** by reading `<mode>:` from `## Task Tracking` and loading the
 matching `adapters/<mode>.md`.
 
@@ -385,7 +385,7 @@ resolver:
 
 **Optional disambiguation**: when two trackers declare the same `id_pattern` shape (e.g., Linear and Jira both use `^[A-Z]+-\d+$`), the resolver disambiguates by *project prefix*. The shipped Linear and Jira adapters expose project prefixes via `ticket_id_regex` (Schema M, pre-existing); the resolver layer derives the prefix list from that regex. If a custom adapter has a single unambiguous prefix, encode it directly in `id_pattern` — explicit disambiguation data is only needed when your adapter's pattern collides with another configured adapter.
 
-**Adapters that omit `resolver:`** remain usable through pre-M14 code paths — users pass ULIDs to `/spec-write`, `/implement`, `/spec-archive`. Auto-resolution is opt-in.
+**Adapters that omit `resolver:`** remain usable through the by-ULID code path — users pass ULIDs to `/spec-write`, `/implement`, `/spec-archive`. Auto-resolution is opt-in.
 
 **Example: adding resolver metadata to a custom adapter**:
 

@@ -3,7 +3,7 @@
 Detailed tracker-mode procedures for `/gate-check`. Pointed at from
 `skills/gate-check/SKILL.md` to keep the skill under NFR-1 (≤300 lines).
 
-In `mode: none`, this document is unused — the pre-M12 body runs unchanged.
+In `mode: none`, this document is unused — the `mode: none` branch runs unchanged.
 
 ## Pre-flight sequence (mode-gated, in order)
 

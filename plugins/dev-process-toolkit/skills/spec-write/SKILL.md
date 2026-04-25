@@ -32,7 +32,7 @@ In v2 mode, after the layout version gate and before any FR write:
    - **`tracker-id` / `url`** → call `findFRByTrackerRef(specsDir, trackerKey, trackerId)`:
      - **Hit** → open that FR for editing; no import, no tracker network call beyond resolve (AC-STE-31.3). Skip 0b.
      - **Miss** → run the shared import helper `importFromTracker(trackerKey, trackerId, provider, specsDir, promptMilestone)` from `adapters/_shared/src/import.ts`. Tracker ACs are auto-accepted — **never run the STE-17 per-AC prompt loop here** (AC-STE-31.5); the local side is empty so there is nothing to diff against. Empty-AC tickets get a TODO marker in the new FR's `## Acceptance Criteria` section (AC-STE-31.7).
-   - **`fallthrough`** → continue with pre-M14 free-form handling (step 1 below). NFR-18 requires byte-identical behavior for `all`, `requirements`, `technical`, `testing`, `plan`.
+   - **`fallthrough`** → continue with free-form-argument handling (step 1 below). NFR-18 requires byte-identical behavior for `all`, `requirements`, `technical`, `testing`, `plan`.
 3. On `AmbiguousArgumentError`, surface the NFR-10-shape error from `docs/resolver-entry.md` § Ambiguity and exit non-zero. Never silently pick a winner (NFR-20).
 4. All tracker/network failures during `importFromTracker` surface per NFR-10 (AC-STE-31.8).
 
