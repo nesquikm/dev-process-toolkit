@@ -15,17 +15,17 @@ Set up the Spec-Driven Development and TDD workflow for this project.
 
 Before any detection or setup, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` already exists and contains a `## Task Tracking` section, this is an existing tracker-mode project — `/setup --migrate` is the right entry point for changing modes (STE-14 AC-STE-14.1). If `CLAUDE.md` is absent, empty of `## Task Tracking`, or `$ARGUMENTS` contains `new` — and `$ARGUMENTS` does **not** contain `--migrate` or `--migrate-dry-run` — run the normal fresh-setup flow below. When `--migrate` is present, section 0b overrides this routing regardless of `## Task Tracking` presence (AC-STE-35.2).
 
-### 0b. Migration invocation (`/setup --migrate` / `--migrate-dry-run`)
+### 0b. Mode-switch invocation (`/setup --migrate` / `--migrate-dry-run`)
 
-When `$ARGUMENTS` contains `--migrate` or `--migrate-dry-run`, skip steps 1–8 and route into **tracker-mode migration** (STE-14, M12) — handles all transitions between modes. Current mode is detected via Schema L probe (AC-STE-14.2): absence of `## Task Tracking` = `mode: none` (canonical form per AC-STE-8.5); presence = parse `mode: <value>`. All modes (including `none`) are valid starting states (AC-STE-35.1):
+When `$ARGUMENTS` contains `--migrate` or `--migrate-dry-run`, skip steps 1–8 and route into **tracker-mode switching** (STE-14) — handles all transitions between modes. The CLI flag stays `--migrate` to preserve operator muscle memory; only the surrounding prose treats it as mode switching. Current mode is detected via Schema L probe (AC-STE-14.2): absence of `## Task Tracking` = `mode: none` (canonical form per AC-STE-8.5); presence = parse `mode: <value>`. All modes (including `none`) are valid starting states (AC-STE-35.1):
 
 - Detect current mode via Schema L probe (AC-STE-14.2).
-- Prompt for target mode; refuse no-op via NFR-10 canonical shape: `Detected current mode: <current>. Supported targets: <others>. Migration must change mode.` (AC-STE-35.5)
+- Prompt for target mode; refuse no-op via NFR-10 canonical shape: `Detected current mode: <current>. Supported targets: <others>. Mode switch must change mode.` (AC-STE-35.5)
 - Supported transitions: `none → <tracker>` / `<tracker> → none` / `<tracker> → <other>`. Unsupported = NFR-10 canonical refusal.
-- Atomicity: CLAUDE.md `mode:` line never rewritten until migration succeeds (AC-STE-14.7/8).
-- **Active-FR rename (M18 STE-60 AC-STE-60.6).** On any mode change, re-derive filenames for every active FR under `specs/frs/*.md` (not `archive/`) using the *target-mode* `Provider.filenameFor(spec)` and `git mv` each file to its new name. Archive is frozen by mode transitions — historical FRs keep whatever convention they had at archival time. Any self-referencing cross-link inside the moved file (rare — grep before committing) is rewritten in place. All renames + the CLAUDE.md `mode:` flip land in a single atomic commit so the repo is never left half-migrated.
+- The CLAUDE.md `mode:` line + active-FR renames land in one commit; if the switch fails partway, the user reruns `/setup --migrate` from a clean working tree (no rollback prompt).
+- **Active-FR rename (M18 STE-60 AC-STE-60.6).** On any mode change, re-derive filenames for every active FR under `specs/frs/*.md` (not `archive/`) using the *target-mode* `Provider.filenameFor(spec)` and `git mv` each file to its new name. Archive is frozen by mode transitions — historical FRs keep whatever convention they had at archival time. Any self-referencing cross-link inside the moved file (rare — grep before committing) is rewritten in place. All renames + the CLAUDE.md `mode:` flip land in a single atomic commit.
 
-Detailed tracker-mode migration procedures live inline in this section plus `docs/setup-tracker-mode.md` for the per-tracker detail — do not inline those procedures here (NFR-1). `git log` is the audit trail for who did what and when; there is no separate sync log.
+Detailed tracker-mode switching procedures live inline in this section plus `docs/setup-tracker-mode.md` for the per-tracker detail — do not inline those procedures here (NFR-1). `git log` is the audit trail for who did what and when; there is no separate sync log.
 
 ### 1. Detect the project
 

@@ -152,7 +152,7 @@ branch_template: <default-for-mode or user value>
 ```
 
 Blank values for keys that don't apply to the picked mode are legal (Schema L).
-`git log` is the audit trail for sync, migration, and resolution events — no
+`git log` is the audit trail for sync, mode-switch, and resolution events — no
 separate subsection is maintained.
 
 ## Branch template (STE-64, `/setup` step 7c)
@@ -193,7 +193,7 @@ prompt once:
 
 When invoked as `/setup --migrate`, skip steps 1–7 (project detection,
 scaffolding, template write) and route directly into tracker-mode
-migration (STE-14) — see `skills/setup/SKILL.md` § 0b for the inline
-procedure covering current-mode detection, target-mode prompt, and
-atomicity. `git log` is the audit trail for the migration commit; no
-separate entry is written.
+switching (STE-14) — see `skills/setup/SKILL.md` § 0b for the inline
+procedure covering current-mode detection and target-mode prompt. The
+single commit that lands the mode flip is the audit trail; if the switch
+fails partway, rerun `/setup --migrate` from a clean working tree.
