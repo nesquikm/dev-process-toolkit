@@ -66,7 +66,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.26.0 — "Symmetry"** (M24 completes STE-54's archive/active symmetry with two new `/gate-check` probes — #14 "active-side ticket-state drift" asserts every active FR's tracker shows `in_progress` with the current user as assignee; #15 "guessed tracker-ID scan" asserts every `AC-<PREFIX>` line's prefix equals the file's bound tracker ID. Three skill-local `## Rules` additions close hazards probes cannot catch: `/implement` forbids raw `mcp__<tracker>__save_issue` writes on in-flight FRs (route through `Provider.claimLock`/`releaseLock`); `/brainstorm` + `/spec-write` forbid narrating guessed tracker IDs in chat. Additive Provider widening: `getTicketStatus` returns `assignee` alongside status. One FR (STE-87).).
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.27.0 — "Backfill"** (M25 sweeps visible-staleness items from the PR #4 ship-readiness audit. New `/gate-check` probe #16 "Archive plan-status invariant" asserts every `specs/plan/archive/M*.md` carries `status: archived` + non-null `archived_at`; backfill normalizes 22 of 24 archived plans in the same commit so the probe ships green. `/implement` Phase 4 prose now flips the closing milestone's plan-status in the same atomic commit as the FR moves — write-side companion to probe #16. Three prose-only fixes: `CLAUDE.md`'s skill enumeration matches the README phrasing, two stale version pins removed from `docs/`, `M24.md`'s archived-plan metadata refreshed, and the README workflow now advertises `/docs` + `/ship-milestone`. Five FRs (STE-88, STE-89, STE-90, STE-91, STE-92).).
 
 ## Core Philosophy
 
