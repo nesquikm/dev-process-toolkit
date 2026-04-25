@@ -36,7 +36,6 @@ const provider = mode === "none"
 - Plan files live at `specs/plan/<M#>.md` (active or in-flight) or `specs/plan/archive/<M#>.md` (archived milestones).
 - Frontmatter is Schema T (validates against `adapters/_shared/schemas/plan.schema.json`).
 - Once `status: active`, content is immutable; any write fails with: *"Plan for <M#> is frozen. Create a `plan/<M#>-replan-<N>` branch to revise."* (AC-STE-21.3).
-- Exception: plan files produced by migration have `kickoff_branch: null` and `frozen_at: null` even when `status: active` — documented in `plan.schema.json` $comment. `/gate-check` treats migrated plans leniently on round 1; the first kickoff-branch ratification backfills the missing fields.
 
 ## Skill-specific behavior in v2
 
@@ -59,7 +58,7 @@ const provider = mode === "none"
 
 ### `/gate-check`
 - v2 conformance probes:
-  1. **Filename ↔ `Provider.filenameFor(spec)`** for every `specs/frs/**/*.md` (M18 STE-60 AC-STE-60.7 — lenient during the STE-60 → STE-61 transition window so legacy `fr_<ULID>.md` files still pass; STE-61 AC-STE-61.5 flips to strict). Supersedes the pre-M18 filename ↔ `id:` equality assertion.
+  1. **Filename ↔ `Provider.filenameFor(spec)`** for every `specs/frs/**/*.md` (strict — every base name must equal `Provider.filenameFor(spec)`).
   2. **Required frontmatter fields** present for every FR file (id, title, milestone, status, archived_at, tracker, created_at). Missing = fail.
   3. **Stale lock scan** — list `.dpt-locks/<ulid>` entries whose branch is merged or deleted. Offer `--cleanup-stale-locks` action that deletes them in one commit (AC-STE-28.5).
   4. **Plan post-freeze edit scan** — for each `specs/plan/<M#>.md` with `status: active` + non-null `frozen_at`, list commits to that path whose authored date is after `frozen_at`. No auto-revert (AC-STE-21.4 warning semantics).
@@ -71,7 +70,7 @@ const provider = mode === "none"
 
 ### `/setup --migrate`
 
-Tracker-mode migration only — v2 is the baseline layout, so there is no `v1 → v2` path. See `skills/setup/SKILL.md` § 0b for the full flow: current-mode detection via Schema L probe, target-mode prompt, and atomicity guarantee (CLAUDE.md `mode:` line rewritten only on success).
+Tracker-mode switching. See `skills/setup/SKILL.md` § 0b for the full flow: current-mode detection via Schema L probe, target-mode prompt, and atomicity guarantee (CLAUDE.md `mode:` line rewritten only on success).
 
 ### Skills that remain layout-agnostic (read-only or no spec reads)
 

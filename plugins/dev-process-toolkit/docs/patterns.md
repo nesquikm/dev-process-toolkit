@@ -422,8 +422,6 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 
 ## Pattern 23: File-per-FR Layout
 
-> **Superseded-by M18 STE-60 + M21 STE-76 on the filename-keying rule.** The original pattern keyed filenames on the ULID (`fr_<ULID>.md`); M18 moved filenames to the human-facing identifier (tracker ID in tracker mode, short-ULID tail in `mode: none`); M21 STE-76 dropped the `id:` line entirely from tracker-mode frontmatter — the tracker ID is the canonical identity there. `mode: none` keeps the ULID in frontmatter `id:` as the stable reference. See `docs/v2-layout-reference.md` § FR file access for the current rule.
-
 **When to use**: Team collaborates on the same spec tree from multiple parallel branches, and merge conflicts on shared spec files (`plan.md`, `requirements.md`, `archive/*.md`) are a recurring friction point.
 
 **The pattern**:
@@ -441,7 +439,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 3. **Tracker lifecycle is decoupled from the canonical ID.** Tracker rename / delete / multi-tracker adoption never forces a filesystem rename cascade through git history, INDEX, cross-refs.
 
 **Invariants enforced by `/gate-check`** (v2 conformance probes):
-- Filename matches `Provider.filenameFor(spec)` (M18 STE-60 AC-STE-60.7 — lenient during transition; STE-61 AC-STE-61.5 flips to strict)
+- Filename matches `Provider.filenameFor(spec)` (strict — every base name equals `Provider.filenameFor(spec)`)
 - Required frontmatter fields: `id, title, milestone, status, archived_at, tracker, created_at`
 
 **Cross-refs**: STE-26..STE-28 (requirements), `technical-spec.md` §8 (design), `docs/v2-layout-reference.md` (behavioral reference for every spec-touching skill).
