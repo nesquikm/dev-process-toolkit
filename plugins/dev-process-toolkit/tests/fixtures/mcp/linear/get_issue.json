@@ -1,8 +1,0 @@
-{
-  "id": "issue-uuid-1",
-  "identifier": "LIN-42",
-  "title": "Audit log export",
-  "description": "Summary: let admins download the audit log as CSV.\n\n## Acceptance Criteria\n\n- [ ] AC-7.1: Export entries as CSV\n- [x] AC-7.2: Date-range filter\n- [ ] AC-7.3: Include actor + action\n\n## Notes\n\nInternal audit conversation 2026-03-14 — not part of the AC list.",
-  "updatedAt": "2026-04-17T12:34:56Z",
-  "state": { "name": "In Progress", "id": "state-uuid-1" }
-}
