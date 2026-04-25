@@ -4,8 +4,9 @@
 //   - mode: none        → every active FR MUST carry `id: fr_<26-char ULID>`
 //   - mode: <tracker>   → every active FR MUST NOT carry an `id:` line
 //
-// Severity at M21 ship: warning. After ≥1 dogfood cycle, flip to "error"
-// via the TODO anchor below.
+// Severity flipped warning → error at M29 (STE-110 AC-STE-110.4): now that
+// /spec-write's tracker-mode template no longer emits `id:`, regressions
+// must hard-fail rather than slip through as a `GATE PASSED WITH NOTES`.
 //
 // Zero runtime dep on ulid.ts (AC-STE-86.8) — the ULID shape regex is
 // inlined as a private constant. The probe is a bimodal-invariant enforcer
@@ -20,10 +21,12 @@ import { readTaskTrackingSection } from "./resolver_config";
 const ULID_ID_LINE_RE = /^id: fr_[0-9A-HJKMNP-TV-Z]{26}$/;
 const ANY_ID_LINE_RE = /^id:\s*(.*)$/;
 
-// AC-STE-86.6: severity posture at M21 ship. Keep as a literal string for
-// stable grepping by the follow-up severity flip.
-// TODO(STE-<follow-up>): flip severity to "error" after one dogfood cycle
-export const IDENTITY_MODE_CONDITIONAL_SEVERITY: "warning" | "error" = "warning";
+// STE-110 AC-STE-110.4 (M29): severity flipped warning → error. The flip
+// landed once /spec-write stopped emitting `id:` in tracker mode (the
+// regression source). The TODO anchor below is preserved as a historical
+// pointer; the literal "error" string is what /gate-check reads.
+// TODO(STE-110): severity flipped warn → error in M29 ship.
+export const IDENTITY_MODE_CONDITIONAL_SEVERITY: "warning" | "error" = "error";
 
 export interface IdentityModeViolation {
   file: string;

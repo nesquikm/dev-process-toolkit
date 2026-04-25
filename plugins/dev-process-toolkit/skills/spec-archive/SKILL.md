@@ -40,6 +40,7 @@ Archival uses the same code path as `/implement` Phase 4.
 3. On explicit approval:
    - `git mv specs/frs/<name> specs/frs/archive/<name>` using the `Provider.filenameFor(spec)` base — stem preserved across the move (AC-STE-18.4). Archival never renames.
    - Flip frontmatter `status: active` → `status: archived`; set `archived_at: <ISO now>`.
+   - **Rewrite traceability links (STE-111 AC-STE-111.1).** Call `rewriteArchiveLinks(repoRoot, frId)` from `adapters/_shared/src/spec_archive/rewrite_links.ts`. It scans `specs/requirements.md`, every `specs/plan/*.md`, every `specs/plan/archive/*.md`, and `CHANGELOG.md` (scoped to lines above the first dated `## [X.Y.Z] — YYYY-MM-DD` header — released sections are frozen per AC-STE-111.6) for `frs/<id>.md` references and rewrites them to `frs/archive/<id>.md`. Both Markdown link forms (`](frs/<id>.md)` and `](./frs/<id>.md)`) and bare path mentions are covered (AC-STE-111.2). Orphan FRs (no references anywhere) yield an empty rewrite, no error (AC-STE-111.5). The rewrites land in the **same atomic commit** as the `git mv` and frontmatter flip (AC-STE-111.3).
    - `Provider.releaseLock(<ulid>)` (AC-STE-28.4). In tracker mode this transitions the ticket to `done`; in tracker-less mode it removes the in-flight lock file.
    - All of the above land in a single atomic commit (AC-STE-22.2).
 5. Run the Post-Archive Drift Check (§ Post-Archive Drift Check below).
@@ -48,10 +49,10 @@ Archival uses the same code path as `/implement` Phase 4.
 
 1. Scan every active `specs/frs/*.md` for `milestone == M<N>`. Refuse cleanly if the match set is empty ("No active FRs found for milestone M<N>"); exit non-zero, no side effects.
 2. Build the batch:
-   - Per matched FR: `git mv specs/frs/<Provider.filenameFor(spec)> specs/frs/archive/<same-name>` + frontmatter flip + `Provider.releaseLock` (M18 STE-60 AC-STE-60.5).
+   - Per matched FR: `git mv specs/frs/<Provider.filenameFor(spec)> specs/frs/archive/<same-name>` + frontmatter flip + traceability-link rewrite (`rewriteArchiveLinks(repoRoot, frId)` per STE-111 AC-STE-111.1) + `Provider.releaseLock` (M18 STE-60 AC-STE-60.5).
    - If `specs/plan/M<N>.md` exists, include `git mv specs/plan/M<N>.md specs/plan/archive/M<N>.md` (AC-STE-21.5).
-3. Present the Diff Preview covering every move + flip + release.
-4. On approval, land all N moves + N flips + N `releaseLock` calls + the optional plan-file move in a **single atomic commit** (AC-STE-22.6). Any error aborts the commit entirely — no partial archival.
+3. Present the Diff Preview covering every move + flip + traceability rewrite + release.
+4. On approval, land all N moves + N flips + N rewrites + N `releaseLock` calls + the optional plan-file move in a **single atomic commit** (AC-STE-22.6 / AC-STE-111.3). Any error aborts the commit entirely — no partial archival.
 5. Run the Post-Archive Drift Check.
 
 No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` except the frontmatter `status` flip at move time (AC-STE-22.5). Full reference: `docs/v2-layout-reference.md` § `/spec-archive`.

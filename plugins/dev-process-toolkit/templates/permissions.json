@@ -1,0 +1,33 @@
+{
+  "_doc": "Canonical Bash() permissions allow-list per detected stack. STE-106 AC-STE-106.1. /setup reads this at write time. Adding a new stack = adding a row.",
+  "_common": [
+    "Bash(git *)",
+    "Bash(gh *)",
+    "Bash(mkdir *)",
+    "Bash(ls *)",
+    "Bash(rm *)",
+    "Bash(mv *)",
+    "Bash(cp *)"
+  ],
+  "stacks": {
+    "bun": [
+      "Bash(bun *)",
+      "Bash(bunx *)"
+    ],
+    "node": [
+      "Bash(npm *)",
+      "Bash(npx *)"
+    ],
+    "flutter": [
+      "Bash(flutter *)",
+      "Bash(dart *)"
+    ],
+    "python": [
+      "Bash(uv *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(pytest *)"
+    ],
+    "generic": []
+  }
+}

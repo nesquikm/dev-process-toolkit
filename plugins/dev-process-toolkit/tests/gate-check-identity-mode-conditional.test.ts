@@ -80,26 +80,33 @@ describe("STE-86 AC-STE-86.5 — probe flags violations in NFR-10 canonical shap
   });
 });
 
-describe("STE-86 AC-STE-86.6 — probe source has TODO anchor + severity warning", () => {
+describe("STE-110 AC-STE-110.4 — severity flipped warn → error after M29 template fix", () => {
   const probeSrc = readFileSync(
     join(pluginRoot, "adapters", "_shared", "src", "identity_mode_conditional.ts"),
     "utf-8",
   );
 
-  test("probe source declares severity='warning' at M21 ship", () => {
-    // AC-STE-86.6: severity is exported so gate-check and follow-up can grep.
-    expect(probeSrc).toMatch(/severity[:\s]+"warning"/);
+  test("probe source declares severity='error' (post-M29 ship)", () => {
+    // AC-STE-110.4: now that /spec-write's tracker-mode template no longer
+    // emits `id:`, regressions hard-fail. The literal `= "error"` is what
+    // /gate-check reads.
+    expect(probeSrc).toMatch(/IDENTITY_MODE_CONDITIONAL_SEVERITY[^=]*=\s*"error"/);
   });
 
-  test("probe source carries grep anchor for the follow-up severity flip", () => {
-    // AC-STE-86.6: the placeholder `<follow-up>` in STE-<follow-up> is
-    // expected literal form until the successor FR is minted.
-    expect(probeSrc).toMatch(/TODO\(STE-[<>A-Za-z0-9-]+\): flip severity to "error"/);
+  test("probe source preserves the STE-110 historical TODO anchor", () => {
+    // The flip itself is the TODO's resolution; the anchor is preserved as
+    // a historical pointer so future audits can grep.
+    expect(probeSrc).toMatch(/TODO\(STE-110\)/);
   });
 
   test("probe has zero runtime dep on ulid.ts (AC-STE-86.8)", () => {
-    // Module import of ./ulid is forbidden; `import type` (erased) is fine.
     expect(probeSrc).not.toMatch(/^\s*import\s+\{[^}]*\}\s+from\s+["']\.\.\/ulid["']/m);
+  });
+
+  test("returned severity is 'error' on a violation", async () => {
+    const report = await runIdentityModeConditionalProbe(fixturePath("tracker-mode-has-id"));
+    expect(report.severity).toBe("error");
+    expect(report.violations.length).toBe(1);
   });
 });
 
@@ -123,8 +130,8 @@ describe("STE-86 AC-STE-86.5/7 prose — /gate-check probe 13 is documented in S
     expect(gateCheckSkill).toMatch(/AC-STE-86\.5/);
   });
 
-  test("SKILL.md declares warning-severity posture at M21 ship", () => {
-    expect(gateCheckSkill).toMatch(/warning.*identity_mode_conditional|identity_mode_conditional.*warning/i);
+  test("SKILL.md declares error-severity posture (post-M29 STE-110 flip)", () => {
+    expect(gateCheckSkill).toMatch(/error.*identity_mode_conditional|identity_mode_conditional.*error/i);
   });
 });
 
