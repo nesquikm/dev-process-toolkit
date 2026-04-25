@@ -268,9 +268,6 @@ own adapter markdown.
 - Description-stored ACs; Linear normalizes markdown on the server side, so
   `adapters/linear/src/normalize.ts` is the canonical form on both pull
   and push (AC-STE-17.6). Without it, reconcile loops fire every run.
-- **The `https://mcp.linear.app/sse` endpoint is retired.** `/setup`
-  detects the stale endpoint in `claude mcp list` output and offers a dry-run
-  diff to `https://mcp.linear.app/mcp` (Streamable-HTTP transport, AC-STE-9.9).
 
 ### Jira
 

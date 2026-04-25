@@ -154,13 +154,12 @@ If the user picks `1` or skips, do NOT emit a `## Task Tracking` section in CLAU
 If the user picks 2–4, run the flow in `docs/setup-tracker-mode.md` in full:
 
 1. Verify `bun --version` ≥ 1.2; absence hard-stops mode recording with an NFR-10 canonical-shape error (AC-STE-9.8).
-2. Linear only: if `claude mcp list` contains `https://mcp.linear.app/sse`, offer the dry-run migration to V2 `https://mcp.linear.app/mcp` (AC-STE-9.9). User decline is fine — they can skip migration and still proceed on V1 until the 2026-05-11 shutdown.
-3. Detect the target MCP via `claude mcp list`. If absent, render a dry-run JSON diff of the proposed `mcpServers.<name>` entry and require explicit confirmation before writing `settings.json` (AC-STE-9.1, AC-STE-9.2, AC-STE-9.3, DD-12.9).
-4. Run a harmless test call (Linear `list_teams` / Jira empty `search`). On failure, surface an NFR-10 canonical-shape error and refuse to record mode — the project remains `mode: none` (AC-STE-9.4, AC-STE-9.5).
-5. For Jira: pipe `GET /rest/api/3/field` response into `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/jira/src/discover_field.ts` and record `jira_ac_field: customfield_XXXXX` in the section (AC-STE-9.6).
-6. Append the `## Task Tracking` section to CLAUDE.md per Schema L with the resolved keys (one per line).
+2. Detect the target MCP via `claude mcp list`. If absent, render a dry-run JSON diff of the proposed `mcpServers.<name>` entry and require explicit confirmation before writing `settings.json` (AC-STE-9.1, AC-STE-9.2, AC-STE-9.3, DD-12.9).
+3. Run a harmless test call (Linear `list_teams` / Jira empty `search`). On failure, surface an NFR-10 canonical-shape error and refuse to record mode — the project remains `mode: none` (AC-STE-9.4, AC-STE-9.5).
+4. For Jira: pipe `GET /rest/api/3/field` response into `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/jira/src/discover_field.ts` and record `jira_ac_field: customfield_XXXXX` in the section (AC-STE-9.6).
+5. Append the `## Task Tracking` section to CLAUDE.md per Schema L with the resolved keys (one per line).
 
-See `docs/setup-tracker-mode.md` for the exact question prompt, canonical error shapes, JSON diff preview format, and migration wording. Do not inline those procedures here — NFR-1 keeps this skill under 300 lines.
+See `docs/setup-tracker-mode.md` for the exact question prompt, canonical error shapes, and JSON diff preview format. Do not inline those procedures here — NFR-1 keeps this skill under 300 lines.
 
 ### 7c. Branch-naming template (STE-64)
 

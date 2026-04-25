@@ -20,9 +20,6 @@ default) never reads this document — the pre-M12 path runs unchanged.
   preview + explicit confirm (AC-STE-9.3, DD-12.9).
 - **Bun prerequisite.** `bun --version` runs before any tracker recording
   (AC-STE-9.8); absence is an NFR-10 canonical-shape error.
-- **Linear SSE retirement migration.** If Linear MCP is configured at
-  `https://mcp.linear.app/sse`, `/setup` offers a dry-run migration to
-  `https://mcp.linear.app/mcp` (AC-STE-9.9).
 - **Test call on completion.** After MCP detection / install /
   confirmation, `/setup` runs a harmless live call (Linear
   `list_teams`, Jira `search` no-criteria). On failure, surface NFR-10
@@ -36,11 +33,10 @@ default) never reads this document — the pre-M12 path runs unchanged.
 |------|---------------------|---------|
 | C.1 — Mode question (default `none`, skippable) | The tracker-mode question | AC-STE-8.1, AC-STE-8.2, AC-STE-8.5 |
 | C.2 — Bun install check, hard-stop | Bun prerequisite check | AC-STE-9.8, NFR-10 |
-| C.3 — Linear SSE → Streamable-HTTP migration dry-run | Linear SSE retirement migration | AC-STE-9.9 |
-| C.4 — MCP detection via `claude mcp list` + dry-run settings.json diff | MCP detection | AC-STE-9.1, AC-STE-9.2 |
-| C.5 — settings.json confirm + write on approval | MCP detection | AC-STE-9.3, DD-12.9 |
-| C.6 — Test-call verification, hard-stop on fail | Test-call verification | AC-STE-9.4, AC-STE-9.5, NFR-10 |
-| C.7 — Jira custom-field discovery (one-time) | Per-tenant discovery / Jira | AC-STE-9.6 |
+| C.3 — MCP detection via `claude mcp list` + dry-run settings.json diff | MCP detection | AC-STE-9.1, AC-STE-9.2 |
+| C.4 — settings.json confirm + write on approval | MCP detection | AC-STE-9.3, DD-12.9 |
+| C.5 — Test-call verification, hard-stop on fail | Test-call verification | AC-STE-9.4, AC-STE-9.5, NFR-10 |
+| C.6 — Jira custom-field discovery (one-time) | Per-tenant discovery / Jira | AC-STE-9.6 |
 
 ## The tracker-mode question
 
@@ -77,21 +73,6 @@ Bun runtime not found (required for tracker mode).
 Remedy: install Bun ≥ 1.2 (macOS: brew install bun; Linux: curl -fsSL https://bun.sh/install | bash; Windows: powershell -c "irm bun.sh/install.ps1 | iex") and re-run /setup.
 Context: mode=<picked>, ticket=unbound, skill=setup
 ```
-
-## Linear SSE retirement migration (AC-STE-9.9)
-
-If the user picks `linear`, inspect `claude mcp list` output before doing
-anything else. If it contains the exact substring `https://mcp.linear.app/sse`,
-warn and offer migration:
-
-```
-Linear MCP is on the retired SSE endpoint. Migrate now? This will show
-a dry-run settings.json diff; nothing is written without confirmation. [y/N]:
-```
-
-On `y`, render the exact JSON diff: delete the `sse` URL, add the current
-`https://mcp.linear.app/mcp` entry with Streamable-HTTP transport. Do not
-write until the user confirms the rendered diff (AC-STE-9.3).
 
 ## MCP detection (AC-STE-9.1, AC-STE-9.2)
 
