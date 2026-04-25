@@ -515,7 +515,7 @@ Full reference: `docs/resolver-entry.md`.
 
 - **Bun runtime** — required in tracker mode and for the v1→v2 migration tool. Version floor: Bun ≥ 1.2. `/setup` verifies via `bun --version` and hard-stops mode recording until Bun is available. Helpers ship as `.ts` source only; no compile step, no per-platform binaries, no `package.json`.
 - **Tracker MCP servers** (external, user-installed via `claude mcp add`):
-  - Linear: `https://mcp.linear.app/mcp` (Streamable HTTP, V2). The V1 SSE endpoint is deprecated (shutdown 2026-05-11); `/setup` detects and recommends migration.
+  - Linear: `https://mcp.linear.app/mcp` (Streamable HTTP).
   - Jira: `https://mcp.atlassian.com/v1/mcp` (Rovo).
 - **`claude mcp list` CLI** — used by `/setup` for MCP introspection across enterprise/user/project/local scopes.
 

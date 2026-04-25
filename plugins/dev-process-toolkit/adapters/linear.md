@@ -103,13 +103,6 @@ observed status; operators fix either by transitioning the ticket to
 `In Progress` manually or by rerunning `/implement` from Phase 1 so
 `claimLock` fires.
 
-## Endpoint migration (AC-30.9)
-
-Linear's legacy `https://mcp.linear.app/sse` endpoint is retired. `/setup`
-detects the stale URL in `claude mcp list` output and offers a dry-run
-settings.json diff to `https://mcp.linear.app/mcp`. The current MCP uses
-the Streamable-HTTP transport; tool names and shapes remain compatible.
-
 ## Operations
 
 ### `pull_acs(ticket_id) → AcList`
