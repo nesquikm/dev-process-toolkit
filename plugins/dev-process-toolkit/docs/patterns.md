@@ -403,6 +403,19 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 
 **Branch automation (STE-64).** `branch_template:` is an additive Schema L key consumed **only** by `/implement` Phase 1 (via `buildBranchProposal` in `adapters/_shared/src/branch_proposal.ts`). Default values seeded by `/setup` step 7c: `{type}/m{N}-{slug}` in `mode: none`, `{type}/{ticket-id}-{slug}` in tracker mode. Absent key ⇒ branch automation disabled (AC-STE-64.1) — legacy projects continue to run on whatever branch they're invoked from. Placeholders: `{type}` (LLM-inferred `feat`/`fix`/`chore`), `{N}` (milestone digits), `{ticket-id}` (tracker ID or lowercased short-ULID tail per AC-STE-64.7), `{slug}` (LLM-inferred 2–4 word kebab). Sanitization clamps LLM output to `[a-z0-9-]` before `git checkout -b` (defense in depth — AC-STE-64.13). No other mode-aware skill reads `branch_template:` (AC-STE-64.9).
 
+**Canonical keys (STE-114 AC-STE-114.1).** The closed set of top-level keys under `## Task Tracking` is exactly:
+
+| Key | Value | Read by |
+|-----|-------|---------|
+| `mode` | `none` / `linear` / `jira` / `<custom>` | every mode-aware skill (Schema L probe) |
+| `mcp_server` | adapter MCP server name (e.g., `linear`, `atlassian`) | resolver, tracker calls |
+| `jira_ac_field` | `customfield_XXXXX` (Jira only; blank otherwise) | Jira adapter only |
+| `branch_template` | branch-naming template (e.g., `{type}/{ticket-id}-{slug}`) | `/implement` Phase 1 only |
+
+These four keys are the closed set; emitting **additional top-level keys** under `## Task Tracking` is a `/gate-check` failure (probe `task-tracking-canonical-keys` — gate-check #21). Tracker-specific metadata (project IDs, team names, workspace URLs) belong in a sub-section under `## Task Tracking` (e.g., `### Linear`, `### Jira`) or in the adapter's own config — **not** as Schema L keys at the top level. Sub-section contents are scoped out of the canonical-key check (AC-STE-114.4(c)). Adding a new canonical key requires a deliberate `docs/patterns.md` edit + probe code change in the same PR.
+
+A one-time migration helper for projects that picked up the drift before the constraint landed lives at `scripts/migrate-task-tracking-canonical.ts` (dry-run only; outputs a unified diff to stdout — operator pipes to `patch -p1` if they want to apply). Greenfield projects don't need it.
+
 **Tracker ID assignment order — ticket first, FR second (STE-66).** When `/spec-write` or `/brainstorm` drafts a tracker-bound FR, use the `<tracker-id>` placeholder throughout the draft (AC prefixes, filename, plan-file row, prose). **Never guess** the next sequential tracker number — the allocator decides, not the implementer, and trackers routinely skip cancelled numbers. Create the tracker ticket first, read the returned ID, substitute globally, then write the FR file. See `/spec-write` § 0b and `docs/spec-write-tracker-mode.md` § Tracker ID Assignment Order. Mode: none is exempt (short-ULID tail is local-mint, collision-proof).
 
 **Full ULIDs are internal-only (STE-67, M21-updated).** In tracker mode there are no ULIDs at all — FRs have no `id:` line (STE-76 AC-STE-76.5); the tracker ID is the canonical identity in frontmatter, filename, AC prefix, and user-facing prose. In `mode: none`, the short-ULID tail (6 chars, lowercased for branches) is the human-facing form; the full 26-char ULID lives only in frontmatter `id:` and in code-internal references (`Provider.getMetadata`, `findFRByTrackerRef`, `getFrPath`, resolver) — never in user-facing prose. Archived content keeps whatever form it had at archival time — the `/gate-check` probes scope to active content only. Rationale: M18 moved the ULID out of filenames; STE-67 pushed the user-facing prose off full ULIDs; STE-76 removed the `id:` ceremony entirely from tracker mode.

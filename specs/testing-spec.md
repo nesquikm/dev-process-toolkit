@@ -77,6 +77,21 @@ Module coverage (all behaviors, 100% branch coverage per NFR-21):
 - **`docs_nav_contract.ts`** — four-anchor validation, missing-anchor and broken-link failure shapes.
 - **`impact_set.ts`** — Schema Y extractor; per-category fixtures (added public function, modified signature, added CLI command, package.json key, enum value); determinism probe (same diff → same struct).
 - **`signature_extractor.ts`** — Schema Z extractor across three strategies (typedoc mocked subprocess, ts-morph real parser, regex fallback); post-generation validator (reject LLM output with invented signatures; single-retry bound).
+- **`setup/audit_log.ts`** (STE-108) — `appendAuditEntry` create-section / append-entry / idempotent-append behaviors; file-missing failure mode; preserved trailing-newline shape.
+- **`setup/merge_settings.ts`** (STE-106) — `canonicalAllowList` per-stack lookup + dedup + unknown-stack throw; `mergeAllowList` preserves user additions, dedups canonical, handles missing `permissions`/`allow` keys, preserves `deny` and other root keys.
+- **`spec_archive/rewrite_links.ts`** (STE-111) — Markdown link forms (`](frs/X.md)`, `](./frs/X.md)`, bare path) covered; CHANGELOG scoping (above first dated `## [X.Y.Z]` only); orphan-FR no-op; archive-already-references no-op.
+- **`scripts/migrate-task-tracking-canonical.ts`** (STE-114) — `computeMigrationDiff` clean-input idempotence; drifted-input rewrite emitting `### <Tracker>` subsection; existing-subsection append (no duplicate heading); LCS-based unified-diff stability.
+
+`/setup` hardening probes (Tier 4 integration tests; STE-82 contract):
+
+- `tests/gate-check-setup-output-completeness.test.ts` (STE-106 probe #17)
+- `tests/gate-check-claudemd-docs-section.test.ts` (STE-107 probe #18)
+- `tests/gate-check-setup-audit-section-presence.test.ts` (STE-108 probe #19)
+- `tests/gate-check-bun-zero-match-placeholder.test.ts` (STE-113 probe #20)
+- `tests/gate-check-task-tracking-canonical-keys.test.ts` (STE-114 probe #21)
+- `tests/gate-check-setup-bootstrap-committed.test.ts` (STE-109 probe #22)
+- `tests/gate-check-traceability-link-validity.test.ts` (STE-111 probe #23)
+- `tests/gate-check-identity-mode-conditional.test.ts` extended for STE-110 severity flip (warn → error).
 
 Determinism helpers: `DPT_TEST_ULID_SEED` (deterministic ULID sequence for migration expected outputs), `DPT_TEST_FROZEN_TIME` (freezes timestamps used by INDEX, plan frontmatter, lock files, sync-log entries). Both are gated on `NODE_ENV === 'test'`.
 
