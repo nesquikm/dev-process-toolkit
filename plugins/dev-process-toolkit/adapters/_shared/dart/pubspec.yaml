@@ -1,0 +1,9 @@
+name: dpt_extract_signatures
+description: Bundled Dart signature-extraction helper for /dev-process-toolkit:docs (STE-103).
+publish_to: none
+
+environment:
+  sdk: ^3.0.0
+
+dependencies:
+  analyzer: ^7.0.0

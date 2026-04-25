@@ -180,7 +180,7 @@ exit 0
 });
 
 describe("extractSignatures — AC-STE-72.5 regex fallback (non-TS)", () => {
-  test("AC-STE-72.5 — projectRoot without tsconfig.json yields strategy='regex-fallback' + warning", () => {
+  test("AC-STE-72.5 — pubspec.yaml stack with dart-analyzer disabled falls back to regex-fallback + warning", () => {
     const projectRoot = join(work, "flutter-like");
     mkdirSync(join(projectRoot, "lib"), { recursive: true });
     writeFileSync(
@@ -189,7 +189,14 @@ describe("extractSignatures — AC-STE-72.5 regex fallback (non-TS)", () => {
     );
     writeFileSync(join(projectRoot, "pubspec.yaml"), `name: flutter_like\n`);
 
-    const ground = extractSignatures(projectRoot, bothModes, { typedocBinary: null });
+    // STE-103 widens the Dart stack chain: with `dartBinary: null` we force
+    // the dart-analyzer probe to skip, so the project falls through to
+    // regex-fallback and emits the AC-STE-72.5 manual-review banner. The
+    // test exercises the AC-STE-103.2 fallthrough branch end-to-end.
+    const ground = extractSignatures(projectRoot, bothModes, {
+      typedocBinary: null,
+      dartBinary: null,
+    });
     expect(ground.strategy).toBe("regex-fallback");
     expect(ground.warnings.some((w) => w.toLowerCase().includes("regex"))).toBe(true);
   });

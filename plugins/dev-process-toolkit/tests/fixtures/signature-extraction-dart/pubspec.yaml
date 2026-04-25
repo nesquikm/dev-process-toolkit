@@ -1,0 +1,4 @@
+name: signature_extraction_dart_fixture
+description: Fixture project for STE-103 dart-analyzer signature extraction tests.
+environment:
+  sdk: ^3.0.0
