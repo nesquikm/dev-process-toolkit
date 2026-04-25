@@ -57,6 +57,7 @@ Run these deterministic v2 invariant probes in addition to the normal gate:
 21. **`task-tracking-canonical-keys`** (STE-114 AC-STE-114.3) — call `runTaskTrackingCanonicalKeysProbe(projectRoot)` from `adapters/_shared/src/task_tracking_canonical_keys.ts`. Parses `## Task Tracking` line-by-line; fails if any **top-level** key is outside the closed set `{mode, mcp_server, jira_ac_field, branch_template}`. Empty/whitespace lines and `### <Subsection>` content (e.g. `### Linear`) are scoped out — tracker-specific metadata (project IDs, team names) belongs under sub-headings, not as Schema L keys. Vacuous when the section is absent (`mode: none` canonical form). Catches the smoke-test drift (F2) where `/setup` emitted five non-canonical `linear_*` keys. Migration helper: `scripts/migrate-task-tracking-canonical.ts` (dry-run only, prints unified diff to stdout). Test coverage: `tests/gate-check-task-tracking-canonical-keys.test.ts` per STE-82.
 22. **`setup-bootstrap-committed`** (STE-109 AC-STE-109.7) — call `runSetupBootstrapCommittedProbe(projectRoot)` from `adapters/_shared/src/setup_bootstrap_committed.ts`. If CLAUDE.md is toolkit-managed AND the project is a git repository, the file MUST be committed (no `??` or `M` status in `git status --porcelain`). Catches the regression where /setup outputs leak into the first feature PR (smoke-test F7). Vacuous when CLAUDE.md is absent, the file is hand-written, or the project is not a git repo. Test coverage: `tests/gate-check-setup-bootstrap-committed.test.ts` per STE-82.
 23. **`traceability-link-validity`** (STE-111 AC-STE-111.4) — call `runTraceabilityLinkValidityProbe(projectRoot)` from `adapters/_shared/src/traceability_link_validity.ts`. Every `frs/<id>.md` reference (any link form: `](frs/X.md)`, `](./frs/X.md)`, bare path) in `specs/requirements.md` and any `specs/plan/<M>.md` must resolve to an existing file under `specs/frs/<id>.md` OR `specs/frs/archive/<id>.md`. Broken links (e.g. live-path link when the file moved to archive) → **GATE FAILED**. Catches the smoke-test failure (F9) where `/spec-archive` moved an FR but the traceability matrix still pointed at the live path. Companion to `/spec-archive`'s "Rewrite traceability links" step (`adapters/_shared/src/spec_archive/rewrite_links.ts`). Test coverage: `tests/gate-check-traceability-link-validity.test.ts` per STE-82.
+24. **`signature-strategy-honors-setup`** (STE-105 AC-STE-105.3 / AC-STE-105.7) — call `runSignatureStrategyHonorsSetupProbe(projectRoot)` from `adapters/_shared/src/signature_strategy_honors_setup.ts`. Reads the per-stack preferred signature-extraction strategy recorded by `/setup` at `docs/.dpt-docs-toolchain.json` (AC-STE-105.5) and asserts each non-fallback recording — `typedoc`, `dart-analyzer`, `griffe` — still maps to a present toolchain via `probeToolchains()` (AC-STE-105.4). Vacuous when the config file is absent (pre-M27 projects, or `/setup` runs that recorded no preference). Recorded `regex-fallback` entries skip cleanly — there is no degradation possible. Recorded preferred tool gone missing → **GATE FAILED** with `file:line — reason` note plus the standard NFR-10 remedy "Re-install the missing toolchain or re-run /setup to update the recorded preference." Test coverage: `tests/gate-check-signature-strategy-honors-setup.test.ts` per STE-82.
 
 Full details: `docs/v2-layout-reference.md` § `/gate-check`.
 
@@ -68,16 +69,18 @@ declaration without its test — a probe advertised in prose without an
 integration test can drift from the implementation without detection. The
 test must cover both a positive fixture (probe passes clean) and a
 negative fixture (probe fires with the documented note shape:
-`file:line — reason`). Probes 1-23 above each have a corresponding
+`file:line — reason`). Probes 1-24 above each have a corresponding
 `tests/gate-check-<slug>.test.ts` — probe #14 (STE-87 active-side
 ticket-state drift) is covered by `tests/gate-check-active-ticket-drift.test.ts`,
 probe #15 (STE-87 guessed tracker-ID scan) by
 `tests/gate-check-guessed-tracker-id.test.ts`, probe #16 (STE-92
 archive plan-status invariant) by
-`tests/gate-check-archive-plan-status.test.ts`, and the M29 additions
+`tests/gate-check-archive-plan-status.test.ts`, the M29 additions
 (probes 17–23, STE-106/107/108/109/111/113/114) by their corresponding
-`tests/gate-check-<slug>.test.ts` files. Contributors adding
-probe 24+ must ship the matching test file in the same commit.
+`tests/gate-check-<slug>.test.ts` files, and probe #24 (STE-105
+signature-strategy-honors-setup) by
+`tests/gate-check-signature-strategy-honors-setup.test.ts`. Contributors
+adding probe 25+ must ship the matching test file in the same commit.
 
 ## Commands
 
