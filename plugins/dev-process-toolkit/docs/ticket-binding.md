@@ -5,8 +5,8 @@ Every skill that mutates the tracker (`/implement`, `/spec-write`, `/gate-check`
 Silent mutation on a misidentified ticket is the #1 duck-council trust risk
 (DD-12.10); STE-27 makes confirmation mandatory.
 
-In `mode: none`, this entire document is unused — the pre-M12 path runs
-unchanged.
+In `mode: none`, this entire document is unused — the `mode: none` branch
+runs unchanged.
 
 ## 2-Tier resolution (Pattern 6, post-STE-62)
 

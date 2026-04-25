@@ -10,7 +10,7 @@
 
 **Every invocation of `/spec-write`, `/implement`, `/spec-archive`.**
 Runs, for `/implement`, *before* `Provider.claimLock`. v2 is the only
-supported layout; pre-M14 argument shapes (milestone codes, task
+supported layout; free-form argument shapes (milestone codes, task
 descriptions, GitHub issue numbers) route through the `fallthrough`
 branch of `resolveFRArgument` per NFR-18.
 
@@ -26,10 +26,10 @@ branch of `resolveFRArgument` per NFR-18.
 
 | `kind` | Next step in `/spec-write` | Next step in `/implement` | Next step in `/spec-archive` |
 |--------|----------------------------|---------------------------|------------------------------|
-| `ulid` | Open the FR via `Provider.filenameFor(spec)` for editing (pre-M14 path) | Proceed to `Provider.claimLock(ulid, branch)` | Archive via `git mv` + frontmatter flip (pre-M14 path) |
-| `tracker-id` or `url`, find-by-tracker-ref hit | Open that existing FR for editing. **No network call.** Post-M18 STE-61 `findFRByTrackerRef` is single-pattern: direct filename lookup at `specs/frs/<tracker-id>.md` (+ `archive/` when `includeArchive`). Filename ↔ frontmatter disagreement returns null. | Proceed to `Provider.claimLock(ulid, branch)` on the resolved ULID | Archive via `git mv` + frontmatter flip on the resolved ULID (O(1) direct-filename lookup) |
+| `ulid` | Open the FR via `Provider.filenameFor(spec)` for editing | Proceed to `Provider.claimLock(ulid, branch)` | Archive via `git mv` + frontmatter flip |
+| `tracker-id` or `url`, find-by-tracker-ref hit | Open that existing FR for editing. **No network call.** `findFRByTrackerRef` is single-pattern: direct filename lookup at `specs/frs/<tracker-id>.md` (+ `archive/` when `includeArchive`). Filename ↔ frontmatter disagreement returns null. | Proceed to `Provider.claimLock(ulid, branch)` on the resolved ULID | Archive via `git mv` + frontmatter flip on the resolved ULID (O(1) direct-filename lookup) |
 | `tracker-id` or `url`, find-by-tracker-ref miss | Run `importFromTracker` — mints ULID and writes the new FR file with tracker ACs auto-accepted (**no STE-17 per-AC prompts**, AC-STE-31.5). The file lands at `specs/frs/<Provider.filenameFor(spec)>`. | Run `importFromTracker` then `Provider.claimLock` on the new ULID | **Refuse** with NFR-10 shape: `"No local FR mapped to <tracker>:<id>. Archival never auto-imports. To dismiss the tracker ticket, close it in the tracker directly."` Non-zero exit, no side effects. |
-| `fallthrough` | Handle per pre-M14 contract (`all`, `requirements`, `technical-spec`, `testing-spec`, `plan`). Literal `FR-<N>` arguments land here post-STE-52. | Handle per pre-M14 contract (milestone code like `M13`, GitHub issue number, task description). Literal `FR-<N>` arguments land here post-STE-52. | Handle per pre-M14 contract (anchor `{#M3}`, heading text, milestone id `M12`). Literal `FR-<N>` arguments land here post-STE-52. |
+| `fallthrough` | Handle per the free-form-argument contract (`all`, `requirements`, `technical-spec`, `testing-spec`, `plan`). Literal `FR-<N>` arguments land here post-STE-52. | Handle per the free-form-argument contract (milestone code like `M13`, GitHub issue number, task description). Literal `FR-<N>` arguments land here post-STE-52. | Handle per the free-form-argument contract (anchor `{#M3}`, heading text, milestone id `M12`). Literal `FR-<N>` arguments land here post-STE-52. |
 
 ## Ambiguity & disambiguation
 

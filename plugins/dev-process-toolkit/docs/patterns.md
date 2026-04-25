@@ -374,16 +374,16 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 
 ### Pattern: Tracker Mode Probe (Schema L)
 
-**Problem (STE-8, STE-12, Pattern 9)**: M12 adds an opt-in tracker mode (Linear, Jira, custom) for teams whose ACs live in a task tracker. Every affected skill — `/setup`, `/spec-write`, `/implement`, `/gate-check`, `/pr`, `/spec-review`, `/spec-archive` — must behave differently in `mode: none` (default, pre-M12) and `mode: <tracker>`. If any skill guesses mode inconsistently or reads tracker state when the section is absent, the backward-compat invariant (Pattern 9) breaks silently.
+**Problem (STE-8, STE-12, Pattern 9)**: Two modes coexist — `mode: none` (default, ACs in `specs/requirements.md`) and `mode: <tracker>` (Linear, Jira, custom — ACs in a task tracker). Every affected skill — `/setup`, `/spec-write`, `/implement`, `/gate-check`, `/pr`, `/spec-review`, `/spec-archive` — must run the right branch. If any skill guesses mode inconsistently or reads tracker state when the section is absent, the `mode: none` branch contract (Pattern 9) breaks silently.
 
-**Solution**: Every mode-aware skill begins with the same probe. The probe reads `CLAUDE.md` for the `## Task Tracking` section; section absence ≡ `mode: none` (the canonical pre-M12 path); section presence means parse the `key: value` block per Schema L (technical-spec §7.3). Only after the probe resolves does the skill branch.
+**Solution**: Every mode-aware skill begins with the same probe. The probe reads `CLAUDE.md` for the `## Task Tracking` section; section absence ≡ `mode: none` (the canonical no-tracker form per AC-STE-8.5); section presence means parse the `key: value` block per Schema L (technical-spec §7.3). Only after the probe resolves does the skill branch.
 
 **Canonical probe (run at skill entry, before any side effect):**
 
 ```
 1. Read CLAUDE.md if it exists. If it doesn't, mode = none. Stop probing.
 2. grep -c '^## Task Tracking$' CLAUDE.md
-   - 0 → mode = none (default, pre-M12 code path runs unchanged)
+   - 0 → mode = none (default, mode-none code path runs unchanged)
    - 1 → section exists; continue to step 3
    - >1 → malformed file; fail with NFR-10 canonical error shape
 3. Extract `mode: <value>` between `## Task Tracking` and the next `##` / `###` heading (or EOF).
@@ -391,7 +391,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 5. For any tracker mode, resolve ticket-ID via Pattern 6 (branch regex → interactive prompt) before any MCP call.
 ```
 
-**Backward-compat invariant (Pattern 9):** in `mode: none`, **every** mode-aware skill behavior is byte-identical to pre-M12. The probe step is the single insertion; if `## Task Tracking` is absent, the skill runs its pre-M12 body unchanged. Tracker-mode branches are gated behind the probe — they are never entered in `none` mode.
+**Mode-none branch contract (Pattern 9):** in `mode: none`, **every** mode-aware skill runs the `mode: none` body unchanged. The probe step is the single insertion; if `## Task Tracking` is absent, the skill runs its `mode: none` branch. Tracker-mode branches are gated behind the probe — they are never entered in `none` mode.
 
 **Why the section heading is the single probe anchor:** a literal heading check is cheaper than YAML frontmatter parsing, deterministic across markdown renderers, and survives CLAUDE.md edits that preserve structure. Keys inside the section are parsed only after the heading is confirmed present, so malformed key lines never break the `none` path.
 
@@ -452,10 +452,10 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 
 A shared `resolveFRArgument(arg, config)` utility classifies a skill argument as one of four kinds before any side effect:
 
-- **`ulid`** — matches `^fr_[0-9A-HJKMNP-TV-Z]{26}$`; route to the pre-M14 by-ULID code path unchanged.
+- **`ulid`** — matches `^fr_[0-9A-HJKMNP-TV-Z]{26}$`; route to the by-ULID code path unchanged.
 - **`tracker-id`** — matches one or more adapter-registered `id_pattern` regexes (Schema W). If multiple trackers match, disambiguation by project prefix (e.g., `LIN` for Linear, `PROJ` for Jira) resolves the winner. Still ambiguous → throw `AmbiguousArgumentError` with both candidates.
 - **`url`** — host must match an adapter-registered `url_host` (NFR-19 allowlist — unknown hosts fall through; no "best guess"). Path regex extracts the tracker ID.
-- **`fallthrough`** — everything else (free-form titles, milestone codes like `M12`, keywords like `all` / `requirements`). Each skill handles these per its pre-M14 contract.
+- **`fallthrough`** — everything else (free-form titles, milestone codes like `M12`, keywords like `all` / `requirements`). Each skill handles these per its free-form-argument contract.
 
 The resolver is **pure**: no network I/O, no filesystem reads (both are downstream of the dispatcher). Resolution is deterministic — identical inputs always return identical outputs, and ambiguity is an error (not an interactive prompt), so non-interactive callers behave the same way as interactive ones (NFR-20).
 

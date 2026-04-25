@@ -6,7 +6,7 @@ pointed at from `skills/setup/SKILL.md` to keep that file under NFR-1
 (≤300 lines) while still giving operators enough detail to audit the flow.
 
 Applies to `mode: linear | jira | custom` only. `mode: none` (the
-default) never reads this document — the pre-M12 path runs unchanged.
+default) never reads this document — the `mode: none` branch runs unchanged.
 
 ## Core contract (read first)
 

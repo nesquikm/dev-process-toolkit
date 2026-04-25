@@ -10,8 +10,8 @@ still supplies FR titles, descriptions, and traceability context (Path B).
 
 ## AC-traversal algorithm (tracker mode)
 
-1. Run the Schema L probe. If tracker mode, continue; else the pre-M12
-   body runs unchanged.
+1. Run the Schema L probe. If tracker mode, continue; else the
+   `mode: none` branch runs unchanged.
 2. Iterate over the traceability matrix's `FR-{N}`-linked ticket IDs.
    (Pre-STE-62 there was a documented-but-inert CLAUDE.md fallback key;
    it was retired in v1.21.0.)

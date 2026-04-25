@@ -3,7 +3,7 @@
 Detailed tracker-mode procedures for `/pr`. Pointed at from
 `skills/pr/SKILL.md` to keep the skill lean.
 
-In `mode: none`, this document is unused — the pre-M12 body runs unchanged.
+In `mode: none`, this document is unused — the `mode: none` branch runs unchanged.
 
 ## Pre-flight (before PR creation)
 
