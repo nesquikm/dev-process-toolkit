@@ -110,6 +110,93 @@ Mirror of SKILL.md Phase 4 step 15:
 
 The tracker silent no-op trap (STE-46) means `releaseLock` itself must re-fetch `updatedAt` and assert it advanced — otherwise a bogus Linear response reads as success and the ticket stays at `In Progress`. `TrackerProvider.releaseLock` handles this in shared code; adapter drivers just need to populate `TicketStatusSummary.updatedAt`.
 
+## Claim runbook
+
+Concrete adapter-agnostic MCP-call sequence the LLM-as-runtime executes for
+`Provider.claimLock(<id>, currentBranch)`. Encodes the entry-gate semantics
+in operational form so the abstract Provider reference doesn't read as
+"skip the tracker write" (the M26 dogfood failure mode that motivated this
+runbook).
+
+`<tracker>` resolves from Schema L's `mode:` (the active tracker key, e.g.
+the `mcp_server:` from `adapters/<tracker>.md` frontmatter). Never hard-code
+the vendor name in skill prose — the runbook abstracts over the per-tracker
+concrete pattern via the active adapter's `## Tool surface` table.
+
+1. **Read state + assignee.** Call `mcp__<tracker>__get_issue(<id>)`. Capture
+   `status`, `assigneeId` / `assignee`, and `updatedAt`.
+2. **Decision routing (four-way):**
+   - `status == status_mapping[in_progress]` AND `assignee != currentUser`
+     ⇒ STOP with `taken-elsewhere`. Surface an NFR-10 canonical-shape
+     refusal naming the holding assignee + branch (AC-STE-28.2). Do not
+     write.
+   - `status == status_mapping[in_progress]` AND `assignee == currentUser`
+     ⇒ `already-ours`. The claim is already held; resume the run without
+     writing. Bookkeeping (the post-claim `updatedAt` recording for STE-11
+     drift detection) still fires (see § 0.2 above).
+   - `status == status_mapping[done]` ⇒ `already-released` (idempotent
+     terminal — STE-84). The work shipped; don't re-open the ticket. Skip
+     the run.
+   - Otherwise (`Backlog`, `Unstarted`, `Cancelled`, etc.) ⇒ proceed to
+     step 3 to perform the actual claim.
+3. **Transition to In Progress + assign current user.** Look up the active
+   adapter's `transition_status` row in `adapters/<tracker>.md` § Tool
+   surface. Invoke that MCP call with the resolved `status_mapping[in_progress]`
+   target plus the `assignee` field set to the current user. Per STE-65,
+   this is the through-In-Progress hop — never skip directly to Done.
+4. **Verify the write landed (silent no-op trap).** Re-fetch via
+   `mcp__<tracker>__get_issue(<id>)` and assert that `updatedAt` /
+   `startedAt` advanced past the pre-call value, AND `status ==
+   status_mapping[in_progress]`, AND `assignee == currentUser`. If any
+   assertion fails, raise an NFR-10 canonical-shape refusal (the silent
+   no-op trap from `adapters/linear.md` § Silent no-op trap fires here).
+   This is `claimed`. Record the post-claim `updatedAt` per § 0.2 for
+   `/gate-check` drift detection.
+
+The four routing outcomes — `claimed`, `already-ours`, `taken-elsewhere`,
+`already-released` — match `TrackerProvider.claimLock`'s return contract.
+The runbook is the operational mirror of the TS interface; both encode
+the same semantics.
+
+## Release runbook
+
+Concrete adapter-agnostic MCP-call sequence for
+`Provider.releaseLock(<id>)` and `Provider.getTicketStatus(<id>)`'s
+post-release verification (Phase 4d steps b + c). Same shape as the Claim
+runbook above — operational mirror of the Provider TS interface.
+
+1. **Pre-release pre-state assertion (STE-65 narrowed by STE-84).** Call
+   `mcp__<tracker>__get_issue(<id>)` and assert the current `status` is
+   `status_mapping[in_progress]` OR `status_mapping[done]`. Any other
+   pre-state — `Backlog`, `Unstarted`, `Cancelled`, etc. — surfaces a
+   `TrackerReleaseLockPreconditionError` (NFR-10 canonical refusal)
+   *without* invoking the Done transition. This guards the
+   `Backlog → Done` silent-leap failure mode.
+2. **STE-84 idempotent-terminal branch.** If the pre-state is already
+   `status_mapping[done]`, return `already-released` and proceed to step 4
+   (post-release verify) without writing. The ticket is already at the
+   target state; re-asserting it is a no-op the runbook treats as
+   successful.
+3. **Transition to Done.** Look up the active adapter's `transition_status`
+   row in `adapters/<tracker>.md` § Tool surface and invoke that MCP call
+   with the target `status_mapping[done]`. Returns `transitioned`.
+4. **Post-release verify (silent no-op trap).** Re-fetch via
+   `mcp__<tracker>__get_issue(<id>)` and assert `status ==
+   status_mapping[done]`. AND assert `updatedAt` / `completedAt` advanced
+   past the pre-call value (skipped on the `already-released` branch — no
+   write was performed). If either assertion fails, surface an NFR-10
+   canonical-shape refusal naming the ticket plus observed-vs-expected
+   status. The silent no-op trap from `adapters/linear.md` § Silent no-op
+   trap is the rationale: the MCP can return a successful-looking response
+   while the ticket didn't move.
+
+The two return outcomes — `transitioned`, `already-released` — match
+`TrackerProvider.releaseLock`'s return contract (STE-84 AC-STE-84.5).
+Phase 4d step (c)'s `Provider.getTicketStatus(<id>)` assertion is step 4
+of this runbook — the assertion semantics (`status ==
+status_mapping[done]`) survive unchanged; only the API reference is
+replaced with the runbook pointer.
+
 ## Parallelization interaction (Pattern 9 invariant)
 
 `/implement` parallel dispatch is documented in `docs/parallel-execution.md`.

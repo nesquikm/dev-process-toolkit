@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { rulesBlock } from "./_skill-md";
 
 // Prose convention gates for STE-87 AC-STE-87.3, AC-STE-87.9, AC-STE-87.10.
 //
@@ -25,28 +26,32 @@ function readSkill(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-function rulesBlock(body: string): string {
-  const start = body.indexOf("\n## Rules");
-  expect(start).toBeGreaterThan(-1);
-  // End of the Rules section is the next `## ` heading.
-  const remainder = body.slice(start + 1);
-  const endRel = remainder.search(/\n## \S/);
-  return endRel === -1 ? body.slice(start) : body.slice(start, start + 1 + endRel);
-}
+describe("AC-STE-87.3 — /implement tracker-write routing rule (M28 STE-101 prose rewrite)", () => {
+  // M28 STE-101 AC-STE-101.6 rewrote this rule's prose from "Route through
+  // Provider.claimLock / Provider.releaseLock" (an abstract TS reference) to
+  // "Tracker writes during /implement are exactly the calls in the Claim and
+  // Release runbooks" (concrete operational pointer). Same intent — the rule
+  // still documents the bounded-write contract, scopes it to in-flight work,
+  // permits reads, and cites STE-65 as the rationale — only the routing
+  // target text changed.
 
-describe("AC-STE-87.3 — /implement tracker-write routing rule", () => {
-  test("implement SKILL.md ## Rules forbids raw mcp__<tracker>__save_issue on in-flight FRs", () => {
+  test("implement SKILL.md ## Rules forbids raw mcp__<tracker>__save_issue / transition_status mid-flow", () => {
     const rules = rulesBlock(readSkill(implementPath));
     expect(rules).toMatch(/mcp__<tracker>__save_issue/);
     expect(rules).toMatch(/mcp__<tracker>__transition_status/);
-    // The rule must scope itself to in-flight FRs (not a blanket ban on MCP).
-    expect(rules.toLowerCase()).toContain("in-flight");
+    // The rule must scope itself to /implement's in-flight work (not a blanket ban on MCP).
+    // STE-101 reframed the scope from "in-flight FRs" to "mid-flow during /implement"; both encode
+    // the same boundary — accept either phrasing so the assertion survives prose evolution.
+    expect(rules.toLowerCase()).toMatch(/in-flight|mid-flow/);
   });
 
-  test("rule routes writes through Provider.claimLock / Provider.releaseLock", () => {
+  test("rule routes writes through the Claim and Release runbooks", () => {
+    // STE-101 replaced the abstract Provider.claimLock / Provider.releaseLock reference
+    // with concrete runbook pointers. Same routing semantics, operational target.
     const rules = rulesBlock(readSkill(implementPath));
-    expect(rules).toMatch(/Provider\.claimLock/);
-    expect(rules).toMatch(/Provider\.releaseLock/);
+    expect(rules).toMatch(/Claim.*runbook/i);
+    expect(rules).toMatch(/Release.*runbook/i);
+    expect(rules).toMatch(/docs\/implement-tracker-mode\.md/);
   });
 
   test("rule explicitly permits read operations (get_issue for display)", () => {
@@ -57,7 +62,7 @@ describe("AC-STE-87.3 — /implement tracker-write routing rule", () => {
     expect(rules.toLowerCase()).toMatch(/fine|permitted|allowed/);
   });
 
-  test("rule references STE-65 as the rationale (guardrail fires only on Provider path)", () => {
+  test("rule references STE-65 as the rationale (guardrail fires only on the runbook path)", () => {
     const rules = rulesBlock(readSkill(implementPath));
     expect(rules).toMatch(/STE-65/);
   });
