@@ -11,7 +11,7 @@ everything on this page is unused — skills run their `mode: none` branch uncha
 Tracker mode requires **Bun ≥ 1.2** on the user's machine. The plugin ships
 adapter helpers as TypeScript source (`adapters/<tracker>/src/*.ts`); there
 are no compiled binaries and no `dist/` directory (DD-12.5, NFR-7). Helpers
-are invoked as `bun run adapters/<tracker>/src/<helper>.ts`.
+are invoked as `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/<tracker>/src/<helper>.ts`.
 
 Install guidance:
 

@@ -130,7 +130,7 @@ After test-call success, run one-time AC custom-field discovery:
 1. Invoke the Atlassian MCP to fetch `GET /rest/api/3/field` (equivalent
    tool, e.g., `mcp__atlassian__list_fields`).
 2. Pipe the response array into
-   `bun run adapters/jira/src/discover_field.ts` with
+   `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/jira/src/discover_field.ts` with
    `{"fields": <response>}` on stdin.
 3. On `{ok: true, gid: "customfield_XXXXX"}`, append
    `jira_ac_field: customfield_XXXXX` to the `## Task Tracking` section.
