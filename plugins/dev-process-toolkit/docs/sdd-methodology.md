@@ -135,7 +135,7 @@ v1 stored all FRs in a single `specs/requirements.md` and a single `specs/plan.m
 2. **Content collisions.** Two branches editing `requirements.md` in the same FR block produced a textual conflict even when the changes were semantically independent. v2 puts each FR in its own file — edits don't share paths.
 3. **Archival-hotspot collisions.** v1 archival rewrote a rolling index file plus pointer lines in `plan.md` / `requirements.md` — the busiest write paths. v2 archival is `git mv` per FR into `specs/frs/archive/` + frontmatter flip; milestone plan moves into `specs/plan/archive/`. Disjoint paths, no shared-file edit.
 
-**Baseline.** v2 is the only supported layout. `/setup --migrate` handles tracker-mode transitions (`none ↔ <tracker>` / `<tracker> ↔ <other>`); there is no `v1 → v2` migration path, and no v1 projects remain in production use.
+**Baseline.** v2 is the only supported layout. `/setup --migrate` handles tracker-mode transitions (`none ↔ <tracker>` / `<tracker> ↔ <other>`).
 
 **One-ticket-one-branch discipline.** Before `/implement` writes any code, `Provider.claimLock(id, branch)` runs. Tracker mode is strict — ticket status + assignee is the authoritative gate. Tracker-less mode is best-effort: `.dpt-locks/<ulid>` files + remote fetch + refuse-on-conflict. Merge-time path conflicts on `.dpt-locks/` catch races in tracker-less mode. `DPT_SKIP_FETCH=1` is the documented escape hatch for large-repo contexts.
 

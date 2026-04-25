@@ -241,7 +241,7 @@ Completed milestones are auto-archived when `/implement` Phase 4 is approved (ST
 
 ### Opting out entirely
 
-If you don't want archival, delete `specs/frs/archive/` and `specs/plan/archive/` (or never create them). `/implement` Phase 4 will run the archival step anyway, which recreates those directories on first archival. Opting out cleanly is not a first-class feature of the v2 layout — the v2 mechanism is `git mv` between sibling directories, not an optional write. Projects that want `plan.md` / `requirements.md` style monoliths should stay on pre-M13 releases (v1.15.x).
+If you don't want archival, delete `specs/frs/archive/` and `specs/plan/archive/` (or never create them). `/implement` Phase 4 will run the archival step anyway, which recreates those directories on first archival. Opting out cleanly is not a first-class feature of the v2 layout — the v2 mechanism is `git mv` between sibling directories, not an optional write.
 
 ### Manual archival via `/spec-archive`
 

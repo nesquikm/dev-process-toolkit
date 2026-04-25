@@ -7,15 +7,15 @@ import type { AdapterDriver } from "../adapters/_shared/src/tracker_provider";
 
 // STE-82 AC-STE-82.1 + AC-STE-82.7 — gate-check probe #1 integration test.
 //
-// Probe 1 enforces the M18 STE-61 strict byte-for-byte filename↔frontmatter
-// rule: `basename(specs/frs/<name>.md) === Provider.filenameFor(spec)` for
-// every active FR. Legacy `fr_<ULID>.md` filenames fail the gate.
+// Probe 1 enforces the strict filename↔frontmatter rule:
+// `basename(specs/frs/<name>.md) === Provider.filenameFor(spec)` for every
+// active FR. Any mismatch fails the gate.
 //
 // Positive fixture: a tracker-bound spec whose Linear ticket ID matches the
 // filename stem passes. A mode-none spec whose short-ULID tail matches
 // likewise passes.
 //
-// Negative fixture: legacy `fr_<ULID>.md` in tracker mode; mismatched
+// Negative fixture: full-ULID basename in tracker mode; mismatched
 // tracker-ID-keyed filename; mode-none spec whose filename is the full
 // ULID rather than the short tail.
 
@@ -27,21 +27,15 @@ function read(path: string): string {
 }
 
 describe("STE-82 AC-STE-82.1 prose — /gate-check probe 1 is documented in SKILL.md", () => {
-  test("SKILL.md names the Filename ↔ frontmatter convention probe + STE-61 AC reference", () => {
+  test("SKILL.md names the Filename ↔ frontmatter convention probe (strict)", () => {
     const body = read(gateCheckSkillPath);
-    expect(body).toMatch(/Filename\s*.\s*frontmatter convention/);
-    expect(body).toMatch(/AC-STE-61\.5/);
+    expect(body).toMatch(/Filename\s*.\s*frontmatter convention\s*\(strict\)/);
   });
 
-  test("probe says strict byte-for-byte comparison, GATE FAILED on mismatch", () => {
+  test("probe asserts every base name equals Provider.filenameFor(spec); GATE FAILED on mismatch", () => {
     const body = read(gateCheckSkillPath);
-    expect(body).toMatch(/strict.*byte.*byte/i);
+    expect(body).toMatch(/Every base name must equal\s+`Provider\.filenameFor\(spec\)`/);
     expect(body).toContain("GATE FAILED");
-  });
-
-  test("probe notes legacy fr_<ULID>.md filenames fail", () => {
-    const body = read(gateCheckSkillPath);
-    expect(body).toMatch(/legacy\s+`fr_.*\.md`.*fail|`fr_<ULID>\.md`.*fail/i);
   });
 });
 
