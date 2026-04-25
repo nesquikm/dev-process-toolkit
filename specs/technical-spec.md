@@ -396,7 +396,12 @@ Mechanically-extracted public API signatures, consumed by `/docs --full` / `/doc
 
 ```typescript
 export interface SignatureGroundTruth {
-  strategy: "typedoc" | "ts-morph" | "regex-fallback";
+  strategy:
+    | "typedoc"
+    | "ts-morph"
+    | "dart-analyzer"
+    | "griffe"
+    | "regex-fallback";
   modules: ModuleSignatures[];
   warnings: string[];
 }
@@ -407,7 +412,7 @@ export interface ModuleSignatures {
 export interface ExportSignature {
   name: string;
   kind: "function" | "class" | "type" | "interface" | "const" | "enum";
-  signature: string;       // verbatim as it appears in source (or typedoc output)
+  signature: string;       // verbatim as it appears in source (or tool output)
   docComment?: string;
   sourceFile: string;
   sourceLineStart: number;
@@ -415,7 +420,7 @@ export interface ExportSignature {
 }
 ```
 
-Emitted by `extractSignatures(projectRoot, config)` (`adapters/_shared/src/signature_extractor.ts`). Strategy is recorded in the struct so downstream skills can display it (e.g., `/setup`'s packages-mode prompt).
+Emitted by `extractSignatures(projectRoot, config)` (`adapters/_shared/src/signature_extractor.ts`). The `strategy` enum covers all three primary stacks: `typedoc` and `ts-morph` for TypeScript (STE-72), `dart-analyzer` via the bundled `package:analyzer` helper at `adapters/_shared/dart/extract_signatures.dart` for Flutter/Dart (STE-103), and `griffe` for Python (STE-104). Stack-aware dispatch detects all matching stacks and runs each preferred-tool chain; whichever stack-chain runs first reports its strategy via the struct. Stacks that fall through to `regex-fallback` surface as `warnings[]` entries while modules from successful chains still concatenate into the result. Strategy is recorded in the struct so downstream skills can display it (e.g., `/setup`'s packages-mode prompt) and so `/gate-check`'s `signature-strategy-honors-setup` probe (STE-105) can detect "tool was present at setup, gone now" drift against the record at `docs/.dpt-docs-toolchain.json`.
 
 ### Schema AA: `/docs` fragment frontmatter
 

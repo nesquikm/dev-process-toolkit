@@ -207,9 +207,21 @@ Failure modes (from the `runTypedoc` implementation):
 
 The `ts-morph` path is the always-available backstop; typedoc is an enrichment, not a hard requirement.
 
-## Non-TS stacks (AC-STE-72.5)
+## Stack-aware dispatch (AC-STE-103.3)
 
-When `extractSignatures` is called in a project without `tsconfig.json`, it returns:
+`extractSignatures` detects every supported stack present at `projectRoot` and runs each detected stack's preferred-tool chain, concatenating the resulting `ModuleSignatures[]` into one `SignatureGroundTruth`. Detection signals: `tsconfig.json` → TS, `pubspec.yaml` → Dart, `pyproject.toml`/`setup.py`/`setup.cfg` → Python. The `strategy` field reports the first stack-chain that succeeded; stacks whose preferred tool falls through surface as `warnings` entries while modules from successful chains still concatenate. When no stack is detected, the regex-fallback banner described in § Stack-fallthrough below is the sole output.
+
+## Dart strategy via `package:analyzer` (AC-STE-103.1 / .2)
+
+Dart projects route through the bundled helper at `adapters/_shared/dart/extract_signatures.dart`, which walks `lib/**/*.dart` via `package:analyzer ^7.0.0` and emits `ModuleSignatures[]` JSON to stdout. The helper's first invocation runs `dart pub get` against `adapters/_shared/dart/pubspec.yaml`; subsequent runs reuse the cached `.dart_tool/`. The TS wrapper spawns `dart run extract_signatures.dart <projectRoot>` and parses stdout. Failure modes (missing dart on PATH, `pub get` failure, non-zero exit, invalid JSON) emit a warning per AC-STE-72.5 shape and fall through to regex-fallback for the Dart stack while leaving any other detected stack's modules intact. Public/private filter follows Dart's leading-underscore convention; class members live inside the class signature text rather than as separate exports.
+
+## Python strategy via `griffe` (AC-STE-104.1 / .2)
+
+Python projects route through the user-installed `griffe` CLI (`pip install griffe>=0.40.0`). The TS wrapper derives the package name from `pyproject.toml` `[project].name` → `[tool.poetry].name` → `setup.cfg [metadata].name` → `setup.py setup(name=...)` regex → first `__init__.py`-bearing dir under `projectRoot` or `src/`, then spawns `griffe dump <package>` with `cwd = projectRoot`. The `griffeJsonToModuleSignatures` translator flattens griffe's recursive `module → members` tree into Schema Z's flat shape, mapping kinds: `function` → `function`; class with Enum/IntEnum/Flag/StrEnum base → `enum`; class with Protocol base → `interface`; attribute with `TypeAlias` annotation → `type`; PEP 695 `type-alias` kind → `type`; other attributes → `const`; `alias`-kind nodes (imports) dropped. Class members live inside the class signature, mirroring TS+Dart strategies. Missing griffe, missing package metadata, non-zero exit, or invalid JSON each emit the AC-STE-72.5 warning and fall through to regex-fallback for the Python stack.
+
+## Stack-fallthrough (AC-STE-72.5)
+
+When no supported stack is detected at `projectRoot`, `extractSignatures` returns:
 
 ```
 {
@@ -227,11 +239,18 @@ When `extractSignatures` is called in a project without `tsconfig.json`, it retu
 
 The banner is mandatory, not optional — reviewers will skim reference diffs as boilerplate, and without a visible warning the LLM-inferred signatures poison the docs (the exact failure mode STE-72 was written to prevent).
 
+## Toolchain probe + setup config (AC-STE-105.4 / .5)
+
+`probeToolchains(projectRoot)` from `adapters/_shared/src/toolchain_probe.ts` returns the per-stack mechanical-toolchain availability snapshot consumed by `/setup` (to render the AC-STE-105.2 stack-adaptive prompt) and by `/gate-check`'s `signature-strategy-honors-setup` probe (to detect "tool present at setup, gone now" drift). `/setup` records the chosen preferred strategy in `docs/.dpt-docs-toolchain.json` when `packages_mode == true`; the file's absence is the canonical "no recorded preference" form so `/gate-check` skips silently on pre-M27 projects.
+
 ## Cross-references
 
 - `adapters/_shared/src/docs_config.ts` — `readDocsConfig`, `DocsConfig`.
 - `adapters/_shared/src/docs_layout.ts` — `ensureCanonicalLayout`, `LayoutReport`.
 - `adapters/_shared/src/docs_nav_contract.ts` — `validateNavContract`, `runNavContractProbe`, `CANONICAL_ANCHORS`.
 - `adapters/_shared/src/impact_set.ts` — `computeImpactSet`, `filterPublicSymbols`, `isEmptyImpactSet`, `ImpactSet`, `SymbolChange`, `RouteChange`, `ConfigKeyChange`, `StateEventChange`.
-- `adapters/_shared/src/signature_extractor.ts` — `extractSignatures`, `validateGeneratedReference`, `SignatureGroundTruth`, `ModuleSignatures`, `ExportSignature`.
+- `adapters/_shared/src/signature_extractor.ts` — `extractSignatures`, `validateGeneratedReference`, `griffeJsonToModuleSignatures`, `SignatureGroundTruth`, `ModuleSignatures`, `ExportSignature`, `Strategy` (`typedoc | ts-morph | dart-analyzer | griffe | regex-fallback`).
+- `adapters/_shared/dart/extract_signatures.dart` — bundled Dart helper invoked by the dart-analyzer strategy.
+- `adapters/_shared/src/toolchain_probe.ts` — `probeToolchains`, `preferredFromStatus`, `ToolchainStatus`, `PreferredByStack`.
+- `adapters/_shared/src/signature_strategy_honors_setup.ts` — `runSignatureStrategyHonorsSetupProbe` (the AC-STE-105.3 /gate-check probe).
 - `docs/setup-docs-mode.md` — STE-68 `/setup` docs-mode prompt flow (source of `DocsConfig`).
