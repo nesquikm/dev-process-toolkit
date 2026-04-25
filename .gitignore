@@ -1,4 +1,5 @@
 .DS_Store
-.claude/
+.claude/settings.local.json
+.claude/worktrees/
 .mcp.json
 node_modules/
