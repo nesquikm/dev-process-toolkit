@@ -66,7 +66,12 @@ List<Map<String, dynamic>> _collectExports(
     final ann = member as AnnotatedNode;
     final sigOffset = ann.firstTokenAfterCommentAndMetadata.offset;
     final sigEnd = member.end;
-    if (sigOffset >= sigEnd) continue;
+    // Defensive bounds guard: a partially-resolved AST or analyzer ABI quirk
+    // could produce out-of-range offsets that turn substring() into a
+    // RangeError (the helper exits non-zero, the wrapper falls through to
+    // regex-fallback — but the failure mode is opaque in the user-visible
+    // warning). Skip the member instead of crashing.
+    if (sigOffset < 0 || sigEnd > source.length || sigOffset >= sigEnd) continue;
     final signature = source.substring(sigOffset, sigEnd);
     final doc = _docComment(ann);
     final startLoc = lineInfo.getLocation(sigOffset);

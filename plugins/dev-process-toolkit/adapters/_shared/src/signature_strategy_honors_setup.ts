@@ -90,8 +90,9 @@ export function runSignatureStrategyHonorsSetupProbe(
     const value = recorded[stack];
     if (!value || value === "regex-fallback") continue;
     if (!toolStillPresent(stack, value, status)) {
+      const install = installCommandFor(value);
       notes.push(
-        `docs/.dpt-docs-toolchain.json — ${stack}: setup recorded preferred strategy "${value}", actual is "regex-fallback".`,
+        `docs/.dpt-docs-toolchain.json — ${stack}: setup recorded preferred strategy "${value}", actual is "regex-fallback". Re-install via: ${install}.`,
       );
     }
   }
@@ -101,8 +102,25 @@ export function runSignatureStrategyHonorsSetupProbe(
     ok: false,
     notes,
     remedy:
-      "Re-install the missing toolchain or re-run /setup to update the recorded preference.",
+      "Re-install the missing toolchain (each note above carries the per-stack install command) and re-run /gate-check. If the regression is intentional, re-run /setup to update the recorded preference.",
   };
+}
+
+function installCommandFor(strategy: string): string {
+  switch (strategy) {
+    case "typedoc":
+      return "npm install --save-dev typedoc";
+    case "ts-morph":
+      // ts-morph is bundled with the plugin — should never appear in the
+      // failure path, but keep the row exhaustive for the type checker.
+      return "ts-morph is bundled with the plugin; reinstall the plugin if missing";
+    case "dart-analyzer":
+      return "Dart SDK from https://dart.dev/get-dart";
+    case "griffe":
+      return "pip install griffe>=0.40.0";
+    default:
+      return "see the strategy's documentation";
+  }
 }
 
 function toolStillPresent(

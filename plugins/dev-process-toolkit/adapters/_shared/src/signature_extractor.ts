@@ -379,10 +379,13 @@ function extractViaDartAnalyzer(projectRoot: string, options: ExtractOptions): D
       cwd: helperDir,
       stdout: "pipe",
       stderr: "pipe",
+      timeout: 60_000,
     });
     if (pg.exitCode !== 0) {
       const err = new TextDecoder().decode(pg.stderr).trim();
-      return { ok: false, reason: `dart pub get failed (exit ${pg.exitCode}): ${err}` };
+      const out = new TextDecoder().decode(pg.stdout).trim();
+      const detail = err || out || "no stderr/stdout";
+      return { ok: false, reason: `dart pub get failed (exit ${pg.exitCode}): ${detail}` };
     }
   }
 
@@ -390,6 +393,7 @@ function extractViaDartAnalyzer(projectRoot: string, options: ExtractOptions): D
     cwd: helperDir,
     stdout: "pipe",
     stderr: "pipe",
+    timeout: 60_000,
   });
   if (res.exitCode !== 0) {
     const err = new TextDecoder().decode(res.stderr).trim();
@@ -397,12 +401,16 @@ function extractViaDartAnalyzer(projectRoot: string, options: ExtractOptions): D
   }
   const out = new TextDecoder().decode(res.stdout).trim();
   if (!out) return { ok: false, reason: "empty stdout from dart-analyzer" };
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(out) as ModuleSignatures[];
-    return { ok: true, modules: parsed };
+    parsed = JSON.parse(out);
   } catch (e) {
     return { ok: false, reason: `invalid JSON from dart-analyzer: ${(e as Error).message}` };
   }
+  if (!Array.isArray(parsed)) {
+    return { ok: false, reason: "dart-analyzer output is not a JSON array" };
+  }
+  return { ok: true, modules: parsed as ModuleSignatures[] };
 }
 
 // --- griffe path (STE-104) -----------------------------------------------
@@ -444,6 +452,7 @@ function extractViaGriffe(projectRoot: string, options: ExtractOptions): GriffeR
     cwd: projectRoot,
     stdout: "pipe",
     stderr: "pipe",
+    timeout: 60_000,
   });
   if (res.exitCode !== 0) {
     const err = new TextDecoder().decode(res.stderr).trim();
@@ -482,6 +491,11 @@ function derivePackageName(projectRoot: string): string | null {
     if (m) return m[1] ?? null;
   }
   // Fallback: first __init__.py-bearing dir under projectRoot or src/
+  // Constrained to PEP 8-style package names: letters, digits, underscores
+  // only, must start with a letter or underscore. Anything else is dropped
+  // so a hostile or accidental directory name (e.g. "../foo", "evil; rm")
+  // can never reach the `griffe dump <pkg>` argument array.
+  const VALID_PKG = /^[A-Za-z_][A-Za-z0-9_]*$/;
   const candidates = [projectRoot, join(projectRoot, "src")];
   for (const candidate of candidates) {
     if (!existsSync(candidate)) continue;
@@ -493,6 +507,7 @@ function derivePackageName(projectRoot: string): string | null {
     }
     entries.sort();
     for (const entry of entries) {
+      if (!VALID_PKG.test(entry)) continue;
       const sub = join(candidate, entry);
       try {
         const stat = statSync(sub);
