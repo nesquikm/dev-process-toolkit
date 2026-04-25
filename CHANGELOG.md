@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [1.27.0] — 2026-04-24 — "Backfill"
+
+M25 sweeps the visible-staleness items the PR #4 ship-readiness audit surfaced: skill enumerations, version pins, archived-plan metadata, and 22 archived plans whose `status:` had drifted off canonical. Adds `/gate-check` probe #16 (archive plan-status invariant) plus the `/implement` Phase 4 prose that prevents future drift. No interface changes, no breaking changes — five mechanical FRs landing as one PR commit. Five FRs (STE-88, STE-89, STE-90, STE-91, STE-92).
+
+### Added
+
+- **STE-92 — Archive plan-status normalization + `/gate-check` probe #16.** New `/gate-check` probe #16 "Archive plan-status invariant" at `adapters/_shared/src/archive_plan_status.ts` walks every `specs/plan/archive/M*.md` and asserts frontmatter `status: archived` AND a non-null `archived_at` ISO-8601 string. Drift → **GATE FAILED** with `file:line — reason` notes in NFR-10 canonical shape. Backfill commit normalized 22 of 24 archived plans (M1–M11, M16, M18, M19, M20, M21, M22, M23 + M12–M15 archived_at fill) — the probe ships green. Dogfood: this would have caught the M20/M21/M23/M24 drift at gate time. STE-82-compliant integration test at `tests/gate-check-archive-plan-status.test.ts` with positive + 5 negative cases (status: active / complete / draft / archived_at null / archived_at absent / archived_at bare-key) plus a multi-violation aggregation case.
+
+### Changed
+
+- **STE-88 — CLAUDE.md skill enumeration fix.** `CLAUDE.md:15` drops the 12-skill name enumeration in favour of `→ 14 slash commands`, matching `README.md`'s phrasing. Future skill additions only nudge the count rather than invalidating the list.
+- **STE-89 — Stale version pin sweep in `docs/`.** `docs/skill-anatomy.md:179` rewritten as final-state prose ("No skills in this plugin use this frontmatter…") with no version pin or skill count. `docs/adaptation-guide.md:111` rewritten the same way ("The plugin ships exactly one agent:"). `docs/parallel-execution.md:31`'s `As of v1.13.0` pin is preserved — it dates a concrete behavior change and is out of scope.
+- **STE-90 — `M24.md` archived-plan metadata refresh.** `specs/plan/archive/M24.md` frontmatter flipped `status: active` → `archived` with `archived_at: 2026-04-24T19:54:51+04:00` (the git-mv commit time). Lines 10–11 prose updated to "**Release target:** v1.26.0. **Codename:** \"Symmetry\"." and "**Status:** shipped 2026-04-24 as v1.26.0 \"Symmetry\"." — body unchanged.
+- **STE-91 — README workflow advertisement for `/docs` + `/ship-milestone`.** README's command table now advertises `/docs` (alongside the documentation/verification skills) and `/ship-milestone` (after `/pr` at the release step). Restores parity with the line-3 "14 commands" advertised count.
+- **STE-92 — `/implement` Phase 4 prose update.** `skills/implement/SKILL.md:236` § Milestone Archival now flips the closing milestone's `specs/plan/<M#>.md` frontmatter `status: active` → `status: archived` and sets `archived_at` to the same timestamp used for the FR flips, in the **same atomic commit** as the FR moves and the plan `git mv`. Prevents future drift from the source — the probe is the read-side; this is the write-side. Locked by 3 new prose tests in `tests/implement-phase4-close.test.ts`.
+
+Total test count at release: 704 tests, 0 failures, 0 errors.
+
 ## [1.26.0] — 2026-04-24 — "Symmetry"
 
 M24 completes STE-54's half-finished active/archive symmetry and closes three M23-dogfood paper cuts that deterministic checks couldn't catch. Two new `/gate-check` probes (active-side ticket-state drift + guessed-tracker-ID scan), three skill-local `## Rules` additions (tracker-write routing + conversational-leak rule), and one additive Provider widening. One FR (STE-87).
