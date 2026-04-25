@@ -20,7 +20,15 @@
 //   • Dart:   dart-analyzer via bundled helper (STE-103)  → regex-fallback
 //   • Python: griffe (STE-104)                            → regex-fallback
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { Project, SyntaxKind, type Node } from "ts-morph";
@@ -46,6 +54,12 @@ export interface ExtractOptions {
    * (default), resolves to the sibling `dart/` next to this source file.
    */
   dartHelperDir?: string;
+  /**
+   * Explicit path to a griffe binary, or null to force-skip the griffe
+   * strategy. When undefined (default), the resolver looks up `griffe` on
+   * `PATH`. Test injection point for the AC-STE-104.7 fallthrough cases.
+   */
+  griffeBinary?: string | null;
 }
 
 export interface ExportSignature {
@@ -109,7 +123,17 @@ export function extractSignatures(
     }
   }
 
-  // Python (STE-104) lands here as a third stack-chain.
+  if (stacks.python) {
+    const py = extractViaGriffe(projectRoot, options);
+    if (py.ok) {
+      if (strategy === "regex-fallback") strategy = "griffe";
+      modules = modules.concat(py.modules);
+    } else {
+      warnings.push(
+        `griffe fell through to regex-fallback: ${py.reason}; manual review advised.`,
+      );
+    }
+  }
 
   return { strategy, modules, warnings };
 }
@@ -379,6 +403,291 @@ function extractViaDartAnalyzer(projectRoot: string, options: ExtractOptions): D
   } catch (e) {
     return { ok: false, reason: `invalid JSON from dart-analyzer: ${(e as Error).message}` };
   }
+}
+
+// --- griffe path (STE-104) -----------------------------------------------
+
+interface GriffeOk {
+  ok: true;
+  modules: ModuleSignatures[];
+}
+interface GriffeFail {
+  ok: false;
+  reason: string;
+}
+type GriffeResult = GriffeOk | GriffeFail;
+
+function resolveGriffeBinary(options: ExtractOptions): string | null {
+  if (options.griffeBinary === null) return null;
+  if (typeof options.griffeBinary === "string" && options.griffeBinary.length > 0) {
+    return existsSync(options.griffeBinary) ? options.griffeBinary : null;
+  }
+  const res = Bun.spawnSync(["which", "griffe"], { stdout: "pipe", stderr: "pipe" });
+  if (res.exitCode !== 0) return null;
+  const resolved = new TextDecoder().decode(res.stdout).trim();
+  if (!resolved || !existsSync(resolved)) return null;
+  return resolved;
+}
+
+function extractViaGriffe(projectRoot: string, options: ExtractOptions): GriffeResult {
+  const griffeBin = resolveGriffeBinary(options);
+  if (!griffeBin) return { ok: false, reason: "griffe not found on PATH" };
+  const pkgName = derivePackageName(projectRoot);
+  if (!pkgName) {
+    return {
+      ok: false,
+      reason:
+        "could not derive package name (checked pyproject.toml, setup.cfg, setup.py, top-level __init__.py)",
+    };
+  }
+  const res = Bun.spawnSync([griffeBin, "dump", pkgName], {
+    cwd: projectRoot,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (res.exitCode !== 0) {
+    const err = new TextDecoder().decode(res.stderr).trim();
+    return { ok: false, reason: `griffe exit ${res.exitCode}: ${err}` };
+  }
+  const out = new TextDecoder().decode(res.stdout).trim();
+  if (!out) return { ok: false, reason: "empty stdout from griffe" };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(out);
+  } catch (e) {
+    return { ok: false, reason: `invalid JSON from griffe: ${(e as Error).message}` };
+  }
+  return { ok: true, modules: griffeJsonToModuleSignatures(parsed, projectRoot) };
+}
+
+function derivePackageName(projectRoot: string): string | null {
+  const pyproject = join(projectRoot, "pyproject.toml");
+  if (existsSync(pyproject)) {
+    const content = readFileSync(pyproject, "utf8");
+    const projName = extractTomlSectionName(content, "project");
+    if (projName) return projName;
+    const poetryName = extractTomlSectionName(content, "tool.poetry");
+    if (poetryName) return poetryName;
+  }
+  const setupCfg = join(projectRoot, "setup.cfg");
+  if (existsSync(setupCfg)) {
+    const content = readFileSync(setupCfg, "utf8");
+    const cfgName = extractCfgMetadataName(content);
+    if (cfgName) return cfgName;
+  }
+  const setupPy = join(projectRoot, "setup.py");
+  if (existsSync(setupPy)) {
+    const content = readFileSync(setupPy, "utf8");
+    const m = content.match(/setup\s*\([^)]*\bname\s*=\s*['"]([^'"]+)['"]/);
+    if (m) return m[1] ?? null;
+  }
+  // Fallback: first __init__.py-bearing dir under projectRoot or src/
+  const candidates = [projectRoot, join(projectRoot, "src")];
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue;
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(candidate);
+    } catch {
+      continue;
+    }
+    entries.sort();
+    for (const entry of entries) {
+      const sub = join(candidate, entry);
+      try {
+        const stat = statSync(sub);
+        if (!stat.isDirectory()) continue;
+      } catch {
+        continue;
+      }
+      if (existsSync(join(sub, "__init__.py"))) return entry;
+    }
+  }
+  return null;
+}
+
+function extractTomlSectionName(content: string, section: string): string | null {
+  const escaped = section.replace(/\./g, "\\.");
+  const re = new RegExp(`^\\[${escaped}\\][^\\[]*?^\\s*name\\s*=\\s*['"]([^'"]+)['"]`, "ms");
+  const m = re.exec(content);
+  return m && m[1] ? m[1] : null;
+}
+
+function extractCfgMetadataName(content: string): string | null {
+  const re = /^\[metadata\][^\[]*?^\s*name\s*=\s*([^\n]+)$/ms;
+  const m = re.exec(content);
+  return m && m[1] ? m[1].trim() : null;
+}
+
+/**
+ * Translate griffe's recursive `module → members` JSON tree into the flat
+ * `ModuleSignatures[]` shape (Schema Z). One ModuleSignatures entry per
+ * module-kind node; each module's function/class/attribute children become
+ * ExportSignatures. Class members live inside the class signature
+ * (mirroring TS-side handling) — they are not flattened to top-level
+ * (AC-STE-104.2).
+ */
+export function griffeJsonToModuleSignatures(
+  json: unknown,
+  projectRoot: string,
+): ModuleSignatures[] {
+  const modules: ModuleSignatures[] = [];
+  if (json && typeof json === "object" && !Array.isArray(json)) {
+    for (const root of Object.values(json as Record<string, unknown>)) {
+      walkGriffeModule(root, projectRoot, modules);
+    }
+  }
+  modules.sort((a, b) => a.modulePath.localeCompare(b.modulePath));
+  return modules;
+}
+
+function walkGriffeModule(
+  node: unknown,
+  projectRoot: string,
+  modules: ModuleSignatures[],
+): void {
+  if (!isPlainObject(node)) return;
+  if (node.kind !== "module") return;
+  const exports: ExportSignature[] = [];
+  const members = isPlainObject(node.members) ? node.members : {};
+  const filepath = typeof node.filepath === "string" ? node.filepath : "";
+  for (const [memberName, child] of Object.entries(members)) {
+    if (!isPlainObject(child)) continue;
+    if (child.kind === "module") {
+      walkGriffeModule(child, projectRoot, modules);
+      continue;
+    }
+    if (child.kind === "alias") continue;
+    if (isPrivatePythonName(memberName)) continue;
+    const exp = griffeNodeToExport(child, memberName, filepath, projectRoot);
+    if (exp) exports.push(exp);
+  }
+  exports.sort((a, b) => a.name.localeCompare(b.name));
+  const modulePath = filepath
+    ? toPosixRelative(projectRoot, filepath)
+    : typeof node.name === "string"
+      ? node.name
+      : "";
+  if (modulePath) modules.push({ modulePath, exports });
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function isPrivatePythonName(name: string): boolean {
+  if (!name.startsWith("_")) return false;
+  if (name.startsWith("__") && name.endsWith("__")) return false;
+  return true;
+}
+
+function griffeNodeToExport(
+  node: Record<string, unknown>,
+  name: string,
+  modulePath: string,
+  projectRoot: string,
+): ExportSignature | null {
+  const kind = mapGriffeKind(node);
+  if (!kind) return null;
+  const signature = reconstructPythonSignature(node, name);
+  const docstring = isPlainObject(node.docstring) ? node.docstring : undefined;
+  const docComment =
+    docstring && typeof docstring.value === "string" ? docstring.value : undefined;
+  const lineno = typeof node.lineno === "number" ? node.lineno : 1;
+  const endlineno = typeof node.endlineno === "number" ? node.endlineno : lineno;
+  return {
+    name,
+    kind,
+    signature,
+    docComment,
+    sourceFile: modulePath ? toPosixRelative(projectRoot, modulePath) : "",
+    sourceLineStart: lineno,
+    sourceLineEnd: endlineno,
+  };
+}
+
+function mapGriffeKind(node: Record<string, unknown>): ExportSignature["kind"] | null {
+  const k = node.kind;
+  if (k === "function") return "function";
+  if (k === "class") {
+    const baseNames = griffeBaseNames(node);
+    if (
+      baseNames.some(
+        (n) => n === "Enum" || n === "IntEnum" || n === "Flag" || n === "IntFlag" || n === "StrEnum",
+      )
+    ) {
+      return "enum";
+    }
+    if (baseNames.some((n) => n === "Protocol")) return "interface";
+    return "class";
+  }
+  if (k === "attribute") {
+    const ann = isPlainObject(node.annotation) ? node.annotation : undefined;
+    if (ann && ann.name === "TypeAlias") return "type";
+    return "const";
+  }
+  if (k === "type-alias") return "type";
+  return null;
+}
+
+function griffeBaseNames(node: Record<string, unknown>): string[] {
+  const bases = Array.isArray(node.bases) ? node.bases : [];
+  const names: string[] = [];
+  for (const b of bases) {
+    if (isPlainObject(b) && typeof b.name === "string") names.push(b.name);
+  }
+  return names;
+}
+
+function reconstructPythonSignature(node: Record<string, unknown>, name: string): string {
+  const k = node.kind;
+  if (k === "function") {
+    const params = Array.isArray(node.parameters) ? node.parameters : [];
+    const paramStrs: string[] = [];
+    for (const p of params) {
+      if (!isPlainObject(p)) continue;
+      paramStrs.push(formatParam(p));
+    }
+    const ret = formatExpr(node.returns);
+    return `def ${name}(${paramStrs.join(", ")})${ret ? ` -> ${ret}` : ""}:`;
+  }
+  if (k === "class") {
+    const bases = Array.isArray(node.bases) ? node.bases : [];
+    const baseStrs = bases.map((b) => formatExpr(b)).filter((s) => s.length > 0);
+    return `class ${name}${baseStrs.length > 0 ? `(${baseStrs.join(", ")})` : ""}:`;
+  }
+  if (k === "attribute") {
+    const ann = formatExpr(node.annotation);
+    const value = node.value !== undefined ? formatExpr(node.value) : "";
+    let s = name;
+    if (ann) s += `: ${ann}`;
+    if (value) s += ` = ${value}`;
+    return s;
+  }
+  if (k === "type-alias") {
+    const value = formatExpr((node as Record<string, unknown>).value);
+    return `type ${name}${value ? ` = ${value}` : ""}`;
+  }
+  return name;
+}
+
+function formatExpr(expr: unknown): string {
+  if (expr == null) return "";
+  if (typeof expr === "string") return expr;
+  if (isPlainObject(expr) && typeof expr.name === "string") return expr.name;
+  return "";
+}
+
+function formatParam(p: Record<string, unknown>): string {
+  const name = typeof p.name === "string" ? p.name : "";
+  const ann = formatExpr(p.annotation);
+  let s = name;
+  if (ann) s += `: ${ann}`;
+  if (p.default !== null && p.default !== undefined) {
+    const def = formatExpr(p.default);
+    if (def) s += ` = ${def}`;
+  }
+  return s;
 }
 
 // --- Validator (AC-STE-72.4) ---------------------------------------------
