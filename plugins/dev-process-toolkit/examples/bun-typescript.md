@@ -4,14 +4,16 @@ Stack-specific guidance for projects scaffolded with `bun init` against TypeScri
 
 ## Project layout
 
-Bun's default scaffold:
+Bun's default scaffold (toolkit policy: `src/`-co-located tests, see `docs/patterns.md` § Test Layout Policy):
 
 ```
 bun.lock                 # lockfile (replaces package-lock.json)
 package.json             # `"type": "module"` recommended
 tsconfig.json            # strict, ESM, `module: ESNext`
-src/index.ts
-tests/                   # *.test.ts colocated or under tests/
+src/
+├── index.ts
+├── index.test.ts        # co-located unit test (toolkit default — STE-128)
+└── .placeholder.test.ts # zero-match shield until first real test lands (see below)
 ```
 
 `bun.lock` presence is the canonical Bun-stack marker. `/setup` detects Bun via `bun.lock` OR `package.json` with `"packageManager": "bun@..."` OR `bunfig.toml`.
@@ -39,9 +41,9 @@ test("placeholder — delete once the project ships its first real test", () => 
 });
 ```
 
-**File path:** `tests/.placeholder.test.ts`. The leading dot keeps it sorted at the top of `ls` output, signalling its scaffolding role.
+**File path:** `src/.placeholder.test.ts` (toolkit default, co-located per STE-128). Override to `tests/.placeholder.test.ts` only if the project elected `tests/-mirror` in CLAUDE.md `## Testing Conventions` § Layout. The leading dot keeps it sorted at the top of `ls` output, signalling its scaffolding role.
 
-**When to delete:** the moment a real test file lands in `tests/`. The `bun-zero-match-placeholder` probe is vacuous in that case and won't flag the deletion.
+**When to delete:** the moment a real co-located test file lands in `src/` (or a real `tests/<x>.test.ts` for projects on the mirror layout). The `bun-zero-match-placeholder` probe is vacuous in that case and won't flag the deletion.
 
 **When NOT to delete:** if the project still has zero real tests. Removing the placeholder before a real test exists will break the very next `/gate-check`.
 

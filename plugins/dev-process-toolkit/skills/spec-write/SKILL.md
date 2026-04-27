@@ -107,13 +107,19 @@ This order matters because each spec builds on the previous one.
 
 ### 3. For each spec file
 
-#### requirements.md (WHAT to build)
+#### requirements.md (WHAT to build — cross-cutting only)
+
+**Scope (STE-129 AC-STE-129.3): cross-cutting only.** `specs/requirements.md` captures concerns that span multiple FRs — auth scheme, observability surface, tenancy model, accessibility posture, etc. Per-FR detail lives in `specs/frs/<id>.md` exclusively (M18 STE-60). When `/spec-write` is invoked on a per-FR feature, route the work straight to `specs/frs/` (per § 0b) and **do NOT touch `specs/requirements.md`**. The `requirements-md-no-placeholder` gate probe (gate-check #29) flags any `### FR-N: [Feature Name]` heading that survives in `requirements.md` as drift.
+
+Only fire the per-section flow below when the user is filling in **genuinely cross-cutting** requirements — typically the first time `/spec-write` runs on a new project, or when an architectural concern emerges that affects multiple FRs.
 
 Ask the questions in this order, one at a time. Wait for each answer before asking the next — do not bundle them into a single turn even when the user is responsive.
 
-Ask what this project is, who it is for, and what problem it solves. Wait for the answer. Then ask what the main features are (list them as functional requirements). Wait for the answer. Then ask, for each feature, what the acceptance criteria are (binary pass/fail). Wait for the answer. Then ask what is explicitly out of scope. Wait for the answer. Then ask whether there are any non-functional requirements (performance, security, accessibility).
+Ask what this project is, who it is for, and what problem it solves. Wait for the answer. Then ask what cross-cutting functional requirements exist (auth, observability, accessibility, tenancy — anything that spans multiple FRs). Wait for the answer. Then ask what is explicitly out of scope (project-wide, not per-FR). Wait for the answer. Then ask whether there are any non-functional requirements (performance, security, accessibility).
 
-Write the answers into the spec using the template structure with per-FR prefixes derived via `acPrefix()` (tracker ID in tracker mode, short-ULID tail in `mode: none`). AC lines take the shape `AC-<PREFIX>.<N>: ...`.
+Per-feature acceptance criteria are NOT collected here — those go in `specs/frs/<id>.md` via § 0b's FR creation path. If the user names a specific feature, branch into the FR-creation flow rather than expanding § 2 in `requirements.md`.
+
+Write the answers into the spec using the template structure with per-AC prefixes derived via `acPrefix()` (tracker ID in tracker mode, short-ULID tail in `mode: none`). AC lines take the shape `AC-<PREFIX>.<N>: ...`.
 
 **Stable anchor IDs (STE-18):** Every `### <PREFIX>:` heading you generate or edit must carry its `{#<PREFIX>}` anchor on the same line, matching the template form `### STE-42: User login {#STE-42}` (tracker mode) or `### VDTAF4: User login {#VDTAF4}` (`mode: none`). Same rule applies in `plan.md` for `## M{N}: ...` headings — the `{#M{N}}` anchor must be present. These anchors are the pointer targets for archival (STE-22) and for cross-references in the traceability matrix, so they must survive heading renames. If you encounter any milestone or FR heading without its anchor, **flag it as a warning** in the report (step 7) and offer to add it — never silently edit around it.
 
@@ -204,12 +210,39 @@ If **no significant risks** found, report "No major risks identified" and move o
 
 ### 7. Report
 
-Summarize what was completed:
+`/spec-write` **MUST emit** a closing summary on every successful run, regardless of mode (`linear` / `jira` / `none`) or invocation path (new-FR creation, the `importFromTracker` import path on a tracker-id resolve miss, or a per-section edit). This is unconditional — non-interactive `-p` mode is **not** an exception (STE-127 AC-STE-127.1, AC-STE-127.3, AC-STE-127.4).
+
+Reference shape — emit at minimum the three required signals (one row per FR touched, one row per spec file edited):
+
+```
+## /spec-write summary
+
+| FR id      | FR file path                | Milestone |
+|------------|-----------------------------|-----------|
+| <STE-XXX>  | specs/frs/STE-XXX.md        | M<N>      |
+| <VDTAF4>   | specs/frs/VDTAF4.md         | M<N>      |  <!-- mode: none renders the short-ULID -->
+
+| Spec file              | Change          |
+|------------------------|-----------------|
+| specs/plan/M<N>.md     | row added/updated |
+| specs/technical-spec.md| edge case backfilled |
+
+Open questions / risks / inconsistencies (if any):
 - Which specs are done vs. still need work
-- Any inconsistencies found and resolved (or still pending)
-- Risks identified (if any)
-- Any open questions flagged during the process
-- Remind: "Run `/dev-process-toolkit:implement <milestone>` when specs are ready"
+- Inconsistencies resolved or still pending
+- Risks identified (severity)
+- Open questions flagged during the process
+
+Next: Run `/dev-process-toolkit:implement <milestone>` when specs are ready.
+```
+
+**Size floor (AC-STE-127.2).** The summary must be >=100 bytes on stdout — the smoke-test driver guards this via `wc -c` on the captured log. The two-table-plus-prose shape above clears that floor naturally; do not collapse to a single line. The byte floor is the regression signal that Step 7 fired at all (the pre-M33 prose said "Summarize what was completed" and `-p` mode silently skipped the summary, leaving stdout at 1 byte).
+
+**Mode-adaptive id rendering (AC-STE-127.3).** Tracker mode renders the tracker ID (e.g., `STE-127`); `mode: none` renders the short-ULID tail returned by `acPrefix(spec)` (e.g., `VDTAF4`). The same id appears in the FR filename (`Provider.filenameFor(spec)`) — the row's `FR id` and `FR file path` columns must agree.
+
+**Import-path coverage (AC-STE-127.4).** When `importFromTracker(...)` ran (resolver step 0a `tracker-id`/`url` + `findFRByTrackerRef` miss), the imported FR appears in the summary table just like a freshly-created one — the operator must see which tracker ID landed in `specs/frs/` without filesystem inspection.
+
+The summary is the per-skill console-status contract that `/setup`, `/implement`, `/gate-check`, `/spec-review`, and `/simplify` all honor; `/spec-write` was the outlier pre-M33.
 
 ## Rules
 

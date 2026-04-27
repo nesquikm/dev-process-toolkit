@@ -7,12 +7,23 @@
 <!-- ADAPT: Examples — Vitest with jsdom for unit, Playwright for e2e (TypeScript); flutter_test with mocktail, integration_test for e2e (Flutter); pytest with pytest-asyncio, httpx for API tests (Python) -->
 
 ## 2. Test Structure
+
+**Layout policy: `src/`-co-located** (toolkit default per `docs/patterns.md` § Test Layout Policy).
+
+Each `src/<module>.ts` has a sibling `src/<module>.test.ts` next to it. No separate `tests/` mirror. This matches the gate's existing permissive behavior, removes the placeholder workaround needed for the mirror layout, and follows mainstream Bun/TS convention.
+
 ```
-tests/
-├── unit/
-├── integration/
+src/
+├── foo.ts
+├── foo.test.ts        # co-located unit test
+├── bar.ts
+├── bar.test.ts
 └── e2e/
+    ├── checkout.ts
+    └── checkout.test.ts
 ```
+
+Override to `tests/-mirror` only if your project has a strong reason — declare it in CLAUDE.md `## Testing Conventions` § Layout (e.g., `- **Layout:** tests/-mirror`); `/gate-check` probe #20 reads the declaration and enforces it.
 
 ## 3. Conventions
 

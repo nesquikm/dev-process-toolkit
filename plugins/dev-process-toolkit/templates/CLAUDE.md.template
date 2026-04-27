@@ -91,7 +91,7 @@ npm run typecheck && npm run lint && npm run test
 - **Framework:** <!-- e.g., Vitest, pytest, flutter_test -->
 - **Mocking:** <!-- e.g., vi.mock(), mocktail, unittest.mock -->
 - **File naming:** <!-- e.g., *.test.ts, *_test.dart, test_*.py -->
-- **Structure:** <!-- e.g., tests/ mirrors src/, colocated with source -->
+- **Layout:** src/-co-located <!-- toolkit default (STE-128); each `src/foo.ts` has a sibling `src/foo.test.ts`. Override to `tests/-mirror` if needed; `/gate-check` probe #20 reads this line. -->
 - **Coverage target:** <!-- e.g., >=80% for services -->
 
 ## DO NOT
