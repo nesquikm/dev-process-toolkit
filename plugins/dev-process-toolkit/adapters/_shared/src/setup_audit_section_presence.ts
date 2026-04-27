@@ -30,7 +30,13 @@ export interface SetupAuditSectionReport {
   violations: SetupAuditSectionViolation[];
 }
 
-function hasDefaultApplicableOutcomes(content: string): boolean {
+/**
+ * Exposed for cross-module reuse (STE-123 AC-STE-123.1) — /setup step 8a's
+ * audit-section post-condition delegates to the same predicate this probe
+ * uses at gate-check time. Single source of truth for the trigger condition
+ * (Schema L `branch_template:` populated OR `## Docs` block present).
+ */
+export function hasDefaultApplicableOutcomes(content: string): boolean {
   // Default-applied step outcomes that must trigger an audit entry per
   // STE-108: branch_template (step 7c default) and any non-default
   // ## Docs flag (step 7d). Without one of these, the toolkit-managed

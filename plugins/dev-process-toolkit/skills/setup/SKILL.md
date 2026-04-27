@@ -306,11 +306,35 @@ If spec files were created, ask the user:
 
 > "Spec templates are ready. Want me to help you fill them in now? I can walk you through defining requirements, technical decisions, and the implementation plan. (Run `/dev-process-toolkit:spec-write`)"
 
+### 8a. Audit-section post-condition (STE-123)
+
+`verification:` runs unconditionally before step 8b's bootstrap commit, regardless of prompt mode. Closes the M31-class discretionary-check gap where per-step `appendAuditEntry` calls in 7b/7c/7d could be skipped, leaving CLAUDE.md without the `## /setup audit` section even though default-applied outcomes are visible (probe-19 trigger condition met).
+
+Procedure:
+
+1. Read CLAUDE.md once.
+2. Call `hasDefaultApplicableOutcomes(content)` from `adapters/_shared/src/setup_audit_section_presence.ts` (the same predicate probe-19 uses at gate time — single source of truth, AC-STE-123.1).
+3. Branch:
+   - **false** ⇒ no-op, continue to step 8b. Vacuous on fully-interactive runs where every prompt was answered explicitly (AC-STE-123.5).
+   - **true AND** the literal string `"## /setup audit"` is present in the file ⇒ no-op, continue. Per-step appends already populated the section.
+   - **true AND** the audit heading is absent ⇒ call `synthesizeAuditSection(claudeMdPath, resolvedDefaults)` from `adapters/_shared/src/setup/synthesize_audit.ts`. Pass the **in-scope resolved-defaults table** populated during steps 7b/7c/7d (AC-STE-123.2) — never re-derive from CLAUDE.md, since re-parsing reintroduces the brittleness this step closes. The helper is idempotent (`(step, field)` dedup; AC-STE-123.3); existing entries are preserved verbatim.
+
+On `AuditPostconditionUnsatisfiable` (the resolved-defaults table is empty but the file shows default-applied outcomes — invariant violation, AC-STE-123.4), refuse with NFR-10 canonical shape and abort /setup before step 8b can commit malformed output:
+
+```
+setup: audit-section post-condition unsatisfiable — resolved-defaults table empty
+but CLAUDE.md shows default-applied outcomes; investigate.
+Remedy: re-run /setup interactively to populate per-step audit entries via 7b/7c/7d.
+Context: file=<path>, step=8a, post-condition=audit-section-presence
+```
+
+This step is the deterministic byproduct of any autonomous /setup run; probe-19 satisfaction is guaranteed at the file-shape level when /setup returns clean. Probe-19 stays at gate time as the safety net for paths that bypass /setup (manual CLAUDE.md edits, downstream skills that mutate the file).
+
 ### 8b. Bootstrap commit (STE-109)
 
 `default: commit` — autonomous mode proceeds with the commit; interactive mode prompts. The bootstrap is mechanical and the diff is reviewable post-commit (AC-STE-109.3).
 
-After all writes (steps 5–8) settle and the audit log is populated, /setup produces a single bootstrap commit so the canonical /setup output set lands at HEAD instead of leaking into the first feature PR (AC-STE-109.1).
+After all writes (steps 5–8) settle, step 8a's audit-section post-condition has run, and the audit log is populated, /setup produces a single bootstrap commit so the canonical /setup output set lands at HEAD instead of leaking into the first feature PR (AC-STE-109.1).
 
 Procedure:
 
