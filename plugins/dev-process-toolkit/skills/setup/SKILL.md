@@ -200,6 +200,11 @@ If the user picks 2–4, run the flow in `docs/setup-tracker-mode.md` in full:
 3. Run a harmless test call (Linear `list_teams` / Jira empty `search`). On failure, surface an NFR-10 canonical-shape error and refuse to record mode — the project remains `mode: none` (AC-STE-9.4, AC-STE-9.5).
 4. For Jira: pipe `GET /rest/api/3/field` response into `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/jira/src/discover_field.ts` and record `jira_ac_field: customfield_XXXXX` in the section (AC-STE-9.6).
 5. Append the `## Task Tracking` section to CLAUDE.md per Schema L with the resolved keys (one per line).
+6. **STE-117 workspace binding.** `requires-input: workspace binding (team + project) is workspace-wide; no safe default exists.` After step 5 lands, prompt for the binding values — closed-set keys per `docs/patterns.md` § Schema L Workspace binding sub-sections:
+   - **Linear:** call `mcp__linear__list_teams` (display each team's `key` + `name`); after the user picks a team, call `mcp__linear__list_projects --team <selected>` and display project names. The user picks one project. Surface the live list so the operator never types from memory; reject the call with NFR-10 canonical shape if either MCP probe fails.
+   - **Jira:** prompt for the Jira project key directly (no live probe — Jira project enumeration is per-instance and out of MCP scope).
+   Write the values into a `### Linear` (with `team:` + `project:`) or `### Jira` (with `project:`) sub-section appended after the Schema L canonical keys. The sub-section parser is greedy until the next `##` / `###` heading or EOF (AC-STE-117.1).
+   Append a `## /setup audit` entry per STE-108 conventions: `step:7b (workspace_binding) value:"<adapter>:<team>/<project>" reason:"prompt resolved"`. Under non-interactive mode without a pre-baked answer, abort with NFR-10 canonical shape naming step 7b workspace-binding and the missing input.
 
 See `docs/setup-tracker-mode.md` for the exact question prompt, canonical error shapes, and JSON diff preview format. Do not inline those procedures here — NFR-1 keeps this skill under 300 lines.
 

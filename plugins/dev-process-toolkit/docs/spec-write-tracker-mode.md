@@ -18,7 +18,7 @@ The order is load-bearing. Trackers skip cancelled numbers, renumber across work
    - Filename: `<tracker-id>.md`
    - Plan-file table row: `| <tracker-id> | Title | <tracker>:<tracker-id> |`
    - Prose cross-references: `"closes <tracker-id>"`, `"supersedes <tracker-id>"`
-2. **Create the tracker ticket.** Call `Provider.sync(spec)` → `upsertTicketMetadata(null, …)`. The tracker allocator returns the real ID (e.g., `STE-67`).
+2. **Create the tracker ticket.** Call `Provider.sync(spec)` → `upsertTicketMetadata(null, …)`. **STE-117 workspace binding.** Before invoking, call `readWorkspaceBinding(claudeMdPath, "linear" | "jira")` from `adapters/_shared/src/workspace_binding.ts` and pass `team` + `project` into the call so the new ticket lands on the correct project board. Linear adapter rejects creates that lack `project` per the silent-landing trap; Jira adapter rejects creates that lack `project` per the Jira API requirement. The tracker allocator returns the real ID (e.g., `STE-67`).
 3. **Substitute globally.** Replace every `<tracker-id>` with the returned ID in one pass.
 4. **Write the FR file.** Only after substitution completes — the file on disk never contains a placeholder.
 

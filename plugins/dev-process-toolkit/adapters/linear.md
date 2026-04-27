@@ -48,7 +48,7 @@ AC-37.5).
 | `pull_acs` | `mcp__linear__get_issue` | `id` | Parse description section `## Acceptance Criteria`. |
 | `push_ac_toggle` | `mcp__linear__save_issue` | `id`, `description` | Rewrite description with toggled box via semantic markdown diff (AC-37.5). |
 | `transition_status` | `mcp__linear__save_issue` | `id`, **`state`** (accepts state type, name, or ID — no team.states lookup needed) | Pass the canonical status name resolved via `status_mapping` (e.g., `"In Progress"`). **Never** pass `stateId`, `status`, or any other variant — Linear silently ignores unknown keys. |
-| `upsert_ticket_metadata` | `mcp__linear__save_issue` (omit `id` to create, pass `id` to update) | `id?`, `title`, `description`, **`assignee`** (accepts user ID, name, email, or `"me"`) | Body MUST include the back-link (AC-37.6). **Never** pass `assigneeId` or `assigneeEmail` — Linear silently ignores unknown keys. |
+| `upsert_ticket_metadata` | `mcp__linear__save_issue` (omit `id` to create, pass `id` to update) | `id?`, `title`, `description`, **`assignee`** (accepts user ID, name, email, or `"me"`), **`team?`** (required on create — sourced from `### Linear`.team if not passed), **`project?`** (required on create — sourced from `### Linear`.project if not passed) | Body MUST include the back-link (AC-37.6). **Never** pass `assigneeId` or `assigneeEmail` — Linear silently ignores unknown keys. **STE-117:** on create, both `team` and `project` MUST be present (resolved from the call argument or from the workspace binding sub-section); reject the call if neither source supplies a value. On update (with `id`), `team` and `project` are not forwarded — Linear cannot reassign team/project on an existing issue without explicit operator intent. |
 
 ### Silent no-op trap (FR-67 AC-67.2)
 
@@ -68,6 +68,18 @@ that at least one of `updatedAt` / `startedAt` / `completedAt` advanced
 past the pre-call value before treating the call as successful. If none
 advanced, the write was silently no-op'd — treat it as a hard failure
 and surface an NFR-10 canonical-shape error.
+
+**Missing `project` on create is a silent landing failure (STE-117).**
+Linear's `mcp__linear__save_issue` requires `team` (the call fails loudly
+without it) but treats `project` as optional. A create call that omits
+`project` succeeds — the ticket lands in the team's default view, outside
+the user's expected project board. The adapter MUST read `### Linear`.project
+from `CLAUDE.md` (via `readWorkspaceBinding(claudeMdPath, "linear")`) and
+forward it as the `project` field. If neither the call argument nor the
+sub-section value is available, **reject the create** with NFR-10 canonical
+shape rather than silently landing in the no-project default. Discovered
+2026-04-27 during M30 spec-write when STE-115 / STE-116 were created
+without project.
 
 `adapters/_shared/src/tracker_provider.ts` encodes this as
 `TrackerWriteNoOpError`; `TrackerProvider.claimLock` and
@@ -146,13 +158,20 @@ observed status; operators fix either by transitioning the ticket to
    advanced before treating the call as successful.
 3. Unknown `status` values fail with NFR-10 canonical shape.
 
-### `upsert_ticket_metadata(ticket_id_or_null, title, description) → ticket_id`
+### `upsert_ticket_metadata(ticket_id_or_null, title, description, team?, project?) → ticket_id`
 
 1. If `ticket_id_or_null === null`:
-   - `mcp__linear__save_issue(team=<project team>, title, description=<rendered template>)` (create: omit `id`).
+   - Resolve `team` and `project` per STE-117: if not passed by the caller,
+     read them from `### Linear` in CLAUDE.md via
+     `readWorkspaceBinding(claudeMdPath, "linear")`. Reject the call with
+     NFR-10 canonical shape if either is unresolved (the silent-landing
+     trap is the precise failure mode this guards against).
+   - `mcp__linear__save_issue(team=<resolved>, project=<resolved>, title, description=<rendered template>)` (create: omit `id`).
    - Capture the returned issue ID.
 2. Else:
-   - `mcp__linear__save_issue(id=ticket_id_or_null, title, description=<rendered template>)` (update: pass `id`).
+   - `mcp__linear__save_issue(id=ticket_id_or_null, title, description=<rendered template>)` (update: pass `id`). `team` / `project`
+     are **not** forwarded on update — once a ticket is bound to a
+     workspace, reassignment requires explicit operator intent.
 3. When setting the assignee, pass `assignee` (accepts ID, name, email, or
    `"me"`). **Never pass `assigneeId` or `assigneeEmail`** — Linear
    silently ignores unknown keys (§ Silent no-op trap).

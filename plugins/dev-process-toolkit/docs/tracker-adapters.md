@@ -42,7 +42,7 @@ code directly:
 | `pull_acs` | `(ticket_id) → AcList` | Fetch current AC state (Schema N). |
 | `push_ac_toggle` | `(ticket_id, ac_id, state: bool) → void` | Toggle a single AC checkbox. |
 | `transition_status` | `(ticket_id, status) → void` | Move ticket to canonical status (`in_progress` / `in_review` / `done`). |
-| `upsert_ticket_metadata` | `(ticket_id_or_null, title, description) → ticket_id` | Create (null id) or update ticket title + description. Never touches ACs or status — dedicated ops own those. |
+| `upsert_ticket_metadata` | `(ticket_id_or_null, title, description, team?, project?) → ticket_id` | Create (null id) or update ticket title + description. Never touches ACs or status — dedicated ops own those. STE-117 widening: optional `team?` + `project?` carry the workspace binding (Linear: project required-on-create per the silent-landing trap; Jira: project required-on-create per the Jira API). Adapters that don't use the fields MUST still read them — dropping the values silently masks user intent. |
 
 Adapters are markdown (`adapters/<tracker>.md`) plus optional TypeScript
 helpers (`adapters/<tracker>/src/*.ts`). The markdown routes each op to the
@@ -143,6 +143,20 @@ the adapter is treated as production-ready.
 - [ ] STE-17 round-trip: after `upsert` then `pull_acs`, the returned AC list
       is identical (after normalization) to what was pushed — no infinite
       reconciliation (AC-STE-17.6)
+- [ ] **STE-117 workspace-binding carry-through.** On create, `team?` /
+      `project?` are forwarded to the underlying tracker call. Linear
+      rejects creates that lack `project` (silent-landing trap mitigation);
+      Jira rejects creates that lack `project` (Jira API requirement).
+      Updates do **not** forward `team` / `project` — once a ticket is
+      bound to a workspace, reassignment requires explicit operator intent.
+
+> **Adapter authors:** the canonical `UpsertMetadataInput` carries
+> optional `team?` + `project?` (TS surface in
+> `adapters/_shared/src/tracker_provider.ts`). Read these even when your
+> tracker has no equivalent concept — silently dropping them masks
+> failed bindings later. If your tracker's API doesn't accept the
+> values, surface a no-op acknowledgement (log line) rather than
+> rejecting at the type boundary.
 
 ### End-to-end flow
 

@@ -49,3 +49,8 @@ All four must stay in sync. Bump on every feature-significant change. Never ship
 mode: linear
 mcp_server: linear
 jira_ac_field:
+
+### Linear
+
+team: STE
+project: DPT — Dev Process Toolkit

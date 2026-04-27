@@ -603,3 +603,47 @@ describe("TrackerProvider.getUrl", () => {
     expect(p.getUrl("LIN-1234")).toBe("https://linear.app/LIN-1234");
   });
 });
+
+describe("UpsertMetadataInput widening (STE-117 AC-STE-117.2)", () => {
+  test("adapters can read team + project off the input shape", async () => {
+    // The widening is a structural type change — the test confirms a
+    // driver implementation can accept and act on the new fields without
+    // breaking the existing callers (back-compat = optional fields).
+    const seen: { team?: string; project?: string } = {};
+    const driver: AdapterDriver = {
+      trackerKey: "linear",
+      async pullAcs() {
+        return [];
+      },
+      async pushAcToggle() {},
+      async transitionStatus() {},
+      async upsertTicketMetadata(ticketId, meta) {
+        seen.team = meta.team;
+        seen.project = meta.project;
+        return ticketId ?? "LIN-NEW";
+      },
+      async getTicketStatus() {
+        return { status: "unstarted", assignee: null };
+      },
+      getUrl: (id) => `https://linear.app/${id}`,
+    };
+    await driver.upsertTicketMetadata(null, {
+      title: "T",
+      description: "D",
+      team: "STE",
+      project: "DPT — Dev Process Toolkit",
+    });
+    expect(seen.team).toBe("STE");
+    expect(seen.project).toBe("DPT — Dev Process Toolkit");
+  });
+
+  test("call sites that omit team/project still type-check (back-compat)", async () => {
+    const { driver } = makeStub();
+    // Existing call shape: title + description only — must compile + run.
+    const id = await driver.upsertTicketMetadata(null, {
+      title: "T",
+      description: "D",
+    });
+    expect(id).toBe("LIN-NEW");
+  });
+});
