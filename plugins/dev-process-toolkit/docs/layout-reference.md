@@ -1,8 +1,8 @@
-# v2 Layout Reference
+# Spec Layout Reference
 
-This document is the canonical reference for v2-layout behavior across spec-touching skills (STE-26..STE-25). Skills include a short preamble that points here rather than inlining the full behavior, to keep individual skills under the NFR-1 300-line cap.
+This document is the canonical reference for spec-layout behavior across spec-touching skills. Skills include a short preamble that points here rather than inlining the full behavior, to keep individual skills under the NFR-1 300-line cap.
 
-v2 is the only supported layout — spec-touching skills operate against the v2 tree (`specs/frs/<Provider.filenameFor(spec)>`, `specs/plan/<M#>.md`) unconditionally.
+Spec-touching skills operate against the file-per-FR tree (`specs/frs/<Provider.filenameFor(spec)>`, `specs/plan/<M#>.md`) unconditionally.
 
 ## Provider resolution (AC-STE-20.3)
 
@@ -23,33 +23,33 @@ const provider = mode === "none"
   : new TrackerProvider({ driver, currentUser });
 ```
 
-## FR file access (v2)
+## FR file access
 
-- FR filename is governed by `Provider.filenameFor(spec)` (M18 STE-60 AC-STE-60.1). Tracker mode: `specs/frs/<tracker-id>.md` (e.g., `STE-53.md`). `mode: none`: `specs/frs/<short-ULID>.md` where `<short-ULID>` is `spec.id.slice(23, 29)` (matching M16's AC-prefix tail, e.g., `VDTAF4.md`). The full 26-char ULID is preserved in frontmatter `id:` in `mode: none` only; tracker mode has no `id:` line (the tracker ID is the canonical identity — STE-76 AC-STE-76.2).
-- Archived FRs live at `specs/frs/archive/<name>.md` with the same stem as the active file — archival never renames (AC-STE-18.4). Pre-M18 archives keep the legacy `fr_<ULID>.md` shape until STE-61's one-time rewrite lands.
+- FR filename is governed by `Provider.filenameFor(spec)` (AC-STE-60.1). Tracker mode: `specs/frs/<tracker-id>.md` (e.g., `STE-53.md`). `mode: none`: `specs/frs/<short-ULID>.md` where `<short-ULID>` is `spec.id.slice(23, 29)` (matching the AC-prefix tail, e.g., `VDTAF4.md`). The full 26-char ULID is preserved in frontmatter `id:` in `mode: none` only; tracker mode has no `id:` line (the tracker ID is the canonical identity — AC-STE-76.2).
+- Archived FRs live at `specs/frs/archive/<name>.md` with the same stem as the active file — archival never renames (AC-STE-18.4).
 - Frontmatter is Schema Q (validates against `adapters/_shared/schemas/fr.schema.json`).
 - Each FR has exactly these top-level sections in order: `## Requirement`, `## Acceptance Criteria`, `## Technical Design`, `## Testing`, `## Notes` (AC-STE-26.2).
 - Skills **never rename** FR files after creation except during `/setup --migrate` mode transitions (AC-STE-60.6), which re-run `Provider.filenameFor` for the *new* mode and `git mv` each active FR to its new name in the migration commit. Archive is frozen by mode transitions.
 
-## Plan file access (v2)
+## Plan file access
 
 - Plan files live at `specs/plan/<M#>.md` (active or in-flight) or `specs/plan/archive/<M#>.md` (archived milestones).
 - Frontmatter is Schema T (validates against `adapters/_shared/schemas/plan.schema.json`).
 - Once `status: active`, content is immutable; any write fails with: *"Plan for <M#> is frozen. Create a `plan/<M#>-replan-<N>` branch to revise."* (AC-STE-21.3).
 
-## Skill-specific behavior in v2
+## Skill-specific behavior
 
 ### `/spec-write`
-- Create new FR. In `mode: none`: call `Provider.mintId()` → write `specs/frs/<Provider.filenameFor(spec)>` with the full ULID in frontmatter `id:`, filename = short-ULID tail. In tracker mode (STE-76 AC-STE-76.5): skip the `mintId()` call and omit `id:` from frontmatter; filename = tracker ID (`<tracker-id>.md` per M18 STE-60 AC-STE-60.3). The tracker ID is the canonical identity.
+- Create new FR. In `mode: none`: call `Provider.mintId()` → write `specs/frs/<Provider.filenameFor(spec)>` with the full ULID in frontmatter `id:`, filename = short-ULID tail. In tracker mode (AC-STE-76.5): skip the `mintId()` call and omit `id:` from frontmatter; filename = tracker ID (`<tracker-id>.md` per AC-STE-60.3). The tracker ID is the canonical identity.
 - Call `Provider.sync(spec)` on save (AC-STE-24.2).
-- Never write to `specs/requirements.md` on v2 projects.
+- Never write to `specs/requirements.md`.
 
 ### `/implement`
 - Entry: `Provider.claimLock(id, currentBranch)` before any code is written.
   - `claimed` → proceed.
   - `already-ours` → proceed (session resume).
   - `taken-elsewhere` → STOP with message naming the holding branch (AC-STE-28.1/2).
-- Phase 4 (completion): per FR, `git mv specs/frs/<name> specs/frs/archive/<name>` where `<name>` is `Provider.filenameFor(spec)` (M18 STE-60 AC-STE-60.4) + flip frontmatter `status: active` → `status: archived` + set `archived_at: <ISO>`, in one atomic commit (AC-STE-22.2). Then `Provider.releaseLock(id)`.
+- Phase 4 (completion): per FR, `git mv specs/frs/<name> specs/frs/archive/<name>` where `<name>` is `Provider.filenameFor(spec)` (AC-STE-60.4) + flip frontmatter `status: active` → `status: archived` + set `archived_at: <ISO>`, in one atomic commit (AC-STE-22.2). Then `Provider.releaseLock(id)`.
 - ACs read from the FR file's `## Acceptance Criteria` section, not `specs/requirements.md`.
 
 ### `/spec-archive`
@@ -57,7 +57,7 @@ const provider = mode === "none"
 - Argument can be a ULID (direct) or `M<N>` (milestone-group; archives all FRs where `milestone == M<N>`). The milestone-group case produces N moves in one commit (AC-STE-22.6).
 
 ### `/gate-check`
-- v2 conformance probes:
+- Conformance probes:
   1. **Filename ↔ `Provider.filenameFor(spec)`** for every `specs/frs/**/*.md` (strict — every base name must equal `Provider.filenameFor(spec)`).
   2. **Required frontmatter fields** present for every FR file (id, title, milestone, status, archived_at, tracker, created_at). Missing = fail.
   3. **Stale lock scan** — list `.dpt-locks/<ulid>` entries whose branch is merged or deleted. Offer `--cleanup-stale-locks` action that deletes them in one commit (AC-STE-28.5).
@@ -74,7 +74,7 @@ Tracker-mode switching. See `skills/setup/SKILL.md` § 0b for the full flow: cur
 
 ### Skills that remain layout-agnostic (read-only or no spec reads)
 
-`/brainstorm`, `/tdd`, `/simplify`, `/debug`, `/pr`, `/visual-check` do not read v1 spec files directly in ways that change under v2. Their regression is verified by snapshot comparison against `tests/fixtures/v2-minimal/` (AC-STE-24.7).
+`/brainstorm`, `/tdd`, `/simplify`, `/debug`, `/pr`, `/visual-check` do not read spec files in ways that depend on the layout. Their regression is verified by snapshot comparison against `tests/fixtures/v2-minimal/` (AC-STE-24.7).
 
 ## One-ticket-one-branch enforcement (STE-28)
 
@@ -87,4 +87,4 @@ Tracker-less races (two devs committing locks on separate branches without fetch
 
 ## Test fixtures
 
-- `tests/fixtures/v2-minimal/` — golden v2 tree with 3 active FRs, 1 archived, M12 complete + M13 active plan files, slimmed cross-cutting specs. Used by `verify-regression.ts` Schema M probe.
+- `tests/fixtures/v2-minimal/` — golden spec tree with 3 active FRs, 1 archived, one complete + one active plan file, slimmed cross-cutting specs. Used by `verify-regression.ts` Schema M probe.

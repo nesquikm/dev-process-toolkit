@@ -9,10 +9,9 @@
 ## When to run
 
 **Every invocation of `/spec-write`, `/implement`, `/spec-archive`.**
-Runs, for `/implement`, *before* `Provider.claimLock`. v2 is the only
-supported layout; free-form argument shapes (milestone codes, task
-descriptions, GitHub issue numbers) route through the `fallthrough`
-branch of `resolveFRArgument` per NFR-18.
+Runs, for `/implement`, *before* `Provider.claimLock`. Free-form argument
+shapes (milestone codes, task descriptions, GitHub issue numbers) route
+through the `fallthrough` branch of `resolveFRArgument` per NFR-18.
 
 ## Inputs
 

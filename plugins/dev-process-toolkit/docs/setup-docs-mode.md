@@ -8,8 +8,8 @@ section `/setup` writes to `CLAUDE.md`. Pointed at from the skill to keep
 Applies whenever `/setup` runs, regardless of tracker mode. `mode: none`
 projects still get the prompts — docs generation is orthogonal to task
 tracking. Absent `## Docs` section ≡ all three values `false` (AC-STE-68.3),
-which is the backward-compatible default for projects upgrading from
-v1.22.0 or earlier.
+which is the backward-compatible default for projects whose CLAUDE.md
+predates the docs section.
 
 ## Core contract (read first)
 

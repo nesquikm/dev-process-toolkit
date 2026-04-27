@@ -27,7 +27,7 @@ SDD doesn't replace TDD — it wraps it. Tests are still written first, but they
 
 ### 1. Specs Define the Contract
 
-Specs live in `specs/` and follow the v2 file-per-FR layout:
+Specs live in `specs/` and follow the file-per-FR layout:
 
 ```
 specs/
@@ -49,7 +49,7 @@ specs/
 
 ### 2. Milestones Break Work into Gates
 
-Each milestone in `plan.md` defines:
+Each milestone in `specs/plan/<M#>.md` defines:
 - Tasks to complete (in dependency order)
 - Acceptance criteria (binary pass/fail)
 - Test requirements
@@ -125,23 +125,23 @@ When the self-review loop doesn't converge, escalate to a human rather than tryi
 4. **Bounded loops prevent runaway costs** — Max 2 rounds prevents the infinite refinement problem
 5. **Human review catches what automation misses** — The agent knows it can't be the final judge
 
-## Parallel-safe layout (v2, M13)
+## Parallel-safe layout
 
-v1 stored all FRs in a single `specs/requirements.md` and a single `specs/plan.md`. Two branches editing spec content fought over those shared files — `git merge` surfaced fabricated conflicts whenever the edits landed in the same sections (new FRs, archival rewrites, matrix rows). v2 restructures the tree so the three collision classes are eliminated by construction.
+The spec tree is structured so three classic merge-collision classes are eliminated by construction.
 
 **The three eliminated collision classes:**
 
-1. **ID collisions.** Two branches couldn't mint new FR numbers independently — whoever merged first claimed FR-N and the other branch had to renumber. v2 mints ULIDs locally per branch; uniqueness is statistical, filenames are disjoint. Merge is concat.
-2. **Content collisions.** Two branches editing `requirements.md` in the same FR block produced a textual conflict even when the changes were semantically independent. v2 puts each FR in its own file — edits don't share paths.
-3. **Archival-hotspot collisions.** v1 archival rewrote a rolling index file plus pointer lines in `plan.md` / `requirements.md` — the busiest write paths. v2 archival is `git mv` per FR into `specs/frs/archive/` + frontmatter flip; milestone plan moves into `specs/plan/archive/`. Disjoint paths, no shared-file edit.
+1. **ID collisions.** New FR numbers can be minted on parallel branches without coordination — `mode: none` mints ULIDs locally; tracker mode delegates ID assignment to the tracker. Filenames are disjoint by construction; merges concatenate.
+2. **Content collisions.** Each FR lives in its own file under `specs/frs/`. Edits on parallel branches don't share paths, so semantically independent changes can't surface fabricated textual conflicts.
+3. **Archival-hotspot collisions.** Archival is `git mv` per FR into `specs/frs/archive/` + frontmatter flip; milestone plan moves into `specs/plan/archive/`. Disjoint paths, no shared-file edit.
 
-**Baseline.** v2 is the only supported layout. `/setup --migrate` handles tracker-mode transitions (`none ↔ <tracker>` / `<tracker> ↔ <other>`).
+**Mode transitions.** `/setup --migrate` handles tracker-mode transitions (`none ↔ <tracker>` / `<tracker> ↔ <other>`).
 
 **One-ticket-one-branch discipline.** Before `/implement` writes any code, `Provider.claimLock(id, branch)` runs. Tracker mode is strict — ticket status + assignee is the authoritative gate. Tracker-less mode is best-effort: `.dpt-locks/<ulid>` files + remote fetch + refuse-on-conflict. Merge-time path conflicts on `.dpt-locks/` catch races in tracker-less mode. `DPT_SKIP_FETCH=1` is the documented escape hatch for large-repo contexts.
 
 **Plan-file kickoff discipline.** Plan files (`specs/plan/<M#>.md`) are single-writer artifacts. Once `status: active`, edits require a sanctioned `plan/<M#>-replan-<N>` branch. `/gate-check` warns on post-freeze commits without auto-reverting — the human decides whether a post-freeze edit is legitimate (correction) or drift (scope creep).
 
-See `docs/v2-layout-reference.md` for the behavioral contract every spec-touching skill follows and `docs/patterns.md` § Pattern 23 for the canonical pattern summary.
+See `docs/layout-reference.md` for the behavioral contract every spec-touching skill follows and `docs/patterns.md` § Pattern 23 for the canonical pattern summary.
 
 ## References
 

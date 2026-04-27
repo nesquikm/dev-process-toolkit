@@ -37,7 +37,7 @@ Audit the implementation against the project specifications for: `$ARGUMENTS`
 
 ### Optional: Consult Archives
 
-If — and only if — the user's query references a milestone ID, tracker ref, or short-ULID tail that is **not present** in the live `specs/plan/` or `specs/frs/` tree, look it up directly in `specs/frs/archive/<name>.md` (where `<name>` is the tracker-ID or short-ULID stem — M18 STE-60) or `specs/plan/archive/<M#>.md` (for an archived milestone). The v2 layout has no rolling index file — the filename encodes the identifier. If the target file does not exist, skip silently — do not error.
+If — and only if — the user's query references a milestone ID, tracker ref, or short-ULID tail that is **not present** in the live `specs/plan/` or `specs/frs/` tree, look it up directly in `specs/frs/archive/<name>.md` (where `<name>` is the tracker-ID or short-ULID stem — STE-60) or `specs/plan/archive/<M#>.md` (for an archived milestone). There is no rolling index file — the filename encodes the identifier. If the target file does not exist, skip silently — do not error.
 
 Never read archived content during a normal review — only live spec files count. Archives are historical context for explicit queries, not a drift source.
 

@@ -16,7 +16,7 @@ Guide the user through writing or completing the project specification files.
 
 Before any other step:
 
-- **Provider resolution** — Resolve `Provider` once per invocation (AC-STE-20.3) using the same rule as `/implement` (LocalProvider for `mode: none`, TrackerProvider otherwise). FR creation goes to `specs/frs/<Provider.filenameFor(spec)>` (M18 STE-60; never `specs/requirements.md`); `Provider.sync()` fires on save. Full reference: `docs/v2-layout-reference.md` § `/spec-write`.
+- **Provider resolution** — Resolve `Provider` once per invocation (AC-STE-20.3) using the same rule as `/implement` (LocalProvider for `mode: none`, TrackerProvider otherwise). FR creation goes to `specs/frs/<Provider.filenameFor(spec)>` (M18 STE-60; never `specs/requirements.md`); `Provider.sync()` fires on save. Full reference: `docs/layout-reference.md` § `/spec-write`.
 - **Tracker-mode probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none`. If a tracker mode is active:
   - Run the 3-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md` (STE-27) the first time the session edits an FR bound to a ticket — decline exits cleanly with zero side effects (AC-STE-27.4).
   - After saving any FR-level AC edit, run the STE-17 diff/resolve loop via the active adapter before pushing via `upsert_ticket_metadata` (AC-STE-12.7, AC-STE-17.9).
@@ -24,7 +24,7 @@ Before any other step:
 
 ### 0a. Resolver entry (AC-STE-31.1)
 
-In v2 mode, after the layout version gate and before any FR write:
+After the layout gate and before any FR write:
 
 1. Call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src/resolver_config.ts` once at entry (STE-44), then pass the returned `ResolverConfig` to `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. The builder reads `CLAUDE.md` `## Task Tracking` + each active adapter's Schema W `resolver:` block — never hand-assemble the config inline (AC-STE-44.5). Malformed adapter metadata surfaces as `MalformedAdapterMetadataError` → NFR-10 canonical refusal (AC-STE-44.6).
 2. Route by `kind`:
@@ -38,9 +38,9 @@ In v2 mode, after the layout version gate and before any FR write:
 
 Full decision table and edge cases: `docs/resolver-entry.md`. Subsequent `/spec-write` calls on the same tracker ID run STE-17's normal diff/resolve flow (AC-STE-31.6) because both sides are now populated.
 
-### 0b. v2 FR creation path (AC-STE-24.2)
+### 0b. FR creation path (AC-STE-24.2)
 
-In v2 mode, creating a new FR means:
+Creating a new FR means:
 
 **Draft with placeholder (STE-66).** When drafting a new tracker-bound FR, use `<tracker-id>` (or the adapter-specific rendering — `STE-<N>` for Linear, `PROJ-<N>` for Jira, etc.) as the tracker-ID placeholder throughout the draft: AC prefixes (`AC-<tracker-id>.1`), filename (`<tracker-id>.md`), plan-file table row, and every prose cross-reference. **Never guess** the next sequential number — the tracker allocator decides, not the implementer, and a guess that clashes with a cancelled/renumbered ticket ships misaligned with its own binding. The real ID is known only after `Provider.sync(spec)` / `upsertTicketMetadata(null, …)` returns. Substitute the placeholder globally once the ID is assigned, **then** write the FR file. This rule applies equally to Linear (which skips cancelled numbers), Jira, and custom trackers. Mode: none is exempt — the short-ULID tail is minted locally and is never subject to race conditions with a tracker allocator.
 
@@ -75,7 +75,7 @@ In v2 mode, creating a new FR means:
    The compact `{ <mode>: <tracker-id> }` shape is the **only** form /spec-write emits in tracker mode (AC-STE-110.2). The verbose `{ key, id, url }` shape is forbidden — URL can be reconstructed from `<tracker-id>` and the workspace slug if needed at read time. Existing tracker-mode FR files that still carry `id:` are flagged by /gate-check probe-13 `identity_mode_conditional` at **error** severity (M29 STE-110 AC-STE-110.4 flip), not silently passed. The five required body sections in order: `## Requirement`, `## Acceptance Criteria`, `## Technical Design`, `## Testing`, `## Notes` (AC-STE-26.2).
 3. **AC prefix (STE-50 AC-STE-50.1/STE-50.2)** — every AC line in the new file uses the shape `- AC-<PREFIX>.<N>: <body>`, where `<PREFIX>` is derived via `acPrefix(spec)` from `adapters/_shared/src/ac_prefix.ts`: in tracker mode it's the bound tracker ID (e.g., `AC-STE-50.1`); in `mode: none` it's `spec.id.slice(23, 29)` — the last 6 chars of the ULID's random portion (e.g., `AC-VDTAF4.1`). Tracker mode requires the `tracker:` block to be populated **before** ACs are written (i.e., bind the ticket first, then author ACs). In `mode: none`, before writing the file, call `scanShortUlidCollision(specsDir, spec)` from the same module; it throws `ShortUlidCollisionError` (NFR-10-shape) if another FR already uses the same short-ULID tail (AC-STE-50.3). The same short-ULID doubles as the mode-none filename stem, so the collision scan also guards against filename collisions.
 4. Call `Provider.sync(spec)` — no-op in `LocalProvider`, pushes to tracker in `TrackerProvider`.
-6. Never write to `specs/requirements.md` on v2 projects — that file is slimmed to cross-cutting content only (AC-STE-26.3).
+6. Never write to `specs/requirements.md` — that file is slimmed to cross-cutting content only (AC-STE-26.3).
 
 ### 1. Assess current state
 

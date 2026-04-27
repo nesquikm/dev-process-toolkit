@@ -280,8 +280,8 @@ See `docs/setup-docs-mode.md` for the full prompt wording, re-run display, and N
 ### 8. Create specs (optional)
 
 If the user wants the full SDD workflow (or if `$ARGUMENTS` contains "new"):
-- Create `specs/` directory plus `specs/frs/`, `specs/frs/archive/`, `specs/plan/`, `specs/plan/archive/` (the v2 layout — per-unit archival; no rolling index file).
-- Copy cross-cutting templates from `${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/` (`requirements.md`, `technical-spec.md`, `testing-spec.md`). Do not create or copy any `archive-index.md` file — v2 archival is `git mv` + frontmatter flip (STE-22); there is no index template.
+- Create `specs/` directory plus `specs/frs/`, `specs/frs/archive/`, `specs/plan/`, `specs/plan/archive/` (per-unit archival; no rolling index file).
+- Copy cross-cutting templates from `${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/` (`requirements.md`, `technical-spec.md`, `testing-spec.md`). Do not create or copy any `archive-index.md` file — archival is `git mv` + frontmatter flip (STE-22); there is no index template.
 - **Pre-fill with concrete values** from what you already know — replace every placeholder you can with real data:
   - **requirements.md:** Project name, overview, detected stack. Fill the traceability matrix header rows with AC IDs from any existing requirements.
   - **technical-spec.md:** Actual directory structure (run `ls`), actual dependencies with pinned versions (from lock file or package manifest), module boundaries you can infer from the code

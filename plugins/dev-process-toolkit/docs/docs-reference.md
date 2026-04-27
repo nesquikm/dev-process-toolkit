@@ -162,10 +162,10 @@ function merge(pending: Fragment[], targets: Map<string, string>): MergedWrites 
 }
 
 function appendFragments(existing: string, fragments: Fragment[]): string {
-  // v1 strategy: append each fragment body (separated by one blank line)
+  // Initial strategy: append each fragment body (separated by one blank line)
   // to the end of the existing file, preserving the existing file's H1 /
-  // frontmatter. Conflict detection is deferred to v2 — if two fragments
-  // edit the same canonical line, last-writer-wins with a warning comment.
+  // frontmatter. Conflict detection is deferred — if two fragments edit
+  // the same canonical line, last-writer-wins with a warning comment.
   const trailer = fragments.map((f) => f.body).join("\n\n");
   const sep = existing.endsWith("\n") ? "\n" : "\n\n";
   return existing + sep + trailer + "\n";
@@ -245,7 +245,7 @@ The Dart-analyzer test suite (`signature_extractor_dart.test.ts`) and the griffe
 
 ## Toolchain probe + setup config (AC-STE-105.4 / .5)
 
-`probeToolchains(projectRoot)` from `adapters/_shared/src/toolchain_probe.ts` returns the per-stack mechanical-toolchain availability snapshot consumed by `/setup` (to render the AC-STE-105.2 stack-adaptive prompt) and by `/gate-check`'s `signature-strategy-honors-setup` probe (to detect "tool present at setup, gone now" drift). `/setup` records the chosen preferred strategy in `docs/.dpt-docs-toolchain.json` when `packages_mode == true`; the file's absence is the canonical "no recorded preference" form so `/gate-check` skips silently on pre-M27 projects.
+`probeToolchains(projectRoot)` from `adapters/_shared/src/toolchain_probe.ts` returns the per-stack mechanical-toolchain availability snapshot consumed by `/setup` (to render the AC-STE-105.2 stack-adaptive prompt) and by `/gate-check`'s `signature-strategy-honors-setup` probe (to detect "tool present at setup, gone now" drift). `/setup` records the chosen preferred strategy in `docs/.dpt-docs-toolchain.json` when `packages_mode == true`; the file's absence is the canonical "no recorded preference" form so `/gate-check` skips silently on projects with no recorded preference.
 
 ## Cross-references
 

@@ -97,11 +97,11 @@ STE-75 (Phase D of M20) adds an opt-in prompt at the end of a milestone-scope `/
 
 ## Dry run (deferred decision from M20 brainstorm)
 
-`--dry-run` is intentionally not shipped in v1 of /ship-milestone. The human-approval gate (step 6) already functions as a dry run: the user sees the full diff and can refuse. An explicit `--dry-run` flag is on the deferred-decisions list (see `specs/plan/M20.md` § Deferred decisions); add when dogfooding surfaces the need.
+`--dry-run` is intentionally not shipped. The human-approval gate (step 6) already functions as a dry run: the user sees the full diff and can refuse. An explicit `--dry-run` flag remains on the deferred-decisions list; add when dogfooding surfaces the need.
 
 ## Self-hosting risk
 
-The first `/ship-milestone` invocation is M20's own release (v1.23.0). If the skill itself has a bug, the release commit could be malformed. Mitigations:
+`/ship-milestone` ships its own releases. If the skill itself has a bug, the release commit could be malformed. Mitigations:
 
 - Manual rollback plan: `git reset --hard HEAD~1` on the release branch before pushing.
 - The unified diff at step 6 IS the dogfood test — if the diff looks wrong, refuse.

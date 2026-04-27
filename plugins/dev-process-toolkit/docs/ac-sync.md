@@ -1,7 +1,7 @@
-# STE-17 — Bidirectional AC Sync
+# Bidirectional AC Sync
 
 The diff/resolve loop that runs before `/implement` and after `/spec-write`
-save. Pointed at from `docs/implement-tracker-mode.md` and
+save (STE-17). Pointed at from `docs/implement-tracker-mode.md` and
 `docs/spec-write-tracker-mode.md`.
 
 In `mode: none`, this document is unused.
@@ -101,8 +101,8 @@ After the user answers all prompts:
 `git log` is the audit trail — the commit that captures a resolution event
 records the FR file edit, the `upsert_ticket_metadata` write, the
 timestamp, and the author. `git blame` on the FR file surfaces per-AC
-resolution history. No separate audit trail is written; the pre-M17
-audit-trail subsection under `## Task Tracking` was retired in v1.20.0
+resolution history. No separate audit trail is written; the legacy
+audit-trail subsection under `## Task Tracking` is retired
 (see `docs/patterns.md` § Audit trail).
 
 ## Idempotence

@@ -48,7 +48,7 @@ After each FR-level AC save in `specs/requirements.md`:
 3. Call `pull_acs(ticket_id)` — fresh fetch, just like `/implement` does.
 4. Classify the local AC list vs the tracker AC list via the STE-17 diff
    classifier (`adapters/_shared/src/classify_diff.ts`). Full procedure
-   in `docs/fr-39-sync.md`.
+   in `docs/ac-sync.md`.
 5. If any AC is non-`identical`, surface the Schema K diff and run the
    per-AC prompt loop. **Cancel aborts the save** — local changes revert
    to the in-memory draft state (the user re-decides).

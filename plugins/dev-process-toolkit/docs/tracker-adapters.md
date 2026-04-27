@@ -3,8 +3,8 @@
 How the plugin talks to Linear, Jira, and any custom tracker without
 hard-coding tracker-specific logic anywhere in the skills.
 
-Applies to v1.15.0+ (M12, "Tracker Integration"). In `mode: none` (default),
-everything on this page is unused — skills run their `mode: none` branch unchanged.
+In `mode: none` (default), everything on this page is unused — skills run
+their `mode: none` branch unchanged.
 
 ## Bun runtime prerequisite
 
@@ -56,8 +56,7 @@ Full definitions live in `specs/technical-spec.md` §7.3. Summary:
 - **Schema L — `## Task Tracking` section format.** Cross-skill. Heading
   presence is the mode probe; absence ≡ `mode: none`. Keys: `mode`,
   `mcp_server`, `jira_ac_field`. Duplicate keys are a malformed file and
-  fail the skill with NFR-10 canonical shape. (Pre-v1.21.0 there was a
-  legacy Tier-2 fallback key; STE-62 retired it as dead surface.)
+  fail the skill with NFR-10 canonical shape.
 - **Schema M — Adapter frontmatter.** Ten fields: `name`, `mcp_server`,
   `ticket_id_regex`, `ticket_id_source`, `ac_storage_convention`,
   `status_mapping`, `capabilities`, `project_milestone`,
@@ -96,17 +95,11 @@ Full definitions live in `specs/technical-spec.md` §7.3. Summary:
 ## Conformance Checklist
 
 Each shipped adapter (Linear, Jira, custom) must pass this checklist
-against a real tracker instance before release. No automated harness in v1
-(test accounts + OAuth + teardown are too heavy); pass markers are recorded
-in the adapter's PR description.
-
-**Tier 5 status at v1.15.0 ship:** the checklist is documented; execution
-against live Linear/Jira tenants has **not** been performed in the
-v1.15.0 implementation session. MCP tool names in each adapter are marked
-"provisional (Phase H conformance)" and must be verified once an
-authenticated MCP is available. Phase H Task 1 (mode-none regression) is
-the hard v1.15.0 ship gate; Tier 5 completion is the next operator's
-responsibility.
+against a real tracker instance before release. There is no automated
+harness (test accounts + OAuth + teardown are too heavy); pass markers
+are recorded in the adapter's PR description. MCP tool names in each
+adapter are subject to verification against an authenticated MCP before
+the adapter is treated as production-ready.
 
 ### Prerequisites
 
@@ -276,8 +269,8 @@ own adapter markdown.
   `jira_ac_field: customfield_XXXXX` in `## Task Tracking` (AC-STE-9.6).
   `adapters/jira/src/discover_field.ts` is the helper that performs the
   lookup.
-- Self-hosted Jira is **explicitly not supported** in v1 (specs/requirements
-  §5 M12 out-of-scope). Cloud Atlassian MCP only.
+- Self-hosted Jira is **explicitly not supported** (specs/requirements §5
+  out-of-scope). Cloud Atlassian MCP only.
 
 ### Custom
 
@@ -330,9 +323,9 @@ Run the Conformance Checklist against a real GitHub repo. If any op can't
 be expressed cleanly (GitHub has no native status enum), drop it from
 `capabilities` — the skill degrades per STE-16 AC-STE-16.6 rather than failing.
 
-## Provider Interface (M13, v1.16.0)
+## Provider Interface
 
-v2 layout introduces a typed `Provider` interface that unifies ID lifecycle, tracker sync, and lock management behind a single contract. Adapters compose under `TrackerProvider`; the 4-op M12 surface (`pull_acs`, `push_ac_toggle`, `transition_status`, `upsert_ticket_metadata`) is unchanged.
+A typed `Provider` interface unifies ID lifecycle, tracker sync, and lock management behind a single contract. Adapters compose under `TrackerProvider`; the 4-op adapter surface (`pull_acs`, `push_ac_toggle`, `transition_status`, `upsert_ticket_metadata`) is the integration boundary.
 
 **TypeScript signatures** (from `adapters/_shared/src/provider.ts`, matching technical-spec.md §8.4 byte-for-byte):
 
@@ -347,22 +340,22 @@ export interface Provider {
 }
 ```
 
-**Two implementations ship at v1.16.0:**
+**Two implementations:**
 
 - **`LocalProvider`** — tracker-less path. `sync()` no-ops (`kind: 'skipped'`); `claimLock()` uses `.dpt-locks/<ulid>` files committed to the claiming branch + `git fetch --all` + cross-branch `ls-tree` scan (skippable via `DPT_SKIP_FETCH=1`).
-- **`TrackerProvider`** — composes over the M12 adapter surface. `sync()` calls `upsertTicketMetadata`; `claimLock()` uses `getTicketStatus` → `transitionStatus('in_progress')` + `upsertTicketMetadata({assignee})`; `releaseLock()` → `transitionStatus('done')`.
+- **`TrackerProvider`** — composes over the 4-op adapter surface. `sync()` calls `upsertTicketMetadata`; `claimLock()` uses `getTicketStatus` → `transitionStatus('in_progress')` + `upsertTicketMetadata({assignee})`; `releaseLock()` → `transitionStatus('done')`.
 
 **How adapters compose under `TrackerProvider`**:
 
-`TrackerProvider` depends on an `AdapterDriver` interface that maps the 4-op contract to MCP tool calls. Real drivers make MCP calls; tests inject stubs. Existing adapter markdown files (`adapters/linear.md`, `adapters/jira.md`, `adapters/_template.md`) describe the MCP tool mappings; the driver glue layer (a TypeScript wrapper that turns those mappings into `AdapterDriver` method implementations) is wired at skill invocation time. **Existing adapter declarative markdown is unchanged from M12** — Provider is a compositional layer above it, not a replacement.
+`TrackerProvider` depends on an `AdapterDriver` interface that maps the 4-op contract to MCP tool calls. Real drivers make MCP calls; tests inject stubs. Adapter markdown files (`adapters/linear.md`, `adapters/jira.md`, `adapters/_template.md`) describe the MCP tool mappings; the driver glue layer (a TypeScript wrapper that turns those mappings into `AdapterDriver` method implementations) is wired at skill invocation time. **Adapter declarative markdown is the integration boundary** — Provider is a compositional layer above it, not a replacement.
 
 **`mintId()` invariant**: always local, never network-bound, for any provider. This is what makes offline authoring work uniformly across tracker-less and tracker modes (AC-STE-20.5). Tracker binding happens in `sync()`, not at mint time.
 
-Full behavioral reference: `docs/v2-layout-reference.md`. Pattern summary: `docs/patterns.md` § Pattern 23.
+Full behavioral reference: `docs/layout-reference.md`. Pattern summary: `docs/patterns.md` § Pattern 23.
 
 ## Registering tracker ID patterns for the resolver
 
-**Ships at v1.17.0 (M14, STE-30 / STE-34).** The argument resolver at the entry of `/spec-write`, `/implement`, and `/spec-archive` (see `docs/resolver-entry.md`) detects tracker-shaped arguments by consulting adapter-supplied metadata. Adapters register their resolver surface via an optional **Schema W** frontmatter block:
+The argument resolver at the entry of `/spec-write`, `/implement`, and `/spec-archive` (see `docs/resolver-entry.md`) detects tracker-shaped arguments by consulting adapter-supplied metadata. Adapters register their resolver surface via an optional **Schema W** frontmatter block:
 
 ```yaml
 ---
