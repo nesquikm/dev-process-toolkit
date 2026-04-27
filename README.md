@@ -26,34 +26,38 @@ The toolkit groups its 14 user-invoked skills into a four-phase lifecycle. Read 
 
 ```mermaid
 flowchart TD
+    classDef spine fill:#e1f5e1,stroke:#2e7d32,stroke-width:3px,color:#000
+    classDef secondary fill:#f5f5f5,stroke:#999,stroke-width:1px,color:#555
     subgraph Setup
-        setup["/setup"]
+        setup(["/setup"]):::spine
     end
     subgraph Plan
-        brainstorm["/brainstorm"]
-        spec_write["/spec-write"]
+        brainstorm(["/brainstorm"]):::spine
+        spec_write(["/spec-write"]):::spine
     end
     subgraph Build
-        implement["/implement"]
-        tdd["/tdd"]
-        gate_check["/gate-check"]
-        debug["/debug"]
-        visual_check["/visual-check"]
-        simplify["/simplify"]
-        spec_review["/spec-review"]
+        implement(["/implement"]):::spine
+        tdd["/tdd"]:::secondary
+        gate_check["/gate-check"]:::secondary
+        debug["/debug"]:::secondary
+        visual_check["/visual-check"]:::secondary
+        simplify["/simplify"]:::secondary
+        spec_review["/spec-review"]:::secondary
     end
     subgraph Ship
-        spec_archive["/spec-archive"]
-        docs["/docs"]
-        pr["/pr"]
-        ship_milestone["/ship-milestone"]
+        spec_archive["/spec-archive"]:::secondary
+        docs["/docs"]:::secondary
+        pr["/pr"]:::secondary
+        ship_milestone(["/ship-milestone"]):::spine
     end
     Setup --> Plan
     Plan --> Build
     Build --> Ship
 ```
 
-Under the hood, `/implement` orchestrates `/tdd`, `/gate-check`, `/docs --quick`, and `/pr`; `/ship-milestone` invokes `/docs --commit --full` to fold staged fragments into the canonical docs tree before cutting the release commit. Treat the diagram as the user-facing surface — these internal calls are deliberately hidden so the four phases stay legible.
+Under the hood, `/implement` performs TDD inline (write test → RED → code → GREEN) rather than invoking the `/tdd` skill, and runs gate commands inline (e.g., `bun test`) rather than invoking the `/gate-check` skill (which layers probes on top of those commands). It does invoke `/docs --quick` once per FR for the Phase 4b doc fragment. After self-review and human approval, `/implement` commits and stops — you open the PR via `/pr` separately. `/ship-milestone` invokes `/docs --commit --full` to fold staged fragments into the canonical docs tree before cutting the release commit.
+
+Spine skills (bold, stadium-shaped) are the recommended invoke path; secondary skills (muted rectangles) are auxiliary tools and auto-invoked helpers.
 
 Tracker integration (Linear, Jira, or `mode: none`) threads through Plan → Build → Ship: `/spec-write` files the FR, `/implement` claims it on entry and releases on success, and `/ship-milestone` archives the milestone group.
 
