@@ -165,7 +165,7 @@ Why this pattern: the skill author has explicit control over the prompt and the 
 
 **Sequential multi-pass variant.** `/implement` Phase 3 Stage B uses this primitive twice in a row (Pass 1 — Spec Compliance, Pass 2 — Code Quality) with two different prompts against the same subagent, a fail-fast rule between them, and a literal skipped-pass reporting line when Pass 1 finds critical findings. See `skills/implement/SKILL.md` § Stage B for the full template and `agents/code-reviewer.md` § Pass-Specific Return Contracts for the two prompt shapes. When you need different scrutiny levels on the same diff, the multi-pass variant lets you order them deterministically (cheapest gate first) instead of conflating them into one prompt.
 
-### Alternative — `context: fork` (unexercised in this plugin as of v1.12.0)
+### Alternative — `context: fork` (unexercised in this plugin)
 
 Add `context: fork` to the skill frontmatter to run the whole skill in a forked context:
 

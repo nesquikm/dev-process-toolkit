@@ -6,7 +6,7 @@ argument-hint: '[M<N>] [--version X.Y.Z] [--codename "<name>"] [--summary "<text
 
 # /ship-milestone
 
-Ship one completed milestone as a single, reviewed release commit. Dogfoods the Release Checklist in `CLAUDE.md` so partial-update bugs (e.g., v1.14.1 "Drift Catcher" fixing a README line a prior release forgot) cannot happen.
+Ship one completed milestone as a single, reviewed release commit. Dogfoods the Release Checklist in `CLAUDE.md` so partial-update bugs (e.g., a release that forgets to bump the README "Latest:" line) cannot happen.
 
 Detailed reference (CHANGELOG subsection policy, version-bump semver rules, structure-count recipes, stack-specific test-parser fallbacks) lives in `docs/ship-milestone-reference.md`.
 

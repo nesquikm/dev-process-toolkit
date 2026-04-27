@@ -29,7 +29,7 @@ Call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src
 
 Full decision table: `docs/resolver-entry.md`.
 
-### 1. Archival procedure (v2 primitives, STE-22)
+### 1. Archival procedure (STE-22)
 
 Archival uses the same code path as `/implement` Phase 4.
 
@@ -55,7 +55,7 @@ Archival uses the same code path as `/implement` Phase 4.
 4. On approval, land all N moves + N flips + N rewrites + N `releaseLock` calls + the optional plan-file move in a **single atomic commit** (AC-STE-22.6 / AC-STE-111.3). Any error aborts the commit entirely — no partial archival.
 5. Run the Post-Archive Drift Check.
 
-No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` except the frontmatter `status` flip at move time (AC-STE-22.5). Full reference: `docs/v2-layout-reference.md` § `/spec-archive`.
+No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` except the frontmatter `status` flip at move time (AC-STE-22.5). Full reference: `docs/layout-reference.md` § `/spec-archive`.
 
 ### 2. Technical-spec.md — never archive
 
@@ -112,7 +112,7 @@ Read each live spec file in turn with the following brief:
 - **(b) Archive excerpt:** a one-paragraph excerpt of the archived FR's title line + requirement statement (and, for milestone archival, the plan file's goal line) — **not** the full body. Keeping the Pass B context bounded to title + goal keeps the prompt size stable regardless of archive size.
 - **(c) Scope-framing instruction:** flag narrative sections whose framing assumes the archived scope is the entire project. Look for wording that labels the project by the just-archived FRs/milestones when the remaining active content contradicts that framing.
 
-**Canary pattern:** narrative that labels the project by the archived scope. The load-bearing example is the Flutter dogfood run — archiving M1–M4 (documentation milestones) left `requirements.md` Overview calling the project a "layered documentation set" and Out-of-Scope saying "Code changes — documentation only", while M5 (a code milestone) was still in flight. Any similar framing — "documentation-only", "docs-only deliverable", "layered X set" where X is the archived scope — is the signal Pass B must catch. Pass B findings are `medium` severity.
+**Canary pattern:** narrative that labels the project by the archived scope. The load-bearing example is the Flutter dogfood run — archiving the documentation milestones left `requirements.md` Overview calling the project a "layered documentation set" and Out-of-Scope saying "Code changes — documentation only", while a code milestone was still in flight. Any similar framing — "documentation-only", "docs-only deliverable", "layered X set" where X is the archived scope — is the signal Pass B must catch. Pass B findings are `medium` severity.
 
 Pass B is inherently subjective; the canary example bounds the judgment but edge cases will vary between runs. False positives are accepted as the cost of catching semantic drift that grep cannot see.
 

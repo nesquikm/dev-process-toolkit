@@ -335,7 +335,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 
 **Problem**: Spec files grow unboundedly as a project matures. Every `/implement`, `/gate-check`, and `/spec-review` invocation reads the full spec tree, inflating hot-path context cost on work that's already shipped. Simply splitting files by hand breaks prompt caching (the cache-hot prefix moves on every rewrite), duplicates still-current content, and loses grep-friendliness.
 
-**Solution (v2, STE-22)**: Per-unit archival. Each FR lives in its own file `specs/frs/<name>.md` where `<name>` is `Provider.filenameFor(spec)` (M18 STE-60 — tracker ID in tracker mode, short-ULID tail in `mode: none`); each milestone has its own plan file `specs/plan/<M#>.md`. When `/implement` finishes a milestone and the human approves the Phase 4 report, every FR belonging to that milestone is `git mv`d into `specs/frs/archive/<name>.md` with frontmatter `status: active` → `status: archived` + `archived_at: <ISO now>` (stem preserved across the move); the milestone plan file is `git mv`d into `specs/plan/archive/<M#>.md`. `Provider.releaseLock(<ulid>)` finalizes each FR's lifecycle (tracker mode transitions the ticket to `done`; tracker-less removes the lock file). For content the auto-path can't reach (reopens, cross-cutting FRs, aborted work), `/spec-archive <ULID | M<N> | tracker-ref>` is the manual escape hatch with a diff approval gate.
+**Solution (STE-22)**: Per-unit archival. Each FR lives in its own file `specs/frs/<name>.md` where `<name>` is `Provider.filenameFor(spec)` (M18 STE-60 — tracker ID in tracker mode, short-ULID tail in `mode: none`); each milestone has its own plan file `specs/plan/<M#>.md`. When `/implement` finishes a milestone and the human approves the Phase 4 report, every FR belonging to that milestone is `git mv`d into `specs/frs/archive/<name>.md` with frontmatter `status: active` → `status: archived` + `archived_at: <ISO now>` (stem preserved across the move); the milestone plan file is `git mv`d into `specs/plan/archive/<M#>.md`. `Provider.releaseLock(<ulid>)` finalizes each FR's lifecycle (tracker mode transitions the ticket to `done`; tracker-less removes the lock file). For content the auto-path can't reach (reopens, cross-cutting FRs, aborted work), `/spec-archive <ULID | M<N> | tracker-ref>` is the manual escape hatch with a diff approval gate.
 
 **What moves:**
 - Every FR file whose frontmatter `milestone == <current>` — `git mv` to `specs/frs/archive/`, frontmatter flip.
@@ -349,13 +349,13 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 **Rationale:**
 - **Prompt caching stability** — archival is a surgical git rename, so the cache-hot prefix of the live files stays stable between milestones and only invalidates at the moment of archival (once per milestone, not once per run).
 - **Bounded hot-path context cost** — live `specs/frs/` and `specs/plan/` never accumulate shipped content; hot-path token cost is roughly constant regardless of project age (NFR-5).
-- **Merge-conflict-free** — v1's rolling index file was a write hotspot; v2 archival touches disjoint paths per ULID, so parallel-branch merges don't fight over archival state.
+- **Merge-conflict-free** — archival touches disjoint paths per ULID, so parallel-branch merges don't fight over archival state.
 - **Auditability** — archived FR files preserve full content + tracker refs + ACs; `git log --follow specs/frs/archive/<name>.md` replays the FR's history trivially.
 - **Escape hatch** — `/spec-archive` covers everything auto-archival can't reach (reopens, cross-cutting FRs, explicit user-directed compaction), with a diff approval gate so users see exactly what's moving.
 
 ### Pattern: Post-Archive Drift Check
 
-**Problem (HG95VE)**: Archival (HG95V9, HG95VA) surgically moves the milestone block and every traceability-matched AC, but it cannot detect **narrative residue** — scope-limiting framing like "documentation-only deliverable" or "layered X set" that assumed the archived milestones were the whole project. The canary was the v1.10.0 Flutter dogfood run: archiving M1–M4 (documentation milestones) left `requirements.md` Overview calling the project a "layered documentation set" and Out-of-Scope saying "Code changes — documentation only", while M5 (a code milestone) was still in flight. Manual consistency passes across four files every time a milestone ships are the problem this pattern solves.
+**Problem (HG95VE)**: Archival (HG95V9, HG95VA) surgically moves the milestone block and every traceability-matched AC, but it cannot detect **narrative residue** — scope-limiting framing like "documentation-only deliverable" or "layered X set" that assumed the archived milestones were the whole project. The canary was an early Flutter dogfood run: archiving the documentation milestones left `requirements.md` Overview calling the project a "layered documentation set" and Out-of-Scope saying "Code changes — documentation only", while a code milestone was still in flight. Manual consistency passes across four files every time a milestone ships are the problem this pattern solves.
 
 **Solution**: Immediately after any archival operation, run a two-pass drift check whose output is a **unified advisory report** — never an auto-rewrite, never a blocker on the archival itself.
 
@@ -444,18 +444,18 @@ A one-time migration helper for projects that picked up the drift before the con
 - **Tracker IDs as attributes AND as filename stems (tracker mode)**. `tracker.linear`, `tracker.jira`, `tracker.github` are frontmatter fields — zero-to-many. In tracker mode, the active adapter's ticket ID doubles as the filename stem via `Provider.filenameFor(spec)`. Multi-tracker FRs: the driver's primary tracker wins the filename; other tracker refs are frontmatter-only. Cross-tracker reconciliation is out of scope (the frontmatter is a fact store, not a reconciler).
 - **Provider interface**. `LocalProvider` + `TrackerProvider` implement the base `Provider` contract (`getMetadata`, `sync`, `getUrl`, `claimLock`, `releaseLock`, `getTicketStatus`, `filenameFor`); `mintId` is on a separate `IdentityMinter` sub-interface that only `LocalProvider` implements (STE-85). Skills inject the Provider — they never branch on "tracker configured vs. not," and accidental `mintId()` calls on tracker-mode code paths become TypeScript errors.
 - **Per-milestone plan files**. `specs/plan/<M#>.md` replaces the monolithic `plan.md`. Once `status: active`, the plan file is frozen — edits require a `plan/<M#>-replan-<N>` branch.
-- **Move-based archival**. `git mv` for the path change + frontmatter `status` flip in a single atomic commit. Disjoint paths per ULID ⇒ no merge conflicts. Replaces the rewrite-shared-`archive/*.md` hotspot from v1.
+- **Move-based archival**. `git mv` for the path change + frontmatter `status` flip in a single atomic commit. Disjoint paths per ULID ⇒ no merge conflicts.
 
 **Why this matters**:
 1. **Disjoint filenames eliminate the content-collision class.** Two branches creating new FRs mint different ULIDs → different filenames → `git merge` just concatenates. No fabricated conflicts.
 2. **Local minting is offline-safe.** `mintId()` never touches the network. Teams can author FRs offline; tracker binding happens later via `sync()`.
 3. **Tracker lifecycle is decoupled from the canonical ID.** Tracker rename / delete / multi-tracker adoption never forces a filesystem rename cascade through git history, INDEX, cross-refs.
 
-**Invariants enforced by `/gate-check`** (v2 conformance probes):
+**Invariants enforced by `/gate-check`** (conformance probes):
 - Filename matches `Provider.filenameFor(spec)` (strict — every base name equals `Provider.filenameFor(spec)`)
 - Required frontmatter fields: `id, title, milestone, status, archived_at, tracker, created_at`
 
-**Cross-refs**: STE-26..STE-28 (requirements), `technical-spec.md` §8 (design), `docs/v2-layout-reference.md` (behavioral reference for every spec-touching skill).
+**Cross-refs**: `technical-spec.md` §8 (design), `docs/layout-reference.md` (behavioral reference for every spec-touching skill).
 
 ## Pattern 24: Tracker-ID Auto-Resolution
 
@@ -483,7 +483,7 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 | `ulid` | Edit existing | Claim lock + implement | Archive (git mv + status flip) |
 | Tracker-id/url, find-by-tracker-ref **hit** | Edit existing (no import) | Claim lock on resolved ULID | Archive resolved ULID |
 | Tracker-id/url, find-by-tracker-ref **miss** | Import via `importFromTracker` (no STE-17 dance — AC-STE-31.5) | Import then claim lock | **Refuse** per AC-STE-33.4 (never auto-imports) |
-| `fallthrough` | Pre-M14 free-form handling | Pre-M14 (milestone code, issue number, task text) | Pre-M14 (anchor, heading text, milestone id) |
+| `fallthrough` | Free-form handling (legacy) | Free-form (milestone code, issue number, task text) | Free-form (anchor, heading text, milestone id) |
 
 **Why this matters**:
 
@@ -491,7 +491,7 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 2. **No drift between three skill dispatchers.** One resolver + one `importFromTracker` helper means `/spec-write` and `/implement` cannot implement the same behavior two different ways.
 3. **Non-interactive safe.** The resolver never prompts — CI, scripts, and agent harnesses get the same deterministic errors humans see interactively.
 
-**Cross-refs**: STE-30..STE-33 (requirements), `technical-spec.md` §9 (design), `docs/resolver-entry.md` (per-skill decision table), `docs/tracker-adapters.md` § Registering tracker ID patterns for the resolver.
+**Cross-refs**: `technical-spec.md` §9 (design), `docs/resolver-entry.md` (per-skill decision table), `docs/tracker-adapters.md` § Registering tracker ID patterns for the resolver.
 
 ## Pattern 25: Dogfooding Discovery
 
@@ -522,11 +522,11 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 
 ## Root Spec Hygiene
 
-**Where**: `specs/requirements.md`, `specs/technical-spec.md`, `specs/testing-spec.md` (the three root spec files) + `/gate-check` § v2 conformance probes.
+**Where**: `specs/requirements.md`, `specs/technical-spec.md`, `specs/testing-spec.md` (the three root spec files) + `/gate-check` § Conformance Probes.
 
 **Invariant**: Root spec files stay **shape-only, current-only**. Historical milestone IDs belong in archived plan files (`specs/plan/archive/M<N>.md`) and in `CHANGELOG.md`; they do not belong in live framing positions on the root specs. Exception: inside an allowlisted `## Shipped milestones` / `## Archived context` / `## Release notes` heading, archived milestone IDs are legitimate (the purpose of those headings is to index archived work).
 
-**Enforced by**: `/gate-check` runs `runRootHygiene(specsDir, pluginJsonPath)` from `adapters/_shared/src/root_hygiene.ts` as one of its v2 conformance probes. Two sub-checks:
+**Enforced by**: `/gate-check` runs `runRootHygiene(specsDir, pluginJsonPath)` from `adapters/_shared/src/root_hygiene.ts` as one of its conformance probes. Two sub-checks:
 
 - **(a) Milestone-ID leakage** — grep `\bM\d+\b` in each root spec, walk up to the containing `##`/`###` heading, skip allowlist, then check `specs/plan/archive/M<N>.md` existence. Any remaining match → **GATE FAILED** with `<file>:<line>: archived milestone M<N> in live-framing`.
 - **(b) Version/status freshness** — compare `requirements.md` §1 `Latest shipped release: vX.Y.Z` against `plugin.json` `version`; verify `In-flight milestone: M<N>` (if named) resolves to a live `specs/plan/M<N>.md`. Drift → **GATE FAILED** naming the line + observed vs. expected value.
@@ -541,12 +541,12 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 
 **Where**: CLAUDE.md `## Task Tracking` (Schema L) and all tracker-write code paths (`/setup --migrate`, `/spec-write` tracker push, `/implement` claimLock/releaseLock, STE-17 AC resolution).
 
-**ADR (STE-58, v1.20.0)**: the authoritative audit trail for sync, migration, and resolution events is `git log` on the repo and `git blame` on the specific FR file. Prior to v1.20.0 an append-only bulleted subsection under `## Task Tracking` recorded each event; that subsection is retired.
+**ADR (STE-58)**: the authoritative audit trail for sync, migration, and resolution events is `git log` on the repo and `git blame` on the specific FR file. An earlier append-only bulleted subsection under `## Task Tracking` recorded each event; that subsection is retired.
 
-**What is lost**: the pre-M17 subsection offered per-AC conflict-resolution granularity (`- <ISO> — 2 AC conflicts resolved on LIN-123`). `git log` captures the commit but not the per-AC resolution count; `git blame` on the FR file recovers per-AC detail (which commit introduced which AC) at the cost of one extra lookup.
+**What is lost**: the legacy subsection offered per-AC conflict-resolution granularity (`- <ISO> — 2 AC conflicts resolved on LIN-123`). `git log` captures the commit but not the per-AC resolution count; `git blame` on the FR file recovers per-AC detail (which commit introduced which AC) at the cost of one extra lookup.
 
 **Why retained `git log`**: (a) authoritative — the commit is the event; the sync log was a derivative of it. (b) Rich — diff + author + timestamp + message, all for free. (c) Zero storage cost — we pay for commits anyway. (d) Consumers don't inherit the write-only audit trail that duplicates `git log` with worse UX.
 
-**When this bites**: debugging sessions that ask "which resolution loop produced this AC mutation?" now require a `git blame` pass. The pre-M17 sync log answered that in one grep; `git blame` takes the same operator ~10 seconds longer. The tradeoff is judged acceptable because (a) resolution debugging is rare, (b) `git blame` is the tool operators reach for anyway, and (c) the storage + ceremony cost of the sync log on every user's CLAUDE.md didn't justify the occasional convenience.
+**When this bites**: debugging sessions that ask "which resolution loop produced this AC mutation?" now require a `git blame` pass. The legacy sync log answered that in one grep; `git blame` takes the same operator ~10 seconds longer. The tradeoff is judged acceptable because (a) resolution debugging is rare, (b) `git blame` is the tool operators reach for anyway, and (c) the storage + ceremony cost of the sync log on every user's CLAUDE.md didn't justify the occasional convenience.
 
-**Cross-refs**: STE-58 (this FR — deletes sync log + helper), AC-STE-58.9 (documents the tradeoff), STE-17 (bidirectional AC sync — mechanism preserved; only audit emission removed), `docs/fr-39-sync.md` § Audit trail.
+**Cross-refs**: STE-58 (this FR — deletes sync log + helper), AC-STE-58.9 (documents the tradeoff), STE-17 (bidirectional AC sync — mechanism preserved; only audit emission removed), `docs/ac-sync.md` § Audit trail.

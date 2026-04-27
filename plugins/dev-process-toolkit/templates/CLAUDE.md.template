@@ -24,10 +24,10 @@ src/
 └── utils/          # Shared utilities
 ```
 
-<!-- SDD spec tree. v2 is the baseline layout (file-per-FR; filename keys on
+<!-- SDD spec tree. File-per-FR layout (filename keys on
      the tracker ID in tracker mode or the short-ULID tail in `mode: none` —
      the full ULID lives in frontmatter `id:`).
-     See docs/v2-layout-reference.md for behavior reference. -->
+     See docs/layout-reference.md for behavior reference. -->
 ```
 specs/
 ├── frs/

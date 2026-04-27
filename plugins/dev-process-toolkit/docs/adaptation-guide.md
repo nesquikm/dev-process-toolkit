@@ -241,7 +241,7 @@ Completed milestones are auto-archived when `/implement` Phase 4 is approved (ST
 
 ### Opting out entirely
 
-If you don't want archival, delete `specs/frs/archive/` and `specs/plan/archive/` (or never create them). `/implement` Phase 4 will run the archival step anyway, which recreates those directories on first archival. Opting out cleanly is not a first-class feature of the v2 layout — the v2 mechanism is `git mv` between sibling directories, not an optional write.
+If you don't want archival, delete `specs/frs/archive/` and `specs/plan/archive/` (or never create them). `/implement` Phase 4 will run the archival step anyway, which recreates those directories on first archival. Opting out cleanly is not a first-class feature — the archival mechanism is `git mv` between sibling directories, not an optional write.
 
 ### Manual archival via `/spec-archive`
 
@@ -251,6 +251,6 @@ See `skills/spec-archive/SKILL.md` for the full protocol, including the reopen p
 
 ### Adjusting the archive directory layout
 
-The default v2 layout is flat per-unit: archived FRs at `specs/frs/archive/<name>.md` (stem preserved from the active location — see M18 STE-60 for the `<name>` shape), archived milestones at `specs/plan/archive/M<N>.md`. Changing this layout is out of scope — `/implement` and `/spec-archive` hardcode the pattern. If you need a different layout (nested by year, split by source file), file an issue or fork the skills.
+The default layout is flat per-unit: archived FRs at `specs/frs/archive/<name>.md` (stem preserved from the active location — see STE-60 for the `<name>` shape), archived milestones at `specs/plan/archive/M<N>.md`. Changing this layout is out of scope — `/implement` and `/spec-archive` hardcode the pattern. If you need a different layout (nested by year, split by source file), file an issue or fork the skills.
 
 These are **starting points** — adapt them to your project's specific tools and versions.

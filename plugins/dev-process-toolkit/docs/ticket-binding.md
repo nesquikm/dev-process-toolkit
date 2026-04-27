@@ -8,11 +8,9 @@ Silent mutation on a misidentified ticket is the #1 duck-council trust risk
 In `mode: none`, this entire document is unused — the `mode: none` branch
 runs unchanged.
 
-## 2-Tier resolution (Pattern 6, post-STE-62)
+## 2-Tier resolution (Pattern 6)
 
-Tiers run in order. **First hit wins silently.** Prior to M18 STE-62 there was
-a third tier that read a CLAUDE.md fallback key; the key was never wired to
-code and was retired in v1.21.0 (see `CHANGELOG.md`).
+Tiers run in order. **First hit wins silently.**
 
 ### Tier 1 — Branch-name regex
 
