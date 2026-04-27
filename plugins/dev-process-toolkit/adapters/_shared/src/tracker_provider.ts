@@ -46,6 +46,16 @@ export interface UpsertMetadataInput {
   description?: string;
   assignee?: string;
   backLink?: string;
+  /**
+   * STE-117 AC-STE-117.2 — workspace binding carry-through. Adapters MAY
+   * require either; in-tree linear marks `project` required-on-create
+   * (silent-landing trap mitigation), jira marks `project` required-on-create
+   * (Jira API requirement). Both are optional in the canonical signature so
+   * out-of-tree adapters and existing call sites compile unchanged. See
+   * docs/tracker-adapters.md § Operations table for the per-adapter rules.
+   */
+  team?: string;
+  project?: string;
 }
 
 export interface AdapterDriver {

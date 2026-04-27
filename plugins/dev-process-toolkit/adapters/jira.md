@@ -49,7 +49,7 @@ writes of AC content pass through that recorded GID — never hard-coded.
 | `pull_acs` | `mcp__atlassian__get_issue` | Extract the `fields[<jira_ac_field>]` value; parse per the AC convention documented in the field's description template. |
 | `push_ac_toggle` | `mcp__atlassian__update_issue` | Set the single field identified by `jira_ac_field` to the updated AC block. |
 | `transition_status` | `mcp__atlassian__transition_issue` | Resolve transition id via `get_transitions` + `status_mapping`. |
-| `upsert_ticket_metadata` | `mcp__atlassian__create_issue` (new) / `mcp__atlassian__update_issue` (existing) | Body MUST include the back-link (AC-37.6). |
+| `upsert_ticket_metadata` | `mcp__atlassian__create_issue` (new) / `mcp__atlassian__update_issue` (existing) | Body MUST include the back-link (AC-37.6). **STE-117:** on create, `project` is required (Jira API requirement) — sourced from the call argument or `### Jira`.project in CLAUDE.md; reject with NFR-10 canonical shape if neither supplies a value. `team` does not apply to Jira and is silently dropped if forwarded. |
 
 ### Silent no-op trap
 

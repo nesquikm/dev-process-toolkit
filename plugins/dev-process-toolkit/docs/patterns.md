@@ -416,6 +416,25 @@ These four keys are the closed set; emitting **additional top-level keys** under
 
 A one-time migration helper for projects that picked up the drift before the constraint landed lives at `scripts/migrate-task-tracking-canonical.ts` (dry-run only; outputs a unified diff to stdout — operator pipes to `patch -p1` if they want to apply). Greenfield projects don't need it.
 
+**Workspace binding sub-sections (STE-117 AC-STE-117.1).** Tracker-specific workspace metadata lives in mode-aware sub-sections under `## Task Tracking`. The shape is closed and parser-validated:
+
+| Sub-section | Required keys | Optional keys |
+|-------------|---------------|---------------|
+| `### Linear` | `team:` (string, e.g., `STE`), `project:` (string, e.g., `DPT — Dev Process Toolkit`) | `default_labels:` (inline YAML array, e.g., `[feature, m31]`) |
+| `### Jira` | `project:` (string, the Jira project key) | `default_labels:` |
+
+Parser rules:
+- A sub-section starts at its `### Linear` / `### Jira` heading and ends at the next `##` or `###` heading or EOF (greedy).
+- Keys mirror Schema L top-level shape (`key: value`); whitespace-only / empty values are treated as missing (the gate-check probe `task-tracking-workspace-binding-present` (#25) is the single decision point on absence).
+- Sub-section contents are scoped out of the canonical-keys probe (#21) so additive workspace metadata never collides with the closed top-level set.
+- Sub-sections present without an active adapter (e.g., `### Jira` while `mode: linear`) are tolerated — vacuous.
+- The sub-section is mode-aware: `mode: none` MUST NOT carry any sub-section; the gate-check probe is vacuous in mode-none.
+- Em-dash and other UTF-8 chars are preserved byte-for-byte (`DPT — Dev Process Toolkit` round-trips correctly through Linear MCP — verified during STE-103).
+
+The shared parser is `readWorkspaceBinding(claudeMdPath, "linear" | "jira")` from `adapters/_shared/src/workspace_binding.ts`. Adapter `upsert_ticket_metadata` implementations consume the binding on create (Linear: project required-on-create per silent-landing trap; Jira: project required-on-create per Jira API).
+
+A one-time migration helper for projects that ran `/setup` before STE-117 lives at `plugins/dev-process-toolkit/scripts/migrate-task-tracking-add-workspace.ts` (dry-run only; prompts for team + project on stdin; emits a unified diff to stdout). Same shape as `migrate-task-tracking-canonical.ts`.
+
 **Tracker ID assignment order — ticket first, FR second (STE-66).** When `/spec-write` or `/brainstorm` drafts a tracker-bound FR, use the `<tracker-id>` placeholder throughout the draft (AC prefixes, filename, plan-file row, prose). **Never guess** the next sequential tracker number — the allocator decides, not the implementer, and trackers routinely skip cancelled numbers. Create the tracker ticket first, read the returned ID, substitute globally, then write the FR file. See `/spec-write` § 0b and `docs/spec-write-tracker-mode.md` § Tracker ID Assignment Order. Mode: none is exempt (short-ULID tail is local-mint, collision-proof).
 
 **Full ULIDs are internal-only (STE-67, M21-updated).** In tracker mode there are no ULIDs at all — FRs have no `id:` line (STE-76 AC-STE-76.5); the tracker ID is the canonical identity in frontmatter, filename, AC prefix, and user-facing prose. In `mode: none`, the short-ULID tail (6 chars, lowercased for branches) is the human-facing form; the full 26-char ULID lives only in frontmatter `id:` and in code-internal references (`Provider.getMetadata`, `findFRByTrackerRef`, `getFrPath`, resolver) — never in user-facing prose. Archived content keeps whatever form it had at archival time — the `/gate-check` probes scope to active content only. Rationale: M18 moved the ULID out of filenames; STE-67 pushed the user-facing prose off full ULIDs; STE-76 removed the `id:` ceremony entirely from tracker mode.
