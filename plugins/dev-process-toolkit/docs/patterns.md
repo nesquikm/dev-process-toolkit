@@ -569,3 +569,23 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 **When this bites**: debugging sessions that ask "which resolution loop produced this AC mutation?" now require a `git blame` pass. The legacy sync log answered that in one grep; `git blame` takes the same operator ~10 seconds longer. The tradeoff is judged acceptable because (a) resolution debugging is rare, (b) `git blame` is the tool operators reach for anyway, and (c) the storage + ceremony cost of the sync log on every user's CLAUDE.md didn't justify the occasional convenience.
 
 **Cross-refs**: STE-58 (this FR — deletes sync log + helper), AC-STE-58.9 (documents the tradeoff), STE-17 (bidirectional AC sync — mechanism preserved; only audit emission removed), `docs/ac-sync.md` § Audit trail.
+
+## Test Layout Policy
+
+**Where**: `templates/CLAUDE.md.template` § Testing Conventions, `templates/spec-templates/testing-spec.md.template` § 2, `skills/setup/SKILL.md` step 2c, and `/gate-check` probe #20 (`bun-zero-match-placeholder`).
+
+**Decision (STE-128 AC-STE-128.1)**: the toolkit defaults to **`src/`-co-located** test layout — every `src/foo.ts` has a sibling `src/foo.test.ts`. The chosen layout is recorded as a `Layout:` line under each downstream project's CLAUDE.md `## Testing Conventions` block (e.g., `- **Layout:** src/-co-located`). Projects may override to `tests/-mirror` by editing the line; probe #20 reads the declared layout and enforces it.
+
+**Why co-location wins**:
+
+1. **Gate is already permissive there.** The pre-M33 probe accepted any `*.test.ts` outside `node_modules`. Co-location is the path of least resistance — adopting it doesn't break any existing scaffolds.
+2. **No placeholder workaround.** With co-located tests, the very first source file (`src/index.ts`) can carry a `src/index.test.ts` sibling immediately. The `tests/.placeholder.test.ts` zero-match shield (STE-113) is no longer needed for the canonical layout — the placeholder lives at `src/.placeholder.test.ts` instead, co-located with the source it shields.
+3. **Mainstream Bun/TS convention.** Vitest, Jest, and Bun's own docs all default to co-located examples; users coming from those ecosystems hit zero surprise.
+
+**Why this isn't tracker-mode-style fragmentation**: the layout is local-file-system policy, not a workflow choice. Each project either co-locates or mirrors — there's no third option to debate. Recording the choice once in CLAUDE.md and enforcing it in the gate is enough.
+
+**Enforced by**: `/gate-check` probe #20 (`bun-zero-match-placeholder`) reads `## Testing Conventions` from CLAUDE.md, parses the `Layout:` line, and rejects test files in the wrong directory. **Backwards compat**: when CLAUDE.md is absent or carries no `Layout:` line, the probe stays permissive (existing pre-M33 behavior). The toolkit's own repo intentionally has no `Layout:` line — its internal `tests/` mirror is grandfathered.
+
+**When this rots**: any future template change that mentions `tests/.placeholder.test.ts` without updating both the template AND probe #20. The smoke-test driver re-run is the regression backstop.
+
+**Cross-refs**: STE-128 (this FR), AC-STE-128.1..AC-STE-128.6, `adapters/_shared/src/bun_zero_match_placeholder.ts` (probe + layout enforcement), `tests/test_layout_policy.test.ts` (positive + negative fixtures), STE-129 (sibling FR — `requirements.md` scope reconciliation, paired template-cleanup work).
