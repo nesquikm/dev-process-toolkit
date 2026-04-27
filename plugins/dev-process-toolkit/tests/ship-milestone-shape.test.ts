@@ -122,8 +122,14 @@ describe("AC-STE-73.6 — unified diff + approval, conventional commit, no push"
 
   test("skill commit template references milestone + version + codename", () => {
     const body = readSkill();
-    // AC-STE-73.6 prescribes `M<N>: v<X.Y.Z> "<Codename>" — <summary>`
-    expect(body).toMatch(/M<N>:\s*v<X\.Y\.Z>.*<Codename>/);
+    // AC-STE-73.6 + AC-STE-133.5 — Conventional Commits v1.0.0 form:
+    //   subject: `chore(release): v<X.Y.Z>`
+    //   footers: `Release: v<X.Y.Z> "<Codename>"` + `Refs: M<N>`
+    // The pre-M36 bespoke `M<N>: v<X.Y.Z> "<Codename>" — <summary>` form is
+    // superseded — the M36 cutover is from-CC-forward.
+    expect(body).toMatch(/chore\(release\):\s*v<X\.Y\.Z>/);
+    expect(body).toMatch(/Release:\s*v<X\.Y\.Z>\s*"<Codename>"/);
+    expect(body).toMatch(/Refs:\s*M<N>/);
   });
 
   test("skill explicitly forbids git push", () => {

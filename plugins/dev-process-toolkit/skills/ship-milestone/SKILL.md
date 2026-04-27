@@ -120,15 +120,24 @@ Print a single unified diff covering every modified file (the four release files
 
 Accept case-insensitive `y` / `yes` as approval. The user can type `e` to open `$EDITOR` on the proposed CHANGELOG entry, then re-prompt (see reference § `e` edit-in-loop).
 
-### 7. On approval — commit (AC-STE-73.6)
+### 7. On approval — commit (AC-STE-73.6, AC-STE-133.5)
 
-`git add` the expected-modified set and create a single commit:
+`git add` the expected-modified set and create a single commit in [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) form (STE-133). The commit-msg hook installed by `/setup` enforces the format locally.
 
 ```
-M<N>: v<X.Y.Z> "<Codename>" — <one-line summary>
+chore(release): v<X.Y.Z>
+
+<one-line summary>
+
+Release: v<X.Y.Z> "<Codename>"
+Refs: M<N>
 ```
 
-`<one-line summary>` is `--summary "<text>"` if provided, else prompted. **Does not run `git push`** — the push remains a user action (core principle: shared-state actions require confirmation).
+- **Subject** — exactly `chore(release): v<X.Y.Z>` (≤ 72 chars; `chore(release): v1.37.0` is 23 chars, well within budget).
+- **Body** — the existing release-checklist summary (CHANGELOG diff one-liner, files bumped, FRs included). `<one-line summary>` is `--summary "<text>"` if provided, else prompted.
+- **Footers** — `Release: v<X.Y.Z> "<Codename>"` (machine-readable release metadata) **and** `Refs: M<N>` (milestone group reference). One blank line separates the body from the footer block per CC spec.
+
+**Does not run `git push`** — the push remains a user action (core principle: shared-state actions require confirmation).
 
 ### 8. On refusal (AC-STE-73.7)
 

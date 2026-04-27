@@ -44,6 +44,50 @@ All four must stay in sync. Bump on every feature-significant change. Never ship
 4. **Human approval before commit** — agent never commits without explicit OK
 5. **Specs are the source of truth** — code follows specs, not the other way around
 
+## Commit Convention
+
+This repo follows [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) from M36 forward. The `commit-msg` hook installed at `.git/hooks/commit-msg` (a copy of `plugins/dev-process-toolkit/templates/git-hooks/commit-msg.sh`) hard-blocks non-conforming commits with no grace period.
+
+**Subject** — `<type>(<scope>): <description>`, ≤ 72 characters.
+
+- **Type** — one of `feat | fix | docs | style | refactor | perf | test | build | ci | chore | revert`.
+- **Scope** — encouraged; the primary touched area (e.g., `skills/setup`, `adapters/linear`, `templates`, `tests`).
+- **Breaking change** — append `!` (e.g., `feat(api)!: drop legacy endpoint`). The `BREAKING CHANGE:` body footer is also accepted.
+
+**Tracker IDs** go in the footer:
+
+```
+Refs: STE-<N>
+```
+
+**Release commits** (produced by `/ship-milestone`) carry an extra footer:
+
+```
+Release: vX.Y.Z "Codename"
+Refs: M<N>
+```
+
+**Sample messages:**
+
+```
+feat(skills/setup): install commit-msg hook on /setup
+
+Refs: STE-133
+```
+
+```
+chore(release): v1.37.0
+
+Conventional Commits adoption (M36 ships).
+
+Release: v1.37.0 "Conventional"
+Refs: M36
+```
+
+The user-preferences override in the global `~/.claude/CLAUDE.md` (no Claude-Code attribution, no robot emoji, short and humorous) constrains commit-message *style*; this section constrains *format*. They compose — both apply.
+
+**Pre-CC history (M1–M35)** is intentionally not rewritten. CHANGELOG entries continue to follow the existing `## [X.Y.Z] — YYYY-MM-DD — "Codename"` format independent of the per-commit subject convention. The M36 implementation commit and the M36 ship commit are the first two canonical CC commits on this repo's main line of history.
+
 ## Task Tracking
 
 mode: linear
