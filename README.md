@@ -6,6 +6,9 @@ A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** wor
 
 ```
 /plugin marketplace add nesquikm/dev-process-toolkit
+```
+
+```
 /plugin install dev-process-toolkit@nesquikm-dev-process-toolkit
 ```
 
@@ -17,26 +20,63 @@ Then run the setup command in your project:
 
 This detects your stack, generates a CLAUDE.md, configures settings, and optionally creates spec files — all adapted to your project.
 
+## Workflow
+
+The toolkit groups its 14 user-invoked skills into a four-phase lifecycle. Read top-down for the full path, or jump to whichever phase matches what you're doing now.
+
+```mermaid
+flowchart TD
+    subgraph Setup
+        setup["/setup"]
+    end
+    subgraph Plan
+        brainstorm["/brainstorm"]
+        spec_write["/spec-write"]
+    end
+    subgraph Build
+        implement["/implement"]
+        tdd["/tdd"]
+        gate_check["/gate-check"]
+        debug["/debug"]
+        visual_check["/visual-check"]
+        simplify["/simplify"]
+        spec_review["/spec-review"]
+    end
+    subgraph Ship
+        spec_archive["/spec-archive"]
+        docs["/docs"]
+        pr["/pr"]
+        ship_milestone["/ship-milestone"]
+    end
+    Setup --> Plan
+    Plan --> Build
+    Build --> Ship
+```
+
+Under the hood, `/implement` orchestrates `/tdd`, `/gate-check`, `/docs --quick`, and `/pr`; `/ship-milestone` invokes `/docs --commit --full` to fold staged fragments into the canonical docs tree before cutting the release commit. Treat the diagram as the user-facing surface — these internal calls are deliberately hidden so the four phases stay legible.
+
+Tracker integration (Linear, Jira, or `mode: none`) threads through Plan → Build → Ship: `/spec-write` files the FR, `/implement` claims it on entry and releases on success, and `/ship-milestone` archives the milestone group.
+
 ## What You Get
 
 ### Commands
 
-| Command | Purpose |
-|---------|---------|
-| `/dev-process-toolkit:setup` | Set up SDD/TDD process for your project |
-| `/dev-process-toolkit:brainstorm` | Socratic design session before writing specs (for open-ended features) |
-| `/dev-process-toolkit:spec-write` | Guide through writing spec files (requirements, technical, testing, plan) |
-| `/dev-process-toolkit:implement` | End-to-end feature implementation with TDD and bounded three-stage self-review (Stage A spec compliance → Stage B two-pass delegated review: Pass 1 spec compliance, Pass 2 code quality, fail-fast → Stage C hardening) |
-| `/dev-process-toolkit:tdd` | RED → GREEN → VERIFY cycle |
-| `/dev-process-toolkit:gate-check` | Deterministic quality gates (typecheck + lint + test) |
-| `/dev-process-toolkit:debug` | Structured debugging protocol for failing tests or unclear gate failures |
-| `/dev-process-toolkit:spec-review` | Audit code against spec requirements |
-| `/dev-process-toolkit:spec-archive` | Manually archive a FR (by ULID or tracker ref) or milestone (`M<N>` group) via `git mv` into `specs/frs/archive/` / `specs/plan/archive/` with diff approval; runs a post-archive drift check (Pass A grep + Pass B semantic scan) on finish (FR-17, FR-21, FR-45) |
-| `/dev-process-toolkit:visual-check` | Browser-based UI verification via MCP |
-| `/dev-process-toolkit:docs` | Generate or update project docs — staged fragments (`--quick`), human-approved merge (`--commit`), or full canonical regeneration (`--full`) |
-| `/dev-process-toolkit:pr` | Pull request creation |
-| `/dev-process-toolkit:simplify` | Code quality review and cleanup |
-| `/dev-process-toolkit:ship-milestone` | Bundle the Release Checklist + `/docs --commit --full` into one atomic, human-approved release commit |
+| Command                               | Purpose                                                                                                                                                                                                                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/dev-process-toolkit:setup`          | Set up SDD/TDD process for your project                                                                                                                                                                                                                            |
+| `/dev-process-toolkit:brainstorm`     | Socratic design session before writing specs (for open-ended features)                                                                                                                                                                                             |
+| `/dev-process-toolkit:spec-write`     | Guide through writing spec files (requirements, technical, testing, plan)                                                                                                                                                                                          |
+| `/dev-process-toolkit:implement`      | End-to-end feature implementation with TDD and bounded three-stage self-review (Stage A spec compliance → Stage B two-pass delegated review: Pass 1 spec compliance, Pass 2 code quality, fail-fast → Stage C hardening)                                           |
+| `/dev-process-toolkit:tdd`            | RED → GREEN → VERIFY cycle                                                                                                                                                                                                                                         |
+| `/dev-process-toolkit:gate-check`     | Deterministic quality gates (typecheck + lint + test)                                                                                                                                                                                                              |
+| `/dev-process-toolkit:debug`          | Structured debugging protocol for failing tests or unclear gate failures                                                                                                                                                                                           |
+| `/dev-process-toolkit:spec-review`    | Audit code against spec requirements                                                                                                                                                                                                                               |
+| `/dev-process-toolkit:spec-archive`   | Manually archive a FR (by ULID or tracker ref) or milestone (`M<N>` group) via `git mv` into `specs/frs/archive/` / `specs/plan/archive/` with diff approval; runs a post-archive drift check (Pass A grep + Pass B semantic scan) on finish (FR-17, FR-21, FR-45) |
+| `/dev-process-toolkit:visual-check`   | Browser-based UI verification via MCP                                                                                                                                                                                                                              |
+| `/dev-process-toolkit:docs`           | Generate or update project docs — staged fragments (`--quick`), human-approved merge (`--commit`), or full canonical regeneration (`--full`)                                                                                                                       |
+| `/dev-process-toolkit:pr`             | Pull request creation                                                                                                                                                                                                                                              |
+| `/dev-process-toolkit:simplify`       | Code quality review and cleanup                                                                                                                                                                                                                                    |
+| `/dev-process-toolkit:ship-milestone` | Bundle the Release Checklist + `/docs --commit --full` into one atomic, human-approved release commit                                                                                                                                                              |
 
 ### Agents
 
