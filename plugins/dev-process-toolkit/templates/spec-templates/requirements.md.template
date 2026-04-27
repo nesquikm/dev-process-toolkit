@@ -1,10 +1,18 @@
 <!--
-  Tracker-ID placeholder convention (STE-66 / STE-80):
+  Tracker-ID placeholder convention (STE-66 / STE-80 / STE-122):
   When drafting FR or AC IDs in tracker mode, use the literal placeholder
   `<tracker-id>` until the tracker allocator assigns the real ID. Never
   guess the next sequential tracker number — the allocator decides, not
   the implementer. Substitute the real ID globally only after
   Provider.sync / importFromTracker returns it.
+
+  AC IDs use `AC-<tracker-id>.<N>` in tracker mode (substituted by /spec-write
+  via acPrefix(spec) — see STE-50 for AC-prefix derivation; mirrors STE-66's
+  filename placeholder convention) or `AC-<short-ULID>.<N>` in mode: none
+  (last 6 chars of the ULID random portion). Literal `AC-1.1` / `AC-2.1` /
+  bare-digit-milestone-numbered shapes are rejected by /gate-check probe-15
+  `guessed_tracker_id` and by /spec-write's post-write scan (STE-122
+  AC-STE-122.3).
 
   See plugins/dev-process-toolkit/docs/spec-write-tracker-mode.md for the
   full rule and worked example. In mode: none, use the short-ULID tail
@@ -29,18 +37,18 @@
 **Description:** <!-- What this feature does -->
 
 **Acceptance Criteria:**
-- AC-1.1: <!-- Binary pass/fail criterion -->
-- AC-1.2: <!-- Binary pass/fail criterion -->
-- AC-1.3: <!-- Negative criterion: System must NOT... e.g., "must NOT expose internal error details to the client" -->
+- AC-<tracker-id>.1: <!-- Binary pass/fail criterion -->
+- AC-<tracker-id>.2: <!-- Binary pass/fail criterion -->
+- AC-<tracker-id>.3: <!-- Negative criterion: System must NOT... e.g., "must NOT expose internal error details to the client" -->
 
 ### FR-2: [Feature Name] {#FR-2}
 
 **Description:** <!-- What this feature does -->
 
 **Acceptance Criteria:**
-- AC-2.1: <!-- Binary pass/fail criterion -->
-- AC-2.2: <!-- Binary pass/fail criterion -->
-- AC-2.3: <!-- Negative criterion: must NOT... e.g., "must NOT allow unauthenticated access to protected endpoints" -->
+- AC-<tracker-id>.1: <!-- Binary pass/fail criterion -->
+- AC-<tracker-id>.2: <!-- Binary pass/fail criterion -->
+- AC-<tracker-id>.3: <!-- Negative criterion: must NOT... e.g., "must NOT allow unauthenticated access to protected endpoints" -->
 
 ## 3. Non-Functional Requirements
 
@@ -75,5 +83,5 @@
 
 | Requirement | Implementation | Tests |
 |-------------|---------------|-------|
-| AC-1.1      |               |       |
-| AC-1.2      |               |       |
+| AC-<tracker-id>.1 |          |       |
+| AC-<tracker-id>.2 |          |       |

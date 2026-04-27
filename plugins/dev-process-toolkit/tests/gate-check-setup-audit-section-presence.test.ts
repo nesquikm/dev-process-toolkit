@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runSetupAuditSectionPresenceProbe } from "../adapters/_shared/src/setup_audit_section_presence";
+import {
+  hasDefaultApplicableOutcomes,
+  runSetupAuditSectionPresenceProbe,
+} from "../adapters/_shared/src/setup_audit_section_presence";
 
 // STE-108 AC-STE-108.6 — `setup-audit-section-presence` /gate-check probe.
 //
@@ -132,5 +135,33 @@ describe("AC-STE-108.6 — gate-check SKILL.md prose declares the probe", () => 
   );
   test("SKILL.md references probe `setup-audit-section-presence`", () => {
     expect(gateCheckSkill).toMatch(/setup-audit-section-presence/);
+  });
+});
+
+describe("AC-STE-123.1 — hasDefaultApplicableOutcomes is exported for cross-module reuse", () => {
+  test("returns true when branch_template: line is populated", () => {
+    expect(
+      hasDefaultApplicableOutcomes("## Task Tracking\n\nbranch_template: feat/{ticket-id}\n"),
+    ).toBe(true);
+  });
+
+  test("returns true when ## Docs heading is present", () => {
+    expect(
+      hasDefaultApplicableOutcomes("# Project\n\n## Docs\n\nuser_facing_mode: false\n"),
+    ).toBe(true);
+  });
+
+  test("returns false on a hand-written file with neither trigger", () => {
+    expect(hasDefaultApplicableOutcomes("# Project\n\nBody.\n")).toBe(false);
+  });
+});
+
+describe("STE-123 — /setup SKILL.md prose declares step 8a", () => {
+  const setupSkill = readFileSync(join(pluginRoot, "skills", "setup", "SKILL.md"), "utf-8");
+  test("setup SKILL.md references step 8a Audit-section post-condition", () => {
+    expect(setupSkill).toMatch(/### 8a\..*Audit-section post-condition/);
+    expect(setupSkill).toMatch(/synthesizeAuditSection/);
+    expect(setupSkill).toMatch(/hasDefaultApplicableOutcomes/);
+    expect(setupSkill).toMatch(/STE-123/);
   });
 });
