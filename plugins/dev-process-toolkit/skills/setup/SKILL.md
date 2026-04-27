@@ -161,6 +161,24 @@ Procedure:
 4. If `.claude/settings.json` exists: read + parse it, merge via `mergeAllowList(existing, canonical)`, write back. The helper preserves user additions and never strips entries (AC-STE-106.4). Malformed pre-existing JSON → abort with NFR-10 canonical shape (AC-STE-106.4 — don't silently rewrite).
 5. If the write fails for any reason (sandbox refusal, permissions, ENOSPC, anything), emit an NFR-10-shape error naming the file + the underlying error and exit non-zero. The skill MUST NOT continue with a partial scaffold.
 
+### 6b. Install commit-msg hook (STE-133)
+
+`default: shell` — install the POSIX-shell Conventional-Commits hook (zero-dep). `$ARGUMENTS` contains `--commitlint` ⇒ install the commitlint-delegating variant.
+
+Procedure (skip entirely when `.git/hooks/` is absent — log `setup: skipping commit-msg hook (not a git repo)`):
+
+1. **Resolve source.** Default ⇒ `${CLAUDE_PLUGIN_ROOT}/templates/git-hooks/commit-msg.sh`. `--commitlint` ⇒ check `command -v bun`; missing ⇒ warn and fall through to the shell variant (AC-STE-133.3 final clause); else use `commit-msg.commitlint.sh`.
+2. **Idempotency tier (AC-STE-133.2)** against `.git/hooks/commit-msg`:
+   - missing ⇒ copy + `chmod +x`;
+   - byte-identical ⇒ no-op;
+   - different ⇒ print `diff -u`, prompt `Overwrite? [y/N]`. `y` ⇒ overwrite + `chmod +x`; otherwise leave existing in place and print the manual install command (`cp ${CLAUDE_PLUGIN_ROOT}/templates/git-hooks/<variant> .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg`).
+3. **`--commitlint` extras (AC-STE-133.3).** Also write `commitlint.config.js` from `${CLAUDE_PLUGIN_ROOT}/templates/git-hooks/commitlint.config.js` to the repo root if absent (never overwrite). Surface this hint in step 11's final report — do NOT run the install:
+   ```
+   /setup: --commitlint variant installed. Run `bun add -D @commitlint/cli @commitlint/config-conventional` before your first commit.
+   ```
+
+The hook is a local-machine artifact (not tracked in git). `commitlint.config.js`, when written, IS in the bootstrap set — step 8b appends it to the stage list when `--commitlint` was used.
+
 ### 7. Configure MCP servers
 
 `verification:` When tracker mode != none, write `.mcp.json` with the resolved adapter's `mcpServers` entry. **Required, abort on failure** (STE-106 AC-STE-106.3 / AC-STE-106.5) — the `setup-output-completeness` probe (gate-check #17) hard-fails when the file is missing in tracker mode.

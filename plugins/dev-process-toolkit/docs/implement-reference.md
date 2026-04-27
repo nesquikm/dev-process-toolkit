@@ -199,3 +199,51 @@ No log line is ever printed when Phase 4b is gated off (both modes false or sect
 - **Cross-FR fragments.** Phase 4b writes exactly one fragment per `/implement` run, bound to the FR being implemented. If a diff genuinely spans multiple FRs, the human runs `/docs --quick` manually with explicit overrides after the commit.
 - **Retry on failure.** No automatic retry. A single failure appends the skipped row and lets the user decide.
 - **`--skip-docs` flag.** None. AC-STE-74.8 forbids a new `/implement` flag; temporary opt-out is done by flipping Schema L docs keys.
+
+## Commit message format (STE-133)
+
+Phase 4 commits use [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/). The `commit-msg` hook installed by `/setup` is the deterministic gate; this section is the cooperative specification the agent follows when proposing the message at the step 14 approval gate (AC-STE-133.4, AC-STE-133.9).
+
+### Subject
+
+`<type>(<scope>): <title>` — total length ≤ 72 characters. Append `!` after the scope (or after the bare type when no scope) for breaking changes (`feat(api)!: drop legacy endpoint`, `feat!: rename root config`).
+
+### Type heuristic
+
+Pick from the [Angular set](https://www.conventionalcommits.org/en/v1.0.0/#summary):
+
+| FR class | Type | Notes |
+|----------|------|-------|
+| New user-visible functionality | `feat` | Default for spec-driven feature FRs. |
+| Bug-fix FR | `fix` | Use when the FR's purpose is to correct broken behavior. |
+| Documentation-only change (README, docs/, prose-only SKILL.md edits) | `docs` | No production code touched. |
+| Behavior-preserving restructure | `refactor` | Renames, dead-code removal, reorganization with no semantic change. |
+| Build / tooling / non-functional housekeeping | `chore` | Dependency bumps, gitignore edits, hook installs. |
+| Test-only change | `test` | New tests with no production-code change. |
+| Performance | `perf` | Use sparingly — most perf work is `refactor` + benchmarks. |
+
+### Scope
+
+Primary touched skill or area: `skills/implement`, `skills/pr`, `adapters/linear`, `adapters/_shared`, `templates`, `tests`, `docs`. Multi-area FRs pick the dominant area; if no single area dominates, omit the scope (`feat: ...` is valid).
+
+### Body + footer
+
+- **Body** — the existing Phase 4 prose (AC checklist resolution, files touched, deviation summary). Unchanged in shape from pre-M36.
+- **Footer** — one `Refs:` line per FR touched, in tracker-ID form: `Refs: STE-<N>`. In `mode: none` use the short-ULID tail (`Refs: VDTAF4`). Multiple FRs in one commit get one `Refs:` line each.
+
+### Example
+
+```
+feat(commits): adopt Conventional Commits v1.0.0
+
+Adds `commit-msg` hook template + skill prose updates so the
+toolkit and adopting projects share one deterministic
+commit-format gate. Local hook hard-blocks non-CC commits
+without grace period.
+
+Refs: STE-133
+```
+
+### Step 14 approval-gate render
+
+Alongside the AC checklist and gate output, the report must include the proposed `<type>(<scope>): <title>`. The user can redirect type/scope before approval (e.g., "use `chore` not `feat` — this is non-functional"). The commit-msg hook is the deterministic backstop if drift slips through.

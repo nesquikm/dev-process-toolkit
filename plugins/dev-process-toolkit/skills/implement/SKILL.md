@@ -215,6 +215,12 @@ Non-blocking hook. Sits between Phase 4a (gate pass) and Phase 4c (report + appr
 
 Full decision table (resolver fallback ordering, which directory `_unbound-*` fragments live in, diagnostic log shape) lives in `docs/implement-reference.md` § Phase 4b Doc Fragment Hook.
 
+### Commit message format (STE-133)
+
+Phase 4 commits use [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) — enforced by the `commit-msg` hook installed by `/setup` (AC-STE-133.9). The proposed `<type>(<scope>): <title>` (≤ 72 chars) plus body and `Refs: STE-<N>` footer is rendered to the user at the step 14 approval gate **before** step 15 commits, so the user can redirect type/scope before commit. Use `!` for breaking changes (`feat(api)!:`, `feat!:`).
+
+Full type heuristic table (per FR class), scope-selection rules, and the canonical example commit live in `docs/implement-reference.md` § Commit message format (STE-133). The hook is the deterministic backstop if drift slips through this cooperative spec (AC-STE-133.4).
+
 ### Spec Deviation Summary
 
 Before updating specs, compile all deviations discovered during Phase 2:
