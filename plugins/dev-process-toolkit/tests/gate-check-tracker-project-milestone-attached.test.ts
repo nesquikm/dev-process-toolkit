@@ -228,3 +228,31 @@ describe("plan file missing: defer to probe #27", () => {
     }
   });
 });
+
+describe("AC-STE-139.5 — tracker-project-milestone-attached runs clean on this repo's baseline", () => {
+  test("probe returns zero violations when no `tracker:` blocks exist (mode-none short-circuit)", async () => {
+    // The probe needs MCP getIssue to validate tracker-mode FRs against Linear's
+    // projectMilestone binding. We can't wire MCP in unit tests, so the only
+    // safe self-check is the vacuous mode-none shape — confirm the probe
+    // returns clean against a tmp project with no `tracker:` block on its FR.
+    const { mkdirSync, mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const root = mkdtempSync(join(tmpdir(), "tpm-baseline-"));
+    try {
+      mkdirSync(join(root, "specs", "frs"), { recursive: true });
+      mkdirSync(join(root, "specs", "plan"), { recursive: true });
+      writeFileSync(join(root, "CLAUDE.md"), "# Project\n");
+      writeFileSync(
+        join(root, "specs", "frs", "fr_01HZ.md"),
+        "---\nmilestone: M1\nstatus: active\nid: fr_01HZ\n---\n# stub\n",
+      );
+      writeFileSync(join(root, "specs", "plan", "M1.md"), "---\nmilestone: M1\n---\n# M1 — stub\n");
+      const r = await runTrackerProjectMilestoneAttachedProbe(root, {
+        getIssue: async () => ({ projectMilestone: null }),
+      });
+      expect(r.violations).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

@@ -36,7 +36,7 @@ Custom adapters whose ticket IDs don't fit a branch-name convention can set
 `ticket_id_source: ticket-url-paste` in their Schema M frontmatter to route
 resolution through this Tier 2 prompt directly, bypassing Tier 1.
 
-## Branch-regex mismatch (AC-STE-27.3)
+## Branch-regex mismatch
 
 If the branch name contains a ticket-ID-shaped token that *doesn't* match
 the adapter's `ticket_id_regex` (e.g., the regex requires `STE-<N>` but the
@@ -62,7 +62,7 @@ Operating on ticket <ID>: <title> — proceed? [y/N]
 The skill fetches `<title>` via the active adapter's `pull_acs(ticket_id)`
 (which also returns Schema O `TicketMetadata` implicitly — title is bundled).
 `[y/N]` defaults to no; any answer other than `y` / `yes` / `Y` / `Yes`
-exits the skill cleanly with zero side effects (AC-STE-27.4).
+exits the skill cleanly with zero side effects.
 
 ## Where this applies
 
@@ -84,7 +84,7 @@ exits the skill cleanly with zero side effects (AC-STE-27.4).
 
 When `/setup --migrate` flips `mode:` between `none` and a tracker (or between two trackers), every active FR under `specs/frs/*.md` is re-named to the target mode's `Provider.filenameFor(spec)` in the migration commit. Archive is untouched. This is the *only* place skills rename FR files — `/spec-write`, `/implement`, and `/spec-archive` all preserve stems.
 
-## URL paste fallback (AC-STE-27.5)
+## URL paste fallback
 
 When `ticket_id_source: ticket-url-paste` is declared by a custom adapter:
 
@@ -92,4 +92,4 @@ When `ticket_id_source: ticket-url-paste` is declared by a custom adapter:
 2. Tier 2's prompt accepts the tracker's URL form; the adapter owns the
    URL→ID extraction regex (Schema P pure helper).
 3. On successful extraction, treat the resolved ID identically to any other
-   tracker ID — confirmation is still mandatory (AC-STE-27.1).
+   tracker ID — confirmation is still mandatory.

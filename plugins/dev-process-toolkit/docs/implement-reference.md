@@ -40,14 +40,14 @@ These are illustrative — use the patterns in your project's CLAUDE.md as the a
 - **Go:** verify every returned `error` is checked; check that deferred `Close()` calls are paired with error handling; confirm context cancellation propagates through goroutines.
 - **Rust:** verify `Result` is not discarded with `let _ = ...`; check that `?` propagates errors to the right boundary; confirm `panic!` is only used for truly unreachable states.
 
-## Branch Proposal (STE-64)
+## Branch Proposal
 
 Fires at Phase 1 entry, **between resolver (0.b′) and `claimLock` (0.c)** — the branch identity must settle before the lock binds to it.
 
 ### Guard
 
 1. Read `branch_template:` from Schema L (the probe already ran in step 0.d; the value is in-session).
-   - Absent ⇒ skip the whole step. Branch automation disabled (AC-STE-64.1).
+   - Absent ⇒ skip the whole step. Branch automation disabled.
    - Present ⇒ continue.
 2. Extract the run-scope identifier from the resolver result:
    - Milestone run (`fallthrough` + arg matches `M<N>`) ⇒ `RunScope.kind = "milestone"`, `number = "<N>"`.
@@ -74,19 +74,19 @@ Fires at Phase 1 entry, **between resolver (0.b′) and `claimLock` (0.c)** — 
 
 ### Failure handling
 
-7. `git checkout -b` fails (branch already exists with different upstream, uncommitted changes conflict, permissions, etc.): surface the git error via NFR-10 canonical shape and exit non-zero. Never silently proceed on the old branch after a failed checkout (AC-STE-64.8).
+7. `git checkout -b` fails (branch already exists with different upstream, uncommitted changes conflict, permissions, etc.): surface the git error via NFR-10 canonical shape and exit non-zero. Never silently proceed on the old branch after a failed checkout.
 
-### Scope boundary (AC-STE-64.9)
+### Scope boundary
 
 Only `/implement` reads `branch_template:`. `/tdd`, `/debug`, `/spec-write`, `/gate-check`, `/pr`, `/spec-archive`, `/spec-review`, `/visual-check`, `/simplify`, `/brainstorm` never read the key and never prompt for branch creation.
 
 ## Milestone Archival Procedure
 
-Full sub-step ordering for the Phase 4 Milestone Archival block (STE-22). The skill itself carries a condensed summary; consult this section when executing the archival or debugging an interrupted run. Sub-steps are lettered to avoid clashing with the Phase 4 flow numbering (steps 13–15 in the skill).
+Full sub-step ordering for the Phase 4 Milestone Archival block. The skill itself carries a condensed summary; consult this section when executing the archival or debugging an interrupted run. Sub-steps are lettered to avoid clashing with the Phase 4 flow numbering (steps 13–15 in the skill).
 
 a. Scan `specs/frs/*.md` for every FR with frontmatter `milestone == <current>`. Build the FR batch.
 b. For each batched FR: plan one `git mv specs/frs/<name> specs/frs/archive/<name>` (where `<name>` is `Provider.filenameFor(spec)` — M18 STE-60; stem preserved across the move) + frontmatter flip (`status: active → archived`; set `archived_at: <ISO now>`) + one `Provider.releaseLock(<ulid>)` call.
-c. If `specs/plan/<M#>.md` exists, plan one `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md` (AC-STE-21.5) to batch alongside the FR moves.
+c. If `specs/plan/<M#>.md` exists, plan one `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md` to batch alongside the FR moves.
 d. Present the full batch as a diff preview — list every `git mv`, every frontmatter flip, every `releaseLock`. Do not summarize.
 e. On explicit human approval (Phase 4 step 15): execute all moves + flips + `releaseLock` calls and commit atomically in a single commit (AC-STE-22.2, AC-STE-22.6). Any error aborts the entire batch — no partial archival.
 f. Run the Post-Archive Drift Check from `skills/spec-archive/SKILL.md` § Post-Archive Drift Check. Render the unified Schema I table; offer the 3-choice UX (address inline / save to `specs/drift-<date>.md` / acknowledge). The drift check never blocks the already-committed archival.
@@ -142,23 +142,103 @@ The skill's condensed rule is "3 or more `contradicts` / `infeasible` deviations
 
 Breakout is a valid skill output, not a failure. Emit the report, update the task list, and wait for the user to update specs. The threshold is configurable via CLAUDE.md (look for a line like `spec_breakout_threshold: <N>`; default `3`).
 
+## Phase 5 — Milestone close prompt
+
+Fires only on a **milestone-scope** invocation (`/implement M<N>`) that shipped every FR cleanly. Opt-in chain into `/ship-milestone M<N>` — a prompt, not a silent chain. Phase 5 is the **last thing** `/implement` does before process exit; nothing else runs between the prompt (or its skip path) and exit.
+
+### Conditions (evaluated in order)
+
+1. **Invocation shape.** Skip entirely if `$ARGUMENTS` is a single-FR arg (e.g., `STE-42`, a ULID, a URL), the literal `all` / `remaining`, or empty / no arg. Only an `M<N>` arg qualifies.
+2. **Milestone completeness.** Re-read `specs/plan/M<N>.md`; confirm every listed FR transitioned from `status: active` to `status: archived` during this run. If any FR remains active or any FR's gate-check failed this session (partial success), skip entirely.
+3. **TTY.** Check whether stdin is a TTY (proxy: interactive Claude Code session accepting user replies). Non-TTY / CI / piped stdin ⇒ print the manual-command hint, do not prompt, do not read stdin.
+
+If all three pass, print the prompt and read one line from stdin.
+
+### Prompt (AC-STE-75.1, exact format including the blank line)
+
+```
+All FRs in M<N> shipped.
+
+Run /ship-milestone M<N> now? (y/n):
+```
+
+### Branches
+
+- **Accept** — input is `y` or `yes` (case-insensitive, trimmed). Chain into `/ship-milestone M<N>` in-process. All `/ship-milestone`'s own gates still fire — the release commit is gated by its own `Apply? [y/N]` prompt on the release diff. The `y` here does **not** pre-approve the release; refusal at that second gate exits cleanly without a release commit.
+- **Decline** — input is `n`, `no`, empty (just Enter), or any other non-matching string (case-insensitive). Do not chain; print the hint below and exit 0.
+
+### Hint (AC-STE-75.3, exact literal — also used on the non-TTY skip path)
+
+```
+Ready to close milestone. Run: /ship-milestone M<N>
+```
+
+### Chain-failure refusal
+
+If the user accepts but `/ship-milestone` fails to start (skill not registered, `skills/ship-milestone/` missing, etc.), surface this NFR-10-shape refusal and exit non-zero:
+
+```
+/implement: attempted to chain into /ship-milestone but it failed to start: <error>.
+Remedy: verify the skill is installed (check plugins/dev-process-toolkit/.claude-plugin/plugin.json), then run /ship-milestone M<N> manually.
+Context: milestone=M<N>, chain=ship-milestone, skill=implement
+```
+
+### Skip-case summary
+
+| Case | Behaviour |
+|------|-----------|
+| Single-FR arg (e.g., a tracker ID, ULID, URL) | silent skip — no prompt, no hint |
+| `all` / `remaining` / no arg | silent skip — no prompt, no hint |
+| Any FR in `specs/plan/M<N>.md` still `status: active` | silent skip — milestone isn't done |
+| Any FR's gate-check failed this run | silent skip — partial success |
+| Non-TTY stdin (CI, piped input) | print hint, no prompt, no stdin read |
+| All conditions met | print prompt, accept `y`/`yes` (chain) or anything else (hint + exit 0) |
+
+## Phase 4 Milestone Archival — full procedure detail (STE-22 / STE-125 / STE-126)
+
+The skill carries the condensed entry; this section is the operational mirror.
+
+**Procedure.** For every FR with frontmatter `milestone == <current>`: compute the base filename via `Provider.filenameFor(spec)` (M18 STE-60 AC-STE-60.4) and run `git mv specs/frs/<name> specs/frs/archive/<name>` + flip frontmatter `status: active` → `status: archived` + set `archived_at: <ISO now>`. The stem is preserved across the move — `/spec-archive` and `/implement` never rename during archival (NFR-15 filename-permanence holds). All N moves and N flips land in one atomic commit (AC-STE-22.2, AC-STE-22.6). Then `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md` in the same commit, **and apply the same status flip to the plan file's frontmatter** — flip `status: active` → `status: archived` and set `archived_at: <ISO now>` (the same timestamp used for the FR flips). This **plan-status flip** is part of the same atomic commit; read-side enforcement is `/gate-check` probe #16 (`archive_plan_status`).
+
+**Rewrite traceability links.** Before staging the atomic commit, call `rewriteArchiveLinks(repoRoot, frId)` from `adapters/_shared/src/spec_archive/rewrite_links.ts` for **each** FR being archived. The helper rewrites every `frs/<id>.md` reference in `specs/requirements.md`, every active `specs/plan/*.md`, every `specs/plan/archive/*.md`, and the unreleased prefix of `CHANGELOG.md` to `frs/archive/<id>.md` (both Markdown link forms and bare path mentions, per AC-STE-111.2). The rewrites land in the **same atomic commit** as the `git mv` + frontmatter flips. On the next `/gate-check`, probe #23 (`traceability-link-validity`) sees a clean tree — no manual fix-up between commit and gate. Idempotent: an orphan FR with no references yields an empty rewrite, no error.
+
+**Cleanup stale plan verify lines.** Right after `rewriteArchiveLinks` returns, call `cleanupPlanVerifyLines(projectRoot, deletedFiles, addedTestFiles)` from `adapters/_shared/src/spec_archive/cleanup_plan_verify_lines.ts`. `deletedFiles` is the set of paths Phase 2 deleted; `addedTestFiles` is the set of `*.test.*` files added. The helper walks every active `specs/plan/M*.md` (excluding `archive/`) and updates each `verify:` line that references a deleted path: when the deleted file is `*.placeholder.test.ts` and a single new test file was added, the verify line is rewritten to reference the replacement; otherwise the parent task is marked `[x]` and the verify line is dropped. Empty `deletedFiles` ⇒ vacuous no-op. The cleanup writes land in the **same atomic commit**. The new `/gate-check` probe #28 (`plan-verify-line-validity`, severity: warning) is the read-side backstop on every run.
+
+**Failure semantics.** If `rewriteArchiveLinks` or `cleanupPlanVerifyLines` throws (e.g., a plan file is read-only, an I/O error fires), `/implement` **aborts archival cleanly — do not commit the archive move, do not call `Provider.releaseLock`**. Surface an NFR-10 canonical refusal naming the offending plan `file:line:column` and the link or verify line that would have been rewritten, then exit Phase 4 non-zero. The FR file remains in its pre-archive location so a follow-up run can resume through the `already-ours` claim path. Same rule applies to a partial rewrite (any helper invocation in the milestone-group batch fails) — the entire commit is aborted, never partial.
+
+Then call `Provider.releaseLock(id)` for each released FR.
+
+## Phase 4 Close (atomic — full text)
+
+Once the user approves at step 15, execute the Close procedure end-to-end. Phase 4 does not exit cleanly unless all three sub-steps complete; if any sub-step fails, surface the failure and exit non-zero so the next run can resume through the `already-ours` path.
+
+**(a) `git commit`** — create the final commit (includes any FR archive moves from § Milestone Archival on a full-milestone run).
+
+**(b) Release** — for every ticket that was claimed during Phase 1 in tracker mode, run the per-FR release sequence in `docs/implement-tracker-mode.md` § Release runbook. Tracker mode: transitions the ticket to the adapter's canonical Done status; the runbook performs the STE-65/STE-84-narrowed pre-state assertion (In Progress **or** canonical Done — any other pre-state surfaces a `TrackerReleaseLockPreconditionError` per NFR-10) before the Done transition, so the `Backlog → Done` silent-leap guardrail still holds. `mode: none`: deletes `.dpt-locks/<id>` (runbook does not apply). **No exit path through Phase 4 skips this step.** If the release sequence fails, Phase 4 fails loudly — never swallow the error. On a full-milestone run where § Milestone Archival already released each archived FR, skip the per-ticket call here for those same FRs (AC-STE-47.6 double-call avoidance). Two outcomes — `transitioned` and `already-released` (STE-84 idempotent-terminal branch) — are both valid exit paths; step (c)'s post-release verification runs identically for both.
+
+**(c) Post-release verification** — for each released FR, run step 4 of `docs/implement-tracker-mode.md` § Release runbook and **assert** the returned `status` matches the adapter's `status_mapping.done` canonical name. A mismatch means the release reported success but the tracker didn't move (silent no-op trap). Surface an NFR-10-canonical refusal naming the ticket + observed vs. expected status, and exit Phase 4 non-zero so the human can intervene. In `mode: none`, `LocalProvider.getTicketStatus` returns the `local-no-tracker` sentinel; treat the sentinel as vacuously passing the assertion — the deterministic `.dpt-locks/<id>` deletion in step (b) is the proof-of-release for `mode: none`.
+
+**Abort boundary — do NOT call `releaseLock` or `getTicketStatus`** when any of the following happen: a gate-check failure, a Spec Breakout, a user rejection at step 15, or any Phase 1–3 early exit. In every abort case, the lock stays so a follow-up run can resume through the `already-ours` path. The Close procedure only runs once the user explicitly approves **and** `git commit` lands.
+
+The Pattern 9 byte-diff regression gate against the `mode-none-v2` fixture continues to pass because the cleanup was already part of the existing mode-none flow.
+
 ## Phase 4b Doc Fragment Hook
 
 STE-74 installs this hook. The skill body carries the condensed flow; this section covers edge cases and the diagnostic log shape.
 
 ### When it runs
 
-Phase 4b fires after Phase 4a (gate pass) and before Phase 4c (report + approval) / 4d (Close). Its enabling gate is the `## Docs` section of `CLAUDE.md` (read via `readDocsConfig(CLAUDE.md)` from `adapters/_shared/src/docs_config.ts`). Both `userFacingMode` and `packagesMode` false — or the section absent — ⇒ **silent no-op**: no log line, no row, zero output. This preserves byte-identical behavior for projects that don't use docs generation (AC-STE-74.3).
+Phase 4b fires after Phase 4a (gate pass) and before Phase 4c (report + approval) / 4d (Close). Its enabling gate is the `## Docs` section of `CLAUDE.md` (read via `readDocsConfig(CLAUDE.md)` from `adapters/_shared/src/docs_config.ts`). Both `userFacingMode` and `packagesMode` false — or the section absent — ⇒ **silent no-op**: no log line, no row, zero output. This preserves byte-identical behavior for projects that don't use docs generation.
 
 ### FR ID resolver order
 
-Phase 4b invokes `/docs --quick` with the resolver that `/docs` itself uses (AC-STE-74.2):
+Phase 4b invokes `/docs --quick` with the resolver that `/docs` itself uses:
 
 1. **Branch template match.** If `branch_template:` is set in Schema L and the current branch name maps to a tracker ID or ULID under that template, use it.
 2. **Diff scan.** Otherwise, find the most-recent FR whose file appears in the working-tree diff (`git log -1 --format=%H -- specs/frs/<fr>.md`).
 3. **Unbound fallback.** If neither resolves, `/docs --quick` writes `docs/.pending/_unbound-<UTC-timestamp>.md` with a `warning:` line in the frontmatter. No retry — the fragment is still written.
 
-### Success path (AC-STE-74.4)
+### Success path
 
 On successful fragment write, `/implement` appends exactly one row to the existing Phase 4 Spec Deviation Summary table:
 
@@ -200,7 +280,7 @@ No log line is ever printed when Phase 4b is gated off (both modes false or sect
 - **Retry on failure.** No automatic retry. A single failure appends the skipped row and lets the user decide.
 - **`--skip-docs` flag.** None. AC-STE-74.8 forbids a new `/implement` flag; temporary opt-out is done by flipping Schema L docs keys.
 
-## Commit message format (STE-133)
+## Commit message format
 
 Phase 4 commits use [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/). The `commit-msg` hook installed by `/setup` is the deterministic gate; this section is the cooperative specification the agent follows when proposing the message at the step 14 approval gate (AC-STE-133.4, AC-STE-133.9).
 

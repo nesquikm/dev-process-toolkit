@@ -9,17 +9,17 @@ argument-hint: '[new or existing]'
 
 Set up the Spec-Driven Development and TDD workflow for this project.
 
-## Step contract — verification probes vs. Q&A (STE-108)
+## Step contract — verification probes vs. Q&A
 
 Every step below is annotated as one of three kinds. The agent — including non-interactive runs — MUST honour the kind:
 
 - `verification:` — runs unconditionally regardless of prompt mode (e.g., `git status` baseline check, `linear list_teams` MCP test call, `bun --version`). Failure → loud abort with NFR-10 canonical shape per STE-106's "fail loud, don't silently skip" principle.
-- `default: <value>` — proceeds with the named value when no answer is supplied (autonomous mode or pre-baked answers). Each default-applied outcome appends a `## /setup audit` entry to CLAUDE.md via `appendAuditEntry` from `adapters/_shared/src/setup/audit_log.ts` (STE-108 AC-STE-108.3 / .7). The audit section is the canonical signal that the project was set up autonomously.
-- `requires-input: <reason>` — refuses to proceed without an answer. Under non-interactive mode with no pre-baked answer, the skill aborts with an NFR-10 canonical refusal naming the step and the missing input (AC-STE-108.4). It MUST NOT guess.
+- `default: <value>` — proceeds with the named value when no answer is supplied (autonomous mode or pre-baked answers). Each default-applied outcome appends a `## /setup audit` entry to CLAUDE.md via `appendAuditEntry` from `adapters/_shared/src/setup/audit_log.ts` (STE-108 AC-STE-108.3 / .7).
+- `requires-input: <reason>` — refuses to proceed without an answer. Under non-interactive mode with no pre-baked answer, the skill aborts with an NFR-10 canonical refusal naming the step and the missing input. It MUST NOT guess.
 
 Verification ≠ Q&A. The "do not prompt" instruction common in autonomous runs governs Q&A only. Verification calls always fire.
 
-## Toolkit marker (STE-108)
+## Toolkit marker
 
 The first action that writes to CLAUDE.md prepends the literal HTML comment:
 
@@ -33,19 +33,19 @@ This marker lets gate-check probes (`setup-audit-section-presence`, `setup-boots
 
 ### 0. Tracker mode probe (existing projects)
 
-Before any detection or setup, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` already exists and contains a `## Task Tracking` section, this is an existing tracker-mode project — `/setup --migrate` is the right entry point for changing modes (STE-14 AC-STE-14.1). If `CLAUDE.md` is absent, empty of `## Task Tracking`, or `$ARGUMENTS` contains `new` — and `$ARGUMENTS` does **not** contain `--migrate` or `--migrate-dry-run` — run the normal fresh-setup flow below. When `--migrate` is present, section 0b overrides this routing regardless of `## Task Tracking` presence (AC-STE-35.2).
+Before any detection or setup, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` already exists and contains a `## Task Tracking` section, this is an existing tracker-mode project — `/setup --migrate` is the right entry point for changing modes. If `CLAUDE.md` is absent, empty of `## Task Tracking`, or `$ARGUMENTS` contains `new` — and `$ARGUMENTS` does **not** contain `--migrate` or `--migrate-dry-run` — run the normal fresh-setup flow below. When `--migrate` is present, section 0b overrides this routing regardless of `## Task Tracking` presence.
 
 ### 0b. Mode-switch invocation (`/setup --migrate` / `--migrate-dry-run`)
 
-When `$ARGUMENTS` contains `--migrate` or `--migrate-dry-run`, skip steps 1–8 and route into **tracker-mode switching** (STE-14) — handles all transitions between modes. The CLI flag stays `--migrate` to preserve operator muscle memory; only the surrounding prose treats it as mode switching. Current mode is detected via Schema L probe (AC-STE-14.2): absence of `## Task Tracking` = `mode: none` (canonical form per AC-STE-8.5); presence = parse `mode: <value>`. All modes (including `none`) are valid starting states (AC-STE-35.1):
+When `$ARGUMENTS` contains `--migrate` or `--migrate-dry-run`, skip steps 1–8 and route into **tracker-mode switching** — handles all transitions between modes. The CLI flag stays `--migrate` to preserve operator muscle memory. Current mode is detected via Schema L probe: absence of `## Task Tracking` = `mode: none` (canonical form per AC-STE-8.5); presence = parse `mode: <value>`. All modes (including `none`) are valid starting states.
 
-- Detect current mode via Schema L probe (AC-STE-14.2).
-- Prompt for target mode; refuse no-op via NFR-10 canonical shape: `Detected current mode: <current>. Supported targets: <others>. Mode switch must change mode.` (AC-STE-35.5)
+- Detect current mode via Schema L probe.
+- Prompt for target mode; refuse no-op via NFR-10 canonical shape: `Detected current mode: <current>. Supported targets: <others>. Mode switch must change mode.`
 - Supported transitions: `none → <tracker>` / `<tracker> → none` / `<tracker> → <other>`. Unsupported = NFR-10 canonical refusal.
 - The CLAUDE.md `mode:` line + active-FR renames land in one commit; if the switch fails partway, the user reruns `/setup --migrate` from a clean working tree (no rollback prompt).
-- **Active-FR rename (M18 STE-60 AC-STE-60.6).** On any mode change, re-derive filenames for every active FR under `specs/frs/*.md` (not `archive/`) using the *target-mode* `Provider.filenameFor(spec)` and `git mv` each file to its new name. Archive is frozen by mode transitions — historical FRs keep whatever convention they had at archival time. Any self-referencing cross-link inside the moved file (rare — grep before committing) is rewritten in place. All renames + the CLAUDE.md `mode:` flip land in a single atomic commit.
+- **Active-FR rename (M18 STE-60 AC-STE-60.6).** On any mode change, re-derive filenames for every active FR under `specs/frs/*.md` (not `archive/`) using the *target-mode* `Provider.filenameFor(spec)` and `git mv` each file to its new name. Archive is frozen by mode transitions. All renames + the CLAUDE.md `mode:` flip land in a single atomic commit.
 
-Detailed tracker-mode switching procedures live inline in this section plus `docs/setup-tracker-mode.md` for the per-tracker detail — do not inline those procedures here (NFR-1). `git log` is the audit trail for who did what and when; there is no separate sync log.
+Detailed tracker-mode switching procedures live in `docs/setup-tracker-mode.md`.
 
 ### 1. Detect the project
 
@@ -65,11 +65,11 @@ For **existing projects** (project files found in step 1), validate prerequisite
 | Gate commands runnable | Run the gating rule from CLAUDE.md (e.g., `npm run typecheck && npm run lint && npm run test`) | Fix failing commands or update CLAUDE.md gating rule |
 | CLAUDE.md present | Check if `CLAUDE.md` exists in project root | Will be created in step 5 |
 | .claude/settings.json present | Check if `.claude/settings.json` exists | Will be created in step 6 |
-| Spec anchor IDs (if `specs/` exists) | Grep `specs/plan.md` for every `## M{N}:` and `specs/requirements.md` for every `### FR-{N}:` heading; each must carry a matching `{#M{N}}` or `{#FR-{N}}` anchor on the same line | Add the missing `{#M{N}}` / `{#FR-{N}}` anchor to the heading. Missing anchors do NOT cause doctor failure — they report under `GATE PASSED WITH NOTES` so archival pointers stay stable (HG95VB) |
+| Spec anchor IDs (if `specs/` exists) | Grep `specs/plan.md` for every `## M{N}:` and `specs/requirements.md` for every `### FR-{N}:` heading; each must carry a matching `{#M{N}}` or `{#FR-{N}}` anchor | Add the missing `{#M{N}}` / `{#FR-{N}}` anchor. Missing anchors do NOT cause doctor failure — they report under `GATE PASSED WITH NOTES` |
 
-Report pass/fail for each check with remediation instructions. Missing anchor IDs surface under `GATE PASSED WITH NOTES`, never as a hard failure.
+Report pass/fail for each check with remediation. Missing anchor IDs surface under `GATE PASSED WITH NOTES`, never as a hard failure.
 
-For **new projects** (no project files found), skip this step — tools and configs will be set up during scaffolding.
+For **new projects**, skip this step.
 
 ### 2. Scaffold new projects
 
@@ -77,246 +77,170 @@ Ask the user what stack they want, then scaffold a **working, gate-check-ready**
 
 #### 2a. Research current best practices
 
-Before generating any config files, search the web for the current recommended setup for the chosen stack. Look for:
-- Latest stable versions of the test runner, linter, and typecheck tool
-- Current config file format (tools change formats between major versions — e.g., ESLint flat config vs legacy `.eslintrc`)
-- Current recommended tsconfig/pyproject/pubspec settings
-- Any known gotchas with the latest versions
-
-This ensures scaffolding uses up-to-date patterns, not stale defaults.
+Before generating any config files, search the web for the current recommended setup for the chosen stack. Look for latest stable versions, current config file formats, recommended tsconfig/pyproject/pubspec settings, and known gotchas. Stale defaults degrade scaffolding.
 
 #### 2b. Scaffold the project
 
 Key requirements for **every stack**:
+
 - **Git repo** — Run `git init` if not already in a git repository
 - **ESM/modern module format** — Use the current module standard (e.g., `"type": "module"` for Node)
 - **Placeholder source file** — Prevents "no inputs found" errors (e.g., `src/index.ts`, `src/__init__.py`, `main.go`)
 - **Test runner configured to pass with no tests** — Critical for gate-check on empty project (e.g., Vitest `passWithNoTests: true`)
-- **Don't use interactive `init` commands** that generate broken defaults (e.g., don't use `tsc --init` — create tsconfig.json directly with correct settings)
-- **.gitignore** — Stack-appropriate ignores (node_modules, dist, __pycache__, .venv, etc.)
+- **Don't use interactive `init` commands** that generate broken defaults
+- **.gitignore** — Stack-appropriate ignores
 - **All config files** — Must work together without conflicts or manual fixup
 
-**Stack-specific guidance** (use as a starting point — verify against your web research):
+**Stack-specific guidance**:
 
-- **TypeScript/Node (general):** `npm init -y`, set `"type": "module"`, install typescript + vitest + eslint, create tsconfig.json (strict, ESM, src/dist dirs), vitest.config.ts, eslint config (if using `projectService: true`, add `allowDefaultProject: ['*.config.ts', '*.config.mjs']` so root-level config files are linted correctly), src/index.ts, tests/ dir
-- **Bun (TypeScript):** see `${CLAUDE_PLUGIN_ROOT}/examples/bun-typescript.md` for the full layout, gate command (`bunx tsc --noEmit && bun test`), the canonical zero-match-exit-1 placeholder workaround (STE-113), and the `bun` permissions allowlist row from `templates/permissions.json`. **Do not collapse Bun under "TypeScript/Node" guidance** — Bun has no `bun test --passWithNoTests` flag and exits 1 against an empty test directory; the skill's step 2c scaffold-verify branch handles this case and step 7e's `setup-output-completeness` probe enforces it on every gate-check.
-- **Flutter/Dart:** `flutter create .` (or `fvm flutter create .`), add bloc_test and mocktail as dev deps, verify test/ dir exists
-- **Python:** `uv init` (or poetry init), add pytest + mypy + ruff as dev deps, create src/__init__.py, tests/ dir, verify pyproject.toml has tool configs
+- **TypeScript/Node:** `npm init -y`, set `"type": "module"`, install typescript + vitest + eslint, create tsconfig.json (strict, ESM, src/dist dirs), vitest.config.ts, eslint config, src/index.ts, tests/ dir
+- **Bun (TypeScript):** see `${CLAUDE_PLUGIN_ROOT}/examples/bun-typescript.md`. Bun has no `--passWithNoTests` flag — see step 2c branch + `docs/setup-reference.md` § Bun scaffold-verify branch
+- **Flutter/Dart:** `flutter create .`, add bloc_test + mocktail, verify test/ dir exists
+- **Python:** `uv init` or poetry init, add pytest + mypy + ruff, create src/__init__.py, tests/ dir
 - **Go:** `go mod init <module>`, create main.go, install golangci-lint
 
 #### 2c. Verify scaffolding
 
 `verification:` Run the gate commands to verify they all pass. If anything fails, fix it immediately — the project must be gate-check-ready before proceeding to step 3.
 
-**Bun-specific scaffold-verify branch (STE-113 AC-STE-113.3 + STE-128 AC-STE-128.4 layout-default).** When the detected stack is Bun (presence of `bun.lock` OR `package.json` with `"packageManager": "bun@..."` OR `bunfig.toml`), the skill anticipates `bun test`'s zero-match-exit-1 case and writes a placeholder file **before** running the gate.
-
-Placeholder location follows the toolkit's default layout policy (`src/`-co-located, see `docs/patterns.md` § Test Layout Policy):
-
-- File: `src/.placeholder.test.ts` (co-located with source).
-- Marker comment (verbatim): `// generated by /dev-process-toolkit:setup — Bun zero-match workaround (see examples/bun-typescript.md)`
-- Body: a single trivial `bun:test` `expect()` so the file actually exercises the runner.
-
-If the user explicitly chose the legacy `tests/-mirror` layout in CLAUDE.md `## Testing Conventions` § Layout, place the placeholder at `tests/.placeholder.test.ts` instead.
-
-The `bun-zero-match-placeholder` probe (gate-check #20) reads either the marker comment OR a real `*.test.ts` as satisfaction; downstream operators delete the placeholder once the project ships its first real test. The probe also enforces the declared layout (AC-STE-128.5) — placing the placeholder in the wrong directory would fail the gate.
+**Bun-specific scaffold-verify branch** (STE-113 + STE-128) writes a placeholder file before running the gate. See `docs/setup-reference.md` § Bun scaffold-verify branch for the placeholder location, marker comment, and layout-policy logic.
 
 ### 3. Read the templates
 
 Load reference material from the plugin directory:
+
 - `${CLAUDE_PLUGIN_ROOT}/templates/CLAUDE.md.template` — Base template
 - `${CLAUDE_PLUGIN_ROOT}/examples/` — Stack-specific gate commands and patterns
 - `${CLAUDE_PLUGIN_ROOT}/docs/adaptation-guide.md` — Configuration reference
 
-Match the detected stack to the closest example in `${CLAUDE_PLUGIN_ROOT}/examples/` (typescript-node, flutter-dart, or python). For other stacks, use the adaptation guide's gate command table.
+Match the detected stack to the closest example. For other stacks, use the adaptation guide's gate command table.
 
 ### 4. Present the plan
 
 Show the user what you'll create and ask for approval:
+
 - **CLAUDE.md** — With their project's actual commands, patterns, and conventions
 - **.claude/settings.json** — With tool permissions for their stack
 - **specs/** (optional) — Spec file templates if they want the full SDD workflow
 
 ### 5. Generate CLAUDE.md
 
-Create `CLAUDE.md` based on the template, filling in:
-- Project name and description
-- Detected tech stack
-- Actual directory structure (from the project)
-- Real gate commands for their stack
-- Key patterns (infer from existing code, or leave as TODOs)
-- Testing conventions (detected from config files and stack examples)
-- DO NOT section with sensible defaults
+Create `CLAUDE.md` based on the template, filling in: project name and description, detected tech stack, actual directory structure, real gate commands, key patterns (infer from existing code, or leave as TODOs), testing conventions, DO NOT section with sensible defaults.
 
 **Important:** Generate real content, not template placeholders. If you can detect the test framework, write it. If you can see the directory structure, document it.
 
 ### 6. Configure settings
 
-`verification:` Write `.claude/settings.json` with the canonical permissions allow-list for the detected stack. **Required, abort on failure** (STE-106 AC-STE-106.3) — `.claude/` is the canonical writer's domain; any "skip if sensitive" guard around it is a category error and has been removed (AC-STE-106.6).
-
-Procedure:
+`verification:` Write `.claude/settings.json` with the canonical permissions allow-list for the detected stack. **Required, abort on failure**.
 
 1. Read `${CLAUDE_PLUGIN_ROOT}/templates/permissions.json` for the canonical allow-list keyed by stack (`bun`, `node`, `flutter`, `python`, `generic`).
-2. Compose the canonical allow-list via `canonicalAllowList(template, stack)` from `adapters/_shared/src/setup/merge_settings.ts`. Falls back to `generic` when the detected stack is not registered in the template.
+2. Compose via `canonicalAllowList(template, stack)` from `adapters/_shared/src/setup/merge_settings.ts`. Falls back to `generic` for unregistered stacks.
 3. If `.claude/settings.json` does NOT exist: write a fresh JSON with `{"permissions": {"allow": <canonical>}}`.
-4. If `.claude/settings.json` exists: read + parse it, merge via `mergeAllowList(existing, canonical)`, write back. The helper preserves user additions and never strips entries (AC-STE-106.4). Malformed pre-existing JSON → abort with NFR-10 canonical shape (AC-STE-106.4 — don't silently rewrite).
-5. If the write fails for any reason (sandbox refusal, permissions, ENOSPC, anything), emit an NFR-10-shape error naming the file + the underlying error and exit non-zero. The skill MUST NOT continue with a partial scaffold.
+4. If it exists: read + parse it, merge via `mergeAllowList(existing, canonical)`, write back. Preserves user additions; never strips entries. Malformed pre-existing JSON → abort with NFR-10 canonical shape.
+5. On any write failure (sandbox refusal, ENOSPC, etc.), emit NFR-10-shape error and exit non-zero. Never continue with a partial scaffold.
 
-### 6b. Install commit-msg hook (STE-133)
+### 6b. Install commit-msg hook
 
-`default: shell` — install the POSIX-shell Conventional-Commits hook (zero-dep). `$ARGUMENTS` contains `--commitlint` ⇒ install the commitlint-delegating variant.
+`default: shell` — install the POSIX-shell Conventional-Commits hook (zero-dep). `$ARGUMENTS` contains `--commitlint` ⇒ install the commitlint-delegating variant. Skip entirely when `.git/hooks/` is absent (log `setup: skipping commit-msg hook (not a git repo)`).
 
-Procedure (skip entirely when `.git/hooks/` is absent — log `setup: skipping commit-msg hook (not a git repo)`):
+The hook is a local-machine artifact (not tracked in git). `commitlint.config.js`, when written, IS in the bootstrap set — step 8b appends it when `--commitlint` was used.
 
-1. **Resolve source.** Default ⇒ `${CLAUDE_PLUGIN_ROOT}/templates/git-hooks/commit-msg.sh`. `--commitlint` ⇒ check `command -v bun`; missing ⇒ warn and fall through to the shell variant (AC-STE-133.3 final clause); else use `commit-msg.commitlint.sh`.
-2. **Idempotency tier (AC-STE-133.2)** against `.git/hooks/commit-msg`:
-   - missing ⇒ copy + `chmod +x`;
-   - byte-identical ⇒ no-op;
-   - different ⇒ print `diff -u`, prompt `Overwrite? [y/N]`. `y` ⇒ overwrite + `chmod +x`; otherwise leave existing in place and print the manual install command (`cp ${CLAUDE_PLUGIN_ROOT}/templates/git-hooks/<variant> .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg`).
-3. **`--commitlint` extras (AC-STE-133.3).** Also write `commitlint.config.js` from `${CLAUDE_PLUGIN_ROOT}/templates/git-hooks/commitlint.config.js` to the repo root if absent (never overwrite). Surface this hint in step 11's final report — do NOT run the install:
-   ```
-   /setup: --commitlint variant installed. Run `bun add -D @commitlint/cli @commitlint/config-conventional` before your first commit.
-   ```
-
-The hook is a local-machine artifact (not tracked in git). `commitlint.config.js`, when written, IS in the bootstrap set — step 8b appends it to the stage list when `--commitlint` was used.
+Full procedure (idempotency tier, `--commitlint` extras, manual install command): `docs/setup-reference.md` § Step 6b — commit-msg hook install.
 
 ### 7. Configure MCP servers
 
-`verification:` When tracker mode != none, write `.mcp.json` with the resolved adapter's `mcpServers` entry. **Required, abort on failure** (STE-106 AC-STE-106.3 / AC-STE-106.5) — the `setup-output-completeness` probe (gate-check #17) hard-fails when the file is missing in tracker mode.
-
-**Optionally offer [mcp-rubber-duck](https://github.com/nesquikm/mcp-rubber-duck)** — an MCP server that delegates tasks to independent AI "ducks," each with their own tools and context. It improves quality through cross-model evaluation (different models reviewing each other's work) and enables the `/visual-check` skill for visual UI verification. Explain this to the user and let them decide whether to set it up. `default: skip` — proceed without rubber-duck if no answer is supplied (autonomous mode).
-
-**For web-based projects only** (TypeScript/Node with a UI, React, Next.js, Vue, Svelte, etc.), also add `chrome-devtools-mcp` to `.mcp.json` so that Chrome can be used directly from Claude Code:
-
-```json
-{
-  "mcpServers": {
-    "chrome": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["chrome-devtools-mcp@latest"]
-    }
-  }
-}
-```
+`verification:` When tracker mode != none, write `.mcp.json` with the resolved adapter's `mcpServers` entry. **Required, abort on failure** (STE-106 AC-STE-106.3 / AC-STE-106.5) — the `setup-output-completeness` probe (gate-check #17) hard-fails when missing in tracker mode.
 
 If `.mcp.json` already exists, merge — don't overwrite.
 
+Full procedure (rubber-duck offer, chrome-devtools-mcp for web projects): `docs/setup-reference.md` § Step 7 — Configure MCP servers.
+
 ### 7b. Tracker mode (opt-in)
 
-`requires-input: tracker mode is a workspace-wide decision; no safe default exists.` (STE-108 AC-STE-108.5)
+`requires-input: tracker mode is a workspace-wide decision; no safe default exists.`
 
 Ask exactly once, near the end of the flow — after CLAUDE.md is drafted but before it's written:
 
 > Task Tracking: where do ACs live? `1. none` (ACs stay in `specs/requirements.md`) / `2. linear` / `3. jira` / `4. custom` (copy `adapters/_template`). Enter 1–4. **No default** — autonomous runs MUST pre-bake an answer.
 
-Under non-interactive mode without a pre-baked answer, abort with NFR-10 canonical shape naming step 7b and the missing input. The skill does not infer a tracker mode.
+Under non-interactive mode without a pre-baked answer, abort with NFR-10 canonical shape naming step 7b and the missing input.
 
-**Schema L canonical-key constraint (STE-114 AC-STE-114.2).** When emitting the `## Task Tracking` section, write **only** the canonical keys: `mode`, `mcp_server`, `jira_ac_field`, `branch_template`. Tracker-specific metadata (project IDs, team names) belong in a separate sub-section under `## Task Tracking` (e.g., `### Linear`) or in the adapter's own config — **not** as Schema L keys at the top level. The `task-tracking-canonical-keys` probe (gate-check #21) hard-fails any non-canonical top-level key. Closed-set definition: `docs/patterns.md` § Schema L Canonical keys.
+**Schema L canonical-key constraint.** When emitting the `## Task Tracking` section, write **only** the canonical keys: `mode`, `mcp_server`, `jira_ac_field`, `branch_template`. Tracker-specific metadata (project IDs, team names) belong in a separate sub-section under `## Task Tracking` (e.g., `### Linear`) or in the adapter's own config — **not** as Schema L keys at the top level. The `task-tracking-canonical-keys` probe (gate-check #21) hard-fails any non-canonical top-level key.
 
-If the user picks `1` (or pre-baked answer is `none`), do NOT emit a `## Task Tracking` section in CLAUDE.md — absence is the canonical form for `mode: none` (STE-8 AC-STE-8.5). Continue to step 7c.
+If the user picks `1` (or pre-baked answer is `none`), do NOT emit a `## Task Tracking` section in CLAUDE.md — absence is the canonical form for `mode: none`. Continue to step 7c.
 
-If the user picks 2–4, run the flow in `docs/setup-tracker-mode.md` in full:
+If the user picks 2–4, run the full numbered flow in `docs/setup-reference.md` § Step 7b — Tracker mode (covers Bun prereq, MCP detection, test call, Jira field discovery, Schema L emit, and STE-117 workspace binding). Background detail in `docs/setup-tracker-mode.md`.
 
-1. Verify `bun --version` ≥ 1.2; absence hard-stops mode recording with an NFR-10 canonical-shape error (AC-STE-9.8).
-2. Detect the target MCP via `claude mcp list`. If absent, render a dry-run JSON diff of the proposed `mcpServers.<name>` entry and require explicit confirmation before writing `settings.json` (AC-STE-9.1, AC-STE-9.2, AC-STE-9.3, DD-12.9).
-3. Run a harmless test call (Linear `list_teams` / Jira empty `search`). On failure, surface an NFR-10 canonical-shape error and refuse to record mode — the project remains `mode: none` (AC-STE-9.4, AC-STE-9.5).
-4. For Jira: pipe `GET /rest/api/3/field` response into `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/jira/src/discover_field.ts` and record `jira_ac_field: customfield_XXXXX` in the section (AC-STE-9.6).
-5. Append the `## Task Tracking` section to CLAUDE.md per Schema L with the resolved keys (one per line).
-6. **STE-117 workspace binding.** `requires-input: workspace binding (team + project) is workspace-wide; no safe default exists.` After step 5 lands, prompt for the binding values — closed-set keys per `docs/patterns.md` § Schema L Workspace binding sub-sections:
-   - **Linear:** call `mcp__linear__list_teams` (display each team's `key` + `name`); after the user picks a team, call `mcp__linear__list_projects --team <selected>` and display project names. The user picks one project. Surface the live list so the operator never types from memory; reject the call with NFR-10 canonical shape if either MCP probe fails.
-   - **Jira:** prompt for the Jira project key directly (no live probe — Jira project enumeration is per-instance and out of MCP scope).
-   Write the values into a `### Linear` (with `team:` + `project:`) or `### Jira` (with `project:`) sub-section appended after the Schema L canonical keys. The sub-section parser is greedy until the next `##` / `###` heading or EOF (AC-STE-117.1).
-   Append a `## /setup audit` entry per STE-108 conventions: `step:7b (workspace_binding) value:"<adapter>:<team>/<project>" reason:"prompt resolved"`. Under non-interactive mode without a pre-baked answer, abort with NFR-10 canonical shape naming step 7b workspace-binding and the missing input.
+### 7c. Branch-naming template
 
-See `docs/setup-tracker-mode.md` for the exact question prompt, canonical error shapes, and JSON diff preview format. Do not inline those procedures here — NFR-1 keeps this skill under 300 lines.
+`default: <default-for-mode>` — proceed with the mode-specific default if no answer is supplied. Autonomous runs append `## /setup audit` entry recording `step:7c value:"<resolved>" reason:"default applied"`.
 
-### 7c. Branch-naming template (STE-64)
-
-`default: <default-for-mode>` — proceed with the mode-specific default if no answer is supplied. Autonomous runs append a `## /setup audit` entry recording `step:7c value:"<resolved>" reason:"default applied"`.
-
-Ask once, after Schema L has been drafted (or immediately, when 7b picked `mode: none` and no Schema L block will be emitted):
-
-> Branch-naming template? (default: `<default-for-mode>`).
-
-Default-for-mode: `{type}/m{N}-{slug}` in `mode: none`; `{type}/{ticket-id}-{slug}` in any tracker mode. Placeholders: `{type}` → `feat`/`fix`/`chore` (LLM-inferred); `{N}` → milestone number; `{ticket-id}` → tracker ID in tracker mode, short-ULID tail (lowercased) in `mode: none`; `{slug}` → 2–4 word kebab (LLM-inferred).
+Default-for-mode: `{type}/m{N}-{slug}` in `mode: none`; `{type}/{ticket-id}-{slug}` in any tracker mode.
 
 - Empty response ⇒ accept default.
-- Non-empty response ⇒ use verbatim (`/implement` sanitizes LLM output at render time, so custom templates are safe).
-- Write the resolved value as `branch_template: <value>` in the Schema L block (tracker-mode projects: append to existing keys). `mode: none` projects that elected `1` in step 7b: skip writing; branch automation stays disabled (AC-STE-64.1).
+- Non-empty response ⇒ use verbatim (`/implement` sanitizes LLM output at render time).
+- Write the resolved value as `branch_template: <value>` in Schema L. `mode: none` projects that elected `1` in 7b: skip writing; branch automation stays disabled.
+- **Skip condition:** if CLAUDE.md already has `branch_template:`, do not re-ask.
 
-**Skip condition:** if the current CLAUDE.md already has `branch_template:` under `## Task Tracking`, do not re-ask. `/setup --migrate` preserves existing keys unless the user explicitly chooses to edit them.
-
-See `docs/setup-tracker-mode.md` § Branch template for the long-form prompt and examples.
+See `docs/setup-tracker-mode.md` § Branch template for the long-form prompt and placeholder substitution rules.
 
 ### 7d. Docs modes (STE-68 + STE-107)
 
-`default: all-false` — when no answer is supplied (autonomous mode or when the docs question is skipped), the skill **always emits** the `## Docs` section with all three flags set to `false` (STE-107 AC-STE-107.1 / .2). This supersedes the older "absent section ≡ all-false" convention: the section is now always written so `/docs` and the `claudemd-docs-section-present` probe (gate-check #18) have something to read. Each default-applied flag appends a `## /setup audit` entry: `step:7d (docs.<flag>) value:false reason:"default applied"`.
+`default: all-false` — when no answer is supplied (autonomous mode or skipped), the skill **always emits** the `## Docs` section with all three flags `false` (STE-107 AC-STE-107.1 / .2). Each default-applied flag appends `## /setup audit` entry: `step:7d (docs.<flag>) value:false reason:"default applied"`.
 
-Ask three yes/no prompts, in this exact order, after 7c:
+Three yes/no prompts in this exact order, after 7c:
 
 1. `Generate user-facing docs (narrative + mermaid state/flow diagrams)?`
-2. `Generate packages-style API reference docs?` — body is **stack-adaptive** per `probeToolchains(projectRoot)` from `adapters/_shared/src/toolchain_probe.ts` (AC-STE-105.2 / AC-STE-105.4):
-   - **TS-only project** (only `tsconfig.json`): existing prompt unchanged — `(typedoc <detected|not found>, ts-morph <bundled>, stack: <ts|other>)`.
-   - **Dart-only project** (only `pubspec.yaml`): `(dart SDK <detected|MISSING — install: https://dart.dev/get-dart>, strategy: dart-analyzer | regex-fallback)`.
-   - **Python-only project** (`pyproject.toml`/`setup.py`/`setup.cfg`): `(griffe <detected|MISSING — install: pip install griffe>=0.40.0>, strategy: griffe | regex-fallback)`.
-   - **Mixed-stack project**: render each detected stack's status on its own line under the prompt title.
+2. `Generate packages-style API reference docs?` — body is **stack-adaptive**. TS-only project: `(typedoc <detected|not found>, ts-morph <bundled>, stack: <ts|other>)`. Other stacks render their toolchain-probe results (Dart: dart-analyzer; Python: griffe).
 3. `Is CHANGELOG.md generated by CI (if yes, /ship-milestone will not write it)?`
 
-Prompt 2's body is informational only — whether the probed tool is present does not change the prompt's default or accepted inputs, just the operator's visibility into which strategy `/docs` will choose later (AC-STE-72.2 for the TS chain, AC-STE-103.2 for Dart, AC-STE-104.1 for Python).
+Accept `y`/`n`/`yes`/`no` case-insensitively; other inputs re-prompt with `answer y or n`. If both 1 and 2 are declined, refuse with NFR-10 shape and re-ask only those two; if declined again, still emit the section with all-false defaults (read-side `readDocsConfig` returns all-false for absent section per AC-STE-68.3).
 
-Accept `y`/`n`/`yes`/`no` case-insensitively; other inputs re-prompt with the remedy `answer y or n` (AC-STE-68.1). If the project already has a `## Docs` section, show the current value inline on each prompt (e.g., `Generate user-facing docs? [current: true]`) and accept empty input as "keep current" (AC-STE-68.5).
+Write the section as Schema L (lowercase `true`/`false`, no quoting), placed immediately after `## Task Tracking`. Re-runs are atomic — splice the full block, write once.
 
-If the user answers `no` to both prompts 1 and 2, refuse with NFR-10 canonical shape and re-ask only those two (changelog_ci_owned is preserved between retries):
+**Toolchain snapshot.** When `packages_mode == true`, also write `docs/.dpt-docs-toolchain.json` recording per-stack preferred signature-extraction strategy. The `signature-strategy-honors-setup` probe (#24) reads this later for drift detection.
 
-```
-/setup: at least one docs mode must be enabled to write the ## Docs section.
-Remedy: answer yes to either "user-facing docs?" or "packages API refs?", or decline both to skip docs configuration entirely (the ## Docs section will not be written and /docs will be a no-op).
-Context: mode=<tracker-mode>, skill=setup
-```
-
-If the user declines both on the re-ask, **still emit** the `## Docs` section with all-false defaults (STE-107 AC-STE-107.1 / .2). The legacy "absent section ≡ all-false" backward-compat shape (AC-STE-68.3) is preserved on **read** — `readDocsConfig` returns all-false for an absent section — but `/setup`-generated files always carry the literal block.
-
-Write the resolved answers as a `## Docs` section in `CLAUDE.md`, placed immediately after `## Task Tracking` (or at end of file if no tracker section exists). Schema L format, lowercase literal `true`/`false`, no quoting:
-
-```
-## Docs
-
-user_facing_mode: <true|false>
-packages_mode: <true|false>
-changelog_ci_owned: <true|false>
-```
-
-Re-run writes are atomic — read CLAUDE.md, splice the full `## Docs` block, write once (AC-STE-68.5).
-
-**Toolchain snapshot (STE-105 AC-STE-105.5).** When `packages_mode == true`, also write `docs/.dpt-docs-toolchain.json` recording the per-stack preferred signature-extraction strategy at /setup time, derived from `preferredFromStatus(probeToolchains(projectRoot))`:
-
-```json
-{
-  "signature_extraction_preferred_strategy": {
-    "ts": "typedoc" | "ts-morph" | "regex-fallback",
-    "dart": "dart-analyzer" | "regex-fallback",
-    "python": "griffe" | "regex-fallback"
-  }
-}
-```
-
-Emit only the keys for stacks the project actually carries (`ts` only when `tsconfig.json` is present, `dart` only with `pubspec.yaml`, `python` only with `pyproject.toml`/`setup.py`/`setup.cfg`). The `signature-strategy-honors-setup` `/gate-check` probe (#24) reads this file later to detect "tool was here at setup, gone now" drift; absent file ⇒ probe skips silently. Skip the write when `packages_mode == false` — there's nothing to validate.
-
-See `docs/setup-docs-mode.md` for the full prompt wording, re-run display, and NFR-10 refusal format.
+Full prompt list, NFR-10 refusal text, and section format: `docs/setup-reference.md` § Step 7d — Docs modes. Background detail in `docs/setup-docs-mode.md`.
 
 ### 8. Create specs (optional)
 
-If the user wants the full SDD workflow (or if `$ARGUMENTS` contains "new"):
-- Create `specs/` directory plus `specs/frs/`, `specs/frs/archive/`, `specs/plan/`, `specs/plan/archive/` (per-unit archival; no rolling index file).
-- Copy cross-cutting templates from `${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/` (`requirements.md`, `technical-spec.md`, `testing-spec.md`). Do not create or copy any `archive-index.md` file — archival is `git mv` + frontmatter flip (STE-22); there is no index template.
-- **Pre-fill with concrete values** from what you already know — replace every placeholder you can with real data:
-  - **requirements.md:** Project name, overview, detected stack. Fill the traceability matrix header rows with AC IDs from any existing requirements.
-  - **technical-spec.md:** Actual directory structure (run `ls`), actual dependencies with pinned versions (from lock file or package manifest), module boundaries you can infer from the code
-  - **testing-spec.md:** Exact test framework + version, mocking library, coverage tool, file naming convention (detected from existing tests or config), test directory path
-  - **plan.md:** M1 skeleton for the foundation that setup just built, with concrete file paths and gate commands
-- Leave requirements, acceptance criteria, and milestone tasks for the user — but everything else should be filled in, not left as `<!-- placeholder -->`
+If the user wants the full SDD workflow (or `$ARGUMENTS` contains "new"):
+
+- Create `specs/` plus `specs/frs/`, `specs/frs/archive/`, `specs/plan/`, `specs/plan/archive/` (per-unit archival; no rolling index file).
+- Copy cross-cutting templates from `${CLAUDE_PLUGIN_ROOT}/templates/spec-templates/`. Do not create or copy any `archive-index.md` — archival is `git mv` + frontmatter flip.
+- **Pre-fill with concrete values** from what you already know:
+  - **requirements.md:** Project name, overview, detected stack, traceability matrix headers
+  - **technical-spec.md:** Actual directory structure, dependencies with pinned versions, module boundaries
+  - **testing-spec.md:** Exact test framework + version, mocking library, coverage tool, file naming convention
+  - **plan.md:** M1 skeleton for the foundation just built, with concrete file paths and gate commands
+- Leave requirements, acceptance criteria, and milestone tasks for the user.
 
 If the user didn't ask for specs, skip this step.
+
+### 8a. Audit-section post-condition
+
+`verification:` runs unconditionally before step 8b's bootstrap commit. Closes the M31-class gap where per-step `appendAuditEntry` calls in 7b/7c/7d could be skipped.
+
+1. Read CLAUDE.md once.
+2. Call `hasDefaultApplicableOutcomes(content)` from `adapters/_shared/src/setup_audit_section_presence.ts` (single source of truth, AC-STE-123.1).
+3. Branch:
+   - **false** ⇒ no-op, continue to 8b. Vacuous on fully-interactive runs.
+   - **true AND** `## /setup audit` heading present ⇒ no-op. Per-step appends already populated it.
+   - **true AND** heading absent ⇒ call `synthesizeAuditSection(claudeMdPath, resolvedDefaults)` from `adapters/_shared/src/setup/synthesize_audit.ts`. Pass the **in-scope resolved-defaults table** populated during 7b/7c/7d — never re-derive from CLAUDE.md. The helper is idempotent (`(step, field)` dedup; AC-STE-123.3).
+
+On `AuditPostconditionUnsatisfiable` (resolved-defaults table empty but file shows default-applied outcomes — invariant violation, AC-STE-123.4), refuse with NFR-10 canonical shape and abort before 8b commits malformed output. Full refusal text + procedure: `docs/setup-reference.md` § Step 8a.
+
+### 8b. Bootstrap commit
+
+`default: commit` — autonomous mode proceeds; interactive mode prompts. The bootstrap is mechanical and the diff is reviewable post-commit.
+
+After all writes settle and step 8a's post-condition has run, /setup produces a single bootstrap commit so the canonical /setup output set lands at HEAD instead of leaking into the first feature PR.
+
+Procedure: pre-flight `git status --porcelain` check, stage the canonical set (CLAUDE.md, settings.json, .mcp.json when written, specs files, .gitkeep stubs, plus `commitlint.config.js` when `--commitlint` was used), diff preview + prompt, commit (`chore: bootstrap dev-process-toolkit (v<plugin-version>)`), handle declines/edits/failures.
+
+Full numbered procedure (decline + edit + failure paths): `docs/setup-reference.md` § Step 8b.
+
+The `setup-bootstrap-committed` probe (gate-check #22) hard-fails when CLAUDE.md is toolkit-managed (carries the `<!-- generated by /dev-process-toolkit:setup -->` marker) but `git status --porcelain CLAUDE.md` returns non-empty output.
 
 ### 9. Verify
 
@@ -328,57 +252,15 @@ If spec files were created, ask the user:
 
 > "Spec templates are ready. Want me to help you fill them in now? I can walk you through defining requirements, technical decisions, and the implementation plan. (Run `/dev-process-toolkit:spec-write`)"
 
-### 8a. Audit-section post-condition (STE-123)
-
-`verification:` runs unconditionally before step 8b's bootstrap commit, regardless of prompt mode. Closes the M31-class discretionary-check gap where per-step `appendAuditEntry` calls in 7b/7c/7d could be skipped, leaving CLAUDE.md without the `## /setup audit` section even though default-applied outcomes are visible (probe-19 trigger condition met).
-
-Procedure:
-
-1. Read CLAUDE.md once.
-2. Call `hasDefaultApplicableOutcomes(content)` from `adapters/_shared/src/setup_audit_section_presence.ts` (the same predicate probe-19 uses at gate time — single source of truth, AC-STE-123.1).
-3. Branch:
-   - **false** ⇒ no-op, continue to step 8b. Vacuous on fully-interactive runs where every prompt was answered explicitly (AC-STE-123.5).
-   - **true AND** the literal string `"## /setup audit"` is present in the file ⇒ no-op, continue. Per-step appends already populated the section.
-   - **true AND** the audit heading is absent ⇒ call `synthesizeAuditSection(claudeMdPath, resolvedDefaults)` from `adapters/_shared/src/setup/synthesize_audit.ts`. Pass the **in-scope resolved-defaults table** populated during steps 7b/7c/7d (AC-STE-123.2) — never re-derive from CLAUDE.md, since re-parsing reintroduces the brittleness this step closes. The helper is idempotent (`(step, field)` dedup; AC-STE-123.3); existing entries are preserved verbatim.
-
-On `AuditPostconditionUnsatisfiable` (the resolved-defaults table is empty but the file shows default-applied outcomes — invariant violation, AC-STE-123.4), refuse with NFR-10 canonical shape and abort /setup before step 8b can commit malformed output:
-
-```
-setup: audit-section post-condition unsatisfiable — resolved-defaults table empty
-but CLAUDE.md shows default-applied outcomes; investigate.
-Remedy: re-run /setup interactively to populate per-step audit entries via 7b/7c/7d.
-Context: file=<path>, step=8a, post-condition=audit-section-presence
-```
-
-This step is the deterministic byproduct of any autonomous /setup run; probe-19 satisfaction is guaranteed at the file-shape level when /setup returns clean. Probe-19 stays at gate time as the safety net for paths that bypass /setup (manual CLAUDE.md edits, downstream skills that mutate the file).
-
-### 8b. Bootstrap commit (STE-109)
-
-`default: commit` — autonomous mode proceeds with the commit; interactive mode prompts. The bootstrap is mechanical and the diff is reviewable post-commit (AC-STE-109.3).
-
-After all writes (steps 5–8) settle, step 8a's audit-section post-condition has run, and the audit log is populated, /setup produces a single bootstrap commit so the canonical /setup output set lands at HEAD instead of leaking into the first feature PR (AC-STE-109.1).
-
-Procedure:
-
-1. **Pre-flight check.** Run `git status --porcelain`. If the only untracked or modified files are in the bootstrap set, proceed. Anything else → abort with NFR-10 canonical shape: `"uncommitted changes exist; resolve before /setup"` (AC-STE-109.4). If the project is not a git repo, run `git init` first.
-2. **Stage the canonical set.** `CLAUDE.md`, `.claude/settings.json`, `.mcp.json` (when written), `specs/requirements.md`, `specs/technical-spec.md`, `specs/testing-spec.md`, `specs/plan/M1.md`, plus `.gitkeep` stubs in `specs/frs/`, `specs/frs/archive/`, `specs/plan/archive/` so empty dirs survive the initial commit.
-3. **Diff preview.** Show the user the diff. Prompt: `Commit these as 'chore: bootstrap dev-process-toolkit'? (y/n/edit)`. Default `y` in autonomous mode.
-4. **Commit.** Message format: `chore: bootstrap dev-process-toolkit (v<plugin-version>)`. Version comes from `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`. Body lists the files written, not their contents (AC-STE-109.5).
-5. **On `n`.** Log a warning to the final report and append a `## /setup audit` entry: `step:8b (bootstrap_commit) value:"declined" reason:"user declined commit, manual commit required before /spec-write"`. Files stay staged.
-6. **On `edit`.** Hand control to the user with files staged but uncommitted.
-7. **On commit failure.** NFR-10 canonical shape, exit non-zero.
-
-The `setup-bootstrap-committed` probe (gate-check #22) hard-fails when CLAUDE.md is toolkit-managed (carries the `<!-- generated by /dev-process-toolkit:setup -->` marker) but `git status --porcelain CLAUDE.md` returns non-empty output.
-
 ## After /setup
 
 Subsequent `/setup` re-runs (e.g., flag changes) produce *follow-up* commits (`chore: re-run /setup ...`) — not amendments. The bootstrap commit is canonical even if the user later refines flags.
 
-If you skipped the bootstrap commit (`n` at step 8b), commit the staged files manually before running `/spec-write` so the first feature PR's diff is FR-scoped, not a mixture of `/setup` outputs and feature work.
+If you skipped the bootstrap commit (`n` at step 8b), commit the staged files manually before running `/spec-write` so the first feature PR's diff is FR-scoped.
 
 ### 11. Report
 
-Summarize what was created, then present the SDD workflow:
+Summarize what was created, then present the SDD workflow.
 
 **Files created/modified:** list them.
 
@@ -395,30 +277,9 @@ Summarize what was created, then present the SDD workflow:
 7. /pr               → Create pull request
 ```
 
-**Workflows** — choose the path that matches your task:
-
-**Bugfix:** `/debug → /implement → /gate-check → /pr`
-**Feature:** `/brainstorm → /spec-write → /implement → /spec-review → /gate-check → /pr`
-**Refactor:** `/implement → /simplify → /gate-check → /pr`
-
-**Next steps:**
-
-If spec files were created:
-1. Fill in `specs/requirements.md` — define what to build (functional requirements + acceptance criteria)
-2. Fill in `specs/technical-spec.md` — define how to build it (architecture, data model, key patterns)
-3. Fill in `specs/testing-spec.md` — define how to test it (conventions, coverage targets)
-4. Fill in `specs/plan.md` — break work into milestones with task order
-5. Run `/dev-process-toolkit:implement <milestone>` to start building
-
-Or run `/dev-process-toolkit:spec-write` to have Claude guide you through filling specs interactively.
-
-If no spec files were created:
-1. Run `/dev-process-toolkit:implement <task description>` to build features
-2. Add specs later if you want the full SDD workflow
-
 **Key principle:** Specs are the source of truth. `/implement` reads specs to understand what to build, writes tests first, self-reviews against acceptance criteria, and reports for human approval before committing.
 
-**For advanced configuration** (hooks, domain-specific checks, CI/CD), see the adaptation guide in the plugin docs.
+Workflow paths (Bugfix / Feature / Refactor) and the spec-fill-in checklist live in `docs/setup-reference.md` § Step 11. Surface them to the user when relevant.
 
 ## Rules
 

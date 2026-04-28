@@ -5,7 +5,7 @@ Detailed tracker-mode procedures for `/spec-write`. Pointed at from
 
 In `mode: none`, this document is unused.
 
-## Tracker ID Assignment Order (STE-66)
+## Tracker ID Assignment Order
 
 **Rule:** create the tracker ticket **first**, read the returned ID, substitute the placeholder globally, **then** write the FR file. **Never guess** the next sequential tracker number.
 
@@ -44,7 +44,7 @@ After each FR-level AC save in `specs/requirements.md`:
    (FR-{N} → ticket-id). If the matrix has no row yet, prompt the user
    for a fresh `upsert_ticket_metadata(null, ...)` invocation that
    creates the ticket and writes the returned ID back into the matrix.
-2. Run ticket-binding confirmation per `docs/ticket-binding.md` (STE-27).
+2. Run ticket-binding confirmation per `docs/ticket-binding.md`.
 3. Call `pull_acs(ticket_id)` — fresh fetch, just like `/implement` does.
 4. Classify the local AC list vs the tracker AC list via the STE-17 diff
    classifier (`adapters/_shared/src/classify_diff.ts`). Full procedure

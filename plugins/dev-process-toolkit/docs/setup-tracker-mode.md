@@ -15,16 +15,16 @@ default) never reads this document — the `mode: none` branch runs unchanged.
   `none`; skipping or pressing Enter keeps `mode: none`.
 - **Recording.** A recorded mode adds a `## Task Tracking` section to
   `CLAUDE.md` per Schema L (technical-spec §7.3). Absence ≡ `none`
-  (AC-STE-8.5) — `/setup` never writes a `mode: none` line.
+ — `/setup` never writes a `mode: none` line.
 - **Never silent writes.** Every `settings.json` and `CLAUDE.md` edit is
   preview + explicit confirm (AC-STE-9.3, DD-12.9).
 - **Bun prerequisite.** `bun --version` runs before any tracker recording
-  (AC-STE-9.8); absence is an NFR-10 canonical-shape error.
+; absence is an NFR-10 canonical-shape error.
 - **Test call on completion.** After MCP detection / install /
   confirmation, `/setup` runs a harmless live call (Linear
   `list_teams`, Jira `search` no-criteria). On failure, surface NFR-10
   canonical shape and refuse to record mode (AC-STE-9.4, AC-STE-9.5).
-- **Per-tenant discovery.** Jira AC custom-field (AC-STE-9.6). Records
+- **Per-tenant discovery.** Jira AC custom-field. Records
   `jira_ac_field` in `## Task Tracking`.
 
 ## Task map (Phase C traceability)
@@ -57,7 +57,7 @@ If the user picks `1` or skips, do NOT add `## Task Tracking` to CLAUDE.md
 (AC-STE-8.5). Continue the existing fresh-setup flow. If the user picks 2–4,
 proceed through the remaining tracker-mode steps in order.
 
-## Bun prerequisite check (AC-STE-9.8)
+## Bun prerequisite check
 
 Before any MCP work, verify:
 
@@ -98,7 +98,7 @@ Apply? [y/N]:
 ```
 
 On `n`, abort the tracker-mode portion cleanly; leave all files untouched.
-`mode: none` remains in effect (AC-STE-9.3).
+`mode: none` remains in effect.
 
 ## Test-call verification (AC-STE-9.4, AC-STE-9.5)
 
@@ -123,7 +123,7 @@ section to CLAUDE.md.
 
 ## Per-tenant discovery
 
-### Jira (AC-STE-9.6)
+### Jira
 
 After test-call success, run one-time AC custom-field discovery:
 
@@ -173,7 +173,7 @@ prompt once:
 
 - `{type}` — LLM-inferred `feat` / `fix` / `chore` (unknown values clamp to `feat`; AC-STE-64.13).
 - `{N}` — milestone number for milestone runs (e.g. `19` for `M19`).
-- `{ticket-id}` — tracker ID in tracker mode (e.g. `STE-64`, lowercased); short-ULID tail (chars 23–29, lowercased) in `mode: none` (AC-STE-64.7).
+- `{ticket-id}` — tracker ID in tracker mode (e.g. `STE-64`, lowercased); short-ULID tail (chars 23–29, lowercased) in `mode: none`.
 - `{slug}` — LLM-inferred 2–4 word kebab. `[a-z0-9-]` only after sanitization.
 
 **Response handling**
@@ -184,16 +184,16 @@ prompt once:
 
 **Skip conditions**
 
-- `mode: none` projects that elected `1. none` in step 7b: skip writing `branch_template:`. Branch automation stays disabled (AC-STE-64.1). Users can opt in later by re-running `/setup` or by hand-adding the key to CLAUDE.md.
+- `mode: none` projects that elected `1. none` in step 7b: skip writing `branch_template:`. Branch automation stays disabled. Users can opt in later by re-running `/setup` or by hand-adding the key to CLAUDE.md.
 - Any project whose CLAUDE.md already has `branch_template:` under `## Task Tracking`: do not re-ask. `/setup --migrate` preserves existing keys by default.
 
-**Consumer scope.** Only `/implement` reads `branch_template:` (AC-STE-64.9). Other skills (`/tdd`, `/debug`, `/spec-write`, `/gate-check`, `/pr`, `/spec-archive`, `/spec-review`, `/visual-check`, `/simplify`, `/brainstorm`) continue to run on whatever branch they're invoked from.
+**Consumer scope.** Only `/implement` reads `branch_template:`. Other skills (`/tdd`, `/debug`, `/spec-write`, `/gate-check`, `/pr`, `/spec-archive`, `/spec-review`, `/visual-check`, `/simplify`, `/brainstorm`) continue to run on whatever branch they're invoked from.
 
 ## `/setup --migrate` entry
 
 When invoked as `/setup --migrate`, skip steps 1–7 (project detection,
 scaffolding, template write) and route directly into tracker-mode
-switching (STE-14) — see `skills/setup/SKILL.md` § 0b for the inline
+switching — see `skills/setup/SKILL.md` § 0b for the inline
 procedure covering current-mode detection and target-mode prompt. The
 single commit that lands the mode flip is the audit trail; if the switch
 fails partway, rerun `/setup --migrate` from a clean working tree.

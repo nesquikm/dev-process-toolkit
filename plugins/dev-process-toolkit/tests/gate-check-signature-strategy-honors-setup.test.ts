@@ -142,3 +142,12 @@ describe("/gate-check SKILL.md probe registration — AC-STE-105.7 / STE-82", ()
     expect(skill).toContain("signature_strategy_honors_setup.ts");
   });
 });
+
+describe("AC-STE-139.5 — signature-strategy-honors-setup runs clean on this repo's baseline", () => {
+  test("runSignatureStrategyHonorsSetupProbe(repoRoot) returns ok with zero notes", async () => {
+    const repoRoot = join(__dirname, "../..", "..");
+    const result = await runSignatureStrategyHonorsSetupProbe(repoRoot);
+    expect(result.ok).toBe(true);
+    expect(result.notes).toEqual([]);
+  });
+});

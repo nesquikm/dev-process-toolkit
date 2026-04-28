@@ -126,3 +126,11 @@ title: Dupe
     }
   });
 });
+
+describe("AC-STE-139.5 — duplicate-ac-prefix runs clean on this repo's baseline", () => {
+  test("acLint(repoSpecs) returns zero issues", async () => {
+    const repoSpecsDir = join(import.meta.dir, "..", "..", "..", "specs");
+    const result = await acLint(repoSpecsDir);
+    expect(result.issues).toEqual([]);
+  });
+});

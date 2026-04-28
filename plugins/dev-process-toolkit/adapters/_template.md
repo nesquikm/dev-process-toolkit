@@ -58,7 +58,7 @@ and `/pr`.
 | `status_mapping` | Canonical states (`in_progress` / `in_review` / `done`) → tracker-side labels. `/pr` calls `transition_status(in_review)` after a PR is opened. |
 | `capabilities` | Subset of `[pull_acs, push_ac_toggle, transition_status, upsert_ticket_metadata]`. A missing capability triggers FR-38 AC-38.6 graceful degradation (NFR-10 warning + proceed). |
 | `project_milestone` | Boolean. `true` declares that migration should bind each pushed ticket to a tracker-native release/project milestone matching the FR's `milestone: M<N>` frontmatter (FR-59). Linear (`true`) is the reference implementation; Jira and custom default to `false`. |
-| `ticket_description_template` | Body written by `upsert_ticket_metadata`. MUST contain a back-link to `specs/frs/{tracker_id}.md` per AC-37.6 (STE-67 retired the v1 `{fr_anchor}` + `specs/requirements.md#...` form). |
+| `ticket_description_template` | Body written by `upsert_ticket_metadata`. MUST contain a back-link to `specs/frs/{tracker_id}.md`. The legacy `{fr_anchor}` + `specs/requirements.md#...` form has been retired. |
 | `helpers_dir` | Path to TypeScript helper sources, invoked via `bun run`. No compiled binaries. |
 
 ## MCP tool names

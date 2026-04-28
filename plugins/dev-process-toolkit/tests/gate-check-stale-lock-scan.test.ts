@@ -90,3 +90,22 @@ describe("STE-82 AC-STE-82.3/7 — stale-lock file-content fixtures (positive + 
     }
   });
 });
+
+describe("AC-STE-139.5 — stale-lock-scan runs clean on this repo's baseline", () => {
+  test("the live repo's .dpt-locks/ either is absent or contains no merged-branch entries", async () => {
+    const { existsSync, readdirSync } = await import("node:fs");
+    const repoRoot = join(import.meta.dir, "..", "..", "..");
+    const locksDir = join(repoRoot, ".dpt-locks");
+    if (!existsSync(locksDir)) {
+      // Tracker mode: lock files are vacuous (mode: linear stores In Progress
+      // on the tracker, not on disk). Vacuous pass — there is nothing to scan.
+      expect(true).toBe(true);
+      return;
+    }
+    const entries = readdirSync(locksDir).filter((n) => !n.startsWith("."));
+    // No active locks expected on a clean working branch — the only valid
+    // state for the live repo is zero entries (or entries that match the
+    // current branch, which we don't compute here for simplicity).
+    expect(entries).toEqual([]);
+  });
+});

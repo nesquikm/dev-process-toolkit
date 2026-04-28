@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import {
   copyFileSync,
-  existsSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -12,16 +10,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runSchemaLProbe } from "./verify-regression";
 
-// AC-STE-12.8 regression-gate probe-parity coverage. Two layers of tests:
+// AC-STE-12.8 regression-gate probe-parity coverage.
 //
-//   (1) Direct unit tests for the exported `runSchemaLProbe` helper —
-//       fast, no subprocess.
-//
-//   (2) End-to-end mutation test — copies a fixture CLAUDE.md into a
-//       temp dir, injects a `## Task Tracking` line, and invokes
-//       verify-regression via a targeted probe run. This proves the
-//       operational script actually catches the violation, not just
-//       the helper.
+// Direct unit tests for the exported `runSchemaLProbe` helper. The pre-M18
+// `verify-regression.ts` script-mode (Layer 1 byte-diff + Layer 3 Schema M
+// probe) was removed in M39 STE-141 — the operational subprocess tests that
+// validated the script-mode entry are no longer applicable.
 
 const scriptDir = import.meta.dir;
 const pluginRoot = join(scriptDir, "..", "..");
@@ -148,46 +142,3 @@ describe("runSchemaLProbe (AC-STE-12.8)", () => {
   });
 });
 
-describe("verify-regression.ts operational exit (AC-STE-12.8)", () => {
-  test("exits 0 in the clean case", () => {
-    const result = spawnSync(
-      "bun",
-      ["run", join(scriptDir, "verify-regression.ts")],
-      { encoding: "utf8" },
-    );
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain("Schema L probe clean: mode-none-baseline");
-    expect(result.stdout).toContain("Schema L probe clean: mode-none-fresh-setup");
-  });
-
-  // End-to-end mutation — verifies the script's exit code, not just the
-  // helper. Because FIXTURES are hard-coded, we mutate in-place under a
-  // try/finally that always restores. A crash between mutation and
-  // restore would leave the fixture dirty (caught by subsequent CI run);
-  // in practice this test completes in milliseconds.
-  test("exits 1 when a probe fixture gains a `## Task Tracking` line", () => {
-    const claudeMdPath = join(projectsDir, "mode-none-fresh-setup", "CLAUDE.md");
-    const original = readFileSync(claudeMdPath, "utf8");
-    const mutated = original + "\n## Task Tracking\n\nmode: linear\n";
-    try {
-      writeFileSync(claudeMdPath, mutated);
-      const result = spawnSync(
-        "bun",
-        ["run", join(scriptDir, "verify-regression.ts")],
-        { encoding: "utf8" },
-      );
-      expect(result.status).toBe(1);
-      const combined = (result.stdout ?? "") + (result.stderr ?? "");
-      expect(combined).toMatch(/SCHEMA L PROBE FAILURE/);
-      expect(combined).toContain("mode-none-fresh-setup");
-    } finally {
-      writeFileSync(claudeMdPath, original);
-      if (readFileSync(claudeMdPath, "utf8") !== original) {
-        throw new Error(
-          "test-tearing: failed to restore mode-none-fresh-setup CLAUDE.md — inspect the file",
-        );
-      }
-      expect(existsSync(claudeMdPath)).toBe(true);
-    }
-  });
-});

@@ -156,3 +156,12 @@ describe("gate-check probe #12 — docs/README.md nav contract", () => {
     expect(result.notes.length).toBeGreaterThan(0);
   });
 });
+
+describe("AC-STE-139.5 — nav-contract runs clean on this repo's baseline", () => {
+  test("runNavContractProbe(repoRoot) returns ok with zero notes", () => {
+    const repoRoot = join(import.meta.dir, "..", "..", "..");
+    const result = runNavContractProbe(repoRoot);
+    expect(result.ok).toBe(true);
+    expect(result.notes).toEqual([]);
+  });
+});

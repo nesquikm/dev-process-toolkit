@@ -283,3 +283,29 @@ describe("AC-STE-87.8(e) — probe authoring contract lists probe #15", () => {
     expect(body).toMatch(/gate-check-guessed-tracker-id\.test\.ts/);
   });
 });
+
+describe("AC-STE-139.5 — guessed-tracker-id runs clean on this repo's baseline", () => {
+  test("active FRs carry no AC-prefix mismatching the file's tracker binding", async () => {
+    const { readdirSync, readFileSync, statSync } = await import("node:fs");
+    const repoFrsDir = join(import.meta.dir, "..", "..", "..", "specs", "frs");
+    const violations: string[] = [];
+    for (const name of readdirSync(repoFrsDir)) {
+      const path = join(repoFrsDir, name);
+      if (!statSync(path).isFile() || !name.endsWith(".md")) continue;
+      const body = readFileSync(path, "utf-8");
+      const fmEnd = body.indexOf("---", 3);
+      if (fmEnd < 0) continue;
+      const fm = body.slice(0, fmEnd);
+      const trackerLineMatch = fm.match(/^\s+([a-z]+):\s*([A-Z]+-\d+)\s*$/m);
+      if (!trackerLineMatch) continue;
+      const expectedPrefix = trackerLineMatch[2]!.split("-")[0]!;
+      const acMatches = body.matchAll(/^\s*-\s*AC-([A-Z]+)-\d+\.\d+/gm);
+      for (const m of acMatches) {
+        if (m[1] !== expectedPrefix) {
+          violations.push(`${name}: AC-${m[1]}-... but tracker prefix is ${expectedPrefix}`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+});

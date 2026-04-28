@@ -35,3 +35,10 @@ describe("STE-64 AC-STE-64.12 — CLAUDE.md.template documents branch_template:"
     expect(body).toContain("{type}/{ticket-id}-{slug}");
   });
 });
+
+describe("AC-STE-139.5 — branch-template-hygiene runs clean on this repo's baseline", () => {
+  test("the live repo's CLAUDE.md.template documents branch_template: (probe #10 grep)", () => {
+    const body = readFileSync(templatePath, "utf-8");
+    expect(body).toContain("branch_template:");
+  });
+});

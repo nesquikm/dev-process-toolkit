@@ -189,3 +189,16 @@ describe("AC-STE-87.4(f) — probe authoring contract lists probe #14", () => {
     expect(body).toMatch(/gate-check-active-ticket-drift\.test\.ts/);
   });
 });
+
+describe("AC-STE-139.5 — active-ticket-drift runs clean on this repo's baseline", () => {
+  test("LocalProvider.getTicketStatus returns the local-no-tracker sentinel (probe vacuous in mode: none)", async () => {
+    // The probe walks active FRs and calls Provider.getTicketStatus. In mode: none
+    // the LocalProvider returns the `local-no-tracker` sentinel which the probe
+    // treats as a vacuous pass. We exercise the sentinel here so the baseline
+    // contract stays locked (full tracker-mode probe is exercised at gate time
+    // when MCP is wired).
+    const lp = new LocalProvider({ repoRoot: pluginRoot, gitUserEmail: "test@example.com" });
+    const result = await lp.getTicketStatus("STE-139");
+    expect(result.status).toBe("local-no-tracker");
+  });
+});

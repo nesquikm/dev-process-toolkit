@@ -158,3 +158,11 @@ describe("STE-86 — mode-none regression fixtures pass the probe (AC-STE-76.8)"
     expect(report.violations).toEqual([]);
   });
 });
+
+describe("AC-STE-139.5 — identity-mode-conditional runs clean on this repo's baseline", () => {
+  test("runIdentityModeConditionalProbe(repoRoot) returns zero violations", async () => {
+    const repoRoot = join(import.meta.dir, "..", "..", "..");
+    const report = await runIdentityModeConditionalProbe(repoRoot);
+    expect(report.violations).toEqual([]);
+  });
+});

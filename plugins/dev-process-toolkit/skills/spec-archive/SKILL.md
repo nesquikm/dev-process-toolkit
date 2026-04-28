@@ -16,21 +16,21 @@ Before any other step:
 
 - **Tracker-mode probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none`. Tracker-mode `/spec-archive` still operates only on local `specs/` content — archival of completed **tracker tickets** is the tracker's own concern.
 
-### 0a. Resolver entry (AC-STE-33.1)
+### 0a. Resolver entry
 
-Call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src/resolver_config.ts` once at entry (STE-44 AC-STE-44.5), then pass the result to `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. Malformed adapter metadata surfaces as `MalformedAdapterMetadataError` → NFR-10 canonical refusal (AC-STE-44.6).
+Call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src/resolver_config.ts` once at entry, then pass the result to `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. Malformed adapter metadata surfaces as `MalformedAdapterMetadataError` → NFR-10 canonical refusal.
 
 - **`ulid`** → archive that single FR (step 1).
-- **`tracker-id` / `url`** → branch on mode (STE-135): tracker mode uses `findFRPathByTrackerRef(specsDir, trackerKey, trackerId)` (path-returning, no `id:` requirement); `mode: none` uses `findFRByTrackerRef(specsDir, trackerKey, trackerId)` (ULID-returning). The tracker-mode helper is the post-STE-76 contract — `findFRByTrackerRef` would always miss in tracker mode (no `id:` line) and trigger the refuse branch below against an FR that exists on disk.
-  - Hit → archive that single FR (AC-STE-33.3). No import, no tracker network call.
-  - Miss → **refuse** with the NFR-10 canonical error: `"No local FR mapped to <tracker>:<id>. Archival never auto-imports. To dismiss the tracker ticket, close it in the tracker directly."` Exit non-zero. No side effects. `/spec-archive` **never** auto-imports (AC-STE-33.4).
+- **`tracker-id` / `url`** → branch on mode: tracker mode uses `findFRPathByTrackerRef(specsDir, trackerKey, trackerId)` (path-returning, no `id:` requirement); `mode: none` uses `findFRByTrackerRef(specsDir, trackerKey, trackerId)` (ULID-returning). The tracker-mode helper is the post-STE-76 contract — `findFRByTrackerRef` would always miss in tracker mode (no `id:` line) and trigger the refuse branch below against an FR that exists on disk.
+  - Hit → archive that single FR. No import, no tracker network call.
+  - Miss → **refuse** with the NFR-10 canonical error: `"No local FR mapped to <tracker>:<id>. Archival never auto-imports. To dismiss the tracker ticket, close it in the tracker directly."` Exit non-zero. No side effects. `/spec-archive` **never** auto-imports.
 - **`fallthrough`** and `$ARGUMENTS` matches `^M\d+$` → batch archival of every FR with `milestone == <M<N>>` plus the plan file (step 1). `/spec-archive M12` is the canonical group form.
 - **`fallthrough`** otherwise → refuse and prompt the user for a valid ULID / tracker ref / `M<N>` (AC-STE-33.5, AC-STE-33.6, NFR-18).
 - `AmbiguousArgumentError` → surface per NFR-10 with the `<tracker>:<id>` disambiguation remedy; exit non-zero.
 
 Full decision table: `docs/resolver-entry.md`.
 
-### 1. Archival procedure (STE-22)
+### 1. Archival procedure
 
 Archival uses the same code path as `/implement` Phase 4.
 
@@ -39,11 +39,11 @@ Archival uses the same code path as `/implement` Phase 4.
 1. Locate the FR file: read the spec's frontmatter and compute its base name via `Provider.filenameFor(spec)` (M18 STE-60 AC-STE-60.5). Verify `status: active` or `status: in_progress`.
 2. Present the Diff Preview (§ Diff Preview below) — the filename move, the frontmatter flip, and any `Provider.releaseLock` call.
 3. On explicit approval:
-   - `git mv specs/frs/<name> specs/frs/archive/<name>` using the `Provider.filenameFor(spec)` base — stem preserved across the move (AC-STE-18.4). Archival never renames.
+   - `git mv specs/frs/<name> specs/frs/archive/<name>` using the `Provider.filenameFor(spec)` base — stem preserved across the move. Archival never renames.
    - Flip frontmatter `status: active` → `status: archived`; set `archived_at: <ISO now>`.
-   - **Rewrite traceability links (STE-111 AC-STE-111.1).** Call `rewriteArchiveLinks(repoRoot, frId)` from `adapters/_shared/src/spec_archive/rewrite_links.ts`. It scans `specs/requirements.md`, every `specs/plan/*.md`, every `specs/plan/archive/*.md`, and `CHANGELOG.md` (scoped to lines above the first dated `## [X.Y.Z] — YYYY-MM-DD` header — released sections are frozen per AC-STE-111.6) for `frs/<id>.md` references and rewrites them to `frs/archive/<id>.md`. Both Markdown link forms (`](frs/<id>.md)` and `](./frs/<id>.md)`) and bare path mentions are covered (AC-STE-111.2). Orphan FRs (no references anywhere) yield an empty rewrite, no error (AC-STE-111.5). The rewrites land in the **same atomic commit** as the `git mv` and frontmatter flip (AC-STE-111.3).
-   - `Provider.releaseLock(<ulid>)` (AC-STE-28.4). In tracker mode this transitions the ticket to `done`; in tracker-less mode it removes the in-flight lock file.
-   - All of the above land in a single atomic commit (AC-STE-22.2).
+   - **Rewrite traceability links.** Call `rewriteArchiveLinks(repoRoot, frId)` from `adapters/_shared/src/spec_archive/rewrite_links.ts`. It scans `specs/requirements.md`, every `specs/plan/*.md`, every `specs/plan/archive/*.md`, and `CHANGELOG.md` (scoped to lines above the first dated `## [X.Y.Z] — YYYY-MM-DD` header — released sections are frozen per AC-STE-111.6) for `frs/<id>.md` references and rewrites them to `frs/archive/<id>.md`. Both Markdown link forms (`](frs/<id>.md)` and `](./frs/<id>.md)`) and bare path mentions are covered. Orphan FRs (no references anywhere) yield an empty rewrite, no error. The rewrites land in the **same atomic commit** as the `git mv` and frontmatter flip.
+   - `Provider.releaseLock(<ulid>)`. In tracker mode this transitions the ticket to `done`; in tracker-less mode it removes the in-flight lock file.
+   - All of the above land in a single atomic commit.
 5. Run the Post-Archive Drift Check (§ Post-Archive Drift Check below).
 
 **Milestone-group archival** (argument is `M<N>`):
@@ -51,12 +51,12 @@ Archival uses the same code path as `/implement` Phase 4.
 1. Scan every active `specs/frs/*.md` for `milestone == M<N>`. Refuse cleanly if the match set is empty ("No active FRs found for milestone M<N>"); exit non-zero, no side effects.
 2. Build the batch:
    - Per matched FR: `git mv specs/frs/<Provider.filenameFor(spec)> specs/frs/archive/<same-name>` + frontmatter flip + traceability-link rewrite (`rewriteArchiveLinks(repoRoot, frId)` per STE-111 AC-STE-111.1) + `Provider.releaseLock` (M18 STE-60 AC-STE-60.5).
-   - If `specs/plan/M<N>.md` exists, include `git mv specs/plan/M<N>.md specs/plan/archive/M<N>.md` (AC-STE-21.5).
+   - If `specs/plan/M<N>.md` exists, include `git mv specs/plan/M<N>.md specs/plan/archive/M<N>.md`.
 3. Present the Diff Preview covering every move + flip + traceability rewrite + release.
 4. On approval, land all N moves + N flips + N rewrites + N `releaseLock` calls + the optional plan-file move in a **single atomic commit** (AC-STE-22.6 / AC-STE-111.3). Any error aborts the commit entirely — no partial archival.
 5. Run the Post-Archive Drift Check.
 
-No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` except the frontmatter `status` flip at move time (AC-STE-22.5). Full reference: `docs/layout-reference.md` § `/spec-archive`.
+No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` except the frontmatter `status` flip at move time. Full reference: `docs/layout-reference.md` § `/spec-archive`.
 
 ### 2. Technical-spec.md — never archive
 
@@ -151,5 +151,5 @@ The drift check **never blocks the archival operation itself**. The archive move
 - Every archival lands in one atomic commit (single FR or milestone group).
 - Tracker-ref miss → refuse and exit; never auto-import to archive.
 - Never edit `specs/technical-spec.md` — ADRs use `Superseded-by:` in place.
-- Never write under `specs/frs/archive/**` or `specs/plan/archive/**` except the `status` / `archived_at` frontmatter flip at move time (AC-STE-22.5).
-- Call `Provider.releaseLock(id)` for every archived FR (AC-STE-28.4).
+- Never write under `specs/frs/archive/**` or `specs/plan/archive/**` except the `status` / `archived_at` frontmatter flip at move time.
+- Call `Provider.releaseLock(id)` for every archived FR.

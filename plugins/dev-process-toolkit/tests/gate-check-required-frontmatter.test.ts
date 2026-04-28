@@ -108,3 +108,20 @@ describe("STE-82 AC-STE-82.2/7 — required-frontmatter fixtures (positive + neg
     expect(exampleNote).toMatch(/^specs\/frs\/.*:\d+ — missing field `\w+`$/);
   });
 });
+
+describe("AC-STE-139.5 — required-frontmatter runs clean on this repo's baseline", () => {
+  test("every active FR carries the 6 mode-invariant Schema Q keys", async () => {
+    const { readdirSync, readFileSync, statSync } = await import("node:fs");
+    const repoFrsDir = join(import.meta.dir, "..", "..", "..", "specs", "frs");
+    const gaps: string[] = [];
+    for (const name of readdirSync(repoFrsDir)) {
+      const path = join(repoFrsDir, name);
+      if (!statSync(path).isFile() || !name.endsWith(".md")) continue;
+      const fm = parseFrontmatter(readFileSync(path, "utf-8"), { lenient: true });
+      for (const key of REQUIRED_KEYS) {
+        if (!(key in fm)) gaps.push(`${name}:${key}`);
+      }
+    }
+    expect(gaps).toEqual([]);
+  });
+});

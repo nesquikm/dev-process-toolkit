@@ -234,3 +234,11 @@ describe("violations: tracker mode without binding", () => {
     }
   });
 });
+
+describe("AC-STE-139.5 — task-tracking-workspace-binding-present runs clean on this repo's baseline", () => {
+  test("runTaskTrackingWorkspaceBindingPresentProbe(repoRoot) returns zero violations", async () => {
+    const repoRoot = join(import.meta.dir, "..", "..", "..");
+    const report = await runTaskTrackingWorkspaceBindingPresentProbe(repoRoot);
+    expect(report.violations).toEqual([]);
+  });
+});
