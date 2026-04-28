@@ -12,7 +12,7 @@ package.json             # `"type": "module"` recommended
 tsconfig.json            # strict, ESM, `module: ESNext`
 src/
 ├── index.ts
-├── index.test.ts        # co-located unit test (toolkit default — STE-128)
+├── index.test.ts        # co-located unit test (toolkit default)
 └── .placeholder.test.ts # zero-match shield until first real test lands (see below)
 ```
 
@@ -41,7 +41,7 @@ test("placeholder — delete once the project ships its first real test", () => 
 });
 ```
 
-**File path:** `src/.placeholder.test.ts` (toolkit default, co-located per STE-128). Override to `tests/.placeholder.test.ts` only if the project elected `tests/-mirror` in CLAUDE.md `## Testing Conventions` § Layout. The leading dot keeps it sorted at the top of `ls` output, signalling its scaffolding role.
+**File path:** `src/.placeholder.test.ts` (toolkit default, co-located). Override to `tests/.placeholder.test.ts` only if the project elected `tests/-mirror` in CLAUDE.md `## Testing Conventions` § Layout. The leading dot keeps it sorted at the top of `ls` output, signalling its scaffolding role.
 
 **When to delete:** the moment a real co-located test file lands in `src/` (or a real `tests/<x>.test.ts` for projects on the mirror layout). The `bun-zero-match-placeholder` probe is vacuous in that case and won't flag the deletion.
 
@@ -51,7 +51,7 @@ The probe is scoped to Bun projects only (`bun.lock` presence). Non-Bun projects
 
 ## Permissions allowlist
 
-The canonical Bun-stack `Bash()` permissions live in `templates/permissions.json` under the `bun` stack key (STE-106). `/setup` merges these into the project's `.claude/settings.json` `permissions.allow`:
+The canonical Bun-stack `Bash()` permissions live in `templates/permissions.json` under the `bun` stack key. `/setup` merges these into the project's `.claude/settings.json` `permissions.allow`:
 
 ```json
 {

@@ -1,13 +1,12 @@
 <!--
-  Tracker-ID placeholder convention (STE-66 / STE-80):
-  When drafting FR rows in tracker mode, use the literal placeholder
-  `<tracker-id>` (e.g., `| STE-<tracker-id> | <Title> | ... |`) until the
-  tracker allocator assigns the real ID. Never guess the next sequential
-  number. Substitute real IDs globally only after Provider.sync returns.
+  Tracker-ID placeholder convention: when drafting FR rows in tracker
+  mode, use the literal placeholder `<tracker-id>` (e.g.,
+  `| <tracker-id> | <Title> | ... |`) until the tracker allocator
+  assigns the real ID. Never guess the next sequential number. Substitute
+  real IDs globally only after Provider.sync returns.
 
-  See plugins/dev-process-toolkit/docs/spec-write-tracker-mode.md for the
-  full rule. In mode: none, use the short-ULID tail instead; the
-  placeholder convention does not apply.
+  See the plugin's documentation for the full rule. In mode: none, use the
+  short-ULID tail instead; the placeholder convention does not apply.
 -->
 
 # Implementation Plan
@@ -33,7 +32,7 @@ If you can't write the `verify:` line in one sentence, the task is too big. Spli
 - `- [ ] Refactor and add tests and update docs` — conjunctions hide three separate commits' worth of work; each clause needs its own `verify:` line
 - `- [ ] Clean up technical debt` — no observable end state; can't tell when it's done
 
-## M1: [Foundation / Scaffolding] {#M1}
+## M<N>: [Foundation / Scaffolding] {#M<N>}
 
 **Goal:** <!-- What this milestone achieves -->
 **Prerequisites:** None
@@ -65,10 +64,10 @@ If you can't write the `verify:` line in one sentence, the task is too big. Spli
 
 ---
 
-## M2: [Core Feature] {#M2}
+## M<N+1>: [Core Feature] {#M<N+1>}
 
 **Goal:** <!-- What this milestone achieves -->
-**Prerequisites:** M1
+**Prerequisites:** M<N>
 
 **Tasks:**
 - [ ] <!-- Task 1 action -->
@@ -92,6 +91,6 @@ If you can't write the `verify:` line in one sentence, the task is too big. Spli
 ## Milestone Dependency Graph
 
 ```
-M1 → M2 → M3
-       ↘ M4 → M5
+M<a> → M<b> → M<c>
+        ↘ M<d> → M<e>
 ```

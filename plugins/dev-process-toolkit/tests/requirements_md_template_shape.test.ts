@@ -23,10 +23,12 @@ describe("requirements.md.template — AC placeholder shape (AC-STE-122.1)", () 
   });
 
   test("placeholder bullet flagged in top-of-file comment block", () => {
+    // STE-137 narrowed this: the comment still describes the
+    // `AC-<tracker-id>.<N>` placeholder shape, but no longer cites STE-N
+    // IDs (those would leak this repo's namespace into adopting
+    // projects).
     expect(content).toMatch(/AC-<tracker-id>\.<N>/);
-    expect(content).toMatch(/STE-50/);
-    expect(content).toMatch(/STE-66/);
-    expect(content).toMatch(/STE-122/);
+    expect(content).toMatch(/placeholder convention|tracker allocator/i);
   });
 
   test("traceability matrix uses AC-<tracker-id>.<N> placeholder rows", () => {

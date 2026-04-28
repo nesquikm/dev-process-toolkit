@@ -31,7 +31,7 @@ src/
 ```
 specs/
 ├── frs/
-│   ├── STE-42.md                        # one file per FR (tracker mode: <tracker-id>.md)
+│   ├── <tracker-id>.md                  # one file per FR (tracker mode: <tracker-id>.md)
 │   ├── VDTAF4.md                        # or short-ULID tail in mode: none
 │   └── archive/                         # archived FRs (git mv'd here, stem preserved)
 ├── plan/
@@ -91,7 +91,7 @@ npm run typecheck && npm run lint && npm run test
 - **Framework:** <!-- e.g., Vitest, pytest, flutter_test -->
 - **Mocking:** <!-- e.g., vi.mock(), mocktail, unittest.mock -->
 - **File naming:** <!-- e.g., *.test.ts, *_test.dart, test_*.py -->
-- **Layout:** src/-co-located <!-- toolkit default (STE-128); each `src/foo.ts` has a sibling `src/foo.test.ts`. Override to `tests/-mirror` if needed; `/gate-check` probe #20 reads this line. -->
+- **Layout:** src/-co-located <!-- toolkit default; each `src/foo.ts` has a sibling `src/foo.test.ts`. Override to `tests/-mirror` if needed; `/gate-check` reads this line. -->
 - **Coverage target:** <!-- e.g., >=80% for services -->
 
 ## DO NOT
@@ -120,7 +120,7 @@ All commits follow [Conventional Commits v1.0.0](https://www.conventionalcommits
 Refs: <TICKET-ID>
 ```
 
-(e.g., `Refs: STE-42`, or in `mode: none` the short-ULID tail of the FR file). Multiple FRs in one commit get one `Refs:` line each.
+(e.g., `Refs: <TICKET-ID>`, or in `mode: none` the short-ULID tail of the FR file). Multiple FRs in one commit get one `Refs:` line each.
 
 **Sample messages:**
 
@@ -142,7 +142,7 @@ chore(release): v1.4.0
 CHANGELOG bumped, README "Latest" line updated.
 
 Release: v1.4.0 "Crisp"
-Refs: M7
+Refs: M<N>
 ```
 
 **Opt-in `commitlint`** — projects with Node/Bun tooling can swap the shell hook for a [commitlint](https://commitlint.js.org/)-delegating one via `/setup --commitlint`, which writes `commitlint.config.js` extending `@commitlint/config-conventional` and surfaces the install command (`bun add -D @commitlint/cli @commitlint/config-conventional`). The shell hook is the zero-dep default.
@@ -159,14 +159,14 @@ Schema L probe (`grep -c '^## Task Tracking$' CLAUDE.md`) cannot distinguish
 commented from live headings and would report a false positive, breaking
 the Pattern 9 `mode: none` backward-compat invariant.
 
-Schema L keys `/setup` emits (STE-64):
+Schema L keys `/setup` emits:
   - mode:            none | linear | jira | <custom>
   - mcp_server:      MCP server name from `claude mcp list`
   - jira_ac_field:   customfield_XXXXX (Jira only)
   - branch_template: e.g. `{type}/m{N}-{slug}` (mode: none default)
                      or `{type}/{ticket-id}-{slug}` (tracker-mode default).
                      Absent `branch_template:` ⇒ `/implement` branch
-                     automation disabled (AC-STE-64.1). Edit to customize.
+                     automation disabled. Edit to customize.
 
 For the full live-section contract (keys, sync-log form, per-tracker
 quirks), see docs/tracker-adapters.md. `/setup` emits the section when a
@@ -177,12 +177,12 @@ humans editing the file by hand.
 
 <!--
 ===============================================================================
-Docs section (STE-68 / STE-107). `/setup` step 7d sets the flags; the
+Docs section. `/setup` step 7d sets the flags; the
 section is always emitted, even when all three default to `false`, so
 `/docs` and the `claudemd-docs-section-present` probe (gate-check #18)
 have something to read. Flip any flag to `true` to opt in.
 
-Keys `/setup` emits (STE-68):
+Keys `/setup` emits:
   - user_facing_mode:    true | false   (narrative + mermaid state/flow diagrams)
   - packages_mode:       true | false   (packages-style API reference)
   - changelog_ci_owned:  true | false   (if true, /ship-milestone will not write CHANGELOG.md)

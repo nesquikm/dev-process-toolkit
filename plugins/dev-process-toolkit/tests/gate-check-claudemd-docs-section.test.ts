@@ -132,3 +132,17 @@ describe("AC-STE-107.5 — CLAUDE.md.template advertises ## Docs default block",
     expect(template).toMatch(/changelog_ci_owned: false/);
   });
 });
+
+describe("AC-STE-136.3 — claudemd-docs-section-present runs clean on this repo's baseline", () => {
+  test("the real repo's CLAUDE.md carries the ## Docs section (probe #18 is green)", async () => {
+    const repoRoot = join(import.meta.dir, "..", "..", "..");
+    const report = await runClaudeMdDocsSectionProbe(repoRoot);
+    if (report.violations.length > 0) {
+      const detail = report.violations
+        .map((v) => `VIOL ${v.note} — ${v.message}`)
+        .join("\n");
+      throw new Error(`claudemd-docs-section self-check failed on this repo:\n${detail}`);
+    }
+    expect(report.violations).toEqual([]);
+  });
+});

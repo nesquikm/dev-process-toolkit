@@ -29,8 +29,10 @@ After the layout gate and before any FR write:
 1. Call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src/resolver_config.ts` once at entry (STE-44), then pass the returned `ResolverConfig` to `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. The builder reads `CLAUDE.md` `## Task Tracking` + each active adapter's Schema W `resolver:` block — never hand-assemble the config inline (AC-STE-44.5). Malformed adapter metadata surfaces as `MalformedAdapterMetadataError` → NFR-10 canonical refusal (AC-STE-44.6).
 2. Route by `kind`:
    - **`ulid`** → open the FR whose frontmatter `id:` equals `<ulid>` — located via `Provider.filenameFor(spec)` (AC-STE-31.2). Skip step 0b below.
-   - **`tracker-id` / `url`** → call `findFRByTrackerRef(specsDir, trackerKey, trackerId)`:
-     - **Hit** → open that FR for editing; no import, no tracker network call beyond resolve (AC-STE-31.3). Skip 0b.
+   - **`tracker-id` / `url`** → branch on mode (STE-135):
+     - **Tracker mode** → call `findFRPathByTrackerRef(specsDir, trackerKey, trackerId)` (path-returning, no `id:` requirement; STE-76's tracker-mode frontmatter has no `id:` line — `findFRByTrackerRef`'s `id:`-driven lookup would silently miss every existing FR and fall through to `importFromTracker`, overwriting local edits).
+     - **`mode: none`** → call `findFRByTrackerRef(specsDir, trackerKey, trackerId)` (ULID-returning; mode-none has `id:`).
+     - **Hit** (either helper) → open that FR for editing; no import, no tracker network call beyond resolve (AC-STE-31.3). Skip 0b.
      - **Miss** → run the shared import helper `importFromTracker(trackerKey, trackerId, provider, specsDir, promptMilestone)` from `adapters/_shared/src/import.ts`. Tracker ACs are auto-accepted — **never run the STE-17 per-AC prompt loop here** (AC-STE-31.5); the local side is empty so there is nothing to diff against. Empty-AC tickets get a TODO marker in the new FR's `## Acceptance Criteria` section (AC-STE-31.7).
    - **`fallthrough`** → continue with free-form-argument handling (step 1 below). NFR-18 requires byte-identical behavior for `all`, `requirements`, `technical`, `testing`, `plan`.
 3. On `AmbiguousArgumentError`, surface the NFR-10-shape error from `docs/resolver-entry.md` § Ambiguity and exit non-zero. Never silently pick a winner (NFR-20).

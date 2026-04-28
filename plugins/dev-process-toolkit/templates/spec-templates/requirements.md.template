@@ -1,31 +1,29 @@
 <!--
   scope: cross-cutting only
 
-  STE-129 decision: `specs/requirements.md` § 2 captures cross-cutting
-  functional requirements (auth scheme, observability surface, accessibility
-  posture, etc.). Per-FR detail lives in `specs/frs/<id>.md` exclusively
-  (see M18 STE-60). Do NOT add `### FR-N: [Feature Name]` heading blocks
-  here — `/gate-check` probe #29 `requirements-md-no-placeholder` flags
-  them as drift.
+  `specs/requirements.md` § 2 captures cross-cutting functional
+  requirements (auth scheme, observability surface, accessibility posture,
+  etc.). Per-FR detail lives in `specs/frs/<id>.md` exclusively. Do NOT add
+  `### FR-N: [Feature Name]` heading blocks here — `/gate-check`
+  `requirements-md-no-placeholder` flags them as drift.
 
-  Tracker-ID placeholder convention (STE-66 / STE-80 / STE-122):
-  When drafting cross-cutting AC IDs in tracker mode, use the literal
-  placeholder `<tracker-id>` until the tracker allocator assigns the real
-  ID. Never guess the next sequential tracker number — the allocator
-  decides, not the implementer. Substitute the real ID globally only after
-  Provider.sync / importFromTracker returns it.
+  Tracker-ID placeholder convention: when drafting cross-cutting AC IDs in
+  tracker mode, use the literal placeholder `<tracker-id>` until the
+  tracker allocator assigns the real ID. Never guess the next sequential
+  tracker number — the allocator decides, not the implementer. Substitute
+  the real ID globally only after Provider.sync / importFromTracker
+  returns it.
 
-  AC IDs use `AC-<tracker-id>.<N>` in tracker mode (substituted by /spec-write
-  via acPrefix(spec) — see STE-50 for AC-prefix derivation; mirrors STE-66's
-  filename placeholder convention) or `AC-<short-ULID>.<N>` in mode: none
-  (last 6 chars of the ULID random portion). Literal `AC-1.1` / `AC-2.1` /
-  bare-digit-milestone-numbered shapes are rejected by /gate-check probe-15
-  `guessed_tracker_id` and by /spec-write's post-write scan (STE-122
-  AC-STE-122.3).
+  AC IDs use `AC-<tracker-id>.<N>` in tracker mode (substituted by
+  /spec-write via acPrefix(spec); same placeholder convention as
+  filenames) or `AC-<short-ULID>.<N>` in mode: none (last 6 chars of the
+  ULID random portion). Literal `AC-1.1` / `AC-2.1` / bare-digit-numbered
+  shapes are rejected by /gate-check `guessed_tracker_id` and by
+  /spec-write's post-write scan.
 
-  See plugins/dev-process-toolkit/docs/spec-write-tracker-mode.md for the
-  full rule and worked example. In mode: none, use the short-ULID tail
-  instead; the placeholder convention does not apply.
+  See the plugin's documentation for the full rule and worked example. In
+  mode: none, use the short-ULID tail instead; the placeholder convention
+  does not apply.
 
   Example placeholder FR heading (lives in `specs/frs/<id>.md`, NOT here):
     ### <tracker-id>: <Title> {#<tracker-id>}
@@ -40,9 +38,9 @@
 ## 2. Functional Requirements (cross-cutting only)
 
 <!--
-  Per-FR detail lives in `specs/frs/<id>.md` (post-M18 architecture). This
-  section captures concerns that span multiple FRs — anything that would be
-  duplicated across feature specs if not pulled out here.
+  Per-FR detail lives in `specs/frs/<id>.md`. This section captures
+  concerns that span multiple FRs — anything that would be duplicated
+  across feature specs if not pulled out here.
 
   Examples of what belongs here (drop the ones that don't apply, replace
   bracketed text with project specifics, and add your own):

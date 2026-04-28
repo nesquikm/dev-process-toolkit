@@ -8,8 +8,8 @@ belongs in docs/reference/, how-to recipes in docs/how-to/.
 
 When /docs --full runs, this file is rewritten from the impact set and
 signature ground truth. Manual edits outside the generated blocks will
-be preserved; edits inside will be replaced. See docs/docs.md for the
-block markers convention (STE-70).
+be preserved; edits inside will be replaced. See the plugin's
+documentation for the block markers convention.
 -->
 
 ## Context
