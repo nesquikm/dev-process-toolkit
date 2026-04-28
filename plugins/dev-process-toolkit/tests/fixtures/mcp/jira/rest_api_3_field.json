@@ -1,0 +1,8 @@
+[
+  { "id": "summary", "name": "Summary", "custom": false },
+  { "id": "description", "name": "Description", "custom": false },
+  { "id": "customfield_10030", "name": "Epic Link", "custom": true },
+  { "id": "customfield_10047", "name": "Acceptance Criteria", "custom": true },
+  { "id": "customfield_10091", "name": "Story Points", "custom": true },
+  { "id": "customfield_10112", "name": "AC list (legacy)", "custom": true }
+]

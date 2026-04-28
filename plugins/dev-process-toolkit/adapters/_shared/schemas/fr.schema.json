@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dev-process-toolkit/schemas/fr.schema.json",
+  "title": "FR Frontmatter (Schema Q)",
+  "description": "YAML frontmatter required on every specs/frs/**/*.md file. See technical-spec.md §8.3.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "milestone", "status", "archived_at", "created_at"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^fr_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "ULID with fr_ prefix; equals filename stem byte-for-byte (AC-41.2)."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable title."
+    },
+    "milestone": {
+      "type": "string",
+      "pattern": "^M\\d+$",
+      "description": "Matches an M<N> in specs/plan/."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "in_progress", "archived"],
+      "description": "FRStatus (AC-40.2, FR-45)."
+    },
+    "archived_at": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "format": "date-time" }
+      ],
+      "description": "ISO datetime when status flipped to archived; null otherwise."
+    },
+    "tracker": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "string", "minLength": 1 },
+          { "type": "null" }
+        ]
+      },
+      "description": "Optional map; keys in alphabetical order for diff stability (AC-42.5)."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO datetime of FR creation."
+    }
+  }
+}

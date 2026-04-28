@@ -1,0 +1,204 @@
+=== file tree ===
+CLAUDE.md
+specs/frs/000M01.md
+specs/frs/000M02.md
+specs/frs/000M03.md
+specs/plan/M1.md
+specs/requirements.md
+specs/technical-spec.md
+specs/testing-spec.md
+
+=== file content (path + sha256 + size + full content) ===
+--- CLAUDE.md (sha256=961b8c7b5412d9c24e89009fbea0f1d42fdf43c31a2ed51f9d442b78cd1430aa size=868) ---
+# Fixture Project — mode: none on v2 layout
+
+Minimal downstream project used to lock FR-56 Pattern 9 behavior: `mode: none`
+canonical form (no `## Task Tracking` section) on a v2-layout `specs/` tree.
+
+## Tech Stack
+
+- **Language:** TypeScript
+- **Framework:** Node
+- **Build:** tsc
+- **Testing:** Vitest
+- **Validation:** Zod
+
+## Architecture
+
+```
+src/
+├── index.ts
+└── util.ts
+```
+
+## Key Commands
+
+```bash
+npm run typecheck
+npm run lint
+npm run test
+```
+
+**Gating rule:** `npm run typecheck && npm run lint && npm run test`
+
+## Workflows
+
+**Bugfix:** `/debug → /implement → /gate-check → /pr`
+**Feature:** `/brainstorm → /spec-write → /implement → /spec-review → /gate-check → /pr`
+**Refactor:** `/implement → /simplify → /gate-check → /pr`
+
+## DO NOT
+
+- Do not commit without user approval
+- Do not add features not in the spec
+
+--- specs/frs/000M01.md (sha256=0edb9e235a8446147dc603249606919190c59e4a0450aa8ce550cafc4cae1a82 size=511) ---
+---
+id: fr_01HZ7XJFKP0000000000000M01
+title: Sample tracker-less FR for M1
+milestone: M1
+status: active
+archived_at: null
+tracker: {}
+created_at: 2026-04-22T00:00:00.000Z
+---
+
+## Requirement
+
+A single sample FR proving v2 + mode: none is a valid shape.
+
+## Acceptance Criteria
+
+- AC-1.1: `src/util.ts` exports `greet(name: string): string`
+- AC-1.2: `greet("world")` returns `"hello, world"`
+
+## Technical Design
+
+*(not filled)*
+
+## Testing
+
+*(not filled)*
+
+## Notes
+
+Fixture data for FR-56 Pattern 9 coverage.
+
+--- specs/frs/000M02.md (sha256=a521b3f349215127cd5d56f2eead36fb6ecc8b8874701f25398caccaa4a192f4 size=604) ---
+---
+id: fr_01HZ7XJFKP0000000000000M02
+title: Second sample FR for migration iteration coverage
+milestone: M1
+status: active
+archived_at: null
+tracker: {}
+created_at: 2026-04-22T00:00:00.000Z
+---
+
+## Requirement
+
+A second active FR so the v2 iteration proves it enumerates more than one
+file (AC-57.3 requires ≥3 FRs in the regression fixture).
+
+## Acceptance Criteria
+
+- AC-2.1: `src/util.ts` exports `shout(name: string): string`
+- AC-2.2: `shout("world")` returns `"HELLO, WORLD"`
+
+## Technical Design
+
+*(not filled)*
+
+## Testing
+
+*(not filled)*
+
+## Notes
+
+Fixture data for FR-57 iteration coverage.
+
+--- specs/frs/000M03.md (sha256=dac3d9e20e04d480881d3cbdd0d92c79da0586c3ba73c9d80a330afaf920c737 size=770) ---
+---
+id: fr_01HZ7XJFKP0000000000000M03
+title: Third sample FR with existing tracker binding for alphabetical preservation
+milestone: M1
+status: active
+archived_at: null
+tracker:
+  jira: PROJ-1
+created_at: 2026-04-22T00:00:00.000Z
+---
+
+## Requirement
+
+A third active FR with a pre-existing tracker binding so a downstream
+`<tracker> → <other>` regression proves the alphabetical-merge rule
+(AC-58.2) on real fixture shape, not just unit-test shape.
+
+## Acceptance Criteria
+
+- AC-3.1: `src/util.ts` exports `whisper(name: string): string`
+- AC-3.2: `whisper("world")` returns `"hello, world"` in lowercase
+
+## Technical Design
+
+*(not filled)*
+
+## Testing
+
+*(not filled)*
+
+## Notes
+
+Fixture data for FR-57 iteration coverage + FR-58 alphabetical-merge
+regression surface.
+
+--- specs/plan/M1.md (sha256=c7838355c1fafa985f731bdaee94c949ea2f8694b25875c3ea3406cecf6d01d0 size=195) ---
+---
+milestone: M1
+status: active
+kickoff_branch: plan/M1-kickoff
+frozen_at: 2026-04-22T00:00:00.000Z
+---
+
+# M1: Sample Milestone
+
+Scaffolds `src/util.ts` + unit tests, locking AC-1.1 and AC-1.2.
+
+--- specs/requirements.md (sha256=7f4069fecd4e27c8730a201df0aeba1f4a8c1d64770ac2adf0f90447f04bc978 size=288) ---
+# Requirements
+
+## 1. Overview
+
+**Project:** mode-none-v2-migration fixture
+**Users:** developers dogfooding v2 layout without tracker mode
+**Scope:** minimal — one FR under M1 to validate v2 invariants.
+
+## 3. Non-Functional Requirements
+
+### NFR-1: Stack
+
+Node + TypeScript + Vitest.
+
+--- specs/technical-spec.md (sha256=bd6447d13f0d04ed91e96d59217c5b3d6db955e93a62ad3696e57775779bc0e7 size=163) ---
+# Technical Specification
+
+## 1. Architecture
+
+Single-file TypeScript utility. `src/index.ts` re-exports from `src/util.ts`.
+
+## 2. Data Model
+
+N/A — stateless.
+
+--- specs/testing-spec.md (sha256=6eaf54376ec0a563017e64bb047cd43a4d1a48cc9c32e8fd97eafad807cc1865 size=120) ---
+# Testing Specification
+
+## 1. Test Framework
+
+Vitest.
+
+## 2. Test Strategy
+
+Unit tests per module in `src/__tests__/`.
+

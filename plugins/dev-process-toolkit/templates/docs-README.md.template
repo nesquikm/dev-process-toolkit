@@ -1,0 +1,27 @@
+# {{project}} Docs
+
+This tree is organised by the [Diátaxis framework](https://diataxis.fr/) —
+four mutually-distinct quadrants covering what readers actually need from
+documentation. Navigate to the quadrant that matches your intent.
+
+## Tutorials {#tutorials}
+
+Step-by-step lessons for learning by doing. Start here if you are new
+to {{project}}. See [tutorials/](tutorials/).
+
+## How-to guides {#how-to}
+
+Task-oriented recipes for getting a specific thing done. Reach for
+these when you already know what you want to accomplish. See
+[how-to/](how-to/).
+
+## Reference {#reference}
+
+Factual lookups — API surfaces, state diagrams, configuration keys.
+Accurate by construction; short on exposition. See
+[reference/](reference/).
+
+## Explanation {#explanation}
+
+Design rationale, architecture, and the "why" behind the code. See
+[explanation/architecture.md](explanation/architecture.md).

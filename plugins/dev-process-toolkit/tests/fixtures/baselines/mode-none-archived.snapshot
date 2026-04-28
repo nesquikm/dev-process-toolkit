@@ -1,0 +1,134 @@
+=== file tree ===
+CLAUDE.md
+specs/archive/index.md
+specs/archive/m1-m2-shipped.md
+specs/plan.md
+specs/requirements.md
+specs/technical-spec.md
+specs/testing-spec.md
+
+=== file content (path + sha256 + size + full content) ===
+--- CLAUDE.md (sha256=e3e1f82a400f6fa8f08f51d004af8fcc3ddd48711b5c0f69019e95870cb268da size=677) ---
+# Archive-Heavy Fixture
+
+Real-shape `mode: none` project with substantial archive content.
+This file intentionally omits any `## Task Tracking` section — absence
+is the canonical form for `mode: none` (FR-29 AC-29.5).
+
+## Tech Stack
+
+- **Language:** Python 3.12
+- **Framework:** FastAPI
+- **Build:** uv
+- **Testing:** pytest
+
+## Architecture
+
+```
+src/
+├── api/
+│   └── routes.py
+└── core/
+    └── service.py
+tests/
+└── test_routes.py
+```
+
+## Key Commands
+
+```bash
+uv run ruff check
+uv run pytest
+```
+
+**Gating rule:** `uv run ruff check && uv run pytest`
+
+## DO NOT
+
+- Do not commit without user approval
+- Do not add features not in the spec
+
+--- specs/archive/index.md (sha256=4e1e87a9107c25316d7dcf4d0927b0f1754ee969c952f12379aad5e4ca0fd7f4 size=176) ---
+# Archive Index
+
+- [M1: Skeleton (shipped)](m1-m2-shipped.md) — initial scaffolding and routing.
+- [M2: Auth (shipped)](m1-m2-shipped.md) — token auth on protected routes.
+
+--- specs/archive/m1-m2-shipped.md (sha256=7df6da1d01740ca36d81f0d5bccc7962e8086a956b028bc06b74293aee7d00d5 size=1135) ---
+# M1–M2: Shipped (archived)
+
+Historical record of the first two milestones. Archived per the
+`/spec-archive` flow once acceptance was complete.
+
+## M1: Skeleton
+
+- AC-1.1: `uvicorn` boots the app with no warnings.
+- AC-1.2: `/` returns 200 with build SHA in body.
+
+## M2: Auth
+
+- AC-2.1: Bearer token middleware rejects missing tokens with 401.
+- AC-2.2: Valid token populates `request.state.principal`.
+
+## ADR-1: Bearer auth at the edge
+
+- **Context:** Downstream gateway already terminates TLS; bearer is enough.
+- **Decision:** Edge auth in app middleware, no per-route decorators.
+- **Superseded-by:** none (still in force at M3).
+
+## Notes on tracker tooling (historical)
+
+This project predates any tracker integration. The `## Task Tracking`
+heading is **not** present in `CLAUDE.md` and never was — ACs lived in
+`specs/requirements.md` throughout. This archive doc deliberately
+mentions the literal heading text to prove the Schema L probe only
+reads `CLAUDE.md`, never archive content. If a future probe variant
+ever widened to all `*.md` files, this line would flip mode detection
+and the regression gate would catch it.
+
+--- specs/plan.md (sha256=b6b948fb42e8c3b98a4e2b6ba4e94bcee4440019b77550e509cc0a6ded295161 size=233) ---
+# Implementation Plan
+
+## M3: Observability
+
+- [ ] Wire request-id middleware.
+- [ ] JSON log formatter.
+
+> Earlier milestones M1 (skeleton) and M2 (auth) shipped — see
+> `specs/archive/m1-m2-shipped.md` for the historical record.
+
+--- specs/requirements.md (sha256=41261f1cfd759eb7865ef98e896ba1ff2922cdc67b857683e184bcf0bb1bbe8f size=322) ---
+# Requirements
+
+## FR-3: Health endpoint
+
+- AC-3.1: `GET /health` returns 200 with `{"status": "ok"}`.
+- AC-3.2: Response time under 50 ms locally.
+
+## FR-4: Structured request logs
+
+- AC-4.1: Every request emits one JSON log line with method, path, status.
+- AC-4.2: Log line includes a request ID propagated via header.
+
+--- specs/technical-spec.md (sha256=24e3969338a156d4f8f848f560fc72da21eafe5d334c516cd85b33552331da4c size=359) ---
+# Technical Spec
+
+## Architecture
+
+ASGI app with two middlewares (request-id, json-logging) and a thin
+service layer. No background workers at M3.
+
+## ADR-3: JSON logs over text
+
+- **Context:** Downstream log aggregator parses JSON natively.
+- **Decision:** All structured logs use a single JSON formatter.
+- **Reconsider when:** A non-JSON consumer appears.
+
+--- specs/testing-spec.md (sha256=109efd9523ef3d07f1ca23738366c0565bf5f41a29152a09b13b058f70264230 size=133) ---
+# Testing Spec
+
+## Unit (`tests/`)
+
+- Route tests use FastAPI `TestClient`.
+- Logging assertions read captured records via `caplog`.
+

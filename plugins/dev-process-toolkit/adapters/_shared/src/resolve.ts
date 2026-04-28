@@ -1,0 +1,237 @@
+// Tracker-ID Argument Resolver (FR-51, technical-spec §9.3–§9.5).
+//
+// A pure function over (argument, config) that classifies a skill argument
+// into one of four kinds (ulid / tracker-id / url / fallthrough) and looks
+// up configured trackers from CLAUDE.md's `## Task Tracking` section. Also
+// exports findFRByTrackerRef, a filesystem scanner that maps a tracker
+// reference back to a local FR ULID.
+//
+// Design rationale:
+//   - Pure parsing + config lookup; no network I/O, no filesystem reads here
+//     (NFR-17, NFR-19). All filesystem work is in findFRByTrackerRef.
+//   - Ordering matters: explicit-prefix → ULID → URL → tracker-ID → fallthrough.
+//     The ordering is asserted by unit tests (§9.4 algorithm notes).
+//   - Ambiguity is an error, not a prompt (NFR-20). Resolver is callable from
+//     non-interactive contexts; the deterministic error lets callers render
+//     NFR-10 shape without threading interactivity into a pure function.
+
+import { readFile, stat } from "node:fs/promises";
+import { join } from "node:path";
+import { parseFrontmatter } from "./frontmatter";
+
+export type ResolveKind = "ulid" | "tracker-id" | "url" | "fallthrough";
+
+export interface ResolveResult {
+  kind: ResolveKind;
+  ulid?: string;
+  trackerKey?: string;
+  trackerId?: string;
+}
+
+export interface TrackerConfig {
+  key: string;
+  idPattern: RegExp;
+  urlHost: string;
+  urlPathRegex: RegExp;
+  prefixes?: string[];
+}
+
+export interface ResolverConfig {
+  trackers: TrackerConfig[];
+}
+
+/**
+ * Thrown when an argument matches multiple tracker configurations and
+ * prefix-based disambiguation can't pick a single winner. Callers catch
+ * this and re-render as NFR-10 canonical error.
+ */
+export class AmbiguousArgumentError extends Error {
+  readonly argument: string;
+  readonly candidates: string[];
+  constructor(argument: string, candidates: string[]) {
+    super(
+      `Argument "${argument}" is ambiguous across configured trackers. Candidates: ${candidates.join(", ")}. Remedy: disambiguate using <tracker>:<id> explicit prefix (e.g., ${candidates[0]}).`,
+    );
+    this.name = "AmbiguousArgumentError";
+    this.argument = argument;
+    this.candidates = candidates;
+  }
+}
+
+const ULID_RE = /^fr_[0-9A-HJKMNP-TV-Z]{26}$/;
+const EXPLICIT_PREFIX_RE = /^([a-z]+):(.+)$/i;
+const URL_RE = /^https?:\/\//;
+const LEADING_ID_PREFIX_RE = /^([A-Z]+)-/;
+
+export function resolveFRArgument(arg: string, config: ResolverConfig): ResolveResult {
+  // 1. Explicit prefix form always wins when the key is configured.
+  //    Unknown prefixes fall through so non-tracker strings containing a
+  //    colon (e.g., a URL, or a free-form title) don't short-circuit here.
+  const explicit = EXPLICIT_PREFIX_RE.exec(arg);
+  if (explicit) {
+    const key = explicit[1]!.toLowerCase();
+    const id = explicit[2]!;
+    if (config.trackers.some((t) => t.key === key)) {
+      return { kind: "tracker-id", trackerKey: key, trackerId: id };
+    }
+    // fall through to next detection step
+  }
+
+  // 2. ULID regex (after explicit to allow "someprefix:fr_..." fallthrough).
+  if (ULID_RE.test(arg)) {
+    return { kind: "ulid", ulid: arg };
+  }
+
+  // 3. URL detection — allowlist by host (NFR-19). Unknown hosts fallthrough.
+  if (URL_RE.test(arg)) {
+    try {
+      const url = new URL(arg);
+      for (const t of config.trackers) {
+        if (url.host === t.urlHost) {
+          const match = url.pathname.match(t.urlPathRegex);
+          if (match && match[1]) {
+            return { kind: "url", trackerKey: t.key, trackerId: match[1] };
+          }
+        }
+      }
+      return { kind: "fallthrough" };
+    } catch {
+      return { kind: "fallthrough" };
+    }
+  }
+
+  // 4. Tracker-ID pattern match with prefix disambiguation.
+  const candidates = config.trackers.filter((t) => t.idPattern.test(arg));
+  if (candidates.length === 1) {
+    return { kind: "tracker-id", trackerKey: candidates[0]!.key, trackerId: arg };
+  }
+  if (candidates.length > 1) {
+    const prefixMatch = LEADING_ID_PREFIX_RE.exec(arg);
+    if (prefixMatch) {
+      const prefix = prefixMatch[1]!;
+      const byPrefix = candidates.filter((t) => t.prefixes?.includes(prefix));
+      if (byPrefix.length === 1) {
+        return { kind: "tracker-id", trackerKey: byPrefix[0]!.key, trackerId: arg };
+      }
+    }
+    throw new AmbiguousArgumentError(
+      arg,
+      candidates.map((c) => `${c.key}:${arg}`),
+    );
+  }
+
+  // 5. Fallthrough — skill handles per its existing contract.
+  return { kind: "fallthrough" };
+}
+
+export interface FindOptions {
+  includeArchive?: boolean;
+}
+
+/**
+ * Resolve a tracker reference `(trackerKey, trackerId)` to the local FR's
+ * ULID via single-pattern, direct-filename lookup (M18 STE-61 AC-STE-61.4 —
+ * Phase 2 frontmatter scan fallback removed now that every FR has been
+ * renamed to the M18 STE-60 convention):
+ *
+ *   Read `<specsDir>/frs/<trackerId>.md` and, when `includeArchive`,
+ *   `<specsDir>/frs/archive/<trackerId>.md`. Parse the frontmatter, verify
+ *   `tracker[trackerKey] === trackerId`, and return the `id:` field. A
+ *   filename / frontmatter mismatch returns null — the resolver refuses to
+ *   paper over broken files.
+ *
+ * **Mode-none-only (STE-135).** STE-76 (M21) removed the `id:` line from
+ * tracker-mode FR frontmatter; probe #13 (`identity_mode_conditional`)
+ * actively forbids it. In tracker mode the function therefore always
+ * returns null — the function is structurally locked to the mode-none
+ * shape (where the ULID lives in `id:`). Tracker-mode call sites must
+ * use `findFRPathByTrackerRef` (path-returning, no `id:` requirement)
+ * instead. The skill prose at `skills/spec-write/SKILL.md` § 0a,
+ * `skills/spec-archive/SKILL.md` § 0a, and `skills/implement/SKILL.md`
+ * § 0.b′ branch on mode and pick the right helper accordingly.
+ */
+export async function findFRByTrackerRef(
+  specsDir: string,
+  trackerKey: string,
+  trackerId: string,
+  options: FindOptions = {},
+): Promise<string | null> {
+  const searchDirs: string[] = [join(specsDir, "frs")];
+  if (options.includeArchive) searchDirs.push(join(specsDir, "frs", "archive"));
+
+  for (const dir of searchDirs) {
+    const directPath = join(dir, `${trackerId}.md`);
+    try {
+      await stat(directPath);
+    } catch {
+      continue;
+    }
+    let text: string;
+    try {
+      text = await readFile(directPath, "utf-8");
+    } catch {
+      continue;
+    }
+    const fm = parseFrontmatter(text, { lenient: true });
+    const id = fm["id"];
+    if (typeof id !== "string" || id.length === 0) continue;
+    const tracker = fm["tracker"];
+    if (typeof tracker === "object" && tracker !== null && !Array.isArray(tracker)) {
+      const val = (tracker as Record<string, unknown>)[trackerKey];
+      if (val === trackerId) return id;
+    }
+  }
+  return null;
+}
+
+/**
+ * Tracker-mode counterpart of `findFRByTrackerRef` (STE-135). Resolves a
+ * `(trackerKey, trackerId)` to the local FR's **file path** via the same
+ * single-pattern direct-filename lookup, but does not require an `id:`
+ * line in frontmatter — the tracker ID is the canonical identity in
+ * tracker mode (STE-76 / AC-STE-110.2).
+ *
+ * Read `<specsDir>/frs/<trackerId>.md` and, when `includeArchive`,
+ * `<specsDir>/frs/archive/<trackerId>.md`. Parse the frontmatter, verify
+ * `tracker[trackerKey] === trackerId`, and return the absolute file path.
+ * A filename ↔ frontmatter mismatch returns null — same fail-closed
+ * posture as `findFRByTrackerRef`.
+ *
+ * Callers in `mode: none` should keep using `findFRByTrackerRef`, which
+ * returns the ULID directly (the value `Provider.claimLock` consumes in
+ * `mode: none`). In tracker mode `Provider.claimLock` consumes the
+ * tracker ID, so `findFRPathByTrackerRef`'s caller already has it on hand
+ * — the function's job is to confirm a local FR exists for the given
+ * tracker reference, not to mint a new identity.
+ */
+export async function findFRPathByTrackerRef(
+  specsDir: string,
+  trackerKey: string,
+  trackerId: string,
+  options: FindOptions = {},
+): Promise<string | null> {
+  const searchDirs: string[] = [join(specsDir, "frs")];
+  if (options.includeArchive) searchDirs.push(join(specsDir, "frs", "archive"));
+
+  for (const dir of searchDirs) {
+    const directPath = join(dir, `${trackerId}.md`);
+    try {
+      await stat(directPath);
+    } catch {
+      continue;
+    }
+    let text: string;
+    try {
+      text = await readFile(directPath, "utf-8");
+    } catch {
+      continue;
+    }
+    const fm = parseFrontmatter(text, { lenient: true });
+    const tracker = fm["tracker"];
+    if (typeof tracker === "object" && tracker !== null && !Array.isArray(tracker)) {
+      const val = (tracker as Record<string, unknown>)[trackerKey];
+      if (val === trackerId) return directPath;
+    }
+  }
+  return null;
+}

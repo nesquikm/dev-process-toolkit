@@ -1,30 +1,65 @@
+<!--
+  scope: cross-cutting only
+
+  `specs/requirements.md` § 2 captures cross-cutting functional
+  requirements (auth scheme, observability surface, accessibility posture,
+  etc.). Per-FR detail lives in `specs/frs/<id>.md` exclusively. Do NOT add
+  `### FR-N: [Feature Name]` heading blocks here — `/gate-check`
+  `requirements-md-no-placeholder` flags them as drift.
+
+  Tracker-ID placeholder convention: when drafting cross-cutting AC IDs in
+  tracker mode, use the literal placeholder `<tracker-id>` until the
+  tracker allocator assigns the real ID. Never guess the next sequential
+  tracker number — the allocator decides, not the implementer. Substitute
+  the real ID globally only after Provider.sync / importFromTracker
+  returns it.
+
+  AC IDs use `AC-<tracker-id>.<N>` in tracker mode (substituted by
+  /spec-write via acPrefix(spec); same placeholder convention as
+  filenames) or `AC-<short-ULID>.<N>` in mode: none (last 6 chars of the
+  ULID random portion). Literal `AC-1.1` / `AC-2.1` / bare-digit-numbered
+  shapes are rejected by /gate-check `guessed_tracker_id` and by
+  /spec-write's post-write scan.
+
+  See the plugin's documentation for the full rule and worked example. In
+  mode: none, use the short-ULID tail instead; the placeholder convention
+  does not apply.
+
+  Example placeholder FR heading (lives in `specs/frs/<id>.md`, NOT here):
+    ### <tracker-id>: <Title> {#<tracker-id>}
+-->
+
 # Requirements
 
 ## 1. Overview
 
 <!-- What is this project/feature? Who is it for? What problem does it solve? -->
 
-## 2. Functional Requirements
+## 2. Functional Requirements (cross-cutting only)
 
-<!-- Every FR heading must carry its stable anchor ID `{#FR-{N}}` — this is the archival pointer target (see docs/patterns.md#stable-anchor-ids) -->
+<!--
+  Per-FR detail lives in `specs/frs/<id>.md`. This section captures
+  concerns that span multiple FRs — anything that would be duplicated
+  across feature specs if not pulled out here.
 
-### FR-1: [Feature Name] {#FR-1}
+  Examples of what belongs here (drop the ones that don't apply, replace
+  bracketed text with project specifics, and add your own):
 
-**Description:** <!-- What this feature does -->
+    - **Authentication scheme:** how users prove identity across every
+      feature. e.g., "OIDC with refresh-token rotation; session cookies
+      are HttpOnly + SameSite=Lax".
+    - **Observability surface:** structured logs, traces, metric naming
+      conventions every FR must follow. e.g., "every request emits a span
+      with `feature.name` + `tenant.id` attributes".
+    - **Accessibility posture:** WCAG level, keyboard-nav requirement,
+      screen-reader contract every UI FR inherits.
+    - **Tenancy model:** single- vs multi-tenant invariants every data
+      access path must respect.
 
-**Acceptance Criteria:**
-- AC-1.1: <!-- Binary pass/fail criterion -->
-- AC-1.2: <!-- Binary pass/fail criterion -->
-- AC-1.3: <!-- Negative criterion: System must NOT... e.g., "must NOT expose internal error details to the client" -->
-
-### FR-2: [Feature Name] {#FR-2}
-
-**Description:** <!-- What this feature does -->
-
-**Acceptance Criteria:**
-- AC-2.1: <!-- Binary pass/fail criterion -->
-- AC-2.2: <!-- Binary pass/fail criterion -->
-- AC-2.3: <!-- Negative criterion: must NOT... e.g., "must NOT allow unauthenticated access to protected endpoints" -->
+  What does NOT belong here: any requirement scoped to one feature, even
+  if cross-cutting in spirit (e.g., "search must support typo-tolerance"
+  belongs in `specs/frs/search.md`).
+-->
 
 ## 3. Non-Functional Requirements
 
@@ -59,5 +94,5 @@
 
 | Requirement | Implementation | Tests |
 |-------------|---------------|-------|
-| AC-1.1      |               |       |
-| AC-1.2      |               |       |
+| AC-<tracker-id>.1 |          |       |
+| AC-<tracker-id>.2 |          |       |

@@ -16,7 +16,7 @@ See the [Claude Code sub-agents documentation](https://code.claude.com/docs/en/s
 
 **When to use with `/implement`:** Reach for a native subagent whenever a discrete piece of the milestone benefits from running in its own context — typically when the subagent's output should not influence the parent's ongoing reasoning. Canonical fits:
 
-- **Code review** — Phase 3 Stage B already delegates to `code-reviewer` via `Agent` (two passes as of v1.13.0). The reviewer reads the diff cold, without being anchored by the builder's rationalizations.
+- **Code review** — Phase 3 Stage B already delegates to `code-reviewer` via `Agent` (two passes). The reviewer reads the diff cold, without being anchored by the builder's rationalizations.
 - **Research side-quests** — When Phase 1 needs to explore an unfamiliar dependency or API, dispatch a subagent with the narrow question, harvest its report, and continue the parent flow without polluting the build context with docs pages.
 - **Fan-out during Phase 2** — If a milestone has ≥3 tasks that touch fully disjoint files (see *Worktree-per-Subagent Isolation* below), dispatching each task to its own subagent keeps the parent free to orchestrate instead of switching contexts.
 
@@ -28,7 +28,7 @@ See the [Claude Code agent-teams documentation](https://code.claude.com/docs/en/
 
 **Differential with subagents:** teams for ongoing collaboration; subagents for one-shot task isolation. A team persists across multiple turns and can hand tasks back and forth; a subagent runs once and returns.
 
-**Direct skill invocation from subagents.** As of v1.13.0, a team-member subagent can invoke `/implement` and `/pr` directly via the `Skill` tool — both skills dropped their `disable-model-invocation` flag (FR-27). No workaround (reading `SKILL.md` body manually to execute its phases by hand) is needed; the lead dispatches the milestone and the worker runs `/dev-process-toolkit:implement M{N}` from its own context. `/setup` keeps the flag because a subagent re-running project bootstrap mid-flight would clobber the working tree.
+**Direct skill invocation from subagents.** A team-member subagent can invoke `/implement` and `/pr` directly via the `Skill` tool — both skills omit the `disable-model-invocation` flag. The lead dispatches the milestone and the worker runs `/dev-process-toolkit:implement M{N}` from its own context. `/setup` keeps the flag because a subagent re-running project bootstrap mid-flight would clobber the working tree.
 
 **When to use with `/implement`:**
 

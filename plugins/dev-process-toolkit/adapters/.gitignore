@@ -1,0 +1,9 @@
+# Source-only distribution (DD-12.5, NFR-7). No compiled binaries, no dist/,
+# no per-platform packaging. Any of these appearing in a commit is a
+# DD-12.5 violation — refuse the commit and investigate.
+dist/
+build/
+*.exe
+*.dylib
+*.so
+node_modules/

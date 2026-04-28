@@ -27,26 +27,29 @@ SDD doesn't replace TDD — it wraps it. Tests are still written first, but they
 
 ### 1. Specs Define the Contract
 
-Specs live in `specs/` and follow a hierarchy:
+Specs live in `specs/` and follow the file-per-FR layout:
 
 ```
 specs/
-├── requirements.md     # WHAT to build (FRs, ACs, NFRs)
-├── technical-spec.md   # HOW to build it (architecture, patterns)
-├── testing-spec.md     # HOW to test it (conventions, coverage)
-├── plan.md             # WHEN to build it (milestones, task order)
-└── archive/            # Archived milestones (auto-managed, historical context)
-    ├── index.md        # Rolling index
-    └── M{N}-{slug}.md  # One file per archived milestone
+├── requirements.md                     # WHAT to build — cross-cutting (overview, NFRs)
+├── technical-spec.md                   # HOW to build it — cross-cutting (architecture, schemas, ADRs)
+├── testing-spec.md                     # HOW to test it — cross-cutting (framework, strategy)
+├── frs/
+│   ├── <tracker-id>.md                 # tracker mode: one file per FR, keyed on the ticket (e.g., STE-42.md)
+│   ├── <short-ULID>.md                 # mode: none: keyed on spec.id.slice(23, 29) (e.g., VDTAF4.md)
+│   └── archive/<same-stem>.md          # archived FRs (git-moved; status: archived; stem preserved)
+└── plan/
+    ├── M<N>.md                         # one file per milestone (active)
+    └── archive/M<N>.md                 # archived milestone plans
 ```
 
-**Spec precedence:** requirements.md > testing-spec.md > technical-spec.md > plan.md
+**Spec precedence:** requirements.md > testing-spec.md > technical-spec.md > plan files.
 
-**Specs are compactable (FR-16..20).** Live spec files never grow unboundedly. When `/implement` completes a milestone and the human approves the Phase 4 report, the milestone block and its traceability-matched ACs move automatically into `specs/archive/M{N}-{slug}.md`, leaving Schema H pointer lines in their place. This is part of normal SDD, not an advanced feature — the hot-path token cost of every skill invocation stays roughly constant regardless of project age. `technical-spec.md` is never auto-archived (ADRs use `Superseded-by:` in place). See the Archival Lifecycle pattern in `docs/patterns.md` for details, and `/spec-archive` for manual archival of content the auto-path can't reach.
+**Specs are compactable.** Live spec files never grow unboundedly. When `/implement` completes a milestone and the human approves the Phase 4 report, every FR belonging to the milestone is `git mv`d into `specs/frs/archive/<name>.md` (stem preserved — same base name as the active file) with frontmatter `status` flipped from `active` to `archived`; the milestone's plan file moves from `specs/plan/<M#>.md` to `specs/plan/archive/<M#>.md`. The hot-path token cost of every skill invocation stays roughly constant regardless of project age. `technical-spec.md` is never auto-archived (ADRs use `Superseded-by:` in place). See the Archival Lifecycle pattern in `docs/patterns.md` for details, and `/spec-archive` for manual archival of content the auto-path can't reach.
 
 ### 2. Milestones Break Work into Gates
 
-Each milestone in `plan.md` defines:
+Each milestone in `specs/plan/<M#>.md` defines:
 - Tasks to complete (in dependency order)
 - Acceptance criteria (binary pass/fail)
 - Test requirements
@@ -121,6 +124,24 @@ When the self-review loop doesn't converge, escalate to a human rather than tryi
 3. **Gate checks prevent drift** — Even if the LLM "thinks" the code is fine, deterministic checks catch real issues
 4. **Bounded loops prevent runaway costs** — Max 2 rounds prevents the infinite refinement problem
 5. **Human review catches what automation misses** — The agent knows it can't be the final judge
+
+## Parallel-safe layout
+
+The spec tree is structured so three classic merge-collision classes are eliminated by construction.
+
+**The three eliminated collision classes:**
+
+1. **ID collisions.** New FR numbers can be minted on parallel branches without coordination — `mode: none` mints ULIDs locally; tracker mode delegates ID assignment to the tracker. Filenames are disjoint by construction; merges concatenate.
+2. **Content collisions.** Each FR lives in its own file under `specs/frs/`. Edits on parallel branches don't share paths, so semantically independent changes can't surface fabricated textual conflicts.
+3. **Archival-hotspot collisions.** Archival is `git mv` per FR into `specs/frs/archive/` + frontmatter flip; milestone plan moves into `specs/plan/archive/`. Disjoint paths, no shared-file edit.
+
+**Mode transitions.** `/setup --migrate` handles tracker-mode transitions (`none ↔ <tracker>` / `<tracker> ↔ <other>`).
+
+**One-ticket-one-branch discipline.** Before `/implement` writes any code, `Provider.claimLock(id, branch)` runs. Tracker mode is strict — ticket status + assignee is the authoritative gate. Tracker-less mode is best-effort: `.dpt-locks/<ulid>` files + remote fetch + refuse-on-conflict. Merge-time path conflicts on `.dpt-locks/` catch races in tracker-less mode. `DPT_SKIP_FETCH=1` is the documented escape hatch for large-repo contexts.
+
+**Plan-file kickoff discipline.** Plan files (`specs/plan/<M#>.md`) are single-writer artifacts. Once `status: active`, edits require a sanctioned `plan/<M#>-replan-<N>` branch. `/gate-check` warns on post-freeze commits without auto-reverting — the human decides whether a post-freeze edit is legitimate (correction) or drift (scope creep).
+
+See `docs/layout-reference.md` for the behavioral contract every spec-touching skill follows and `docs/patterns.md` § Pattern 23 for the canonical pattern summary.
 
 ## References
 

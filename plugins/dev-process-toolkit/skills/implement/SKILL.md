@@ -16,15 +16,25 @@ If worktree: derive a branch name from the task (e.g., `feat/user-auth`), run `g
 
 ### Partial Failure Recovery
 
-If a multi-milestone run partially succeeds in a worktree, list completed work (milestones + commit hashes) and failed work (which milestone broke and why), then offer three recovery options:
-
-1. **Cherry-pick completed commits** onto `main` (`git checkout main && git cherry-pick <hash>...`).
-2. **Continue in the worktree** after fixing the failure (`cd <worktree-path>`, fix, resume `/implement`).
-3. **Discard the worktree** entirely (`git worktree remove <worktree-path> --force`).
+If a multi-milestone worktree run partially succeeds, list completed work (milestones + commit hashes) and the failing milestone, then offer three recovery options: **cherry-pick** completed commits onto `main` (`git cherry-pick <hash>...`), **continue** in the worktree after a fix (`cd <path>`, resume `/implement`), or **discard** the worktree (`git worktree remove <path> --force`).
 
 ## Phase 1: Understand
 
-> Do not read specs/archive/ during implementation — archived milestones are historical context only.
+> Do not read `specs/frs/archive/` or `specs/plan/archive/` during implementation — archived FRs and milestones are historical context only.
+
+0. **Tracker-mode probes** — Before any other action:
+
+   - **0.b Provider resolution** — Resolve `Provider` once per invocation: `LocalProvider` if `mode: none`, `TrackerProvider` wrapping the configured tracker adapter otherwise (AC-STE-20.3). No re-resolution mid-execution. ACs come from `specs/frs/<ulid>.md`; Phase 4 archives via `git mv`; `Provider.claimLock`/`releaseLock` gates entry/exit per STE-28.
+   - **0.b′ Resolver entry (AC-STE-32.1)** — Call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src/resolver_config.ts` once at entry (STE-44 AC-STE-44.5), then pass the result to `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. Never hand-assemble the config inline; malformed adapter metadata surfaces as `MalformedAdapterMetadataError` → NFR-10 canonical refusal (AC-STE-44.6). Route by `kind`: `ulid` → proceed to 0.c with that ULID; `tracker-id` / `url` → branch on mode (STE-135): tracker mode uses `findFRPathByTrackerRef(specsDir, trackerKey, trackerId)` (path-returning, no `id:` requirement; STE-76's tracker-mode frontmatter has no `id:` line, so `findFRByTrackerRef` would always miss and trigger `importFromTracker` — overwriting local edits), `mode: none` uses `findFRByTrackerRef(specsDir, trackerKey, trackerId)` (ULID-returning); on hit, proceed to 0.c with the tracker ID (tracker mode) or the resolved ULID (mode-none); on miss, run `importFromTracker(...)` (same helper as `/spec-write`) then proceed to 0.c with the new identity; `fallthrough` → continue to step 2 for free-form argument handling (milestone code like `M13`, task description, GitHub issue number). Branch-name interop (STE-27): if the branch name contains a ticket ID that disagrees with the argument's resolved ticket, **the argument wins** with an NFR-10-shape warning (AC-STE-32.5). `AmbiguousArgumentError` surfaces per NFR-10 with the `<tracker>:<id>` remedy. Full decision table: `docs/resolver-entry.md`.
+   - **0.b″ Branch proposal (STE-64)** — Between 0.b′ and 0.c, if Schema L carries `branch_template:`, call `isCurrentBranchAcceptable(currentBranch, scope)` from `adapters/_shared/src/branch_proposal.ts`. Unacceptable ⇒ run a single LLM pass for `{type, slug}`, render via `buildBranchProposal`, and prompt `[Y] accept / [e] edit / [n] abort`. `Y` → `git checkout -b`; `n` → clean exit, zero side effects (no claim below); `git checkout -b` failure → NFR-10 refusal, exit non-zero (AC-STE-64.8). Absent `branch_template:` ⇒ skip entirely (AC-STE-64.1, backward-compat). Full decision logic + prompt flow in `docs/implement-reference.md` § Branch Proposal (STE-64).
+   - **0.c Claim** — Entry gate. Tracker mode: run the per-FR claim sequence in `docs/implement-tracker-mode.md` § Claim runbook. The four-way routing (`claimed` / `already-ours` / `taken-elsewhere` / `already-released`) is per the runbook's decision steps (AC-STE-28.1/2). `mode: none`: `LocalProvider.claimLock` writes `.dpt-locks/<id>` (the runbook does not apply — no tracker writes in `mode: none`).
+   - **0.e Claim verification (Phase 1-exit self-check, tracker mode only)** — Before entering Phase 2, re-fetch the ticket via `mcp__<tracker>__get_issue(<id>)` and assert (1) `status == status_mapping[in_progress]` AND (2) `assignee == currentUser`. Mismatch ⇒ NFR-10 canonical refusal naming the ticket + observed status/assignee, and hard-refuse to enter Phase 2: the LLM must go back and run 0.c per the Claim runbook before retrying. `mode: none` skips this step entirely (LocalProvider's `local-no-tracker` sentinel makes the assertion vacuous). This early-stage gate complements `/gate-check` probe #14 (active-side ticket-state drift, M24 STE-87) which catches the same failure mode at gate time.
+   - **0.f Project-milestone attach (STE-118 AC-STE-118.5, Linear-only, idempotent)** — In tracker mode with `project_milestone: true` (Linear), after step 0.e succeeds, read the FR's `milestone:` frontmatter and call `planFileHeadingToMilestoneName(specs/plan/<milestone>.md)` from `adapters/_shared/src/attach_project_milestone.ts`. Then call `attachProjectMilestone(provider, project, canonicalName, ticketId)` to bind the ticket. Idempotent: re-running on an already-bound ticket replays the verify round-trip without spurious mutations. Vacuous on archived FRs (`status: archived` — Phase 1 entry already filters them out), `mode: none`, and adapters with `project_milestone: false` (Jira). `MilestoneAttachmentError` surfaces per NFR-10 — Phase 1 hard-refuses to proceed if the ticket binding can't be verified.
+   - **0.d Tracker-mode probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and tracker hooks below skip. If a tracker mode is active:
+     - **Ticket-binding pre-flight** — 3-tier resolver + confirmation prompt per `docs/ticket-binding.md` (STE-27). Branch-regex mismatch fails loudly (AC-STE-27.3); decline exits cleanly (AC-STE-27.4).
+     - **Record `updatedAt` (post-claimLock)** — After step 0.c `claimLock` has succeeded, call the adapter's `pull_acs(ticket_id)` and store the ticket's `updatedAt` in-session for `/gate-check` to compare later (AC-STE-11.2, STE-45 AC-STE-45.1). Recording **after** claimLock is load-bearing: `claimLock` itself mutates the ticket (sets status + assignee), so recording before would cause `/gate-check` to flag the skill's own write as drift. Same rule applies to any other tracker-writing pre-flight step — record `updatedAt` after all pre-flight side effects settle (AC-STE-45.5).
+     - **STE-17 diff/resolve** — Run the bidirectional AC sync loop before proceeding past Phase 1 (AC-STE-17.1, AC-STE-17.3, AC-STE-17.4).
+     See `docs/implement-tracker-mode.md` for the full tracker-mode flow.
 
 1. **Check for specs** — If `specs/` exists, check whether spec files have real content (not just template placeholders). If specs exist but are mostly empty, warn the user: "Specs appear to be incomplete. SDD works best when specs are filled in first. Consider running `/dev-process-toolkit:spec-write` or continue with what's available?" Let the user decide.
 
@@ -63,32 +73,11 @@ If a multi-milestone run partially succeeds in a worktree, list completed work (
      d. Run tests — confirm GREEN (passing)
    - Follow project patterns from CLAUDE.md
 
-9. **Spec deviation check** — If during implementation you discover that a spec is **wrong, infeasible, or contradictory** (e.g., an API doesn't exist, a requirement conflicts with another, performance constraints make the approach unviable):
-
-   a. **STOP coding forward.** Do not work around the spec — the spec is the source of truth, and if reality contradicts it, the spec must be updated first.
-
-   b. **Assess already-written code** — If significant code was already written based on the incorrect spec, evaluate whether to revert to the last checkpoint (git commit) or adapt the existing code. Prefer reverting if the spec change alters the fundamental approach.
-
-   c. **Classify the issue:**
-      - **Underspecified** — spec doesn't mention this case but the behavior is clearly implied → add the edge case to specs, add a test, continue. No user approval needed.
-      - **Ambiguous** — spec doesn't say and reasonable people could disagree → propose the most conservative behavior, log it as a provisional decision in specs, add a test, ask the user to confirm at Phase 4. Continue.
-      - **Contradicts spec** — what the spec says cannot work or conflicts with another requirement → present the contradiction, propose 2+ options with tradeoffs, and **wait for user decision** before proceeding. Update the spec with the decision.
-      - **Infeasible** — the specified approach hits a hard technical wall → explain why, propose alternatives, **wait for user decision**.
-
-   d. **Always backfill specs** — Any edge case discovered during implementation (whether it blocks you or not) must be:
-      - Logged in `specs/requirements.md` edge cases section (or `specs/technical-spec.md` if architectural)
-      - Covered by a test
-      - This prevents "tribal knowledge" from living only in code.
+9. **Spec deviation check** — If reality contradicts the spec, STOP coding forward and classify: `underspecified` (backfill + test + continue), `ambiguous` (provisional decision + user confirm at Phase 4), `contradicts` (wait for user decision), `infeasible` (wait). Always backfill edge cases to `specs/requirements.md` / `specs/technical-spec.md` plus a test. Full playbook (assess-already-written-code rule + per-class resolution detail + backfill invariant): `docs/implement-reference.md` § Spec Deviation Check.
 
 ### Spec Breakout
 
-If the current milestone accumulates 3 or more `contradicts` or `infeasible` deviations (check the project's CLAUDE.md for a custom threshold; default is 3):
-
-1. **STOP implementation** — do not push forward on a broken spec
-2. Present a **Spec Breakout report** listing all accumulated deviations, their classifications, and proposed resolutions
-3. Recommend a spec rewrite for the affected areas before resuming implementation
-
-Spec Breakout is a valid output, not a failure. It means the spec needs work before code can proceed.
+If the current milestone accumulates 3 or more `contradicts` / `infeasible` deviations (configurable via CLAUDE.md threshold; default 3), STOP, emit a **Spec Breakout report** listing every deviation with classification + proposed resolution, and recommend a spec rewrite for the affected areas before resuming. Breakout is a valid output, not a failure. Full report shape: `docs/implement-reference.md` § Spec Breakout.
 
 10. **Checkpoint** — After completing each logical unit of work (a TDD cycle for a meaningful chunk), create a git commit on the working branch. These intermediate commits are recovery points — if a later change breaks things, you can revert to the last known-good state instead of starting over.
 
@@ -190,17 +179,47 @@ Each round has three sequential stages. **Complete each stage before starting th
 
    ### Decision (deterministic, not vibes)
 
-   h. **Decision:**
-   - **All stages pass + gate confirms clean (GATE PASSED)** → exit loop, go to Phase 4
-   - **Gate returns GATE PASSED WITH NOTES** → treat non-critical notes as informational, include them in the Phase 4 report for the user to review. Exit loop.
-   - **Issues found, round 1** → fix issues, re-run gate check, go to round 2
-   - **Issues found, round 2** → check for convergence:
-     - Same issue types as round 1 → **STOP and escalate** to user (going in circles)
-     - New/different issues → fix, re-run gate check, then escalate to user (diminishing returns)
+   h. **Decision:** GATE PASSED ⇒ exit loop. GATE PASSED WITH NOTES ⇒ carry notes into the Phase 4 report, exit loop. Issues on round 1 ⇒ fix + re-run gate + go to round 2. Issues on round 2 ⇒ escalate to user (same types = going in circles; new types = diminishing returns). Full decision matrix: `docs/implement-reference.md` § Round Resolution.
 
-   i. **After any fix** — always re-run the full gate check before continuing. Read the actual output and report the numbers (e.g., "47 tests, 0 failures, 0 errors"). Do not claim clean from memory of a previous run.
+   i. **After any fix** — re-run the full gate fresh, cite actual numbers (e.g., "47 tests, 0 failures, 0 errors"). Never claim clean from memory.
 
 ## Phase 4: Report & Handoff
+
+Phase 4 has four labeled sub-steps executed in order:
+
+- **Phase 4a** — gate check passed (final step of Phase 3; no new logic here — the green gate is the entry ticket to Phase 4).
+- **Phase 4b** — doc fragment (STE-74) — writes `docs/.pending/<fr-id>.md` when docs generation is enabled.
+- **Phase 4c** — report (step 14) + human approval (step 15).
+- **Phase 4d** — Close procedure (commit → `Provider.releaseLock` → `Provider.getTicketStatus`).
+
+### Phase 4b: Doc fragment (STE-74)
+
+Non-blocking hook. Sits between Phase 4a (gate pass) and Phase 4c (report + approval) / 4d (Close).
+
+1. **Gate.** Call `readDocsConfig(CLAUDE.md)` from `adapters/_shared/src/docs_config.ts`. Both `userFacingMode` and `packagesMode` `false` — or the `## Docs` section absent — ⇒ **silent no-op**: no log line, no deviation-report row, zero output (AC-STE-74.3). Preserves the byte-identical surface for projects that don't use docs generation.
+2. **Invoke.** Run `/docs --quick` with a 60-second timeout. The current FR ID is resolved the same way manual `/docs --quick` resolves it — via `branch_template:` mapping, diff scan, or `_unbound-<ts>` fallback (see `skills/docs/SKILL.md` § `/docs --quick`) (AC-STE-74.2). No new `/implement` flag is introduced (AC-STE-74.8) — temporarily skip by flipping Schema L docs keys.
+3. **Success row.** Append exactly this row to the Spec Deviation Summary table (AC-STE-74.4):
+
+   ```
+   | Doc fragment | added | docs/.pending/<fr-id>.md | — |
+   ```
+
+4. **Failure or timeout (non-blocking).** A non-zero exit, thrown error, or 60s timeout is logged as a warning and appended as the skipped row (AC-STE-74.5):
+
+   ```
+   | Doc fragment | skipped (error) | — | /docs --quick failed: <first-line-of-error>. Run manually after commit to retry. |
+   ```
+
+   Phase 4 **continues to Phase 4c** — the implementation commit does not block on a failed fragment write. A missing fragment is better than a failed implementation commit.
+5. **Timeout path.** The 60-second cap routes through the failure path with the literal error text `timeout after 60s` (AC-STE-74.6).
+
+Full decision table (resolver fallback ordering, which directory `_unbound-*` fragments live in, diagnostic log shape) lives in `docs/implement-reference.md` § Phase 4b Doc Fragment Hook.
+
+### Commit message format (STE-133)
+
+Phase 4 commits use [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) — enforced by the `commit-msg` hook installed by `/setup` (AC-STE-133.9). The proposed `<type>(<scope>): <title>` (≤ 72 chars) plus body and `Refs: STE-<N>` footer is rendered to the user at the step 14 approval gate **before** step 15 commits, so the user can redirect type/scope before commit. Use `!` for breaking changes (`feat(api)!:`, `feat!:`).
+
+Full type heuristic table (per FR class), scope-selection rules, and the canonical example commit live in `docs/implement-reference.md` § Commit message format (STE-133). The hook is the deterministic backstop if drift slips through this cooperative spec (AC-STE-133.4).
 
 ### Spec Deviation Summary
 
@@ -216,13 +235,21 @@ Rule: any row with Classification = `ambiguous` must have Needs Confirmation? = 
 
 ### Milestone Archival
 
-After the human approves the Phase 4 report (step 15), and **only then**, archive the completed milestone block out of the live spec files into `specs/archive/`. This keeps `plan.md` and `requirements.md` size bounded regardless of project age.
+After the human approves the Phase 4 report (step 15), and **only then**, archive every FR belonging to the completed milestone plus the milestone's plan file. This keeps `specs/frs/` and `specs/plan/` size bounded regardless of project age.
 
-- **Archival is skipped if specs/archive/ does not exist** — legacy projects (pre-v1.10.0) without the archive directory get no archival, and no error.
-- **technical-spec.md is never auto-archived** — architectural decisions use `Superseded-by:` in place (the ADR convention). `/implement` touches only `plan.md` and `requirements.md`.
+- **technical-spec.md is never auto-archived** — architectural decisions use `Superseded-by:` in place (the ADR convention). `/implement` archival touches only `specs/frs/**` and `specs/plan/<M#>.md`.
 - Run archival **only after explicit human approval in step 15**, never before. If the user asks for changes instead, abort archival entirely.
+- Single-FR runs (`/implement <FR-id>`) intentionally leave `status: active`; bulk archive a completed milestone via `/spec-archive M<N>` before running `/ship-milestone` (STE-83 — this is the canonical pre-step `/ship-milestone` refusal #1 points to in the tracker-Done-but-file-active case).
 
-**Procedure.** Write-then-delete ordering so an interrupted run leaves recoverable state: build and write the Schema G archive file first (under `specs/archive/M{N}-{slug}.md`), then excise the plan block and the traceability-matched ACs from the live specs, leaving Schema H pointer lines in place, and append one row to `specs/archive/index.md`. The collapse rule (FRs with all ACs archived collapse to a pointer; FRs with mixed status keep their header) and the incomplete-matrix fallback (move only the plan block, warn the user to archive orphan ACs via `/dev-process-toolkit:spec-archive`) are detailed in `docs/implement-reference.md` § Milestone Archival Procedure along with the exact sub-step ordering.
+**Procedure (STE-22).** For every FR with frontmatter `milestone == <current>`: compute the base filename via `Provider.filenameFor(spec)` (M18 STE-60 AC-STE-60.4) and run `git mv specs/frs/<name> specs/frs/archive/<name>` + flip frontmatter `status: active` → `status: archived` + set `archived_at: <ISO now>`. The stem is preserved across the move — `/spec-archive` and `/implement` never rename during archival (NFR-15 filename-permanence holds). All N moves and N flips land in one atomic commit (AC-STE-22.2, AC-STE-22.6). Then `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md` (AC-STE-21.5) in the same commit, **and apply the same status flip to the plan file's frontmatter** — flip `specs/plan/<M#>.md` `status: active` → `status: archived` and set `archived_at: <ISO now>` (the same timestamp used for the FR flips). This **plan-status flip** is part of the same atomic commit as the FR moves and the plan `git mv` (AC-STE-92.3); read-side enforcement is `/gate-check` probe #16 (`archive_plan_status`).
+
+**Rewrite traceability links (STE-125 AC-STE-125.1).** Before staging the atomic commit, call `rewriteArchiveLinks(repoRoot, frId)` from `adapters/_shared/src/spec_archive/rewrite_links.ts` for **each** FR being archived. The helper rewrites every `frs/<id>.md` reference in `specs/requirements.md`, every active `specs/plan/*.md`, every `specs/plan/archive/*.md`, and the unreleased prefix of `CHANGELOG.md` to `frs/archive/<id>.md` (both Markdown link forms and bare path mentions, per AC-STE-111.2). The rewrites land in the **same atomic commit** as the `git mv` + frontmatter flips (AC-STE-125.1). On the next `/gate-check`, probe #23 (`traceability-link-validity`) sees a clean tree (AC-STE-125.2) — no manual fix-up between commit and gate. Idempotent: an orphan FR with no references yields an empty rewrite, no error.
+
+**Cleanup stale plan verify lines (STE-126 AC-STE-126.1).** Right after `rewriteArchiveLinks` returns, call `cleanupPlanVerifyLines(projectRoot, deletedFiles, addedTestFiles)` from `adapters/_shared/src/spec_archive/cleanup_plan_verify_lines.ts`. `deletedFiles` is the set of paths Phase 2 deleted (`git rm`'d or unstaged-removed); `addedTestFiles` is the set of `*.test.*` files added in the same diff. The helper walks every active `specs/plan/M*.md` (excluding `archive/`) and updates each `verify:` line that references a deleted path: when the deleted file is `*.placeholder.test.ts` and a single new test file was added, the verify line is rewritten to reference the replacement; otherwise the parent task is marked `[x]` and the verify line is dropped. Empty `deletedFiles` ⇒ vacuous no-op. The cleanup writes land in the **same atomic commit** as the FR moves and the link rewrites. The new `/gate-check` probe #28 (`plan-verify-line-validity`, severity: warning) is the read-side backstop on every run.
+
+**Failure semantics (AC-STE-125.3).** If `rewriteArchiveLinks` or `cleanupPlanVerifyLines` throws (e.g., a plan file is read-only, an I/O error fires), `/implement` **aborts archival cleanly — do not commit the archive move, do not call `Provider.releaseLock`**. Surface an NFR-10 canonical refusal naming the offending plan `file:line:column` and the link or verify line that would have been rewritten, then exit Phase 4 non-zero. The FR file remains in its pre-archive location so a follow-up run can resume through the `already-ours` claim path. Same rule applies to a partial rewrite (any helper invocation in the milestone-group batch fails) — the entire commit is aborted, never partial.
+
+Then call `Provider.releaseLock(id)` for each released FR (AC-STE-28.4). Full details: `docs/layout-reference.md` § `/implement`.
 
 #### Post-Archive Drift Check
 
@@ -243,8 +270,75 @@ For reopens, cross-cutting ACs, or anything this auto-path can't reach, `/dev-pr
    - Drift findings (if specs/ exists and gate-check was run)
    - Gate check result — cite the actual output (e.g., "0 failures, 0 errors"), not just "passed"
    - Number of review rounds used
+   - **Archival hygiene (AC-STE-125.4 / AC-STE-126.3)** — when § Milestone Archival ran, list `rewrote N traceability links in M plan files` (or `no traceability links to rewrite` for orphan FRs) AND `updated N plan task-list verify lines` (or `no plan verify lines to update`) so the operator sees both rewrite passes, mirroring `/spec-archive`'s report shape.
 
-15. **Wait for approval** — Ask the user to review before committing. Do NOT commit until the user explicitly says so.
+15. **Wait for approval, then run the Close procedure** — Ask the user to review before committing. Do NOT commit until the user explicitly says so.
+
+    ### Phase 4 Close (atomic — all three steps required, in order)
+
+    Once the user approves, execute the Close procedure end-to-end. Phase 4 does not exit cleanly unless all three sub-steps complete; if any sub-step fails, surface the failure and exit non-zero so the next run can resume through the `already-ours` path.
+
+    **(a) `git commit`** — create the final commit (includes any FR archive moves from § Milestone Archival on a full-milestone run).
+
+    **(b) Release** — for every ticket that was claimed during Phase 1 in tracker mode, run the per-FR release sequence in `docs/implement-tracker-mode.md` § Release runbook. Tracker mode: transitions the ticket to the adapter's canonical Done status; the runbook also performs the STE-65/STE-84-narrowed pre-state assertion (In Progress **or** canonical Done — any other pre-state surfaces a `TrackerReleaseLockPreconditionError` per NFR-10) before the Done transition, so the `Backlog → Done` silent-leap guardrail still holds. `mode: none`: deletes `.dpt-locks/<id>` (runbook does not apply). **No exit path through Phase 4 skips this step.** If the release sequence fails, Phase 4 fails loudly — never swallow the error. On a full-milestone run where § Milestone Archival already released each archived FR (AC-STE-28.4), skip the per-ticket call here for those same FRs (AC-STE-47.6 double-call avoidance). Two outcomes — `transitioned` (normal path) and `already-released` (STE-84 idempotent-terminal branch, ticket was already at canonical Done, no write performed) — are both valid exit paths; step (c)'s post-release verification runs identically for both.
+
+    **(c) Post-release verification** — for each released FR, run step 4 of `docs/implement-tracker-mode.md` § Release runbook and **assert** the returned `status` matches the adapter's `status_mapping.done` canonical name. A mismatch means the release reported success but the tracker didn't move (silent no-op trap). Surface an NFR-10-canonical refusal naming the ticket + observed vs. expected status, and exit Phase 4 non-zero so the human can intervene. In `mode: none`, `LocalProvider.getTicketStatus` returns the `local-no-tracker` sentinel; treat the sentinel as vacuously passing the assertion — the deterministic `.dpt-locks/<id>` deletion in step (b) is the proof-of-release for `mode: none`.
+
+    **Abort boundary (AC-STE-47.3) — do NOT call `releaseLock` or `getTicketStatus`** when any of the following happen: a gate-check failure, a Spec Breakout, a user rejection at step 15, or any Phase 1–3 early exit. In every abort case, the lock stays so a follow-up run can resume through the `already-ours` path (AC-STE-28.1). The Close procedure only runs once the user explicitly approves **and** `git commit` lands.
+
+    The Pattern 9 byte-diff regression gate against the `mode-none-v2` fixture continues to pass because the cleanup was already part of the existing mode-none flow.
+
+## Phase 5: Milestone close prompt (STE-75)
+
+Fires only on a **milestone-scope** invocation (`/implement M<N>`) that shipped every FR cleanly. Opt-in chain into `/ship-milestone M<N>` — a prompt, not a silent chain. Phase 5 is the **last thing** `/implement` does before process exit; nothing else runs between the prompt (or its skip path) and exit.
+
+### Conditions (evaluated in order)
+
+1. **Invocation shape.** Skip entirely if `$ARGUMENTS` is a single-FR arg (e.g., `STE-42`, a ULID, a URL), the literal `all` / `remaining`, or empty / no arg. Only an `M<N>` arg qualifies.
+2. **Milestone completeness.** Re-read `specs/plan/M<N>.md`; confirm every listed FR transitioned from `status: active` to `status: archived` during this run. If any FR remains active or if any FR's gate-check failed this session (partial success), skip entirely. No output about `/ship-milestone`.
+3. **TTY.** Check whether stdin is a TTY (proxy: interactive Claude Code session accepting user replies). Non-TTY / CI context / piped stdin ⇒ print the manual-command hint (AC-STE-75.4), do not prompt, do not read stdin.
+
+If all three conditions pass, print the prompt and read one line from stdin.
+
+### Prompt (AC-STE-75.1, exact format including the blank line)
+
+```
+All FRs in M<N> shipped.
+
+Run /ship-milestone M<N> now? (y/n):
+```
+
+### Branches
+
+- **Accept** — user input is `y` or `yes` (case-insensitive, trimmed). Chain into `/ship-milestone M<N>` in-process. All of `/ship-milestone`'s own gates still fire — the release commit is gated by its own `Apply? [y/N]` prompt on the release diff (AC-STE-75.6). The `y` here does **not** pre-approve the release; it only starts `/ship-milestone`. Refusal at that second gate exits cleanly without a release commit (AC-STE-75.6).
+- **Decline** — user input is `n`, `no`, empty (just Enter), or any other non-matching string (case-insensitive). Do not chain; print the hint below and exit 0.
+
+### Hint (AC-STE-75.3, exact literal — also used on the non-TTY skip path)
+
+```
+Ready to close milestone. Run: /ship-milestone M<N>
+```
+
+### Chain-failure refusal (AC-STE-75.5)
+
+If the user accepts but `/ship-milestone` fails to start (skill not registered, `skills/ship-milestone/` missing, etc.), surface this NFR-10-shape refusal and exit non-zero:
+
+```
+/implement: attempted to chain into /ship-milestone but it failed to start: <error>.
+Remedy: verify the skill is installed (check plugins/dev-process-toolkit/.claude-plugin/plugin.json), then run /ship-milestone M<N> manually.
+Context: milestone=M<N>, chain=ship-milestone, skill=implement
+```
+
+### Skip-case summary
+
+| Case | Behaviour |
+|------|-----------|
+| Single-FR arg (e.g., `STE-42`, ULID, URL) | silent skip — no prompt, no hint |
+| `all` / `remaining` / no arg | silent skip — no prompt, no hint |
+| Any FR in `specs/plan/M<N>.md` still `status: active` | silent skip — milestone isn't done |
+| Any FR's gate-check failed this run | silent skip — partial success |
+| Non-TTY stdin (CI, piped input) | print hint, no prompt, no stdin read |
+| All conditions met | print prompt, accept `y`/`yes` (chain) or anything else (hint + exit 0) |
 
 ## Rules
 
@@ -255,6 +349,7 @@ For reopens, cross-cutting ACs, or anything this auto-path can't reach, `/dev-pr
 - Do NOT silently work around a broken spec — update the spec first (see Phase 2 step 9)
 - Do NOT let edge cases live only in code — always backfill specs
 - Do NOT modify or delete existing tests to make new code pass — if an existing test fails, either the new code is wrong or the spec changed (and spec changes need user approval)
+- Tracker writes during /implement are exactly the calls in the Claim and Release runbooks (`docs/implement-tracker-mode.md` § Claim runbook, § Release runbook) — claim at Phase 1 step 0.c, release at Phase 4d step (b). Other tracker writes mid-flow (raw `mcp__<tracker>__save_issue` / `mcp__<tracker>__transition_status` for arbitrary field updates, AC toggles outside STE-17, etc.) are forbidden. Read operations (`mcp__<tracker>__get_issue` for display, the runbooks' own re-fetches) are permitted. Rationale: STE-65's guardrail (no Backlog → Done leap) only fires on the runbook path; ad-hoc MCP writes bypass it.
 - The gate check (deterministic) always overrides judgment about quality
 - ACs are binary (pass/fail) — no "good enough"
 - Every AC that names a specific module requires a direct test for that module
@@ -269,5 +364,8 @@ If you hear yourself thinking any of these, stop and apply the rule anyway:
 - "I'll run gate-check after the next task" / "I know the tests pass" → run it now, read the actual output
 - "This is too simple to need a failing test first" / "I'll test after, it's almost done" → write the test first
 - "It should work now" → "should" is not a gate result
-- "The spec says X but Y works better" / "It's just a small edge case, no need to update specs" → update the spec first, backfill now
-- "Just this once" → there is no just this once
+- "The spec says X but Y works better" / "It's just a small edge case, no need to update specs" → update the spec first, backfill now / "Just this once" → there is no just this once
+
+## Architecture Note
+
+This skill runs in-process in the main session — deliberately **not** `context: fork`. Phase 3 Stage B spawns the `code-reviewer` subagent via the `Agent` tool, and Claude Code forbids nested subagent spawns (*"Subagents cannot spawn other subagents"*). The review-fix loop additionally requires findings to flow back to the same implementer that wrote the code, so the chain-the-reviewer-after-`/implement`-returns workaround also breaks. See `docs/patterns.md` § Pattern: `/implement` Runs In-Process for the full rationale.

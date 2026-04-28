@@ -88,9 +88,9 @@ shell: bash                       # Shell for !`command` blocks: bash (default) 
 - **Key pattern**: Read-only analysis with traceability matrix
 
 ### 5b. Spec Archive (manual archival escape hatch)
-- **Purpose**: Move a user-selected milestone, FR, or AC block out of live specs into `specs/archive/` with a diff approval gate (FR-17)
-- **Invocation**: User-invoked for reopens, cross-cutting ACs, aborted work, or explicit compaction; never auto-scans
-- **Key pattern**: Resolve anchor target → build Schema G archive body → present diff → wait for approval → write-then-excise → append index row; reopens produce `-r2` / `-r3` revision files
+- **Purpose**: Archive user-selected FRs (by ULID or tracker ref) or a milestone group (`M<N>`) by `git mv`-ing FR files into `specs/frs/archive/` and plan files into `specs/plan/archive/`, with a diff approval gate (STE-22)
+- **Invocation**: User-invoked for reopens, cross-cutting FRs, aborted work, or explicit compaction; never auto-scans
+- **Key pattern**: Resolve arg → present diff (git mv + frontmatter flip + releaseLock) → wait for approval → atomic commit → post-archive drift check. Reopens are a plain reverse move + status flip; no revision-suffix mechanism is needed because ULIDs are stable.
 
 ### 6. Visual Check (UI verification)
 - **Purpose**: Verify web UI renders correctly in a real browser
@@ -115,6 +115,11 @@ shell: bash                       # Shell for !`command` blocks: bash (default) 
 | `$ARGUMENTS[N]` or `$N` | Specific argument by index |
 | `${CLAUDE_SESSION_ID}` | Current session ID |
 | `${CLAUDE_SKILL_DIR}` | Directory containing the SKILL.md |
+| `${CLAUDE_PLUGIN_ROOT}` | Installed plugin root (use for bundled-helper invocation paths) |
+
+### Invocation paths — bundled helpers
+
+When a skill invokes a helper that ships inside the plugin (e.g. `adapters/_shared/src/…`), the invocation path MUST be prefixed with `${CLAUDE_PLUGIN_ROOT}/`, because the model's working directory is always the consumer project's root, not the plugin root. Claude Code substitutes `${CLAUDE_PLUGIN_ROOT}` at shell-exec time; it resolves to the plugin's installed location in consumer installs and to the source tree when dogfooded in-repo. Narrative references that merely name a helper (e.g. "`resolveFRArgument` from `adapters/_shared/src/resolve.ts`") may keep the bare path for readability — only `bun run <path>`, shell commands in setup docs, and hook-target paths need the variable. The `skill-path-portability.test.ts` grep-gate catches regressions.
 
 ## Dynamic Context Injection
 
@@ -160,7 +165,7 @@ Why this pattern: the skill author has explicit control over the prompt and the 
 
 **Sequential multi-pass variant.** `/implement` Phase 3 Stage B uses this primitive twice in a row (Pass 1 — Spec Compliance, Pass 2 — Code Quality) with two different prompts against the same subagent, a fail-fast rule between them, and a literal skipped-pass reporting line when Pass 1 finds critical findings. See `skills/implement/SKILL.md` § Stage B for the full template and `agents/code-reviewer.md` § Pass-Specific Return Contracts for the two prompt shapes. When you need different scrutiny levels on the same diff, the multi-pass variant lets you order them deterministically (cheapest gate first) instead of conflating them into one prompt.
 
-### Alternative — `context: fork` (unexercised in this plugin as of v1.12.0)
+### Alternative — `context: fork` (unexercised in this plugin)
 
 Add `context: fork` to the skill frontmatter to run the whole skill in a forked context:
 
@@ -171,7 +176,7 @@ agent: Explore    # Built-in: Explore, Plan, general-purpose, or a custom name f
 ---
 ```
 
-As of v1.12.0, **0 of 12 skills in this plugin use this frontmatter** — the failure modes and prompt-passing ergonomics are not road-tested here. Prefer the explicit `Agent`-tool invocation pattern above for new delegation points. `context: fork` remains documented for readers adapting the plugin to other contexts where whole-skill forking is a better fit.
+No skills in this plugin use this frontmatter — the failure modes and prompt-passing ergonomics are not road-tested here. Prefer the explicit `Agent`-tool invocation pattern above for new delegation points. `context: fork` remains documented for readers adapting the plugin to other contexts where whole-skill forking is a better fit.
 
 ## Agents vs Skills
 
@@ -186,6 +191,15 @@ As of v1.12.0, **0 of 12 skills in this plugin use this frontmatter** — the fa
 | Optional fields | `model`, `context`, `agent`, `hooks` | `model`, `color`, `maxTurns`, `permissionMode`, `skills`, `mcpServers`, `hooks`, `memory`, `background`, `isolation` |
 
 See the official docs for the full list of agent fields: https://code.claude.com/docs/en/sub-agents
+
+## Bare-vs-qualified skill references
+
+Across this plugin's docs and SKILL.md prose, the convention is:
+
+- **Prose / cross-references** use the bare skill name: `/implement`, `/gate-check`, `/spec-archive`. This keeps sentences readable and matches how the skills are spoken about internally.
+- **Literal user-invocation examples** use the plugin-qualified form: `/dev-process-toolkit:implement`, `/dev-process-toolkit:gate-check`. This is what the end user actually types in a consumer install where the plugin is namespaced.
+
+The README's "Commands" table and the `/setup` output use the qualified form (that's the literal command the reader will type); everything else — SKILL.md prose cross-references, docs narrative, CHANGELOG entries — uses the bare form. A bare reference inside a `code fence` that documents what the user types is the one place to spot-check before shipping; bare-in-prose and qualified-in-fence is the target pattern.
 
 ## Best Practices
 
