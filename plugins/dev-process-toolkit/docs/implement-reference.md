@@ -208,6 +208,28 @@ The skill carries the condensed entry; this section is the operational mirror.
 
 Then call `Provider.releaseLock(id)` for each released FR.
 
+## Advisory Notes (STE-148)
+
+Phase 3 Stage B routes any Pass 2 CONCERNS that round-2 escalation classifies as **advisory** (not gate-blocking) into a structured `advisoryNote[]` array. Capture happens before Stage B exits — without it, advisory concerns disappear from non-interactive (`claude -p`) runs after Stage B returns, leaving the operator with no audit trail and no chance to override (smoke-test 2026-04-28 finding F2).
+
+**Schema (per record):**
+
+```
+advisoryNote: {
+  pass: 2,
+  concern: string,            // one-line concern statement copied verbatim from Pass 2 output
+  rationale: string,          // why this concern was routed to advisory rather than gate-blocking
+  classification: 'advisory'
+}
+```
+
+**Render contract (AC-STE-148.1 / AC-STE-148.3 / AC-STE-148.4).** A single shared formatter renders each `advisoryNote` to the bullet-body shape `<concern> — <rationale>`. Two surfaces consume the formatter's output:
+
+1. **Phase 4 step 14 report** — append a `## Advisory notes` section after the existing report items, one bullet per advisory entry in capture order. Empty list ⇒ heading + the literal line `No advisory notes.` — never absent.
+2. **Phase 4 § Milestone Archival archived-FR write (AC-STE-148.2)** — append a `## Implementation notes` body section after the FR's existing `## Notes` section, body content is the FR's slice of `advisoryNote[]` rendered via the same formatter. Empty slice ⇒ heading + the literal line `No advisory notes.`.
+
+Bullet bodies between the two surfaces are byte-identical because both share the same source list and the same formatter. If the rendering ever diverges, that's the regression signal — the formatter must be the single source of truth for advisory-note prose.
+
 ## Phase 4 Close (atomic — full text)
 
 Once the user approves at step 15, execute the Close procedure end-to-end. Phase 4 does not exit cleanly unless all three sub-steps complete; if any sub-step fails, surface the failure and exit non-zero so the next run can resume through the `already-ours` path.

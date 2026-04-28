@@ -27,6 +27,11 @@
 
   Example placeholder FR heading (lives in `specs/frs/<id>.md`, NOT here):
     ### <tracker-id>: <Title> {#<tracker-id>}
+
+  Example traceability-matrix row (added by /spec-write or /implement
+  once an AC is wired up; the rendered §6 table below is intentionally
+  empty at /setup time):
+    | AC-<tracker-id>.1 |          |       |
 -->
 
 # Requirements
@@ -92,7 +97,12 @@
 
 ## 6. Traceability Matrix
 
+<!--
+  Rows are added by /spec-write (when a cross-cutting AC is authored) or
+  by /implement (when an AC ships). At /setup time this table is
+  intentionally empty — see the rendered-row example in the top-of-file
+  HTML comment for the canonical row shape.
+-->
+
 | Requirement | Implementation | Tests |
 |-------------|---------------|-------|
-| AC-<tracker-id>.1 |          |       |
-| AC-<tracker-id>.2 |          |       |
