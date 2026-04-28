@@ -238,6 +238,22 @@ Open questions / risks / inconsistencies (if any):
 Next: Run `/dev-process-toolkit:implement <milestone>` when specs are ready.
 ```
 
+**Capability-gap rendering (STE-147 AC-STE-147.1 / AC-STE-147.2).** The "Open questions / risks / inconsistencies" block must render every capability gap as **plain prose**, drawn from the static plain-language map below — never as a literal `AC-STE-<N>.<M>` reference into this toolkit's own internal spec set. The toolkit's AC IDs are opaque jargon to project owners running `/spec-write` on their own repo (smoke-test 2026-04-28 finding F1: a toolkit-internal AC identifier for the milestone-attach capability surfaced as the rendered description of the gap, replacing what should have been plain prose). Echoing such an identifier inside this section's instructions is itself a regression risk — the LLM may copy it back into the rendered summary; describe failure modes by capability name only.
+
+Static plain-language map (capability key ⇒ rendered prose):
+
+| Capability key | Rendered prose |
+|----------------|----------------|
+| `milestone_attach_unavailable` | `no Linear project milestones available — milestone-attach skipped` |
+| `tracker_sync_failed` | `tracker sync failed — local edits saved, push deferred (re-run /spec-write to retry)` |
+| `push_ac_unsupported` | `tracker adapter does not support push_ac_toggle — gate-check will skip the push step` |
+| `import_acs_empty` | `imported ticket had zero ACs — TODO marker added to the new FR` |
+| `workspace_binding_missing` | `tracker workspace binding absent — ticket landed without team/project association` |
+
+Add new keys to this map when a new capability gap surfaces; do **not** invent ad-hoc prose at runtime, and do **not** substitute the toolkit's `AC-STE-<N>.<M>` ID for the capability key. The map is the single source of truth for capability-gap rendering — bullet bodies are byte-identical across runs.
+
+**Toolkit-meta vs. user-authored AC IDs (STE-147 AC-STE-147.3).** The scrub rule above applies **only** to this toolkit's own internal AC identifiers (`AC-STE-<N>.<M>` references the skill code itself emits about the toolkit's own spec set). User-authored AC references in the active project's FR markdown bodies — legitimate `AC-<bound-tracker-id>.<N>` entries written by the project owner during the session — pass through **unchanged**: they are the user's content, not toolkit-meta jargon. If `/spec-write` is editing an FR file and the user's prose cites `AC-STE-200.3` as a cross-reference, that reference is preserved verbatim in the rendered summary. The distinguishing test: toolkit-meta IDs are emitted by the skill code; user-authored IDs originate in FR bodies.
+
 **Size floor.** The summary must be >=100 bytes on stdout — the smoke-test driver guards this via `wc -c` on the captured log. The two-table-plus-prose shape above clears that floor naturally; do not collapse to a single line. The byte floor is the regression signal that Step 7 fired at all (the pre-M33 prose said "Summarize what was completed" and `-p` mode silently skipped the summary, leaving stdout at 1 byte).
 
 **Mode-adaptive id rendering.** Tracker mode renders the tracker ID (e.g., `STE-127`); `mode: none` renders the short-ULID tail returned by `acPrefix(spec)` (e.g., `VDTAF4`). The same id appears in the FR filename (`Provider.filenameFor(spec)`) — the row's `FR id` and `FR file path` columns must agree.
