@@ -42,3 +42,15 @@ describe("STE-41 AC-STE-41.5 — /gate-check stale-release-marker lint rule", ()
     expect(probeBlock).not.toContain("GATE FAILED");
   });
 });
+
+describe("AC-STE-139.5 — stale-release-marker runs clean on this repo's baseline", () => {
+  test("the live repo's specs/requirements.md carries no `(in flight — vX.Y.Z)` / `(planned — vX.Y.Z)` markers", () => {
+    const reqPath = join(import.meta.dir, "..", "..", "..", "specs", "requirements.md");
+    const body = readFileSync(reqPath, "utf-8");
+    // The probe walks for these literal marker shapes and cross-references
+    // CHANGELOG.md; on a clean repo there are no such markers at all.
+    const inFlightMatches = body.match(/\(in flight[\s—]+v\d+\.\d+\.\d+/g) ?? [];
+    const plannedMatches = body.match(/\(planned[\s—]+v\d+\.\d+\.\d+/g) ?? [];
+    expect([...inFlightMatches, ...plannedMatches]).toEqual([]);
+  });
+});

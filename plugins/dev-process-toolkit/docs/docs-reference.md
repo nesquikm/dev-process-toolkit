@@ -1,6 +1,6 @@
-# `/docs` skill reference (STE-70)
+# `/docs` skill reference
 
-Extended reference for `skills/docs/SKILL.md`. Contains the LLM prompts verbatim (AC-STE-71.7, AC-STE-72.3), the merge algorithm pseudocode, fragment frontmatter examples, and per-section merge strategies. Pointed at from `SKILL.md` to keep the skill file under the NFR-1 300-line budget (AC-STE-70.7).
+Extended reference for `skills/docs/SKILL.md`. Contains the LLM prompts verbatim (AC-STE-71.7, AC-STE-72.3), the merge algorithm pseudocode, fragment frontmatter examples, and per-section merge strategies. Pointed at from `SKILL.md` to keep the skill file under the NFR-1 300-line budget.
 
 ## Quick-fragment prompt (AC-STE-71.7, NFR-22)
 
@@ -128,7 +128,7 @@ generated_at: 2026-04-24T09:42:36Z
 warning: FR id could not be resolved from branch or diff. Review before commit.
 ```
 
-## Merge algorithm (AC-STE-70.4)
+## Merge algorithm
 
 Called by `/docs --commit` after the nav-contract gate passes.
 
@@ -179,7 +179,7 @@ function appendFragments(existing: string, fragments: Fragment[]): string {
 - **reference/** — packages-mode content is driven by `SignatureGroundTruth`, not by fragments. User-facing reference content (state diagrams, enum tables) appends to existing reference files.
 - **explanation/** — new architectural narrative appends to `explanation/architecture.md` or a new named file. Long narrative drift is caught by the user reviewing the `/docs --commit` diff.
 
-## Full regeneration flow (AC-STE-70.5)
+## Full regeneration flow
 
 `/docs --full`:
 
@@ -190,12 +190,12 @@ function appendFragments(existing: string, fragments: Fragment[]): string {
    - `how-to/` — the LLM produces recipes from the release-notes "how do I?" phrases in `CHANGELOG.md`.
    - `reference/` — packages-mode: one `reference/api/<module>.md` per `ModuleSignatures` entry, rendered via the packages-mode prompt. User-facing mode: one `reference/states.md` with mermaid state diagrams derived from the `stateEvents` extracted across active specs.
    - `explanation/` — `architecture.md` refreshed from `technical-spec.md` section headings + active milestones' "Why this milestone exists" sections.
-4. **Validate.** `validateGeneratedReference` on every generated packages-mode file (AC-STE-72.4). Retry-once-then-fail on mismatch.
+4. **Validate.** `validateGeneratedReference` on every generated packages-mode file. Retry-once-then-fail on mismatch.
 5. **Unified diff.** Against the currently-on-disk tree.
 6. **Approval gate.** `=== Apply? [y/N] ===`.
 7. **Apply.** Write every target atomically (all-or-nothing). Delete `.pending/*.md` + `*.signatures.json` (superseded).
 
-## Typedoc strategy integration (AC-STE-72.2)
+## Typedoc strategy integration
 
 When `typedoc` is present (found on `PATH` or `<projectRoot>/node_modules/.bin/typedoc`), `extractSignatures` invokes it with `--json <outfile> <projectRoot>`, parses the output for the set of export names, and cross-references against the ts-morph extraction. Disagreement produces a warning in `SignatureGroundTruth.warnings`. Signature strings are always taken from ts-morph (which reads the source verbatim) rather than from typedoc's normalized form — this preserves the exact source text that the LLM must reproduce.
 
@@ -207,7 +207,7 @@ Failure modes (from the `runTypedoc` implementation):
 
 The `ts-morph` path is the always-available backstop; typedoc is an enrichment, not a hard requirement.
 
-## Stack-aware dispatch (AC-STE-103.3)
+## Stack-aware dispatch
 
 `extractSignatures` detects every supported stack present at `projectRoot` and runs each detected stack's preferred-tool chain, concatenating the resulting `ModuleSignatures[]` into one `SignatureGroundTruth`. Detection signals: `tsconfig.json` → TS, `pubspec.yaml` → Dart, `pyproject.toml`/`setup.py`/`setup.cfg` → Python. The `strategy` field reports the first stack-chain that succeeded; stacks whose preferred tool falls through surface as `warnings` entries while modules from successful chains still concatenate. When no stack is detected, the regex-fallback banner described in § Stack-fallthrough below is the sole output.
 
@@ -219,7 +219,7 @@ Dart projects route through the bundled helper at `adapters/_shared/dart/extract
 
 Python projects route through the user-installed `griffe` CLI (`pip install griffe>=0.40.0`). The TS wrapper derives the package name from `pyproject.toml` `[project].name` → `[tool.poetry].name` → `setup.cfg [metadata].name` → `setup.py setup(name=...)` regex → first `__init__.py`-bearing dir under `projectRoot` or `src/`, then spawns `griffe dump <package>` with `cwd = projectRoot`. The `griffeJsonToModuleSignatures` translator flattens griffe's recursive `module → members` tree into Schema Z's flat shape, mapping kinds: `function` → `function`; class with Enum/IntEnum/Flag/StrEnum base → `enum`; class with Protocol base → `interface`; attribute with `TypeAlias` annotation → `type`; PEP 695 `type-alias` kind → `type`; other attributes → `const`; `alias`-kind nodes (imports) dropped. Class members live inside the class signature, mirroring TS+Dart strategies. Missing griffe, missing package metadata, non-zero exit, or invalid JSON each emit the AC-STE-72.5 warning and fall through to regex-fallback for the Python stack.
 
-## Stack-fallthrough (AC-STE-72.5)
+## Stack-fallthrough
 
 When no supported stack is detected at `projectRoot`, `extractSignatures` returns:
 

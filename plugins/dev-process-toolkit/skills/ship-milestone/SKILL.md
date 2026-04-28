@@ -20,7 +20,7 @@ Detailed reference (CHANGELOG subsection policy, version-bump semver rules, stru
 
 Any of these fire before any file write and exit non-zero with an NFR-10-shape message:
 
-1. **Unshipped FRs** (AC-STE-73.8). Walk `specs/plan/M<N>.md`; if any row links to an FR file whose frontmatter has `status: active` (not yet archived), **probe tracker state** per STE-83 and emit one of two remedy shapes.
+1. **Unshipped FRs**. Walk `specs/plan/M<N>.md`; if any row links to an FR file whose frontmatter has `status: active` (not yet archived), **probe tracker state** per STE-83 and emit one of two remedy shapes.
 
    For each `status: active` FR, call `Provider.getTicketStatus(<tracker-ref>)`. Partition the unshipped set by whether the returned status equals the adapter's `status_mapping.done`:
 
@@ -42,7 +42,7 @@ Any of these fire before any file write and exit non-zero with an NFR-10-shape m
 
    Both shapes exit non-zero and preserve the `Context:` line byte-identically. See `docs/ship-milestone-reference.md` § Refusal #1 remedy shapes for the full decision matrix including mixed tracker-Done / not-Done sets (the "any genuinely unshipped" branch wins on mix — safer than misdirecting to `/spec-archive` when a ticket genuinely isn't done yet).
 
-2. **Dirty working tree outside the expected set** (AC-STE-73.9). The expected-modified set is the four release files plus the `docs/` subtree (for the `/docs --commit --full` step). `git status --porcelain` lines outside that set ⇒ refuse:
+2. **Dirty working tree outside the expected set**. The expected-modified set is the four release files plus the `docs/` subtree (for the `/docs --commit --full` step). `git status --porcelain` lines outside that set ⇒ refuse:
 
    ```
    /ship-milestone: working tree has uncommitted changes outside the release files: <list>.
@@ -50,7 +50,7 @@ Any of these fire before any file write and exit non-zero with an NFR-10-shape m
    Context: milestone=M<N>, unexpected=<count>, skill=ship-milestone
    ```
 
-3. **Test gate red** (AC-STE-73.12). Run the project's test command once; if `<F>` failures > 0, refuse:
+3. **Test gate red**. Run the project's test command once; if `<F>` failures > 0, refuse:
 
    ```
    /ship-milestone: cannot tag release with <F> test failure(s).
@@ -62,11 +62,11 @@ Any of these fire before any file write and exit non-zero with an NFR-10-shape m
 
 ## Flow
 
-### 1. Resolve milestone + FR list (AC-STE-73.2)
+### 1. Resolve milestone + FR list
 
 Read `specs/plan/M<N>.md`. Extract every FR with a live tracker ID / ULID. For each, read `specs/frs/<name>.md` frontmatter and pull `title`, `tracker.<key>`, `breaking` (default `false`), `changelog_category` (default `Added`), and `status` (must be `archived` after the pre-flight refusal in step 8 above).
 
-### 2. Infer version (AC-STE-73.3)
+### 2. Infer version
 
 Call `inferBump({ currentVersion, frs, override })` from `adapters/_shared/src/version_bump.ts`. Rules:
 
@@ -75,7 +75,7 @@ Call `inferBump({ currentVersion, frs, override })` from `adapters/_shared/src/v
 - **minor bump** otherwise — the default, matching M12–M19 history.
 - `--version X.Y.Z` override wins and bypasses inference.
 
-### 3. Prompt for codename (AC-STE-73.10)
+### 3. Prompt for codename
 
 If `--codename "<name>"` was passed, validate and use it. Otherwise prompt:
 
@@ -85,16 +85,16 @@ Enter milestone codename (short, memorable — e.g., "Diátaxis"):
 
 Validate: non-empty, ≤ 32 chars, no backticks, no newlines. Re-prompt on invalid until the user provides a valid value or aborts.
 
-### 4. Construct release-file changes (AC-STE-73.4)
+### 4. Construct release-file changes
 
 Build proposed file contents in this exact order:
 
 1. **`plugins/dev-process-toolkit/.claude-plugin/plugin.json`** — `version` field updated.
 2. **`.claude-plugin/marketplace.json`** — matching `version` in the plugin entry.
-3. **`CHANGELOG.md`** — new `## [X.Y.Z] — YYYY-MM-DD — "<Codename>"` section at the top, with `### Added` / `### Changed` / `### Removed` / `### Fixed` subsections populated from FR `changelog_category` + title. Cross-references rendered as `(STE-X)`. Closing line (AC-STE-73.12): `Total test count at release: <N> tests, <F> failures, <E> errors.` using `parseTestOutput` on the already-run test gate. **Skipped entirely if `changelog_ci_owned: true`** (from `readDocsConfig(CLAUDE.md)` — STE-68 key) — CI owns the CHANGELOG; the test-count closing line is also suppressed because it lives inside the CHANGELOG entry.
+3. **`CHANGELOG.md`** — new `## [X.Y.Z] — YYYY-MM-DD — "<Codename>"` section at the top, with `### Added` / `### Changed` / `### Removed` / `### Fixed` subsections populated from FR `changelog_category` + title. Cross-references rendered as `(STE-X)`. Closing line: `Total test count at release: <N> tests, <F> failures, <E> errors.` using `parseTestOutput` on the already-run test gate. **Skipped entirely if `changelog_ci_owned: true`** (from `readDocsConfig(CLAUDE.md)` — STE-68 key) — CI owns the CHANGELOG; the test-count closing line is also suppressed because it lives inside the CHANGELOG entry.
 4. **`README.md`** — "Latest: **vX.Y.Z — '<Codename>'**" line in the `## Release Notes` section; any `## Structure` counts (skills, patterns, agents) recomputed from current filesystem.
 
-### 5. Invoke /docs --commit --full (AC-STE-73.5)
+### 5. Invoke /docs --commit --full
 
 If `readDocsConfig(CLAUDE.md)` returns at least one mode true, run `/docs --commit --full` in-process. Its approval prompt is merged into step 6's single gate (user sees one diff).
 
@@ -108,7 +108,7 @@ Remedy: fix the underlying /docs failure (see its stderr), then re-run /ship-mil
 Context: milestone=M<N>, version=<X.Y.Z>, skill=ship-milestone
 ```
 
-### 6. Unified diff + approval (AC-STE-73.6)
+### 6. Unified diff + approval
 
 Print a single unified diff covering every modified file (the four release files + any `docs/` files `/docs --commit --full` touched). Then:
 
@@ -122,7 +122,7 @@ Accept case-insensitive `y` / `yes` as approval. The user can type `e` to open `
 
 ### 7. On approval — commit (AC-STE-73.6, AC-STE-133.5)
 
-`git add` the expected-modified set and create a single commit in [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) form (STE-133). The commit-msg hook installed by `/setup` enforces the format locally.
+`git add` the expected-modified set and create a single commit in [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) form. The commit-msg hook installed by `/setup` enforces the format locally.
 
 ```
 chore(release): v<X.Y.Z>
@@ -139,7 +139,7 @@ Refs: M<N>
 
 **Does not run `git push`** — the push remains a user action (core principle: shared-state actions require confirmation).
 
-### 8. On refusal (AC-STE-73.7)
+### 8. On refusal
 
 Any response other than `y` / `yes` (including Ctrl-C): no staging, no commit, any temp files deleted. Exit `0` with:
 
@@ -147,7 +147,7 @@ Any response other than `y` / `yes` (including Ctrl-C): no staging, no commit, a
 ship-milestone declined; release not committed. To retry, re-run /ship-milestone M<N>.
 ```
 
-### 9. Post-ship checklist (AC-STE-73.11)
+### 9. Post-ship checklist
 
 After the commit lands, print:
 
@@ -163,7 +163,7 @@ Next steps (not automated):
 
 - **Never `git push`.** The user pushes. Publishing a release is irreversible from the agent's side; that invariant holds regardless of user pressure.
 - **Never bundle unrelated work.** Pre-flight refusal 2 exists because a release commit that carries an unrelated half-fix corrupts the release's provenance in git history.
-- **Never skip the CHANGELOG closing line** on a CHANGELOG-owned release (AC-STE-73.12). A non-zero `<F>` blocks release; `<N>=0` is still written if the test gate happens to run zero tests (the line itself is the discipline).
+- **Never skip the CHANGELOG closing line** on a CHANGELOG-owned release. A non-zero `<F>` blocks release; `<N>=0` is still written if the test gate happens to run zero tests (the line itself is the discipline).
 - **Single approval gate.** Merge `/docs --commit --full`'s diff into the ship-milestone diff; the user sees one unified diff and answers `y` / `N` once.
 - **Stay within the expected-modified set.** Pre-flight refusal 2 is the contract; `git add -A` is forbidden — use explicit `git add <file>` per expected path.
 - **Version bump is inferred, not invented.** Reach for `inferBump` before `--version`; `--version` is an escape hatch when inference is wrong, not a default.

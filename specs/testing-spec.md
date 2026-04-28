@@ -56,7 +56,7 @@ After any skill change, run the full workflow on the reference fixture set and b
 | `/spec-archive` | `tests/fixtures/projects/archivable/` | `…/snapshots/spec-archive.snap` |
 | `/setup --migrate` v1 → v2 | `tests/fixtures/migration/v1-to-v2/input/` | `tests/fixtures/migration/v1-to-v2/expected/` |
 | v2-minimal regression (all 12 skills) | `tests/fixtures/v2-minimal/` | `…/snapshots/<skill>.snap` |
-| `mode: none` byte-for-byte regression | `tests/fixtures/mode-none-regression/` | `…/baselines/m1-m11-regression.snapshot` |
+| `mode: none` byte-for-byte regression | `tests/fixtures/projects/mode-none-baseline/` | live Schema L probe via `tests/scripts/verify-regression.test.ts` |
 
 Any diff against snapshot → stop-ship.
 
@@ -141,7 +141,7 @@ Determinism helpers: `DPT_TEST_ULID_SEED` (deterministic ULID sequence for migra
 - `simple-milestone/` — specs/ with one milestone fully spec'd, ready for `/implement`.
 - `archivable/` — one milestone complete with matrix populated plus one in-flight milestone (used for archival-path tests).
 - `anchor-less/` — specs/ with no `{#...}` anchors (doctor validation).
-- `mode-none-regression/` — no `## Task Tracking` section; exercises all skills for byte-comparison baseline.
+- `mode-none-baseline/` — no `## Task Tracking` section; exercises all skills against the canonical `mode: none` shape (consumed by `tests/scripts/verify-regression.test.ts`).
 - `clean-sync/`, `tracker-only-ac/`, `edited-both/`, `branch-regex-mismatch/` — FR-39 sync-loop scenarios.
 - `capability-degradation/` — adapter missing `push_ac`; assert NFR-10 warning.
 - `docs-user-facing/` — `CLAUDE.md` with `user_facing_mode: true`, seeded canonical tree, pending fragment to exercise `/docs --commit`.

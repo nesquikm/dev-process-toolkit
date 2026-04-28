@@ -49,7 +49,7 @@ writes of AC content pass through that recorded GID — never hard-coded.
 | `pull_acs` | `mcp__atlassian__get_issue` | Extract the `fields[<jira_ac_field>]` value; parse per the AC convention documented in the field's description template. |
 | `push_ac_toggle` | `mcp__atlassian__update_issue` | Set the single field identified by `jira_ac_field` to the updated AC block. |
 | `transition_status` | `mcp__atlassian__transition_issue` | Resolve transition id via `get_transitions` + `status_mapping`. |
-| `upsert_ticket_metadata` | `mcp__atlassian__create_issue` (new) / `mcp__atlassian__update_issue` (existing) | Body MUST include the back-link (AC-37.6). **STE-117:** on create, `project` is required (Jira API requirement) — sourced from the call argument or `### Jira`.project in CLAUDE.md; reject with NFR-10 canonical shape if neither supplies a value. `team` does not apply to Jira and is silently dropped if forwarded. |
+| `upsert_ticket_metadata` | `mcp__atlassian__create_issue` (new) / `mcp__atlassian__update_issue` (existing) | Body MUST include the back-link to `specs/frs/<TICKET-ID>.md`. On create, `project` is required (Jira API requirement) — sourced from the call argument or `### Jira`.project in CLAUDE.md; reject with NFR-10 canonical shape if neither supplies a value. `team` does not apply to Jira and is silently dropped if forwarded. |
 
 ### Silent no-op trap
 
@@ -113,8 +113,8 @@ regardless of whether the driver is `linear`, `jira`, or a custom adapter.
 ## Self-hosted Jira
 
 v1 supports Atlassian Cloud only via the Rovo MCP. Self-hosted Jira is
-explicitly out of scope (requirements §5 M12 out-of-scope). A community
-adapter may override `mcp_server:` and retest.
+explicitly out of scope. A community adapter may override `mcp_server:`
+and retest.
 
 ## Operations
 
@@ -161,8 +161,8 @@ adapter may override `mcp_server:` and retest.
    - `mcp__atlassian__update_issue(issueIdOrKey=ticket_id_or_null, fields={ summary, description })`.
 3. Render `ticket_description_template` with `{fr_body}` and `{tracker_id}`
    (Jira key, e.g. `ABC-123`) substituted; back-link to
-   `specs/frs/{tracker_id}.md` is mandatory (AC-37.6). STE-67 retired the
-   v1 `{fr_anchor}` + `specs/requirements.md#...` form.
+   `specs/frs/{tracker_id}.md` is mandatory. The legacy `{fr_anchor}` +
+   `specs/requirements.md#...` form has been retired.
 4. Return the ticket id.
 
 ## Helper: `discover_field.ts`

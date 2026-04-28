@@ -157,3 +157,11 @@ describe("AC-STE-109.7 — gate-check SKILL.md prose declares the probe", () => 
     expect(gateCheckSkill).toMatch(/setup-bootstrap-committed/);
   });
 });
+
+describe("AC-STE-139.5 — setup-bootstrap-committed runs clean on this repo's baseline", () => {
+  test("runSetupBootstrapCommittedProbe(repoRoot) returns zero violations", async () => {
+    const repoRoot = join(import.meta.dir, "..", "..", "..");
+    const report = await runSetupBootstrapCommittedProbe(repoRoot);
+    expect(report.violations).toEqual([]);
+  });
+});

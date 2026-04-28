@@ -150,3 +150,11 @@ describe("AC-STE-113.1 — examples/bun-typescript.md exists with the four secti
     expect(example).toMatch(/bun \*|Bash\(bun \*\)/);
   });
 });
+
+describe("AC-STE-139.5 — bun-zero-match-placeholder runs clean on this repo's baseline", () => {
+  test("runBunZeroMatchPlaceholderProbe(repoRoot) returns zero violations", async () => {
+    const repoRoot = join(import.meta.dir, "..", "..", "..");
+    const report = await runBunZeroMatchPlaceholderProbe(repoRoot);
+    expect(report.violations).toEqual([]);
+  });
+});

@@ -1,5 +1,5 @@
 name: dpt_extract_signatures
-description: Bundled Dart signature-extraction helper for /dev-process-toolkit:docs (STE-103).
+description: Bundled Dart signature-extraction helper for /dev-process-toolkit:docs.
 publish_to: none
 
 environment:

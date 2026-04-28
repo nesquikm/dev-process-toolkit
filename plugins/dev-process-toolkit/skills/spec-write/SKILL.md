@@ -16,40 +16,40 @@ Guide the user through writing or completing the project specification files.
 
 Before any other step:
 
-- **Provider resolution** — Resolve `Provider` once per invocation (AC-STE-20.3) using the same rule as `/implement` (LocalProvider for `mode: none`, TrackerProvider otherwise). FR creation goes to `specs/frs/<Provider.filenameFor(spec)>` (M18 STE-60; never `specs/requirements.md`); `Provider.sync()` fires on save. Full reference: `docs/layout-reference.md` § `/spec-write`.
+- **Provider resolution** — Resolve `Provider` once per invocation using the same rule as `/implement` (LocalProvider for `mode: none`, TrackerProvider otherwise). FR creation goes to `specs/frs/<Provider.filenameFor(spec)>` (M18 STE-60; never `specs/requirements.md`); `Provider.sync()` fires on save. Full reference: `docs/layout-reference.md` § `/spec-write`.
 - **Tracker-mode probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none`. If a tracker mode is active:
-  - Run the 3-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md` (STE-27) the first time the session edits an FR bound to a ticket — decline exits cleanly with zero side effects (AC-STE-27.4).
+  - Run the 3-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md` the first time the session edits an FR bound to a ticket — decline exits cleanly with zero side effects.
   - After saving any FR-level AC edit, run the STE-17 diff/resolve loop via the active adapter before pushing via `upsert_ticket_metadata` (AC-STE-12.7, AC-STE-17.9).
   See `docs/spec-write-tracker-mode.md` for the full tracker-mode flow.
 
-### 0a. Resolver entry (AC-STE-31.1)
+### 0a. Resolver entry
 
 After the layout gate and before any FR write:
 
-1. Call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src/resolver_config.ts` once at entry (STE-44), then pass the returned `ResolverConfig` to `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. The builder reads `CLAUDE.md` `## Task Tracking` + each active adapter's Schema W `resolver:` block — never hand-assemble the config inline (AC-STE-44.5). Malformed adapter metadata surfaces as `MalformedAdapterMetadataError` → NFR-10 canonical refusal (AC-STE-44.6).
+1. Call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src/resolver_config.ts` once at entry, then pass the returned `ResolverConfig` to `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. The builder reads `CLAUDE.md` `## Task Tracking` + each active adapter's Schema W `resolver:` block — never hand-assemble the config inline. Malformed adapter metadata surfaces as `MalformedAdapterMetadataError` → NFR-10 canonical refusal.
 2. Route by `kind`:
-   - **`ulid`** → open the FR whose frontmatter `id:` equals `<ulid>` — located via `Provider.filenameFor(spec)` (AC-STE-31.2). Skip step 0b below.
-   - **`tracker-id` / `url`** → branch on mode (STE-135):
+   - **`ulid`** → open the FR whose frontmatter `id:` equals `<ulid>` — located via `Provider.filenameFor(spec)`. Skip step 0b below.
+   - **`tracker-id` / `url`** → branch on mode:
      - **Tracker mode** → call `findFRPathByTrackerRef(specsDir, trackerKey, trackerId)` (path-returning, no `id:` requirement; STE-76's tracker-mode frontmatter has no `id:` line — `findFRByTrackerRef`'s `id:`-driven lookup would silently miss every existing FR and fall through to `importFromTracker`, overwriting local edits).
      - **`mode: none`** → call `findFRByTrackerRef(specsDir, trackerKey, trackerId)` (ULID-returning; mode-none has `id:`).
-     - **Hit** (either helper) → open that FR for editing; no import, no tracker network call beyond resolve (AC-STE-31.3). Skip 0b.
-     - **Miss** → run the shared import helper `importFromTracker(trackerKey, trackerId, provider, specsDir, promptMilestone)` from `adapters/_shared/src/import.ts`. Tracker ACs are auto-accepted — **never run the STE-17 per-AC prompt loop here** (AC-STE-31.5); the local side is empty so there is nothing to diff against. Empty-AC tickets get a TODO marker in the new FR's `## Acceptance Criteria` section (AC-STE-31.7).
+     - **Hit** (either helper) → open that FR for editing; no import, no tracker network call beyond resolve. Skip 0b.
+     - **Miss** → run the shared import helper `importFromTracker(trackerKey, trackerId, provider, specsDir, promptMilestone)` from `adapters/_shared/src/import.ts`. Tracker ACs are auto-accepted — **never run the STE-17 per-AC prompt loop here**; the local side is empty so there is nothing to diff against. Empty-AC tickets get a TODO marker in the new FR's `## Acceptance Criteria` section.
    - **`fallthrough`** → continue with free-form-argument handling (step 1 below). NFR-18 requires byte-identical behavior for `all`, `requirements`, `technical`, `testing`, `plan`.
 3. On `AmbiguousArgumentError`, surface the NFR-10-shape error from `docs/resolver-entry.md` § Ambiguity and exit non-zero. Never silently pick a winner (NFR-20).
-4. All tracker/network failures during `importFromTracker` surface per NFR-10 (AC-STE-31.8).
+4. All tracker/network failures during `importFromTracker` surface per NFR-10.
 
-Full decision table and edge cases: `docs/resolver-entry.md`. Subsequent `/spec-write` calls on the same tracker ID run STE-17's normal diff/resolve flow (AC-STE-31.6) because both sides are now populated.
+Full decision table and edge cases: `docs/resolver-entry.md`. Subsequent `/spec-write` calls on the same tracker ID run STE-17's normal diff/resolve flow because both sides are now populated.
 
-### 0b. FR creation path (AC-STE-24.2)
+### 0b. FR creation path
 
 Creating a new FR means:
 
-**Draft with placeholder (STE-66).** When drafting a new tracker-bound FR, use `<tracker-id>` (or the adapter-specific rendering — `STE-<N>` for Linear, `PROJ-<N>` for Jira, etc.) as the tracker-ID placeholder throughout the draft: AC prefixes (`AC-<tracker-id>.1`), filename (`<tracker-id>.md`), plan-file table row, and every prose cross-reference. **Never guess** the next sequential number — the tracker allocator decides, not the implementer, and a guess that clashes with a cancelled/renumbered ticket ships misaligned with its own binding. The real ID is known only after `Provider.sync(spec)` / `upsertTicketMetadata(null, …)` returns. Substitute the placeholder globally once the ID is assigned, **then** write the FR file. This rule applies equally to Linear (which skips cancelled numbers), Jira, and custom trackers. Mode: none is exempt — the short-ULID tail is minted locally and is never subject to race conditions with a tracker allocator.
+**Draft with placeholder.** When drafting a new tracker-bound FR, use `<tracker-id>` (or the adapter-specific rendering — `STE-<N>` for Linear, `PROJ-<N>` for Jira, etc.) as the tracker-ID placeholder throughout the draft: AC prefixes (`AC-<tracker-id>.1`), filename (`<tracker-id>.md`), plan-file table row, and every prose cross-reference. **Never guess** the next sequential number — the tracker allocator decides, not the implementer, and a guess that clashes with a cancelled/renumbered ticket ships misaligned with its own binding. The real ID is known only after `Provider.sync(spec)` / `upsertTicketMetadata(null, …)` returns. Substitute the placeholder globally once the ID is assigned, **then** write the FR file. This rule applies equally to Linear (which skips cancelled numbers), Jira, and custom trackers. Mode: none is exempt — the short-ULID tail is minted locally and is never subject to race conditions with a tracker allocator.
 
-1. **`mode: none` only:** Mint a ULID via `Provider.mintId()` — always local (AC-STE-20.5), offline-safe. **Tracker mode skips this step**: `TrackerProvider` does not implement `IdentityMinter` (STE-85 capability boundary — `mintId()` on a `Provider`-typed value is a TypeScript error by design), and `buildFRFrontmatter(spec, trackerBinding)` rejects `id:` alongside `trackerBinding` (STE-76 / AC-STE-110.2). The tracker ID returned by step 4 is the canonical identity in tracker mode.
+1. **`mode: none` only:** Mint a ULID via `Provider.mintId()` — always local, offline-safe. **Tracker mode skips this step**: `TrackerProvider` does not implement `IdentityMinter` (STE-85 capability boundary — `mintId()` on a `Provider`-typed value is a TypeScript error by design), and `buildFRFrontmatter(spec, trackerBinding)` rejects `id:` alongside `trackerBinding` (STE-76 / AC-STE-110.2). The tracker ID returned by step 4 is the canonical identity in tracker mode.
 2. **(STE-121 AC-STE-121.2) Build canonical frontmatter via `buildFRFrontmatter(spec, trackerBinding?)`** from `adapters/_shared/src/fr_frontmatter.ts` — **never author YAML by hand.** The helper enforces the bimodal shape (mode-none `id:` block; tracker-mode compact `tracker:` block) and rejects the verbose `{ key, id, url }` form (`InvalidTrackerShapeError`, AC-STE-110.2). Hand-rolled YAML is the regression source the M29 prose flip didn't catch. Then write the FR file to `specs/frs/<Provider.filenameFor(spec)>` (M18 STE-60 AC-STE-60.3). `Provider.filenameFor(spec)` returns `<tracker-id>.md` in tracker mode (e.g., `STE-60.md`) and `<short-ULID>.md` in `mode: none` (e.g., `VDTAF4.md`, matching the AC-prefix convention). Never hard-code `fr_<ULID>.md` — the ULID lives in frontmatter `id:`, not in the filename.
 
-   Helper output — do not author by hand. The five required body sections in order: `## Requirement`, `## Acceptance Criteria`, `## Technical Design`, `## Testing`, `## Notes` (AC-STE-26.2). Reference shapes (illustrative only):
+   Helper output — do not author by hand. The five required body sections in order: `## Requirement`, `## Acceptance Criteria`, `## Technical Design`, `## Testing`, `## Notes`. Reference shapes (illustrative only):
 
    ```yaml
    # mode: none — id required, no tracker block
@@ -76,8 +76,8 @@ Creating a new FR means:
    ---
    ```
 
-   The compact `{ <mode>: <tracker-id> }` shape is the **only** form /spec-write emits in tracker mode (AC-STE-110.2). Existing tracker-mode FR files that still carry `id:` are flagged by /gate-check probe-13 `identity_mode_conditional` at **error** severity (M29 STE-110 AC-STE-110.4 flip).
-3. **AC prefix (STE-50 AC-STE-50.1/STE-50.2)** — every AC line in the new file uses the shape `- AC-<PREFIX>.<N>: <body>`, where `<PREFIX>` is derived via `acPrefix(spec)` from `adapters/_shared/src/ac_prefix.ts`: in tracker mode it's the bound tracker ID (e.g., `AC-STE-50.1`); in `mode: none` it's `spec.id.slice(23, 29)` — the last 6 chars of the ULID's random portion (e.g., `AC-VDTAF4.1`). Tracker mode requires the `tracker:` block to be populated **before** ACs are written (i.e., bind the ticket first, then author ACs). In `mode: none`, before writing the file, call `scanShortUlidCollision(specsDir, spec)` from the same module; it throws `ShortUlidCollisionError` (NFR-10-shape) if another FR already uses the same short-ULID tail (AC-STE-50.3). The same short-ULID doubles as the mode-none filename stem, so the collision scan also guards against filename collisions. **(STE-122 AC-STE-122.2) Never emit literal `AC-<digit>.<N>` shape** — the requirements template carries the placeholder `AC-<tracker-id>.<N>`; substitute via `acPrefix(spec)` before writing every AC line.
+   The compact `{ <mode>: <tracker-id> }` shape is the **only** form /spec-write emits in tracker mode. Existing tracker-mode FR files that still carry `id:` are flagged by /gate-check probe-13 `identity_mode_conditional` at **error** severity (M29 STE-110 AC-STE-110.4 flip).
+3. **AC prefix (STE-50 AC-STE-50.1/STE-50.2)** — every AC line in the new file uses the shape `- AC-<PREFIX>.<N>: <body>`, where `<PREFIX>` is derived via `acPrefix(spec)` from `adapters/_shared/src/ac_prefix.ts`: in tracker mode it's the bound tracker ID (e.g., `AC-STE-50.1`); in `mode: none` it's `spec.id.slice(23, 29)` — the last 6 chars of the ULID's random portion (e.g., `AC-VDTAF4.1`). Tracker mode requires the `tracker:` block to be populated **before** ACs are written (i.e., bind the ticket first, then author ACs). In `mode: none`, before writing the file, call `scanShortUlidCollision(specsDir, spec)` from the same module; it throws `ShortUlidCollisionError` (NFR-10-shape) if another FR already uses the same short-ULID tail. The same short-ULID doubles as the mode-none filename stem, so the collision scan also guards against filename collisions. **(STE-122 AC-STE-122.2) Never emit literal `AC-<digit>.<N>` shape** — the requirements template carries the placeholder `AC-<tracker-id>.<N>`; substitute via `acPrefix(spec)` before writing every AC line.
 4. Call `Provider.sync(spec)` — no-op in `LocalProvider`, pushes to tracker in `TrackerProvider`. **STE-117 workspace binding.** In tracker mode, before invoking `upsertTicketMetadata` for a freshly-created ticket, call `readWorkspaceBinding(claudeMdPath, "linear" | "jira")` from `adapters/_shared/src/workspace_binding.ts` and forward `team` + `project` into the call. Linear adapter rejects creates that lack `project` per the silent-landing trap (`adapters/linear.md` § Silent no-op trap); Jira adapter rejects creates that lack `project` per the Jira API requirement (`adapters/jira.md`). On update (existing tracker ID), neither field is forwarded.
 
    **STE-118 milestone attachment (Linear-only, AC-STE-118.4).** After `Provider.sync(spec)` returns the freshly-allocated tracker ID, read the FR's `milestone:` frontmatter and call `planFileHeadingToMilestoneName(specs/plan/<milestone>.md)` from `adapters/_shared/src/attach_project_milestone.ts` to derive the canonical milestone name (anchor stripped). Then call `attachProjectMilestone(provider, project, canonicalName, ticketId)` to bind the ticket. Failure surfaces as `MilestoneAttachmentError` (NFR-10 canonical shape) — the FR file is not rolled back since the spec is the source of truth. Vacuous on `mode: none` and on adapters whose Schema M frontmatter declares `project_milestone: false` (Jira).
@@ -86,7 +86,7 @@ Creating a new FR means:
    - Call `scanGuessedTrackerIdLiterals([frFilePath, specs/requirements.md])` from `adapters/_shared/src/guessed_tracker_id_scan.ts`. Any returned violation is a literal `AC-<digit>.<N>` placeholder that survived substitution; refuse with NFR-10 canonical shape (use the violation's own `message` field, which is already canonical), naming `file:line:column` + the offending token + remedy `substitute <tracker-id> via acPrefix(spec) and retry`.
 
    Probes #13 (`identity_mode_conditional`) and #15 (`guessed_tracker_id`) stay at /gate-check time as the safety net for paths that bypass /spec-write (manual edits, copy-paste from old templates, downstream toolkit consumers).
-6. Never write to `specs/requirements.md` — that file is slimmed to cross-cutting content only (AC-STE-26.3).
+6. Never write to `specs/requirements.md` — that file is slimmed to cross-cutting content only.
 
 ### 1. Assess current state
 
@@ -111,7 +111,7 @@ This order matters because each spec builds on the previous one.
 
 #### requirements.md (WHAT to build — cross-cutting only)
 
-**Scope (STE-129 AC-STE-129.3): cross-cutting only.** `specs/requirements.md` captures concerns that span multiple FRs — auth scheme, observability surface, tenancy model, accessibility posture, etc. Per-FR detail lives in `specs/frs/<id>.md` exclusively (M18 STE-60). When `/spec-write` is invoked on a per-FR feature, route the work straight to `specs/frs/` (per § 0b) and **do NOT touch `specs/requirements.md`**. The `requirements-md-no-placeholder` gate probe (gate-check #29) flags any `### FR-N: [Feature Name]` heading that survives in `requirements.md` as drift.
+**Scope: cross-cutting only.** `specs/requirements.md` captures concerns that span multiple FRs — auth scheme, observability surface, tenancy model, accessibility posture, etc. Per-FR detail lives in `specs/frs/<id>.md` exclusively. When `/spec-write` is invoked on a per-FR feature, route the work straight to `specs/frs/` (per § 0b) and **do NOT touch `specs/requirements.md`**. The `requirements-md-no-placeholder` gate probe (gate-check #29) flags any `### FR-N: [Feature Name]` heading that survives in `requirements.md` as drift.
 
 Only fire the per-section flow below when the user is filling in **genuinely cross-cutting** requirements — typically the first time `/spec-write` runs on a new project, or when an architectural concern emerges that affects multiple FRs.
 
@@ -123,7 +123,7 @@ Per-feature acceptance criteria are NOT collected here — those go in `specs/fr
 
 Write the answers into the spec using the template structure with per-AC prefixes derived via `acPrefix()` (tracker ID in tracker mode, short-ULID tail in `mode: none`). AC lines take the shape `AC-<PREFIX>.<N>: ...`.
 
-**Stable anchor IDs (STE-18):** Every `### <PREFIX>:` heading you generate or edit must carry its `{#<PREFIX>}` anchor on the same line, matching the template form `### STE-42: User login {#STE-42}` (tracker mode) or `### VDTAF4: User login {#VDTAF4}` (`mode: none`). Same rule applies in `plan.md` for `## M{N}: ...` headings — the `{#M{N}}` anchor must be present. These anchors are the pointer targets for archival (STE-22) and for cross-references in the traceability matrix, so they must survive heading renames. If you encounter any milestone or FR heading without its anchor, **flag it as a warning** in the report (step 7) and offer to add it — never silently edit around it.
+**Stable anchor IDs:** Every `### <PREFIX>:` heading you generate or edit must carry its `{#<PREFIX>}` anchor on the same line, matching the template form `### STE-42: User login {#STE-42}` (tracker mode) or `### VDTAF4: User login {#VDTAF4}` (`mode: none`). Same rule applies in `plan.md` for `## M{N}: ...` headings — the `{#M{N}}` anchor must be present. These anchors are the pointer targets for archival and for cross-references in the traceability matrix, so they must survive heading renames. If you encounter any milestone or FR heading without its anchor, **flag it as a warning** in the report (step 7) and offer to add it — never silently edit around it.
 
 #### technical-spec.md (HOW to build it)
 
@@ -147,7 +147,7 @@ Read all other specs. Then work through the steps below in order, one at a time 
 
 First, break the requirements into milestones (each independently gatable). Then order the milestones by dependency. Then, for each milestone, list tasks in dependency order, acceptance criteria, and gate commands. Finally, draw the milestone dependency graph.
 
-**Milestone-number allocation guard (STE-119 AC-STE-119.3).** Before claiming any new `M<N>`, call `nextFreeMilestoneNumber(specsDir, changelogPath)` from `adapters/_shared/src/next_free_milestone_number.ts`. The helper does the three-way scan (active `specs/plan/`, archived `specs/plan/archive/`, CHANGELOG `M<N>` references) and returns `{ next, sources }`. Use `next` as the canonical default. If the user explicitly typed an `M<N>` argument that appears in any of the three source sets, **refuse with NFR-10 canonical shape** showing all three breakdowns and the proposed next free number — see AC-STE-119.7 for the diagnostic format. Never trust a partial `ls` output and never trust LLM memory: the helper is the single source of truth.
+**Milestone-number allocation guard.** Before claiming any new `M<N>`, call `nextFreeMilestoneNumber(specsDir, changelogPath)` from `adapters/_shared/src/next_free_milestone_number.ts`. The helper does the three-way scan (active `specs/plan/`, archived `specs/plan/archive/`, CHANGELOG `M<N>` references) and returns `{ next, sources }`. Use `next` as the canonical default. If the user explicitly typed an `M<N>` argument that appears in any of the three source sets, **refuse with NFR-10 canonical shape** showing all three breakdowns and the proposed next free number — see AC-STE-119.7 for the diagnostic format. Never trust a partial `ls` output and never trust LLM memory: the helper is the single source of truth.
 
 **Task Sizing:** generated tasks must follow the Task Sizing guidance in `templates/spec-templates/plan.md.template` — each task ≈ one commit's worth of work, written as a 2-line entry (action line + indented `verify:` line). If you can't name a single verification step, split the task. See the template's anti-pattern callout for examples of tasks that are too large.
 
@@ -238,11 +238,11 @@ Open questions / risks / inconsistencies (if any):
 Next: Run `/dev-process-toolkit:implement <milestone>` when specs are ready.
 ```
 
-**Size floor (AC-STE-127.2).** The summary must be >=100 bytes on stdout — the smoke-test driver guards this via `wc -c` on the captured log. The two-table-plus-prose shape above clears that floor naturally; do not collapse to a single line. The byte floor is the regression signal that Step 7 fired at all (the pre-M33 prose said "Summarize what was completed" and `-p` mode silently skipped the summary, leaving stdout at 1 byte).
+**Size floor.** The summary must be >=100 bytes on stdout — the smoke-test driver guards this via `wc -c` on the captured log. The two-table-plus-prose shape above clears that floor naturally; do not collapse to a single line. The byte floor is the regression signal that Step 7 fired at all (the pre-M33 prose said "Summarize what was completed" and `-p` mode silently skipped the summary, leaving stdout at 1 byte).
 
-**Mode-adaptive id rendering (AC-STE-127.3).** Tracker mode renders the tracker ID (e.g., `STE-127`); `mode: none` renders the short-ULID tail returned by `acPrefix(spec)` (e.g., `VDTAF4`). The same id appears in the FR filename (`Provider.filenameFor(spec)`) — the row's `FR id` and `FR file path` columns must agree.
+**Mode-adaptive id rendering.** Tracker mode renders the tracker ID (e.g., `STE-127`); `mode: none` renders the short-ULID tail returned by `acPrefix(spec)` (e.g., `VDTAF4`). The same id appears in the FR filename (`Provider.filenameFor(spec)`) — the row's `FR id` and `FR file path` columns must agree.
 
-**Import-path coverage (AC-STE-127.4).** When `importFromTracker(...)` ran (resolver step 0a `tracker-id`/`url` + `findFRByTrackerRef` miss), the imported FR appears in the summary table just like a freshly-created one — the operator must see which tracker ID landed in `specs/frs/` without filesystem inspection.
+**Import-path coverage.** When `importFromTracker(...)` ran (resolver step 0a `tracker-id`/`url` + `findFRByTrackerRef` miss), the imported FR appears in the summary table just like a freshly-created one — the operator must see which tracker ID landed in `specs/frs/` without filesystem inspection.
 
 The summary is the per-skill console-status contract that `/setup`, `/implement`, `/gate-check`, `/spec-review`, and `/simplify` all honor; `/spec-write` was the outlier pre-M33.
 

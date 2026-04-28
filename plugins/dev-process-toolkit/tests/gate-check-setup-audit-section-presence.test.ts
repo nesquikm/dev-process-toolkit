@@ -165,3 +165,11 @@ describe("STE-123 — /setup SKILL.md prose declares step 8a", () => {
     expect(setupSkill).toMatch(/STE-123/);
   });
 });
+
+describe("AC-STE-139.5 — setup-audit-section-presence runs clean on this repo's baseline", () => {
+  test("runSetupAuditSectionPresenceProbe(repoRoot) returns zero violations", async () => {
+    const repoRoot = join(import.meta.dir, "..", "..", "..");
+    const report = await runSetupAuditSectionPresenceProbe(repoRoot);
+    expect(report.violations).toEqual([]);
+  });
+});

@@ -121,3 +121,14 @@ describe("AC-STE-54.4 — TrackerProvider.getTicketStatus delegation", () => {
     expect(calls).toEqual(["getTicketStatus(STE-53)"]);
   });
 });
+
+describe("AC-STE-139.5 — ticket-state-drift runs clean on this repo's baseline", () => {
+  test("LocalProvider.getTicketStatus returns the local-no-tracker sentinel (probe vacuous in mode: none)", async () => {
+    // The probe walks archived FRs and calls Provider.getTicketStatus. In mode: none
+    // LocalProvider returns the `local-no-tracker` sentinel which the probe treats
+    // as a vacuous pass. Self-check exercises the sentinel for the baseline lock.
+    const lp = new LocalProvider({ repoRoot: pluginRoot, gitUserEmail: "test@example.com" });
+    const result = await lp.getTicketStatus("STE-53");
+    expect(result.status).toBe("local-no-tracker");
+  });
+});

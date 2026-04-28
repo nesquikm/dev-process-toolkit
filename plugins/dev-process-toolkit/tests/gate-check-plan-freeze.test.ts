@@ -97,3 +97,25 @@ describe("STE-82 AC-STE-82.4/7 — plan-lock fixtures (positive + negative)", ()
     }
   });
 });
+
+describe("AC-STE-139.5 — plan-freeze runs clean on this repo's baseline", () => {
+  test("no active repo plans carry a non-null frozen_at (no spurious freeze state)", async () => {
+    const { readdirSync, readFileSync, statSync } = await import("node:fs");
+    const repoPlanDir = join(import.meta.dir, "..", "..", "..", "specs", "plan");
+    const violations: string[] = [];
+    for (const name of readdirSync(repoPlanDir)) {
+      const path = join(repoPlanDir, name);
+      if (!statSync(path).isFile() || !name.endsWith(".md")) continue;
+      const body = readFileSync(path, "utf-8");
+      const fmEnd = body.indexOf("---", 3);
+      if (fmEnd < 0) continue;
+      const fm = body.slice(0, fmEnd);
+      const status = fm.match(/^status:\s*(\S+)/m)?.[1];
+      const frozenAt = fm.match(/^frozen_at:\s*(\S+)/m)?.[1];
+      if (status === "active" && frozenAt && frozenAt !== "null") {
+        violations.push(`${name}: status=active but frozen_at=${frozenAt}`);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+});

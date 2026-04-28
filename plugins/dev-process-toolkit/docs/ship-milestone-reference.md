@@ -25,7 +25,7 @@ The LLM is prompted to summarize, not paraphrase. The ground truth is the FR's `
 
 **Empty subsections:** if a category has zero FRs, omit its heading entirely. Do not emit empty `### Removed\n\n` blocks.
 
-**Closing line (AC-STE-73.12):**
+**Closing line:**
 
 ```
 Total test count at release: <N> tests, <F> failures, <E> errors.
@@ -81,7 +81,7 @@ The set of files `/ship-milestone` is allowed to stage is pinned at:
 - `README.md`
 - every file under `docs/` (for the `/docs --commit --full` step)
 
-Anything else in `git status --porcelain` triggers pre-flight refusal 2 (AC-STE-73.9). `/ship-milestone` never runs `git add -A`; it `git add`s each path explicitly.
+Anything else in `git status --porcelain` triggers pre-flight refusal 2. `/ship-milestone` never runs `git add -A`; it `git add`s each path explicitly.
 
 ## Interaction with STE-75 (`/implement M<N>` chain)
 
@@ -107,7 +107,7 @@ STE-75 (Phase D of M20) adds an opt-in prompt at the end of a milestone-scope `/
 - The unified diff at step 6 IS the dogfood test — if the diff looks wrong, refuse.
 - Run `/gate-check` after the commit lands but before `git push` — if the repo fails its own gate, the release isn't ready.
 
-## Refusal #1 remedy shapes (STE-83)
+## Refusal #1 remedy shapes
 
 Refusal #1 (unshipped FRs) fires with one of two remedy shapes. The branch probes each `status: active` FR's tracker ticket via `Provider.getTicketStatus` and partitions on equality with the adapter's `status_mapping.done`.
 
@@ -123,10 +123,10 @@ Both shapes preserve the canonical `Context: milestone=M<N>, unshipped=<count>, 
 
 All refusals carry the three-line shape: one-line verdict / `Remedy: <action>` / `Context: milestone=..., version=..., skill=ship-milestone`. The four refusal verdicts:
 
-1. `milestone M<N> has <count> unshipped FR(s): <list>` (AC-STE-73.8)
-2. `working tree has uncommitted changes outside the release files: <list>` (AC-STE-73.9)
-3. `cannot tag release with <F> test failure(s)` (AC-STE-73.12)
-4. `/docs --commit --full failed; cannot proceed with release` (AC-STE-73.5)
+1. `milestone M<N> has <count> unshipped FR(s): <list>`
+2. `working tree has uncommitted changes outside the release files: <list>`
+3. `cannot tag release with <F> test failure(s)`
+4. `/docs --commit --full failed; cannot proceed with release`
 
 ## See also
 

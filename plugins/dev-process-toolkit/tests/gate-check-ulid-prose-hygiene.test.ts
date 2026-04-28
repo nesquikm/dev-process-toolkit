@@ -125,3 +125,26 @@ describe("STE-82 AC-STE-82.6/7 — ULID prose hygiene fixtures (positive + negat
     expect("fr_01KPWPMA9TKSYYBNCQ3TAYM9BE").toMatch(/^fr_[0-9A-HJKMNP-TV-Z]{26}$/);
   });
 });
+
+describe("AC-STE-139.5 — ulid-prose-hygiene runs clean on this repo's baseline", () => {
+  test("active plan files + README carry no full 26-char ULID literals (tracker-mode rule)", async () => {
+    const { existsSync, readdirSync, statSync } = await import("node:fs");
+    const repoRoot = join(import.meta.dir, "..", "..", "..");
+    const repoPlanDir = join(repoRoot, "specs", "plan");
+    const targets: string[] = [];
+    if (existsSync(repoPlanDir)) {
+      for (const name of readdirSync(repoPlanDir)) {
+        const p = join(repoPlanDir, name);
+        if (statSync(p).isFile() && name.endsWith(".md")) targets.push(p);
+      }
+    }
+    const readmePath = join(repoRoot, "README.md");
+    if (existsSync(readmePath)) targets.push(readmePath);
+    const hits: string[] = [];
+    for (const t of targets) {
+      const matches = readFileSync(t, "utf-8").match(ULID_REGEX);
+      if (matches) hits.push(`${t}: ${matches.join(", ")}`);
+    }
+    expect(hits).toEqual([]);
+  });
+});

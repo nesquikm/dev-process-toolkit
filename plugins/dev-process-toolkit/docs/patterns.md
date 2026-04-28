@@ -335,7 +335,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 
 **Problem**: Spec files grow unboundedly as a project matures. Every `/implement`, `/gate-check`, and `/spec-review` invocation reads the full spec tree, inflating hot-path context cost on work that's already shipped. Simply splitting files by hand breaks prompt caching (the cache-hot prefix moves on every rewrite), duplicates still-current content, and loses grep-friendliness.
 
-**Solution (STE-22)**: Per-unit archival. Each FR lives in its own file `specs/frs/<name>.md` where `<name>` is `Provider.filenameFor(spec)` (M18 STE-60 — tracker ID in tracker mode, short-ULID tail in `mode: none`); each milestone has its own plan file `specs/plan/<M#>.md`. When `/implement` finishes a milestone and the human approves the Phase 4 report, every FR belonging to that milestone is `git mv`d into `specs/frs/archive/<name>.md` with frontmatter `status: active` → `status: archived` + `archived_at: <ISO now>` (stem preserved across the move); the milestone plan file is `git mv`d into `specs/plan/archive/<M#>.md`. `Provider.releaseLock(<ulid>)` finalizes each FR's lifecycle (tracker mode transitions the ticket to `done`; tracker-less removes the lock file). For content the auto-path can't reach (reopens, cross-cutting FRs, aborted work), `/spec-archive <ULID | M<N> | tracker-ref>` is the manual escape hatch with a diff approval gate.
+**Solution**: Per-unit archival. Each FR lives in its own file `specs/frs/<name>.md` where `<name>` is `Provider.filenameFor(spec)` (M18 STE-60 — tracker ID in tracker mode, short-ULID tail in `mode: none`); each milestone has its own plan file `specs/plan/<M#>.md`. When `/implement` finishes a milestone and the human approves the Phase 4 report, every FR belonging to that milestone is `git mv`d into `specs/frs/archive/<name>.md` with frontmatter `status: active` → `status: archived` + `archived_at: <ISO now>` (stem preserved across the move); the milestone plan file is `git mv`d into `specs/plan/archive/<M#>.md`. `Provider.releaseLock(<ulid>)` finalizes each FR's lifecycle (tracker mode transitions the ticket to `done`; tracker-less removes the lock file). For content the auto-path can't reach (reopens, cross-cutting FRs, aborted work), `/spec-archive <ULID | M<N> | tracker-ref>` is the manual escape hatch with a diff approval gate.
 
 **What moves:**
 - Every FR file whose frontmatter `milestone == <current>` — `git mv` to `specs/frs/archive/`, frontmatter flip.
@@ -397,13 +397,13 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 
 **Rules:**
 - The probe must be the first action any mode-aware skill takes after reading its arguments — before branch inspection, before MCP calls, before file writes.
-- Skills that are not applicable in the current mode exit cleanly with a one-line message (AC-STE-12.2).
-- In `mode: none`, no skill makes MCP calls or reads tracker state (AC-STE-12.4). The tracker-mode branches are literally unreachable.
+- Skills that are not applicable in the current mode exit cleanly with a one-line message.
+- In `mode: none`, no skill makes MCP calls or reads tracker state. The tracker-mode branches are literally unreachable.
 - Duplicate keys in the section fail with NFR-10 canonical shape (Schema L).
 
-**Branch automation (STE-64).** `branch_template:` is an additive Schema L key consumed **only** by `/implement` Phase 1 (via `buildBranchProposal` in `adapters/_shared/src/branch_proposal.ts`). Default values seeded by `/setup` step 7c: `{type}/m{N}-{slug}` in `mode: none`, `{type}/{ticket-id}-{slug}` in tracker mode. Absent key ⇒ branch automation disabled (AC-STE-64.1) — legacy projects continue to run on whatever branch they're invoked from. Placeholders: `{type}` (LLM-inferred `feat`/`fix`/`chore`), `{N}` (milestone digits), `{ticket-id}` (tracker ID or lowercased short-ULID tail per AC-STE-64.7), `{slug}` (LLM-inferred 2–4 word kebab). Sanitization clamps LLM output to `[a-z0-9-]` before `git checkout -b` (defense in depth — AC-STE-64.13). No other mode-aware skill reads `branch_template:` (AC-STE-64.9).
+**Branch automation.** `branch_template:` is an additive Schema L key consumed **only** by `/implement` Phase 1 (via `buildBranchProposal` in `adapters/_shared/src/branch_proposal.ts`). Default values seeded by `/setup` step 7c: `{type}/m{N}-{slug}` in `mode: none`, `{type}/{ticket-id}-{slug}` in tracker mode. Absent key ⇒ branch automation disabled — legacy projects continue to run on whatever branch they're invoked from. Placeholders: `{type}` (LLM-inferred `feat`/`fix`/`chore`), `{N}` (milestone digits), `{ticket-id}` (tracker ID or lowercased short-ULID tail per AC-STE-64.7), `{slug}` (LLM-inferred 2–4 word kebab). Sanitization clamps LLM output to `[a-z0-9-]` before `git checkout -b` (defense in depth — AC-STE-64.13). No other mode-aware skill reads `branch_template:`.
 
-**Canonical keys (STE-114 AC-STE-114.1).** The closed set of top-level keys under `## Task Tracking` is exactly:
+**Canonical keys.** The closed set of top-level keys under `## Task Tracking` is exactly:
 
 | Key | Value | Read by |
 |-----|-------|---------|
@@ -416,7 +416,7 @@ These four keys are the closed set; emitting **additional top-level keys** under
 
 A one-time migration helper for projects that picked up the drift before the constraint landed lives at `scripts/migrate-task-tracking-canonical.ts` (dry-run only; outputs a unified diff to stdout — operator pipes to `patch -p1` if they want to apply). Greenfield projects don't need it.
 
-**Workspace binding sub-sections (STE-117 AC-STE-117.1).** Tracker-specific workspace metadata lives in mode-aware sub-sections under `## Task Tracking`. The shape is closed and parser-validated:
+**Workspace binding sub-sections.** Tracker-specific workspace metadata lives in mode-aware sub-sections under `## Task Tracking`. The shape is closed and parser-validated:
 
 | Sub-section | Required keys | Optional keys |
 |-------------|---------------|---------------|
@@ -435,9 +435,9 @@ The shared parser is `readWorkspaceBinding(claudeMdPath, "linear" | "jira")` fro
 
 A one-time migration helper for projects that ran `/setup` before STE-117 lives at `plugins/dev-process-toolkit/scripts/migrate-task-tracking-add-workspace.ts` (dry-run only; prompts for team + project on stdin; emits a unified diff to stdout). Same shape as `migrate-task-tracking-canonical.ts`.
 
-**Tracker ID assignment order — ticket first, FR second (STE-66).** When `/spec-write` or `/brainstorm` drafts a tracker-bound FR, use the `<tracker-id>` placeholder throughout the draft (AC prefixes, filename, plan-file row, prose). **Never guess** the next sequential tracker number — the allocator decides, not the implementer, and trackers routinely skip cancelled numbers. Create the tracker ticket first, read the returned ID, substitute globally, then write the FR file. See `/spec-write` § 0b and `docs/spec-write-tracker-mode.md` § Tracker ID Assignment Order. Mode: none is exempt (short-ULID tail is local-mint, collision-proof).
+**Tracker ID assignment order — ticket first, FR second.** When `/spec-write` or `/brainstorm` drafts a tracker-bound FR, use the `<tracker-id>` placeholder throughout the draft (AC prefixes, filename, plan-file row, prose). **Never guess** the next sequential tracker number — the allocator decides, not the implementer, and trackers routinely skip cancelled numbers. Create the tracker ticket first, read the returned ID, substitute globally, then write the FR file. See `/spec-write` § 0b and `docs/spec-write-tracker-mode.md` § Tracker ID Assignment Order. Mode: none is exempt (short-ULID tail is local-mint, collision-proof).
 
-**Full ULIDs are internal-only (STE-67, M21-updated).** In tracker mode there are no ULIDs at all — FRs have no `id:` line (STE-76 AC-STE-76.5); the tracker ID is the canonical identity in frontmatter, filename, AC prefix, and user-facing prose. In `mode: none`, the short-ULID tail (6 chars, lowercased for branches) is the human-facing form; the full 26-char ULID lives only in frontmatter `id:` and in code-internal references (`Provider.getMetadata`, `findFRByTrackerRef`, `getFrPath`, resolver) — never in user-facing prose. **STE-135:** `findFRByTrackerRef` is mode-none-only (it returns the `id:` ULID and structurally cannot match in tracker mode); tracker-mode call sites use `findFRPathByTrackerRef`, which returns the file path and works against the post-STE-76 shape. Archived content keeps whatever form it had at archival time — the `/gate-check` probes scope to active content only. Rationale: M18 moved the ULID out of filenames; STE-67 pushed the user-facing prose off full ULIDs; STE-76 removed the `id:` ceremony entirely from tracker mode.
+**Full ULIDs are internal-only (STE-67, M21-updated).** In tracker mode there are no ULIDs at all — FRs have no `id:` line; the tracker ID is the canonical identity in frontmatter, filename, AC prefix, and user-facing prose. In `mode: none`, the short-ULID tail (6 chars, lowercased for branches) is the human-facing form; the full 26-char ULID lives only in frontmatter `id:` and in code-internal references (`Provider.getMetadata`, `findFRByTrackerRef`, `getFrPath`, resolver) — never in user-facing prose. **STE-135:** `findFRByTrackerRef` is mode-none-only (it returns the `id:` ULID and structurally cannot match in tracker mode); tracker-mode call sites use `findFRPathByTrackerRef`, which returns the file path and works against the post-STE-76 shape. Archived content keeps whatever form it had at archival time — the `/gate-check` probes scope to active content only. Rationale: M18 moved the ULID out of filenames; STE-67 pushed the user-facing prose off full ULIDs; STE-76 removed the `id:` ceremony entirely from tracker mode.
 
 ### Pattern: `/implement` Runs In-Process
 
@@ -458,10 +458,10 @@ A one-time migration helper for projects that ran `/setup` before STE-117 lives 
 
 **The pattern**:
 
-- **One FR, one file, one repo-stable identity**. Each functional requirement lives at `specs/frs/<Provider.filenameFor(spec)>`. In `mode: none`, a Crockford base32 ULID (26 chars) minted locally at creation time lives in frontmatter `id:` and the filename uses its 6-char short-ULID tail. In tracker mode, the tracker ID is the canonical identity — frontmatter carries `tracker.<key>: <tracker-id>` with no `id:` line (STE-76), and the filename is `<tracker-id>.md`.
-- **Stems preserved across archival**. `/implement` Phase 4 and `/spec-archive` run `git mv specs/frs/<name> specs/frs/archive/<name>` — the same base name. `/setup --migrate` mode transitions are the only rename path (AC-STE-60.6), since the target mode may use a different filename shape.
+- **One FR, one file, one repo-stable identity**. Each functional requirement lives at `specs/frs/<Provider.filenameFor(spec)>`. In `mode: none`, a Crockford base32 ULID (26 chars) minted locally at creation time lives in frontmatter `id:` and the filename uses its 6-char short-ULID tail. In tracker mode, the tracker ID is the canonical identity — frontmatter carries `tracker.<key>: <tracker-id>` with no `id:` line, and the filename is `<tracker-id>.md`.
+- **Stems preserved across archival**. `/implement` Phase 4 and `/spec-archive` run `git mv specs/frs/<name> specs/frs/archive/<name>` — the same base name. `/setup --migrate` mode transitions are the only rename path, since the target mode may use a different filename shape.
 - **Tracker IDs as attributes AND as filename stems (tracker mode)**. `tracker.linear`, `tracker.jira`, `tracker.github` are frontmatter fields — zero-to-many. In tracker mode, the active adapter's ticket ID doubles as the filename stem via `Provider.filenameFor(spec)`. Multi-tracker FRs: the driver's primary tracker wins the filename; other tracker refs are frontmatter-only. Cross-tracker reconciliation is out of scope (the frontmatter is a fact store, not a reconciler).
-- **Provider interface**. `LocalProvider` + `TrackerProvider` implement the base `Provider` contract (`getMetadata`, `sync`, `getUrl`, `claimLock`, `releaseLock`, `getTicketStatus`, `filenameFor`); `mintId` is on a separate `IdentityMinter` sub-interface that only `LocalProvider` implements (STE-85). Skills inject the Provider — they never branch on "tracker configured vs. not," and accidental `mintId()` calls on tracker-mode code paths become TypeScript errors.
+- **Provider interface**. `LocalProvider` + `TrackerProvider` implement the base `Provider` contract (`getMetadata`, `sync`, `getUrl`, `claimLock`, `releaseLock`, `getTicketStatus`, `filenameFor`); `mintId` is on a separate `IdentityMinter` sub-interface that only `LocalProvider` implements. Skills inject the Provider — they never branch on "tracker configured vs. not," and accidental `mintId()` calls on tracker-mode code paths become TypeScript errors.
 - **Per-milestone plan files**. `specs/plan/<M#>.md` replaces the monolithic `plan.md`. Once `status: active`, the plan file is frozen — edits require a `plan/<M#>-replan-<N>` branch.
 - **Move-based archival**. `git mv` for the path change + frontmatter `status` flip in a single atomic commit. Disjoint paths per ULID ⇒ no merge conflicts.
 
@@ -560,7 +560,7 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 
 **Where**: CLAUDE.md `## Task Tracking` (Schema L) and all tracker-write code paths (`/setup --migrate`, `/spec-write` tracker push, `/implement` claimLock/releaseLock, STE-17 AC resolution).
 
-**ADR (STE-58)**: the authoritative audit trail for sync, migration, and resolution events is `git log` on the repo and `git blame` on the specific FR file. An earlier append-only bulleted subsection under `## Task Tracking` recorded each event; that subsection is retired.
+**ADR**: the authoritative audit trail for sync, migration, and resolution events is `git log` on the repo and `git blame` on the specific FR file. An earlier append-only bulleted subsection under `## Task Tracking` recorded each event; that subsection is retired.
 
 **What is lost**: the legacy subsection offered per-AC conflict-resolution granularity (`- <ISO> — 2 AC conflicts resolved on LIN-123`). `git log` captures the commit but not the per-AC resolution count; `git blame` on the FR file recovers per-AC detail (which commit introduced which AC) at the cost of one extra lookup.
 
@@ -574,12 +574,12 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 
 **Where**: `templates/CLAUDE.md.template` § Testing Conventions, `templates/spec-templates/testing-spec.md.template` § 2, `skills/setup/SKILL.md` step 2c, and `/gate-check` probe #20 (`bun-zero-match-placeholder`).
 
-**Decision (STE-128 AC-STE-128.1)**: the toolkit defaults to **`src/`-co-located** test layout — every `src/foo.ts` has a sibling `src/foo.test.ts`. The chosen layout is recorded as a `Layout:` line under each downstream project's CLAUDE.md `## Testing Conventions` block (e.g., `- **Layout:** src/-co-located`). Projects may override to `tests/-mirror` by editing the line; probe #20 reads the declared layout and enforces it.
+**Decision**: the toolkit defaults to **`src/`-co-located** test layout — every `src/foo.ts` has a sibling `src/foo.test.ts`. The chosen layout is recorded as a `Layout:` line under each downstream project's CLAUDE.md `## Testing Conventions` block (e.g., `- **Layout:** src/-co-located`). Projects may override to `tests/-mirror` by editing the line; probe #20 reads the declared layout and enforces it.
 
 **Why co-location wins**:
 
 1. **Gate is already permissive there.** The pre-M33 probe accepted any `*.test.ts` outside `node_modules`. Co-location is the path of least resistance — adopting it doesn't break any existing scaffolds.
-2. **No placeholder workaround.** With co-located tests, the very first source file (`src/index.ts`) can carry a `src/index.test.ts` sibling immediately. The `tests/.placeholder.test.ts` zero-match shield (STE-113) is no longer needed for the canonical layout — the placeholder lives at `src/.placeholder.test.ts` instead, co-located with the source it shields.
+2. **No placeholder workaround.** With co-located tests, the very first source file (`src/index.ts`) can carry a `src/index.test.ts` sibling immediately. The `tests/.placeholder.test.ts` zero-match shield is no longer needed for the canonical layout — the placeholder lives at `src/.placeholder.test.ts` instead, co-located with the source it shields.
 3. **Mainstream Bun/TS convention.** Vitest, Jest, and Bun's own docs all default to co-located examples; users coming from those ecosystems hit zero surprise.
 
 **Why this isn't tracker-mode-style fragmentation**: the layout is local-file-system policy, not a workflow choice. Each project either co-locates or mirrors — there's no third option to debate. Recording the choice once in CLAUDE.md and enforcing it in the gate is enough.

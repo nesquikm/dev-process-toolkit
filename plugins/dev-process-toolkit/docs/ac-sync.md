@@ -1,7 +1,7 @@
 # Bidirectional AC Sync
 
 The diff/resolve loop that runs before `/implement` and after `/spec-write`
-save (STE-17). Pointed at from `docs/implement-tracker-mode.md` and
+save. Pointed at from `docs/implement-tracker-mode.md` and
 `docs/spec-write-tracker-mode.md`.
 
 In `mode: none`, this document is unused.
@@ -11,7 +11,7 @@ In `mode: none`, this document is unused.
 - `/implement` pre-flight (after ticket-binding + `pull_acs`, before Phase 1).
 - `/spec-write` post-save of any FR-level AC edit (before `upsert_ticket_metadata`).
 
-`/gate-check` detects `updatedAt` mismatch (AC-STE-11.3) but does **not** run
+`/gate-check` detects `updatedAt` mismatch but does **not** run
 STE-17 — it offers two options (retry-via-`/implement`, proceed-stale) per
 AC-STE-17.10. `/pr` does not run STE-17 at all.
 
@@ -50,7 +50,7 @@ For `local-only`, `tracker` is `"<absent>"`; for `tracker-only`, `local`
 is `"<absent>"`. Skills render this table before the per-AC prompt so
 users can see the full diff at once.
 
-## Per-AC prompt (AC-STE-17.3)
+## Per-AC prompt
 
 For each non-`identical` AC:
 
@@ -75,13 +75,13 @@ Responses:
    versions as commented context; user writes the merged text; apply to
    both sides.
 4. **Cancel** — abort the entire skill cleanly with zero state mutation
-   on either side (AC-STE-17.5). Cancel on any AC cancels the whole
+   on either side. Cancel on any AC cancels the whole
    resolution event, not just that AC.
 
-No bulk shortcuts like `accept all tracker` (AC-STE-17.7). Shortcuts hide the
+No bulk shortcuts like `accept all tracker`. Shortcuts hide the
 drift the sync is supposed to surface.
 
-## Two-side convergence (AC-STE-17.4)
+## Two-side convergence
 
 After the user answers all prompts:
 
@@ -112,7 +112,7 @@ prompts** (all `identical`) and **zero side effects** (no pushes, no
 commits). This is the round-trip invariant that AC-STE-17.6 guarantees
 via adapter normalization.
 
-## Cancel semantics (AC-STE-17.5)
+## Cancel semantics
 
 Cancel on **any** prompt:
 

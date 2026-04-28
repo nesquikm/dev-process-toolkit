@@ -45,6 +45,14 @@ shell: bash                       # Shell for !`command` blocks: bash (default) 
 | `disable-model-invocation: true` | Yes            | No                | Description not in context, full skill loads when you invoke |
 | `user-invocable: false`          | No             | Yes               | Description always in context, full skill loads when invoked |
 
+### `allowed-tools` convention (read-only-by-design skills)
+
+Declare `allowed-tools:` in SKILL.md frontmatter when the skill is **read-only by design** — i.e., it audits, analyzes, or summarizes without ever editing files or running shell commands. The field is a comma-separated allowlist of Claude Code tools (e.g., `Read, Glob, Grep` for an audit-only skill).
+
+If the skill needs write or shell access (most skills do — `setup`, `implement`, `gate-check`, etc.), **omit the field** and inherit the session's full allowlist. Adding `allowed-tools:` to a write-capable skill silently strips its capabilities at runtime.
+
+The toolkit's canonical read-only example is `skills/spec-review/SKILL.md`, which carries `allowed-tools: Read, Glob, Grep` because it audits specs against the codebase without ever editing. The other 13 skills omit the field by design.
+
 ## Skill Types in the SDD Toolkit
 
 ### 0. Setup (project onboarding)
@@ -88,7 +96,7 @@ shell: bash                       # Shell for !`command` blocks: bash (default) 
 - **Key pattern**: Read-only analysis with traceability matrix
 
 ### 5b. Spec Archive (manual archival escape hatch)
-- **Purpose**: Archive user-selected FRs (by ULID or tracker ref) or a milestone group (`M<N>`) by `git mv`-ing FR files into `specs/frs/archive/` and plan files into `specs/plan/archive/`, with a diff approval gate (STE-22)
+- **Purpose**: Archive user-selected FRs (by ULID or tracker ref) or a milestone group (`M<N>`) by `git mv`-ing FR files into `specs/frs/archive/` and plan files into `specs/plan/archive/`, with a diff approval gate
 - **Invocation**: User-invoked for reopens, cross-cutting FRs, aborted work, or explicit compaction; never auto-scans
 - **Key pattern**: Resolve arg → present diff (git mv + frontmatter flip + releaseLock) → wait for approval → atomic commit → post-archive drift check. Reopens are a plain reverse move + status flip; no revision-suffix mechanism is needed because ULIDs are stable.
 

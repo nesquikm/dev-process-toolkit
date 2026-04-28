@@ -7,12 +7,12 @@ In `mode: none`, this document is unused — the `mode: none` branch runs unchan
 
 ## Pre-flight sequence (mode-gated, in order)
 
-### 1. Ticket-binding pre-flight (STE-27)
+### 1. Ticket-binding pre-flight
 
 Run the 3-tier resolver and mandatory confirmation prompt per
 `docs/ticket-binding.md`. Decline exits cleanly with zero side effects.
 
-### 2. `updatedAt` re-check (AC-STE-11.3)
+### 2. `updatedAt` re-check
 
 Call the active adapter's `pull_acs(ticket_id)` exactly once at skill
 entry, and capture the returned ticket's `updatedAt`. Compare against the
@@ -50,7 +50,7 @@ state=true)` for each AC whose implementation newly satisfies its test.
 AC state transitions `false → true` fire the call; already-true ACs are
 skipped (idempotent).
 
-## Capability degradation (STE-16 AC-STE-16.6)
+## Capability degradation
 
 If the active adapter's `capabilities:` frontmatter list does **not**
 include `push_ac_toggle`, replace the step-5 push calls with this

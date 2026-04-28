@@ -1,9 +1,9 @@
 # mode-none-baseline fixture
 
-Minimal downstream-project fixture used to capture the pre-M12 `mode: none`
-baseline snapshot (`tests/fixtures/baselines/m1-m11-regression.snapshot`).
-Phase H Task 1 byte-diffs a fresh capture against the committed snapshot —
-any delta is stop-ship per Pattern 9.
+Minimal downstream-project fixture used by `tests/scripts/verify-regression.test.ts`
+to exercise the live Schema L probe against a known-good `mode: none` shape
+(no `## Task Tracking` section). The pre-M18 v2-minimal byte-diff snapshot
+loop was retired in M39 STE-141.
 
 ## What this fixture is
 
