@@ -8,7 +8,7 @@
 
 ## 2. Test Structure
 
-**Layout policy: `src/`-co-located** (toolkit default per `docs/patterns.md` § Test Layout Policy).
+**Layout policy: `src/`-co-located** — tests live next to the source they exercise (toolkit default).
 
 Each `src/<module>.ts` has a sibling `src/<module>.test.ts` next to it. No separate `tests/` mirror. This matches the gate's existing permissive behavior, removes the placeholder workaround needed for the mirror layout, and follows mainstream Bun/TS convention.
 

@@ -27,14 +27,15 @@ Users add the marketplace, install the plugin, then run `/dev-process-toolkit:se
 
 ## Release Checklist
 
-When bumping the version, these four files MUST all be updated together. Missing any of them is a release bug.
+When bumping the version, these five files MUST all be updated together. Missing any of them is a release bug.
 
 1. `plugins/dev-process-toolkit/.claude-plugin/plugin.json` — `"version"` field
 2. `.claude-plugin/marketplace.json` — `"version"` field in the plugin entry
 3. `CHANGELOG.md` — add a new `## [X.Y.Z] — YYYY-MM-DD — "Codename"` section at the top (below the intro), following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Use `### Added` / `### Changed` / `### Removed` / `### Fixed` subsections as needed. Cross-reference the FRs that landed in the release.
-4. `README.md` — update the "Latest: **vX.Y.Z — 'Codename'**" line in the `## Release Notes` section, and refresh any counts in the `## Structure` list that the release changed (e.g., skill count, pattern count). The README is the entry point for new users; a stale "Latest:" line advertises the wrong release.
+4. `README.md` — update the "Latest: **vX.Y.Z — 'Codename'**" line in the `## Release Notes` section, and refresh any counts in the `## What's Inside` list that the release changed (e.g., skill count, pattern count). The README is the entry point for new users; a stale "Latest:" line advertises the wrong release.
+5. `specs/requirements.md` — bump the `**Latest shipped release:** **vX.Y.Z ("Codename")**.` line near the top of the file. Spec hygiene: a stale "Latest shipped release" line lies to anyone reading the spec.
 
-All four must stay in sync. Bump on every feature-significant change. Never ship a version bump without a CHANGELOG entry — that's how release notes rot into the README.
+All five must stay in sync. Bump on every feature-significant change. Never ship a version bump without a CHANGELOG entry — that's how release notes rot into the README.
 
 ## Core Principles
 
@@ -98,3 +99,9 @@ jira_ac_field:
 
 team: STE
 project: DPT — Dev Process Toolkit
+
+## Docs
+
+user_facing_mode: false
+packages_mode: false
+changelog_ci_owned: false

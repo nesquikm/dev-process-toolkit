@@ -139,6 +139,16 @@ export interface FindOptions {
  *   `tracker[trackerKey] === trackerId`, and return the `id:` field. A
  *   filename / frontmatter mismatch returns null — the resolver refuses to
  *   paper over broken files.
+ *
+ * **Mode-none-only (STE-135).** STE-76 (M21) removed the `id:` line from
+ * tracker-mode FR frontmatter; probe #13 (`identity_mode_conditional`)
+ * actively forbids it. In tracker mode the function therefore always
+ * returns null — the function is structurally locked to the mode-none
+ * shape (where the ULID lives in `id:`). Tracker-mode call sites must
+ * use `findFRPathByTrackerRef` (path-returning, no `id:` requirement)
+ * instead. The skill prose at `skills/spec-write/SKILL.md` § 0a,
+ * `skills/spec-archive/SKILL.md` § 0a, and `skills/implement/SKILL.md`
+ * § 0.b′ branch on mode and pick the right helper accordingly.
  */
 export async function findFRByTrackerRef(
   specsDir: string,
@@ -169,6 +179,58 @@ export async function findFRByTrackerRef(
     if (typeof tracker === "object" && tracker !== null && !Array.isArray(tracker)) {
       const val = (tracker as Record<string, unknown>)[trackerKey];
       if (val === trackerId) return id;
+    }
+  }
+  return null;
+}
+
+/**
+ * Tracker-mode counterpart of `findFRByTrackerRef` (STE-135). Resolves a
+ * `(trackerKey, trackerId)` to the local FR's **file path** via the same
+ * single-pattern direct-filename lookup, but does not require an `id:`
+ * line in frontmatter — the tracker ID is the canonical identity in
+ * tracker mode (STE-76 / AC-STE-110.2).
+ *
+ * Read `<specsDir>/frs/<trackerId>.md` and, when `includeArchive`,
+ * `<specsDir>/frs/archive/<trackerId>.md`. Parse the frontmatter, verify
+ * `tracker[trackerKey] === trackerId`, and return the absolute file path.
+ * A filename ↔ frontmatter mismatch returns null — same fail-closed
+ * posture as `findFRByTrackerRef`.
+ *
+ * Callers in `mode: none` should keep using `findFRByTrackerRef`, which
+ * returns the ULID directly (the value `Provider.claimLock` consumes in
+ * `mode: none`). In tracker mode `Provider.claimLock` consumes the
+ * tracker ID, so `findFRPathByTrackerRef`'s caller already has it on hand
+ * — the function's job is to confirm a local FR exists for the given
+ * tracker reference, not to mint a new identity.
+ */
+export async function findFRPathByTrackerRef(
+  specsDir: string,
+  trackerKey: string,
+  trackerId: string,
+  options: FindOptions = {},
+): Promise<string | null> {
+  const searchDirs: string[] = [join(specsDir, "frs")];
+  if (options.includeArchive) searchDirs.push(join(specsDir, "frs", "archive"));
+
+  for (const dir of searchDirs) {
+    const directPath = join(dir, `${trackerId}.md`);
+    try {
+      await stat(directPath);
+    } catch {
+      continue;
+    }
+    let text: string;
+    try {
+      text = await readFile(directPath, "utf-8");
+    } catch {
+      continue;
+    }
+    const fm = parseFrontmatter(text, { lenient: true });
+    const tracker = fm["tracker"];
+    if (typeof tracker === "object" && tracker !== null && !Array.isArray(tracker)) {
+      const val = (tracker as Record<string, unknown>)[trackerKey];
+      if (val === trackerId) return directPath;
     }
   }
   return null;

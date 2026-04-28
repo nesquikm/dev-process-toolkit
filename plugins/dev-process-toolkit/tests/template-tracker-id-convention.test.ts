@@ -28,18 +28,18 @@ function readTemplate(path: string): string {
   return readFileSync(path, "utf8");
 }
 
+// STE-137 narrowed AC-STE-80.1/.2: the templates still seed the
+// `<tracker-id>` placeholder convention in their top-of-file HTML
+// comment, but no longer cite STE-N IDs or link to plugin-internal
+// documentation paths (those would dangle in adopting projects).
+
 describe("STE-80 — requirements.md.template carries the <tracker-id> convention", () => {
-  test("AC-STE-80.1: top-of-file HTML comment references STE-66 / <tracker-id>", () => {
+  test("AC-STE-80.1: top-of-file HTML comment introduces the <tracker-id> placeholder", () => {
     const body = readTemplate(requirementsTemplate);
-    const firstBlock = body.split("\n").slice(0, 20).join("\n");
+    const firstBlock = body.split("\n").slice(0, 30).join("\n");
     expect(firstBlock).toMatch(/<!--/);
     expect(firstBlock).toContain("<tracker-id>");
-    expect(firstBlock).toMatch(/STE-66|STE-80/);
-  });
-
-  test("AC-STE-80.1: comment links to docs/spec-write-tracker-mode.md", () => {
-    const body = readTemplate(requirementsTemplate);
-    expect(body).toContain("spec-write-tracker-mode.md");
+    expect(firstBlock).toMatch(/placeholder|allocator|substitute/i);
   });
 
   test("AC-STE-80.3: guidance is in a proper HTML comment block (not rendered)", () => {
@@ -57,17 +57,12 @@ describe("STE-80 — requirements.md.template carries the <tracker-id> conventio
 });
 
 describe("STE-80 — plan.md.template carries the <tracker-id> convention", () => {
-  test("AC-STE-80.2: top-of-file HTML comment references STE-66 / <tracker-id>", () => {
+  test("AC-STE-80.2: top-of-file HTML comment introduces the <tracker-id> placeholder", () => {
     const body = readTemplate(planTemplate);
-    const firstBlock = body.split("\n").slice(0, 20).join("\n");
+    const firstBlock = body.split("\n").slice(0, 30).join("\n");
     expect(firstBlock).toMatch(/<!--/);
     expect(firstBlock).toContain("<tracker-id>");
-    expect(firstBlock).toMatch(/STE-66|STE-80/);
-  });
-
-  test("AC-STE-80.2: comment links to docs/spec-write-tracker-mode.md", () => {
-    const body = readTemplate(planTemplate);
-    expect(body).toContain("spec-write-tracker-mode.md");
+    expect(firstBlock).toMatch(/placeholder|allocator|substitute/i);
   });
 
   test("AC-STE-80.3: guidance is in a proper HTML comment block (not rendered)", () => {
