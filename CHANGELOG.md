@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [1.41.0] — 2026-04-29 — "Exempt"
+
+M41 lands one /smoke-test run #4 fix. STE-151 relaxes /gate-check probe #14 ("Ticket-state drift — active side") to exempt the single-FR-clean state — Done ticket + active FR + plan with unchecked tasks now passes, recognising the canonical mid-milestone shape that `/implement <FR-id>` Phase 4 Close produces. M23 drift cases (Backlog ticket, wrong assignee) and the "forgot bulk archive before /ship-milestone" regression (Done + all-checked + still-active plan) keep firing. Pure prose + predicate edit; no migration, no schema change, no tracker-side behaviour change. Minor bump — adds a new exemption surface visible to /gate-check operators. Test count: 1145 → 1187 (+42).
+
+### Fixed
+
+- **STE-151 — /gate-check probe #14 exempts single-FR-clean state.** Previously, `/gate-check` probe #14 fired a spurious **GATE FAILED** after `/implement <FR-id>` landed a single FR cleanly: Phase 4 Close transitioned the Linear ticket to **Done**, but `specs/frs/<FR-id>.md` intentionally stayed `status: active` per the milestone-bulk-archive design (`skills/implement/SKILL.md` § Milestone Archival). Probe #14's strict assertion (`status == in_progress AND assignee == currentUser`) then failed against the just-released ticket. The relaxation adds a single-FR-clean exemption: when the ticket is in `status_mapping.done` AND the FR's milestone plan is `status: active` AND has at least one unchecked task line, the probe skips the strict assertion. The exemption strictly weakens the predicate — every prior failing case still fails, and the failure-row shape (ULID + tracker ID + observed/expected status + observed/expected assignee) is unchanged for AC-STE-87.4(d) compatibility. Two new pure-function helpers: `readPlanTaskState(specsDir, milestone)` reads the plan task-list state; `activeTicketDriftPasses(summary, planTaskState, statusMapping, currentUser)` composes `inProgressMatches(...) || singleFrCleanExempt(...)`. Closes /smoke-test run #4 finding F-S4-1. (STE-151)
+
+Total test count at release: 1187 tests, 0 failures, 0 errors.
+
 ## [1.40.0] — 2026-04-28 — "Surface"
 
 M40 lands three /smoke-test 2026-04-28 fixes, all output-formatting / template edits — no schema changes, no migrations. STE-148 surfaces /implement Stage B Pass 2 advisory concerns into a structured `## Advisory notes` section in the end-of-run report and a `## Implementation notes` body section in the archived FR markdown, via a single shared formatter (byte-identical bullet bodies); zero-advisory case still emits the heading + literal `No advisory notes.` line so silence is never ambiguous between "no concerns" and "concerns hidden". STE-147 stops /spec-write Step 7 from leaking internal toolkit `AC-STE-<N>.<M>` identifiers into project owners' summary block; capability gaps render via a new static plain-language map keyed by capability name. STE-149 empties the `requirements.md` template's Traceability Matrix at /setup time and relocates the `AC-<tracker-id>.<N>` placeholder example into the top-of-file HTML comment. Minor bump — STE-148 adds new observable behavior surfaces. Test count: 1122 → 1145 (+23).
