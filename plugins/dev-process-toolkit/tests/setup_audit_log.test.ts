@@ -113,3 +113,50 @@ describe("appendAuditEntry — file-missing case fails loudly", () => {
     }
   });
 });
+
+describe("appendAuditEntry — STE-153 user-supplied provenance", () => {
+  // STE-153 AC-STE-153.1: every Schema L resolution at 7b/7c/7d records into
+  // the audit table — user-supplied resolutions render the same bullet shape
+  // as default-applied ones, only the `reason:` substring changes. Escape
+  // rules (JSON.stringify on value + reason) are unchanged.
+  test("renders the canonical bullet shape with reason: \"user-supplied\"", () => {
+    const ctx = tmpClaudeMd("# Project\n");
+    try {
+      const userSuppliedEntry: AuditEntry = {
+        date: "2026-04-29",
+        step: "7c",
+        field: "branch_template",
+        value: "feat/{ticket-id}-{slug}",
+        reason: "user-supplied",
+      };
+      appendAuditEntry(ctx.path, userSuppliedEntry);
+      const out = readFileSync(ctx.path, "utf-8");
+      expect(out).toMatch(/## \/setup audit\n/);
+      expect(out).toContain(
+        `- 2026-04-29 step:7c (branch_template) value:"feat/{ticket-id}-{slug}" reason:"user-supplied"`,
+      );
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("docs.user_facing_mode user-supplied true renders boolean unquoted, reason quoted", () => {
+    const ctx = tmpClaudeMd("# Project\n");
+    try {
+      const userSuppliedDocs: AuditEntry = {
+        date: "2026-04-29",
+        step: "7d",
+        field: "docs.user_facing_mode",
+        value: true,
+        reason: "user-supplied",
+      };
+      appendAuditEntry(ctx.path, userSuppliedDocs);
+      const out = readFileSync(ctx.path, "utf-8");
+      expect(out).toContain(
+        `- 2026-04-29 step:7d (docs.user_facing_mode) value:true reason:"user-supplied"`,
+      );
+    } finally {
+      ctx.cleanup();
+    }
+  });
+});

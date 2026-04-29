@@ -17,7 +17,7 @@ export interface AuditEntry {
   step: string; // e.g., "7c"
   field: string; // e.g., "branch_template"
   value: unknown; // serialized verbatim with JSON.stringify (quotes for strings)
-  reason: string; // free-form, typically "default applied" / "pre-baked answer"
+  reason: string; // free-form, canonical values "user-supplied" / "default applied" (STE-153)
 }
 
 function renderBullet(entry: AuditEntry): string {
