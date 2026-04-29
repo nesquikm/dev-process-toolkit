@@ -129,29 +129,29 @@ Re-run writes are atomic — read CLAUDE.md, splice the full `## Docs` block, wr
 
 Emit only the keys for stacks the project actually carries (`ts` only when `tsconfig.json` is present, `dart` only with `pubspec.yaml`, `python` only with `pyproject.toml`/`setup.py`/`setup.cfg`). The `signature-strategy-honors-setup` `/gate-check` probe (#24) reads this file later to detect "tool was here at setup, gone now" drift; absent file ⇒ probe skips silently. Skip the write when `packages_mode == false` — there's nothing to validate.
 
-## Step 8a — Audit-section post-condition (STE-123, full procedure)
+## Step 8a — Audit-section post-condition (STE-123 + STE-153, full procedure)
 
-`verification:` runs unconditionally before step 8b's bootstrap commit, regardless of prompt mode. Closes the M31-class discretionary-check gap where per-step `appendAuditEntry` calls in 7b/7c/7d could be skipped, leaving CLAUDE.md without the `## /setup audit` section even though default-applied outcomes are visible (probe-19 trigger condition met).
+`verification:` runs unconditionally before step 8b's bootstrap commit, regardless of prompt mode. Materialises the **unconditional-synthesis** model: every well-formed `/setup` run that produces a toolkit-managed CLAUDE.md with at least one populated Schema L surface (`branch_template:` populated **or** `## Docs` present) ships a `## /setup audit` section. Provenance is preserved per resolution via the entry's `reason:` field — `"user-supplied"` or `"default applied"` — so the section is a complete provenance log of every resolved value, not only of default-applied outcomes (STE-153 AC-STE-153.1).
 
 Procedure:
 
 1. Read CLAUDE.md once.
-2. Call `hasDefaultApplicableOutcomes(content)` from `adapters/_shared/src/setup_audit_section_presence.ts` (the same predicate probe-19 uses at gate time — single source of truth, AC-STE-123.1).
+2. Call `hasDefaultApplicableOutcomes(content)` from `adapters/_shared/src/setup_audit_section_presence.ts` (the same audit-required-surfaces predicate probe-19 uses at gate time — single source of truth, AC-STE-123.1). Despite the legacy name, the predicate semantics are "audit-required surfaces present" (`branch_template:` populated or `## Docs` present), regardless of whether the values were user-supplied or default-applied.
 3. Branch:
-   - **false** ⇒ no-op, continue to step 8b. Vacuous on fully-interactive runs where every prompt was answered explicitly.
+   - **false** ⇒ no-op, continue to step 8b. Vacuous when neither Schema L surface is populated (interactive run that wrote neither `branch_template:` nor `## Docs`).
    - **true AND** the literal string `"## /setup audit"` is present in the file ⇒ no-op, continue. Per-step appends already populated the section.
-   - **true AND** the audit heading is absent ⇒ call `synthesizeAuditSection(claudeMdPath, resolvedDefaults)` from `adapters/_shared/src/setup/synthesize_audit.ts`. Pass the **in-scope resolved-defaults table** populated during steps 7b/7c/7d — never re-derive from CLAUDE.md, since re-parsing reintroduces the brittleness this step closes. The helper is idempotent (`(step, field)` dedup; AC-STE-123.3); existing entries are preserved verbatim.
+   - **true AND** the audit heading is absent ⇒ call `synthesizeAuditSection(claudeMdPath, resolvedSchemaLValues)` from `adapters/_shared/src/setup/synthesize_audit.ts`. Pass the **in-scope resolved Schema L values table** populated during steps 7b/7c/7d — every resolution lands here regardless of provenance (`"user-supplied"` or `"default applied"`). Never re-derive from CLAUDE.md, since re-parsing reintroduces brittleness. The helper is idempotent (`(step, field)` dedup; AC-STE-123.3); existing entries are preserved verbatim, including their original `reason:` value (a re-run with a different reason for the same `(step, field)` is a skip, not an overwrite).
 
-On `AuditPostconditionUnsatisfiable` (the resolved-defaults table is empty but the file shows default-applied outcomes — invariant violation, AC-STE-123.4), refuse with NFR-10 canonical shape and abort /setup before step 8b can commit malformed output:
+On `AuditPostconditionUnsatisfiable` (the resolved Schema L values table is empty but the file shows audit-required surfaces — defensive invariant, AC-STE-123.4; unreachable on the canonical 7b/7c/7d → 8a path post-STE-153), refuse with NFR-10 canonical shape and abort /setup before step 8b can commit malformed output:
 
 ```
-setup: audit-section post-condition unsatisfiable — resolved-defaults table empty
-but CLAUDE.md shows default-applied outcomes; investigate.
+setup: audit-section post-condition unsatisfiable — resolved Schema L values table empty
+but CLAUDE.md shows audit-required surfaces; investigate.
 Remedy: re-run /setup interactively to populate per-step audit entries via 7b/7c/7d.
 Context: file=<path>, step=8a, post-condition=audit-section-presence
 ```
 
-This step is the deterministic byproduct of any autonomous /setup run; probe-19 satisfaction is guaranteed at the file-shape level when /setup returns clean. Probe-19 stays at gate time as the safety net for paths that bypass /setup (manual CLAUDE.md edits, downstream skills that mutate the file).
+This step is the deterministic byproduct of every well-formed /setup run; probe-19 satisfaction is guaranteed at the file-shape level when /setup returns clean. Probe-19 stays at gate time as the safety net for paths that bypass /setup (manual CLAUDE.md edits, downstream skills that mutate the file).
 
 ## Step 8b — Bootstrap commit (STE-109, full procedure)
 

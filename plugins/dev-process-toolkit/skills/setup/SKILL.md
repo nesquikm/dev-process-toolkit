@@ -14,7 +14,7 @@ Set up the Spec-Driven Development and TDD workflow for this project.
 Every step below is annotated as one of three kinds. The agent — including non-interactive runs — MUST honour the kind:
 
 - `verification:` — runs unconditionally regardless of prompt mode (e.g., `git status` baseline check, `linear list_teams` MCP test call, `bun --version`). Failure → loud abort with NFR-10 canonical shape per STE-106's "fail loud, don't silently skip" principle.
-- `default: <value>` — proceeds with the named value when no answer is supplied (autonomous mode or pre-baked answers). Each default-applied outcome appends a `## /setup audit` entry to CLAUDE.md via `appendAuditEntry` from `adapters/_shared/src/setup/audit_log.ts` (STE-108 AC-STE-108.3 / .7).
+- `default: <value>` — proceeds with the named value when no answer is supplied (autonomous mode or pre-baked answers). Every resolved outcome (user-supplied or default-applied) appends a `## /setup audit` entry to CLAUDE.md via `appendAuditEntry` from `adapters/_shared/src/setup/audit_log.ts` — provenance is recorded in the entry's `reason:` field (STE-108 AC-STE-108.3 / .7; STE-153 AC-STE-153.1).
 - `requires-input: <reason>` — refuses to proceed without an answer. Under non-interactive mode with no pre-baked answer, the skill aborts with an NFR-10 canonical refusal naming the step and the missing input. It MUST NOT guess.
 
 Verification ≠ Q&A. The "do not prompt" instruction common in autonomous runs governs Q&A only. Verification calls always fire.
@@ -173,7 +173,7 @@ If the user picks 2–4, run the full numbered flow in `docs/setup-reference.md`
 
 ### 7c. Branch-naming template
 
-`default: <default-for-mode>` — proceed with the mode-specific default if no answer is supplied. Autonomous runs append `## /setup audit` entry recording `step:7c value:"<resolved>" reason:"default applied"`.
+`default: <default-for-mode>` — proceed with the mode-specific default if no answer is supplied. Every resolved `branch_template` value appends `## /setup audit` entry recording `step:7c value:"<resolved>" reason:"<user-supplied|default applied>"` — provenance per resolution, not per run (STE-153 AC-STE-153.1 / AC-STE-153.3).
 
 Default-for-mode: `{type}/m{N}-{slug}` in `mode: none`; `{type}/{ticket-id}-{slug}` in any tracker mode.
 
@@ -186,7 +186,7 @@ See `docs/setup-tracker-mode.md` § Branch template for the long-form prompt and
 
 ### 7d. Docs modes (STE-68 + STE-107)
 
-`default: all-false` — when no answer is supplied (autonomous mode or skipped), the skill **always emits** the `## Docs` section with all three flags `false` (STE-107 AC-STE-107.1 / .2). Each default-applied flag appends `## /setup audit` entry: `step:7d (docs.<flag>) value:false reason:"default applied"`.
+`default: all-false` — when no answer is supplied (autonomous mode or skipped), the skill **always emits** the `## Docs` section with all three flags `false` (STE-107 AC-STE-107.1 / .2). Every resolved `## Docs` flag appends `## /setup audit` entry: `step:7d (docs.<flag>) value:<bool> reason:"<user-supplied|default applied>"` — provenance per resolution (STE-153 AC-STE-153.1 / AC-STE-153.3).
 
 Three yes/no prompts in this exact order, after 7c:
 
@@ -219,16 +219,16 @@ If the user didn't ask for specs, skip this step.
 
 ### 8a. Audit-section post-condition
 
-`verification:` runs unconditionally before step 8b's bootstrap commit. Closes the M31-class gap where per-step `appendAuditEntry` calls in 7b/7c/7d could be skipped.
+`verification:` runs unconditionally before step 8b's bootstrap commit. Materialises the deterministic post-condition that every well-formed `/setup` run with at least one populated Schema L surface (`branch_template:` populated **or** `## Docs` present) ships a `## /setup audit` section — provenance is preserved per resolution via the entry's `reason:` field, not gated on whether a default was applied (STE-153 AC-STE-153.1).
 
 1. Read CLAUDE.md once.
-2. Call `hasDefaultApplicableOutcomes(content)` from `adapters/_shared/src/setup_audit_section_presence.ts` (single source of truth, AC-STE-123.1).
+2. Call `hasDefaultApplicableOutcomes(content)` from `adapters/_shared/src/setup_audit_section_presence.ts` — single source of truth for the audit-required surfaces predicate (`branch_template:` populated **or** `## Docs` present). Reused by `/setup` step 8a and `/gate-check` probe #19 (STE-123 AC-STE-123.1).
 3. Branch:
-   - **false** ⇒ no-op, continue to 8b. Vacuous on fully-interactive runs.
+   - **false** ⇒ no-op, continue to 8b. Vacuous when no Schema L surface is populated (interactive run that wrote neither `branch_template:` nor `## Docs`).
    - **true AND** `## /setup audit` heading present ⇒ no-op. Per-step appends already populated it.
-   - **true AND** heading absent ⇒ call `synthesizeAuditSection(claudeMdPath, resolvedDefaults)` from `adapters/_shared/src/setup/synthesize_audit.ts`. Pass the **in-scope resolved-defaults table** populated during 7b/7c/7d — never re-derive from CLAUDE.md. The helper is idempotent (`(step, field)` dedup; AC-STE-123.3).
+   - **true AND** heading absent ⇒ call `synthesizeAuditSection(claudeMdPath, resolvedSchemaLValues)` from `adapters/_shared/src/setup/synthesize_audit.ts`. Pass the **in-scope resolved Schema L values table** populated during 7b/7c/7d — every resolution lands here, user-supplied or default-applied. Never re-derive from CLAUDE.md. The helper is idempotent (`(step, field)` dedup; AC-STE-123.3).
 
-On `AuditPostconditionUnsatisfiable` (resolved-defaults table empty but file shows default-applied outcomes — invariant violation, AC-STE-123.4), refuse with NFR-10 canonical shape and abort before 8b commits malformed output. Full refusal text + procedure: `docs/setup-reference.md` § Step 8a.
+On `AuditPostconditionUnsatisfiable` (the resolved Schema L values table is empty but the file shows audit-required surfaces — defensive invariant, AC-STE-123.4; unreachable on the canonical 7b/7c/7d → 8a path post-STE-153), refuse with NFR-10 canonical shape and abort before 8b commits malformed output. Full refusal text + procedure: `docs/setup-reference.md` § Step 8a.
 
 ### 8b. Bootstrap commit
 
