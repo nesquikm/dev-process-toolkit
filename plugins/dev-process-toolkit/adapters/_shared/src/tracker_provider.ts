@@ -56,6 +56,16 @@ export interface UpsertMetadataInput {
    */
   team?: string;
   project?: string;
+  /**
+   * STE-155 (M44 follow-up to AC-STE-155.5) — workspace-level default labels
+   * carry-through. Sourced from `### Linear`/`### Jira`.default_labels (parsed
+   * by `readWorkspaceBinding` into `defaultLabels: string[]`); /spec-write
+   * forwards this on create only. Empty array or missing key ⇒ adapter omits
+   * the labels parameter from the MCP call. On update (existing tracker ID),
+   * not forwarded — labels mutations require explicit operator intent (see
+   * adapters/<tracker>.md § upsert_ticket_metadata).
+   */
+  labels?: string[];
 }
 
 export interface AdapterDriver {

@@ -647,3 +647,48 @@ describe("UpsertMetadataInput widening (STE-117 AC-STE-117.2)", () => {
     expect(id).toBe("LIN-NEW");
   });
 });
+
+describe("UpsertMetadataInput labels widening (STE-155 AC-STE-155.5 dependency)", () => {
+  test("adapters can read labels off the input shape", async () => {
+    // STE-155 widens UpsertMetadataInput with an optional `labels: string[]`
+    // field. Callers (e.g., /spec-write) read `defaultLabels` from the
+    // workspace binding sub-section via `readWorkspaceBinding` and forward
+    // those values as `labels` on the create call. Without this widening
+    // the smoke-test Phase 5 teardown JQL `labels = "dpt-smoke"` finds
+    // nothing because no driver path forwards labels into the MCP create.
+    const seen: { labels?: string[] } = {};
+    const driver: AdapterDriver = {
+      trackerKey: "jira",
+      async pullAcs() {
+        return [];
+      },
+      async pushAcToggle() {},
+      async transitionStatus() {},
+      async upsertTicketMetadata(ticketId, meta) {
+        seen.labels = meta.labels;
+        return ticketId ?? "DST-1";
+      },
+      async getTicketStatus() {
+        return { status: "unstarted", assignee: null };
+      },
+      getUrl: (id) => `https://stellartechlab.atlassian.net/browse/${id}`,
+    };
+    await driver.upsertTicketMetadata(null, {
+      title: "T",
+      description: "D",
+      project: "DST",
+      labels: ["dpt-smoke", "feature"],
+    });
+    expect(seen.labels).toEqual(["dpt-smoke", "feature"]);
+  });
+
+  test("call sites that omit labels still type-check (back-compat)", async () => {
+    const { driver } = makeStub();
+    const id = await driver.upsertTicketMetadata(null, {
+      title: "T",
+      description: "D",
+      project: "DST",
+    });
+    expect(id).toBe("LIN-NEW");
+  });
+});
