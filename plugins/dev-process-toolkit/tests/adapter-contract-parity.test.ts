@@ -48,9 +48,12 @@ describe("STE-81 AC-STE-81.1/2 — Jira adapter declares both trap subsections",
     expect(body).toContain("updatedAt");
   });
 
-  test("jira.md flags the backported no-op section as provisional pending live-MCP introspection (H3)", () => {
+  test("jira.md carries live-MCP provenance, not the provisional warning (M43 STE-154)", () => {
     const body = read(jiraPath);
-    expect(body).toMatch(/provisional|tentative|pending live/i);
+    // STE-154 (M43) closed the H3 hole: every "Status: provisional"
+    // warning block is gone, replaced by the one-line provenance.
+    expect(body).not.toMatch(/provisional/i);
+    expect(body).toMatch(/Verified against live MCP 2026-04-29 \(smoke-test #5\)/);
   });
 });
 
