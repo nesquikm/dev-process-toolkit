@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  activeTicketDriftPasses,
+  inProgressMatches,
+} from "../adapters/_shared/src/active_ticket_drift_predicate";
 import { LocalProvider } from "../adapters/_shared/src/local_provider";
 import { TrackerProvider } from "../adapters/_shared/src/tracker_provider";
 import type { AdapterDriver, TicketStatusSummary } from "../adapters/_shared/src/tracker_provider";
@@ -53,16 +57,10 @@ function makeStub(summary: TicketStatusSummary): {
   return { driver, calls };
 }
 
-// The probe's pass/fail condition, lifted out of SKILL.md prose into a
-// testable predicate so the behavior assertions below can exercise the
-// exact shape the LLM-run probe is meant to enforce. Accepts the widened
-// Provider.getTicketStatus return shape (status + optional assignee).
-function probePasses(
-  summary: { status: string; assignee?: string | null },
-  currentUser: string,
-): boolean {
-  return summary.status === "in_progress" && summary.assignee === currentUser;
-}
+// AC-STE-87.x cases dogfood the production strict-shape predicate
+// (`inProgressMatches`); STE-151 extended the probe with a composed
+// predicate but the strict path stays load-bearing for the M23 drift cases
+// these tests cover.
 
 describe("AC-STE-87.1 — probe #14 prose shape in gate-check SKILL.md", () => {
   test("SKILL.md contains a probe #14 heading substring", () => {
@@ -125,7 +123,7 @@ describe("AC-STE-87.4(a) — positive: in_progress + matching assignee passes", 
     expect(result.status).toBe("in_progress");
     expect(result.assignee).toBe("u@e");
     expect(calls).toEqual(["getTicketStatus(STE-87)"]);
-    expect(probePasses(result, "u@e")).toBe(true);
+    expect(inProgressMatches(result, "u@e")).toBe(true);
   });
 });
 
@@ -135,7 +133,7 @@ describe("AC-STE-87.4(b) — negative: Backlog fails", () => {
     const p = new TrackerProvider({ driver, currentUser: "u@e" });
     const result = await p.getTicketStatus("STE-87");
     expect(result.status).toBe("backlog");
-    expect(probePasses(result, "u@e")).toBe(false);
+    expect(inProgressMatches(result, "u@e")).toBe(false);
   });
 });
 
@@ -145,7 +143,7 @@ describe("AC-STE-87.4(c) — negative: Done fails", () => {
     const p = new TrackerProvider({ driver, currentUser: "u@e" });
     const result = await p.getTicketStatus("STE-87");
     expect(result.status).toBe("done");
-    expect(probePasses(result, "u@e")).toBe(false);
+    expect(inProgressMatches(result, "u@e")).toBe(false);
   });
 });
 
@@ -156,7 +154,7 @@ describe("AC-STE-87.4(d) — negative: wrong assignee fails", () => {
     const result = await p.getTicketStatus("STE-87");
     expect(result.status).toBe("in_progress");
     expect(result.assignee).toBe("other@e");
-    expect(probePasses(result, "u@e")).toBe(false);
+    expect(inProgressMatches(result, "u@e")).toBe(false);
   });
 });
 
@@ -167,7 +165,7 @@ describe("AC-STE-87.2 — STE-28 already-ours shape tolerated", () => {
     const { driver } = makeStub({ status: "in_progress", assignee: "u@e" });
     const p = new TrackerProvider({ driver, currentUser: "u@e" });
     const result = await p.getTicketStatus("STE-87");
-    expect(probePasses(result, "u@e")).toBe(true);
+    expect(inProgressMatches(result, "u@e")).toBe(true);
   });
 });
 
@@ -200,5 +198,123 @@ describe("AC-STE-139.5 — active-ticket-drift runs clean on this repo's baselin
     const lp = new LocalProvider({ repoRoot: pluginRoot, gitUserEmail: "test@example.com" });
     const result = await lp.getTicketStatus("STE-139");
     expect(result.status).toBe("local-no-tracker");
+  });
+});
+
+// AC-STE-151 — relaxed predicate prose-shape assertions
+
+describe("AC-STE-151.1/.2/.5 — probe #14 relaxed-predicate prose shape", () => {
+  test("probe #14 references the single-FR-clean exemption", () => {
+    const body = readGateCheck();
+    const idx = body.search(/14\.\s+\*\*Ticket-state drift.*active/i);
+    const next = body.indexOf("\n15.", idx);
+    const block = body.slice(idx, next > 0 ? next : undefined);
+    expect(block).toMatch(/single-FR[ -]clean/i);
+  });
+
+  test("probe #14 names the readPlanTaskState helper", () => {
+    const body = readGateCheck();
+    const idx = body.search(/14\.\s+\*\*Ticket-state drift.*active/i);
+    const next = body.indexOf("\n15.", idx);
+    const block = body.slice(idx, next > 0 ? next : undefined);
+    expect(block).toContain("readPlanTaskState");
+  });
+
+  test("probe #14 names the activeTicketDriftPasses composed predicate", () => {
+    const body = readGateCheck();
+    const idx = body.search(/14\.\s+\*\*Ticket-state drift.*active/i);
+    const next = body.indexOf("\n15.", idx);
+    const block = body.slice(idx, next > 0 ? next : undefined);
+    expect(block).toContain("activeTicketDriftPasses");
+  });
+
+  test("probe #14 renders the predicate truth table", () => {
+    const body = readGateCheck();
+    const idx = body.search(/14\.\s+\*\*Ticket-state drift.*active/i);
+    const next = body.indexOf("\n15.", idx);
+    const block = body.slice(idx, next > 0 ? next : undefined);
+    // Header row + at least the single-FR-clean row + the strict-fallback row
+    // must appear so the operator can read the rule without leaving SKILL.md.
+    expect(block).toMatch(/\|\s*FR status\s*\|/);
+    expect(block).toMatch(/single-FR clean|unchecked\s*>\s*0/i);
+    expect(block).toMatch(/forgot bulk archive|all checked/i);
+    expect(block).toMatch(/strict fallback|missing/i);
+  });
+
+  test("probe #14 mentions STE-151 origin so future readers can trace the relaxation", () => {
+    const body = readGateCheck();
+    const idx = body.search(/14\.\s+\*\*Ticket-state drift.*active/i);
+    const next = body.indexOf("\n15.", idx);
+    const block = body.slice(idx, next > 0 ? next : undefined);
+    expect(block).toContain("STE-151");
+  });
+
+  test("failure-row shape preserved (AC-STE-87.4(d) compatibility)", () => {
+    const body = readGateCheck();
+    const idx = body.search(/14\.\s+\*\*Ticket-state drift.*active/i);
+    const next = body.indexOf("\n15.", idx);
+    const block = body.slice(idx, next > 0 ? next : undefined);
+    // The relaxation strictly weakens the predicate — when it does fire, the
+    // row must still carry observed-vs-expected status + assignee.
+    expect(block).toMatch(/observed.*expected|expected.*observed/i);
+    expect(block).toMatch(/assignee/i);
+  });
+});
+
+const STATUS_MAP = { in_progress: "in_progress", done: "done" } as const;
+
+describe("AC-STE-151.6(a) — active FR + Done ticket + plan with unchecked tasks ⇒ no fire", () => {
+  test("TrackerProvider returns done; composed predicate exempts the FR via single-FR-clean rule", async () => {
+    // Mid-milestone /implement <FR-id> shape: ticket transitioned to Done at
+    // Phase 4 Close, FR file stays `status: active` per the milestone-bulk-
+    // archive design, and the plan still has at least one unchecked task.
+    const { driver } = makeStub({ status: "done", assignee: "u@e" });
+    const p = new TrackerProvider({ driver, currentUser: "u@e" });
+    const summary = await p.getTicketStatus("STE-151");
+    expect(summary.status).toBe("done");
+    expect(
+      activeTicketDriftPasses(
+        summary,
+        { uncheckedTasks: 2, totalTasks: 2, planStatus: "active" },
+        STATUS_MAP,
+        "u@e",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("AC-STE-151.6(b) — Done ticket + plan all-checked + plan active ⇒ fires", () => {
+  test('"forgot bulk archive before /ship-milestone" shape — predicate fails, canonical row shape preserved', async () => {
+    const { driver } = makeStub({ status: "done", assignee: "u@e" });
+    const p = new TrackerProvider({ driver, currentUser: "u@e" });
+    const summary = await p.getTicketStatus("STE-151");
+    expect(
+      activeTicketDriftPasses(
+        summary,
+        { uncheckedTasks: 0, totalTasks: 3, planStatus: "active" },
+        STATUS_MAP,
+        "u@e",
+      ),
+    ).toBe(false);
+    // Canonical observed-vs-expected fields stay populated for the row
+    // renderer; AC-STE-87.4(d) consumers see no shape change.
+    expect(summary.status).toBe("done");
+    expect(summary.assignee).toBe("u@e");
+  });
+});
+
+describe("AC-STE-151.6(c) — Done ticket + plan missing ⇒ falls back to strict (fires)", () => {
+  test("orphan plan: predicate denies the exemption, strict assertion runs and fails", async () => {
+    const { driver } = makeStub({ status: "done", assignee: "u@e" });
+    const p = new TrackerProvider({ driver, currentUser: "u@e" });
+    const summary = await p.getTicketStatus("STE-151");
+    expect(
+      activeTicketDriftPasses(
+        summary,
+        { uncheckedTasks: 0, totalTasks: 0, planStatus: "missing" },
+        STATUS_MAP,
+        "u@e",
+      ),
+    ).toBe(false);
   });
 });
