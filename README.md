@@ -2,6 +2,20 @@
 
 A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 14 commands, 1 agent, spec templates, and documentation.
 
+## Features
+
+- **Spec-Driven Development (SDD)** — requirements, technical, testing, and plan files as the source of truth
+- **Test-Driven Development (TDD)** — RED → GREEN → VERIFY cycle, performed inline by `/implement`
+- **Bounded self-review** — three-stage loop with a delegated `code-reviewer` agent, capped before human escalation
+- **Deterministic quality gates** — typecheck + lint + test override LLM judgment
+- **Diátaxis docs generation** — staged fragments per FR, human-approved merge, full canonical regen
+- **Task tracker sync** — Linear, Jira, or `none`; auto-claim on FR start, auto-release on archive
+- **Conventional Commits v1.0.0** — local `commit-msg` hook (POSIX shell or opt-in `commitlint`)
+- **Atomic release commits** — `/ship-milestone` enforces the five-file release checklist
+- **Spec lifecycle management** — ULID-keyed FRs, manual archival, post-archive drift checks
+- **Browser-based UI verification** — `/visual-check` via Chrome DevTools MCP
+- **Stack-adaptive setup** — auto-detects TypeScript, Flutter, Python; generates `CLAUDE.md` and settings
+
 ## Install as Plugin
 
 ```
@@ -22,20 +36,24 @@ This detects your stack, generates a CLAUDE.md, configures settings, and optiona
 
 ## Workflow
 
-The toolkit groups its 14 user-invoked skills into a four-phase lifecycle. Read top-down for the full path, or jump to whichever phase matches what you're doing now.
+The toolkit groups its 14 user-invoked skills into a four-phase lifecycle. Read left-to-right for the full path, or jump to whichever phase matches what you're doing now.
 
 ```mermaid
-flowchart TD
+flowchart LR
     classDef spine fill:#e1f5e1,stroke:#2e7d32,stroke-width:3px,color:#000
     classDef secondary fill:#f5f5f5,stroke:#999,stroke-width:1px,color:#555
     subgraph Setup
+        direction TB
         setup(["/setup"]):::spine
     end
     subgraph Plan
+        direction TB
         brainstorm(["/brainstorm"]):::spine
         spec_write(["/spec-write"]):::spine
+        brainstorm ~~~ spec_write
     end
     subgraph Build
+        direction TB
         implement(["/implement"]):::spine
         tdd["/tdd"]:::secondary
         gate_check["/gate-check"]:::secondary
@@ -43,12 +61,22 @@ flowchart TD
         visual_check["/visual-check"]:::secondary
         simplify["/simplify"]:::secondary
         spec_review["/spec-review"]:::secondary
+        implement ~~~ tdd
+        tdd ~~~ gate_check
+        gate_check ~~~ debug
+        debug ~~~ visual_check
+        visual_check ~~~ simplify
+        simplify ~~~ spec_review
     end
     subgraph Ship
+        direction TB
         spec_archive["/spec-archive"]:::secondary
         docs["/docs"]:::secondary
         pr["/pr"]:::secondary
         ship_milestone(["/ship-milestone"]):::spine
+        spec_archive ~~~ docs
+        docs ~~~ pr
+        pr ~~~ ship_milestone
     end
     Setup --> Plan
     Plan --> Build
