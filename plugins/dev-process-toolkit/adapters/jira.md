@@ -3,7 +3,7 @@ name: jira
 mcp_server: atlassian
 ticket_id_regex: '^([A-Z][A-Z0-9]{1,9}-[0-9]+)$'
 ticket_id_source: branch-name
-ac_storage_convention: custom-field
+ac_storage_convention: jira-ac-field-dispatched
 status_mapping:
   in_progress: In Progress
   in_review: In Review
@@ -29,36 +29,47 @@ resolver:
 
 # Jira Adapter
 
-ACs live in a **per-tenant custom field**. The GID (e.g., `customfield_10047`)
-varies per Jira project, so `/setup` runs one-time discovery via
-`/rest/api/3/field` introspection and records it as `jira_ac_field:
-customfield_XXXXX` in `## Task Tracking` (AC-30.6). All subsequent reads and
-writes of AC content pass through that recorded GID — never hard-coded.
+> Verified against live MCP 2026-04-29 (smoke-test #5).
+
+ACs live in one of two places, dispatched by the value of the existing
+top-level Schema L key `jira_ac_field:` under `## Task Tracking`:
+
+- `jira_ac_field: customfield_XXXXX` — per-tenant **custom field** path. The
+  GID varies per Jira project; `/setup` runs `/rest/api/3/field`
+  introspection (via `discover_field.ts`) and records the GID. AC reads /
+  writes go through that field.
+- `jira_ac_field: description` — **description-body** path (sentinel value).
+  No custom field exists in this project (or the operator opted out of
+  creating one — common for team-managed Kanban templates that ship without
+  one). AC reads / writes parse and rewrite the bullet list under the
+  `## Acceptance Criteria` heading inside the issue's description body. The
+  heading is the parse anchor; bullets outside that section are ignored on
+  read; `push_ac_toggle` rewrites the entire `## Acceptance Criteria` section
+  atomically.
+
+`jira_ac_field:` is the same canonical Schema L key in both cases — no new
+key was added. The discriminator is the value: any string matching
+`customfield_\d+` is a custom-field GID; the literal string `description`
+is the description-body sentinel; any other value is rejected with
+NFR-10 canonical shape during `/setup`.
 
 ## MCP tool names
 
-> **Status: provisional (Phase H conformance).** This env has no Atlassian
-> MCP configured, so `tools/list` introspection couldn't be performed at
-> implementation time. Names below follow the Atlassian Rovo MCP public
-> documentation and the `mcp__<server>__<tool>` convention. Phase H Task 2
-> (Tier 5 manual conformance) re-verifies against a live authenticated
-> Atlassian MCP.
-
 | Operation | MCP tool | Notes |
 |-----------|----------|-------|
-| `pull_acs` | `mcp__atlassian__get_issue` | Extract the `fields[<jira_ac_field>]` value; parse per the AC convention documented in the field's description template. |
-| `push_ac_toggle` | `mcp__atlassian__update_issue` | Set the single field identified by `jira_ac_field` to the updated AC block. |
-| `transition_status` | `mcp__atlassian__transition_issue` | Resolve transition id via `get_transitions` + `status_mapping`. |
-| `upsert_ticket_metadata` | `mcp__atlassian__create_issue` (new) / `mcp__atlassian__update_issue` (existing) | Body MUST include the back-link to `specs/frs/<TICKET-ID>.md`. On create, `project` is required (Jira API requirement) — sourced from the call argument or `### Jira`.project in CLAUDE.md; reject with NFR-10 canonical shape if neither supplies a value. `team` does not apply to Jira and is silently dropped if forwarded. |
+| `pull_acs` | `mcp__atlassian__getJiraIssue` | Branches on `jira_ac_field`: read the custom-field value (custom-field path) or the issue's description body (description path) and parse `## Acceptance Criteria` bullets. |
+| `push_ac_toggle` | `mcp__atlassian__editJiraIssue` | Branches on `jira_ac_field`: write back the toggled custom-field value or rewrite the description's `## Acceptance Criteria` section atomically. Pass `contentFormat: "markdown"` to round-trip markdown without ADF conversion. |
+| `transition_status` | `mcp__atlassian__transitionJiraIssue` | Resolve transition id via `getTransitionsForJiraIssue` + `status_mapping`. Primary match is `to.name`; fallback is `to.statusCategory.key` (canonical category). |
+| `upsert_ticket_metadata` | `mcp__atlassian__createJiraIssue` (new) / `mcp__atlassian__editJiraIssue` (existing) | Body MUST include the back-link to `specs/frs/<TICKET-ID>.md`. On create, `project` is required (Jira API requirement) — sourced from the call argument or `### Jira`.project in CLAUDE.md; reject with NFR-10 canonical shape if neither supplies a value. `team` does not apply to Jira and is silently dropped if forwarded. Default issue type is `Task`; override via `jira_issue_type:` in `### Jira`. Pass `contentFormat: "markdown"` so the rendered description body keeps its markdown shape. |
+| `addCommentToJiraIssue` | `mcp__atlassian__addCommentToJiraIssue` | Available on the live MCP surface (smoke-test #5 enumerated tool list) for callers that need to post a markdown comment. Pass `contentFormat: "markdown"`. No /implement-internal caller today. |
+| Project visibility probe | `mcp__atlassian__getVisibleJiraProjects` | Called by `/setup` step 7b before any other Jira operation; refuses with NFR-10 canonical shape when the configured `project` key is not visible to the authenticated principal. |
+
+> **No `deleteJiraIssue` tool.** The MCP surface does not expose issue
+> deletion. `/spec-archive` for Jira transitions the ticket to `Done` (or a
+> `Cancelled`-equivalent) — never deletes. This is a hard constraint, not a
+> policy choice.
 
 ### Silent no-op trap
-
-> **Provisional.** The concrete Jira tool surface in this subsection is
-> tentative until a live authenticated Atlassian MCP is introspected (H3
-> stays open). The shared-code behavior described below fires for every
-> adapter via `adapters/_shared/src/tracker_provider.ts`, so the trap itself
-> is adapter-agnostic — the Jira-specific tool names + parameter lists are
-> what's provisional.
 
 Any write operation that addresses fields or transitions Jira doesn't know
 about (unknown field GIDs, transition IDs that don't exist in the current
@@ -116,54 +127,153 @@ v1 supports Atlassian Cloud only via the Rovo MCP. Self-hosted Jira is
 explicitly out of scope. A community adapter may override `mcp_server:`
 and retest.
 
+## Space pre-creation (manual prerequisite)
+
+The Atlassian Rovo MCP exposes no project-creation tool, so the operator
+**must create the Space (Jira project) in the Jira UI before running
+`/setup`**. `/setup` for `mode: jira` records the project key in the
+`### Jira` sub-section under `## Task Tracking`; on every subsequent run,
+the adapter validates that the configured key is visible to the
+authenticated principal via `mcp__atlassian__getVisibleJiraProjects`.
+
+If the project is **not visible** (key typo, OAuth principal lacks
+membership, project archived), refuse with NFR-10 canonical shape:
+
+```
+Jira project '<key>' not visible to the authenticated principal.
+Remedy: create the Space in the Jira UI before running /setup, or grant the OAuth principal membership; then re-run the failing skill — `/setup` for first-time recording, `/setup --migrate` to re-record an already-bound project key.
+Context: mode=jira, project=<key>, skill=<caller>
+```
+
+Refusing here is load-bearing: a silent fall-through would let Jira
+operations fail later with opaque permission errors. Visibility check is
+~50ms and runs before any other Jira call (NFR-8 call budget).
+
 ## Operations
 
 ### `pull_acs(ticket_id) → AcList`
 
-1. Call `mcp__atlassian__get_issue(issueIdOrKey=ticket_id, fields=["<jira_ac_field>"])`.
-2. Read the value at `fields[<jira_ac_field>]`. Atlassian Document Format
-   (ADF) or plain-text; either way, extract bullet-list items.
+Dispatches on the value of `jira_ac_field` recorded in `## Task Tracking`.
+
+**Custom-field path** (`jira_ac_field: customfield_XXXXX`):
+
+1. Call `mcp__atlassian__getJiraIssue(issueIdOrKey=ticket_id, fields=["<jira_ac_field>"], contentFormat: "markdown")`.
+2. Read the value at `fields[<jira_ac_field>]`. With
+   `contentFormat: "markdown"` the field renders as markdown text; without
+   it, Atlassian Document Format (ADF) or plain text. Either way, extract
+   bullet-list items.
 3. Each extracted bullet becomes a Schema N `AcceptanceCriterion`:
    - `id` is the leading `AC-X.Y` token if present; otherwise an
      adapter-local `jira-<n>` id.
    - `text` is the trimmed bullet body.
-   - `completed` — Jira doesn't have native checkboxes in text fields;
-     adopt the `- [x]` / `- [ ]` prefix convention (same form as Linear),
-     or map to a companion boolean subtask if the project admin chose that.
+   - `completed` — adopt the `- [x]` / `- [ ]` prefix convention (same
+     form as Linear), or map to a companion boolean subtask if the
+     project admin chose that.
 4. If the field is absent or empty, fail the skill with NFR-10 canonical
    shape `"No acceptance criteria found in ticket <ID>"` per AC-35.4.
 
+**Description-body path** (`jira_ac_field: description`):
+
+1. Call `mcp__atlassian__getJiraIssue(issueIdOrKey=ticket_id, fields=["description"], contentFormat: "markdown")`.
+2. Read the issue's description body as markdown text. Locate the literal
+   heading line `## Acceptance Criteria` (case-sensitive). Bullet-list
+   items between that heading and the next `##`-level heading (or EOF) are
+   the AC block; bullets outside the section are ignored on read.
+3. Map each bullet to a Schema N `AcceptanceCriterion` with the same
+   `id` / `text` / `completed` extraction rules as the custom-field path.
+4. If the heading is absent or the section contains no bullets, fail with
+   the same NFR-10 canonical shape as above.
+
+The two paths share the bullet-extraction helper; only the source string
+(custom-field value vs. description body) differs.
+
 ### `push_ac_toggle(ticket_id, ac_id, state) → void`
 
-1. `mcp__atlassian__get_issue(ticket_id, fields=["<jira_ac_field>"])` to
+Dispatches on the value of `jira_ac_field` recorded in `## Task Tracking`.
+
+**Custom-field path** (`jira_ac_field: customfield_XXXXX`):
+
+1. `mcp__atlassian__getJiraIssue(ticket_id, fields=["<jira_ac_field>"], contentFormat: "markdown")` to
    read the current AC block.
 2. Toggle the single bullet whose `id` matches `ac_id`.
-3. `mcp__atlassian__update_issue(issueIdOrKey=ticket_id, fields={ "<jira_ac_field>": <new value> })`.
-4. Jira does not server-side normalize markdown; the pushed form is the
-   canonical form (no round-trip loop).
+3. `mcp__atlassian__editJiraIssue(issueIdOrKey=ticket_id, fields={ "<jira_ac_field>": <new value> }, contentFormat: "markdown")`.
+
+**Description-body path** (`jira_ac_field: description`):
+
+1. `mcp__atlassian__getJiraIssue(ticket_id, fields=["description"], contentFormat: "markdown")` to
+   read the current description.
+2. Locate the `## Acceptance Criteria` heading. Toggle the single bullet
+   whose `id` matches `ac_id` inside that section, leaving prose outside
+   the section byte-identical.
+3. `mcp__atlassian__editJiraIssue(issueIdOrKey=ticket_id, fields={ description: <new full body> }, contentFormat: "markdown")`.
+   The whole description body is rewritten in one call — there is no
+   per-section patch primitive on the MCP. The `## Acceptance Criteria`
+   heading is the parse anchor; preserving it byte-identical is the
+   operator's responsibility on manual edits.
+
+In both paths, the post-write `updatedAt` guard
+(`TrackerWriteNoOpError`) applies. Jira does not server-side normalize
+markdown when `contentFormat: "markdown"` is set; the pushed form is
+the canonical form (no round-trip loop).
 
 ### `transition_status(ticket_id, status) → void`
 
-1. `mcp__atlassian__get_transitions(ticket_id)` → list of available
-   transitions for the issue's current workflow.
-2. Resolve `status_mapping[status]` → target workflow name, then match the
-   transition whose `to.name` equals it.
-3. `mcp__atlassian__transition_issue(ticket_id, transition={ id: <matched id> })`.
-4. Unknown `status` values (or a missing transition) fail with NFR-10
-   canonical shape.
+1. `mcp__atlassian__getTransitionsForJiraIssue(ticket_id)` → list of
+   available transitions for the issue's current workflow.
+2. Resolve the target transition via this two-step algorithm:
+
+   ```
+   resolveTransitionId(targetStatus, transitions, statusMapping):
+     targetName = statusMapping[targetStatus]
+     for t in transitions:
+       if t.to.name == targetName: return t.id          # primary
+     targetCategory = canonicalCategory(targetStatus)   # fallback
+     for t in transitions:
+       if t.to.statusCategory.key == targetCategory: return t.id
+     raise NFR10(...)
+   ```
+
+   Primary match is by exact `to.name` against
+   `status_mapping[targetStatus]`. Fallback is by `to.statusCategory.key`
+   — Jira workflows always have one of three category keys:
+
+   | Canonical category | Maps from |
+   |--------------------|-----------|
+   | `new`              | (no canonical mapping in `status_mapping`; backlog states) |
+   | `indeterminate`    | `in_progress`, `in_review` |
+   | `done`             | `done` |
+
+   `canonicalCategory(in_review) = indeterminate` collapses the two
+   when the workflow has no exact `In Review` state — common in default
+   team-managed Kanban templates that ship `To Do` / `In Progress` /
+   `Done` only. Workflows with a real `In Review` named state get
+   exact-name precedence, so the collapse is invisible there.
+
+3. `mcp__atlassian__transitionJiraIssue(ticket_id, transition={ id: <matched id> })`.
+4. Unknown `status` values (or no transition matches by name OR
+   category) fail with NFR-10 canonical shape.
 
 ### `upsert_ticket_metadata(ticket_id_or_null, title, description) → ticket_id`
 
 1. If `ticket_id_or_null === null`:
-   - `mcp__atlassian__create_issue(projectKey=<from CLAUDE.md>, summary=title, description=<rendered template>, issuetype="Story")`.
+   - Resolve the issue type: default `Task`, override via
+     `jira_issue_type:` in the `### Jira` block under `## Task Tracking`.
+     Default-team-managed Kanban templates have `Task` / `Epic` /
+     `Subtask` only (no `Story`); `Task` is the universally available
+     choice. Operators on Scrum templates can switch to `Story` via the
+     override.
+   - `mcp__atlassian__createJiraIssue(projectKey=<from CLAUDE.md ### Jira>, summary=title, description=<rendered template>, issuetype=<resolved type>, contentFormat: "markdown")`.
    - Capture the returned `key` (e.g., `ABC-123`); that's the ticket id.
 2. Else:
-   - `mcp__atlassian__update_issue(issueIdOrKey=ticket_id_or_null, fields={ summary, description })`.
+   - `mcp__atlassian__editJiraIssue(issueIdOrKey=ticket_id_or_null, fields={ summary, description }, contentFormat: "markdown")`.
 3. Render `ticket_description_template` with `{fr_body}` and `{tracker_id}`
    (Jira key, e.g. `ABC-123`) substituted; back-link to
    `specs/frs/{tracker_id}.md` is mandatory. The legacy `{fr_anchor}` +
    `specs/requirements.md#...` form has been retired.
 4. Return the ticket id.
+
+Every write here passes through the silent-no-op trap: post-call
+`updatedAt` is asserted to have advanced.
 
 ## Helper: `discover_field.ts`
 
@@ -181,7 +291,13 @@ user picks `jira` (AC-30.6).
   3. Name containing `"AC"` as a whole word (fallback)
 - If multiple fields match, prefer the exact-name hit; tie-break by lowest
   GID numeric suffix.
-- If zero fields match, return `{ ok: false }` so `/setup` can prompt the
-  user to create the field and re-run discovery.
+- `{ ok: false }` is a **first-class supported signal**, not an error. It
+  fires on team-managed Kanban templates that ship no AC custom field —
+  the most common starting Jira template. `/setup` interprets it as a
+  branch point and prompts the operator to choose between (a) creating a
+  custom field in the Jira UI and re-running `/setup` (records
+  `jira_ac_field: customfield_XXXXX`) or (b) accepting the
+  description-body sentinel (records `jira_ac_field: description`). No
+  silent fallback — the choice is recorded explicitly.
 
 Tests: see `discover_field.test.ts` (run with `bun test`).

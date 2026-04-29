@@ -10,9 +10,17 @@
 //     or:   { "ok": false, "reason": "<human-readable>" }
 //   exit:   0 on success (including ok=false), non-zero on invalid input
 //
+// `{ ok: false }` is a first-class supported signal, NOT an error. It fires
+// on team-managed Kanban templates that ship without an AC custom field
+// (the most common starting Jira template). `/setup` interprets the
+// signal as a branch point: prompt the operator to either create the
+// field and re-run (records `jira_ac_field: customfield_XXXXX`) or accept
+// the description-body sentinel (records `jira_ac_field: description`).
+// Both outcomes are explicit; there is no silent fallback.
+//
 // Called by `/setup` when the user picks `jira`; the caller is responsible
-// for invoking the Atlassian MCP, piping the response in, and writing
-// `jira_ac_field: customfield_XXXXX` to CLAUDE.md.
+// for invoking the Atlassian MCP, piping the response in, and writing the
+// resolved `jira_ac_field:` value to CLAUDE.md.
 
 export type JiraField = {
   id: string;

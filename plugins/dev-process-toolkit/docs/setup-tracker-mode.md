@@ -125,7 +125,22 @@ section to CLAUDE.md.
 
 ### Jira
 
-After test-call success, run one-time AC custom-field discovery:
+**Pre-flight: Space (project) visibility.** Before any other Jira call,
+`/setup` for `mode: jira` requires the operator to have **created the
+Jira Space (project) in the Jira UI manually** — the Atlassian Rovo MCP
+exposes no project-creation tool, so the toolkit cannot do this for them.
+After the operator supplies the project key (`### Jira`.project), run
+`mcp__atlassian__getVisibleJiraProjects` and assert the configured key
+appears in the response. On miss, refuse with NFR-10 canonical shape and
+**do not record mode**:
+
+```
+Jira project '<key>' not visible to the authenticated principal.
+Remedy: create the Space in the Jira UI before running /setup, or grant the OAuth principal membership; then re-run /setup.
+Context: mode=jira, project=<key>, skill=setup
+```
+
+After visibility passes, run one-time AC-field discovery:
 
 1. Invoke the Atlassian MCP to fetch `GET /rest/api/3/field` (equivalent
    tool, e.g., `mcp__atlassian__list_fields`).
@@ -134,8 +149,29 @@ After test-call success, run one-time AC custom-field discovery:
    `{"fields": <response>}` on stdin.
 3. On `{ok: true, gid: "customfield_XXXXX"}`, append
    `jira_ac_field: customfield_XXXXX` to the `## Task Tracking` section.
-4. On `{ok: false}`, prompt the user to create an "Acceptance Criteria"
-   custom field in Jira and re-run `/setup`.
+4. On `{ok: false}` — common on team-managed Kanban templates that ship
+   without an AC custom field — prompt the operator to choose between two
+   recorded outcomes (no silent fallback):
+
+   ```
+   No "Acceptance Criteria" custom field found in this Jira project.
+     1. I'll create a custom field in Jira and re-run /setup
+        → records `jira_ac_field: customfield_XXXXX` after re-run discovers it.
+     2. Use the issue description body instead
+        → records `jira_ac_field: description`.
+        ACs live as a bullet list under a `## Acceptance Criteria` heading
+        inside each issue's description; pull_acs / push_ac_toggle parse
+        and rewrite that section atomically.
+
+   [1-2]:
+   ```
+
+   On `1`, abort the tracker-mode portion cleanly so the operator can
+   create the field and re-run `/setup`. On `2`, append
+   `jira_ac_field: description` to `## Task Tracking` and continue.
+
+The recorded value is the dispatch key for `pull_acs` / `push_ac_toggle`
+(see `adapters/jira.md` § Operations).
 
 ## Writing `## Task Tracking` to CLAUDE.md
 
@@ -147,9 +183,20 @@ bottom of CLAUDE.md (Schema L):
 
 mode: <linear | jira | custom>
 mcp_server: <server name from `claude mcp list`>
-jira_ac_field: <customfield_XXXXX or blank>
+jira_ac_field: <customfield_XXXXX | description | blank>
 branch_template: <default-for-mode or user value>
 ```
+
+`jira_ac_field:` accepts three forms (only `mode: jira` projects use it
+non-blank):
+
+- `customfield_XXXXX` — per-tenant AC custom-field GID (recorded by
+  `discover_field.ts` on `{ ok: true }`).
+- `description` — sentinel; ACs live in the issue description body
+  under a `## Acceptance Criteria` heading (recorded when the operator
+  picks option `2` on the `{ ok: false }` prompt).
+- blank — `mode: linear` / `mode: custom` / `mode: none` (key reserved
+  for future trackers; ignored when blank).
 
 Blank values for keys that don't apply to the picked mode are legal (Schema L).
 `git log` is the audit trail for sync, mode-switch, and resolution events — no

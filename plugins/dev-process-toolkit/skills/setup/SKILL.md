@@ -171,6 +171,8 @@ If the user picks `1` (or pre-baked answer is `none`), do NOT emit a `## Task Tr
 
 If the user picks 2–4, run the full numbered flow in `docs/setup-reference.md` § Step 7b — Tracker mode (covers Bun prereq, MCP detection, test call, Jira field discovery, Schema L emit, and STE-117 workspace binding). Background detail in `docs/setup-tracker-mode.md`.
 
+**Jira-specific prerequisite** (`mode: jira` only): the operator must have **created the Jira Space (project) in the Jira UI manually** before running `/setup` — the Atlassian MCP exposes no project-creation tool. After the operator supplies the project key, `/setup` validates visibility via `mcp__atlassian__getVisibleJiraProjects` and refuses with NFR-10 canonical shape on miss. AC-field discovery returning `{ ok: false }` is also a first-class branch: the operator chooses between creating a custom field (records `jira_ac_field: customfield_XXXXX`) or accepting the description-body sentinel (records `jira_ac_field: description`); both choices are recorded under the existing canonical key — no new Schema L key is added.
+
 ### 7c. Branch-naming template
 
 `default: <default-for-mode>` — proceed with the mode-specific default if no answer is supplied. Every resolved `branch_template` value appends `## /setup audit` entry recording `step:7c value:"<resolved>" reason:"<user-supplied|default applied>"` — provenance per resolution, not per run (STE-153 AC-STE-153.1 / AC-STE-153.3).
