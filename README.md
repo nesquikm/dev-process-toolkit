@@ -140,7 +140,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.41.0 — "Exempt"** (M41 lands one /smoke-test run #4 fix. STE-151 relaxes /gate-check probe #14 ("Ticket-state drift — active side") to exempt the single-FR-clean state — Done ticket + active FR + plan with unchecked tasks now passes, recognising the canonical mid-milestone shape that `/implement <FR-id>` Phase 4 Close produces. M23 drift cases (Backlog ticket, wrong assignee) and the "forgot bulk archive before /ship-milestone" regression (Done + all-checked + still-active plan) keep firing. Pure prose + predicate edit; no migration, no schema change. Minor bump — adds a new exemption surface visible to /gate-check operators. Test count: 1145 → 1187 (+42).
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v1.42.0 — "Provenance"** (M42 lands one /smoke-test run #4 fix. STE-153 closes the all-explicit-answer gap in `/setup`'s audit-section synthesis — every Schema L resolution at steps 7b/7c/7d now records into the resolved-values table with a per-entry `reason:` field (`"user-supplied"` or `"default applied"`), so step 8a's `synthesizeAuditSection` always materializes the section regardless of whether defaults were applied. Renames internal types `ResolvedDefaults` → `ResolvedSchemaLValues`. Probe #19 stays as-is. Minor bump — extends the audit log with new `"user-supplied"` provenance entries; existing default-applied bullets land byte-identically. Test count: 1187 → 1196 (+9).
 
 ## Core Philosophy
 
