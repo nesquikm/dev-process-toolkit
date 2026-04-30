@@ -26,9 +26,9 @@ through the `fallthrough` branch of `resolveFRArgument` per NFR-18.
 | `kind` | Next step in `/spec-write` | Next step in `/implement` | Next step in `/spec-archive` |
 |--------|----------------------------|---------------------------|------------------------------|
 | `ulid` | Open the FR via `Provider.filenameFor(spec)` for editing | Proceed to `Provider.claimLock(ulid, branch)` | Archive via `git mv` + frontmatter flip |
-| `tracker-id` or `url`, find-by-tracker-ref hit | Open that existing FR for editing. **No network call.** Single-pattern direct-filename lookup at `specs/frs/<tracker-id>.md` (+ `archive/` when `includeArchive`). Filename ↔ frontmatter disagreement returns null. **Mode-aware:** tracker mode uses `findFRPathByTrackerRef` (path-returning; STE-76 removed the `id:` line so `findFRByTrackerRef` cannot match). `mode: none` uses `findFRByTrackerRef` (ULID-returning). | Proceed to `Provider.claimLock(<id>, branch)` on the resolved ID — tracker ID in tracker mode, ULID in `mode: none`. | Archive via `git mv` + frontmatter flip on the resolved FR (O(1) direct-filename lookup). |
-| `tracker-id` or `url`, find-by-tracker-ref miss | Run `importFromTracker` — mints the new FR file with tracker ACs auto-accepted (**no STE-17 per-AC prompts**, AC-STE-31.5). The file lands at `specs/frs/<Provider.filenameFor(spec)>`. | Run `importFromTracker` then `Provider.claimLock` on the new identity. | **Refuse** with NFR-10 shape: `"No local FR mapped to <tracker>:<id>. Archival never auto-imports. To dismiss the tracker ticket, close it in the tracker directly."` Non-zero exit, no side effects. |
-| `fallthrough` | Handle per the free-form-argument contract (`all`, `requirements`, `technical-spec`, `testing-spec`, `plan`). Literal `FR-<N>` arguments land here post-STE-52. | Handle per the free-form-argument contract (milestone code like `M13`, GitHub issue number, task description). Literal `FR-<N>` arguments land here post-STE-52. | Handle per the free-form-argument contract (anchor `{#M3}`, heading text, milestone id `M12`). Literal `FR-<N>` arguments land here post-STE-52. |
+| `tracker-id` or `url`, find-by-tracker-ref hit | Open that existing FR for editing. **No network call.** Single-pattern direct-filename lookup at `specs/frs/<tracker-id>.md` (+ `archive/` when `includeArchive`). Filename ↔ frontmatter disagreement returns null. **Mode-aware:** tracker mode uses `findFRPathByTrackerRef` (path-returning; tracker-mode FRs have no `id:` line so `findFRByTrackerRef` cannot match). `mode: none` uses `findFRByTrackerRef` (ULID-returning). | Proceed to `Provider.claimLock(<id>, branch)` on the resolved ID — tracker ID in tracker mode, ULID in `mode: none`. | Archive via `git mv` + frontmatter flip on the resolved FR (O(1) direct-filename lookup). |
+| `tracker-id` or `url`, find-by-tracker-ref miss | Run `importFromTracker` — mints the new FR file with tracker ACs auto-accepted (**no per-AC bidirectional prompts**). The file lands at `specs/frs/<Provider.filenameFor(spec)>`. | Run `importFromTracker` then `Provider.claimLock` on the new identity. | **Refuse** with NFR-10 shape: `"No local FR mapped to <tracker>:<id>. Archival never auto-imports. To dismiss the tracker ticket, close it in the tracker directly."` Non-zero exit, no side effects. |
+| `fallthrough` | Handle per the free-form-argument contract (`all`, `requirements`, `technical-spec`, `testing-spec`, `plan`). Literal `FR-<N>` arguments land here. | Handle per the free-form-argument contract (milestone code like `M13`, GitHub issue number, task description). Literal `FR-<N>` arguments land here. | Handle per the free-form-argument contract (anchor `{#M3}`, heading text, milestone id `M12`). Literal `FR-<N>` arguments land here. |
 
 ## Ambiguity & disambiguation
 
@@ -48,7 +48,7 @@ and always wins over inference — use it as the documented escape hatch.
 ## Branch-name interop (/implement only)
 
 If the branch name contains a ticket ID via the adapter's `ticket_id_regex`
-(STE-27) AND the argument resolves to a different ticket ID, the argument wins.
+AND the argument resolves to a different ticket ID, the argument wins.
 Emit an NFR-10-shape warning naming both IDs; implementation proceeds on the
 argument's ticket unless the user cancels the confirmation prompt.
 

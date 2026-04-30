@@ -35,7 +35,7 @@ specs/
 ├── technical-spec.md                   # HOW to build it — cross-cutting (architecture, schemas, ADRs)
 ├── testing-spec.md                     # HOW to test it — cross-cutting (framework, strategy)
 ├── frs/
-│   ├── <tracker-id>.md                 # tracker mode: one file per FR, keyed on the ticket (e.g., STE-42.md)
+│   ├── <tracker-id>.md                 # tracker mode: one file per FR, keyed on the ticket (e.g., <TKR>-NN.md)
 │   ├── <short-ULID>.md                 # mode: none: keyed on spec.id.slice(23, 29) (e.g., VDTAF4.md)
 │   └── archive/<same-stem>.md          # archived FRs (git-moved; status: archived; stem preserved)
 └── plan/

@@ -20,11 +20,11 @@ value recorded at `/implement` start (session state — not disk).
 
 - **Match** → continue to the gate commands.
 - **Mismatch** → surface this canonical-shape warning and offer exactly
-  two options (AC-STE-17.10; `/gate-check` does **not** run STE-17 resolution):
+  two options (`/gate-check` does **not** run the bidirectional sync resolution):
 
   ```
   Ticket was modified since /implement — review changes before proceeding.
-  Remedy: choose — (a) retry after /implement (runs STE-17 diff/resolve), or (b) proceed knowing the session is stale.
+  Remedy: choose — (a) retry after /implement (runs the bidirectional diff/resolve), or (b) proceed knowing the session is stale.
   Context: mode=<mode>, ticket=<ID>, skill=gate-check
   ```
 
@@ -78,4 +78,4 @@ change, total = 2.
 parallelization concerns are minimal. If two parallel subagents both run
 `/gate-check` against the same ticket, the second one's `pull_acs` sees
 the first one's `push_ac_toggle` side effects — which is exactly the
-detection intent of AC-STE-11.3 (`updatedAt` mismatch warns the user).
+detection intent of the `updatedAt` mismatch warning.

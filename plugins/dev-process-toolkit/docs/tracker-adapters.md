@@ -42,7 +42,7 @@ code directly:
 | `pull_acs` | `(ticket_id) → AcList` | Fetch current AC state (Schema N). |
 | `push_ac_toggle` | `(ticket_id, ac_id, state: bool) → void` | Toggle a single AC checkbox. |
 | `transition_status` | `(ticket_id, status) → void` | Move ticket to canonical status (`in_progress` / `in_review` / `done`). |
-| `upsert_ticket_metadata` | `(ticket_id_or_null, title, description, team?, project?) → ticket_id` | Create (null id) or update ticket title + description. Never touches ACs or status — dedicated ops own those. STE-117 widening: optional `team?` + `project?` carry the workspace binding (Linear: project required-on-create per the silent-landing trap; Jira: project required-on-create per the Jira API). Adapters that don't use the fields MUST still read them — dropping the values silently masks user intent. |
+| `upsert_ticket_metadata` | `(ticket_id_or_null, title, description, team?, project?) → ticket_id` | Create (null id) or update ticket title + description. Never touches ACs or status — dedicated ops own those. Workspace-binding widening: optional `team?` + `project?` carry the binding (Linear: project required-on-create per the silent-landing trap; Jira: project required-on-create per the Jira API). Adapters that don't use the fields MUST still read them — dropping the values silently masks user intent. |
 
 Adapters are markdown (`adapters/<tracker>.md`) plus optional TypeScript
 helpers (`adapters/<tracker>/src/*.ts`). The markdown routes each op to the
@@ -61,12 +61,12 @@ Full definitions live in `specs/technical-spec.md` §7.3. Summary:
   `ticket_id_regex`, `ticket_id_source`, `ac_storage_convention`,
   `status_mapping`, `capabilities`, `project_milestone`,
   `ticket_description_template`, `helpers_dir`. Capabilities drive
-  STE-16 AC-STE-16.6 graceful degradation; `project_milestone`
+  the capability-missing graceful-degradation path; `project_milestone`
   opts the adapter into migration-time milestone binding.
 - **Schema N — `AcceptanceCriterion` list.** Returned by `pull_acs`. Fields:
   `id`, `text`, `completed`.
 - **Schema O — `TicketMetadata`.** Internal; tracked for concurrency via
-  `updated_at` (AC-STE-11.2, AC-STE-11.3).
+  `updated_at`.
 - **Schema P — Helper script I/O contract.** JSON on stdin → JSON on
   stdout, errors on stderr + non-zero exit, no network, deterministic pure
   functions.
@@ -140,10 +140,10 @@ the adapter is treated as production-ready.
       status change, no AC toggle — those have dedicated ops)
 - [ ] Description body contains the full FR body **and** a visible back-link
       to `specs/requirements.md#FR-{N}`
-- [ ] STE-17 round-trip: after `upsert` then `pull_acs`, the returned AC list
+- [ ] Bidirectional-sync round-trip: after `upsert` then `pull_acs`, the returned AC list
       is identical (after normalization) to what was pushed — no infinite
       reconciliation
-- [ ] **STE-117 workspace-binding carry-through.** On create, `team?` /
+- [ ] **Workspace-binding carry-through.** On create, `team?` /
       `project?` are forwarded to the underlying tracker call. Linear
       rejects creates that lack `project` (silent-landing trap mitigation);
       Jira rejects creates that lack `project` (Jira API requirement).
@@ -163,8 +163,8 @@ the adapter is treated as production-ready.
 - [ ] Fresh-project `/setup → linear|jira → pull_acs` round-trip
       succeeds; `mode: <tracker>` recorded in CLAUDE.md
 - [ ] `/implement` pre-flight fetches ticket, records `updatedAt`, and runs
-      STE-17 diff/resolve loop
-- [ ] Edit an AC on the tracker side, re-run `/implement` — STE-17 surfaces
+      the bidirectional diff/resolve loop
+- [ ] Edit an AC on the tracker side, re-run `/implement` — the resolver surfaces
       the `tracker-only` or `edited-both` classification and prompts
 - [ ] Pass gate → `/gate-check` toggles the AC on the tracker (unless
       adapter declares no `push_ac_toggle`)
@@ -186,7 +186,7 @@ tracker-side side effect.
 | `pull_acs` | `/implement`, `/gate-check`, `/spec-review`, `/spec-write`, migration | Hard fail — adapter without `pull_acs` can't function; skills fail with NFR-10 canonical shape at pre-flight. |
 | `push_ac_toggle` | `/gate-check` on gate pass | Skip the push; print canonical-shape warning telling the user to toggle manually. Gate verdict unchanged. |
 | `transition_status` | `/pr` post-create, migration `tracker → none` "close tickets" prompt | Skip the transition; print canonical-shape warning. PR still created; migration still completes. |
-| `upsert_ticket_metadata` | `/spec-write` post-save, STE-17 `keep local` / `merge`, `/pr` PR-link update, migration `none → tracker` / `<tracker> → <other>` | Skip the push; print canonical-shape warning. Local save still commits; PR still created; migration to-tracker becomes impossible (the user has to pick a different target). |
+| `upsert_ticket_metadata` | `/spec-write` post-save, bidirectional-sync `keep local` / `merge`, `/pr` PR-link update, migration `none → tracker` / `<tracker> → <other>` | Skip the push; print canonical-shape warning. Local save still commits; PR still created; migration to-tracker becomes impossible (the user has to pick a different target). |
 
 `pull_acs` is the only hard requirement — it's the foundation of every
 skill's tracker-mode branch. The other three are each opt-outable with a
@@ -250,7 +250,7 @@ return a successful-looking payload even when nothing mutated. If an
 adapter driver passes the wrong key (`status` instead of `state`,
 `assigneeEmail` instead of `assignee`, etc.), the write silently
 no-ops and the skill thinks the transition landed. Observed
-2026-04-22 during `/implement STE-36 STE-37`.
+2026-04-22 during an early `/implement` dogfood run.
 
 **Rule for every adapter driver:** after any write (`transition_status`,
 `upsert_ticket_metadata`, `push_ac_toggle`), re-fetch the ticket and
@@ -335,7 +335,7 @@ tracker we don't bundle.
 
 Run the Conformance Checklist against a real GitHub repo. If any op can't
 be expressed cleanly (GitHub has no native status enum), drop it from
-`capabilities` — the skill degrades per STE-16 AC-STE-16.6 rather than failing.
+`capabilities` — the skill degrades via the capability-missing graceful-degradation path rather than failing.
 
 ## Provider Interface
 

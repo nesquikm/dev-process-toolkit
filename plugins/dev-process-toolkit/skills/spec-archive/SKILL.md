@@ -21,11 +21,11 @@ Before any other step:
 Call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src/resolver_config.ts` once at entry, then pass the result to `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. Malformed adapter metadata surfaces as `MalformedAdapterMetadataError` → NFR-10 canonical refusal.
 
 - **`ulid`** → archive that single FR (step 1).
-- **`tracker-id` / `url`** → branch on mode: tracker mode uses `findFRPathByTrackerRef(specsDir, trackerKey, trackerId)` (path-returning, no `id:` requirement); `mode: none` uses `findFRByTrackerRef(specsDir, trackerKey, trackerId)` (ULID-returning). The tracker-mode helper is the post-STE-76 contract — `findFRByTrackerRef` would always miss in tracker mode (no `id:` line) and trigger the refuse branch below against an FR that exists on disk.
+- **`tracker-id` / `url`** → branch on mode: tracker mode uses `findFRPathByTrackerRef(specsDir, trackerKey, trackerId)` (path-returning, no `id:` requirement); `mode: none` uses `findFRByTrackerRef(specsDir, trackerKey, trackerId)` (ULID-returning). The tracker-mode helper is the canonical lookup — `findFRByTrackerRef` would always miss in tracker mode (no `id:` line) and trigger the refuse branch below against an FR that exists on disk.
   - Hit → archive that single FR. No import, no tracker network call.
   - Miss → **refuse** with the NFR-10 canonical error: `"No local FR mapped to <tracker>:<id>. Archival never auto-imports. To dismiss the tracker ticket, close it in the tracker directly."` Exit non-zero. No side effects. `/spec-archive` **never** auto-imports.
 - **`fallthrough`** and `$ARGUMENTS` matches `^M\d+$` → batch archival of every FR with `milestone == <M<N>>` plus the plan file (step 1). `/spec-archive M12` is the canonical group form.
-- **`fallthrough`** otherwise → refuse and prompt the user for a valid ULID / tracker ref / `M<N>` (AC-STE-33.5, AC-STE-33.6, NFR-18).
+- **`fallthrough`** otherwise → refuse and prompt the user for a valid ULID / tracker ref / `M<N>` (NFR-18).
 - `AmbiguousArgumentError` → surface per NFR-10 with the `<tracker>:<id>` disambiguation remedy; exit non-zero.
 
 Full decision table: `docs/resolver-entry.md`.
@@ -36,12 +36,12 @@ Archival uses the same code path as `/implement` Phase 4.
 
 **Single-FR archival** (argument resolved to one ULID):
 
-1. Locate the FR file: read the spec's frontmatter and compute its base name via `Provider.filenameFor(spec)` (M18 STE-60 AC-STE-60.5). Verify `status: active` or `status: in_progress`.
+1. Locate the FR file: read the spec's frontmatter and compute its base name via `Provider.filenameFor(spec)`. Verify `status: active` or `status: in_progress`.
 2. Present the Diff Preview (§ Diff Preview below) — the filename move, the frontmatter flip, and any `Provider.releaseLock` call.
 3. On explicit approval:
    - `git mv specs/frs/<name> specs/frs/archive/<name>` using the `Provider.filenameFor(spec)` base — stem preserved across the move. Archival never renames.
-   - Flip frontmatter `status: active` → `status: archived`; set `archived_at: <ISO now>`. **Precision: full ISO-8601 with date + time + Z (e.g., `2026-04-30T17:23:11Z`); not date-only with zeroed time.** Render the wall-clock instant via `date -u +%Y-%m-%dT%H:%M:%SZ`, never the shorter `date +%Y-%m-%d` form (it rounds to midnight UTC, which is the smoke #6 finding F1 regression shape).
-   - **Rewrite traceability links.** Call `rewriteArchiveLinks(repoRoot, frId)` from `adapters/_shared/src/spec_archive/rewrite_links.ts`. It scans `specs/requirements.md`, every `specs/plan/*.md`, every `specs/plan/archive/*.md`, and `CHANGELOG.md` (scoped to lines above the first dated `## [X.Y.Z] — YYYY-MM-DD` header — released sections are frozen per AC-STE-111.6) for `frs/<id>.md` references and rewrites them to `frs/archive/<id>.md`. Both Markdown link forms (`](frs/<id>.md)` and `](./frs/<id>.md)`) and bare path mentions are covered. Orphan FRs (no references anywhere) yield an empty rewrite, no error. The rewrites land in the **same atomic commit** as the `git mv` and frontmatter flip.
+   - Flip frontmatter `status: active` → `status: archived`; set `archived_at: <ISO now>`. **Precision: full ISO-8601 with date + time + Z (e.g., `2026-04-30T17:23:11Z`); not date-only with zeroed time.** Render the wall-clock instant via `date -u +%Y-%m-%dT%H:%M:%SZ`, never the shorter `date +%Y-%m-%d` form (it rounds to midnight UTC, which an earlier smoke caught as a regression shape).
+   - **Rewrite traceability links.** Call `rewriteArchiveLinks(repoRoot, frId)` from `adapters/_shared/src/spec_archive/rewrite_links.ts`. It scans `specs/requirements.md`, every `specs/plan/*.md`, every `specs/plan/archive/*.md`, and `CHANGELOG.md` (scoped to lines above the first dated `## [X.Y.Z] — YYYY-MM-DD` header — released sections are frozen) for `frs/<id>.md` references and rewrites them to `frs/archive/<id>.md`. Both Markdown link forms (`](frs/<id>.md)` and `](./frs/<id>.md)`) and bare path mentions are covered. Orphan FRs (no references anywhere) yield an empty rewrite, no error. The rewrites land in the **same atomic commit** as the `git mv` and frontmatter flip.
    - `Provider.releaseLock(<ulid>)`. In tracker mode this transitions the ticket to `done`; in tracker-less mode it removes the in-flight lock file.
    - All of the above land in a single atomic commit.
 5. Run the Post-Archive Drift Check (§ Post-Archive Drift Check below).
@@ -50,10 +50,10 @@ Archival uses the same code path as `/implement` Phase 4.
 
 1. Scan every active `specs/frs/*.md` for `milestone == M<N>`. Refuse cleanly if the match set is empty ("No active FRs found for milestone M<N>"); exit non-zero, no side effects.
 2. Build the batch:
-   - Per matched FR: `git mv specs/frs/<Provider.filenameFor(spec)> specs/frs/archive/<same-name>` + frontmatter flip + traceability-link rewrite (`rewriteArchiveLinks(repoRoot, frId)` per STE-111 AC-STE-111.1) + `Provider.releaseLock` (M18 STE-60 AC-STE-60.5).
+   - Per matched FR: `git mv specs/frs/<Provider.filenameFor(spec)> specs/frs/archive/<same-name>` + frontmatter flip + traceability-link rewrite (`rewriteArchiveLinks(repoRoot, frId)`) + `Provider.releaseLock`.
    - If `specs/plan/M<N>.md` exists, include `git mv specs/plan/M<N>.md specs/plan/archive/M<N>.md`.
 3. Present the Diff Preview covering every move + flip + traceability rewrite + release.
-4. On approval, land all N moves + N flips + N rewrites + N `releaseLock` calls + the optional plan-file move in a **single atomic commit** (AC-STE-22.6 / AC-STE-111.3). Any error aborts the commit entirely — no partial archival.
+4. On approval, land all N moves + N flips + N rewrites + N `releaseLock` calls + the optional plan-file move in a **single atomic commit**. Any error aborts the commit entirely — no partial archival.
 5. Run the Post-Archive Drift Check.
 
 No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` except the frontmatter `status` flip at move time. Full reference: `docs/layout-reference.md` § `/spec-archive`.
@@ -76,7 +76,7 @@ Before any filesystem change, render a diff preview the user can confirm or reje
 
 --- Provider.releaseLock(<ulid>)
 +++ (tracker mode: transition_status → done)          — return "transitioned" when the ticket was In Progress
-+++ (tracker mode: ticket already at canonical Done)  — return "already-released" (STE-84 idempotent; no write)
++++ (tracker mode: ticket already at canonical Done)  — return "already-released" (idempotent; no write)
 +++ (tracker-less: rm .dpt-locks/<ulid>)              — return "transitioned" when the lock file existed
 +++ (tracker-less: no lock file present)              — return "already-released" (silent no-op)
 ```
@@ -87,7 +87,7 @@ For milestone-group archival, list each `git mv`, each frontmatter flip, each `r
 releaseLock summary: <N transitioned, M already-released>
 ```
 
-This aggregate is how the bulk path reports which FRs performed a write versus which were already terminal — the count comes free from `Provider.releaseLock`'s return value, so no extra `getTicketStatus` call is needed (STE-84 NFR-8 call-budget discipline).
+This aggregate is how the bulk path reports which FRs performed a write versus which were already terminal — the count comes free from `Provider.releaseLock`'s return value, so no extra `getTicketStatus` call is needed (NFR-8 call-budget discipline).
 
 **Approval gate:** do NOT perform any `git mv`, frontmatter write, or `releaseLock` until the user explicitly approves. If the user rejects, asks for changes, or is ambiguous, stop and restart at step 0a with their feedback.
 

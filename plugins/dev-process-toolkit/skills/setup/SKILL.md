@@ -13,8 +13,8 @@ Set up the Spec-Driven Development and TDD workflow for this project.
 
 Every step below is annotated as one of three kinds. The agent — including non-interactive runs — MUST honour the kind:
 
-- `verification:` — runs unconditionally regardless of prompt mode (e.g., `git status` baseline check, `linear list_teams` MCP test call, `bun --version`). Failure → loud abort with NFR-10 canonical shape per STE-106's "fail loud, don't silently skip" principle.
-- `default: <value>` — proceeds with the named value when no answer is supplied (autonomous mode or pre-baked answers). Every resolved outcome (user-supplied or default-applied) appends a `## /setup audit` entry to CLAUDE.md via `appendAuditEntry` from `adapters/_shared/src/setup/audit_log.ts` — provenance is recorded in the entry's `reason:` field (STE-108 AC-STE-108.3 / .7; STE-153 AC-STE-153.1).
+- `verification:` — runs unconditionally regardless of prompt mode (e.g., `git status` baseline check, `linear list_teams` MCP test call, `bun --version`). Failure → loud abort with NFR-10 canonical shape per the "fail loud, don't silently skip" principle.
+- `default: <value>` — proceeds with the named value when no answer is supplied (autonomous mode or pre-baked answers). Every resolved outcome (user-supplied or default-applied) appends a `## /setup audit` entry to CLAUDE.md via `appendAuditEntry` from `adapters/_shared/src/setup/audit_log.ts` — provenance is recorded in the entry's `reason:` field.
 - `requires-input: <reason>` — refuses to proceed without an answer. Under non-interactive mode with no pre-baked answer, the skill aborts with an NFR-10 canonical refusal naming the step and the missing input. It MUST NOT guess.
 
 Verification ≠ Q&A. The "do not prompt" instruction common in autonomous runs governs Q&A only. Verification calls always fire.
@@ -37,13 +37,13 @@ Before any detection or setup, run the Schema L probe (see `docs/patterns.md` §
 
 ### 0b. Mode-switch invocation (`/setup --migrate` / `--migrate-dry-run`)
 
-When `$ARGUMENTS` contains `--migrate` or `--migrate-dry-run`, skip steps 1–8 and route into **tracker-mode switching** — handles all transitions between modes. The CLI flag stays `--migrate` to preserve operator muscle memory. Current mode is detected via Schema L probe: absence of `## Task Tracking` = `mode: none` (canonical form per AC-STE-8.5); presence = parse `mode: <value>`. All modes (including `none`) are valid starting states.
+When `$ARGUMENTS` contains `--migrate` or `--migrate-dry-run`, skip steps 1–8 and route into **tracker-mode switching** — handles all transitions between modes. The CLI flag stays `--migrate` to preserve operator muscle memory. Current mode is detected via Schema L probe: absence of `## Task Tracking` = `mode: none` (canonical form); presence = parse `mode: <value>`. All modes (including `none`) are valid starting states.
 
 - Detect current mode via Schema L probe.
 - Prompt for target mode; refuse no-op via NFR-10 canonical shape: `Detected current mode: <current>. Supported targets: <others>. Mode switch must change mode.`
 - Supported transitions: `none → <tracker>` / `<tracker> → none` / `<tracker> → <other>`. Unsupported = NFR-10 canonical refusal.
 - The CLAUDE.md `mode:` line + active-FR renames land in one commit; if the switch fails partway, the user reruns `/setup --migrate` from a clean working tree (no rollback prompt).
-- **Active-FR rename (M18 STE-60 AC-STE-60.6).** On any mode change, re-derive filenames for every active FR under `specs/frs/*.md` (not `archive/`) using the *target-mode* `Provider.filenameFor(spec)` and `git mv` each file to its new name. Archive is frozen by mode transitions. All renames + the CLAUDE.md `mode:` flip land in a single atomic commit.
+- **Active-FR rename.** On any mode change, re-derive filenames for every active FR under `specs/frs/*.md` (not `archive/`) using the *target-mode* `Provider.filenameFor(spec)` and `git mv` each file to its new name. Archive is frozen by mode transitions. All renames + the CLAUDE.md `mode:` flip land in a single atomic commit.
 
 Detailed tracker-mode switching procedures live in `docs/setup-tracker-mode.md`.
 
@@ -103,7 +103,7 @@ Key requirements for **every stack**:
 
 `verification:` Run the gate commands to verify they all pass. If anything fails, fix it immediately — the project must be gate-check-ready before proceeding to step 3.
 
-**Bun-specific scaffold-verify branch** (STE-113 + STE-128) writes a placeholder file before running the gate. See `docs/setup-reference.md` § Bun scaffold-verify branch for the placeholder location, marker comment, and layout-policy logic.
+**Bun-specific scaffold-verify branch** writes a placeholder file before running the gate. See `docs/setup-reference.md` § Bun scaffold-verify branch for the placeholder location, marker comment, and layout-policy logic.
 
 ### 3. Read the templates
 
@@ -149,7 +149,7 @@ Full procedure (idempotency tier, `--commitlint` extras, manual install command)
 
 ### 7. Configure MCP servers
 
-`verification:` When tracker mode != none, write `.mcp.json` with the resolved adapter's `mcpServers` entry. **Required, abort on failure** (STE-106 AC-STE-106.3 / AC-STE-106.5) — the `setup-output-completeness` probe (gate-check #17) hard-fails when missing in tracker mode.
+`verification:` When tracker mode != none, write `.mcp.json` with the resolved adapter's `mcpServers` entry. **Required, abort on failure** — the `setup-output-completeness` probe (gate-check #17) hard-fails when missing in tracker mode.
 
 If `.mcp.json` already exists, merge — don't overwrite.
 
@@ -169,13 +169,13 @@ Under non-interactive mode without a pre-baked answer, abort with NFR-10 canonic
 
 If the user picks `1` (or pre-baked answer is `none`), do NOT emit a `## Task Tracking` section in CLAUDE.md — absence is the canonical form for `mode: none`. Continue to step 7c.
 
-If the user picks 2–4, run the full numbered flow in `docs/setup-reference.md` § Step 7b — Tracker mode (covers Bun prereq, MCP detection, test call, Jira field discovery, Schema L emit, and STE-117 workspace binding). Background detail in `docs/setup-tracker-mode.md`.
+If the user picks 2–4, run the full numbered flow in `docs/setup-reference.md` § Step 7b — Tracker mode (covers Bun prereq, MCP detection, test call, Jira field discovery, Schema L emit, and workspace binding). Background detail in `docs/setup-tracker-mode.md`.
 
 **Jira-specific prerequisite** (`mode: jira` only): the operator must have **created the Jira Space (project) in the Jira UI manually** before running `/setup` — the Atlassian MCP exposes no project-creation tool. After the operator supplies the project key, `/setup` validates visibility via `mcp__atlassian__getVisibleJiraProjects` and refuses with NFR-10 canonical shape on miss. AC-field discovery returning `{ ok: false }` is also a first-class branch: the operator chooses between creating a custom field (records `jira_ac_field: customfield_XXXXX`) or accepting the description-body sentinel (records `jira_ac_field: description`); both choices are recorded under the existing canonical key — no new Schema L key is added.
 
 ### 7c. Branch-naming template
 
-`default: <default-for-mode>` — proceed with the mode-specific default if no answer is supplied. Every resolved `branch_template` value appends `## /setup audit` entry recording `step:7c value:"<resolved>" reason:"<user-supplied|default applied>"` — provenance per resolution, not per run (STE-153 AC-STE-153.1 / AC-STE-153.3).
+`default: <default-for-mode>` — proceed with the mode-specific default if no answer is supplied. Every resolved `branch_template` value appends `## /setup audit` entry recording `step:7c value:"<resolved>" reason:"<user-supplied|default applied>"` — provenance per resolution, not per run.
 
 Default-for-mode: `{type}/m{N}-{slug}` in `mode: none`; `{type}/{ticket-id}-{slug}` in any tracker mode.
 
@@ -186,9 +186,9 @@ Default-for-mode: `{type}/m{N}-{slug}` in `mode: none`; `{type}/{ticket-id}-{slu
 
 See `docs/setup-tracker-mode.md` § Branch template for the long-form prompt and placeholder substitution rules.
 
-### 7d. Docs modes (STE-68 + STE-107)
+### 7d. Docs modes
 
-`default: all-false` — when no answer is supplied (autonomous mode or skipped), the skill **always emits** the `## Docs` section with all three flags `false` (STE-107 AC-STE-107.1 / .2). Every resolved `## Docs` flag appends `## /setup audit` entry: `step:7d (docs.<flag>) value:<bool> reason:"<user-supplied|default applied>"` — provenance per resolution (STE-153 AC-STE-153.1 / AC-STE-153.3).
+`default: all-false` — when no answer is supplied (autonomous mode or skipped), the skill **always emits** the `## Docs` section with all three flags `false`. Every resolved `## Docs` flag appends `## /setup audit` entry: `step:7d (docs.<flag>) value:<bool> reason:"<user-supplied|default applied>"` — provenance per resolution.
 
 Three yes/no prompts in this exact order, after 7c:
 
@@ -196,7 +196,7 @@ Three yes/no prompts in this exact order, after 7c:
 2. `Generate packages-style API reference docs?` — body is **stack-adaptive**. TS-only project: `(typedoc <detected|not found>, ts-morph <bundled>, stack: <ts|other>)`. Other stacks render their toolchain-probe results (Dart: dart-analyzer; Python: griffe).
 3. `Is CHANGELOG.md generated by CI (if yes, /ship-milestone will not write it)?`
 
-Accept `y`/`n`/`yes`/`no` case-insensitively; other inputs re-prompt with `answer y or n`. If both 1 and 2 are declined, refuse with NFR-10 shape and re-ask only those two; if declined again, still emit the section with all-false defaults (read-side `readDocsConfig` returns all-false for absent section per AC-STE-68.3).
+Accept `y`/`n`/`yes`/`no` case-insensitively; other inputs re-prompt with `answer y or n`. If both 1 and 2 are declined, refuse with NFR-10 shape and re-ask only those two; if declined again, still emit the section with all-false defaults (read-side `readDocsConfig` returns all-false for an absent section by design).
 
 Write the section as Schema L (lowercase `true`/`false`, no quoting), placed immediately after `## Task Tracking`. Re-runs are atomic — splice the full block, write once.
 
@@ -221,16 +221,16 @@ If the user didn't ask for specs, skip this step.
 
 ### 8a. Audit-section post-condition
 
-`verification:` runs unconditionally before step 8b's bootstrap commit. Materialises the deterministic post-condition that every well-formed `/setup` run with at least one populated Schema L surface (`branch_template:` populated **or** `## Docs` present) ships a `## /setup audit` section — provenance is preserved per resolution via the entry's `reason:` field, not gated on whether a default was applied (STE-153 AC-STE-153.1).
+`verification:` runs unconditionally before step 8b's bootstrap commit. Materialises the deterministic post-condition that every well-formed `/setup` run with at least one populated Schema L surface (`branch_template:` populated **or** `## Docs` present) ships a `## /setup audit` section — provenance is preserved per resolution via the entry's `reason:` field, not gated on whether a default was applied.
 
 1. Read CLAUDE.md once.
-2. Call `hasDefaultApplicableOutcomes(content)` from `adapters/_shared/src/setup_audit_section_presence.ts` — single source of truth for the audit-required surfaces predicate (`branch_template:` populated **or** `## Docs` present). Reused by `/setup` step 8a and `/gate-check` probe #19 (STE-123 AC-STE-123.1).
+2. Call `hasDefaultApplicableOutcomes(content)` from `adapters/_shared/src/setup_audit_section_presence.ts` — single source of truth for the audit-required surfaces predicate (`branch_template:` populated **or** `## Docs` present). Reused by `/setup` step 8a and `/gate-check` probe #19.
 3. Branch:
    - **false** ⇒ no-op, continue to 8b. Vacuous when no Schema L surface is populated (interactive run that wrote neither `branch_template:` nor `## Docs`).
    - **true AND** `## /setup audit` heading present ⇒ no-op. Per-step appends already populated it.
-   - **true AND** heading absent ⇒ call `synthesizeAuditSection(claudeMdPath, resolvedSchemaLValues)` from `adapters/_shared/src/setup/synthesize_audit.ts`. Pass the **in-scope resolved Schema L values table** populated during 7b/7c/7d — every resolution lands here, user-supplied or default-applied. Never re-derive from CLAUDE.md. The helper is idempotent (`(step, field)` dedup; AC-STE-123.3).
+   - **true AND** heading absent ⇒ call `synthesizeAuditSection(claudeMdPath, resolvedSchemaLValues)` from `adapters/_shared/src/setup/synthesize_audit.ts`. Pass the **in-scope resolved Schema L values table** populated during 7b/7c/7d — every resolution lands here, user-supplied or default-applied. Never re-derive from CLAUDE.md. The helper is idempotent (`(step, field)` dedup).
 
-On `AuditPostconditionUnsatisfiable` (the resolved Schema L values table is empty but the file shows audit-required surfaces — defensive invariant, AC-STE-123.4; unreachable on the canonical 7b/7c/7d → 8a path post-STE-153), refuse with NFR-10 canonical shape and abort before 8b commits malformed output. Full refusal text + procedure: `docs/setup-reference.md` § Step 8a.
+On `AuditPostconditionUnsatisfiable` (the resolved Schema L values table is empty but the file shows audit-required surfaces — defensive invariant; unreachable on the canonical 7b/7c/7d → 8a path), refuse with NFR-10 canonical shape and abort before 8b commits malformed output. Full refusal text + procedure: `docs/setup-reference.md` § Step 8a.
 
 ### 8b. Bootstrap commit
 

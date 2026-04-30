@@ -17,26 +17,26 @@ default) never reads this document — the `mode: none` branch runs unchanged.
   `CLAUDE.md` per Schema L (technical-spec §7.3). Absence ≡ `none`
  — `/setup` never writes a `mode: none` line.
 - **Never silent writes.** Every `settings.json` and `CLAUDE.md` edit is
-  preview + explicit confirm (AC-STE-9.3, DD-12.9).
+  preview + explicit confirm (DD-12.9).
 - **Bun prerequisite.** `bun --version` runs before any tracker recording
 ; absence is an NFR-10 canonical-shape error.
 - **Test call on completion.** After MCP detection / install /
   confirmation, `/setup` runs a harmless live call (Linear
   `list_teams`, Jira `search` no-criteria). On failure, surface NFR-10
-  canonical shape and refuse to record mode (AC-STE-9.4, AC-STE-9.5).
+  canonical shape and refuse to record mode.
 - **Per-tenant discovery.** Jira AC custom-field. Records
   `jira_ac_field` in `## Task Tracking`.
 
-## Task map (Phase C traceability)
+## Task map (Phase C)
 
-| Task | Section in this doc | AC refs |
-|------|---------------------|---------|
-| C.1 — Mode question (default `none`, skippable) | The tracker-mode question | AC-STE-8.1, AC-STE-8.2, AC-STE-8.5 |
-| C.2 — Bun install check, hard-stop | Bun prerequisite check | AC-STE-9.8, NFR-10 |
-| C.3 — MCP detection via `claude mcp list` + dry-run settings.json diff | MCP detection | AC-STE-9.1, AC-STE-9.2 |
-| C.4 — settings.json confirm + write on approval | MCP detection | AC-STE-9.3, DD-12.9 |
-| C.5 — Test-call verification, hard-stop on fail | Test-call verification | AC-STE-9.4, AC-STE-9.5, NFR-10 |
-| C.6 — Jira custom-field discovery (one-time) | Per-tenant discovery / Jira | AC-STE-9.6 |
+| Task | Section in this doc |
+|------|---------------------|
+| C.1 — Mode question (default `none`, skippable) | The tracker-mode question |
+| C.2 — Bun install check, hard-stop | Bun prerequisite check |
+| C.3 — MCP detection via `claude mcp list` + dry-run settings.json diff | MCP detection |
+| C.4 — settings.json confirm + write on approval | MCP detection |
+| C.5 — Test-call verification, hard-stop on fail | Test-call verification |
+| C.6 — Jira custom-field discovery (one-time) | Per-tenant discovery / Jira |
 
 ## The tracker-mode question
 
@@ -53,8 +53,8 @@ before it's written):
 > [1-4, default 1]:
 > ```
 
-If the user picks `1` or skips, do NOT add `## Task Tracking` to CLAUDE.md
-(AC-STE-8.5). Continue the existing fresh-setup flow. If the user picks 2–4,
+If the user picks `1` or skips, do NOT add `## Task Tracking` to CLAUDE.md.
+Continue the existing fresh-setup flow. If the user picks 2–4,
 proceed through the remaining tracker-mode steps in order.
 
 ## Bun prerequisite check
@@ -74,7 +74,7 @@ Remedy: install Bun ≥ 1.2 (macOS: brew install bun; Linux: curl -fsSL https://
 Context: mode=<picked>, ticket=unbound, skill=setup
 ```
 
-## MCP detection (AC-STE-9.1, AC-STE-9.2)
+## MCP detection
 
 Shell out to `claude mcp list` to enumerate currently configured MCP servers
 across enterprise / user / project / local scopes (DD-12.8). If the adapter
@@ -100,7 +100,7 @@ Apply? [y/N]:
 On `n`, abort the tracker-mode portion cleanly; leave all files untouched.
 `mode: none` remains in effect.
 
-## Test-call verification (AC-STE-9.4, AC-STE-9.5)
+## Test-call verification
 
 After detection / install / confirmation, run exactly one harmless call:
 
@@ -202,7 +202,7 @@ Blank values for keys that don't apply to the picked mode are legal (Schema L).
 `git log` is the audit trail for sync, mode-switch, and resolution events — no
 separate subsection is maintained.
 
-## Branch template (STE-64, `/setup` step 7c)
+## Branch template (`/setup` step 7c)
 
 Immediately after Schema L is authored (or after step 7b in `mode: none`),
 prompt once:
@@ -218,16 +218,16 @@ prompt once:
 
 **Placeholders (substituted by `/implement` at prompt-time)**
 
-- `{type}` — LLM-inferred `feat` / `fix` / `chore` (unknown values clamp to `feat`; AC-STE-64.13).
+- `{type}` — LLM-inferred `feat` / `fix` / `chore` (unknown values clamp to `feat`).
 - `{N}` — milestone number for milestone runs (e.g. `19` for `M19`).
-- `{ticket-id}` — tracker ID in tracker mode (e.g. `STE-64`, lowercased); short-ULID tail (chars 23–29, lowercased) in `mode: none`.
+- `{ticket-id}` — tracker ID in tracker mode (e.g. `<TKR>-NN`, lowercased); short-ULID tail (chars 23–29, lowercased) in `mode: none`.
 - `{slug}` — LLM-inferred 2–4 word kebab. `[a-z0-9-]` only after sanitization.
 
 **Response handling**
 
 - Empty ⇒ accept default.
 - Non-empty ⇒ use verbatim. Skill sanitizes LLM output at render time, so templates need not be shell-safe.
-- Rendered branch name > 60 chars ⇒ slug truncated (template prefix preserved; AC-STE-64.5).
+- Rendered branch name > 60 chars ⇒ slug truncated (template prefix preserved).
 
 **Skip conditions**
 

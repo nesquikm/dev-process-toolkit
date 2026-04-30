@@ -1,9 +1,9 @@
-# Ticket Binding (Pattern 6 + STE-27)
+# Ticket Binding (Pattern 6)
 
 Every skill that mutates the tracker (`/implement`, `/spec-write`, `/gate-check`,
 `/pr`) resolves and **confirms** the active ticket before any side effect.
 Silent mutation on a misidentified ticket is the #1 duck-council trust risk
-(DD-12.10); STE-27 makes confirmation mandatory.
+(DD-12.10); confirmation is mandatory.
 
 In `mode: none`, this entire document is unused — the `mode: none` branch
 runs unchanged.
@@ -51,7 +51,7 @@ Remedy: rename the branch to match the adapter's regex, or pass the
 ticket ID explicitly (e.g., /implement <ID>).
 ```
 
-## Mandatory confirmation (AC-STE-27.1, AC-STE-27.4)
+## Mandatory confirmation
 
 After resolving the ID, **every** mutating skill prints:
 
@@ -77,10 +77,10 @@ exits the skill cleanly with zero side effects.
 
 - **Tier 1 matches** → clean hit; silent win (Pattern 6).
 - **Tier 1 misses (no ticket-shaped token on the branch)** → prompt user (Tier 2).
-- **Tier 1 encounters a ticket-shaped token that doesn't match the adapter's regex** → fail loudly per AC-STE-27.3 above.
+- **Tier 1 encounters a ticket-shaped token that doesn't match the adapter's regex** → fail loudly per the malformed-token rule above.
 - **Tier 2 prompt declined** → skill exits cleanly; nothing written.
 
-## Mode-transition FR rename (M18 STE-60 AC-STE-60.6)
+## Mode-transition FR rename
 
 When `/setup --migrate` flips `mode:` between `none` and a tracker (or between two trackers), every active FR under `specs/frs/*.md` is re-named to the target mode's `Provider.filenameFor(spec)` in the migration commit. Archive is untouched. This is the *only* place skills rename FR files — `/spec-write`, `/implement`, and `/spec-archive` all preserve stems.
 
