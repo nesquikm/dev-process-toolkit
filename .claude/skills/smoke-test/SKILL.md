@@ -1,6 +1,6 @@
 ---
 name: smoke-test
-description: Spawn a fresh Bun project under ../dpt-test-project and drive the dev-process-toolkit plugin's full skill chain (/setup → /spec-write → /implement → /gate-check → /spec-review → /simplify) via claude-st -p child sessions, capturing findings. Pre-release sanity check, not CI. Real Linear or Jira writes (per `--tracker`), ~10 min wall-clock.
+description: Spawn a fresh Bun project under ../dpt-test-project-<tracker> and drive the dev-process-toolkit plugin's full skill chain (/setup → /spec-write → /implement → /gate-check → /spec-review → /simplify) via claude-st -p child sessions, capturing findings. Pre-release sanity check, not CI. Real Linear or Jira writes (per `--tracker`), ~10 min wall-clock. Two-terminal tandem runs (one per tracker) are supported.
 argument-hint: '[--tracker linear|jira] [--jira-project KEY] [--keep] [--linear-team STE] [--feature-stub greet]'
 disable-model-invocation: true
 ---
@@ -11,11 +11,28 @@ Drive the dev-process-toolkit plugin end-to-end against a freshly-scaffolded Bun
 
 This is the autonomous variant: the parent claude session spawns `claude-st -p` children, captures their output, and writes findings + a teardown checklist. The skill drives **either** the Linear path (default, `--tracker linear`, runs #1–#4) **or** the Jira path (`--tracker jira --jira-project <KEY>`, runs #5–#6) — the canonical chain (`/setup → /spec-write → /implement → /gate-check → /spec-review → /simplify`) is identical in both modes; only Phase 1 (project setup) and Phase 5 (teardown) branch on `--tracker`. See § smoke-test runs at the bottom of this file for the full reference-run list.
 
+Every per-run artifact is keyed on the resolved `<tracker>` (one of `linear` / `jira`): the test-project basename is `../dpt-test-project-<tracker>`, the findings file is `/tmp/dpt-smoke-findings-<date>-<tracker>.md`, per-skill logs are `/tmp/dpt-smoke-<tracker>-<skill>.log`, the wrapped MCP config is `/tmp/dpt-smoke-mcp-config-<tracker>.json`, and the approval record is `/tmp/dpt-smoke-<date>-<tracker>-approval.txt`. This is what makes the two-terminal tandem run (§ Operator-driven parallelism, below) safe.
+
 ## When to use
 
 - Before `/ship-milestone M<N>` runs, as a pre-release sanity check.
 - After landing any FR that touches `skills/setup/SKILL.md`, `skills/spec-write/SKILL.md`, `skills/implement/SKILL.md`, `skills/gate-check/SKILL.md`, `skills/spec-archive/SKILL.md`, or any of the `templates/` files.
-- Not for every commit, not in CI — this is expensive (real LLM tokens, real Linear writes) and slow (~10 minutes wall-clock).
+- Not for every commit, not in CI — this is expensive (real LLM tokens, real Linear writes) and slow (~10 minutes wall-clock per tracker; ~11–14 min wall-clock for a tandem run, see § Operator-driven parallelism).
+
+## Operator-driven parallelism
+
+Two `/smoke-test` invocations may run **concurrently in two terminals**, one per tracker, without filesystem collision or artifact-overwrite races. Per-tracker artifact isolation makes this safe by construction:
+
+- `--tracker linear` writes to `../dpt-test-project-linear` and `/tmp/dpt-smoke-*-linear.{md,log,json,txt}`.
+- `--tracker jira --jira-project <KEY>` writes to `../dpt-test-project-jira` and `/tmp/dpt-smoke-*-jira.{md,log,json,txt}`.
+
+The two runs never touch the same path, never read the same MCP config, and never write the same findings file. Each invocation owns its own approval gate, its own teardown checklist, and its own trace.
+
+**No combined-mode flag.** `--tracker linear,jira` does not exist; there is no parent-side fan-out, no console-multiplexing, and **no merged findings file** — each terminal emits its own `/tmp/dpt-smoke-findings-<date>-<tracker>.md`. If a combined view is needed, read the two findings files side-by-side. This was a deliberate brainstorm choice (2026-04-30, approach 1 selected over approaches 2 and 3) — minimum viable surface area, clean failure isolation per tracker, no merged-findings logic to maintain.
+
+**Rate-limit caveat.** Both child chains bill against the same Anthropic API key concurrently, so the wall-clock win is **below 2×** — the API throttles the two streams against a shared budget. A typical tandem completes in ~11–14 min wall-clock vs. ~10 min solo, not 5 min. This is expected and acceptable; plan for ~70% of theoretical 2×. If the wall-clock win is consistently below 1.3× across multiple tandem runs, file a follow-up FR with measured traces — the next milestone may revisit (e.g., approach 2 — one driver, fan-out in Phase 2 only).
+
+**Failure isolation.** A hang or abort in one terminal does not stall the other; each invocation is self-contained. The operator can `Ctrl-C` one and let the other complete. Phase 5 teardown runs independently per tracker.
 
 ## Argument parsing
 
@@ -31,27 +48,31 @@ Resolved values flow into the rest of the skill: pre-flights #3 / #5 fire on the
 
 Each fires before any side effects, exits non-zero with an NFR-10-shape message. Pre-flights #3 / #5 are **Linear-only** and fire only when `--tracker linear` (default) is active; pre-flights #7 / #8 are **Jira-only** and fire only when `--tracker jira` is active. Pre-flights #1, #2, #4, #6 always fire regardless of `--tracker`:
 
-1. **Not in the dev-process-toolkit repo.** `pwd` must end in `/dev-process-toolkit`. The skill writes to `../dpt-test-project` (a sibling of the repo); running it from elsewhere creates the test project in the wrong place.
-2. **`../dpt-test-project` already exists.** Refuse unless `--keep` was passed at the *previous* invocation (in which case verify the dir is empty / matches the expected post-teardown shape). If a prior run left state, the operator should `rm -rf ../dpt-test-project` and re-run, or pass an explicit recovery mode.
+1. **Not in the dev-process-toolkit repo.** `pwd` must end in `/dev-process-toolkit`. The skill writes to `../dpt-test-project-<tracker>` (a sibling of the repo); running it from elsewhere creates the test project in the wrong place.
+2. **`../dpt-test-project-<tracker>` already exists** (per-tracker basename — `../dpt-test-project-linear` for `--tracker linear`, `../dpt-test-project-jira` for `--tracker jira`). Refuse unless `--keep` was passed at the *previous* invocation against the **same tracker** (in which case verify the dir is empty / matches the expected post-teardown shape). If a prior same-tracker run left state, the operator should `rm -rf ../dpt-test-project-<tracker>` and re-run, or pass an explicit recovery mode. The refusal message names the per-tracker path so a Linear run does not refuse just because a concurrent Jira run owns `../dpt-test-project-jira` (operator-driven parallelism, see § Operator-driven parallelism).
 3. **(Linear-only) Linear MCP not available** in `~/.claude-st/` config. The skill calls Linear via `mcp__linear__*` tools through the child claude-st sessions; without the MCP server registered, those calls fail mid-run and leave half-created issues.
 4. **Uncommitted changes in the toolkit repo.** The skill doesn't modify the toolkit repo, but a dirty tree means the operator may be mid-feature; surface this before tying up 10 minutes on a smoke run that may be against a moving target.
 5. **(Linear-only) Linear team key not resolvable.** Default `STE`; override with `--linear-team`. Verify via `mcp__linear__list_teams` before starting.
 6. **Path-safety on the test-project location.** Before spawning any child with `--permission-mode bypassPermissions` (see Phase 0), the driver MUST verify the resolved test-project path:
    - Resolves with `realpath` (no broken symlinks). On macOS `realpath` requires the path to exist; resolve via the parent dir + basename instead, since the test-project itself doesn't yet exist when this fires.
    - Has the toolkit-repo path as its parent's parent (i.e. is a true sibling of `dev-process-toolkit`, not an ancestor, child, or unrelated location).
-   - Basename matches `dpt-test-project` exactly (no override). Hard-coded by design; bypassPermissions is scoped to one well-known throwaway path.
+   - Basename matches one of the closed allow-list `{dpt-test-project-linear, dpt-test-project-jira}` exactly — no other forms accepted (the bare `dpt-test-project` basename is intentionally rejected). Hard-coded by design; bypassPermissions is scoped to two well-known throwaway paths, one per tracker.
    - Is not a symlink, is not inside `$HOME` directly (must be under a `workspace/` ancestor), is not the toolkit repo itself.
    Any failure refuses with NFR-10. This is the load-bearing safety rail that justifies bypassPermissions in Phase 2.
 
-   **Reference implementation** (verified 2026-04-27 against six adversarial cases — wrong-basename, not-sibling, symlink-decoy, is-toolkit, no-workspace-ancestor, canonical-good):
+   **Reference implementation** (originally verified 2026-04-27 against six adversarial cases — wrong-basename, not-sibling, symlink-decoy, is-toolkit, no-workspace-ancestor, canonical-good; M46 expanded the canonical-good case to two valid forms — `dpt-test-project-linear` and `dpt-test-project-jira` — and added three new negative cases — bare basename `dpt-test-project`, garbage-suffix `dpt-test-project-foo`, case-mismatch `dpt-test-project-LINEAR`):
 
    ```bash
    TOOLKIT_REPO="$(pwd)"
-   TEST_PATH="../dpt-test-project"
+   TRACKER="${TRACKER:?--tracker must resolve to linear|jira before pre-flight #6}"
+   TEST_PATH="../dpt-test-project-${TRACKER}"
    TOOLKIT_REAL="$(realpath "$TOOLKIT_REPO")"
    TEST_DIR_REAL="$(realpath "$(dirname "$TEST_PATH")")" || exit 1
    TEST_REAL="$TEST_DIR_REAL/$(basename "$TEST_PATH")"
-   [ "$(basename "$TEST_REAL")" = "dpt-test-project" ] || exit 1
+   case "$(basename "$TEST_REAL")" in
+     dpt-test-project-linear|dpt-test-project-jira) ;;
+     *) exit 1 ;;
+   esac
    [ "$(dirname "$TEST_REAL")" = "$(dirname "$TOOLKIT_REAL")" ] || exit 1
    [ ! -e "$TEST_REAL" ] || [ ! -L "$TEST_REAL" ] || exit 1
    case "$TEST_REAL" in "$HOME"/workspace/*) ;; *) exit 1 ;; esac
@@ -91,7 +112,7 @@ The flow is six phases. Each phase prints its name + status (RUN / PASS / FAIL /
 
 ### Phase 0 — Pre-approval gate
 
-The skill spawns `claude-st -p` children with `--permission-mode bypassPermissions` AND pre-creates `.claude/settings.json` + `.mcp.json` from the parent's Bash tool (run #3 F-DR7 — the harness's sensitive-path classification of those two files survives bypass mode at the *child*'s model layer, but parent-side shell I/O via heredoc is not subject to it). See the **Threat model** section at the bottom of this file for why this combination is acceptable here. Briefly: the test-project path is hard-coded to `../dpt-test-project` (verified by pre-flight #6), the directory is throwaway (created and torn down per run), and the alternatives (`acceptEdits + per-path Write` in run #2, plain `bypassPermissions` in run #3) were both empirically falsified.
+The skill spawns `claude-st -p` children with `--permission-mode bypassPermissions` AND pre-creates `.claude/settings.json` + `.mcp.json` from the parent's Bash tool (run #3 F-DR7 — the harness's sensitive-path classification of those two files survives bypass mode at the *child*'s model layer, but parent-side shell I/O via heredoc is not subject to it). See the **Threat model** section at the bottom of this file for why this combination is acceptable here. Briefly: the test-project path is hard-coded to one of `../dpt-test-project-{linear,jira}` (verified by pre-flight #6's two-element allow-list), the directory is throwaway (created and torn down per run), and the alternatives (`acceptEdits + per-path Write` in run #2, plain `bypassPermissions` in run #3) were both empirically falsified.
 
 Print this contract to the operator and prompt for `y` to proceed:
 
@@ -104,15 +125,18 @@ The "Real <tracker> writes will occur" line branches on `--tracker`:
 /smoke-test will:
   1. Pre-create .claude/settings.json and .mcp.json from the driver process
      (parent's Bash heredoc, not subject to the child's sensitive-path block).
-  2. Spawn claude-st child sessions in ../dpt-test-project with
+  2. Spawn claude-st child sessions in ../dpt-test-project-<tracker> with
      --permission-mode bypassPermissions.
 
 <rendered-tracker-line>
 
 Path-safety pre-flights have verified the test-project path is a true sibling
-of the toolkit repo (basename "dpt-test-project", under a workspace/ ancestor,
-not a symlink, not the toolkit repo itself). bypassPermissions is scoped to
-this one path; the operator's other projects are unaffected.
+of the toolkit repo (basename "dpt-test-project-<tracker>", one of the closed
+allow-list {dpt-test-project-linear, dpt-test-project-jira}, under a
+workspace/ ancestor, not a symlink, not the toolkit repo itself).
+bypassPermissions is scoped to this one path; the operator's other projects
+are unaffected. A concurrent run against the other tracker (see § Operator-
+driven parallelism) writes to its own basename and never touches this one.
 
 CAVEAT: smoke test exercises /setup's "files-already-exist, idempotent merge"
 branch, NOT the fresh-create branch. Fresh-create coverage requires a separate
@@ -121,23 +145,23 @@ manual probe.
 Proceed? [y/n]
 ```
 
-Substitute `<rendered-tracker-line>` with the per-tracker line above before printing — never present the literal `<rendered-tracker-line>` placeholder to the operator.
+Substitute `<rendered-tracker-line>` with the per-tracker line above before printing — never present the literal `<rendered-tracker-line>` placeholder to the operator. Substitute `<tracker>` with the resolved value (`linear` / `jira`) — likewise never print the placeholder literal.
 
-Refuse on `n`. On `y`, log the approval to /tmp/dpt-smoke-{date}-approval.txt and proceed.
+Refuse on `n`. On `y`, log the approval to `/tmp/dpt-smoke-<date>-<tracker>-approval.txt` and proceed.
 
 ### Phase 1 — Setup
 
-1. Create `../dpt-test-project` and run `bun init -y`.
+1. Create `../dpt-test-project-<tracker>` and run `bun init -y`.
 2. Remove `bun init`'s stub `CLAUDE.md` (the plugin's `/setup` will overwrite it; cleaner to start blank).
-3. `cd ../dpt-test-project && git init -q && git add -A && git commit -q -m "chore: bun init scaffold"`.
+3. `cd ../dpt-test-project-<tracker> && git init -q && git add -A && git commit -q -m "chore: bun init scaffold"`.
 4. **Tracker workspace setup** — branches on `--tracker`:
 
    - **Linear path (`--tracker linear`, default).** Create a Linear project named `DPT Smoke Test (<YYYY-MM-DD>)` under team `STE` via `mcp__linear__save_project`. Save the project ID + URL to the findings file's header.
    - **Jira path (`--tracker jira`).** **No creation call** — the Atlassian Rovo MCP exposes no `createJiraProject` tool, so the operator must have created the Space (Jira project) in the Jira UI manually before running `/smoke-test`. Pre-flight #8 has already verified visibility via `mcp__atlassian__getVisibleJiraProjects`; this step is a vacuous re-affirmation. Save the Space key (e.g., `DST`) and the Atlassian site URL to the findings file's header. Document: the Space is reused across runs (no per-run isolation); Phase 5 teardown closes only the work items this run created (matched by label `dpt-smoke` + creation-time window).
 5. **MCP config — branches on `--tracker`:**
 
-   - **Linear path.** Construct the wrapped Linear MCP config at `/tmp/dpt-smoke-mcp-config.json`. Source: `~/.claude-st/plugins/marketplaces/claude-plugins-official/external_plugins/linear/.mcp.json` (a bare server entry without the `mcpServers:` envelope). Wrap it as `{"mcpServers": <source>}` and write to /tmp. This is required because `--plugin-dir` (used to load the in-tree plugin under test) shadows plugin-loaded MCPs (see F-DR3 from run #1).
-   - **Jira path.** Construct the wrapped Atlassian Rovo MCP config at `/tmp/dpt-smoke-mcp-config.json` directly (the Rovo MCP entry is a single-line `http`-transport URL with no auth material — child sessions inherit OAuth state from `~/.claude-st/`):
+   - **Linear path.** Construct the wrapped Linear MCP config at `/tmp/dpt-smoke-mcp-config-linear.json`. Source: `~/.claude-st/plugins/marketplaces/claude-plugins-official/external_plugins/linear/.mcp.json` (a bare server entry without the `mcpServers:` envelope). Wrap it as `{"mcpServers": <source>}` and write to /tmp. This is required because `--plugin-dir` (used to load the in-tree plugin under test) shadows plugin-loaded MCPs (see F-DR3 from run #1).
+   - **Jira path.** Construct the wrapped Atlassian Rovo MCP config at `/tmp/dpt-smoke-mcp-config-jira.json` directly (the Rovo MCP entry is a single-line `http`-transport URL with no auth material — child sessions inherit OAuth state from `~/.claude-st/`):
 
      ```json
      {"mcpServers": {"atlassian": {"type": "http", "url": "https://mcp.atlassian.com/v1/mcp/authv2"}}}
@@ -205,20 +229,20 @@ Refuse on `n`. On `y`, log the approval to /tmp/dpt-smoke-{date}-approval.txt an
    `jira_ac_field: description` is the zero-config sentinel from STE-154 AC-STE-154.3 — ACs live as a bullet list under a `## Acceptance Criteria` heading inside each Jira issue's description body; pull_acs / push_ac_toggle parse and rewrite that section atomically. `default_labels: [dpt-smoke]` is the free-form `### Jira` sub-section field (per `docs/patterns.md` § Schema L Workspace binding sub-sections); the Jira adapter forwards every entry into `mcp__atlassian__createJiraIssue.additional_fields.labels` on every issue created during the run, which is what makes Phase 5 teardown's `labels = "dpt-smoke"` JQL find them.
 
    Match the rest of the canonical content from `plugins/dev-process-toolkit/skills/setup/SKILL.md` step 6/7 (refresh as the plugin evolves). The /setup child detects existing files and takes the idempotent-merge branch.
-7. Print: "Setup phase complete. Test project: ../dpt-test-project; tracker: <linear|jira>; <Linear project URL | Jira Space key + site URL>; MCP config: /tmp/dpt-smoke-mcp-config.json; sensitive files pre-created."
+7. Print: "Setup phase complete. Test project: ../dpt-test-project-<tracker>; tracker: <linear|jira>; <Linear project URL | Jira Space key + site URL>; MCP config: /tmp/dpt-smoke-mcp-config-<tracker>.json; sensitive files pre-created."
 
 ### Phase 2 — Run the canonical chain
 
 Spawn one `claude-st -p` child per skill, sequentially. Each child:
 
-- Has `cwd=../dpt-test-project`.
+- Has `cwd=../dpt-test-project-<tracker>`.
 - Is invoked as `CLAUDE_CONFIG_DIR=~/.claude-st claude -p ...` — NOT `claude-st -p`. The `claude-st` zsh alias does not expand inside the parent harness's Bash tool (run #1 F-DR1).
 - Uses `--permission-mode bypassPermissions`. Required for the chain's normal Bash + MCP operations to skip per-prompt approval. NOT sufficient alone for `.claude/settings.json` / `.mcp.json` writes — those are blocked even under bypass (run #3 F-DR7), which is why Phase 1 step 6 pre-creates them from the parent. Combined: bypass for the bulk of the chain + parent-pre-creation for the sensitive paths = end-to-end runnable.
-- Passes `--mcp-config /tmp/dpt-smoke-mcp-config.json` (built in Phase 1 step 5; `linear` entry on the Linear path, `atlassian` entry on the Jira path) so the active tracker MCP is available even when `--plugin-dir` shadows plugin-loaded MCPs (run #1 F-DR3).
+- Passes `--mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json` (built in Phase 1 step 5; `linear` entry on the Linear path, `atlassian` entry on the Jira path) so the active tracker MCP is available even when `--plugin-dir` shadows plugin-loaded MCPs (run #1 F-DR3). The per-tracker filename keeps a concurrent run against the other tracker from clobbering this run's config (operator-driven parallelism).
 - Passes `--plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit` to load the in-tree plugin under test (not the cached version under `~/.claude-st/plugins/cache/`).
 - Has `--max-budget-usd 3` (per-skill budget cap).
 - Receives a fully-pre-baked prompt where the slash command is the **literal first line of the user message**, not wrapped in natural language. Plugin skills carry `disable-model-invocation: true`, which blocks the child's model from calling them via the Skill tool; only user-typed slash commands trigger them (run #1 F-DR2). Pre-baked answers go on the lines after.
-- Has its stdout/stderr captured to `/tmp/dpt-smoke-<skill>.log`.
+- Has its stdout/stderr captured to `/tmp/dpt-smoke-<tracker>-<skill>.log` (e.g., `/tmp/dpt-smoke-jira-implement.log`).
 
 Skills to run, in order:
 
@@ -254,19 +278,19 @@ After every skill completes, parse its log and the test-project state, generatin
 **Severity:** high / medium / low. <one-line rationale>
 ```
 
-Group findings by skill and severity. Append to `/tmp/dpt-smoke-findings-<YYYY-MM-DD>.md` using the template at `.claude/skills/smoke-test-template.md` (TODO: separate file once the template stabilizes; for now, follow the shape of the canonical 2026-04-25 run at `/tmp/dpt-smoke-findings.md`).
+Group findings by skill and severity. Append to `/tmp/dpt-smoke-findings-<YYYY-MM-DD>-<tracker>.md` (per-tracker filename keeps a concurrent run's findings file separate; see § Operator-driven parallelism). Use the template at `.claude/skills/smoke-test-template.md` (TODO: separate file once the template stabilizes; for now, follow the shape of the canonical 2026-04-25 run at `/tmp/dpt-smoke-findings.md`).
 
-Header includes: date, plugin version (read from `plugins/dev-process-toolkit/.claude-plugin/plugin.json`), driver-side caveats, what worked, what didn't, suggested follow-up FR titles.
+Header includes: date, tracker (`linear` or `jira`), plugin version (read from `plugins/dev-process-toolkit/.claude-plugin/plugin.json`), driver-side caveats, what worked, what didn't, suggested follow-up FR titles.
 
 ### Phase 4 — Verify-on-disk
 
 For each major output the skills claim to produce, verify it actually landed on disk. Most rows are tracker-agnostic; the `.mcp.json` entry, the FR's compact tracker block, and the ticket-state assertion branch on `--tracker`:
 
-- `../dpt-test-project/CLAUDE.md` — exists, has `## Task Tracking`, has `## Docs` (post-M29 STE-107). On the **Jira path**, `## Task Tracking` declares `mode: jira`, `mcp_server: atlassian`, `jira_ac_field: description`, and a `### Jira` sub-section with `project: <flag>` + `default_labels: [dpt-smoke]`. On the **Linear path**, `mode: linear`, `mcp_server: linear`, `jira_ac_field:` blank, `### Linear` sub-section with `team:` + `project:`.
-- `../dpt-test-project/.claude/settings.json` — exists, valid JSON, has the canonical allow-list (post-M29 STE-106).
-- `../dpt-test-project/.mcp.json` — exists; on the Linear path has the `linear` adapter entry, on the Jira path has the `atlassian` adapter entry (post-M29 STE-106).
-- `../dpt-test-project/specs/{requirements.md, technical-spec.md, testing-spec.md, plan/M1.md}` — exist.
-- `../dpt-test-project/specs/frs/<feature-id>.md` OR `specs/frs/archive/<feature-id>.md` — exists with no `id:` field (post-M29 STE-110); compact tracker block `{ linear: STE-N }` on the Linear path or `{ jira: <KEY>-N }` on the Jira path.
+- `../dpt-test-project-<tracker>/CLAUDE.md` — exists, has `## Task Tracking`, has `## Docs` (post-M29 STE-107). On the **Jira path**, `## Task Tracking` declares `mode: jira`, `mcp_server: atlassian`, `jira_ac_field: description`, and a `### Jira` sub-section with `project: <flag>` + `default_labels: [dpt-smoke]`. On the **Linear path**, `mode: linear`, `mcp_server: linear`, `jira_ac_field:` blank, `### Linear` sub-section with `team:` + `project:`.
+- `../dpt-test-project-<tracker>/.claude/settings.json` — exists, valid JSON, has the canonical allow-list (post-M29 STE-106).
+- `../dpt-test-project-<tracker>/.mcp.json` — exists; on the Linear path has the `linear` adapter entry, on the Jira path has the `atlassian` adapter entry (post-M29 STE-106).
+- `../dpt-test-project-<tracker>/specs/{requirements.md, technical-spec.md, testing-spec.md, plan/M1.md}` — exist.
+- `../dpt-test-project-<tracker>/specs/frs/<feature-id>.md` OR `specs/frs/archive/<feature-id>.md` — exists with no `id:` field (post-M29 STE-110); compact tracker block `{ linear: STE-N }` on the Linear path or `{ jira: <KEY>-N }` on the Jira path.
 - Tracker ticket exists, status = `Done`, assignee = current user, completion timestamp populated. **Linear path:** `mcp__linear__get_issue` returns `status: "Done"`, `completedAt` set. **Jira path:** `mcp__atlassian__getJiraIssue` returns the work item in the `Done` status (or its workflow-level equivalent reached via the `getTransitionsForJiraIssue` `to.statusCategory.key == "done"` fallback).
 - `bunx tsc --noEmit && bun test` exits 0; expected feature-stub test count.
 
@@ -274,22 +298,22 @@ Each verification result feeds into Phase 3's findings.
 
 ### Phase 5 — Teardown
 
-Teardown branches on `--tracker`. The directory cleanup (`rm -rf ../dpt-test-project`) is identical in both modes; the tracker-side cleanup differs because Atlassian's MCP exposes no `deleteJiraIssue` and no `deleteJiraProject` (documented limitation, not a bug).
+Teardown branches on `--tracker`. The directory cleanup (`rm -rf ../dpt-test-project-<tracker>`) keys on the per-tracker basename in both modes; the tracker-side cleanup differs because Atlassian's MCP exposes no `deleteJiraIssue` and no `deleteJiraProject` (documented limitation, not a bug). A concurrent run against the other tracker is unaffected by this teardown — its dir, findings, logs, and approval record live under a different per-tracker suffix.
 
 #### Linear path (`--tracker linear`, default)
 
 **On `--keep` (default off):** print the teardown checklist for the operator and exit:
 
 ```
-Smoke test complete. Findings: /tmp/dpt-smoke-findings-<date>.md.
+Smoke test complete. Findings: /tmp/dpt-smoke-findings-<date>-linear.md.
 
 Teardown when ready:
-  rm -rf ../dpt-test-project
+  rm -rf ../dpt-test-project-linear
   # In Linear: archive or delete the "DPT Smoke Test (<date>)" project
   #   (id <project-id>, team STE)
 ```
 
-**Without `--keep`:** prompt `Delete ../dpt-test-project and the Linear project? [y/n/keep]`. On `y`: `rm -rf` the dir; call `mcp__linear__save_project` with `state: completed` (Linear's no-delete-only-archive behavior is fine — the project becomes inaccessible from the team list but issues remain auditable). On `keep`: same as `--keep`. On `n`: same as `--keep` minus the suggestion.
+**Without `--keep`:** prompt `Delete ../dpt-test-project-linear and the Linear project? [y/n/keep]`. On `y`: `rm -rf` the dir; call `mcp__linear__save_project` with `state: completed` (Linear's no-delete-only-archive behavior is fine — the project becomes inaccessible from the team list but issues remain auditable). On `keep`: same as `--keep`. On `n`: same as `--keep` minus the suggestion.
 
 #### Jira path (`--tracker jira`)
 
@@ -308,17 +332,17 @@ The Atlassian MCP exposes no `deleteJiraIssue`. Teardown therefore closes (trans
 5. **On `--keep` (default off):** print the teardown checklist for the operator and exit:
 
    ```
-   Smoke test complete. Findings: /tmp/dpt-smoke-findings-<date>.md.
+   Smoke test complete. Findings: /tmp/dpt-smoke-findings-<date>-jira.md.
    Transitioned to Done: <N> work items (project=<flag-value>, label=dpt-smoke, run-window=[<run-start>, now]).
 
    Teardown when ready:
-     rm -rf ../dpt-test-project
+     rm -rf ../dpt-test-project-jira
      # In Jira: the Space (<flag-value>) is reused; only run-window items were
      # transitioned. Manual JQL for orphan cleanup, if needed:
      #   project = <flag-value> AND labels = "dpt-smoke" AND status != "Done"
    ```
 
-6. **Without `--keep`:** prompt `Delete ../dpt-test-project? [y/n/keep]` (the tracker-side cleanup already ran in steps 2–4, so this prompt is dir-only). On `y`: `rm -rf` the dir. On `keep`: same as `--keep`. On `n`: same as `--keep` minus the suggestion.
+6. **Without `--keep`:** prompt `Delete ../dpt-test-project-jira? [y/n/keep]` (the tracker-side cleanup already ran in steps 2–4, so this prompt is dir-only). On `y`: `rm -rf` the dir. On `keep`: same as `--keep`. On `n`: same as `--keep` minus the suggestion.
 
 **Idempotency.** If a previous run aborted mid-flow and left orphaned `dpt-smoke`-labeled items, the next run's Phase 5 picks them up — the JQL filter is by label + creation window, and widening the window costs nothing. Manual cleanup via JQL `project = <flag-value> AND labels = "dpt-smoke" AND status != "Done"` is always available.
 
@@ -343,9 +367,12 @@ Tools surface common to all: `Read`, `Edit`, `Write`, `Glob`, `Grep`, `Skill`, `
 
 ## Output
 
-- `/tmp/dpt-smoke-findings-<YYYY-MM-DD>.md` — findings file (the deliverable).
-- `/tmp/dpt-smoke-{setup,spec-write,implement,gate-check,spec-review,simplify}.log` — per-skill child stdout/stderr.
-- `/tmp/dpt-smoke-<date>-approval.txt` — operator approval record from Phase 0.
+All output paths carry the per-tracker `<tracker>` suffix (one of `linear` / `jira`) so a concurrent run against the other tracker (§ Operator-driven parallelism) cannot overwrite them:
+
+- `/tmp/dpt-smoke-findings-<YYYY-MM-DD>-<tracker>.md` — findings file (the deliverable).
+- `/tmp/dpt-smoke-<tracker>-{setup,spec-write,implement,gate-check,spec-review,simplify}.log` — per-skill child stdout/stderr.
+- `/tmp/dpt-smoke-mcp-config-<tracker>.json` — wrapped MCP config consumed by every child via `--mcp-config`.
+- `/tmp/dpt-smoke-<date>-<tracker>-approval.txt` — operator approval record from Phase 0.
 
 End-of-run console summary: total findings count by severity, link to findings file, teardown checklist.
 
@@ -363,8 +390,8 @@ End-of-run console summary: total findings count by severity, link to findings f
 
 `bypassPermissions` (in the child) plus parent-side pre-creation of `.claude/settings.json` and `.mcp.json` is a sharp combination. This skill uses it because the alternatives ("Phase 2 cannot run" — runs #2 and #3 falsified everything else), and a smoke test that cannot run has zero value. The safety rails that make this acceptable, in order of load-bearingness:
 
-1. **Hard-coded path.** The test-project path is always `<toolkit-repo-parent>/dpt-test-project`, with basename hard-coded. Pre-flight #6 verifies basename, sibling-of-toolkit-repo, real-path resolution, and not-a-symlink. The bypass is scoped to one well-known throwaway directory; the operator's other projects are unaffected.
-2. **Throwaway directory.** Phase 1 creates the dir; Phase 5 deletes it. There is no persistent state worth corrupting — every run starts from `bun init` and ends with `rm -rf`. A misbehaving child can damage at most one ephemeral scaffold.
+1. **Hard-coded paths.** The test-project path is always `<toolkit-repo-parent>/dpt-test-project-<tracker>` for `<tracker>` in the closed two-element allow-list `{linear, jira}` — scoped to two well-known throwaway directories, one per tracker, basename hard-coded by pre-flight #6 (which verifies basename membership in `{dpt-test-project-linear, dpt-test-project-jira}`, sibling-of-toolkit-repo, real-path resolution, and not-a-symlink). The bypass is scoped to those two paths; the operator's other projects are unaffected. A single invocation only ever touches one of the two — operator-driven parallelism (§ Operator-driven parallelism) runs them in separate processes against separate dirs.
+2. **Throwaway directory.** Phase 1 creates the dir; Phase 5 deletes it. There is no persistent state worth corrupting — every run starts from `bun init` and ends with `rm -rf` against the per-tracker basename. A misbehaving child can damage at most one ephemeral scaffold (its own tracker's dir; the sibling tracker's dir, if a concurrent run is alive, is owned by a separate process and not shared).
 3. **No network egress beyond the documented MCPs.** The child has no network-side tools beyond `mcp__linear__*` (Linear path) or `mcp__atlassian__*` (Jira path) via `--mcp-config`. It cannot exfiltrate to arbitrary hosts.
 4. **Budget cap.** `--max-budget-usd 3` per skill caps the blast radius of a runaway child to ~$18 across the chain.
 5. **Operator approval.** Phase 0 prints the contract and requires explicit `y`. The operator sees the bypass + the path before any side effects.
