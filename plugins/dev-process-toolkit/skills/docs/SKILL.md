@@ -42,14 +42,14 @@ Exit non-zero. Applies to all three flags; no flag bypasses this gate.
   Context: mode=<docs-mode>, skill=docs
   ```
 
-### 1. `/docs --quick` (AC-STE-70.3, AC-STE-71.*)
+### 1. `/docs --quick`
 
 Writes exactly one fragment to `docs/.pending/<fr-id>.md` and exits. Non-destructive beyond the single file write.
 
 1. **Compute the ImpactSet** — call `computeImpactSet({ mode: "working-tree", projectRoot })` from `adapters/_shared/src/impact_set.ts`. Filter to public symbols via `filterPublicSymbols(impactSet)`.
 2. **Empty-set no-op.** If `isEmptyImpactSet(publicSet)` is true, print the literal line `no doc-relevant changes detected — fragment not written` and exit `0`. Do not create an empty fragment.
 3. **Resolve `<fr-id>`.** If `branch_template:` in `CLAUDE.md` maps the current branch to a tracker ID or ULID, use that. Otherwise, pick the most-recent FR whose file appears in the diff (git-log it). If neither resolves, use `_unbound-<UTC-timestamp>.md` and include a `warning:` line in the fragment body.
-4. **Render the fragment.** Use the LLM prompt in `docs/docs-reference.md` § Quick-fragment prompt; the prompt pins `publicSet` as authoritative and includes the NFR-22-enforced verbatim constraint from AC-STE-71.7 verbatim:
+4. **Render the fragment.** Use the LLM prompt in `docs/docs-reference.md` § Quick-fragment prompt; the prompt pins `publicSet` as authoritative and includes the NFR-22-enforced verbatim constraint:
 
    > Write fragments ONLY for items in this set. Do NOT add content for diff changes outside this set. If a category is empty, do not write content for that category. Reproduce symbol names verbatim.
 
@@ -65,13 +65,13 @@ Writes exactly one fragment to `docs/.pending/<fr-id>.md` and exits. Non-destruc
    ---
    ```
 
-   `target_section` must be one of the four Diátaxis values (STE-69 CANONICAL_ANCHORS). `target_file` must begin with `docs/<target_section>/`.
+   `target_section` must be one of the four Diátaxis values (`CANONICAL_ANCHORS`). `target_file` must begin with `docs/<target_section>/`.
 
 6. **Packages-mode signature cache.** If `DocsConfig.packagesMode === true`, also call `extractSignatures(projectRoot, docsConfig)` from `adapters/_shared/src/signature_extractor.ts` and write the result as `docs/.pending/<fr-id>.signatures.json`. `/docs --commit` reads this cache to detect bit-rotted fragments at merge time.
 
-7. **Post-generation validator (AC-STE-71.7, NFR-22).** Scan the fragment body for TypeScript symbol mentions (backtick-quoted names). Any name not in `publicSet.symbols[*].name` → reject the fragment, re-prompt the LLM once with a strictened constraint that re-quotes the set. Second failure → write the fragment with a `<!-- warning: LLM output includes <list> not in impact set -->` header (never silent).
+7. **Post-generation validator (NFR-22).** Scan the fragment body for TypeScript symbol mentions (backtick-quoted names). Any name not in `publicSet.symbols[*].name` → reject the fragment, re-prompt the LLM once with a strictened constraint that re-quotes the set. Second failure → write the fragment with a `<!-- warning: LLM output includes <list> not in impact set -->` header (never silent).
 
-### 2. `/docs --commit` (AC-STE-70.4, AC-STE-70.8)
+### 2. `/docs --commit`
 
 Merges staged fragments. Gated on an intact nav contract.
 
@@ -97,9 +97,9 @@ Merges staged fragments. Gated on an intact nav contract.
 
 7. **On refusal.** No file writes. Fragments preserved. Print `commit declined; fragments preserved.` and exit `0`.
 
-### 3. `/docs --full` (AC-STE-70.5, AC-STE-70.8)
+### 3. `/docs --full`
 
-Regenerates the entire canonical `docs/` tree from sources of truth. Bypasses the nav-contract gate (it IS the recovery path) but still honors the DocsConfig gate (AC-STE-70.6 ∧ AC-STE-70.8).
+Regenerates the entire canonical `docs/` tree from sources of truth. Bypasses the nav-contract gate (it IS the recovery path) but still honors the DocsConfig gate.
 
 1. **Seed the layout (idempotent).** Call `ensureCanonicalLayout(projectRoot, docsConfig, templatesDir)` so missing directories/files are created from templates. Existing files are preserved and diff'd against the regenerated output.
 
@@ -109,7 +109,7 @@ Regenerates the entire canonical `docs/` tree from sources of truth. Bypasses th
    - Project source (for `ImpactSet` + `SignatureGroundTruth` when `packagesMode === true`).
    - Current `CHANGELOG.md`.
 
-3. **Packages-mode ground truth (AC-STE-72.*).** If `docsConfig.packagesMode === true`, call `extractSignatures(projectRoot, docsConfig)`. Pin the result as the LLM prompt's `SignatureGroundTruth` context block per AC-STE-72.3 (prompt verbatim in `docs/docs-reference.md` § Packages-mode prompt). After generation, run `validateGeneratedReference(llmOutput, ground)`:
+3. **Packages-mode ground truth.** If `docsConfig.packagesMode === true`, call `extractSignatures(projectRoot, docsConfig)`. Pin the result as the LLM prompt's `SignatureGroundTruth` context block (prompt verbatim in `docs/docs-reference.md` § Packages-mode prompt). After generation, run `validateGeneratedReference(llmOutput, ground)`:
    - `{ ok: true }` → continue.
    - `{ ok: false, invented }` → retry once with a strictened prompt re-quoting the ground truth. Second failure fails `/docs --full` with the NFR-10 canonical shape:
 
@@ -127,13 +127,13 @@ Regenerates the entire canonical `docs/` tree from sources of truth. Bypasses th
 
 5. **Full-tree diff + approval.** Compute a unified diff across every file in `docs/` (old vs. newly rendered). Print `=== Proposed diff (N files, M lines) ===`, body, `=== Apply? [y/N] ===`.
 
-6. **On approval.** Write every target file. Delete all `docs/.pending/*.md` + `*.signatures.json` fragments (superseded by the full regeneration per AC-STE-70.5). Exit `0`.
+6. **On approval.** Write every target file. Delete all `docs/.pending/*.md` + `*.signatures.json` fragments (superseded by the full regeneration). Exit `0`.
 
 7. **On refusal.** No file writes. `.pending/` preserved. Print `full regeneration declined; no writes.` and exit `0`.
 
 ## Rules
 
-- **Human approval is mandatory on `--commit` and `--full`.** The approval gate is the single strongest mitigation against the top failure mode identified in the M20 brainstorm ("LLM produces plausible-but-wrong content that gets approved as boilerplate"). Do not add a `--yes` flag or any approval-skipping shortcut (AC-STE-70.4, AC-STE-70.5).
+- **Human approval is mandatory on `--commit` and `--full`.** The approval gate is the single strongest mitigation against the top failure mode identified during the docs-mode brainstorm ("LLM produces plausible-but-wrong content that gets approved as boilerplate"). Do not add a `--yes` flag or any approval-skipping shortcut.
 - **`--full` never runs `git commit`.** Neither does `--commit`. The skill writes files and prints a commit-message suggestion; the caller decides whether to commit. This keeps doc regenerations reviewable in the git history.
 - **DocsConfig gate always fires first.** `--quick` refuses when docs are disabled — never writes a fragment against a disabled tree.
 - **Nav contract gate fires for `--commit`.** `--full` bypasses nav-contract (it's the fix), never DocsConfig.

@@ -59,7 +59,7 @@ Fires at Phase 1 entry, **between resolver (0.b′) and `claimLock` (0.c)** — 
 
 4. Run a single LLM pass over the FR's `## Requirement` section (or the milestone plan file's "Why this milestone exists" section for milestone runs) and return `{type, slug}` as structured JSON. `type` ∈ `{feat, fix, chore}`; `slug` is a 2–4 word kebab-case phrase summarizing the work.
 5. Call `buildBranchProposal({template, type, slug, milestone, trackerId, shortUlid})`. The function:
-   - Clamps `{type}` to the allowed set (unknown ⇒ `feat`; AC-STE-64.13).
+   - Clamps `{type}` to the allowed set (unknown ⇒ `feat`).
    - Sanitizes `{slug}` to `[a-z0-9-]`, collapses hyphen runs, strips leading/trailing hyphens.
    - Throws `EmptySlugError` if the slug sanitizes to empty (⇒ surface as NFR-10 refusal and re-prompt).
    - Substitutes `{type}`, `{N}`, `{ticket-id}`, `{slug}` into the template.
@@ -85,10 +85,10 @@ Only `/implement` reads `branch_template:`. `/tdd`, `/debug`, `/spec-write`, `/g
 Full sub-step ordering for the Phase 4 Milestone Archival block. The skill itself carries a condensed summary; consult this section when executing the archival or debugging an interrupted run. Sub-steps are lettered to avoid clashing with the Phase 4 flow numbering (steps 13–15 in the skill).
 
 a. Scan `specs/frs/*.md` for every FR with frontmatter `milestone == <current>`. Build the FR batch.
-b. For each batched FR: plan one `git mv specs/frs/<name> specs/frs/archive/<name>` (where `<name>` is `Provider.filenameFor(spec)` — M18 STE-60; stem preserved across the move) + frontmatter flip (`status: active → archived`; set `archived_at: <ISO now>`) + one `Provider.releaseLock(<ulid>)` call.
+b. For each batched FR: plan one `git mv specs/frs/<name> specs/frs/archive/<name>` (where `<name>` is `Provider.filenameFor(spec)`; stem preserved across the move) + frontmatter flip (`status: active → archived`; set `archived_at: <ISO now>`) + one `Provider.releaseLock(<ulid>)` call.
 c. If `specs/plan/<M#>.md` exists, plan one `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md` to batch alongside the FR moves.
 d. Present the full batch as a diff preview — list every `git mv`, every frontmatter flip, every `releaseLock`. Do not summarize.
-e. On explicit human approval (Phase 4 step 15): execute all moves + flips + `releaseLock` calls and commit atomically in a single commit (AC-STE-22.2, AC-STE-22.6). Any error aborts the entire batch — no partial archival.
+e. On explicit human approval (Phase 4 step 15): execute all moves + flips + `releaseLock` calls and commit atomically in a single commit. Any error aborts the entire batch — no partial archival.
 f. Run the Post-Archive Drift Check from `skills/spec-archive/SKILL.md` § Post-Archive Drift Check. Render the unified Schema I table; offer the 3-choice UX (address inline / save to `specs/drift-<date>.md` / acknowledge). The drift check never blocks the already-committed archival.
 g. `specs/technical-spec.md` is **never** archived — ADRs use `Superseded-by:` in place (ADR convention).
 
@@ -148,13 +148,13 @@ Fires only on a **milestone-scope** invocation (`/implement M<N>`) that shipped 
 
 ### Conditions (evaluated in order)
 
-1. **Invocation shape.** Skip entirely if `$ARGUMENTS` is a single-FR arg (e.g., `STE-42`, a ULID, a URL), the literal `all` / `remaining`, or empty / no arg. Only an `M<N>` arg qualifies.
+1. **Invocation shape.** Skip entirely if `$ARGUMENTS` is a single-FR arg (a tracker ID, a ULID, a URL), the literal `all` / `remaining`, or empty / no arg. Only an `M<N>` arg qualifies.
 2. **Milestone completeness.** Re-read `specs/plan/M<N>.md`; confirm every listed FR transitioned from `status: active` to `status: archived` during this run. If any FR remains active or any FR's gate-check failed this session (partial success), skip entirely.
 3. **TTY.** Check whether stdin is a TTY (proxy: interactive Claude Code session accepting user replies). Non-TTY / CI / piped stdin ⇒ print the manual-command hint, do not prompt, do not read stdin.
 
 If all three pass, print the prompt and read one line from stdin.
 
-### Prompt (AC-STE-75.1, exact format including the blank line)
+### Prompt (exact format including the blank line)
 
 ```
 All FRs in M<N> shipped.
@@ -167,7 +167,7 @@ Run /ship-milestone M<N> now? (y/n):
 - **Accept** — input is `y` or `yes` (case-insensitive, trimmed). Chain into `/ship-milestone M<N>` in-process. All `/ship-milestone`'s own gates still fire — the release commit is gated by its own `Apply? [y/N]` prompt on the release diff. The `y` here does **not** pre-approve the release; refusal at that second gate exits cleanly without a release commit.
 - **Decline** — input is `n`, `no`, empty (just Enter), or any other non-matching string (case-insensitive). Do not chain; print the hint below and exit 0.
 
-### Hint (AC-STE-75.3, exact literal — also used on the non-TTY skip path)
+### Hint (exact literal — also used on the non-TTY skip path)
 
 ```
 Ready to close milestone. Run: /ship-milestone M<N>
@@ -194,13 +194,13 @@ Context: milestone=M<N>, chain=ship-milestone, skill=implement
 | Non-TTY stdin (CI, piped input) | print hint, no prompt, no stdin read |
 | All conditions met | print prompt, accept `y`/`yes` (chain) or anything else (hint + exit 0) |
 
-## Phase 4 Milestone Archival — full procedure detail (STE-22 / STE-125 / STE-126)
+## Phase 4 Milestone Archival — full procedure detail
 
 The skill carries the condensed entry; this section is the operational mirror.
 
-**Procedure.** For every FR with frontmatter `milestone == <current>`: compute the base filename via `Provider.filenameFor(spec)` (M18 STE-60 AC-STE-60.4) and run `git mv specs/frs/<name> specs/frs/archive/<name>` + flip frontmatter `status: active` → `status: archived` + set `archived_at: <ISO now>`. **`archived_at` precision: full ISO-8601 with date + time + Z (e.g., `2026-04-30T17:23:11Z`); not date-only with zeroed time (`2026-04-30T00:00:00Z` is the regression shape).** Render via `date -u +%Y-%m-%dT%H:%M:%SZ`, never the shorter `date +%Y-%m-%d` form (it rounds to midnight UTC — the smoke #6 finding F1 root cause). The stem is preserved across the move — `/spec-archive` and `/implement` never rename during archival (NFR-15 filename-permanence holds). All N moves and N flips land in one atomic commit (AC-STE-22.2, AC-STE-22.6). Then `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md` in the same commit, **and apply the same status flip to the plan file's frontmatter** — flip `status: active` → `status: archived` and set `archived_at: <ISO now>` (the same full-ISO-8601 timestamp used for the FR flips, date + time + Z). This **plan-status flip** is part of the same atomic commit; read-side enforcement is `/gate-check` probe #16 (`archive_plan_status`).
+**Procedure.** For every FR with frontmatter `milestone == <current>`: compute the base filename via `Provider.filenameFor(spec)` and run `git mv specs/frs/<name> specs/frs/archive/<name>` + flip frontmatter `status: active` → `status: archived` + set `archived_at: <ISO now>`. **`archived_at` precision: full ISO-8601 with date + time + Z (e.g., `2026-04-30T17:23:11Z`); not date-only with zeroed time (`2026-04-30T00:00:00Z` is the regression shape).** Render via `date -u +%Y-%m-%dT%H:%M:%SZ`, never the shorter `date +%Y-%m-%d` form (it rounds to midnight UTC — an earlier smoke caught this regression). The stem is preserved across the move — `/spec-archive` and `/implement` never rename during archival (NFR-15 filename-permanence holds). All N moves and N flips land in one atomic commit. Then `git mv specs/plan/<M#>.md specs/plan/archive/<M#>.md` in the same commit, **and apply the same status flip to the plan file's frontmatter** — flip `status: active` → `status: archived` and set `archived_at: <ISO now>` (the same full-ISO-8601 timestamp used for the FR flips, date + time + Z). This **plan-status flip** is part of the same atomic commit; read-side enforcement is `/gate-check` probe #16 (`archive_plan_status`).
 
-**Rewrite traceability links.** Before staging the atomic commit, call `rewriteArchiveLinks(repoRoot, frId)` from `adapters/_shared/src/spec_archive/rewrite_links.ts` for **each** FR being archived. The helper rewrites every `frs/<id>.md` reference in `specs/requirements.md`, every active `specs/plan/*.md`, every `specs/plan/archive/*.md`, and the unreleased prefix of `CHANGELOG.md` to `frs/archive/<id>.md` (both Markdown link forms and bare path mentions, per AC-STE-111.2). The rewrites land in the **same atomic commit** as the `git mv` + frontmatter flips. On the next `/gate-check`, probe #23 (`traceability-link-validity`) sees a clean tree — no manual fix-up between commit and gate. Idempotent: an orphan FR with no references yields an empty rewrite, no error.
+**Rewrite traceability links.** Before staging the atomic commit, call `rewriteArchiveLinks(repoRoot, frId)` from `adapters/_shared/src/spec_archive/rewrite_links.ts` for **each** FR being archived. The helper rewrites every `frs/<id>.md` reference in `specs/requirements.md`, every active `specs/plan/*.md`, every `specs/plan/archive/*.md`, and the unreleased prefix of `CHANGELOG.md` to `frs/archive/<id>.md` (both Markdown link forms and bare path mentions). The rewrites land in the **same atomic commit** as the `git mv` + frontmatter flips. On the next `/gate-check`, probe #23 (`traceability-link-validity`) sees a clean tree — no manual fix-up between commit and gate. Idempotent: an orphan FR with no references yields an empty rewrite, no error.
 
 **Cleanup stale plan verify lines.** Right after `rewriteArchiveLinks` returns, call `cleanupPlanVerifyLines(projectRoot, deletedFiles, addedTestFiles)` from `adapters/_shared/src/spec_archive/cleanup_plan_verify_lines.ts`. `deletedFiles` is the set of paths Phase 2 deleted; `addedTestFiles` is the set of `*.test.*` files added. The helper walks every active `specs/plan/M*.md` (excluding `archive/`) and updates each `verify:` line that references a deleted path: when the deleted file is `*.placeholder.test.ts` and a single new test file was added, the verify line is rewritten to reference the replacement; otherwise the parent task is marked `[x]` and the verify line is dropped. Empty `deletedFiles` ⇒ vacuous no-op. The cleanup writes land in the **same atomic commit**. The new `/gate-check` probe #28 (`plan-verify-line-validity`, severity: warning) is the read-side backstop on every run.
 
@@ -208,7 +208,7 @@ The skill carries the condensed entry; this section is the operational mirror.
 
 Then call `Provider.releaseLock(id)` for each released FR.
 
-## Advisory Notes (STE-148)
+## Advisory Notes
 
 Phase 3 Stage B routes any Pass 2 CONCERNS that round-2 escalation classifies as **advisory** (not gate-blocking) into a structured `advisoryNote[]` array. Capture happens before Stage B exits — without it, advisory concerns disappear from non-interactive (`claude -p`) runs after Stage B returns, leaving the operator with no audit trail and no chance to override (smoke-test 2026-04-28 finding F2).
 
@@ -223,10 +223,10 @@ advisoryNote: {
 }
 ```
 
-**Render contract (AC-STE-148.1 / AC-STE-148.3 / AC-STE-148.4).** A single shared formatter renders each `advisoryNote` to the bullet-body shape `<concern> — <rationale>`. Two surfaces consume the formatter's output:
+**Render contract.** A single shared formatter renders each `advisoryNote` to the bullet-body shape `<concern> — <rationale>`. Two surfaces consume the formatter's output:
 
 1. **Phase 4 step 14 report** — append a `## Advisory notes` section after the existing report items, one bullet per advisory entry in capture order. Empty list ⇒ heading + the literal line `No advisory notes.` — never absent.
-2. **Phase 4 § Milestone Archival archived-FR write (AC-STE-148.2)** — append a `## Implementation notes` body section after the FR's existing `## Notes` section, body content is the FR's slice of `advisoryNote[]` rendered via the same formatter. Empty slice ⇒ heading + the literal line `No advisory notes.`.
+2. **Phase 4 § Milestone Archival archived-FR write** — append a `## Implementation notes` body section after the FR's existing `## Notes` section, body content is the FR's slice of `advisoryNote[]` rendered via the same formatter. Empty slice ⇒ heading + the literal line `No advisory notes.`.
 
 Bullet bodies between the two surfaces are byte-identical because both share the same source list and the same formatter. If the rendering ever diverges, that's the regression signal — the formatter must be the single source of truth for advisory-note prose.
 
@@ -236,7 +236,7 @@ Once the user approves at step 15, execute the Close procedure end-to-end. Phase
 
 **(a) `git commit`** — create the final commit (includes any FR archive moves from § Milestone Archival on a full-milestone run).
 
-**(b) Release** — for every ticket that was claimed during Phase 1 in tracker mode, run the per-FR release sequence in `docs/implement-tracker-mode.md` § Release runbook. Tracker mode: transitions the ticket to the adapter's canonical Done status; the runbook performs the STE-65/STE-84-narrowed pre-state assertion (In Progress **or** canonical Done — any other pre-state surfaces a `TrackerReleaseLockPreconditionError` per NFR-10) before the Done transition, so the `Backlog → Done` silent-leap guardrail still holds. `mode: none`: deletes `.dpt-locks/<id>` (runbook does not apply). **No exit path through Phase 4 skips this step.** If the release sequence fails, Phase 4 fails loudly — never swallow the error. On a full-milestone run where § Milestone Archival already released each archived FR, skip the per-ticket call here for those same FRs (AC-STE-47.6 double-call avoidance). Two outcomes — `transitioned` and `already-released` (STE-84 idempotent-terminal branch) — are both valid exit paths; step (c)'s post-release verification runs identically for both.
+**(b) Release** — for every ticket that was claimed during Phase 1 in tracker mode, run the per-FR release sequence in `docs/implement-tracker-mode.md` § Release runbook. Tracker mode: transitions the ticket to the adapter's canonical Done status; the runbook performs the narrowed pre-state assertion (In Progress **or** canonical Done — any other pre-state surfaces a `TrackerReleaseLockPreconditionError` per NFR-10) before the Done transition, so the `Backlog → Done` silent-leap guardrail still holds. `mode: none`: deletes `.dpt-locks/<id>` (runbook does not apply). **No exit path through Phase 4 skips this step.** If the release sequence fails, Phase 4 fails loudly — never swallow the error. On a full-milestone run where § Milestone Archival already released each archived FR, skip the per-ticket call here for those same FRs (double-call avoidance). Two outcomes — `transitioned` and `already-released` (idempotent-terminal branch) — are both valid exit paths; step (c)'s post-release verification runs identically for both.
 
 **(c) Post-release verification** — for each released FR, run step 4 of `docs/implement-tracker-mode.md` § Release runbook and **assert** the returned `status` matches the adapter's `status_mapping.done` canonical name. A mismatch means the release reported success but the tracker didn't move (silent no-op trap). Surface an NFR-10-canonical refusal naming the ticket + observed vs. expected status, and exit Phase 4 non-zero so the human can intervene. In `mode: none`, `LocalProvider.getTicketStatus` returns the `local-no-tracker` sentinel; treat the sentinel as vacuously passing the assertion — the deterministic `.dpt-locks/<id>` deletion in step (b) is the proof-of-release for `mode: none`.
 
@@ -246,7 +246,7 @@ The Pattern 9 byte-diff regression gate against the `mode-none-v2` fixture conti
 
 ## Phase 4b Doc Fragment Hook
 
-STE-74 installs this hook. The skill body carries the condensed flow; this section covers edge cases and the diagnostic log shape.
+The skill body carries the condensed flow; this section covers edge cases and the diagnostic log shape.
 
 ### When it runs
 
@@ -270,7 +270,7 @@ On successful fragment write, `/implement` appends exactly one row to the existi
 
 The `<fr-id>` placeholder resolves to the actual fragment base name (tracker ID, short-ULID tail, or `_unbound-<ts>`).
 
-### Failure path (AC-STE-74.5, AC-STE-74.6)
+### Failure path
 
 `/docs --quick` non-zero exit, thrown error, or 60-second timeout — Phase 4b logs one warning line to stdout, then appends:
 
@@ -300,11 +300,11 @@ No log line is ever printed when Phase 4b is gated off (both modes false or sect
 
 - **Cross-FR fragments.** Phase 4b writes exactly one fragment per `/implement` run, bound to the FR being implemented. If a diff genuinely spans multiple FRs, the human runs `/docs --quick` manually with explicit overrides after the commit.
 - **Retry on failure.** No automatic retry. A single failure appends the skipped row and lets the user decide.
-- **`--skip-docs` flag.** None. AC-STE-74.8 forbids a new `/implement` flag; temporary opt-out is done by flipping Schema L docs keys.
+- **`--skip-docs` flag.** None. The contract forbids a new `/implement` flag; temporary opt-out is done by flipping Schema L docs keys.
 
 ## Commit message format
 
-Phase 4 commits use [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/). The `commit-msg` hook installed by `/setup` is the deterministic gate; this section is the cooperative specification the agent follows when proposing the message at the step 14 approval gate (AC-STE-133.4, AC-STE-133.9).
+Phase 4 commits use [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/). The `commit-msg` hook installed by `/setup` is the deterministic gate; this section is the cooperative specification the agent follows when proposing the message at the step 14 approval gate.
 
 ### Subject
 
@@ -343,7 +343,7 @@ toolkit and adopting projects share one deterministic
 commit-format gate. Local hook hard-blocks non-CC commits
 without grace period.
 
-Refs: STE-133
+Refs: STE-<N>
 ```
 
 ### Step 14 approval-gate render

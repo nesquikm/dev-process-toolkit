@@ -6,14 +6,14 @@ save. Pointed at from `docs/implement-tracker-mode.md` and
 
 In `mode: none`, this document is unused.
 
-## When STE-17 fires
+## When the sync loop fires
 
 - `/implement` pre-flight (after ticket-binding + `pull_acs`, before Phase 1).
 - `/spec-write` post-save of any FR-level AC edit (before `upsert_ticket_metadata`).
 
-`/gate-check` detects `updatedAt` mismatch but does **not** run
-STE-17 — it offers two options (retry-via-`/implement`, proceed-stale) per
-AC-STE-17.10. `/pr` does not run STE-17 at all.
+`/gate-check` detects `updatedAt` mismatch but does **not** run the sync —
+it offers two options (retry-via-`/implement`, proceed-stale).
+`/pr` does not run the sync at all.
 
 ## Inputs
 
@@ -25,8 +25,8 @@ AC-STE-17.10. `/pr` does not run STE-17 at all.
 2. **Tracker AC list** — returned by the active adapter's
    `pull_acs(ticket_id)` as Schema N `AcceptanceCriterion[]`.
 
-Both lists are normalized through the adapter's normalizer before diffing
-(AC-STE-17.6). For Linear this is `adapters/linear/src/normalize.ts`; other
+Both lists are normalized through the adapter's normalizer before diffing.
+For Linear this is `adapters/linear/src/normalize.ts`; other
 adapters normalize equivalently (Jira: trim + collapse whitespace).
 
 ## Classifier (Schema K format)
@@ -94,7 +94,7 @@ After the user answers all prompts:
    normalized AC block. For Jira, the custom field.
 4. **Verify convergence** — if `tracker_ticket_description_template`
    normalization is deterministic, a second `pull_acs` after this push
-   classifies everything as `identical` (AC-STE-17.6 round-trip invariant).
+   classifies everything as `identical` (round-trip invariant).
 
 ## Audit trail
 
@@ -107,10 +107,9 @@ audit-trail subsection under `## Task Tracking` is retired
 
 ## Idempotence
 
-Running STE-17 twice in a row on an already-converged state emits **zero
+Running the sync twice in a row on an already-converged state emits **zero
 prompts** (all `identical`) and **zero side effects** (no pushes, no
-commits). This is the round-trip invariant that AC-STE-17.6 guarantees
-via adapter normalization.
+commits). This is the round-trip invariant adapter normalization guarantees.
 
 ## Cancel semantics
 

@@ -11,7 +11,7 @@ Create a pull request for the current branch.
 Before creating the PR, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and the rest of this skill runs unchanged. If a tracker mode is active:
 
 - Run the 3-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md` before any MCP write. Decline exits cleanly with zero side effects.
-- After the PR is created, call `transition_status(ticket, in_review)` and optionally `upsert_ticket_metadata` to add the PR URL to the ticket description (NFR-8 ≤ 2 MCP calls). Capability-missing cases degrade per STE-16 AC-STE-16.6 (canonical-shape warning + proceed).
+- After the PR is created, call `transition_status(ticket, in_review)` and optionally `upsert_ticket_metadata` to add the PR URL to the ticket description (NFR-8 ≤ 2 MCP calls). Capability-missing cases degrade with a canonical-shape warning + proceed.
 
 See `docs/pr-tracker-mode.md` for the full tracker-mode flow.
 

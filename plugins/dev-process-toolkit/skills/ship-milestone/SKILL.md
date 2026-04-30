@@ -20,7 +20,7 @@ Detailed reference (CHANGELOG subsection policy, version-bump semver rules, stru
 
 Any of these fire before any file write and exit non-zero with an NFR-10-shape message:
 
-1. **Unshipped FRs**. Walk `specs/plan/M<N>.md`; if any row links to an FR file whose frontmatter has `status: active` (not yet archived), **probe tracker state** per STE-83 and emit one of two remedy shapes.
+1. **Unshipped FRs**. Walk `specs/plan/M<N>.md`; if any row links to an FR file whose frontmatter has `status: active` (not yet archived), **probe tracker state** and emit one of two remedy shapes.
 
    For each `status: active` FR, call `Provider.getTicketStatus(<tracker-ref>)`. Partition the unshipped set by whether the returned status equals the adapter's `status_mapping.done`:
 
@@ -91,7 +91,7 @@ Build proposed file contents in this exact order:
 
 1. **`plugins/dev-process-toolkit/.claude-plugin/plugin.json`** — `version` field updated.
 2. **`.claude-plugin/marketplace.json`** — matching `version` in the plugin entry.
-3. **`CHANGELOG.md`** — new `## [X.Y.Z] — YYYY-MM-DD — "<Codename>"` section at the top, with `### Added` / `### Changed` / `### Removed` / `### Fixed` subsections populated from FR `changelog_category` + title. Cross-references rendered as `(STE-X)`. Closing line: `Total test count at release: <N> tests, <F> failures, <E> errors.` using `parseTestOutput` on the already-run test gate. **Skipped entirely if `changelog_ci_owned: true`** (from `readDocsConfig(CLAUDE.md)` — STE-68 key) — CI owns the CHANGELOG; the test-count closing line is also suppressed because it lives inside the CHANGELOG entry.
+3. **`CHANGELOG.md`** — new `## [X.Y.Z] — YYYY-MM-DD — "<Codename>"` section at the top, with `### Added` / `### Changed` / `### Removed` / `### Fixed` subsections populated from FR `changelog_category` + title. Cross-references rendered as `(STE-X)`. Closing line: `Total test count at release: <N> tests, <F> failures, <E> errors.` using `parseTestOutput` on the already-run test gate. **Skipped entirely if `changelog_ci_owned: true`** (from `readDocsConfig(CLAUDE.md)`) — CI owns the CHANGELOG; the test-count closing line is also suppressed because it lives inside the CHANGELOG entry.
 4. **`README.md`** — "Latest: **vX.Y.Z — '<Codename>'**" line in the `## Release Notes` section; any `## Structure` counts (skills, patterns, agents) recomputed from current filesystem.
 
 ### 5. Invoke /docs --commit --full
@@ -120,7 +120,7 @@ Print a single unified diff covering every modified file (the four release files
 
 Accept case-insensitive `y` / `yes` as approval. The user can type `e` to open `$EDITOR` on the proposed CHANGELOG entry, then re-prompt (see reference § `e` edit-in-loop).
 
-### 7. On approval — commit (AC-STE-73.6, AC-STE-133.5)
+### 7. On approval — commit
 
 `git add` the expected-modified set and create a single commit in [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) form. The commit-msg hook installed by `/setup` enforces the format locally.
 

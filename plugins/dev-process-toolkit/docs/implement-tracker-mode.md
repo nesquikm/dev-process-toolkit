@@ -10,7 +10,7 @@ In `mode: none`, this document is unused — the `mode: none` branch runs unchan
 ### 0.1 Ticket-binding pre-flight
 
 Run the 2-tier resolver and mandatory confirmation prompt per
-`docs/ticket-binding.md` (branch regex → interactive prompt; post-STE-62).
+`docs/ticket-binding.md` (branch regex → interactive prompt).
 Decline exits cleanly with zero side effects. Branch-regex
 mismatch fails loudly.
 
@@ -21,10 +21,10 @@ mismatch fails loudly.
 Call the active adapter's `pull_acs(ticket_id)` exactly once at skill entry
 — **after** step 0.c `claimLock` has returned `claimed` or `already-ours`.
 Capture the returned ticket's `updatedAt` (Schema O) into session memory —
-not disk. `/gate-check` re-fetches later and compares against this value
-(AC-STE-11.3). If the adapter's parser returns an empty AC list, fail the skill
-with NFR-10 canonical shape `"No acceptance criteria found in ticket <ID>"`
-(AC-STE-13.4). Never silently proceed.
+not disk. `/gate-check` re-fetches later and compares against this value.
+If the adapter's parser returns an empty AC list, fail the skill
+with NFR-10 canonical shape `"No acceptance criteria found in ticket <ID>"`.
+Never silently proceed.
 
 **General rule.** Record `updatedAt` after all pre-flight side
 effects settle — not just `claimLock`. Any pre-flight step that mutates
@@ -41,10 +41,10 @@ where a stale read could cause apparent backslide; the session should only
 ever advance its recorded `updatedAt` forward in time.
 
 Only feed the parser-returned AC list to the rest of the skill — never the
-raw ticket description blob (STE-13 AC-STE-13.2, AC-STE-13.3). Comments, history,
+raw ticket description blob. Comments, history,
 preamble, and attachments are discarded at the parser boundary.
 
-### 0.3 STE-17 diff/resolve loop
+### 0.3 Bidirectional diff/resolve loop
 
 Read the local FR's AC list from `specs/requirements.md` (parsed from the
 `### FR-{N}:` block's bullet list). Compare against the adapter-returned
@@ -55,11 +55,10 @@ Read the local FR's AC list from `specs/requirements.md` (parsed from the
 - **tracker-only** — present in tracker, absent locally.
 - **edited-both** — present on both sides with different text.
 
-If all are `identical`, skip the prompt entirely and proceed (AC-STE-17.2
-fast path).
+If all are `identical`, skip the prompt entirely and proceed (fast path).
 
-If any non-identical AC exists, prompt per-AC with exactly four options
-(AC-STE-17.3): `keep local`, `keep tracker`, `merge` (free-text editor),
+If any non-identical AC exists, prompt per-AC with exactly four options:
+`keep local`, `keep tracker`, `merge` (free-text editor),
 `cancel`. No bulk shortcuts.
 
 - `keep local` — overwrite tracker: `upsert_ticket_metadata(ticket_id, title, <rebuilt description with local AC block>)`.
@@ -70,8 +69,8 @@ If any non-identical AC exists, prompt per-AC with exactly four options
 - `cancel` — abort the skill cleanly with zero state mutation on either
   side.
 
-After all per-AC resolutions apply, both sides converge to the same list
-(AC-STE-17.4). The commit that captures the resolution is the audit trail
+After all per-AC resolutions apply, both sides converge to the same list.
+The commit that captures the resolution is the audit trail
 — `git log` + `git blame` on the FR file show the what, who, and when.
 
 ## MCP call budget (NFR-8)
@@ -80,18 +79,18 @@ After all per-AC resolutions apply, both sides converge to the same list
 
 1. `pull_acs(ticket_id)` — once at step 0.2.
 2. `upsert_ticket_metadata(ticket_id, title, description)` — at most once
-   per STE-17 resolution event (steps 0.3 options `keep local` / `merge`),
+   per bidirectional-sync resolution event (steps 0.3 options `keep local` / `merge`),
    not per AC. If all ACs are `identical` or the user picks `cancel`, this
    call is skipped.
 
 Downstream phases (TDD, gate check, self-review) make **zero additional
 MCP calls** — they operate on the session-cached AC list. Live re-fetching
-happens only in `/gate-check` (one call, per AC-STE-11.3).
+happens only in `/gate-check` (one call).
 
 ## Graceful degradation
 
 If the adapter's `capabilities:` frontmatter list is missing
-`upsert_ticket_metadata`, STE-17 resolution options that would push (`keep
+`upsert_ticket_metadata`, the resolution options that would push (`keep
 local`, `merge`) degrade with an NFR-10 canonical-shape warning and proceed
 with the local-only half of the resolution applied (tracker side left as-is
 for manual correction). `pull_acs` is a hard requirement — an adapter that
@@ -132,18 +131,18 @@ concrete pattern via the active adapter's `## Tool surface` table.
      write.
    - `status == status_mapping[in_progress]` AND `assignee == currentUser`
      ⇒ `already-ours`. The claim is already held; resume the run without
-     writing. Bookkeeping (the post-claim `updatedAt` recording for STE-11
-     drift detection) still fires (see § 0.2 above).
+     writing. Bookkeeping (the post-claim `updatedAt` recording for drift
+     detection) still fires (see § 0.2 above).
    - `status == status_mapping[done]` ⇒ `already-released` (idempotent
-     terminal — STE-84). The work shipped; don't re-open the ticket. Skip
+     terminal). The work shipped; don't re-open the ticket. Skip
      the run.
    - Otherwise (`Backlog`, `Unstarted`, `Cancelled`, etc.) ⇒ proceed to
      step 3 to perform the actual claim.
 3. **Transition to In Progress + assign current user.** Look up the active
    adapter's `transition_status` row in `adapters/<tracker>.md` § Tool
    surface. Invoke that MCP call with the resolved `status_mapping[in_progress]`
-   target plus the `assignee` field set to the current user. Per STE-65,
-   this is the through-In-Progress hop — never skip directly to Done.
+   target plus the `assignee` field set to the current user. This is the
+   through-In-Progress hop — never skip directly to Done.
 4. **Verify the write landed (silent no-op trap).** Re-fetch via
    `mcp__<tracker>__get_issue(<id>)` and assert that `updatedAt` /
    `startedAt` advanced past the pre-call value, AND `status ==
@@ -165,14 +164,14 @@ Concrete adapter-agnostic MCP-call sequence for
 post-release verification (Phase 4d steps b + c). Same shape as the Claim
 runbook above — operational mirror of the Provider TS interface.
 
-1. **Pre-release pre-state assertion (STE-65 narrowed by STE-84).** Call
+1. **Pre-release pre-state assertion.** Call
    `mcp__<tracker>__get_issue(<id>)` and assert the current `status` is
    `status_mapping[in_progress]` OR `status_mapping[done]`. Any other
    pre-state — `Backlog`, `Unstarted`, `Cancelled`, etc. — surfaces a
    `TrackerReleaseLockPreconditionError` (NFR-10 canonical refusal)
    *without* invoking the Done transition. This guards the
    `Backlog → Done` silent-leap failure mode.
-2. **STE-84 idempotent-terminal branch.** If the pre-state is already
+2. **Idempotent-terminal branch.** If the pre-state is already
    `status_mapping[done]`, return `already-released` and proceed to step 4
    (post-release verify) without writing. The ticket is already at the
    target state; re-asserting it is a no-op the runbook treats as
@@ -202,6 +201,6 @@ replaced with the runbook pointer.
 `/implement` parallel dispatch is documented in `docs/parallel-execution.md`.
 In tracker mode, each parallel subagent must run its own ticket-binding
 pre-flight against its own branch — no shared cache. Concurrent writes to
-the same ticket surface via STE-11 `updatedAt` mismatch on the next
+the same ticket surface via `updatedAt` mismatch on the next
 `/gate-check`. `mode: none` behavior is unchanged regardless of
 parallelization.

@@ -292,9 +292,9 @@ Test exists and passes, but asserts nothing meaningful (`expect(fn).not.toThrow(
 **Solution**: After gate commands pass, run a drift check that traces each AC to implementing code:
 
 ```
-AC-STE-42.1 → src/feature.ts:42    (implemented)
-AC-STE-42.2 → (not found)           (drift!)
-AC-STE-43.1 → src/service.ts:15    (implemented)
+AC-<tracker-id>.1 → src/feature.ts:42    (implemented)
+AC-<tracker-id>.2 → (not found)           (drift!)
+AC-<other-tracker-id>.1 → src/service.ts:15    (implemented)
 ```
 
 Drift findings are **advisory** (GATE PASSED WITH NOTES, never GATE FAILED) because the traceability is heuristic — false positives would erode trust in the deterministic gate. But they surface gaps early.
@@ -335,7 +335,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 
 **Problem**: Spec files grow unboundedly as a project matures. Every `/implement`, `/gate-check`, and `/spec-review` invocation reads the full spec tree, inflating hot-path context cost on work that's already shipped. Simply splitting files by hand breaks prompt caching (the cache-hot prefix moves on every rewrite), duplicates still-current content, and loses grep-friendliness.
 
-**Solution**: Per-unit archival. Each FR lives in its own file `specs/frs/<name>.md` where `<name>` is `Provider.filenameFor(spec)` (M18 STE-60 — tracker ID in tracker mode, short-ULID tail in `mode: none`); each milestone has its own plan file `specs/plan/<M#>.md`. When `/implement` finishes a milestone and the human approves the Phase 4 report, every FR belonging to that milestone is `git mv`d into `specs/frs/archive/<name>.md` with frontmatter `status: active` → `status: archived` + `archived_at: <ISO now>` (stem preserved across the move); the milestone plan file is `git mv`d into `specs/plan/archive/<M#>.md`. `Provider.releaseLock(<ulid>)` finalizes each FR's lifecycle (tracker mode transitions the ticket to `done`; tracker-less removes the lock file). For content the auto-path can't reach (reopens, cross-cutting FRs, aborted work), `/spec-archive <ULID | M<N> | tracker-ref>` is the manual escape hatch with a diff approval gate.
+**Solution**: Per-unit archival. Each FR lives in its own file `specs/frs/<name>.md` where `<name>` is `Provider.filenameFor(spec)` (tracker ID in tracker mode, short-ULID tail in `mode: none`); each milestone has its own plan file `specs/plan/<M#>.md`. When `/implement` finishes a milestone and the human approves the Phase 4 report, every FR belonging to that milestone is `git mv`d into `specs/frs/archive/<name>.md` with frontmatter `status: active` → `status: archived` + `archived_at: <ISO now>` (stem preserved across the move); the milestone plan file is `git mv`d into `specs/plan/archive/<M#>.md`. `Provider.releaseLock(<ulid>)` finalizes each FR's lifecycle (tracker mode transitions the ticket to `done`; tracker-less removes the lock file). For content the auto-path can't reach (reopens, cross-cutting FRs, aborted work), `/spec-archive <ULID | M<N> | tracker-ref>` is the manual escape hatch with a diff approval gate.
 
 **What moves:**
 - Every FR file whose frontmatter `milestone == <current>` — `git mv` to `specs/frs/archive/`, frontmatter flip.
@@ -374,9 +374,9 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 
 ### Pattern: Tracker Mode Probe (Schema L)
 
-**Problem (STE-8, STE-12, Pattern 9)**: Two modes coexist — `mode: none` (default, ACs in `specs/requirements.md`) and `mode: <tracker>` (Linear, Jira, custom — ACs in a task tracker). Every affected skill — `/setup`, `/spec-write`, `/implement`, `/gate-check`, `/pr`, `/spec-review`, `/spec-archive` — must run the right branch. If any skill guesses mode inconsistently or reads tracker state when the section is absent, the `mode: none` branch contract (Pattern 9) breaks silently.
+**Problem** (cross-cuts Pattern 9): Two modes coexist — `mode: none` (default, ACs in `specs/requirements.md`) and `mode: <tracker>` (Linear, Jira, custom — ACs in a task tracker). Every affected skill — `/setup`, `/spec-write`, `/implement`, `/gate-check`, `/pr`, `/spec-review`, `/spec-archive` — must run the right branch. If any skill guesses mode inconsistently or reads tracker state when the section is absent, the `mode: none` branch contract (Pattern 9) breaks silently.
 
-**Solution**: Every mode-aware skill begins with the same probe. The probe reads `CLAUDE.md` for the `## Task Tracking` section; section absence ≡ `mode: none` (the canonical no-tracker form per AC-STE-8.5); section presence means parse the `key: value` block per Schema L (technical-spec §7.3). Only after the probe resolves does the skill branch.
+**Solution**: Every mode-aware skill begins with the same probe. The probe reads `CLAUDE.md` for the `## Task Tracking` section; section absence ≡ `mode: none` (the canonical no-tracker form); section presence means parse the `key: value` block per Schema L (technical-spec §7.3). Only after the probe resolves does the skill branch.
 
 **Canonical probe (run at skill entry, before any side effect):**
 
@@ -387,7 +387,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
    - 1 → section exists; continue to step 3
    - >1 → malformed file; fail with NFR-10 canonical error shape
 3. Extract `mode: <value>` between `## Task Tracking` and the next `##` / `###` heading (or EOF).
-4. If the extracted mode is `none`, treat as Step-2-zero — the explicit form is accepted but `/setup` never emits it (AC-STE-8.5).
+4. If the extracted mode is `none`, treat as Step-2-zero — the explicit form is accepted but `/setup` never emits it.
 5. For any tracker mode, resolve ticket-ID via Pattern 6 (branch regex → interactive prompt) before any MCP call.
 ```
 
@@ -401,7 +401,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 - In `mode: none`, no skill makes MCP calls or reads tracker state. The tracker-mode branches are literally unreachable.
 - Duplicate keys in the section fail with NFR-10 canonical shape (Schema L).
 
-**Branch automation.** `branch_template:` is an additive Schema L key consumed **only** by `/implement` Phase 1 (via `buildBranchProposal` in `adapters/_shared/src/branch_proposal.ts`). Default values seeded by `/setup` step 7c: `{type}/m{N}-{slug}` in `mode: none`, `{type}/{ticket-id}-{slug}` in tracker mode. Absent key ⇒ branch automation disabled — legacy projects continue to run on whatever branch they're invoked from. Placeholders: `{type}` (LLM-inferred `feat`/`fix`/`chore`), `{N}` (milestone digits), `{ticket-id}` (tracker ID or lowercased short-ULID tail per AC-STE-64.7), `{slug}` (LLM-inferred 2–4 word kebab). Sanitization clamps LLM output to `[a-z0-9-]` before `git checkout -b` (defense in depth — AC-STE-64.13). No other mode-aware skill reads `branch_template:`.
+**Branch automation.** `branch_template:` is an additive Schema L key consumed **only** by `/implement` Phase 1 (via `buildBranchProposal` in `adapters/_shared/src/branch_proposal.ts`). Default values seeded by `/setup` step 7c: `{type}/m{N}-{slug}` in `mode: none`, `{type}/{ticket-id}-{slug}` in tracker mode. Absent key ⇒ branch automation disabled — legacy projects continue to run on whatever branch they're invoked from. Placeholders: `{type}` (LLM-inferred `feat`/`fix`/`chore`), `{N}` (milestone digits), `{ticket-id}` (tracker ID or lowercased short-ULID tail), `{slug}` (LLM-inferred 2–4 word kebab). Sanitization clamps LLM output to `[a-z0-9-]` before `git checkout -b` (defense in depth). No other mode-aware skill reads `branch_template:`.
 
 **Canonical keys.** The closed set of top-level keys under `## Task Tracking` is exactly:
 
@@ -412,7 +412,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 | `jira_ac_field` | `customfield_XXXXX` (Jira only; blank otherwise) | Jira adapter only |
 | `branch_template` | branch-naming template (e.g., `{type}/{ticket-id}-{slug}`) | `/implement` Phase 1 only |
 
-These four keys are the closed set; emitting **additional top-level keys** under `## Task Tracking` is a `/gate-check` failure (probe `task-tracking-canonical-keys` — gate-check #21). Tracker-specific metadata (project IDs, team names, workspace URLs) belong in a sub-section under `## Task Tracking` (e.g., `### Linear`, `### Jira`) or in the adapter's own config — **not** as Schema L keys at the top level. Sub-section contents are scoped out of the canonical-key check (AC-STE-114.4(c)). Adding a new canonical key requires a deliberate `docs/patterns.md` edit + probe code change in the same PR.
+These four keys are the closed set; emitting **additional top-level keys** under `## Task Tracking` is a `/gate-check` failure (probe `task-tracking-canonical-keys` — gate-check #21). Tracker-specific metadata (project IDs, team names, workspace URLs) belong in a sub-section under `## Task Tracking` (e.g., `### Linear`, `### Jira`) or in the adapter's own config — **not** as Schema L keys at the top level. Sub-section contents are scoped out of the canonical-key check. Adding a new canonical key requires a deliberate `docs/patterns.md` edit + probe code change in the same PR.
 
 A one-time migration helper for projects that picked up the drift before the constraint landed lives at `scripts/migrate-task-tracking-canonical.ts` (dry-run only; outputs a unified diff to stdout — operator pipes to `patch -p1` if they want to apply). Greenfield projects don't need it.
 
@@ -429,15 +429,15 @@ Parser rules:
 - Sub-section contents are scoped out of the canonical-keys probe (#21) so additive workspace metadata never collides with the closed top-level set.
 - Sub-sections present without an active adapter (e.g., `### Jira` while `mode: linear`) are tolerated — vacuous.
 - The sub-section is mode-aware: `mode: none` MUST NOT carry any sub-section; the gate-check probe is vacuous in mode-none.
-- Em-dash and other UTF-8 chars are preserved byte-for-byte (`DPT — Dev Process Toolkit` round-trips correctly through Linear MCP — verified during STE-103).
+- Em-dash and other UTF-8 chars are preserved byte-for-byte (`DPT — Dev Process Toolkit` round-trips correctly through Linear MCP — verified by adapter tests).
 
 The shared parser is `readWorkspaceBinding(claudeMdPath, "linear" | "jira")` from `adapters/_shared/src/workspace_binding.ts`. Adapter `upsert_ticket_metadata` implementations consume the binding on create (Linear: project required-on-create per silent-landing trap; Jira: project required-on-create per Jira API).
 
-A one-time migration helper for projects that ran `/setup` before STE-117 lives at `plugins/dev-process-toolkit/scripts/migrate-task-tracking-add-workspace.ts` (dry-run only; prompts for team + project on stdin; emits a unified diff to stdout). Same shape as `migrate-task-tracking-canonical.ts`.
+A one-time migration helper for projects that ran `/setup` before the workspace-binding rule lives at `plugins/dev-process-toolkit/scripts/migrate-task-tracking-add-workspace.ts` (dry-run only; prompts for team + project on stdin; emits a unified diff to stdout). Same shape as `migrate-task-tracking-canonical.ts`.
 
 **Tracker ID assignment order — ticket first, FR second.** When `/spec-write` or `/brainstorm` drafts a tracker-bound FR, use the `<tracker-id>` placeholder throughout the draft (AC prefixes, filename, plan-file row, prose). **Never guess** the next sequential tracker number — the allocator decides, not the implementer, and trackers routinely skip cancelled numbers. Create the tracker ticket first, read the returned ID, substitute globally, then write the FR file. See `/spec-write` § 0b and `docs/spec-write-tracker-mode.md` § Tracker ID Assignment Order. Mode: none is exempt (short-ULID tail is local-mint, collision-proof).
 
-**Full ULIDs are internal-only (STE-67, M21-updated).** In tracker mode there are no ULIDs at all — FRs have no `id:` line; the tracker ID is the canonical identity in frontmatter, filename, AC prefix, and user-facing prose. In `mode: none`, the short-ULID tail (6 chars, lowercased for branches) is the human-facing form; the full 26-char ULID lives only in frontmatter `id:` and in code-internal references (`Provider.getMetadata`, `findFRByTrackerRef`, `getFrPath`, resolver) — never in user-facing prose. **STE-135:** `findFRByTrackerRef` is mode-none-only (it returns the `id:` ULID and structurally cannot match in tracker mode); tracker-mode call sites use `findFRPathByTrackerRef`, which returns the file path and works against the post-STE-76 shape. Archived content keeps whatever form it had at archival time — the `/gate-check` probes scope to active content only. Rationale: M18 moved the ULID out of filenames; STE-67 pushed the user-facing prose off full ULIDs; STE-76 removed the `id:` ceremony entirely from tracker mode.
+**Full ULIDs are internal-only.** In tracker mode there are no ULIDs at all — FRs have no `id:` line; the tracker ID is the canonical identity in frontmatter, filename, AC prefix, and user-facing prose. In `mode: none`, the short-ULID tail (6 chars, lowercased for branches) is the human-facing form; the full 26-char ULID lives only in frontmatter `id:` and in code-internal references (`Provider.getMetadata`, `findFRByTrackerRef`, `getFrPath`, resolver) — never in user-facing prose. **Lookup helpers:** `findFRByTrackerRef` is mode-none-only (it returns the `id:` ULID and structurally cannot match in tracker mode); tracker-mode call sites use `findFRPathByTrackerRef`, which returns the file path and works against the no-`id:` shape. Archived content keeps whatever form it had at archival time — the `/gate-check` probes scope to active content only. Rationale: an earlier milestone moved the ULID out of filenames; a follow-up pushed the user-facing prose off full ULIDs; the most recent change removed the `id:` ceremony entirely from tracker mode.
 
 ### Pattern: `/implement` Runs In-Process
 
@@ -495,13 +495,13 @@ The resolver is **pure**: no network I/O, no filesystem reads (both are downstre
 
 When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira project `FOO`), users disambiguate with the explicit `<tracker>:<id>` form: `linear:FOO-42` or `jira:FOO-42`. Case-insensitive on the tracker key (`LINEAR:FOO-42` works). The explicit form **always wins** over inference — this is the documented remedy the ambiguity error surfaces.
 
-**Skill-specific continuations** (STE-31..54):
+**Skill-specific continuations:**
 
 | Kind + lookup result | `/spec-write` | `/implement` | `/spec-archive` |
 |----------------------|---------------|--------------|-----------------|
 | `ulid` | Edit existing | Claim lock + implement | Archive (git mv + status flip) |
 | Tracker-id/url, find-by-tracker-ref **hit** | Edit existing (no import) | Claim lock on resolved ULID | Archive resolved ULID |
-| Tracker-id/url, find-by-tracker-ref **miss** | Import via `importFromTracker` (no STE-17 dance — AC-STE-31.5) | Import then claim lock | **Refuse** per AC-STE-33.4 (never auto-imports) |
+| Tracker-id/url, find-by-tracker-ref **miss** | Import via `importFromTracker` (no bidirectional sync dance) | Import then claim lock | **Refuse** (never auto-imports) |
 | `fallthrough` | Free-form handling (legacy) | Free-form (milestone code, issue number, task text) | Free-form (anchor, heading text, milestone id) |
 
 **Why this matters**:
@@ -537,7 +537,7 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 - The resulting FR pile looks overwhelming on first scan (M15 had 15 FRs). The "Finding #N of M" frontmatter + one bundled milestone keep it auditable.
 - Not every deviation is a hardening candidate. Some are genuine feature requests or rare-edge-case nits that belong in later milestones — classify per Pattern 15 (Spec Deviation Classification) before filing.
 
-**Cross-refs**: STE-35..FR-70 (the M15 FR set in this plugin's own spec tree — 15 FRs, 14 findings + 1 release; note that `specs/` is gitignored in the plugin source repo, so the milestone archive at `specs/plan/archive/M15.md` lives in the maintainer workspace, not in the shipped plugin bundle), Pattern 15 (Spec Deviation Classification — the filter that separates hardening findings from feature work), Pattern 21 (Spec Breakout Protocol — the escalation path when dogfood findings exceed 3 `contradicts` / `infeasible` deviations).
+**Cross-refs**: an early dogfood milestone in this plugin's own spec tree captured ~15 FRs (14 findings + 1 release; note that `specs/` is gitignored in the plugin source repo, so the milestone archive lives in the maintainer workspace, not in the shipped plugin bundle), Pattern 15 (Spec Deviation Classification — the filter that separates hardening findings from feature work), Pattern 21 (Spec Breakout Protocol — the escalation path when dogfood findings exceed 3 `contradicts` / `infeasible` deviations).
 
 ## Root Spec Hygiene
 
@@ -554,11 +554,11 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 
 **When this rots**: every milestone archival. The drift report generated by M12–M16 archival surfaced that root specs had quietly accumulated milestone-framed language across three years of milestones. Making the invariant enforceable via the gate closes the loop: future archival passes that leave leakage fail the next `/gate-check` run, forcing the cleanup as part of the archival's own PR rather than as a follow-up.
 
-**Cross-refs**: STE-59 (this FR), AC-STE-59.5 (sub-check spec), `adapters/_shared/src/root_hygiene.ts` (implementation), `tests/gate-check-root-hygiene.test.ts` (positive + negative fixtures + repo self-check), Pattern 20 (Spec-Code Drift Detection — adjacent invariant, different surface).
+**Cross-refs**: `adapters/_shared/src/root_hygiene.ts` (implementation), `tests/gate-check-root-hygiene.test.ts` (positive + negative fixtures + repo self-check), Pattern 20 (Spec-Code Drift Detection — adjacent invariant, different surface).
 
 ## Audit trail
 
-**Where**: CLAUDE.md `## Task Tracking` (Schema L) and all tracker-write code paths (`/setup --migrate`, `/spec-write` tracker push, `/implement` claimLock/releaseLock, STE-17 AC resolution).
+**Where**: CLAUDE.md `## Task Tracking` (Schema L) and all tracker-write code paths (`/setup --migrate`, `/spec-write` tracker push, `/implement` claimLock/releaseLock, bidirectional AC resolution).
 
 **ADR**: the authoritative audit trail for sync, migration, and resolution events is `git log` on the repo and `git blame` on the specific FR file. An earlier append-only bulleted subsection under `## Task Tracking` recorded each event; that subsection is retired.
 
@@ -568,7 +568,7 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 
 **When this bites**: debugging sessions that ask "which resolution loop produced this AC mutation?" now require a `git blame` pass. The legacy sync log answered that in one grep; `git blame` takes the same operator ~10 seconds longer. The tradeoff is judged acceptable because (a) resolution debugging is rare, (b) `git blame` is the tool operators reach for anyway, and (c) the storage + ceremony cost of the sync log on every user's CLAUDE.md didn't justify the occasional convenience.
 
-**Cross-refs**: STE-58 (this FR — deletes sync log + helper), AC-STE-58.9 (documents the tradeoff), STE-17 (bidirectional AC sync — mechanism preserved; only audit emission removed), `docs/ac-sync.md` § Audit trail.
+**Cross-refs**: bidirectional AC sync (mechanism preserved; only audit emission removed), `docs/ac-sync.md` § Audit trail.
 
 ## Test Layout Policy
 
@@ -588,4 +588,4 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 
 **When this rots**: any future template change that mentions `tests/.placeholder.test.ts` without updating both the template AND probe #20. The smoke-test driver re-run is the regression backstop.
 
-**Cross-refs**: STE-128 (this FR), AC-STE-128.1..AC-STE-128.6, `adapters/_shared/src/bun_zero_match_placeholder.ts` (probe + layout enforcement), `tests/test_layout_policy.test.ts` (positive + negative fixtures), STE-129 (sibling FR — `requirements.md` scope reconciliation, paired template-cleanup work).
+**Cross-refs**: `adapters/_shared/src/bun_zero_match_placeholder.ts` (probe + layout enforcement), `tests/test_layout_policy.test.ts` (positive + negative fixtures), the paired `requirements.md` scope-reconciliation / template-cleanup work.

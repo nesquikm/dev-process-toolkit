@@ -15,7 +15,7 @@ still supplies FR titles, descriptions, and traceability context (Path B).
 2. Iterate over the traceability matrix's `FR-{N}`-linked ticket IDs.
 3. For each linked ticket: call `pull_acs(ticket_id)`. Parser boundary
    guarantees only AC content is returned — no description preamble,
-   comments, or attachments (STE-13 AC-STE-13.2, AC-STE-13.3).
+   comments, or attachments.
 4. Build the traceability map against the **adapter-returned AC list**,
    not `specs/requirements.md`. Each AC's `id` is the leading `AC-X.Y`
    token (when present) or the adapter-local fallback (`linear-<n>`,
@@ -23,7 +23,7 @@ still supplies FR titles, descriptions, and traceability context (Path B).
 5. For each AC, search the codebase for implementing code and tests;
    render the same report table format as `none` mode.
 
-Empty AC parse fails the skill per AC-STE-13.4 — never silently proceed on an
+Empty AC parse fails the skill — never silently proceed on an
 empty list.
 
 ## What stays local

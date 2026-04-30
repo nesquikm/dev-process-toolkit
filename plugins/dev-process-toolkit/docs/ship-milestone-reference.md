@@ -58,7 +58,7 @@ Empty FR list is still a minor bump, labelled `default minor bump (no FRs in mil
 
 ## Test-count parser
 
-`adapters/_shared/src/test_count_parser.ts` ships three parsers keyed on the detected stack. AC-STE-73.12 enumerates bun, pytest, and flutter; adding more stacks requires a new FR.
+`adapters/_shared/src/test_count_parser.ts` ships three parsers keyed on the detected stack — bun, pytest, and flutter; adding more stacks requires a new FR.
 
 | Stack | Input shape | Parse rule |
 |-------|-------------|------------|
@@ -83,9 +83,9 @@ The set of files `/ship-milestone` is allowed to stage is pinned at:
 
 Anything else in `git status --porcelain` triggers pre-flight refusal 2. `/ship-milestone` never runs `git add -A`; it `git add`s each path explicitly.
 
-## Interaction with STE-75 (`/implement M<N>` chain)
+## Interaction with `/implement M<N>` close-prompt chain
 
-STE-75 (Phase D of M20) adds an opt-in prompt at the end of a milestone-scope `/implement` run: "Ship this milestone now? [y/N]". On `y`, `/implement` chains into `/ship-milestone M<N>`. The chain is **not a bypass** — `/ship-milestone`'s own unified-diff approval gate (step 6) still fires, and the user must type `y` again.
+`/implement`'s milestone-close prompt adds an opt-in prompt at the end of a milestone-scope run: "Ship this milestone now? [y/N]". On `y`, `/implement` chains into `/ship-milestone M<N>`. The chain is **not a bypass** — `/ship-milestone`'s own unified-diff approval gate (step 6) still fires, and the user must type `y` again.
 
 ## Mode: none compatibility
 
@@ -133,4 +133,4 @@ All refusals carry the three-line shape: one-line verdict / `Remedy: <action>` /
 - `skills/ship-milestone/SKILL.md` — the canonical skill file.
 - `CLAUDE.md` § Release Checklist — the manual four-step ceremony this skill automates.
 - `docs/docs-reference.md` § `/docs --commit --full` — the docs-regen half of the ship flow.
-- `specs/frs/STE-73.md` — source FR.
+- The source FR for `/ship-milestone` lives under `specs/frs/archive/` once the milestone that introduced it has shipped.

@@ -25,7 +25,7 @@ const provider = mode === "none"
 
 ## FR file access
 
-- FR filename is governed by `Provider.filenameFor(spec)`. Tracker mode: `specs/frs/<tracker-id>.md` (e.g., `STE-53.md`). `mode: none`: `specs/frs/<short-ULID>.md` where `<short-ULID>` is `spec.id.slice(23, 29)` (matching the AC-prefix tail, e.g., `VDTAF4.md`). The full 26-char ULID is preserved in frontmatter `id:` in `mode: none` only; tracker mode has no `id:` line (the tracker ID is the canonical identity — AC-STE-76.2).
+- FR filename is governed by `Provider.filenameFor(spec)`. Tracker mode: `specs/frs/<tracker-id>.md` (e.g., `<TKR>-NN.md`). `mode: none`: `specs/frs/<short-ULID>.md` where `<short-ULID>` is `spec.id.slice(23, 29)` (matching the AC-prefix tail, e.g., `VDTAF4.md`). The full 26-char ULID is preserved in frontmatter `id:` in `mode: none` only; tracker mode has no `id:` line (the tracker ID is the canonical identity).
 - Archived FRs live at `specs/frs/archive/<name>.md` with the same stem as the active file — archival never renames.
 - Frontmatter shape is enforced at gate time by `/gate-check` probes #2 (`required-frontmatter`), #13 (`identity_mode_conditional`), and #27 (`frontmatter_milestone_not_archived`). The canonical emitter is `buildFRFrontmatter` in `adapters/_shared/src/fr_frontmatter.ts`.
 - Each FR has exactly these top-level sections in order: `## Requirement`, `## Acceptance Criteria`, `## Technical Design`, `## Testing`, `## Notes`.
@@ -40,7 +40,7 @@ const provider = mode === "none"
 ## Skill-specific behavior
 
 ### `/spec-write`
-- Create new FR. In `mode: none`: call `Provider.mintId()` → write `specs/frs/<Provider.filenameFor(spec)>` with the full ULID in frontmatter `id:`, filename = short-ULID tail. In tracker mode: skip the `mintId()` call and omit `id:` from frontmatter; filename = tracker ID (`<tracker-id>.md` per AC-STE-60.3). The tracker ID is the canonical identity.
+- Create new FR. In `mode: none`: call `Provider.mintId()` → write `specs/frs/<Provider.filenameFor(spec)>` with the full ULID in frontmatter `id:`, filename = short-ULID tail. In tracker mode: skip the `mintId()` call and omit `id:` from frontmatter; filename = tracker ID (`<tracker-id>.md`). The tracker ID is the canonical identity.
 - Call `Provider.sync(spec)` on save.
 - Never write to `specs/requirements.md`.
 
@@ -48,7 +48,7 @@ const provider = mode === "none"
 - Entry: `Provider.claimLock(id, currentBranch)` before any code is written.
   - `claimed` → proceed.
   - `already-ours` → proceed (session resume).
-  - `taken-elsewhere` → STOP with message naming the holding branch (AC-STE-28.1/2).
+  - `taken-elsewhere` → STOP with message naming the holding branch.
 - Phase 4 (completion): per FR, `git mv specs/frs/<name> specs/frs/archive/<name>` where `<name>` is `Provider.filenameFor(spec)` + flip frontmatter `status: active` → `status: archived` + set `archived_at: <ISO>`, in one atomic commit. Then `Provider.releaseLock(id)`.
 - ACs read from the FR file's `## Acceptance Criteria` section, not `specs/requirements.md`.
 
@@ -61,7 +61,7 @@ const provider = mode === "none"
   1. **Filename ↔ `Provider.filenameFor(spec)`** for every `specs/frs/**/*.md` (strict — every base name must equal `Provider.filenameFor(spec)`).
   2. **Required frontmatter fields** present for every FR file (id, title, milestone, status, archived_at, tracker, created_at). Missing = fail.
   3. **Stale lock scan** — list `.dpt-locks/<ulid>` entries whose branch is merged or deleted. Offer `--cleanup-stale-locks` action that deletes them in one commit.
-  4. **Plan post-freeze edit scan** — for each `specs/plan/<M#>.md` with `status: active` + non-null `frozen_at`, list commits to that path whose authored date is after `frozen_at`. No auto-revert (AC-STE-21.4 warning semantics).
+  4. **Plan post-freeze edit scan** — for each `specs/plan/<M#>.md` with `status: active` + non-null `frozen_at`, list commits to that path whose authored date is after `frozen_at`. No auto-revert (warning semantics).
 
 ### `/spec-review`
 - Read FRs from `specs/frs/` (glob active, optionally archive/).
@@ -87,4 +87,4 @@ Tracker-less races (two devs committing locks on separate branches without fetch
 
 ## Test fixtures
 
-- `tests/fixtures/projects/mode-none-*` — fixture spec trees consumed by the live Schema L probe via `tests/scripts/verify-regression.test.ts`. The pre-M18 v2-minimal fixture and Schema M script-mode probe were removed in M39 STE-141.
+- `tests/fixtures/projects/mode-none-*` — fixture spec trees consumed by the live Schema L probe via `tests/scripts/verify-regression.test.ts`. The pre-M18 v2-minimal fixture and Schema M script-mode probe were removed in M39.

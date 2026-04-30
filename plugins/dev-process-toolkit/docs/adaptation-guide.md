@@ -251,6 +251,6 @@ See `skills/spec-archive/SKILL.md` for the full protocol, including the reopen p
 
 ### Adjusting the archive directory layout
 
-The default layout is flat per-unit: archived FRs at `specs/frs/archive/<name>.md` (stem preserved from the active location — see STE-60 for the `<name>` shape), archived milestones at `specs/plan/archive/M<N>.md`. Changing this layout is out of scope — `/implement` and `/spec-archive` hardcode the pattern. If you need a different layout (nested by year, split by source file), file an issue or fork the skills.
+The default layout is flat per-unit: archived FRs at `specs/frs/archive/<name>.md` (stem preserved from the active location — see `docs/layout-reference.md` for the `<name>` shape), archived milestones at `specs/plan/archive/M<N>.md`. Changing this layout is out of scope — `/implement` and `/spec-archive` hardcode the pattern. If you need a different layout (nested by year, split by source file), file an issue or fork the skills.
 
 These are **starting points** — adapt them to your project's specific tools and versions.

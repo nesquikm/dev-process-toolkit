@@ -4,7 +4,7 @@ Extended reference material for `/dev-process-toolkit:setup` extracted from `ski
 
 This reference is **not required reading** on every run — the skill itself has enough guidance to operate. Consult this file when implementing or auditing one of the documented sub-flows (Bun scaffold-verify, commit-msg hook install, audit-section post-condition, bootstrap commit).
 
-## Bun scaffold-verify branch (STE-113 + STE-128)
+## Bun scaffold-verify branch
 
 Triggered from skill step 2c when the detected stack is Bun (presence of `bun.lock` OR `package.json` with `"packageManager": "bun@..."` OR `bunfig.toml`). Bun has no `bun test --passWithNoTests` flag and exits 1 against an empty test directory; the placeholder file is the workaround.
 
@@ -24,7 +24,7 @@ The `bun-zero-match-placeholder` probe (gate-check #20) reads either the marker 
 
 Procedure (skip entirely when `.git/hooks/` is absent — log `setup: skipping commit-msg hook (not a git repo)`):
 
-1. **Resolve source.** Default ⇒ `${CLAUDE_PLUGIN_ROOT}/templates/git-hooks/commit-msg.sh`. `--commitlint` ⇒ check `command -v bun`; missing ⇒ warn and fall through to the shell variant (AC-STE-133.3 final clause); else use `commit-msg.commitlint.sh`.
+1. **Resolve source.** Default ⇒ `${CLAUDE_PLUGIN_ROOT}/templates/git-hooks/commit-msg.sh`. `--commitlint` ⇒ check `command -v bun`; missing ⇒ warn and fall through to the shell variant; else use `commit-msg.commitlint.sh`.
 2. **Idempotency tier** against `.git/hooks/commit-msg`:
    - missing ⇒ copy + `chmod +x`;
    - byte-identical ⇒ no-op;
@@ -38,7 +38,7 @@ The hook is a local-machine artifact (not tracked in git). `commitlint.config.js
 
 ## Step 7 — Configure MCP servers (full)
 
-`verification:` When tracker mode != none, write `.mcp.json` with the resolved adapter's `mcpServers` entry. **Required, abort on failure** (STE-106 AC-STE-106.3 / AC-STE-106.5) — the `setup-output-completeness` probe (gate-check #17) hard-fails when the file is missing in tracker mode.
+`verification:` When tracker mode != none, write `.mcp.json` with the resolved adapter's `mcpServers` entry. **Required, abort on failure** — the `setup-output-completeness` probe (gate-check #17) hard-fails when the file is missing in tracker mode.
 
 **Optionally offer [mcp-rubber-duck](https://github.com/nesquikm/mcp-rubber-duck)** — an MCP server that delegates tasks to independent AI "ducks," each with their own tools and context. It improves quality through cross-model evaluation (different models reviewing each other's work) and enables the `/visual-check` skill for visual UI verification. `default: skip` — proceed without rubber-duck if no answer is supplied (autonomous mode).
 
@@ -65,31 +65,31 @@ If `.mcp.json` already exists, merge — don't overwrite.
 If the user picks 2–4 (linear / jira / custom), run the flow in `docs/setup-tracker-mode.md` in full:
 
 1. Verify `bun --version` ≥ 1.2; absence hard-stops mode recording with an NFR-10 canonical-shape error.
-2. Detect the target MCP via `claude mcp list`. If absent, render a dry-run JSON diff of the proposed `mcpServers.<name>` entry and require explicit confirmation before writing `settings.json` (AC-STE-9.1, AC-STE-9.2, AC-STE-9.3, DD-12.9).
-3. Run a harmless test call (Linear `list_teams` / Jira empty `search`). On failure, surface an NFR-10 canonical-shape error and refuse to record mode — the project remains `mode: none` (AC-STE-9.4, AC-STE-9.5).
+2. Detect the target MCP via `claude mcp list`. If absent, render a dry-run JSON diff of the proposed `mcpServers.<name>` entry and require explicit confirmation before writing `settings.json` (DD-12.9).
+3. Run a harmless test call (Linear `list_teams` / Jira empty `search`). On failure, surface an NFR-10 canonical-shape error and refuse to record mode — the project remains `mode: none`.
 4. For Jira: **first** call `mcp__atlassian__getVisibleJiraProjects` and assert the configured `### Jira`.project key is visible — refuse with NFR-10 canonical shape on miss (the operator must create the Space in the Jira UI before `/setup` can record `mode: jira`). **Then** pipe the `GET /rest/api/3/field` response into `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/jira/src/discover_field.ts`. On `{ok: true}`, record `jira_ac_field: customfield_XXXXX`. On `{ok: false}`, prompt the operator with the two-choice branch (create the field and re-run `/setup`, **or** record the description-body sentinel `jira_ac_field: description`) — see `docs/setup-tracker-mode.md` § Per-tenant discovery → Jira for the verbatim prompt.
 5. Append the `## Task Tracking` section to CLAUDE.md per Schema L with the resolved keys (one per line).
-6. **STE-117 workspace binding.** `requires-input: workspace binding (team + project) is workspace-wide; no safe default exists.` After step 5 lands, prompt for the binding values — closed-set keys per `docs/patterns.md` § Schema L Workspace binding sub-sections:
+6. **Workspace binding.** `requires-input: workspace binding (team + project) is workspace-wide; no safe default exists.` After step 5 lands, prompt for the binding values — closed-set keys per `docs/patterns.md` § Schema L Workspace binding sub-sections:
    - **Linear:** call `mcp__linear__list_teams` (display each team's `key` + `name`); after the user picks a team, call `mcp__linear__list_projects --team <selected>` and display project names. The user picks one project. Surface the live list so the operator never types from memory; reject the call with NFR-10 canonical shape if either MCP probe fails.
    - **Jira:** prompt for the Jira project key directly (no live probe — Jira project enumeration is per-instance and out of MCP scope).
    Write the values into a `### Linear` (with `team:` + `project:`) or `### Jira` (with `project:`) sub-section appended after the Schema L canonical keys. The sub-section parser is greedy until the next `##` / `###` heading or EOF.
-   Append a `## /setup audit` entry per STE-108 conventions: `step:7b (workspace_binding) value:"<adapter>:<team>/<project>" reason:"prompt resolved"`. Under non-interactive mode without a pre-baked answer, abort with NFR-10 canonical shape naming step 7b workspace-binding and the missing input.
+   Append a `## /setup audit` entry per the audit-log conventions: `step:7b (workspace_binding) value:"<adapter>:<team>/<project>" reason:"prompt resolved"`. Under non-interactive mode without a pre-baked answer, abort with NFR-10 canonical shape naming step 7b workspace-binding and the missing input.
 
 ## Step 7d — Docs modes (full prompt list + section format)
 
-`default: all-false` — when no answer is supplied (autonomous mode or when the docs question is skipped), the skill **always emits** the `## Docs` section with all three flags set to `false` (STE-107 AC-STE-107.1 / .2). This supersedes the older "absent section ≡ all-false" convention: the section is now always written so `/docs` and the `claudemd-docs-section-present` probe (gate-check #18) have something to read. Each default-applied flag appends a `## /setup audit` entry: `step:7d (docs.<flag>) value:false reason:"default applied"`.
+`default: all-false` — when no answer is supplied (autonomous mode or when the docs question is skipped), the skill **always emits** the `## Docs` section with all three flags set to `false`. This supersedes the older "absent section ≡ all-false" convention: the section is now always written so `/docs` and the `claudemd-docs-section-present` probe (gate-check #18) have something to read. Each default-applied flag appends a `## /setup audit` entry: `step:7d (docs.<flag>) value:false reason:"default applied"`.
 
 Ask three yes/no prompts, in this exact order, after 7c:
 
 1. `Generate user-facing docs (narrative + mermaid state/flow diagrams)?`
-2. `Generate packages-style API reference docs?` — body is **stack-adaptive** per `probeToolchains(projectRoot)` from `adapters/_shared/src/toolchain_probe.ts` (AC-STE-105.2 / AC-STE-105.4):
+2. `Generate packages-style API reference docs?` — body is **stack-adaptive** per `probeToolchains(projectRoot)` from `adapters/_shared/src/toolchain_probe.ts`:
    - **TS-only project** (only `tsconfig.json`): existing prompt unchanged — `(typedoc <detected|not found>, ts-morph <bundled>, stack: <ts|other>)`.
    - **Dart-only project** (only `pubspec.yaml`): `(dart SDK <detected|MISSING — install: https://dart.dev/get-dart>, strategy: dart-analyzer | regex-fallback)`.
    - **Python-only project** (`pyproject.toml`/`setup.py`/`setup.cfg`): `(griffe <detected|MISSING — install: pip install griffe>=0.40.0>, strategy: griffe | regex-fallback)`.
    - **Mixed-stack project**: render each detected stack's status on its own line under the prompt title.
 3. `Is CHANGELOG.md generated by CI (if yes, /ship-milestone will not write it)?`
 
-Prompt 2's body is informational only — whether the probed tool is present does not change the prompt's default or accepted inputs, just the operator's visibility into which strategy `/docs` will choose later (AC-STE-72.2 for the TS chain, AC-STE-103.2 for Dart, AC-STE-104.1 for Python).
+Prompt 2's body is informational only — whether the probed tool is present does not change the prompt's default or accepted inputs, just the operator's visibility into which strategy `/docs` will choose later (TS, Dart, and Python chains each have their own preferred toolchain).
 
 Accept `y`/`n`/`yes`/`no` case-insensitively; other inputs re-prompt with the remedy `answer y or n`. If the project already has a `## Docs` section, show the current value inline on each prompt (e.g., `Generate user-facing docs? [current: true]`) and accept empty input as "keep current".
 
@@ -101,7 +101,7 @@ Remedy: answer yes to either "user-facing docs?" or "packages API refs?", or dec
 Context: mode=<tracker-mode>, skill=setup
 ```
 
-If the user declines both on the re-ask, **still emit** the `## Docs` section with all-false defaults (STE-107 AC-STE-107.1 / .2). The legacy "absent section ≡ all-false" backward-compat shape is preserved on **read** — `readDocsConfig` returns all-false for an absent section — but `/setup`-generated files always carry the literal block.
+If the user declines both on the re-ask, **still emit** the `## Docs` section with all-false defaults. The legacy "absent section ≡ all-false" backward-compat shape is preserved on **read** — `readDocsConfig` returns all-false for an absent section — but `/setup`-generated files always carry the literal block.
 
 Write the resolved answers as a `## Docs` section in `CLAUDE.md`, placed immediately after `## Task Tracking` (or at end of file if no tracker section exists). Schema L format, lowercase literal `true`/`false`, no quoting:
 
@@ -129,20 +129,20 @@ Re-run writes are atomic — read CLAUDE.md, splice the full `## Docs` block, wr
 
 Emit only the keys for stacks the project actually carries (`ts` only when `tsconfig.json` is present, `dart` only with `pubspec.yaml`, `python` only with `pyproject.toml`/`setup.py`/`setup.cfg`). The `signature-strategy-honors-setup` `/gate-check` probe (#24) reads this file later to detect "tool was here at setup, gone now" drift; absent file ⇒ probe skips silently. Skip the write when `packages_mode == false` — there's nothing to validate.
 
-## Step 8a — Audit-section post-condition (STE-123 + STE-153, full procedure)
+## Step 8a — Audit-section post-condition (full procedure)
 
-`verification:` runs unconditionally before step 8b's bootstrap commit, regardless of prompt mode. Materialises the **unconditional-synthesis** model: every well-formed `/setup` run that produces a toolkit-managed CLAUDE.md with at least one populated Schema L surface (`branch_template:` populated **or** `## Docs` present) ships a `## /setup audit` section. Provenance is preserved per resolution via the entry's `reason:` field — `"user-supplied"` or `"default applied"` — so the section is a complete provenance log of every resolved value, not only of default-applied outcomes (STE-153 AC-STE-153.1).
+`verification:` runs unconditionally before step 8b's bootstrap commit, regardless of prompt mode. Materialises the **unconditional-synthesis** model: every well-formed `/setup` run that produces a toolkit-managed CLAUDE.md with at least one populated Schema L surface (`branch_template:` populated **or** `## Docs` present) ships a `## /setup audit` section. Provenance is preserved per resolution via the entry's `reason:` field — `"user-supplied"` or `"default applied"` — so the section is a complete provenance log of every resolved value, not only of default-applied outcomes.
 
 Procedure:
 
 1. Read CLAUDE.md once.
-2. Call `hasDefaultApplicableOutcomes(content)` from `adapters/_shared/src/setup_audit_section_presence.ts` (the same audit-required-surfaces predicate probe-19 uses at gate time — single source of truth, AC-STE-123.1). Despite the legacy name, the predicate semantics are "audit-required surfaces present" (`branch_template:` populated or `## Docs` present), regardless of whether the values were user-supplied or default-applied.
+2. Call `hasDefaultApplicableOutcomes(content)` from `adapters/_shared/src/setup_audit_section_presence.ts` (the same audit-required-surfaces predicate probe-19 uses at gate time — single source of truth). Despite the legacy name, the predicate semantics are "audit-required surfaces present" (`branch_template:` populated or `## Docs` present), regardless of whether the values were user-supplied or default-applied.
 3. Branch:
    - **false** ⇒ no-op, continue to step 8b. Vacuous when neither Schema L surface is populated (interactive run that wrote neither `branch_template:` nor `## Docs`).
    - **true AND** the literal string `"## /setup audit"` is present in the file ⇒ no-op, continue. Per-step appends already populated the section.
-   - **true AND** the audit heading is absent ⇒ call `synthesizeAuditSection(claudeMdPath, resolvedSchemaLValues)` from `adapters/_shared/src/setup/synthesize_audit.ts`. Pass the **in-scope resolved Schema L values table** populated during steps 7b/7c/7d — every resolution lands here regardless of provenance (`"user-supplied"` or `"default applied"`). Never re-derive from CLAUDE.md, since re-parsing reintroduces brittleness. The helper is idempotent (`(step, field)` dedup; AC-STE-123.3); existing entries are preserved verbatim, including their original `reason:` value (a re-run with a different reason for the same `(step, field)` is a skip, not an overwrite).
+   - **true AND** the audit heading is absent ⇒ call `synthesizeAuditSection(claudeMdPath, resolvedSchemaLValues)` from `adapters/_shared/src/setup/synthesize_audit.ts`. Pass the **in-scope resolved Schema L values table** populated during steps 7b/7c/7d — every resolution lands here regardless of provenance (`"user-supplied"` or `"default applied"`). Never re-derive from CLAUDE.md, since re-parsing reintroduces brittleness. The helper is idempotent (`(step, field)` dedup); existing entries are preserved verbatim, including their original `reason:` value (a re-run with a different reason for the same `(step, field)` is a skip, not an overwrite).
 
-On `AuditPostconditionUnsatisfiable` (the resolved Schema L values table is empty but the file shows audit-required surfaces — defensive invariant, AC-STE-123.4; unreachable on the canonical 7b/7c/7d → 8a path post-STE-153), refuse with NFR-10 canonical shape and abort /setup before step 8b can commit malformed output:
+On `AuditPostconditionUnsatisfiable` (the resolved Schema L values table is empty but the file shows audit-required surfaces — defensive invariant; unreachable on the canonical 7b/7c/7d → 8a path), refuse with NFR-10 canonical shape and abort /setup before step 8b can commit malformed output:
 
 ```
 setup: audit-section post-condition unsatisfiable — resolved Schema L values table empty
@@ -153,7 +153,7 @@ Context: file=<path>, step=8a, post-condition=audit-section-presence
 
 This step is the deterministic byproduct of every well-formed /setup run; probe-19 satisfaction is guaranteed at the file-shape level when /setup returns clean. Probe-19 stays at gate time as the safety net for paths that bypass /setup (manual CLAUDE.md edits, downstream skills that mutate the file).
 
-## Step 8b — Bootstrap commit (STE-109, full procedure)
+## Step 8b — Bootstrap commit (full procedure)
 
 `default: commit` — autonomous mode proceeds with the commit; interactive mode prompts. The bootstrap is mechanical and the diff is reviewable post-commit.
 
