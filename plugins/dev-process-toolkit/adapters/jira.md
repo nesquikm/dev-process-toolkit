@@ -262,7 +262,35 @@ the canonical form (no round-trip loop).
      `Subtask` only (no `Story`); `Task` is the universally available
      choice. Operators on Scrum templates can switch to `Story` via the
      override.
+   - **Pre-create JQL idempotency probe (single-shot fast path).** Before
+     `createJiraIssue` fires, search the project for a ticket whose summary
+     matches `title` exactly. A hit means the FR was already created on a
+     prior run (resume / retry); return that id without writing.
    - `mcp__atlassian__createJiraIssue(projectKey=<from CLAUDE.md ### Jira>, summary=title, description=<rendered template>, issuetype=<resolved type>, contentFormat: "markdown")`.
+   - **Network-error retry path (Gateway-Timeout idempotency hardening).**
+     If the create call returns a network-error response
+     (Gateway-Timeout / 504 / connection reset / equivalent) instead of a
+     successful key, the server-side write may have landed despite the
+     timeout (smoke #6 finding F6: the original write succeeded as `DST-2`
+     while the timeout caused the retry path to fire). Re-run the JQL
+     idempotency probe with backoff to give Atlassian's eventual-consistency
+     window time to settle:
+
+     | Attempt | Wait before probe | Action |
+     |---------|-------------------|--------|
+     | 1       | 1 second          | JQL search by exact `summary` match |
+     | 2       | 2 seconds         | Same JQL search |
+     | 3       | 4 seconds         | Same JQL search |
+
+     Three attempts total; the schedule is `1s + 2s + 4s` (cumulative ~7s
+     of additional latency on the timeout path only). The single-shot probe
+     above stays as the fast path — the backoff schedule fires only on the
+     network-error branch. If any backoff attempt finds the original write,
+     return that id (no duplicate create). If all three backoff probes still
+     miss, the original write genuinely failed server-side: fall through to
+     a fresh `createJiraIssue` AND surface a `tracker_idempotency_uncertain`
+     warning row in `/spec-write` Step 7 — the operator should manually
+     verify before downstream skills bind to the new id.
    - Capture the returned `key` (e.g., `ABC-123`); that's the ticket id.
 2. Else:
    - `mcp__atlassian__editJiraIssue(issueIdOrKey=ticket_id_or_null, fields={ summary, description }, contentFormat: "markdown")`.
@@ -274,6 +302,11 @@ the canonical form (no round-trip loop).
 
 Every write here passes through the silent-no-op trap: post-call
 `updatedAt` is asserted to have advanced.
+
+> **Out of scope.** Atlassian Rovo MCP does not currently expose
+> idempotency-key headers on `createJiraIssue` — revisit if a future MCP
+> version surfaces them; the backoff retry path is the present-day
+> mitigation.
 
 ## Helper: `discover_field.ts`
 

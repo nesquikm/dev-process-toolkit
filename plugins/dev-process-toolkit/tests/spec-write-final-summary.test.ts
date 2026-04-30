@@ -60,3 +60,25 @@ describe("STE-127 AC-STE-127.4 — Step 7 covers both new-FR and import paths", 
     expect(step7).toMatch(/import|importFromTracker|tracker-id resolve/i);
   });
 });
+
+// STE-158 AC-STE-158.1 — Step 7 prose must explicitly fire in `-p`
+// non-interactive runs. The smoke #7 (Linear) finding F1 surfaced 1-byte
+// stdout from `claude -p /spec-write …`: the existing prose said "MUST
+// emit on every successful run, regardless of mode or invocation path"
+// but the LLM short-circuited the summary when no questions were asked.
+// The fix strengthens the prose so the unconditional emit fires even on
+// the silent path.
+describe("AC-STE-158.1 — Step 7 prose explicitly covers `-p` non-interactive runs", () => {
+  test("Step 7 prose names the `-p` / non-interactive mode", () => {
+    const step7 = extractStep7(readSkill());
+    expect(step7).toMatch(/-p\s|claude -p|non-interactive/i);
+  });
+
+  test("Step 7 prose explicitly fires even when no questions were asked", () => {
+    const step7 = extractStep7(readSkill());
+    // The smoke regression was the LLM skipping Step 7 when the run had no
+    // user-facing questions. Prose must call out the unconditional firing
+    // even on the quiet path.
+    expect(step7).toMatch(/even when no question|no question.+asked|even when the run|silent path|quiet path|unconditional/i);
+  });
+});

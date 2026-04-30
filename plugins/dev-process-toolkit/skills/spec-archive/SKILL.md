@@ -40,7 +40,7 @@ Archival uses the same code path as `/implement` Phase 4.
 2. Present the Diff Preview (§ Diff Preview below) — the filename move, the frontmatter flip, and any `Provider.releaseLock` call.
 3. On explicit approval:
    - `git mv specs/frs/<name> specs/frs/archive/<name>` using the `Provider.filenameFor(spec)` base — stem preserved across the move. Archival never renames.
-   - Flip frontmatter `status: active` → `status: archived`; set `archived_at: <ISO now>`.
+   - Flip frontmatter `status: active` → `status: archived`; set `archived_at: <ISO now>`. **Precision: full ISO-8601 with date + time + Z (e.g., `2026-04-30T17:23:11Z`); not date-only with zeroed time.** Render the wall-clock instant via `date -u +%Y-%m-%dT%H:%M:%SZ`, never the shorter `date +%Y-%m-%d` form (it rounds to midnight UTC, which is the smoke #6 finding F1 regression shape).
    - **Rewrite traceability links.** Call `rewriteArchiveLinks(repoRoot, frId)` from `adapters/_shared/src/spec_archive/rewrite_links.ts`. It scans `specs/requirements.md`, every `specs/plan/*.md`, every `specs/plan/archive/*.md`, and `CHANGELOG.md` (scoped to lines above the first dated `## [X.Y.Z] — YYYY-MM-DD` header — released sections are frozen per AC-STE-111.6) for `frs/<id>.md` references and rewrites them to `frs/archive/<id>.md`. Both Markdown link forms (`](frs/<id>.md)` and `](./frs/<id>.md)`) and bare path mentions are covered. Orphan FRs (no references anywhere) yield an empty rewrite, no error. The rewrites land in the **same atomic commit** as the `git mv` and frontmatter flip.
    - `Provider.releaseLock(<ulid>)`. In tracker mode this transitions the ticket to `done`; in tracker-less mode it removes the in-flight lock file.
    - All of the above land in a single atomic commit.

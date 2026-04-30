@@ -78,6 +78,24 @@ Run these deterministic layout-invariant probes in addition to the normal gate:
 
 Full details: `docs/layout-reference.md` § `/gate-check`.
 
+### Conformance-probes summary line
+
+After all conformance probes complete, render a single roll-up summary line in the canonical shape:
+
+```
+conformance-probes pass: <N>/<N> [<active> active, <vacuous> vacuous]
+```
+
+Where:
+
+- `<N>` is the total probe count (the same numerator and denominator unless a probe failed — failures route through GATE FAILED above).
+- `<active>` is the count of probes that ran with non-empty input and exercised at least one assertion against active content.
+- `<vacuous>` is the count of probes that early-returned because their scope was empty (no active FRs to walk, `mode: none` skip, `specs/` absent, plan file missing, etc.). Vacuous probes are still **passing** probes — the count distinguishes them from active passes so the operator can tell at a glance whether the suite is exercising real content.
+
+Smoke #6 finding F2 (Jira) caught the previous shape `29/29 (most vacuous post-archive)` — the parenthetical wording was soft and operator-unparseable. The bracketed `[N active, M vacuous]` form is deterministic; the brackets are the parseable signal a CI step or smoke driver can scan for.
+
+**What counts as vacuous post-archive.** When the only active FR is archived, the FR-traversal probes (probes that walk active `specs/frs/*.md` — e.g., #1 filename-frontmatter convention, #2 required frontmatter, #7 duplicate AC-prefix, #8 ticket-state drift, #14 ticket-state drift active-side, #15 guessed tracker-id scan, #25 task-tracking workspace-binding, #26 tracker-project-milestone-attached, #27 frontmatter-milestone-not-archived) early-return as vacuous because there are no active FRs to walk. The counter must reflect this — the same probe set that ran fully active before the archive becomes mostly vacuous after, and the summary line should make that visible to the operator.
+
 ## Probe authoring contract
 
 Every new `/gate-check` probe ships with a corresponding
