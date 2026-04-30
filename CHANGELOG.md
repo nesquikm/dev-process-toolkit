@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.0.0] — 2026-04-30 — "Threshold"
+
+Major-version line bump. **No new FRs ship in this release** — v2.0.0 is a deliberate cut over the cumulative post-M36 era, marking the point at which the plugin-facing API stabilizes under SemVer compatibility going forward.
+
+The 2.x line declares the following surfaces stable:
+
+- **Skill set + slash-command surface** — every command exposed under `/dev-process-toolkit:*` is now under MAJOR-bump compatibility. Renames or removals require 2.x → 3.x.
+- **`CLAUDE.md` `## Task Tracking` schema** — the `mode:` / `mcp_server:` / `jira_ac_field:` keys + the `### Linear` / `### Jira` sub-section shape (closed set in `task_tracking_canonical_keys.ts`).
+- **FR-frontmatter bimodal-identity contract** — `mode: none` carries `id:`; tracker mode carries the compact `tracker: { <mode>: <tracker-id> }` block. The verbose `{ key, id, url }` form is rejected.
+- **Adapter contract** — Linear + Jira adapter signatures (`upsertTicketMetadata`, `pullAcs`, `pushAcToggle`, `transitionStatus`, `mintIdentity`) under their current parameter shapes; the `UpsertMetadataInput.labels?: string[]` widening from M44 (v1.44.0) is now part of the canonical contract.
+
+The cumulative span 2.0.0 acknowledges (without re-listing per FR — entries below carry the per-release detail):
+
+- **M36 (v1.37.0) — Conventional Commits adoption.** First canonical CC commit; `commit-msg` hook hard-blocks non-conforming subjects with no grace period.
+- **M43 (v1.43.0) — Jira live-MCP conformance.** Adapter spec aligned with live Atlassian Rovo MCP; seven F1–F7 corrections in one FR (snake_case → camelCase tool names, `transition_status` `statusCategory.key` fallback, `description` sentinel for `jira_ac_field`, `Task` default issue type, manual Space pre-creation prerequisite, no `deleteJiraIssue` available).
+- **M44 (v1.44.0) — `/smoke-test --tracker jira` branch.** Tier 5 dogfood driver covers both Linear and Jira modes; Atlassian Rovo MCP entry pre-baked; `dpt-smoke` label end-to-end via `UpsertMetadataInput.labels` widening.
+- **M45 (v1.45.0) — Idempotency hardening + smoke polish.** Gateway-Timeout retry path widens the JQL idempotency window with `1s + 2s + 4s` backoff before any fresh create; `tracker_idempotency_uncertain` warning row when ambiguous.
+- **M46 (v1.46.0) — Per-tracker artifact isolation + No-claim-on-create.** Concurrent two-terminal smoke runs (one Linear, one Jira) without filesystem collision; `/spec-write` invariant: freshly-created tracker tickets land in default state, claim deferred to `/implement` Phase 1.
+- **M47 (v1.47.0) — Skill-prose hygiene.** ~280 toolkit-internal `STE-<N>` / `AC-STE-<N>.<M>` cross-references scrubbed from `plugins/dev-process-toolkit/{skills,docs,adapters}/*.md`; provenance moved to FR files + commit history.
+
+### Breaking changes
+
+None at the source level. The 2.x line is the **first SemVer-compatible commitment** for the plugin-facing surface — pre-2.0 the plugin had no users (per project convention; see `project_no_users_yet.md`), and back-compat shims were considered dead weight. Going forward, the surfaces named above are under MAJOR-bump compatibility.
+
+### Migration notes
+
+Pre-2.0 installs do not exist (no marketplace consumers). For internal repos that vendored plugin contents directly: no behavior change in this bump — files are byte-identical to v1.47.0 except for the version string in `plugin.json` and `marketplace.json`. No CLAUDE.md edits required, no FR migration required, no test changes.
+
+Test count at release: 437 tests, 0 failures, 0 errors (unchanged from v1.47.0).
+
 ## [1.47.0] — 2026-04-30 — "Plain"
 
 M47 ships a single prose-only FR: a project-wide scrub of toolkit-internal tracker-ID cross-references from active skill prose, operator-facing docs, and adapter operator-facing sections. **STE-161 (low)** removes ~280 inline `STE-<N>` and `AC-STE-<N>.<M>` references across `plugins/dev-process-toolkit/skills/*/SKILL.md` (~189), `plugins/dev-process-toolkit/docs/*.md` (~141), and the operator-facing prose in `adapters/{linear,jira}.md` (~4) — replacing each with plain-language rule names (e.g., `STE-117 workspace binding` → `workspace-binding rule`, `AC-STE-110.4 flip` → "the prior warn-only severity flipped to error"). The downstream-operator argument dominates the rewrite: this plugin is installed in projects that bind to their own tracker (or none), so a Linear-workspace-internal `STE-117` is meaningless jargon to anyone outside our org; provenance for each rule lives in the FR file + commit history, not inline in the skill the LLM reads at runtime. Placeholder forms (`<tracker-id>`, `STE-<N>`, `AC-<tracker-id>.<N>`) are preserved as template markers; adapter-internal helper code (`adapters/_shared/src/*.ts` test names, internal capability keys) is untouched. Verified by `grep -rE 'STE-[0-9]+|AC-STE-[0-9]+' plugins/dev-process-toolkit/{skills/*/SKILL.md,docs/*.md,templates/spec-templates/*.template,adapters/*.md}` returning zero matches across the in-scope tree (excluding placeholder markers). The convention is now one-way: future skill-prose edits in any milestone should not reintroduce inline tracker-ID refs; a `/gate-check` probe enforcing this rule is a possible follow-up FR. Operator-deferred AC-STE-161.6 — post-scrub `/smoke-test` ships `[~]`; M48 carries the retroactive validation. Minor bump — skill-prose changes only; no plugin-facing API change. Test count: 437 → 437 (+0; the 8 skip remain skip).
