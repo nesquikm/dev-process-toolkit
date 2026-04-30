@@ -191,6 +191,19 @@ observed status; operators fix either by transitioning the ticket to
    guard verifies `updatedAt` advanced; a silent no-op raises
    `TrackerWriteNoOpError`.
 
+> **Symmetric note (Gateway-Timeout idempotency hardening).** Linear's `save_issue` shares the same
+> Gateway-Timeout class of failure mode as Jira's `createJiraIssue` —
+> the Linear MCP can return a network-error response while the
+> server-side write has already landed. Smoke #6 surfaced the defect on
+> Jira only, but the mitigation applies to both adapters: on a network
+> error during create, retry the idempotency probe with backoff
+> (`1s + 2s + 4s`, three attempts via `mcp__linear__list_issues`
+> filtered by `query=<title>`) before falling through to a fresh
+> create. Persistent miss after backoff ⇒ surface
+> `tracker_idempotency_uncertain` in /spec-write Step 7 (same canonical
+> capability key as Jira). See `adapters/jira.md` § `upsert_ticket_metadata`
+> for the full schedule and rationale.
+
 ## Helper: `normalize.ts`
 
 Pure function over text (Schema P):
