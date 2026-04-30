@@ -42,7 +42,7 @@ Any of these fire before any file write and exit non-zero with an NFR-10-shape m
 
    Both shapes exit non-zero and preserve the `Context:` line byte-identically. See `docs/ship-milestone-reference.md` § Refusal #1 remedy shapes for the full decision matrix including mixed tracker-Done / not-Done sets (the "any genuinely unshipped" branch wins on mix — safer than misdirecting to `/spec-archive` when a ticket genuinely isn't done yet).
 
-2. **Dirty working tree outside the expected set**. The expected-modified set is the four release files plus the `docs/` subtree (for the `/docs --commit --full` step). `git status --porcelain` lines outside that set ⇒ refuse:
+2. **Dirty working tree outside the expected set**. The expected-modified set is every entry in the host's `## Release Files` block plus the `docs/` subtree (for the `/docs --commit --full` step). `git status --porcelain` lines outside that set ⇒ refuse:
 
    ```
    /ship-milestone: working tree has uncommitted changes outside the release files: <list>.
@@ -87,12 +87,19 @@ Validate: non-empty, ≤ 32 chars, no backticks, no newlines. Re-prompt on inval
 
 ### 4. Construct release-file changes
 
-Build proposed file contents in this exact order:
+Read the host project's `## Release Files` block from `CLAUDE.md` via `parseReleaseFiles(content)` from `adapters/_shared/src/release_config.ts`. The block declares every path that gets rewritten on this release; no path is hard-coded in this skill body. Schema reference + per-kind worked examples live in `docs/ship-milestone-reference.md` § Release Files block schema.
 
-1. **`plugins/dev-process-toolkit/.claude-plugin/plugin.json`** — `version` field updated.
-2. **`.claude-plugin/marketplace.json`** — matching `version` in the plugin entry.
-3. **`CHANGELOG.md`** — new `## [X.Y.Z] — YYYY-MM-DD — "<Codename>"` section at the top, with `### Added` / `### Changed` / `### Removed` / `### Fixed` subsections populated from FR `changelog_category` + title. Cross-references rendered as `(STE-X)`. Closing line: `Total test count at release: <N> tests, <F> failures, <E> errors.` using `parseTestOutput` on the already-run test gate. **Skipped entirely if `changelog_ci_owned: true`** (from `readDocsConfig(CLAUDE.md)`) — CI owns the CHANGELOG; the test-count closing line is also suppressed because it lives inside the CHANGELOG entry.
-4. **`README.md`** — "Latest: **vX.Y.Z — '<Codename>'**" line in the `## Release Notes` section; any `## Structure` counts (skills, patterns, agents) recomputed from current filesystem.
+For each entry, compute the new file content via `bumpFile(entry, currentContent, opts)`:
+
+- **`kind: json`** — rewrites a JSON property at the dot-path in `field`. Output is reformatted with two-space indent.
+- **`kind: toml`** — rewrites a TOML field (top-level or one-level dotted).
+- **`kind: yaml`** — rewrites a top-level YAML scalar; preserves a Flutter `+<build>` suffix on the same line.
+- **`kind: changelog`** — inserts a new `## [X.Y.Z] — YYYY-MM-DD — "<Codename>"` section above the topmost prior version section. Body comes from FR `changelog_category` + title (`### Added` / `### Changed` / `### Removed` / `### Fixed` subsections; cross-refs rendered as `(STE-X)`). Closing line `Total test count at release: <N> tests, <F> failures, <E> errors.` from `parseTestOutput`. **Skipped entirely if `changelog_ci_owned: true`** (from `readDocsConfig(CLAUDE.md)`) — CI owns the CHANGELOG; the closing line is also suppressed because it lives inside the entry.
+- **`kind: regex`** — substitutes the `(?<version>...)` capture in `pattern` using the `replace` template (with `{version}` placeholder). Used for free-form lines like the README "Latest:" banner.
+
+`optional: true` entries whose `path` is missing on disk emit an `n/a` row in the proposed-diff summary; required (non-optional) entries with missing paths surface NFR-10 canonical refusal.
+
+Refusals: `MissingReleaseFilesBlockError` (block absent or empty) and `MalformedReleaseFilesError` (entry violates schema, e.g. regex without `(?<version>)` named group) both abort the run with the canonical NFR-10 shape — `Remedy: add a \`## Release Files\` block to CLAUDE.md (run /setup or copy from examples/<stack>/release.yml). Context: skill=ship-milestone`.
 
 ### 5. Invoke /docs --commit --full
 
@@ -110,7 +117,7 @@ Context: milestone=M<N>, version=<X.Y.Z>, skill=ship-milestone
 
 ### 6. Unified diff + approval
 
-Print a single unified diff covering every modified file (the four release files + any `docs/` files `/docs --commit --full` touched). Then:
+Print a single unified diff covering every modified file (every `## Release Files` entry that produced a non-empty bump + any `docs/` files `/docs --commit --full` touched). Then:
 
 ```
 === Proposed diff (N files, M lines) ===
@@ -165,7 +172,7 @@ Next steps (not automated):
 - **Never bundle unrelated work.** Pre-flight refusal 2 exists because a release commit that carries an unrelated half-fix corrupts the release's provenance in git history.
 - **Never skip the CHANGELOG closing line** on a CHANGELOG-owned release. A non-zero `<F>` blocks release; `<N>=0` is still written if the test gate happens to run zero tests (the line itself is the discipline).
 - **Single approval gate.** Merge `/docs --commit --full`'s diff into the ship-milestone diff; the user sees one unified diff and answers `y` / `N` once.
-- **Stay within the expected-modified set.** Pre-flight refusal 2 is the contract; `git add -A` is forbidden — use explicit `git add <file>` per expected path.
+- **Stay within the expected-modified set.** Pre-flight refusal 2 is the contract; the set is whatever `## Release Files` declares (plus `docs/` if `/docs --commit --full` ran). `git add -A` is forbidden — use explicit `git add <file>` per entry.
 - **Version bump is inferred, not invented.** Reach for `inferBump` before `--version`; `--version` is an escape hatch when inference is wrong, not a default.
 - **Codename validation is strict.** Backticks in commit messages break shell embeds downstream; newlines break the commit subject line. Re-prompt on invalid.
 

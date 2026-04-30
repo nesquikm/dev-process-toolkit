@@ -262,7 +262,7 @@ Chain-failure refusal: if `/ship-milestone` fails to start, surface an NFR-10 sh
 
 ```
 /implement: attempted to chain into /ship-milestone but it failed to start: <error>.
-Remedy: verify the skill is installed (check plugins/dev-process-toolkit/.claude-plugin/plugin.json), then run /ship-milestone M<N> manually.
+Remedy: verify the plugin is installed and the skill is enabled — `claude /plugin list` lists installed plugins and their skills. Then run /ship-milestone M<N> manually.
 Context: milestone=M<N>, chain=ship-milestone, skill=implement
 ```
 

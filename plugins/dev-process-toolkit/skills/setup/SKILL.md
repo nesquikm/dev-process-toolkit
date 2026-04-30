@@ -204,6 +204,10 @@ Write the section as Schema L (lowercase `true`/`false`, no quoting), placed imm
 
 Full prompt list, NFR-10 refusal text, and section format: `docs/setup-reference.md` § Step 7d — Docs modes. Background detail in `docs/setup-docs-mode.md`.
 
+### 7e. Release Files block
+
+`default: per-stack template` — emit a `## Release Files` block in CLAUDE.md from `examples/<stack>/release.yml` (typescript-node / flutter-dart / python / plugin); unrecognized stack ⇒ commented stub. Skip when CLAUDE.md already carries a `## Release Files` heading — user-edited overrides win on regenerate. Append immediately after `## Docs`. Drives `/ship-milestone`'s version bump; full schema in `docs/ship-milestone-reference.md`.
+
 ### 8. Create specs (optional)
 
 If the user wants the full SDD workflow (or `$ARGUMENTS` contains "new"):

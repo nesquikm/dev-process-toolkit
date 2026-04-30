@@ -19,8 +19,12 @@ describe("STE-42 AC-STE-42.6 — /gate-check per-milestone heading strip probe",
   test("SKILL.md names the Per-milestone heading probe with AC references", () => {
     const body = read(gateCheckSkillPath);
     expect(body).toMatch(/Per-milestone heading/i);
-    expect(body).toMatch(/AC-STE-42\.6/);
-    expect(body).toMatch(/AC-STE-26\.3/);
+    // Toolkit-meta `AC-STE-<N>.<M>` literals are scrubbed from skill prose
+    // (commit 2069ba4). Assert the conceptual content survives instead — the
+    // probe must still describe the cross-cutting spec hygiene rule and the
+    // per-FR / per-milestone-plan placement of the stripped headings.
+    expect(body).toMatch(/cross-cutting spec/i);
+    expect(body).toMatch(/specs\/frs\/|specs\/plan\//);
   });
 
   test("probe names technical-spec.md and testing-spec.md and uses GATE FAILED", () => {

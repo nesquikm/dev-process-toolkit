@@ -71,17 +71,15 @@ describe("AC-STE-73.3 — semver inference + --version override", () => {
   });
 });
 
-describe("AC-STE-73.4 — Release Checklist in order", () => {
-  test("skill enumerates the four checklist files in order", () => {
+describe("AC-STE-73.4 — Release-file flow reads the `## Release Files` block", () => {
+  test("skill cites parseReleaseFiles + bumpFile dispatch (post-STE-167)", () => {
     const body = readSkill();
-    const plugin = body.indexOf("plugin.json");
-    const marketplace = body.indexOf("marketplace.json");
-    const changelog = body.indexOf("CHANGELOG.md");
-    const readme = body.indexOf("README.md");
-    expect(plugin).toBeGreaterThan(-1);
-    expect(marketplace).toBeGreaterThan(plugin);
-    expect(changelog).toBeGreaterThan(marketplace);
-    expect(readme).toBeGreaterThan(changelog);
+    expect(body).toContain("parseReleaseFiles");
+    expect(body).toContain("bumpFile");
+    // The block is the source of truth — the four-file enumeration is gone
+    // from the skill body's release-construction step.
+    const step4 = body.slice(body.indexOf("### 4."), body.indexOf("### 5."));
+    expect(step4).not.toContain("plugins/dev-process-toolkit/.claude-plugin/plugin.json");
   });
 
   test("CHANGELOG step documents the changelog_ci_owned skip", () => {

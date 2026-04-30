@@ -25,9 +25,11 @@ function phase5Block(body: string): string {
 }
 
 describe("AC-STE-75.7 — Phase 5 sub-step placement + last-before-exit", () => {
-  test("SKILL.md declares '## Phase 5: Milestone close prompt (STE-75)'", () => {
+  test("SKILL.md declares '## Phase 5: Milestone close prompt'", () => {
     const body = readSkill();
-    expect(body).toMatch(/##\s+Phase 5:\s*Milestone close prompt \(STE-75\)/);
+    // Toolkit-meta `(STE-<N>)` heading suffixes are scrubbed from skill prose
+    // (commit 2069ba4). Assert the canonical Phase-5 heading wording survives.
+    expect(body).toMatch(/##\s+Phase 5:\s*Milestone close prompt/);
   });
 
   test("Phase 5 lands AFTER Phase 4 Close and BEFORE the Rules section", () => {

@@ -246,7 +246,11 @@ describe("AC-STE-151.1/.2/.5 — probe #14 relaxed-predicate prose shape", () =>
     const idx = body.search(/14\.\s+\*\*Ticket-state drift.*active/i);
     const next = body.indexOf("\n15.", idx);
     const block = body.slice(idx, next > 0 ? next : undefined);
-    expect(block).toContain("STE-151");
+    // Toolkit-meta `STE-<N>` literals are scrubbed from skill prose
+    // (commit 2069ba4). Assert the conceptual content survives — the
+    // probe must still describe the single-FR-clean exemption / relaxation
+    // so future readers can trace the rule.
+    expect(block).toMatch(/single-FR clean|relaxation|exemption|strictly weakens/i);
   });
 
   test("failure-row shape preserved (AC-STE-87.4(d) compatibility)", () => {

@@ -197,3 +197,40 @@ user_facing_mode: false
 packages_mode: false
 changelog_ci_owned: false
 
+<!--
+===============================================================================
+Release Files section. `/ship-milestone` reads this block to drive the
+per-release version bump. `/setup` populates it from the per-stack default
+under `examples/<stack>/release.yml`. Edit the block to match your project's
+actual layout — kind: regex is the universal escape hatch for free-form
+patterns (e.g., a non-standard README "Latest:" line).
+
+Per-entry keys:
+  - path:     repo-relative path
+  - kind:     json | toml | yaml | changelog | regex
+  - field:    dot-path (json/toml/yaml only) — e.g. version, project.version,
+              plugins[0].version
+  - pattern:  regex with named (?<version>...) group (regex only)
+  - replace:  template using {version} placeholder (regex only)
+  - optional: bool (default false) — missing path is `n/a`, not error
+
+Full schema + per-kind worked examples: docs/ship-milestone-reference.md.
+===============================================================================
+-->
+
+## Release Files
+
+```yaml
+files:
+  - path: package.json
+    kind: json
+    field: version
+  - path: CHANGELOG.md
+    kind: changelog
+  - path: README.md
+    kind: regex
+    pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+) — '
+    replace: 'Latest: **v{version} — '
+    optional: true
+```
+

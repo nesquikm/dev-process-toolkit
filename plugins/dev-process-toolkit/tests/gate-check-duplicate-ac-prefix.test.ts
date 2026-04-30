@@ -26,7 +26,11 @@ describe("STE-82 AC-STE-82.5 prose — /gate-check probe 7 is documented in SKIL
   test("SKILL.md names the Duplicate AC-prefix scan probe", () => {
     const body = read(gateCheckSkillPath);
     expect(body).toMatch(/Duplicate AC-prefix scan/);
-    expect(body).toMatch(/AC-STE-50\.5/);
+    // Toolkit-meta `AC-STE-<N>.<M>` literals are scrubbed from skill prose
+    // (commit 2069ba4). Assert the conceptual content survives — the probe
+    // must still reference the `AC-<prefix>.<N>` shape and the per-file
+    // uniqueness count.
+    expect(body).toMatch(/AC-<prefix>\.<N>/);
   });
 
   test("probe references `acLint` and the per-file uniqueness rule", () => {

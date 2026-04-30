@@ -17,10 +17,9 @@ function readGateCheckSkill(): string {
 }
 
 describe("STE-41 AC-STE-41.5 — /gate-check stale-release-marker lint rule", () => {
-  test("SKILL.md names the Stale release marker probe and its FR reference", () => {
+  test("SKILL.md names the Stale release marker probe", () => {
     const body = readGateCheckSkill();
     expect(body).toContain("Stale release marker");
-    expect(body).toMatch(/AC-STE-41\.5/);
   });
 
   test("probe describes the marker detection (in flight / planned) + CHANGELOG cross-reference", () => {

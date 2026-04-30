@@ -62,9 +62,9 @@ describe("AC-STE-87.3 — /implement tracker-write routing rule (M28 STE-101 pro
     expect(rules.toLowerCase()).toMatch(/fine|permitted|allowed/);
   });
 
-  test("rule references STE-65 as the rationale (guardrail fires only on the runbook path)", () => {
+  test("rule cites the runbook-path rationale (guardrail fires only on the runbook path)", () => {
     const rules = rulesBlock(readSkill(implementPath));
-    expect(rules).toMatch(/STE-65/);
+    expect(rules.toLowerCase()).toMatch(/runbook|guardrail/);
   });
 });
 
@@ -76,9 +76,9 @@ describe("AC-STE-87.9 — /brainstorm conversational-leak rule", () => {
     expect(rules).toContain("<tracker-id>");
   });
 
-  test("brainstorm rule cross-references STE-66 (draft-file placeholder) as the sibling coverage", () => {
+  test("brainstorm rule cross-references the draft-file placeholder rule as the sibling coverage", () => {
     const rules = rulesBlock(readSkill(brainstormPath));
-    expect(rules).toMatch(/STE-66/);
+    expect(rules).toMatch(/Draft with placeholder/);
   });
 
   test("brainstorm rule names the conversational-hazard scope (chat, not file)", () => {
@@ -94,7 +94,6 @@ describe("AC-STE-87.10 — /spec-write conversational-leak rule", () => {
     const rules = rulesBlock(readSkill(specWritePath));
     expect(rules).toMatch(/unallocated tracker ID/i);
     expect(rules).toContain("<tracker-id>");
-    expect(rules).toMatch(/STE-66/);
     expect(rules.toLowerCase()).toMatch(/conversation|conversational|chat|narrat/);
   });
 

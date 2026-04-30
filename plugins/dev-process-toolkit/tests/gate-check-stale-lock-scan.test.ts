@@ -34,7 +34,11 @@ describe("STE-82 AC-STE-82.3 prose — /gate-check probe 3 is documented in SKIL
     expect(body).toMatch(/\.dpt-locks\/.*<ulid>/);
     expect(body).toMatch(/merged|deleted/);
     expect(body).toMatch(/--cleanup-stale-locks/);
-    expect(body).toMatch(/AC-STE-28\.5/);
+    // Toolkit-meta `AC-STE-<N>.<M>` literals are scrubbed from skill prose
+    // (commit 2069ba4). The cleanup-action concept survives in the
+    // `--cleanup-stale-locks` flag mention above; assert the single-commit
+    // delete semantics survive.
+    expect(body).toMatch(/single commit|deletes? them/i);
   });
 
   test("probe is warn-only: GATE PASSED WITH NOTES, not GATE FAILED", () => {

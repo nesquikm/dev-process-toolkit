@@ -127,7 +127,11 @@ describe("STE-86 AC-STE-86.5/7 prose — /gate-check probe 13 is documented in S
 
   test("SKILL.md names the identity_mode_conditional probe + STE-86 AC reference", () => {
     expect(gateCheckSkill).toMatch(/identity_mode_conditional/);
-    expect(gateCheckSkill).toMatch(/AC-STE-86\.5/);
+    // Toolkit-meta `AC-STE-<N>.<M>` literals are scrubbed from skill prose
+    // (commit 2069ba4). Assert the conceptual content survives — the probe
+    // must still describe the bimodal identity invariant + ULID requirement.
+    expect(gateCheckSkill).toMatch(/bimodal identity invariant/i);
+    expect(gateCheckSkill).toMatch(/id: fr_<26-char ULID>/);
   });
 
   test("SKILL.md declares error-severity posture (post-M29 STE-110 flip)", () => {

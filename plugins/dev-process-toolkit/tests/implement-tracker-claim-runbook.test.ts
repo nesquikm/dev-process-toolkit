@@ -54,7 +54,12 @@ describe("AC-STE-101.1 — Claim runbook section in docs/implement-tracker-mode.
 
   test("runbook calls out the STE-65 invariant (no Backlog → Done leap)", () => {
     const body = read(trackerModePath);
-    expect(body).toMatch(/STE-65/);
+    // Toolkit-meta `STE-<N>` literals are scrubbed from doc prose
+    // (commit 2069ba4). Assert the conceptual content survives — the
+    // runbook must still describe the through-In-Progress hop AND the
+    // Backlog → Done silent-leap rationale.
+    expect(body).toMatch(/never skip directly to Done|through-In-Progress hop/);
+    expect(body).toMatch(/Backlog\s*→\s*Done/);
   });
 });
 
@@ -87,7 +92,10 @@ describe("AC-STE-101.2 — Release runbook section in docs/implement-tracker-mod
   test("runbook honors STE-84 idempotent-terminal branch (already-released)", () => {
     const body = read(trackerModePath);
     const release = sliceSection(body, "## Release runbook");
-    expect(release).toMatch(/STE-84/);
+    // Toolkit-meta `STE-<N>` literals are scrubbed from doc prose
+    // (commit 2069ba4). Assert the conceptual content survives — the
+    // runbook must still describe the idempotent-terminal branch.
+    expect(release).toMatch(/[Ii]dempotent-terminal/);
     expect(release).toMatch(/already-released/);
   });
 });
@@ -189,7 +197,11 @@ describe("AC-STE-101.6 — Forbidden-rule prose rewritten to the concrete Claim/
   test("rule still forbids arbitrary mid-flow tracker writes (AC toggles outside STE-17, etc.)", () => {
     const body = read(skillPath);
     const rules = rulesBlock(body);
-    expect(rules).toMatch(/STE-17/);
+    // Toolkit-meta `STE-<N>` literals are scrubbed from skill prose
+    // (commit 2069ba4). Assert the conceptual content survives — the rule
+    // must still mention AC toggles outside the bidirectional sync loop and
+    // the forbidden status of arbitrary mid-flow writes.
+    expect(rules).toMatch(/AC toggles outside the bidirectional sync loop/);
     expect(rules.toLowerCase()).toMatch(/forbidden|are forbidden/);
   });
 

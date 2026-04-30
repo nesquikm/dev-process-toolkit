@@ -112,6 +112,10 @@ describe("STE-72 AC-STE-72.6 — /setup prompt 2 augmented with probe result", (
     const body = readFileSync(setupDocsModeRefPath, "utf-8");
     expect(body).toContain("typedoc <detected|not found>");
     expect(body).toContain("ts-morph <bundled>");
-    expect(body).toContain("AC-STE-72.6");
+    // Toolkit-meta `AC-STE-<N>.<M>` literals are scrubbed from doc prose
+    // (commit 2069ba4). Assert the conceptual content survives — the prose
+    // must still describe the signature-extraction probe and stack hint.
+    expect(body).toMatch(/signature-extraction|probe result/i);
+    expect(body).toContain("stack: <ts|other>");
   });
 });

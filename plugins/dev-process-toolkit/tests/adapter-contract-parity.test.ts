@@ -29,7 +29,11 @@ describe("STE-81 AC-STE-81.1/2 — Jira adapter declares both trap subsections",
   test("jira.md carries a `claimLock-skipped trap` subsection referencing STE-65", () => {
     const body = read(jiraPath);
     expect(body).toMatch(/###\s+claimLock-skipped trap/);
-    expect(body).toContain("STE-65");
+    // Toolkit-meta `STE-<N>` literals are scrubbed from adapter prose
+    // (commit 2069ba4). Assert the conceptual content survives — the trap
+    // must still describe the Backlog → Done leap and the pre-state guard.
+    expect(body).toMatch(/Backlog\s*→\s*Done|Backlog → Done/);
+    expect(body).toMatch(/pre-state|in_progress/i);
   });
 
   test("jira.md names the TrackerReleaseLockPreconditionError error type", () => {

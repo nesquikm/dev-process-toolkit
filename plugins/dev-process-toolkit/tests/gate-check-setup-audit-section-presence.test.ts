@@ -162,7 +162,11 @@ describe("STE-123 — /setup SKILL.md prose declares step 8a", () => {
     expect(setupSkill).toMatch(/### 8a\..*Audit-section post-condition/);
     expect(setupSkill).toMatch(/synthesizeAuditSection/);
     expect(setupSkill).toMatch(/hasDefaultApplicableOutcomes/);
-    expect(setupSkill).toMatch(/STE-123/);
+    // Toolkit-meta `STE-<N>` literals are scrubbed from skill prose
+    // (commit 2069ba4). The conceptual coverage of step 8a is provided by the
+    // `synthesizeAuditSection` + `hasDefaultApplicableOutcomes` references
+    // above; assert the audit-section heading remains a hard contract.
+    expect(setupSkill).toMatch(/## \/setup audit/);
   });
 });
 

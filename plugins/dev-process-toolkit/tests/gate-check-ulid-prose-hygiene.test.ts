@@ -40,7 +40,10 @@ describe("STE-82 AC-STE-82.6 prose — /gate-check probe 11 is documented in SKI
   test("SKILL.md names the Tracker-mode ULID prose hygiene probe + STE-67.6 reference", () => {
     const body = read(gateCheckSkillPath);
     expect(body).toMatch(/Tracker-mode ULID prose hygiene/);
-    expect(body).toMatch(/AC-STE-67\.6/);
+    // Toolkit-meta `AC-STE-<N>.<M>` literals are scrubbed from skill prose
+    // (commit 2069ba4). Assert the conceptual content survives — the probe
+    // must still describe the rewrite-to-tracker-ID rule.
+    expect(body).toMatch(/rewrite.*tracker ID|tracker ID instead/i);
   });
 
   test("probe is tracker-mode only and skipped in mode: none", () => {

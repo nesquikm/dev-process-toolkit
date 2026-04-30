@@ -1,0 +1,17 @@
+# `## Release Files` block for a Claude Code plugin / marketplace project —
+# the dogfood case the toolkit itself uses. Two manifest JSON files plus
+# CHANGELOG and README.
+files:
+  - path: plugins/dev-process-toolkit/.claude-plugin/plugin.json
+    kind: json
+    field: version
+  - path: .claude-plugin/marketplace.json
+    kind: json
+    field: plugins[0].version
+  - path: CHANGELOG.md
+    kind: changelog
+  - path: README.md
+    kind: regex
+    pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+) — '
+    replace: 'Latest: **v{version} — '
+    optional: true
