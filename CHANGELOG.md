@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.1.0] — 2026-04-30 — "Portable"
+
+End-user portability for `/ship-milestone`, `/gate-check`, and `/implement`. Three audit-driven FRs that decouple the plugin from its own toolkit-internal layout so it can run cleanly inside any host project.
+
+### Added
+
+- **STE-167 — `/ship-milestone` portability via `## Release Files` block.** The release-bump driver moves from a hard-coded four-file checklist to a YAML block in the host's `CLAUDE.md`. New `release_config` module parses the block and bumps each entry by `kind` — `json` / `toml` / `yaml` / `changelog` / `regex`. Per-stack defaults under `examples/{typescript-node,flutter-dart,python,plugin}/release.yml` seed new projects through `/setup`. The toolkit dogfoods the contract via its own block. (STE-167)
+
+### Changed
+
+- **STE-168 — `/gate-check` probe portability.** Probes #9b (`.claude-plugin/plugin.json` version match) and #10 (toolkit `CLAUDE.md.template` grep) wrap their toolkit-internal paths in existence guards. Absent path emits an `n/a` row with a "probe skipped" reason instead of crashing the gate in end-user projects; toolkit-self-runs continue to gate unchanged. (STE-168)
+- **STE-169 — `/implement` chain-failure error message.** The chain-failure remedy line no longer points at `plugins/dev-process-toolkit/.claude-plugin/plugin.json`; it now directs the operator to `claude /plugin list`, a host-layout-agnostic check. (STE-169)
+
+Total test count at release: 1289 tests, 0 failures, 0 errors.
+
 ## [2.0.0] — 2026-04-30 — "Threshold"
 
 Major-version line bump. **No new FRs ship in this release** — v2.0.0 is a deliberate cut over the cumulative post-M36 era, marking the point at which the plugin-facing API stabilizes under SemVer compatibility going forward.
