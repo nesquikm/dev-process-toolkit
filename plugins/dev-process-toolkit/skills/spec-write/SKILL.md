@@ -279,4 +279,4 @@ The summary is the per-skill console-status contract that `/setup`, `/implement`
 - Pre-fill technical details from the codebase and CLAUDE.md where possible
 - Present drafts for approval before saving — specs are the source of truth
 - Keep acceptance criteria binary (pass/fail, not "good enough")
-- Do NOT narrate a specific unallocated tracker ID (e.g., `<TKR>-NN`) in conversation when drafting — use the literal placeholder `<tracker-id>` (or the adapter rendering: `STE-<N>` for Linear, `PROJ-<N>` for Jira) until the tracker allocator returns the real ID. The placeholder rule for draft files is documented under § 0b "Draft with placeholder"; this rule covers the conversational hazard that file-level probes cannot catch.
+- Do NOT narrate a specific unallocated tracker ID (e.g., `<TKR>-NN`) in conversation when drafting — use the literal placeholder `<tracker-id>` (or the adapter rendering: `STE-<N>` for Linear, `PROJ-<N>` for Jira) until the tracker allocator returns the real ID. The placeholder rule for draft files is documented in `/spec-write` § 0b "Draft with placeholder"; this rule covers the conversational hazard that file-level probes cannot catch.

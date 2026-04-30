@@ -27,15 +27,30 @@ Users add the marketplace, install the plugin, then run `/dev-process-toolkit:se
 
 ## Release Checklist
 
-When bumping the version, these five files MUST all be updated together. Missing any of them is a release bug.
+`/ship-milestone` reads the `## Release Files` block below to drive the per-release version bump. The block is the single source of truth for which files get rewritten on a release; partial-update bugs (e.g., a release that forgets to bump README's "Latest:" line) cannot happen because every file ships in the block.
 
-1. `plugins/dev-process-toolkit/.claude-plugin/plugin.json` — `"version"` field
-2. `.claude-plugin/marketplace.json` — `"version"` field in the plugin entry
-3. `CHANGELOG.md` — add a new `## [X.Y.Z] — YYYY-MM-DD — "Codename"` section at the top (below the intro), following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Use `### Added` / `### Changed` / `### Removed` / `### Fixed` subsections as needed. Cross-reference the FRs that landed in the release.
-4. `README.md` — update the "Latest: **vX.Y.Z — 'Codename'**" line in the `## Release Notes` section, and refresh any counts in the `## What's Inside` list that the release changed (e.g., skill count, pattern count). The README is the entry point for new users; a stale "Latest:" line advertises the wrong release.
-5. `specs/requirements.md` — bump the `**Latest shipped release:** **vX.Y.Z ("Codename")**.` line near the top of the file. Spec hygiene: a stale "Latest shipped release" line lies to anyone reading the spec.
+`specs/requirements.md` carries a `Latest shipped release: vX.Y.Z` line that must also stay in sync — it is enforced separately by gate-check probe #9b (root spec hygiene), not by `/ship-milestone`. Update it as part of the same release commit when bumping versions.
 
-All five must stay in sync. Bump on every feature-significant change. Never ship a version bump without a CHANGELOG entry — that's how release notes rot into the README.
+Schema reference + per-kind worked examples live in `plugins/dev-process-toolkit/docs/ship-milestone-reference.md`.
+
+## Release Files
+
+```yaml
+files:
+  - path: plugins/dev-process-toolkit/.claude-plugin/plugin.json
+    kind: json
+    field: version
+  - path: .claude-plugin/marketplace.json
+    kind: json
+    field: plugins[0].version
+  - path: CHANGELOG.md
+    kind: changelog
+  - path: README.md
+    kind: regex
+    pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+) — '
+    replace: 'Latest: **v{version} — '
+    optional: true
+```
 
 ## Core Principles
 

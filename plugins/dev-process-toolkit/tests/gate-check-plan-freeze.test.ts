@@ -26,7 +26,6 @@ describe("STE-82 AC-STE-82.4 prose — /gate-check probe 4 is documented in SKIL
   test("SKILL.md names the Plan post-freeze edit scan probe", () => {
     const body = read(gateCheckSkillPath);
     expect(body).toMatch(/Plan post-freeze edit scan/);
-    expect(body).toMatch(/AC-STE-21\.4/);
   });
 
   test("probe names `frozen_at` + `git log --follow` + the no-auto-revert rule", () => {

@@ -1,0 +1,13 @@
+# Default `## Release Files` block for a Python project.
+# `pyproject.toml` typically carries `[project] version = "x.y.z"`.
+files:
+  - path: pyproject.toml
+    kind: toml
+    field: project.version
+  - path: CHANGELOG.md
+    kind: changelog
+  - path: README.md
+    kind: regex
+    pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+) — '
+    replace: 'Latest: **v{version} — '
+    optional: true

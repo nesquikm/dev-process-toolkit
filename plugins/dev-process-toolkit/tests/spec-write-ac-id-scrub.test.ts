@@ -41,7 +41,11 @@ describe("STE-147 AC-STE-147.1 — § 7 forbids toolkit-meta AC-STE-<N>.<M> in u
     const block = step7Block().toLowerCase();
     // The block must carry a hard "no toolkit-meta AC IDs" instruction.
     expect(block).toMatch(/(no|never|do not|forbid|zero)[^\n]*toolkit/i);
-    expect(block).toMatch(/ac-ste|ac-<n>|ac-<tracker>/i);
+    // Post-scrub prose phrases the rule with the tracker-id placeholder
+    // (`AC-<tracker-id>.<N>`) instead of literal `AC-STE-<N>.<M>` toolkit-meta
+    // refs. Either shape satisfies the contract: the prose names the literal
+    // form being forbidden.
+    expect(block).toMatch(/ac-ste|ac-<n>|ac-<tracker>|ac-<bound-tracker-id>/i);
   });
 
   test("§ 7 prose names the smoke-test finding F1 origin (audit trail)", () => {

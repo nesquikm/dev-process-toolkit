@@ -128,9 +128,104 @@ All refusals carry the three-line shape: one-line verdict / `Remedy: <action>` /
 3. `cannot tag release with <F> test failure(s)`
 4. `/docs --commit --full failed; cannot proceed with release`
 
+## `## Release Files` block schema
+
+`/ship-milestone` reads a `## Release Files` block from the host project's `CLAUDE.md` and bumps every listed file by its `kind`. The block is the single source of truth for which paths get rewritten on a release — no path is hard-coded in the skill body. Parser + per-kind bump helpers live in `adapters/_shared/src/release_config.ts`.
+
+The block carries one fenced-yaml payload:
+
+```yaml
+files:
+  - path: <repo-relative path>
+    kind: json | toml | yaml | changelog | regex
+    # kind-specific fields:
+    #   json/toml/yaml → field: <dot-path>
+    #   regex          → pattern + replace
+    # optional: bool (default false)
+```
+
+| Field | Required? | Notes |
+|-------|-----------|-------|
+| `path` | yes | Repo-relative path |
+| `kind` | yes | `json` / `toml` / `yaml` / `changelog` / `regex` |
+| `field` | iff json/toml/yaml | Dot-path (e.g. `version`, `project.version`, `plugins[0].version`) |
+| `pattern` | iff regex | Regex with named `(?<version>...)` group |
+| `replace` | iff regex | Template with `{version}` placeholder |
+| `optional` | no | Default `false`. Missing path emits `n/a` instead of failing. |
+
+### Per-kind worked examples
+
+**`kind: json`** — top-level or nested dot-path:
+
+```yaml
+- path: package.json
+  kind: json
+  field: version
+- path: .claude-plugin/marketplace.json
+  kind: json
+  field: plugins[0].version
+```
+
+**`kind: toml`** — supports zero- or one-level dotting:
+
+```yaml
+- path: pyproject.toml
+  kind: toml
+  field: project.version
+```
+
+**`kind: yaml`** — top-level scalar; preserves Flutter `+<build>` suffix:
+
+```yaml
+- path: pubspec.yaml
+  kind: yaml
+  field: version
+```
+
+`version: 0.1.0+15` → `version: 0.2.0+15` (build suffix passes through unchanged).
+
+**`kind: changelog`** — inserts `## [X.Y.Z] — YYYY-MM-DD — "Codename"` above the topmost prior version section. Skipped entirely when CLAUDE.md `## Docs` carries `changelog_ci_owned: true` — CI owns the file.
+
+**`kind: regex`** — universal escape hatch for free-form patterns:
+
+```yaml
+- path: README.md
+  kind: regex
+  pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+) — '
+  replace: 'Latest: **v{version} — '
+  optional: true
+```
+
+The pattern must contain a `(?<version>...)` named group; `replace` substitutes `{version}` with the new version string.
+
+### Per-stack defaults (consumed by `/setup`)
+
+`/setup` populates the block from `examples/<stack>/release.yml`:
+
+- `examples/typescript-node/release.yml`
+- `examples/flutter-dart/release.yml`
+- `examples/python/release.yml`
+- `examples/plugin/release.yml` — the toolkit dogfoods this fixture
+
+Unrecognized stacks get a commented stub plus a "fill this in before running /ship-milestone" pointer.
+
+### Writing your own override
+
+Reach for `kind: regex` first — it covers any free-form line that doesn't fit the structured kinds. `/setup` re-runs preserve user-edited blocks: if the host CLAUDE.md already has a `## Release Files` block, `/setup` leaves it alone — user edits win.
+
+### Refusals
+
+`MissingReleaseFilesBlockError` fires when:
+
+- The `## Release Files` block is absent.
+- The block is present but contains zero entries (`files: []` or empty payload).
+
+`MalformedReleaseFilesError` fires when an entry violates the schema (missing required field, unknown `kind`, regex pattern without `(?<version>)` group, etc.). Both follow the NFR-10 canonical refusal shape.
+
 ## See also
 
 - `skills/ship-milestone/SKILL.md` — the canonical skill file.
-- `CLAUDE.md` § Release Checklist — the manual four-step ceremony this skill automates.
+- `CLAUDE.md` § Release Files — the toolkit's own block (it dogfoods the contract).
+- `examples/<stack>/release.yml` — per-stack defaults `/setup` copies in.
+- `adapters/_shared/src/release_config.ts` — parser + per-kind bumpers.
 - `docs/docs-reference.md` § `/docs --commit --full` — the docs-regen half of the ship flow.
-- The source FR for `/ship-milestone` lives under `specs/frs/archive/` once the milestone that introduced it has shipped.

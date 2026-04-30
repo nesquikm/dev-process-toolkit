@@ -45,6 +45,13 @@ export interface FreshnessDrift {
 export interface RootHygieneReport {
   leakage: LeakageHit[];
   freshness: FreshnessDrift[];
+  /**
+   * Set when probe #9b (version-freshness vs. plugin.json) cannot run
+   * because the host project has no plugin manifest at the expected path
+   * (i.e., this is an end-user project, not a Claude Code plugin). Callers
+   * render this as an `n/a` row in the gate report rather than a failure.
+   */
+  versionFreshnessSkipped?: { reason: string };
 }
 
 const ROOT_SPEC_FILES = ["requirements.md", "technical-spec.md", "testing-spec.md"];
@@ -226,8 +233,18 @@ export function findVersionFreshnessDrift(specsDir: string, pluginJsonPath: stri
 }
 
 export function runRootHygiene(specsDir: string, pluginJsonPath: string): RootHygieneReport {
+  const leakage = findMilestoneLeakage(specsDir);
+  if (!existsSync(pluginJsonPath)) {
+    return {
+      leakage,
+      freshness: [],
+      versionFreshnessSkipped: {
+        reason: "no plugin manifest in this project — probe skipped",
+      },
+    };
+  }
   return {
-    leakage: findMilestoneLeakage(specsDir),
+    leakage,
     freshness: findVersionFreshnessDrift(specsDir, pluginJsonPath),
   };
 }
