@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.3.0] — 2026-05-01 — "Socratic"
+
+Single-FR milestone tightening `/setup`'s prompt sequencing to match the one-question-at-a-time discipline `/brainstorm` and `/spec-write` already enforce. Extracts the rule into a canonical `docs/patterns.md § Pattern 26` so future skills inherit by reference.
+
+### Changed
+
+- **STE-177 — `/setup` Socratic prompt sequencing + shared `docs/patterns.md` rule.** Step 7d's lede no longer reads "Three yes/no prompts in this exact order" (LLM read this as "ask the trio in one turn"); rewritten to "Ask one at a time, in this order — wait for each answer before asking the next." New top-level Rules bullet names steps 7b/7c/7d/7e and forbids bundling. New `## Pattern 26: Socratic Prompting {#pattern-socratic-prompting}` in `docs/patterns.md` extracts `/brainstorm`'s rationalization-prevention table as the canonical cross-skill rule; `/setup`, `/spec-write`, and `/brainstorm` reference it by anchor. Audit of remaining prompt-bearing skills (`/implement`, `/ship-milestone`, `/gate-check`, `/docs`) confirms single-question-by-construction; no SKILL edits needed there. (STE-177)
+
+Total test count at release: 1358 tests, 0 failures, 0 errors.
+
 ## [2.2.0] — 2026-05-01 — "Polish"
 
 Smoke #6 (Jira) + smoke #7 (Linear) follow-up. Six FRs harden the `/implement` Stage D archive flow, sharpen `/spec-review`'s drift signaling, document conditional behaviors that prior smoke runs flagged as undocumented, and extend the `/smoke-test` driver with scratch reset, by-key team probe, `--reset`, ghost detector, and Jira comment-path coverage.

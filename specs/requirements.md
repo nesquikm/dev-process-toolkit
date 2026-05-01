@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.2.0 ("Polish")**.
+**Latest shipped release:** **v2.3.0 ("Socratic")**.
 
 ### Shipped milestones
 
