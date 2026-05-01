@@ -277,3 +277,10 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | Requirement | Implementation | Tests |
 |-------------|---------------|-------|
 | *(see individual FR files under specs/frs/ for per-FR traceability)* | | |
+| AC-STE-171.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/spec_archive/append_traceability_row.ts, plugins/dev-process-toolkit/adapters/_shared/src/spec_archive/stage_untracked_fr.ts, plugins/dev-process-toolkit/adapters/_shared/src/spec_archive/cleanup_plan_verify_lines.ts, plugins/dev-process-toolkit/skills/implement/SKILL.md | plugins/dev-process-toolkit/tests/append_traceability_row.test.ts, plugins/dev-process-toolkit/tests/stage_untracked_fr.test.ts, plugins/dev-process-toolkit/tests/cleanup_plan_verify_lines.test.ts, plugins/dev-process-toolkit/tests/implement-archive-traceability.test.ts |
+| AC-STE-172.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/spec_review_drift_hint.ts, plugins/dev-process-toolkit/skills/spec-review/SKILL.md | plugins/dev-process-toolkit/tests/spec-review-drift-hint.test.ts |
+| AC-STE-173.1..5 | plugins/dev-process-toolkit/skills/setup/SKILL.md | plugins/dev-process-toolkit/tests/setup-commit-msg-hook-prose.test.ts |
+| AC-STE-174.1..4 | plugins/dev-process-toolkit/skills/simplify/SKILL.md | plugins/dev-process-toolkit/tests/simplify-noop-gate-skip-prose.test.ts |
+| AC-STE-175.1..5 | .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/smoke-test-driver-hardening.test.ts |
+| AC-STE-176.1..4 | .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/smoke-test-coverage-extension.test.ts |
+

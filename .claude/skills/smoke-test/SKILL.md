@@ -40,6 +40,7 @@ Parse `$ARGUMENTS` once, before any pre-flight runs:
 
 - `--tracker linear|jira` — pick the tracker mode (canonical chain target). **Default `linear`** for back-compat — pre-M44 invocations (no flag) MUST behave byte-for-byte identically to the Linear path. Any value outside `{linear, jira}` ⇒ NFR-10 canonical refusal naming the unknown value and the supported set.
 - `--jira-project <KEY>` — required when `--tracker jira` is passed; ignored on the Linear path. Carries the Atlassian Space (Jira project) key (e.g., `DST`); pre-flight #8 verifies visibility before Phase 1 runs.
+- `--reset` — boolean, default off. When present, pre-flight #2's existing-test-project refusal is replaced by an auto `rm -rf ../dpt-test-project-<tracker>` so the run continues against a clean slate. Surfaces in the Phase 0 contract as a separate operator-visible line. Default behavior unchanged — without `--reset`, pre-flight #2 still refuses.
 - `--keep`, `--linear-team`, `--feature-stub` — unchanged.
 
 Resolved values flow into the rest of the skill: pre-flights #3 / #5 fire on the Linear path, #7 / #8 fire on the Jira path; Phase 1 step 4 + step 6 + Phase 2 setup answers + Phase 5 teardown all branch on `--tracker`. Linear-mode invocations skip every Jira-only step verbatim; Jira-mode invocations skip every Linear-only step verbatim. No path runs both adapters in one invocation.
@@ -49,10 +50,10 @@ Resolved values flow into the rest of the skill: pre-flights #3 / #5 fire on the
 Each fires before any side effects, exits non-zero with an NFR-10-shape message. Pre-flights #3 / #5 are **Linear-only** and fire only when `--tracker linear` (default) is active; pre-flights #7 / #8 are **Jira-only** and fire only when `--tracker jira` is active. Pre-flights #1, #2, #4, #6 always fire regardless of `--tracker`:
 
 1. **Not in the dev-process-toolkit repo.** `pwd` must end in `/dev-process-toolkit`. The skill writes to `../dpt-test-project-<tracker>` (a sibling of the repo); running it from elsewhere creates the test project in the wrong place.
-2. **`../dpt-test-project-<tracker>` already exists** (per-tracker basename — `../dpt-test-project-linear` for `--tracker linear`, `../dpt-test-project-jira` for `--tracker jira`). Refuse unless `--keep` was passed at the *previous* invocation against the **same tracker** (in which case verify the dir is empty / matches the expected post-teardown shape). If a prior same-tracker run left state, the operator should `rm -rf ../dpt-test-project-<tracker>` and re-run, or pass an explicit recovery mode. The refusal message names the per-tracker path so a Linear run does not refuse just because a concurrent Jira run owns `../dpt-test-project-jira` (operator-driven parallelism, see § Operator-driven parallelism).
+2. **`../dpt-test-project-<tracker>` already exists** (per-tracker basename — `../dpt-test-project-linear` for `--tracker linear`, `../dpt-test-project-jira` for `--tracker jira`). Refuse unless `--keep` was passed at the *previous* invocation against the **same tracker** (in which case verify the dir is empty / matches the expected post-teardown shape). **`--reset` escape hatch:** when `--reset` is present, this refusal is suppressed and the driver runs `rm -rf ../dpt-test-project-<tracker>` before continuing — surface in the Phase 0 contract as a separate operator-visible line. Default behavior unchanged — without `--reset` (or `--keep`), pre-flight #2 still refuses on existing dir, and the operator must `rm -rf` manually. The refusal message names the per-tracker path so a Linear run does not refuse just because a concurrent Jira run owns `../dpt-test-project-jira` (operator-driven parallelism, see § Operator-driven parallelism).
 3. **(Linear-only) Linear MCP not available** in `~/.claude-st/` config. The skill calls Linear via `mcp__linear__*` tools through the child claude-st sessions; without the MCP server registered, those calls fail mid-run and leave half-created issues.
 4. **Uncommitted changes in the toolkit repo.** The skill doesn't modify the toolkit repo, but a dirty tree means the operator may be mid-feature; surface this before tying up 10 minutes on a smoke run that may be against a moving target.
-5. **(Linear-only) Linear team key not resolvable.** Default `STE`; override with `--linear-team`. Verify via `mcp__linear__list_teams` before starting.
+5. **(Linear-only) Linear team key not resolvable.** Default `STE`; override with `--linear-team`. **Probe by key first** — call `mcp__linear__get_team` with the team key (e.g., `STE`) directly, OR call `mcp__linear__list_teams` (no `query=`, large `limit=`) and filter the response on `team.key == "<TEAM_KEY>"`. The key path is exact and resolves the canonical operator entry point on first try. **Name-prefix `query=<TEAM_KEY>`** matching is kept only as a fallback for legacy paths where the key probe misses (e.g., the operator passes a team display-name fragment instead of a key); fall back only after the key probe yields no hit. A bogus key fails with NFR-10 canonical refusal naming the unknown key and the supported keys (smoke #7 F1 — without this ordering, `STE` is rejected as a name-prefix miss even though it's the canonical key).
 6. **Path-safety on the test-project location.** Before spawning any child with `--permission-mode bypassPermissions` (see Phase 0), the driver MUST verify the resolved test-project path:
    - Resolves with `realpath` (no broken symlinks). On macOS `realpath` requires the path to exist; resolve via the parent dir + basename instead, since the test-project itself doesn't yet exist when this fires.
    - Has the toolkit-repo path as its parent's parent (i.e. is a true sibling of `dev-process-toolkit`, not an ancestor, child, or unrelated location).
@@ -106,6 +107,20 @@ Each fires before any side effects, exits non-zero with an NFR-10-shape message.
 
    Linear-mode invocations skip this probe entirely. The visibility result is cached for Phase 1 step 4 (which becomes a vacuous no-op when the probe already passed).
 
+9. **(Jira-only) Orphaned `dpt-smoke` ghost cluster.** Optional warning probe — fires only when `--tracker jira` is active. JQLs the configured Space for unfinished `dpt-smoke`-labeled work items leftover from prior aborted / partial runs:
+
+   ```
+   project = <flag-value> AND labels = "dpt-smoke" AND status != "Done"
+   ```
+
+   Call `mcp__atlassian__searchJiraIssuesUsingJql(cloudId=<resolved>, jql=<above>, fields=["summary","status","created","labels"])` and read `response.issues.length`. **Warns (does not refuse)** when the count exceeds a threshold (default `5`; tunable inline). The run continues regardless — the operator decides when to run the manual sweep. Output line shape:
+
+   ```
+   pre-flight #9: <N> orphaned dpt-smoke items in <flag-value> (status != Done) — consider one-time sweep before next run.
+   ```
+
+   When the count is `<= 5`, emit a clean line `pre-flight #9: 0 orphans (or count under threshold)` and continue silently. **Linear path skips the probe entirely** — Linear's per-run project archival keeps no equivalent ghost cluster. Smoke #6 F5 motivated this; the cumulative count grows whenever Phase 5 teardown is interrupted before transitioning the just-created work items.
+
 ## Flow
 
 The flow is six phases. Each phase prints its name + status (RUN / PASS / FAIL / SKIP) so the operator can follow along. On any FAIL, the phase reports what happened and offers to continue or abort.
@@ -142,12 +157,34 @@ CAVEAT: smoke test exercises /setup's "files-already-exist, idempotent merge"
 branch, NOT the fresh-create branch. Fresh-create coverage requires a separate
 manual probe.
 
+<rendered-reset-line>
+
 Proceed? [y/n]
 ```
+
+When `--reset` is present, substitute `<rendered-reset-line>` with the literal line:
+
+```
+RESET: existing ../dpt-test-project-<tracker> will be deleted before run.
+```
+
+When `--reset` is absent, drop the placeholder (no blank line emitted).
 
 Substitute `<rendered-tracker-line>` with the per-tracker line above before printing — never present the literal `<rendered-tracker-line>` placeholder to the operator. Substitute `<tracker>` with the resolved value (`linear` / `jira`) — likewise never print the placeholder literal.
 
 Refuse on `n`. On `y`, log the approval to `/tmp/dpt-smoke-<date>-<tracker>-approval.txt` and proceed.
+
+### Phase 0.5 — Clear stale per-run scratch
+
+After Phase 0 acceptance, before Phase 1.1, unconditionally clear stale per-run scratch from prior invocations. Two prefixes are wiped — every prompt-template scratch file and every per-skill log keyed on the resolved tracker:
+
+```bash
+rm -f /tmp/dpt-smoke-prompt-*.txt /tmp/dpt-smoke-<tracker>-*.log
+```
+
+This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale `/tmp/dpt-smoke-prompt-*.txt` left over from prior runs caused Write-tool errors and stale-content reuse (a 2026-04-27 Linear-flavored prompt stub re-fired on a later Jira run). Clearing per-skill logs keyed on the resolved tracker prevents cross-run log smear when re-running against the same tracker.
+
+**Do NOT delete** `/tmp/dpt-smoke-findings-*.md` and `/tmp/dpt-smoke-<date>-<tracker>-approval.txt` — those are audit-trail artifacts and are intentionally retained across runs (preserve them; never widen the rm to include the findings or approval prefix). The findings files accumulate across runs by design (one per tracker per date); the approval record is the operator's consent log and stays for forensics.
 
 ### Phase 1 — Setup
 
@@ -257,6 +294,19 @@ Skills to run, in order:
 4. `/dev-process-toolkit:gate-check` — read-only verification.
 5. `/dev-process-toolkit:spec-review <feature-id>` — read-only spec-vs-code audit.
 6. `/dev-process-toolkit:simplify` — review changed code; safe refactors applied + gate re-verified.
+
+#### Comment-path probe (Jira-only)
+
+After step 6 returns, on the **Jira branch only**, issue a stand-alone `mcp__atlassian__addCommentToJiraIssue` call against the run's freshly-created work item. The probe closes AC-STE-154.9 AC 6 — the canonical chain doesn't naturally exercise the comment endpoint, so a regression there would slip past every smoke run. Stand-alone probe (vs. side-effect-of-`/implement` narration) was chosen during M49 spec authoring: validates the MCP tool independent of `/implement`'s narration policy, which can change without affecting the underlying contract.
+
+```
+mcp__atlassian__addCommentToJiraIssue \
+  cloudId=<resolved> \
+  issueIdOrKey=<latest work item key> \
+  comment="Smoke probe — AC-STE-154.9 AC 6 coverage. Run: <date> <tracker> v<plugin-version>."
+```
+
+Fires only when `--tracker jira` is active. The Linear branch skips this probe entirely — Linear's MCP comment surface is exercised by other paths and isn't part of AC-STE-154.9 scope. The comment surfaces in `/tmp/dpt-smoke-jira-comment-probe.log` and the run's findings file (Phase 3 capture appends "comment exercised" to the run notes).
 
 Skills explicitly NOT run (with reasons logged in findings):
 
@@ -417,3 +467,6 @@ Reference runs in chronological order. Each entry: date, plugin version, tracker
 | 4 | 2026-04-27 | v1.31.0 | linear | Six-case adversarial probe of pre-flight #6 path-safety (wrong-basename, not-sibling, symlink-decoy, is-toolkit, no-workspace-ancestor, canonical-good); all six refused/passed correctly | Locked the path-safety reference implementation |
 | 5 | M43 / pre-v1.43.0 | v1.42.x → v1.43.0 | jira (manual pilot) | Manual Jira-mode walkthrough during M43 implementation; surfaced F1–F7 against the pre-v1.43.0 Jira adapter spec (dispatch-key + tool-name corrections). **At v1.43.0 ship, AC-STE-154.9 was operator-deferred** — only step 1 (visibility check via `mcp__atlassian__getVisibleJiraProjects`) was live-verified during `/implement`; steps 2–6 stayed unverified in `specs/notes/jira-smoke-5.md` (see commit `28c595d` body) | M43 (STE-154) shipped v1.43.0 with the spec corrections; AC-STE-154.9 retroactive-validation rolled forward into M44 / smoke #6 |
 | 6 | 2026-04-30 | v2.1.0 | jira (first automated) | PASSED WITH 6 NOTES; first automated `/smoke-test --tracker jira --jira-project DST` against verified-good DST Space. AC-STE-154.9 ACs 2–5 (pull, edit, transition, search) live-verified end-to-end via DST-5; AC 6 (comment) NOT exercised by canonical chain. Silent-no-op trap satisfied (updated advanced 13:53:59 → 16:07:25). Findings: `/tmp/dpt-smoke-findings-2026-04-30-jira.md` | M44 (STE-155); 6 follow-ups (F1–F6) routed forward — F1 driver-side (stale prompt-file reuse, medium), F2 untracked-FR git-mv fallback (low), F3 plan-verify-line probe false-positive (low), F4 cross-cutting spec drift not propagated by /implement (medium), F5 orphaned `dpt-smoke` ghosts in DST (low), F6 /simplify no-op gate-skip undocumented (low). AC 6 coverage gap → driver-side FR. |
+| 7 | 2026-04-30 | v2.1.0 | linear (post-tandem isolation check) | PASSED WITH 5 NOTES; second-of-two parallel runs (Linear path) under M46's per-tracker artifact isolation. Canonical chain end-to-end clean (29/29 conformance probes, 4/4 ACs, zero review rounds in `/implement`, tracker round-tripped Backlog → In Progress → Done). Findings: `/tmp/dpt-smoke-findings-2026-04-30-linear.md` | M48-followup; 5 driver-side caveats (F1 pre-flight #5 name-vs-key match, low; F2 stale prompt-file reuse re-confirms #6 F1, medium; F3 findings-file accumulation, low; F4 same-day approval-file overwrite, low; F5 pre-flight #2 retry friction → `--reset` flag, low) and 2 plugin notes (F6 `/setup` commit-msg hook best-effort install under bypass, low; F7 `/simplify` noop gate-skip re-confirms #6 F6, low) |
+
+**Post-STE-176 annotation contract.** Runs after STE-176 ships annotate the **Outcome** column with `comment exercised` whenever the Phase 2 Jira comment probe (§ Comment-path probe) fires successfully — e.g., `PASSED WITH 0 NOTES; comment exercised`. The annotation is the visible audit trail for AC-STE-154.9 AC 6 coverage; absence on a Jira run is itself a finding worth flagging.

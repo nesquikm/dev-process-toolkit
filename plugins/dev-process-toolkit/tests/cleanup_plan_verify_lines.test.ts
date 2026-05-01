@@ -158,14 +158,129 @@ describe("AC-STE-126.1 — multi-replacement diff → fall back to mark-done pat
 });
 
 describe("AC-STE-126.1 — idempotent: empty deletedFiles → no work", () => {
-  test("empty deletion list yields zero filesChanged", () => {
+  test("empty deletion list yields zero filesChanged when verify-line paths exist", () => {
     const ctx = makeProject({
       "specs/plan/M1.md": "- [ ] foo\n  verify: head src/foo.ts\n",
+      "src/foo.ts": "// real file",
     });
     try {
       const result = cleanupPlanVerifyLines(ctx.root, [], []);
       expect(result.filesChanged).toEqual([]);
       expect(result.linesUpdated).toBe(0);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+});
+
+// STE-171 AC-STE-171.3 — filesystem fallback. When the LLM's invocation
+// passes an empty (or incomplete) `deletedFiles[]` argument but the verify
+// line references a path-shaped token that doesn't resolve on disk, the
+// helper still flips the parent task `[x]` and drops the verify line. The
+// current behavior would leave the verify line in place, which is what
+// /gate-check probe #28 then warns about (smoke #6 F3 root cause).
+
+describe("AC-STE-171.3 — filesystem fallback when deletedFiles[] misses run-removed file", () => {
+  test("empty deletedFiles + missing path on disk → task [x] + verify dropped", () => {
+    const ctx = makeProject({
+      "specs/plan/M1.md": [
+        "- [ ] Remove placeholder once real coverage exists",
+        "  verify: src/.placeholder.test.ts no longer exists",
+        "",
+      ].join("\n"),
+      // src/.placeholder.test.ts intentionally NOT created — it was deleted
+      // earlier in the same /implement run and the LLM forgot to populate
+      // deletedFiles[].
+    });
+    try {
+      const result = cleanupPlanVerifyLines(ctx.root, [], []);
+      expect(result.filesChanged).toContain("specs/plan/M1.md");
+      expect(result.linesUpdated).toBe(1);
+      const after = readFileSync(join(ctx.root, "specs/plan/M1.md"), "utf-8");
+      expect(after).toContain("- [x] Remove placeholder once real coverage exists");
+      expect(after).not.toContain("verify: src/.placeholder.test.ts");
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("backticked path token in verify line → treated as prose, never flipped", () => {
+    const ctx = makeProject({
+      "specs/plan/M2.md": [
+        "- [ ] Sanity check",
+        "  verify: smoke-test re-run shows no `tests/.placeholder.test.ts` reference left",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const result = cleanupPlanVerifyLines(ctx.root, [], []);
+      expect(result.filesChanged).toEqual([]);
+      const after = readFileSync(join(ctx.root, "specs/plan/M2.md"), "utf-8");
+      expect(after).toContain("- [ ] Sanity check");
+      expect(after).toContain("`tests/.placeholder.test.ts`");
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("URL token in verify line → URL-skipped, no flip", () => {
+    const ctx = makeProject({
+      "specs/plan/M3.md": [
+        "- [ ] Doc check",
+        "  verify: https://example.com/docs returns 200",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const result = cleanupPlanVerifyLines(ctx.root, [], []);
+      expect(result.filesChanged).toEqual([]);
+      const after = readFileSync(join(ctx.root, "specs/plan/M3.md"), "utf-8");
+      expect(after).toContain("- [ ] Doc check");
+      expect(after).toContain("https://example.com/docs");
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("verify line with all-resolved paths is left alone", () => {
+    const ctx = makeProject({
+      "specs/plan/M4.md": [
+        "- [ ] Build check",
+        "  verify: bunx tsc --noEmit && cat specs/plan/M4.md",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const result = cleanupPlanVerifyLines(ctx.root, [], []);
+      expect(result.filesChanged).toEqual([]);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+});
+
+// STE-171 AC-STE-171.4 — round-trip safety. A pre-existing archive plan with
+// a deliberately-preserved deleted-path verify line MUST stay byte-identical
+// across helper invocations regardless of the deletedFiles[] argument or
+// filesystem state. The helper's `listActivePlans` already excludes archive/,
+// but this regression test pins the invariant against future refactors.
+
+describe("AC-STE-171.4 — pre-existing archive plans are byte-identical pre/post helper run", () => {
+  test("archive/M0.md with missing-path verify line is untouched even with empty deletedFiles", () => {
+    const archiveContent = [
+      "- [ ] Done long ago",
+      "  verify: src/.placeholder.test.ts no longer exists",
+      "",
+    ].join("\n");
+    const ctx = makeProject({
+      "specs/plan/archive/M0.md": archiveContent,
+    });
+    try {
+      const before = readFileSync(join(ctx.root, "specs/plan/archive/M0.md"), "utf-8");
+      const result = cleanupPlanVerifyLines(ctx.root, [], []);
+      expect(result.filesChanged).toEqual([]);
+      const after = readFileSync(join(ctx.root, "specs/plan/archive/M0.md"), "utf-8");
+      expect(after).toBe(before);
     } finally {
       ctx.cleanup();
     }

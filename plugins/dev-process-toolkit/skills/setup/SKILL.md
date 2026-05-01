@@ -145,6 +145,8 @@ Create `CLAUDE.md` based on the template, filling in: project name and descripti
 
 The hook is a local-machine artifact (not tracked in git). `commitlint.config.js`, when written, IS in the bootstrap set — step 8b appends it when `--commitlint` was used.
 
+**Best-effort under non-interactive runs.** Hook install is best-effort — the model-layer block on `.git/hooks/` writes is expected under `bypassPermissions` and is logged in `## /setup audit` rather than failing the run. The hook is per-clone, not part of the bootstrap set; a downstream user re-running `/setup` interactively (or running the manual fallback) closes the gap without re-bootstrapping. Manual fallback (run post-`/setup` when the audit shows `setup: skipping commit-msg hook (model-layer block)`): `cp plugins/dev-process-toolkit/templates/git-hooks/commit-msg.sh .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg`.
+
 Full procedure (idempotency tier, `--commitlint` extras, manual install command): `docs/setup-reference.md` § Step 6b — commit-msg hook install.
 
 ### 7. Configure MCP servers
