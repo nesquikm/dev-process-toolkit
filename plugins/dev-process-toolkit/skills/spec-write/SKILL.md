@@ -212,6 +212,10 @@ For each risk found, add it to the relevant spec:
 
 If **no significant risks** found, report "No major risks identified" and move on. Don't invent risks — only flag things that would genuinely surprise someone during implementation.
 
+### 7a. Stage spec changes and prompt for commit
+
+After Steps 0–6 settle and before Step 7 emits the closing summary, `/spec-write` stages every file it wrote under `specs/` and produces **one commit per `/spec-write` invocation** — STE-179 closes the gap that widened `setup-bootstrap-committed` to `toolkit-bootstrap-committed`. Subjects (Conventional Commits): **new-FR run** ⇒ `chore(specs): write FR <tracker-id>` (tracker mode) or short-ULID stem (`mode: none`); **cross-cutting-only run** (pure `requirements/technical-spec/testing-spec/plan/M<N>.md` edits, no new FR) ⇒ `docs(specs): edit cross-cutting specs`; **hybrid** ⇒ new-FR shape (cross-cutting edits land in the same commit). Procedure: stage explicit path list (never `git add -A`) → diff preview → prompt `Apply commit "<subject>"? [y / n / edit]`. Under **Auto mode** / **`-p` non-interactive**, **default-apply `y`** with the canonical subject (STE-109 UX); the default-apply path emits a `spec_write_commit_default_applied` row in the Step 7 summary so the operator sees the auto-apply on every quiet-mode run (interactive `y` does not emit the row). On `n` decline, files remain staged-but-uncommitted; emit a `spec_write_commit_declined` row so the operator knows to `git commit -m "<subject>"` manually. On commit failure (Conventional-Commits hook rejection, etc.) → NFR-10 canonical refusal; staged files left in place for the operator to fix and re-issue.
+
 ### 7. Report
 
 `/spec-write` **MUST emit** a closing summary on every successful run, regardless of mode (`linear` / `jira` / `none`) or invocation path (new-FR creation, the `importFromTracker` import path on a tracker-id resolve miss, or a per-section edit). This is unconditional — non-interactive `-p` mode is **not** an exception.
@@ -239,8 +243,11 @@ Open questions / risks / inconsistencies (if any):
 - Risks identified (severity)
 - Open questions flagged during the process
 
-Next: Run `/dev-process-toolkit:implement <milestone>` when specs are ready.
+Next: Run `/dev-process-toolkit:implement <tracker-id>` when specs are ready.   <!-- new-FR run: recommend the FR-id form (most common, single-FR ship). -->
+Next: Run `/dev-process-toolkit:implement <milestone>` when specs are ready.   <!-- cross-cutting-only run (no new FR): recommend the M<N> form (milestone close). -->
 ```
+
+**Next-line variant rule.** When the run created a single new FR, recommend the FR-id form (`Run /dev-process-toolkit:implement <tracker-id>`) — that's the canonical "ship one FR" path per `skills/implement/SKILL.md` § Invocation forms (STE-181). When the run only edited cross-cutting specs (no new FR file written), recommend the M<N> form (`Run /dev-process-toolkit:implement M<N>`) — the operator is presumably finishing a milestone. Hybrid runs (new FR + cross-cutting edit) follow the new-FR shape.
 
 **Capability-gap rendering.** The "Open questions / risks / inconsistencies" block must render every capability gap as **plain prose**, drawn from the static plain-language map below — never as a literal `AC-<tracker-id>.<N>` reference into this toolkit's own internal spec set. The toolkit's AC IDs are opaque jargon to project owners running `/spec-write` on their own repo (a 2026-04-28 smoke caught the regression: a toolkit-internal AC identifier for the milestone-attach capability surfaced as the rendered description of the gap, replacing what should have been plain prose). Echoing such an identifier inside this section's instructions is itself a regression risk — the LLM may copy it back into the rendered summary; describe failure modes by capability name only.
 
@@ -254,7 +261,11 @@ Static plain-language map (capability key ⇒ rendered prose):
 | `import_acs_empty` | `imported ticket had zero ACs — TODO marker added to the new FR` |
 | `workspace_binding_missing` | `tracker workspace binding absent — ticket landed without team/project association` |
 | `tracker_idempotency_uncertain` | `idempotency probe still ambiguous after backoff retry — possible duplicate ticket; operator should manually verify before downstream skills bind to the new id` |
-| `filename_policy_override` | `FR filename derived from tracker policy (Provider.filenameFor) — the user-proposed name was overridden by the adapter convention` |
+| `filename_policy_override` | (a) no user override: `FR filename derived from tracker policy (Provider.filenameFor) → <filename> (no user override)` <br>(b) user override: `FR filename derived from tracker policy (Provider.filenameFor) → <filename> (overrode user-proposed: <user-name>)` |
+| `spec_write_commit_default_applied` | `/spec-write commit auto-approved (Auto mode / -p) — verify diff via git show before /implement` |
+| `spec_write_commit_declined` | `/spec-write commit declined — files remain staged, run git commit -m "<subject>" to finish manually` |
+
+> Annotation: scope = `filename_policy_override` only. Render variant (a) when the resolver-entry context contains no user-proposed filename (the common pre-baked-stub path — no filename hint in the user's prompt); render variant (b) when the user explicitly proposed an alternative (e.g., the prompt typed `specs/frs/foo.md`). The row fires on both variants — only the prose differs. `mode: none` is exempt entirely (no policy-override surface; see the Filename-policy override row paragraph below). `<filename>` substitutes the actual `Provider.filenameFor(spec)` output (e.g., `STE-179.md` for Linear, `DST-6.md` for Jira); `<user-name>` substitutes the user-proposed filename verbatim.
 
 Add new keys to this map when a new capability gap surfaces; do **not** invent ad-hoc prose at runtime, and do **not** substitute the toolkit's `AC-<tracker-id>.<N>` ID for the capability key. The map is the single source of truth for capability-gap rendering — bullet bodies are byte-identical across runs.
 

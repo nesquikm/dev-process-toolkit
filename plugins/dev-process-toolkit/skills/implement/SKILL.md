@@ -8,6 +8,19 @@ argument-hint: '<milestone, task description, issue number, "next", or "all">'
 
 Implement the following end-to-end: `$ARGUMENTS`
 
+## Invocation forms
+
+Two shapes diverge at Phase 5. **`/implement <FR-id>`** to **ship one FR** (most common — smoke driver + `/spec-write`'s next step); **`/implement M<N>`** to **close out a milestone** (every active FR + Phase 5 close + archival). End states differ by design (STE-83): single-FR leaves FR + milestone `status: active`; milestone form archives both on green gate. If single-FR + plan fully checked, `/gate-check` probe #14 fires the **STE-180 advisory** (`M<N> plan fully checked but not archived — run /spec-archive M<N> or /implement M<N> to close`) — the gate tells you, not memory.
+
+| Phase | `/implement <FR-id>` | `/implement M<N>` |
+|-------|----------------------|---------------------|
+| 0 (Pre-flight) | single FR's binding | every active FR in M<N> |
+| 1 (Tracker claim) | claims one ticket | claims every ticket |
+| 2 (Plan analysis) | plans tasks for the FR | plans every FR's tasks, dep-ordered |
+| 3 (TDD loop) | builds the FR | builds every FR |
+| 4 (Commit + close) | one feature commit + tracker → Done | one commit per FR + each tracker → Done |
+| 5 (Milestone close) | **silent-skip** (no prompt, no archival) | **runs it** — close prompt + archival sweep |
+
 ## Pre-flight: Branch Isolation
 
 Ask the user: "Work in a **git worktree** (isolated branch) or on the **current branch**?" — worktrees let failed runs be discarded cleanly; current branch starts immediately.
@@ -177,25 +190,7 @@ Four labeled sub-steps in order: **Phase 4a** (gate-check passed — no new logi
 
 ### Phase 4b: Doc fragment
 
-Non-blocking hook. Sits between Phase 4a (gate pass) and Phase 4c (report + approval) / 4d (Close).
-
-1. **Gate.** Call `readDocsConfig(CLAUDE.md)` from `adapters/_shared/src/docs_config.ts`. Both `userFacingMode` and `packagesMode` `false` — or the `## Docs` section absent — ⇒ **silent no-op**: zero output.
-2. **Invoke.** Run `/docs --quick` with a 60-second timeout. The current FR ID is resolved the same way manual `/docs --quick` resolves it — via `branch_template:` mapping, diff scan, or `_unbound-<ts>` fallback. No new `/implement` flag is introduced.
-3. **Success row.** Append exactly one row to the Spec Deviation Summary table:
-
-   ```
-   | Doc fragment | added | docs/.pending/<fr-id>.md | — |
-   ```
-
-4. **Failure / timeout (non-blocking).** A non-zero exit, thrown error, or 60s timeout is logged as a warning and appended as the skipped row:
-
-   ```
-   | Doc fragment | skipped (error) | — | /docs --quick failed: <first-line-of-error>. Run manually after commit to retry. |
-   ```
-
-   Phase 4 **continues to Phase 4c** — the implementation commit does not block on a failed fragment write. Timeout text: `timeout after 60s`.
-
-Full decision table (resolver fallback ordering, log shape): `docs/implement-reference.md` § Phase 4b Doc Fragment Hook.
+Non-blocking hook between Phase 4a (gate pass) and Phase 4c (report + approval). Call `readDocsConfig(CLAUDE.md)` from `adapters/_shared/src/docs_config.ts`; both `userFacingMode` and `packagesMode` false (or `## Docs` absent) ⇒ **silent no-op**, zero output. Otherwise run `/docs --quick` with a 60s timeout (FR ID resolves via `branch_template:` mapping, diff scan, or `_unbound-<ts>` fallback — no new flag). On success append `| Doc fragment | added | docs/.pending/<fr-id>.md | — |` to the Spec Deviation Summary table; on non-zero exit / thrown error / 60s timeout (text: `timeout after 60s`) append `| Doc fragment | skipped (error) | — | /docs --quick failed: <first-line-of-error>. Run manually after commit to retry. |` and continue to Phase 4c — the implementation commit never blocks on a failed fragment write. Full decision table (resolver fallback ordering, log shape): `docs/implement-reference.md` § Phase 4b Doc Fragment Hook.
 
 ### Commit message format
 
