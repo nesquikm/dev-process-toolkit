@@ -283,5 +283,5 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-174.1..4 | plugins/dev-process-toolkit/skills/simplify/SKILL.md | plugins/dev-process-toolkit/tests/simplify-noop-gate-skip-prose.test.ts |
 | AC-STE-175.1..5 | .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/smoke-test-driver-hardening.test.ts |
 | AC-STE-176.1..4 | .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/smoke-test-coverage-extension.test.ts |
-| AC-STE-177.1..6 | plugins/dev-process-toolkit/docs/patterns.md, plugins/dev-process-toolkit/skills/setup/SKILL.md, plugins/dev-process-toolkit/skills/spec-write/SKILL.md, plugins/dev-process-toolkit/skills/brainstorm/SKILL.md | (prose-only — no test fixture; verified by static greps in M50 plan + bun test 1358 baseline) |
+| AC-STE-177.1..6 | plugins/dev-process-toolkit/docs/patterns.md, plugins/dev-process-toolkit/skills/setup/SKILL.md, plugins/dev-process-toolkit/skills/spec-write/SKILL.md, plugins/dev-process-toolkit/skills/brainstorm/SKILL.md | (prose-only — no test fixture; verified by static greps + bun test 1358 baseline) |
 
