@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.2.0] — 2026-05-01 — "Polish"
+
+Smoke #6 (Jira) + smoke #7 (Linear) follow-up. Six FRs harden the `/implement` Stage D archive flow, sharpen `/spec-review`'s drift signaling, document conditional behaviors that prior smoke runs flagged as undocumented, and extend the `/smoke-test` driver with scratch reset, by-key team probe, `--reset`, ghost detector, and Jira comment-path coverage.
+
+### Added
+
+- **STE-172 — `/spec-review` live-spec drift refresh hint.** New `formatDriftHint(count)` helper in `adapters/_shared/src/spec_review_drift_hint.ts` owns the canonical line shape; SKILL.md emits `Live-spec refresh suggested — N drift(s) found in cross-cutting specs; consider rerunning /spec-write before next /implement.` after the verdict when `drift_count >= 2`. Threshold (`>= 2` not `> 0`) suppresses single-line cosmetic drifts during normal `/implement` churn so operators don't learn to ignore the hint. (STE-172)
+- **STE-176 — `/smoke-test` coverage extension.** Optional Jira-only pre-flight #9 JQLs `project = <KEY> AND labels = "dpt-smoke" AND status != "Done"` and warns when ghost-cluster count exceeds threshold (default 5); Linear path skips. New Phase 2 stand-alone `mcp__atlassian__addCommentToJiraIssue` probe closes AC-STE-154.9 AC 6 coverage gap (chosen over side-effect-of-`/implement` to validate the MCP tool independent of narration policy). Runs-table annotation contract records `comment exercised` on post-STE-176 Jira runs. (STE-176)
+
+### Changed
+
+- **STE-171 — `/implement` Stage D archive hardening.** Three holes in the canonical archive flow closed: `appendTraceabilityRow(repoRoot, frId, acNumbers, implFiles, testFiles)` writes one idempotent row per archived FR to `specs/requirements.md` § 6; `isFRUntrackedInPorcelain` + `git add` before `git mv` preserves rename history under `git log --follow`; `cleanupPlanVerifyLines` gains a filesystem fallback (same regex shape as gate-check probe #28) so missing-path verify lines flip even when the LLM forgets `deletedFiles[]`. (STE-171)
+- **STE-173 — `/setup` SKILL.md commit-msg hook prose.** Step 6b now states the install is best-effort under non-interactive runs (model-layer block on `.git/hooks/` writes is expected under `bypassPermissions` and logged in `## /setup audit` rather than failing the run) and names the manual fallback (`cp plugins/dev-process-toolkit/templates/git-hooks/commit-msg.sh .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg`). (STE-173)
+- **STE-174 — `/simplify` SKILL.md no-op gate-skip prose.** Verify step now documents the conditional: when no refactors are warranted, the gate re-run is skipped — re-running an unchanged tree against a clean gate is wasted tokens; the operator consults the prior `/implement` or `/gate-check` log for the active gate stamp. (STE-174)
+- **STE-175 — `/smoke-test` driver hardening.** Phase 0.5 unconditionally `rm -f /tmp/dpt-smoke-prompt-*.txt /tmp/dpt-smoke-<tracker>-*.log` after operator approval (preserving findings + approval files). Pre-flight #5 probes Linear team by `key` first (`get_team` / `list_teams` filtered on `team.key == "<KEY>"`) with name-prefix `query=` only as fallback. New `--reset` flag wires pre-flight #2's existing-dir refusal into an auto `rm -rf ../dpt-test-project-<tracker>`; surfaced in the Phase 0 contract as `RESET: existing ../dpt-test-project-<tracker> will be deleted before run.`. Default behavior unchanged. (STE-175)
+
+Total test count at release: 1358 tests, 0 failures, 0 errors.
+
 ## [2.1.0] — 2026-04-30 — "Portable"
 
 End-user portability for `/ship-milestone`, `/gate-check`, and `/implement`. Three audit-driven FRs that decouple the plugin from its own toolkit-internal layout so it can run cleanly inside any host project.
