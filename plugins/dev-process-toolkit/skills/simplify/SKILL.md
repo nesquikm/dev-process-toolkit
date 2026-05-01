@@ -19,7 +19,7 @@ Review recently changed files for code quality issues and fix them. This skill c
 
 3. **Fix issues** — Apply changes directly, keeping fixes minimal and focused
 
-4. **Verify** — Run gate check to ensure nothing broke
+4. **Verify** — Run gate check to ensure nothing broke. If no refactors are warranted (the diff is already minimal), the gate re-run is skipped — re-running an unchanged tree against a clean gate is wasted tokens. Consult the most recent `/implement` or `/gate-check` log for the active gate stamp.
 
 ## Focus
 
