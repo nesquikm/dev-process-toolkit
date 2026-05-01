@@ -140,7 +140,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.2.0 — "Polish"** (Smoke #6 / smoke #7 follow-up. `/implement` Stage D archive hardening — `appendTraceabilityRow`, `isFRUntrackedInPorcelain` + `git add` before `git mv`, filesystem-fallback in `cleanupPlanVerifyLines` — keeps milestone archives coherent. `/spec-review` drift refresh hint nudges operators when cross-cutting drift accumulates (`drift_count >= 2`). `/setup` and `/simplify` SKILL.md prose now document the best-effort commit-msg hook install and the no-op gate-skip conditional. `/smoke-test` driver gains Phase 0.5 scratch-reset, key-first Linear team probe, `--reset` escape hatch, optional Jira ghost detector pre-flight #9, and a stand-alone Jira comment-path probe (closes AC-STE-154.9 AC 6 coverage gap). Test count: 1289 → 1358 (+69).
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.3.0 — "Socratic"** (Single-FR milestone tightening `/setup`'s prompt sequencing to match `/brainstorm` and `/spec-write`'s one-question-at-a-time discipline. Step 7d's lede no longer reads "Three yes/no prompts in this exact order"; rewritten to ask one question per turn. New `docs/patterns.md § Pattern 26: Socratic Prompting` extracts the rule as the canonical cross-skill reference; `/setup`, `/spec-write`, `/brainstorm` reference it by anchor. Audit of remaining prompt-bearing skills (`/implement`, `/ship-milestone`, `/gate-check`, `/docs`) confirmed single-question-by-construction. Test count: 1358 (held).
 
 ## Core Philosophy
 
