@@ -287,8 +287,15 @@ describe("AC-STE-151.6(a) — active FR + Done ticket + plan with unchecked task
   });
 });
 
-describe("AC-STE-151.6(b) — Done ticket + plan all-checked + plan active ⇒ fires", () => {
-  test('"forgot bulk archive before /ship-milestone" shape — predicate fails, canonical row shape preserved', async () => {
+describe("AC-STE-151.6(b) → AC-STE-180.1 — Done ticket + plan all-checked + plan active ⇒ no fire (carve-out widened)", () => {
+  test('STE-180: "milestone ready to close" shape is now legitimate; predicate passes + advisory rendered (was: failed under STE-151 alone)', async () => {
+    // Spec evolution: STE-151 carved out partial-checked; STE-180 widens to
+    // fully-checked. This test was originally written under STE-151 to
+    // assert the "forgot bulk archive" failure shape. STE-180 reclassifies
+    // that exact state as the legitimate "milestone ready to close"
+    // post-`/implement <FR-id>` state and fires an advisory rather than a
+    // gate-fail. The malformed-plan boundary (total = 0) preserves the
+    // strict-fallback fail path.
     const { driver } = makeStub({ status: "done", assignee: "u@e" });
     const p = new TrackerProvider({ driver, currentUser: "u@e" });
     const summary = await p.getTicketStatus("STE-151");
@@ -299,11 +306,16 @@ describe("AC-STE-151.6(b) — Done ticket + plan all-checked + plan active ⇒ f
         STATUS_MAP,
         "u@e",
       ),
+    ).toBe(true);
+    // Boundary preserved: empty/malformed plan still fails strict fallback.
+    expect(
+      activeTicketDriftPasses(
+        summary,
+        { uncheckedTasks: 0, totalTasks: 0, planStatus: "active" },
+        STATUS_MAP,
+        "u@e",
+      ),
     ).toBe(false);
-    // Canonical observed-vs-expected fields stay populated for the row
-    // renderer; AC-STE-87.4(d) consumers see no shape change.
-    expect(summary.status).toBe("done");
-    expect(summary.assignee).toBe("u@e");
   });
 });
 

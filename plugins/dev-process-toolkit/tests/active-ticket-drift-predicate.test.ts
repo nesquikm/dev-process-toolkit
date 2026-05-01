@@ -6,13 +6,15 @@ import {
 } from "../adapters/_shared/src/active_ticket_drift_predicate";
 import type { PlanTaskState } from "../adapters/_shared/src/plan_task_state";
 
-// STE-151 — predicate truth table:
+// STE-151 (single-FR-clean) + STE-180 (fully-checked-single-FR) — predicate
+// truth table:
 //
 // | FR status | Ticket status | Assignee     | Plan tasks       | Plan status | Outcome |
 // |-----------|---------------|--------------|------------------|-------------|---------|
 // | active    | in_progress   | currentUser  | any              | any         | pass |
-// | active    | done          | any          | unchecked > 0    | active      | pass (single-FR clean) |
-// | active    | done          | any          | all checked      | active      | fail (forgot bulk archive) |
+// | active    | done          | any          | unchecked > 0    | active      | pass (single-FR clean — STE-151) |
+// | active    | done          | any          | all checked + total > 0 | active | pass + advisory (fully-checked — STE-180) |
+// | active    | done          | any          | total = 0        | active      | fail (empty/malformed plan) |
 // | active    | done          | any          | any              | missing     | fail (strict fallback) |
 // | active    | done          | any          | any              | archived    | vacuous (probe #27 owns) |
 // | active    | backlog/etc.  | any          | any              | any         | fail (M23 drift) |
@@ -155,11 +157,29 @@ describe("activeTicketDriftPasses — composed predicate (truth table)", () => {
     ).toBe(true);
   });
 
-  test("row 3: done + all checked + active plan → fail (forgot bulk archive)", () => {
+  test("row 3 (STE-180): done + all checked + total > 0 + active plan → pass (fully-checked carve-out)", () => {
+    // Behavior changed by STE-180. The previous outcome (fail) treated a
+    // fully-checked plan as 'forgot bulk archive'. With STE-180, this is the
+    // legitimate "milestone ready to close" state — the probe passes and
+    // emits an advisory pointing at /spec-archive M<N> or /implement M<N>.
     expect(
       activeTicketDriftPasses(
         { status: "done", assignee: "u@e" },
         planTaskState(0, "active", 3),
+        STATUS_MAP,
+        "u@e",
+      ),
+    ).toBe(true);
+  });
+
+  test("row 3b (STE-180 boundary): done + zero total tasks + active plan → fail (malformed plan)", () => {
+    // Empty plan (no tasks at all) is malformed, not fully-checked. The
+    // exemption requires totalTasks > 0 so a brand-new milestone with zero
+    // tasks doesn't silently get a free pass.
+    expect(
+      activeTicketDriftPasses(
+        { status: "done", assignee: "u@e" },
+        planTaskState(0, "active", 0),
         STATUS_MAP,
         "u@e",
       ),
