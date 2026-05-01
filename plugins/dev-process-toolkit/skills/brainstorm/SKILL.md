@@ -62,6 +62,8 @@ Once the design is approved:
 
 ### Rationalization Prevention
 
+> See also: `docs/patterns.md § Pattern 26: Socratic Prompting {#pattern-socratic-prompting}` for the cross-skill canonical statement of this rule.
+
 The one-at-a-time rule fails most often at phase transitions and when the user is being responsive. The excuses below are the ones to watch for — stop and ask only the first question each time.
 
 | Excuse | Reality |

@@ -192,7 +192,7 @@ See `docs/setup-tracker-mode.md` § Branch template for the long-form prompt and
 
 `default: all-false` — when no answer is supplied (autonomous mode or skipped), the skill **always emits** the `## Docs` section with all three flags `false`. Every resolved `## Docs` flag appends `## /setup audit` entry: `step:7d (docs.<flag>) value:<bool> reason:"<user-supplied|default applied>"` — provenance per resolution.
 
-Three yes/no prompts in this exact order, after 7c:
+Ask one at a time, in this order — wait for each answer before asking the next (per `docs/patterns.md § Pattern 26`):
 
 1. `Generate user-facing docs (narrative + mermaid state/flow diagrams)?`
 2. `Generate packages-style API reference docs?` — body is **stack-adaptive**. TS-only project: `(typedoc <detected|not found>, ts-morph <bundled>, stack: <ts|other>)`. Other stacks render their toolchain-probe results (Dart: dart-analyzer; Python: griffe).
@@ -295,3 +295,4 @@ Workflow paths (Bugfix / Feature / Refactor) and the spec-fill-in checklist live
 - Never overwrite an existing CLAUDE.md without confirmation — offer to merge instead
 - Generate real content based on what you detect, not empty templates
 - The scaffolded project MUST pass gate-check before proceeding — fix any issues
+- Steps 7b, 7c, 7d, 7e are four separate prompt sites — ask one question per turn, wait for the answer, then ask the next. Do not bundle them into a single turn even at phase transitions. See `plugins/dev-process-toolkit/docs/patterns.md § Pattern 26: Socratic Prompting {#pattern-socratic-prompting}` for the canonical rule + rationalization-prevention table.

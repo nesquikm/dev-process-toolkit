@@ -272,7 +272,7 @@ The summary is the per-skill console-status contract that `/setup`, `/implement`
 
 ## Rules
 
-- Ask one clarifying question per turn. Wait for the answer before asking the next. This rule holds at phase transitions too — when two questions look independent, still ask the first, wait, then ask the second.
+- Ask one clarifying question per turn. Wait for the answer before asking the next. This rule holds at phase transitions too — when two questions look independent, still ask the first, wait, then ask the second. See `docs/patterns.md § Pattern 26: Socratic Prompting {#pattern-socratic-prompting}` for the canonical rule.
 - Work through specs in precedence order (requirements → technical → testing → plan)
 - Each later spec should reference and build on earlier ones
 - Ask the user for domain knowledge — don't invent requirements

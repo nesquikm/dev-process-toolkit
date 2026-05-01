@@ -539,6 +539,23 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 
 **Cross-refs**: an early dogfood milestone in this plugin's own spec tree captured ~15 FRs (14 findings + 1 release; note that `specs/` is gitignored in the plugin source repo, so the milestone archive lives in the maintainer workspace, not in the shipped plugin bundle), Pattern 15 (Spec Deviation Classification — the filter that separates hardening findings from feature work), Pattern 21 (Spec Breakout Protocol — the escalation path when dogfood findings exceed 3 `contradicts` / `infeasible` deviations).
 
+## Pattern 26: Socratic Prompting {#pattern-socratic-prompting}
+
+When a skill needs more than one piece of input from the user, ask one question per turn and wait for the answer before asking the next — even when the questions look independent, even at phase transitions, even when the user is being responsive. Batching prompts trades operator clarity for token-efficiency the LLM does not actually need.
+
+**Where this rule fires.** Any skill that prompts at multiple sites within a single invocation: `/brainstorm` (clarifying questions), `/spec-write` (per-section author flow), `/setup` (steps 7b–7e: tracker mode → branch template → docs modes → release files). Single-prompt skills (`/implement` worktree question, `/ship-milestone` approval, `/gate-check` no-CLAUDE.md fallback, `/docs` no operator prompts) are out of scope by construction — there is no second question to batch with.
+
+**Rationalization-prevention table.** The one-at-a-time rule fails most often when the user is responsive and the LLM rationalizes batching as efficient. Watch for these excuses:
+
+| Excuse | Reality |
+|--------|---------|
+| These two questions are independent | Ask the first, wait, then the second |
+| Efficiency wins — batch them | Efficiency ≠ batching; the socratic form is the gate |
+| The user is responsive, I'll batch | Responsiveness is not license to batch |
+| We're at the handoff, last chance | Phase transitions are where batching happens most — same rule applies |
+
+Skills that adopt this pattern reference it by anchor (`docs/patterns.md § Pattern 26: Socratic Prompting {#pattern-socratic-prompting}`) rather than restating the rule inline; the canonical statement lives here, the rationalization-prevention table is the operational nudge. `/brainstorm` keeps an inline copy of the table because Pattern 26 is extracted **from** that table — both copies remain, and edits to either must update the other.
+
 ## Root Spec Hygiene
 
 **Where**: `specs/requirements.md`, `specs/technical-spec.md`, `specs/testing-spec.md` (the three root spec files) + `/gate-check` § Conformance Probes.
