@@ -23,7 +23,7 @@ A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** wor
 ```
 
 ```
-/plugin install dev-process-toolkit@nesquikm-dev-process-toolkit
+/plugin install dev-process-toolkit@dev-process-toolkit
 ```
 
 Then run the setup command in your project:
