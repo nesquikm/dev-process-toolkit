@@ -90,7 +90,14 @@ Each fires before any side effects, exits non-zero with an NFR-10-shape message.
 
    Linear-mode invocations skip this probe entirely.
 
-8. **(Jira-only) Jira project (Space) not visible / `--jira-project` missing.** When `--tracker jira` is active, `--jira-project <KEY>` is required and the configured key MUST appear in the response of `mcp__atlassian__getVisibleJiraProjects(searchString=<KEY>)` — i.e., the authenticated principal can see the Space. The probe inspects `response.values[].key`; refusal fires both for the missing-flag case and the not-visible case (single rail, two messages):
+8. **(Jira-only) Jira project (Space) not visible / `--jira-project` missing.** When `--tracker jira` is active, `--jira-project <KEY>` is required and the configured key MUST appear in the response of `mcp__atlassian__getVisibleJiraProjects(searchString=<KEY>)` — i.e., the authenticated principal can see the Space. The probe inspects `response.values[].key`; refusal fires for the missing-flag case and the not-visible case across **three message variants** keyed on the response shape (smoke #9 / Jira run 1 driver-side caveat — STE-191):
+
+   | Response shape | Variant | Refusal message |
+   |----------------|---------|-----------------|
+   | flag missing | (a) | `--jira-project <KEY> is required when --tracker jira is passed.` |
+   | `values[]` empty | (b) generic | `Probe: mcp__atlassian__getVisibleJiraProjects(searchString=<X>) → response.values[].key did not contain '<X>'.` |
+   | `values[]` has exactly one entry whose `name` matched `<X>` and whose `key` did NOT match `<X>` | (c) single-hit name-match | `'<X>' matched Space "<matched-name>" by display name, but the KEY is "<matched-key>". Pass --jira-project <matched-key> and retry.` |
+   | `values[]` has 2+ entries | (b) generic | (same as empty — surfacing one KEY out of N would mislead) |
 
    ```
    --jira-project <KEY> is required when --tracker jira is passed.
@@ -104,6 +111,14 @@ Each fires before any side effects, exits non-zero with an NFR-10-shape message.
    Remedy: create the Space in the Jira UI before running /smoke-test, or grant the OAuth principal membership; then re-run.
    Context: tracker=jira, project=<KEY>, skill=smoke-test
    ```
+
+   ```
+   Jira project '<KEY>' not visible — but '<KEY>' matched Space "<matched-name>" by display name, and the KEY is "<matched-key>".
+   Remedy: re-run /smoke-test --tracker jira --jira-project <matched-key>.
+   Context: tracker=jira, input=<KEY>, matched-name="<matched-name>", matched-key=<matched-key>, skill=smoke-test
+   ```
+
+   **Rationale for variant (c).** Single-hit name-match is the unambiguous case where the operator clearly meant the matched Space — surfacing the resolved KEY is a cheap usability win that preserves the defensive refusal (the gate stays in place; the message just sharpens). Empty / multi-hit responses stay at the generic shape: surfacing one KEY out of zero or N would mislead the operator into rerunning with a wrong key. Silent auto-correction is rejected — refusal must fire so cases where the operator named the wrong Space entirely don't slip past.
 
    Linear-mode invocations skip this probe entirely. The visibility result is cached for Phase 1 step 4 (which becomes a vacuous no-op when the probe already passed).
 
@@ -176,15 +191,17 @@ Refuse on `n`. On `y`, log the approval to `/tmp/dpt-smoke-<date>-<tracker>-appr
 
 ### Phase 0.5 — Clear stale per-run scratch
 
-After Phase 0 acceptance, before Phase 1.1, unconditionally clear stale per-run scratch from prior invocations. Two prefixes are wiped — every prompt-template scratch file and every per-skill log keyed on the resolved tracker:
+After Phase 0 acceptance, before Phase 1.1, unconditionally clear stale per-run scratch from prior invocations. Three prefixes are wiped — every prompt-template scratch file, every per-skill log keyed on the resolved tracker, and every wrapped MCP config from a prior run:
 
 ```bash
-rm -f /tmp/dpt-smoke-prompt-*.txt /tmp/dpt-smoke-<tracker>-*.log
+rm -f /tmp/dpt-smoke-prompt-*.txt /tmp/dpt-smoke-<tracker>-*.log /tmp/dpt-smoke-mcp-config-*.json
 ```
 
-This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale `/tmp/dpt-smoke-prompt-*.txt` left over from prior runs caused Write-tool errors and stale-content reuse (a 2026-04-27 Linear-flavored prompt stub re-fired on a later Jira run). Clearing per-skill logs keyed on the resolved tracker prevents cross-run log smear when re-running against the same tracker.
+This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template scratch files left over from prior runs caused Write-tool errors and stale-content reuse (a 2026-04-27 Linear-flavored prompt stub re-fired on a later Jira run). Clearing per-skill logs keyed on the resolved tracker prevents cross-run log smear when re-running against the same tracker. The `/tmp/dpt-smoke-mcp-config-*.json` glob (smoke #9 / Linear F1) matches both the `linear` and `jira` variants in one pattern so Phase 1 step 5 always starts from a clean filesystem regardless of whether the operator uses the Write tool or a Bash heredoc to produce the wrapped config.
 
-**Do NOT delete** `/tmp/dpt-smoke-findings-*.md` and `/tmp/dpt-smoke-<date>-<tracker>-approval.txt` — those are audit-trail artifacts and are intentionally retained across runs (preserve them; never widen the rm to include the findings or approval prefix). The findings files accumulate across runs by design (one per tracker per date); the approval record is the operator's consent log and stays for forensics.
+**Defense-in-depth annotation (STE-185).** The `dpt-smoke-prompt-*.txt` glob in the rm above is now **defense-in-depth, not load-bearing** — post-STE-185, the driver no longer writes any prompt-template scratch files to disk (heredoc-on-stdin replaces them; see Phase 2 § STE-185 below). On post-STE-185 runs, the glob is expected to be a no-op. A non-empty match indicates either a pre-STE-185 (legacy) driver run on this machine or stale files left by an external process — keeping the cleanup line costs nothing and protects against transitional drift while older smoke driver versions could still be checked out elsewhere.
+
+**audit-trail invariant — do NOT delete** `/tmp/dpt-smoke-findings-*.md` and `/tmp/dpt-smoke-<date>-<tracker>-approval.txt`. Those are audit-trail artifacts and are intentionally retained across runs (preserve them; never widen the rm to include the findings or approval prefix). The findings files accumulate across runs by design (one per tracker per date); the approval record is the operator's consent log and stays for forensics. Only the three scratch globs above are wiped — the findings file and approval record are explicitly excluded from cleanup.
 
 ### Phase 1 — Setup
 
@@ -193,7 +210,12 @@ This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale `/tmp/dpt-smoke-pr
 3. `cd ../dpt-test-project-<tracker> && git init -q && git add -A && git commit -q -m "chore: bun init scaffold"`.
 4. **Tracker workspace setup** — branches on `--tracker`:
 
-   - **Linear path (`--tracker linear`, default).** Create a Linear project named `DPT Smoke Test (<YYYY-MM-DD>)` under team `STE` via `mcp__linear__save_project`. Save the project ID + URL to the findings file's header.
+   - **Linear path (`--tracker linear`, default).** Create a Linear project under team `STE` via `mcp__linear__save_project`. The base name is `DPT Smoke Test (<YYYY-MM-DD>)`.
+
+     **Same-day collision auto-disambiguation (smoke #9 F4).** Before `save_project`, call `mcp__linear__list_projects(query="DPT Smoke Test (<YYYY-MM-DD>)")` and filter the response on `p.name.startsWith("DPT Smoke Test (<YYYY-MM-DD>") && p.name.endsWith(")")` (precise equality vs. Linear's substring `query` semantics). On zero matches, save with the canonical name verbatim (no suffix). On one or more matches, parse the suffix integers from each match's name (`(<YYYY-MM-DD>)` ⇒ 1, `(<YYYY-MM-DD>-v2)` ⇒ 2, etc.), pick the smallest integer `N` ≥ 2 not present in the match set, and save as `DPT Smoke Test (<YYYY-MM-DD>-v<N>)`. The scheme is deterministic and inspectable.
+     - **Worked example.** Smoke #8 lands first on a given day → name `DPT Smoke Test (2026-05-01)`. A same-day smoke #9 finds the prior project → name auto-resolves to `DPT Smoke Test (2026-05-01-v2)`. A hypothetical same-day smoke #10 → `DPT Smoke Test (2026-05-01-v3)`.
+
+     Save the project ID + URL to the findings file's header. The Phase 1 setup print line at step 7 (which prints the project URL) carries the resolved name implicitly — a suffixed name in the print indicates the same-day collision was auto-handled; an unsuffixed canonical-name print indicates no prior project existed.
    - **Jira path (`--tracker jira`).** **No creation call** — the Atlassian Rovo MCP exposes no `createJiraProject` tool, so the operator must have created the Space (Jira project) in the Jira UI manually before running `/smoke-test`. Pre-flight #8 has already verified visibility via `mcp__atlassian__getVisibleJiraProjects`; this step is a vacuous re-affirmation. Save the Space key (e.g., `DST`) and the Atlassian site URL to the findings file's header. Document: the Space is reused across runs (no per-run isolation); Phase 5 teardown closes only the work items this run created (matched by label `dpt-smoke` + creation-time window).
 5. **MCP config — branches on `--tracker`:**
 
@@ -288,7 +310,7 @@ Skills to run, in order:
    - **Linear path:** `stack=Bun+TS, tracker=linear, mcp_server=linear, team=STE, project=<the smoke-test project from Phase 1>, jira_ac_field=blank, branch_template=default, docs flags=all-false`. The pre-baked workspace-binding sub-section emits `### Linear` with `team:` + `project:` (and optionally `default_labels:` if downstream callers want labels — not used by the Linear smoke today).
    - **Jira path:** `stack=Bun+TS, tracker=jira, mcp_server=atlassian, project=<--jira-project flag value>, jira_ac_field=description, branch_template=default, docs flags=all-false, default_labels=[dpt-smoke]`. The pre-baked workspace-binding sub-section emits `### Jira` with `project:` + `default_labels:` so the Jira adapter forwards `dpt-smoke` into every `mcp__atlassian__createJiraIssue.additional_fields.labels` call. **Skip Jira AC custom-field discovery** — the pre-baked `jira_ac_field: description` answer short-circuits `/setup` step 7b's discover_field.ts call (zero-config sentinel path). **Skip the Linear team/project probe** — the workspace binding is fully resolved from the flag.
 
-   **In both modes, the prompt MUST acknowledge the pre-existing `.claude/settings.json` and `.mcp.json`** (Phase 1 step 6) and instruct the child to take the idempotent-merge branch — do not blindly let it try to overwrite, since that hits the F-DR7 block and aborts the chain. Reference template: `/tmp/dpt-smoke-prompt-setup.txt` from a successful run #3 (Linear) or a future run #6 (Jira).
+   **In both modes, the prompt MUST acknowledge the pre-existing `.claude/settings.json` and `.mcp.json`** (Phase 1 step 6) and instruct the child to take the idempotent-merge branch — do not blindly let it try to overwrite, since that hits the F-DR7 block and aborts the chain. The canonical pre-baked prompt body is inlined into the Phase 2 child-spawn heredoc below (§ STE-185); do not write it to a file on disk.
 2. `/dev-process-toolkit:spec-write` — feature stub (default `greet`): "Add a pure function greet(name?: string) returning 'Hello, <name>!' (defaulting 'world' for undefined / empty / whitespace-only). File src/greet.ts; test src/greet.test.ts; 4 ACs."
 3. `/dev-process-toolkit:implement <feature-id>` — full TDD + tracker writes (claim → release after archive). Pre-authorize the Phase 4 step 15 commit upfront. Do NOT push.
 
@@ -296,6 +318,92 @@ Skills to run, in order:
 4. `/dev-process-toolkit:gate-check` — read-only verification.
 5. `/dev-process-toolkit:spec-review <feature-id>` — read-only spec-vs-code audit.
 6. `/dev-process-toolkit:simplify` — review changed code; safe refactors applied + gate re-verified.
+
+#### Phase 2 child-spawn discipline (stdin partition)
+
+Every Phase 2 spawn has explicit stdin handling — no spawn relies on the child's default stdin behavior. The spawn surface partitions into two classes by whether the child needs prompt-body input:
+
+- **Non-prompt-bearing children** (`/spec-review`, `/simplify`, `/gate-check`) — the slash command alone fully specifies the work; no extra prompt body is needed. Pipe `< /dev/null` immediately before the log redirect to skip `claude -p`'s 3-second auto-stdin-detect wait (smoke #9 / Linear F5 — STE-188). The warning `Warning: no stdin data received in 3s, proceeding without it.` is the source signal; `< /dev/null` is the documented remediation.
+- **Prompt-bearing children** (`/setup`, `/spec-write`, `/implement`) — covered by STE-185's heredoc-on-stdin discipline (per-skill prompt body inlined; see § STE-185 below). Adding `< /dev/null` to those would close stdin before the heredoc body is read and break prompt delivery — the partition is deliberate.
+
+Reference snippets — non-prompt-bearing children:
+
+```bash
+# /gate-check
+CLAUDE_CONFIG_DIR=~/.claude-st claude -p /dev-process-toolkit:gate-check \
+  --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
+  --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
+  --permission-mode bypassPermissions \
+  --max-budget-usd 3 \
+  < /dev/null > /tmp/dpt-smoke-<tracker>-gate-check.log 2>&1
+
+# /spec-review
+CLAUDE_CONFIG_DIR=~/.claude-st claude -p "/dev-process-toolkit:spec-review <feature-id>" \
+  --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
+  --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
+  --permission-mode bypassPermissions \
+  --max-budget-usd 3 \
+  < /dev/null > /tmp/dpt-smoke-<tracker>-spec-review.log 2>&1
+
+# /simplify
+CLAUDE_CONFIG_DIR=~/.claude-st claude -p /dev-process-toolkit:simplify \
+  --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
+  --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
+  --permission-mode bypassPermissions \
+  --max-budget-usd 3 \
+  < /dev/null > /tmp/dpt-smoke-<tracker>-simplify.log 2>&1
+```
+
+#### Heredoc-on-stdin for prompt-bearing children (STE-185)
+
+Prompt-bearing children (`/setup`, `/spec-write`, `/implement`) carry a per-skill prompt body — answers to /setup's pre-baked questions, the feature stub for /spec-write, the implementation arguments for /implement. The driver delivers the prompt body via a single-quoted bash heredoc on the child's stdin. The slash command stays the literal first line of the user message; the heredoc body provides the rest.
+
+**Threat model — content-swap attack surface (STE-185).** Prompt files on disk are vulnerable to mid-run content swap by external processes — linters, file-mode-line auto-fixes, language servers, shared editor sessions. Smoke #9 / Jira run 2 hit this in the field: an external linter overwrote a Jira-flavored prompt file with a stale Linear-flavored stub between the parent's `Write` and the spawned `claude -p` child's read, causing silent cross-tracker corruption (the child built a Linear-mode `CLAUDE.md` on a Jira run). The heredoc-on-stdin discipline closes the window — there is no file on disk to swap. Single-quoted heredoc tag (`<<'PROMPT_EOF'`) prevents shell expansion of `$variable` references in the body so prompt content passes through to Claude verbatim.
+
+Reference snippets — prompt-bearing children, per-skill prompt body inlined as the heredoc body. Linear-path / Jira-path branching stays inside each heredoc body (the parent renders the per-tracker fragments before piping):
+
+```bash
+# /setup — heredoc body carries pre-baked answers + acknowledgment of pre-existing settings.json/.mcp.json
+CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
+  --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
+  --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
+  --permission-mode bypassPermissions \
+  --max-budget-usd 3 \
+  > /tmp/dpt-smoke-<tracker>-setup.log 2>&1 <<'PROMPT_EOF'
+/dev-process-toolkit:setup
+
+stack=Bun+TS, tracker=<tracker>, mcp_server=<linear|atlassian>, ...
+
+(Linear path) team=STE, project=<the smoke-test project from Phase 1>, jira_ac_field=blank, branch_template=default, docs flags=all-false; emit `### Linear` workspace binding.
+(Jira path) project=<--jira-project flag value>, jira_ac_field=description, branch_template=default, docs flags=all-false, default_labels=[dpt-smoke]; emit `### Jira` workspace binding; skip discover_field.ts (zero-config sentinel path); skip Linear team probe.
+
+The repo already contains .claude/settings.json and .mcp.json from the driver's pre-creation step; take the idempotent-merge branch — do not overwrite (model-layer block aborts the chain otherwise).
+PROMPT_EOF
+
+# /spec-write — heredoc body carries the feature stub
+CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
+  --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
+  --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
+  --permission-mode bypassPermissions \
+  --max-budget-usd 3 \
+  > /tmp/dpt-smoke-<tracker>-spec-write.log 2>&1 <<'PROMPT_EOF'
+/dev-process-toolkit:spec-write
+
+Add a pure function greet(name?: string) returning 'Hello, <name>!' (defaulting 'world' for undefined / empty / whitespace-only). File src/greet.ts; test src/greet.test.ts; 4 ACs.
+PROMPT_EOF
+
+# /implement — heredoc body carries pre-authorization for the Phase 4 step 15 commit
+CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
+  --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
+  --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
+  --permission-mode bypassPermissions \
+  --max-budget-usd 3 \
+  > /tmp/dpt-smoke-<tracker>-implement.log 2>&1 <<'PROMPT_EOF'
+/dev-process-toolkit:implement <feature-id>
+
+Pre-authorized: proceed through Phase 4 step 15 commit on success without prompting. Do NOT push. Stay on the current branch (skip worktree prompt).
+PROMPT_EOF
+```
 
 #### Comment-path probe (Jira-only)
 

@@ -187,6 +187,28 @@ Dispatches on the value of `jira_ac_field` recorded in `## Task Tracking`.
 The two paths share the bullet-extraction helper; only the source string
 (custom-field value vs. description body) differs.
 
+#### ADF round-trip artifact (escape tolerance)
+
+When the description body is sent through `mcp__atlassian__createJiraIssue`,
+markdown bullets are converted into Atlassian Document Format (ADF) and then
+re-rendered back to markdown on `mcp__atlassian__getJiraIssue`. The
+round-trip is not byte-stable — input `- [x] AC N: ...` re-renders as
+`* \[x\] AC N: ...` (asterisk-bullet marker + ADF-escaped square brackets,
+e.g. `\[x\]` and `\[ \]`). The Jira UI renders the escaped form correctly
+as a checkbox; raw markdown tooling sees the literal escape sequence.
+
+The bullet-extraction helper tolerates both `[x]`/`[ ]` and the escaped
+`\[x\]`/`\[ \]` form by design — the parser regex makes the leading
+backslash optional. Coverage: `adapters/_shared/src/jira_pull_acs.ts`,
+unit-tested in `jira_pull_acs.test.ts`. **Failure mode if tolerance were
+dropped:** /implement's AC-toggle round-trip would silently break on the
+live Jira path — the toggle would write `- [x]` locally, the server would
+re-render to `* \[x\]`, and the next pull_acs would fail to parse the
+re-rendered AC, marking it as missing on the tracker side. The smoke
+#9 / Jira run 2 evidence (4/4 ACs flipped end-to-end) confirms current
+parser tolerance; the explicit tests ensure a future regex tightening
+cannot silently regress.
+
 ### `push_ac_toggle(ticket_id, ac_id, state) → void`
 
 Dispatches on the value of `jira_ac_field` recorded in `## Task Tracking`.

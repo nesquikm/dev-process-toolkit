@@ -284,4 +284,11 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-175.1..5 | .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/smoke-test-driver-hardening.test.ts |
 | AC-STE-176.1..4 | .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/smoke-test-coverage-extension.test.ts |
 | AC-STE-177.1..6 | plugins/dev-process-toolkit/docs/patterns.md, plugins/dev-process-toolkit/skills/setup/SKILL.md, plugins/dev-process-toolkit/skills/spec-write/SKILL.md, plugins/dev-process-toolkit/skills/brainstorm/SKILL.md | (prose-only — no test fixture; verified by static greps + bun test 1358 baseline) |
+| AC-STE-185.1..7 | .claude/skills/smoke-test/SKILL.md | (prose-only — verified by static greps; AC-STE-185.6 deferred per smoke-AC convention) |
+| AC-STE-186.1..4 | .claude/skills/smoke-test/SKILL.md | (prose-only — verified by static greps; AC-STE-186.4 deferred per smoke-AC convention) |
+| AC-STE-187.1..6 | .claude/skills/smoke-test/SKILL.md | (prose-only — verified by static greps; AC-STE-187.6 deferred per smoke-AC convention) |
+| AC-STE-188.1..4 | .claude/skills/smoke-test/SKILL.md | (prose-only — verified by static greps; AC-STE-188.4 deferred per smoke-AC convention) |
+| AC-STE-189.1..4 | plugins/dev-process-toolkit/skills/setup/SKILL.md | (prose-only — verified by static greps; AC-STE-189.4 deferred per smoke-AC convention) |
+| AC-STE-190.1..4 | plugins/dev-process-toolkit/adapters/_shared/src/jira_pull_acs.ts, plugins/dev-process-toolkit/adapters/jira.md | plugins/dev-process-toolkit/adapters/_shared/src/jira_pull_acs.test.ts |
+| AC-STE-191.1..4 | .claude/skills/smoke-test/SKILL.md | (prose-only — verified by static greps; AC-STE-191.4 deferred per smoke-AC convention) |
 
