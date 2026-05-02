@@ -221,9 +221,9 @@ If the user wants the full SDD workflow (or `$ARGUMENTS` contains "new"):
   - **technical-spec.md:** Actual directory structure, dependencies with pinned versions, module boundaries
   - **testing-spec.md:** Exact test framework + version, mocking library, coverage tool, file naming convention
   - **plan.md:** M1 skeleton for the foundation just built, with concrete file paths and gate commands
-- Leave requirements, acceptance criteria, and milestone tasks for the user.
+- Leave requirements, acceptance criteria, and milestone tasks for the user. If the user didn't ask for specs, skip this step.
 
-If the user didn't ask for specs, skip this step.
+**Scaffold deliverables (canonical inventory, STE-189).** /setup produces six artifact classes — each a **/setup deliverable, emitted unconditionally** when its step runs: (1) `CLAUDE.md` (step 5), (2) `.claude/settings.json` (step 6), (3) `.mcp.json` (step 7, tracker mode only), (4) `specs/{requirements,technical-spec,testing-spec}.md` (step 8), (5) `specs/plan/M1.md` plus `.gitkeep` stubs in `specs/frs/{,archive/}` and `specs/plan/{,archive/}` (step 8), (6) `src/.placeholder.test.ts` (Bun, step 2c). These are emitted **regardless of any phrasing in the operator's invocation context** — "only /setup completes here", "do not run /spec-write", "minimal mode" all constrain which **downstream skills** run after /setup, not which artifacts /setup itself produces (smoke #9 / run 2 F2). `/spec-write` step 1 ("Assess current state") expects these on disk; absence is a recovery-path failure mode, not the canonical contract. The scaffold list is non-negotiable; the operator can populate spec bodies later via `/spec-write`, but the empty templates ship from /setup.
 
 ### 8a. Audit-section post-condition
 
