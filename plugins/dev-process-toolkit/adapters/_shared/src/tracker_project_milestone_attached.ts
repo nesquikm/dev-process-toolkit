@@ -1,4 +1,4 @@
-// tracker_project_milestone_attached — /gate-check probe (#26, STE-118 AC-STE-118.6, STE-194 AC-STE-194.1..5).
+// tracker_project_milestone_attached — /gate-check probe (#26, STE-118 AC-STE-118.6, STE-194 AC-STE-194.1..5, STE-214 AC-STE-214.1..6).
 //
 // For each `status: active` FR with a tracker block, assert that the
 // tracker ticket's `projectMilestone.name` byte-equals the canonical
@@ -15,10 +15,14 @@
 //   - ticket projectMilestone is null  (unless the capability-gap downgrade fires — see below)
 //   - ticket projectMilestone.name != canonical local heading
 //
-// Capability-gap downgrade (STE-194). When the FR's `## Notes` section
-// contains a word-bounded `milestone_attach_unavailable` token and the
-// ticket has no `projectMilestone`, the missing-binding outcome routes
-// to `advisories` instead of `violations`. Mismatched bindings still
+// Capability-gap downgrade (STE-194 + STE-214). When the FR's `## Notes`
+// section contains a word-bounded match of any of the three milestone-
+// attach capability tokens — `milestone_attach_skipped_adapter_limit`
+// (canonical), `milestone_attach_unavailable` (deprecated alias per
+// STE-198), or `milestone_create_required` — and the ticket has no
+// `projectMilestone`, the missing-binding outcome routes to `advisories`
+// instead of `violations`. The advisory prose names whichever key was
+// found so the operator can grep the cap. Mismatched bindings still
 // hard-fail — the token only excuses absence, not divergence.
 //
 // Diagnostic format (AC-STE-118.6 / .7) shows both byte-rendered strings
@@ -119,9 +123,21 @@ function buildMessage(reason: string, file: string, kind: "missing" | "mismatch"
   ].join("\n");
 }
 
-const CAPABILITY_GAP_TOKEN = "milestone_attach_unavailable";
-const CAPABILITY_GAP_RE = new RegExp(`\\b${CAPABILITY_GAP_TOKEN}\\b`);
-const CAPABILITY_GAP_PROSE = `milestone-attach skipped — capability gap declared in FR Notes (${CAPABILITY_GAP_TOKEN})`;
+// STE-214: probe #26 honors any of three milestone-attach capability keys
+// declared in the FR's `## Notes` section (canonical + deprecated alias +
+// auto-create flag). All map to identical ADVISORY behavior; the rendered
+// prose names whichever key was found so the operator can grep the cap.
+const CAPABILITY_GAP_TOKENS = [
+  "milestone_attach_skipped_adapter_limit",
+  "milestone_attach_unavailable",
+  "milestone_create_required",
+] as const;
+type CapabilityGapToken = (typeof CAPABILITY_GAP_TOKENS)[number];
+const CAPABILITY_GAP_RES = CAPABILITY_GAP_TOKENS.map(
+  (t) => [t, new RegExp(`\\b${t}\\b`)] as [CapabilityGapToken, RegExp],
+);
+const capabilityGapProse = (token: CapabilityGapToken): string =>
+  `milestone-attach skipped — capability gap declared in FR Notes (${token})`;
 
 /**
  * Returns the body of the FR's `## Notes` section (everything between the
@@ -143,14 +159,18 @@ function extractNotesSection(content: string): string {
   return notesLines.join("\n");
 }
 
-function notesDeclaresMilestoneAttachGap(content: string): boolean {
-  return CAPABILITY_GAP_RE.test(extractNotesSection(content));
+function notesCapabilityGapToken(content: string): CapabilityGapToken | null {
+  const notes = extractNotesSection(content);
+  for (const [token, re] of CAPABILITY_GAP_RES) {
+    if (re.test(notes)) return token;
+  }
+  return null;
 }
 
-function buildAdvisoryMessage(file: string): string {
+function buildAdvisoryMessage(file: string, token: CapabilityGapToken): string {
   return [
-    `tracker_project_milestone_attached: ${CAPABILITY_GAP_PROSE}`,
-    `Note: probe #26 downgraded the missing-binding outcome to advisory because the FR's \`## Notes\` section declares the canonical \`${CAPABILITY_GAP_TOKEN}\` capability key.`,
+    `tracker_project_milestone_attached: ${capabilityGapProse(token)}`,
+    `Note: probe #26 downgraded the missing-binding outcome to advisory because the FR's \`## Notes\` section declares the \`${token}\` capability key.`,
     `Context: file=${file}, probe=tracker_project_milestone_attached`,
   ].join("\n");
 }
@@ -229,17 +249,20 @@ export async function runTrackerProjectMilestoneAttachedProbe(
     }
     const attached = issue.projectMilestone?.name ?? null;
     if (attached === null) {
-      // STE-194: capability-gap downgrade. Token in `## Notes` excuses the
-      // missing binding (smoke fixtures and other intentional gaps); absent
-      // token still hard-fails — the gate must continue to fire on FRs that
-      // should have been attached.
-      if (notesDeclaresMilestoneAttachGap(content)) {
+      // STE-194 + STE-214: capability-gap downgrade. Any of the three
+      // milestone-attach tokens in `## Notes` excuses the missing binding
+      // (smoke fixtures and other intentional gaps); absent any token still
+      // hard-fails — the gate must continue to fire on FRs that should
+      // have been attached.
+      const declaredToken = notesCapabilityGapToken(content);
+      if (declaredToken !== null) {
+        const prose = capabilityGapProse(declaredToken);
         advisories.push({
           file: fullPath,
           line: 1,
-          reason: CAPABILITY_GAP_PROSE,
-          note: `${rel}:1 — ${CAPABILITY_GAP_PROSE}`,
-          message: buildAdvisoryMessage(rel),
+          reason: prose,
+          note: `${rel}:1 — ${prose}`,
+          message: buildAdvisoryMessage(rel, declaredToken),
         });
         continue;
       }
