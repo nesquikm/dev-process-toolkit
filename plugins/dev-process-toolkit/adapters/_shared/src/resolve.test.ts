@@ -248,9 +248,10 @@ describe("resolveFRArgument — fallthrough (AC-51.7, NFR-18)", () => {
     expect(r.kind).toBe("fallthrough");
   });
 
-  test("milestone code 'M12' → fallthrough", () => {
+  test("STE-202 AC-STE-202.3: milestone code 'M12' → milestone (no longer fallthrough)", () => {
     const r = resolveFRArgument("M12", fullStack);
-    expect(r.kind).toBe("fallthrough");
+    expect(r.kind).toBe("milestone");
+    expect(r.milestone).toBe("M12");
   });
 
   test("empty string → fallthrough", () => {

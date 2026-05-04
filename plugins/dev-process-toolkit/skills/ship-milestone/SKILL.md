@@ -22,6 +22,18 @@ Any of these fire before any file write and exit non-zero with an NFR-10-shape m
 
 1. **Unshipped FRs**. Walk `specs/plan/M<N>.md`; if any row links to an FR file whose frontmatter has `status: active` (not yet archived), **probe tracker state** and emit one of two remedy shapes.
 
+   **Task-bullet pre-flight (STE-201 AC-STE-201.1..3).** In addition to the FR-row walk, parse the milestone's `**Tasks:**` block. For each `[ ]` (unchecked) bullet, find a backing FR row by either (a) explicit inline link `- [ ] foo — STE-NNN` (wins over heuristic), or (b) case-insensitive substring match between the task's leading verb-phrase and an FR row's title. A task with no backing FR row, or one whose backing FR is `status: active` (not yet archived), accumulates into the `unbacked_tasks` list. A task explicitly marked `[deferred]` (e.g., `- [deferred] multiply — moved to M3`) is treated as ship-OK — same parse path as `[x]` and `[ ]`. If `unbacked_tasks` is non-empty, refuse with the AC-STE-201.2 shape:
+
+   ```
+   /ship-milestone: milestone M<N> plan has <count> unchecked task(s) with no FR backing:
+   - <task-1>
+   - <task-2>
+   Cannot tag a release for a milestone whose plan describes uncompleted scope.
+   Remedy: either /spec-write FRs for the unbacked tasks (then /implement them), or
+   move the tasks to a later milestone's plan, then re-run /ship-milestone.
+   Context: milestone=M<N>, unbacked-tasks=<count>, skill=ship-milestone
+   ```
+
    For each `status: active` FR, call `Provider.getTicketStatus(<tracker-ref>)`. Partition the unshipped set by whether the returned status equals the adapter's `status_mapping.done`:
 
    - **All unshipped FRs are tracker-Done-but-file-active** — every ticket already reached `status_mapping.done` (typical after per-FR `/implement <FR-id>` runs, which Done-transition each ticket in Phase 4 Close but leave `status: active` because milestone-scope archival is a separate step). Refuse with the `/spec-archive`-pointing remedy:
@@ -64,7 +76,17 @@ Any of these fire before any file write and exit non-zero with an NFR-10-shape m
 
 ### 1. Resolve milestone + FR list
 
-Read `specs/plan/M<N>.md`. Extract every FR with a live tracker ID / ULID. For each, read `specs/frs/<name>.md` frontmatter and pull `title`, `tracker.<key>`, `breaking` (default `false`), `changelog_category` (default `Added`), and `status` (must be `archived` after the pre-flight refusal in step 8 above).
+Read `specs/plan/M<N>.md`. **Archive fallback (STE-210 AC-STE-210.1):** if `specs/plan/M<N>.md` is missing, check `specs/plan/archive/M<N>.md` — when the archived plan exists AND every FR row in it has `status: archived` (consistent end state), proceed to read from the archive path. When the archived plan exists but FR rows are mixed (some still `status: active`), refuse with NFR-10:
+
+```
+/ship-milestone: active plan path missing but archived plan has unarchived FRs — corrupt state.
+Remedy: investigate; either restore plan to active/ or archive remaining FRs.
+Context: milestone=M<N>, skill=ship-milestone
+```
+
+When neither path exists, refuse `Plan M<N> not found in specs/plan/ or specs/plan/archive/`. The fallback only activates when the active path is genuinely missing — for milestones whose plans are still in `specs/plan/`, behavior is unchanged.
+
+Extract every FR with a live tracker ID / ULID. For each, read `specs/frs/<name>.md` frontmatter and pull `title`, `tracker.<key>`, `breaking` (default `false`), `changelog_category` (default `Added`), and `status` (must be `archived` after the pre-flight refusal in step 8 above).
 
 ### 2. Infer version
 

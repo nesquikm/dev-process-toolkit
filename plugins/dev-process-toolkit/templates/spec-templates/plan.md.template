@@ -1,3 +1,11 @@
+---
+milestone: M<N>
+status: active
+archived_at: null
+kickoff_branch: null
+frozen_at: null
+---
+
 <!--
   Tracker-ID placeholder convention: when drafting FR rows in tracker
   mode, use the literal placeholder `<tracker-id>` (e.g.,
@@ -13,9 +21,10 @@
 
 ## Milestone Order
 
-<!-- Each milestone should be independently gatable -->
-<!-- Don't proceed to M(n+1) until M(n) gates pass -->
-<!-- Every milestone heading must carry its stable anchor ID `{#M{N}}` — this is the archival pointer target (see docs/patterns.md#stable-anchor-ids) -->
+<!-- Each milestone gets its own `specs/plan/M<N>.md` file -->
+<!-- This template scaffolds exactly one milestone — never bundle M<N> and M<N+1> in the same file -->
+<!-- Don't proceed to M<N+1> until M<N> gates pass -->
+<!-- Every milestone heading must carry its stable anchor ID `{#M<N>}` — this is the archival pointer target (see docs/patterns.md#stable-anchor-ids) -->
 
 ### Task Sizing
 
@@ -25,6 +34,8 @@ Each task should be ≈ one commit's worth of work — small enough that the ver
 - line 2 — an indented `verify:` line stating the command or observation that proves the task is done
 
 If you can't write the `verify:` line in one sentence, the task is too big. Split it.
+
+A task may also be marked `[deferred]` (e.g., `- [deferred] multiply — moved to M<N+1>`) to signal that the work was intentionally moved out of this milestone. `/ship-milestone` treats `[deferred]` as ship-OK and `/gate-check` skips it from the task-FR coverage probe.
 
 **Anti-patterns — tasks too large to verify cleanly:**
 
@@ -61,36 +72,3 @@ If you can't write the `verify:` line in one sentence, the task is too big. Spli
 
 **Gate:** `<your gate check commands>`
 <!-- ADAPT: Examples — `npm run typecheck && npm run lint && npm run test` (TypeScript); `fvm flutter analyze && fvm flutter test` (Flutter); `mypy . && ruff check . && pytest` (Python) -->
-
----
-
-## M<N+1>: [Core Feature] {#M<N+1>}
-
-**Goal:** <!-- What this milestone achieves -->
-**Prerequisites:** M<N>
-
-**Tasks:**
-- [ ] <!-- Task 1 action -->
-  verify: <!-- command or observation -->
-- [ ] <!-- Task 2 action -->
-  verify: <!-- command or observation -->
-- [ ] <!-- Task 3 action -->
-  verify: <!-- command or observation -->
-
-**Tests:**
--
-
-**Acceptance Criteria:**
-- [ ]
-- [ ]
-
-**Gate:** `<your gate check commands>`
-
----
-
-## Milestone Dependency Graph
-
-```
-M<a> → M<b> → M<c>
-        ↘ M<d> → M<e>
-```

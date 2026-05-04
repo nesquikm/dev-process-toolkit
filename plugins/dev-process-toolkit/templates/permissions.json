@@ -1,32 +1,69 @@
 {
-  "_doc": "Canonical Bash() permissions allow-list per detected stack. STE-106 AC-STE-106.1. /setup reads this at write time. Adding a new stack = adding a row.",
+  "_doc": "Canonical Bash() permissions allow-list per detected stack. STE-106 AC-STE-106.1. /setup reads this at write time. Adding a new stack = adding a row. STE-209 AC-STE-209.1 (M54): explicit-subcommand allowlist replaces globbed `Bash(<cmd> *)` shapes — the harness denies any glob-shaped Bash rule when /setup writes settings.json on a fresh repo (the F3b self-modification-denial bug). Each entry below is a Conventional Commit / read-only command the toolkit invokes from skill prose; expand the list (not the glob) when adding new invocations.",
   "_common": [
-    "Bash(git *)",
-    "Bash(gh *)",
-    "Bash(mkdir *)",
-    "Bash(ls *)",
-    "Bash(rm *)",
-    "Bash(mv *)",
-    "Bash(cp *)"
+    "Bash(git status)",
+    "Bash(git diff)",
+    "Bash(git log)",
+    "Bash(git show)",
+    "Bash(git rev-parse)",
+    "Bash(git ls-files)",
+    "Bash(git branch)",
+    "Bash(git blame)",
+    "Bash(gh pr list)",
+    "Bash(gh pr view)",
+    "Bash(gh issue list)",
+    "Bash(gh issue view)",
+    "Bash(gh repo view)",
+    "Bash(gh api)",
+    "Bash(ls)",
+    "Bash(mkdir)"
   ],
+  "_writes": {
+    "_doc": "Destructive ops kept out of _common per STE-209 AC-STE-209.1: writing them as globs (`Bash(<cmd> *)`) triggered the same harness self-modification denial; writing them as explicit subcommands keeps them grantable per-skill (skills that need them prompt at first use). /setup does NOT pre-emit these — they live here as documentation.",
+    "git": [
+      "Bash(git add)",
+      "Bash(git commit)",
+      "Bash(git mv)",
+      "Bash(git push)",
+      "Bash(git checkout)",
+      "Bash(git init)",
+      "Bash(git worktree add)",
+      "Bash(git worktree remove)"
+    ],
+    "gh": [
+      "Bash(gh pr create)",
+      "Bash(gh issue create)"
+    ]
+  },
   "stacks": {
     "bun": [
-      "Bash(bun *)",
-      "Bash(bunx *)"
+      "Bash(bun install)",
+      "Bash(bun test)",
+      "Bash(bun run)",
+      "Bash(bun --version)",
+      "Bash(bunx)"
     ],
     "node": [
-      "Bash(npm *)",
-      "Bash(npx *)"
+      "Bash(npm install)",
+      "Bash(npm test)",
+      "Bash(npm run)",
+      "Bash(npm audit)",
+      "Bash(npx)"
     ],
     "flutter": [
-      "Bash(flutter *)",
-      "Bash(dart *)"
+      "Bash(flutter test)",
+      "Bash(flutter analyze)",
+      "Bash(flutter --version)",
+      "Bash(fvm flutter)",
+      "Bash(dart)"
     ],
     "python": [
-      "Bash(uv *)",
-      "Bash(python *)",
-      "Bash(python3 *)",
-      "Bash(pytest *)"
+      "Bash(uv sync)",
+      "Bash(uv run)",
+      "Bash(uv --version)",
+      "Bash(python)",
+      "Bash(python3)",
+      "Bash(pytest)"
     ],
     "generic": []
   }

@@ -20,37 +20,53 @@ const permissionsTemplate = JSON.parse(
   readFileSync(join(pluginRoot, "templates", "permissions.json"), "utf-8"),
 );
 
-describe("canonicalAllowList — stack-keyed lookup", () => {
+describe("canonicalAllowList — stack-keyed lookup (STE-209: explicit-subcommand shape)", () => {
   test("returns common + stack-specific entries (bun)", () => {
     const allow = canonicalAllowList(permissionsTemplate, "bun");
-    expect(allow).toContain("Bash(git *)");
-    expect(allow).toContain("Bash(bun *)");
-    expect(allow).toContain("Bash(bunx *)");
+    // STE-209 AC-STE-209.1: globs replaced with explicit subcommands —
+    // `Bash(git *)` no longer in _common; assert canonical replacements.
+    expect(allow).toContain("Bash(git status)");
+    expect(allow).toContain("Bash(bun install)");
+    expect(allow).toContain("Bash(bunx)");
+    expect(allow).not.toContain("Bash(git *)");
   });
 
   test("returns common + stack-specific entries (flutter)", () => {
     const allow = canonicalAllowList(permissionsTemplate, "flutter");
-    expect(allow).toContain("Bash(flutter *)");
-    expect(allow).toContain("Bash(dart *)");
-    expect(allow).toContain("Bash(git *)");
+    expect(allow).toContain("Bash(flutter test)");
+    expect(allow).toContain("Bash(dart)");
+    expect(allow).toContain("Bash(git status)");
+    expect(allow).not.toContain("Bash(flutter *)");
   });
 
   test("returns common + stack-specific entries (python)", () => {
     const allow = canonicalAllowList(permissionsTemplate, "python");
-    expect(allow).toContain("Bash(uv *)");
-    expect(allow).toContain("Bash(python *)");
-    expect(allow).toContain("Bash(git *)");
+    expect(allow).toContain("Bash(uv sync)");
+    expect(allow).toContain("Bash(python)");
+    expect(allow).toContain("Bash(git status)");
+    expect(allow).not.toContain("Bash(uv *)");
   });
 
   test("unknown stack falls back to common only (generic)", () => {
     const allow = canonicalAllowList(permissionsTemplate, "generic");
-    expect(allow).toContain("Bash(git *)");
-    expect(allow).not.toContain("Bash(bun *)");
+    expect(allow).toContain("Bash(git status)");
+    expect(allow).not.toContain("Bash(bun install)");
+    expect(allow).not.toContain("Bash(git *)");
   });
 
   test("never returns duplicate entries", () => {
     const allow = canonicalAllowList(permissionsTemplate, "bun");
     expect(new Set(allow).size).toBe(allow.length);
+  });
+
+  test("STE-209 AC-STE-209.1: no glob-shaped Bash rules in _common or stacks", () => {
+    for (const stack of ["bun", "flutter", "python", "node", "generic"]) {
+      const allow = canonicalAllowList(permissionsTemplate, stack);
+      for (const rule of allow) {
+        // Glob is `Bash(<cmd> *)` — a space followed by `*)` at the end.
+        expect(rule).not.toMatch(/ \*\)$/);
+      }
+    }
   });
 
   test("missing stack key throws (caller must validate)", () => {

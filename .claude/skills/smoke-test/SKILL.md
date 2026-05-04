@@ -536,6 +536,25 @@ For each major output the skills claim to produce, verify it actually landed on 
 - Tracker ticket exists, status = `Done`, assignee = current user, completion timestamp populated. **Linear path:** `mcp__linear__get_issue` returns `status: "Done"`, `completedAt` set. **Jira path:** `mcp__atlassian__getJiraIssue` returns the work item in the `Done` status (or its workflow-level equivalent reached via the `getTransitionsForJiraIssue` `to.statusCategory.key == "done"` fallback).
 - `bunx tsc --noEmit && bun test` exits 0; expected feature-stub test count.
 
+#### M54 follow-up probes (lifted per-FR fixtures)
+
+Run these regression probes against the Phase 2 output. Six are tracker-agnostic (run on both Linear and Jira legs), two are tracker-agnostic-but-fixture-bound (`STE-210` chain succeeds; works on persistent Jira fixture), and one is Linear-only by design.
+
+**Tracker-agnostic — run on both legs:**
+
+- **STE-197 plan-file shape** — `specs/plan/M1.md` parses as YAML frontmatter + body; exactly one `^## M\d+:` heading; no `## Milestone Dependency Graph`; no literal `<tracker-id>` rows. Asserts the trimmed-template + frontmatter contract; flags multi-milestone bundling, missing frontmatter, leftover placeholders.
+- **STE-200 scaffolding-closure path** — `/spec-archive M1` and `/implement M1` for scaffolding milestones (`kind: scaffolding` plan or zero FR files) write zero tracker side effects; the `plan_only_archival` row appears in the closing summary. Probe: count `mcp__<tracker>__save_*` invocations during the run; expect zero.
+- **STE-201 ship-milestone task-bullet pre-flight** — fixture plan with one `[ ]` task lacking a backing FR row (no `[deferred]` marker) → `/ship-milestone M<N>` refuses with the AC-STE-201.2 shape (`<count> unchecked task(s) with no FR backing`). Reads tracker FR statuses only; safe on persistent Jira fixtures.
+- **STE-209 `.mcp.json` shape** — emitted `.mcp.json` validates against the Claude Code MCP schema (no `transport: streamable-http`, uses `type: http`). Local-file inspection.
+- **STE-209 `/setup` completes without harness self-modification denial** — `/setup` step 6 exits zero on a fresh repo (no globbed `Bash(<cmd> *)` rules in `.claude/settings.json`). Exit-code probe; works without tracker fixture.
+- **STE-209 doctor probe matches declared invocation** — when CLAUDE.md / `examples/<stack>/gate-commands.md` declares `fvm flutter`, doctor probes `fvm flutter --version`; falls back to bare `flutter --version` otherwise. Per-stack probe; tracker-agnostic.
+- **STE-210 archive frontmatter coherent** — post-archive commit's plan + FR files in `archive/` carry `status: archived` + non-null `archived_at:`. Probe: `git show HEAD:specs/plan/archive/M<N>.md | head` parse; works on both legs.
+- **STE-210 implement→ship-milestone chain** — full chain `/implement M<N>` → `/ship-milestone M<N>` succeeds end-to-end without operator intervention (Step 1 archive fallback fires when active plan path is missing). Exit-code probe; works on persistent Jira fixture.
+
+**Linear-only by design (Jira N/A):**
+
+- **STE-211 Linear AC-token round-trip** — push a Linear FR with multiple AC lines, fetch via `mcp__linear__get_issue`, assert byte-identical round-trip after `stripLinearACFences`. Jira's MCP doesn't auto-link `STE-NNN` tokens, so the bug doesn't apply on the Jira leg; documented as Linear-leg-only by design. Requires a fresh Linear project per run for a clean AC-list comparison.
+
 Each verification result feeds into Phase 3's findings.
 
 ### Phase 5 — Teardown

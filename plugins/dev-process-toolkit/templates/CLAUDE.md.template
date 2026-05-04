@@ -74,7 +74,7 @@ npm run typecheck && npm run lint && npm run test
 <!-- Choose the path that matches your task -->
 
 **Bugfix:** `/debug → /implement → /gate-check → /pr`
-**Feature:** `/brainstorm → /spec-write → /implement → /spec-review → /gate-check → /pr`
+**Feature:** `/brainstorm → /spec-write → /implement → /simplify → /spec-review → /gate-check → /pr`
 **Refactor:** `/implement → /simplify → /gate-check → /pr`
 
 ## Key Patterns
@@ -167,6 +167,10 @@ Schema L keys `/setup` emits:
                      or `{type}/{ticket-id}-{slug}` (tracker-mode default).
                      Absent `branch_template:` ⇒ `/implement` branch
                      automation disabled. Edit to customize.
+                     **Trunk-OK allowlist:** types `chore`, `docs`, `ci`
+                     are permitted on trunk (no derived-branch enforcement);
+                     `feat`, `fix`, `refactor`, `perf` enforce a derived
+                     branch via the proposal flow.
 
 For the full live-section contract (keys, sync-log form, per-tracker
 quirks), see docs/tracker-adapters.md. `/setup` emits the section when a

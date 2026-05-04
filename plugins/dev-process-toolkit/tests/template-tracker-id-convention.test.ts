@@ -57,17 +57,24 @@ describe("STE-80 — requirements.md.template carries the <tracker-id> conventio
 });
 
 describe("STE-80 — plan.md.template carries the <tracker-id> convention", () => {
-  test("AC-STE-80.2: top-of-file HTML comment introduces the <tracker-id> placeholder", () => {
+  test("AC-STE-80.2: HTML comment introduces the <tracker-id> placeholder", () => {
+    // STE-197 narrowed: the template now opens with a `---` YAML
+    // frontmatter block (AC-STE-197.2). The placeholder-convention
+    // comment is retained but lives just below the frontmatter rather
+    // than at byte 0. Search the first 60 lines (covers frontmatter +
+    // comment) instead of the first 30.
     const body = readTemplate(planTemplate);
-    const firstBlock = body.split("\n").slice(0, 30).join("\n");
+    const firstBlock = body.split("\n").slice(0, 60).join("\n");
     expect(firstBlock).toMatch(/<!--/);
     expect(firstBlock).toContain("<tracker-id>");
     expect(firstBlock).toMatch(/placeholder|allocator|substitute/i);
   });
 
-  test("AC-STE-80.3: guidance is in a proper HTML comment block (not rendered)", () => {
+  test("AC-STE-80.3: guidance lives in a proper HTML comment block (not rendered)", () => {
+    // STE-197 narrowed: the file no longer starts with `<!--` (it
+    // starts with the YAML frontmatter `---`); just assert that a
+    // proper HTML comment block exists somewhere.
     const body = readTemplate(planTemplate);
-    expect(body.startsWith("<!--")).toBe(true);
     expect(body).toMatch(/<!--[\s\S]*?-->/);
   });
 

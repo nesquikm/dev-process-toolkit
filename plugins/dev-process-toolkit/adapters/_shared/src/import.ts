@@ -24,6 +24,7 @@
 import { unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { acPrefix } from "./ac_prefix";
+import { stripLinearACFences } from "../../linear/src/format_description";
 import type { FRSpec, Provider } from "./provider";
 
 export async function importFromTracker(
@@ -41,12 +42,18 @@ export async function importFromTracker(
   // value as an untyped bag here. Adapters that don't surface these fields
   // will produce an FR with an empty body + TODO AC marker.
   const untyped = metadata as unknown as Record<string, unknown>;
-  const description = typeof untyped["description"] === "string"
+  const rawDescription = typeof untyped["description"] === "string"
     ? (untyped["description"] as string)
     : "";
-  const acs = Array.isArray(untyped["acs"])
+  const rawAcs = Array.isArray(untyped["acs"])
     ? (untyped["acs"] as unknown[]).filter((x): x is string => typeof x === "string")
     : [];
+  // STE-211 AC-STE-211.3 / AC-STE-211.4: strip Linear-side AC-prefix
+  // wrappers (backticks + legacy <issue id> XML) on import. Linear-only
+  // — Jira / custom adapters' descriptions pass through unchanged.
+  const stripFences = trackerKey === "linear" ? stripLinearACFences : (s: string) => s;
+  const description = stripFences(rawDescription);
+  const acs = rawAcs.map(stripFences);
   const createdAt = new Date().toISOString();
 
   const body = renderFRFile({
