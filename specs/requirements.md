@@ -291,4 +291,7 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-189.1..4 | plugins/dev-process-toolkit/skills/setup/SKILL.md | (prose-only — verified by static greps; AC-STE-189.4 deferred per smoke-AC convention) |
 | AC-STE-190.1..4 | plugins/dev-process-toolkit/adapters/_shared/src/jira_pull_acs.ts, plugins/dev-process-toolkit/adapters/jira.md | plugins/dev-process-toolkit/adapters/_shared/src/jira_pull_acs.test.ts |
 | AC-STE-191.1..4 | .claude/skills/smoke-test/SKILL.md | (prose-only — verified by static greps; AC-STE-191.4 deferred per smoke-AC convention) |
+| AC-STE-194.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/tracker_project_milestone_attached.ts, plugins/dev-process-toolkit/skills/gate-check/SKILL.md, plugins/dev-process-toolkit/adapters/linear.md | plugins/dev-process-toolkit/tests/gate-check-tracker-project-milestone-attached.test.ts |
+| AC-STE-195.1..5 | .claude/skills/smoke-test/SKILL.md | — |
+| AC-STE-196.1..4 | plugins/dev-process-toolkit/skills/simplify/SKILL.md | — |
 
