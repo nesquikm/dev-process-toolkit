@@ -23,6 +23,31 @@ const PATH_TOKEN_RE = /(?<![\w/.-])([\w][\w./-]*\.[a-z0-9]+)\b/gi;
 // Skip URL-like tokens — verify lines occasionally include `http://...`.
 const URL_RE = /^https?:\/\//i;
 
+/**
+ * STE-217: recognize verify-line shapes that deliberately reference a
+ * deleted/missing path to assert its absence. The recognizer is **total**
+ * — every string input returns boolean, never throws. Patterns matched
+ * (any-match short-circuits, in declaration order):
+ *
+ *   1. `returns "No such file or directory"` — POSIX file-not-found error
+ *      message; case-insensitive on the message portion.
+ *   2. `! test -<flag>` — POSIX shell negation prefix at start of line OR
+ *      after `;`/`&&`/`||`; the `test` keyword is case-sensitive.
+ *   3. `--non-existent` — flag substring indicating intentional absence.
+ *   4. `does NOT exist` — natural-language negative assertion;
+ *      case-insensitive on the verb portion.
+ *
+ * Future negative-assertion shapes are added here, not via ad-hoc match
+ * logic elsewhere — the recognizer is the single source of truth.
+ */
+export function isNegativeAssertion(line: string): boolean {
+  if (/returns\s+"No such file or directory"/i.test(line)) return true;
+  if (/(?:^|\s|;|&&|\|\|)!\s*test\s+-[a-zA-Z]/.test(line)) return true;
+  if (/--non-existent\b/.test(line)) return true;
+  if (/\bdoes\s+NOT\s+exist\b/i.test(line)) return true;
+  return false;
+}
+
 export type Severity = "warning" | "error";
 
 export interface PlanVerifyLineViolation {
@@ -91,6 +116,10 @@ function scanPlanFile(absPath: string, projectRoot: string): PlanVerifyLineViola
     const line = lines[i]!;
     const stripped = line.trimStart();
     if (!stripped.startsWith("verify:")) continue;
+
+    // STE-217: negative-assertion verify lines reference deleted/missing
+    // paths deliberately — skip the existence check entirely.
+    if (isNegativeAssertion(line)) continue;
 
     PATH_TOKEN_RE.lastIndex = 0;
     let match: RegExpExecArray | null;

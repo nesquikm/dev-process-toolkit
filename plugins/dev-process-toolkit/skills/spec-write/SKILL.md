@@ -157,10 +157,9 @@ Present the plan and ask for approval.
 
 ### 4. Review and confirm
 
-After completing each spec file:
-- Show the user what was written
-- Ask for approval before saving
-- Note any open questions or decisions that need human input
+After completing each spec file: show the user what was written, ask for approval before saving, note any open questions or decisions that need human input.
+
+**FR-draft acceptance gate — Auto-mode / `-p` default-apply (STE-213).** The FR creation path (§ 0b) culminates in an `Approve and proceed?` prompt (`y`/`n`/`edit`) that gates tracker issue creation and FR file write. Under **Auto mode** / **`-p` non-interactive**, **default-apply `y`** at this draft gate; the path emits a `spec_write_draft_default_applied` row in Step 7 — fires only when the auto-apply path is taken (interactive `y` does not emit). Symmetric with § 7a's commit-gate carve-out (`spec_write_commit_default_applied`); the two rows are co-located in the static map. On interactive `n` decline, no FR file is written and no tracker issue is created — emit a `spec_write_draft_declined` row so the operator knows to re-invoke. Smoke driver pre-authorization workarounds become unnecessary once this carve-out lands.
 
 ### 5. Cross-check consistency
 
@@ -269,6 +268,9 @@ Static plain-language map (capability key ⇒ rendered prose):
 | `workspace_binding_missing` | `tracker workspace binding absent — ticket landed without team/project association` |
 | `tracker_idempotency_uncertain` | `idempotency probe still ambiguous after backoff retry — possible duplicate ticket; operator should manually verify before downstream skills bind to the new id` |
 | `filename_policy_override` | (a) no user override: `FR filename derived from tracker policy (Provider.filenameFor) → <filename> (no user override)` <br>(b) user override: `FR filename derived from tracker policy (Provider.filenameFor) → <filename> (overrode user-proposed: <user-name>)` |
+| `simplify_tree_dirty` | `tree dirty after /simplify — modified files: <list>; run /pr or git commit to land the simplification` |
+| `spec_write_draft_default_applied` | `/spec-write FR-draft auto-approved (Auto mode / -p) — verify the draft via specs/frs/<id>.md before /implement` |
+| `spec_write_draft_declined` | `/spec-write FR-draft acceptance declined — files not written; re-invoke to retry` |
 | `spec_write_commit_default_applied` | `/spec-write commit auto-approved (Auto mode / -p) — verify diff via git show before /implement` |
 | `spec_write_commit_declined` | `/spec-write commit declined — files remain staged, run git commit -m "<subject>" to finish manually` |
 
@@ -282,9 +284,7 @@ Add new keys to this map when a new capability gap surfaces; do **not** invent a
 
 **Filename-policy override row.** In tracker mode, every successful run that creates a new FR or imports one via `importFromTracker(...)` MUST surface a `filename_policy_override` row in the closing summary's open-questions block — **regardless of whether the user proposed an alternative filename**. The row exists so the operator sees, on every run, that `Provider.filenameFor(spec)` (e.g., `<TKR>-NN.md` for Linear, `DST-NN.md` for Jira) is the authoritative filename source rather than any user-facing name they typed in conversation. An earlier Jira smoke caught the regression where the override was only mentioned when the user's prompt happened to carry an explicit alternative filename; this rule fires the row on every tracker-mode FR write so the signal is unconditional. **`mode: none` is exempt** — the short-ULID stem is local-mint via `Provider.mintId()`, never policy-overridden, so the row is absent on local-mint runs (it would be misleading; there is no override to surface).
 
-**Import-path coverage.** When `importFromTracker(...)` ran (resolver step 0a `tracker-id`/`url` + `findFRByTrackerRef` miss), the imported FR appears in the summary table just like a freshly-created one — the operator must see which tracker ID landed in `specs/frs/` without filesystem inspection.
-
-The summary is the per-skill console-status contract that `/setup`, `/implement`, `/gate-check`, `/spec-review`, and `/simplify` all honor; `/spec-write` was the outlier until the closing-summary contract was added.
+**Import-path coverage.** When `importFromTracker(...)` ran (resolver step 0a `tracker-id`/`url` + `findFRByTrackerRef` miss), the imported FR appears in the summary table just like a freshly-created one — the operator must see which tracker ID landed in `specs/frs/` without filesystem inspection. The summary is the per-skill console-status contract that `/setup`, `/implement`, `/gate-check`, `/spec-review`, and `/simplify` all honor; `/spec-write` was the outlier until the closing-summary contract was added.
 
 ## Rules
 

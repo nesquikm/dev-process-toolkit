@@ -21,6 +21,20 @@ Review recently changed files for code quality issues and fix them. This skill c
 
 4. **Verify** — Run gate check to ensure nothing broke. If no refactors are warranted (the diff is already minimal) and the no-op preconditions documented in [`## When this is a no-op`](#when-this-is-a-no-op) hold, the gate re-run is skipped — re-running an unchanged tree against a clean gate is wasted tokens. Consult the most recent `/implement` or `/gate-check` log for the active gate stamp.
 
+5. **Closing summary — dirty-tree advisory (STE-216)** — At the end of every `/simplify` invocation (after Verify, before exit), capture `git status --porcelain` once. If the output is **non-empty** (any modified, added, deleted, or untracked file), emit two lines to stdout:
+
+   ```
+   ⚠ tree dirty: M <files> — run /pr or git commit to land the simplification
+   Capability: simplify_tree_dirty
+     Rendered: tree dirty after /simplify — modified files: <list>; run /pr or git commit to land the simplification
+   ```
+
+   `<files>` and `<list>` are the per-file paths from `git status --porcelain`, comma-joined. The literal token `tree dirty:` is machine-greppable so the smoke driver and operator-side automation can detect the dirty case deterministically. The `simplify_tree_dirty` capability key is registered in the static plain-language map shared by `/spec-write` step 7 (single source of truth).
+
+   When the output is **empty** (clean tree — the no-op gate-skip path or the rare case where the operator committed concurrently), no advisory fires and no capability row emits. The two-line dirty-case output is opt-in by tree state.
+
+   The advisory is **informational**: `/simplify` continues to exit 0 in the dirty case. Auto-commit was considered as the symmetric fix to `/implement` Phase 4 and rejected per CLAUDE.md core principle "human approval before commit". Subsequent `/pr` / `/gate-check` / `git commit` are the operator's responsibility; the fix is purely a visibility increase. The advisory fires regardless of whether `/simplify` itself made the change (canonical case) or `/simplify` ran on a tree that was already dirty before the skill started — distinguishing source is non-essential, the actionable signal is the dirty tree at exit time.
+
 ## Focus
 
 If `$ARGUMENTS` specifies a focus area, prioritize that:
