@@ -276,7 +276,7 @@ Summarize what was created, then present the SDD workflow.
 
 ```
 0. /brainstorm       → (Optional) Explore approaches before writing specs
-1. Write specs       → specs/*.md (requirements first, then technical, testing, plan)
+1. /spec-write       → Fill in specs/*.md (requirements first, then technical, testing, plan)
 2. /implement        → Builds features with TDD + three-stage self-review (the main entry point)
 3. /gate-check       → Verify quality gates pass
 4. /debug            → Investigate failing tests or unclear gate failures
