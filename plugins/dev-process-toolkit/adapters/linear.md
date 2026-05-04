@@ -191,6 +191,17 @@ observed status; operators fix either by transitioning the ticket to
    guard verifies `updatedAt` advanced; a silent no-op raises
    `TrackerWriteNoOpError`.
 
+### `attach_project_milestone(ticket_id, milestone_name) → void`
+
+Idempotent binding from a Linear issue to a project milestone matching the local plan-file H1 heading. Implemented by `attachProjectMilestone(provider, project, milestoneName, ticketId)` in `adapters/_shared/src/attach_project_milestone.ts`; called by `/implement` Phase 1 step 0.f when the adapter declares `project_milestone: true` (see frontmatter above). Procedure:
+
+1. List milestones in `project` via `mcp__linear__list_milestones`.
+2. If `milestone_name` is absent from the list, create it via `mcp__linear__save_milestone(project, name=milestone_name)`.
+3. Attach the ticket via `mcp__linear__save_issue(id=ticket_id, milestone=milestone_name)` — the parameter is the milestone *name* (string), not an ID. Linear silently dropping `milestone:` would cause `getIssue` to round-trip `projectMilestone == null`; the post-write verify catches the silent no-op (FR-67 pattern).
+4. Re-fetch via `mcp__linear__get_issue(id=ticket_id)` and assert `projectMilestone.name === milestone_name`. Mismatch → raise `MilestoneAttachmentError` (NFR-10 canonical shape).
+
+**Capability-gap surfacing in FR `## Notes` (STE-194).** When the adapter cannot attach (e.g., Linear project starts with zero milestones and the smoke driver has not seeded one), `/spec-write` declares the gap by writing the canonical `milestone_attach_unavailable` capability key into the new FR's `## Notes` section (per `skills/spec-write/SKILL.md` § Step 7's capability-key map). `/gate-check` probe #26 (`tracker-project-milestone-attached`) reads the same token from `## Notes` and downgrades the missing-binding outcome from GATE FAILED to ADVISORY (see `skills/gate-check/SKILL.md` § probe #26 decision table). The round-trip — write the token in spec-write, read the token in gate-check — keeps the audit trail visible without false-positive gate failures on intentional capability gaps.
+
 > **Symmetric note (Gateway-Timeout idempotency hardening).** Linear's `save_issue` shares the same
 > Gateway-Timeout class of failure mode as Jira's `createJiraIssue` —
 > the Linear MCP can return a network-error response while the

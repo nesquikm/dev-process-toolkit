@@ -27,7 +27,7 @@ interface IssueState {
 interface FixtureOpts {
   mode: "none" | "linear";
   workspaceBinding?: { team: string; project: string };
-  active?: { id: string; milestone: string; trackerId?: string }[];
+  active?: { id: string; milestone: string; trackerId?: string; body?: string }[];
   archived?: { id: string; milestone: string; trackerId?: string }[];
   activePlans?: { n: number; heading: string }[];
   issues?: IssueState[];
@@ -51,9 +51,10 @@ function makeFixture(opts: FixtureOpts): { root: string; cleanup: () => void } {
 
   for (const fr of opts.active ?? []) {
     const trackerBlock = fr.trackerId ? `tracker:\n  linear: ${fr.trackerId}\n` : "tracker: {}\n";
+    const body = fr.body ?? "body\n";
     writeFileSync(
       join(specs, "frs", `${fr.id}.md`),
-      `---\ntitle: t\nmilestone: ${fr.milestone}\nstatus: active\narchived_at: null\n${trackerBlock}created_at: 2026-04-27T00:00:00Z\n---\n\nbody\n`,
+      `---\ntitle: t\nmilestone: ${fr.milestone}\nstatus: active\narchived_at: null\n${trackerBlock}created_at: 2026-04-27T00:00:00Z\n---\n\n${body}`,
     );
   }
   for (const fr of opts.archived ?? []) {
@@ -223,6 +224,143 @@ describe("plan file missing: defer to probe #27", () => {
       // AND no MCP fetch was attempted (vacuous short-circuit).
       expect(r.violations).toEqual([]);
       expect(getIssueCalls).toBe(0);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
+
+describe("STE-194 — capability-gap declared in `## Notes` downgrades to advisory", () => {
+  const ADVISORY_PROSE =
+    "milestone-attach skipped — capability gap declared in FR Notes (milestone_attach_unavailable)";
+
+  test("AC-STE-194.4 — token in `## Notes` + no projectMilestone → advisory, zero violations", async () => {
+    const fx = makeFixture({
+      mode: "linear",
+      workspaceBinding: { team: "STE", project: "DPT" },
+      active: [
+        {
+          id: "STE-194",
+          milestone: "M53",
+          trackerId: "STE-194",
+          body: "## Notes\n\n- The smoke fixture lacks a Linear milestone (`milestone_attach_unavailable`).\n",
+        },
+      ],
+      activePlans: [{ n: 53, heading: "M53 — Smoke #10 Follow-ups {#M53}" }],
+    });
+    try {
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        getIssue: makeIssueLookup([{ id: "STE-194", projectMilestone: null }]),
+      });
+      expect(r.violations).toEqual([]);
+      expect(r.advisories.length).toBe(1);
+      const a = r.advisories[0]!;
+      expect(a.note).toMatch(/STE-194/);
+      expect(a.message).toContain(ADVISORY_PROSE);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("AC-STE-194.5 — token absent + no projectMilestone → GATE FAILED preserved (regression guard)", async () => {
+    const fx = makeFixture({
+      mode: "linear",
+      workspaceBinding: { team: "STE", project: "DPT" },
+      active: [
+        {
+          id: "STE-194b",
+          milestone: "M53",
+          trackerId: "STE-194b",
+          body: "## Notes\n\n- Operator forgot to declare the capability gap.\n",
+        },
+      ],
+      activePlans: [{ n: 53, heading: "M53 — Smoke #10 Follow-ups {#M53}" }],
+    });
+    try {
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        getIssue: makeIssueLookup([{ id: "STE-194b", projectMilestone: null }]),
+      });
+      expect(r.advisories).toEqual([]);
+      expect(r.violations.length).toBe(1);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("AC-STE-194.1 — token in non-`## Notes` section does NOT count (must live under `## Notes`)", async () => {
+    const fx = makeFixture({
+      mode: "linear",
+      workspaceBinding: { team: "STE", project: "DPT" },
+      active: [
+        {
+          id: "STE-194c",
+          milestone: "M53",
+          trackerId: "STE-194c",
+          // Token under `## Acceptance Criteria`, never under `## Notes` —
+          // must NOT downgrade. The probe's match is section-scoped.
+          body: "## Acceptance Criteria\n\n- AC.1: handle milestone_attach_unavailable upstream.\n\n## Notes\n\n- unrelated.\n",
+        },
+      ],
+      activePlans: [{ n: 53, heading: "M53 — Smoke #10 Follow-ups {#M53}" }],
+    });
+    try {
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        getIssue: makeIssueLookup([{ id: "STE-194c", projectMilestone: null }]),
+      });
+      expect(r.advisories).toEqual([]);
+      expect(r.violations.length).toBe(1);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("AC-STE-194.1 — substring inside a longer identifier does NOT count (word-bounded)", async () => {
+    const fx = makeFixture({
+      mode: "linear",
+      workspaceBinding: { team: "STE", project: "DPT" },
+      active: [
+        {
+          id: "STE-194d",
+          milestone: "M53",
+          trackerId: "STE-194d",
+          body: "## Notes\n\n- See xmilestone_attach_unavailableX for the longer ID. Not a real declaration.\n",
+        },
+      ],
+      activePlans: [{ n: 53, heading: "M53 — Smoke #10 Follow-ups {#M53}" }],
+    });
+    try {
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        getIssue: makeIssueLookup([{ id: "STE-194d", projectMilestone: null }]),
+      });
+      expect(r.advisories).toEqual([]);
+      expect(r.violations.length).toBe(1);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("token + binding present → PASS (binding wins; advisory not fired, decision row 3)", async () => {
+    const fx = makeFixture({
+      mode: "linear",
+      workspaceBinding: { team: "STE", project: "DPT" },
+      active: [
+        {
+          id: "STE-194e",
+          milestone: "M53",
+          trackerId: "STE-194e",
+          body: "## Notes\n\n- Stale: `milestone_attach_unavailable` token left over after a binding was added.\n",
+        },
+      ],
+      activePlans: [{ n: 53, heading: "M53 — Smoke #10 Follow-ups {#M53}" }],
+    });
+    try {
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        getIssue: makeIssueLookup([
+          { id: "STE-194e", projectMilestone: { name: "M53 — Smoke #10 Follow-ups" } },
+        ]),
+      });
+      expect(r.advisories).toEqual([]);
+      expect(r.violations).toEqual([]);
     } finally {
       fx.cleanup();
     }
