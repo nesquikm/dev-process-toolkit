@@ -405,6 +405,88 @@ Pre-authorized: proceed through Phase 4 step 15 commit on success without prompt
 PROMPT_EOF
 ```
 
+#### Stream-idle retry-with-rollback for prompt-bearing children (STE-195)
+
+Anthropic's API stream occasionally idles mid-response on long-running prompt-bearing child spawns (`/setup`, `/spec-write`, `/implement`), exiting the child with the canonical signature `API Error: Stream idle timeout - partial response received`. The 2026-05-04 Jira smoke caught the failure mode on `/setup`'s first attempt — the partial state created `src/.placeholder.test.ts` but no `CLAUDE.md`, no `specs/` scaffold. The driver recovered manually with a deterministic rollback recipe and a re-spawn; STE-195 builds the recovery in so a single transient turns into a quiet retry instead of a smoke-blocker.
+
+**Detection signature.** After each prompt-bearing child returns, the driver inspects the child's exit reason / captured `/tmp/dpt-smoke-<tracker>-<skill>.log` for the substring `API Error: Stream idle timeout`. Match is substring (not exact); the trailing `- partial response received` and any minor wording drift in future Anthropic API versions still trigger the path. Non-prompt-bearing children (`/gate-check`, `/spec-review`, `/simplify`) are out of scope — they are short, idempotent, and the existing `< /dev/null` discipline already shields them from the stdin-detect race.
+
+**Rollback recipe (verbatim).** When the signature is detected, the driver runs the following inside the **test project's** working directory (e.g., `../dpt-test-project-linear` / `../dpt-test-project-jira`) — NOT inside the dpt repo cwd. The driver's per-spawn cwd handling already isolates the test project; the rollback inherits that scope. The `-e .claude -e .mcp.json` excludes preserve the parent-pre-created sensitive files (Phase 1 step 6) so the second spawn finds the same `.claude/settings.json` + `.mcp.json` it would on the first attempt.
+
+```bash
+# Run from the test project's cwd, NEVER from the dpt repo cwd.
+git clean -fdq -e .claude -e .mcp.json && git checkout -- .
+```
+
+- `git clean -fdq -e .claude -e .mcp.json` — removes untracked files/directories EXCEPT `.claude/` and `.mcp.json`.
+- `git checkout -- .` — reverts tracked-file modifications.
+- Combined: returns the test project to its last-committed state plus the parent-pre-created sensitive files.
+
+**Retry budget.** Exactly **one** retry per spawn (two attempts total). The third instance is genuine and surfaces as a smoke-test failure rather than looping indefinitely. Other exit modes (segfault, OOM kill, non-stream-idle Anthropic errors) do NOT retry — only the stream-idle signature has a known deterministic rollback; everything else warrants operator inspection.
+
+**Retry-success log row (AC-STE-195.3).** After a successful retry, the driver appends a `child_stream_idle_retried` row to the Phase 2 per-skill log (`/tmp/dpt-smoke-<tracker>-<skill>.log`) carrying both attempt timestamps in UTC ISO-8601 form so the audit trail captures the transient. Template:
+
+```
+2026-05-04T06:42:11Z child_stream_idle_retried skill=/setup attempts=2
+  attempt_1_started=2026-05-04T06:40:07Z attempt_1_exit=stream_idle
+  attempt_2_started=2026-05-04T06:42:33Z attempt_2_exit=success
+```
+
+**Double-timeout abort (AC-STE-195.4).** When the second attempt also exits stream-idle, the driver aborts the smoke run with NFR-10 canonical refusal naming the skill that timed out twice, both attempt timestamps, and the rollback recipe operators can run manually if a third attempt is appropriate. The abort message is verbatim:
+
+```
+ABORT: /smoke-test Phase 2 spawn /<skill> stream-idle timeout twice
+  attempt_1_started=<ts1> attempt_1_exit=stream_idle
+  attempt_2_started=<ts2> attempt_2_exit=stream_idle
+  rollback recipe: git clean -fdq -e .claude -e .mcp.json && git checkout -- .
+```
+
+**Worked example (Phase 2 `/setup` spawn, retry-success path).** The driver wraps the existing heredoc-on-stdin spawn (above) in a two-attempt loop scoped to the prompt-bearing-children spawn surface only. Pseudocode (the actual driver runs Bash; the loop is sequential, not parallel):
+
+```bash
+# cwd: test project root, e.g. ../dpt-test-project-jira
+attempt_1_started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+CLAUDE_CONFIG_DIR=~/.claude-st claude -p ... > /tmp/dpt-smoke-<tracker>-setup.log 2>&1 <<'PROMPT_EOF'
+/dev-process-toolkit:setup
+...prompt body...
+PROMPT_EOF
+exit_status=$?
+
+if grep -q 'API Error: Stream idle timeout' /tmp/dpt-smoke-<tracker>-setup.log; then
+  attempt_1_exit=stream_idle
+  # Rollback BEFORE the second attempt; recipe runs in test project cwd.
+  git clean -fdq -e .claude -e .mcp.json && git checkout -- .
+
+  attempt_2_started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  CLAUDE_CONFIG_DIR=~/.claude-st claude -p ... > /tmp/dpt-smoke-<tracker>-setup.log 2>&1 <<'PROMPT_EOF'
+/dev-process-toolkit:setup
+...same prompt body...
+PROMPT_EOF
+  exit_status=$?
+
+  if grep -q 'API Error: Stream idle timeout' /tmp/dpt-smoke-<tracker>-setup.log; then
+    # Double timeout — NFR-10 abort, do not run further skills.
+    cat <<EOF >> /tmp/dpt-smoke-<tracker>-setup.log
+ABORT: /smoke-test Phase 2 spawn /setup stream-idle timeout twice
+  attempt_1_started=$attempt_1_started attempt_1_exit=stream_idle
+  attempt_2_started=$attempt_2_started attempt_2_exit=stream_idle
+  rollback recipe: git clean -fdq -e .claude -e .mcp.json && git checkout -- .
+EOF
+    exit 1
+  fi
+
+  # Retry succeeded — append the audit row.
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  cat <<EOF >> /tmp/dpt-smoke-<tracker>-setup.log
+$now child_stream_idle_retried skill=/setup attempts=2
+  attempt_1_started=$attempt_1_started attempt_1_exit=stream_idle
+  attempt_2_started=$attempt_2_started attempt_2_exit=success
+EOF
+fi
+```
+
+The same wrapper applies symmetrically to `/spec-write` and `/implement` — substitute the slash command, the per-skill log filename, and the heredoc body. Non-prompt-bearing spawns (`/gate-check`, `/spec-review`, `/simplify`) bypass the wrapper entirely; their `< /dev/null` snippet stays unchanged.
+
 #### Comment-path probe (Jira-only)
 
 After step 6 returns, on the **Jira branch only**, issue a stand-alone `mcp__atlassian__addCommentToJiraIssue` call against the run's freshly-created work item. The probe closes AC-STE-154.9 AC 6 — the canonical chain doesn't naturally exercise the comment endpoint, so a regression there would slip past every smoke run. Stand-alone probe (vs. side-effect-of-`/implement` narration) was chosen during M49 spec authoring: validates the MCP tool independent of `/implement`'s narration policy, which can change without affecting the underlying contract.
