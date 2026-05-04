@@ -1,4 +1,4 @@
-// tracker_project_milestone_attached — /gate-check probe (#26, STE-118 AC-STE-118.6).
+// tracker_project_milestone_attached — /gate-check probe (#26, STE-118 AC-STE-118.6, STE-194 AC-STE-194.1..5).
 //
 // For each `status: active` FR with a tracker block, assert that the
 // tracker ticket's `projectMilestone.name` byte-equals the canonical
@@ -12,8 +12,14 @@
 //   - active FRs whose plan file is missing (probe #27 owns that diagnostic)
 //
 // Hard fails:
-//   - ticket projectMilestone is null
+//   - ticket projectMilestone is null  (unless the capability-gap downgrade fires — see below)
 //   - ticket projectMilestone.name != canonical local heading
+//
+// Capability-gap downgrade (STE-194). When the FR's `## Notes` section
+// contains a word-bounded `milestone_attach_unavailable` token and the
+// ticket has no `projectMilestone`, the missing-binding outcome routes
+// to `advisories` instead of `violations`. Mismatched bindings still
+// hard-fail — the token only excuses absence, not divergence.
 //
 // Diagnostic format (AC-STE-118.6 / .7) shows both byte-rendered strings
 // so em-dash drift is visible. The remedy points at
@@ -30,8 +36,17 @@ export interface TrackerProjectMilestoneAttachedViolation {
   message: string;
 }
 
+export interface TrackerProjectMilestoneAttachedAdvisory {
+  file: string;
+  line: number;
+  reason: string;
+  note: string;
+  message: string;
+}
+
 export interface TrackerProjectMilestoneAttachedReport {
   violations: TrackerProjectMilestoneAttachedViolation[];
+  advisories: TrackerProjectMilestoneAttachedAdvisory[];
 }
 
 export interface TrackerProjectMilestoneAttachedDeps {
@@ -104,6 +119,42 @@ function buildMessage(reason: string, file: string, kind: "missing" | "mismatch"
   ].join("\n");
 }
 
+const CAPABILITY_GAP_TOKEN = "milestone_attach_unavailable";
+const CAPABILITY_GAP_RE = new RegExp(`\\b${CAPABILITY_GAP_TOKEN}\\b`);
+const CAPABILITY_GAP_PROSE = `milestone-attach skipped — capability gap declared in FR Notes (${CAPABILITY_GAP_TOKEN})`;
+
+/**
+ * Returns the body of the FR's `## Notes` section (everything between the
+ * `## Notes` heading and the next `##` heading or EOF). Empty string when
+ * no `## Notes` section exists. Sub-headings (`### …`) inside `## Notes`
+ * stay scoped to Notes — only the next `##` heading closes the section.
+ */
+function extractNotesSection(content: string): string {
+  const lines = content.split("\n");
+  const notesLines: string[] = [];
+  let inNotes = false;
+  for (const line of lines) {
+    if (/^##(?!#)/.test(line)) {
+      inNotes = /^## Notes(\s|$)/.test(line);
+      continue;
+    }
+    if (inNotes) notesLines.push(line);
+  }
+  return notesLines.join("\n");
+}
+
+function notesDeclaresMilestoneAttachGap(content: string): boolean {
+  return CAPABILITY_GAP_RE.test(extractNotesSection(content));
+}
+
+function buildAdvisoryMessage(file: string): string {
+  return [
+    `tracker_project_milestone_attached: ${CAPABILITY_GAP_PROSE}`,
+    `Note: probe #26 downgraded the missing-binding outcome to advisory because the FR's \`## Notes\` section declares the canonical \`${CAPABILITY_GAP_TOKEN}\` capability key.`,
+    `Context: file=${file}, probe=tracker_project_milestone_attached`,
+  ].join("\n");
+}
+
 function isTrackerMode(claudeMdContent: string): boolean {
   const lines = claudeMdContent.split("\n");
   const startIdx = lines.findIndex((l) => l === "## Task Tracking");
@@ -138,14 +189,15 @@ export async function runTrackerProjectMilestoneAttachedProbe(
   deps: TrackerProjectMilestoneAttachedDeps,
 ): Promise<TrackerProjectMilestoneAttachedReport> {
   const claudeMd = join(projectRoot, "CLAUDE.md");
-  if (!existsSync(claudeMd)) return { violations: [] };
+  if (!existsSync(claudeMd)) return { violations: [], advisories: [] };
   const claudeMdContent = readFileSync(claudeMd, "utf-8");
-  if (!isTrackerMode(claudeMdContent)) return { violations: [] };
+  if (!isTrackerMode(claudeMdContent)) return { violations: [], advisories: [] };
 
   const frsDir = join(projectRoot, "specs", "frs");
-  if (!existsSync(frsDir)) return { violations: [] };
+  if (!existsSync(frsDir)) return { violations: [], advisories: [] };
 
   const violations: TrackerProjectMilestoneAttachedViolation[] = [];
+  const advisories: TrackerProjectMilestoneAttachedAdvisory[] = [];
   const entries = readdirSync(frsDir, { withFileTypes: true });
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
@@ -177,6 +229,20 @@ export async function runTrackerProjectMilestoneAttachedProbe(
     }
     const attached = issue.projectMilestone?.name ?? null;
     if (attached === null) {
+      // STE-194: capability-gap downgrade. Token in `## Notes` excuses the
+      // missing binding (smoke fixtures and other intentional gaps); absent
+      // token still hard-fails — the gate must continue to fire on FRs that
+      // should have been attached.
+      if (notesDeclaresMilestoneAttachGap(content)) {
+        advisories.push({
+          file: fullPath,
+          line: 1,
+          reason: CAPABILITY_GAP_PROSE,
+          note: `${rel}:1 — ${CAPABILITY_GAP_PROSE}`,
+          message: buildAdvisoryMessage(rel),
+        });
+        continue;
+      }
       const reason = `${rel} (linear:${fm.trackerLinear}) is missing projectMilestone — expected "${heading}"`;
       violations.push({
         file: fullPath,
@@ -198,5 +264,5 @@ export async function runTrackerProjectMilestoneAttachedProbe(
       });
     }
   }
-  return { violations };
+  return { violations, advisories };
 }
