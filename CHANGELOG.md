@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.6.0] — 2026-05-04 — "Sensitivity"
+
+Smoke #10 follow-up milestone (3 FRs from the 2026-05-04 Linear + Jira smoke runs against v2.5.0). Calibrates `/gate-check` probe #26 to respect `/spec-write`'s capability-gap declaration channel — Linear smoke runs no longer false-positive-fail on missing project milestones. Builds in stream-idle retry-with-rollback for `/smoke-test` Phase 2 prompt-bearing child spawns, turning a known Anthropic-API transient into a quiet retry. Closes the four-run-old `/simplify` no-op-gate-skip documentation gap.
+
+### Added
+
+- **STE-194 — `/gate-check` probe #26 advisory on capability-gap declaration.** Probe #26 (`tracker-project-milestone-attached`) now reads each FR's `## Notes` body for the word-bounded `milestone_attach_unavailable` token (the canonical capability key `/spec-write` emits per its Step 7 map). Token + null binding routes the missing-binding outcome to ADVISORY (severity = note, NOT GATE FAILED) with the canonical prose `milestone-attach skipped — capability gap declared in FR Notes (milestone_attach_unavailable)`. Mismatched bindings still hard-fail — the token only excuses absence, not divergence. Closes the smoke-driver false-positive surface where Linear-mode runs created tickets in projects with zero milestones by construction. (STE-194)
+- **STE-196 — `/simplify` SKILL.md no-op carve-out section.** Adds `## When this is a no-op {#when-this-is-a-no-op}` to `/simplify`'s SKILL.md naming both preconditions (working tree clean + prior `/gate-check` returned clean) and the rationale (re-running an unchanged tree against an already-clean gate produces no signal change → save tokens). Verify step + Rules section cross-link the new heading by name. Closes the four-run-old smoke gap (#6, #7, #8, #9). (STE-196)
+
+### Changed
+
+- **STE-195 — `/smoke-test` stream-idle retry-with-rollback for prompt-bearing children.** `/smoke-test` Phase 2 prompt-bearing spawns (`/setup`, `/spec-write`, `/implement`) gain a documented retry-with-rollback sub-flow on the `API Error: Stream idle timeout` Anthropic-API transient. One retry after `git clean -fdq -e .claude -e .mcp.json && git checkout -- .` in the test project's cwd; double-timeout aborts via NFR-10 canonical refusal naming both attempt timestamps + the recipe. AC-STE-195.5 (manual chain validation) ships `[~]` per smoke retroactive-validation framing — non-deterministic failure mode. (STE-195)
+
+Total test count at release: 1452 tests, 0 failures, 0 errors.
+
 ## [2.5.0] — 2026-05-02 — "Heredoc"
 
 Smoke #9 / Jira-run-2 follow-up (7 FRs from the 2026-05-01 Linear + Jira smoke runs against v2.4.0). Retires the `/tmp/dpt-smoke-prompt-*.txt` path entirely — heredoc-on-stdin replaces the file-on-disk prompt-delivery surface and closes the cross-tracker content-swap window that triggered the Jira-run-2 corruption recovery (the fourth escalation in the stale-`/tmp` family). Hardens the smoke driver across Phase 0.5 (cleanup glob widening), Phase 1 (Linear project-name auto-disambiguation), Phase 2 (`< /dev/null` discipline for non-prompt children + heredoc partition), and pre-flight #8 (single-hit name-match KEY surfacing). Tightens `/setup`'s scaffold-deliverable boundary so restrictive driver prompts can't license skips. Adds explicit ADF-escape-tolerance tests for the Jira `pull_acs` description-body parser (new canonical pull_acs module + 9 unit cases including indented-`##` boundary).
