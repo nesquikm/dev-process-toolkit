@@ -39,6 +39,38 @@ export interface MilestoneOps {
   saveMilestone(project: string, opts: { name: string }): Promise<void>;
   upsertTicketMetadata(ticketId: string, meta: { milestone?: string }): Promise<string>;
   getIssue(ticketId: string): Promise<{ projectMilestone?: { name: string } | null }>;
+  /**
+   * STE-198 AC-STE-198.1/.3 — capability probe. Adapters that lack
+   * project-milestone support (Jira tenants with the feature off, custom
+   * adapters without the capability) return `false` for `"project_milestone"`
+   * so the helper short-circuits before any list/save call. When omitted
+   * the helper defaults to `true` (existing call sites remain
+   * source-compatible — Linear's adapter has always supported milestones).
+   */
+  supports?: (capability: string) => boolean;
+}
+
+/**
+ * STE-198 AC-STE-198.2 — capability outcome of an attach attempt.
+ *
+ * - `null` ⇒ attach succeeded against an existing milestone (no row to
+ *   surface in the closing summary).
+ * - `"milestone_create_required"` ⇒ the project's `list_milestones`
+ *   returned no entry matching the canonical name; the helper created
+ *   one and bound the ticket. `createdName` carries the new milestone
+ *   name so the summary row can render it.
+ * - `"milestone_attach_skipped_adapter_limit"` ⇒ the adapter declared
+ *   `supports("project_milestone") === false`; the helper short-circuits
+ *   without any list/save/upsert calls.
+ */
+export type AttachProjectMilestoneCapability =
+  | null
+  | "milestone_create_required"
+  | "milestone_attach_skipped_adapter_limit";
+
+export interface AttachProjectMilestoneResult {
+  capability: AttachProjectMilestoneCapability;
+  createdName?: string;
 }
 
 export async function attachProjectMilestone(
@@ -46,11 +78,19 @@ export async function attachProjectMilestone(
   project: string,
   milestoneName: string,
   ticketId: string,
-): Promise<void> {
+): Promise<AttachProjectMilestoneResult> {
+  // STE-198 AC-STE-198.1 (b): adapter declares no project_milestone capability.
+  if (provider.supports && !provider.supports("project_milestone")) {
+    return { capability: "milestone_attach_skipped_adapter_limit" };
+  }
+
   const existing = await provider.listMilestones(project);
   const found = existing.find((m) => m.name === milestoneName);
+  let createdName: string | undefined;
   if (!found) {
+    // STE-198 AC-STE-198.1 (a) / AC-STE-198.3: auto-create branch.
     await provider.saveMilestone(project, { name: milestoneName });
+    createdName = milestoneName;
   }
   await provider.upsertTicketMetadata(ticketId, { milestone: milestoneName });
   const fresh = await provider.getIssue(ticketId);
@@ -58,6 +98,10 @@ export async function attachProjectMilestone(
   if (actual !== milestoneName) {
     throw new MilestoneAttachmentError(milestoneName, actual);
   }
+  if (createdName !== undefined) {
+    return { capability: "milestone_create_required", createdName };
+  }
+  return { capability: null };
 }
 
 const PLAN_HEADING_REGEX = /^# (M\d+ — .+?)(?:\s*\{#M\d+\})?\s*$/m;

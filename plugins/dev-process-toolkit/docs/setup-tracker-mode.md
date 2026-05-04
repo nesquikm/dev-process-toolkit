@@ -89,8 +89,8 @@ settings.json would gain this entry (nothing has been written yet):
 
   "mcpServers": {
     "linear": {
-      "url": "https://mcp.linear.app/mcp",
-      "transport": "streamable-http"
+      "type": "http",
+      "url": "https://mcp.linear.app/mcp"
     }
   }
 

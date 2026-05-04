@@ -68,12 +68,15 @@ describe("happy path: milestone exists", () => {
       calls: [],
     };
     const p = makeProvider(stub);
-    await attachProjectMilestone(p, "DPT", "M31 — Tracker Workflow Hardening", "STE-117");
+    const result = await attachProjectMilestone(p, "DPT", "M31 — Tracker Workflow Hardening", "STE-117");
     expect(stub.calls).toContain("listMilestones(DPT)");
     expect(stub.calls.find((c) => c.startsWith("saveMilestone"))).toBeUndefined();
     expect(stub.calls).toContain('upsertTicketMetadata(STE-117,{"milestone":"M31 — Tracker Workflow Hardening"})');
     expect(stub.calls).toContain("getIssue(STE-117)");
     expect(stub.attached).toBe("M31 — Tracker Workflow Hardening");
+    // STE-198 AC-STE-198.2: success against existing milestone returns capability:null
+    expect(result.capability).toBeNull();
+    expect(result.createdName).toBeUndefined();
   });
 });
 
@@ -81,10 +84,45 @@ describe("happy path: milestone not found → save_milestone then attach", () =>
   test("create-on-miss flow", async () => {
     const stub: Stub = { milestones: [], attached: null, calls: [] };
     const p = makeProvider(stub);
-    await attachProjectMilestone(p, "DPT", "M31 — New", "STE-117");
+    const result = await attachProjectMilestone(p, "DPT", "M31 — New", "STE-117");
     expect(stub.calls.find((c) => c.startsWith("listMilestones"))).toBeDefined();
     expect(stub.calls).toContain("saveMilestone(DPT,M31 — New)");
     expect(stub.calls).toContain('upsertTicketMetadata(STE-117,{"milestone":"M31 — New"})');
+    // STE-198 AC-STE-198.3: auto-create surfaces milestone_create_required
+    expect(result.capability).toBe("milestone_create_required");
+    expect(result.createdName).toBe("M31 — New");
+  });
+});
+
+describe("STE-198 — capability split", () => {
+  test("AC-STE-198.1 (b): supports('project_milestone') === false short-circuits", async () => {
+    const stub: Stub = { milestones: [], attached: null, calls: [] };
+    const p = makeProvider(stub);
+    const noCap = { ...p, supports: (cap: string) => cap !== "project_milestone" };
+    const result = await attachProjectMilestone(noCap, "DPT", "M2 — Feature", "JIRA-1");
+    expect(result.capability).toBe("milestone_attach_skipped_adapter_limit");
+    expect(result.createdName).toBeUndefined();
+    // No list/save/upsert/get calls when adapter declares no capability.
+    expect(stub.calls).toEqual([]);
+  });
+
+  test("AC-STE-198.3: supports('project_milestone') === true with empty list → auto-create", async () => {
+    const stub: Stub = { milestones: [], attached: null, calls: [] };
+    const p = makeProvider(stub);
+    const withCap = { ...p, supports: (cap: string) => cap === "project_milestone" };
+    const result = await attachProjectMilestone(withCap, "DPT", "M2 — Feature", "STE-198");
+    expect(result.capability).toBe("milestone_create_required");
+    expect(result.createdName).toBe("M2 — Feature");
+    expect(stub.calls).toContain("saveMilestone(DPT,M2 — Feature)");
+  });
+
+  test("backwards-compat: missing supports() defaults to enabled", async () => {
+    const stub: Stub = { milestones: [{ name: "M2 — Feature" }], attached: null, calls: [] };
+    const p = makeProvider(stub); // no `supports` method
+    const result = await attachProjectMilestone(p, "DPT", "M2 — Feature", "STE-198");
+    // Existing milestone match → capability:null (no save_milestone, no row).
+    expect(result.capability).toBeNull();
+    expect(stub.calls.find((c) => c.startsWith("saveMilestone"))).toBeUndefined();
   });
 });
 

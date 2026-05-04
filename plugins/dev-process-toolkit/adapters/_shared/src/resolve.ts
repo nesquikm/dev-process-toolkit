@@ -19,13 +19,15 @@ import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { parseFrontmatter } from "./frontmatter";
 
-export type ResolveKind = "ulid" | "tracker-id" | "url" | "fallthrough";
+export type ResolveKind = "ulid" | "tracker-id" | "url" | "milestone" | "fallthrough";
 
 export interface ResolveResult {
   kind: ResolveKind;
   ulid?: string;
   trackerKey?: string;
   trackerId?: string;
+  /** Set when `kind === "milestone"` — the captured `M<N>` token. */
+  milestone?: string;
 }
 
 export interface TrackerConfig {
@@ -62,6 +64,9 @@ const ULID_RE = /^fr_[0-9A-HJKMNP-TV-Z]{26}$/;
 const EXPLICIT_PREFIX_RE = /^([a-z]+):(.+)$/i;
 const URL_RE = /^https?:\/\//;
 const LEADING_ID_PREFIX_RE = /^([A-Z]+)-/;
+// STE-202 AC-STE-202.3 — milestone is now a first-class resolver kind so
+// `/implement M<N>` no longer routes through the `fallthrough` branch.
+const MILESTONE_RE = /^M(\d+)$/;
 
 export function resolveFRArgument(arg: string, config: ResolverConfig): ResolveResult {
   // 1. Explicit prefix form always wins when the key is configured.
@@ -80,6 +85,15 @@ export function resolveFRArgument(arg: string, config: ResolverConfig): ResolveR
   // 2. ULID regex (after explicit to allow "someprefix:fr_..." fallthrough).
   if (ULID_RE.test(arg)) {
     return { kind: "ulid", ulid: arg };
+  }
+
+  // 2b. Milestone token (STE-202 AC-STE-202.3). `^M\d+$` is a milestone
+  //     reference (e.g., `M5`, `M54`). Routed before tracker-ID detection
+  //     so a tracker whose id-pattern accepts `M\d+` doesn't shadow the
+  //     milestone form. `/implement M<N>` reads this kind directly rather
+  //     than going through fallthrough.
+  if (MILESTONE_RE.test(arg)) {
+    return { kind: "milestone", milestone: arg };
   }
 
   // 3. URL detection — allowlist by host (NFR-19). Unknown hosts fallthrough.

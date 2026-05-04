@@ -121,7 +121,8 @@ observed status; operators fix either by transitioning the ticket to
 
 1. Call `mcp__linear__get_issue(id=ticket_id)`.
 2. Extract the full description blob.
-3. Pipe the blob through `bun run adapters/linear/src/normalize.ts`
+3. Pipe the blob through `stripLinearACFences` (`adapters/linear/src/format_description.ts`) — strips backtick-wrapped AC prefixes and legacy `<issue id>` auto-link wrappers in the AC-prefix shape, leaving bare issue references in prose untouched.
+4. Pipe the stripped blob through `bun run adapters/linear/src/normalize.ts`
    (stdin = full blob, stdout = canonical-form `## Acceptance Criteria`
    block; empty string if no AC section).
 4. Parse the normalized block into Schema N `AcceptanceCriterion[]`:
@@ -159,6 +160,9 @@ observed status; operators fix either by transitioning the ticket to
 3. Unknown `status` values fail with NFR-10 canonical shape.
 
 ### `upsert_ticket_metadata(ticket_id_or_null, title, description, team?, project?, labels?) → ticket_id`
+
+**Backtick-wrap AC prefixes on emit.** Before passing `description` to `mcp__linear__save_issue`, run `formatLinearDescription(description)` from `adapters/linear/src/format_description.ts` to wrap AC prefixes in inline-code fences. Linear's auto-linker treats backticked tokens as literal code and skips them, so the round-trip stays byte-identical after the pull-side strip. Idempotent — applying twice is a no-op. Linear-only; Jira / custom adapters do not auto-link, so wrapping there would be cosmetic noise.
+
 
 1. If `ticket_id_or_null === null`:
    - Resolve `team` and `project` per the workspace binding contract: if

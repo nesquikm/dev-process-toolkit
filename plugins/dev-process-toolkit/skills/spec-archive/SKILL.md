@@ -48,13 +48,23 @@ Archival uses the same code path as `/implement` Phase 4.
 
 **Milestone-group archival** (argument is `M<N>`):
 
-1. Scan every active `specs/frs/*.md` for `milestone == M<N>`. Refuse cleanly if the match set is empty ("No active FRs found for milestone M<N>"); exit non-zero, no side effects.
+1. Scan every active `specs/frs/*.md` for `milestone == M<N>`. If the match set is empty, branch to **plan-only archival** (STE-200 AC-STE-200.1, see below); otherwise refuse cleanly with `"M<N> has plan with unchecked ACs and no FRs; ambiguous state"` only when the plan is present but the auto-detect heuristic does not fire.
 2. Build the batch:
    - Per matched FR: `git mv specs/frs/<Provider.filenameFor(spec)> specs/frs/archive/<same-name>` + frontmatter flip + traceability-link rewrite (`rewriteArchiveLinks(repoRoot, frId)`) + `Provider.releaseLock`.
    - If `specs/plan/M<N>.md` exists, include `git mv specs/plan/M<N>.md specs/plan/archive/M<N>.md`.
 3. Present the Diff Preview covering every move + flip + traceability rewrite + release.
 4. On approval, land all N moves + N flips + N rewrites + N `releaseLock` calls + the optional plan-file move in a **single atomic commit**. Any error aborts the commit entirely — no partial archival.
 5. Run the Post-Archive Drift Check.
+
+**Plan-only archival** (STE-200 AC-STE-200.1 / AC-STE-200.2 — milestone has zero FRs in `specs/frs/`):
+
+1. Auto-detect: when the FR match set for `M<N>` is empty AND `specs/plan/M<N>.md` exists, run the auto-detect heuristic — fire the plan-only branch when **any** of: (a) plan frontmatter `kind: scaffolding` (per STE-197), OR (b) every `^- [ ]` checkbox under the milestone's `## M<N>:` block is `[x]` (or `[deferred]`), OR (c) the operator passed `--plan-only` explicitly.
+2. Run the drift Pass A grep against the live tree (live trees only — no FR rows to walk).
+3. `git mv specs/plan/M<N>.md specs/plan/archive/M<N>.md` and flip the plan frontmatter `status: active → archived` with `archived_at: <ISO now>` (per STE-197 AC-STE-197.4 — synthesize a frontmatter block for legacy frontmatter-less plans).
+4. Surface a `plan_only_archival` capability row in the closing summary.
+5. Land in a single atomic commit; run the Post-Archive Drift Check.
+
+`--plan-only` flag (AC-STE-200.2): forces the plan-only branch when the auto-detect heuristic would not fire (escape hatch for unusual cases). Refuse if FR match set is non-empty — `--plan-only` is for explicitly-empty cases; mixed usage is operator error. Refuse if `specs/plan/M<N>.md` does not exist with `"No FRs and no plan file for M<N>"`.
 
 No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` except the frontmatter `status` flip at move time. Full reference: `docs/layout-reference.md` § `/spec-archive`.
 

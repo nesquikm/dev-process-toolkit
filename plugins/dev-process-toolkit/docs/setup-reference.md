@@ -75,6 +75,34 @@ If the user picks 2–4 (linear / jira / custom), run the flow in `docs/setup-tr
    Write the values into a `### Linear` (with `team:` + `project:`) or `### Jira` (with `project:`) sub-section appended after the Schema L canonical keys. The sub-section parser is greedy until the next `##` / `###` heading or EOF.
    Append a `## /setup audit` entry per the audit-log conventions: `step:7b (workspace_binding) value:"<adapter>:<team>/<project>" reason:"prompt resolved"`. Under non-interactive mode without a pre-baked answer, abort with NFR-10 canonical shape naming step 7b workspace-binding and the missing input.
 
+### Step 7b decision matrix (STE-199)
+
+The tracker-mode answer and the workspace-binding probe each route through one of three branches. Both surfaces refuse on missing input — Auto Mode does NOT relax `requires-input`.
+
+**Tracker-mode answer.** Step 7b's resolver returns one of three values:
+
+| Source | Resolver value | Action |
+|--------|----------------|--------|
+| `$ARGUMENTS` carries `--tracker=<mode>` (`none \| linear \| jira \| <custom>`) | Pre-baked answer | Skip the prompt; flow the rest of step 7b unchanged. |
+| Interactive answer (`1` / `2` / `3` / `4`) | User-supplied | Same — flow the rest of step 7b. |
+| No `--tracker=<mode>` AND no interactive answer (Auto Mode without pre-bake, or non-interactive stdin) | Sentinel ("no input") | **Refuse with NFR-10:** `"/setup step 7b requires an explicit tracker-mode answer; pre-bake via --tracker=<mode> or run the prompt interactively. Auto Mode does not default-apply requires-input steps."` Surface `requires_input_refused`. Do not write CLAUDE.md. |
+
+The check is skill-internal — a `mode:` field still set to the placeholder sentinel after step 7b's resolver returns triggers refusal, not a prose-level rule the agent can rationalize past (AC-STE-199.7).
+
+**MCP-probe + workspace-binding branch.** When the resolved tracker is `linear` / `jira` / a custom adapter that requires an MCP, probe MCP availability via the harness probe (`claude mcp list`):
+
+| Probe state | Branch | CLAUDE.md write | Capability row |
+|-------------|--------|-----------------|----------------|
+| MCP not registered (`.mcp.json` is being written this run) | First-run deferral (AC-STE-199.1) | `team: <deferred>`, `project: <deferred>` (or per-adapter equivalent) | `workspace_binding_deferred` |
+| MCP registered + probe succeeds | Normal | resolved values from `mcp__<tracker>__list_*` | none |
+| MCP registered + probe fails (auth expired, network down) | NFR-10 refusal | not written | none (refusal aborts run) |
+
+For the first-run deferral branch, append the audit entry `step:7b (workspace_binding) value:"<deferred>" reason:"<MCP> unregistered at /setup time; deferred to first downstream skill"` (AC-STE-199.2) so the audit log carries provenance even though the resolved value is the placeholder. Existing Schema L parsers tolerate `<deferred>` literals as "binding incomplete; prompt operator on first need" (no parser crash).
+
+**Resume after authentication.** `/setup --resume-tracker-binding` (AC-STE-199.3) runs only step 7b's workspace-binding probe + write — designed to be invoked after the operator authenticates the MCP. Skip every other `/setup` step. Materially equivalent to `--migrate` but scoped to the `### <Tracker>` workspace-binding sub-section (Linear: `team:` + `project:`; Jira: `project:`).
+
+**`--tracker=<mode>` flag — argument list.** Accepts the Schema L tracker-mode allowlist: `none | linear | jira | <custom-adapter-name>`. Discoverable via `/setup --help` and the `requires_input_refused` remedy text (AC-STE-199.8). Pre-baked answer flows the rest of step 7b unchanged.
+
 ## Step 7d — Docs modes (full prompt list + section format)
 
 `default: all-false` — when no answer is supplied (autonomous mode or when the docs question is skipped), the skill **always emits** the `## Docs` section with all three flags set to `false`. This supersedes the older "absent section ≡ all-false" convention: the section is now always written so `/docs` and the `claudemd-docs-section-present` probe (gate-check #18) have something to read. Each default-applied flag appends a `## /setup audit` entry: `step:7d (docs.<flag>) value:false reason:"default applied"`.
@@ -176,7 +204,7 @@ The `toolkit-bootstrap-committed` probe (gate-check #22) hard-fails when CLAUDE.
 **Workflows** — choose the path that matches your task:
 
 - **Bugfix:** `/debug → /implement → /gate-check → /pr`
-- **Feature:** `/brainstorm → /spec-write → /implement → /spec-review → /gate-check → /pr`
+- **Feature:** `/brainstorm → /spec-write → /implement → /simplify → /spec-review → /gate-check → /pr`
 - **Refactor:** `/implement → /simplify → /gate-check → /pr`
 
 **Next steps**

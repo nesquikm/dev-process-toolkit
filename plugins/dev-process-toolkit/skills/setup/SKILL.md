@@ -61,11 +61,11 @@ For **existing projects** (project files found in step 1), validate prerequisite
 
 | Check | How | Remediation |
 |-------|-----|-------------|
-| Required tools installed | Run version commands: `node -v`, `flutter --version`, `python3 --version`, etc. | Install the missing tool or update PATH |
+| Required tools installed | Run version commands using the **per-stack declared invocation prefix** (STE-209 AC-STE-209.5): when the rendered CLAUDE.md / `examples/<stack>/gate-commands.md` declares `fvm flutter`, the doctor probes `fvm flutter --version` (not bare `flutter --version`); same pattern for any wrapper (`bun` vs `node`, `pnpm` vs `npm`, etc.). Falls back to the bare command when no wrapper is declared. Examples: `node -v`, `fvm flutter --version` (when fvm is declared) or `flutter --version`, `python3 --version`. | Install the missing tool or update PATH |
 | Gate commands runnable | Run the gating rule from CLAUDE.md (e.g., `npm run typecheck && npm run lint && npm run test`) | Fix failing commands or update CLAUDE.md gating rule |
 | CLAUDE.md present | Check if `CLAUDE.md` exists in project root | Will be created in step 5 |
 | .claude/settings.json present | Check if `.claude/settings.json` exists | Will be created in step 6 |
-| Spec anchor IDs (if `specs/` exists) | Grep `specs/plan.md` for every `## M{N}:` and `specs/requirements.md` for every `### FR-{N}:` heading; each must carry a matching `{#M{N}}` or `{#FR-{N}}` anchor | Add the missing `{#M{N}}` / `{#FR-{N}}` anchor. Missing anchors do NOT cause doctor failure — they report under `GATE PASSED WITH NOTES` |
+| Spec anchor IDs (if `specs/` exists) | Grep `specs/plan/M*.md` for every `## M{N}:` and `specs/requirements.md` for every `### FR-{N}:` heading; each must carry a matching `{#M{N}}` or `{#FR-{N}}` anchor | Add the missing `{#M{N}}` / `{#FR-{N}}` anchor. Missing anchors do NOT cause doctor failure — they report under `GATE PASSED WITH NOTES` |
 
 Report pass/fail for each check with remediation. Missing anchor IDs surface under `GATE PASSED WITH NOTES`, never as a hard failure.
 
@@ -165,7 +165,7 @@ Ask exactly once, near the end of the flow — after CLAUDE.md is drafted but be
 
 > Task Tracking: where do ACs live? `1. none` (ACs stay in `specs/requirements.md`) / `2. linear` / `3. jira` / `4. custom` (copy `adapters/_template`). Enter 1–4. **No default** — autonomous runs MUST pre-bake an answer.
 
-Under non-interactive mode without a pre-baked answer, abort with NFR-10 canonical shape naming step 7b and the missing input.
+**Auto Mode + first-run MCP (STE-199 AC.1..3 / AC.7..8).** Auto Mode does NOT relax `requires-input`. Step 7b's resolver returns `--tracker=<mode>`, an interactive answer, or a sentinel; on sentinel, refuse with NFR-10 `"/setup step 7b requires an explicit tracker-mode answer; pre-bake via --tracker=<mode> or run the prompt interactively. Auto Mode does not default-apply requires-input steps."` + `requires_input_refused` row. `--tracker=<mode>` accepts `none | linear | jira | <custom>`. When the chosen tracker's MCP is not yet registered, take the first-run-deferral branch: write `team: <deferred>` / `project: <deferred>` to CLAUDE.md, audit `step:7b (workspace_binding) value:"<deferred>" reason:"<MCP> unregistered at /setup time; deferred to first downstream skill"`, surface `workspace_binding_deferred`; operator runs `/setup --resume-tracker-binding` after authenticating to fill the binding. Full table: `docs/setup-reference.md` § Step 7b.
 
 **Schema L canonical-key constraint.** When emitting the `## Task Tracking` section, write **only** the canonical keys: `mode`, `mcp_server`, `jira_ac_field`, `branch_template`. Tracker-specific metadata (project IDs, team names) belong in a separate sub-section under `## Task Tracking` (e.g., `### Linear`) or in the adapter's own config — **not** as Schema L keys at the top level. The `task-tracking-canonical-keys` probe (gate-check #21) hard-fails any non-canonical top-level key.
 
@@ -202,7 +202,7 @@ Accept `y`/`n`/`yes`/`no` case-insensitively; other inputs re-prompt with `answe
 
 Write the section as Schema L (lowercase `true`/`false`, no quoting), placed immediately after `## Task Tracking`. Re-runs are atomic — splice the full block, write once.
 
-**Toolchain snapshot.** When `packages_mode == true`, also write `docs/.dpt-docs-toolchain.json` recording per-stack preferred signature-extraction strategy. The `signature-strategy-honors-setup` probe (#24) reads this later for drift detection.
+**Toolchain snapshot.** When `packages_mode == true`, also write `docs/.dpt-docs-toolchain.json` recording per-stack preferred signature-extraction strategy. The `signature-strategy-honors-setup` probe (#24) reads this later for drift detection. **`docs_default_applied` (STE-202 AC-STE-202.6):** when the autonomous run applies the all-false default to **all three** flags (no pre-baked answers for any of `user_facing_mode` / `packages_mode` / `changelog_ci_owned`), surface a `docs_default_applied` row listing the defaulted flags. Interactive runs and mixed runs do NOT emit the row.
 
 Full prompt list, NFR-10 refusal text, and section format: `docs/setup-reference.md` § Step 7d — Docs modes. Background detail in `docs/setup-docs-mode.md`.
 
@@ -222,6 +222,7 @@ If the user wants the full SDD workflow (or `$ARGUMENTS` contains "new"):
   - **testing-spec.md:** Exact test framework + version, mocking library, coverage tool, file naming convention
   - **plan.md:** M1 skeleton for the foundation just built, with concrete file paths and gate commands
 - Leave requirements, acceptance criteria, and milestone tasks for the user. If the user didn't ask for specs, skip this step.
+- **Bootstrap-milestone routing (STE-197 AC-STE-197.3).** When writing `specs/plan/M1.md` for the bootstrap milestone, add `kind: scaffolding` to the plan frontmatter and write a single FR row marked `<scaffolding>` (e.g. `| <scaffolding> | Bootstrap (barrel + primary feature shipped pre-toolkit) | n/a |`). Do **not** invoke `Provider.sync` for bootstrap FRs. Downstream skills route the marker through plan-only closure (STE-200). Never emit a literal `<tracker-id>` row in a committed bootstrap plan.
 
 **Scaffold deliverables (canonical inventory, STE-189).** /setup produces six artifact classes — each a **/setup deliverable, emitted unconditionally** when its step runs: (1) `CLAUDE.md` (step 5), (2) `.claude/settings.json` (step 6), (3) `.mcp.json` (step 7, tracker mode only), (4) `specs/{requirements,technical-spec,testing-spec}.md` (step 8), (5) `specs/plan/M1.md` plus `.gitkeep` stubs in `specs/frs/{,archive/}` and `specs/plan/{,archive/}` (step 8), (6) `src/.placeholder.test.ts` (Bun, step 2c). These are emitted **regardless of any phrasing in the operator's invocation context** — "only /setup completes here", "do not run /spec-write", "minimal mode" all constrain which **downstream skills** run after /setup, not which artifacts /setup itself produces (smoke #9 / run 2 F2). `/spec-write` step 1 ("Assess current state") expects these on disk; absence is a recovery-path failure mode, not the canonical contract. The scaffold list is non-negotiable; the operator can populate spec bodies later via `/spec-write`, but the empty templates ship from /setup.
 
