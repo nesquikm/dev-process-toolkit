@@ -108,6 +108,7 @@ Run these deterministic layout-invariant probes in addition to the normal gate:
 35. **`setup-permissions-shape`** — call `runSetupPermissionsShapeProbe(projectRoot)` from `adapters/_shared/src/setup_permissions_shape.ts`. **Severity: advisory only.** Walks user-project `.claude/settings.json` and flags glob-shaped Bash rules (`Bash(<cmd> *)` patterns); the harness denies any glob-shaped Bash rule when `/setup` writes the file on a fresh repo (F3b). Each glob → ADVISORY note `file:line — reason`. Migration is operator-driven via `/setup --migrate`; this probe is the read-side signal. Vacuous when `.claude/settings.json` is absent. Test coverage: `tests/gate-check-mcp-config-shape.test.ts`. (STE-209 AC-STE-209.6)
 36. **`archive-frontmatter-coherent`** — call `runArchiveFrontmatterCoherentProbe(projectRoot)` from `adapters/_shared/src/archive_frontmatter_coherent.ts`. **Severity: error.** Walks every `specs/frs/archive/*.md` and `specs/plan/archive/*.md` and asserts frontmatter `status: archived` AND `archived_at:` populated. Any file in `archive/` with `status: active` or unset `archived_at:` → **GATE FAILED** with `file:1 — reason` note. Catches the F11 staging-order bug (an archive commit landing with un-flipped frontmatter because the editor wrote frontmatter BEFORE `git mv`). Sibling to existing probe #16 `archive_plan_status` (which walks ONLY plan archives and uses different message text); the two probes overlap on the plan-archive arm but the overlap is intentional defense-in-depth. Vacuous on fresh repos with no archive directories. Test coverage: `tests/gate-check-archive-frontmatter-coherent.test.ts`. (STE-210 AC-STE-210.4)
 37. **`cross-cutting-spec-stale-file-refs`** — call `runCrossCuttingSpecStaleFileRefsProbe(projectRoot)` from `adapters/_shared/src/cross_cutting_spec_stale_file_refs.ts`. **Severity: warning** (NotesOnly, never **GATE FAILED**). Walks `specs/technical-spec.md` and `specs/testing-spec.md` for path-references inside triple-backtick directory-tree fences whose tokens contain `/` (full-path tree leaves). Tokens that don't resolve to an existing path on disk surface as ADVISORY rows in `file:line — reason` shape. Bare-basename tree leaves (no `/`) are skipped — no parent context. Prose mentions outside fences are operator judgment surface and never flagged. Defense-in-depth read-side check for paths that bypass `/implement` Phase 4b's cross-cutting-spec propagation step (manual deletes, `git rm`, downstream toolkit consumers). Vacuous when both spec files are absent. Test coverage: `tests/gate-check-cross-cutting-spec-stale-file-refs.test.ts`. (STE-215 AC-STE-215.5)
+38. **`auto-approve-marker-in-canonical-spawns`** — call `runAutoApproveMarkerProbe(projectRoot)` from `adapters/_shared/src/auto_approve_marker.ts`. **Severity: error.** Globs `plugins/dev-process-toolkit/skills/*/SKILL.md` and `.claude/skills/*/SKILL.md`, finds every fenced ```bash block whose body contains a `claude -p ` invocation paired with a heredoc-on-stdin (`<<'TAG'`, `<<TAG`, `<<${VAR}`), and asserts the canonical marker line `<dpt:auto-approve>v1</dpt:auto-approve>` appears on its own line inside that fence. Each missing-marker fence → **GATE FAILED** with `file:line — reason` note in NFR-10 canonical shape. Non-prompt-bearing `< /dev/null` snippets (the `/gate-check`, `/spec-review`, `/simplify` reference snippets in `/smoke-test` SKILL.md) are intentionally out of scope — those skills carry no operator-approval gate, so a marker would be redundant. Catches the regression where parent skills (`/smoke-test`, `/conformance-loop`) silently drop the marker from a documented spawn snippet, leaving downstream `claude -p` runs to halt at child-skill gates. Vacuous on repos that ship no SKILL.md files. Test coverage: `tests/gate-check-auto-approve-marker.test.ts`. (STE-226 AC-STE-226.5)
 
 Full details: `docs/layout-reference.md` § `/gate-check`.
 
@@ -169,11 +170,14 @@ probes #32 (plan-file-single-milestone, STE-197),
 #33 (plan-task-fr-coverage, STE-201),
 #34 (mcp-config-shape, STE-209),
 #35 (setup-permissions-shape, STE-209),
-#36 (archive-frontmatter-coherent, STE-210) by their corresponding
+#36 (archive-frontmatter-coherent, STE-210),
+#37 (cross-cutting-spec-stale-file-refs, STE-215), and
+#38 (auto-approve-marker-in-canonical-spawns, STE-226) by their corresponding
 `tests/gate-check-<slug>.test.ts` files (mcp-config-shape and
 setup-permissions-shape share a single test file
-`tests/gate-check-mcp-config-shape.test.ts`).
-Contributors adding probe 37+ must ship the matching test file in the
+`tests/gate-check-mcp-config-shape.test.ts`; the auto-approve-marker
+probe lives at `tests/gate-check-auto-approve-marker.test.ts`).
+Contributors adding probe 39+ must ship the matching test file in the
 same commit.
 
 ## Commands
