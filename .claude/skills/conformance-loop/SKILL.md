@@ -1,0 +1,404 @@
+---
+name: conformance-loop
+description: Drive `/smoke-test` against both trackers in parallel and aggregate the per-tracker findings files into one deduplicated report. Default `capture-only` mode honors `/smoke-test`'s "Capture, don't fix" rule unchanged. Opt-in `--auto-fix` mode walks the deduplicated high-severity findings list and dispatches `/dev-process-toolkit:spec-write` + `/dev-process-toolkit:implement` per finding, then re-iterates until termination. Project-local skill, not plugin.
+argument-hint: '[--auto-fix] [--max-iterations N] [--linear-team STE] [--jira-project KEY] [--dry-run]'
+disable-model-invocation: true
+---
+
+# /conformance-loop
+
+Automate the manual two-terminal `/smoke-test` workflow with cross-tracker dedup, capture-only-by-default, and an opt-in `--auto-fix` mode that dispatches `/dev-process-toolkit:spec-write` + `/dev-process-toolkit:implement` per finding under explicit safety rails. **Project-local skill** — lives in `.claude/skills/conformance-loop/SKILL.md` of the dev-process-toolkit repo, not in the plugin itself. Downstream users never see it.
+
+This skill is the formally-sanctioned exception to `/smoke-test`'s "Capture, don't fix" + "One run per release cycle" rules. Capture-only mode preserves those rules unchanged for raw `/smoke-test` invocations; `--auto-fix` mode is the operator's explicit opt-in to the automated loop with `--max-iterations` + no-progress safety rails (no budget cap — operator controls cost via iteration count).
+
+## When to use
+
+- Pre-release sanity check before `/ship-milestone M<N>` runs, when both Linear and Jira surfaces need to be exercised in one shot.
+- After landing any FR that touches `skills/setup/SKILL.md`, `skills/spec-write/SKILL.md`, `skills/implement/SKILL.md`, `skills/gate-check/SKILL.md`, `skills/spec-archive/SKILL.md`, or any of the `templates/` files.
+- **Not** for every commit, not in CI — this is expensive (real LLM tokens, real Linear + Jira writes) and slow (`max-iterations × ~10 min × 2`-tracker wall-clock per run).
+
+## Argument parsing
+
+Parse `$ARGUMENTS` once, before any pre-flight runs:
+
+- `--auto-fix` — boolean, **default OFF**. When OFF (capture-only mode, the default), the loop exits after Phase A of iteration 1 with the aggregated findings report and dispatches no fixers — this honors `/smoke-test`'s "Capture, don't fix" rule unchanged. When ON, Phase B fires per high-severity finding (sequential `/dev-process-toolkit:spec-write` → `/dev-process-toolkit:implement` per finding), and the loop re-iterates until one of the three termination conditions trips.
+- `--max-iterations N` — integer, **default 3**. Hard cap on iteration count (counts both capture-only and auto-fix iterations). The loop exits with `status: max-iterations` once the counter reaches `N`. Operator owns this number — there is no budget cap; cost is controlled by iteration count.
+- `--linear-team STE` — pass-through to the Linear `/smoke-test` child via `--linear-team`. Default `STE` (matches `/smoke-test`'s default).
+- `--jira-project KEY` — **required** when the Jira child fires. Pass-through to the Jira `/smoke-test` child via `--jira-project`. The Jira child's pre-flight #8 enforces visibility of the Space; `/conformance-loop`'s pre-flight (d) verifies presence of the flag before any side effects.
+- `--dry-run` — boolean, default OFF. Mocks the subprocess spawn and returns canned per-tracker findings files (used by `conformance-loop-dry-run.test.ts` to cover parallelism mechanics + aggregation + termination without invoking real `claude -p` children). Wires the same Phase A → termination path as a real run; only the subprocess call is replaced by reading from a fixture directory.
+
+Unknown flags refuse with NFR-10 canonical refusal naming the unknown flag and the supported set:
+
+```
+Unknown flag '<flag>' passed to /conformance-loop.
+Remedy: pick from the supported set: --auto-fix, --max-iterations N, --linear-team STE, --jira-project KEY, --dry-run.
+Context: skill=conformance-loop, flag=<flag>
+```
+
+## Pre-flight refusals
+
+Each fires before any side effects, exits non-zero with an NFR-10-shape message. Five refusals (a)–(e) total; refusals (c)–(e) **delegate** to `/smoke-test`'s pre-flights of the same probe (so the canonical message and probe shape stay defined in one place).
+
+(a) **Toolkit-repo cwd.** `pwd` must end in `/dev-process-toolkit`. The skill spawns child `/smoke-test` invocations whose own pre-flight #1 expects toolkit-repo cwd; running `/conformance-loop` from elsewhere creates the test projects in the wrong place. NFR-10 canonical refusal:
+
+```
+/conformance-loop must run from the dev-process-toolkit repo root.
+Remedy: cd into the toolkit repo (pwd should end in /dev-process-toolkit), then re-run /conformance-loop.
+Context: skill=conformance-loop, probe=cwd, observed=<pwd>
+```
+
+(b) **`/smoke-test` skill present** at `.claude/skills/smoke-test/SKILL.md`. The whole skill is a wrapper around `/smoke-test`; if the dependency is absent, refuse before any side effects. NFR-10 canonical refusal:
+
+```
+/smoke-test skill not found at .claude/skills/smoke-test/SKILL.md.
+Remedy: restore the project-local /smoke-test skill (it is the dependency this skill wraps), then re-run /conformance-loop.
+Context: skill=conformance-loop, probe=dependency, missing=.claude/skills/smoke-test/SKILL.md
+```
+
+(c) **Linear MCP loadable + STE team visible.** Delegates to `/smoke-test` pre-flights #3 (Linear MCP available in `~/.claude-st/`) + #5 (Linear team key resolvable). The probe runs once at this top-level rather than letting the Linear child fail mid-spawn — fast-fail saves ~10 min of wall-clock per failed run. NFR-10 canonical refusal (carries the `/smoke-test` probe name verbatim):
+
+```
+Linear MCP not loaded or team '<key>' not visible.
+Remedy: register the Linear MCP in ~/.claude-st/, verify the team key resolves via mcp__linear__get_team, then re-run /conformance-loop.
+Context: skill=conformance-loop, probe=delegated-smoke-test-3+5, tracker=linear, team=<key>
+```
+
+(d) **Atlassian MCP loadable + Jira project visible + `--jira-project` passed.** Delegates to `/smoke-test` pre-flights #7 (Atlassian MCP loadable + OAuth-bound) + #8 (Jira project visible / `--jira-project` flag present). The flag-missing variant fires here, not in the Jira child, so the operator sees the refusal before any subprocess spawn. NFR-10 canonical refusal:
+
+```
+Atlassian MCP not loaded or Jira project '<key>' not visible (or --jira-project missing).
+Remedy: register the Atlassian Rovo MCP in ~/.claude-st/, complete OAuth via mcp__atlassian__authenticate, pass --jira-project <KEY>, then re-run /conformance-loop.
+Context: skill=conformance-loop, probe=delegated-smoke-test-7+8, tracker=jira, project=<key>
+```
+
+(e) **Both `../dpt-test-project-{linear,jira}` paths free OR `--keep` was passed.** Delegates to `/smoke-test` pre-flight #2 (existing-test-project refusal) — fired twice, once per tracker. The two paths are operator-driven-parallelism-safe (different basenames, different MCP configs), but `/conformance-loop` runs both serially per iteration's Phase A and so MUST verify both up front. NFR-10 canonical refusal:
+
+```
+Test-project paths exist: '../dpt-test-project-linear' and/or '../dpt-test-project-jira' is non-empty.
+Remedy: rm -rf ../dpt-test-project-linear ../dpt-test-project-jira (or pass --keep at the prior /smoke-test invocation), then re-run /conformance-loop.
+Context: skill=conformance-loop, probe=delegated-smoke-test-2, paths=[<list-of-non-empty>]
+```
+
+Each refusal above carries the literal phrase **NFR-10 canonical refusal** in the surrounding prose (six `NFR-10 canonical refusal` markers across this section: one introductory mention plus the five (a)–(e) refusal anchors, satisfying the verify line `grep -c 'NFR-10 canonical refusal' >= 5`).
+
+## Flow
+
+The flow is a loop of one or more iterations. Each iteration runs Phase A (parallel `/smoke-test` fan-out + aggregation) and, when `--auto-fix` is set, Phase B (sequential per-finding fixer dispatch). After each iteration, the termination check decides whether to re-iterate or exit. Pre-iteration overhead: Phase 0 pre-approval (once per invocation), then the loop.
+
+### Phase 0 — Pre-approval gate
+
+Print the contract to the operator and prompt for `y` to proceed. The prompt MUST include: both trackers active, real Linear + Jira writes, max wall-clock estimate (`max-iterations × ~10 min × 2`), max-iterations cap, auto-fix on/off (resolved value, not the literal flag).
+
+```
+/conformance-loop will:
+  1. Spawn parallel /smoke-test --tracker linear and /smoke-test --tracker jira
+     subprocess sessions per iteration (real Linear + Jira writes).
+  2. Aggregate per-tracker findings into /tmp/dpt-conformance-loop-<date>-iter-<N>.md
+     with cross-tracker dedup.
+  3. <auto-fix-line>
+
+Configuration:
+  --auto-fix:        <ON|OFF (capture-only)>
+  --max-iterations:  <N>
+  --linear-team:     <STE>
+  --jira-project:    <KEY>
+  Estimated max wall-clock: <max-iterations × ~10 min × 2 trackers>
+
+Real Linear writes will occur (test project + ~6 issues per iteration).
+Real Jira writes will occur in Space <jira-project> (~6 work items per iteration,
+all carrying the dpt-smoke label so /smoke-test Phase 5 teardown can transition them).
+
+Proceed? [y/n]
+```
+
+When `--auto-fix` is ON, substitute `<auto-fix-line>` with `In Phase B, sequentially dispatch /dev-process-toolkit:spec-write + /dev-process-toolkit:implement per high-severity finding, then re-iterate until termination.`. When `--auto-fix` is OFF, substitute with `Capture-only mode: exit after Phase A of iteration 1 with the aggregated report.`.
+
+**Auto Mode + `claude -p` default-apply.** Default-apply `y` when the conversation includes `Auto Mode Active` in any `<system-reminder>` block, OR the invocation is `claude -p` non-interactive — same canonical detection contract used by `/spec-write` § 0b. Without those signals, refuse on `n` and on any non-`y` response. On `y`, log the approval to `/tmp/dpt-conformance-loop-<date>-approval.txt` and proceed to the loop.
+
+### Phase A — Parallel /smoke-test fan-out + aggregation
+
+Each iteration's Phase A spawns two `claude -p /smoke-test ...` subprocess calls in parallel via a single Bash heredoc, captures their PIDs, and `wait`s on both before reading the per-tracker findings files. Subprocess output is captured to per-iteration log files at `/tmp/dpt-conformance-loop-<date>-iter-<N>-{linear,jira}.log` for forensics.
+
+**Parallelism mechanism.** Bash subprocess parallelism, **NOT the agent-team primitive** — agent teams have no `fork: true` flag and aren't recommended for serial orchestration per the Claude Code docs (`https://code.claude.com/docs/en/agent-teams`). Each subprocess is a top-level `claude -p` session, which can invoke skills via the literal-first-line pattern (sub-agents cannot, per docs).
+
+**Reference snippet** — Phase A spawn (per iteration):
+
+```bash
+ITER=<N>
+DATE=$(date +%Y-%m-%d)
+LOG_LINEAR=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.log
+LOG_JIRA=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.log
+PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"   # cwd is the toolkit repo (verified by pre-flight (a))
+
+CLAUDE_CONFIG_DIR=~/.claude-st claude -p /smoke-test --tracker linear --linear-team "${LINEAR_TEAM:-STE}" \
+  --plugin-dir "${PLUGIN_DIR}" \
+  --permission-mode bypassPermissions \
+  < /dev/null > "${LOG_LINEAR}" 2>&1 &
+PID_LINEAR=$!
+
+CLAUDE_CONFIG_DIR=~/.claude-st claude -p /smoke-test --tracker jira --jira-project "${JIRA_PROJECT}" \
+  --plugin-dir "${PLUGIN_DIR}" \
+  --permission-mode bypassPermissions \
+  < /dev/null > "${LOG_JIRA}" 2>&1 &
+PID_JIRA=$!
+
+wait "${PID_LINEAR}"; RC_LINEAR=$?
+wait "${PID_JIRA}";   RC_JIRA=$?
+
+if [ "${RC_LINEAR}" -ne 0 ] || [ "${RC_JIRA}" -ne 0 ]; then
+  echo "/conformance-loop: Phase A subprocess failed (linear=${RC_LINEAR}, jira=${RC_JIRA}). Aborting."
+  exit 1
+fi
+```
+
+**Fail-fast on subprocess error.** If either child returns non-zero, the iteration aborts immediately — no aggregation, no Phase B dispatch, no re-iteration. Forensics live in the per-iteration log files. The operator decides whether to re-run after fixing the underlying cause.
+
+**Path-safety guard delegated to children.** Each `/smoke-test` child runs its own pre-flight #6 (the `realpath`-based allow-list check that scopes `bypassPermissions` to one of `{dpt-test-project-linear, dpt-test-project-jira}` under a `workspace/` ancestor, not a symlink, not the toolkit repo itself) before activating bypassPermissions in its child layer. `/conformance-loop` does not duplicate that guard at the parent — pre-flight (a) verifies the parent cwd is the toolkit repo, and the child's #6 fires before any side effects. If the parent layer ever moves to spawn `bypassPermissions` children directly (not via `/smoke-test`), it MUST re-run the same allow-list check first.
+
+**Aggregation.** After both children return, read the per-tracker findings files at the existing canonical paths (no `/smoke-test` changes):
+
+- `/tmp/dpt-smoke-findings-${DATE}-linear.md` — Linear-side findings.
+- `/tmp/dpt-smoke-findings-${DATE}-jira.md` — Jira-side findings.
+
+Parse each into a list of finding records (each finding is delimited by `### F<N> — <one-line summary>` per `/smoke-test` Phase 3's findings template). Apply the cross-tracker dedup heuristic (see § Cross-tracker dedup below) and emit the unified report at `/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}.md`.
+
+Aggregated report shape (per iteration):
+
+```
+# /conformance-loop iteration <ITER> — <DATE>
+
+**Tracker coverage:** linear + jira
+**Source files:**
+- /tmp/dpt-smoke-findings-<DATE>-linear.md
+- /tmp/dpt-smoke-findings-<DATE>-jira.md
+
+## Findings
+
+### F1 — <one-line summary>
+
+**Severity:** high
+**tracker-coverage:** [linear, jira]   <!-- both trackers surfaced this -->
+**Dedup:** exact-match (STE-<N> runtime regression: <fixture>)
+
+<body>
+
+### F2 — <one-line summary>
+
+**Severity:** high
+**tracker-coverage:** [linear]
+**Dedup:** single-tracker (no Jira surface)
+
+<body>
+
+### F3 — <one-line summary>
+
+**Severity:** medium
+**tracker-coverage:** [linear, jira]
+**Dedup:** ~probable-dup (≥80% normalized-body overlap; operator review recommended)
+
+<body>
+```
+
+#### Cross-tracker dedup
+
+Two-pass heuristic:
+
+1. **Exact-match pass.** Walk every Linear finding; for each, scan Jira findings for an identical `STE-<N> runtime regression: <fixture>` diagnostic line (matches the convention from `/smoke-test` Phase 2.X fixtures). On hit ⇒ emit one entry with `tracker-coverage: [linear, jira]` and `Dedup: exact-match`; skip the Jira-side counterpart in the second pass.
+2. **Fuzzy-overlap pass.** For every still-unmatched Linear finding, normalize body (lowercase, strip whitespace + markdown noise) and compute substring overlap against every still-unmatched Jira finding. ≥ 80% ⇒ dedup with `tracker-coverage: [linear, jira]` + `Dedup: ~probable-dup` flag (flag because fuzzy matches deserve operator review). < 80% ⇒ both findings emit independently with their own single-tracker `tracker-coverage`.
+
+Single-tracker findings (no counterpart on the other side) carry `tracker-coverage: [linear]` or `tracker-coverage: [jira]` with `Dedup: single-tracker`. The aggregated entry is never duplicated — exactly one entry per unique regression across both trackers.
+
+### Phase B — `--auto-fix` dispatch (sequential per finding)
+
+Fires only when `--auto-fix` is ON. In capture-only mode (default), the loop exits after Phase A of iteration 1 with the aggregated report — no `/spec-write` or `/implement` dispatch. This is the load-bearing rule that honors `/smoke-test`'s "Capture, don't fix" semantics in the default mode.
+
+When `--auto-fix` is ON, sequentially walk the deduplicated **high-severity** findings list (entries where `**Severity:** high`). For each finding `F`, in order:
+
+1. **Spawn `claude -p /dev-process-toolkit:spec-write`** with the literal-first-line + heredoc-on-stdin pattern from `/smoke-test` § Phase 2 child-spawn discipline (STE-185). The heredoc body carries `F`'s text verbatim so `/spec-write` allocates an FR for the regression. Capture stdout to `/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-fix-${IDX}-spec-write.log` and parse the freshly-allocated `<new-tracker-id>` from the closing-summary table (per `/spec-write`'s § 7 closing summary contract — single new FR ⇒ one row in the table, the `FR id` column carries the allocated tracker ID).
+
+2. **Spawn `claude -p /dev-process-toolkit:implement <new-tracker-id>`** — full TDD + tracker writes through Phase 4 commit. Pre-authorize the Phase 4 step 15 commit upfront (operator's batch consent at Phase 0 carries through, per the STE-220 `-p` carve-out). Capture stdout to `/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-fix-${IDX}-implement.log`.
+
+   Next finding starts after the prior finding's `/implement` returns. Sequential, not parallel — each fixer commits to the toolkit repo, so parallel fixers would race on the working tree.
+
+**Severity filter — high only.** `**Severity:** medium` and `**Severity:** low` findings surface in the aggregated report (operator visibility) but **do not** trigger Phase B dispatch. Driver-side caveats (e.g., `claude-st -p doesn't support X`) are conventionally `medium` per `/smoke-test`'s findings template, so this filter naturally excludes them — the maintainer wouldn't agree with auto-allocating an FR for a driver-side caveat. Closes the risk noted in STE-224's `## Notes`.
+
+**Reference snippet** — Phase B per-finding dispatch (sequential):
+
+```bash
+IDX=0
+PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"
+for FINDING_TEXT in <high-severity-findings-from-aggregated-report>; do
+  IDX=$((IDX + 1))
+  LOG_SW=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-fix-${IDX}-spec-write.log
+  LOG_IMPL=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-fix-${IDX}-implement.log
+
+  # Collision-resistant heredoc delimiter: a finding body could contain the
+  # literal `PROMPT_EOF` on its own line (a fixture name, a code snippet, or
+  # the operator quoting an earlier prompt). Suffixing the delimiter with a
+  # uuid eliminates the collision surface entirely; if `uuidgen` is absent,
+  # fall back to `$RANDOM`-based suffixing — both produce a tag that cannot
+  # appear in a finding body unless the writer is specifically attacking the
+  # parser.
+  EOF_TAG="PROMPT_EOF_$(uuidgen 2>/dev/null || echo "${RANDOM}${RANDOM}")"
+
+  # 1. /spec-write — allocate a new FR for the finding
+  CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
+    --plugin-dir "${PLUGIN_DIR}" \
+    --permission-mode bypassPermissions \
+    > "${LOG_SW}" 2>&1 <<${EOF_TAG}
+/dev-process-toolkit:spec-write
+
+${FINDING_TEXT}
+${EOF_TAG}
+
+  NEW_TRACKER_ID=$(<parse-closing-summary-from "${LOG_SW}">)
+
+  # Fail-fast guard: an empty NEW_TRACKER_ID means /spec-write did not emit a
+  # closing-summary row (subprocess failure, parse failure, or zero-byte
+  # stdout). Surface the failure with the log path so the operator can
+  # forensically inspect, then abort the iteration (do NOT silently dispatch
+  # /implement against an empty argument).
+  if [ -z "${NEW_TRACKER_ID}" ]; then
+    echo "/conformance-loop: Phase B fix-${IDX} failed — /spec-write produced no tracker ID. See ${LOG_SW}. Aborting Phase B."
+    exit 1
+  fi
+
+  # 2. /implement — build the FR end-to-end
+  CLAUDE_CONFIG_DIR=~/.claude-st claude -p "/dev-process-toolkit:implement ${NEW_TRACKER_ID}" \
+    --plugin-dir "${PLUGIN_DIR}" \
+    --permission-mode bypassPermissions \
+    < /dev/null > "${LOG_IMPL}" 2>&1
+done
+```
+
+### Termination
+
+After each iteration (Phase A + optional Phase B), the loop checks three exit conditions in order. The first to trip wins:
+
+(a) **`green`** — both per-tracker findings files have zero `**Severity:** high` lines:
+
+```bash
+HIGH_LINEAR=$(grep -c '^\*\*Severity:\*\* high' /tmp/dpt-smoke-findings-${DATE}-linear.md)
+HIGH_JIRA=$(grep -c '^\*\*Severity:\*\* high' /tmp/dpt-smoke-findings-${DATE}-jira.md)
+if [ "${HIGH_LINEAR}" -eq 0 ] && [ "${HIGH_JIRA}" -eq 0 ]; then
+  STATUS=green
+  break
+fi
+```
+
+(b) **`max-iterations`** — counter ≥ `--max-iterations`:
+
+```bash
+if [ "${ITER}" -ge "${MAX_ITERATIONS}" ]; then
+  STATUS=max-iterations
+  break
+fi
+```
+
+(c) **`no-progress`** — current iteration's aggregated findings file is byte-identical to the previous iteration's, OR `--auto-fix`'s Phase B produced zero file changes (probed via `git rev-parse HEAD` unchanged before/after Phase B):
+
+```bash
+PREV=/tmp/dpt-conformance-loop-${DATE}-iter-$((ITER - 1)).md
+CURR=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}.md
+if [ -f "${PREV}" ] && cmp -s "${PREV}" "${CURR}"; then
+  STATUS=no-progress
+  break
+fi
+if [ "${AUTO_FIX}" = "on" ] && [ "${HEAD_BEFORE_PHASE_B}" = "${HEAD_AFTER_PHASE_B}" ]; then
+  STATUS=no-progress
+  break
+fi
+```
+
+The `green` probe runs after Phase A (Phase B's fixers may have lowered the count). The `max-iterations` probe runs once `green` does not trip. The `no-progress` probe needs at least one prior iteration's aggregated report to compare against, so on iteration 1 with `--auto-fix` ON it falls back to the `git rev-parse HEAD` probe; on iteration 1 with `--auto-fix` OFF, neither no-progress sub-probe fires (the loop already exits via capture-only's `iter == 1` short-circuit).
+
+**Capture-only short-circuit.** When `--auto-fix` is OFF, the loop exits after Phase A of iteration 1 unconditionally with `STATUS=capture-only` (not one of the three above). The three termination probes only matter when `--auto-fix` is ON and the loop may run multiple iterations.
+
+### Closing summary
+
+Emit a unified per-iteration table to stdout, plus the termination reason and links to every artifact:
+
+```
+## /conformance-loop summary
+
+| iter | status   | high (linear) | high (jira) | medium (linear+jira) | fixer-changes | wall-clock |
+|------|----------|---------------|-------------|----------------------|---------------|-----------|
+|    1 | running  |             3 |           2 |                    4 |             2 | 11m 14s   |
+|    2 | running  |             1 |           1 |                    3 |             2 | 10m 47s   |
+|    3 | green    |             0 |           0 |                    2 |             — | 10m 02s   |
+
+Termination reason: green (zero **Severity:** high lines in both per-tracker files)
+
+Artifacts:
+- iter-1: /tmp/dpt-conformance-loop-<date>-iter-1.md
+- iter-2: /tmp/dpt-conformance-loop-<date>-iter-2.md
+- iter-3: /tmp/dpt-conformance-loop-<date>-iter-3.md
+- linear logs: /tmp/dpt-conformance-loop-<date>-iter-*-linear.log
+- jira logs:   /tmp/dpt-conformance-loop-<date>-iter-*-jira.log
+- approval:    /tmp/dpt-conformance-loop-<date>-approval.txt
+
+Open questions / risks / inconsistencies:
+- (rendered from capability-key map; see § Capability-key map)
+```
+
+#### Capability-key map (for closing summary's open-questions block)
+
+The closing summary's open-questions block renders capability gaps as **plain prose**, drawn from the static map below — same pattern as `/spec-write`'s § Step 7 capability-key map. Add new keys to this map when a new capability gap surfaces; do **not** invent ad-hoc prose at runtime.
+
+| Capability key                              | Rendered prose |
+|---------------------------------------------|----------------|
+| `conformance_loop_terminated_green`         | `loop converged on iteration <N> — both per-tracker findings files report zero **Severity:** high lines; safe to ship` |
+| `conformance_loop_terminated_exhausted`     | `loop hit --max-iterations cap (<N>) before convergence — high-severity findings remain in iter-<N>; operator should triage manually before re-running` |
+| `conformance_loop_terminated_no_progress`   | `loop detected no-progress (byte-identical aggregated findings across iter-<N-1> and iter-<N>, or zero git HEAD advance after Phase B) — fixers cannot resolve the remaining findings; operator should triage manually` |
+
+Three new capability keys total: `conformance_loop_terminated_green`, `conformance_loop_terminated_exhausted`, `conformance_loop_terminated_no_progress` (satisfies the verify line `grep -c 'conformance_loop_terminated_' >= 3`).
+
+The `STATUS` value from the termination check maps directly to one of the three keys: `green` ⇒ `conformance_loop_terminated_green`, `max-iterations` ⇒ `conformance_loop_terminated_exhausted`, `no-progress` ⇒ `conformance_loop_terminated_no_progress`. The `capture-only` short-circuit emits no capability-key row (it's the default success path, not a capability gap).
+
+## Output
+
+All output paths carry the per-iteration `<ITER>` suffix so a subsequent iteration cannot overwrite the prior iteration's artifacts:
+
+- `/tmp/dpt-conformance-loop-<DATE>-iter-<N>.md` — aggregated report (the deliverable per iteration).
+- `/tmp/dpt-conformance-loop-<DATE>-iter-<N>-{linear,jira}.log` — per-iteration child stdout/stderr.
+- `/tmp/dpt-conformance-loop-<DATE>-iter-<N>-fix-<IDX>-{spec-write,implement}.log` — per-fix-step child stdout/stderr (Phase B only).
+- `/tmp/dpt-conformance-loop-<DATE>-approval.txt` — operator approval record from Phase 0 (one per invocation, not per iteration).
+
+End-of-run console summary: per-iteration table, termination reason, links to all artifacts (see § Closing summary above).
+
+## Rules
+
+- **Project-local, not plugin.** Lives in `.claude/skills/conformance-loop/SKILL.md`. Do not move into `plugins/dev-process-toolkit/skills/` — downstream users have no business running a conformance loop against the plugin they just installed.
+- **Capture-only is the default.** `--auto-fix` is opt-in by explicit flag. The default mode preserves `/smoke-test`'s "Capture, don't fix" rule unchanged.
+- **High-severity only for Phase B.** Medium and low findings surface in the aggregated report but never trigger fixer dispatch. Driver-side caveats are conventionally medium and so are filtered out by construction.
+- **Sequential per-finding fixer dispatch.** Each `/spec-write` + `/implement` pair commits to the toolkit repo; parallel fixers would race on the working tree. Per-finding sequential, per-iteration parallel (only the two per-tracker `/smoke-test` children run in parallel).
+- **Fail-fast on Phase A subprocess error.** If either `/smoke-test` child returns non-zero, the iteration aborts immediately — no aggregation, no Phase B dispatch, no re-iteration. Forensics live in the per-iteration log files.
+- **No agent-team primitive.** Bash subprocess parallelism is the only sanctioned mechanism — agent teams have no `fork: true` flag and aren't recommended for serial orchestration per the Claude Code docs.
+- **Operator owns iteration count.** No budget cap; `--max-iterations` is the only spending control. Default 3 means a worst-case ~60-min wall-clock for a fully-iterating run.
+- **--dry-run is for tests, not operators.** Operators always run live; `--dry-run` exists so the integration test (`conformance-loop-dry-run.test.ts`) can cover the parallelism + aggregation + termination paths without invoking real `claude -p` children.
+
+## Threat model
+
+`/conformance-loop` is the **formally-sanctioned exception** to two `/smoke-test` rules — the override is documented here so future operators understand the deliberate deviation.
+
+### Override sanction — `/smoke-test`'s "Capture, don't fix" rule
+
+`/smoke-test` § Rules states "Capture, don't fix" — the smoke-test driver surfaces issues into a findings file but never dispatches fixers. The rationale was that triage and fix should happen via `/spec-write` + `/implement` on the toolkit repo, not inline, so the operator owns triage decisions per finding (some findings are driver-side caveats, not plugin bugs).
+
+`/conformance-loop --auto-fix` deliberately overrides this rule. **Justification:** post-M55 and post-M56 smoke runs surfaced 6 and 3+ FRs respectively — manual triage of every finding dominates the operator's time, and the overwhelming majority of high-severity findings have already been triaged as legitimate plugin bugs by the time they reach this stage. The opt-in `--auto-fix` flag makes the override explicit; capture-only mode (the default) preserves the original rule unchanged for raw `/smoke-test` invocations.
+
+**Safety rails for the override:**
+- **`--max-iterations` cap.** Operator-controlled budget. Default 3, hard maximum at the operator's discretion. Prevents runaway loops.
+- **Capture-only default.** The override only fires when the operator explicitly passes `--auto-fix`; the default mode honors the original rule.
+- **No-progress detection.** A finding `/implement` cannot actually fix would otherwise loop until `--max-iterations`. The no-progress probe (zero diff between iter-N and iter-N-1 aggregated findings, OR zero `git rev-parse HEAD` advance after Phase B) catches this on iteration 2 and exits with `status: no-progress`. Acceptable mitigation under the "operator owns iteration count" model.
+- **High-severity filter for Phase B.** Only `**Severity:** high` findings trigger fixer dispatch; driver-side caveats (conventionally medium) are filtered out by construction. Closes the risk that `--auto-fix` would auto-allocate FRs for findings the maintainer wouldn't agree with.
+
+### Override sanction — `/smoke-test`'s "One run per release cycle" rule
+
+`/smoke-test` § Rules states "One run per release cycle. Don't re-run for fun; each run costs real tokens and Linear teardown labor." With token cost dropped from this design's scope (operator owns iteration count via `--max-iterations`), only the teardown labor remains — and the operator accepts the per-iteration teardown burden as the cost of automation. The "Capture, don't fix" rule is overridden only when `--auto-fix` is explicitly set; capture-only mode preserves the original rule.
+
+### Residual risks (not protected against)
+
+- **Runaway tracker writes.** Each iteration creates a fresh test project (Linear) + ~6 work items (Jira). At `--max-iterations 3`, a fully-iterating run creates ~18 work items per tracker. Operator must run the manual sweep (`/smoke-test` Phase 5 teardown handles the per-iteration cleanup, but the operator should verify post-run).
+- **Driver-side caveats slip through.** If a driver-side caveat is misclassified as `high` (operator misjudgement at smoke-test authoring time), Phase B will dispatch on it. Mitigation: the high-severity convention is documented in `/smoke-test`'s findings template; the operator should fix the misclassification at the source rather than working around it here.
+- **Loop-induced spec drift.** Each iteration's `/implement` commits land on the toolkit repo; if multiple iterations accumulate before the operator reviews, spec drift may accumulate. Mitigation: operator should review after each `/conformance-loop` run before re-running.
