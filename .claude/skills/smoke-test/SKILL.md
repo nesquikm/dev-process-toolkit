@@ -510,6 +510,121 @@ Skills explicitly NOT run (with reasons logged in findings):
 - `/dev-process-toolkit:ship-milestone` — would dirty real Linear data further.
 - `/dev-process-toolkit:tdd` standalone — covered by `/implement`.
 
+### Phase 2.X — M56 runtime regression fixtures (STE-220 / STE-221 / STE-222)
+
+Three fixture groups verify that the M55 cohort's SKILL.md-prose fixes (STE-213, STE-214, STE-215) actually fire at runtime — not just that the SKILL.md says they should. M55 archived these FRs `[x]` based on LLM self-confirm during `/implement` Phase 4; the 2026-05-04 v2.8.0 smoke runs (Linear F2-1 + Jira C-F1, both afternoon legs) proved STE-213's runtime had not changed despite green checkmarks. Phase 2.X is the fence: every smoke run captures real `claude -p` stdout for each system-under-test and asserts the documented contract.
+
+Failure shape (canonical across all groups): `STE-<sut> runtime regression: <fixture-name>` where `<sut>` is the FR being regression-tested (STE-213 / STE-214 / STE-215), **not** the M56 FR carrying the fixture (STE-220 / STE-221 / STE-222). The diagnostic names the system-under-test so triage points to the broken implementation, not the test infrastructure. STE-220 is its own SUT (it carries both the fix and the regression test), so `STE-220 runtime regression: …` is the canonical diagnostic for fixture group 1.
+
+Phase 2.X fires AFTER Phase 2 step 6 (`/simplify`) returns successfully and BEFORE Phase 3 (Capture). Fixture groups are independent; a failure in one does not abort the others.
+
+#### Fixture group 1 — STE-220 spec-write Auto-mode/-p carve-out (Linear + Jira)
+
+**Source:** `/tmp/dpt-smoke-<tracker>-spec-write.log` (already captured during Phase 2 step 2 — no new spawn needed).
+
+**Assertions:**
+
+- `grep -F 'spec_write_draft_default_applied' /tmp/dpt-smoke-<tracker>-spec-write.log` exit 0 (row present in stdout).
+- `grep -F 'spec_write_commit_default_applied' /tmp/dpt-smoke-<tracker>-spec-write.log` exit 0 (row present in stdout).
+
+**Diagnostic on failure:**
+
+```
+STE-220 runtime regression: spec-write-Auto-mode-carveout
+  expected: spec_write_draft_default_applied row in stdout
+  actual:   row absent
+  stdout excerpt (last 20 lines):
+    <tail -20 /tmp/dpt-smoke-<tracker>-spec-write.log>
+```
+
+If both rows present, append `STE-220 runtime check: PASS` to the run summary line.
+
+#### Fixture group 2 — STE-221 probe #26 ## Notes scanner (Linear-only)
+
+Three sub-fixtures, each writing a temporary FR file under `specs/frs/`, invoking `claude -p /dev-process-toolkit:gate-check`, capturing stdout, then cleaning up. Linear leg only — probe #26 is vacuous on Jira (adapter Schema M `project_milestone: false`).
+
+##### Sub-fixture 2a — positive (canonical capability key)
+
+- Stage: write `specs/frs/<TKR>-FIX-A.md` with `## Notes` body containing the literal token `milestone_attach_skipped_adapter_limit`.
+- Invoke + capture: `claude -p /dev-process-toolkit:gate-check` → `/tmp/dpt-smoke-<tracker>-ste221-positive.log`.
+- Assert: `grep -E 'ADVISORY.*probe.*26|probe.*26.*ADVISORY' /tmp/dpt-smoke-<tracker>-ste221-positive.log` exit 0.
+- Cleanup: remove the temporary FR file.
+
+##### Sub-fixture 2b — control (no key)
+
+- Stage: same FR but `## Notes` body has no milestone-attach capability key.
+- Invoke + capture as above → `/tmp/dpt-smoke-<tracker>-ste221-control.log`.
+- Assert: probe #26 surfaces `GATE FAILED` (proves the scanner is the difference, not unrelated probe behavior).
+- Cleanup.
+
+##### Sub-fixture 2c — deprecated-alias (`milestone_attach_unavailable`)
+
+- Stage: same FR but `## Notes` body has `milestone_attach_unavailable` (the STE-198 deprecated alias).
+- Invoke + capture as above → `/tmp/dpt-smoke-<tracker>-ste221-alias.log`.
+- Assert: probe #26 surfaces ADVISORY (deprecation window honored per STE-214 AC.5). When STE-198's rollover note flips, this fixture flips to expecting GATE FAILED.
+- Cleanup.
+
+**Diagnostic on any sub-fixture failure:**
+
+```
+STE-214 runtime regression: <sub-fixture-name>
+  expected: <ADVISORY | GATE FAILED>
+  actual:   <observed>
+  stdout excerpt (last 20 lines):
+    <tail -20 of the relevant log>
+```
+
+If all three pass, append `STE-214 runtime check: PASS` to the run summary line.
+
+#### Fixture group 3 — STE-222 cross-cutting drift propagation (Linear + Jira)
+
+Three sub-fixtures. Both legs run — `/implement`'s Phase 4b' propagation hook is adapter-agnostic.
+
+##### Sub-fixture 3a — positive (deletion ⇒ propagation commit)
+
+- Stage: pre-create `src/.placeholder.test.ts` (committed); add stale references to that path in `specs/technical-spec.md` + `specs/testing-spec.md` directory-tree blocks; pre-create an FR whose implementation deletes the file.
+- Invoke + capture: `claude -p /dev-process-toolkit:implement <FR>` → `/tmp/dpt-smoke-<tracker>-ste222-positive.log`.
+- Assert: `git log --grep 'propagate.*removal to cross-cutting specs' --since '<run-start>' | wc -l` ≥ 1 (propagation commit landed).
+- Assert: directory-tree blocks in both cross-cutting specs no longer reference `src/.placeholder.test.ts`.
+- Cleanup: revert the test project's run-window commits.
+
+##### Sub-fixture 3b — control (no deletion)
+
+- Stage: identical setup but FR's implementation does NOT delete any tracked file.
+- Invoke + capture as above → `/tmp/dpt-smoke-<tracker>-ste222-control.log`.
+- Assert: `git log --grep 'propagate.*removal to cross-cutting specs' --since '<run-start>' | wc -l` == 0 (silent no-op per STE-215 AC.4).
+- Cleanup.
+
+##### Sub-fixture 3c — probe-side (stale ref on disk ⇒ ADVISORY)
+
+- Stage: pre-create a stale leaf in `specs/technical-spec.md` referencing a path that doesn't exist on disk (no `/implement` run).
+- Invoke + capture: `claude -p /dev-process-toolkit:gate-check` → `/tmp/dpt-smoke-<tracker>-ste222-probe.log`.
+- Assert: `grep -F 'cross-cutting-spec-stale-file-refs' /tmp/dpt-smoke-<tracker>-ste222-probe.log` exit 0 with ADVISORY context (NOT `GATE FAILED` — STE-215 AC.5 specifies ADVISORY).
+- Cleanup.
+
+**Diagnostic on any sub-fixture failure:**
+
+```
+STE-215 runtime regression: <sub-fixture-name>
+  expected: <propagation-commit-present | propagation-commit-absent | ADVISORY-row-present>
+  actual:   <observed state>
+  stdout excerpt (last 20 lines):
+    <tail -20 of the relevant log>
+  git log excerpt (last 5 commits since <run-start>):
+    <git log --oneline -n 5 since run-start>
+```
+
+The `git log excerpt` line is STE-222-specific (vs. group 2's stdout-only diagnostic) — `/implement` failures often surface in `git log` shape rather than stdout content, so the diagnostic carries both. If all three pass, append `STE-215 runtime check: PASS` to the run summary line.
+
+#### Phase 2.X summary line
+
+Append exactly one summary line to the run summary, drawn from:
+
+- `M56 runtime checks: PASS (STE-220 + STE-214 + STE-215 verified at runtime)` — all 7 sub-fixtures green.
+- `M56 runtime checks: <N> regressions surfaced (see findings file)` — 1+ failures; each failure already logged its canonical `STE-<sut> runtime regression: …` diagnostic. Phase 3 (Capture) folds the diagnostics into the findings file under a `## Phase 2.X regressions` heading.
+
+Phase 2.X is **shared infrastructure** for all three M55-cohort runtime contracts. Future SKILL.md-prose fixes (any FR shipping a behavior change via instructional text in `skills/<X>/SKILL.md`) should add their own fixtures here following the `STE-<sut> runtime regression: <fixture-name>` diagnostic shape — naming the system-under-test, not the test FR.
+
 ### Phase 3 — Capture
 
 After every skill completes, parse its log and the test-project state, generating findings entries. Findings template:

@@ -37,15 +37,21 @@ function read(path: string): string {
 }
 
 function extractStep4(body: string): string {
-  // Step 4 is the `Provider.sync(spec)` step inside § 0b. End-anchor is the
-  // next structural numbered step (a literal "5. " line at column 0). This
-  // is more robust than pegging the anchor to a specific AC citation that
-  // may be re-parenthesised by future edits.
-  const start = body.indexOf("\n4. Call `Provider.sync(spec)`");
+  // Step 4 is the `Provider.sync(spec)` step inside § 0b. The leading prose
+  // may carry inline subsection markers (e.g., STE-220's "Draft acceptance
+  // gate" preface that runs before the sync call) — anchor on the `\n4. `
+  // line-start, then validate the slice contains "Provider.sync(spec)" so
+  // the right step is being read regardless of leading-prose drift. End on
+  // the next structural numbered step (a literal "5. " line at column 0).
+  const start = body.indexOf("\n4. ");
   expect(start).toBeGreaterThan(-1);
   const tail = body.slice(start + 1);
   const endRel = tail.search(/\n5\. /);
-  return endRel === -1 ? body.slice(start) : body.slice(start, start + 1 + endRel);
+  const slice = endRel === -1 ? body.slice(start) : body.slice(start, start + 1 + endRel);
+  // Defense against the regex matching an unrelated `\n4. ` (e.g., a nested
+  // numbered list). Step 4 of § 0b is the only one with the sync call.
+  expect(slice).toContain("Provider.sync(spec)");
+  return slice;
 }
 
 describe("STE-157 AC-STE-157.1 — spec-write step 4 names the backoff retry contract", () => {
