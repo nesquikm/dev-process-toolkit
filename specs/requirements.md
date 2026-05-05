@@ -313,3 +313,5 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-216.1..6 | plugins/dev-process-toolkit/skills/simplify/SKILL.md, plugins/dev-process-toolkit/skills/spec-write/SKILL.md | plugins/dev-process-toolkit/tests/simplify-dirty-tree-advisory.test.ts |
 | AC-STE-217.1..6 | plugins/dev-process-toolkit/adapters/_shared/src/plan_verify_line_validity.ts, plugins/dev-process-toolkit/skills/gate-check/SKILL.md | plugins/dev-process-toolkit/tests/gate-check-probe-28-negative-assertion.test.ts |
 | AC-STE-218.1..6 | .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/smoke-test-skill-fdr-cleanup.test.ts |
+| AC-STE-224.1..11 | .claude/skills/conformance-loop/SKILL.md, .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/conformance-loop-args.test.ts, plugins/dev-process-toolkit/tests/conformance-loop-aggregator.test.ts, plugins/dev-process-toolkit/tests/conformance-loop-termination.test.ts, plugins/dev-process-toolkit/tests/conformance-loop-dry-run.test.ts |
+
