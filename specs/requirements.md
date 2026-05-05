@@ -292,6 +292,9 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-190.1..4 | plugins/dev-process-toolkit/adapters/_shared/src/jira_pull_acs.ts, plugins/dev-process-toolkit/adapters/jira.md | plugins/dev-process-toolkit/adapters/_shared/src/jira_pull_acs.test.ts |
 | AC-STE-191.1..4 | .claude/skills/smoke-test/SKILL.md | (prose-only — verified by static greps; AC-STE-191.4 deferred per smoke-AC convention) |
 | AC-STE-194.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/tracker_project_milestone_attached.ts, plugins/dev-process-toolkit/skills/gate-check/SKILL.md, plugins/dev-process-toolkit/adapters/linear.md | plugins/dev-process-toolkit/tests/gate-check-tracker-project-milestone-attached.test.ts |
+| AC-STE-220.1..6 | plugins/dev-process-toolkit/skills/spec-write/SKILL.md, .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/spec-write-draft-gate-co-location.test.ts, plugins/dev-process-toolkit/tests/smoke-test-m56-runtime-regression.test.ts |
+| AC-STE-221.1..4 | .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/smoke-test-m56-runtime-regression.test.ts |
+| AC-STE-222.1..4 | .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/smoke-test-m56-runtime-regression.test.ts |
 | AC-STE-195.1..5 | .claude/skills/smoke-test/SKILL.md | — |
 | AC-STE-196.1..4 | plugins/dev-process-toolkit/skills/simplify/SKILL.md | — |
 | AC-STE-197.1..5 | plugins/dev-process-toolkit/templates/spec-templates/plan.md.template, plugins/dev-process-toolkit/skills/setup/SKILL.md, plugins/dev-process-toolkit/skills/implement/SKILL.md, plugins/dev-process-toolkit/skills/gate-check/SKILL.md, plugins/dev-process-toolkit/adapters/_shared/src/plan_file_single_milestone.ts | plugins/dev-process-toolkit/tests/plan-template-shape.test.ts, plugins/dev-process-toolkit/tests/gate-check-plan-file-single-milestone.test.ts, plugins/dev-process-toolkit/tests/template-tracker-id-convention.test.ts |
