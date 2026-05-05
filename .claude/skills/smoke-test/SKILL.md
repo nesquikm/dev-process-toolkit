@@ -370,6 +370,7 @@ CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
   --permission-mode bypassPermissions \
   --max-budget-usd 3 \
   > /tmp/dpt-smoke-<tracker>-setup.log 2>&1 <<'PROMPT_EOF'
+<dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:setup
 
 stack=Bun+TS, tracker=<tracker>, mcp_server=<linear|atlassian>, ...
@@ -380,13 +381,18 @@ stack=Bun+TS, tracker=<tracker>, mcp_server=<linear|atlassian>, ...
 The repo already contains .claude/settings.json and .mcp.json from the driver's pre-creation step; take the idempotent-merge branch — do not overwrite (model-layer block aborts the chain otherwise).
 PROMPT_EOF
 
-# /spec-write — heredoc body carries the feature stub
+# /spec-write — heredoc body carries the feature stub. The marker
+# `<dpt:auto-approve>v1</dpt:auto-approve>` on its own line is the
+# byte-checkable pre-authorization handoff for /spec-write's draft + commit
+# gates (STE-226). Without it the gates fire interactively and the child
+# halts at the prompt.
 CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
   --permission-mode bypassPermissions \
   --max-budget-usd 3 \
   > /tmp/dpt-smoke-<tracker>-spec-write.log 2>&1 <<'PROMPT_EOF'
+<dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:spec-write
 
 Add a pure function greet(name?: string) returning 'Hello, <name>!' (defaulting 'world' for undefined / empty / whitespace-only). File src/greet.ts; test src/greet.test.ts; 4 ACs.
@@ -399,11 +405,14 @@ CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
   --permission-mode bypassPermissions \
   --max-budget-usd 3 \
   > /tmp/dpt-smoke-<tracker>-implement.log 2>&1 <<'PROMPT_EOF'
+<dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:implement <feature-id>
 
 Pre-authorized: proceed through Phase 4 step 15 commit on success without prompting. Do NOT push. Stay on the current branch (skip worktree prompt).
 PROMPT_EOF
 ```
+
+**Auto-approve marker contract (STE-226).** Every prompt-bearing heredoc above carries the literal line `<dpt:auto-approve>v1</dpt:auto-approve>` as the first body line. The marker is a byte-checkable pre-authorization token that child skills (`/spec-write`, `/implement`) detect by literal string match — no `<system-reminder>` introspection, no `claude -p` non-interactive inference. Children whose gates depend on operator approval (`/spec-write` § 0b step 4 + § 7a draft/commit gates; `/implement` Phase 4 step 15 commit) auto-apply `y` when the marker is in the prompt body and gate interactively otherwise. Removing the marker line (deliberate or accidental) is the canonical way to flip a smoke-driver child into interactive-gating mode for diagnostic runs; the regression to watch for is the inverse — a child that auto-applies WITHOUT the marker (covered by Phase 2.X group 1 sub-fixture 1b below).
 
 #### Stream-idle retry-with-rollback for prompt-bearing children (STE-195)
 
@@ -447,6 +456,7 @@ ABORT: /smoke-test Phase 2 spawn /<skill> stream-idle timeout twice
 # cwd: test project root, e.g. ../dpt-test-project-jira
 attempt_1_started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 CLAUDE_CONFIG_DIR=~/.claude-st claude -p ... > /tmp/dpt-smoke-<tracker>-setup.log 2>&1 <<'PROMPT_EOF'
+<dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:setup
 ...prompt body...
 PROMPT_EOF
@@ -459,6 +469,7 @@ if grep -q 'API Error: Stream idle timeout' /tmp/dpt-smoke-<tracker>-setup.log; 
 
   attempt_2_started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   CLAUDE_CONFIG_DIR=~/.claude-st claude -p ... > /tmp/dpt-smoke-<tracker>-setup.log 2>&1 <<'PROMPT_EOF'
+<dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:setup
 ...same prompt body...
 PROMPT_EOF
@@ -518,9 +529,13 @@ Failure shape (canonical across all groups): `STE-<sut> runtime regression: <fix
 
 Phase 2.X fires AFTER Phase 2 step 6 (`/simplify`) returns successfully and BEFORE Phase 3 (Capture). Fixture groups are independent; a failure in one does not abort the others.
 
-#### Fixture group 1 — STE-220 spec-write Auto-mode/-p carve-out (Linear + Jira)
+#### Fixture group 1 — STE-226 spec-write marker carve-out (Linear + Jira)
 
-**Source:** `/tmp/dpt-smoke-<tracker>-spec-write.log` (already captured during Phase 2 step 2 — no new spawn needed).
+Two sub-fixtures verify that the byte-checkable marker (`<dpt:auto-approve>v1</dpt:auto-approve>`) is the **only** trigger for `/spec-write`'s draft + commit auto-apply path. STE-213 (M55) and STE-220 (M56) attempted the same carve-out via prose-only contracts and both falsified end-to-end across four smoke runs; STE-226 (M59) replaces the prose-only detection with this byte-checkable marker. The two sub-fixtures together close both directions of the failure surface — marker-present must auto-apply (1a), marker-absent must NOT auto-apply (1b).
+
+##### Sub-fixture 1a — marker present (audit rows present)
+
+**Source:** `/tmp/dpt-smoke-<tracker>-spec-write.log` (already captured during Phase 2 step 2 — no new spawn needed; the canonical Phase 2 `/spec-write` heredoc carries the marker on its first body line).
 
 **Assertions:**
 
@@ -530,14 +545,34 @@ Phase 2.X fires AFTER Phase 2 step 6 (`/simplify`) returns successfully and BEFO
 **Diagnostic on failure:**
 
 ```
-STE-220 runtime regression: spec-write-Auto-mode-carveout
+STE-226 runtime regression: spec-write-marker-missing-audit-row
   expected: spec_write_draft_default_applied row in stdout
   actual:   row absent
   stdout excerpt (last 20 lines):
     <tail -20 /tmp/dpt-smoke-<tracker>-spec-write.log>
 ```
 
-If both rows present, append `STE-220 runtime check: PASS` to the run summary line.
+##### Sub-fixture 1b — marker absent (gates fire interactively)
+
+A new `/spec-write` spawn is fired with the marker line **omitted** from the heredoc body. The driver describes this spawn in prose so its snippet is NOT picked up by the `/gate-check` probe `auto_approve_marker_in_canonical_spawns` (which asserts the marker on every documented prompt-bearing spawn): the runtime spawn is constructed at smoke-driver runtime, not authored as a fenced reference snippet here. The driver writes the heredoc body with no marker, captures stdout to `/tmp/dpt-smoke-<tracker>-spec-write-1b.log`, and asserts the inverse — no audit rows appear because the gates fire interactively and the child halts at the prompt without ever reaching § 7's emit path.
+
+**Assertions:**
+
+- `grep -F 'spec_write_draft_default_applied' /tmp/dpt-smoke-<tracker>-spec-write-1b.log` exit 1 (row absent — gate fired interactively, no auto-apply).
+- `grep -F 'spec_write_commit_default_applied' /tmp/dpt-smoke-<tracker>-spec-write-1b.log` exit 1 (row absent for the same reason).
+- Stdout ends at the gate prompt without ever reaching § 7 emit.
+
+**Diagnostic on failure:**
+
+```
+STE-226 runtime regression: spec-write-marker-absent-but-auto-applied
+  expected: stdout halts at draft gate; no audit rows in output
+  actual:   spec_write_draft_default_applied row appeared without marker — child auto-applied via removed legacy detection path
+  stdout excerpt (last 20 lines):
+    <tail -20 /tmp/dpt-smoke-<tracker>-spec-write-1b.log>
+```
+
+If both sub-fixtures pass, append `STE-226 runtime check: PASS` to the run summary line. If only 1a passes, the marker contract is half-broken (auto-apply still fires regardless of the trigger) — surface as a high-severity finding so triage prioritizes the loose-trigger regression over the absent-trigger regression (the loose direction is the riskier one for unattended `claude -p` runs).
 
 #### Fixture group 2 — STE-221 probe #26 ## Notes scanner (Linear-only)
 

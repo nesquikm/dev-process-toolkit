@@ -113,7 +113,7 @@ Proceed? [y/n]
 
 When `--auto-fix` is ON, substitute `<auto-fix-line>` with `In Phase B, sequentially dispatch /dev-process-toolkit:spec-write + /dev-process-toolkit:implement per high-severity finding, then re-iterate until termination.`. When `--auto-fix` is OFF, substitute with `Capture-only mode: exit after Phase A of iteration 1 with the aggregated report.`.
 
-**Auto Mode + `claude -p` default-apply.** Default-apply `y` when the conversation includes `Auto Mode Active` in any `<system-reminder>` block, OR the invocation is `claude -p` non-interactive — same canonical detection contract used by `/spec-write` § 0b. Without those signals, refuse on `n` and on any non-`y` response. On `y`, log the approval to `/tmp/dpt-conformance-loop-<date>-approval.txt` and proceed to the loop.
+**Marker-driven default-apply (STE-226).** Default-apply `y` when the prompt body contains the literal line `<dpt:auto-approve>v1</dpt:auto-approve>` (byte-grep, no inference) — same canonical detection contract used by `/spec-write` § 0b step 4 + § 4 + § 7a. Without the marker, refuse on `n` and on any non-`y` response. On `y` (interactive or marker-driven), log the approval to `/tmp/dpt-conformance-loop-<date>-approval.txt` and proceed to the loop. The marker is the single deterministic mechanism — legacy `Auto Mode Active` system-reminder detection and `claude -p` non-interactive inference are removed (no backward-compat shim per `project_no_users_yet`); `claude -p` invocations without the marker get interactive gating.
 
 ### Phase A — Parallel /smoke-test fan-out + aggregation
 
@@ -130,16 +130,31 @@ LOG_LINEAR=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.log
 LOG_JIRA=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.log
 PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"   # cwd is the toolkit repo (verified by pre-flight (a))
 
-CLAUDE_CONFIG_DIR=~/.claude-st claude -p /smoke-test --tracker linear --linear-team "${LINEAR_TEAM:-STE}" \
-  --plugin-dir "${PLUGIN_DIR}" \
-  --permission-mode bypassPermissions \
-  < /dev/null > "${LOG_LINEAR}" 2>&1 &
+# Each /smoke-test child opens its own Phase 0 pre-approval gate; inject
+# the canonical marker into the heredoc body so the child auto-approves
+# and proceeds into Phase 1 without halting at the prompt (STE-226). The
+# `{ ... } &` brace-group wrapper is required because heredoc-on-stdin
+# `<<'PROMPT_EOF'` and the trailing background `&` cannot live on the
+# same compound command line; the brace group scopes the heredoc to the
+# command and lets `&` background the whole group.
+{
+  CLAUDE_CONFIG_DIR=~/.claude-st claude -p /smoke-test --tracker linear --linear-team "${LINEAR_TEAM:-STE}" \
+    --plugin-dir "${PLUGIN_DIR}" \
+    --permission-mode bypassPermissions \
+    > "${LOG_LINEAR}" 2>&1 <<'PROMPT_EOF'
+<dpt:auto-approve>v1</dpt:auto-approve>
+PROMPT_EOF
+} &
 PID_LINEAR=$!
 
-CLAUDE_CONFIG_DIR=~/.claude-st claude -p /smoke-test --tracker jira --jira-project "${JIRA_PROJECT}" \
-  --plugin-dir "${PLUGIN_DIR}" \
-  --permission-mode bypassPermissions \
-  < /dev/null > "${LOG_JIRA}" 2>&1 &
+{
+  CLAUDE_CONFIG_DIR=~/.claude-st claude -p /smoke-test --tracker jira --jira-project "${JIRA_PROJECT}" \
+    --plugin-dir "${PLUGIN_DIR}" \
+    --permission-mode bypassPermissions \
+    > "${LOG_JIRA}" 2>&1 <<'PROMPT_EOF'
+<dpt:auto-approve>v1</dpt:auto-approve>
+PROMPT_EOF
+} &
 PID_JIRA=$!
 
 wait "${PID_LINEAR}"; RC_LINEAR=$?
@@ -241,11 +256,15 @@ for FINDING_TEXT in <high-severity-findings-from-aggregated-report>; do
   # parser.
   EOF_TAG="PROMPT_EOF_$(uuidgen 2>/dev/null || echo "${RANDOM}${RANDOM}")"
 
-  # 1. /spec-write — allocate a new FR for the finding
+  # 1. /spec-write — allocate a new FR for the finding. The marker line
+  #    `<dpt:auto-approve>v1</dpt:auto-approve>` is the byte-checkable
+  #    pre-authorization handoff for /spec-write's draft + commit gates
+  #    (STE-226); without it the child halts at the FR-draft prompt.
   CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
     --plugin-dir "${PLUGIN_DIR}" \
     --permission-mode bypassPermissions \
     > "${LOG_SW}" 2>&1 <<${EOF_TAG}
+<dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:spec-write
 
 ${FINDING_TEXT}
@@ -263,11 +282,18 @@ ${EOF_TAG}
     exit 1
   fi
 
-  # 2. /implement — build the FR end-to-end
+  # 2. /implement — build the FR end-to-end. Marker injected via heredoc
+  #    so /implement's Phase 4 step 15 commit gate auto-applies under
+  #    `claude -p` (STE-226). Same `${EOF_TAG}` collision-resistant
+  #    delimiter as the /spec-write spawn above; no body content needed
+  #    beyond the marker because the slash command + argument live on
+  #    the CLI argv.
   CLAUDE_CONFIG_DIR=~/.claude-st claude -p "/dev-process-toolkit:implement ${NEW_TRACKER_ID}" \
     --plugin-dir "${PLUGIN_DIR}" \
     --permission-mode bypassPermissions \
-    < /dev/null > "${LOG_IMPL}" 2>&1
+    > "${LOG_IMPL}" 2>&1 <<${EOF_TAG}
+<dpt:auto-approve>v1</dpt:auto-approve>
+${EOF_TAG}
 done
 ```
 

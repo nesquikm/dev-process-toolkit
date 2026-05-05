@@ -606,3 +606,25 @@ Skills that adopt this pattern reference it by anchor (`docs/patterns.md § Patt
 **When this rots**: any future template change that mentions `tests/.placeholder.test.ts` without updating both the template AND probe #20. The smoke-test driver re-run is the regression backstop.
 
 **Cross-refs**: `adapters/_shared/src/bun_zero_match_placeholder.ts` (probe + layout enforcement), `tests/test_layout_policy.test.ts` (positive + negative fixtures), the paired `requirements.md` scope-reconciliation / template-cleanup work.
+
+## Pattern 27: Auto-approve marker for parent → child handoff under `claude -p` {#pattern-auto-approve-marker}
+
+**Where**: `plugins/dev-process-toolkit/skills/spec-write/SKILL.md` § 0b step 4 + § 4 + § 7a (gate sites), `.claude/skills/{smoke-test,conformance-loop}/SKILL.md` (parent skills that spawn `claude -p` children), `/gate-check` probe #38 `auto-approve-marker-in-canonical-spawns` (read-side enforcement).
+
+**Decision**: When a parent skill spawns a child skill under `claude -p` and wants the child's operator-approval gates to auto-apply (rather than halt at the prompt), the parent injects the literal line `<dpt:auto-approve>v1</dpt:auto-approve>` into the heredoc body it pipes to the child's stdin. The child detects the marker by **literal string match on its own line** — no regex, no whitespace tolerance, no `<system-reminder>` introspection, no `claude -p` non-interactive inference. Marker present ⇒ default-apply `y` at every gate; marker absent ⇒ gate fires interactively (the child halts at the prompt under `-p` because there is no human present).
+
+**Marker shape**: `<dpt:auto-approve>v1</dpt:auto-approve>` on its own line. XML-style for visual distinctness (won't collide with markdown, code, or natural prose); the `v1` suffix permits a future revision (`v2`, `v3`) without breaking byte-grep tests for the historical shape.
+
+**Why byte-checkable, not LLM-judgment**:
+
+1. **STE-213 (M55) and STE-220 (M56) both falsified end-to-end.** The two prior attempts at the same carve-out shipped instructional SKILL.md prose telling the LLM to detect `Auto Mode Active` in `<system-reminder>` blocks or infer `claude -p` non-interactive mode. Both fixes were verified by green `/implement` Phase 4 self-review and both halted at runtime when smoke-tested under real `claude -p` invocations (2026-05-04 v2.8.0 Linear F2-1 + Jira C-F1; 2026-05-05 v2.10.0 `/conformance-loop` iter-1 F1 + M1).
+2. **The LLM reading detection prose is the same LLM deciding whether to apply it.** When the gate prompt fires mid-flow, the LLM has hundreds of pages of context above the gate site and may not re-derive the contract from prose alone. A byte-checkable marker is a literal-string handoff: the gate prose says "if `<dpt:auto-approve>v1</dpt:auto-approve>` is on a line in the prompt body, default-apply `y`", and the LLM does a string match — no inference.
+3. **The smoke-driver workaround already proved the mechanism works.** The empirical proof: during the 2026-05-05 `/conformance-loop` iter-1 run, `/conformance-loop`'s Phase A injected an explicit pre-approval line into the `/smoke-test` heredoc body, and both `/smoke-test` children proceeded through their Phase 0 gates. STE-226 formalizes that workaround as the canonical mechanism.
+
+**Read-side safety net**: `/gate-check` probe #38 `auto-approve-marker-in-canonical-spawns` globs `plugins/dev-process-toolkit/skills/*/SKILL.md` + `.claude/skills/*/SKILL.md` and asserts every documented prompt-bearing `claude -p` heredoc spawn fence carries the marker on its own line. Hard fail when missing — this catches the regression where a parent skill silently drops the marker from a documented snippet (e.g., during a copy-paste edit).
+
+**Negative-test coverage**: `/smoke-test` Phase 2.X group 1 carries two sub-fixtures — 1a (marker present ⇒ audit rows present) + 1b (marker absent ⇒ stdout halts at gate without rows). Both directions are exercised so a regression in either direction surfaces during the next smoke run.
+
+**Scope**: prompt-bearing children only (`/setup`, `/spec-write`, `/implement`). Non-prompt-bearing children (`/gate-check`, `/spec-review`, `/simplify`) carry no operator-approval gate, so the marker would be redundant — those snippets stay on `< /dev/null` per STE-188 and are out of probe scope.
+
+**Cross-refs**: `adapters/_shared/src/auto_approve_marker.ts` (probe), `tests/gate-check-auto-approve-marker.test.ts` (positive + negative fixtures), `skills/spec-write/SKILL.md` § 0b step 4 + § 4 + § 7a (gate-site detection contract), `.claude/skills/{smoke-test,conformance-loop}/SKILL.md` (parent injection sites), `specs/frs/archive/STE-213.md` + `specs/frs/archive/STE-220.md` (the two prose-only attempts that falsified — historical context for why the marker exists).

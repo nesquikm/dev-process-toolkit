@@ -209,6 +209,14 @@ Across this plugin's docs and SKILL.md prose, the convention is:
 
 The README's "Commands" table and the `/setup` output use the qualified form (that's the literal command the reader will type); everything else — SKILL.md prose cross-references, docs narrative, CHANGELOG entries — uses the bare form. A bare reference inside a `code fence` that documents what the user types is the one place to spot-check before shipping; bare-in-prose and qualified-in-fence is the target pattern.
 
+## Auto-approve marker for `claude -p` parent → child handoff
+
+When a parent skill spawns a child skill via `claude -p` (e.g., `/smoke-test` Phase 2 spawning `/setup`/`/spec-write`/`/implement`, or `/conformance-loop` Phase A/B spawning `/smoke-test` and the fixers), and the child carries an operator-approval gate, the parent injects the canonical marker line `<dpt:auto-approve>v1</dpt:auto-approve>` into the heredoc body it pipes to the child's stdin. The child detects the marker by literal string match on its own line — no `<system-reminder>` introspection, no `claude -p` non-interactive inference. Marker present ⇒ default-apply `y` at every gate; marker absent ⇒ gate fires interactively (the child halts at the prompt under `-p` because there is no human present).
+
+The marker is the single deterministic mechanism for parent → child auto-approval handoff under `claude -p`. STE-213 (M55) and STE-220 (M56) shipped the same carve-out as instructional SKILL.md prose telling the LLM to detect `Auto Mode Active` in `<system-reminder>` blocks; both attempts falsified end-to-end across four smoke runs because the LLM reading detection prose is the same LLM deciding whether to apply it. STE-226 (M59) replaces the prose-only contract with this byte-checkable marker.
+
+Read-side enforcement: `/gate-check` probe #38 `auto-approve-marker-in-canonical-spawns` globs every SKILL.md and hard-fails on any prompt-bearing `claude -p` heredoc spawn fence missing the marker. Full pattern documentation: `docs/patterns.md` § Pattern 27 — Auto-approve marker for parent → child handoff under `claude -p`.
+
 ## Best Practices
 
 1. **Keep SKILL.md under 500 lines** — move reference material to separate files
@@ -217,6 +225,7 @@ The README's "Commands" table and the `/setup` output use the qualified form (th
 4. **Reference supporting files** so Claude knows when to load them
 5. **Include clear phase structure** — skills with phases are easier for Claude to follow
 6. **Make decisions deterministic** — binary ACs, gate checks, bounded loops
+7. **Inject the auto-approve marker when spawning prompt-bearing children under `claude -p`** — see § Auto-approve marker above; without it, every `/spec-write` / `/implement` child halts at its first gate.
 
 ## References
 
