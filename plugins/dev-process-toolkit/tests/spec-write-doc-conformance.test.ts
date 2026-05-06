@@ -113,3 +113,151 @@ describe("AC-STE-226.7 — migration note documents removal of legacy detection"
     expect(body).toMatch(/without the marker.*interactive|interactive.*without the marker/i);
   });
 });
+
+// STE-227 — `--no-tech` flag and auto-resume detection.
+//
+// Doc-conformance assertions: the --no-tech flag must be documented at three
+// surface sites (argument-hint, § 0b, § 3 — the spec-write process sections),
+// the auto-resume contract for resolved FRs carrying needs_technical_review:
+// true must be documented at § 0a, AC.3 tracker-mode label-push behavior
+// (capability-key surface) must be documented, and the four AC.8 capability
+// keys must appear in the static map. These are LLM-facing instructions the
+// skill prose must carry, not behavioral runtime assertions.
+
+describe("AC-STE-227.1 — /spec-write --no-tech runs requirement + AC interview only", () => {
+  test("SKILL.md documents the --no-tech flag at the argument-hint", () => {
+    const body = read();
+    // The argument-hint frontmatter line must mention --no-tech so users
+    // see the flag in the slash-command UI tab-completion.
+    const hintMatch = body.match(/^argument-hint:\s*['"](.+?)['"]/m);
+    expect(hintMatch).not.toBeNull();
+    expect(hintMatch![1]).toContain("--no-tech");
+  });
+
+  test("SKILL.md documents the --no-tech flag at § 0b (FR creation path)", () => {
+    const body = read();
+    const sec0bIdx = body.indexOf("### 0b. FR creation path");
+    expect(sec0bIdx).toBeGreaterThan(-1);
+    const sec1Idx = body.indexOf("### 1. Assess current state");
+    expect(sec1Idx).toBeGreaterThan(sec0bIdx);
+    const slice = body.slice(sec0bIdx, sec1Idx);
+    expect(slice).toContain("--no-tech");
+  });
+
+  test("SKILL.md documents the --no-tech flag at § 3 (per-spec-file flow)", () => {
+    const body = read();
+    const sec3Idx = body.indexOf("### 3. For each spec file");
+    expect(sec3Idx).toBeGreaterThan(-1);
+    const sec4Idx = body.indexOf("### 4. Review and confirm");
+    expect(sec4Idx).toBeGreaterThan(sec3Idx);
+    const slice = body.slice(sec3Idx, sec4Idx);
+    expect(slice).toContain("--no-tech");
+  });
+
+  test("SKILL.md documents the canonical placeholder line for skipped sections", () => {
+    const body = read();
+    // The placeholder `[needs technical review — run /spec-write <FR-id> to complete]`
+    // must appear in the prose so the LLM knows what to write into the
+    // skipped Technical Design / Testing sections.
+    expect(body).toMatch(/needs technical review.*run\s+\/spec-write\s+<FR-id>\s+to\s+complete/i);
+  });
+
+  test("SKILL.md documents that the technical + testing interview is skipped under --no-tech", () => {
+    const body = read();
+    // Acceptance: prose must explicitly state the skip behavior so the LLM
+    // doesn't ask the technical interview questions on a --no-tech run.
+    expect(body).toMatch(/--no-tech[\s\S]{0,500}(skip|skipped)/i);
+  });
+});
+
+describe("AC-STE-227.5 — /spec-write <FR-id> auto-resume on needs_technical_review:true", () => {
+  test("SKILL.md documents auto-detection of needs_technical_review at § 0a resolver entry", () => {
+    const body = read();
+    const sec0aIdx = body.indexOf("### 0a. Resolver entry");
+    expect(sec0aIdx).toBeGreaterThan(-1);
+    const sec0bIdx = body.indexOf("### 0b. FR creation path");
+    expect(sec0bIdx).toBeGreaterThan(sec0aIdx);
+    const slice = body.slice(sec0aIdx, sec0bIdx);
+    // The resolver entry section MUST mention the auto-resume detection.
+    expect(slice).toMatch(/needs_technical_review/);
+  });
+
+  test("SKILL.md documents the auto-resume flow (skip requirement+AC interview, run technical+testing)", () => {
+    const body = read();
+    // Prose must describe: when flag detected on resolved FR, skip the
+    // already-filled requirement + AC interview, run only the technical
+    // design + testing-spec interview.
+    expect(body).toMatch(
+      /needs_technical_review[\s\S]{0,2000}(skip|already\s+filled)[\s\S]{0,500}(technical|testing)/i,
+    );
+  });
+
+  test("SKILL.md documents that the flag is removed from frontmatter on save", () => {
+    const body = read();
+    // Per AC.5, on save the flag is removed entirely (consistent with
+    // absent ≡ false). Prose must instruct the LLM to clear the field.
+    expect(body).toMatch(
+      /needs_technical_review[\s\S]{0,1500}(remove|cleared|drop)/i,
+    );
+  });
+
+  test("SKILL.md documents that the needs-technical-review label is removed from the tracker", () => {
+    const body = read();
+    // Per AC.5, the tracker label is removed on the same Provider.sync call.
+    expect(body).toMatch(/needs-technical-review[\s\S]{0,500}(label[\s\S]{0,200})?(remove|drop)/i);
+  });
+});
+
+describe("AC-STE-227.3 — Provider.sync still fires under --no-tech, label appended", () => {
+  test("SKILL.md documents that Provider.sync still runs on --no-tech", () => {
+    const body = read();
+    // The flag must NOT short-circuit Provider.sync — the FR still lands
+    // on the tracker, just with the label.
+    expect(body).toMatch(/--no-tech[\s\S]{0,2500}Provider\.sync/);
+  });
+
+  test("SKILL.md documents the needs-technical-review label appended to defaultLabels", () => {
+    const body = read();
+    expect(body).toContain("needs-technical-review");
+    // Prose must describe: appended to defaultLabels (when populated) or
+    // seeded as a single-element array.
+    expect(body).toMatch(
+      /needs-technical-review[\s\S]{0,800}(defaultLabels|labels)/i,
+    );
+  });
+});
+
+describe("AC-STE-227.8 — capability-map additions", () => {
+  test("static map carries fr_needs_technical_review row", () => {
+    const body = read();
+    expect(body).toContain("fr_needs_technical_review");
+    // Rendered prose must mention the placeholder remediation.
+    expect(body).toMatch(
+      /fr_needs_technical_review[\s\S]{0,400}(placeholder|technical|testing)/i,
+    );
+  });
+
+  test("static map carries fr_technical_review_cleared row", () => {
+    const body = read();
+    expect(body).toContain("fr_technical_review_cleared");
+    expect(body).toMatch(
+      /fr_technical_review_cleared[\s\S]{0,400}(cleared|completed)/i,
+    );
+  });
+
+  test("static map carries needs_technical_review_label_unsupported row", () => {
+    const body = read();
+    expect(body).toContain("needs_technical_review_label_unsupported");
+    expect(body).toMatch(
+      /needs_technical_review_label_unsupported[\s\S]{0,400}(label|adapter)/i,
+    );
+  });
+
+  test("static map carries implement_refused_needs_technical_review row", () => {
+    const body = read();
+    expect(body).toContain("implement_refused_needs_technical_review");
+    expect(body).toMatch(
+      /implement_refused_needs_technical_review[\s\S]{0,400}(refused|flagged)/i,
+    );
+  });
+});
