@@ -67,12 +67,23 @@ function escapeYamlScalar(s: string): string {
   return s;
 }
 
+export interface BuildFRFrontmatterOpts {
+  /**
+   * STE-227 AC-STE-227.2 — when explicitly `true`, emit a
+   * `needs_technical_review: true` line after the `tracker:` block (or `id:`
+   * line in mode-none) and before `created_at:`. Absent / `undefined` /
+   * `false` produce byte-identical output with the field omitted entirely.
+   */
+  needsTechnicalReview?: boolean;
+}
+
 /**
  * Build the canonical FR-file frontmatter block. Returned string includes
  * leading and trailing `---\n` delimiters and a trailing newline.
  *
  * Field ordering (both modes):
- *   title → milestone → status → archived_at → (id | tracker) → created_at
+ *   title → milestone → status → archived_at → (id | tracker)
+ *     → [needs_technical_review] → created_at
  *
  * Throws:
  *   - {@link InvalidFrontmatterInputError} when `spec.id` and `trackerBinding`
@@ -83,6 +94,7 @@ function escapeYamlScalar(s: string): string {
 export function buildFRFrontmatter(
   spec: FRFrontmatterInput,
   trackerBinding?: TrackerBinding,
+  opts?: BuildFRFrontmatterOpts,
 ): string {
   if (trackerBinding && spec.id) {
     throw new InvalidFrontmatterInputError(
@@ -110,6 +122,9 @@ export function buildFRFrontmatter(
   } else if (trackerBinding) {
     lines.push("tracker:");
     lines.push(`  ${trackerBinding.key}: ${trackerBinding.id}`);
+  }
+  if (opts?.needsTechnicalReview === true) {
+    lines.push("needs_technical_review: true");
   }
   lines.push(`created_at: ${spec.createdAt}`);
   lines.push("---");

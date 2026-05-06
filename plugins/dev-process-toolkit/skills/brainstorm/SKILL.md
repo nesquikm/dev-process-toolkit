@@ -1,7 +1,7 @@
 ---
 name: brainstorm
 description: Socratic design session for greenfield features with open solution spaces. Clarifies goals one question at a time, proposes 2-3 approaches with tradeoffs, gets design approval, then feeds into /spec-write.
-argument-hint: '<feature or problem description>'
+argument-hint: '[--no-tech] <feature or problem description>'
 ---
 
 # Brainstorm
@@ -25,7 +25,11 @@ Ask **one clarifying question at a time** until you have a clear picture of:
 
 Wait for the answer before asking the next question. Don't batch all questions upfront — ask one, get the answer, then ask the next if still needed. Usually 2–4 questions are enough.
 
+Step 1 fires regardless of `--no-tech`. The flag does not change the Socratic clarification loop — it only carves out Step 2 below and propagates to the Step 4 hand-off command.
+
 ### 2. Explore Approaches
+
+**Skipped under `--no-tech`.** Non-technical users can't pick architectural tradeoffs, so when the flag is set, skip this step entirely — don't propose alternatives, don't list tradeoffs. Jump straight to Step 3 ("Get Goal Approval" framing) once the problem is clear.
 
 Once the problem is clear, propose **2–3 distinct approaches**. For each:
 
@@ -48,6 +52,8 @@ Once the design is approved:
 1. Summarize the approved decision in 2–3 sentences
 2. Transition: "Design approved. Run `/dev-process-toolkit:spec-write` and reference this decision, or I can start now."
 3. If the user says to start now, proceed into the `/dev-process-toolkit:spec-write` flow using the approved design as input — the design decision answers the "HOW" questions in `technical-spec.md`
+
+**`--no-tech` propagation.** When the brainstorm session was invoked with `--no-tech`, the flag auto-propagates to the hand-off: the recommended next command is `/dev-process-toolkit:spec-write --no-tech` (not the bare form), and "start now" invokes `/dev-process-toolkit:spec-write --no-tech` directly. The propagation is mandatory — do not drop the flag at hand-off, since the bare form would re-introduce the technical-design + testing interviews the non-technical author can't answer.
 
 **Placeholder convention.** Brainstorm drafts that preview AC text must use `<tracker-id>` placeholders (e.g., `AC-<tracker-id>.1`) rather than guessing the next sequential tracker number. See `/spec-write` § 0b for the full rule — the real ID is assigned by the tracker allocator only after `Provider.sync(spec)` returns.
 

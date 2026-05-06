@@ -1,7 +1,7 @@
 ---
 name: spec-write
 description: Guide the user through writing or completing spec files (requirements, technical spec, testing spec, plan). Use after /setup to fill in specs before implementation, or to update existing specs.
-argument-hint: '[requirements | technical | testing | plan | all]'
+argument-hint: '[--no-tech] [requirements | technical | testing | plan | all]'
 ---
 
 # Spec Write
@@ -38,11 +38,13 @@ After the layout gate and before any FR write:
 3. On `AmbiguousArgumentError`, surface the NFR-10-shape error from `docs/resolver-entry.md` § Ambiguity and exit non-zero. Never silently pick a winner (NFR-20).
 4. All tracker/network failures during `importFromTracker` surface per NFR-10.
 
-Full decision table and edge cases: `docs/resolver-entry.md`. Subsequent `/spec-write` calls on the same tracker ID run the normal bidirectional diff/resolve flow because both sides are now populated.
+Full decision table and edge cases: `docs/resolver-entry.md`. Subsequent `/spec-write` calls on the same tracker ID run the normal bidirectional diff/resolve flow because both sides are now populated. **STE-227 auto-resume on `needs_technical_review: true` (AC-STE-227.5):** when the resolved FR's frontmatter carries this flag and the invocation is unflagged, skip the requirement + AC interview (already filled by the prior `--no-tech` run) and run only the technical-design + testing-spec interviews. On save, the `needs_technical_review` key is removed from frontmatter entirely (absent ≡ false; never write `false`); the `needs-technical-review` tracker label is removed on the same `Provider.sync` / `upsertTicketMetadata` call that pushes the technical content. `mode: none` is vacuous (no tracker, no labels — the frontmatter key removal is the sole signal).
 
 ### 0b. FR creation path
 
 Creating a new FR means:
+
+**STE-227 `--no-tech` flag (AC-STE-227.1, AC-STE-227.3).** When the invocation carries `--no-tech` (parsed in resolver-entry preamble before § 0a; flag does not affect resolver `kind` routing), skip the technical-design + testing-spec interviews entirely on this new-FR creation path. Write the placeholder line `[needs technical review — run /spec-write <FR-id> to complete]` (substitute the literal `<FR-id>` with the real ID at write time — the tracker ID returned by `Provider.sync(spec)` in tracker mode, or the short-ULID stem in `mode: none`) into the body of `## Technical Design` and `## Testing`. Frontmatter: `needs_technical_review: true` via `buildFRFrontmatter(spec, trackerBinding, { needsTechnicalReview: true })`; auto-resume per § 0a closes the gap. `Provider.sync(spec)` still fires (the FR lands on the tracker as usual, just with an extra label). In tracker mode with label-push capability (Linear, Jira), append `needs-technical-review` to `defaultLabels` when populated, or seed a single-element array when absent — `upsertTicketMetadata(null, { …, labels: [...(defaultLabels ?? []), "needs-technical-review"] })`. Adapters without label-push capability surface a `needs_technical_review_label_unsupported` capability row; the frontmatter flag remains the canonical signal. `mode: none` is vacuous (no tracker, no labels). Without the flag (default), the full interview runs unchanged.
 
 **Draft with placeholder.** When drafting a new tracker-bound FR, use `<tracker-id>` (or the adapter-specific rendering — `STE-<N>` for Linear, `PROJ-<N>` for Jira, etc.) as the tracker-ID placeholder throughout the draft: AC prefixes (`AC-<tracker-id>.1`), filename (`<tracker-id>.md`), plan-file table row, and every prose cross-reference. **Never guess** the next sequential number — the tracker allocator decides, not the implementer, and a guess that clashes with a cancelled/renumbered ticket ships misaligned with its own binding. The real ID is known only after `Provider.sync(spec)` / `upsertTicketMetadata(null, …)` returns. Substitute the placeholder globally once the ID is assigned, **then** write the FR file. This rule applies equally to Linear (which skips cancelled numbers), Jira, and custom trackers. Mode: none is exempt — the short-ULID tail is minted locally and is never subject to race conditions with a tracker allocator.
 
@@ -113,7 +115,7 @@ This order matters because each spec builds on the previous one.
 
 #### requirements.md (WHAT to build — cross-cutting only)
 
-**Scope: cross-cutting only.** `specs/requirements.md` captures concerns that span multiple FRs — auth scheme, observability surface, tenancy model, accessibility posture, etc. Per-FR detail lives in `specs/frs/<id>.md` exclusively. When `/spec-write` is invoked on a per-FR feature, route the work straight to `specs/frs/` (per § 0b) and **do NOT touch `specs/requirements.md`**. The `requirements-md-no-placeholder` gate probe (gate-check #29) flags any `### FR-N: [Feature Name]` heading that survives in `requirements.md` as drift.
+**Scope: cross-cutting only.** `specs/requirements.md` captures concerns that span multiple FRs — auth scheme, observability surface, tenancy model, accessibility posture, etc. Per-FR detail lives in `specs/frs/<id>.md` exclusively. When `/spec-write` is invoked on a per-FR feature, route the work straight to `specs/frs/` (per § 0b) and **do NOT touch `specs/requirements.md`**. The `requirements-md-no-placeholder` gate probe (gate-check #29) flags any `### FR-N: [Feature Name]` heading that survives in `requirements.md` as drift. **STE-227 `--no-tech`:** the flag does not affect this cross-cutting flow; only the per-FR `technical-spec.md` + `testing-spec.md` interviews below are skipped (the FR body's `## Technical Design` and `## Testing` sections are written as placeholder lines per § 0b's preamble; the technical reviewer fills them via `/spec-write <FR-id>`).
 
 Only fire the per-section flow below when the user is filling in **genuinely cross-cutting** requirements — typically the first time `/spec-write` runs on a new project, or when an architectural concern emerges that affects multiple FRs.
 
@@ -273,14 +275,14 @@ Static plain-language map (capability key ⇒ rendered prose):
 | `spec_write_draft_declined` | `/spec-write FR-draft acceptance declined — files not written; re-invoke to retry` |
 | `spec_write_commit_default_applied` | `/spec-write commit auto-approved (marker `<dpt:auto-approve>v1</dpt:auto-approve>` present in prompt body) — verify diff via git show before /implement` |
 | `spec_write_commit_declined` | `/spec-write commit declined — files remain staged, run git commit -m "<subject>" to finish manually` |
+| `fr_needs_technical_review` / `fr_technical_review_cleared` | flagged: `FR <id> needs_technical_review — technical + testing sections are placeholders; run /spec-write <id> (no flag) to complete before /implement.` cleared: `FR <id> needs_technical_review flag cleared — technical + testing sections completed.` |
+| `needs_technical_review_label_unsupported` / `implement_refused_needs_technical_review` | unsupported: `tracker adapter does not support label push — needs-technical-review label not applied; flag visible only via FR frontmatter.` refused: `/implement refused — <list of FR ids> flagged needs_technical_review. Run /spec-write <id> (no flag) for each, then re-invoke.` |
 
 > Annotation: scope = `filename_policy_override` only. Render variant (a) when the resolver-entry context contains no user-proposed filename (the common pre-baked-stub path — no filename hint in the user's prompt); render variant (b) when the user explicitly proposed an alternative (e.g., the prompt typed `specs/frs/foo.md`). The row fires on both variants — only the prose differs. `mode: none` is exempt entirely (no policy-override surface; see the Filename-policy override row paragraph below). `<filename>` substitutes the actual `Provider.filenameFor(spec)` output (e.g., `STE-179.md` for Linear, `DST-6.md` for Jira); `<user-name>` substitutes the user-proposed filename verbatim.
 
 Add new keys to this map when a new capability gap surfaces; do **not** invent ad-hoc prose at runtime, and do **not** substitute the toolkit's `AC-<tracker-id>.<N>` ID for the capability key. The map is the single source of truth for capability-gap rendering — bullet bodies are byte-identical across runs. **Toolkit-meta vs. user-authored AC IDs.** The scrub rule above applies **only** to this toolkit's own internal AC identifiers (`AC-<tracker-id>.<N>` references the skill code itself emits about the toolkit's own spec set). User-authored AC references in the active project's FR markdown bodies — legitimate `AC-<bound-tracker-id>.<N>` entries written by the project owner during the session — pass through **unchanged**: they are the user's content, not toolkit-meta jargon. If `/spec-write` is editing an FR file and the user's prose cites a downstream-project AC like `AC-XYZ-200.3` as a cross-reference, that reference is preserved verbatim in the rendered summary. The distinguishing test: toolkit-meta IDs are emitted by the skill code; user-authored IDs originate in FR bodies.
 
 **Size floor.** The summary must be >=100 bytes on stdout — the smoke-test driver guards this via `wc -c` on the captured log. The two-table-plus-prose shape above clears that floor naturally; do not collapse to a single line. The byte floor is the regression signal that Step 7 fired at all (a prior version of the prose said "Summarize what was completed" and `-p` mode silently skipped the summary, leaving stdout at 1 byte).
-
-**Mode-adaptive id rendering.** Tracker mode renders the tracker ID (e.g., `<TKR>-NN`); `mode: none` renders the short-ULID tail returned by `acPrefix(spec)` (e.g., `VDTAF4`). The same id appears in the FR filename (`Provider.filenameFor(spec)`) — the row's `FR id` and `FR file path` columns must agree.
 
 **Filename-policy override row.** In tracker mode, every successful run that creates a new FR or imports one via `importFromTracker(...)` MUST surface a `filename_policy_override` row in the closing summary's open-questions block — **regardless of whether the user proposed an alternative filename**. The row exists so the operator sees, on every run, that `Provider.filenameFor(spec)` (e.g., `<TKR>-NN.md` for Linear, `DST-NN.md` for Jira) is the authoritative filename source rather than any user-facing name they typed in conversation. An earlier Jira smoke caught the regression where the override was only mentioned when the user's prompt happened to carry an explicit alternative filename; this rule fires the row on every tracker-mode FR write so the signal is unconditional. **`mode: none` is exempt** — the short-ULID stem is local-mint via `Provider.mintId()`, never policy-overridden, so the row is absent on local-mint runs (it would be misleading; there is no override to surface).
 
@@ -289,8 +291,7 @@ Add new keys to this map when a new capability gap surfaces; do **not** invent a
 ## Rules
 
 - Ask one clarifying question per turn. Wait for the answer before asking the next. This rule holds at phase transitions too — when two questions look independent, still ask the first, wait, then ask the second. See `docs/patterns.md § Pattern 26: Socratic Prompting {#pattern-socratic-prompting}` for the canonical rule.
-- Work through specs in precedence order (requirements → technical → testing → plan)
-- Each later spec should reference and build on earlier ones
+- Work through specs in precedence order (requirements → technical → testing → plan); each later spec should reference and build on earlier ones
 - Ask the user for domain knowledge — don't invent requirements
 - Pre-fill technical details from the codebase and CLAUDE.md where possible
 - Present drafts for approval before saving — specs are the source of truth
