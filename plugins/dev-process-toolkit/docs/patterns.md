@@ -451,6 +451,48 @@ A one-time migration helper for projects that ran `/setup` before the workspace-
 
 **When this could change**: If Claude Code lifts the no-nested-spawn restriction, or if Stage B is restructured so the `agents/code-reviewer.md` rubric runs as inline skill content inside a forked `/implement` (accepting the trade of a less independent reviewer), `context: fork` becomes viable. Until then, treat `/implement` as main-session-only.
 
+### Pattern: Multi-Agent TDD Orchestrator (STE-225)
+
+**Problem**: A single-context `/tdd` lets the test-writer subconsciously design around the implementation it's about to write, so test-first becomes test-last-pretending-to-be-first. The fix has to be structural, not stylistic — relying on the model to "stay disciplined" loses the deterministic-gate property.
+
+**The shape (four skills + three subagents)**:
+
+```
+plugins/dev-process-toolkit/
+├── skills/
+│   ├── tdd/SKILL.md               # orchestrator (main context, no `context: fork`)
+│   ├── tdd-write-test/SKILL.md    # `context: fork` + `agent: tdd-test-writer` + `user-invocable: false`
+│   ├── tdd-implement/SKILL.md     # `context: fork` + `agent: tdd-implementer` + `user-invocable: false`
+│   └── tdd-refactor/SKILL.md      # `context: fork` + `agent: tdd-refactorer` + `user-invocable: false`
+└── agents/
+    ├── tdd-test-writer.md         # tools: Read, Grep, Glob, Write, Edit, Bash; maxTurns: 8
+    ├── tdd-implementer.md         # same allowlist; maxTurns: 8
+    └── tdd-refactorer.md          # same allowlist; maxTurns: 8
+```
+
+**Why the skill+subagent pairing**: The skill is the unit of *task instruction*; the subagent is the unit of *execution sandbox*. `context: fork` pairs them — task-as-prompt + locked-down tools + isolated context — per the Claude Code docs at `https://code.claude.com/docs/en/skills#run-skills-in-a-subagent`. Plugin-bundled subagents drop `hooks` / `mcpServers` / `permissionMode`; behavior comes from the SKILL.md prompt + `tools` allowlist exclusively. The `Agent` tool is excluded from the allowlist so the subagents cannot nest-spawn (same constraint that gates the `/implement` Runs In-Process pattern, applied here as a budget-by-construction).
+
+**Cycle granularity (load-bearing)**:
+
+- `tdd-write-test` ⇒ **once per FR** with the full AC list batched into the prompt.
+- `tdd-implement` ⇒ **once per AC** (one fork per AC, passing only that AC's text + the failing-test command).
+- `tdd-refactor` ⇒ **exactly once at end** of FR after every AC is GREEN.
+
+The per-AC implementer dispatch is the load-bearing isolation: the implementer sees one AC, never the full list, never the test-writer's reasoning, never other ACs' implementations. The refactor stage runs once-at-end because the correctness gate is "tests still pass" and a single global pass sees cross-AC duplication that per-AC refactor wouldn't.
+
+**Hand-off contract (deterministic)**: Every child ends with exactly one fenced ` ```tdd-result ` YAML block. The orchestrator parses it via `parseTddResultBlock` from `adapters/_shared/src/tdd_result.ts`. Required fields: `role` (test-writer | implementer | refactorer), `status` (ok | failed), `files` (list, may be empty for refactorer), `command`, `output_excerpt`. Strict YAML keeps the parse deterministic — matches DPT's "deterministic gates override LLM judgment" principle.
+
+**Bounded retries** via `recordTddFailure` from `tdd_retry_state.ts`:
+
+- Modes A (false-RED) / B (implementer can't reach GREEN) / C (refactorer breaks GREEN) / E (maxTurns exhaustion classified by role): max 2 attempts per role per AC, then halt.
+- Mode D (format violation — no/multiple/wrong-role/missing-field tdd-result): single targeted retry, then halt.
+
+The retry prompt **injects only raw failing-test output** — no orchestrator-side analysis. Anything more leaks information that defeats the test-writer-cannot-see-implementation guarantee.
+
+**Halt path** via `formatHaltReport` from `tdd_halt_report.ts`: emits failure mode, retry count, last `tdd-result` block (or raw output), and exits non-zero. Halt is a real failure surfacing — it pauses for the operator. Routine cycles (no retries) run end-to-end without operator interaction; this composes cleanly with `/implement`'s "don't pause between phases" pacing memory because the halt is the bounded-cap signal, not a routine gate.
+
+**Structural probe**: `/gate-check` carries `tdd_orchestrator_integrity` (probe #39, error-severity) asserting (a) the four skill paths exist, (b) children carry `context: fork`, (c) `agent:` resolves, (d) `user-invocable: false` on children, (e) subagent `tools` excludes `Agent`. The probe does not assert prompt phrasing — content drift is verified by the headless live smoke (env-var-gated; nightly).
+
 
 ## Pattern 23: File-per-FR Layout
 
