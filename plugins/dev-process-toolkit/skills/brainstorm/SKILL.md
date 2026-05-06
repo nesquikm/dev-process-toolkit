@@ -1,7 +1,7 @@
 ---
 name: brainstorm
 description: Socratic design session for greenfield features with open solution spaces. Clarifies goals one question at a time, proposes 2-3 approaches with tradeoffs, gets design approval, then feeds into /spec-write.
-argument-hint: '[--no-tech] <feature or problem description>'
+argument-hint: '[--no-tech] [<feature or problem description> | <gist-url>]'
 ---
 
 # Brainstorm
@@ -13,6 +13,22 @@ Run a structured design session for: `$ARGUMENTS`
 Use `/brainstorm` before `/spec-write` when the solution space is genuinely open — you have a goal but not yet a clear approach. For features where the design is already settled, go straight to `/spec-write`.
 
 ## Process
+
+### 0. Gist-URL seed (optional)
+
+When the first positional argument matches `^https://gist\.github\.com/[^/]+/[a-f0-9]{8,}/?$` (the canonical secret-gist URL shape emitted by `/dev-process-toolkit:report-issue`), fetch the gist payload before Step 1 and use it as the brainstorm seed instead of bare prose:
+
+```bash
+gh gist view <id-or-url> --raw -f report.md
+gh gist view <id-or-url> --raw -f metadata.json
+gh gist view <id-or-url> --raw -f transcript.jsonl   # only when full_transcript_included=true in metadata
+```
+
+Parse `report.md` for the dev narrative + curated context, parse `metadata.json` for severity + redaction summary, parse `transcript.jsonl` if present. Treat the combined text as Step 1's seed: the clarifying questions in Step 1 below should already have most of their answers from the gist payload, so only ask follow-ups that the captured context did not answer.
+
+The round-trip closes the loop with `/dev-process-toolkit:report-issue`: a toolkit user captures a structured incident report, hands the gist URL back to the maintainer (or to a fresh self-debug session), and `/brainstorm` ingests the captured context as the design seed without any intermediate state.
+
+When the first positional argument is bare prose (does not match the gist URL regex), skip this step and proceed to Step 1 normally.
 
 ### 1. Clarify the Problem
 

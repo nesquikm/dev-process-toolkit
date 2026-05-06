@@ -10,13 +10,19 @@
 // Sibling probe family: see `auto_approve_marker.ts` (M59 / STE-226)
 // for the prompt-bearing-spawn marker probe colocated here.
 //
-// Scope. The probe only inspects SKILL.md files for the canonical
+// Scope. The probe inspects SKILL.md files for the canonical
 // commit-producing skill list:
 //
 //   ["setup", "spec-write", "spec-archive", "ship-milestone", "implement"]
 //
-// Non-commit-producing skills (e.g. `/gate-check`, `/docs`) are out of
-// scope even if they happen to mention `git commit` in passing.
+// In addition, an explicit `NON_COMMIT_PRODUCING_SKILLS` allowlist
+// (STE-229 AC-STE-229.10) documents the read-only / outbound-only skills
+// that are intentionally exempt from the `requireCommittableBranch`
+// contract. Skills on that list are skipped even if their SKILL.md
+// mentions `git commit` in prose (e.g. as part of a refusal-message
+// example). The allowlist is the canonical record of "this skill
+// produces no VCS writes" — referenced by the FR exemption note in each
+// allowlisted skill's SKILL.md.
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -49,6 +55,22 @@ export const COMMIT_PRODUCING_SKILLS: readonly string[] = [
   "spec-archive",
   "ship-milestone",
   "implement",
+];
+
+/**
+ * Explicit allowlist of skills that produce no VCS writes (STE-229
+ * AC-STE-229.10). Items on this list are exempt from the
+ * `requireCommittableBranch` contract — they are pure read-side or
+ * outbound-only flows (e.g. `/report-issue` shells out to `gh gist
+ * create -s` and writes nothing under VCS). The probe skips these
+ * SKILL.md files unconditionally.
+ *
+ * Disjointness invariant: this list MUST NOT overlap with
+ * `COMMIT_PRODUCING_SKILLS`. The `branch-gate-probe.test.ts` suite
+ * asserts the disjointness so a future drift surfaces deterministically.
+ */
+export const NON_COMMIT_PRODUCING_SKILLS: readonly string[] = [
+  "report-issue",
 ];
 
 // The gate symbol skills must reference (bare, in backticks, or in a
@@ -146,7 +168,9 @@ export function runCommitProducingSkillBranchGateProbe(
   );
   const violations: CommitProducingSkillBranchGateViolation[] = [];
   if (!existsSync(skillsDir)) return { violations };
+  const exempt = new Set(NON_COMMIT_PRODUCING_SKILLS);
   for (const skill of COMMIT_PRODUCING_SKILLS) {
+    if (exempt.has(skill)) continue;
     const skillMd = join(skillsDir, skill, "SKILL.md");
     violations.push(...scanSkillFile(skillMd, projectRoot));
   }

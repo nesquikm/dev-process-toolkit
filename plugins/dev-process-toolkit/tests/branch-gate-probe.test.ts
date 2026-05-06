@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   COMMIT_PRODUCING_SKILLS,
+  NON_COMMIT_PRODUCING_SKILLS,
   runCommitProducingSkillBranchGateProbe,
 } from "../adapters/_shared/src/commit_producing_skill_branch_gate";
 
@@ -222,5 +223,84 @@ describe("commit_producing_skill_branch_gate — scope", () => {
     expect(new Set(COMMIT_PRODUCING_SKILLS)).toEqual(
       new Set(["setup", "spec-write", "spec-archive", "ship-milestone", "implement"]),
     );
+  });
+});
+
+// -----------------------------------------------------------------------------
+// STE-229 AC-STE-229.10 — explicit non-commit-producing allowlist.
+//
+// `NON_COMMIT_PRODUCING_SKILLS` documents skills that are intentionally
+// exempt from the `requireCommittableBranch` contract — they produce no
+// VCS writes. The probe skips these unconditionally so prose mentions
+// of `git commit` (e.g. in a refusal-message example) do not trigger
+// false positives. Disjointness with `COMMIT_PRODUCING_SKILLS` is
+// asserted so the lists cannot drift into overlap.
+// -----------------------------------------------------------------------------
+
+describe("commit_producing_skill_branch_gate — non-commit-producing allowlist (STE-229)", () => {
+  test("`report-issue` is on the canonical NON_COMMIT_PRODUCING_SKILLS allowlist", () => {
+    expect(NON_COMMIT_PRODUCING_SKILLS).toContain("report-issue");
+  });
+
+  test("the allowlist and the commit-producing list are disjoint", () => {
+    const commit = new Set(COMMIT_PRODUCING_SKILLS);
+    for (const skill of NON_COMMIT_PRODUCING_SKILLS) {
+      expect(commit.has(skill)).toBe(false);
+    }
+  });
+
+  test("an allowlisted skill mentioning `git commit` in prose is exempt — no violations", () => {
+    // Plant an allowlisted skill alongside a real commit-producing
+    // skill. The allowlisted entry is silently skipped even when its
+    // SKILL.md references `git commit` in prose; the probe still
+    // returns clean because the commit-producing skill satisfies the
+    // gate.
+    const reportContent = [
+      "# /report-issue",
+      "",
+      "If `gh` is unauthenticated, refuse with a remedy:",
+      "",
+      "```bash",
+      "git commit -m 'never reached'",
+      "```",
+      "",
+      "(prose only — the skill writes nothing under VCS).",
+    ].join("\n");
+    const implContent = [
+      "Call requireCommittableBranch first.",
+      "Then `git commit`.",
+    ].join("\n");
+    const { root, cleanup } = makeFixture([
+      { name: "report-issue", content: reportContent },
+      { name: "implement", content: implContent },
+    ]);
+    try {
+      const report = runCommitProducingSkillBranchGateProbe(root);
+      expect(report.violations).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("the probe still refuses unguarded `git commit` in non-allowlisted commit-producing skills", () => {
+    // Regression guard: the allowlist must NOT short-circuit the
+    // universal-refusal case for skills genuinely on
+    // COMMIT_PRODUCING_SKILLS. Without a preceding gate call, the probe
+    // refuses.
+    const content = [
+      "# /spec-write",
+      "",
+      "```bash",
+      "git commit -m 'no gate first'",
+      "```",
+    ].join("\n");
+    const { root, cleanup } = makeFixture([{ name: "spec-write", content }]);
+    try {
+      const report = runCommitProducingSkillBranchGateProbe(root);
+      expect(report.violations.length).toBeGreaterThan(0);
+      expect(report.violations[0]!.severity).toBe("error");
+    } finally {
+      cleanup();
+    }
   });
 });
