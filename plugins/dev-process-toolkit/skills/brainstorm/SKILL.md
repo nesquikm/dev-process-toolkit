@@ -43,6 +43,14 @@ Wait for the answer before asking the next question. Don't batch all questions u
 
 Step 1 fires regardless of `--no-tech`. The flag does not change the Socratic clarification loop — it only carves out Step 2 below and propagates to the Step 4 hand-off command.
 
+### 1.5. Spec-research seed (STE-230 AC-STE-230.7)
+
+Once the problem is clear (i.e., the user has answered the final clarifying question of Step 1) and **before** Step 2 proposes approaches, invoke `/dev-process-toolkit:spec-research <topic>` where `<topic>` is the clarified problem statement. The forked skill returns a ≤ 25-line block (banner + three sections: `## Related FRs`, `## Prior Decisions`, `## Reusable ACs / Patterns`) sourced from active + archived FRs. Inject the block into this skill's context — Step 2's proposed approaches reference the returned precedents alongside the model's own analysis. Without the seed, Step 2 proceeds as today.
+
+**Skipped under `--no-tech`.** Step 2 itself is skipped under the flag, so this seeding step is also skipped — there is no consumer for the precedents and the call would only burn tokens.
+
+On shape violation (banner missing, section reorder, > 25 lines), drop the block silently and proceed without the seed — the seed is enrichment, not load-bearing. The block is read-only context; never copy it into a draft FR or quote it back to the user verbatim.
+
 ### 2. Explore Approaches
 
 **Skipped under `--no-tech`.** Non-technical users can't pick architectural tradeoffs, so when the flag is set, skip this step entirely — don't propose alternatives, don't list tradeoffs. Jump straight to Step 3 ("Get Goal Approval" framing) once the problem is clear.
