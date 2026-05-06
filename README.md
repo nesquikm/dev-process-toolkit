@@ -155,7 +155,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.14.0 — "Precedent"** (M63 — `/dev-process-toolkit:spec-research` forked skill + `spec-researcher` Read-only Haiku subagent for topic-aware retrieval of prior FRs (active + archived) into `/brainstorm` and `/spec-write` without polluting parent context. Returns a fixed-shape ≤ 25-line block — banner + Related FRs / Prior Decisions / Reusable ACs sections; shape enforced by new `/gate-check` probe #41 `spec_research_result_shape`. Branch-gate exemption via `NON_COMMIT_PRODUCING_SKILLS` allowlist append. Test count: 1989.
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.15.0 — "Tripwire"** (M64 — extends `/smoke-test` Phase 2.X with four new runtime-regression fixture groups for the M58/M60/M61/M63 cohort: group 4 (STE-227 `--no-tech` end-to-end), group 5 (STE-228 branch-gate marker contract — sub-fixtures 5a marker-present / 5b marker-absent prose-only), group 6 (STE-230 spec-research subagent runtime, lenient OR over three audit rows), group 7 (STE-225 TDD orchestrator forks runtime, ≥ 3 `tdd-result` fenced blocks). Diagnostic shape `STE-<sut> runtime regression: <fixture-name>` preserved per M56 precedent. No plugin surface change, no new gate-check probe (project-local SKILL.md scope). Test count: 1989.
 
 ## Core Philosophy
 
