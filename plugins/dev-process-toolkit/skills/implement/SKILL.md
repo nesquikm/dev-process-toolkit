@@ -75,13 +75,7 @@ If a multi-milestone worktree run partially succeeds, list completed work (miles
 
 ## Phase 2: Build (TDD)
 
-8. **Execute in TDD order:**
-   - For each change:
-     a. Write tests first
-     b. Run tests — confirm RED (failing). If tests pass unexpectedly, the test isn't validating new behavior — fix the test assertions before proceeding.
-     c. Implement the code
-     d. Run tests — confirm GREEN (passing)
-   - Follow project patterns from CLAUDE.md.
+8. **Execute in TDD order via the multi-agent orchestrator** — invoke `/dev-process-toolkit:tdd <FR-id>` inline (no separate opt-in path). Per STE-225, the orchestrator runs three forked-subagent stages (test-writer once per FR with the full AC list batched; implementer once per AC; refactorer once at end after all GREEN) with `context: fork` isolation, a strict `tdd-result` fenced-block hand-off contract, and bounded retry (max 2 per role per AC for semantic failures A/B/C/E; single targeted retry for format violation D). Per-stage isolation enforces the test-writer-cannot-see-implementation guarantee deterministically. The orchestrator's halt path **does** pause for the operator — that's intentional, not a pacing violation: halt fires only after the bounded-retry cap is exhausted, so it surfaces a real failure. Routine cycles (no retries) run end-to-end without operator interaction. Follow project patterns from CLAUDE.md.
 
 9. **Spec deviation check** — If reality contradicts the spec, STOP coding forward and classify: `underspecified` (backfill + test + continue), `ambiguous` (provisional decision + user confirm at Phase 4), `contradicts` (wait for user decision), `infeasible` (wait). Always backfill edge cases to `specs/requirements.md` / `specs/technical-spec.md` plus a test. Full playbook: `docs/implement-reference.md` § Spec Deviation Check.
 
@@ -100,6 +94,8 @@ For fan-out-friendly tasks (independent files, ≥3 workers worth of work), para
 ## Phase 3: Self-Review Loop (max 2 rounds)
 
 > The gate check is the hard stop. This review loop is the smart stop.
+
+Phase 3 review runs against the code Phase 2 produced via the `/dev-process-toolkit:tdd` orchestrator. If the orchestrator halted (bounded-retry exhausted on mode A/B/C/D/E per STE-225), Phase 2 already escalated to the operator and Phase 3 does not run — the halt report is the surfaced failure. Otherwise Phase 3's gate check is the deterministic backstop that confirms the orchestrator's GREEN-at-exit claim against the project's full gate command (typecheck + lint + tests).
 
 **Proportional review:** Scale review depth to change size. Trivial changes (single function, <20 lines, no new modules) need only AC + gate check. Reserve deep review for changes touching multiple modules or new patterns.
 

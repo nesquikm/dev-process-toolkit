@@ -1,5 +1,13 @@
 # DPT Improvement Dossier — SDD/TDD Landscape Research, 2026-05
 
+READ these docs first:
+
+- https://code.claude.com/docs/en/skills
+- https://code.claude.com/docs/en/sub-agents
+- https://code.claude.com/docs/en/agent-teams
+- https://code.claude.com/docs/en/code-review
+- https://code.claude.com/docs/en/tools-reference
+
 **Status:** WIP planning material. Drives a sequence of milestones (M-numbers TBD). Each gap below is meant to be picked up gap-by-gap in fresh sessions.
 
 **Origin:** Web research sweep on May 5, 2026, comparing DPT against the May-2026 SDD/TDD landscape (GitHub Spec Kit, Kiro, Tessl, Superpowers, shinpr/claude-code-workflows, OpenSpec, Spec Kitty, BMad). See [Sources](#sources) at the bottom.
@@ -22,25 +30,25 @@ Do **not** treat this file as user-facing plugin content. It lives outside `plug
 
 ## Gap status overview
 
-| #   | Gap                                          | Priority | Status     |
-| --- | -------------------------------------------- | -------- | ---------- |
-| 1   | TDD context isolation (multi-agent `/tdd`)   | HIGH     | Designing  |
-| 2   | Skill-activation reliability via hook        | HIGH     | Open       |
-| 3   | Brownfield/trivial-change workflow           | HIGH     | Open       |
-| 4   | Mandatory verification criteria in specs     | HIGH     | Open       |
-| 5   | Spec-anchored maturity (living specs)        | MEDIUM   | Open       |
-| 6   | Markdown bloat audit                         | MEDIUM   | Open       |
-| 7   | Three-tier behavioral boundaries in CLAUDE.md| MEDIUM   | Open       |
-| 8   | `AskUserQuestion` in `/brainstorm`           | LOW      | Open       |
-| 9   | Plan Mode in `/implement` Phase 1            | LOW      | Open       |
-| 10  | Worktree parallelization                     | N/A      | Won't fix  |
-| 11  | GitHub adapter (parallel to Linear)          | LOW      | Backlog    |
+| #   | Gap                                           | Priority | Status    |
+| --- | --------------------------------------------- | -------- | --------- |
+| 1   | TDD context isolation (multi-agent `/tdd`)    | HIGH     | Designing |
+| 2   | Skill-activation reliability via hook         | HIGH     | Open      |
+| 3   | Brownfield/trivial-change workflow            | HIGH     | Open      |
+| 4   | Mandatory verification criteria in specs      | HIGH     | Open      |
+| 5   | Spec-anchored maturity (living specs)         | MEDIUM   | Open      |
+| 6   | Markdown bloat audit                          | MEDIUM   | Open      |
+| 7   | Three-tier behavioral boundaries in CLAUDE.md | MEDIUM   | Open      |
+| 8   | `AskUserQuestion` in `/brainstorm`            | LOW      | Open      |
+| 9   | Plan Mode in `/implement` Phase 1             | LOW      | Open      |
+| 10  | Worktree parallelization                      | N/A      | Won't fix |
+| 11  | GitHub adapter (parallel to Linear)           | LOW      | Backlog   |
 
 ---
 
-# Gap 1 — TDD context isolation (multi-agent `/tdd`)
+# Gap 1 — TDD context isolation (multi-agent `/tdd`) — **DONE (M58, STE-225)**
 
-**Status:** Designing. Several decisions made; a few open questions before `/spec-write`.
+**Status:** DONE — shipped in M58 (STE-225, v2.11.0). Implementation: orchestrator `skills/tdd/SKILL.md` + child skills `tdd-{write-test,implement,refactor}` with `context: fork` + subagents `tdd-{test-writer,implementer,refactorer}`. Deterministic parser at `adapters/_shared/src/tdd_result.ts`, retry state machine at `tdd_retry_state.ts`, halt formatter at `tdd_halt_report.ts`, `/gate-check` probe `tdd_orchestrator_integrity` (probe #39). Headless live smoke at `tests/tdd-live-smoke.test.ts` (env-gated `DPT_TDD_LIVE_SMOKE=1`).
 
 ## Problem
 
@@ -48,8 +56,8 @@ Current `/tdd` runs RED → GREEN → VERIFY in a single context. The test-write
 
 ## Research signal
 
-- **alexop.dev** ([Forcing Claude Code to TDD](https://alexop.dev/posts/custom-tdd-workflow-claude-code-vue/)): *"When everything runs in one context window, the LLM cannot truly follow TDD."* Author splits into three subagents (test-writer / implementer / refactorer) per `.claude/agents/`. Test-writer hands back failing-test output before implementer is invoked. Implementer cannot be influenced by test-writer's reasoning.
-- **Superpowers** ([obra/superpowers](https://github.com/obra/superpowers)): same pattern. Code written before tests is *deleted*; RED-GREEN-REFACTOR is mandatory.
+- **alexop.dev** ([Forcing Claude Code to TDD](https://alexop.dev/posts/custom-tdd-workflow-claude-code-vue/)): _"When everything runs in one context window, the LLM cannot truly follow TDD."_ Author splits into three subagents (test-writer / implementer / refactorer) per `.claude/agents/`. Test-writer hands back failing-test output before implementer is invoked. Implementer cannot be influenced by test-writer's reasoning.
+- **Superpowers** ([obra/superpowers](https://github.com/obra/superpowers)): same pattern. Code written before tests is _deleted_; RED-GREEN-REFACTOR is mandatory.
 - alexop.dev empirical data: skill activation jumped from ~20% to ~84% after adding a `UserPromptSubmit` hook (relevant to Gap 2).
 
 ## Current DPT shape
@@ -76,19 +84,19 @@ plugins/dev-process-toolkit/
     └── tdd-refactorer.md            # same toolset
 ```
 
-**Why this shape (not three subagent files invoked directly):** the skill is the unit of *task instruction*, the subagent is the unit of *execution sandbox*. `context: fork` pairs them — task-as-prompt + locked-down tools + isolated context.
+**Why this shape (not three subagent files invoked directly):** the skill is the unit of _task instruction_, the subagent is the unit of _execution sandbox_. `context: fork` pairs them — task-as-prompt + locked-down tools + isolated context.
 
 ### Decisions already made
 
-| Question                                              | Decision                                                                                                                                                |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Plugin-bundled or templated into user repo?           | **Plugin-bundled.** Templated would freeze on user side and miss plugin updates. Match `code-reviewer.md`'s pattern.                                    |
-| Replace `/tdd` or add `/tdd-strict` alongside?        | **Replace.** "No users yet"; carrying two TDD modes contradicts deterministic-gates principle.                                                          |
-| Per-AC or per-FR granularity?                         | **Per-AC, with batched test-writer.** Test-writer writes all failing tests for AC1..N in one call (sees the AC list either way); implementer + refactorer run **per-AC** to enforce minimal-code-to-pass. |
-| Integration with `/implement`?                        | **`/implement` Phase 3 calls the new `/tdd` orchestrator internally.** No separate opt-in path. Matches existing pacing memory.                         |
-| Hide the three child skills from menu?                | **Yes** — `user-invocable: false` on each.                                                                                                              |
-| Hide the three subagents from users?                  | **Best-effort via narrow descriptions** ("Internal TDD test-writer subagent. Invoked exclusively by `/tdd` orchestrator. Do not invoke directly."). No `user-invocable` equivalent exists for subagents — but they're not in the slash menu anyway, so the surface is small. |
-| Tools allowed in each subagent?                       | **Read, Grep, Glob, Write, Edit, Bash** — same across all three. Notably absent: Agent (no recursive forks), WebFetch/WebSearch (no scope drift). Behavioral specialization comes from the SKILL.md prompt that gets injected. |
+| Question                                       | Decision                                                                                                                                                                                                                                                                     |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Plugin-bundled or templated into user repo?    | **Plugin-bundled.** Templated would freeze on user side and miss plugin updates. Match `code-reviewer.md`'s pattern.                                                                                                                                                         |
+| Replace `/tdd` or add `/tdd-strict` alongside? | **Replace.** "No users yet"; carrying two TDD modes contradicts deterministic-gates principle.                                                                                                                                                                               |
+| Per-AC or per-FR granularity?                  | **Per-AC, with batched test-writer.** Test-writer writes all failing tests for AC1..N in one call (sees the AC list either way); implementer + refactorer run **per-AC** to enforce minimal-code-to-pass.                                                                    |
+| Integration with `/implement`?                 | **`/implement` Phase 3 calls the new `/tdd` orchestrator internally.** No separate opt-in path. Matches existing pacing memory.                                                                                                                                              |
+| Hide the three child skills from menu?         | **Yes** — `user-invocable: false` on each.                                                                                                                                                                                                                                   |
+| Hide the three subagents from users?           | **Best-effort via narrow descriptions** ("Internal TDD test-writer subagent. Invoked exclusively by `/tdd` orchestrator. Do not invoke directly."). No `user-invocable` equivalent exists for subagents — but they're not in the slash menu anyway, so the surface is small. |
+| Tools allowed in each subagent?                | **Read, Grep, Glob, Write, Edit, Bash** — same across all three. Notably absent: Agent (no recursive forks), WebFetch/WebSearch (no scope drift). Behavioral specialization comes from the SKILL.md prompt that gets injected.                                               |
 
 ## Open questions before `/spec-write`
 
@@ -117,8 +125,8 @@ Skills with auto-activation descriptions fire inconsistently. Empirical claim fr
 ## Research signal
 
 - **alexop.dev**: shipping a `UserPromptSubmit` hook that injects a "MANDATORY SKILL ACTIVATION SEQUENCE" prompt raised activation to ~84%. Three-step injection: evaluate (which skill applies?), activate (call Skill tool), implement.
-- **Anthropic docs** ([Best practices](https://code.claude.com/docs/en/best-practices)): *"Hooks run deterministic code incapable of hallucination. Without hooks, every safeguard depends on the model understanding instructions."*
-- **Anthropic Skills docs**: skill descriptions are loaded into context, but the model can still ignore them. *"If a skill seems to stop influencing behavior after the first response, the content is usually still present and the model is choosing other tools or approaches."*
+- **Anthropic docs** ([Best practices](https://code.claude.com/docs/en/best-practices)): _"Hooks run deterministic code incapable of hallucination. Without hooks, every safeguard depends on the model understanding instructions."_
+- **Anthropic Skills docs**: skill descriptions are loaded into context, but the model can still ignore them. _"If a skill seems to stop influencing behavior after the first response, the content is usually still present and the model is choosing other tools or approaches."_
 
 ## Current DPT shape
 
@@ -191,13 +199,13 @@ Likely answer: **B** is more honest given DPT's "deterministic gates" principle.
 
 ## Problem
 
-DPT's spec templates list ACs but do not *force* binary, runnable verification artifacts (sample I/O, expected commands, screenshot diffs). ACs end up phrased as soft expectations.
+DPT's spec templates list ACs but do not _force_ binary, runnable verification artifacts (sample I/O, expected commands, screenshot diffs). ACs end up phrased as soft expectations.
 
 ## Research signal
 
-- **Anthropic** ([Best practices](https://code.claude.com/docs/en/best-practices)): *"Include tests, screenshots, or expected outputs so Claude can check itself. **This is the single highest-leverage thing you can do.**"*
-- **Addy Osmani** ([How to write a good spec](https://addyosmani.com/blog/good-spec/)): six core elements include explicit *verification criteria*; recommends embedded code examples and conformance suites.
-- **Marmelab** named "agent marked verification complete without writing unit tests" as a concrete failure mode — verification needs to be *enforceable*, not requested.
+- **Anthropic** ([Best practices](https://code.claude.com/docs/en/best-practices)): _"Include tests, screenshots, or expected outputs so Claude can check itself. **This is the single highest-leverage thing you can do.**"_
+- **Addy Osmani** ([How to write a good spec](https://addyosmani.com/blog/good-spec/)): six core elements include explicit _verification criteria_; recommends embedded code examples and conformance suites.
+- **Marmelab** named "agent marked verification complete without writing unit tests" as a concrete failure mode — verification needs to be _enforceable_, not requested.
 
 ## Current DPT shape
 
@@ -236,8 +244,8 @@ DPT archives specs after milestone closure (spec-first level). Specs become a on
 ## Research signal
 
 - **Fowler/Böckeler**: three-level model — spec-first / spec-anchored / spec-as-source. Tools at each level have different costs.
-- *"Spec-anchored remains theoretically appealing but lacks proven real-world validation"* — careful adoption recommended.
-- *"Spec-as-source might end up with the downsides of both MDD and LLMs: inflexibility AND non-determinism"* — explicitly **don't** go to Tessl-level.
+- _"Spec-anchored remains theoretically appealing but lacks proven real-world validation"_ — careful adoption recommended.
+- _"Spec-as-source might end up with the downsides of both MDD and LLMs: inflexibility AND non-determinism"_ — explicitly **don't** go to Tessl-level.
 
 ## Current DPT shape
 
@@ -248,7 +256,8 @@ DPT archives specs after milestone closure (spec-first level). Specs become a on
 ## Proposed direction (sketch)
 
 Either:
-- Add `/spec-update <FR-ID>` to amend an archived FR's behavior section + bump a `revised:` field, *or*
+
+- Add `/spec-update <FR-ID>` to amend an archived FR's behavior section + bump a `revised:` field, _or_
 - Extend `/spec-archive` with an `--amend` flag that re-opens an archived FR, allows behavior edits, then re-archives.
 
 Don't pursue spec-as-source. Don't generate code from spec. The goal is "spec stays accurate," not "spec replaces code."
@@ -273,9 +282,9 @@ Every SDD critic names the same anti-pattern: too many specs, too much duplicati
 
 ## Research signal
 
-- **Fowler/Böckeler**: *"I'd rather review code than all these markdown files."*
+- **Fowler/Böckeler**: _"I'd rather review code than all these markdown files."_
 - **Scott Logic**: 2,000+ lines of markdown per increment.
-- **Marmelab**: *"Excessive documentation, redundant documentation, doubled review burden."*
+- **Marmelab**: _"Excessive documentation, redundant documentation, doubled review burden."_
 
 ## Current DPT shape
 
@@ -346,7 +355,7 @@ Behavioral guardrails ("don't run npm install," "always check FR is in Backlog b
 
 ## Research signal
 
-- **Anthropic Best Practices**: *"For larger features, have Claude interview you first. Start with a minimal prompt and ask Claude to interview you using the AskUserQuestion tool."*
+- **Anthropic Best Practices**: _"For larger features, have Claude interview you first. Start with a minimal prompt and ask Claude to interview you using the AskUserQuestion tool."_
 - Cleaner than free-form: structured fields, easier to capture as spec input.
 
 ## Current DPT shape
@@ -377,7 +386,7 @@ Update `/brainstorm` to wrap its Q&A in `AskUserQuestion` calls. Output remains 
 ## Research signal
 
 - **Anthropic Best Practices**: explicit four-phase loop with Plan Mode for the first two phases.
-- *"Plan mode is useful, but also adds overhead... if you could describe the diff in one sentence, skip the plan."* — relevant to Gap 3's complexity routing.
+- _"Plan mode is useful, but also adds overhead... if you could describe the diff in one sentence, skip the plan."_ — relevant to Gap 3's complexity routing.
 
 ## Current DPT shape
 
@@ -459,6 +468,7 @@ Existing user-memory files relevant when picking up gaps:
 # Sources (full list, deduplicated)
 
 **Anthropic / Claude Code:**
+
 - https://code.claude.com/docs/en/best-practices
 - https://code.claude.com/docs/en/skills
 - https://code.claude.com/docs/en/sub-agents
@@ -467,17 +477,20 @@ Existing user-memory files relevant when picking up gaps:
 - https://code.claude.com/docs/en/permission-modes
 
 **SDD frameworks (primary):**
+
 - https://github.com/github/spec-kit
 - https://github.com/obra/superpowers
 - https://github.com/shinpr/claude-code-workflows
 - https://github.com/cameronsjo/spec-compare
 
 **SDD analysis (independent):**
+
 - https://martinfowler.com/articles/exploring-gen-ai/sdd-3-tools.html
 - https://marmelab.com/blog/2025/11/12/spec-driven-development-waterfall-strikes-back.html
 - https://blog.scottlogic.com/2025/11/26/putting-spec-kit-through-its-paces-radical-idea-or-reinvented-waterfall.html
 - https://addyosmani.com/blog/good-spec/
 
 **TDD-with-AI:**
+
 - https://alexop.dev/posts/custom-tdd-workflow-claude-code-vue/
 - https://stevekinney.com/courses/ai-development/test-driven-development-with-claude
