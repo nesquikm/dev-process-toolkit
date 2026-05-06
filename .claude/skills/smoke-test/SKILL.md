@@ -653,12 +653,163 @@ The `git log excerpt` line is STE-222-specific (vs. group 2's stdout-only diagno
 
 #### Phase 2.X summary line
 
-Append exactly one summary line to the run summary, drawn from:
+Append the following lines to the run summary, in order:
 
 - `M56 runtime checks: PASS (STE-220 + STE-214 + STE-215 verified at runtime)` — all 7 sub-fixtures green.
 - `M56 runtime checks: <N> regressions surfaced (see findings file)` — 1+ failures; each failure already logged its canonical `STE-<sut> runtime regression: …` diagnostic. Phase 3 (Capture) folds the diagnostics into the findings file under a `## Phase 2.X regressions` heading.
 
-Phase 2.X is **shared infrastructure** for all three M55-cohort runtime contracts. Future SKILL.md-prose fixes (any FR shipping a behavior change via instructional text in `skills/<X>/SKILL.md`) should add their own fixtures here following the `STE-<sut> runtime regression: <fixture-name>` diagnostic shape — naming the system-under-test, not the test FR.
+The two M56 lines above aggregate groups 1–3 because their three SUTs (STE-213 / STE-214 / STE-215) shipped together in M55 and roll up under one milestone-level result. Groups 4–7 (M64 cohort) intentionally do NOT roll up to a single `M64 runtime checks:` line — each of the four SUTs (STE-227 / STE-228 / STE-230 / STE-225) ships its own per-FR runtime-check line so a regression in one is operator-visible without scrolling into the per-fixture diagnostics. The runtime-check line each new group contributes is named in the group's footer paragraph below.
+
+Phase 2.X is **shared infrastructure** for runtime regression coverage. Groups 1–3 (M56 cohort, STE-220 / STE-221 / STE-222) pin the M55 SKILL.md-prose fixes (STE-213 / STE-214 / STE-215). Groups 4–7 (M64 cohort, STE-231) pin the M58 / M60 / M61 / M63 runtime contracts (STE-227 / STE-228 / STE-230 / STE-225). Future SKILL.md-prose fixes (any FR shipping a behavior change via instructional text in `skills/<X>/SKILL.md`) should add their own fixtures here following the `STE-<sut> runtime regression: <fixture-name>` diagnostic shape — naming the system-under-test, not the test FR.
+
+#### Fixture group 4 — STE-227 `--no-tech` end-to-end (Linear + Jira)
+
+Two sub-fixtures (4a Linear + 4b Jira) each drive the 4-step `--no-tech` pass against the active tracker. The 4 steps:
+
+1. **`/spec-write --no-tech <stub>`** — creates a flagged FR (frontmatter `needs_technical_review: true`, placeholder `## Technical Design` + `## Testing` sections per the STE-227 `--no-tech` contract).
+2. **`/implement <id>`** — must refuse with the canonical NFR-10 shape and emit a `implement_refused_needs_technical_review` capability row in the closing summary; no commit lands; no tracker write past the get-issue read.
+3. **`/spec-write <id>`** (no flag) — clears the `needs_technical_review` flag (frontmatter flips to `false` or the field is removed entirely) and replaces the placeholder Technical Design + Testing sections with real content.
+4. **`/implement <id>`** — proceeds end-to-end → gate-check passes → implementation commit lands → FR archives to `specs/frs/archive/<id>.md` (`status: archived`) → tracker ticket reaches `Done`.
+
+Each step is a fresh `claude -p` spawn using the existing heredoc-on-stdin pattern (§ STE-185), with the `<dpt:auto-approve>v1</dpt:auto-approve>` marker as the first body line. The slash command goes on the second body line, followed by the per-step prompt body. Stdout per step is captured to `/tmp/dpt-smoke-<tracker>-no-tech-step-<N>.log`. The smoke driver constructs each spawn at runtime; these 4 step spawns are NOT inlined as fenced reference snippets here (the canonical `/spec-write` and `/implement` heredoc shapes are already documented under § STE-185, and re-inlining them here would multiply the surface area scanned by the `auto_approve_marker_in_canonical_spawns` probe without adding behavior coverage).
+
+##### Sub-fixture 4a — Linear (`--tracker linear`)
+
+**Source:** four new spawns to `/tmp/dpt-smoke-linear-no-tech-step-{1,2,3,4}.log`.
+
+**Assertions (per step):**
+
+- Step 1: FR file exists at `../dpt-test-project-linear/specs/frs/<id>.md` with `grep -F 'needs_technical_review: true' ../dpt-test-project-linear/specs/frs/<id>.md` exit 0 (frontmatter flag set).
+- Step 2: `grep -F 'implement_refused_needs_technical_review' /tmp/dpt-smoke-linear-no-tech-step-2.log` exit 0 (capability row present); `git -C ../dpt-test-project-linear log --oneline --since '<step-2-start>'` returns no rows (no commit landed during step 2).
+- Step 3: `grep -F 'needs_technical_review: true' ../dpt-test-project-linear/specs/frs/<id>.md` exit 1 (flag cleared after re-invoke without `--no-tech`).
+- Step 4: `git -C ../dpt-test-project-linear log --oneline --since '<step-4-start>'` returns ≥ 1 row (implementation commit landed); `test -f ../dpt-test-project-linear/specs/frs/archive/<id>.md` exit 0 (archive landed); `mcp__linear__get_issue STE-<id>` returns `status: "Done"`.
+
+**Diagnostic on any step failure:**
+
+```
+STE-227 runtime regression: <fixture-name>
+  expected: <step-specific expected state>
+  actual:   <observed state>
+  stdout excerpt (last 20 lines):
+    <tail -20 /tmp/dpt-smoke-linear-no-tech-step-<N>.log>
+```
+
+`<fixture-name>` ∈ `spec-write-no-tech-flagged-fr-not-created` (step 1) / `implement-not-refused-on-flagged-fr` (step 2) / `spec-write-no-flag-did-not-clear-flag` (step 3) / `implement-did-not-proceed-after-clear` (step 4).
+
+##### Sub-fixture 4b — Jira (`--tracker jira`)
+
+Same 4-step block as 4a, parameterized for `--tracker jira`. Stdout per step lands at `/tmp/dpt-smoke-jira-no-tech-step-{1,2,3,4}.log`. Step 4 ticket-state assertion uses `mcp__atlassian__getJiraIssue` → `Done` workflow status (or its `getTransitionsForJiraIssue` `to.statusCategory.key == "done"` fallback) instead of Linear's `mcp__linear__get_issue`. All other assertions identical to 4a (with `linear` substituted by `jira` in every log path and project directory).
+
+**Diagnostic on any step failure:**
+
+```
+STE-227 runtime regression: <fixture-name>
+  expected: <step-specific expected state>
+  actual:   <observed state>
+  stdout excerpt (last 20 lines):
+    <tail -20 /tmp/dpt-smoke-jira-no-tech-step-<N>.log>
+```
+
+`<fixture-name>` enumeration matches 4a (`spec-write-no-tech-flagged-fr-not-created` step 1 / `implement-not-refused-on-flagged-fr` step 2 / `spec-write-no-flag-did-not-clear-flag` step 3 / `implement-did-not-proceed-after-clear` step 4) — the diagnostic-shape invariant (AC-STE-231.5) names the system-under-test, not the leg.
+
+If all 8 sub-fixture steps (4a + 4b combined) pass, append `STE-227 runtime check: PASS` to the run summary line; any step failure appends `STE-227 runtime check: FAIL` and the per-step diagnostic above is the operator-visible signal for triage.
+
+#### Fixture group 5 — STE-228 branch-gate marker contract (Linear + Jira)
+
+Two sub-fixtures (5a marker present + 5b marker absent) verify both directions of the branch-gate marker contract introduced by STE-228 (M61) — auto-apply when the `<dpt:auto-approve>v1</dpt:auto-approve>` marker is present on the proposing skill's prompt body, halt interactively when the marker is absent. Both sub-fixtures run on each of Linear + Jira (4 fixture instances per smoke run).
+
+##### Sub-fixture 5a — marker present (auto-apply path)
+
+**Source:** the existing canonical-chain `/spec-write` Phase 2 step 2 log at `/tmp/dpt-smoke-<tracker>-spec-write.log` (already captured during Phase 2 step 2 — no new spawn needed; the canonical Phase 2 `/spec-write` heredoc carries the marker on its first body line).
+
+**Assertions:**
+
+- `grep -F 'branch_gate_default_applied' /tmp/dpt-smoke-<tracker>-spec-write.log` exit 0 (gate auto-applied with the marker present).
+- `git -C ../dpt-test-project-<tracker> branch --show-current` returns the proposed branch name (matching the `branch_template:` rendering for `type=feat`, slug derived from the FR title) — NOT `main`.
+
+**Diagnostic on failure:**
+
+```
+STE-228 runtime regression: branch-gate-marker-present-no-auto-apply
+  expected: branch_gate_default_applied row in stdout AND `git branch --show-current` ≠ main
+  actual:   <observed state>
+  stdout excerpt (last 20 lines):
+    <tail -20 /tmp/dpt-smoke-<tracker>-spec-write.log>
+```
+
+##### Sub-fixture 5b — marker absent (gate halts interactively)
+
+A new `/spec-write` spawn is fired with the marker line **omitted** from the heredoc body. The driver describes this spawn in prose so its snippet is NOT picked up by the `/gate-check` probe `auto_approve_marker_in_canonical_spawns` (which asserts the marker on every documented prompt-bearing spawn): the runtime spawn is constructed at smoke-driver runtime, not authored as a fenced reference snippet here. Same anti-probe-collision technique as fixture 1b. The driver writes the heredoc body with no marker, captures stdout to `/tmp/dpt-smoke-<tracker>-spec-write-5b.log`, and asserts the inverse — the branch-gate prompt fires interactively, no auto-apply audit row appears, and no proposed branch lands on disk.
+
+**Assertions:**
+
+- `grep -F 'branch_gate_default_applied' /tmp/dpt-smoke-<tracker>-spec-write-5b.log` exit 1 (row absent — gate fired interactively, no auto-apply).
+- `git -C ../dpt-test-project-<tracker> branch --list <proposed-name>` returns nothing (gate did NOT create the proposed branch since the child halted at the prompt).
+- Stdout tail ends at the gate prompt (no `branch_gate_default_applied` row, no `## 7) Emit capability summary` block).
+
+**Diagnostic on failure:**
+
+```
+STE-228 runtime regression: branch-gate-marker-absent-but-auto-applied
+  expected: stdout halts at branch-gate prompt; no `branch_gate_default_applied` row; no new branch on disk
+  actual:   `branch_gate_default_applied` row appeared without marker — child auto-applied via removed legacy detection path
+  stdout excerpt (last 20 lines):
+    <tail -20 /tmp/dpt-smoke-<tracker>-spec-write-5b.log>
+```
+
+If both sub-fixtures pass on a leg, append `STE-228 runtime check: PASS` to the run summary line; any failure appends `STE-228 runtime check: FAIL`.
+
+**Coverage-gap note (deferred to a future milestone).** Per-skill expansion of group 5 to `/spec-archive` and `/ship-milestone` is deferred — both are explicitly NOT in the canonical chain (running them on the test project would corrupt real data: `/spec-archive` mutates the real `specs/frs/` tree; `/ship-milestone` writes a release commit to the real plugin repo). The canonical chain transitively exercises STE-228's universal branch gate for `/setup` (Phase 1 bootstrap), `/spec-write` (Phase 2 step 2), and `/implement` (Phase 2 step 3) — three of the five commit-producing skills. Drift in `/spec-archive` or `/ship-milestone`'s gate wiring is currently caught only by their bun unit tests; a future milestone can add an out-of-canonical-chain probe-style fixture (similar to STE-221's `/gate-check` invocations) once a non-destructive harness for the remaining two skills is in place.
+
+#### Fixture group 6 — STE-230 spec-research subagent runtime (Linear + Jira)
+
+Single sub-fixture (Linear + Jira, runs on both legs). The smoke driver does not spawn a new child — the assertion runs against the existing `/tmp/dpt-smoke-<tracker>-spec-write.log` from Phase 2 step 2.
+
+**Source:** `/tmp/dpt-smoke-<tracker>-spec-write.log` (already captured during Phase 2 step 2 — `/spec-write` invokes the spec-research forked subagent during the `## 1) Frame the goal` retrieval step per STE-230).
+
+**Assertion (lenient):**
+
+- `grep -cE 'spec_research_invoked|spec_research_no_matches|spec_research_shape_violation' /tmp/dpt-smoke-<tracker>-spec-write.log` ≥ 1 (at least one of the three audit rows present).
+
+The lenient bound is deliberate. The empty-FR-set path emits `spec_research_no_matches` and naturally fires on a fresh test project (no prior FRs to retrieve). The non-empty path emits `spec_research_invoked` once a related FR exists. The shape-violation path emits `spec_research_shape_violation` if the subagent's return doesn't conform to its contract. Asserting OR over the three rows covers every defined post-condition without over-constraining the smoke to a particular test-project state — drift in any of those keys is already caught by the existing `/gate-check` probes for the static plain-language map (no new key added per AC-STE-231.7).
+
+**Diagnostic on failure:**
+
+```
+STE-230 runtime regression: spec-research-no-audit-row
+  expected: ≥ 1 of {spec_research_invoked, spec_research_no_matches, spec_research_shape_violation} in /spec-write log
+  actual:   none of the three rows present — subagent did not fire OR did not emit any audit row
+  stdout excerpt (last 30 lines):
+    <tail -30 /tmp/dpt-smoke-<tracker>-spec-write.log>
+```
+
+If the assertion passes on a leg, append `STE-230 runtime check: PASS` to the run summary line; any failure appends `STE-230 runtime check: FAIL`.
+
+#### Fixture group 7 — STE-225 TDD orchestrator forks runtime (Linear + Jira)
+
+Single sub-fixture (Linear + Jira, runs on both legs). The smoke driver does not spawn a new child — the assertion runs against the existing `/tmp/dpt-smoke-<tracker>-implement.log` from Phase 2 step 3.
+
+**Source:** `/tmp/dpt-smoke-<tracker>-implement.log` (already captured during Phase 2 step 3 — `/implement` invokes the TDD orchestrator inline, which forks `tdd-test-writer` + `tdd-implementer` + `tdd-refactorer` per STE-225, each emitting a `tdd-result` fenced block to its parent log).
+
+**Assertion:**
+
+- ``grep -c '^```tdd-result$' /tmp/dpt-smoke-<tracker>-implement.log`` ≥ 3 (one fenced block per orchestrator phase: test-writer → implementer → refactorer, in that order). Double-backtick code span deliberate — the literal grep contains a triple-backtick token (the fence-tag prefix the orchestrator emits per STE-225), which a single-backtick code span would mis-render; the double-backtick form keeps the fence-tag inside the inline code without colliding with surrounding markdown fences.
+
+The greet-stub feature ships with one AC, so the orchestrator emits exactly 3 `tdd-result` blocks on a clean run. Bounded retry on a transient failure adds blocks (a retry re-emits the role's block) — never removes them — so the ≥ 3 lower bound is robust to retries. Multi-AC features would emit `3 × N_ACs` blocks; the test project's single-AC `greet` fixture pins the count to exactly 3 on the happy path and ≥ 3 with retries.
+
+**Diagnostic on failure:**
+
+```
+STE-225 runtime regression: tdd-result-blocks-incomplete
+  expected: ≥ 3 fenced tdd-result blocks in /tmp/dpt-smoke-<tracker>-implement.log
+  actual:   <observed-count> blocks (e.g., 0 = orchestrator never fired; 1 = test-writer only; 2 = test-writer + implementer, no refactor)
+  stdout excerpt (last 20 lines):
+    <tail -20 /tmp/dpt-smoke-<tracker>-implement.log>
+  git log excerpt (last 5 commits since <run-start>):
+    <git -C ../dpt-test-project-<tracker> log --oneline -n 5 since run-start>
+```
+
+The `git log excerpt` line is STE-225-specific (mirrors STE-222's group 3 precedent): `/implement` failures often surface in `git log` shape (no implementation commit, mid-cycle abort) rather than stdout content alone, so the diagnostic carries both. If the assertion passes on a leg, append `STE-225 runtime check: PASS` to the run summary line; any failure appends `STE-225 runtime check: FAIL`.
 
 ### Phase 3 — Capture
 
