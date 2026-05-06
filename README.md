@@ -1,20 +1,24 @@
 # Dev Process Toolkit
 
-A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 14 commands, 1 agent, spec templates, and documentation.
+A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 15 commands, 5 agents, spec templates, and documentation.
 
 ## Features
 
 - **Spec-Driven Development (SDD)** — requirements, technical, testing, and plan files as the source of truth
-- **Test-Driven Development (TDD)** — RED → GREEN → VERIFY cycle, performed inline by `/implement`
-- **Bounded self-review** — three-stage loop with a delegated `code-reviewer` agent, capped before human escalation
-- **Deterministic quality gates** — typecheck + lint + test override LLM judgment
-- **Diátaxis docs generation** — staged fragments per FR, human-approved merge, full canonical regen
-- **Task tracker sync** — Linear, Jira, or `none`; auto-claim on FR start, auto-release on archive
-- **Conventional Commits v1.0.0** — local `commit-msg` hook (POSIX shell or opt-in `commitlint`)
-- **Atomic release commits** — `/ship-milestone` enforces the five-file release checklist
-- **Spec lifecycle management** — ULID-keyed FRs, manual archival, post-archive drift checks
+- **Multi-agent TDD orchestrator** — `/tdd` runs RED → GREEN → REFACTOR via three forked subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`) with context isolation, a strict `tdd-result` YAML hand-off, and bounded retries; `/implement` invokes it inline per FR
+- **Bounded three-stage self-review** — Stage A spec compliance → Stage B two-pass `code-reviewer` agent (Pass 1 spec compliance, Pass 2 code quality, fail-fast) → Stage C hardening, capped before human escalation
+- **Deterministic quality gates** — 41 numbered `/gate-check` probes (typecheck + lint + test + spec/plan/frontmatter/branch hygiene) override LLM judgment
+- **Universal pre-commit branch gate** — every commit-producing skill calls `requireCommittableBranch`; trunk-OK narrows to `ci` only, so `chore`/`docs`/`feat` cannot land on `main` accidentally
+- **Non-technical drafting (`--no-tech`)** — `/brainstorm` and `/spec-write` skip the technical-design + testing interviews; FR ships with `needs_technical_review: true` and `/implement` refuses until a reviewer fills it in
+- **Topic-aware spec retrieval** — `spec-researcher` Read-only Haiku subagent (invoked by `/brainstorm` and `/spec-write` via the `spec-research` fork) returns related FRs from active + archived specs as a fixed-shape ≤ 25-line block, no parent-context pollution
+- **Privacy-first incident reports** — `/report-issue` bundles repo state + dev narrative, scrubs secrets via 7 patterns (Anthropic / OpenAI / GitHub PAT / AWS / JWT / generic / AWS-secret), previews before publish, then posts a secret GitHub gist; the URL round-trips into `/brainstorm <gist-url>` for self-debug
+- **Diátaxis docs generation** — `/docs` stages fragments per FR (`--quick`), merges with human approval (`--commit`), or regenerates the canonical tree (`--full`)
+- **Task tracker sync** — Linear, Jira, or `none`; auto-claim on FR start, auto-release on archive; adapter-agnostic `Provider` interface
+- **Conventional Commits v1.0.0** — local `commit-msg` hook (POSIX shell by default or opt-in `commitlint`)
+- **Atomic release commits** — `/ship-milestone` enforces the multi-file Release Checklist + folds staged doc fragments into the canonical tree in one commit
+- **Spec lifecycle management** — ULID-keyed FRs, `/spec-archive` for manual archival by ULID / tracker ID / `M<N>`, post-archive drift checks
 - **Browser-based UI verification** — `/visual-check` via Chrome DevTools MCP
-- **Stack-adaptive setup** — auto-detects TypeScript, Flutter, Python; generates `CLAUDE.md` and settings
+- **Stack-adaptive setup** — auto-detects TypeScript, Flutter, Python; generates `CLAUDE.md`, settings, and the `commit-msg` hook
 
 ## Install as Plugin
 
@@ -36,7 +40,7 @@ This detects your stack, generates a CLAUDE.md, configures settings, and optiona
 
 ## Workflow
 
-The toolkit groups its 14 user-invoked skills into a four-phase lifecycle. Read left-to-right for the full path, or jump to whichever phase matches what you're doing now.
+The toolkit groups its 15 user-invoked skills into a four-phase lifecycle. Read left-to-right for the full path, or jump to whichever phase matches what you're doing now.
 
 ```mermaid
 flowchart LR
@@ -61,12 +65,14 @@ flowchart LR
         visual_check["/visual-check"]:::secondary
         simplify["/simplify"]:::secondary
         spec_review["/spec-review"]:::secondary
+        report_issue["/report-issue"]:::secondary
         implement ~~~ tdd
         tdd ~~~ gate_check
         gate_check ~~~ debug
         debug ~~~ visual_check
         visual_check ~~~ simplify
         simplify ~~~ spec_review
+        spec_review ~~~ report_issue
     end
     subgraph Ship
         direction TB
@@ -83,7 +89,7 @@ flowchart LR
     Build --> Ship
 ```
 
-Under the hood, `/implement` performs TDD inline (write test → RED → code → GREEN) rather than invoking the `/tdd` skill, and runs gate commands inline (e.g., `bun test`) rather than invoking the `/gate-check` skill (which layers probes on top of those commands). It does invoke `/docs --quick` once per FR for the Phase 4b doc fragment. After self-review and human approval, `/implement` commits and stops — you open the PR via `/pr` separately. `/ship-milestone` invokes `/docs --commit --full` to fold staged fragments into the canonical docs tree before cutting the release commit.
+Under the hood, `/implement` invokes the `/tdd` orchestrator inline per FR — `/tdd` forks three subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`) into isolated contexts and parses their `tdd-result` YAML hand-off. It runs gate commands inline (e.g., `bun test`) rather than invoking the `/gate-check` skill (which layers 41 probes on top of those commands), and invokes `/docs --quick` once per FR for the Phase 4b doc fragment. `/brainstorm` and `/spec-write` similarly fork the read-only `spec-research` skill (paired with the `spec-researcher` Haiku subagent) for topic-aware retrieval of related active + archived FRs. After self-review and human approval, `/implement` commits and stops — you open the PR via `/pr` separately. `/ship-milestone` invokes `/docs --commit --full` to fold staged fragments into the canonical docs tree before cutting the release commit.
 
 Spine skills (bold, stadium-shaped) are the recommended invoke path; secondary skills (muted rectangles) are auxiliary tools and auto-invoked helpers.
 
@@ -110,11 +116,20 @@ All commits in toolkit-managed repositories follow [Conventional Commits v1.0.0]
 | `/dev-process-toolkit:docs`           | Generate or update project docs — staged fragments (`--quick`), human-approved merge (`--commit`), or full canonical regeneration (`--full`)                                                                                                                       |
 | `/dev-process-toolkit:pr`             | Pull request creation                                                                                                                                                                                                                                              |
 | `/dev-process-toolkit:simplify`       | Code quality review and cleanup                                                                                                                                                                                                                                    |
+| `/dev-process-toolkit:report-issue`   | Capture a structured bug report (narrative + redacted curated context, optional session transcript), preview, and publish to a secret GitHub gist for triage or self-debug via `/brainstorm <gist-url>`                                                            |
 | `/dev-process-toolkit:ship-milestone` | Bundle the Release Checklist + `/docs --commit --full` into one atomic, human-approved release commit                                                                                                                                                              |
+
+Four additional skills (`spec-research`, `tdd-write-test`, `tdd-implement`, `tdd-refactor`) are not user-invocable — they run only as `context: fork` children of `/brainstorm`, `/spec-write`, and `/tdd`.
 
 ### Agents
 
-- **code-reviewer** — Canonical code review rubric (quality, security, patterns, stack-specific) plus pass-specific return contracts for the Stage B two-pass flow. Invoked twice by `/implement` Phase 3 Stage B via `Agent`-tool delegation — Pass 1 spec compliance (gated on `specs/requirements.md` existing; fail-fast), Pass 2 code quality; referenced inline by `/gate-check` Code Review.
+| Agent                | Purpose                                                                                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `code-reviewer`      | Quality / security / patterns review rubric with pass-specific contracts; invoked twice by `/implement` Stage B (spec compliance → code quality)     |
+| `spec-researcher`    | Read-only Haiku that scans `specs/frs/**` (active + archived) and emits a fixed-shape ≤ 25-line block of related FRs / prior decisions / reusable ACs |
+| `tdd-test-writer`    | Writes failing tests for the full AC list of one FR and runs them once to confirm RED — invoked once per FR by `/tdd`                                |
+| `tdd-implementer`    | Implements the minimum code to turn one AC's failing test GREEN — invoked once per AC by `/tdd`                                                      |
+| `tdd-refactorer`     | Cleans up cross-AC duplication while keeping every test GREEN — invoked once at end of FR by `/tdd`                                                  |
 
 ## What's Inside
 
@@ -126,8 +141,8 @@ dev-process-toolkit/
 │   └── dev-process-toolkit/         # The plugin
 │       ├── .claude-plugin/
 │       │   └── plugin.json          # Plugin manifest
-│       ├── skills/                  # 14 skills (slash commands)
-│       ├── agents/                  # 1 specialist agent (code-reviewer)
+│       ├── skills/                  # 19 skills (15 user-invocable + 4 internal forks)
+│       ├── agents/                  # 5 specialist agents (code-reviewer, spec-researcher, tdd-{test-writer,implementer,refactorer})
 │       ├── adapters/                # 3 tracker adapters (linear, jira, _template) + _shared helpers
 │       ├── templates/               # CLAUDE.md and spec templates
 │       ├── docs/                    # Methodology and guides
