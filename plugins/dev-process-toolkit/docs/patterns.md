@@ -670,3 +670,29 @@ Skills that adopt this pattern reference it by anchor (`docs/patterns.md § Patt
 **Scope**: prompt-bearing children only (`/setup`, `/spec-write`, `/implement`). Non-prompt-bearing children (`/gate-check`, `/spec-review`, `/simplify`) carry no operator-approval gate, so the marker would be redundant — those snippets stay on `< /dev/null` per STE-188 and are out of probe scope.
 
 **Cross-refs**: `adapters/_shared/src/auto_approve_marker.ts` (probe), `tests/gate-check-auto-approve-marker.test.ts` (positive + negative fixtures), `skills/spec-write/SKILL.md` § 0b step 4 + § 4 + § 7a (gate-site detection contract), `.claude/skills/{smoke-test,conformance-loop}/SKILL.md` (parent injection sites), `specs/frs/archive/STE-213.md` + `specs/frs/archive/STE-220.md` (the two prose-only attempts that falsified — historical context for why the marker exists).
+
+## Pattern 28: Universal pre-commit branch gate {#pattern-universal-branch-gate}
+
+**Problem**: Toolkit users on protected-trunk repos cannot push commits made directly on `main` / `master`. Before STE-228, four of the five commit-producing skills (`/setup`, `/spec-write`, `/spec-archive`, `/ship-milestone`) had no branch logic at all and `/implement`'s existing branch logic was gated on the optional `branch_template:` Schema L key — when absent, `/implement` happily landed `feat(...)` commits on trunk too. Result: every spec-write, archive, and release commit cleared the local hook but failed the remote push.
+
+**Where**: `plugins/dev-process-toolkit/adapters/_shared/src/require_committable_branch.ts` (the shared gate), `skills/{setup,spec-write,spec-archive,ship-milestone}/branch_name_for.ts` (per-skill builders — `/implement` reuses the existing `buildBranchProposal` flow), `adapters/_shared/src/branch_proposal.ts` (canonical home for `PROTECTED_TRUNKS` after the M61 refactor), `adapters/_shared/src/commit_producing_skill_branch_gate.ts` (`/gate-check` probe + `COMMIT_PRODUCING_SKILLS` constant), `tests/branch-gate-doc-conformance.test.ts` + `tests/gate-check-commit-producing-skill-branch-gate.test.ts` (read-side enforcement).
+
+**Decision**: Lift the branch-proposal flow into a shared pre-commit gate `requireCommittableBranch({ commitType, proposedBranchName, currentBranch, isAutoMode })` that every commit-producing skill calls before staging. The gate has no tracker awareness — per-skill `branchNameFor(...)` builders pass tracker-derived (or literal) names through opaquely. The trunk-OK allowlist narrows to the constant `TRUNK_OK_TYPES = ["ci"]` only — `chore` and `docs` no longer ship directly to trunk (supersedes STE-202 AC-STE-202.5). Protected branches are hardcoded as `PROTECTED_TRUNKS = ["main", "master"]`. When the current branch is in `PROTECTED_TRUNKS` AND `commitType ∉ TRUNK_OK_TYPES`, the gate prompts `[Y] create / [e] edit / [n] abort`; `Y` runs `git checkout -b <branchName>` (after collision-suffix probe per AC-STE-228.11), `n` rolls back staging via `git reset HEAD <paths>` (explicit list, never `--hard`) and exits non-zero. Off-trunk current branch ⇒ silent no-op (composes with `feedback_branch_isolation`).
+
+**Per-skill builder shapes** (full table in `specs/frs/STE-228.md` § Branch-name canonical table):
+
+| Skill | Run shape | Clean branch name |
+|---|---|---|
+| `/setup` | bootstrap | `chore/setup-bootstrap` |
+| `/spec-write` | new-FR | `<branch_template>` rendering via `buildBranchProposal` |
+| `/spec-write` | cross-cutting-only | `docs/specs-cross-cutting` |
+| `/spec-archive` | FR archive | `chore/archive-<tracker-id>` |
+| `/spec-archive` | milestone archive | `chore/archive-m<N>` |
+| `/ship-milestone` | release | `release/v<X.Y.Z>` |
+| `/implement` | unchanged (existing `branch_template:` flow) | template rendering |
+
+**Auto-mode handoff**: the gate honors the same `<dpt:auto-approve>v1</dpt:auto-approve>` marker as the draft + commit gates (Pattern 27); marker present ⇒ default-apply (`branch_gate_default_applied` capability row); marker absent ⇒ interactive prompt. Five capability rows surface the gate outcome in the closing summary: `branch_gate_{created,edited,declined,default_applied,remote_probe_skipped}`.
+
+**Read-side safety net**: `/gate-check` probe `commit_producing_skill_branch_gate` parses each commit-producing skill's SKILL.md and refuses any `git commit` reference not preceded by a documented `requireCommittableBranch` call. Doc-conformance test `tests/branch-gate-doc-conformance.test.ts` asserts each commit-producing skill's SKILL.md references both `requireCommittableBranch` and `STE-228` (the canonical-table anchor) — catches the silent-drop regression where a future SKILL.md edit forgets the gate call.
+
+**Why hardcoded `["main", "master"]` not Schema L**: branch-protection is a near-universal trunk convention (GitHub, GitLab, Bitbucket all default to one of those names). Making the list configurable adds Schema L surface for a setting the user effectively never overrides. If a downstream project uses `develop` or `trunk` as protected, the gate is silent (those names don't match) — same end-state as configuration would produce, with zero Schema L cost. Per `project_no_users_yet`, no migration shim ships.

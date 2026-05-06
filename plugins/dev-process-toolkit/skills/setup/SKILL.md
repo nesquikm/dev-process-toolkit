@@ -265,7 +265,7 @@ If spec files were created, ask the user:
 
 Subsequent `/setup` re-runs (e.g., flag changes) produce *follow-up* commits (`chore: re-run /setup ...`) — not amendments. The bootstrap commit is canonical even if the user later refines flags.
 
-If you skipped the bootstrap commit (`n` at step 8b), commit the staged files manually before running `/spec-write` so the first feature PR's diff is FR-scoped.
+If you skipped the bootstrap commit (`n` at step 8b), commit the staged files manually before running `/spec-write` so the first feature PR's diff is FR-scoped. **Universal pre-commit branch gate (STE-228):** before step 8b stages the bootstrap commit, call `requireCommittableBranch({...})` from `adapters/_shared/src/require_committable_branch.ts` with the name from `branchNameFor()` at `skills/setup/branch_name_for.ts` (literal `chore/setup-bootstrap`); gate is git-only — runs before CLAUDE.md exists; auto-mode default-apply via `<dpt:auto-approve>v1</dpt:auto-approve>` (STE-226).
 
 ### 11. Report
 

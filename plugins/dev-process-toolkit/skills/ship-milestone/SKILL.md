@@ -151,6 +151,8 @@ Accept case-insensitive `y` / `yes` as approval. The user can type `e` to open `
 
 ### 7. On approval — commit
 
+**Universal pre-commit branch gate (STE-228).** Before `git add` runs, call `requireCommittableBranch({ commitType: "chore", proposedBranchName, currentBranch, isAutoMode })` from `adapters/_shared/src/require_committable_branch.ts` with `proposedBranchName` returned by `branchNameFor({ version })` from `skills/ship-milestone/branch_name_for.ts` (release shape → `release/v<X.Y.Z>`; collision-suffix per STE-228 AC-STE-228.11 is exceedingly rare for this skill). On `created` / `edited` the gate runs `git checkout -b <branchName>` so the release commit lands on the new branch; `declined` rolls back staging via `git reset HEAD <paths>` (explicit list, never `--hard`) and exits non-zero before the release commit lands; `no-op` (off-trunk OR `commitType ∈ TRUNK_OK_TYPES = ["ci"]`) is silent. Auto-mode default-apply uses the `<dpt:auto-approve>v1</dpt:auto-approve>` marker per STE-226. See STE-228 § Branch-name canonical table for the full builder catalogue.
+
 `git add` the expected-modified set and create a single commit in [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) form. The commit-msg hook installed by `/setup` enforces the format locally.
 
 ```

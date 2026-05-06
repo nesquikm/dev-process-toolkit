@@ -15,6 +15,18 @@ const ALLOWED_TYPES = new Set(["feat", "fix", "chore"]);
 const MAX_BRANCH_LENGTH = 60;
 
 /**
+ * Branch names treated as protected trunks. Single source of truth —
+ * `requireCommittableBranch` re-exports this so both branch helpers
+ * agree on what counts as `main` / `master`.
+ */
+export const PROTECTED_TRUNKS = ["main", "master"] as const;
+
+/** True when `branch` (case-insensitive) is one of `PROTECTED_TRUNKS`. */
+export function isProtectedTrunk(branch: string): boolean {
+  return (PROTECTED_TRUNKS as readonly string[]).includes(branch.toLowerCase());
+}
+
+/**
  * Context needed to render a branch proposal. The FR / milestone-plan
  * identity is pre-extracted by the caller (skill responsibility); the
  * adapter's job is pure template rendering + sanitization.
@@ -136,7 +148,7 @@ export function buildBranchProposal(ctx: BranchProposalContext): string {
  */
 export function isCurrentBranchAcceptable(branchName: string, scope: RunScope): boolean {
   const lower = branchName.toLowerCase();
-  if (lower === "main" || lower === "master") return false;
+  if (isProtectedTrunk(lower)) return false;
 
   if (scope.kind === "milestone") {
     const re = new RegExp(`\\bm${scope.number}\\b`, "i");
