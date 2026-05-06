@@ -140,7 +140,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.12.0 — "Handoff"** (M60 — non-technical FR drafting via `--no-tech` flag on `/spec-write` and `/brainstorm`. Lets PMs, product owners, and operations leads drop a draft FR into `specs/frs/` without running the full technical-design + testing-spec interview; the FR lands with `needs_technical_review: true` in frontmatter and canonical placeholder bodies, plus a `needs-technical-review` tracker label on Linear/Jira boards. `/implement` refuses flagged FRs at Phase 0.b′ until a technical reviewer runs `/spec-write <FR-id>` (no flag) — auto-detected at § 0a; the auto-resume drops the field on save and removes the label. New `/gate-check` probe `needs_technical_review_consistency` enforces the flag ⇔ placeholder bidirectional invariant with four distinct violation kinds. Same FR file shape, no new artifact type, zero migration. Test count: 1797.
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.14.0 — "Precedent"** (M63 — `/dev-process-toolkit:spec-research` forked skill + `spec-researcher` Read-only Haiku subagent for topic-aware retrieval of prior FRs (active + archived) into `/brainstorm` and `/spec-write` without polluting parent context. Returns a fixed-shape ≤ 25-line block — banner + Related FRs / Prior Decisions / Reusable ACs sections; shape enforced by new `/gate-check` probe #41 `spec_research_result_shape`. Branch-gate exemption via `NON_COMMIT_PRODUCING_SKILLS` allowlist append. Test count: 1989.
 
 ## Core Philosophy
 
