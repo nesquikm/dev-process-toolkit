@@ -1,64 +1,149 @@
-// audit_log — STE-108 AC-STE-108.7 helper.
+// audit_log — STE-108 AC-STE-108.7 helper, extended by STE-232 AC-STE-232.4.
 //
-// Append a `## /setup audit` entry to CLAUDE.md when /setup auto-decides a
-// `default:`-annotated step. The audit section is the sole signal that a
-// project was set up autonomously (or with pre-baked answers); reading it
-// is sufficient signal for `/gate-check` probe `setup-audit-section-presence`.
+// Appends a `## /setup audit` row to CLAUDE.md when /setup resolves a Schema L
+// answer. The audit section is the sole signal that a project was set up
+// autonomously (or with pre-baked answers); reading it is sufficient signal
+// for `/gate-check` probe `setup-audit-section-presence`.
+//
+// STE-232 extension: every row now carries an `imputed: true|false` column.
+// `appendAuditRow(...)` is the canonical helper — it accepts `source` (one of
+// the four canonical provenance values) and derives `imputed = source !==
+// 'user-supplied'`. `appendAuditEntry(...)` is retained as a thin compatibility
+// wrapper that derives `source` from the legacy `reason` argument so existing
+// callers continue to work; new callers should pass `source` directly via
+// `appendAuditRow`.
 //
 // Pure file I/O. The skill prose decides *when* to append; this helper only
-// formats and writes.
+// formats and writes. See `docs/auto-mode-protocol.md` § Audit Trail for the
+// cross-skill contract.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const SECTION_HEADING = "## /setup audit";
 
-export interface AuditEntry {
-  date: string; // ISO date (YYYY-MM-DD)
-  step: string; // e.g., "7c"
-  field: string; // e.g., "branch_template"
-  value: unknown; // serialized verbatim with JSON.stringify (quotes for strings)
-  reason: string; // free-form, canonical values "user-supplied" / "default applied" (STE-153)
-}
+/**
+ * Canonical provenance of a Schema L resolution. STE-232 AC-STE-232.4.
+ *
+ * - `user-supplied` — interactive answer from a TTY prompt.
+ * - `pre-baked` — answer supplied via CLI flag (e.g., `--tracker=linear`).
+ * - `default-applied` — auto-approve marker (STE-226) present and a default
+ *    existed.
+ * - `model-imputed` — the model guessed; this should never happen on a
+ *   well-formed run, but the column structurally distinguishes it from
+ *   user-confirmed values when it does.
+ */
+export type AuditSource =
+  | "user-supplied"
+  | "pre-baked"
+  | "default-applied"
+  | "model-imputed";
 
-function renderBullet(entry: AuditEntry): string {
-  // JSON.stringify handles every type uniformly, including escaping `"` and
-  // `\` in strings — required so a value like `feat/{ticket-id}-"weird"` round-trips through
-  // YAML-flavoured prose without breaking the audit-line shape.
-  const valueRendered = JSON.stringify(entry.value);
-  const reasonRendered = JSON.stringify(entry.reason);
-  return `- ${entry.date} step:${entry.step} (${entry.field}) value:${valueRendered} reason:${reasonRendered}`;
+export interface AuditRow {
+  /** ISO date (`YYYY-MM-DD`). */
+  date: string;
+  /** Step identifier, e.g., `7b`, `7c`, `7d`. */
+  step: string;
+  /** Resolved field name, e.g., `tracker_mode`, `branch_template`. */
+  field: string;
+  /** Resolved value; serialized via `JSON.stringify` for round-trip safety. */
+  value: unknown;
+  /** Provenance — drives `imputed = source !== 'user-supplied'`. */
+  source: AuditSource;
+  /**
+   * Optional free-form reason override. When omitted, the canonical
+   * source-derived reason is rendered (`"user-supplied"` / `"pre-baked"` /
+   * `"default applied"` / `"model-imputed"`). Adapters with finer-grained
+   * provenance (e.g., `"MCP unregistered; deferred"`) pass an explicit
+   * override here; the source still drives the `imputed:` column.
+   */
+  reason?: string;
 }
 
 /**
- * Append an audit entry to CLAUDE.md's `## /setup audit` section.
+ * Legacy `appendAuditEntry` shape — kept for STE-108/STE-153 callers. New
+ * code should use {@link AuditRow} + {@link appendAuditRow}.
+ */
+export interface AuditEntry {
+  date: string;
+  step: string;
+  field: string;
+  value: unknown;
+  reason: string;
+}
+
+export interface ParsedAuditRow {
+  date: string;
+  step: string;
+  field: string;
+  value: unknown;
+  reason: string;
+  /** `undefined` for legacy rows pre-STE-232 (no `imputed:` column). */
+  imputed?: boolean;
+}
+
+/**
+ * Map a canonical `source` to its default `reason:` rendering. The mapping
+ * preserves the historical reason strings (`"user-supplied"`, `"default applied"`)
+ * so probe parsers and existing audit sections stay readable.
+ */
+function defaultReasonFor(source: AuditSource): string {
+  switch (source) {
+    case "user-supplied":
+      return "user-supplied";
+    case "pre-baked":
+      return "pre-baked";
+    case "default-applied":
+      return "default applied";
+    case "model-imputed":
+      return "model-imputed";
+  }
+}
+
+/**
+ * Map a legacy `reason` to a best-guess `source`. Used by the
+ * {@link appendAuditEntry} compatibility wrapper to derive the column.
  *
- * Behavior:
- *   - section absent: create it at the end of file with one blank line above
- *     the heading and the new bullet directly below.
- *   - section present: insert the new bullet at the end of the section
- *     (immediately before the next `##`-level heading or EOF).
- *   - never de-duplicates — append-only is the contract (STE-108 AC-STE-108.7).
+ * Heuristic: `"user-supplied"` ⇒ `'user-supplied'` (imputed=false); anything
+ * else maps to `'default-applied'` (imputed=true). Adapters that need finer
+ * granularity should call {@link appendAuditRow} directly.
+ */
+function sourceFromLegacyReason(reason: string): AuditSource {
+  return reason.trim() === "user-supplied" ? "user-supplied" : "default-applied";
+}
+
+function renderRow(row: AuditRow): string {
+  // JSON.stringify handles every value type uniformly, including escaping `"`
+  // and `\` in strings — required so a value like `feat/{ticket-id}-"weird"`
+  // round-trips through YAML-flavoured prose without breaking the row shape.
+  const valueRendered = JSON.stringify(row.value);
+  const reasonRendered = JSON.stringify(row.reason ?? defaultReasonFor(row.source));
+  const imputed = row.source !== "user-supplied";
+  return `- ${row.date} step:${row.step} (${row.field}) value:${valueRendered} reason:${reasonRendered} imputed:${imputed}`;
+}
+
+/**
+ * Append a row to CLAUDE.md's `## /setup audit` section. Idempotent in the
+ * file-presence sense (creates the section if absent) but never de-duplicates —
+ * append-only is the contract (STE-108 AC-STE-108.7).
  *
  * @throws Error if the CLAUDE.md file does not exist.
  */
-export function appendAuditEntry(claudeMdPath: string, entry: AuditEntry): void {
+export function appendAuditRow(claudeMdPath: string, row: AuditRow): void {
   if (!existsSync(claudeMdPath)) {
     throw new Error(
-      `appendAuditEntry: CLAUDE.md not found at ${claudeMdPath} — /setup must write the file before logging audit entries`,
+      `appendAuditRow: CLAUDE.md not found at ${claudeMdPath} — /setup must write the file before logging audit rows`,
     );
   }
   const content = readFileSync(claudeMdPath, "utf-8");
-  const bullet = renderBullet(entry);
+  const bullet = renderRow(row);
   const lines = content.split("\n");
   const sectionStart = lines.findIndex((l) => l === SECTION_HEADING);
 
   let next: string;
   if (sectionStart < 0) {
-    // Create the section at end of file.
     const trimmed = content.replace(/\n+$/, "");
     next = `${trimmed}\n\n${SECTION_HEADING}\n\n${bullet}\n`;
   } else {
-    // Find where the section ends (next `##` heading or EOF).
     let sectionEnd = lines.length;
     for (let i = sectionStart + 1; i < lines.length; i++) {
       if (/^##\s/.test(lines[i]!)) {
@@ -66,9 +151,6 @@ export function appendAuditEntry(claudeMdPath: string, entry: AuditEntry): void 
         break;
       }
     }
-    // Walk backwards from sectionEnd to find the last non-empty line in
-    // the section — we insert directly after it, then preserve the trailing
-    // blank line(s) before the next `##` heading.
     let lastBulletIdx = sectionStart;
     for (let i = sectionEnd - 1; i > sectionStart; i--) {
       if ((lines[i] ?? "").length > 0) {
@@ -81,4 +163,61 @@ export function appendAuditEntry(claudeMdPath: string, entry: AuditEntry): void 
     next = [...before, bullet, ...after].join("\n");
   }
   writeFileSync(claudeMdPath, next);
+}
+
+/**
+ * Backwards-compatibility wrapper for STE-108 / STE-153 callers that still
+ * pass `reason`. Derives `source` via {@link sourceFromLegacyReason} and
+ * delegates to {@link appendAuditRow}. New callers should use
+ * {@link appendAuditRow} directly with an explicit `source`.
+ */
+export function appendAuditEntry(
+  claudeMdPath: string,
+  entry: AuditEntry,
+): void {
+  appendAuditRow(claudeMdPath, {
+    date: entry.date,
+    step: entry.step,
+    field: entry.field,
+    value: entry.value,
+    source: sourceFromLegacyReason(entry.reason),
+    reason: entry.reason,
+  });
+}
+
+const ROW_RE =
+  /^- (?<date>\d{4}-\d{2}-\d{2}) step:(?<step>\S+) \((?<field>[^)]+)\) value:(?<value>.+?) reason:(?<reason>"(?:[^"\\]|\\.)*")(?: imputed:(?<imputed>true|false))?$/;
+
+/**
+ * Tolerantly parse a single audit-row line. Returns `null` when the line is
+ * not an audit row (headings, blanks, prose). Returns the parsed shape with
+ * `imputed: undefined` for legacy rows that pre-date the STE-232 column.
+ */
+export function parseAuditRow(line: string): ParsedAuditRow | null {
+  const m = ROW_RE.exec(line);
+  if (!m || !m.groups) return null;
+  let parsedValue: unknown;
+  try {
+    parsedValue = JSON.parse(m.groups.value!);
+  } catch {
+    parsedValue = m.groups.value!;
+  }
+  let parsedReason: string;
+  try {
+    parsedReason = JSON.parse(m.groups.reason!);
+  } catch {
+    parsedReason = m.groups.reason!;
+  }
+  const imputed =
+    m.groups.imputed === undefined
+      ? undefined
+      : m.groups.imputed === "true";
+  return {
+    date: m.groups.date!,
+    step: m.groups.step!,
+    field: m.groups.field!,
+    value: parsedValue,
+    reason: parsedReason,
+    imputed,
+  };
 }
