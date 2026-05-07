@@ -931,6 +931,39 @@ Capture each child's transcript artifact under `tests/fixtures/socratic-first-tu
 
 **Skill rotation.** Phase 8 fires once per smoke run, sequentially across the four in-scope skills (no parallelism — child-spawn cost is dominated by `claude -p` startup, not loop entry latency). A failed first-turn contract on one skill does not skip the remaining three — capture all four fixtures, then surface the aggregate verdict at end-of-phase.
 
+**Driver wrapper (reference snippet).** Spawn each in-scope skill as a stream-json child, capture NDJSON to the per-skill fixture path, then run the bundled `socratic_first_turn_assert.ts` CLI runner against the fixture. The runner composes `parseStreamJsonTranscript` (NDJSON → `TranscriptEntry[]`) with `assertFirstTurnShape` (the helper); both are unit-tested at `socratic_first_turn{,_stream}.test.ts`.
+
+```bash
+DATE=$(date +%Y-%m-%d)
+PLUGIN_DIR=/Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit
+FIXTURE_DIR=${PLUGIN_DIR}/tests/fixtures/socratic-first-turn
+ASSERT_RUNNER=${PLUGIN_DIR}/adapters/_shared/src/socratic_first_turn_assert.ts
+mkdir -p "${FIXTURE_DIR}"
+
+for SKILL in setup brainstorm spec-write report-issue; do
+  FIXTURE=${FIXTURE_DIR}/${SKILL}-${DATE}.json
+
+  CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
+    --output-format stream-json \
+    --plugin-dir "${PLUGIN_DIR}" \
+    --permission-mode bypassPermissions \
+    > "${FIXTURE}" 2>/dev/null <<PROMPT_EOF
+The user has asked you to work without stopping for clarifying questions. When you'd normally pause to check, make the reasonable call and continue; they'll redirect if needed.
+/dev-process-toolkit:${SKILL}
+
+<verbose-pre-baked-args appearing to cover every question the skill might ask>
+PROMPT_EOF
+
+  # Runner emits one of:
+  #   <skill>: ok-asked askIndex=<i>
+  #   <skill>: ok-refused askIndex=<i>
+  #   <skill>: violation tool=<X> index=<i>   (exits 1)
+  bun "${ASSERT_RUNNER}" "${SKILL}" "${FIXTURE}"
+done
+```
+
+A zero exit from the runner emits `socratic_first_turn_contract_ok` for that skill; a non-zero exit emits `socratic_first_turn_contract_violation` and **hard-fails the smoke run**. The heredoc body deliberately omits the `<dpt:auto-approve>v1</dpt:auto-approve>` marker and includes the autonomous-mode reminder verbatim — Phase 8 simulates the magpie-incident shape, so the in-scope skill must enter the Socratic loop (or refuse) regardless.
+
 ### Phase 9 — Capability-Row Emission Verification (STE-238)
 
 Phase 9 closes the structural-enforcement-of-capability-row-emission gap caught by `/conformance-loop` iteration 1 (2026-05-07). The behavioral contracts of STE-226 / STE-228 / STE-230 fire correctly at runtime, but the byte-checkable capability-key tokens those contracts specify are absent from runtime stdout — the LLM emits narrative prose, not the literal tokens. Phase 9 is the lenient-assertion behavioral fixture (per STE-231 AC.3 shape — "at least one expected key for the scenario MUST appear in stdout"). Source-level coverage lives in `/gate-check`'s `closing_summary_capability_keys` probe.
