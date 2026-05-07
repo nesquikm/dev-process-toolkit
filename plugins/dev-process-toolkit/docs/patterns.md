@@ -598,6 +598,16 @@ When a skill needs more than one piece of input from the user, ask one question 
 
 Skills that adopt this pattern reference it by anchor (`docs/patterns.md § Pattern 26: Socratic Prompting {#pattern-socratic-prompting}`) rather than restating the rule inline; the canonical statement lives here, the rationalization-prevention table is the operational nudge. `/brainstorm` keeps an inline copy of the table because Pattern 26 is extracted **from** that table — both copies remain, and edits to either must update the other.
 
+### Structural enforcement (STE-237)
+
+Pattern 26 is enforced **structurally** via the `AskUserQuestion` tool primitive (B-side) and **behaviorally** via `/smoke-test` Phase 8 (C-side); prose discipline alone is insufficient (STE-220 lesson). Every clarifying Q in a Pattern-26-tagged skill body MUST be emitted as an `AskUserQuestion` tool call — closed-form OR open-ended (the always-on `"Other"` free-form fallback covers open-ended). The contract holds regardless of the autonomous-mode reminder, the auto-approve marker, or pre-baked `<command-args>` prose. Bare-prose questions are forbidden in Pattern-26-tagged skill bodies.
+
+The first-turn contract additionally forbids `Write` / `Edit` / `NotebookEdit` tool calls **before** the first `AskUserQuestion` `tool_use` OR `RequiresInputRefusedError` raise; read-only orientation tools (`Read`, `Grep`, `Glob`, `Bash`-read-only) and `text` entries are allowed. Arbiter: `assertFirstTurnShape(transcript)` at `adapters/_shared/src/socratic_first_turn.ts`.
+
+See `docs/auto-mode-protocol.md § Socratic Loop Contract` for the full contract (the rule, the first-turn contract, the in-scope skill list, cross-references). The originating signal was the magpie incident (gist `https://gist.github.com/nesquikm/2904e50c7213b6aa392b998d4137f609`, 2026-05-07, plugin v2.16.0): `/setup` invoked under the autonomous-mode reminder + verbose pre-baked-args prose without the auto-approve marker emitted `Write` calls (plugin.json, .mcp.json, 7 SKILL.md files, README, CLAUDE.md) before any clarifying Q. Step 7b never fired; STE-232's `imputed:` audit row was never written. STE-237's universal `AskUserQuestion` mandate makes that recurrence class structurally impossible.
+
+**Cross-refs**: `adapters/_shared/src/socratic_first_turn.ts` (arbiter helper), `adapters/_shared/src/socratic_loop_uses_ask_user_question.ts` (`/gate-check` source-level probe), `adapters/_shared/src/setup/audit_log.ts` (`loop_entered:` column), `docs/auto-mode-protocol.md § Socratic Loop Contract` (single source of truth for the contract).
+
 ## Root Spec Hygiene
 
 **Where**: `specs/requirements.md`, `specs/technical-spec.md`, `specs/testing-spec.md` (the three root spec files) + `/gate-check` § Conformance Probes.

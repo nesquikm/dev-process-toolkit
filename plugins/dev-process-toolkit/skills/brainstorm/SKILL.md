@@ -94,6 +94,8 @@ Once the design is approved:
 
 > See also: `docs/patterns.md § Pattern 26: Socratic Prompting {#pattern-socratic-prompting}` for the cross-skill canonical statement of this rule.
 
+> **Socratic Loop Contract (STE-237).** Every clarifying Q in this skill — Step 1 goals AND Step 2 approach Q&A — MUST be emitted as an `AskUserQuestion` tool call (closed-form options OR open-ended with the always-on `"Other"` free-form fallback), regardless of the autonomous-mode reminder, the auto-approve marker, or pre-baked `<command-args>` prose. Bare-prose Qs are forbidden. The first-turn contract additionally forbids `Write` / `Edit` / `NotebookEdit` tool calls before the first `AskUserQuestion` `tool_use` OR `RequiresInputRefusedError` raise; `Read` / `Grep` / `Glob` / `Bash`-read-only orientation is allowed. See `docs/auto-mode-protocol.md § Socratic Loop Contract` for the full contract.
+
 The one-at-a-time rule fails most often at phase transitions and when the user is being responsive. The excuses below are the ones to watch for — stop and ask only the first question each time.
 
 | Excuse | Reality |

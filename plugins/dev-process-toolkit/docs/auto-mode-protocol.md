@@ -86,6 +86,82 @@ operator sees `Verdict:` (what happened, what the requires-input reason was),
 `Remedy:` (how to unblock — pre-bake the flag or run interactively), and
 `Context:` (skill / step / key / marker observation) on three separate lines.
 
+## Socratic Loop Contract
+
+STE-232's per-step refusal closed the **per-gate** side of the autonomous-mode
+contract. STE-237 closes the symmetric **whole-loop** side: a model running
+under the autonomous-mode reminder + verbose pre-baked-args prose can skip the
+entire Socratic clarification loop *before* any gated step fires (the magpie
+incident, gist
+`https://gist.github.com/nesquikm/2904e50c7213b6aa392b998d4137f609`, 2026-05-07,
+v2.16.0). Pattern 26 prose alone is insufficient — STE-220 cautionary
+precedent applies. Structural enforcement closes the loop.
+
+**(a) The rule — universal `AskUserQuestion` mandate.** Every clarifying
+question in a Pattern-26-tagged skill body MUST be emitted as an
+`AskUserQuestion` tool call (closed-form options OR open-ended; the always-on
+`"Other"` free-form fallback covers the open-ended case). The mandate holds
+**regardless of**:
+
+- the harness-injected autonomous-mode reminder ("work without stopping for
+  clarifying questions"),
+- the auto-approve marker (`<dpt:auto-approve>v1</dpt:auto-approve>`),
+- pre-baked `<command-args>` prose that *appears* to answer every question.
+
+The marker only relaxes gates that have a documented safe default; it does
+not relax the Socratic loop, because clarifying questions have no "safe
+default" — guessing at user intent is the regression class STE-237 closes.
+Bare-prose questions (`"which mode do you want?"` rendered as plain
+markdown) are forbidden in Pattern-26-tagged skill bodies; the model running
+the skill cannot fabricate answers when the question itself is structured as
+a tool call the harness brokers.
+
+**(b) The first-turn contract.** `Write`, `Edit`, and `NotebookEdit` tool
+calls are forbidden before the **first** of (i) an `AskUserQuestion`
+`tool_use` block in the response stream, OR (ii) a
+`RequiresInputRefusedError` raise. Read-only orientation tools (`Read`,
+`Grep`, `Glob`, `Bash`-read-only) are allowed pre-ask; free-form `text`
+entries are allowed pre-ask. The arbiter is the pure-I/O helper
+`assertFirstTurnShape(transcript)` at
+`adapters/_shared/src/socratic_first_turn.ts` — the single source of truth
+for the contract, consumed by `/smoke-test` Phase 8 and any future runtime
+detector. Violation throws `SocraticFirstTurnViolationError` (NFR-10
+canonical shape) naming the offending tool name + zero-based index in the
+response stream.
+
+**(c) Skills in scope (initial set).** The contract applies to every skill
+body that (i) cites `Pattern 26` (substring match) OR (ii) carries a
+`socratic: true` Schema-K frontmatter key. Initial scope:
+
+| Skill              | Site                                                          |
+|--------------------|---------------------------------------------------------------|
+| `/setup`           | Steps 1–6 stack-detection / Schema-L resolution clarifiers    |
+| `/brainstorm`      | Step 1 goals + Step 2 approaches Q&A                          |
+| `/spec-write`      | § 1–§ 6 requirement / AC / technical / testing interview      |
+| `/report-issue`    | scope + redaction-confirmation prompts                        |
+
+**Forward-extension hook.** Any new skill that ships `Pattern 26` prose or
+a `socratic: true` frontmatter key is automatically picked up by
+`/gate-check` probe `socratic_loop_uses_ask_user_question` — no manual list
+maintenance. The probe asserts (i) the body references the
+`AskUserQuestion` tool primitive (substring match) AND (ii) the body cites
+this protocol doc by relative path.
+
+**(d) Cross-references.**
+
+- **STE-226** (default-apply marker): the Socratic loop has no analog —
+  clarifying Qs lack safe defaults by definition. The marker relaxes
+  approval gates; it does not relax loop entry.
+- **STE-232** (per-step refusal): closed the gate-level contract via
+  `requireOrRefuse(...)`. STE-237 is the symmetric loop-level layer.
+  `imputed:` flags model-imputed values for gates that *did* fire;
+  `loop_entered:` flags loops that *never* fired.
+- **STE-220** (prose-only failure precedent): the cautionary lesson —
+  prose-only carve-outs failed at runtime; the fix must be byte-checkable.
+  STE-237 satisfies that lesson via `AskUserQuestion` (B-side, structural)
+  + `/smoke-test` Phase 8 (C-side, behavioral) + the
+  `socratic_loop_uses_ask_user_question` probe (C-side, source-level).
+
 ## Audit Trail
 
 Every Schema L resolution writes a row to CLAUDE.md's `## /setup audit`
@@ -117,6 +193,17 @@ as a user-confirmed one.
 emit the column. There is no automatic upgrade of on-disk legacy rows — the
 parser tolerance is forward-compatibility, not retrofit.
 
+**STE-237 extension — `loop_entered:` column.** Rows additionally carry an
+optional `loop_entered: true|false` column rendered when the caller passes
+`loopEntered` to `appendAuditRow(...)`. `true` means /setup Steps 1–6
+emitted at least one `AskUserQuestion` clarifier (the model entered the
+Socratic loop); `false` means the model proceeded without entering it. The
+two columns are orthogonal: `imputed:` flags model-imputed values for gates
+that *did* fire; `loop_entered: false` flags loops that *never* fired —
+the magpie regression class. Both columns must be inspected together to
+reason about a /setup run's structural correctness. Pre-STE-237 rows omit
+the column; the parser tolerates both shapes (`loopEntered: undefined`).
+
 ## Skills In Scope
 
 The protocol applies to every toolkit skill carrying a `requires-input:`
@@ -144,6 +231,12 @@ Either missing ⇒ separate violation, surfaced as
 
 - **STE-226** — Default-apply mechanism: the canonical marker, the
   `auto_approve_marker_in_canonical_spawns` `/gate-check` probe.
+- **STE-232** — Per-step refusal contract: `requireOrRefuse(...)` and
+  the `imputed:` audit column.
+- **STE-237** — Socratic Loop Contract: universal `AskUserQuestion`
+  mandate + first-turn contract + `loop_entered:` audit column +
+  `socratic_loop_uses_ask_user_question` /gate-check probe +
+  `/smoke-test` Phase 8.
 - **STE-108** — `requires-input:` annotation framework + the original
   audit-row format extended here.
 - **STE-153** — User-supplied provenance recording in the audit section.
