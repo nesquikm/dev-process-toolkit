@@ -48,6 +48,8 @@ Ask the **four canonical prompts in this exact order**. One at a time, wait for 
 
 Do not batch. The order is asserted by the doc-conformance test; reordering breaks the test contract.
 
+**Socratic Loop Contract (STE-237).** Each of the four canonical prompts above MUST be emitted as an `AskUserQuestion` tool call (closed-form options for #3 severity; open-ended with the always-on `"Other"` free-form fallback for #1 / #2 / #4), regardless of the autonomous-mode reminder, the auto-approve marker, or pre-baked `<command-args>` prose. Bare-prose Qs are forbidden. The first-turn contract additionally forbids `Write` / `Edit` / `NotebookEdit` tool calls before the first `AskUserQuestion` `tool_use` OR `RequiresInputRefusedError` raise; `Read` / `Grep` / `Glob` / `Bash`-read-only orientation is allowed (the temp-directory `mktemp -d` in § 3 fires AFTER the four-prompt loop completes). See `docs/auto-mode-protocol.md § Socratic Loop Contract` for the full contract.
+
 ### 3. Make a temp working directory
 
 Allocate a working directory via `mktemp -d` (e.g., `TMPDIR_VAR=$(mktemp -d)`). Every artifact below lands inside it. Install a `trap 'rm -rf "$TMPDIR_VAR"' EXIT` (or equivalent `finally` block) so the directory is removed on every exit path — success, decline, error.

@@ -1,4 +1,5 @@
-// audit_log — STE-108 AC-STE-108.7 helper, extended by STE-232 AC-STE-232.4.
+// audit_log — STE-108 AC-STE-108.7 helper, extended by STE-232 AC-STE-232.4
+// and STE-237 AC-STE-237.6.
 //
 // Appends a `## /setup audit` row to CLAUDE.md when /setup resolves a Schema L
 // answer. The audit section is the sole signal that a project was set up
@@ -12,6 +13,15 @@
 // wrapper that derives `source` from the legacy `reason` argument so existing
 // callers continue to work; new callers should pass `source` directly via
 // `appendAuditRow`.
+//
+// STE-237 extension: rows additionally carry an optional `loop_entered:
+// true|false` column. Set to `true` when /setup Steps 1–6 emitted at least
+// one `AskUserQuestion` clarifier (the Socratic loop fired); `false` when
+// the model proceeded without entering the loop. Pairs with `imputed:` for
+// two-axis loop visibility — `imputed:` flags model-imputed values for
+// gates that DID fire; `loop_entered:` flags loops that NEVER fired (the
+// magpie regression class). Pre-STE-237 rows omit the column; the parser
+// tolerates both shapes (see `parseAuditRow`).
 //
 // Pure file I/O. The skill prose decides *when* to append; this helper only
 // formats and writes. See `docs/auto-mode-protocol.md` § Audit Trail for the
@@ -57,6 +67,14 @@ export interface AuditRow {
    * override here; the source still drives the `imputed:` column.
    */
   reason?: string;
+  /**
+   * STE-237 AC-STE-237.6 — `true` when /setup Steps 1–6 emitted at least one
+   * `AskUserQuestion` clarifier (the Socratic loop fired); `false` when the
+   * model proceeded without entering the loop. Optional for back-compat:
+   * legacy callers omit it and the rendered row drops the column entirely;
+   * the parser tolerates the absence (`loopEntered: undefined`).
+   */
+  loopEntered?: boolean;
 }
 
 /**
@@ -79,6 +97,8 @@ export interface ParsedAuditRow {
   reason: string;
   /** `undefined` for legacy rows pre-STE-232 (no `imputed:` column). */
   imputed?: boolean;
+  /** `undefined` for rows pre-STE-237 (no `loop_entered:` column). */
+  loopEntered?: boolean;
 }
 
 /**
@@ -118,7 +138,10 @@ function renderRow(row: AuditRow): string {
   const valueRendered = JSON.stringify(row.value);
   const reasonRendered = JSON.stringify(row.reason ?? defaultReasonFor(row.source));
   const imputed = row.source !== "user-supplied";
-  return `- ${row.date} step:${row.step} (${row.field}) value:${valueRendered} reason:${reasonRendered} imputed:${imputed}`;
+  const base = `- ${row.date} step:${row.step} (${row.field}) value:${valueRendered} reason:${reasonRendered} imputed:${imputed}`;
+  return row.loopEntered === undefined
+    ? base
+    : `${base} loop_entered:${row.loopEntered}`;
 }
 
 /**
@@ -186,12 +209,14 @@ export function appendAuditEntry(
 }
 
 const ROW_RE =
-  /^- (?<date>\d{4}-\d{2}-\d{2}) step:(?<step>\S+) \((?<field>[^)]+)\) value:(?<value>.+?) reason:(?<reason>"(?:[^"\\]|\\.)*")(?: imputed:(?<imputed>true|false))?$/;
+  /^- (?<date>\d{4}-\d{2}-\d{2}) step:(?<step>\S+) \((?<field>[^)]+)\) value:(?<value>.+?) reason:(?<reason>"(?:[^"\\]|\\.)*")(?: imputed:(?<imputed>true|false))?(?: loop_entered:(?<loopEntered>true|false))?$/;
 
 /**
  * Tolerantly parse a single audit-row line. Returns `null` when the line is
  * not an audit row (headings, blanks, prose). Returns the parsed shape with
- * `imputed: undefined` for legacy rows that pre-date the STE-232 column.
+ * `imputed: undefined` for legacy rows that pre-date the STE-232 column,
+ * and `loopEntered: undefined` for rows that pre-date STE-237. Both columns
+ * are independent: presence/absence permutations are tolerated.
  */
 export function parseAuditRow(line: string): ParsedAuditRow | null {
   const m = ROW_RE.exec(line);
@@ -212,6 +237,10 @@ export function parseAuditRow(line: string): ParsedAuditRow | null {
     m.groups.imputed === undefined
       ? undefined
       : m.groups.imputed === "true";
+  const loopEntered =
+    m.groups.loopEntered === undefined
+      ? undefined
+      : m.groups.loopEntered === "true";
   return {
     date: m.groups.date!,
     step: m.groups.step!,
@@ -219,5 +248,6 @@ export function parseAuditRow(line: string): ParsedAuditRow | null {
     value: parsedValue,
     reason: parsedReason,
     imputed,
+    loopEntered,
   };
 }
