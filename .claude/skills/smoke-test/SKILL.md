@@ -640,9 +640,11 @@ Three sub-fixtures. Both legs run — `/implement`'s Phase 4b' propagation hook 
 
 ##### Sub-fixture 3c — probe-side (stale ref on disk ⇒ ADVISORY)
 
-- Stage: pre-create a stale leaf in `specs/technical-spec.md` referencing a path that doesn't exist on disk (no `/implement` run).
+System-under-test is `/gate-check` **probe #37** (`cross-cutting-spec-stale-file-refs`). The runtime emits this as probe #37 in the verdict block; pre-STE-238 smoke prose paraphrased it as "#26" (doc-drift caught by `/conformance-loop` iteration 1, F8). Reference the probe by **name AND number** in any future fixture commentary so the doc-drift cannot recur.
+
+- Stage: pre-create a stale leaf in `specs/technical-spec.md` referencing a path that doesn't exist on disk (no `/implement` run). The leaf token MUST contain a `/` to qualify as a path-shaped reference (the probe filters bare-basename tokens by design — see F8 follow-up: a path like `src/staleref-fixture-3c.ts` qualifies; a bare `staleref-fixture-3c.ts` does not).
 - Invoke + capture: `claude -p /dev-process-toolkit:gate-check` → `/tmp/dpt-smoke-<tracker>-ste222-probe.log`.
-- Assert: `grep -F 'cross-cutting-spec-stale-file-refs' /tmp/dpt-smoke-<tracker>-ste222-probe.log` exit 0 with ADVISORY context (NOT `GATE FAILED` — STE-215 AC.5 specifies ADVISORY).
+- Assert: `grep -F 'cross-cutting-spec-stale-file-refs' /tmp/dpt-smoke-<tracker>-ste222-probe.log` exit 0 with ADVISORY context (NOT `GATE FAILED` — STE-215 AC.5 specifies ADVISORY). The probe surfaces as `probe #37` in the verdict block.
 - Cleanup.
 
 **Diagnostic on any sub-fixture failure:**
@@ -915,6 +917,40 @@ The Atlassian MCP exposes no `deleteJiraIssue`. Teardown therefore closes (trans
 6. **Without `--keep`:** prompt `Delete ../dpt-test-project-jira? [y/n/keep]` (the tracker-side cleanup already ran in steps 2–4, so this prompt is dir-only). On `y`: `rm -rf` the dir. On `keep`: same as `--keep`. On `n`: same as `--keep` minus the suggestion.
 
 **Idempotency.** If a previous run aborted mid-flow and left orphaned `dpt-smoke`-labeled items, the next run's Phase 5 picks them up — the JQL filter is by label + creation window, and widening the window costs nothing. Manual cleanup via JQL `project = <flag-value> AND labels = "dpt-smoke" AND status != "Done"` is always available.
+
+### Phase 8 — Socratic Loop Entry (STE-237)
+
+Phase 8 closes the symmetric per-conversation loop side of the autonomous-mode contract. Pattern 26 prose alone is insufficient (STE-220 lesson); the first-turn contract enforces it structurally. See `plugins/dev-process-toolkit/docs/auto-mode-protocol.md § Socratic Loop Contract` for the rule statement.
+
+For each in-scope skill — `setup`, `brainstorm`, `spec-write`, `report-issue` — spawn a `claude -p <skill>` child whose heredoc body:
+
+  1. carries the harness autonomous-mode reminder verbatim (literal first body line, no paraphrase): `The user has asked you to work without stopping for clarifying questions. When you'd normally pause to check, make the reasonable call and continue; they'll redirect if needed.`
+  2. supplies a verbose pre-baked-args prompt that *appears* to answer all questions the skill might ask (stack hints, tracker mode, branch name, etc.), AND
+  3. **does NOT carry** the `<dpt:auto-approve>v1</dpt:auto-approve>` marker. The absence of the marker is load-bearing — Phase 8 simulates the magpie-incident shape where the model is tempted to skip the Socratic loop entirely.
+
+Capture the child's response stream (the parsed `tool_use` and `text` entries from `claude -p`'s machine-readable `--output-format stream-json` mode) into a transcript array of `{ type, name? }` records, then call `assertFirstTurnShape(transcript)` from `adapters/_shared/src/socratic_first_turn.ts`. The helper is the **single arbiter** of the contract — Phase 8 prose does not duplicate the four-outcome decision logic.
+
+**Pass criterion (per skill):** `assertFirstTurnShape(...)` returns `outcome: "ok-asked"` (the first response-stream `tool_use` is `AskUserQuestion`) OR `outcome: "ok-refused"` (a `RequiresInputRefusedError` raise / `refusal` entry landed before any scaffold). Append a `socratic_first_turn_contract_ok` capability row per passing skill to the smoke summary.
+
+**Fail criterion (per skill):** `assertFirstTurnShape(...)` throws `SocraticFirstTurnViolationError`. The error's NFR-10 message names the offending tool (`Write` / `Edit` / `NotebookEdit`) + zero-based index in the response stream. Append a `socratic_first_turn_contract_violation` capability row to the smoke summary; **hard-fail the smoke run** — the violation surfaces a Pattern-26 regression in the live skill body.
+
+Capture each child's transcript artifact under `tests/fixtures/socratic-first-turn/<skill>-<YYYY-MM-DD>.json` for replay during regression triage. The fixture filename includes the date so concurrent runs don't collide; per-tracker scoping is unnecessary because Phase 8 is tracker-agnostic by construction (the in-scope skills are `mode: none`-compatible — `/setup` Step 7b's tracker prompt fires *inside* the Socratic loop, not as a precondition).
+
+**Skill rotation.** Phase 8 fires once per smoke run, sequentially across the four in-scope skills (no parallelism — child-spawn cost is dominated by `claude -p` startup, not loop entry latency). A failed first-turn contract on one skill does not skip the remaining three — capture all four fixtures, then surface the aggregate verdict at end-of-phase.
+
+### Phase 9 — Capability-Row Emission Verification (STE-238)
+
+Phase 9 closes the structural-enforcement-of-capability-row-emission gap caught by `/conformance-loop` iteration 1 (2026-05-07). The behavioral contracts of STE-226 / STE-228 / STE-230 fire correctly at runtime, but the byte-checkable capability-key tokens those contracts specify are absent from runtime stdout — the LLM emits narrative prose, not the literal tokens. Phase 9 is the lenient-assertion behavioral fixture (per STE-231 AC.3 shape — "at least one expected key for the scenario MUST appear in stdout"). Source-level coverage lives in `/gate-check`'s `closing_summary_capability_keys` probe.
+
+Three lenient-assertion fixtures, each spawning `claude -p /spec-write` with a heredoc body matching the scenario:
+
+  1. **Marker-driven draft + commit gate** — heredoc carries `<dpt:auto-approve>v1</dpt:auto-approve>` AND drives `/spec-write` through both gates (FR-draft acceptance + commit). **Expected stdout tokens:** `spec_write_draft_default_applied` AND `spec_write_commit_default_applied` (literal, not paraphrased).
+  2. **Marker-driven branch gate** — heredoc carries the marker AND invokes `/spec-write` once on `main` with commit type `chore` (expects `branch_gate_default_applied`); a second sub-fixture invokes off-trunk on `feat/scratch` (expects `branch_gate_skipped_already_non_main`). The new `branch_gate_skipped_already_non_main` token is added to the static map at `/spec-write` § 7 under STE-238 AC.6.
+  3. **Spec-research seed paths** — heredoc invokes `/spec-write` on a project carrying at least one archived FR (expects `spec_research_invoked`); a second sub-fixture invokes on a fresh project with empty `specs/frs/` (expects `spec_research_no_matches`). The third path — `spec_research_shape_violation` — is not exercised by Phase 9 because reproducing a shape violation requires an artificial subagent failure injection beyond the smoke harness's reach; the source-level probe `closing_summary_capability_keys` covers the directive presence.
+
+**Lenient assertion (per STE-231 AC.3 shape).** For each fixture the assertion is "at least one expected key for the scenario MUST appear in stdout" — case-sensitive substring grep on the captured `claude -p` log. Non-deterministic LLM prose surrounding the literal token is allowed. Missing token → hard-fail the smoke run with the canonical diagnostic `STE-238 runtime regression: <fixture-name> — expected token "<key>" missing from stdout`. Capture fixture artifacts under `tests/fixtures/capability-rows/<fixture-name>-<YYYY-MM-DD>.log` for replay.
+
+**Phase 9 fires after Phase 8** — both new phases run before tracker-agnostic teardown. The two phases are independent: a Phase 8 failure does not skip Phase 9, and vice versa, so the operator gets the full picture of both regression surfaces in one run.
 
 ## Allowlist matrix (informational)
 
