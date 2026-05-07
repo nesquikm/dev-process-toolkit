@@ -189,6 +189,14 @@ Substitute `<rendered-tracker-line>` with the per-tracker line above before prin
 
 Refuse on `n`. On `y`, log the approval to `/tmp/dpt-smoke-<date>-<tracker>-approval.txt` and proceed.
 
+**`requires-input:` Phase 0 acceptance — STE-232 AC-STE-232.6.** This Phase 0 acceptance gate carries the cross-skill `requires-input:` contract documented in `docs/auto-mode-protocol.md`. The three-branch resolution mirrors the protocol's Refusal Mechanism:
+
+- **Marker present** (`<dpt:auto-approve>v1</dpt:auto-approve>` observed in the parent prompt body) ⇒ `default-applied`: log the approval automatically and proceed without prompting. The Phase 2 driver heredoc-injects this marker as the first body line of every canonical `claude -p` child spawn — that injection is the canonical worked example of the default-apply mechanism (STE-226 cross-reference; see `docs/auto-mode-protocol.md` § Default-Apply Mechanism).
+- **Marker absent + non-interactive stdin** (e.g., parent piped `< /dev/null`) ⇒ `refused`: route through `requireOrRefuse(...)` so the failure surfaces as `RequiresInputRefusedError` with NFR-10 canonical shape — Verdict / Remedy / Context — rather than silent imputation. The smoke driver MUST NOT model-impute "y" because the operator described an unattended run; that is the v2.13.0 incident shape this FR closes.
+- **Marker absent + interactive stdin** ⇒ `user-supplied`: prompt the operator and gate on their `y`/`n` answer as today.
+
+Phase 2's heredoc-injected `<dpt:auto-approve>v1</dpt:auto-approve>` body line is the byte-checkable token children check for; the canonical injection sites in this driver are documented in `docs/auto-mode-protocol.md` § Default-Apply Mechanism so a future skill author has one place to look.
+
 ### Phase 0.5 — Clear stale per-run scratch
 
 After Phase 0 acceptance, before Phase 1.1, unconditionally clear stale per-run scratch from prior invocations. Three prefixes are wiped — every prompt-template scratch file, every per-skill log keyed on the resolved tracker, and every wrapped MCP config from a prior run:
