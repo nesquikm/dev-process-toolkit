@@ -17,7 +17,7 @@ Every per-run artifact is keyed on the resolved `<tracker>` (one of `linear` / `
 
 - Before `/ship-milestone M<N>` runs, as a pre-release sanity check.
 - After landing any FR that touches `skills/setup/SKILL.md`, `skills/spec-write/SKILL.md`, `skills/implement/SKILL.md`, `skills/gate-check/SKILL.md`, `skills/spec-archive/SKILL.md`, or any of the `templates/` files.
-- Not for every commit, not in CI — this is expensive (real LLM tokens, real Linear writes) and slow (~10 minutes wall-clock per tracker; ~11–14 min wall-clock for a tandem run, see § Operator-driven parallelism).
+- Not for every commit, not in CI — this is slow (~10 minutes wall-clock per tracker; ~11–14 min wall-clock for a tandem run, see § Operator-driven parallelism) and produces real Linear/Jira writes.
 
 ## Operator-driven parallelism
 
@@ -148,8 +148,8 @@ Print this contract to the operator and prompt for `y` to proceed:
 
 The "Real <tracker> writes will occur" line branches on `--tracker`:
 
-- **Linear path:** `Real Linear writes will occur (test project + ~6 issues). Total cost ~$X-Y in tokens.`
-- **Jira path:** `Real Jira writes will occur in Space <flag-value> (~6 work items, all carrying the dpt-smoke label so Phase 5 can transition them to Done). Total cost ~$X-Y in tokens.`
+- **Linear path:** `Real Linear writes will occur (test project + ~6 issues).`
+- **Jira path:** `Real Jira writes will occur in Space <flag-value> (~6 work items, all carrying the dpt-smoke label so Phase 5 can transition them to Done).`
 
 ```
 /smoke-test will:
@@ -307,7 +307,6 @@ Spawn one `claude-st -p` child per skill, sequentially. Each child:
 - Uses `--permission-mode bypassPermissions`. Required for the chain's normal Bash + MCP operations to skip per-prompt approval. NOT sufficient alone for `.claude/settings.json` / `.mcp.json` writes — the harness's sensitive-path classification of those two files survives `bypassPermissions` at the child's model layer, which is why Phase 1 step 6 pre-creates them from the parent. Combined: bypass for the bulk of the chain + parent-pre-creation for the sensitive paths = end-to-end runnable.
 - Passes `--mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json` (built in Phase 1 step 5; `linear` entry on the Linear path, `atlassian` entry on the Jira path). `--plugin-dir` (used to load the in-tree plugin under test) shadows plugin-loaded MCPs, so the active tracker MCP must be passed via `--mcp-config` from a per-tracker wrapper file written to `/tmp/`. The per-tracker filename keeps a concurrent run against the other tracker from clobbering this run's config (operator-driven parallelism).
 - Passes `--plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit` to load the in-tree plugin under test (not the cached version under `~/.claude-st/plugins/cache/`).
-- Has `--max-budget-usd 3` (per-skill budget cap).
 - Receives a fully-pre-baked prompt where the slash command is the **literal first line of the user message**, not wrapped in natural language. Plugin skills carry `disable-model-invocation: true`, so the child's model cannot call them via the Skill tool — only user-typed slash commands trigger; the prompt-pre-bake puts the slash command as the literal first line of the user message. Pre-baked answers go on the lines after.
 - Has its stdout/stderr captured to `/tmp/dpt-smoke-<tracker>-<skill>.log` (e.g., `/tmp/dpt-smoke-jira-implement.log`).
 
@@ -342,7 +341,6 @@ CLAUDE_CONFIG_DIR=~/.claude-st claude -p /dev-process-toolkit:gate-check \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
   --permission-mode bypassPermissions \
-  --max-budget-usd 3 \
   < /dev/null > /tmp/dpt-smoke-<tracker>-gate-check.log 2>&1
 
 # /spec-review
@@ -350,7 +348,6 @@ CLAUDE_CONFIG_DIR=~/.claude-st claude -p "/dev-process-toolkit:spec-review <feat
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
   --permission-mode bypassPermissions \
-  --max-budget-usd 3 \
   < /dev/null > /tmp/dpt-smoke-<tracker>-spec-review.log 2>&1
 
 # /simplify
@@ -358,7 +355,6 @@ CLAUDE_CONFIG_DIR=~/.claude-st claude -p /dev-process-toolkit:simplify \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
   --permission-mode bypassPermissions \
-  --max-budget-usd 3 \
   < /dev/null > /tmp/dpt-smoke-<tracker>-simplify.log 2>&1
 ```
 
@@ -376,7 +372,6 @@ CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
   --permission-mode bypassPermissions \
-  --max-budget-usd 3 \
   > /tmp/dpt-smoke-<tracker>-setup.log 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:setup
@@ -398,7 +393,6 @@ CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
   --permission-mode bypassPermissions \
-  --max-budget-usd 3 \
   > /tmp/dpt-smoke-<tracker>-spec-write.log 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:spec-write
@@ -411,7 +405,6 @@ CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
   --permission-mode bypassPermissions \
-  --max-budget-usd 3 \
   > /tmp/dpt-smoke-<tracker>-implement.log 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:implement <feature-id>
@@ -988,7 +981,8 @@ End-of-run console summary: total findings count by severity, link to findings f
 - **Real Linear writes are the point.** Do not mock Linear or skip the MCP path. The smoke test's value is end-to-end fidelity; mocking would defeat it.
 - **Children get pre-baked answers, never live Q&A.** The whole point of `-p` is that there's no interactive shell; the prompt template must answer every question up front. The slash command must be the **literal first line** of the prompt (plugin skills are `disable-model-invocation: true`, so wrapping it in natural language causes the child to refuse). If a skill genuinely can't be driven non-interactively (e.g. /brainstorm), it goes in the "explicitly NOT run" list with a reason.
 - **Capture, don't fix.** /smoke-test surfaces issues into a findings file. Triage and fix happens via /spec-write + /implement on the toolkit repo, not inline. The skill's outputs are evidence, not patches. **Sanctioned override:** `/conformance-loop --auto-fix` (project-local skill at `.claude/skills/conformance-loop/SKILL.md`) is the **formally-sanctioned auto-fix exception path** — opt-in by explicit flag, runs both trackers in parallel, dispatches `/spec-write` + `/implement` per high-severity finding under `--max-iterations` + no-progress safety rails. Capture-only mode (the default for `/conformance-loop`) preserves this rule unchanged. Raw `/smoke-test` invocations (this skill) continue to follow "Capture, don't fix" with no exception.
-- **One run per release cycle.** Don't re-run for fun; each run costs real tokens and Linear teardown labor. **Sanctioned override:** `/conformance-loop` may invoke `/smoke-test` multiple times per release cycle (once per iteration, capped by `--max-iterations`); the operator owns the iteration count as the cost-of-automation tradeoff.
+- **One run per release cycle.** Don't re-run for fun; each run produces real Linear/Jira teardown labor. **Sanctioned override:** `/conformance-loop` may invoke `/smoke-test` multiple times per release cycle (once per iteration, capped by `--max-iterations`); the operator owns the iteration count.
+- **Run all phases to completion.** The driver MUST NOT defer Phase 2.X / Phase 8 / Phase 9 fixture groups for runtime length, output volume, or any self-paced reason. If a phase is unimplemented, refuse with NFR-10 naming the missing artifact; if it is implemented, run it. The toolkit does not use $/token budgets, per-skill caps, or cost instrumentation — that framing is explicitly out of scope. Wall-clock is the only legitimate ceiling, and the operator owns it via `Ctrl-C`.
 - **Driver-side caveats live in the findings file**, not inline as plugin issues. If a finding is "claude-st -p doesn't support X", that's a smoke-test infrastructure note, not an FR against the plugin.
 - **Update this skill when the plugin's skill list changes.** New plugin skill = new entry in the chain (or in the "NOT run" list with rationale). Caught only by manual review — there's no probe for skill-list freshness here.
 
@@ -999,9 +993,8 @@ End-of-run console summary: total findings count by severity, link to findings f
 1. **Hard-coded paths.** The test-project path is always `<toolkit-repo-parent>/dpt-test-project-<tracker>` for `<tracker>` in the closed two-element allow-list `{linear, jira}` — scoped to two well-known throwaway directories, one per tracker, basename hard-coded by pre-flight #6 (which verifies basename membership in `{dpt-test-project-linear, dpt-test-project-jira}`, sibling-of-toolkit-repo, real-path resolution, and not-a-symlink). The bypass is scoped to those two paths; the operator's other projects are unaffected. A single invocation only ever touches one of the two — operator-driven parallelism (§ Operator-driven parallelism) runs them in separate processes against separate dirs.
 2. **Throwaway directory.** Phase 1 creates the dir; Phase 5 deletes it. There is no persistent state worth corrupting — every run starts from `bun init` and ends with `rm -rf` against the per-tracker basename. A misbehaving child can damage at most one ephemeral scaffold (its own tracker's dir; the sibling tracker's dir, if a concurrent run is alive, is owned by a separate process and not shared).
 3. **No network egress beyond the documented MCPs.** The child has no network-side tools beyond `mcp__linear__*` (Linear path) or `mcp__atlassian__*` (Jira path) via `--mcp-config`. It cannot exfiltrate to arbitrary hosts.
-4. **Budget cap.** `--max-budget-usd 3` per skill caps the blast radius of a runaway child to ~$18 across the chain.
-5. **Operator approval.** Phase 0 prints the contract and requires explicit `y`. The operator sees the bypass + the path before any side effects.
-6. **Tracker writes are scoped to a single throwaway scope.** **Linear path:** Phase 1 creates `DPT Smoke Test (<date>)` and the chain writes only to it; Phase 5 archives it (`state: completed`). **Jira path:** the chain writes only into the `--jira-project` Space (e.g., `DST`); every work item created carries the `dpt-smoke` label (driven by `### Jira`.default_labels), and Phase 5 transitions only those run-window items to `Done`. The Space itself is not deleted (Atlassian MCP exposes no `deleteJiraProject`). No risk to other Linear projects in the team or other Jira Spaces in the tenant.
+4. **Operator approval.** Phase 0 prints the contract and requires explicit `y`. The operator sees the bypass + the path before any side effects.
+5. **Tracker writes are scoped to a single throwaway scope.** **Linear path:** Phase 1 creates `DPT Smoke Test (<date>)` and the chain writes only to it; Phase 5 archives it (`state: completed`). **Jira path:** the chain writes only into the `--jira-project` Space (e.g., `DST`); every work item created carries the `dpt-smoke` label (driven by `### Jira`.default_labels), and Phase 5 transitions only those run-window items to `Done`. The Space itself is not deleted (Atlassian MCP exposes no `deleteJiraProject`). No risk to other Linear projects in the team or other Jira Spaces in the tenant.
 
 What this does NOT protect against:
 - A child that deliberately writes outside the test-project path. `bypassPermissions` allows arbitrary filesystem writes — there is no per-path guard at runtime. Mitigation: pre-flight #6 ensures the cwd is the throwaway dir, but the child *could* `cd /` and `rm -rf /tmp/important`. We accept this because the children are claude sessions running known plugin skills, not adversarial code; the failure mode is "plugin skill is buggy and writes outside cwd" (a finding worth surfacing), not "attacker uses smoke-test as an exploit vector."
