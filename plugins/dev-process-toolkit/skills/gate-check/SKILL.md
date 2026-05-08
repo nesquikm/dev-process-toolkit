@@ -257,16 +257,13 @@ Always state what needs fixing if not a clean pass.
 
 ## Structured Output
 
-Optionally produce a JSON summary alongside the Markdown report. This enables CI pipelines to parse gate results programmatically.
+Optionally produce a JSON summary alongside the Markdown report so CI pipelines can parse results.
 
 ````json
 {
   "steps": [
     { "step": "typecheck", "status": "pass", "summary": "No type errors" },
-    { "step": "lint", "status": "pass", "summary": "0 warnings" },
     { "step": "test", "status": "pass", "summary": "47 passed, 0 failed" },
-    { "step": "build", "status": "pass", "summary": "Build succeeded" },
-    { "step": "security-audit", "status": "pass", "summary": "0 vulnerabilities" },
     { "step": "code-review", "status": "pass", "summary": "No critical concerns" },
     { "step": "drift-check", "status": "notes", "summary": "2 ACs not found" }
   ],
@@ -288,9 +285,7 @@ The `verdict` field uses one of: `GATE PASSED`, `GATE PASSED WITH NOTES`, `GATE 
 If you hear yourself thinking any of these, stop and run the gate anyway:
 
 - "I'll run gate-check after the next task" → run it now
-- "I know the tests pass" → run them and read the actual output
-- "It should work now" → "should" is not a gate result
-- "Just this once I'll skip it" → there is no just this once
+- "I know the tests pass" / "It should work now" / "Just this once" → run it now; "should" is not a gate result; there is no just-this-once
 
 ### Rationalization Prevention
 
