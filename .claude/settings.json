@@ -1,3 +1,29 @@
 {
-  "enabledPlugins": {}
+  "enabledPlugins": {},
+  "permissions": {
+    "allow": [
+      "Bash(bun test:*)",
+      "Bash(bun:*)",
+      "Bash(cat:*)",
+      "Bash(cp:*)",
+      "Bash(find:*)",
+      "Bash(gh:*)",
+      "Bash(git:*)",
+      "Bash(kill)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(realpath:*)",
+      "Bash(rm:*)",
+      "Bash(tee:*)",
+      "Bash(wait)",
+      "Bash(wc:*)",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Read",
+      "Write",
+      "mcp__atlassian__*",
+      "mcp__linear__*"
+    ]
+  }
 }
