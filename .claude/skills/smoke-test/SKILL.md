@@ -54,12 +54,12 @@ Each fires before any side effects, exits non-zero with an NFR-10-shape message.
 3. **(Linear-only) Linear MCP not available** in `~/.claude-st/` config. The skill calls Linear via `mcp__linear__*` tools through the child claude-st sessions; without the MCP server registered, those calls fail mid-run and leave half-created issues.
 4. **Uncommitted changes in the toolkit repo.** The skill doesn't modify the toolkit repo, but a dirty tree means the operator may be mid-feature; surface this before tying up 10 minutes on a smoke run that may be against a moving target.
 5. **(Linear-only) Linear team key not resolvable.** Default `STE`; override with `--linear-team`. **Probe by key first** — call `mcp__linear__get_team` with the team key (e.g., `STE`) directly, OR call `mcp__linear__list_teams` (no `query=`, large `limit=`) and filter the response on `team.key == "<TEAM_KEY>"`. The key path is exact and resolves the canonical operator entry point on first try. **Name-prefix `query=<TEAM_KEY>`** matching is kept only as a fallback for legacy paths where the key probe misses (e.g., the operator passes a team display-name fragment instead of a key); fall back only after the key probe yields no hit. A bogus key fails with NFR-10 canonical refusal naming the unknown key and the supported keys (smoke #7 F1 — without this ordering, `STE` is rejected as a name-prefix miss even though it's the canonical key).
-6. **Path-safety on the test-project location.** Before spawning any child with `--permission-mode bypassPermissions` (see Phase 0), the driver MUST verify the resolved test-project path:
+6. **Path-safety on the test-project location.** Before spawning any child (see Phase 0), the driver MUST verify the resolved test-project path:
    - Resolves with `realpath` (no broken symlinks). On macOS `realpath` requires the path to exist; resolve via the parent dir + basename instead, since the test-project itself doesn't yet exist when this fires.
    - Has the toolkit-repo path as its parent's parent (i.e. is a true sibling of `dev-process-toolkit`, not an ancestor, child, or unrelated location).
-   - Basename matches one of the closed allow-list `{dpt-test-project-linear, dpt-test-project-jira}` exactly — no other forms accepted (the bare `dpt-test-project` basename is intentionally rejected). Hard-coded by design; bypassPermissions is scoped to two well-known throwaway paths, one per tracker.
+   - Basename matches one of the closed allow-list `{dpt-test-project-linear, dpt-test-project-jira}` exactly — no other forms accepted (the bare `dpt-test-project` basename is intentionally rejected). Hard-coded by design; the cwd guard pins child spawns to two well-known throwaway paths, one per tracker.
    - Is not a symlink, is not inside `$HOME` directly (must be under a `workspace/` ancestor), is not the toolkit repo itself.
-   Any failure refuses with NFR-10. This is the load-bearing safety rail that justifies bypassPermissions in Phase 2.
+   Any failure refuses with NFR-10. This is the load-bearing **cwd guard** that pins the test-project path to one of two known throwaway directories — it bounds *where* the children operate, while the tracked `permissions.allow` allow-list (`.claude/settings.json`, STE-252) bounds *what* tool calls they may issue. The cwd guard no longer "justifies" any bypass posture; per-tool-call enforcement runs out of the tracked allow-list under default permission mode in Phase 2.
 
    **Reference implementation** (originally verified 2026-04-27 against six adversarial cases — wrong-basename, not-sibling, symlink-decoy, is-toolkit, no-workspace-ancestor, canonical-good; M46 expanded the canonical-good case to two valid forms — `dpt-test-project-linear` and `dpt-test-project-jira` — and added three new negative cases — bare basename `dpt-test-project`, garbage-suffix `dpt-test-project-foo`, case-mismatch `dpt-test-project-LINEAR`):
 
@@ -142,7 +142,7 @@ The flow is six phases. Each phase prints its name + status (RUN / PASS / FAIL /
 
 ### Phase 0 — Pre-approval gate
 
-The skill spawns `claude-st -p` children with `--permission-mode bypassPermissions` AND pre-creates `.claude/settings.json` + `.mcp.json` from the parent's Bash tool — the harness's sensitive-path classification of those two files survives `bypassPermissions` at the *child*'s model layer, so the parent's Bash tool pre-creates them via heredoc (shell I/O is not subject to that classification). See the **Threat model** section below for why this combination is acceptable here. Briefly: the test-project path is hard-coded to one of `../dpt-test-project-{linear,jira}` (verified by pre-flight #6's two-element allow-list), the directory is throwaway (created and torn down per run), and the alternatives (`acceptEdits + per-path Write`, plain `bypassPermissions` without parent pre-creation) were both empirically falsified during early dogfooding.
+The skill spawns `claude-st -p` children in default permission mode and pre-creates `.claude/settings.json` + `.mcp.json` from the parent's Bash tool. The tracked `.claude/settings.json` carries a `permissions.allow` allow-list (STE-252) enumerating every tool surface the chain needs — Bash command patterns, Edit/Write/Read/Grep/Glob, `mcp__linear__*` / `mcp__atlassian__*`; children read it from the spawn cwd and run hands-off within that scope. The parent still pre-creates `.claude/settings.json` + `.mcp.json` because the harness's sensitive-path classification of those two files survives even default permission mode at the *child*'s model layer, so a child cannot write them itself; the parent's Bash heredoc (shell I/O is not subject to that classification) is the only path. See the **Threat model** section below for the residual-risk picture under the tracked-allow-list posture. The historical alternatives (`acceptEdits + per-path Write`, plain `bypassPermissions` without parent pre-creation) were both empirically falsified during early dogfooding (STE-185); the current `default-mode + content-rich permissions.allow` is neither.
 
 Print this contract to the operator and prompt for `y` to proceed:
 
@@ -155,8 +155,9 @@ The "Real <tracker> writes will occur" line branches on `--tracker`:
 /smoke-test will:
   1. Pre-create .claude/settings.json and .mcp.json from the driver process
      (parent's Bash heredoc, not subject to the child's sensitive-path block).
-  2. Spawn claude-st child sessions in ../dpt-test-project-<tracker> with
-     --permission-mode bypassPermissions.
+  2. Spawn claude-st child sessions in ../dpt-test-project-<tracker> in
+     default permission mode (per-tool-call enforcement via the tracked
+     permissions.allow allow-list in .claude/settings.json).
 
 <rendered-tracker-line>
 
@@ -164,7 +165,7 @@ Path-safety pre-flights have verified the test-project path is a true sibling
 of the toolkit repo (basename "dpt-test-project-<tracker>", one of the closed
 allow-list {dpt-test-project-linear, dpt-test-project-jira}, under a
 workspace/ ancestor, not a symlink, not the toolkit repo itself).
-bypassPermissions is scoped to this one path; the operator's other projects
+Child spawns are scoped to this one path; the operator's other projects
 are unaffected. A concurrent run against the other tracker (see § Operator-
 driven parallelism) writes to its own basename and never touches this one.
 
@@ -235,7 +236,7 @@ This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template sc
      ```
 
      The same `--plugin-dir` shadowing concern from the Linear path applies, so wrapping is required either way.
-6. **Pre-create the sensitive files from the parent's Bash heredoc.** The child claude session under `bypassPermissions` is still blocked from writing `.claude/settings.json` and `.mcp.json` — the harness's sensitive-path classification of those two files survives `bypassPermissions` at the child's model layer. The parent's Bash tool uses shell I/O (`cat > file <<EOF`), which is not subject to that classification, so the driver writes them directly. The `.claude/settings.json` allow-list is identical in both modes; `.mcp.json` branches on `--tracker`:
+6. **Pre-create the sensitive files from the parent's Bash heredoc.** The child claude session — even in default permission mode (STE-252) — is still blocked from writing `.claude/settings.json` and `.mcp.json`: the harness's sensitive-path classification of those two files survives at the child's model layer regardless of `permissions.allow` content. The parent's Bash tool uses shell I/O (`cat > file <<EOF`), which is not subject to that classification, so the driver writes them directly. The `.claude/settings.json` allow-list is identical in both tracker paths; `.mcp.json` branches on `--tracker`:
 
    ```bash
    mkdir -p .claude
@@ -304,7 +305,7 @@ Spawn one `claude-st -p` child per skill, sequentially. Each child:
 
 - Has `cwd=../dpt-test-project-<tracker>`.
 - Is invoked as `CLAUDE_CONFIG_DIR=~/.claude-st claude -p ...` — NOT `claude-st -p`. The parent invokes `CLAUDE_CONFIG_DIR=~/.claude-st claude -p …` directly because the `claude-st` zsh alias does not expand inside the parent harness's Bash tool.
-- Uses `--permission-mode bypassPermissions`. Required for the chain's normal Bash + MCP operations to skip per-prompt approval. NOT sufficient alone for `.claude/settings.json` / `.mcp.json` writes — the harness's sensitive-path classification of those two files survives `bypassPermissions` at the child's model layer, which is why Phase 1 step 6 pre-creates them from the parent. Combined: bypass for the bulk of the chain + parent-pre-creation for the sensitive paths = end-to-end runnable.
+- Runs in default permission mode and reads the tracked `.claude/settings.json` `permissions.allow` allow-list (STE-252) from the spawn cwd. The allow-list covers the chain's normal Bash + MCP operations at command-pattern granularity. NOT sufficient alone for `.claude/settings.json` / `.mcp.json` writes — the harness's sensitive-path classification of those two files survives default permission mode at the child's model layer, which is why Phase 1 step 6 pre-creates them from the parent. Combined: tracked allow-list for the bulk of the chain + parent-pre-creation for the sensitive paths = end-to-end runnable.
 - Passes `--mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json` (built in Phase 1 step 5; `linear` entry on the Linear path, `atlassian` entry on the Jira path). `--plugin-dir` (used to load the in-tree plugin under test) shadows plugin-loaded MCPs, so the active tracker MCP must be passed via `--mcp-config` from a per-tracker wrapper file written to `/tmp/`. The per-tracker filename keeps a concurrent run against the other tracker from clobbering this run's config (operator-driven parallelism).
 - Passes `--plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit` to load the in-tree plugin under test (not the cached version under `~/.claude-st/plugins/cache/`).
 - Receives a fully-pre-baked prompt where the slash command is the **literal first line of the user message**, not wrapped in natural language. Plugin skills carry `disable-model-invocation: true`, so the child's model cannot call them via the Skill tool — only user-typed slash commands trigger; the prompt-pre-bake puts the slash command as the literal first line of the user message. Pre-baked answers go on the lines after.
@@ -340,21 +341,18 @@ Reference snippets — non-prompt-bearing children:
 CLAUDE_CONFIG_DIR=~/.claude-st claude -p /dev-process-toolkit:gate-check \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
-  --permission-mode bypassPermissions \
   < /dev/null > /tmp/dpt-smoke-<tracker>-gate-check.log 2>&1
 
 # /spec-review
 CLAUDE_CONFIG_DIR=~/.claude-st claude -p "/dev-process-toolkit:spec-review <feature-id>" \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
-  --permission-mode bypassPermissions \
   < /dev/null > /tmp/dpt-smoke-<tracker>-spec-review.log 2>&1
 
 # /simplify
 CLAUDE_CONFIG_DIR=~/.claude-st claude -p /dev-process-toolkit:simplify \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
-  --permission-mode bypassPermissions \
   < /dev/null > /tmp/dpt-smoke-<tracker>-simplify.log 2>&1
 ```
 
@@ -371,7 +369,6 @@ Reference snippets — prompt-bearing children, per-skill prompt body inlined as
 CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
-  --permission-mode bypassPermissions \
   > /tmp/dpt-smoke-<tracker>-setup.log 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:setup
@@ -392,7 +389,6 @@ PROMPT_EOF
 CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
-  --permission-mode bypassPermissions \
   > /tmp/dpt-smoke-<tracker>-spec-write.log 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:spec-write
@@ -404,7 +400,6 @@ PROMPT_EOF
 CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
-  --permission-mode bypassPermissions \
   > /tmp/dpt-smoke-<tracker>-implement.log 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:implement <feature-id>
@@ -946,7 +941,6 @@ for SKILL in setup brainstorm spec-write report-issue; do
   CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
     --output-format stream-json \
     --plugin-dir "${PLUGIN_DIR}" \
-    --permission-mode bypassPermissions \
     > "${FIXTURE}" 2>/dev/null <<PROMPT_EOF
 The user has asked you to work without stopping for clarifying questions. When you'd normally pause to check, make the reasonable call and continue; they'll redirect if needed.
 /dev-process-toolkit:${SKILL}
@@ -980,7 +974,7 @@ Three lenient-assertion fixtures, each spawning `claude -p /spec-write` with a h
 
 ## Allowlist matrix (informational)
 
-Under `--permission-mode bypassPermissions` (Phase 0), the child is unconstrained — there is no `--allowedTools` to enforce. The matrix below documents which tools each skill is *expected* to need; if a child uses something far outside this set, that's a finding worth investigating, but the bypass mode means no enforcement.
+Under default permission mode (Phase 0) the child is constrained by the tracked `.claude/settings.json` `permissions.allow` allow-list (STE-252) at command-pattern granularity. The matrix below documents which tools each skill is *expected* to need; the tracked allow-list enforces at the tool-call granularity (Bash patterns, Edit/Write/Read/Grep/Glob, MCP families). Children calling tools the allow-list does NOT cover halt at the spawn boundary — that halt is the empirical signal AC-STE-252.5 watches for.
 
 The MCP-tool column lists the **Linear path** in plain text and the **Jira path** in italics; only one path is active per run.
 
@@ -1021,19 +1015,20 @@ End-of-run console summary: total findings count by severity, link to findings f
 
 ## Threat model
 
-`bypassPermissions` (in the child) plus parent-side pre-creation of `.claude/settings.json` and `.mcp.json` is a sharp combination. This skill uses it because the alternatives ("Phase 2 cannot run" — runs #2 and #3 falsified everything else), and a smoke test that cannot run has zero value. The safety rails that make this acceptable, in order of load-bearingness:
+The tracked `permissions.allow` block in `.claude/settings.json` (STE-252) is the **per-tool-call enforcement** mechanism for every `claude -p` child this skill spawns. Children run under **default permission mode**; each Bash command, file-tool call, and MCP call is matched against the enumerated allow-list patterns (Bash command-pattern entries + `Edit`/`Write`/`Read`/`Grep`/`Glob` + `mcp__linear__*` / `mcp__atlassian__*`). A non-matching call surfaces as a structured refusal — there is no blanket bypass. Parent-side pre-creation of `.claude/settings.json` and `.mcp.json` from the toolkit repo's Bash heredoc remains in place for the test-project scaffold; the tracked allow-list is the audit-able policy artifact and the load-bearing safety rail. The safety rails that make this acceptable, in order of load-bearingness:
 
-1. **Hard-coded paths.** The test-project path is always `<toolkit-repo-parent>/dpt-test-project-<tracker>` for `<tracker>` in the closed two-element allow-list `{linear, jira}` — scoped to two well-known throwaway directories, one per tracker, basename hard-coded by pre-flight #6 (which verifies basename membership in `{dpt-test-project-linear, dpt-test-project-jira}`, sibling-of-toolkit-repo, real-path resolution, and not-a-symlink). The bypass is scoped to those two paths; the operator's other projects are unaffected. A single invocation only ever touches one of the two — operator-driven parallelism (§ Operator-driven parallelism) runs them in separate processes against separate dirs.
-2. **Throwaway directory.** Phase 1 creates the dir; Phase 5 deletes it. There is no persistent state worth corrupting — every run starts from `bun init` and ends with `rm -rf` against the per-tracker basename. A misbehaving child can damage at most one ephemeral scaffold (its own tracker's dir; the sibling tracker's dir, if a concurrent run is alive, is owned by a separate process and not shared).
-3. **No network egress beyond the documented MCPs.** The child has no network-side tools beyond `mcp__linear__*` (Linear path) or `mcp__atlassian__*` (Jira path) via `--mcp-config`. It cannot exfiltrate to arbitrary hosts.
-4. **Operator approval.** Phase 0 prints the contract and requires explicit `y`. The operator sees the bypass + the path before any side effects.
-5. **Tracker writes are scoped to a single throwaway scope.** **Linear path:** Phase 1 creates `DPT Smoke Test (<date>)` and the chain writes only to it; Phase 5 archives it (`state: completed`). **Jira path:** the chain writes only into the `--jira-project` Space (e.g., `DST`); every work item created carries the `dpt-smoke` label (driven by `### Jira`.default_labels), and Phase 5 transitions only those run-window items to `Done`. The Space itself is not deleted (Atlassian MCP exposes no `deleteJiraProject`). No risk to other Linear projects in the team or other Jira Spaces in the tenant.
+1. **Tracked `permissions.allow` allow-list.** The allow-list lives in tracked `.claude/settings.json` and is reviewable as a single-file PR diff with deterministic ordering. Children operate under default permission mode and are bounded to exactly the patterns the operator has approved in-repo; new tool surfaces require an explicit allow-list edit + PR review. The allow-list covers Bash command patterns the call tree actually uses, the file-tool surface (`Edit`, `Write`, `Read`, `Grep`, `Glob`), and the MCP families (`mcp__linear__*`, `mcp__atlassian__*`); anything outside that union refuses at the child's permission layer.
+2. **Hard-coded paths (cwd guard).** The test-project path is always `<toolkit-repo-parent>/dpt-test-project-<tracker>` for `<tracker>` in the closed two-element allow-list `{linear, jira}` — scoped to two well-known throwaway directories, one per tracker, basename hard-coded by pre-flight #6 (which verifies basename membership in `{dpt-test-project-linear, dpt-test-project-jira}`, sibling-of-toolkit-repo, real-path resolution, and not-a-symlink). The cwd guard bounds *where* the children operate (not *what* they can call — that's the `permissions.allow` block's job). The operator's other projects are unaffected; a single invocation only ever touches one of the two — operator-driven parallelism (§ Operator-driven parallelism) runs them in separate processes against separate dirs.
+3. **Throwaway directory.** Phase 1 creates the dir; Phase 5 deletes it. There is no persistent state worth corrupting — every run starts from `bun init` and ends with `rm -rf` against the per-tracker basename. A misbehaving child can damage at most one ephemeral scaffold (its own tracker's dir; the sibling tracker's dir, if a concurrent run is alive, is owned by a separate process and not shared).
+4. **No network egress beyond the documented MCPs.** The child has no network-side tools beyond `mcp__linear__*` (Linear path) or `mcp__atlassian__*` (Jira path) via `--mcp-config`. It cannot exfiltrate to arbitrary hosts.
+5. **Operator approval.** Phase 0 prints the contract and requires explicit `y`. The operator sees the path + tracker before any side effects.
+6. **Tracker writes are scoped to a single throwaway scope.** **Linear path:** Phase 1 creates `DPT Smoke Test (<date>)` and the chain writes only to it; Phase 5 archives it (`state: completed`). **Jira path:** the chain writes only into the `--jira-project` Space (e.g., `DST`); every work item created carries the `dpt-smoke` label (driven by `### Jira`.default_labels), and Phase 5 transitions only those run-window items to `Done`. The Space itself is not deleted (Atlassian MCP exposes no `deleteJiraProject`). No risk to other Linear projects in the team or other Jira Spaces in the tenant.
 
 What this does NOT protect against:
-- A child that deliberately writes outside the test-project path. `bypassPermissions` allows arbitrary filesystem writes — there is no per-path guard at runtime. Mitigation: pre-flight #6 ensures the cwd is the throwaway dir, but the child *could* `cd /` and `rm -rf /tmp/important`. We accept this because the children are claude sessions running known plugin skills, not adversarial code; the failure mode is "plugin skill is buggy and writes outside cwd" (a finding worth surfacing), not "attacker uses smoke-test as an exploit vector."
-- A compromised plugin skill. If the in-tree plugin under test is malicious, bypassPermissions hands it the keys. Mitigation: this skill is project-local; only the toolkit maintainer runs it; the plugin under test is the toolkit author's own code. This is dogfooding, not third-party-code execution.
+- A child that calls a tool the allow-list does grant, but with arguments outside the test-project scope. `permissions.allow` matches at the tool/command-pattern granularity, not on arbitrary argument shapes (e.g., `Bash(rm:*)` is approved at command-pattern level — `rm -rf` *inside* the cwd is the expected behavior; `rm -rf` *against* a path outside cwd is bounded only by pre-flight #6's cwd guard at run start, not by per-call enforcement). Mitigation: the children are claude sessions running known plugin skills, not adversarial code; the failure mode is "plugin skill is buggy and writes outside cwd" (a finding worth surfacing), not "attacker uses smoke-test as an exploit vector."
+- A compromised plugin skill that exercises the allow-list's full grant. If the in-tree plugin under test is malicious, it can use anything the tracked allow-list permits — the bound is the allow-list's content, not "no tools at all". Mitigation: this skill is project-local; only the toolkit maintainer runs it; the plugin under test is the toolkit author's own code. This is dogfooding, not third-party-code execution. The tracked allow-list shrinks the blast radius from "everything the harness exposes" to "the union of patterns the operator has explicitly approved in PR review".
 
-If the threat model changes (e.g. the toolkit accepts contributions from outside the maintainer set), revisit this section before another /smoke-test run.
+If the threat model changes (e.g. the toolkit accepts contributions from outside the maintainer set), revisit both this section and the tracked `permissions.allow` block before another /smoke-test run.
 
 **Coverage caveat** (re-stated for emphasis): the option-5 pattern means the smoke test always exercises /setup's "files-already-exist, idempotent merge" branch, NOT its fresh-create branch. Fresh-create coverage requires a separate manual probe by the operator running /setup against a truly empty `.claude/` directory in their own claude session (where the harness will prompt them to approve the writes). This is acceptable because (a) the dominant operator-observed flow is "files exist from a prior run," (b) the fresh-create logic is small and has been hand-validated repeatedly during M27/M29 development, and (c) the alternative is no end-to-end smoke test at all.
 
