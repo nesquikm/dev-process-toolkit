@@ -94,22 +94,44 @@ export class RequiresInputRefusedError extends Error {
   }
 }
 
+/**
+ * Detect whether stdin is non-tty for the current process. Pure read of
+ * `process.stdin.isTTY`; returns `true` only when the property is the literal
+ * boolean `false` (the documented non-tty signal under `claude -p`). Bun /
+ * Node leave the property `undefined` on tty-ish streams, which we treat as
+ * "not non-tty" — interactive sessions never trip the non-tty branch.
+ */
+function isStdinNonTty(): boolean {
+  return (process.stdin as { isTTY?: boolean }).isTTY === false;
+}
+
 function buildRefusalMessage(
   spec: RequireOrRefuseSpec,
   key: string,
+  nonTty: boolean,
 ): string {
   const verdict =
     `${spec.skillName} ${spec.stepName} requires an explicit answer for ` +
     `"${key}"; ${spec.refusalReason} Auto Mode does not default-apply ` +
     `requires-input steps (see docs/auto-mode-protocol.md § The Rule).`;
-  const remedy =
-    `Pre-bake an answer via the documented CLI flag, or run the prompt ` +
-    `interactively. The auto-approve marker ` +
-    `\`<dpt:auto-approve>v1</dpt:auto-approve>\` is informational only for ` +
-    `requires-input steps — it does not relax the requirement.`;
+  // STE-251 AC-STE-251.2 — when stdin is non-tty (claude -p), AskUserQuestion
+  // prompts come back "dismissed" without an operator answer. Rather than
+  // letting the model self-rationalize "safe defaults", surface a non-tty
+  // remedy that names the explicit pre-bake path.
+  const remedy = nonTty
+    ? `Non-tty stdin (e.g., \`claude -p\`) cannot supply this value — ` +
+      `dismissed AskUserQuestion responses do not count as answers. ` +
+      `Re-invoke with \`--${key}=<value>\` pre-bake or run interactively (tty). ` +
+      `The auto-approve marker \`<dpt:auto-approve>v1</dpt:auto-approve>\` is ` +
+      `informational only for requires-input steps — it does not relax the requirement.`
+    : `Pre-bake an answer via the documented CLI flag, or run the prompt ` +
+      `interactively. The auto-approve marker ` +
+      `\`<dpt:auto-approve>v1</dpt:auto-approve>\` is informational only for ` +
+      `requires-input steps — it does not relax the requirement.`;
   const ctx =
     `skill=${spec.skillName}, step=${spec.stepName}, key=${key}, ` +
-    `marker=${spec.markerPresent ? "present" : "absent"}`;
+    `marker=${spec.markerPresent ? "present" : "absent"}, ` +
+    `stdin=${nonTty ? "non-tty" : "tty"}`;
   return [`Verdict: ${verdict}`, `Remedy: ${remedy}`, `Context: ${ctx}`].join(
     "\n",
   );
@@ -139,8 +161,9 @@ export function requireOrRefuse(
   if (spec.markerPresent && spec.defaultValue !== undefined) {
     return { outcome: "default-applied", value: spec.defaultValue };
   }
+  const nonTty = isStdinNonTty();
   throw new RequiresInputRefusedError({
-    message: buildRefusalMessage(spec, key),
+    message: buildRefusalMessage(spec, key, nonTty),
     skillName: spec.skillName,
     stepName: spec.stepName,
     key,
