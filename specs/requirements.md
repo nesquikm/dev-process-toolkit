@@ -14,8 +14,9 @@ Per-milestone plan files under `specs/plan/archive/`; archived FRs under `specs/
 
 ### NFR-1: Skill Size
 
-- No single skill file shall exceed 300 lines
-- **Overflow rule:** If a skill approaches 300 lines during implementation, extract detailed reference material (long example tables, multi-stack examples) into a companion file at `docs/<skill-name>-reference.md` and reference it from the skill with a one-line pointer: `See docs/<skill-name>-reference.md for full examples.`
+- No single skill file shall exceed 350 lines
+- **Overflow rule:** If a skill approaches 350 lines during implementation, extract detailed reference material (long example tables, multi-stack examples) into a companion file at `docs/<skill-name>-reference.md` and reference it from the skill with a one-line pointer: `See docs/<skill-name>-reference.md for full examples.`
+- **Bump rationale (STE-252):** the cap raised from 300 → 350 in v2.19.0 to acknowledge spec-write's contract-locked prose pressure (~26 tests assert verbatim prose strings; trimming to 300 needs lockstep test rewrite, deferred to a future structural-split milestone).
 
 ### NFR-2: CLAUDE.md Schema Stability
 
@@ -62,8 +63,8 @@ Wherever one skill produces output that another skill reads or references, the f
 
 ### NFR-7: Adapter Code Size
 
-- Each adapter TypeScript source file (e.g., `adapters/linear/src/normalize.ts`): ≤500 lines (looser than NFR-1's 300-line skill cap, since adapters carry tracker-specific quirks like Linear's description normalization and Jira's field discovery)
-- Each adapter declarative `<tracker>.md`: ≤300 lines (per NFR-1)
+- Each adapter TypeScript source file (e.g., `adapters/linear/src/normalize.ts`): ≤500 lines (looser than NFR-1's 350-line skill cap, since adapters carry tracker-specific quirks like Linear's description normalization and Jira's field discovery)
+- Each adapter declarative `<tracker>.md`: ≤350 lines (per NFR-1)
 - If a source file exceeds 500 lines, extract per-operation modules under `adapters/<tracker>/src/` rather than letting a single file grow. No compiled binaries are shipped, so size limits apply to source only
 
 ### NFR-8: MCP Call Budget per Skill Invocation
