@@ -37,7 +37,7 @@ Context: skill=conformance-loop, flag=<flag>
 
 ## Pre-flight refusals
 
-Each fires before any side effects, exits non-zero with an NFR-10-shape message. Five refusals (a)–(e) total; refusals (c)–(e) **delegate** to `/smoke-test`'s pre-flights of the same probe (so the canonical message and probe shape stay defined in one place).
+Each fires before any side effects, exits non-zero with an NFR-10-shape message. Six refusals (a)–(f) total; refusals (c)–(e) **delegate** to `/smoke-test`'s pre-flights of the same probe (so the canonical message and probe shape stay defined in one place). Refusal (f) is the Phase 0 `permissions.allow` pre-flight introduced by STE-252 — it runs before any `claude -p` spawn and asserts the tracked allow-list artifact is present and populated.
 
 (a) **Toolkit-repo cwd.** `pwd` must end in `/dev-process-toolkit`. The skill spawns child `/smoke-test` invocations whose own pre-flight #1 expects toolkit-repo cwd; running `/conformance-loop` from elsewhere creates the test projects in the wrong place. NFR-10 canonical refusal:
 
@@ -79,7 +79,17 @@ Remedy: rm -rf ../dpt-test-project-linear ../dpt-test-project-jira (or pass --ke
 Context: skill=conformance-loop, probe=delegated-smoke-test-2, paths=[<list-of-non-empty>]
 ```
 
-Each refusal above carries the literal phrase **NFR-10 canonical refusal** in the surrounding prose (six `NFR-10 canonical refusal` markers across this section: one introductory mention plus the five (a)–(e) refusal anchors, satisfying the verify line `grep -c 'NFR-10 canonical refusal' >= 5`).
+(f) **`permissions.allow` populated in tracked `.claude/settings.json`** (Phase 0 pre-flight, STE-252 AC-STE-252.3). Read `.claude/settings.json` from the toolkit-repo root, JSON-parse it, and assert that `.permissions.allow` is a non-empty array (`length > 0`). The tracked allow-list is the audit-able policy artifact that constrains every `claude -p` child the skill spawns; an empty or missing array means the loop would fall back to interactive permission prompts mid-run and stall the hands-off contract. Probe shape mirrors the `jq -e '.permissions.allow | length > 0' .claude/settings.json` one-liner from the FR's technical-design § Phase 0 pre-flight. NFR-10 canonical refusal:
+
+```
+permissions.allow empty or missing in .claude/settings.json.
+Remedy: populate the permissions.allow allow-list in tracked .claude/settings.json (Bash command patterns + Edit/Write/Read/Grep/Glob + mcp__linear__* / mcp__atlassian__* MCP tool families covering the /conformance-loop call tree), then re-run /conformance-loop.
+Context: skill=conformance-loop, pre-flight=permissions_allow_check, file=.claude/settings.json
+```
+
+On the hit-path (the `.permissions.allow` array is a non-empty array), log the capability-row token `permissions_allow_present` to the same `/tmp/dpt-conformance-loop-<date>-approval.txt` file used by the Phase 0 pre-approval gate (one literal line, no inference) and proceed to the Phase 0 pre-approval prompt. The token is byte-grep-checkable by downstream `/gate-check` probes and smoke-test capability-row aggregators (same shape convention as `spec_write_draft_default_applied`).
+
+Each refusal above carries the literal phrase **NFR-10 canonical refusal** in the surrounding prose (seven `NFR-10 canonical refusal` markers across this section: one introductory mention plus the six (a)–(f) refusal anchors, satisfying the verify line `grep -c 'NFR-10 canonical refusal' >= 6`).
 
 ## Flow
 
@@ -140,7 +150,6 @@ PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"   # cwd is the toolkit repo (ver
 {
   CLAUDE_CONFIG_DIR=~/.claude-st claude -p /smoke-test --tracker linear --linear-team "${LINEAR_TEAM:-STE}" \
     --plugin-dir "${PLUGIN_DIR}" \
-    --permission-mode bypassPermissions \
     > "${LOG_LINEAR}" 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
 PROMPT_EOF
@@ -150,7 +159,6 @@ PID_LINEAR=$!
 {
   CLAUDE_CONFIG_DIR=~/.claude-st claude -p /smoke-test --tracker jira --jira-project "${JIRA_PROJECT}" \
     --plugin-dir "${PLUGIN_DIR}" \
-    --permission-mode bypassPermissions \
     > "${LOG_JIRA}" 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
 PROMPT_EOF
@@ -168,7 +176,7 @@ fi
 
 **Fail-fast on subprocess error.** If either child returns non-zero, the iteration aborts immediately — no aggregation, no Phase B dispatch, no re-iteration. Forensics live in the per-iteration log files. The operator decides whether to re-run after fixing the underlying cause.
 
-**Path-safety guard delegated to children.** Each `/smoke-test` child runs its own pre-flight #6 (the `realpath`-based allow-list check that scopes `bypassPermissions` to one of `{dpt-test-project-linear, dpt-test-project-jira}` under a `workspace/` ancestor, not a symlink, not the toolkit repo itself) before activating bypassPermissions in its child layer. `/conformance-loop` does not duplicate that guard at the parent — pre-flight (a) verifies the parent cwd is the toolkit repo, and the child's #6 fires before any side effects. If the parent layer ever moves to spawn `bypassPermissions` children directly (not via `/smoke-test`), it MUST re-run the same allow-list check first.
+**Path-safety guard delegated to children.** Per-tool-call enforcement now lives in the tracked `permissions.allow` allow-list (`.claude/settings.json`, STE-252) — every `claude -p` child runs in default permission mode and is constrained to the union of patterns enumerated there (Bash command-pattern entries + `Edit`/`Write`/`Read`/`Grep`/`Glob` + `mcp__linear__*` / `mcp__atlassian__*`). Each `/smoke-test` child still runs its own pre-flight #6 (the `realpath`-based allow-list check that pins the resolved test-project path to one of `{dpt-test-project-linear, dpt-test-project-jira}` under a `workspace/` ancestor, not a symlink, not the toolkit repo itself), but that guard is now a **cwd guard** — it bounds *where* the children operate, while the tracked `permissions.allow` block bounds *what* they can call. `/conformance-loop` does not duplicate the realpath cwd guard at the parent — pre-flight (a) verifies the parent cwd is the toolkit repo, the Phase 0 `permissions.allow` pre-flight (refusal (f)) verifies the policy artifact is populated, and the child's #6 fires before any side effects. The realpath check no longer carries the "bypass-justification" load-bearing role it had pre-STE-252; it remains for cwd hygiene only.
 
 **Aggregation.** After both children return, read the per-tracker findings files at the existing canonical paths (no `/smoke-test` changes):
 
@@ -262,7 +270,6 @@ for FINDING_TEXT in <high-severity-findings-from-aggregated-report>; do
   #    (STE-226); without it the child halts at the FR-draft prompt.
   CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
     --plugin-dir "${PLUGIN_DIR}" \
-    --permission-mode bypassPermissions \
     > "${LOG_SW}" 2>&1 <<${EOF_TAG}
 <dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:spec-write
@@ -290,7 +297,6 @@ ${EOF_TAG}
   #    the CLI argv.
   CLAUDE_CONFIG_DIR=~/.claude-st claude -p "/dev-process-toolkit:implement ${NEW_TRACKER_ID}" \
     --plugin-dir "${PLUGIN_DIR}" \
-    --permission-mode bypassPermissions \
     > "${LOG_IMPL}" 2>&1 <<${EOF_TAG}
 <dpt:auto-approve>v1</dpt:auto-approve>
 ${EOF_TAG}

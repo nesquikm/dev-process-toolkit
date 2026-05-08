@@ -15,6 +15,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { extractBashFences } from "./markdown_fences";
 
 export type Severity = "error" | "warning";
 
@@ -53,46 +54,6 @@ function buildMessage(file: string, line: number): string {
       `fire interactively and the child halts at the prompt.`,
     `Context: file=${file}, probe=auto_approve_marker_in_canonical_spawns, severity=error`,
   ].join("\n");
-}
-
-interface SpawnFence {
-  startLine: number; // 1-based, points at the opening ```bash line
-  body: string; // inner block text (between fence markers)
-  bodyStartLine: number; // 1-based, line of the first inner block line
-}
-
-/**
- * Extract every fenced ```bash block from a markdown document. Returns
- * each block with its starting line number and inner-body line offset so
- * violations can cite a stable file:line.
- */
-function extractBashFences(content: string): SpawnFence[] {
-  const fences: SpawnFence[] = [];
-  const lines = content.split("\n");
-  let inFence = false;
-  let bufStart = -1;
-  let buf: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (!inFence && /^```bash\s*$/.test(line)) {
-      inFence = true;
-      bufStart = i + 1; // 1-based, points at the ```bash line
-      buf = [];
-      continue;
-    }
-    if (inFence && /^```\s*$/.test(line)) {
-      fences.push({
-        startLine: bufStart,
-        body: buf.join("\n"),
-        bodyStartLine: bufStart + 1,
-      });
-      inFence = false;
-      buf = [];
-      continue;
-    }
-    if (inFence) buf.push(line);
-  }
-  return fences;
 }
 
 /**
