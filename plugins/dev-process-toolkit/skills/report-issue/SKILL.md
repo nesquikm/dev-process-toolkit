@@ -11,6 +11,7 @@ Capture a structured incident report for the dev-process-toolkit plugin and publ
 The gist URL goes back to the dev for sharing with the plugin maintainer or for self-debugging via `/dev-process-toolkit:brainstorm <gist-url>` in a fresh session.
 
 > **"Secret" gist semantics.** GitHub secret/unlisted gists are URL-shareable, **not** truly private — anyone with the link can read. The redaction pass below (per AC-STE-229.6) is the privacy guarantee, **not** the gist's privacy flag. The dev sees the preview before any upload so the publish step is opt-in.
+> **FIRST ACTION (under non-interactive stdin) — STE-251 AC-STE-251.1.** When `process.stdin.isTTY === false` (e.g., `claude -p`), the first tool call this skill emits MUST be `AskUserQuestion` `tool_use` OR `RequiresInputRefusedError` raise (via `requireOrRefuse(...)` from `adapters/_shared/src/requires_input.ts`). `Write` / `Edit` / `NotebookEdit` are forbidden before that ask/refusal — they produce silent scaffolding that bypasses the Socratic Loop Contract. Read-only orientation (`Read` / `Grep` / `Glob` / `Bash`-read-only) is allowed. Interactive (tty) sessions are byte-identical to v2.17.0 — non-tty stdin only. See `docs/auto-mode-protocol.md § Socratic Loop Contract`.
 
 ## When to Use This
 
