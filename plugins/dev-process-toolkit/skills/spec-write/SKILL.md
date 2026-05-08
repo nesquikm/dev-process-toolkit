@@ -7,6 +7,7 @@ argument-hint: '[--no-tech] [requirements | technical | testing | plan | all]'
 # Spec Write
 
 Guide the user through writing or completing the project specification files. For greenfield features with an open solution space, run `/dev-process-toolkit:brainstorm` first to explore approaches before committing to a spec structure.
+> **FIRST ACTION (under non-interactive stdin) — STE-251 AC-STE-251.1.** When `process.stdin.isTTY === false` (e.g., `claude -p`), the first tool call this skill emits MUST be `AskUserQuestion` `tool_use` OR `RequiresInputRefusedError` raise (via `requireOrRefuse(...)` from `adapters/_shared/src/requires_input.ts`). `Write` / `Edit` / `NotebookEdit` are forbidden before that ask/refusal — they produce silent scaffolding that bypasses the Socratic Loop Contract. Read-only orientation (`Read` / `Grep` / `Glob` / `Bash`-read-only) is allowed. Interactive (tty) sessions are byte-identical to v2.17.0 — non-tty stdin only. See `docs/auto-mode-protocol.md § Socratic Loop Contract`.
 
 ## Process
 

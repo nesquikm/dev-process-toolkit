@@ -168,3 +168,146 @@ describe("AC-STE-232.2 — requireOrRefuse four-outcome matrix", () => {
     expect(r.value).toBe(false);
   });
 });
+
+// STE-251 AC-STE-251.2 — non-tty branch matrix.
+//
+// `claude -p` non-interactive stdin produces "dismissed" AskUserQuestion
+// responses. Without the non-tty branch the model self-rationalizes "safe
+// defaults" and lands silent commits (F2 from /conformance-loop iter-1).
+// The branch fires only on the `refused` path; accepting outcomes ignore
+// stdin shape.
+//
+// Bun test convention: mock `process.stdin.isTTY` via Object.defineProperty
+// with `configurable: true` so the test suite can restore the prior value.
+
+describe("AC-STE-251.2 — non-tty branch matrix (tty x answer-shape)", () => {
+  const restoreIsTTY = (prior: PropertyDescriptor | undefined) => {
+    if (prior) {
+      Object.defineProperty(process.stdin, "isTTY", prior);
+    } else {
+      // delete the test-installed property so the runtime value reasserts
+      delete (process.stdin as { isTTY?: boolean }).isTTY;
+    }
+  };
+
+  const withIsTTY = (value: boolean | undefined, fn: () => void) => {
+    const prior = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", {
+      value,
+      configurable: true,
+      writable: true,
+    });
+    try {
+      fn();
+    } finally {
+      restoreIsTTY(prior);
+    }
+  };
+
+  test("(tty, answered): isTTY=true + userSupplied present ⇒ user-supplied (no remedy rendered)", () => {
+    withIsTTY(true, () => {
+      const r = requireOrRefuse(
+        { ...baseSpec, userSuppliedValue: "linear" },
+        "tracker_mode",
+        SENTINEL,
+      );
+      expect(r.outcome).toBe("user-supplied");
+      expect(r.value).toBe("linear");
+    });
+  });
+
+  test("(tty, declined): isTTY=true + no answer ⇒ throws with TTY remedy (no non-tty wording)", () => {
+    withIsTTY(true, () => {
+      let captured: RequiresInputRefusedError | null = null;
+      try {
+        requireOrRefuse(baseSpec, "tracker_mode", SENTINEL);
+      } catch (e) {
+        captured = e as RequiresInputRefusedError;
+      }
+      expect(captured).not.toBeNull();
+      const msg = captured!.message;
+      // existing TTY-path remedy text — preserved unchanged
+      expect(msg).toContain("Pre-bake an answer via the documented CLI flag");
+      expect(msg).toContain("run the prompt interactively");
+      // non-tty wording must NOT appear on the tty path
+      expect(msg).not.toContain("Non-tty stdin");
+      expect(msg).not.toContain("Re-invoke with `--tracker_mode=<value>`");
+      // Context surfaces stdin=tty for tty-path refusals
+      expect(msg).toContain("stdin=tty");
+    });
+  });
+
+  test("(non-tty, answered): isTTY=false + preBaked present ⇒ pre-baked (CLI flag wins, no refusal)", () => {
+    withIsTTY(false, () => {
+      const r = requireOrRefuse(
+        { ...baseSpec, preBakedValue: "linear" },
+        "tracker_mode",
+        SENTINEL,
+      );
+      expect(r.outcome).toBe("pre-baked");
+      expect(r.value).toBe("linear");
+    });
+  });
+
+  test("(non-tty, dismissed): isTTY=false + sentinel-only userSupplied ⇒ throws with non-tty remedy naming gate site + missing key + tty/pre-bake remedy", () => {
+    withIsTTY(false, () => {
+      let captured: RequiresInputRefusedError | null = null;
+      try {
+        requireOrRefuse(
+          { ...baseSpec, userSuppliedValue: SENTINEL },
+          "tracker_mode",
+          SENTINEL,
+        );
+      } catch (e) {
+        captured = e as RequiresInputRefusedError;
+      }
+      expect(captured).not.toBeNull();
+      const msg = captured!.message;
+      // Verdict still names the gate site + missing key
+      expect(msg).toContain("/setup step 7b");
+      expect(msg).toContain("tracker_mode");
+      // Remedy carries the non-tty canonical wording per AC-STE-251.2
+      expect(msg).toContain("Non-tty stdin");
+      expect(msg).toContain("Re-invoke with `--tracker_mode=<value>`");
+      expect(msg).toContain("run interactively (tty)");
+      // Context surfaces stdin=non-tty for non-tty-path refusals
+      expect(msg).toContain("stdin=non-tty");
+      // The auto-approve marker is informational only — clarified in the remedy
+      expect(msg).toContain("does not relax the requirement");
+    });
+  });
+
+  test("(non-tty, dismissed) without sentinel placeholder: marker-absent fall-through still refuses with non-tty remedy", () => {
+    // F2 reproduce shape: the helper is called with no userSupplied / preBaked /
+    // marker — the dismissed-AskUserQuestion path that previously fell through.
+    withIsTTY(false, () => {
+      let captured: RequiresInputRefusedError | null = null;
+      try {
+        requireOrRefuse(baseSpec, "tracker_mode", SENTINEL);
+      } catch (e) {
+        captured = e as RequiresInputRefusedError;
+      }
+      expect(captured).not.toBeNull();
+      expect(captured!.message).toContain("Non-tty stdin");
+      expect(captured!.message).toContain("stdin=non-tty");
+    });
+  });
+
+  test("isTTY=undefined (default Bun stdin in some environments) ⇒ treated as tty (preserves v2.17.0 behavior)", () => {
+    // Defensive: only the literal `false` value triggers the non-tty branch.
+    // `undefined` (the default for non-stream-piped Bun stdin in some setups)
+    // stays on the existing tty-path remedy.
+    withIsTTY(undefined, () => {
+      let captured: RequiresInputRefusedError | null = null;
+      try {
+        requireOrRefuse(baseSpec, "tracker_mode", SENTINEL);
+      } catch (e) {
+        captured = e as RequiresInputRefusedError;
+      }
+      expect(captured).not.toBeNull();
+      const msg = captured!.message;
+      expect(msg).not.toContain("Non-tty stdin");
+      expect(msg).toContain("stdin=tty");
+    });
+  });
+});
