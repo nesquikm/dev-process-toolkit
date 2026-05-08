@@ -1,0 +1,10 @@
+{
+  "name": "dev-process-toolkit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Claude Code plugin marketplace for Spec-Driven Development + TDD workflows. Test-runtime manifest only — the toolkit ships as a Claude Code plugin, not as an npm package.",
+  "devDependencies": {
+    "ts-morph": "^25.0.0"
+  }
+}
