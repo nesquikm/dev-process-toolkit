@@ -270,9 +270,7 @@ If you skipped the bootstrap commit (`n` at step 8b), commit the staged files ma
 
 ### 11. Report
 
-Summarize what was created, then present the SDD workflow.
-
-**Files created/modified:** list them.
+Summarize what was created (list files created/modified), then present the SDD workflow.
 
 **Your SDD Workflow:**
 
