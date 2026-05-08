@@ -12,6 +12,14 @@
 // scope: they target skills (`/gate-check`, `/spec-review`, `/simplify`)
 // that have no operator-approval gate, so a marker would be redundant.
 // The probe scopes to heredoc fences via the `<<TAG` regex anchor.
+//
+// Phase 8 socratic-loop-entry fixture fences (STE-237) are also out of
+// scope: those fences carry the harness's autonomous-mode reminder
+// verbatim and DELIBERATELY omit the marker — they simulate the magpie-
+// incident shape so the in-scope skill must fire AskUserQuestion or
+// refuse regardless. Adding the marker would defeat the negative-path
+// fixture. Detection signature is the canonical reminder substring
+// `asked you to work without stopping for clarifying questions`.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -65,6 +73,20 @@ function isPromptBearingSpawn(body: string): boolean {
 }
 
 /**
+ * Phase 8 socratic-loop-entry fixture (STE-237). The fence body carries
+ * the autonomous-mode reminder substring and intentionally OMITS the
+ * marker — it's a negative-path fixture for Pattern-26 enforcement.
+ * Detected by the canonical reminder phrase that the harness injects at
+ * "ignore clarifying questions" autonomy mode.
+ */
+const SOCRATIC_LOOP_REMINDER_SIGNATURE =
+  "asked you to work without stopping for clarifying questions";
+
+function isSocraticLoopFixtureFence(body: string): boolean {
+  return body.includes(SOCRATIC_LOOP_REMINDER_SIGNATURE);
+}
+
+/**
  * Assert that the marker line appears on its own line inside the fence
  * body. The detection contract is "literal line `<dpt:auto-approve>v1</dpt:auto-approve>`
  * on its own line" — mid-line matches do not satisfy.
@@ -90,6 +112,7 @@ function scanSkillFile(
   const violations: AutoApproveMarkerViolation[] = [];
   for (const fence of extractBashFences(content)) {
     if (!isPromptBearingSpawn(fence.body)) continue;
+    if (isSocraticLoopFixtureFence(fence.body)) continue;
     if (fenceCarriesMarker(fence.body)) continue;
     const reason =
       `prompt-bearing \`claude -p\` spawn fence missing auto-approve marker ` +

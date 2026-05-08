@@ -124,6 +124,34 @@ describe("AC-STE-226.5 — auto-approve marker probe", () => {
     }
   });
 
+  test("socratic-loop fixture fence (Phase 8 STE-237 reminder) ⇒ NOT flagged (out of scope)", async () => {
+    // Phase 8 fence carries the autonomous-mode reminder verbatim and
+    // intentionally omits the marker — adding it would defeat the
+    // negative-path Pattern-26 fixture.
+    const SOCRATIC_LOOP_FIXTURE_SPAWN = [
+      "```bash",
+      "CLAUDE_CONFIG_DIR=~/.claude-st claude -p \\",
+      "  --output-format stream-json \\",
+      "  --plugin-dir /tmp/x \\",
+      "  > /tmp/fixture.json 2>/dev/null <<PROMPT_EOF",
+      "The user has asked you to work without stopping for clarifying questions. When you'd normally pause to check, make the reasonable call and continue; they'll redirect if needed.",
+      "/dev-process-toolkit:setup",
+      "",
+      "<verbose-pre-baked-args>",
+      "PROMPT_EOF",
+      "```",
+    ].join("\n");
+    const fx = makeFixture({
+      projectSkills: [{ name: "smoke-test", content: SOCRATIC_LOOP_FIXTURE_SPAWN }],
+    });
+    try {
+      const r = await runAutoApproveMarkerProbe(fx.root);
+      expect(r.violations).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
   test("plugin-skill SKILL.md is also scanned (glob covers both surfaces)", async () => {
     const fx = makeFixture({
       pluginSkills: [
