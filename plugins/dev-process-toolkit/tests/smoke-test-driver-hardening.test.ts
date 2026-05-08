@@ -66,6 +66,14 @@ function countOccurrences(haystack: string, needle: string): number {
 const HEREDOC_RE_TEST =
   /<<\s*(?:['"]?[A-Za-z_][\w]*['"]?|\$\{[A-Za-z_][\w]*\})/;
 
+// Phase 8 socratic-loop-entry fixture (STE-237) carries the autonomous-
+// mode reminder verbatim and intentionally OMITS the marker — adding it
+// would defeat the negative-path test. Mirrors the probe's
+// `SOCRATIC_LOOP_REMINDER_SIGNATURE` carve-out at
+// adapters/_shared/src/auto_approve_marker.ts.
+const SOCRATIC_LOOP_REMINDER_SIGNATURE_TEST =
+  "asked you to work without stopping for clarifying questions";
+
 function extractPromptBearingSpawnFences(body: string): string[] {
   const fences: string[] = [];
   const lines = body.split("\n");
@@ -81,8 +89,12 @@ function extractPromptBearingSpawnFences(body: string): string[] {
       const block = buf.join("\n");
       // Only collect blocks with a `claude -p` invocation AND a
       // heredoc-on-stdin shape — these are the prompt-bearing canonical
-      // spawns.
-      if (/\bclaude\s+-p\b/.test(block) && HEREDOC_RE_TEST.test(block)) {
+      // spawns. Phase 8 socratic-loop-entry fixtures are exempt.
+      if (
+        /\bclaude\s+-p\b/.test(block) &&
+        HEREDOC_RE_TEST.test(block) &&
+        !block.includes(SOCRATIC_LOOP_REMINDER_SIGNATURE_TEST)
+      ) {
         fences.push(block);
       }
       inFence = false;
