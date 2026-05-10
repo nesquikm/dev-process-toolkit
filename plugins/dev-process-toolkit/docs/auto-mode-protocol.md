@@ -129,6 +129,8 @@ detector. Violation throws `SocraticFirstTurnViolationError` (NFR-10
 canonical shape) naming the offending tool name + zero-based index in the
 response stream.
 
+**(b′) STE-270 clarification.** Pre-baked `<command-args>` prose, autonomous-mode harness reminders, and auto-approve marker absence are NOT acceptable triggers to skip the first `AskUserQuestion` under non-tty stdin. The first tool call MUST be `AskUserQuestion` or `RequiresInputRefusedError` raise — there is no inferred-permission carve-out. The companion `/gate-check` probe `spec_write_first_turn_drift_scan` (STE-270 AC-STE-270.2) byte-checks `/spec-write` SKILL.md for alternate-trigger paraphrases of this rule and hard-fails on any match.
+
 **(c) Skills in scope (initial set).** The contract applies to every skill
 body that (i) cites `Pattern 26` (substring match) OR (ii) carries a
 `socratic: true` Schema-K frontmatter key. Initial scope:
