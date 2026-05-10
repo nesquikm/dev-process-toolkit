@@ -8,6 +8,8 @@ argument-hint: '[--no-tech] [requirements | technical | testing | plan | all]'
 
 Guide the user through writing or completing the project specification files. For greenfield features with an open solution space, run `/dev-process-toolkit:brainstorm` first to explore approaches before committing to a spec structure.
 > **FIRST ACTION (under non-interactive stdin) — STE-251 AC-STE-251.1.** When `process.stdin.isTTY === false` (e.g., `claude -p`), the first tool call this skill emits MUST be `AskUserQuestion` `tool_use` OR `RequiresInputRefusedError` raise (via `requireOrRefuse(...)` from `adapters/_shared/src/requires_input.ts`). `Write` / `Edit` / `NotebookEdit` are forbidden before that ask/refusal — they produce silent scaffolding that bypasses the Socratic Loop Contract. Read-only orientation (`Read` / `Grep` / `Glob` / `Bash`-read-only) is allowed. Interactive (tty) sessions are byte-identical to v2.17.0 — non-tty stdin only. See `docs/auto-mode-protocol.md § Socratic Loop Contract`.
+>
+> **STE-270 AC-STE-270.3 hardening.** Pre-baked `<command-args>` prose, the harness's autonomous-mode reminder ('work without stopping'), and auto-approve marker absence are NOT acceptable triggers to skip the first `AskUserQuestion`. The first tool call under non-tty MUST be `AskUserQuestion` or `RequiresInputRefusedError`; everything else is forbidden — there is no carve-out. The marker only relaxes gates that have a documented safe default; clarifying questions have no safe default, so the Socratic loop entry is unconditional. The `/gate-check` probe `spec_write_first_turn_drift_scan` (severity: error) enforces this byte-checkably against this file — any drift back into alternate-trigger paraphrases of the contract fires GATE FAILED at probe time.
 
 ## Process
 
