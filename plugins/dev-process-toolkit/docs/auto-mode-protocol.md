@@ -131,6 +131,8 @@ response stream.
 
 **(b′) STE-270 clarification.** Pre-baked `<command-args>` prose, autonomous-mode harness reminders, and auto-approve marker absence are NOT acceptable triggers to skip the first `AskUserQuestion` under non-tty stdin. The first tool call MUST be `AskUserQuestion` or `RequiresInputRefusedError` raise — there is no inferred-permission carve-out. The companion `/gate-check` probe `spec_write_first_turn_drift_scan` (STE-270 AC-STE-270.2) byte-checks `/spec-write` SKILL.md for alternate-trigger paraphrases of this rule and hard-fails on any match.
 
+**(b″) STE-262 clarification.** The harness's `Auto Mode` system reminder is NOT a marker substitute; only the literal byte-string `<dpt:auto-approve>v1</dpt:auto-approve>` triggers gate auto-apply. No conversational hint, autonomy framing, or `claude -p` non-interactive inference is an acceptable trigger. At `/spec-write` § 0b step 4 (draft gate) and § 7a (commit gate), the runtime byte-grep helper `adapters/_shared/src/check_marker_runtime.ts` is the single deterministic gate decision — the LLM running the skill invokes the helper via Bash and branches strictly on its `PRESENT` / `ABSENT` stdout, never on its own context inference. The companion `/gate-check` probe `spec_write_marker_alternate_trigger_scan` (STE-262 AC-STE-262.4) byte-checks `/spec-write` SKILL.md for alternate-trigger paraphrases of this rule and hard-fails on any match outside the canonical negation/historical carve-out signatures.
+
 **(c) Skills in scope (initial set).** The contract applies to every skill
 body that (i) cites `Pattern 26` (substring match) OR (ii) carries a
 `socratic: true` Schema-K frontmatter key. Initial scope:
