@@ -77,7 +77,19 @@ If a multi-milestone worktree run partially succeeds, list completed work (miles
 
 ## Phase 2: Build (TDD)
 
-8. **Execute in TDD order via the multi-agent orchestrator** — invoke `/dev-process-toolkit:tdd <FR-id>` inline (no separate opt-in path). Per STE-225, the orchestrator runs three forked-subagent stages (test-writer once per FR with the full AC list batched; implementer once per AC; refactorer once at end after all GREEN) with `context: fork` isolation, a strict `tdd-result` fenced-block hand-off contract, and bounded retry (max 2 per role per AC for semantic failures A/B/C/E; single targeted retry for format violation D). Per-stage isolation enforces the test-writer-cannot-see-implementation guarantee deterministically. The orchestrator's halt path **does** pause for the operator — that's intentional, not a pacing violation: halt fires only after the bounded-retry cap is exhausted, so it surfaces a real failure. Routine cycles (no retries) run end-to-end without operator interaction. Follow project patterns from CLAUDE.md.
+8. **Execute in TDD order via the multi-agent orchestrator** —
+
+   > **TDD Orchestrator Contract.** Violation name: **Inline TDD Antipattern** (writing tests + code in the parent `/implement` context instead of forking the orchestrator). Auditable evidence shape: **N `Skill(/dev-process-toolkit:tdd <FR-id>)` `tool_use` entries where N = FR count in milestone scope** — one orchestrator invocation per FR, no inlined RED→GREEN→REFACTOR in the parent transcript. Residual-risk note: the STE-220→STE-270 prose-falsification chain shows prose alone is falsifiable; the documented escalation path on repeat violation is an **evidence-based gate** (STE-262 / STE-270 pattern) or a **hard mechanic** (STE-225 pattern). Catalog: `docs/honored-contracts.md`.
+
+   **Rationalization Prevention.** The following rationalizations are documented antipatterns — each is preempted here so they cannot be invoked as waivers:
+
+   | Excuse | Reality |
+   |--------|---------|
+   | Milestone spans N FRs / many ACs — orchestrator cost is too high | Cost is not a contract waiver; orchestrator-per-FR IS the milestone-scope pattern (STE-225). |
+   | `/implement M<N>` milestone-scope has no clear "use the orchestrator N times" pattern | N-times IS the pattern: one `Skill(/dev-process-toolkit:tdd <FR-id>)` `tool_use` per FR in scope — N invocations where N = FR count. |
+   | Prioritized shipping over process fidelity | Process fidelity IS the ship gate, not its competitor; an FR shipped via inline TDD has not shipped through the contract. |
+
+   invoke `/dev-process-toolkit:tdd <FR-id>` inline (no separate opt-in path). Per STE-225, the orchestrator runs three forked-subagent stages (test-writer once per FR with the full AC list batched; implementer once per AC; refactorer once at end after all GREEN) with `context: fork` isolation, a strict `tdd-result` fenced-block hand-off contract, and bounded retry (max 2 per role per AC for semantic failures A/B/C/E; single targeted retry for format violation D). Per-stage isolation enforces the test-writer-cannot-see-implementation guarantee deterministically. The orchestrator's halt path **does** pause for the operator — that's intentional, not a pacing violation: halt fires only after the bounded-retry cap is exhausted, so it surfaces a real failure. Routine cycles (no retries) run end-to-end without operator interaction. Follow project patterns from CLAUDE.md.
 
 9. **Spec deviation check** — If reality contradicts the spec, STOP coding forward and classify: `underspecified` (backfill + test + continue), `ambiguous` (provisional decision + user confirm at Phase 4), `contradicts` (wait for user decision), `infeasible` (wait). Always backfill edge cases to `specs/requirements.md` / `specs/technical-spec.md` plus a test. Full playbook: `docs/implement-reference.md` § Spec Deviation Check.
 
