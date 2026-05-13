@@ -60,6 +60,13 @@ The re-run is **idempotent**: the menu is rendered with options **pre-checked** 
 
 Because the menu reflects on-disk state, running `/setup --hooks` twice in a row against the same project surfaces an identical pre-checked menu — re-running on a project with already-installed hooks shows the menu pre-checked for installed hooks, allowing toggle off or addition. After the menu is answered, control jumps to step 11 (Report) — no bootstrap commit is produced; the hooks-only delta lands as a regular subsequent commit (see § After /setup).
 
+**Non-interactive preselect (STE-286 AC-STE-286.1).** When `$ARGUMENTS` carries `--hooks=<value>` (with an `=` and a non-empty right-hand side), the menu prompt is bypassed entirely and `installHooks(...)` is called directly with the resolved list. Two forms:
+
+- `--hooks=all` ⇒ all four seeded hooks (the `HOOK_REGISTRATIONS` keys: `pre-commit-gate-check`, `pre-commit-tdd-orchestrator`, `pre-pr-spec-review`, `pre-spec-write-brainstorm-reminder`).
+- `--hooks=<name1>,<name2>,...` ⇒ the listed subset; per-entry whitespace is trimmed. Every name is validated against `HOOK_REGISTRATIONS` — the first unknown name short-circuits with an NFR-10-shaped refusal (`Refusing: unknown hook "<X>". Known hooks: <list>.`) and zero hooks are installed. Idempotent re-run with the same list is a no-op write (existing preselected entries preserved).
+
+Both forms route through the same `installHooks(settingsPath, names, pluginRoot)` call as the interactive menu — only the upstream resolution step differs. `parsePreselectFlag(arg)` from `install_hooks.ts` is the deterministic parser; smoke-driver-friendly because it does not depend on `AskUserQuestion` or stdin.
+
 ### 1. Detect the project
 
 Check for project files (`package.json`, `pubspec.yaml`, `pyproject.toml`, `go.mod`, `Cargo.toml`, etc.) and source directories.
