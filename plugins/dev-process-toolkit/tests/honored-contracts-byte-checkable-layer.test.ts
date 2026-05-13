@@ -15,7 +15,12 @@ import { join } from "node:path";
 // enumerates each seeded hook. AC verify: file exists; ≥ 4 level-3 headings.
 
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
-const FR_PATH = join(REPO_ROOT, "specs", "frs", "STE-285.md");
+// Resolve the FR file at either the active or archive path — the doc
+// conformance assertion holds for the same spec content after Phase 4
+// milestone archival relocates the file.
+const FR_ACTIVE = join(REPO_ROOT, "specs", "frs", "STE-285.md");
+const FR_ARCHIVE = join(REPO_ROOT, "specs", "frs", "archive", "STE-285.md");
+const FR_PATH = existsSync(FR_ACTIVE) ? FR_ACTIVE : FR_ARCHIVE;
 const HOOKS_REFERENCE_PATH = join(
   REPO_ROOT,
   "plugins",
