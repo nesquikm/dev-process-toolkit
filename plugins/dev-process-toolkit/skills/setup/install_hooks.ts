@@ -24,6 +24,16 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 
+// ----- Constants -----
+
+/**
+ * Literal prefix written into / read out of `args[0]` for every plugin
+ * hook entry. STE-288: the `${CLAUDE_PLUGIN_ROOT}` token is left
+ * un-expanded in settings.json on purpose — Claude Code resolves it at
+ * hook-dispatch time, which keeps the file portable across clones.
+ */
+const HOOK_ARGS_PREFIX = "${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/";
+
 // ----- Types -----
 
 export type HookEntryCommand = {
@@ -191,9 +201,23 @@ const HOOK_REGISTRATIONS: Record<string, { event: string; matcher: string }> = {
 /**
  * Build a HookAddition for one named plugin hook. Event + matcher come
  * from `HOOK_REGISTRATIONS`; the command is always exec form
- * `bash <plugin>/templates/hooks/process/<name>.sh` with a 5000 ms timeout.
+ * `bash ${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/<name>.sh` with a
+ * 5000 ms timeout.
+ *
+ * STE-288: `args[0]` carries the LITERAL `${CLAUDE_PLUGIN_ROOT}` token —
+ * Claude Code expands it at hook-dispatch time to the actual plugin root
+ * on the user's machine. Writing the absolute pluginRoot path into
+ * settings.json (the pre-STE-288 behavior) made the file non-portable
+ * across clones and broke the smoke fixture-group-8 doc-conformance
+ * assertion. The `pluginRoot` parameter is kept on the signature for
+ * backward source-compat with existing callers, but is unused on the
+ * write path.
  */
-function additionFor(name: string, pluginRoot: string): HookAddition {
+export function additionFor(name: string, pluginRoot: string): HookAddition {
+  // pluginRoot retained for backward source-compat with existing callers
+  // (e.g., installHooks) but intentionally unused on the write path; the
+  // literal `${CLAUDE_PLUGIN_ROOT}` token below is what gets persisted.
+  void pluginRoot;
   const reg = HOOK_REGISTRATIONS[name] ?? { event: "PreToolUse", matcher: "Bash" };
   return {
     event: reg.event,
@@ -201,7 +225,7 @@ function additionFor(name: string, pluginRoot: string): HookAddition {
     hook: {
       type: "command",
       command: "bash",
-      args: [`${pluginRoot}/templates/hooks/process/${name}.sh`],
+      args: [`${HOOK_ARGS_PREFIX}${name}.sh`],
       timeout: 5000,
     },
   };
@@ -295,16 +319,23 @@ export function installHooks(
 
 /**
  * Return the list of plugin hook names currently installed in
- * `settingsPath` (i.e. entries whose `args[0]` points under
- * `<pluginRoot>/templates/hooks/process/<name>.sh`).
+ * `settingsPath` (i.e. entries whose `args[0]` starts with the literal
+ * `${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/` prefix and ends in
+ * `.sh`).
  *
  * Used by `/setup --hooks` to pre-check the menu options on re-run.
  * Missing settings.json → empty array.
+ *
+ * STE-288: `pluginRoot` is retained on the signature for backward
+ * source-compat with existing callers but is intentionally unused — the
+ * literal `${CLAUDE_PLUGIN_ROOT}` token is the prefix we match against
+ * (see `HOOK_ARGS_PREFIX`).
  */
 export function readInstalledHookNames(
   settingsPath: string,
   pluginRoot: string,
 ): string[] {
+  void pluginRoot;
   let raw: string;
   try {
     raw = readFileSync(settingsPath, "utf-8");
@@ -318,15 +349,14 @@ export function readInstalledHookNames(
     return [];
   }
   const events = parsed.hooks ?? {};
-  const prefix = `${pluginRoot}/templates/hooks/process/`;
   const names = new Set<string>();
   for (const matcherList of Object.values(events)) {
     for (const entry of matcherList ?? []) {
       for (const hook of entry.hooks ?? []) {
         const first = hook.args?.[0];
         if (!first) continue;
-        if (!first.startsWith(prefix)) continue;
-        const tail = first.slice(prefix.length);
+        if (!first.startsWith(HOOK_ARGS_PREFIX)) continue;
+        const tail = first.slice(HOOK_ARGS_PREFIX.length);
         if (!tail.endsWith(".sh")) continue;
         names.add(tail.slice(0, -3));
       }
