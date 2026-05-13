@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  additionFor,
   installHooks,
   mergeHooksIntoSettings,
 } from "../install_hooks";
@@ -175,6 +176,99 @@ describe("AC-STE-285.3 — installHooks: writes selected hooks to settings.json 
       expect(allArgs.some((a) => a.includes("pre-commit-gate-check.sh"))).toBe(
         true,
       );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// STE-288 AC-STE-288.1 — additionFor emits the literal ${CLAUDE_PLUGIN_ROOT}
+// token (no JS-interpolation of pluginRoot on the write path).
+describe("AC-STE-288.1 — additionFor emits literal ${CLAUDE_PLUGIN_ROOT} token", () => {
+  test("args[0] is the literal token, independent of the pluginRoot argument", () => {
+    const result = additionFor("pre-commit-gate-check", "/any/path");
+    expect(result.hook.args).toBeDefined();
+    expect(result.hook.args![0]).toBe(
+      "${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/pre-commit-gate-check.sh",
+    );
+  });
+
+  test("pluginRoot argument is ignored on the write path (different root → same args[0])", () => {
+    const a = additionFor("pre-commit-gate-check", "/Users/foo/clone");
+    const b = additionFor("pre-commit-gate-check", "/Users/bar/another-clone");
+    expect(a.hook.args![0]).toBe(b.hook.args![0]);
+    expect(a.hook.args![0]).toBe(
+      "${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/pre-commit-gate-check.sh",
+    );
+  });
+});
+
+// STE-288 AC-STE-288.3 — literal-token shape across all 4 seeded hook
+// registrations + installHooks round-trip survives byte-identical.
+describe("AC-STE-288.3 — literal-token coverage across all seeded hooks + round-trip", () => {
+  const SEEDED_HOOK_NAMES = [
+    "pre-commit-gate-check",
+    "pre-pr-spec-review",
+    "pre-spec-write-brainstorm-reminder",
+    "pre-commit-tdd-orchestrator",
+  ];
+
+  test("additionFor emits the literal token for every seeded hook name", () => {
+    for (const name of SEEDED_HOOK_NAMES) {
+      const result = additionFor(name, "/irrelevant/plugin/root");
+      expect(result.hook.args![0]).toBe(
+        `\${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/${name}.sh`,
+      );
+    }
+  });
+
+  test("installHooks round-trip: literal token survives JSON write + re-read byte-identical for all 4 seeded hooks", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ste-288-roundtrip-"));
+    const settingsPath = join(dir, "settings.json");
+    writeFileSync(settingsPath, "{}");
+    try {
+      const result = installHooks(
+        settingsPath,
+        SEEDED_HOOK_NAMES,
+        "/irrelevant/plugin/root",
+      );
+      expect(result.conflicts).toEqual([]);
+
+      // Read back the on-disk JSON and collect every args[0] under any event.
+      const raw = readFileSync(settingsPath, "utf-8");
+      const parsed = JSON.parse(raw) as {
+        hooks?: Record<
+          string,
+          Array<{ hooks: Array<{ args?: string[] }> }>
+        >;
+      };
+      const events = parsed.hooks ?? {};
+      const allFirstArgs: string[] = [];
+      for (const matcherList of Object.values(events)) {
+        for (const entry of matcherList ?? []) {
+          for (const hook of entry.hooks ?? []) {
+            if (hook.args && hook.args[0] !== undefined) {
+              allFirstArgs.push(hook.args[0]);
+            }
+          }
+        }
+      }
+
+      // Every seeded hook must appear exactly once with the literal-token
+      // prefix — byte-identical to what additionFor emits.
+      for (const name of SEEDED_HOOK_NAMES) {
+        const expected = `\${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/${name}.sh`;
+        const hits = allFirstArgs.filter((a) => a === expected);
+        expect(hits.length).toBe(1);
+      }
+
+      // And no entry leaks the absolute pluginRoot path.
+      for (const a of allFirstArgs) {
+        if (a.includes("/templates/hooks/process/")) {
+          expect(a.startsWith("${CLAUDE_PLUGIN_ROOT}/")).toBe(true);
+          expect(a.includes("/irrelevant/plugin/root")).toBe(false);
+        }
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

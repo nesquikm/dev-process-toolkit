@@ -51,7 +51,12 @@ describe("AC-STE-285.5 (b) — readInstalledHookNames helper", () => {
             {
               type: "command",
               command: "bash",
-              args: [`${PLUGIN_ROOT}/templates/hooks/process/${name}.sh`],
+              // STE-288: entries written by `/setup --hooks` carry the
+              // literal `${CLAUDE_PLUGIN_ROOT}` token, not an interpolated
+              // absolute pluginRoot path. The fixture mirrors the new shape.
+              args: [
+                `\${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/${name}.sh`,
+              ],
               timeout: 5000,
             },
           ],
@@ -125,7 +130,8 @@ describe("AC-STE-285.5 (b) — readInstalledHookNames helper", () => {
                   type: "command",
                   command: "bash",
                   args: [
-                    `${PLUGIN_ROOT}/templates/hooks/process/pre-commit-gate-check.sh`,
+                    // STE-288: literal-token form (no JS-interpolated root).
+                    `\${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/pre-commit-gate-check.sh`,
                   ],
                 },
               ],
@@ -137,6 +143,94 @@ describe("AC-STE-285.5 (b) — readInstalledHookNames helper", () => {
     try {
       const names = readInstalledHookNames(settingsPath, PLUGIN_ROOT);
       expect(names).toEqual(["pre-commit-gate-check"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// STE-288 AC-STE-288.2 — readInstalledHookNames matches only the literal-token
+// prefix `${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/`. Legacy dev-clone
+// absolute-path entries (the pre-fix shape) are NOT detected as installed
+// plugin hooks — there is no migration path (zero shipped users).
+describe("AC-STE-288.2 — readInstalledHookNames rejects legacy absolute-path entries", () => {
+  // Use the SAME pluginRoot the fixture's args[0] sits under — under the
+  // pre-fix heuristic this would have matched the prefix-by-pluginRoot
+  // detection. The fixed implementation only matches the literal-token
+  // prefix, so the entry must NOT be reported as installed.
+  const PLUGIN_ROOT = "/Users/foo/dev-clone/plugins/dev-process-toolkit";
+
+  test("dev-clone absolute path with the seeded hook basename is NOT detected", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ste-288-legacy-"));
+    const settingsPath = join(dir, "settings.json");
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: "Bash",
+              hooks: [
+                {
+                  type: "command",
+                  command: "bash",
+                  // Legacy shape: an absolute path under PLUGIN_ROOT — the
+                  // pre-fix heuristic would have detected this. The fixed
+                  // implementation must not.
+                  args: [
+                    `${PLUGIN_ROOT}/templates/hooks/process/pre-commit-gate-check.sh`,
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    try {
+      const names = readInstalledHookNames(settingsPath, PLUGIN_ROOT);
+      expect(names).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("entries mixing legacy + literal-token shapes only surface the literal-token entries", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ste-288-mixed-"));
+    const settingsPath = join(dir, "settings.json");
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: "Bash",
+              hooks: [
+                {
+                  type: "command",
+                  command: "bash",
+                  args: [
+                    // Legacy entry — must be ignored.
+                    "/Users/foo/dev-process-toolkit/plugins/dev-process-toolkit/templates/hooks/process/pre-commit-gate-check.sh",
+                  ],
+                },
+                {
+                  type: "command",
+                  command: "bash",
+                  args: [
+                    // New literal-token entry — must be detected.
+                    `\${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/pre-pr-spec-review.sh`,
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    try {
+      const names = readInstalledHookNames(settingsPath, PLUGIN_ROOT);
+      expect(names).toEqual(["pre-pr-spec-review"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

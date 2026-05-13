@@ -180,3 +180,20 @@ describe("AC-STE-286.7 — FR Notes carries the $CLAUDE_SESSION_FILE empirical f
     expect(body).toContain("AC-STE-286.7");
   });
 });
+
+// STE-288 AC-STE-288.4 — fixture group 8 install-verification prose must grep
+// the test-project's settings.json for the literal `${CLAUDE_PLUGIN_ROOT}`
+// hook-path prefix, asserting at least one entry per seeded hook (≥ 4).
+describe("AC-STE-288.4 — fixture group 8 install-verification grep needle + ≥ 4 assertion", () => {
+  test("group-8 prose contains the literal `${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/` grep needle", () => {
+    const body = readSmokeSkill();
+    expect(body).toContain(
+      "${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/",
+    );
+  });
+
+  test("group-8 prose carries the ≥ 4 assertion shape (one entry per seeded hook)", () => {
+    const body = readSmokeSkill();
+    expect(body).toContain("≥ 4");
+  });
+});
