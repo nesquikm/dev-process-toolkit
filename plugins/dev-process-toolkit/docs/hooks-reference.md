@@ -6,6 +6,13 @@ This is the user manual for the **opt-in, per-project toolkit-contract enforceme
 
 **Opt-in by design.** Every hook defaults to **off**. `/setup` prompts via a single multi-select `AskUserQuestion` after stack detection. Re-run `/setup --hooks` at any time to add, remove, or toggle hooks without re-running stack detection.
 
+**Non-interactive preselect (STE-286).** For scripted / smoke-driver usage, `/setup --hooks=<value>` bypasses the multi-select prompt entirely:
+
+- `/setup --hooks=all` ⇒ install all seeded hooks.
+- `/setup --hooks=<name1>,<name2>,...` ⇒ install the listed subset (per-entry whitespace trimmed; unknown names are refused with an NFR-10-shape error naming the offending name + the known-hooks list). Empty / whitespace-only / commas-only values are likewise refused.
+
+Both forms route through the same `installHooks(...)` call as the interactive menu and are idempotent on re-run.
+
 **Install shape.** Each selected hook lands in your project's `.claude/settings.json` as a `bash` exec-form command referencing `${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/<name>.sh`. The plugin owns the script body; updates propagate automatically when the plugin updates (no `/setup` re-run needed).
 
 **NFR-10 refusal shape.** On a contract miss, hooks exit non-zero and write a 3-line structured refusal to stderr in the canonical NFR-10 shape emitted by `templates/hooks/_lib/session.sh`:
