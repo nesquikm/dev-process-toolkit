@@ -48,6 +48,18 @@ When `$ARGUMENTS` contains `--migrate` or `--migrate-dry-run`, skip steps 1–8 
 
 Detailed tracker-mode switching procedures live in `docs/setup-tracker-mode.md`.
 
+### 0c. Contract-enforcement re-invocation flag
+
+When `$ARGUMENTS` contains `--hooks`, skip steps 1–6 and 7–8 entirely — this flag **re-runs only the hooks step** (skips stack detection + CLAUDE.md generation) and routes directly into step 6a's toolkit-contract enforcement hooks menu. Use this when re-running `/setup` against an already-bootstrapped project to add, remove, or reconsider opt-in hooks without regenerating the rest of the scaffold (STE-285 AC-STE-285.5).
+
+The re-run is **idempotent**: the menu is rendered with options **pre-checked** for currently-installed plugin hooks (detected via `readInstalledHookNames(settingsPath, pluginRoot)` from `install_hooks.ts`, which scans `.claude/settings.json` for entries whose `args[0]` points under `${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/<name>.sh`). The operator may:
+
+- **toggle off** an already-installed hook (uncheck it → the merge step removes it from `.claude/settings.json`);
+- **add** a new hook (check a previously-unchecked option → the merge step installs it);
+- **leave the selection unchanged** (re-confirming the current state is a no-op write).
+
+Because the menu reflects on-disk state, running `/setup --hooks` twice in a row against the same project surfaces an identical pre-checked menu — re-running on a project with already-installed hooks shows the menu pre-checked for installed hooks, allowing toggle off or addition. After the menu is answered, control jumps to step 11 (Report) — no bootstrap commit is produced; the hooks-only delta lands as a regular subsequent commit (see § After /setup).
+
 ### 1. Detect the project
 
 Check for project files (`package.json`, `pubspec.yaml`, `pyproject.toml`, `go.mod`, `Cargo.toml`, etc.) and source directories.
@@ -139,6 +151,24 @@ Create `CLAUDE.md` based on the template, filling in: project name and descripti
 3. If `.claude/settings.json` does NOT exist: write a fresh JSON with `{"permissions": {"allow": <canonical>}}`.
 4. If it exists: read + parse it, merge via `mergeAllowList(existing, canonical)`, write back. Preserves user additions; never strips entries. Malformed pre-existing JSON → abort with NFR-10 canonical shape.
 5. On any write failure (sandbox refusal, ENOSPC, etc.), emit NFR-10-shape error and exit non-zero. Never continue with a partial scaffold.
+
+### 6a. Toolkit-contract enforcement hooks menu
+
+`default: none-selected` — fire a single `AskUserQuestion` (multi-select: true) listing the seeded toolkit-contract enforcement hooks. All options default to off; the user picks zero or more. Skip nothing — the menu fires unconditionally after stack detection and before the final Report step (STE-285 AC-STE-285.1).
+
+The four seeded options (one per honored-contract enforcement hook):
+
+- `pre-commit-gate-check` — run `/gate-check` before each commit; abort the commit on red.
+- `pre-pr-spec-review` — run `/spec-review` before opening a PR; surface deviations as PR-blocking.
+- `pre-spec-write-brainstorm-reminder` — remind the operator to run `/brainstorm` before `/spec-write` for greenfield FRs.
+- `pre-commit-tdd-orchestrator` — block commits that touch implementation files without a paired test diff (TDD-orchestrator guard).
+
+The prompt is **multi-select** — the operator may pick any subset, including the empty set. **All options default to off** so re-running `/setup` against a hook-free project is byte-identical to the previous flow. Selected hooks are written into the user's `.claude/settings.json` via key-level merge by `install_hooks.ts` (`installHooks(settingsPath, hookNames, pluginRoot)`); each entry uses exec form `"command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/<name>.sh"]` per AC-STE-285.3. Unselected hooks are no-ops; existing unrelated settings entries are preserved verbatim.
+
+**Report capability rows (STE-285 AC-STE-285.4).** Step 11's final summary surfaces exactly one of the following keys per the static plain-language map (mirrors the `docs_default_applied` precedent at step 7d):
+
+- `hooks_installed` — `Installed N opt-in toolkit-contract enforcement hook(s): <list of names> — toggle off any hook by editing .claude/settings.json` (emitted when the operator selected one or more hooks; `N` and `<list of names>` are interpolated from the picked subset).
+- `hooks_skipped` — `User declined opt-in hooks during /setup — run /setup --hooks to reconsider, or edit .claude/settings.json manually` (emitted when the operator picked the empty set, including the default-applied autonomous-mode path).
 
 ### 6b. Install commit-msg hook
 
