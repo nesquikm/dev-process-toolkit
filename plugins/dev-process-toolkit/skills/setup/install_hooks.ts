@@ -208,6 +208,50 @@ function additionFor(name: string, pluginRoot: string): HookAddition {
 }
 
 /**
+ * Parse the `--hooks=<value>` non-interactive preselect flag value
+ * (STE-286 AC-STE-286.1). Two forms:
+ *
+ *   parsePreselectFlag("all")
+ *     → { all: true, names: [<all 4 names from HOOK_REGISTRATIONS>] }
+ *
+ *   parsePreselectFlag("pre-commit-gate-check,pre-pr-spec-review")
+ *     → { all: false, names: ["pre-commit-gate-check", "pre-pr-spec-review"] }
+ *
+ * Surrounding whitespace per comma-separated entry is tolerated. Unknown
+ * hook names are refused with an NFR-10-shaped error whose message
+ * contains "Refusing:" + "unknown hook" + the offending name + at least
+ * one known name (so the caller can recover from a typo). The first
+ * unknown name in the list short-circuits the parse.
+ */
+export function parsePreselectFlag(arg: string): {
+  all: boolean;
+  names: string[];
+} {
+  const known = Object.keys(HOOK_REGISTRATIONS);
+  const trimmed = arg.trim();
+  if (trimmed === "all") {
+    return { all: true, names: [...known] };
+  }
+  const names = trimmed
+    .split(",")
+    .map((n) => n.trim())
+    .filter((n) => n.length > 0);
+  if (names.length === 0) {
+    throw new Error(
+      `Refusing: --hooks=<value> requires a non-empty value (use "all" or a comma-separated list of known hook names). Known hooks: ${known.join(", ")}.`,
+    );
+  }
+  for (const name of names) {
+    if (!(name in HOOK_REGISTRATIONS)) {
+      throw new Error(
+        `Refusing: unknown hook "${name}". Known hooks: ${known.join(", ")}.`,
+      );
+    }
+  }
+  return { all: false, names };
+}
+
+/**
  * Read `settingsPath`, merge the named plugin hooks via
  * `mergeHooksIntoSettings`, and write the result back. Returns the
  * MergeResult so the caller can surface any conflicts.
