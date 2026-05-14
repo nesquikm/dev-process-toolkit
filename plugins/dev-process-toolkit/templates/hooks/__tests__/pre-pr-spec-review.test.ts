@@ -1,19 +1,16 @@
-import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// STE-285 AC-STE-285.2 — `pre-pr-spec-review.sh` Process-category hook.
+// STE-290 AC.5 — `pre-pr-spec-review.sh` integration test.
 //
-// PreToolUse Bash:`gh pr create*` → require a `Skill(/dev-process-toolkit:spec-review)`
-// tool_use in current session; refuse with NFR-10 shape on miss.
+// Drives the bash shim end-to-end via `Bun.spawn({ stdin: ... })`. Reduced
+// to 2 cases (happy + refusal) per AC.5; matrix coverage moves to the
+// unit-test suite under `plugins/dev-process-toolkit/tests/`.
 
-const HOOKS_DIR = join(
-  import.meta.dir,
-  "..",
-  "process",
-);
-const HOOK_PATH = join(HOOKS_DIR, "pre-pr-spec-review.sh");
+const HOOK_PATH = join(import.meta.dir, "..", "process", "pre-pr-spec-review.sh");
+const PLUGIN_ROOT = join(import.meta.dir, "..", "..", "..");
 
 interface RunResult {
   exitCode: number;
@@ -21,9 +18,31 @@ interface RunResult {
   stderr: string;
 }
 
-async function runHook(env: Record<string, string>): Promise<RunResult> {
+let tmpRoot: string;
+
+beforeEach(() => {
+  tmpRoot = mkdtempSync(join(tmpdir(), "ste-290-int-spr-"));
+});
+
+afterEach(() => {
+  if (tmpRoot && existsSync(tmpRoot)) {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+function writeTranscript(entries: unknown[]): string {
+  const file = join(tmpRoot, "transcript.jsonl");
+  writeFileSync(
+    file,
+    entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+  );
+  return file;
+}
+
+async function runShim(stdinPayload: string): Promise<RunResult> {
   const proc = Bun.spawn(["bash", HOOK_PATH], {
-    env: { ...process.env, ...env },
+    env: { ...process.env, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT },
+    stdin: new Response(stdinPayload).body,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -35,70 +54,44 @@ async function runHook(env: Record<string, string>): Promise<RunResult> {
   return { exitCode, stdout, stderr };
 }
 
-function writeSessionJsonl(entries: unknown[]): string {
-  const dir = mkdtempSync(join(tmpdir(), "ste-285-spec-review-"));
-  const file = join(dir, "session.jsonl");
-  writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
-  return file;
-}
-
-describe("AC-STE-285.2 — pre-pr-spec-review.sh: file exists with shebang", () => {
-  test("hook script exists at the documented path", () => {
-    expect(existsSync(HOOK_PATH)).toBe(true);
-  });
-
-  test("script starts with a shebang line", () => {
-    const content = readFileSync(HOOK_PATH, "utf-8");
-    const firstLine = content.split("\n")[0] ?? "";
-    expect(firstLine.startsWith("#!")).toBe(true);
-  });
-});
-
-describe("AC-STE-285.2 — pre-pr-spec-review.sh: happy path (spec-review Skill tool_use present)", () => {
-  test("exit 0 when session has a /dev-process-toolkit:spec-review Skill tool_use", async () => {
-    const sessionFile = writeSessionJsonl([
+describe("AC-STE-290.5 — pre-pr-spec-review.sh: end-to-end via stdin payload", () => {
+  test("happy: gh pr create + Skill(/spec-review) tool_use → exit 0", async () => {
+    const transcript = writeTranscript([
       {
         type: "tool_use",
         name: "Skill",
         input: { skill: "dev-process-toolkit:spec-review" },
       },
     ]);
-    try {
-      const r = await runHook({ CLAUDE_SESSION_FILE: sessionFile });
-      expect(r.exitCode).toBe(0);
-    } finally {
-      rmSync(sessionFile, { force: true });
-    }
+    const stdin = JSON.stringify({
+      session_id: "s1",
+      transcript_path: transcript,
+      cwd: "/tmp",
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "gh pr create --title foo --body bar" },
+    });
+    const r = await runShim(stdin);
+    expect(r.exitCode).toBe(0);
   });
-});
 
-describe("AC-STE-285.2 — pre-pr-spec-review.sh: miss path (no spec-review Skill tool_use)", () => {
-  test("exit non-zero + NFR-10-shape stderr when session has no spec-review tool_use", async () => {
-    const sessionFile = writeSessionJsonl([
+  test("refusal: gh pr create + no Skill tool_use → exit non-zero + NFR-10 stderr", async () => {
+    const transcript = writeTranscript([
       { type: "tool_use", name: "Bash", input: { command: "ls" } },
     ]);
-    try {
-      const r = await runHook({ CLAUDE_SESSION_FILE: sessionFile });
-      expect(r.exitCode).not.toBe(0);
-      expect(r.stderr).toContain("Remedy:");
-      expect(r.stderr).toContain("Context:");
-      expect(r.stderr).toMatch(/spec-review/);
-    } finally {
-      rmSync(sessionFile, { force: true });
-    }
-  });
-});
-
-describe("AC-STE-285.2 — pre-pr-spec-review.sh: fail-open when CLAUDE_SESSION_FILE unset", () => {
-  test("exit 0 when CLAUDE_SESSION_FILE env var is unset", async () => {
-    const cleanEnv = { ...process.env };
-    delete cleanEnv.CLAUDE_SESSION_FILE;
-    const proc = Bun.spawn(["bash", HOOK_PATH], {
-      env: cleanEnv,
-      stdout: "pipe",
-      stderr: "pipe",
+    const stdin = JSON.stringify({
+      session_id: "s1",
+      transcript_path: transcript,
+      cwd: "/tmp",
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "gh pr create" },
     });
-    const exitCode = await proc.exited;
-    expect(exitCode).toBe(0);
+    const r = await runShim(stdin);
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr).toContain("Refusing:");
+    expect(r.stderr).toContain("Remedy:");
+    expect(r.stderr).toContain("Context:");
+    expect(r.stderr).toMatch(/spec-review/);
   });
 });

@@ -1,22 +1,29 @@
-import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// STE-285 AC-STE-285.2 — `pre-commit-tdd-orchestrator.sh` Process hook.
+// STE-290 AC.5 — `pre-commit-tdd-orchestrator.sh` integration test.
 //
-// PreToolUse Bash:`git commit*` → if FR-related files staged
-// (specs/frs/<id>.md or matching test files), require a
-// `Skill(/dev-process-toolkit:tdd)` tool_use in current session; refuse with
-// NFR-10 shape on miss. **Byte-checkable continuation of STE-283's TDD
-// Orchestrator Contract.**
+// Drives the bash shim end-to-end via `Bun.spawn({ stdin: ... })`. The
+// staged-file heuristic is now resolved through `git diff --cached`
+// inside a temp git repo (no `$CLAUDE_STAGED_FILES` env var). Reduced to
+// 2 cases (happy + refusal) per AC.5; matrix coverage moves to the unit-
+// test suite under `plugins/dev-process-toolkit/tests/`.
 
-const HOOKS_DIR = join(
+const HOOK_PATH = join(
   import.meta.dir,
   "..",
   "process",
+  "pre-commit-tdd-orchestrator.sh",
 );
-const HOOK_PATH = join(HOOKS_DIR, "pre-commit-tdd-orchestrator.sh");
+const PLUGIN_ROOT = join(import.meta.dir, "..", "..", "..");
 
 interface RunResult {
   exitCode: number;
@@ -24,9 +31,54 @@ interface RunResult {
   stderr: string;
 }
 
-async function runHook(env: Record<string, string>): Promise<RunResult> {
+let tmpRoot: string;
+let repoDir: string;
+
+beforeEach(() => {
+  tmpRoot = mkdtempSync(join(tmpdir(), "ste-290-int-tdd-"));
+  repoDir = join(tmpRoot, "repo");
+  mkdirSync(repoDir, { recursive: true });
+});
+
+afterEach(() => {
+  if (tmpRoot && existsSync(tmpRoot)) {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+function writeTranscript(entries: unknown[]): string {
+  const file = join(tmpRoot, "transcript.jsonl");
+  writeFileSync(
+    file,
+    entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+  );
+  return file;
+}
+
+async function initRepoWithStaged(
+  files: Record<string, string>,
+): Promise<void> {
+  await Bun.spawn(["git", "init", "-q", repoDir]).exited;
+  await Bun.spawn(
+    ["git", "-C", repoDir, "config", "user.email", "test@example.com"],
+  ).exited;
+  await Bun.spawn(
+    ["git", "-C", repoDir, "config", "user.name", "Test"],
+  ).exited;
+  for (const [rel, body] of Object.entries(files)) {
+    const full = join(repoDir, rel);
+    const dir = full.split("/").slice(0, -1).join("/");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(full, body);
+    await Bun.spawn(["git", "-C", repoDir, "add", rel]).exited;
+  }
+}
+
+async function runShim(stdinPayload: string): Promise<RunResult> {
   const proc = Bun.spawn(["bash", HOOK_PATH], {
-    env: { ...process.env, ...env },
+    cwd: repoDir,
+    env: { ...process.env, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT },
+    stdin: new Response(stdinPayload).body,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -38,96 +90,50 @@ async function runHook(env: Record<string, string>): Promise<RunResult> {
   return { exitCode, stdout, stderr };
 }
 
-function writeSessionJsonl(entries: unknown[]): string {
-  const dir = mkdtempSync(join(tmpdir(), "ste-285-tdd-"));
-  const file = join(dir, "session.jsonl");
-  writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
-  return file;
-}
-
-describe("AC-STE-285.2 — pre-commit-tdd-orchestrator.sh: file exists with shebang", () => {
-  test("hook script exists at the documented path", () => {
-    expect(existsSync(HOOK_PATH)).toBe(true);
-  });
-
-  test("script starts with a shebang line", () => {
-    const content = readFileSync(HOOK_PATH, "utf-8");
-    const firstLine = content.split("\n")[0] ?? "";
-    expect(firstLine.startsWith("#!")).toBe(true);
-  });
-});
-
-describe("AC-STE-285.2 — pre-commit-tdd-orchestrator.sh: happy path (tdd Skill tool_use present)", () => {
-  test("FR file staged AND /tdd Skill tool_use in session → exit 0", async () => {
-    const sessionFile = writeSessionJsonl([
+describe("AC-STE-290.5 — pre-commit-tdd-orchestrator.sh: end-to-end via stdin payload", () => {
+  test("happy: FR file staged + git commit + Skill(/tdd) tool_use → exit 0", async () => {
+    await initRepoWithStaged({
+      "specs/frs/STE-290.md": "---\ntitle: x\n---\n",
+    });
+    const transcript = writeTranscript([
       {
         type: "tool_use",
         name: "Skill",
         input: { skill: "dev-process-toolkit:tdd" },
       },
     ]);
-    try {
-      // Simulate staged FR file via env var the hook can read.
-      const r = await runHook({
-        CLAUDE_SESSION_FILE: sessionFile,
-        CLAUDE_STAGED_FILES: "specs/frs/STE-285.md\nplugins/dev-process-toolkit/skills/setup/install_hooks.ts",
-      });
-      expect(r.exitCode).toBe(0);
-    } finally {
-      rmSync(sessionFile, { force: true });
-    }
-  });
-});
-
-describe("AC-STE-285.2 — pre-commit-tdd-orchestrator.sh: miss path (FR file staged but no /tdd tool_use)", () => {
-  test("FR file staged + no /tdd Skill tool_use → exit non-zero + NFR-10 stderr", async () => {
-    const sessionFile = writeSessionJsonl([
-      { type: "tool_use", name: "Bash", input: { command: "ls" } },
-    ]);
-    try {
-      const r = await runHook({
-        CLAUDE_SESSION_FILE: sessionFile,
-        CLAUDE_STAGED_FILES: "specs/frs/STE-285.md",
-      });
-      expect(r.exitCode).not.toBe(0);
-      expect(r.stderr).toContain("Remedy:");
-      expect(r.stderr).toContain("Context:");
-      // The contract names /tdd as the required orchestrator.
-      expect(r.stderr).toMatch(/tdd/i);
-    } finally {
-      rmSync(sessionFile, { force: true });
-    }
-  });
-});
-
-describe("AC-STE-285.2 — pre-commit-tdd-orchestrator.sh: skip path (no FR-related files staged)", () => {
-  test("only non-FR files staged → exit 0 even with no /tdd tool_use", async () => {
-    const sessionFile = writeSessionJsonl([
-      { type: "tool_use", name: "Bash", input: { command: "ls" } },
-    ]);
-    try {
-      // CHANGELOG / docs-only / config-only commits don't need /tdd.
-      const r = await runHook({
-        CLAUDE_SESSION_FILE: sessionFile,
-        CLAUDE_STAGED_FILES: "CHANGELOG.md\nREADME.md",
-      });
-      expect(r.exitCode).toBe(0);
-    } finally {
-      rmSync(sessionFile, { force: true });
-    }
-  });
-});
-
-describe("AC-STE-285.2 — pre-commit-tdd-orchestrator.sh: fail-open when CLAUDE_SESSION_FILE unset", () => {
-  test("exit 0 when CLAUDE_SESSION_FILE env var is unset", async () => {
-    const cleanEnv = { ...process.env };
-    delete cleanEnv.CLAUDE_SESSION_FILE;
-    const proc = Bun.spawn(["bash", HOOK_PATH], {
-      env: cleanEnv,
-      stdout: "pipe",
-      stderr: "pipe",
+    const stdin = JSON.stringify({
+      session_id: "s1",
+      transcript_path: transcript,
+      cwd: repoDir,
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "git commit -m wip" },
     });
-    const exitCode = await proc.exited;
-    expect(exitCode).toBe(0);
+    const r = await runShim(stdin);
+    expect(r.exitCode).toBe(0);
+  });
+
+  test("refusal: FR file staged + git commit + no Skill tool_use → exit non-zero + NFR-10 stderr", async () => {
+    await initRepoWithStaged({
+      "specs/frs/STE-290.md": "---\ntitle: x\n---\n",
+    });
+    const transcript = writeTranscript([
+      { type: "tool_use", name: "Bash", input: { command: "ls" } },
+    ]);
+    const stdin = JSON.stringify({
+      session_id: "s1",
+      transcript_path: transcript,
+      cwd: repoDir,
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "git commit -m wip" },
+    });
+    const r = await runShim(stdin);
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr).toContain("Refusing:");
+    expect(r.stderr).toContain("Remedy:");
+    expect(r.stderr).toContain("Context:");
+    expect(r.stderr).toMatch(/tdd/i);
   });
 });

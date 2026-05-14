@@ -263,6 +263,42 @@ describe("AC-STE-289.4 — fixture group 8 removed from smoke-test SKILL.md", ()
   });
 });
 
+describe("AC-STE-290.3 — bash shims reduced to 2-line `exec bun run` wrappers", () => {
+  // STE-290 ports session.sh + per-hook bash logic into Bun TS modules under
+  // `_lib/hooks/`. The bash entry-points at `process/<name>.sh` shrink to a
+  // shebang + a single `exec bun run "${CLAUDE_PLUGIN_ROOT}/templates/hooks/_lib/hooks/<name>.ts"`
+  // line. Filenames + `.sh` extension preserved so AC-STE-289.6's
+  // command-path-resolves test stays GREEN.
+  const SHIMS = [
+    "pre-commit-gate-check",
+    "pre-pr-spec-review",
+    "pre-commit-tdd-orchestrator",
+    "pre-spec-write-brainstorm-reminder",
+  ];
+
+  for (const name of SHIMS) {
+    test(`${name}.sh is at most 3 lines (shebang + exec + optional trailing newline)`, () => {
+      const path = join(HOOK_SCRIPTS_DIR, `${name}.sh`);
+      expect(existsSync(path)).toBe(true);
+      const body = readFileSync(path, "utf-8");
+      // Trim a single trailing newline so a POSIX-conformant file with a
+      // final \n doesn't artificially count as an extra line.
+      const trimmed = body.endsWith("\n") ? body.slice(0, -1) : body;
+      const lineCount = trimmed.split("\n").length;
+      expect(lineCount).toBeLessThanOrEqual(3);
+    });
+
+    test(`${name}.sh body invokes \`bun run\` against the corresponding _lib/hooks/<name>.ts module`, () => {
+      const path = join(HOOK_SCRIPTS_DIR, `${name}.sh`);
+      const body = readFileSync(path, "utf-8");
+      // The new contract: shim execs the TS module via `bun run`. Path
+      // anchored on `${CLAUDE_PLUGIN_ROOT}` so the harness expands it.
+      expect(body).toContain("bun run");
+      expect(body).toContain(`_lib/hooks/${name}.ts`);
+    });
+  }
+});
+
 describe("AC-STE-289.5 — docs/hooks-reference.md rewritten to bundled-hooks model", () => {
   test("plugins/dev-process-toolkit/docs/hooks-reference.md exists", () => {
     expect(existsSync(HOOKS_REFERENCE_MD)).toBe(true);
