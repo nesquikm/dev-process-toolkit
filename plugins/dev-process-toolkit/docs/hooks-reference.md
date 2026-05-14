@@ -17,7 +17,7 @@ Per the Claude Code plugins reference (`code.claude.com/docs/en/plugins-referenc
 
 **Install shape.** The four hook entries live in `<plugin-root>/hooks/hooks.json` as `command`-type entries whose `command` field is the literal inline form `"${CLAUDE_PLUGIN_ROOT}"/templates/hooks/process/<name>.sh` with `timeout: 5000`. The plugin owns the script bodies; updates propagate automatically when the plugin updates (no user action needed).
 
-**NFR-10 refusal shape.** On a contract miss, hooks exit non-zero and write a 3-line structured refusal to stderr in the canonical NFR-10 shape emitted by `templates/hooks/_lib/session.sh`:
+**NFR-10 refusal shape.** On a contract miss, hooks exit non-zero and write a 3-line structured refusal to stderr in the canonical NFR-10 shape emitted by `templates/hooks/_lib/session.ts`:
 
 ```
 Refusing: <one-line reason>
@@ -29,7 +29,7 @@ Advisory (non-blocking) hooks substitute `Reminder:` for `Refusing:` and exit 0.
 
 The Claude Code harness surfaces this stderr block back to the model, which then either runs the missing skill or asks the operator to confirm a deliberate override.
 
-**Fail-open on missing session log.** Every hook reads `$CLAUDE_SESSION_FILE` to detect required `Skill` `tool_use` entries. If `$CLAUDE_SESSION_FILE` is unset (e.g., commit made outside a Claude Code session, or a fresh session with no log yet), the hook exits 0 — non-Claude commits are never blocked. The fail-open trade-off is explicitly accepted (see STE-285 Risks table, carried forward to STE-289).
+**Fail-open on missing session log.** Every hook reads the `transcript_path` field from the harness-supplied stdin JSON payload (per STE-290's empirically-verified 2026-05-14 hook contract; supersedes STE-285's never-set `$CLAUDE_SESSION_FILE` env-var assumption) to detect required `Skill` `tool_use` entries. If stdin is empty / unparseable / lacks `transcript_path` (e.g., commit made outside a Claude Code session, or a fresh session with no log yet), the hook exits 0 — non-Claude commits are never blocked. The fail-open trade-off is explicitly accepted (see STE-285 Risks table, carried forward to STE-289 / STE-290).
 
 ## Override pattern
 

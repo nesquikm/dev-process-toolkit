@@ -1,27 +1,22 @@
-import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// STE-285 AC-STE-285.2 — `pre-spec-write-brainstorm-reminder.sh` Process hook.
+// STE-290 AC.5 — `pre-spec-write-brainstorm-reminder.sh` integration test.
 //
-// UserPromptSubmit on `/dev-process-toolkit:spec-write` → if no
-// `Skill(/dev-process-toolkit:brainstorm)` tool_use in current session AND
-// no resolved tracker ID arg, inject a stderr reminder to consider
-// `/brainstorm` first.
-//
-// This is a reminder hook (not a refusal hook). It MAY exit non-zero to
-// signal "advisory", or exit 0 with stderr output, depending on the hook
-// type. The contract: when triggered, stderr must contain a brainstorm
-// reminder. When not triggered (brainstorm already fired OR tracker ID
-// supplied), no reminder appears.
+// Drives the bash shim end-to-end via `Bun.spawn({ stdin: ... })`. The
+// reminder hook reads `payload.prompt` from the stdin JSON (no env var).
+// Reduced to 2 cases (happy + refusal) per AC.5; matrix coverage moves to
+// the unit-test suite under `plugins/dev-process-toolkit/tests/`.
 
-const HOOKS_DIR = join(
+const HOOK_PATH = join(
   import.meta.dir,
   "..",
   "process",
+  "pre-spec-write-brainstorm-reminder.sh",
 );
-const HOOK_PATH = join(HOOKS_DIR, "pre-spec-write-brainstorm-reminder.sh");
+const PLUGIN_ROOT = join(import.meta.dir, "..", "..", "..");
 
 interface RunResult {
   exitCode: number;
@@ -29,13 +24,31 @@ interface RunResult {
   stderr: string;
 }
 
-async function runHook(
-  env: Record<string, string>,
-  stdinPayload: string = "",
-): Promise<RunResult> {
+let tmpRoot: string;
+
+beforeEach(() => {
+  tmpRoot = mkdtempSync(join(tmpdir(), "ste-290-int-bs-"));
+});
+
+afterEach(() => {
+  if (tmpRoot && existsSync(tmpRoot)) {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+function writeTranscript(entries: unknown[]): string {
+  const file = join(tmpRoot, "transcript.jsonl");
+  writeFileSync(
+    file,
+    entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+  );
+  return file;
+}
+
+async function runShim(stdinPayload: string): Promise<RunResult> {
   const proc = Bun.spawn(["bash", HOOK_PATH], {
-    env: { ...process.env, ...env },
-    stdin: stdinPayload ? new Response(stdinPayload).body : "ignore",
+    env: { ...process.env, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT },
+    stdin: new Response(stdinPayload).body,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -47,86 +60,42 @@ async function runHook(
   return { exitCode, stdout, stderr };
 }
 
-function writeSessionJsonl(entries: unknown[]): string {
-  const dir = mkdtempSync(join(tmpdir(), "ste-285-bs-"));
-  const file = join(dir, "session.jsonl");
-  writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
-  return file;
-}
-
-describe("AC-STE-285.2 — pre-spec-write-brainstorm-reminder.sh: file exists with shebang", () => {
-  test("hook script exists at the documented path", () => {
-    expect(existsSync(HOOK_PATH)).toBe(true);
-  });
-
-  test("script starts with a shebang line", () => {
-    const content = readFileSync(HOOK_PATH, "utf-8");
-    const firstLine = content.split("\n")[0] ?? "";
-    expect(firstLine.startsWith("#!")).toBe(true);
-  });
-});
-
-describe("AC-STE-285.2 — pre-spec-write-brainstorm-reminder.sh: miss-path triggers reminder", () => {
-  test("no brainstorm tool_use AND no tracker ID arg → stderr carries a brainstorm reminder", async () => {
-    const sessionFile = writeSessionJsonl([
-      { type: "tool_use", name: "Bash", input: { command: "ls" } },
-    ]);
-    try {
-      // Greenfield invocation: bare `/dev-process-toolkit:spec-write` with
-      // no tracker arg. Surface the user prompt to the hook via env or
-      // stdin — both shapes are accepted; we test env-var form.
-      const r = await runHook({
-        CLAUDE_SESSION_FILE: sessionFile,
-        CLAUDE_USER_PROMPT: "/dev-process-toolkit:spec-write",
-      });
-      // The hook must NOT block (UserPromptSubmit hooks may inject a
-      // reminder via stderr but should not refuse the prompt outright).
-      // Reminder content: must mention brainstorm.
-      expect(r.stderr).toMatch(/brainstorm/i);
-    } finally {
-      rmSync(sessionFile, { force: true });
-    }
-  });
-});
-
-describe("AC-STE-285.2 — pre-spec-write-brainstorm-reminder.sh: happy path (brainstorm already fired)", () => {
-  test("brainstorm Skill tool_use in session → no reminder injected", async () => {
-    const sessionFile = writeSessionJsonl([
+describe("AC-STE-290.5 — pre-spec-write-brainstorm-reminder.sh: end-to-end via stdin payload", () => {
+  test("happy: brainstorm Skill tool_use already in session → no reminder, exit 0", async () => {
+    const transcript = writeTranscript([
       {
         type: "tool_use",
         name: "Skill",
         input: { skill: "dev-process-toolkit:brainstorm" },
       },
     ]);
-    try {
-      const r = await runHook({
-        CLAUDE_SESSION_FILE: sessionFile,
-        CLAUDE_USER_PROMPT: "/dev-process-toolkit:spec-write",
-      });
-      // Brainstorm fired ⇒ no reminder ⇒ empty stderr.
-      expect(r.stderr).not.toMatch(/brainstorm.*reminder|consider.*brainstorm|run.*brainstorm/i);
-    } finally {
-      rmSync(sessionFile, { force: true });
-    }
+    const stdin = JSON.stringify({
+      session_id: "s1",
+      transcript_path: transcript,
+      cwd: "/tmp",
+      hook_event_name: "UserPromptSubmit",
+      prompt: "/dev-process-toolkit:spec-write",
+    });
+    const r = await runShim(stdin);
+    expect(r.exitCode).toBe(0);
+    expect(r.stderr).not.toMatch(/brainstorm.*reminder|consider.*brainstorm|run.*brainstorm/i);
   });
-});
 
-describe("AC-STE-285.2 — pre-spec-write-brainstorm-reminder.sh: happy path (tracker ID arg supplied)", () => {
-  test("tracker ID arg in user prompt → no reminder injected (not greenfield)", async () => {
-    const sessionFile = writeSessionJsonl([
+  test("refusal-style reminder: greenfield /spec-write + no brainstorm tool_use → reminder on stderr, exit 0", async () => {
+    const transcript = writeTranscript([
       { type: "tool_use", name: "Bash", input: { command: "ls" } },
     ]);
-    try {
-      const r = await runHook({
-        CLAUDE_SESSION_FILE: sessionFile,
-        // Tracker-mode invocation with explicit ticket reference. Heuristic
-        // per FR: presence of a tracker-style ID (e.g., STE-123, PROJ-456)
-        // marks the FR as non-greenfield, so no reminder is needed.
-        CLAUDE_USER_PROMPT: "/dev-process-toolkit:spec-write STE-285",
-      });
-      expect(r.stderr).not.toMatch(/brainstorm.*reminder|consider.*brainstorm|run.*brainstorm/i);
-    } finally {
-      rmSync(sessionFile, { force: true });
-    }
+    const stdin = JSON.stringify({
+      session_id: "s1",
+      transcript_path: transcript,
+      cwd: "/tmp",
+      hook_event_name: "UserPromptSubmit",
+      prompt: "/dev-process-toolkit:spec-write",
+    });
+    const r = await runShim(stdin);
+    // Advisory: never blocks.
+    expect(r.exitCode).toBe(0);
+    expect(r.stderr).toMatch(/brainstorm/i);
+    expect(r.stderr).toContain("Reminder:");
   });
 });
