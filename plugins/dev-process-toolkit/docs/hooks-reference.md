@@ -1,19 +1,21 @@
 # Hooks Reference — Process-Category Toolkit-Contract Enforcement
 
-This is the user manual for the **opt-in, per-project toolkit-contract enforcement hooks** seeded by `/setup` (STE-285, M71). The hooks are the byte-checkable layer of the Honored Contracts enforcement stack — the prose layer ships separately at `docs/honored-contracts.md` (STE-283).
+This is the user manual for the **plugin-bundled, harness-auto-discovered Process-category toolkit-contract enforcement hooks** shipped at `plugins/dev-process-toolkit/hooks/hooks.json` (STE-289, M74). The hooks are the byte-checkable layer of the Honored Contracts enforcement stack — the prose layer ships separately at `docs/honored-contracts.md` (STE-283).
 
 **Scope.** All hooks in this catalog are **Process** category — they enforce contracts between skills (e.g., "run `/gate-check` before `git commit`"). Quality hooks (format-on-write, lint) and Safety hooks (destructive-op blocks) are explicitly out of scope per the STE-285 `/brainstorm` decision (2026-05-13).
 
-**Opt-in by design.** Every hook defaults to **off**. `/setup` prompts via a single multi-select `AskUserQuestion` after stack detection. Re-run `/setup --hooks` at any time to add, remove, or toggle hooks without re-running stack detection.
+## How the harness loads these hooks
 
-**Non-interactive preselect (STE-286).** For scripted / smoke-driver usage, `/setup --hooks=<value>` bypasses the multi-select prompt entirely:
+The Claude Code harness **auto-discovers** the plugin-bundled hook registration at session start. There is no `/setup` step, no user-settings.json mutation, no per-project opt-in. The 4 hooks fire across every project where the `dev-process-toolkit` plugin is enabled at user scope.
 
-- `/setup --hooks=all` ⇒ install all seeded hooks.
-- `/setup --hooks=<name1>,<name2>,...` ⇒ install the listed subset (per-entry whitespace trimmed; unknown names are refused with an NFR-10-shape error naming the offending name + the known-hooks list). Empty / whitespace-only / commas-only values are likewise refused.
+Per the Claude Code plugins reference (`code.claude.com/docs/en/plugins-reference.md#hooks` + `#environment-variables`):
 
-Both forms route through the same `installHooks(...)` call as the interactive menu and are idempotent on re-run.
+1. On `/plugin install` from the marketplace, Claude Code copies the plugin source into `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`. For this repo, the cache flattens `plugins/dev-process-toolkit/` to the top level, so the bundled hook config lands at `~/.claude/plugins/cache/dev-process-toolkit/dev-process-toolkit/<version>/hooks/hooks.json`.
+2. On session start, the harness auto-discovers each enabled plugin's `hooks/hooks.json` and registers the hooks against the matchers (event + tool/prompt pattern).
+3. At hook-fire time, the literal token `${CLAUDE_PLUGIN_ROOT}` is substituted inline against the plugin's runtime path on the user's machine — the plugin cache directory, not any dev-clone path.
+4. Plugin hooks fire in **every project** where the plugin is enabled (user scope). No per-project opt-in mechanism; opt-out is `claude plugin disable dev-process-toolkit` per the harness contract.
 
-**Install shape.** Each selected hook lands in your project's `.claude/settings.json` as a `bash` exec-form command referencing `${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/<name>.sh`. The plugin owns the script body; updates propagate automatically when the plugin updates (no `/setup` re-run needed).
+**Install shape.** The four hook entries live in `<plugin-root>/hooks/hooks.json` as `command`-type entries whose `command` field is the literal inline form `"${CLAUDE_PLUGIN_ROOT}"/templates/hooks/process/<name>.sh` with `timeout: 5000`. The plugin owns the script bodies; updates propagate automatically when the plugin updates (no user action needed).
 
 **NFR-10 refusal shape.** On a contract miss, hooks exit non-zero and write a 3-line structured refusal to stderr in the canonical NFR-10 shape emitted by `templates/hooks/_lib/session.sh`:
 
@@ -27,15 +29,31 @@ Advisory (non-blocking) hooks substitute `Reminder:` for `Refusing:` and exit 0.
 
 The Claude Code harness surfaces this stderr block back to the model, which then either runs the missing skill or asks the operator to confirm a deliberate override.
 
-**Override pattern.** To customize a seeded hook's behavior on your project, snapshot-copy and edit:
+**Fail-open on missing session log.** Every hook reads `$CLAUDE_SESSION_FILE` to detect required `Skill` `tool_use` entries. If `$CLAUDE_SESSION_FILE` is unset (e.g., commit made outside a Claude Code session, or a fresh session with no log yet), the hook exits 0 — non-Claude commits are never blocked. The fail-open trade-off is explicitly accepted (see STE-285 Risks table, carried forward to STE-289).
 
-1. Copy `${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/<name>.sh` to a project-local path, e.g., `.claude/hooks/<name>.sh`.
-2. Edit `.claude/settings.json` to replace the `${CLAUDE_PLUGIN_ROOT}/...` reference with the project-local path.
-3. Plugin updates no longer touch your fork. Re-snapshot manually if you want upstream changes.
+## Override pattern
 
-To disable a hook entirely, delete its block from `.claude/settings.json` (or run `/setup --hooks` and uncheck it).
+Because the hooks ship bundled inside the plugin, editing them in place is not the override path — plugin updates would overwrite a forked `hooks/hooks.json` and the harness only honors `${CLAUDE_PLUGIN_ROOT}` expansion inside the plugin's own registration surface. Operators have two override paths:
 
-**Fail-open on missing session log.** Every hook reads `$CLAUDE_SESSION_FILE` to detect required `Skill` `tool_use` entries. If `$CLAUDE_SESSION_FILE` is unset (e.g., commit made outside a Claude Code session, or a fresh session with no log yet), the hook exits 0 — non-Claude commits are never blocked. The fail-open trade-off is explicitly accepted (see STE-285 Risks table).
+1. **Disable the plugin's bundled hook entirely.** Run `claude plugin disable dev-process-toolkit` (per the harness contract) to stop all 4 hooks from firing. There is no per-hook on/off; the registration is plugin-scoped.
+2. **Copy-and-override into the operator's own `.claude/`.** Snapshot-copy the seeded script (e.g., `cp ~/.claude/plugins/cache/dev-process-toolkit/dev-process-toolkit/<version>/templates/hooks/process/<name>.sh ~/.claude/hooks/<name>.sh`), edit the copy, then register the copy as a hook entry in the operator's own user-scoped `~/.claude/settings.json` (referencing the local path directly — `${CLAUDE_PLUGIN_ROOT}` does NOT expand outside the plugin's `hooks/hooks.json`). Disable the plugin's bundled version to avoid the original firing alongside the fork. Plugin updates no longer touch the operator's fork; re-snapshot manually for upstream changes.
+
+The copy-and-override path is intentionally heavier than the prior install-side model offered. It reflects the harness contract: plugin-bundled registrations are owned by the plugin, and operator customization lives in operator-scoped settings against operator-managed script paths.
+
+## Reversal context — STE-285 original (wrong) design intent
+
+STE-285 (M71) originally seeded the 4 hooks via an install-side mechanism — a `/setup` hooks installer that wrote entries into a user project's `.claude/settings.json` with `args[0]` rendered as either a dev-clone absolute path (pre-STE-288) or the literal `${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/<name>.sh` token (STE-288, v2.22.1). That design followed the rejection chain STE-262 / STE-270 / STE-276, which explicitly cancelled plugin-bundled `hooks/hooks.json` on three grounds (spawn blast radius, triple-check conflict, no clean per-session state surface).
+
+**2026-05-14 empirical discovery:** the operator ran the install-side `/setup` hooks installer (preselect mode) against v2.22.1 in `~/workspace/quack`, then a hook tried to fire; the harness emitted:
+
+```
+Hook command references ${CLAUDE_PLUGIN_ROOT} but the hook is not associated with a plugin.
+This variable is only available in hooks defined in a plugin's hooks/hooks.json file, not in [user settings.json].
+```
+
+Empirical research via the `claude-code-guide` agent confirmed the contract: `${CLAUDE_PLUGIN_ROOT}` only expands inside `<plugin>/hooks/hooks.json` (or the inline `hooks` field of `plugin.json`) — never inside user `.claude/settings.json`. The pre-STE-288 absolute-path shape also failed because the marketplace cache loads the plugin from `~/.claude/plugins/cache/<plugin>/<version>/`, not from any dev-clone path that an install-side writer would have hardcoded.
+
+**M74 reversal.** STE-289 reverses direction: the 4 hook scripts under `templates/hooks/process/*.sh` are preserved unchanged (and their per-script unit tests under `templates/hooks/__tests__/*.test.ts` continue to validate behavior), but their registration moves entirely to plugin-bundled `hooks/hooks.json` for harness auto-discovery. The install-side approach STE-285 chose was structurally impossible from the start — the harness contract those rejection grounds analyzed was modeled wrong. STE-289's Technical Design addresses each rejection ground individually under the bundled model.
 
 ---
 
@@ -51,7 +69,7 @@ To disable a hook entirely, delete its block from `.claude/settings.json` (or ru
   Remedy: run /dev-process-toolkit:gate-check before retrying this action.
   Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:gate-check, hook=pre-commit-gate-check
   ```
-- **Override pattern:** Snapshot-copy `${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/pre-commit-gate-check.sh` to `.claude/hooks/pre-commit-gate-check.sh`, edit (e.g., relax the matcher or whitelist `--amend`), and repoint the `args` entry in `.claude/settings.json`.
+- **Override pattern:** Disable the plugin (`claude plugin disable dev-process-toolkit`) or copy-and-override per the section above — snapshot-copy `~/.claude/plugins/cache/dev-process-toolkit/dev-process-toolkit/<version>/templates/hooks/process/pre-commit-gate-check.sh` into `~/.claude/hooks/pre-commit-gate-check.sh`, edit (e.g., relax the matcher or whitelist `--amend`), and register the local path in the operator's `~/.claude/settings.json` against an absolute path (no `${CLAUDE_PLUGIN_ROOT}` expansion outside plugin scope).
 
 ### pre-pr-spec-review
 
@@ -65,7 +83,7 @@ To disable a hook entirely, delete its block from `.claude/settings.json` (or ru
   Remedy: run /dev-process-toolkit:spec-review before retrying this action.
   Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:spec-review, hook=pre-pr-spec-review
   ```
-- **Override pattern:** Snapshot-copy `${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/pre-pr-spec-review.sh` to `.claude/hooks/pre-pr-spec-review.sh`, edit (e.g., scope to specific repos or skip on docs-only branches), and repoint the `args` entry in `.claude/settings.json`.
+- **Override pattern:** Disable the plugin or copy-and-override — snapshot-copy the seeded script into `~/.claude/hooks/pre-pr-spec-review.sh`, edit (e.g., scope to specific repos or skip on docs-only branches), and register the local absolute path in the operator's `~/.claude/settings.json`.
 
 ### pre-spec-write-brainstorm-reminder
 
@@ -79,7 +97,7 @@ To disable a hook entirely, delete its block from `.claude/settings.json` (or ru
   Remedy: consider running /dev-process-toolkit:brainstorm first to explore the design space before drafting the spec.
   Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:brainstorm, hook=pre-spec-write-brainstorm-reminder
   ```
-- **Override pattern:** Snapshot-copy `${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/pre-spec-write-brainstorm-reminder.sh` to `.claude/hooks/pre-spec-write-brainstorm-reminder.sh`, edit (e.g., tune the greenfield heuristic or change the reminder threshold), and repoint the `args` entry in `.claude/settings.json`. Convert the exit code to non-zero if you want the reminder to hard-block.
+- **Override pattern:** Disable the plugin or copy-and-override — snapshot-copy the seeded script into `~/.claude/hooks/pre-spec-write-brainstorm-reminder.sh`, edit (e.g., tune the greenfield heuristic, change the reminder threshold, or convert the exit code to non-zero for a hard block), and register the local absolute path in the operator's `~/.claude/settings.json`.
 
 ### pre-commit-tdd-orchestrator
 
@@ -93,15 +111,18 @@ To disable a hook entirely, delete its block from `.claude/settings.json` (or ru
   Remedy: run /dev-process-toolkit:tdd before retrying this action.
   Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:tdd, hook=pre-commit-tdd-orchestrator
   ```
-- **Override pattern:** Snapshot-copy `${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/pre-commit-tdd-orchestrator.sh` to `.claude/hooks/pre-commit-tdd-orchestrator.sh`, edit (e.g., tighten or loosen the "FR-related staged" heuristic, allow-list certain commit types like `docs:` or `chore:`), and repoint the `args` entry in `.claude/settings.json`.
+- **Override pattern:** Disable the plugin or copy-and-override — snapshot-copy the seeded script into `~/.claude/hooks/pre-commit-tdd-orchestrator.sh`, edit (e.g., tighten or loosen the "FR-related staged" heuristic, allow-list certain commit types like `docs:` or `chore:`), and register the local absolute path in the operator's `~/.claude/settings.json`.
 
 ---
 
 ## Related references
 
+- `hooks/hooks.json` — the plugin-bundled registration surface this catalog documents.
 - `docs/honored-contracts.md` — prose-layer catalog of the same contracts these hooks enforce.
-- `docs/skill-anatomy.md` — `${CLAUDE_PLUGIN_ROOT}` substitution pattern used by the hook install entries.
-- STE-285 (M71) — FR that seeded this catalog.
+- `docs/skill-anatomy.md` — `${CLAUDE_PLUGIN_ROOT}` substitution pattern used by the bundled hook entries.
+- STE-289 (M74) — current FR; bundled `hooks/hooks.json` model, supersedes M71/M72/M73 install-side mechanism.
+- STE-285 (M71) — original install-side FR; design intent superseded by STE-289 after empirical falsification on 2026-05-14.
+- STE-286 (M72), STE-288 (M73) — follow-up install-side fixes likewise superseded by STE-289.
 - STE-283 (M71) — prose-layer FR; the TDD Orchestrator Contract callout in `/implement` Phase 2 step 8.
-- STE-262, STE-270, STE-276 — cancellation chain that explicitly opened up the `/setup`-opt-in layer (rejected bundling these hooks in the plugin's auto-active `hooks/hooks.json`).
-- STE-133 — `${CLAUDE_PLUGIN_ROOT}` commit-msg hook precedent (same install pattern).
+- STE-262, STE-270, STE-276 — cancellation chain that originally rejected bundled `hooks/hooks.json`; rejection grounds re-analyzed and reversed under STE-289.
+- STE-133 — `${CLAUDE_PLUGIN_ROOT}` commit-msg hook precedent (same substitution pattern; install-side path remains valid for that hook because the hook lives in `.git/hooks/`, not in the harness-managed hook surface).
