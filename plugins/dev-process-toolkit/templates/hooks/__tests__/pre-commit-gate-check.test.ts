@@ -89,7 +89,7 @@ describe("AC-STE-290.5 — pre-commit-gate-check.sh: end-to-end via stdin payloa
       tool_input: { command: "git commit -m wip" },
     });
     const r = await runShim(stdin);
-    expect(r.exitCode).not.toBe(0);
+    expect(r.exitCode).toBe(2);
     expect(r.stderr).toContain("Refusing:");
     expect(r.stderr).toContain("Remedy:");
     expect(r.stderr).toContain("Context:");

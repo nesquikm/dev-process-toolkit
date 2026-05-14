@@ -27,6 +27,13 @@ Context: mode=hook, ticket=unbound, skill=<skill>, hook=<hook>
 
 Advisory (non-blocking) hooks substitute `Reminder:` for `Refusing:` and exit 0.
 
+**Exit-code contract (Claude Code 2.1.x).** The 3 Refusing hooks emit blocking refusals via `exit 2`, per the empirically-verified Claude Code 2.1.141 hook contract:
+- `exit 0` → tool call proceeds (no stderr surfaced).
+- `exit 2` → tool call **blocked**; harness surfaces stderr to the model as feedback context.
+- any other non-zero (including `exit 1`) → advisory; harness shows stderr to operator only and proceeds with the tool call.
+
+STE-290 wired the layer to the real harness stdin `transcript_path` contract; STE-291 tightened the miss-path from `exit 1` (advisory) to `exit 2` (blocking) so the layer actually blocks.
+
 The Claude Code harness surfaces this stderr block back to the model, which then either runs the missing skill or asks the operator to confirm a deliberate override.
 
 **Fail-open on missing session log.** Every hook reads the `transcript_path` field from the harness-supplied stdin JSON payload (per STE-290's empirically-verified 2026-05-14 hook contract; supersedes STE-285's never-set `$CLAUDE_SESSION_FILE` env-var assumption) to detect required `Skill` `tool_use` entries. If stdin is empty / unparseable / lacks `transcript_path` (e.g., commit made outside a Claude Code session, or a fresh session with no log yet), the hook exits 0 — non-Claude commits are never blocked. The fail-open trade-off is explicitly accepted (see STE-285 Risks table, carried forward to STE-289 / STE-290).
