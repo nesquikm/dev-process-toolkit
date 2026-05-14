@@ -1,0 +1,38 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/templates/hooks/process/pre-commit-gate-check.sh",
+            "timeout": 5000
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/templates/hooks/process/pre-pr-spec-review.sh",
+            "timeout": 5000
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/templates/hooks/process/pre-commit-tdd-orchestrator.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/templates/hooks/process/pre-spec-write-brainstorm-reminder.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}
