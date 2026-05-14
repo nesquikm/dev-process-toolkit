@@ -21,4 +21,4 @@ const { found } = requireSkillToolUse(
   "pre-pr-spec-review",
   payload,
 );
-process.exit(found ? 0 : 1);
+process.exit(found ? 0 : 2);

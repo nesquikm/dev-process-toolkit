@@ -147,7 +147,7 @@ describe("AC-STE-290.2 — pre-pr-spec-review: end-to-end skill detection on `gh
       tool_input: { command: "gh pr create" },
     });
     const r = await runModule(stdin);
-    expect(r.exitCode).not.toBe(0);
+    expect(r.exitCode).toBe(2);
     expect(r.stderr).toContain("Refusing:");
     expect(r.stderr).toContain("Remedy:");
     expect(r.stderr).toContain("Context:");

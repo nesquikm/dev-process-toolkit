@@ -41,4 +41,4 @@ const { found } = requireSkillToolUse(
   "pre-commit-tdd-orchestrator",
   payload,
 );
-process.exit(found ? 0 : 1);
+process.exit(found ? 0 : 2);
