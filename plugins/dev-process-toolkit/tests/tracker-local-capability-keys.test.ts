@@ -6,12 +6,14 @@
 // directives in production; this test layer is the per-AC unit gate.
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const SPEC_WRITE_SKILL = join(import.meta.dir, "..", "skills", "spec-write", "SKILL.md");
 const GATE_CHECK_SKILL = join(import.meta.dir, "..", "skills", "gate-check", "SKILL.md");
-const FR_STE_284 = join(import.meta.dir, "..", "..", "..", "specs", "frs", "STE-284.md");
+const FR_STE_284_ACTIVE = join(import.meta.dir, "..", "..", "..", "specs", "frs", "STE-284.md");
+const FR_STE_284_ARCHIVE = join(import.meta.dir, "..", "..", "..", "specs", "frs", "archive", "STE-284.md");
+const FR_STE_284 = existsSync(FR_STE_284_ACTIVE) ? FR_STE_284_ACTIVE : FR_STE_284_ARCHIVE;
 
 const CAPABILITY_KEYS = [
   "tracker_local_reconciled",
