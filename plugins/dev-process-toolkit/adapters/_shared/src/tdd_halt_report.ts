@@ -15,6 +15,13 @@ export interface HaltReport {
   retryCount: number;
   lastBlock?: string;
   rawOutput?: string;
+  /**
+   * STE-296 AC.7 — unresolved missing ACs from the second audit. Set when
+   * `mode === "spec-gap"`. Each entry is rendered in the report body so
+   * the operator can see which ACs the spec-reviewer flagged as still
+   * unimplemented after the bounded audit-round retry.
+   */
+  missingAcs?: string[];
 }
 
 const MODE_DESCRIPTIONS: Record<FailureMode, string> = {
@@ -23,6 +30,8 @@ const MODE_DESCRIPTIONS: Record<FailureMode, string> = {
   C: "refactorer broke GREEN",
   D: "format violation — invalid or missing tdd-result block",
   E: "maxTurns exhaustion — subagent stopped without producing a block",
+  "spec-gap":
+    "spec-review audit still reports missing ACs after the bounded retry",
 };
 
 export function formatHaltReport(report: HaltReport): string {
@@ -35,6 +44,17 @@ export function formatHaltReport(report: HaltReport): string {
     lines.push(`AC: ${report.ac}`);
   }
   lines.push(`retry count: ${report.retryCount}`);
+  if (
+    report.mode === "spec-gap" &&
+    report.missingAcs &&
+    report.missingAcs.length > 0
+  ) {
+    lines.push("");
+    lines.push("Unresolved missing ACs:");
+    for (const acId of report.missingAcs) {
+      lines.push(`  - ${acId}`);
+    }
+  }
   lines.push("");
   if (report.lastBlock && report.lastBlock.trim().length > 0) {
     lines.push("Last tdd-result block:");
@@ -48,7 +68,8 @@ export function formatHaltReport(report: HaltReport): string {
     "Remedy: inspect the report above and resume manually. " +
       "Re-run /dev-process-toolkit:tdd against the FR after fixing the " +
       "identified failure mode (test-writer false-RED, implementer GREEN " +
-      "miss, refactorer regression, format drift, or subagent maxTurns).",
+      "miss, refactorer regression, format drift, subagent maxTurns, or " +
+      "spec-review reporting unimplemented acceptance criteria).",
   );
   lines.push(
     `Context: skill=tdd, mode=${report.mode}, role=${report.role}` +

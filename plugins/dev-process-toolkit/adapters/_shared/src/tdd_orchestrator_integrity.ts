@@ -14,23 +14,17 @@
 // is verified by the smoke (AC-STE-225.9), not the probe.
 
 import { existsSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
+import {
+  lineNumberOfKey,
+  parseFrontmatterFields,
+  pushViolation as pushViolationShared,
+  type IntegrityReport,
+  type IntegrityViolation,
+  type Severity,
+} from "./tdd_probe_helpers";
 
-export type Severity = "error";
-
-export interface IntegrityViolation {
-  file: string;
-  line: number;
-  reason: string;
-  note: string;
-  message: string;
-  severity: Severity;
-}
-
-export interface IntegrityReport {
-  violations: IntegrityViolation[];
-  vacuous: boolean;
-}
+export type { IntegrityReport, IntegrityViolation, Severity };
 
 interface ChildSpec {
   skillDir: string;
@@ -45,8 +39,6 @@ const CHILDREN: ReadonlyArray<ChildSpec> = [
   { skillDir: "tdd-refactor", expectedAgent: "tdd-refactorer" },
 ];
 
-const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/;
-
 function buildMessage(noteBody: string, file: string): string {
   return [
     `tdd_orchestrator_integrity: ${noteBody}`,
@@ -60,30 +52,6 @@ function buildMessage(noteBody: string, file: string): string {
   ].join("\n");
 }
 
-function parseFrontmatterFields(body: string): Record<string, string> {
-  const m = FRONTMATTER_RE.exec(body);
-  if (!m) return {};
-  const out: Record<string, string> = {};
-  for (const line of m[1]!.split("\n")) {
-    const c = line.indexOf(":");
-    if (c < 0) continue;
-    const k = line.slice(0, c).trim();
-    const v = line.slice(c + 1).trim();
-    if (k.length > 0) out[k] = v;
-  }
-  return out;
-}
-
-function lineNumberOfKey(body: string, key: string): number {
-  const m = FRONTMATTER_RE.exec(body);
-  if (!m) return 1;
-  const lines = m[1]!.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i]!.split(":")[0]!.trim() === key) return i + 2; // +1 for `---` line, +1 for 1-based
-  }
-  return 1;
-}
-
 function pushViolation(
   out: IntegrityViolation[],
   projectRoot: string,
@@ -91,16 +59,7 @@ function pushViolation(
   line: number,
   reason: string,
 ): void {
-  const rel = relative(projectRoot, absFile);
-  const note = `${rel}:${line} — ${reason}`;
-  out.push({
-    file: absFile,
-    line,
-    reason,
-    note,
-    message: buildMessage(note, rel),
-    severity: "error",
-  });
+  pushViolationShared(out, projectRoot, absFile, line, reason, buildMessage);
 }
 
 export async function runTddOrchestratorIntegrityProbe(

@@ -111,6 +111,14 @@ For fan-out-friendly tasks (independent files, ≥3 workers worth of work), para
 
 Phase 3 review runs against the code Phase 2 produced via the `/dev-process-toolkit:tdd` orchestrator. If the orchestrator halted (bounded-retry exhausted on mode A/B/C/D/E per STE-225), Phase 2 already escalated to the operator and Phase 3 does not run — the halt report is the surfaced failure. Otherwise Phase 3's gate check is the deterministic backstop that confirms the orchestrator's GREEN-at-exit claim against the project's full gate command (typecheck + lint + tests).
 
+**Spec-review audit capability propagation (STE-296).** When the `/tdd` orchestrator's spec-review audit step fires, `/implement` propagates its outcome through the Phase 4 step 14 closing summary as one of three literal, byte-checkable capability tokens — sourced from the static map in `skills/spec-write/SKILL.md` § 7 (single source of truth for capability-gap rendering):
+
+- audit clean on first pass ⇒ **MUST emit `tdd_spec_audit_passed`** (literal token, backticked).
+- audit found missing AC(s) on first pass and a bounded retry round (test-writer + implementer scoped to missing ACs) recovered them ⇒ **MUST emit `tdd_spec_audit_missing_recovered`** (literal token, backticked).
+- audit found missing AC(s) on first pass and the bounded retry round did not recover them ⇒ orchestrator halts with `mode: spec-gap` and **MUST emit `tdd_spec_audit_halted`** (literal token, backticked); `/implement` surfaces the unresolved AC list to the operator and exits non-zero before Phase 4 step 15.
+
+The byte-checkable tokens are the structural signals `/gate-check`'s `closing_summary_capability_keys` probe greps for; narrative prose like "spec audit was clean" is insufficient. Plain-language rendered prose lives in the `skills/spec-write/SKILL.md` § 7 static map under the same keys; do not paraphrase at runtime.
+
 **Proportional review:** Scale review depth to change size. Trivial changes (single function, <20 lines, no new modules) need only AC + gate check. Reserve deep review for changes touching multiple modules or new patterns.
 
 Each round has three sequential stages. **Complete each stage before starting the next.** If a stage finds issues, fix them and re-run the gate before proceeding.

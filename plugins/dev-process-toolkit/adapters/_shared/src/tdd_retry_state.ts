@@ -25,7 +25,7 @@
 
 import type { TddRole } from "./tdd_result";
 
-export type FailureMode = "A" | "B" | "C" | "D" | "E";
+export type FailureMode = "A" | "B" | "C" | "D" | "E" | "spec-gap";
 
 export interface RetryKey {
   role: TddRole;
@@ -46,13 +46,38 @@ export interface RetryDecision {
 export interface RetryBudget {
   semantic: Map<string, number>;
   format: Map<string, number>;
+  /** Independent audit-round counter — STE-296 AC.6, cap = 1. */
+  auditRound: number;
 }
 
 const SEMANTIC_CAP = 2;
 const FORMAT_CAP = 2;
+const AUDIT_ROUND_CAP = 1;
 
 export function newRetryBudget(): RetryBudget {
-  return { semantic: new Map(), format: new Map() };
+  return { semantic: new Map(), format: new Map(), auditRound: 0 };
+}
+
+/**
+ * Record an audit-round failure — STE-296 AC.6 stub. The audit-round
+ * budget is independent from per-AC semantic / format budgets. Cap = 1
+ * (one retry after the first audit; halt on the second). Full
+ * implementation lands under AC.6's fork.
+ */
+export function recordAuditRoundFailure(budget: RetryBudget): RetryDecision {
+  budget.auditRound += 1;
+  const attemptNumber = budget.auditRound;
+  const decision: "retry" | "halt" =
+    attemptNumber > AUDIT_ROUND_CAP ? "halt" : "retry";
+  return {
+    decision,
+    retryKind: decision === "retry" ? "semantic" : undefined,
+    attemptNumber,
+    reason:
+      decision === "retry"
+        ? `audit-round attempt ${attemptNumber} — retrying RED→GREEN sub-loop for missing ACs`
+        : `audit-round attempt ${attemptNumber} exceeds cap ${AUDIT_ROUND_CAP} — halting`,
+  };
 }
 
 function keyToString(key: RetryKey): string {
