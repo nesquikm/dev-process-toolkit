@@ -11,10 +11,11 @@ import {
 // `spec_write_marker_alternate_trigger_scan`. Severity: error.
 //
 // Globs ONLY plugins/dev-process-toolkit/skills/spec-write/SKILL.md and
-// flags any of six forbidden alternate-trigger paraphrases of the
-// STE-226 marker contract. Per occurrence: file:line:column + matched
-// phrase + remedy. Lines containing canonical negation/historical
-// signatures are excluded from the scan.
+// flags any of the forbidden alternate-trigger paraphrases listed in
+// `FORBIDDEN_PHRASES` (STE-262 seeded; STE-294 extended) of the STE-226
+// marker contract. Per occurrence: file:line:column + matched phrase +
+// remedy. Lines containing canonical negation/historical signatures are
+// excluded from the scan.
 
 const KNOWN_GOOD_BODY = [
   "---",
@@ -74,7 +75,8 @@ describe("AC-STE-262.4 + AC-STE-262.7 — spec_write_marker_alternate_trigger_sc
     }
   });
 
-  // One known-bad fixture per forbidden phrase — six fixtures total.
+  // One known-bad fixture per forbidden phrase — count matches
+  // `FORBIDDEN_PHRASES.length`.
   for (const phrase of FORBIDDEN_PHRASES) {
     test(`known-bad SKILL.md containing ${JSON.stringify(phrase)} (positive trigger) ⇒ exactly one violation`, async () => {
       const body = [
