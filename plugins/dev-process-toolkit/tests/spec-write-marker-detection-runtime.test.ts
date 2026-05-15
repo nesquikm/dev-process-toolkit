@@ -77,7 +77,9 @@ const REGRESSION_FIXTURE = join(
   "regression",
   "spec-write-marker-absent-reminder-present-2026-05-14.json",
 );
-const STE_294_FR = join(REPO_ROOT, "specs", "frs", "STE-294.md");
+const STE_294_FR_ACTIVE = join(REPO_ROOT, "specs", "frs", "STE-294.md");
+const STE_294_FR_ARCHIVE = join(REPO_ROOT, "specs", "frs", "archive", "STE-294.md");
+const STE_294_FR = existsSync(STE_294_FR_ACTIVE) ? STE_294_FR_ACTIVE : STE_294_FR_ARCHIVE;
 
 interface SavedStdinTty {
   prior: PropertyDescriptor | undefined;
