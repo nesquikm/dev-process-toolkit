@@ -3,9 +3,12 @@
 //
 // Globs ONLY `plugins/dev-process-toolkit/skills/spec-write/SKILL.md`
 // (single-file scope; the regression is uniquely /spec-write's marker
-// gate) and scans for six literal forbidden phrases that paraphrase the
-// STE-226 marker contract into an alternate trigger which would license
-// auto-apply on the marker-absent + non-tty path.
+// gate) and scans for the literal forbidden phrases listed in
+// `FORBIDDEN_PHRASES` below — each one paraphrases the STE-226 marker
+// contract into an alternate trigger which would license auto-apply on
+// the marker-absent + non-tty path. The phrase list grows over time
+// (STE-262 seeded it; STE-294 added the autonomous-mode-reminder set);
+// new known-bad LLM-imputed triggers append here.
 //
 // Sibling to STE-226's `auto_approve_marker.ts` (heredoc spawn marker
 // presence) and STE-270's `spec_write_first_turn_drift_scan.ts` (first-
@@ -64,6 +67,8 @@ export const FORBIDDEN_PHRASES = [
   "autonomous-mode reminder",
   "inferred approval",
   "non-interactive inference",
+  "standing instruction",
+  "default-applied per standing",
 ] as const;
 
 // Negation/historical-context carve-out signatures. A line containing
