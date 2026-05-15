@@ -168,7 +168,7 @@ describe("AC-STE-290.2 — pre-commit-tdd-orchestrator: staged-file heuristic vi
     expect(r.exitCode).toBe(0);
   });
 
-  test("FR file staged + git commit + /tdd tool_use missing → exit non-zero + NFR-10 stderr", async () => {
+  test("FR-only file staged + git commit + /tdd tool_use missing → exit 0 (STE-295 carve-out)", async () => {
     await initRepoWithStaged({
       "specs/frs/STE-290.md": "---\ntitle: x\n---\n",
     });
@@ -184,11 +184,7 @@ describe("AC-STE-290.2 — pre-commit-tdd-orchestrator: staged-file heuristic vi
       tool_input: { command: "git commit -m wip" },
     });
     const r = await runModule(stdin);
-    expect(r.exitCode).toBe(2);
-    expect(r.stderr).toContain("Refusing:");
-    expect(r.stderr).toContain("Remedy:");
-    expect(r.stderr).toContain("Context:");
-    expect(r.stderr).toMatch(/tdd/i);
+    expect(r.exitCode).toBe(0);
   });
 
   test("test file staged + git commit + /tdd tool_use missing → exit non-zero", async () => {

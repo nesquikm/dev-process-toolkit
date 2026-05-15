@@ -114,9 +114,12 @@ describe("AC-STE-290.5 — pre-commit-tdd-orchestrator.sh: end-to-end via stdin 
     expect(r.exitCode).toBe(0);
   });
 
-  test("refusal: FR file staged + git commit + no Skill tool_use → exit non-zero + NFR-10 stderr", async () => {
+  test("refusal: test file staged + git commit + no Skill tool_use → exit non-zero + NFR-10 stderr", async () => {
+    // STE-295 AC.1 narrowed the contract: FR-only commits skip /tdd. The
+    // refusal path now exercises a test file (still in the /tdd-required
+    // set per the existing classifier).
     await initRepoWithStaged({
-      "specs/frs/STE-290.md": "---\ntitle: x\n---\n",
+      "src/foo.test.ts": "test('x', () => {});\n",
     });
     const transcript = writeTranscript([
       { type: "tool_use", name: "Bash", input: { command: "ls" } },

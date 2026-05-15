@@ -319,6 +319,15 @@ Skills to run, in order:
    - **Jira path:** `stack=Bun+TS, tracker=jira, mcp_server=atlassian, project=<--jira-project flag value>, jira_ac_field=description, branch_template=default, docs flags=all-false, default_labels=[dpt-smoke]`. The pre-baked workspace-binding sub-section emits `### Jira` with `project:` + `default_labels:` so the Jira adapter forwards `dpt-smoke` into every `mcp__atlassian__createJiraIssue.additional_fields.labels` call. **Skip Jira AC custom-field discovery** — the pre-baked `jira_ac_field: description` answer short-circuits `/setup` step 7b's discover_field.ts call (zero-config sentinel path). **Skip the Linear team/project probe** — the workspace binding is fully resolved from the flag.
 
    **In both modes, the prompt MUST acknowledge the pre-existing `.claude/settings.json` and `.mcp.json`** (Phase 1 step 6) and instruct the child to take the idempotent-merge branch — do not blindly let it try to overwrite, since the sensitive-path classification block (see Phase 0 — Pre-approval gate) aborts the chain when the child attempts a fresh write. The canonical pre-baked prompt body is inlined into the Phase 2 child-spawn heredoc below (§ STE-185); do not write it to a file on disk.
+
+   **Post-step master-merge (STE-295 AC.3).** After the `/setup` child returns, the test project sits on the `chore/setup-bootstrap` branch with the toolkit scaffold (CLAUDE.md, `specs/` tree, `.claude/` config) committed there but NOT on `master`/`main`. Before spawning step 2 (`/spec-write`), the driver MUST merge `chore/setup-bootstrap` → master so the scaffold lands on the trunk:
+
+   ```bash
+   git -C ../dpt-test-project-<tracker> checkout master \
+     && git -C ../dpt-test-project-<tracker> merge --no-ff chore/setup-bootstrap -m "chore: merge setup-bootstrap → master"
+   ```
+
+   This carries the `/setup` scaffold onto master so the universal branch gate (STE-228) fires correctly on the subsequent `/spec-write` spawn and takes the auto-apply `branch_gate_default_applied` path — gate detection reads CLAUDE.md from the current branch, and without the merge the child would re-enter on `chore/setup-bootstrap` with no trunk scaffold and a degenerate gate state. The merge is `--no-ff` so the bootstrap commit's subject + footer (asserted by gate-check probe #30) stays addressable on master's first-parent line.
 2. `/dev-process-toolkit:spec-write` — feature stub (default `greet`): "Add a pure function greet(name?: string) returning 'Hello, <name>!' (defaulting 'world' for undefined / empty / whitespace-only). File src/greet.ts; test src/greet.test.ts; 4 ACs."
 3. `/dev-process-toolkit:implement <feature-id>` — full TDD + tracker writes (claim → release after archive). Pre-authorize the Phase 4 step 15 commit upfront. Do NOT push.
 
@@ -557,13 +566,14 @@ A new `/spec-write` spawn is fired with the marker line **omitted** from the her
 - `grep -F 'spec_write_draft_default_applied' /tmp/dpt-smoke-<tracker>-spec-write-1b.log` exit 1 (row absent — gate fired interactively, no auto-apply).
 - `grep -F 'spec_write_commit_default_applied' /tmp/dpt-smoke-<tracker>-spec-write-1b.log` exit 1 (row absent for the same reason).
 - Stdout ends at the gate prompt without ever reaching § 7 emit.
+- **Post-TIGHTEN cross-tracker assertion (STE-294 AC.4):** Linear-side AND Jira-side both raised `RequiresInputRefusedError` (NFR-10 canonical shape — Verdict / Remedy / Context) under non-tty stdin when the marker is absent. The byte-checkable refusal is the ONLY acceptable outcome; an autonomous-mode reminder paraphrase, pre-baked `<command-args>` prose, or "standing instruction" inference MUST NOT flip the gate. Both legs of the tandem run produce the same refusal class — asymmetry between Linear-leg refusal and Jira-leg auto-apply (or vice-versa) is the M59→M65 regression shape this assertion fences.
 
 **Diagnostic on failure:**
 
 ```
-STE-226 runtime regression: spec-write-marker-absent-but-auto-applied
-  expected: stdout halts at draft gate; no audit rows in output
-  actual:   spec_write_draft_default_applied row appeared without marker — child auto-applied via removed legacy detection path
+STE-226 runtime regression: spec-write marker-absent fixture 1b
+  expected: stdout halts at draft gate; no audit rows in output; both Linear-side AND Jira-side raise RequiresInputRefusedError under non-tty stdin
+  actual:   spec_write_draft_default_applied row appeared without marker — child auto-applied via removed legacy detection path OR one tracker leg refused while the other auto-applied (cross-tracker asymmetry — see STE-294 § Notes)
   stdout excerpt (last 20 lines):
     <tail -20 /tmp/dpt-smoke-<tracker>-spec-write-1b.log>
 ```
@@ -818,6 +828,8 @@ After every skill completes, parse its log and the test-project state, generatin
 <paragraph: what was expected, what happened>
 **Severity:** high / medium / low. <one-line rationale>
 ```
+
+**Severity-format normative callout (anti-regression, STE-295 AC-STE-295.5).** Emitters MUST render the severity line in exactly the canonical form `**Severity:** <level>` (colon ends the bold span, level word `high` / `medium` / `low` is plain text outside the bold span). The regression form (severity word + colon INSIDE the bold span, trailing period inside the bold span — i.e. the colon-inside-bold variant where the period and the level word are wrapped together with `Severity:` in a single double-asterisk span) is NOT acceptable and must never appear in findings files. This colon-inside-bold drift is a known LLM-emitter regression caught by the /conformance-loop iter-1 termination probe and is pinned out by this normative callout plus a byte-level test on this SKILL.md so the canonical form cannot silently regress.
 
 Group findings by skill and severity. Append to `/tmp/dpt-smoke-findings-<YYYY-MM-DD>-<tracker>.md` (per-tracker filename keeps a concurrent run's findings file separate; see § Operator-driven parallelism). Use the template at `.claude/skills/smoke-test-template.md` (TODO: separate file once the template stabilizes; for now, follow the shape of the canonical 2026-04-25 run at `/tmp/dpt-smoke-findings.md`).
 
