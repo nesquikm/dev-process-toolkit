@@ -17,6 +17,7 @@ The orchestrator itself runs in the **main context** (no `context: fork` on this
 | RED           | `tdd-write-test`    | `tdd-test-writer`    | **once per FR**, batched across all ACs |
 | GREEN         | `tdd-implement`     | `tdd-implementer`    | **once per AC** — N forks for N ACs     |
 | REFACTOR      | `tdd-refactor`      | `tdd-refactorer`     | **exactly once** at end after all GREEN |
+| AUDIT         | `tdd-spec-review`   | `tdd-spec-reviewer`  | **exactly once** at end, post-REFACTOR  |
 
 Children carry `context: fork` + `user-invocable: false` + an `agent:` field naming the subagent. The orchestrator invokes them via the **Skill tool** with the rendered prompt body.
 
@@ -56,6 +57,26 @@ The orchestrator dispatches **N forks for N ACs** — each implementer invocatio
 After every AC is GREEN, run the refactorer **once** with the full list of source files modified across the per-AC implementer runs. The refactorer cleans up cross-AC duplication while keeping every test GREEN — empty refactor is a valid outcome (`files: []`).
 
 The single-once-at-end batching is by design. Per-AC isolation matters most for the test-writer-cannot-see-implementation guarantee; refactor isolation matters less because by then all tests are GREEN and the refactorer's correctness gate is "tests still pass." A single global pass costs less and sees cross-AC duplication that per-AC refactor wouldn't catch.
+
+### 5. Stage AUDIT — invoke `tdd-spec-review` exactly once after REFACTOR
+
+After `tdd-refactor` returns `status: ok` **and** re-running the refactor command still shows GREEN, the orchestrator forks `tdd-spec-review` exactly once — at end of FR, after every AC is GREEN and the cross-AC refactor pass has landed. The audit fork is the final stage in the state machine and runs **post-REFACTOR**, never per-AC.
+
+Pass the spec-reviewer:
+
+- The FR file path (so it can re-read the canonical AC list as authored).
+- The AC list (the same batched list handed to the test-writer).
+- The project test command (so it can confirm the FR is still GREEN before classifying).
+
+The child fork runs in isolation with a read-only toolset (no `Write`, no `Edit`, no `Bash`, no `Agent`). It traces each AC to the implementation + tests, classifies each as ✓ Done / ✗ Missing / ⚠ Partial, scans for cross-cutting spec drift, and ends with a single `tdd-spec-review-result` fenced block.
+
+The orchestrator parses the returned block via `parseTddSpecReviewBlock(...)` from `adapters/_shared/src/tdd_spec_review_result.ts` (the AC.3 helper). It then branches on `missing_acs.length`:
+
+- **`missing_acs.length === 0` ⇒ exit-ok.** The audit passed. `partial_acs`, `drift_count`, `advisory_findings`, and `cross_cutting_drift` are **advisory only** — they are surfaced in the human-readable report but do not halt the FR or consume the retry budget. A clean first audit always exits successfully regardless of advisory fields.
+- **`missing_acs.length > 0` on the first audit ⇒ retry path.** The orchestrator re-enters the RED→GREEN sub-loop for the missing ACs only (write-test + implement), capped at a single audit-round retry (`recordAuditRoundFailure(...)` budget, cap = 1).
+- **`missing_acs.length > 0` on the second audit ⇒ halt.** The orchestrator emits a halt report listing the unresolved `missing_acs` and exits non-zero. The audit-round retry budget is independent from the per-AC semantic budget — burning per-AC retries does not consume audit retries, and vice versa.
+
+The AUDIT stage's halt path uses the same `formatHaltReport` channel as the other stages, with `mode` set to the audit-specific failure mode and `missingAcs` populated from the returned block.
 
 ## Hand-off contract — the `tdd-result` fenced block
 

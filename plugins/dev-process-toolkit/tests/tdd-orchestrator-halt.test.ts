@@ -78,3 +78,68 @@ describe("AC-STE-225.5 / AC-STE-225.8(d) — halt report formatter", () => {
     expect(refactor).not.toMatch(/\bAC[\s:-]/i);
   });
 });
+
+// STE-296 AC.7 — `spec-gap` halt mode extends the 5-mode taxonomy.
+//
+// formatHaltReport accepts:
+//   { mode: "spec-gap", role: "spec-reviewer", retryCount, missingAcs: string[], lastBlock? }
+// and renders a report naming the unresolved missing ACs + the last classified
+// spec-review block.
+describe("AC-STE-296.7 — spec-gap halt mode (audit failure)", () => {
+  test("renders spec-gap mode header with role spec-reviewer", () => {
+    const out = formatHaltReport({
+      mode: "spec-gap",
+      role: "spec-reviewer",
+      retryCount: 1,
+      missingAcs: ["AC-STE-296.2", "AC-STE-296.5"],
+    });
+    expect(out).toContain("spec-gap");
+    expect(out).toContain("spec-reviewer");
+  });
+
+  test("lists each unresolved missing AC in the report body", () => {
+    const out = formatHaltReport({
+      mode: "spec-gap",
+      role: "spec-reviewer",
+      retryCount: 1,
+      missingAcs: ["AC-STE-296.2", "AC-STE-296.5"],
+    });
+    expect(out).toContain("AC-STE-296.2");
+    expect(out).toContain("AC-STE-296.5");
+  });
+
+  test("includes the last spec-review block when present", () => {
+    const out = formatHaltReport({
+      mode: "spec-gap",
+      role: "spec-reviewer",
+      retryCount: 1,
+      missingAcs: ["AC.1"],
+      lastBlock:
+        "```tdd-spec-review-result\nrole: spec-reviewer\nstatus: ok\nmissing_acs:\n  - AC.1\n```",
+    });
+    expect(out).toContain("```tdd-spec-review-result");
+    expect(out).toContain("missing_acs");
+  });
+
+  test("Remedy + Context footer prose still present for spec-gap", () => {
+    const out = formatHaltReport({
+      mode: "spec-gap",
+      role: "spec-reviewer",
+      retryCount: 1,
+      missingAcs: ["AC.1"],
+    });
+    expect(out).toMatch(/Remedy:/);
+    expect(out).toMatch(/Context:/);
+  });
+
+  test("spec-gap mode description names the audit failure semantics", () => {
+    const out = formatHaltReport({
+      mode: "spec-gap",
+      role: "spec-reviewer",
+      retryCount: 1,
+      missingAcs: ["AC.1"],
+    });
+    // Mode header line should include human-readable description, not just the token.
+    expect(out).toMatch(/audit|spec.review|missing/i);
+  });
+});

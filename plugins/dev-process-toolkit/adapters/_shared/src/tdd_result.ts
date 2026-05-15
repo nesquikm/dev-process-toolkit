@@ -9,8 +9,22 @@
 // route into the retry state machine. A general YAML lib would make
 // "missing field X" detection harder to attribute. Same rationale as
 // frontmatter.ts — we don't pull a YAML dep for a tightly-bound schema.
+//
+// Shared primitives — fence extraction + scoped-YAML parsing — live in
+// `tdd_fence_yaml.ts` and are reused by `tdd_spec_review_result.ts`
+// (STE-296 AUDIT-stage parser). Schema validation (REQUIRED_FIELDS,
+// role/status checks) stays here so the closed-schema contract for the
+// `tdd-result` block is locally readable.
 
-export type TddRole = "test-writer" | "implementer" | "refactorer";
+import {
+  extractFencedBlock,
+  parseYamlFields,
+  type ExtractResult,
+} from "./tdd_fence_yaml";
+
+export type { ExtractResult };
+
+export type TddRole = "test-writer" | "implementer" | "refactorer" | "spec-reviewer";
 export type TddStatus = "ok" | "failed";
 
 export interface TddResultBlock {
@@ -21,10 +35,6 @@ export interface TddResultBlock {
   output_excerpt: string;
   notes?: string;
 }
-
-export type ExtractResult =
-  | { ok: true; body: string }
-  | { ok: false; reason: string };
 
 export type ParseResult =
   | { ok: true; block: TddResultBlock }
@@ -40,7 +50,7 @@ export interface ParseOptions {
 }
 
 const FENCE_OPEN = /^```tdd-result\s*$/;
-const FENCE_CLOSE = /^```\s*$/;
+const FENCE_TAG = "tdd-result";
 
 const REQUIRED_FIELDS: ReadonlyArray<keyof TddResultBlock> = [
   "role",
@@ -67,41 +77,7 @@ const VALID_STATUSES: readonly TddStatus[] = ["ok", "failed"];
  * Zero fences ⇒ format violation.
  */
 export function extractTddResultBlock(text: string): ExtractResult {
-  const lines = text.split("\n");
-  const fences: { startLine: number; body: string }[] = [];
-  let inFence = false;
-  let buf: string[] = [];
-  let bufStart = -1;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (!inFence && FENCE_OPEN.test(line)) {
-      inFence = true;
-      bufStart = i + 1;
-      buf = [];
-      continue;
-    }
-    if (inFence && FENCE_CLOSE.test(line)) {
-      fences.push({ startLine: bufStart, body: buf.join("\n") });
-      inFence = false;
-      buf = [];
-      continue;
-    }
-    if (inFence) buf.push(line);
-  }
-  if (fences.length === 0) {
-    return {
-      ok: false,
-      reason: "no `tdd-result` fenced block found in subagent output",
-    };
-  }
-  if (fences.length > 1) {
-    return {
-      ok: false,
-      reason:
-        `expected exactly one \`tdd-result\` fenced block, found ${fences.length}`,
-    };
-  }
-  return { ok: true, body: fences[0]!.body };
+  return extractFencedBlock(text, FENCE_OPEN, FENCE_TAG);
 }
 
 /**
@@ -185,103 +161,3 @@ export function parseTddResultBlock(
   return { ok: true, block };
 }
 
-interface YamlFields {
-  role?: string;
-  status?: string;
-  files?: string[];
-  command?: string;
-  output_excerpt?: string;
-  notes?: string;
-  [key: string]: unknown;
-}
-
-/**
- * Minimal scoped-YAML parser for the tdd-result schema. Handles:
- *   - top-level scalars (`key: value`)
- *   - inline empty list (`files: []`)
- *   - block list (`files:\n  - a\n  - b`)
- *   - block-literal scalar (`output_excerpt: |\n  line1\n  line2`)
- *
- * The parser intentionally rejects shapes outside this schema (no
- * nested maps, no flow-style maps, no block-folded `>`). The closed
- * schema makes that safe; downstream callers are gated by the strict
- * field set in REQUIRED_FIELDS.
- */
-function parseYamlFields(body: string): YamlFields {
-  const out: YamlFields = {};
-  const lines = body.split("\n");
-  let i = 0;
-  while (i < lines.length) {
-    const raw = lines[i]!;
-    const trimmed = raw.trim();
-    if (trimmed.length === 0) {
-      i++;
-      continue;
-    }
-    if (raw.startsWith(" ") || raw.startsWith("\t")) {
-      i++;
-      continue;
-    }
-    const colon = raw.indexOf(":");
-    if (colon < 0) {
-      i++;
-      continue;
-    }
-    const key = raw.slice(0, colon).trim();
-    const rest = raw.slice(colon + 1).trim();
-    if (rest === "|") {
-      const collected: string[] = [];
-      i++;
-      while (i < lines.length) {
-        const next = lines[i]!;
-        if (next.length === 0) {
-          collected.push("");
-          i++;
-          continue;
-        }
-        if (!(next.startsWith(" ") || next.startsWith("\t"))) break;
-        const dedented = next.replace(/^(?:  |\t)/, "");
-        collected.push(dedented);
-        i++;
-      }
-      while (collected.length > 0 && collected[collected.length - 1] === "") {
-        collected.pop();
-      }
-      out[key] = collected.join("\n");
-      continue;
-    }
-    if (rest === "[]") {
-      out[key] = [];
-      i++;
-      continue;
-    }
-    if (rest === "") {
-      const collected: string[] = [];
-      i++;
-      while (i < lines.length) {
-        const next = lines[i]!;
-        if (next.length === 0) {
-          i++;
-          continue;
-        }
-        if (!(next.startsWith("  -") || next.startsWith("\t-"))) break;
-        const item = next.replace(/^(?:  |\t)-\s*/, "").trim();
-        collected.push(item);
-        i++;
-      }
-      out[key] = collected;
-      continue;
-    }
-    out[key] = stripQuotes(rest);
-    i++;
-  }
-  return out;
-}
-
-function stripQuotes(v: string): string {
-  if (v.length >= 2) {
-    if (v.startsWith('"') && v.endsWith('"')) return v.slice(1, -1);
-    if (v.startsWith("'") && v.endsWith("'")) return v.slice(1, -1);
-  }
-  return v;
-}

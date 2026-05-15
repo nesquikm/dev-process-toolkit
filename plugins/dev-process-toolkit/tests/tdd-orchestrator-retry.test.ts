@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   newRetryBudget,
+  recordAuditRoundFailure,
   recordTddFailure,
   type RetryKey,
 } from "../adapters/_shared/src/tdd_retry_state";
@@ -127,5 +128,54 @@ describe("AC-STE-225.5 — retry state machine", () => {
     const dec = recordTddFailure(budget, { role: "test-writer" }, "A");
     expect(dec.decision).toBe("halt");
     expect(dec.attemptNumber).toBe(2);
+  });
+});
+
+// STE-296 AC.6 — audit-round retry budget (independent of per-AC budgets).
+//
+// `recordAuditRoundFailure(budget)` is keyed only on the literal "audit-round"
+// slot (no role / ac). Cap = 1 — first call returns retry (attempt 1), second
+// call returns halt (attempt 2). Independent from the per-AC semantic and
+// format budgets.
+describe("AC-STE-296.6 — recordAuditRoundFailure cap=1", () => {
+  test("first audit-round failure ⇒ retry, attemptNumber=1", () => {
+    const budget = newRetryBudget();
+    const dec = recordAuditRoundFailure(budget);
+    expect(dec.decision).toBe("retry");
+    expect(dec.attemptNumber).toBe(1);
+  });
+
+  test("second audit-round failure ⇒ halt, attemptNumber=2", () => {
+    const budget = newRetryBudget();
+    recordAuditRoundFailure(budget);
+    const dec = recordAuditRoundFailure(budget);
+    expect(dec.decision).toBe("halt");
+    expect(dec.attemptNumber).toBe(2);
+  });
+
+  test("audit-round budget independent of per-AC semantic budget", () => {
+    const budget = newRetryBudget();
+    // Burn the per-AC semantic budget for an implementer/AC pair — should not
+    // touch audit-round.
+    recordTddFailure(budget, { role: "implementer", ac: "AC.1" }, "B");
+    recordTddFailure(budget, { role: "implementer", ac: "AC.1" }, "B");
+    const dec = recordAuditRoundFailure(budget);
+    expect(dec.decision).toBe("retry");
+    expect(dec.attemptNumber).toBe(1);
+  });
+
+  test("audit-round budget independent of test-writer semantic budget", () => {
+    const budget = newRetryBudget();
+    recordTddFailure(budget, { role: "test-writer" }, "A");
+    const dec = recordAuditRoundFailure(budget);
+    expect(dec.decision).toBe("retry");
+    expect(dec.attemptNumber).toBe(1);
+  });
+
+  test("audit-round decision.reason names the audit-round mode", () => {
+    const budget = newRetryBudget();
+    recordAuditRoundFailure(budget);
+    const dec = recordAuditRoundFailure(budget);
+    expect(dec.reason).toMatch(/audit|spec-gap|spec-review/i);
   });
 });

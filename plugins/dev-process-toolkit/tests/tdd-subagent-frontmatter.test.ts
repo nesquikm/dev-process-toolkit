@@ -91,3 +91,61 @@ describe("AC-STE-225.10 — plugin-subagent constraint compliance", () => {
     });
   }
 });
+
+// STE-296 AC.1 — `tdd-spec-reviewer` is the fourth TDD subagent.
+// Read-only allowlist (`Read, Grep, Glob`), maxTurns: 8, model: sonnet,
+// description names /dev-process-toolkit:tdd as the sole invoker, body
+// describes the AC-trace + classify + fenced-block procedure.
+describe("AC-STE-296.1 — tdd-spec-reviewer subagent frontmatter", () => {
+  const file = "tdd-spec-reviewer.md";
+
+  test(`${file} declares read-only tools allowlist (Read, Grep, Glob)`, () => {
+    const fm = parseFrontmatter(readAgent(file));
+    const tools = (fm.tools ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    expect(tools).toContain("Read");
+    expect(tools).toContain("Grep");
+    expect(tools).toContain("Glob");
+    // Read-only — Write / Edit / Bash / Agent are explicitly excluded.
+    expect(tools).not.toContain("Write");
+    expect(tools).not.toContain("Edit");
+    expect(tools).not.toContain("Bash");
+    expect(tools).not.toContain("Agent");
+    expect(tools).not.toContain("WebFetch");
+    expect(tools).not.toContain("WebSearch");
+  });
+
+  test(`${file} declares maxTurns: 8`, () => {
+    const fm = parseFrontmatter(readAgent(file));
+    expect(fm.maxTurns).toBe("8");
+  });
+
+  test(`${file} declares model: sonnet`, () => {
+    const fm = parseFrontmatter(readAgent(file));
+    expect(fm.model).toBe("sonnet");
+  });
+
+  test(`${file} description names /tdd as the sole invoker (context: fork)`, () => {
+    const fm = parseFrontmatter(readAgent(file));
+    const desc = (fm.description ?? "").toLowerCase();
+    expect(desc).toContain("tdd");
+    expect(desc).toMatch(/exclusively|sole|only|do not invoke directly/i);
+    expect(desc).toContain("context: fork");
+  });
+
+  test(`${file} declares no hooks / mcpServers / permissionMode`, () => {
+    const body = readAgent(file);
+    expect(body).not.toMatch(/^hooks:/m);
+    expect(body).not.toMatch(/^mcpServers:/m);
+    expect(body).not.toMatch(/^permissionMode:/m);
+  });
+
+  test(`${file} body explains the audit procedure (trace ACs, classify, fenced block)`, () => {
+    const body = readAgent(file);
+    expect(body).toMatch(/AC|acceptance criteria/i);
+    expect(body).toMatch(/trace/i);
+    expect(body).toMatch(/done/i);
+    expect(body).toMatch(/missing/i);
+    expect(body).toMatch(/partial/i);
+    expect(body).toContain("tdd-spec-review-result");
+  });
+});
