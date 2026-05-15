@@ -39,10 +39,10 @@ function makeFixture(opts: {
 }
 
 describe("empty specs", () => {
-  test("no plan files → next = 1, all sources empty", () => {
+  test("no plan files → next = 1, all sources empty", async () => {
     const fx = makeFixture({});
     try {
-      const got = nextFreeMilestoneNumber(fx.specsDir);
+      const got = await nextFreeMilestoneNumber(fx.specsDir);
       expect(got.next).toBe(1);
       expect(got.sources.active).toEqual([]);
       expect(got.sources.archived).toEqual([]);
@@ -52,8 +52,8 @@ describe("empty specs", () => {
     }
   });
 
-  test("specs dir does not exist → next = 1", () => {
-    const got = nextFreeMilestoneNumber("/nonexistent/specs/path");
+  test("specs dir does not exist → next = 1", async () => {
+    const got = await nextFreeMilestoneNumber("/nonexistent/specs/path");
     expect(got.next).toBe(1);
     expect(got.sources.active).toEqual([]);
     expect(got.sources.archived).toEqual([]);
@@ -61,10 +61,10 @@ describe("empty specs", () => {
 });
 
 describe("active-only", () => {
-  test("active M30 → next = 31", () => {
+  test("active M30 → next = 31", async () => {
     const fx = makeFixture({ active: [30] });
     try {
-      const got = nextFreeMilestoneNumber(fx.specsDir);
+      const got = await nextFreeMilestoneNumber(fx.specsDir);
       expect(got.next).toBe(31);
       expect(got.sources.active).toEqual([30]);
     } finally {
@@ -74,10 +74,10 @@ describe("active-only", () => {
 });
 
 describe("archived-only", () => {
-  test("archived M27, M28, M29 → next = 30", () => {
+  test("archived M27, M28, M29 → next = 30", async () => {
     const fx = makeFixture({ archived: [27, 28, 29] });
     try {
-      const got = nextFreeMilestoneNumber(fx.specsDir);
+      const got = await nextFreeMilestoneNumber(fx.specsDir);
       expect(got.next).toBe(30);
       expect(got.sources.archived).toEqual([27, 28, 29]);
     } finally {
@@ -87,10 +87,10 @@ describe("archived-only", () => {
 });
 
 describe("active + archived merge", () => {
-  test("active M30, archived M27..29 → next = 31", () => {
+  test("active M30, archived M27..29 → next = 31", async () => {
     const fx = makeFixture({ active: [30], archived: [27, 28, 29] });
     try {
-      const got = nextFreeMilestoneNumber(fx.specsDir);
+      const got = await nextFreeMilestoneNumber(fx.specsDir);
       expect(got.next).toBe(31);
       expect(got.sources.active).toEqual([30]);
       expect(got.sources.archived).toEqual([27, 28, 29]);
@@ -101,10 +101,10 @@ describe("active + archived merge", () => {
 });
 
 describe("gaps preserved (max+1, never gap-reuse)", () => {
-  test("archived M12, M13, M16 → next = 17 (does NOT pick M14 or M15)", () => {
+  test("archived M12, M13, M16 → next = 17 (does NOT pick M14 or M15)", async () => {
     const fx = makeFixture({ archived: [12, 13, 16] });
     try {
-      const got = nextFreeMilestoneNumber(fx.specsDir);
+      const got = await nextFreeMilestoneNumber(fx.specsDir);
       expect(got.next).toBe(17);
       expect(got.sources.archived).toEqual([12, 13, 16]);
     } finally {
@@ -114,7 +114,7 @@ describe("gaps preserved (max+1, never gap-reuse)", () => {
 });
 
 describe("CHANGELOG scan", () => {
-  test("CHANGELOG with M-references → captured in sources.changelog", () => {
+  test("CHANGELOG with M-references → captured in sources.changelog", async () => {
     const changelog = [
       "# Changelog",
       "",
@@ -129,7 +129,7 @@ describe("CHANGELOG scan", () => {
     ].join("\n");
     const fx = makeFixture({ active: [30], archived: [27, 28, 29], changelog });
     try {
-      const got = nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath);
+      const got = await nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath);
       expect(got.next).toBe(31);
       expect(got.sources.changelog).toContain(28);
       expect(got.sources.changelog).toContain(29);
@@ -138,10 +138,10 @@ describe("CHANGELOG scan", () => {
     }
   });
 
-  test("CHANGELOG missing → empty changelog source, no error", () => {
+  test("CHANGELOG missing → empty changelog source, no error", async () => {
     const fx = makeFixture({ active: [30], changelog: null });
     try {
-      const got = nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath);
+      const got = await nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath);
       expect(got.next).toBe(31);
       expect(got.sources.changelog).toEqual([]);
     } finally {
@@ -149,10 +149,10 @@ describe("CHANGELOG scan", () => {
     }
   });
 
-  test("CHANGELOG path not provided → empty changelog source", () => {
+  test("CHANGELOG path not provided → empty changelog source", async () => {
     const fx = makeFixture({ active: [30] });
     try {
-      const got = nextFreeMilestoneNumber(fx.specsDir);
+      const got = await nextFreeMilestoneNumber(fx.specsDir);
       expect(got.next).toBe(31);
       expect(got.sources.changelog).toEqual([]);
     } finally {
@@ -160,10 +160,10 @@ describe("CHANGELOG scan", () => {
     }
   });
 
-  test("CHANGELOG empty → empty changelog source", () => {
+  test("CHANGELOG empty → empty changelog source", async () => {
     const fx = makeFixture({ active: [30], changelog: "" });
     try {
-      const got = nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath);
+      const got = await nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath);
       expect(got.next).toBe(31);
       expect(got.sources.changelog).toEqual([]);
     } finally {
@@ -171,10 +171,10 @@ describe("CHANGELOG scan", () => {
     }
   });
 
-  test("CHANGELOG without any M-references → empty source", () => {
+  test("CHANGELOG without any M-references → empty source", async () => {
     const fx = makeFixture({ changelog: "# Changelog\n\nNo milestones here.\n" });
     try {
-      const got = nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath);
+      const got = await nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath);
       expect(got.next).toBe(1);
       expect(got.sources.changelog).toEqual([]);
     } finally {
@@ -182,21 +182,21 @@ describe("CHANGELOG scan", () => {
     }
   });
 
-  test("multiple M-references in one CHANGELOG entry deduplicated", () => {
+  test("multiple M-references in one CHANGELOG entry deduplicated", async () => {
     const changelog = "M27 then M27 then M28 — three refs but two unique numbers.";
     const fx = makeFixture({ changelog });
     try {
-      const got = nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath);
+      const got = await nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath);
       expect(got.sources.changelog).toEqual([27, 28]);
     } finally {
       fx.cleanup();
     }
   });
 
-  test("CHANGELOG-only signal still drives next", () => {
+  test("CHANGELOG-only signal still drives next", async () => {
     const fx = makeFixture({ changelog: "Released M50 in v0.50.0." });
     try {
-      const got = nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath);
+      const got = await nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath);
       expect(got.next).toBe(51);
       expect(got.sources.changelog).toEqual([50]);
     } finally {
@@ -206,14 +206,14 @@ describe("CHANGELOG scan", () => {
 });
 
 describe("sources sorted ascending", () => {
-  test("returned arrays are deterministically sorted", () => {
+  test("returned arrays are deterministically sorted", async () => {
     const fx = makeFixture({
       active: [30, 12],
       archived: [29, 27, 28],
       changelog: "M29 M28 M27 in random order",
     });
     try {
-      const got = nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath);
+      const got = await nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath);
       expect(got.sources.active).toEqual([12, 30]);
       expect(got.sources.archived).toEqual([27, 28, 29]);
       expect(got.sources.changelog).toEqual([27, 28, 29]);
