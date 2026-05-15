@@ -26,9 +26,22 @@ interface StubOptions {
 // `importFromTracker` runs on the tracker path post-STE-76 and never mints
 // a ULID; `mintId` is structurally unreachable from this stub.
 class StubProvider implements Provider {
+  // STE-284 AC-STE-284.7 — stubs the tracker-mode side of the Provider
+  // interface; mode is fixed at `'tracker'` to match the existing tests'
+  // tracker-keyed semantics. listMilestones/listActiveFRs are not exercised
+  // by these tests, so they return empty.
+  readonly mode = "tracker" as const;
   getMetadataCalls: string[] = [];
   syncCalls: FRSpec[] = [];
   constructor(private readonly opts: StubOptions = {}) {}
+
+  async listMilestones(): Promise<{ name: string }[]> {
+    return [];
+  }
+
+  async listActiveFRs(): Promise<string[]> {
+    return [];
+  }
 
   async getMetadata(id: string): Promise<FRMetadata> {
     this.getMetadataCalls.push(id);

@@ -50,6 +50,31 @@ export interface IdentityMinter {
 }
 
 export interface Provider {
+  /**
+   * STE-284 AC-STE-284.7 — operating mode discriminator. `'none'` for
+   * `LocalProvider` (tracker-less, ULID-keyed); `'tracker'` for
+   * `TrackerProvider` (tracker-bound, ticket-ID-keyed). Used by
+   * `reconcileTrackerLocal` (AC-STE-284.2) for the mode-none early-return
+   * and by gate-check probes that need to short-circuit on local-only repos
+   * without an `instanceof` check.
+   */
+  readonly mode: "none" | "tracker";
+  /**
+   * STE-284 AC-STE-284.7 — list every milestone known to the tracker (or
+   * `[]` in `mode: 'none'`). Return shape `{name: string}[]` matches the
+   * local `MilestoneProvider` interface in `attach_project_milestone.ts`
+   * so the same Linear/Jira driver method can satisfy both.
+   * `TrackerProvider` delegates to `driver.listMilestones?.() ?? []`;
+   * drivers that omit the method effectively report an empty list.
+   */
+  listMilestones(): Promise<{ name: string }[]>;
+  /**
+   * STE-284 AC-STE-284.7 — list active (non-archived) tracker FR IDs in
+   * tracker mode, or `[]` in `mode: 'none'`. `TrackerProvider` delegates to
+   * `driver.listActiveFRs?.() ?? []`. Consumed by `reconcileTrackerLocal`
+   * (AC-STE-284.2) to compute tracker-vs-local orphan sets.
+   */
+  listActiveFRs(): Promise<string[]>;
   getMetadata(id: string): Promise<FRMetadata>;
   sync(spec: FRSpec): Promise<SyncResult>;
   getUrl(id: string, trackerKey?: string): string | null;

@@ -76,6 +76,19 @@ export interface AdapterDriver {
   upsertTicketMetadata(ticketId: string | null, meta: UpsertMetadataInput): Promise<string>;
   getTicketStatus(ticketId: string): Promise<TicketStatusSummary>;
   getUrl(ticketId: string): string;
+  /**
+   * STE-284 AC-STE-284.7 — optional list of all milestones known to the
+   * tracker. `TrackerProvider.listMilestones()` invokes this with optional
+   * chaining and falls back to `[]` when absent. Drivers that don't model
+   * project milestones (e.g., Jira tenants with the feature off) MAY omit it.
+   */
+  listMilestones?: () => Promise<{ name: string }[]>;
+  /**
+   * STE-284 AC-STE-284.7 — optional list of active (non-archived) tracker
+   * FR IDs. `TrackerProvider.listActiveFRs()` invokes this with optional
+   * chaining and falls back to `[]` when absent.
+   */
+  listActiveFRs?: () => Promise<string[]>;
 }
 
 export interface TrackerProviderOptions {
@@ -172,6 +185,7 @@ function isClaimable(s: TicketStatus): boolean {
 }
 
 export class TrackerProvider implements Provider {
+  readonly mode = "tracker" as const;
   private readonly driver: AdapterDriver;
   private readonly currentUser: string;
   private readonly resolveTrackerRefImpl: (idOrRef: string) => Promise<string | null>;
@@ -207,6 +221,16 @@ export class TrackerProvider implements Provider {
       inFlightBranch: null,
       assignee: summary.assignee,
     };
+  }
+
+  async listMilestones(): Promise<{ name: string }[]> {
+    // STE-284 AC-STE-284.7 — delegate; driver field is treated as opaque.
+    return (await this.driver.listMilestones?.()) ?? [];
+  }
+
+  async listActiveFRs(): Promise<string[]> {
+    // STE-284 AC-STE-284.7 — delegate; driver field is treated as opaque.
+    return (await this.driver.listActiveFRs?.()) ?? [];
   }
 
   async sync(spec: FRSpec): Promise<SyncResult> {

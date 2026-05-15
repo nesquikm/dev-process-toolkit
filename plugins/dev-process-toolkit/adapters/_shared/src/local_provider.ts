@@ -48,6 +48,7 @@ function getFrPath(specsDir: string, id: string): string {
 }
 
 export class LocalProvider implements Provider, IdentityMinter {
+  readonly mode = "none" as const;
   private readonly repoRoot: string;
   private readonly specsDir: string;
   private readonly locksDir: string;
@@ -86,6 +87,16 @@ export class LocalProvider implements Provider, IdentityMinter {
 
   async sync(_spec: FRSpec): Promise<SyncResult> {
     return { kind: "skipped", updated: [], conflicts: [], message: "No tracker configured" };
+  }
+
+  async listMilestones(): Promise<{ name: string }[]> {
+    // STE-284 AC-STE-284.7 — mode-none has no tracker; vacuously empty.
+    return [];
+  }
+
+  async listActiveFRs(): Promise<string[]> {
+    // STE-284 AC-STE-284.7 — mode-none has no tracker FR IDs; vacuously empty.
+    return [];
   }
 
   getUrl(_id: string, _trackerKey?: string): string | null {
