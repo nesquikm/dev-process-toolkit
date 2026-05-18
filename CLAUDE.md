@@ -12,8 +12,8 @@ This repo is a **Claude Code plugin marketplace** containing one plugin. The plu
 .claude-plugin/marketplace.json          → Marketplace catalog
 plugins/dev-process-toolkit/             → The plugin
 ├── .claude-plugin/plugin.json           → Plugin manifest
-├── skills/                              → 18 slash commands (4 user-invocable + 14 dispatch — the four TDD child skills `tdd-write-test|tdd-implement|tdd-refactor|tdd-spec-review` carry `user-invocable: false` and run only as `/dev-process-toolkit:tdd` orchestrator forks)
-├── agents/                              → 5 subagent templates (code-reviewer + tdd-{test-writer|implementer|refactorer|spec-reviewer}; the four TDD subagents are invoked exclusively by the /tdd orchestrator via `context: fork` per STE-225 + STE-296)
+├── skills/                              → 20 slash commands (5 user-invocable + 15 dispatch — the four TDD child skills `tdd-write-test|tdd-implement|tdd-refactor|tdd-spec-review` and the `deps-research` child skill carry `user-invocable: false` and run only as orchestrator forks (`/dev-process-toolkit:tdd` for the TDD four; `/dev-process-toolkit:deps-research` forked from `/brainstorm` and `/spec-write` for deps-research). The `/deps` skill is the user-invocable deps-manifest management surface.)
+├── agents/                              → 6 subagent templates (code-reviewer + tdd-{test-writer|implementer|refactorer|spec-reviewer} + deps-researcher; the four TDD subagents are invoked exclusively by the /tdd orchestrator via `context: fork` per STE-225 + STE-296, and the deps-researcher is invoked exclusively by the /dev-process-toolkit:deps-research forked skill via `context: fork`)
 ├── templates/                           → CLAUDE.md template, spec file templates, settings.json
 ├── docs/                                → Methodology, skill anatomy, adaptation guide, patterns
 └── examples/                            → Stack-specific configs (TypeScript, Flutter, Python)

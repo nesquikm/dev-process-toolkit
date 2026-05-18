@@ -52,6 +52,16 @@ Once the problem is clear (i.e., the user has answered the final clarifying ques
 
 On shape violation (banner missing, section reorder, > 25 lines), drop the block silently and proceed without the seed — the seed is enrichment, not load-bearing. The block is read-only context; never copy it into a draft FR or quote it back to the user verbatim.
 
+### 1.5b. Deps-research seed (STE-301 AC-STE-301.13)
+
+Immediately after Step 1.5's spec-research seed and **before** Step 2 proposes approaches, check whether `specs/deps.yaml` exists and contains ≥ 1 entry. When both conditions hold, invoke `/dev-process-toolkit:deps-research <topic>` (forked) where `<topic>` is the clarified problem statement. The forked skill returns a small block of dependency hits (constrained shape, banner-fenced) drawn from the project's curated `specs/deps.yaml` manifest. Inject the returned block into this skill's context — Step 2's proposed approaches reference returned dependency candidates alongside the model's own analysis.
+
+**Vacuous path.** When `specs/deps.yaml` is absent or empty (zero entries), skip the invocation entirely — no fork is spawned, no tokens are spent, Step 2 proceeds as today. The manifest is the gate; without curated deps there is nothing to research.
+
+**Skipped under `--no-tech`.** Step 2 itself is skipped under the flag, so this seeding step is also skipped — there is no consumer for the dependency candidates and the call would only burn tokens. Vacuous under `--no-tech` regardless of manifest state.
+
+On shape violation (banner missing, section reorder, line-budget exceeded), drop the block silently and surface the `deps_research_shape_violation` capability row at hand-off. The seed is enrichment, not load-bearing — Step 2 proceeds without the deps block, identical to the manifest-absent path. The block is read-only context; never copy it into a draft FR or quote it back to the user verbatim.
+
 ### 2. Explore Approaches
 
 **Skipped under `--no-tech`.** Non-technical users can't pick architectural tradeoffs, so when the flag is set, skip this step entirely — don't propose alternatives, don't list tradeoffs. Jump straight to Step 3 ("Get Goal Approval" framing) once the problem is clear.
