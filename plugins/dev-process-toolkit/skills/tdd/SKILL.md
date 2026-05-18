@@ -78,6 +78,8 @@ The orchestrator parses the returned block via `parseTddSpecReviewBlock(...)` fr
 
 The AUDIT stage's halt path uses the same `formatHaltReport` channel as the other stages, with `mode` set to the audit-specific failure mode and `missingAcs` populated from the returned block.
 
+This RED→GREEN→AUDIT-and-retry shape is the canonical instance of the **audit-fix loop** pattern — see [`docs/patterns.md#pattern-audit-fix-loop`](../../docs/patterns.md#pattern-audit-fix-loop) for the cross-skill catalogue (TDD's AUDIT stage, `/spec-review`, `/implement` Phase 3 Stage B, `/simplify`) and the in-process-fix exception.
+
 ## Hand-off contract — the `tdd-result` fenced block
 
 Every child ends its turn with **exactly one** fenced ` ```tdd-result ` block, parsed deterministically by `parseTddResultBlock(...)` from `adapters/_shared/src/tdd_result.ts`. Locate via `extractTddResultBlock(stdout)` against the child's full output.
