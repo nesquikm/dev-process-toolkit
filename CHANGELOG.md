@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.27.0] — 2026-05-18 — "TBD"
+
+M80 begins with a small audit-and-fix-loop cleanup removing the unconditional `test/empty_test.dart` placeholder that `/setup` historically wrote for Flutter/Dart projects. On current Flutter SDKs `flutter create .` already writes `test/widget_test.dart`, and `flutter test` exits 0 against an empty `test/` directory — the placeholder was redundant and confused downstream packages.
+
+### Fixed
+
+- **STE-309 — Remove Flutter/Dart `test/empty_test.dart` placeholder from `/setup`.** The `/setup` SKILL.md Flutter/Dart bullet no longer instructs writing a placeholder test file. `flutter create .` writes `test/widget_test.dart` automatically, and flutter test exits 0 against an empty `test/` on current SDKs, so no placeholder is needed. Downstream Flutter/Dart packages carrying `test/empty_test.dart` from older `/setup` runs should delete the file manually — flutter test exits 0 on empty `test/` on current SDKs. No automated codemod, no `/gate-check` probe, and no version-sniffing logic ships with this FR; the change is documentation-only on the `/setup` skill plus this CHANGELOG callout. (STE-309)
+
 ## [2.26.0] — 2026-05-18 — "Mapped"
 
 M79 promotes status mapping from per-adapter strict equality to a per-project YAML config with a tolerance wrapper that prompts the operator on non-key encounters instead of failing the gate. The plugin now reads `specs/tracker-config.yaml` (written by `/setup` via MCP-fetch + LLM proposal + diff-approval); a single wrapper at the Provider boundary routes `Provider.getTicketStatus` through a three-way return (mapped role / `null` known-non-key / `"unknown"` sentinel) and surfaces force/skip/cancel on non-key encounters interactively (advisory under non-tty CI). Gate probes #8 + #14 (STE-54 + STE-87 strict equality) now honor the wrapper; STE-151 carve-outs preserved verbatim. Dogfooded: this repo's own `specs/tracker-config.yaml` ships with the release.
