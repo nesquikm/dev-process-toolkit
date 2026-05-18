@@ -706,3 +706,34 @@ See `docs/auto-mode-protocol.md § Socratic Loop Contract` for the full contract
 **Read-side safety net**: `/gate-check` probe `commit_producing_skill_branch_gate` parses each commit-producing skill's SKILL.md and refuses any `git commit` reference not preceded by a documented `requireCommittableBranch` call. Doc-conformance test `tests/branch-gate-doc-conformance.test.ts` asserts each commit-producing skill's SKILL.md references both `requireCommittableBranch` and `STE-228` (the canonical-table anchor) — catches the silent-drop regression where a future SKILL.md edit forgets the gate call.
 
 **Why hardcoded `["main", "master"]` not Schema L**: branch-protection is a near-universal trunk convention (GitHub, GitLab, Bitbucket all default to one of those names). Making the list configurable adds Schema L surface for a setting the user effectively never overrides. If a downstream project uses `develop` or `trunk` as protected, the gate is silent (those names don't match) — same end-state as configuration would produce, with zero Schema L cost. Per `project_no_users_yet`, no migration shim ships.
+
+## Pattern 29: Audit-fix loop {#pattern-audit-fix-loop}
+
+**Where**: `plugins/dev-process-toolkit/skills/tdd/SKILL.md` (canonical), `plugins/dev-process-toolkit/skills/spec-review/SKILL.md` (canonical), `plugins/dev-process-toolkit/skills/implement/SKILL.md` Phase 3 Stage B (legacy, in-process fix), `plugins/dev-process-toolkit/skills/simplify/SKILL.md` (legacy, no fork at all).
+
+**Canonical shape** (end-to-end):
+
+1. A **main-context orchestrator** (`/tdd`, `/spec-review`, …) reaches an audit point and needs a read-only verdict from a fresh context.
+2. The orchestrator invokes the **Skill tool** with a child skill name (e.g., `/dev-process-toolkit:tdd-spec-review`).
+3. The child skill runs in a **forked child** context (`context: fork`) paired with a read-only subagent (e.g., `tdd-spec-reviewer`). The fork sees only the audit inputs — no orchestrator state — so its verdict is independent.
+4. The read-only subagent performs its audit and emits exactly one fenced ` ```<role>-result ` block (e.g., ` ```tdd-spec-review-result `) as its last turn output. The block is the contractual hand-off.
+5. The orchestrator parses the `<role>-result` fence and either **dispatches the fix into another fork** (another `Skill tool` invocation pairing with a writer subagent in a second forked context) or **halts** for human review when the verdict cannot be auto-remediated.
+
+The canonical precedents are STE-225 (the original `/tdd` decomposition that introduced the orchestrator → forked subagent → fenced-result contract) and STE-296 (the `/spec-review` refactor that generalized the same shape to spec audits). The pattern supersedes the in-context-audit ancestor HG95VF, which performed the audit and the fix inside a single context and accumulated unbounded state.
+
+**Four current loops** (classification):
+
+| Loop | Class | Fork shape |
+|---|---|---|
+| `/tdd` | canonical | orchestrator + four forked child skills (test-writer / implementer / refactorer / spec-reviewer), each paired with a read-only or writer subagent |
+| `/spec-review` | canonical | orchestrator + forked auditor subagent emitting `spec-review-result`; fix dispatched into another fork |
+| `/implement` Phase 3 Stage B | legacy (in-process fix) | orchestrator audits and applies the fix in the same context — no second fork |
+| `/simplify` | legacy (no fork at all) | audit + fix run in the same main-context turn; no Skill tool, no `<role>-result` fence |
+
+**In-process-fix exception (`/implement` Stage B)**: `/implement` Phase 3 Stage B audits the implementation in a forked review subagent but applies the fix inside the orchestrator's own context rather than dispatching into a second fork. The exception is intentional, not an oversight:
+
+- **Nested subagent spawns are forbidden by Claude Code.** A forked review subagent cannot itself spawn a writer subagent — the platform rejects the nested spawn. The orchestrator must own the fix call site.
+- **The fixer needs the orchestrator's full implementation context.** Phase 3 fixes routinely touch files the orchestrator has already edited earlier in the same phase, plus the spec text it carries in working memory. A clean-fork fixer would have to re-read every file and re-derive the plan, which is wasteful and error-prone.
+- **Future migration path (deferred to M82+).** Once a parent-mediated fork-with-parent-state mechanism exists (or the Phase 3 implementation surface decomposes into independently-fork-able units mirroring `/tdd`'s shape), `/implement` Stage B migrates from legacy (in-process fix) to canonical. Tracked as future work, not a current FR — see also Pattern 25's discovery-vs-deferral framing.
+
+**Cross-refs**: `specs/frs/archive/STE-225.md` (canonical precedent, original `/tdd` fork decomposition), `specs/frs/archive/STE-296.md` (canonical precedent, `/spec-review` generalization), `specs/frs/archive/HG95VF.md` (superseded ancestor; in-context audit + fix), `plugins/dev-process-toolkit/skills/{tdd,spec-review,implement,simplify}/SKILL.md` (per-loop implementations).

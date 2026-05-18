@@ -96,7 +96,7 @@ Key requirements for **every stack**:
 
 - **TypeScript/Node:** `npm init -y`, set `"type": "module"`, install typescript + vitest + eslint, create tsconfig.json (strict, ESM, src/dist dirs), vitest.config.ts, eslint config, src/index.ts, tests/ dir
 - **Bun (TypeScript):** see `${CLAUDE_PLUGIN_ROOT}/examples/bun-typescript.md`. Bun has no `--passWithNoTests` flag — see step 2c branch + `docs/setup-reference.md` § Bun scaffold-verify branch
-- **Flutter/Dart:** `flutter create .`, add bloc_test + mocktail, verify test/ dir exists
+- **Flutter/Dart:** `flutter create .` (writes `test/widget_test.dart` automatically), add bloc_test + mocktail. do NOT add an extra placeholder file (e.g. `test/empty_test.dart`) — `flutter test` exits 0 against an empty `test/` directory on current Flutter SDKs, and `test/widget_test.dart` from `flutter create` keeps `test/` non-empty in the canonical bootstrap path.
 - **Python:** `uv init` or poetry init, add pytest + mypy + ruff, create src/__init__.py, tests/ dir
 - **Go:** `go mod init <module>`, create main.go, install golangci-lint
 
