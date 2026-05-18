@@ -7,10 +7,11 @@ A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** wor
 - **Spec-Driven Development (SDD)** — requirements, technical, testing, and plan files as the source of truth
 - **Multi-agent TDD orchestrator** — `/tdd` runs RED → GREEN → REFACTOR via three forked subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`) with context isolation, a strict `tdd-result` YAML hand-off, and bounded retries; `/implement` invokes it inline per FR
 - **Bounded three-stage self-review** — Stage A spec compliance → Stage B two-pass `code-reviewer` agent (Pass 1 spec compliance, Pass 2 code quality, fail-fast) → Stage C hardening, capped before human escalation
-- **Deterministic quality gates** — 41 numbered `/gate-check` probes (typecheck + lint + test + spec/plan/frontmatter/branch hygiene) override LLM judgment
+- **Deterministic quality gates** — 51 numbered `/gate-check` probes (typecheck + lint + test + spec/plan/frontmatter/branch hygiene) override LLM judgment
 - **Universal pre-commit branch gate** — every commit-producing skill calls `requireCommittableBranch`; trunk-OK narrows to `ci` only, so `chore`/`docs`/`feat` cannot land on `main` accidentally
 - **Non-technical drafting (`--no-tech`)** — `/brainstorm` and `/spec-write` skip the technical-design + testing interviews; FR ships with `needs_technical_review: true` and `/implement` refuses until a reviewer fills it in
 - **Topic-aware spec retrieval** — `spec-researcher` Read-only Haiku subagent (invoked by `/brainstorm` and `/spec-write` via the `spec-research` fork) returns related FRs from active + archived specs as a fixed-shape ≤ 25-line block, no parent-context pollution
+- **Dependency docs catalog** — `/deps` manages a git-tracked `specs/deps.yaml` manifest of sibling packages (add/edit/delete/list/sync); a `deps-researcher` Read-only Haiku subagent (invoked by `/brainstorm` and `/spec-write` via the `deps-research` fork) folds each sibling's `docs/` tree into design context as a fixed-shape ≤ 25-line block, so consumer projects with several private packages stop rediscovering APIs
 - **Privacy-first incident reports** — `/report-issue` bundles repo state + dev narrative, scrubs secrets via 7 patterns (Anthropic / OpenAI / GitHub PAT / AWS / JWT / generic / AWS-secret), previews before publish, then posts a secret GitHub gist; the URL round-trips into `/brainstorm <gist-url>` for self-debug
 - **Diátaxis docs generation** — `/docs` stages fragments per FR (`--quick`), merges with human approval (`--commit`), or regenerates the canonical tree (`--full`)
 - **Task tracker sync** — Linear, Jira, or `none`; auto-claim on FR start, auto-release on archive; adapter-agnostic `Provider` interface
@@ -40,7 +41,7 @@ This detects your stack, generates a CLAUDE.md, configures settings, and optiona
 
 ## Workflow
 
-The toolkit groups its 15 user-invoked skills into a four-phase lifecycle. Read left-to-right for the full path, or jump to whichever phase matches what you're doing now.
+The toolkit groups its 16 user-invoked skills into a four-phase lifecycle. Read left-to-right for the full path, or jump to whichever phase matches what you're doing now.
 
 ```mermaid
 flowchart LR
@@ -118,8 +119,9 @@ All commits in toolkit-managed repositories follow [Conventional Commits v1.0.0]
 | `/dev-process-toolkit:simplify`       | Code quality review and cleanup                                                                                                                                                                                                                                    |
 | `/dev-process-toolkit:report-issue`   | Capture a structured bug report (narrative + redacted curated context, optional session transcript), preview, and publish to a secret GitHub gist for triage or self-debug via `/brainstorm <gist-url>`                                                            |
 | `/dev-process-toolkit:ship-milestone` | Bundle the Release Checklist + `/docs --commit --full` into one atomic, human-approved release commit                                                                                                                                                              |
+| `/dev-process-toolkit:deps`           | Manage a git-tracked `specs/deps.yaml` manifest of sibling packages — Socratic `add` / `edit` / `delete` / `list` / `sync` subcommands; underpins the `deps-research` retrieval fork that feeds `/brainstorm` and `/spec-write`                                    |
 
-Four additional skills (`spec-research`, `tdd-write-test`, `tdd-implement`, `tdd-refactor`) are not user-invocable — they run only as `context: fork` children of `/brainstorm`, `/spec-write`, and `/tdd`.
+Six additional skills (`spec-research`, `tdd-write-test`, `tdd-implement`, `tdd-refactor`, `tdd-spec-review`, `deps-research`) are not user-invocable — they run only as `context: fork` children of `/brainstorm`, `/spec-write`, and `/tdd`.
 
 ### Agents
 
@@ -130,6 +132,8 @@ Four additional skills (`spec-research`, `tdd-write-test`, `tdd-implement`, `tdd
 | `tdd-test-writer`    | Writes failing tests for the full AC list of one FR and runs them once to confirm RED — invoked once per FR by `/tdd`                                |
 | `tdd-implementer`    | Implements the minimum code to turn one AC's failing test GREEN — invoked once per AC by `/tdd`                                                      |
 | `tdd-refactorer`     | Cleans up cross-AC duplication while keeping every test GREEN — invoked once at end of FR by `/tdd`                                                  |
+| `tdd-spec-reviewer`  | Read-only Sonnet that traces every AC of one FR to file + test post-REFACTOR; emits a closed-schema audit block and blocks the pipeline only on missing ACs (bounded single-round auto-retry) — invoked once at end of FR by `/tdd`                                |
+| `deps-researcher`    | Read-only Haiku that scans manifest-listed sibling packages' `docs/` trees and emits a fixed-shape ≤ 25-line block of relevant packages + verbatim API signatures + reusable patterns — invoked by `/brainstorm` Step 1.5b and `/spec-write` § 0b step 2.5b           |
 
 ## What's Inside
 
@@ -141,8 +145,8 @@ dev-process-toolkit/
 │   └── dev-process-toolkit/         # The plugin
 │       ├── .claude-plugin/
 │       │   └── plugin.json          # Plugin manifest
-│       ├── skills/                  # 19 skills (15 user-invocable + 4 internal forks)
-│       ├── agents/                  # 5 specialist agents (code-reviewer, spec-researcher, tdd-{test-writer,implementer,refactorer})
+│       ├── skills/                  # 22 skills (16 user-invocable + 6 internal forks)
+│       ├── agents/                  # 7 specialist agents (code-reviewer, spec-researcher, deps-researcher, tdd-{test-writer,implementer,refactorer,spec-reviewer})
 │       ├── adapters/                # 3 tracker adapters (linear, jira, _template) + _shared helpers
 │       ├── templates/               # CLAUDE.md and spec templates
 │       ├── docs/                    # Methodology and guides
