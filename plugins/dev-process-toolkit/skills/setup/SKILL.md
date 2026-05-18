@@ -211,6 +211,36 @@ Full prompt list, NFR-10 refusal text, and section format: `docs/setup-reference
 
 `default: per-stack template` — emit a `## Release Files` block in CLAUDE.md from `examples/<stack>/release.yml` (typescript-node / flutter-dart / python / plugin); unrecognized stack ⇒ commented stub. Skip when CLAUDE.md already carries a `## Release Files` heading — user-edited overrides win on regenerate. Append immediately after `## Docs`. Drives `/ship-milestone`'s version bump; full schema in `docs/ship-milestone-reference.md`.
 
+### 7f. Tracker-config write
+
+`requires-input: tracker-config is the canonical mapping from the project's verbatim tracker statuses to the canonical four-role enum; no safe default exists.` — runs **only in tracker mode** (`mode: linear` / `mode: jira` / `mode: <custom>`). **Vacuous in `mode: none`** — when `mode:` was set to `none` in step 7b, this step short-circuits with no MCP fetch, no proposal, no write. The byte-checkable phrase `mode: none` appears in this step's prose so the gate-check probe sees the skip-condition.
+
+Composes a `specs/tracker-config.yaml` file via the four sub-steps below, then routes through `runTrackerConfigWrite(...)` from `adapters/_shared/src/tracker_config_proposal.ts`. The helper wraps the `readTrackerConfig` + `writeTrackerConfig` loaders in `adapters/_shared/src/tracker_config.ts` so the file on disk is always schema-valid.
+
+**Sub-steps (run in order — the helper enforces this; the prose mirrors it for operator visibility):**
+
+a. **Query the active adapter for the project's full status list.** Invoke the adapter's `list_project_statuses` capability via MCP; the returned list is the **verbatim** tracker vocabulary (casing, whitespace, special characters preserved). When the active adapter declares `list_project_statuses=false` (a custom adapter without the capability), the step short-circuits with outcome `skipped_adapter_limit` and **MUST emit `tracker_config_write_skipped_adapter_limit`** (literal backticked token) in the Step 11 closing summary. When the MCP call throws (server unreachable, timeout, auth failure), the step refuses with NFR-10 canonical shape (`Refusing:` / `Remedy:` / `Context:`) and **MUST emit `tracker_config_write_mcp_unavailable`** (literal backticked token); no partial write fires.
+
+b. **Read `specs/tracker-config.yaml` if present (re-entry path) else treats baseline as empty.** Use `readTrackerConfig(specsDir)` from the shared loader; absent file ⇒ baseline = `""`. The baseline ⇄ proposal comparison is logical (whitespace-normalized), so identical content short-circuits the prompt + write with outcome `unchanged` and **MUST emit `tracker_config_unchanged`** (literal backticked token).
+
+c. **Compose an LLM-judgment role-to-status mapping inline.** This is the running `/setup` skill's conversation step — **NOT a new subagent**. For each canonical role in the four-value enum (`initial`, `in_progress`, `in_review`, `done`), pick the verbatim status from sub-step (a) that best matches the role's semantics. When no plausible match exists for a role (e.g., a tracker workflow without an `In Review`-equivalent), record `null` with reasoning that names the gap explicitly; the operator routes through the `edit` branch in sub-step (e) to disambiguate.
+
+d. **Show a unified-diff between baseline and proposal.** Render via `renderUnifiedDiff(baseline, proposal)` from the helper. Empty baseline ⇒ `+` lines only (first-run shape). Delta between baseline and proposal renders both `-` and `+` lines. The diff is shown to the operator before the prompt fires.
+
+e. **Prompt approve / edit / cancel via `AskUserQuestion`.** The closed-form prompt offers three choices — `approve` / `edit` / `cancel`. On `approve`: route to sub-step (f). On `cancel`: no write fires, baseline untouched, outcome `cancelled`, **MUST emit `tracker_config_write_cancelled`** (literal backticked token). On `edit`: re-prompt once per canonical role with a per-role pick from the full status list; replace the proposal's role mapping with the operator's picks; then route to sub-step (f). **Auto-approve marker:** when the prompt body contains `<dpt:auto-approve>v1</dpt:auto-approve>`, default-apply `approve` without firing the prompt (the operator pre-authorized the write).
+
+f. **On approve, call `writeTrackerConfig(specsDir, config)` from the shared loader.** The writer validates the schema before persisting — invalid configs throw `TrackerConfigShapeError` and the step fails without writing. Successful write ⇒ outcome `succeeded`, **MUST emit `tracker_config_write_succeeded`** (literal backticked token) in the Step 11 closing summary.
+
+**Capability-key emission contract.** The helper returns one of five outcomes; each outcome maps to exactly one literal backticked token the closing summary MUST emit so `/gate-check`'s `closing_summary_capability_keys` probe can grep for it:
+
+- succeeded ⇒ **MUST emit `tracker_config_write_succeeded`**
+- cancelled ⇒ **MUST emit `tracker_config_write_cancelled`**
+- unchanged ⇒ **MUST emit `tracker_config_unchanged`**
+- skipped_adapter_limit ⇒ **MUST emit `tracker_config_write_skipped_adapter_limit`**
+- mcp_unavailable ⇒ **MUST emit `tracker_config_write_mcp_unavailable`**
+
+The plain-language prose for each token lives in `/spec-write` SKILL.md § 7's static map (mirrored row-for-row).
+
 ### 8. Create specs (optional)
 
 If the user wants the full SDD workflow (or `$ARGUMENTS` contains "new"):

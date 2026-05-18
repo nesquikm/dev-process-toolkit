@@ -14,6 +14,7 @@ capabilities:
   - transition_status
   - upsert_ticket_metadata
 project_milestone: true
+list_project_statuses: true
 ticket_description_template: |
   {fr_body}
 
@@ -49,6 +50,7 @@ AC-37.5).
 | `push_ac_toggle` | `mcp__linear__save_issue` | `id`, `description` | Rewrite description with toggled box via semantic markdown diff (AC-37.5). |
 | `transition_status` | `mcp__linear__save_issue` | `id`, **`state`** (accepts state type, name, or ID — no team.states lookup needed) | Pass the canonical status name resolved via `status_mapping` (e.g., `"In Progress"`). **Never** pass `stateId`, `status`, or any other variant — Linear silently ignores unknown keys. |
 | `upsert_ticket_metadata` | `mcp__linear__save_issue` (omit `id` to create, pass `id` to update) | `id?`, `title`, `description`, **`assignee`** (accepts user ID, name, email, or `"me"`), **`team?`** (required on create — sourced from `### Linear`.team if not passed), **`project?`** (required on create — sourced from `### Linear`.project if not passed), **`labels?`** (optional on create — sourced from `### Linear`.default_labels when populated) | Body MUST include the back-link to `specs/frs/<TICKET-ID>.md`. **Never** pass `assigneeId` or `assigneeEmail` — Linear silently ignores unknown keys. On create, both `team` and `project` MUST be present (resolved from the call argument or from the workspace binding sub-section); reject the call if neither source supplies a value. **Labels:** when `### Linear`.default_labels is populated (free-form sub-section field, parsed as inline-YAML array per `docs/patterns.md`) **or** the call argument carries `labels`, forward every entry as the `labels` parameter to `save_issue` (Linear MCP accepts either label IDs or names). Empty array or missing key ⇒ no `labels` field is forwarded. On update (with `id`), `team`, `project`, and `labels` are not forwarded — Linear cannot reassign team/project/labels on an existing issue without explicit operator intent (`save_issue.labels` is also append-only on update per the MCP contract, so silent overrides would surprise the operator). |
+| `list_project_statuses` | `mcp__linear__list_issue_statuses` | `team` (required — sourced from `### Linear`.team in CLAUDE.md) | Fetch the full per-team status list scoped to the team bound in `## Task Tracking` § `### Linear`. Output: ordered array of status names verbatim from Linear (preserves casing, whitespace, special chars). Used by `/setup` Step Nb (STE-303) to seed `specs/tracker-config.yaml` with the workspace-bound status vocabulary. The team binding is resolved via `readWorkspaceBinding(claudeMdPath, "linear")` — reject the call with NFR-10 canonical shape when `team` is unresolved (mirrors the create-path silent-landing guard). Pure read; no mutation. |
 
 ### Silent no-op trap (FR-67 AC-67.2)
 
