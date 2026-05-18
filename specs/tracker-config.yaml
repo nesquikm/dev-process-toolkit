@@ -1,0 +1,13 @@
+tracker_key: linear
+statuses:
+  - Backlog
+  - Todo
+  - In Progress
+  - Done
+  - Canceled
+  - Duplicate
+roles:
+  initial: Backlog
+  in_progress: In Progress
+  in_review: In Progress
+  done: Done

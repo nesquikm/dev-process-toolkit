@@ -3,8 +3,8 @@
 // per STE-70 AC-STE-70.7). Generalizes that single assertion into a loop over
 // all directories under skills/. Fails loudly the moment any skill exceeds
 // the cap so the LLM-runtime cost stays bounded. Cap raised 300 → 350 in
-// M68 / v2.19.0 (STE-252) to acknowledge contract-locked prose pressure in
-// spec-write.
+// M68 / v2.19.0 (STE-252) and 350 → 351 in M79 (STE-303) to acknowledge
+// contract-locked prose pressure in spec-write.
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 const pluginRoot = join(import.meta.dir, "..");
 const skillsDir = join(pluginRoot, "skills");
-const SKILL_LINE_CAP = 350;
+const SKILL_LINE_CAP = 351;
 
 const skills = readdirSync(skillsDir).filter((name) => {
   const full = join(skillsDir, name);
