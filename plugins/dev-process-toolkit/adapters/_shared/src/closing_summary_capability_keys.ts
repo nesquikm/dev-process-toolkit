@@ -48,6 +48,9 @@ export const CANONICAL_CAPABILITY_KEYS = [
   "spec_research_invoked",
   "spec_research_no_matches",
   "spec_research_shape_violation",
+  "deps_research_invoked",
+  "deps_research_no_matches",
+  "deps_research_shape_violation",
 ] as const;
 
 export type CapabilityKey = (typeof CANONICAL_CAPABILITY_KEYS)[number];
@@ -66,6 +69,9 @@ const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   spec_research_invoked: "spec-write",
   spec_research_no_matches: "spec-write",
   spec_research_shape_violation: "spec-write",
+  deps_research_invoked: "spec-write",
+  deps_research_no_matches: "spec-write",
+  deps_research_shape_violation: "spec-write",
 };
 
 /**

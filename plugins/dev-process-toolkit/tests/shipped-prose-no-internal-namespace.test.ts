@@ -45,7 +45,7 @@ function countNamespaceTokens(dir: string): number {
 // requires explaining why — tightening them is always welcome.
 const CEILINGS = {
   adapters: 5, // Tier 2 cleaned: 0 baseline, 5 buffer for future minor refs.
-  skills: 220, // Tier 3 conservative-sweep residue (~184 + buffer).
+  skills: 230, // Tier 3 conservative-sweep residue + STE-301 deps-research anchor refs (M78).
   docs: 250, // Tier 3 conservative-sweep residue (~216 + buffer).
 };
 
