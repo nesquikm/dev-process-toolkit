@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.28.1] — 2026-05-19 — "Hinted"
+
+M83 surfaces each user-callable skill's `argument-hint:` frontmatter in the README Commands table by adding an `Args` column populated verbatim from the YAML source (16 rows), and strips the `/dev-process-toolkit:` namespace prefix from the Command column to match the Agents-table convention established in STE-130. Documentation-only workaround for upstream Claude Code issue [#43401](https://github.com/anthropics/claude-code/issues/43401) — `argument-hint:` does not yet render in autocomplete for plugin-namespaced skills, in contrast to project-local skills and the older `commands/*.md` format. The README Commands table becomes the primary arg-discovery surface until upstream closes the gap; all SKILL.md `argument-hint:` frontmatter is left untouched for forward-compat (autocomplete will start working automatically when upstream lands the fix — no second migration).
+
+### Changed
+
+- **STE-314 — README Commands table: add `Args` column and strip namespace prefix.** `README.md` Commands-table redesign — third column `Args` populated verbatim from each skill's `argument-hint:` YAML frontmatter with outer YAML quotes stripped (16 user-callable rows); first column entries are bare-prefixed `/setup`, `/brainstorm`, …, `/deps` (no `dev-process-toolkit:` substring), matching the Agents-table convention from STE-130. New one-line note immediately above the table explains the omitted plugin-namespace prefix and links upstream issue #43401. No SKILL.md / agents / plugin.json files modified — diff exclusively `README.md` plus the milestone-archive moves and the traceability-row append in `specs/requirements.md`. Patch release per the doc-only minimal-scope plan intent. (STE-314)
+
+Total test count at release: 2891 tests, 0 failures, 0 errors.
+
 ## [2.28.0] — 2026-05-19 — "Refused"
 
 M81 closes the regression class where `/spec-write` (draft + branch gates) and `/setup` (Socratic first-turn scaffold-Write ban) auto-applied under `claude -p` non-tty stdin when the `<dpt:auto-approve>v1</dpt:auto-approve>` marker was absent — by rationalizing the harness `<system-reminder>` ("work without stopping for clarifying questions") as license to proceed. `/conformance-loop` iter-1 (2026-05-19) verified the regression class on both Linear (F1 + F2a — `STE-311` and `STE-312` auto-committed on master with the child's closing prose explicitly citing the autonomous-mode reminder) and Jira (F1 — Socratic first-turn violation at `tool_use index=12` before any `AskUserQuestion`) legs. STE-313 lands the byte-checkable refusal mechanism that prior FRs (STE-237 / STE-251 / STE-262 / STE-294) collectively designed but did not deterministically enforce.
