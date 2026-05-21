@@ -51,21 +51,35 @@ The probe is scoped to Bun projects only (`bun.lock` presence). Non-Bun projects
 
 ## Permissions allowlist
 
+> Cross-reference: the canonical-shape probe at `adapters/_shared/src/setup_permissions_shape.ts` empirically rejects glob-form `Bash(<cmd> *)` rules; the canonical allowlist lives in `templates/permissions.json` — both are the source of truth for the block below.
+
 The canonical Bun-stack `Bash()` permissions live in `templates/permissions.json` under the `bun` stack key. `/setup` merges these into the project's `.claude/settings.json` `permissions.allow`:
 
 ```json
 {
   "permissions": {
     "allow": [
-      "Bash(bun *)",
-      "Bash(bunx *)",
-      "Bash(git *)",
-      "Bash(gh *)",
-      "Bash(mkdir *)",
-      "Bash(ls *)",
-      "Bash(rm *)",
-      "Bash(mv *)",
-      "Bash(cp *)"
+      "Bash(git status)",
+      "Bash(git diff)",
+      "Bash(git log)",
+      "Bash(git show)",
+      "Bash(git rev-parse)",
+      "Bash(git ls-files)",
+      "Bash(git branch)",
+      "Bash(git blame)",
+      "Bash(gh pr list)",
+      "Bash(gh pr view)",
+      "Bash(gh issue list)",
+      "Bash(gh issue view)",
+      "Bash(gh repo view)",
+      "Bash(gh api)",
+      "Bash(ls)",
+      "Bash(mkdir)",
+      "Bash(bun install)",
+      "Bash(bun test)",
+      "Bash(bun run)",
+      "Bash(bun --version)",
+      "Bash(bunx)"
     ]
   }
 }
