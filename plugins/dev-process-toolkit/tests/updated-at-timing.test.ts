@@ -18,9 +18,9 @@ function read(relPath: string): string {
 }
 
 describe("STE-45 — updatedAt recorded after claimLock (not at skill start)", () => {
-  test("AC-STE-45.1/2 — implement SKILL.md step 0.d labels updatedAt recording as post-claimLock", () => {
+  test("AC-STE-45.1/2 — implement SKILL.md step 0.f labels updatedAt recording as post-claimLock", () => {
     const body = read("skills/implement/SKILL.md");
-    // Marker: the "Record `updatedAt`" sub-bullet of step 0.d must explicitly
+    // Marker: the "Record `updatedAt`" sub-bullet of step 0.f must explicitly
     // name claimLock as its predecessor, not say "at skill start".
     expect(body).toMatch(/Record\s+`updatedAt`\s*\(post-claimLock\)/);
     // And must NOT retain the ambiguous "at skill start" phrasing that

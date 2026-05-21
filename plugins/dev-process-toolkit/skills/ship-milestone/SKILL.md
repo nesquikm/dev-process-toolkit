@@ -86,7 +86,7 @@ Context: milestone=M<N>, skill=ship-milestone
 
 When neither path exists, refuse `Plan M<N> not found in specs/plan/ or specs/plan/archive/`. The fallback only activates when the active path is genuinely missing — for milestones whose plans are still in `specs/plan/`, behavior is unchanged.
 
-Extract every FR with a live tracker ID / ULID. For each, read `specs/frs/<name>.md` frontmatter and pull `title`, `tracker.<key>`, `breaking` (default `false`), `changelog_category` (default `Added`), and `status` (must be `archived` after the pre-flight refusal in step 8 above).
+Extract every FR with a live tracker ID / ULID. For each, read `specs/frs/<name>.md` frontmatter and pull `title`, `tracker.<key>`, `breaking` (default `false`), `changelog_category` (default `Added`), and `status` (must be `archived` after Pre-flight refusal #1 above — Unshipped FRs).
 
 ### 2. Infer version
 
