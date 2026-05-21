@@ -9,7 +9,7 @@ In `mode: none`, this document is unused — the `mode: none` branch runs unchan
 
 ### 1. Ticket-binding pre-flight
 
-Run the 3-tier resolver and mandatory confirmation prompt per
+Run the 2-tier ticket-binding resolver and mandatory confirmation prompt per
 `docs/ticket-binding.md`. Decline exits cleanly with zero side effects.
 
 ### 2. `updatedAt` re-check

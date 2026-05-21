@@ -51,7 +51,7 @@ No open-ended "is this good enough?" The AC checklist IS the definition of done.
 
 ```
 Phase 1: Understand  → Read specs/issue, build AC checklist, present plan
-Phase 2: Build (TDD) → RED → GREEN → VERIFY for each task
+Phase 2: Build (TDD) → RED → GREEN → REFACTOR → AUDIT for each task
 Phase 3: Self-Review → Bounded loop with deterministic decisions
 Phase 4: Report      → Present findings, wait for human approval
 ```

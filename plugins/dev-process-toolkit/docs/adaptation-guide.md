@@ -78,7 +78,7 @@ Not every project needs every skill. Here's a recommended progression:
 
 ### Minimum viable (any project)
 - `/gate-check` — Deterministic quality gate
-- `/tdd` — RED → GREEN → VERIFY cycle
+- `/tdd` — RED → GREEN → REFACTOR → AUDIT cycle
 - `/debug` — Structured debugging when gate or tests fail
 
 ### Standard (projects with specs or issues)
