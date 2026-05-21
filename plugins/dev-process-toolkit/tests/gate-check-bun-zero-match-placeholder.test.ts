@@ -147,7 +147,7 @@ describe("AC-STE-113.1 — examples/bun-typescript.md exists with the four secti
 
   test("file references the canonical Bun permissions row", () => {
     expect(example).toMatch(/permissions\.json/);
-    expect(example).toMatch(/bun \*|Bash\(bun \*\)/);
+    expect(example).toMatch(/Bash\(bun install\)|Bash\(bun test\)|Bash\(bun run\)/);
   });
 });
 
