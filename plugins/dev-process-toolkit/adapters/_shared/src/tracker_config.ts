@@ -9,7 +9,7 @@
 //
 // Schema:
 //
-//     tracker_key: linear            # or "jira"
+//     tracker_key: linear            # active adapter's `name:` field
 //     statuses:                      # >= 1 entry, verbatim tracker labels
 //       - Backlog
 //       - In Progress
@@ -29,19 +29,15 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-export type TrackerKey = "linear" | "jira";
-
 export type Role = "initial" | "in_progress" | "in_review" | "done";
 
 export const CANONICAL_ROLES: readonly Role[] = ["initial", "in_progress", "in_review", "done"];
 
 export interface TrackerConfig {
-  tracker_key: TrackerKey;
+  tracker_key: string;
   statuses: string[];
   roles: Record<Role, string>;
 }
-
-const SUPPORTED_TRACKER_KEYS: readonly string[] = ["linear", "jira"];
 
 const CONFIG_FILENAME = "tracker-config.yaml";
 
@@ -78,15 +74,20 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 /**
  * Validate a `TrackerConfig` against the schema invariants:
- *   - `tracker_key` is `linear` | `jira`
+ *   - `tracker_key` is a non-empty string (the active adapter's `name:`
+ *     field — primary cross-check enforced when `activeAdapterKey` is
+ *     supplied; the hard-coded `{linear, jira}` allowlist is gone per
+ *     STE-321 AC.1)
  *   - `statuses` is a non-empty array of strings
  *   - `roles` declares exactly the four canonical roles, each value MUST
  *     appear in `statuses`
  *
- * When `activeAdapterKey` is supplied, additionally enforces that the
- * config's `tracker_key` matches the running adapter — a mismatch usually
- * means the operator switched adapters without regenerating the config
- * and would otherwise produce silent vocabulary drift.
+ * When `activeAdapterKey` is supplied, the primary validation rule is
+ * `tracker_key === activeAdapterKey` (resolved by the caller from the
+ * active adapter's `adapters/<name>.md` `name:` frontmatter field). A
+ * mismatch surfaces `TrackerConfigShapeError` with NFR-10 canonical
+ * refusal shape naming both sides — usually means the operator switched
+ * adapters without regenerating the config.
  */
 export function validateTrackerConfig(
   config: TrackerConfig,
@@ -106,10 +107,10 @@ export function validateTrackerConfig(
   const raw = config as unknown as Record<string, unknown>;
 
   const trackerKey = raw["tracker_key"];
-  if (typeof trackerKey !== "string" || !SUPPORTED_TRACKER_KEYS.includes(trackerKey)) {
+  if (typeof trackerKey !== "string" || trackerKey.length === 0) {
     throw new TrackerConfigShapeError(
-      `tracker_key must be one of ${SUPPORTED_TRACKER_KEYS.join(", ")} — got ${JSON.stringify(trackerKey)}`,
-      "set `tracker_key:` to `linear` or `jira` in specs/tracker-config.yaml.",
+      `tracker_key must be a non-empty string — got ${JSON.stringify(trackerKey)}`,
+      "set `tracker_key:` in specs/tracker-config.yaml to match the active adapter's `name:` field (from adapters/<mode>.md).",
       "mode=tracker-config, stage=validate, field=tracker_key",
     );
   }
@@ -190,7 +191,11 @@ export function validateTrackerConfig(
     }
   }
 
-  // Active-adapter mismatch (optional cross-reference)
+  // Primary validation: tracker_key MUST match the active adapter's `name:`
+  // field (resolved by the caller from adapters/<mode>.md). Mismatch
+  // surfaces TrackerConfigShapeError with NFR-10 canonical refusal shape
+  // naming both sides — the hard-coded `{linear, jira}` allowlist this
+  // promoted from a secondary cross-reference is gone per STE-321 AC.1.
   if (activeAdapterKey !== undefined && activeAdapterKey !== trackerKey) {
     throw new TrackerConfigShapeError(
       `tracker_key \`${trackerKey}\` does not match the active adapter \`${activeAdapterKey}\``,
