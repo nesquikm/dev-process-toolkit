@@ -2,4 +2,5 @@
 .claude/settings.local.json
 .claude/worktrees/
 .claude/scheduled_tasks.lock
+.claude/ralph-loop.local.md
 node_modules/
