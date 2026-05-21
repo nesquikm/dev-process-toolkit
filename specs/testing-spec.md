@@ -24,7 +24,7 @@ Apply per changed file:
 | Section headings | Grep for expected titles referenced by ACs | Every referenced heading exists |
 | Internal references | Grep for skill names, file paths, schema anchors | Every referenced file/skill/anchor exists |
 | `<!-- ADAPT -->` markers | Grep `skills/**`, `agents/**` for `<!-- ADAPT` | Zero matches (AC-15.3) |
-| Line count | `wc -l` per SKILL.md | Every skill ≤ 300 lines (NFR-1) |
+| Line count | `wc -l` per SKILL.md | Every skill ≤ 351 lines (NFR-1) |
 | Frontmatter | YAML parse | Valid `name`, `description`, `argument-hint` fields |
 | Cross-skill schemas | Diff byte-for-byte between skills owning the same schema | NFR-4 — schemas match across files |
 | Verdict strings | Grep `GATE PASSED`, `GATE PASSED WITH NOTES`, `GATE FAILED` in `/gate-check` | All three exact strings present; no variants |

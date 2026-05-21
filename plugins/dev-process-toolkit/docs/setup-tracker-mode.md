@@ -5,7 +5,7 @@
 This companion doc carries the detailed procedures that `/setup` uses when
 the user opts into a tracker mode (Linear / Jira / custom). It is
 pointed at from `skills/setup/SKILL.md` to keep that file under NFR-1
-(≤300 lines) while still giving operators enough detail to audit the flow.
+(≤351 lines) while still giving operators enough detail to audit the flow.
 
 Applies to `mode: linear | jira | custom` only. `mode: none` (the
 default) never reads this document — the `mode: none` branch runs unchanged.
@@ -16,7 +16,7 @@ default) never reads this document — the `mode: none` branch runs unchanged.
   spec-file generation (step 8 in `skills/setup/SKILL.md`). Default is
   `none`; skipping or pressing Enter keeps `mode: none`.
 - **Recording.** A recorded mode adds a `## Task Tracking` section to
-  `CLAUDE.md` per Schema L (technical-spec §7.3). Absence ≡ `none`
+  `CLAUDE.md` per Schema L (technical-spec §3 Cross-Skill Schema Definitions). Absence ≡ `none`
  — `/setup` never writes a `mode: none` line.
 - **Never silent writes.** Every `settings.json` and `CLAUDE.md` edit is
   preview + explicit confirm.

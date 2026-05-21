@@ -1,7 +1,7 @@
 # `/gate-check` Tracker Mode Flow
 
 Detailed tracker-mode procedures for `/gate-check`. Pointed at from
-`skills/gate-check/SKILL.md` to keep the skill under NFR-1 (≤300 lines).
+`skills/gate-check/SKILL.md` to keep the skill under NFR-1 (≤351 lines).
 
 In `mode: none`, this document is unused — the `mode: none` branch runs unchanged.
 

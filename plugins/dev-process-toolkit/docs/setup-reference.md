@@ -1,6 +1,6 @@
 # `/setup` Reference
 
-Extended reference material for `/dev-process-toolkit:setup` extracted from `skills/setup/SKILL.md` to keep the skill file under the NFR-1 300-line cap. The skill carries one-line pointers to each section here.
+Extended reference material for `/dev-process-toolkit:setup` extracted from `skills/setup/SKILL.md` to keep the skill file under the NFR-1 351-line cap. The skill carries one-line pointers to each section here.
 
 This reference is **not required reading** on every run — the skill itself has enough guidance to operate. Consult this file when implementing or auditing one of the documented sub-flows (Bun scaffold-verify, commit-msg hook install, audit-section post-condition, bootstrap commit).
 

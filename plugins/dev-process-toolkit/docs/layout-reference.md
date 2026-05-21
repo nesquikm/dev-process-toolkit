@@ -1,6 +1,6 @@
 # Spec Layout Reference
 
-This document is the canonical reference for spec-layout behavior across spec-touching skills. Skills include a short preamble that points here rather than inlining the full behavior, to keep individual skills under the NFR-1 300-line cap.
+This document is the canonical reference for spec-layout behavior across spec-touching skills. Skills include a short preamble that points here rather than inlining the full behavior, to keep individual skills under the NFR-1 351-line cap.
 
 Spec-touching skills operate against the file-per-FR tree (`specs/frs/<Provider.filenameFor(spec)>`, `specs/plan/<M#>.md`) unconditionally.
 

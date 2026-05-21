@@ -376,7 +376,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 
 **Problem** (cross-cuts Pattern 9): Two modes coexist — `mode: none` (default, ACs in `specs/requirements.md`) and `mode: <tracker>` (Linear, Jira, custom — ACs in a task tracker). Every affected skill — `/setup`, `/spec-write`, `/implement`, `/gate-check`, `/pr`, `/spec-review`, `/spec-archive` — must run the right branch. If any skill guesses mode inconsistently or reads tracker state when the section is absent, the `mode: none` branch contract (Pattern 9) breaks silently.
 
-**Solution**: Every mode-aware skill begins with the same probe. The probe reads `CLAUDE.md` for the `## Task Tracking` section; section absence ≡ `mode: none` (the canonical no-tracker form); section presence means parse the `key: value` block per Schema L (technical-spec §7.3). Only after the probe resolves does the skill branch.
+**Solution**: Every mode-aware skill begins with the same probe. The probe reads `CLAUDE.md` for the `## Task Tracking` section; section absence ≡ `mode: none` (the canonical no-tracker form); section presence means parse the `key: value` block per Schema L (technical-spec §3 Cross-Skill Schema Definitions). Only after the probe resolves does the skill branch.
 
 **Canonical probe (run at skill entry, before any side effect):**
 
@@ -552,7 +552,7 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 2. **No drift between three skill dispatchers.** One resolver + one `importFromTracker` helper means `/spec-write` and `/implement` cannot implement the same behavior two different ways.
 3. **Non-interactive safe.** The resolver never prompts — CI, scripts, and agent harnesses get the same deterministic errors humans see interactively.
 
-**Cross-refs**: `technical-spec.md` §9 (design), `docs/resolver-entry.md` (per-skill decision table), `docs/tracker-adapters.md` § Registering tracker ID patterns for the resolver.
+**Cross-refs**: `technical-spec.md` §3 Cross-Skill Schema Definitions (Schema W canonical), `docs/resolver-entry.md` (per-skill decision table), `docs/tracker-adapters.md` § Registering tracker ID patterns for the resolver.
 
 ## Pattern 25: Dogfooding Discovery
 
@@ -719,7 +719,7 @@ See `docs/auto-mode-protocol.md § Socratic Loop Contract` for the full contract
 4. The read-only subagent performs its audit and emits exactly one fenced ` ```<role>-result ` block (e.g., ` ```tdd-spec-review-result `) as its last turn output. The block is the contractual hand-off.
 5. The orchestrator parses the `<role>-result` fence and either **dispatches the fix into another fork** (another `Skill tool` invocation pairing with a writer subagent in a second forked context) or **halts** for human review when the verdict cannot be auto-remediated.
 
-The canonical precedents are STE-225 (the original `/tdd` decomposition that introduced the orchestrator → forked subagent → fenced-result contract) and STE-296 (the `/spec-review` refactor that generalized the same shape to spec audits). The pattern supersedes the in-context-audit ancestor HG95VF, which performed the audit and the fix inside a single context and accumulated unbounded state.
+The canonical precedents are STE-225 (the original `/tdd` decomposition that introduced the orchestrator → forked subagent → fenced-result contract), STE-296 (M77 / v2.24.0 — added the `/tdd` AUDIT stage as a forked spec-review pass), and STE-308 (M80 / v2.27.0 — the `/spec-review` forked-auditor migration that generalized the same shape to standalone spec audits). The pattern supersedes the in-context-audit ancestor HG95VF, which performed the audit and the fix inside a single context and accumulated unbounded state.
 
 **Four current loops** (classification):
 

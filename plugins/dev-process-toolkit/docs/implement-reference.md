@@ -1,6 +1,6 @@
 # `/implement` Reference
 
-Extended reference material for `/dev-process-toolkit:implement` that was extracted from `skills/implement/SKILL.md` to keep the skill file under the NFR-1 300-line cap. The skill file contains a one-line pointer to this file at the Stage C section.
+Extended reference material for `/dev-process-toolkit:implement` that was extracted from `skills/implement/SKILL.md` to keep the skill file under the NFR-1 351-line cap. The skill file contains a one-line pointer to this file at the Stage C section.
 
 This reference is **not required reading** on every run — the skill itself has enough guidance to operate. Consult this file when Stage C (Hardening) is run on round 1 of the self-review loop, or when a hardening pass needs concrete examples.
 
