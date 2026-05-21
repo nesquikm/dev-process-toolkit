@@ -18,7 +18,7 @@ Before any other step:
 
 - **Provider resolution** — Resolve `Provider` once per invocation using the same rule as `/implement` (LocalProvider for `mode: none`, TrackerProvider otherwise). FR creation goes to `specs/frs/<Provider.filenameFor(spec)>` (per-FR file convention; never `specs/requirements.md`); `Provider.sync()` fires on save. Full reference: `docs/layout-reference.md` § `/spec-write`.
 - **Tracker-mode probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none`. If a tracker mode is active:
-  - Run the 3-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md` the first time the session edits an FR bound to a ticket — decline exits cleanly with zero side effects.
+  - Run the 2-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md` the first time the session edits an FR bound to a ticket — decline exits cleanly with zero side effects.
   - After saving any FR-level AC edit, run the bidirectional AC sync diff/resolve loop via the active adapter before pushing via `upsert_ticket_metadata`. **Normalization (STE-211 AC-STE-211.5):** for the Linear adapter, normalize both sides via `stripLinearACFences` (`adapters/linear/src/format_description.ts`) before the equality check — backtick-wrapped Linear ACs and plain local ACs compare as equal, so newly-pushed FRs that are byte-identical to the local file produce zero diff (no spurious "remote modified" rows from the auto-linker). Vacuous on Jira / custom adapters that don't auto-link.
   See `docs/spec-write-tracker-mode.md` for the full tracker-mode flow.
 
