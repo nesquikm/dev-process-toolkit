@@ -161,7 +161,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.28.1 — "Hinted"** (M83 — surfaces each user-callable skill's `argument-hint:` frontmatter in the README Commands table by adding an `Args` column populated verbatim from the YAML source (16 rows), and strips the `/dev-process-toolkit:` namespace prefix from the Command column to match the Agents-table convention from STE-130. Documentation-only workaround for upstream Claude Code issue [#43401](https://github.com/anthropics/claude-code/issues/43401) — `argument-hint:` does not yet render in autocomplete for plugin-namespaced skills. SKILL.md `argument-hint:` frontmatter left untouched for forward-compat. Patch release per minimal-scope intent.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.29.0 — "Probed"** (M84 closes 30/30 problem areas from the 2026-05-20 repo review across 10 FRs — three new `/gate-check` probes (#57 `public_surface_count_drift`, #58 `cross_skill_contract_drift`, #59 `disable_model_invocation_allowlist`) catch drift classes the pre-M84 byte-checkable layer missed, plus six themed bundles sweep HIGH+MED documentation contradictions and one HIGH bug fix (`parseBun` anchors on Bun's `Ran N tests` summary instead of first per-file pass count, so release audit-trail numbers reflect actual test count). The new probes ratchet up with each future probe addition.)
 
 ## Core Philosophy
 
