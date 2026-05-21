@@ -55,7 +55,7 @@ After any skill change, run the full workflow on the reference fixture set and b
 | `/gate-check` on clean + dirty trees | `tests/fixtures/projects/*` | `…/snapshots/gate-check.snap` |
 | `/spec-archive` | `tests/fixtures/projects/archivable/` | `…/snapshots/spec-archive.snap` |
 | `/setup --migrate` v1 → v2 | `tests/fixtures/migration/v1-to-v2/input/` | `tests/fixtures/migration/v1-to-v2/expected/` |
-| v2-minimal regression (all 12 skills) | `tests/fixtures/v2-minimal/` | `…/snapshots/<skill>.snap` |
+| v2-minimal regression (all 23 skills) | `tests/fixtures/v2-minimal/` | `…/snapshots/<skill>.snap` |
 | `mode: none` byte-for-byte regression | `tests/fixtures/projects/mode-none-baseline/` | live Schema L probe via `tests/scripts/verify-regression.test.ts` |
 
 Any diff against snapshot → stop-ship.
