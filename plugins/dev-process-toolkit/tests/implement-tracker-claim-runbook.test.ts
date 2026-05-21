@@ -161,28 +161,28 @@ describe("AC-STE-101.4 — SKILL.md Phase 4d steps (b) + (c) reference § Releas
 describe("AC-STE-101.5 — Phase 1-exit self-check step (claim verification)", () => {
   test("SKILL.md adds a Phase 1-exit step that re-fetches via mcp__<tracker>__get_issue", () => {
     const body = read(skillPath);
-    const verify = step0eVerifySection(body);
+    const verify = step0dVerifySection(body);
     expect(verify).toMatch(/Claim verification/i);
     expect(verify).toMatch(/mcp__<tracker>__get_issue/);
   });
 
   test("self-check asserts state == status_mapping[in_progress] AND assignee == currentUser", () => {
     const body = read(skillPath);
-    const verify = step0eVerifySection(body);
+    const verify = step0dVerifySection(body);
     expect(verify).toMatch(/status_mapping\[in_progress\]/);
     expect(verify).toMatch(/assignee\s*==\s*currentUser/);
   });
 
   test("self-check refuses with NFR-10 canonical shape on mismatch", () => {
     const body = read(skillPath);
-    const verify = step0eVerifySection(body);
+    const verify = step0dVerifySection(body);
     expect(verify).toMatch(/NFR-10/);
     expect(verify.toLowerCase()).toMatch(/refus|hard-?refus/);
   });
 
   test("self-check is mode-gated: `mode: none` skips it (LocalProvider sentinel makes it vacuous)", () => {
     const body = read(skillPath);
-    const verify = step0eVerifySection(body);
+    const verify = step0dVerifySection(body);
     expect(verify.toLowerCase()).toMatch(/mode:\s*none|mode none|local-no-tracker/);
   });
 });
@@ -215,13 +215,13 @@ describe("AC-STE-101.6 — Forbidden-rule prose rewritten to the concrete Claim/
 
 // --- Helpers ---
 
-// Slice the SKILL.md "0.e Claim verification" sub-bullet content. Anchors at the
+// Slice the SKILL.md "0.d Claim verification" sub-bullet content. Anchors at the
 // bullet header and stops at the next top-level numbered list item (`1. `),
 // which is `1. **Check for specs**` — the boundary between Phase 1's step 0
 // sub-bullets and the rest of Phase 1. Robust against the bullet's content
 // growing or shrinking, unlike a fixed character window.
-function step0eVerifySection(body: string): string {
-  const start = body.indexOf("0.e Claim verification");
+function step0dVerifySection(body: string): string {
+  const start = body.indexOf("0.d Claim verification");
   expect(start).toBeGreaterThan(-1);
   const end = body.indexOf("\n1. **Check for specs**", start);
   expect(end).toBeGreaterThan(start);

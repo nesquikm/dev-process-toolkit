@@ -3,7 +3,7 @@
 // per STE-70 AC-STE-70.7). Generalizes that single assertion into a loop over
 // all directories under skills/. Fails loudly the moment any skill exceeds
 // the cap so the LLM-runtime cost stays bounded. Cap raised 300 → 350 in
-// M68 / v2.19.0 (STE-252) and 350 → 351 in M79 (STE-303) to acknowledge
+// M68 / v2.19.0 (STE-252) and 350 → 351 in M81 (STE-305) to acknowledge
 // contract-locked prose pressure in spec-write.
 
 import { describe, expect, test } from "bun:test";

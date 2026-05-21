@@ -46,7 +46,7 @@ Fires at Phase 1 entry, **between resolver (0.b′) and `claimLock` (0.c)** — 
 
 ### Guard
 
-1. Read `branch_template:` from Schema L (the probe already ran in step 0.d; the value is in-session).
+1. Read `branch_template:` from Schema L (the probe already ran in step 0.f; the value is in-session).
    - Absent ⇒ skip the whole step. Branch automation disabled.
    - Present ⇒ continue.
 2. Extract the run-scope identifier from the resolver result:
