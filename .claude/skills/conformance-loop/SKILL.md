@@ -148,7 +148,7 @@ PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"   # cwd is the toolkit repo (ver
 # same compound command line; the brace group scopes the heredoc to the
 # command and lets `&` background the whole group.
 {
-  CLAUDE_CONFIG_DIR=~/.claude-st claude -p /smoke-test --tracker linear --linear-team "${LINEAR_TEAM:-STE}" \
+  CLAUDE_CONFIG_DIR=~/.claude-st claude -p "/smoke-test --tracker linear --linear-team ${LINEAR_TEAM:-STE}" \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${LOG_LINEAR}" 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
@@ -157,7 +157,7 @@ PROMPT_EOF
 PID_LINEAR=$!
 
 {
-  CLAUDE_CONFIG_DIR=~/.claude-st claude -p /smoke-test --tracker jira --jira-project "${JIRA_PROJECT}" \
+  CLAUDE_CONFIG_DIR=~/.claude-st claude -p "/smoke-test --tracker jira --jira-project ${JIRA_PROJECT}" \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${LOG_JIRA}" 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
