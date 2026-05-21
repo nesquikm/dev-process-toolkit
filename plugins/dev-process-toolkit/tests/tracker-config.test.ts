@@ -168,9 +168,19 @@ describe("AC-STE-302.2 — schema validation", () => {
     expect((err as Error).message).toMatch(/in_progress/);
   });
 
-  test("tracker_key must be linear or jira — unknown rejected", () => {
+  test("tracker_key is accepted as any non-empty string post-STE-321 (allowlist dropped)", () => {
+    // STE-321 AC-STE-321.1 / AC-STE-321.6 (M84 audit lockstep): the
+    // hardcoded `{linear, jira}` allowlist is gone. Under the new contract,
+    // `asana` is ACCEPTED as long as it round-trips through the cross-check
+    // against the active adapter's `name:` field. The schema validator,
+    // invoked WITHOUT an `activeAdapterKey`, must not reject it on the
+    // basis of the historic allowlist alone.
     const cfg = validConfig({ tracker_key: "asana" as unknown as "linear" });
-    expect(() => validateTrackerConfig(cfg)).toThrow(TrackerConfigShapeError);
+    expect(() => validateTrackerConfig(cfg)).not.toThrow();
+
+    // And with a MATCHING activeAdapterKey, validation still passes —
+    // the cross-check is the new primary enforcement.
+    expect(() => validateTrackerConfig(cfg, "asana")).not.toThrow();
   });
 
   test("tracker_key mismatch against active adapter surfaces validation error", () => {

@@ -1,5 +1,6 @@
 ---
-title: Mode-none FR with no id (violation)
+id: fr_01KPWPMA9TKSYYBNCQ3TAYM9C2
+title: Mode-none FR without tracker (control)
 milestone: M1
 status: active
 archived_at: null

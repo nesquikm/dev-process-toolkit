@@ -254,19 +254,26 @@ Every helper (`adapters/<tracker>/src/<helper>.ts`): JSON on stdin → JSON on s
 
 Required for every `specs/frs/**/*.md`. The `id:` line is **mode-conditional** (STE-76 AC-STE-76.1):
 
-**`mode: none`** — `id:` is REQUIRED and equals the filename stem byte-for-byte (the 6-char short-ULID tail):
+**`mode: none`** — `id:` is REQUIRED and equals the filename stem byte-for-byte (the 6-char short-ULID tail). The frontmatter contains exactly six keys: the five mode-invariant keys (`title`, `milestone`, `status`, `archived_at`, `created_at`) plus the mode-specific `id:` line. The `tracker:` field is ABSENT in mode-none (STE-321 AC-STE-321.3 — code-wins resolution; `buildFRFrontmatter` emits no `tracker:` field in mode-none, and the gate-check probe `identity_mode_conditional` rejects FR files that carry it):
 
 ```yaml
 ---
-id: fr_01HZ7XJFKPXYZ123ABCDEF       # full ULID; filename stem is its 6-char tail (AC-41.2)
+id: fr_<26-char-ULID>                # full ULID; filename stem is its 6-char tail (AC-41.2)
 title: Tracker-backed spec IDs
 milestone: M<N>                      # matches an M<N> in specs/plan/
 status: active                       # active | in_progress | archived
 archived_at: null                    # ISO date | null; set when status flips to archived
-tracker: {}                          # empty map — mode-none has no tracker binding
 created_at: 2026-04-21T10:30:00Z
 ---
 ```
+
+In `mode: none`:
+
+- `id:` is immutable for the FR's lifetime and equals the filename stem (NFR-15).
+- The `tracker:` field is ABSENT — there is no tracker binding to record.
+- The bimodal invariant is enforced by `adapters/_shared/src/identity_mode_conditional.ts` (STE-321 AC-STE-321.5 + AC-STE-321.10). The `scanFrontmatterForTracker` scanner rejects any FR file that carries `tracker:` (whether populated, empty `{}`, or `null`).
+- The canonical runtime helper is `buildFRFrontmatter` at `adapters/_shared/src/fr_frontmatter.ts` — it never emits a `tracker:` field when the mode is `none`.
+- Legacy fixtures that previously rendered `tracker: {}` in mode-none must be migrated to drop the line entirely (STE-321 AC-STE-321.3 — code-wins drift resolution).
 
 **`mode: <tracker>`** — `id:` is ABSENT (STE-76 AC-STE-76.2, cross-mode symmetry dropped). The tracker ID is the canonical identity; filename stem + AC prefix derive from `tracker.<key>`:
 
