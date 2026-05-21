@@ -349,4 +349,5 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-309.1..3 | plugins/dev-process-toolkit/skills/setup/SKILL.md, CHANGELOG.md | plugins/dev-process-toolkit/tests/setup-skill-flutter-no-placeholder.test.ts |
 | AC-STE-313.1..6 | plugins/dev-process-toolkit/adapters/_shared/src/gate_marker_refusal.ts, plugins/dev-process-toolkit/adapters/_shared/src/not_a_trigger_anchor_present.ts, plugins/dev-process-toolkit/adapters/_shared/src/marker_helper_invoked_per_gate.ts | plugins/dev-process-toolkit/adapters/_shared/src/gate_marker_refusal.test.ts, plugins/dev-process-toolkit/tests/marker-absent-non-tty.test.ts, plugins/dev-process-toolkit/tests/gate-check-not-a-trigger-anchor-present.test.ts, plugins/dev-process-toolkit/tests/gate-check-marker-helper-invoked-per-gate.test.ts |
 | AC-STE-314.1..4 | README.md | — (manual verification — documentation-only change) |
+| AC-STE-325.1..3 | .claude/skills/conformance-loop/SKILL.md | plugins/dev-process-toolkit/tests/conformance-loop-aggregator.test.ts |
 

@@ -19,9 +19,12 @@ const describeIfPresent = skill === null ? describe.skip : describe;
 describeIfPresent("STE-224 AC-STE-224.5 — Phase A parallel /smoke-test fan-out", () => {
   test("Phase A documents the parallel two-tracker subprocess spawn", () => {
     const body = skill!;
-    // Both /smoke-test invocations must appear (one per tracker).
-    expect(body).toMatch(/claude -p\s+\/smoke-test\s+--tracker\s+linear/);
-    expect(body).toMatch(/claude -p\s+\/smoke-test\s+--tracker\s+jira/);
+    // Both /smoke-test invocations must appear (one per tracker), each
+    // wrapped as a single quoted positional per STE-325 (the bare-arg
+    // form was rejected by the `claude` CLI as
+    // `error: unknown option '--tracker'`).
+    expect(body).toMatch(/claude -p\s+"\/smoke-test\s+--tracker\s+linear/);
+    expect(body).toMatch(/claude -p\s+"\/smoke-test\s+--tracker\s+jira/);
   });
 
   test("Phase A backgrounds the children with & and waits via wait <PID>", () => {
