@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.30.0] — 2026-05-21 — "Quoted"
+
+M85 closes the `/conformance-loop` Phase A spawn snippet shape regression that fast-failed both Linear and Jira children with `error: unknown option '--tracker'` — ship-broken since STE-224 (M57, 2026-05-05), caught by a live `/conformance-loop --jira-project DST` run on 2026-05-21. Two-line spec edit wraps the slash command + skill args in a single quoted positional per STE-185's canonical form (already in use at Phase B `/implement` line 298).
+
+### Fixed
+
+- **STE-325 — `/conformance-loop` Phase A spawn snippet shape regression.** `.claude/skills/conformance-loop/SKILL.md:151,160` Phase A spawns rewrapped so slash-cmd + skill-args occupy the quoted `<command>` positional (matches STE-185 canonical form + Phase B `/implement` line 298). Previous bare-arg shape (`claude -p /smoke-test --tracker linear ...`) spilled skill-args into `[args]`, hitting `error: unknown option '--tracker'` at CLI parse time before any tracker writes. Updates the STE-224 AC-STE-224.5 regression test to assert the corrected shape (the regex was bug-mirror). Scope deliberately narrow per operator selection: spec fix only, no new test, no new gate-check probe. (STE-325)
+
+Total test count at release: 2390 tests, 0 failures, 0 errors.
+
 ## [2.29.0] — 2026-05-21 — "Probed"
 
 M84 closes 30/30 problem areas from the 2026-05-20 repo review across 10 FRs — three new `/gate-check` probes (#57 `public_surface_count_drift`, #58 `cross_skill_contract_drift`, #59 `disable_model_invocation_allowlist`) catch drift classes the pre-M84 byte-checkable layer missed, plus six themed bundles sweep HIGH+MED documentation contradictions (TDD 4-stage canon, 2-tier resolver, NFR-1 cap drift, code-reviewer scope, mode-conditional `tracker:` adapter shape, skill prose hygiene) and one HIGH bug fix (`parseBun` anchors on Bun's `Ran N tests` summary instead of first per-file pass count, so `/ship-milestone`'s release audit-trail numbers reflect actual test count). The new probes ratchet up with each future probe addition — public-surface count surfaces in README + CLAUDE.md must update in the same commit, enforced byte-for-byte.

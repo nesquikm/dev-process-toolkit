@@ -161,7 +161,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.29.0 — "Probed"** (M84 closes 30/30 problem areas from the 2026-05-20 repo review across 10 FRs — three new `/gate-check` probes (#57 `public_surface_count_drift`, #58 `cross_skill_contract_drift`, #59 `disable_model_invocation_allowlist`) catch drift classes the pre-M84 byte-checkable layer missed, plus six themed bundles sweep HIGH+MED documentation contradictions and one HIGH bug fix (`parseBun` anchors on Bun's `Ran N tests` summary instead of first per-file pass count, so release audit-trail numbers reflect actual test count). The new probes ratchet up with each future probe addition.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.30.0 — "Quoted"** (M85 closes the `/conformance-loop` Phase A spawn snippet shape regression — Linear + Jira children fast-failed at CLI parse with `error: unknown option '--tracker'` because the bare-arg form (`claude -p /smoke-test --tracker linear ...`) spilled skill-args into `[args]` instead of stuffing the quoted `<command>` positional. Ship-broken since STE-224 (M57, 2026-05-05); caught by a live `/conformance-loop --jira-project DST` run on 2026-05-21. Two-line spec edit + matching update to the STE-224 regression test, which had bug-mirrored the broken shape.)
 
 ## Core Philosophy
 
