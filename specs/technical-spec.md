@@ -83,7 +83,7 @@ The v1 monolithic layout (a single `specs/requirements.md` holding every FR, plu
 
 | Invariant | Statement | Enforcement |
 |-----------|-----------|-------------|
-| Skill file cap | Every SKILL.md ≤ 300 lines | NFR-1; overflow extracted to `docs/<skill>-reference.md` |
+| Skill file cap | Every SKILL.md ≤ 351 lines | NFR-1 (STE-305); overflow extracted to `docs/<skill>-reference.md` |
 | Filename immutability | FR ULID in filename equals `id:` in frontmatter; never renamed post-mint | NFR-15; `/gate-check` v2 probe |
 | Absence-is-default | `## Task Tracking` missing ⇒ `mode: none`; no line emitted by `/setup` | Pattern 9 (backward compat) |
 | Deterministic gates | Compiler/linter/tests override LLM judgment; gate outputs `GATE PASSED` / `PASSED WITH NOTES` / `FAILED` | Schema F |
@@ -193,20 +193,6 @@ Used by: `/spec-archive` Post-Archive Drift Check, `/implement` Phase 4 Post-Arc
 
 Rules: 5 columns in this order; severity is `high` (Pass A orphan token) or `medium` (Pass B semantic drift); `Section` uses heading text or `§N` reference; `Suggested action` is one-line imperative. Empty-report case emits literal `No drift detected`. Pass A rows appear before Pass B rows. `technical-spec.md` rows are always advisory — never suggest deletion for this file (AC-21.9).
 
-### Schema J: Agent-Tool Delegation Block {#schema-J}
-
-Used by: `/implement` Phase 3 Stage B delegates to `code-reviewer` subagent via the `Agent` tool.
-
-**Call site:** `skills/implement/SKILL.md` Phase 3 Stage B, Pass 1 + Pass 2 invocations.
-
-**Parent responsibilities:** resolve `<base-ref>` (branch merge base, `HEAD~1`, or `HEAD`); gather Phase 1 AC checklist; run `git diff --name-status <base-ref>`.
-
-**Return contract:** one line per criterion as `<criterion> — OK` or `<criterion> — CONCERN: file:line — <one-sentence reason>`, terminated by `OVERALL: OK` or `OVERALL: CONCERNS (N)`. Documented at the bottom of `agents/code-reviewer.md`.
-
-**Integration rules:** `OVERALL: OK` → Stage B passes. `OVERALL: CONCERNS` → fix, re-gate, re-invoke on round 1; escalate on round 2. On Pass 1 CONCERNS → skip Pass 2, report literal `Pass 2: Skipped (Pass 1 critical findings)`.
-
-**Fallback:** subagent error or unparseable shape → fall back to reading `agents/code-reviewer.md` and executing the rubric inline. Stage B is never skipped because delegation failed.
-
 ### Schema L: `## Task Tracking` section in CLAUDE.md
 
 Used by: every mode-aware skill (probe at entry).
@@ -235,7 +221,7 @@ Read contract:
 
 ### Schema M: Adapter `<tracker>.md` frontmatter
 
-YAML frontmatter at the top of each adapter markdown. Fields: `name`, `mcp_server`, `ticket_id_regex`, `ticket_id_source`, `ac_storage_convention`, `status_mapping`, `capabilities`, `project_milestone`, `ticket_description_template`, `helpers_dir`. `project_milestone` (boolean) opts the adapter into migration-time binding of each pushed ticket to a tracker-native release/project milestone. `status_mapping` doubles as the allowlist of legal initial states for bulk migration. `resolver` (optional sub-block) adds Schema W fields for argument resolution.
+YAML frontmatter at the top of each adapter markdown. Fields: `name`, `mcp_server`, `ticket_id_regex`, `ticket_id_source`, `ac_storage_convention`, `status_mapping`, `capabilities`, `project_milestone`, `ticket_description_template`, `helpers_dir`, `list_project_statuses`. `project_milestone` (boolean) opts the adapter into migration-time binding of each pushed ticket to a tracker-native release/project milestone. `status_mapping` doubles as the allowlist of legal initial states for bulk migration. `list_project_statuses` (boolean, STE-303) declares whether the adapter can introspect the tracker's per-team/project status list at /setup time; adapters that set it to `false` surface the `tracker_config_write_skipped_adapter_limit` capability row instead of attempting the fetch. `resolver` (optional sub-block) adds Schema W fields for argument resolution.
 
 ### Schema N: `AcceptanceCriterion` list
 
@@ -549,7 +535,7 @@ Downstream projects that adopt the plugin carry whatever dependencies their stac
 
 | Risk | Severity | Mitigation |
 |------|----------|------------|
-| Skill file exceeding NFR-1 300-line cap | Medium | Recheck `wc -l` after every skill edit; overflow extracts to `docs/<skill>-reference.md` |
+| Skill file exceeding NFR-1 351-line cap | Medium | Recheck `wc -l` after every skill edit; overflow extracts to `docs/<skill>-reference.md` |
 | Drift detection false positives eroding trust | Medium | Drift always produces `GATE PASSED WITH NOTES`, never `GATE FAILED` (AC-1.4); advisory framing preserved |
 | Cross-skill schema drift (Schemas A–W) | Medium | Tier 1 grep checks in testing-spec + automated probes (`probe-parity.test.ts`, `archive-path-drift.test.ts`, `gate-check-milestone-strip-lint.test.ts`) |
 | Tracker mode concurrent edits (local vs. remote) | High | FR-33 `updatedAt` recording + FR-39 mandatory diff/resolve before push; Pattern: optimistic concurrency |

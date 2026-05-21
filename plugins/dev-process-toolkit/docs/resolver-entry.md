@@ -2,7 +2,7 @@
 
 > Canonical behavior for the `resolveFRArgument` dispatch used at the entry of
 > `/spec-write`, `/implement`, and `/spec-archive`. Keeps skill files under the
-> NFR-1 300-line cap. See `technical-spec.md` §9 for the data model and
+> NFR-1 351-line cap. See `technical-spec.md` §3 Cross-Skill Schema Definitions for the data model and
 > algorithm; `docs/patterns.md` § Pattern: Tracker-ID Auto-Resolution for the
 > user-facing story.
 

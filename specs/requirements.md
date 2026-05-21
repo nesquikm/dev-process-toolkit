@@ -14,9 +14,9 @@ Per-milestone plan files under `specs/plan/archive/`; archived FRs under `specs/
 
 ### NFR-1: Skill Size
 
-- No single skill file shall exceed 350 lines
-- **Overflow rule:** If a skill approaches 350 lines during implementation, extract detailed reference material (long example tables, multi-stack examples) into a companion file at `docs/<skill-name>-reference.md` and reference it from the skill with a one-line pointer: `See docs/<skill-name>-reference.md for full examples.`
-- **Bump rationale (STE-252):** the cap raised from 300 → 350 in v2.19.0 to acknowledge spec-write's contract-locked prose pressure (~26 tests assert verbatim prose strings; trimming to 300 needs lockstep test rewrite, deferred to a future structural-split milestone).
+- No single skill file shall exceed 351 lines
+- **Overflow rule:** If a skill approaches 351 lines during implementation, extract detailed reference material (long example tables, multi-stack examples) into a companion file at `docs/<skill-name>-reference.md` and reference it from the skill with a one-line pointer: `See docs/<skill-name>-reference.md for full examples.`
+- **Bump rationale (STE-252, STE-305):** the cap raised from 300 → 350 in v2.19.0 to acknowledge spec-write's contract-locked prose pressure (~26 tests assert verbatim prose strings); STE-305 (v2.28.0) bumped to the canonical 351 to align with the actual `wc -l` headroom.
 
 ### NFR-2: CLAUDE.md Schema Stability
 
@@ -47,7 +47,7 @@ Wherever one skill produces output that another skill reads or references, the f
 | Gate verdict strings | FR-1 (gate-check), FR-3 (structured output) | Exactly 3 values: `GATE PASSED`, `GATE PASSED WITH NOTES`, `GATE FAILED` — exact casing, used in verdict section and JSON output |
 | Archive pointer line (Schema H, legacy v1) | FR-16, FR-17, FR-19 (v1 layouts only) | Exact literal: `> archived: M{N} — {title} → specs/plan/archive/M{N}.md ({YYYY-MM-DD})`. v2 replaces pointer lines with `git mv` — archived files are addressable directly by ULID / milestone ID. |
 | AC sync diff format (Schema K) | FR-39 (`/implement` + `/spec-write` bidirectional sync) | Per-AC line: `AC-{N}.{M}: <classification> \| local: "<text>" \| tracker: "<text>"` where `<classification>` is one of `identical`, `local-only`, `tracker-only`, `edited-both` |
-| Task Tracking section format (Schema L) | FR-29, FR-32, FR-34 (every mode-aware skill reads it); STE-64 (branch automation reads `branch_template`) | `## Task Tracking` heading followed by `key: value` lines (one per line). Keys: `mode`, `mcp_server`, `jira_ac_field`, `branch_template`. Blank value = not-applicable-for-mode. Absent `branch_template` ⇒ branch automation disabled (STE-64 AC-1). Section absence ≡ `mode: none`. `git log` is the audit trail for sync/migration/resolution events. See technical-spec §7.3 for the canonical grep-based read contract. |
+| Task Tracking section format (Schema L) | FR-29, FR-32, FR-34 (every mode-aware skill reads it); STE-64 (branch automation reads `branch_template`) | `## Task Tracking` heading followed by `key: value` lines (one per line). Keys: `mode`, `mcp_server`, `jira_ac_field`, `branch_template`. Blank value = not-applicable-for-mode. Absent `branch_template` ⇒ branch automation disabled (STE-64 AC-1). Section absence ≡ `mode: none`. `git log` is the audit trail for sync/migration/resolution events. See technical-spec.md §3 Cross-Skill Schema Definitions for the canonical grep-based read contract. |
 
 ### NFR-5: Live Spec Size Bound
 
@@ -63,8 +63,8 @@ Wherever one skill produces output that another skill reads or references, the f
 
 ### NFR-7: Adapter Code Size
 
-- Each adapter TypeScript source file (e.g., `adapters/linear/src/normalize.ts`): ≤500 lines (looser than NFR-1's 350-line skill cap, since adapters carry tracker-specific quirks like Linear's description normalization and Jira's field discovery)
-- Each adapter declarative `<tracker>.md`: ≤350 lines (per NFR-1)
+- Each adapter TypeScript source file (e.g., `adapters/linear/src/normalize.ts`): ≤500 lines (looser than NFR-1's 351-line skill cap, since adapters carry tracker-specific quirks like Linear's description normalization and Jira's field discovery)
+- Each adapter declarative `<tracker>.md`: ≤351 lines (per NFR-1)
 - If a source file exceeds 500 lines, extract per-operation modules under `adapters/<tracker>/src/` rather than letting a single file grow. No compiled binaries are shipped, so size limits apply to source only
 
 ### NFR-8: MCP Call Budget per Skill Invocation

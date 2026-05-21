@@ -1,6 +1,6 @@
 # `/ship-milestone` Reference
 
-Extended reference for `/dev-process-toolkit:ship-milestone` — overflow content from `skills/ship-milestone/SKILL.md` (NFR-1 300-line cap). The skill carries the condensed flow; consult this file when debugging a weird bump result, editing the generated CHANGELOG entry, or adding a new stack to the test-output parser.
+Extended reference for `/dev-process-toolkit:ship-milestone` — overflow content from `skills/ship-milestone/SKILL.md` (NFR-1 351-line cap). The skill carries the condensed flow; consult this file when debugging a weird bump result, editing the generated CHANGELOG entry, or adding a new stack to the test-output parser.
 
 ## CHANGELOG subsection policy
 

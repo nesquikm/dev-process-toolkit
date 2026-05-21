@@ -3,7 +3,7 @@
 Companion doc for `skills/setup/SKILL.md` Step 7d. Covers the three yes/no
 prompts that configure per-project docs generation and the `## Docs`
 section `/setup` writes to `CLAUDE.md`. Pointed at from the skill to keep
-`SKILL.md` under the NFR-1 300-line budget.
+`SKILL.md` under the NFR-1 351-line budget.
 
 Applies whenever `/setup` runs, regardless of tracker mode. `mode: none`
 projects still get the prompts — docs generation is orthogonal to task
