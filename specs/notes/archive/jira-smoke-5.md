@@ -2,7 +2,8 @@
 title: "Smoke test #5 — Jira adapter Phase H conformance"
 fr: STE-154
 milestone: M43
-status: partial
+status: archived
+archived_at: 2026-05-21T00:00:00Z
 captured_at: 2026-04-29T09:30:00Z
 cloud_id: 96bffaef-cf5d-4dbf-a170-3d700df9bc83
 site: stellartechlab.atlassian.net

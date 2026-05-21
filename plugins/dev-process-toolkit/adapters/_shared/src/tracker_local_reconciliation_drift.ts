@@ -22,11 +22,11 @@
 // info with zero violations on every local-only project.
 
 import { join } from "node:path";
-import type { Provider } from "../../../adapters/_shared/src/provider";
+import type { Provider } from "./provider";
 import {
   readLocalFRBindings,
   reconcileTrackerLocal,
-} from "../../../adapters/_shared/src/reconcile_tracker_local";
+} from "./reconcile_tracker_local";
 
 export type DriftSeverity = "info" | "warning" | "error";
 

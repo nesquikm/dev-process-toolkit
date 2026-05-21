@@ -357,10 +357,10 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     const lines = readme.split("\n");
     // L3 — "16 commands, 8 agents"
     expect(lines[2]).toMatch(/16 commands?,\s+8 agents?/);
-    // L10 — 58 numbered (matches "58 numbered ... probes" — STE-318 added #58)
-    expect(lines[9]).toMatch(/\b58\b.*numbered/);
-    // L93 — "58 probes" (on-disk max-probe is 58 after STE-318)
-    expect(lines[92]).toMatch(/\b58\b\s+probes/);
+    // L10 — 59 numbered (matches "59 numbered ... probes" — STE-324 added #59)
+    expect(lines[9]).toMatch(/\b59\b.*numbered/);
+    // L93 — "59 probes" (on-disk max-probe is 59 after STE-324)
+    expect(lines[92]).toMatch(/\b59\b\s+probes/);
     // L126 — "Seven additional skills"
     expect(lines[125]).toMatch(/Seven additional skills/);
     // L150 — "23 (16 + 7)"
@@ -393,9 +393,9 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
 
   test("skills/gate-check/SKILL.md carries a 'probe N+' next-probe anchor near the probe-authoring contract", () => {
     const skillMd = readFileSync(skillMdPath, "utf-8");
-    // STE-318 added probe #58, so the next-probe anchor reads "probe 59+";
+    // STE-324 added probe #59, so the next-probe anchor reads "probe 60+";
     // anchor by content (not line number) because each new probe shifts lines.
-    expect(skillMd).toMatch(/probe 59\+/);
+    expect(skillMd).toMatch(/probe 60\+/);
   });
 
   test("specs/testing-spec.md L58 says 'all 23 skills'", () => {
