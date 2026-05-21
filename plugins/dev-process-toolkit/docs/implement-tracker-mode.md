@@ -1,5 +1,7 @@
 # `/implement` Tracker Mode Flow
 
+> See `docs/layout-reference.md` — canonical authority on FR file shape (per-FR file path, AC-prefix derivation, `## Acceptance Criteria` section).
+
 Detailed tracker-mode procedures for `/implement`. Pointed at from
 `skills/implement/SKILL.md` step 0 to keep the skill under NFR-1 (≤300 lines).
 
@@ -46,9 +48,11 @@ preamble, and attachments are discarded at the parser boundary.
 
 ### 0.3 Bidirectional diff/resolve loop
 
-Read the local FR's AC list from `specs/requirements.md` (parsed from the
-`### FR-{N}:` block's bullet list). Compare against the adapter-returned
-`AcList` from step 0.2. Classify each AC:
+Read the local FR's AC list from `specs/frs/<tracker-id>.md` — the
+`## Acceptance Criteria` section's bullet list (AC-prefix derived via
+`acPrefix(spec)` — the tracker-id in tracker mode, the short-ULID tail
+in `mode: none`). Compare against the adapter-returned `AcList` from
+step 0.2. Classify each AC:
 
 - **identical** — text + `completed` match exactly (after normalization).
 - **local-only** — present locally, absent from tracker.
@@ -62,10 +66,11 @@ If any non-identical AC exists, prompt per-AC with exactly four options:
 `cancel`. No bulk shortcuts.
 
 - `keep local` — overwrite tracker: `upsert_ticket_metadata(ticket_id, title, <rebuilt description with local AC block>)`.
-- `keep tracker` — overwrite local: rewrite `specs/requirements.md` FR's
-  AC list to match the tracker-canonical form.
+- `keep tracker` — overwrite local: rewrite the FR file
+  `specs/frs/<tracker-id>.md`'s `## Acceptance Criteria` section to match
+  the tracker-canonical form.
 - `merge` — open an editor (heredoc prompt), user writes the merged text,
-  then apply to **both** sides (local requirements.md + tracker push).
+  then apply to **both** sides (local FR file + tracker push).
 - `cancel` — abort the skill cleanly with zero state mutation on either
   side.
 
