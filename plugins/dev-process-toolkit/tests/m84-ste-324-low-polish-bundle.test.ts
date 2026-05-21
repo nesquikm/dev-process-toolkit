@@ -55,7 +55,7 @@ describe("AC-STE-324.1 — 4-stage TDD architecture canon (per STE-318 / STE-296
     expect(body).not.toMatch(/four skill paths existing/);
   });
 
-  test("tests/gate-check-tdd-orchestrator-integrity.test.ts no longer says `orchestrator + 3 children`", () => {
+  test("tests/gate-check-tdd-orchestrator-integrity.test.ts no longer carries the legacy '3 children' phrasing", () => {
     const body = readFileSync(
       join(PLUGIN_ROOT, "tests", "gate-check-tdd-orchestrator-integrity.test.ts"),
       "utf-8",
