@@ -201,6 +201,7 @@ function validateEntry(entry: ReleaseFile, idx: number): void {
         `kind="${entry.kind}" requires a \`field:\` dot-path`,
       );
     }
+    validateEntryPathShape(entry.kind, entry.field, idx);
   }
   if (entry.kind === "regex") {
     if (!entry.pattern) {
@@ -215,6 +216,35 @@ function validateEntry(entry: ReleaseFile, idx: number): void {
         `kind="regex" pattern must contain a named (?<version>...) capture group`,
       );
     }
+  }
+}
+
+// Per-kind path-shape dispatch — STE-324 AC.3.
+//
+// Each `kind` carries a different path-shape capability tied to its bumper:
+//   - `yaml`: bumpYaml only rewrites top-level `field: <semver>` lines, so any
+//     dotted `field:` is rejected here with the NFR-10 canonical refusal.
+//   - `toml`: bumpToml handles top-level (`version`) and one-level-dotted
+//     (`project.version`). Deeper paths are rejected by bumpToml at rewrite
+//     time; we surface that here too for early failure.
+//   - `json`: bumpJson supports arbitrary dotted paths including array-indexed
+//     (`plugins[0].version`), so no path-shape rejection applies.
+function validateEntryPathShape(
+  kind: "json" | "toml" | "yaml",
+  field: string,
+  idx: number,
+): void {
+  if (kind === "yaml" && field.includes(".")) {
+    throw new MalformedReleaseFilesError(
+      idx,
+      `yaml kind only supports top-level fields; got dotted path '${field}' at line ${idx}`,
+    );
+  }
+  if (kind === "toml" && field.split(".").length > 2) {
+    throw new MalformedReleaseFilesError(
+      idx,
+      `toml kind only supports top-level and one-level-dotted fields; got '${field}' at line ${idx}`,
+    );
   }
 }
 

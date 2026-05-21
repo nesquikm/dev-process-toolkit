@@ -74,6 +74,10 @@ export const NON_COMMIT_PRODUCING_SKILLS: readonly string[] = [
   "spec-research",
   "deps-research",
   "spec-review-audit",
+  "tdd-write-test",
+  "tdd-implement",
+  "tdd-refactor",
+  "tdd-spec-review",
 ];
 
 // The gate symbol skills must reference (bare, in backticks, or in a

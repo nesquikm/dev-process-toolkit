@@ -2,9 +2,12 @@
 // Severity: error.
 //
 // Asserts the load-bearing structural invariants of the multi-agent TDD
-// orchestrator:
-//   (a) the four skill paths exist (tdd + tdd-write-test + tdd-implement + tdd-refactor)
-//   (b) the three child skills carry `context: fork`
+// orchestrator. Per STE-318 / STE-296 canon, the orchestrator drives a
+// 4-stage pipeline (write-test → implement → refactor → spec-review) via
+// forked child skills; this probe checks the load-bearing pairing shape:
+//   (a) the orchestrator skill (skills/tdd/SKILL.md) and each tracked
+//       child skill path exist on disk
+//   (b) each child skill carries `context: fork`
 //   (c) each child's `agent:` field resolves to a real agents/*.md
 //   (d) each child carries `user-invocable: false`
 //   (e) each subagent's `tools` field excludes `Agent`
@@ -43,11 +46,12 @@ function buildMessage(noteBody: string, file: string): string {
   return [
     `tdd_orchestrator_integrity: ${noteBody}`,
     "Remedy: restore the load-bearing invariant. The TDD orchestrator " +
-      "depends on (a) the four skill paths existing, (b) `context: fork` " +
-      "on each child skill, (c) the child's `agent:` resolving to a real " +
-      "subagent file, (d) `user-invocable: false` on children, and (e) " +
-      "each subagent's `tools` excluding `Agent`. Re-add the missing " +
-      "shape per skills/tdd*/SKILL.md and agents/tdd-*.md.",
+      "depends on (a) the orchestrator and tracked child skill paths " +
+      "existing, (b) `context: fork` on each child skill, (c) the " +
+      "child's `agent:` resolving to a real subagent file, (d) " +
+      "`user-invocable: false` on children, and (e) each subagent's " +
+      "`tools` excluding `Agent`. Re-add the missing shape per " +
+      "skills/tdd*/SKILL.md and agents/tdd-*.md.",
     `Context: file=${file}, probe=tdd_orchestrator_integrity, severity=error`,
   ].join("\n");
 }

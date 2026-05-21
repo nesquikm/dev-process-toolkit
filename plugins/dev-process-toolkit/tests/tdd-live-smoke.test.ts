@@ -79,7 +79,7 @@ function runOrchestrator(): TestRun {
     {
       cwd,
       encoding: "utf-8",
-      timeout: 8 * 60 * 1000, // 8 minutes — orchestrator + 3 forked subagents.
+      timeout: 8 * 60 * 1000, // 8 minutes — orchestrator + 4 forked subagents (test-writer, implementer, refactorer, spec-reviewer per STE-318/STE-296).
       input: "<dpt:auto-approve>v1</dpt:auto-approve>\n",
     },
   );
