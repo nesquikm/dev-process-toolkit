@@ -59,14 +59,14 @@ const provider = mode === "none"
 ### `/gate-check`
 - Conformance probes:
   1. **Filename ↔ `Provider.filenameFor(spec)`** for every `specs/frs/**/*.md` (strict — every base name must equal `Provider.filenameFor(spec)`).
-  2. **Required frontmatter fields** present for every FR file (id, title, milestone, status, archived_at, tracker, created_at). Missing = fail.
+  2. **Required frontmatter fields** present for every FR file — the mode-invariant Schema Q keys `title`, `milestone`, `status`, `archived_at`, `tracker`, `created_at`. The `id:` field is **mode-conditional**: required in `mode: none`, absent in tracker mode (the tracker ID is the canonical identity). Mode-conditional enforcement lives in probe #13 `identity_mode_conditional`; see `skills/gate-check/SKILL.md:26` for the full contract. Missing a mode-invariant field = fail.
   3. **Stale lock scan** — list `.dpt-locks/<ulid>` entries whose branch is merged or deleted. Offer `--cleanup-stale-locks` action that deletes them in one commit.
   4. **Plan post-freeze edit scan** — for each `specs/plan/<M#>.md` with `status: active` + non-null `frozen_at`, list commits to that path whose authored date is after `frozen_at`. No auto-revert (warning semantics).
 
 ### `/spec-review`
 - Read FRs from `specs/frs/` (glob active, optionally archive/).
 - Traceability cross-references resolve against FR files' `## Notes` or inline links.
-- Legacy `requirements.md#FR-N` refs rewritten to `frs/<ulid>.md` where applicable.
+- Cross-references resolve against the FR file's `## Notes` or inline links. The only file-rewrite the toolkit ships is `specs/frs/<id>.md` → `specs/frs/archive/<id>.md` on archival (see `adapters/_shared/src/spec_archive/rewrite_links.ts`).
 
 ### `/setup --migrate`
 

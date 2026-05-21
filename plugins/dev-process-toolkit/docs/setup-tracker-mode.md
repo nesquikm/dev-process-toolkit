@@ -1,5 +1,7 @@
 # `/setup` Tracker Mode Flow
 
+> See `docs/layout-reference.md` — canonical authority on FR file shape (per-FR file path, AC-prefix derivation, `## Acceptance Criteria` section).
+
 This companion doc carries the detailed procedures that `/setup` uses when
 the user opts into a tracker mode (Linear / Jira / custom). It is
 pointed at from `skills/setup/SKILL.md` to keep that file under NFR-1
@@ -17,7 +19,7 @@ default) never reads this document — the `mode: none` branch runs unchanged.
   `CLAUDE.md` per Schema L (technical-spec §7.3). Absence ≡ `none`
  — `/setup` never writes a `mode: none` line.
 - **Never silent writes.** Every `settings.json` and `CLAUDE.md` edit is
-  preview + explicit confirm (DD-12.9).
+  preview + explicit confirm.
 - **Bun prerequisite.** `bun --version` runs before any tracker recording
 ; absence is an NFR-10 canonical-shape error.
 - **Test call on completion.** After MCP detection / install /
@@ -45,7 +47,7 @@ before it's written):
 
 > ```
 > Task Tracking (optional): where do ACs live?
->   1. none (default — ACs stay in specs/requirements.md)
+>   1. none (default — ACs stay local in specs/frs/<short-ULID>.md)
 >   2. linear
 >   3. jira
 >   4. custom (copy adapters/_template)
@@ -77,7 +79,7 @@ Context: mode=<picked>, ticket=unbound, skill=setup
 ## MCP detection
 
 Shell out to `claude mcp list` to enumerate currently configured MCP servers
-across enterprise / user / project / local scopes (DD-12.8). If the adapter
+across enterprise / user / project / local scopes. If the adapter
 for the picked tracker has a matching `mcp_server:` entry in its
 `<tracker>.md` frontmatter, the MCP is present.
 

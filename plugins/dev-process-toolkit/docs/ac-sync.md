@@ -1,5 +1,7 @@
 # Bidirectional AC Sync
 
+> See `docs/layout-reference.md` — canonical authority on FR file shape (per-FR file path, AC-prefix derivation, `## Acceptance Criteria` section).
+
 The diff/resolve loop that runs before `/implement` and after `/spec-write`
 save. Pointed at from `docs/implement-tracker-mode.md` and
 `docs/spec-write-tracker-mode.md`.
@@ -17,10 +19,10 @@ it offers two options (retry-via-`/implement`, proceed-stale).
 
 ## Inputs
 
-1. **Local AC list** — parsed from the FR block in `specs/requirements.md`:
+1. **Local AC list** — parsed from the per-FR file at `specs/frs/<tracker-id>.md` (tracker mode) or `specs/frs/<short-ULID>.md` (mode-none), under the file's `## Acceptance Criteria` section. AC-prefix is derived via `acPrefix(spec)` — the tracker-id in tracker mode, the short-ULID tail in mode-none:
    ```
-   ### FR-{N}: ... {#FR-{N}}
-   - [ ] AC-{N}.{M}: <text>
+   ## Acceptance Criteria
+   - AC-<prefix>.<M>: <text>
    ```
 2. **Tracker AC list** — returned by the active adapter's
    `pull_acs(ticket_id)` as Schema N `AcceptanceCriterion[]`.
@@ -68,7 +70,8 @@ Responses:
 1. **Keep local** — overwrite tracker-side AC. Tracker push happens after
    all per-AC resolutions are collected (one `upsert_ticket_metadata`
    call per event, not per AC).
-2. **Keep tracker** — overwrite local-side AC. `specs/requirements.md`
+2. **Keep tracker** — overwrite local-side AC. The FR file
+   `specs/frs/<tracker-id>.md`'s `## Acceptance Criteria` section is
    rewritten after all resolutions are collected (one file write per
    event, not per AC).
 3. **Merge** — open a minimal text-editor prompt (heredoc) with both
@@ -86,9 +89,11 @@ drift the sync is supposed to surface.
 After the user answers all prompts:
 
 1. Apply all per-AC resolutions to both sides.
-2. **Local side write** — rewrite the FR block's AC list in
-   `specs/requirements.md`. Preserve FR title, description, anchor
-   (`{#FR-{N}}`), and any non-AC content.
+2. **Local side write** — rewrite the `## Acceptance Criteria` section in
+   `specs/frs/<tracker-id>.md` (tracker mode) or
+   `specs/frs/<short-ULID>.md` (mode-none). Preserve frontmatter and the
+   FR file's other top-level sections (`## Requirement`,
+   `## Technical Design`, `## Testing`, `## Notes`).
 3. **Tracker side write** — call `upsert_ticket_metadata(ticket_id, title,
    <rebuilt description>)`. For Linear, the description includes the
    normalized AC block. For Jira, the custom field.
@@ -115,7 +120,8 @@ commits). This is the round-trip invariant adapter normalization guarantees.
 
 Cancel on **any** prompt:
 
-- **No local file writes** — `specs/requirements.md` unchanged.
+- **No local file writes** — the FR file at `specs/frs/<tracker-id>.md`
+  remains unchanged.
 - **No tracker writes** — `upsert_ticket_metadata` not called.
 - Skill exits cleanly; the user can re-run `/implement` later once they've
   decided how to resolve.
