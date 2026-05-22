@@ -49,20 +49,23 @@ helpers (`adapters/<tracker>/src/*.ts`). The markdown routes each op to the
 right MCP tool; helpers handle tracker-specific text massaging (Linear
 normalization, Jira field discovery).
 
-## Schemas (technical-spec §7.3)
+## Schemas (technical-spec §3 Cross-Skill Schema Definitions)
 
-Full definitions live in `specs/technical-spec.md` §7.3. Summary:
+Full definitions live in `specs/technical-spec.md` §3 Cross-Skill Schema Definitions. Summary:
 
 - **Schema L — `## Task Tracking` section format.** Cross-skill. Heading
-  presence is the mode probe; absence ≡ `mode: none`. Keys: `mode`,
-  `mcp_server`, `jira_ac_field`. Duplicate keys are a malformed file and
-  fail the skill with NFR-10 canonical shape.
-- **Schema M — Adapter frontmatter.** Ten fields: `name`, `mcp_server`,
+  presence is the mode probe; absence ≡ `mode: none`. Four keys: `mode`,
+  `mcp_server`, `jira_ac_field`, `branch_template` (STE-202; opts the
+  project into branch automation in `/implement`). Duplicate keys are a
+  malformed file and fail the skill with NFR-10 canonical shape.
+- **Schema M — Adapter frontmatter.** Eleven fields: `name`, `mcp_server`,
   `ticket_id_regex`, `ticket_id_source`, `ac_storage_convention`,
   `status_mapping`, `capabilities`, `project_milestone`,
-  `ticket_description_template`, `helpers_dir`. Capabilities drive
-  the capability-missing graceful-degradation path; `project_milestone`
-  opts the adapter into migration-time milestone binding.
+  `ticket_description_template`, `helpers_dir`, `list_project_statuses`.
+  Capabilities drive the capability-missing graceful-degradation path;
+  `project_milestone` opts the adapter into migration-time milestone
+  binding. `list_project_statuses` (STE-303) declares whether the adapter
+  can introspect the tracker's per-team/project status list at /setup time.
 - **Schema N — `AcceptanceCriterion` list.** Returned by `pull_acs`. Fields:
   `id`, `text`, `completed`.
 - **Schema O — `TicketMetadata`.** Internal; tracked for concurrency via
@@ -411,4 +414,4 @@ resolver:
 
 After editing the adapter file and re-running `/setup` (or restarting a session), `/spec-write ch123`, `/implement ch123`, and `/spec-archive ch123` will all resolve to the Clubhouse-linked local FR.
 
-**Cross-refs**: `technical-spec.md` §9.3 (Schema W canonical), `docs/resolver-entry.md` (full decision table), `docs/patterns.md` § Pattern 24 (user-facing story).
+**Cross-refs**: `technical-spec.md` §3 Cross-Skill Schema Definitions (Schema W canonical), `docs/resolver-entry.md` (full decision table), `docs/patterns.md` § Pattern 24 (user-facing story).

@@ -169,7 +169,7 @@ describe("AC-STE-303.4 — serializeProposalYAML", () => {
     expect(yaml).toMatch(/^\s+done: Done$/m);
   });
 
-  test("verbatim statuses preserve casing + whitespace + special chars (AC-303.2)", () => {
+  test("verbatim statuses preserve casing + whitespace + special chars (AC-STE-303.2)", () => {
     const oddStatuses = ["Backlog ", "In Code Review", "Awaiting Sign-off", "🚢 Shipped"];
     const proposal: Proposal = {
       tracker_key: "linear",

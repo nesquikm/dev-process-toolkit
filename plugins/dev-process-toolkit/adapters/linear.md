@@ -199,7 +199,7 @@ observed status; operators fix either by transitioning the ticket to
 
 ### `attach_project_milestone(ticket_id, milestone_name) → void`
 
-Idempotent binding from a Linear issue to a project milestone matching the local plan-file H1 heading. Implemented by `attachProjectMilestone(provider, project, milestoneName, ticketId)` in `adapters/_shared/src/attach_project_milestone.ts`; called by `/implement` Phase 1 step 0.f when the adapter declares `project_milestone: true` (see frontmatter above). Procedure:
+Idempotent binding from a Linear issue to a project milestone matching the local plan-file H1 heading. Implemented by `attachProjectMilestone(provider, project, milestoneName, ticketId)` in `adapters/_shared/src/attach_project_milestone.ts`; called by `/implement` Phase 1 step 0.e when the adapter declares `project_milestone: true` (see frontmatter above). Procedure:
 
 1. List milestones in `project` via `mcp__linear__list_milestones`.
 2. If `milestone_name` is absent from the list, create it via `mcp__linear__save_milestone(project, name=milestone_name)`.

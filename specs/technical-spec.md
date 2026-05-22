@@ -83,7 +83,7 @@ The v1 monolithic layout (a single `specs/requirements.md` holding every FR, plu
 
 | Invariant | Statement | Enforcement |
 |-----------|-----------|-------------|
-| Skill file cap | Every SKILL.md ≤ 300 lines | NFR-1; overflow extracted to `docs/<skill>-reference.md` |
+| Skill file cap | Every SKILL.md ≤ 351 lines | NFR-1 (STE-305); overflow extracted to `docs/<skill>-reference.md` |
 | Filename immutability | FR ULID in filename equals `id:` in frontmatter; never renamed post-mint | NFR-15; `/gate-check` v2 probe |
 | Absence-is-default | `## Task Tracking` missing ⇒ `mode: none`; no line emitted by `/setup` | Pattern 9 (backward compat) |
 | Deterministic gates | Compiler/linter/tests override LLM judgment; gate outputs `GATE PASSED` / `PASSED WITH NOTES` / `FAILED` | Schema F |
@@ -193,20 +193,6 @@ Used by: `/spec-archive` Post-Archive Drift Check, `/implement` Phase 4 Post-Arc
 
 Rules: 5 columns in this order; severity is `high` (Pass A orphan token) or `medium` (Pass B semantic drift); `Section` uses heading text or `§N` reference; `Suggested action` is one-line imperative. Empty-report case emits literal `No drift detected`. Pass A rows appear before Pass B rows. `technical-spec.md` rows are always advisory — never suggest deletion for this file (AC-21.9).
 
-### Schema J: Agent-Tool Delegation Block {#schema-J}
-
-Used by: `/implement` Phase 3 Stage B delegates to `code-reviewer` subagent via the `Agent` tool.
-
-**Call site:** `skills/implement/SKILL.md` Phase 3 Stage B, Pass 1 + Pass 2 invocations.
-
-**Parent responsibilities:** resolve `<base-ref>` (branch merge base, `HEAD~1`, or `HEAD`); gather Phase 1 AC checklist; run `git diff --name-status <base-ref>`.
-
-**Return contract:** one line per criterion as `<criterion> — OK` or `<criterion> — CONCERN: file:line — <one-sentence reason>`, terminated by `OVERALL: OK` or `OVERALL: CONCERNS (N)`. Documented at the bottom of `agents/code-reviewer.md`.
-
-**Integration rules:** `OVERALL: OK` → Stage B passes. `OVERALL: CONCERNS` → fix, re-gate, re-invoke on round 1; escalate on round 2. On Pass 1 CONCERNS → skip Pass 2, report literal `Pass 2: Skipped (Pass 1 critical findings)`.
-
-**Fallback:** subagent error or unparseable shape → fall back to reading `agents/code-reviewer.md` and executing the rubric inline. Stage B is never skipped because delegation failed.
-
 ### Schema L: `## Task Tracking` section in CLAUDE.md
 
 Used by: every mode-aware skill (probe at entry).
@@ -235,7 +221,7 @@ Read contract:
 
 ### Schema M: Adapter `<tracker>.md` frontmatter
 
-YAML frontmatter at the top of each adapter markdown. Fields: `name`, `mcp_server`, `ticket_id_regex`, `ticket_id_source`, `ac_storage_convention`, `status_mapping`, `capabilities`, `project_milestone`, `ticket_description_template`, `helpers_dir`. `project_milestone` (boolean) opts the adapter into migration-time binding of each pushed ticket to a tracker-native release/project milestone. `status_mapping` doubles as the allowlist of legal initial states for bulk migration. `resolver` (optional sub-block) adds Schema W fields for argument resolution.
+YAML frontmatter at the top of each adapter markdown. Fields: `name`, `mcp_server`, `ticket_id_regex`, `ticket_id_source`, `ac_storage_convention`, `status_mapping`, `capabilities`, `project_milestone`, `ticket_description_template`, `helpers_dir`, `list_project_statuses`. `project_milestone` (boolean) opts the adapter into migration-time binding of each pushed ticket to a tracker-native release/project milestone. `status_mapping` doubles as the allowlist of legal initial states for bulk migration. `list_project_statuses` (boolean, STE-303) declares whether the adapter can introspect the tracker's per-team/project status list at /setup time; adapters that set it to `false` surface the `tracker_config_write_skipped_adapter_limit` capability row instead of attempting the fetch. `resolver` (optional sub-block) adds Schema W fields for argument resolution.
 
 ### Schema N: `AcceptanceCriterion` list
 
@@ -268,19 +254,26 @@ Every helper (`adapters/<tracker>/src/<helper>.ts`): JSON on stdin → JSON on s
 
 Required for every `specs/frs/**/*.md`. The `id:` line is **mode-conditional** (STE-76 AC-STE-76.1):
 
-**`mode: none`** — `id:` is REQUIRED and equals the filename stem byte-for-byte (the 6-char short-ULID tail):
+**`mode: none`** — `id:` is REQUIRED and equals the filename stem byte-for-byte (the 6-char short-ULID tail). The frontmatter contains exactly six keys: the five mode-invariant keys (`title`, `milestone`, `status`, `archived_at`, `created_at`) plus the mode-specific `id:` line. The `tracker:` field is ABSENT in mode-none (STE-321 AC-STE-321.3 — code-wins resolution; `buildFRFrontmatter` emits no `tracker:` field in mode-none, and the gate-check probe `identity_mode_conditional` rejects FR files that carry it):
 
 ```yaml
 ---
-id: fr_01HZ7XJFKPXYZ123ABCDEF       # full ULID; filename stem is its 6-char tail (AC-41.2)
+id: fr_<26-char-ULID>                # full ULID; filename stem is its 6-char tail (AC-41.2)
 title: Tracker-backed spec IDs
 milestone: M<N>                      # matches an M<N> in specs/plan/
 status: active                       # active | in_progress | archived
 archived_at: null                    # ISO date | null; set when status flips to archived
-tracker: {}                          # empty map — mode-none has no tracker binding
 created_at: 2026-04-21T10:30:00Z
 ---
 ```
+
+In `mode: none`:
+
+- `id:` is immutable for the FR's lifetime and equals the filename stem (NFR-15).
+- The `tracker:` field is ABSENT — there is no tracker binding to record.
+- The bimodal invariant is enforced by `adapters/_shared/src/identity_mode_conditional.ts` (STE-321 AC-STE-321.5 + AC-STE-321.10). The `scanFrontmatterForTracker` scanner rejects any FR file that carries `tracker:` (whether populated, empty `{}`, or `null`).
+- The canonical runtime helper is `buildFRFrontmatter` at `adapters/_shared/src/fr_frontmatter.ts` — it never emits a `tracker:` field when the mode is `none`.
+- Legacy fixtures that previously rendered `tracker: {}` in mode-none must be migrated to drop the line entirely (STE-321 AC-STE-321.3 — code-wins drift resolution).
 
 **`mode: <tracker>`** — `id:` is ABSENT (STE-76 AC-STE-76.2, cross-mode symmetry dropped). The tracker ID is the canonical identity; filename stem + AC prefix derive from `tracker.<key>`:
 
@@ -549,7 +542,7 @@ Downstream projects that adopt the plugin carry whatever dependencies their stac
 
 | Risk | Severity | Mitigation |
 |------|----------|------------|
-| Skill file exceeding NFR-1 300-line cap | Medium | Recheck `wc -l` after every skill edit; overflow extracts to `docs/<skill>-reference.md` |
+| Skill file exceeding NFR-1 351-line cap | Medium | Recheck `wc -l` after every skill edit; overflow extracts to `docs/<skill>-reference.md` |
 | Drift detection false positives eroding trust | Medium | Drift always produces `GATE PASSED WITH NOTES`, never `GATE FAILED` (AC-1.4); advisory framing preserved |
 | Cross-skill schema drift (Schemas A–W) | Medium | Tier 1 grep checks in testing-spec + automated probes (`probe-parity.test.ts`, `archive-path-drift.test.ts`, `gate-check-milestone-strip-lint.test.ts`) |
 | Tracker mode concurrent edits (local vs. remote) | High | FR-33 `updatedAt` recording + FR-39 mandatory diff/resolve before push; Pattern: optimistic concurrency |

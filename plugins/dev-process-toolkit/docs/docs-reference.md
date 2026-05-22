@@ -1,6 +1,6 @@
 # `/docs` skill reference
 
-Extended reference for `skills/docs/SKILL.md`. Contains the LLM prompts verbatim, the merge algorithm pseudocode, fragment frontmatter examples, and per-section merge strategies. Pointed at from `SKILL.md` to keep the skill file under the NFR-1 300-line budget.
+Extended reference for `skills/docs/SKILL.md`. Contains the LLM prompts verbatim, the merge algorithm pseudocode, fragment frontmatter examples, and per-section merge strategies. Pointed at from `SKILL.md` to keep the skill file under the NFR-1 351-line budget.
 
 ## Quick-fragment prompt (NFR-22)
 

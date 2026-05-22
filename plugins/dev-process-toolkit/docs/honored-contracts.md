@@ -11,7 +11,7 @@ The catalog is intentionally short. An entry earns its place only after a contra
 
 ## /implement → /tdd
 
-**Mandate.** Inside `/implement` Phase 2, the build loop MUST delegate every FR's RED → GREEN → REFACTOR cycle to the `/dev-process-toolkit:tdd` multi-agent orchestrator. The parent `/implement` context does not write tests, write implementation code, or run the refactor pass inline — those passes belong to the three forked TDD subagents (test-writer / implementer / refactorer) under the orchestrator's bounded-retry budget.
+**Mandate.** Inside `/implement` Phase 2, the build loop MUST delegate every FR's RED → GREEN → REFACTOR → AUDIT cycle to the `/dev-process-toolkit:tdd` multi-agent orchestrator. The parent `/implement` context does not write tests, write implementation code, run the refactor pass, or run the spec-review audit inline — those passes belong to the four forked TDD subagents (test-writer / implementer / refactorer / spec-reviewer) under the orchestrator's bounded-retry budget.
 
 **Violation name.** Inline TDD Antipattern — `/implement` performing TDD in its own context instead of forking `/dev-process-toolkit:tdd` once per FR.
 

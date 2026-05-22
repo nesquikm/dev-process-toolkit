@@ -1,6 +1,6 @@
 ---
 name: spec-review
-description: Review implementation against specs to find deviations, missing features, or inconsistencies. Use to audit whether the code matches what the specs require.
+description: Review implementation against specs to find deviations, missing features, or inconsistencies. Delegates to the `spec-review-audit` fork + `spec-reviewer` subagent.
 allowed-tools: Read, Glob, Grep, Skill
 argument-hint: "[requirement-id or 'all']"
 ---

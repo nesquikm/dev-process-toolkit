@@ -11,7 +11,22 @@
 // `$()`, newlines, path-traversal `../`, Unicode homoglyphs, …) can never
 // escape the sanitizer.
 
-const ALLOWED_TYPES = new Set(["feat", "fix", "chore"]);
+// ALLOWED_TYPES mirrors the commit-msg hook's accept set
+// (`templates/git-hooks/commit-msg.sh`) minus `ci` — STE-228 TRUNK_OK_TYPES
+// excludes `ci:` from per-branch flow because `ci:` commits land on trunk.
+// Expanded from 3 → 10 entries by AC-STE-324.2.
+const ALLOWED_TYPES = new Set([
+  "feat",
+  "fix",
+  "chore",
+  "docs",
+  "style",
+  "refactor",
+  "perf",
+  "test",
+  "build",
+  "revert",
+]);
 const MAX_BRANCH_LENGTH = 60;
 
 /**

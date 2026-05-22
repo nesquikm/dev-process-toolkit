@@ -8,14 +8,15 @@
 //       local FR pointing to non-existent tracker ID → severity = error
 //
 // The probe itself lives at
-// `plugins/dev-process-toolkit/skills/gate-check/probes/tracker_local_reconciliation_drift.ts`
-// per the FR text; we import it from there.
+// `plugins/dev-process-toolkit/adapters/_shared/src/tracker_local_reconciliation_drift.ts`
+// per AC-STE-324.5 (relocated from skills/gate-check/probes/ to the canonical
+// adapters/_shared/src/ path matching 55 sibling probes); we import it from there.
 
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runTrackerLocalReconciliationDriftProbe } from "../skills/gate-check/probes/tracker_local_reconciliation_drift";
+import { runTrackerLocalReconciliationDriftProbe } from "../adapters/_shared/src/tracker_local_reconciliation_drift";
 import type { FRMetadata, FRSpec, LockResult, Provider, SyncResult } from "../adapters/_shared/src/provider";
 
 class StubTrackerProvider implements Provider {

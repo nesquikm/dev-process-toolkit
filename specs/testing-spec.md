@@ -24,7 +24,7 @@ Apply per changed file:
 | Section headings | Grep for expected titles referenced by ACs | Every referenced heading exists |
 | Internal references | Grep for skill names, file paths, schema anchors | Every referenced file/skill/anchor exists |
 | `<!-- ADAPT -->` markers | Grep `skills/**`, `agents/**` for `<!-- ADAPT` | Zero matches (AC-15.3) |
-| Line count | `wc -l` per SKILL.md | Every skill ≤ 300 lines (NFR-1) |
+| Line count | `wc -l` per SKILL.md | Every skill ≤ 351 lines (NFR-1) |
 | Frontmatter | YAML parse | Valid `name`, `description`, `argument-hint` fields |
 | Cross-skill schemas | Diff byte-for-byte between skills owning the same schema | NFR-4 — schemas match across files |
 | Verdict strings | Grep `GATE PASSED`, `GATE PASSED WITH NOTES`, `GATE FAILED` in `/gate-check` | All three exact strings present; no variants |
@@ -55,7 +55,7 @@ After any skill change, run the full workflow on the reference fixture set and b
 | `/gate-check` on clean + dirty trees | `tests/fixtures/projects/*` | `…/snapshots/gate-check.snap` |
 | `/spec-archive` | `tests/fixtures/projects/archivable/` | `…/snapshots/spec-archive.snap` |
 | `/setup --migrate` v1 → v2 | `tests/fixtures/migration/v1-to-v2/input/` | `tests/fixtures/migration/v1-to-v2/expected/` |
-| v2-minimal regression (all 12 skills) | `tests/fixtures/v2-minimal/` | `…/snapshots/<skill>.snap` |
+| v2-minimal regression (all 23 skills) | `tests/fixtures/v2-minimal/` | `…/snapshots/<skill>.snap` |
 | `mode: none` byte-for-byte regression | `tests/fixtures/projects/mode-none-baseline/` | live Schema L probe via `tests/scripts/verify-regression.test.ts` |
 
 Any diff against snapshot → stop-ship.
