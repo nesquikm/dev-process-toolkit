@@ -1,6 +1,6 @@
 ---
 name: tdd
-description: Multi-agent TDD orchestrator. Runs RED → GREEN → REFACTOR for one FR via three forked subagents (test-writer / implementer / refactorer) with a strict tdd-result hand-off contract, bounded retries, and a deterministic halt path. Replaces the previous single-context /tdd.
+description: Multi-agent TDD orchestrator. Runs RED → GREEN → REFACTOR → AUDIT for one FR via four forked subagents (test-writer / implementer / refactorer / spec-reviewer) with a strict tdd-result hand-off contract, bounded retries, and a deterministic halt path. Replaces the previous single-context /tdd.
 argument-hint: '<FR-id>'
 ---
 

@@ -67,11 +67,47 @@ describe("buildBranchProposal — template rendering (AC-STE-64.5)", () => {
   });
 });
 
-describe("buildBranchProposal — type clamping (AC-STE-64.13)", () => {
-  test("unknown type defaults to feat", () => {
-    expect(buildBranchProposal(ctx({ type: "refactor" }))).toBe("feat/m19-add-thing");
-    expect(buildBranchProposal(ctx({ type: "docs" }))).toBe("feat/m19-add-thing");
+describe("buildBranchProposal — type clamping (AC-STE-64.13 + AC-STE-324.2)", () => {
+  test("truly unknown type defaults to feat (post-STE-324.2: only non-CC types fall through)", () => {
+    // After AC-STE-324.2 expansion, `refactor` and `docs` are now allowed; only
+    // wholly-unknown types (or empty) coerce to `feat`.
+    expect(buildBranchProposal(ctx({ type: "garbage" }))).toBe("feat/m19-add-thing");
     expect(buildBranchProposal(ctx({ type: "" }))).toBe("feat/m19-add-thing");
+    expect(buildBranchProposal(ctx({ type: "wat" }))).toBe("feat/m19-add-thing");
+  });
+
+  test("AC-STE-324.2: `refactor` is preserved (no longer coerces to `feat`)", () => {
+    expect(buildBranchProposal(ctx({ type: "refactor" }))).toBe("refactor/m19-add-thing");
+  });
+
+  test("AC-STE-324.2: `docs` is preserved (no longer coerces to `feat`)", () => {
+    expect(buildBranchProposal(ctx({ type: "docs" }))).toBe("docs/m19-add-thing");
+  });
+
+  test("AC-STE-324.2: `style` is preserved", () => {
+    expect(buildBranchProposal(ctx({ type: "style" }))).toBe("style/m19-add-thing");
+  });
+
+  test("AC-STE-324.2: `perf` is preserved", () => {
+    expect(buildBranchProposal(ctx({ type: "perf" }))).toBe("perf/m19-add-thing");
+  });
+
+  test("AC-STE-324.2: `test` is preserved", () => {
+    expect(buildBranchProposal(ctx({ type: "test" }))).toBe("test/m19-add-thing");
+  });
+
+  test("AC-STE-324.2: `build` is preserved", () => {
+    expect(buildBranchProposal(ctx({ type: "build" }))).toBe("build/m19-add-thing");
+  });
+
+  test("AC-STE-324.2: `revert` is preserved", () => {
+    expect(buildBranchProposal(ctx({ type: "revert" }))).toBe("revert/m19-add-thing");
+  });
+
+  test("AC-STE-324.2: `ci` remains excluded (TRUNK_OK_TYPES carve-out per STE-228) — coerces to `feat`", () => {
+    // `ci:` commits land on trunk per STE-228 TRUNK_OK_TYPES carve-out;
+    // the branch ALLOWED_TYPES intentionally excludes it.
+    expect(buildBranchProposal(ctx({ type: "ci" }))).toBe("feat/m19-add-thing");
   });
 
   test("type stripped of disallowed chars before match", () => {

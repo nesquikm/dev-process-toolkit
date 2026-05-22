@@ -1,6 +1,6 @@
 # `/ship-milestone` Reference
 
-Extended reference for `/dev-process-toolkit:ship-milestone` — overflow content from `skills/ship-milestone/SKILL.md` (NFR-1 300-line cap). The skill carries the condensed flow; consult this file when debugging a weird bump result, editing the generated CHANGELOG entry, or adding a new stack to the test-output parser.
+Extended reference for `/dev-process-toolkit:ship-milestone` — overflow content from `skills/ship-milestone/SKILL.md` (NFR-1 351-line cap). The skill carries the condensed flow; consult this file when debugging a weird bump result, editing the generated CHANGELOG entry, or adding a new stack to the test-output parser.
 
 ## CHANGELOG subsection policy
 
@@ -46,15 +46,9 @@ Implemented in `adapters/_shared/src/version_bump.ts`. The `inferBump(ctx)` func
 
 Empty FR list is still a minor bump, labelled `default minor bump (no FRs in milestone)` — but `/ship-milestone`'s unshipped-FR pre-flight refusal catches the real cases first.
 
-## README structure-count refresh
+## README structure counts (not auto-refreshed)
 
-`/ship-milestone` walks these directories and emits current counts into the `## Structure` section of `README.md`:
-
-- `plugins/dev-process-toolkit/skills/` — count of directories containing a `SKILL.md`.
-- `plugins/dev-process-toolkit/docs/` — count of `patterns.md` pattern entries (grep for `## Pattern <N>:` style headings).
-- `plugins/dev-process-toolkit/agents/` — count of `.md` files.
-
-**Shape-change guard.** If the `## Structure` block's shape has changed (a human edited the block manually — e.g., added a new counted directory), refuse with NFR-10 asking the user to re-confirm. Never silently coerce an unfamiliar structure block.
+`/ship-milestone` does not auto-refresh README structure counts. The byte-checkable enforcement layer is `/gate-check` probe #57 (`public_surface_count_drift`) — see STE-315 for the probe contract; release commits inherit its result through the standard pre-flight gate.
 
 ## Test-count parser
 

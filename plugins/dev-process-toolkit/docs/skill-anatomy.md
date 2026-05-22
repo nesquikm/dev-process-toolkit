@@ -51,7 +51,7 @@ Declare `allowed-tools:` in SKILL.md frontmatter when the skill is **read-only b
 
 If the skill needs write or shell access (most skills do — `setup`, `implement`, `gate-check`, etc.), **omit the field** and inherit the session's full allowlist. Adding `allowed-tools:` to a write-capable skill silently strips its capabilities at runtime.
 
-The toolkit's canonical read-only example is `skills/spec-review/SKILL.md`, which carries `allowed-tools: Read, Glob, Grep` because it audits specs against the codebase without ever editing. The other 13 skills omit the field by design.
+The toolkit's canonical read-only example is `skills/spec-review/SKILL.md`, which carries `allowed-tools: Read, Glob, Grep, Skill` because it audits specs against the codebase without ever editing; the other 22 skills omit the field by design.
 
 ## Skill Types in the SDD Toolkit
 
@@ -81,7 +81,7 @@ The toolkit's canonical read-only example is `skills/spec-review/SKILL.md`, whic
 - **Key pattern**: 4-phase pipeline with three-stage bounded self-review loop (spec compliance → code quality → hardening)
 
 ### 3. TDD (multi-agent orchestrator)
-- **Purpose**: RED → GREEN → REFACTOR for one FR via three forked-subagent stages with strict context isolation per STE-225
+- **Purpose**: RED → GREEN → REFACTOR → AUDIT for one FR via four forked subagents with strict context isolation per STE-225 + STE-296
 - **Invocation**: User-invoked (`/dev-process-toolkit:tdd <FR-id>`) or called inline from /implement Phase 2
 - **Key pattern**: One orchestrator (main context) drives three child skills with `context: fork` + `agent:` pairing — `tdd-write-test` (once per FR, batched ACs), `tdd-implement` (once per AC), `tdd-refactor` (once at end after all GREEN). Each child ends with a single fenced `tdd-result` YAML block parsed deterministically by `parseTddResultBlock` from `adapters/_shared/src/tdd_result.ts`. Bounded retries (max 2 per role per AC for semantic failures via `recordTddFailure` from `tdd_retry_state.ts`; single targeted retry for format violations). Halt path emits failure mode + retry count + last block via `formatHaltReport` from `tdd_halt_report.ts`. The retry prompt injects only raw failing-test output — no orchestrator-side analysis — to preserve the test-writer-cannot-see-implementation guarantee. Plugin-bundled subagents drop `hooks` / `mcpServers` / `permissionMode` (Claude Code strips these on the plugin path); behavior comes from the SKILL.md prompt + `tools` allowlist (`Read, Grep, Glob, Write, Edit, Bash` — no `Agent`, no Web tools). `/gate-check` carries a structural probe `tdd_orchestrator_integrity` that asserts the four skill paths exist, children carry `context: fork`, `agent:` resolves, `user-invocable: false` on children, subagent `tools` excludes `Agent`.
 

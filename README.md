@@ -1,13 +1,13 @@
 # Dev Process Toolkit
 
-A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 15 commands, 5 agents, spec templates, and documentation.
+A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 16 commands, 8 agents, spec templates, and documentation.
 
 ## Features
 
 - **Spec-Driven Development (SDD)** — requirements, technical, testing, and plan files as the source of truth
-- **Multi-agent TDD orchestrator** — `/tdd` runs RED → GREEN → REFACTOR via three forked subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`) with context isolation, a strict `tdd-result` YAML hand-off, and bounded retries; `/implement` invokes it inline per FR
+- **Multi-agent TDD orchestrator** — `/tdd` runs RED → GREEN → REFACTOR → AUDIT via four forked subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`, `tdd-spec-reviewer`) with context isolation, a strict `tdd-result` YAML hand-off, and bounded retries; `/implement` invokes it inline per FR
 - **Bounded three-stage self-review** — Stage A spec compliance → Stage B two-pass `code-reviewer` agent (Pass 1 spec compliance, Pass 2 code quality, fail-fast) → Stage C hardening, capped before human escalation
-- **Deterministic quality gates** — 51 numbered `/gate-check` probes (typecheck + lint + test + spec/plan/frontmatter/branch hygiene) override LLM judgment
+- **Deterministic quality gates** — 59 numbered `/gate-check` probes (typecheck + lint + test + spec/plan/frontmatter/branch hygiene) override LLM judgment
 - **Universal pre-commit branch gate** — every commit-producing skill calls `requireCommittableBranch`; trunk-OK narrows to `ci` only, so `chore`/`docs`/`feat` cannot land on `main` accidentally
 - **Non-technical drafting (`--no-tech`)** — `/brainstorm` and `/spec-write` skip the technical-design + testing interviews; FR ships with `needs_technical_review: true` and `/implement` refuses until a reviewer fills it in
 - **Topic-aware spec retrieval** — `spec-researcher` Read-only Haiku subagent (invoked by `/brainstorm` and `/spec-write` via the `spec-research` fork) returns related FRs from active + archived specs as a fixed-shape ≤ 25-line block, no parent-context pollution
@@ -90,7 +90,7 @@ flowchart LR
     Build --> Ship
 ```
 
-Under the hood, `/implement` invokes the `/tdd` orchestrator inline per FR — `/tdd` forks three subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`) into isolated contexts and parses their `tdd-result` YAML hand-off. It runs gate commands inline (e.g., `bun test`) rather than invoking the `/gate-check` skill (which layers 41 probes on top of those commands), and invokes `/docs --quick` once per FR for the Phase 4b doc fragment. `/brainstorm` and `/spec-write` similarly fork the read-only `spec-research` skill (paired with the `spec-researcher` Haiku subagent) for topic-aware retrieval of related active + archived FRs. After self-review and human approval, `/implement` commits and stops — you open the PR via `/pr` separately. `/ship-milestone` invokes `/docs --commit --full` to fold staged fragments into the canonical docs tree before cutting the release commit.
+Under the hood, `/implement` invokes the `/tdd` orchestrator inline per FR — `/tdd` forks four subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`, `tdd-spec-reviewer`) into isolated contexts and parses their `tdd-result` YAML hand-off. It runs gate commands inline (e.g., `bun test`) rather than invoking the `/gate-check` skill (which layers 59 probes on top of those commands), and invokes `/docs --quick` once per FR for the Phase 4b doc fragment. `/brainstorm` and `/spec-write` similarly fork the read-only `spec-research` skill (paired with the `spec-researcher` Haiku subagent) for topic-aware retrieval of related active + archived FRs. After self-review and human approval, `/implement` commits and stops — you open the PR via `/pr` separately. `/ship-milestone` invokes `/docs --commit --full` to fold staged fragments into the canonical docs tree before cutting the release commit.
 
 Spine skills (bold, stadium-shaped) are the recommended invoke path; secondary skills (muted rectangles) are auxiliary tools and auto-invoked helpers.
 
@@ -110,7 +110,7 @@ Commands are invoked with the `/dev-process-toolkit:` plugin-namespace prefix in
 | `/brainstorm`     | Socratic design session before writing specs (for open-ended features)                                                                                                                                                                                             | `[--no-tech] [<feature or problem description> \| <gist-url>]`             |
 | `/spec-write`     | Guide through writing spec files (requirements, technical, testing, plan)                                                                                                                                                                                          | `[--no-tech] [requirements \| technical \| testing \| plan \| all]`        |
 | `/implement`      | End-to-end feature implementation with TDD and bounded three-stage self-review (Stage A spec compliance → Stage B two-pass delegated review: Pass 1 spec compliance, Pass 2 code quality, fail-fast → Stage C hardening)                                           | `<milestone, task description, issue number, "next", or "all">`            |
-| `/tdd`            | RED → GREEN → VERIFY cycle                                                                                                                                                                                                                                         | `<FR-id>`                                                                  |
+| `/tdd`            | RED → GREEN → REFACTOR → AUDIT cycle                                                                                                                                                                                                                                         | `<FR-id>`                                                                  |
 | `/gate-check`     | Deterministic quality gates (typecheck + lint + test)                                                                                                                                                                                                              | `[--fix to auto-fix lint issues]`                                          |
 | `/debug`          | Structured debugging protocol for failing tests or unclear gate failures                                                                                                                                                                                           | `<failing test, error message, or symptom>`                                |
 | `/spec-review`    | Audit code against spec requirements                                                                                                                                                                                                                               | `[requirement-id or 'all']`                                                |
@@ -123,7 +123,7 @@ Commands are invoked with the `/dev-process-toolkit:` plugin-namespace prefix in
 | `/ship-milestone` | Bundle the Release Checklist + `/docs --commit --full` into one atomic, human-approved release commit                                                                                                                                                              | `[M<N>] [--version X.Y.Z] [--codename "<name>"] [--summary "<text>"]`      |
 | `/deps`           | Manage a git-tracked `specs/deps.yaml` manifest of sibling packages — Socratic `add` / `edit` / `delete` / `list` / `sync` subcommands; underpins the `deps-research` retrieval fork that feeds `/brainstorm` and `/spec-write`                                    | `<subcommand> [args...]`                                                   |
 
-Six additional skills (`spec-research`, `tdd-write-test`, `tdd-implement`, `tdd-refactor`, `tdd-spec-review`, `deps-research`) are not user-invocable — they run only as `context: fork` children of `/brainstorm`, `/spec-write`, and `/tdd`.
+Seven additional skills (`spec-research`, `spec-review-audit`, `tdd-write-test`, `tdd-implement`, `tdd-refactor`, `tdd-spec-review`, `deps-research`) are not user-invocable — they run only as `context: fork` children of `/brainstorm`, `/spec-write`, `/spec-review`, and `/tdd`.
 
 ### Agents
 
@@ -147,8 +147,8 @@ dev-process-toolkit/
 │   └── dev-process-toolkit/         # The plugin
 │       ├── .claude-plugin/
 │       │   └── plugin.json          # Plugin manifest
-│       ├── skills/                  # 22 skills (16 user-invocable + 6 internal forks)
-│       ├── agents/                  # 7 specialist agents (code-reviewer, spec-researcher, deps-researcher, tdd-{test-writer,implementer,refactorer,spec-reviewer})
+│       ├── skills/                  # 23 (16 + 7) skills (16 user-invocable + 7 internal forks)
+│       ├── agents/                  # 8 specialist agents (code-reviewer, spec-researcher, spec-reviewer, deps-researcher, tdd-{test-writer,implementer,refactorer,spec-reviewer})
 │       ├── adapters/                # 3 tracker adapters (linear, jira, _template) + _shared helpers
 │       ├── templates/               # CLAUDE.md and spec templates
 │       ├── docs/                    # Methodology and guides
@@ -161,7 +161,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.28.1 — "Hinted"** (M83 — surfaces each user-callable skill's `argument-hint:` frontmatter in the README Commands table by adding an `Args` column populated verbatim from the YAML source (16 rows), and strips the `/dev-process-toolkit:` namespace prefix from the Command column to match the Agents-table convention from STE-130. Documentation-only workaround for upstream Claude Code issue [#43401](https://github.com/anthropics/claude-code/issues/43401) — `argument-hint:` does not yet render in autocomplete for plugin-namespaced skills. SKILL.md `argument-hint:` frontmatter left untouched for forward-compat. Patch release per minimal-scope intent.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.30.0 — "Quoted"** (M85 closes the `/conformance-loop` Phase A spawn snippet shape regression — Linear + Jira children fast-failed at CLI parse with `error: unknown option '--tracker'` because the bare-arg form (`claude -p /smoke-test --tracker linear ...`) spilled skill-args into `[args]` instead of stuffing the quoted `<command>` positional. Ship-broken since STE-224 (M57, 2026-05-05); caught by a live `/conformance-loop --jira-project DST` run on 2026-05-21. Two-line spec edit + matching update to the STE-224 regression test, which had bug-mirrored the broken shape.)
 
 ## Core Philosophy
 

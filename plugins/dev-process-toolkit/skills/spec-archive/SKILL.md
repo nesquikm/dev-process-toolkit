@@ -45,7 +45,7 @@ Archival uses the same code path as `/implement` Phase 4.
    - `Provider.releaseLock(<ulid>)`. In tracker mode this transitions the ticket to `done`; in tracker-less mode it removes the in-flight lock file.
    - **Universal pre-commit branch gate (STE-228).** Before staging the atomic commit, call `requireCommittableBranch({ commitType: "chore", proposedBranchName, currentBranch, isAutoMode })` from `adapters/_shared/src/require_committable_branch.ts` with `proposedBranchName` returned by `branchNameFor({ kind: "fr-archive", trackerId })` from `skills/spec-archive/branch_name_for.ts` (FR archive → `chore/archive-<tracker-id>`; milestone archive → `chore/archive-m<N>`; collision-suffix per STE-228 AC-STE-228.11). On `created` / `edited` the gate runs `git checkout -b <branchName>` so the archive commit lands on the new branch; `declined` rolls back staging via `git reset HEAD <paths>` (explicit list, never `--hard`) and exits non-zero; `no-op` (off-trunk OR `commitType ∈ TRUNK_OK_TYPES = ["ci"]`) is silent. Auto-mode default-apply uses the `<dpt:auto-approve>v1</dpt:auto-approve>` marker per STE-226. See STE-228 § Branch-name canonical table for the full builder catalogue.
    - All of the above land in a single atomic commit.
-5. Run the Post-Archive Drift Check (§ Post-Archive Drift Check below).
+4. Run the Post-Archive Drift Check (§ Post-Archive Drift Check below).
 
 **Milestone-group archival** (argument is `M<N>`):
 
@@ -54,8 +54,7 @@ Archival uses the same code path as `/implement` Phase 4.
    - Per matched FR: `git mv specs/frs/<Provider.filenameFor(spec)> specs/frs/archive/<same-name>` + frontmatter flip + traceability-link rewrite (`rewriteArchiveLinks(repoRoot, frId)`) + `Provider.releaseLock`.
    - If `specs/plan/M<N>.md` exists, include `git mv specs/plan/M<N>.md specs/plan/archive/M<N>.md`.
 3. Present the Diff Preview covering every move + flip + traceability rewrite + release.
-4. On approval, land all N moves + N flips + N rewrites + N `releaseLock` calls + the optional plan-file move in a **single atomic commit**. Any error aborts the commit entirely — no partial archival.
-5. Run the Post-Archive Drift Check.
+4. On approval, land all N moves + N flips + N rewrites + N `releaseLock` calls + the optional plan-file move in a **single atomic commit**. Any error aborts the commit entirely — no partial archival. Then run the Post-Archive Drift Check.
 
 **Plan-only archival** (STE-200 AC-STE-200.1 / AC-STE-200.2 — milestone has zero FRs in `specs/frs/`):
 

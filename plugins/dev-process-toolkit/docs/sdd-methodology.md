@@ -59,10 +59,11 @@ A milestone is not done until its gate check passes AND a human reviews it.
 
 ### 3. TDD Drives Each Task
 
-Within a milestone, each task follows RED → GREEN → VERIFY:
+Within a milestone, each task follows RED → GREEN → REFACTOR → AUDIT:
 - **RED**: Write failing test derived from spec AC
 - **GREEN**: Implement minimum code to pass
-- **VERIFY**: Run full gate check (typecheck + lint + test)
+- **REFACTOR**: Clean up implementation while keeping tests green
+- **AUDIT**: Spec-reviewer fork verifies implementation matches AC contract
 
 ### 4. Gate Checks Are Deterministic Kill Switches
 

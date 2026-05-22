@@ -78,7 +78,7 @@ Not every project needs every skill. Here's a recommended progression:
 
 ### Minimum viable (any project)
 - `/gate-check` — Deterministic quality gate
-- `/tdd` — RED → GREEN → VERIFY cycle
+- `/tdd` — RED → GREEN → REFACTOR → AUDIT cycle
 - `/debug` — Structured debugging when gate or tests fail
 
 ### Standard (projects with specs or issues)
@@ -110,7 +110,7 @@ Not every project needs every skill. Here's a recommended progression:
 
 Agents are specialist personas spawned by Claude via the `Agent` tool. The plugin ships exactly one agent:
 
-- **code-reviewer** — The canonical code review rubric (quality, security, patterns, stack-specific). `/implement` Phase 3 Stage B delegates to it via explicit `Agent`-tool invocation — see `docs/skill-anatomy.md` § Subagent Execution for the concrete example. `/gate-check` also references `agents/code-reviewer.md` as its rubric source, but runs the review inline so the verdict returns in one turn. Spec-compliance checks are **not** code-reviewer's job — `/spec-review` owns AC→code traceability.
+- **code-reviewer** — The canonical code review rubric (quality, security, patterns, stack-specific). `/implement` Phase 3 Stage B delegates to it via explicit `Agent`-tool invocation — see `docs/skill-anatomy.md` § Subagent Execution for the concrete example. `/gate-check` also references `agents/code-reviewer.md` as its rubric source, but runs the review inline so the verdict returns in one turn. `/spec-review` runs the deep-traceability audit; `code-reviewer` Pass-1 is the inline per-PR check inside `/implement` Phase 3 Stage B — both own spec-compliance in different contexts.
 
 Agents live in `.claude/agents/` (or `plugins/<plugin>/agents/` for plugins) and need `name` and `description` in frontmatter, a domain expertise description, and an explicit return shape so the calling skill can parse findings deterministically.
 

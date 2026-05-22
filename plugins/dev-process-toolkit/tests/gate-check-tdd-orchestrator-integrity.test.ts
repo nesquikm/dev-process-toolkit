@@ -8,9 +8,11 @@ import {
 
 // STE-225 AC.7 — `/gate-check` structural probe `tdd_orchestrator_integrity`.
 //
-// Asserts (and only asserts) load-bearing invariants:
-//   (a) the four skill paths exist (orchestrator + 3 children)
-//   (b) the three child skills carry `context: fork`
+// Per STE-318 / STE-296 canon, the orchestrator drives a 4-stage pipeline
+// (write-test → implement → refactor → spec-review) via forked child skills.
+// This test exercises the probe's load-bearing structural assertions:
+//   (a) the orchestrator skill and each tracked child skill path exist
+//   (b) each tracked child skill carries `context: fork`
 //   (c) each child's `agent:` resolves to a real agents/*.md
 //   (d) each child carries `user-invocable: false`
 //   (e) each subagent's `tools` field excludes `Agent`
@@ -114,7 +116,7 @@ function makeFixture(spec: FixtureSpec): { root: string; cleanup: () => void } {
 }
 
 describe("AC-STE-225.7 — tdd_orchestrator_integrity probe", () => {
-  test("clean fixture (orchestrator + 3 children + 3 subagents) ⇒ zero violations", async () => {
+  test("clean fixture (orchestrator + tracked children + tracked subagents) ⇒ zero violations", async () => {
     const fx = makeFixture({});
     try {
       const r = await runTddOrchestratorIntegrityProbe(fx.root);

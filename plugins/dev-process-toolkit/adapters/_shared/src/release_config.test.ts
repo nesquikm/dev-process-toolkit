@@ -313,6 +313,158 @@ describe("bumpFile dispatcher", () => {
   });
 });
 
+describe("AC-STE-324.3 — per-kind path-shape validation in validateEntry", () => {
+  // After AC-STE-324.3, validateEntry dispatches per-kind path-shape checks:
+  //   - kind: yaml rejects any `field:` containing a `.` (bumpYaml only handles
+  //     top-level fields — dotted paths are not supported until a follow-up FR).
+  //   - kind: toml accepts top-level and one-level-dotted paths (matches
+  //     bumpToml's current capability — `version` and `project.version`).
+  //   - kind: json accepts any path including array-indexed (`plugins[0].version`).
+
+  test("yaml: top-level field is accepted", () => {
+    const md = [
+      "## Release Files",
+      "",
+      "```yaml",
+      "files:",
+      "  - path: pubspec.yaml",
+      "    kind: yaml",
+      "    field: version",
+      "```",
+      "",
+    ].join("\n");
+    const out = parseReleaseFiles(md);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.field).toBe("version");
+  });
+
+  test("yaml: dotted field is REJECTED with NFR-10 canonical refusal mentioning the dotted path", () => {
+    const md = [
+      "## Release Files",
+      "",
+      "```yaml",
+      "files:",
+      "  - path: pubspec.yaml",
+      "    kind: yaml",
+      "    field: project.version",
+      "```",
+      "",
+    ].join("\n");
+    expect(() => parseReleaseFiles(md)).toThrow(MalformedReleaseFilesError);
+    // Canonical refusal must surface the dotted path value verbatim so the
+    // operator can locate it in their CLAUDE.md without guessing.
+    try {
+      parseReleaseFiles(md);
+      throw new Error("expected throw");
+    } catch (err) {
+      if (!(err instanceof MalformedReleaseFilesError)) throw err;
+      expect(err.message).toContain("yaml");
+      expect(err.message).toContain("top-level");
+      expect(err.message).toContain("project.version");
+    }
+  });
+
+  test("yaml: deeply-dotted field is REJECTED (same shape as one-level-dotted)", () => {
+    const md = [
+      "## Release Files",
+      "",
+      "```yaml",
+      "files:",
+      "  - path: pubspec.yaml",
+      "    kind: yaml",
+      "    field: a.b.c",
+      "```",
+      "",
+    ].join("\n");
+    expect(() => parseReleaseFiles(md)).toThrow(MalformedReleaseFilesError);
+  });
+
+  test("toml: top-level field is accepted", () => {
+    const md = [
+      "## Release Files",
+      "",
+      "```yaml",
+      "files:",
+      "  - path: pyproject.toml",
+      "    kind: toml",
+      "    field: version",
+      "```",
+      "",
+    ].join("\n");
+    const out = parseReleaseFiles(md);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.field).toBe("version");
+  });
+
+  test("toml: one-level-dotted field is accepted (matches bumpToml capability)", () => {
+    const md = [
+      "## Release Files",
+      "",
+      "```yaml",
+      "files:",
+      "  - path: pyproject.toml",
+      "    kind: toml",
+      "    field: project.version",
+      "```",
+      "",
+    ].join("\n");
+    const out = parseReleaseFiles(md);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.field).toBe("project.version");
+  });
+
+  test("json: top-level field is accepted", () => {
+    const md = [
+      "## Release Files",
+      "",
+      "```yaml",
+      "files:",
+      "  - path: package.json",
+      "    kind: json",
+      "    field: version",
+      "```",
+      "",
+    ].join("\n");
+    const out = parseReleaseFiles(md);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.field).toBe("version");
+  });
+
+  test("json: array-indexed field is accepted (`plugins[0].version`)", () => {
+    const md = [
+      "## Release Files",
+      "",
+      "```yaml",
+      "files:",
+      "  - path: marketplace.json",
+      "    kind: json",
+      "    field: plugins[0].version",
+      "```",
+      "",
+    ].join("\n");
+    const out = parseReleaseFiles(md);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.field).toBe("plugins[0].version");
+  });
+
+  test("json: dotted field is accepted (`package.version`)", () => {
+    const md = [
+      "## Release Files",
+      "",
+      "```yaml",
+      "files:",
+      "  - path: package.json",
+      "    kind: json",
+      "    field: package.version",
+      "```",
+      "",
+    ].join("\n");
+    const out = parseReleaseFiles(md);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.field).toBe("package.version");
+  });
+});
+
 describe("AC-STE-167.6 — round-trip (parse → bump → re-parse fixture stability)", () => {
   test("parsing each canonical fixture shape returns valid entries", () => {
     const fixtures: Array<{ kinds: ReleaseFile["kind"][] }> = [

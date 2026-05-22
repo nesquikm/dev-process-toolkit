@@ -170,3 +170,78 @@ describe("AC-STE-139.5 — identity-mode-conditional runs clean on this repo's b
     expect(report.violations).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// STE-321 AC-STE-321.5 + AC-STE-321.10 — probe #13 enforces the bidirectional
+// `tracker:` invariant alongside the existing `id:` invariant.
+//
+//   - tracker mode: `tracker:` MUST be present + populated.
+//   - mode: none:   `tracker:` MUST be absent.
+//
+// Five new fixtures:
+//   tracker-mode-no-tracker     → FAIL (tracker-mode missing required tracker:)
+//   mode-none-has-tracker       → FAIL (mode-none with stray populated tracker:)
+//   mode-none-empty-tracker     → FAIL (mode-none with legacy `tracker: {}`)
+//   tracker-mode-populated      → PASS (control)
+//   mode-none-no-tracker        → PASS (control)
+// ---------------------------------------------------------------------------
+
+describe("STE-321 AC-STE-321.5 — probe #13 enforces bidirectional `tracker:` invariant", () => {
+  test("tracker-mode-no-tracker: tracker-mode FR missing required tracker: → violation", async () => {
+    const report = await runIdentityModeConditionalProbe(fixturePath("tracker-mode-no-tracker"));
+    expect(report.mode).toBe("linear");
+    expect(report.violations.length).toBeGreaterThan(0);
+    const trackerViolation = report.violations.find((v) =>
+      /tracker/i.test(v.note) || /tracker/i.test(v.message),
+    );
+    expect(trackerViolation).toBeDefined();
+    expect(trackerViolation!.expected).toMatch(/present|populated/i);
+  });
+
+  test("mode-none-has-tracker: mode-none with stray populated tracker: → violation", async () => {
+    const report = await runIdentityModeConditionalProbe(fixturePath("mode-none-has-tracker"));
+    expect(report.mode).toBe("none");
+    expect(report.violations.length).toBeGreaterThan(0);
+    const trackerViolation = report.violations.find((v) =>
+      /tracker/i.test(v.note) || /tracker/i.test(v.message),
+    );
+    expect(trackerViolation).toBeDefined();
+    expect(trackerViolation!.expected).toBe("absent");
+  });
+
+  test("mode-none-empty-tracker: mode-none with legacy `tracker: {}` → violation", async () => {
+    const report = await runIdentityModeConditionalProbe(fixturePath("mode-none-empty-tracker"));
+    expect(report.mode).toBe("none");
+    expect(report.violations.length).toBeGreaterThan(0);
+    const trackerViolation = report.violations.find((v) =>
+      /tracker/i.test(v.note) || /tracker/i.test(v.message),
+    );
+    expect(trackerViolation).toBeDefined();
+    expect(trackerViolation!.expected).toBe("absent");
+  });
+
+  test("tracker-mode-populated: control passes with zero violations", async () => {
+    const report = await runIdentityModeConditionalProbe(fixturePath("tracker-mode-populated"));
+    expect(report.mode).toBe("linear");
+    expect(report.violations).toEqual([]);
+  });
+
+  test("mode-none-no-tracker: control passes with zero violations", async () => {
+    const report = await runIdentityModeConditionalProbe(fixturePath("mode-none-no-tracker"));
+    expect(report.mode).toBe("none");
+    expect(report.violations).toEqual([]);
+  });
+});
+
+describe("STE-321 AC-STE-321.10 — note shape carries `file:line — reason` for tracker violations", () => {
+  test("tracker-mode-no-tracker violation renders canonical note shape", async () => {
+    const report = await runIdentityModeConditionalProbe(fixturePath("tracker-mode-no-tracker"));
+    const trackerViolation = report.violations.find((v) =>
+      /tracker/i.test(v.note) || /tracker/i.test(v.message),
+    );
+    expect(trackerViolation).toBeDefined();
+    expect(trackerViolation!.note).toMatch(/^specs\/frs\/.*\.md:\d+ — /);
+    expect(trackerViolation!.message).toMatch(/Remedy:/);
+    expect(trackerViolation!.message).toMatch(/Context:/);
+  });
+});

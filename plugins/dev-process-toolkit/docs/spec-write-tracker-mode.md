@@ -1,5 +1,7 @@
 # `/spec-write` Tracker Mode Flow
 
+> See `docs/layout-reference.md` — canonical authority on FR file shape (per-FR file path, AC-prefix derivation, `## Acceptance Criteria` section).
+
 Detailed tracker-mode procedures for `/spec-write`. Pointed at from
 `skills/spec-write/SKILL.md` step 0 to keep the skill under NFR-1.
 
@@ -38,12 +40,16 @@ Mode: none projects mint the short-ULID tail locally (collision-proof by Crockfo
 
 ## Post-save behavior (tracker mode)
 
-After each FR-level AC save in `specs/requirements.md`:
+After each AC-list save in `specs/frs/<tracker-id>.md`'s
+`## Acceptance Criteria` section:
 
-1. Resolve ticket-id for the edited FR via the traceability matrix row
-   (FR-{N} → ticket-id). If the matrix has no row yet, prompt the user
-   for a fresh `upsert_ticket_metadata(null, ...)` invocation that
-   creates the ticket and writes the returned ID back into the matrix.
+1. Resolve the ticket-id for the edited FR directly from the filename
+   (`<tracker-id>.md`) — the filename IS the binding, no separate
+   traceability matrix is consulted. If the FR is brand-new and the
+   filename still carries the `<tracker-id>` placeholder, prompt the
+   user for a fresh `upsert_ticket_metadata(null, ...)` invocation that
+   creates the ticket and substitutes the returned ID per the
+   placeholder rule above.
 2. Run ticket-binding confirmation per `docs/ticket-binding.md`.
 3. Call `pull_acs(ticket_id)` — fresh fetch, just like `/implement` does.
 4. Classify the local AC list vs the tracker AC list via the bidirectional
@@ -60,17 +66,17 @@ After each FR-level AC save in `specs/requirements.md`:
 
 `/spec-write` on a brand-new FR (no ticket bound yet) skips steps 1–5 and
 goes straight to `upsert_ticket_metadata(null, title, description)` to
-mint a new ticket; the returned ID is written to the traceability matrix
-(same pattern as the post-create traceability backfill).
+mint a new ticket; the returned ID becomes the FR filename
+(`specs/frs/<tracker-id>.md`) — the filename IS the binding (no
+separate traceability matrix is maintained).
 
 ## Cancel semantics
 
 - **During diff/resolve cancel (step 5):** local draft stays in memory;
   tracker untouched. User can retry or abandon.
-- **During mint-new cancel:** no `upsert_ticket_metadata` call; no
-  traceability matrix update; `specs/requirements.md` keeps whatever the
-  user just saved (it's already on disk — cancel here means "don't push
-  to tracker yet").
+- **During mint-new cancel:** no `upsert_ticket_metadata` call; no FR
+  file is written to disk (the draft stays in memory — cancel here means
+  "don't push to tracker, don't land the file yet").
 
 ## MCP call budget (NFR-8)
 

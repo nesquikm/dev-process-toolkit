@@ -71,11 +71,23 @@ npm run typecheck && npm run lint && npm run test
 
 ## Workflows
 
-<!-- Choose the path that matches your task -->
+<!-- Choose the path that matches your task. The Feature path is the canonical
+     SDD+TDD chain — `/implement` orchestrates `/tdd` per FR automatically. -->
 
-**Bugfix:** `/debug → /implement → /gate-check → /pr`
-**Feature:** `/brainstorm → /spec-write → /implement → /simplify → /spec-review → /gate-check → /pr`
+**Bugfix:** `/report-issue → /debug → /implement → /tdd (auto) → /gate-check → /pr`
+**Feature:** `/brainstorm → /spec-write → /implement → /tdd (auto) → /gate-check → /docs → /ship-milestone → /pr`
 **Refactor:** `/implement → /simplify → /gate-check → /pr`
+**UI change:** `/implement → /visual-check → /gate-check → /pr`
+
+<!-- Other user-invocable skills (call directly as needed):
+     - `/deps` — manage the sibling-package dependency manifest (`specs/deps.yaml`)
+       that feeds topic-aware retrieval into `/brainstorm` and `/spec-write`.
+     - `/spec-review` — audit shipped code against the FR's specs (read-only).
+     - `/docs` — `--quick` stages per-FR doc fragments; `--commit` merges them;
+       `--full` regenerates the canonical `docs/` tree.
+     - `/ship-milestone` — bundle the Release Checklist + `/docs --commit --full`
+       into one atomic, human-approved release commit. -->
+
 
 ## Key Patterns
 

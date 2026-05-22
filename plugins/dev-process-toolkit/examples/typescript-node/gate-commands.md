@@ -34,14 +34,33 @@ npm run build        # vite build / tsc / esbuild
 
 ## Settings Example
 
+> Cross-reference: the canonical-shape probe at `adapters/_shared/src/setup_permissions_shape.ts` empirically rejects glob-form `Bash(<cmd> *)` rules; the canonical allowlist lives in `templates/permissions.json` — both are the source of truth for the block below.
+
 ```json
 {
   "permissions": {
     "allow": [
-      "Bash(npm run *)",
-      "Bash(npx *)",
-      "Bash(git *)",
-      "Bash(gh *)"
+      "Bash(git status)",
+      "Bash(git diff)",
+      "Bash(git log)",
+      "Bash(git show)",
+      "Bash(git rev-parse)",
+      "Bash(git ls-files)",
+      "Bash(git branch)",
+      "Bash(git blame)",
+      "Bash(gh pr list)",
+      "Bash(gh pr view)",
+      "Bash(gh issue list)",
+      "Bash(gh issue view)",
+      "Bash(gh repo view)",
+      "Bash(gh api)",
+      "Bash(ls)",
+      "Bash(mkdir)",
+      "Bash(npm install)",
+      "Bash(npm test)",
+      "Bash(npm run)",
+      "Bash(npm audit)",
+      "Bash(npx)"
     ]
   }
 }

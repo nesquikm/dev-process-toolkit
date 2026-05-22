@@ -31,7 +31,7 @@ export const IDENTITY_MODE_CONDITIONAL_SEVERITY: "warning" | "error" = "error";
 export interface IdentityModeViolation {
   file: string;
   line: number;
-  expected: "present" | "absent" | "fr_<26-char ULID>";
+  expected: "present" | "absent" | "populated" | "fr_<26-char ULID>";
   actual: string;
   note: string;
   message: string;
@@ -50,16 +50,24 @@ interface IdScan {
   wellFormed: boolean;
 }
 
-function scanFrontmatterForId(content: string): IdScan {
-  if (!content.startsWith("---\n")) {
-    return { present: false, line: 0, value: "", wellFormed: false };
-  }
+/**
+ * Extract the line array of an FR's YAML frontmatter block, or `null` when
+ * the content lacks a well-formed `---\n...\n---` opener. Shared by
+ * `scanFrontmatterForId` and `scanFrontmatterForTracker` — both scanners
+ * walked the same 7-line prelude before this hoist.
+ */
+function splitFrontmatterLines(content: string): string[] | null {
+  if (!content.startsWith("---\n")) return null;
   const closeIdx = content.indexOf("\n---", 4);
-  if (closeIdx < 0) {
+  if (closeIdx < 0) return null;
+  return content.slice(4, closeIdx).split("\n");
+}
+
+function scanFrontmatterForId(content: string): IdScan {
+  const fmLines = splitFrontmatterLines(content);
+  if (fmLines === null) {
     return { present: false, line: 0, value: "", wellFormed: false };
   }
-  const fmText = content.slice(4, closeIdx);
-  const fmLines = fmText.split("\n");
   for (let i = 0; i < fmLines.length; i++) {
     const line = fmLines[i]!;
     const m = ANY_ID_LINE_RE.exec(line);
@@ -73,6 +81,69 @@ function scanFrontmatterForId(content: string): IdScan {
     };
   }
   return { present: false, line: 0, value: "", wellFormed: false };
+}
+
+// STE-321 AC-STE-321.5 + AC-STE-321.10 — bidirectional `tracker:` invariant.
+//
+// Detect whether the FR frontmatter carries a `tracker:` block and whether it
+// is populated. Three states:
+//   - present=false              → no `tracker:` line at all
+//   - present=true, empty=true   → `tracker: {}` (legacy drift in mode-none)
+//   - present=true, empty=false  → `tracker:` followed by at least one nested
+//                                  `<key>: <value>` line (canonical tracker mode)
+//
+// Twin scanner of `scanFrontmatterForId`. Exported so the test surface
+// (`tests/m84-ste-321-adapter-shape.test.ts`) can byte-check the helper
+// independently of the probe.
+
+export interface TrackerScan {
+  present: boolean;
+  empty: boolean;
+  line: number;
+}
+
+const TRACKER_LINE_RE = /^tracker:\s*(.*)$/;
+
+export function scanFrontmatterForTracker(content: string): TrackerScan {
+  const fmLines = splitFrontmatterLines(content);
+  if (fmLines === null) {
+    return { present: false, empty: false, line: 0 };
+  }
+  for (let i = 0; i < fmLines.length; i++) {
+    const line = fmLines[i]!;
+    const m = TRACKER_LINE_RE.exec(line);
+    if (!m) continue;
+    // +2: one for the leading `---\n` line, one for 1-based indexing.
+    const lineNum = i + 2;
+    const inlineValue = (m[1] ?? "").trim();
+    // `tracker: {}` — empty inline map.
+    if (inlineValue === "{}") {
+      return { present: true, empty: true, line: lineNum };
+    }
+    // `tracker: { key: value }` — populated inline map.
+    if (inlineValue.startsWith("{") && inlineValue.endsWith("}")) {
+      const body = inlineValue.slice(1, -1).trim();
+      return { present: true, empty: body.length === 0, line: lineNum };
+    }
+    // `tracker:` with trailing content other than `{...}` — treat as populated.
+    if (inlineValue.length > 0) {
+      return { present: true, empty: false, line: lineNum };
+    }
+    // `tracker:` followed by indented child lines → populated when at least
+    // one nested `key: value` line appears before frontmatter close.
+    for (let j = i + 1; j < fmLines.length; j++) {
+      const child = fmLines[j]!;
+      if (/^\s+\S/.test(child)) {
+        // indented continuation — populated.
+        return { present: true, empty: false, line: lineNum };
+      }
+      if (child.length === 0) continue;
+      // un-indented sibling key → tracker: had no children, treat as empty.
+      break;
+    }
+    return { present: true, empty: true, line: lineNum };
+  }
+  return { present: false, empty: false, line: 0 };
 }
 
 function resolveMode(projectRoot: string): string {
@@ -131,6 +202,7 @@ export async function runIdentityModeConditionalProbe(
       continue;
     }
     const scan = scanFrontmatterForId(content);
+    const trackerScan = scanFrontmatterForTracker(content);
 
     if (isTracker) {
       // Tracker mode: id: must be absent.
@@ -147,6 +219,29 @@ export async function runIdentityModeConditionalProbe(
             `tracker-mode FR carries an id: line that should be absent (observed ${actual})`,
             `delete the id: line from ${relative(projectRoot, file)} frontmatter — the tracker ID is the canonical identity in tracker mode`,
             { mode, file: relative(projectRoot, file), line: String(scan.line) },
+          ),
+        });
+      }
+      // STE-321 AC-STE-321.5: tracker mode requires `tracker:` present + populated.
+      if (!trackerScan.present || trackerScan.empty) {
+        const expected = "populated" as const;
+        const actual = !trackerScan.present ? "missing" : "empty";
+        const violationLine = trackerScan.present ? trackerScan.line : 1;
+        violations.push({
+          file,
+          line: violationLine,
+          expected,
+          actual,
+          note: buildNote(
+            file,
+            violationLine,
+            `expected tracker: ${expected}, actual ${actual}`,
+            projectRoot,
+          ),
+          message: buildMessage(
+            `tracker-mode FR is missing a populated tracker: block (observed ${actual})`,
+            `add a tracker: { ${mode}: <ticket-id> } block to ${relative(projectRoot, file)} frontmatter — tracker mode binds the FR to its ticket via this field`,
+            { mode, file: relative(projectRoot, file), line: String(violationLine) },
           ),
         });
       }
@@ -185,6 +280,28 @@ export async function runIdentityModeConditionalProbe(
             `mode-none FR has a malformed id: value (observed ${actual})`,
             `fix the id: line in ${relative(projectRoot, file)} to match ${expected}`,
             { mode, file: relative(projectRoot, file), line: String(scan.line) },
+          ),
+        });
+      }
+      // STE-321 AC-STE-321.5: mode-none requires `tracker:` ABSENT.
+      if (trackerScan.present) {
+        const expected = "absent" as const;
+        const actual = trackerScan.empty ? "tracker: {}" : "tracker: { ... }";
+        violations.push({
+          file,
+          line: trackerScan.line,
+          expected,
+          actual,
+          note: buildNote(
+            file,
+            trackerScan.line,
+            `expected tracker: ${expected}, actual ${actual}`,
+            projectRoot,
+          ),
+          message: buildMessage(
+            `mode-none FR carries a tracker: block that should be absent (observed ${actual})`,
+            `delete the tracker: line from ${relative(projectRoot, file)} frontmatter — mode-none FRs identify themselves via the short-ULID id: line, not a tracker binding`,
+            { mode, file: relative(projectRoot, file), line: String(trackerScan.line) },
           ),
         });
       }

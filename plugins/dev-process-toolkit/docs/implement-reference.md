@@ -1,6 +1,6 @@
 # `/implement` Reference
 
-Extended reference material for `/dev-process-toolkit:implement` that was extracted from `skills/implement/SKILL.md` to keep the skill file under the NFR-1 300-line cap. The skill file contains a one-line pointer to this file at the Stage C section.
+Extended reference material for `/dev-process-toolkit:implement` that was extracted from `skills/implement/SKILL.md` to keep the skill file under the NFR-1 351-line cap. The skill file contains a one-line pointer to this file at the Stage C section.
 
 This reference is **not required reading** on every run — the skill itself has enough guidance to operate. Consult this file when Stage C (Hardening) is run on round 1 of the self-review loop, or when a hardening pass needs concrete examples.
 
@@ -46,7 +46,7 @@ Fires at Phase 1 entry, **between resolver (0.b′) and `claimLock` (0.c)** — 
 
 ### Guard
 
-1. Read `branch_template:` from Schema L (the probe already ran in step 0.d; the value is in-session).
+1. Read `branch_template:` from Schema L (the probe already ran in step 0.f; the value is in-session).
    - Absent ⇒ skip the whole step. Branch automation disabled.
    - Present ⇒ continue.
 2. Extract the run-scope identifier from the resolver result:

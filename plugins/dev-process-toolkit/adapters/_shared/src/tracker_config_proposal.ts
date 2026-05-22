@@ -21,7 +21,6 @@ import {
   readTrackerConfig,
   type Role,
   type TrackerConfig,
-  type TrackerKey,
 } from "./tracker_config";
 
 // ---------------------------------------------------------------------------
@@ -224,7 +223,7 @@ function proposalToConfig(proposal: Proposal): TrackerConfig {
     roles[role] = (mapped ?? "") as string;
   }
   return {
-    tracker_key: proposal.tracker_key as TrackerKey,
+    tracker_key: proposal.tracker_key,
     statuses: proposal.statuses.slice(),
     roles,
   };

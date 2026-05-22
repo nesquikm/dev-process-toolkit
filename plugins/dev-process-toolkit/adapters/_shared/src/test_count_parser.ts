@@ -22,15 +22,42 @@ export type TestCountParseResult =
 
 export type Stack = "bun" | "pytest" | "flutter" | "unknown";
 
+// STE-323: Bun emits per-file `N pass` / `N fail` counters BEFORE the summary
+// block in multi-file runs, so a `.exec()` first-match captures the first
+// per-file count rather than the total. Use last-match (`matchAll` + take
+// final group) for both counters. Hoisted so the pass-fallback and the
+// fail-extractor share one implementation.
+function lastCountedMatch(output: string, regex: RegExp): number | undefined {
+  const matches = Array.from(output.matchAll(regex));
+  if (matches.length === 0) return undefined;
+  return Number(matches[matches.length - 1][1]);
+}
+
 function parseBun(output: string): TestCountParseResult {
-  const passMatch = /(\d+)\s+pass\b/.exec(output);
-  const failMatch = /(\d+)\s+fail\b/.exec(output);
-  if (!passMatch && !failMatch) {
-    return { ok: false, reason: "could not determine test count — no test counters in bun output" };
+  // STE-323: anchor on Bun's trailing summary line, not the first match.
+  // Bun emits per-file `N pass` / `N fail` counters before the summary in
+  // multi-file runs, so the legacy `.exec()` first-match path captured the
+  // first per-file count, not the total. Fix: use last-match for both
+  // counters, and prefer the canonical `Ran N tests across M files` line
+  // for the total.
+  const failures = lastCountedMatch(output, /(\d+)\s+fail\b/g) ?? 0;
+  // Bun does not emit a distinct "error" line; errors are folded into fail.
+  const errors = 0;
+
+  // Primary anchor: Bun's "Ran N tests across M files" summary line.
+  const summaryMatch = /Ran (\d+) tests across \d+ files/.exec(output);
+  if (summaryMatch) {
+    return { ok: true, count: { total: Number(summaryMatch[1]), failures, errors } };
   }
-  const pass = passMatch ? Number(passMatch[1]) : 0;
-  const fail = failMatch ? Number(failMatch[1]) : 0;
-  return { ok: true, count: { total: pass + fail, failures: fail, errors: 0 } };
+  // Fallback: last `N pass` line (older Bun versions or truncated output).
+  const lastPass = lastCountedMatch(output, /(\d+)\s+pass\b/g);
+  if (lastPass !== undefined) {
+    return { ok: true, count: { total: lastPass, failures, errors } };
+  }
+  return {
+    ok: false,
+    reason: "could not determine test count — Bun output lacks both `Ran N tests` summary and `N pass` summary line",
+  };
 }
 
 function parsePytest(output: string): TestCountParseResult {
