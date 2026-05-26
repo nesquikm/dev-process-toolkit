@@ -161,7 +161,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.30.0 — "Quoted"** (M85 closes the `/conformance-loop` Phase A spawn snippet shape regression — Linear + Jira children fast-failed at CLI parse with `error: unknown option '--tracker'` because the bare-arg form (`claude -p /smoke-test --tracker linear ...`) spilled skill-args into `[args]` instead of stuffing the quoted `<command>` positional. Ship-broken since STE-224 (M57, 2026-05-05); caught by a live `/conformance-loop --jira-project DST` run on 2026-05-21. Two-line spec edit + matching update to the STE-224 regression test, which had bug-mirrored the broken shape.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.31.0 — "Mirrored"** (M86 brings Jira to parity with Linear's used project-milestone surface — the atlassian MCP exposes no milestone create/list tool, so the milestone M-number is mirrored onto each Jira issue as a create-on-write `milestone-M<N>` label via `editJiraIssue` read-merge-write, read-back verified. Flips the Jira adapter's `project_milestone: false → true` + adds `milestone_binding: label`; `attachProjectMilestone` and `/gate-check` probe #26 become adapter-aware, with the Linear `object` path byte-identical. Live-Jira smoke ships `[~]` since this repo is mode:linear.)
 
 ## Core Philosophy
 
