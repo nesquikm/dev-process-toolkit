@@ -213,7 +213,7 @@ Side-by-side per-adapter behaviour:
 | Adapter | `project_milestone` | FR `milestone:` → tracker field | Missing-milestone handling |
 |---------|---------------------|---------------------------------|----------------------------|
 | Linear  | `true`              | `save_issue.milestone` — matched by name starting with `M<N>` (case-sensitive, exact-prefix) on the configured project. | Prompt once per missing `M<N>`: `[1] Create it / [2] Skip milestone binding for these N FRs / [3] Cancel migration`. |
-| Jira    | `false`             | Not mapped at push time — log one line `"Jira does not map milestones at push time; use Jira fixVersions manually."`; operators bind `fixVersions` manually after migration. | N/A (skipped). |
+| Jira    | `true`              | Mapped to the `milestone-<M-token>` label (e.g. `milestone-M86`) — attached via `editJiraIssue` read-merge-write (fetch the issue's current `labels`, union in the milestone label, write the merged set back) so no existing label is clobbered. | N/A (create-on-write) — the label is created implicitly the first time it is attached; no pre-existing tracker milestone object is required. |
 | Custom (`_template`) | `false` (default) | Opt in by flipping to `true`; use the Linear section below as the reference implementation. | Implementer's choice — follow the Linear 3-way prompt shape if adding support. |
 
 Custom adapters that add a native "release milestone" field should flip

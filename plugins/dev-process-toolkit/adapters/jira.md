@@ -13,7 +13,8 @@ capabilities:
   - push_ac_toggle
   - transition_status
   - upsert_ticket_metadata
-project_milestone: false
+project_milestone: true
+milestone_binding: label
 list_project_statuses: true
 ticket_description_template: |
   {fr_body}
@@ -331,6 +332,55 @@ Every write here passes through the silent-no-op trap: post-call
 > idempotency-key headers on `createJiraIssue` — revisit if a future MCP
 > version surfaces them; the backoff retry path is the present-day
 > mitigation.
+
+## Project Milestone — `milestone-<M-token>` label via `editJiraIssue` read-merge-write
+
+Jira opts into project-milestone binding (`project_milestone: true` in the
+frontmatter), but Jira has no per-issue "milestone" field on the standard
+MCP surface — so the binding is realised as a **label** rather than a native
+milestone object. Each FR's frontmatter `milestone: M<N>` maps to the
+`milestone-<M-token>` label (e.g. `milestone-M86`), and the milestone-attach
+flow (`/spec-write` § 0b, `/implement` Phase 1 step 0.e) attaches that label
+to the pushed ticket.
+
+**Mapping.** FR `milestone: M<N>` → the `milestone-<M-token>` label. The
+token is the raw milestone token (`M86`), giving labels like
+`milestone-M86`. The label is created implicitly the first time it is
+attached — there is no pre-existing tracker milestone object to look up
+(this is the `N/A (create-on-write)` missing-milestone handling from
+`docs/tracker-adapters.md`).
+
+**Attach — `editJiraIssue` read-merge-write.** Jira's MCP has no top-level
+`labels` parameter on the edit path and no append-a-label operation; a
+naive write would clobber every other label on the issue. So the attach is
+a **read-merge-write** cycle:
+
+1. **Read** — `mcp__atlassian__getJiraIssue(issueIdOrKey=ticket_id)` and
+   capture the issue's current `labels` array.
+2. **Merge** — union the existing labels with `milestone-<M-token>`; if the
+   label is already present this is a no-op set (idempotent).
+3. **Write** — `mcp__atlassian__editJiraIssue(issueIdOrKey=ticket_id,
+   additional_fields={ labels: <merged set> })` with the full merged array,
+   so no pre-existing label is dropped. (There is no top-level `labels`
+   parameter — labels go through `additional_fields.labels`, the same path
+   the on-create `default_labels` rule uses; see the MCP tool-names table.)
+
+**Read-back verify.** After the write, **re-read** the issue
+(`getJiraIssue`) and assert the `milestone-<M-token>` label is present in
+the returned `labels` — the read-back verify confirms the attach landed
+(the same silent-no-op discipline the metadata writes use). If the label is
+absent on read-back, surface an NFR-10 canonical-shape warning rather than
+reporting success.
+
+**`default_labels` carve-out (on-create only).** The `### Jira`.default_labels
+workspace-binding field applies **only on create** (`createJiraIssue`),
+per the workspace-binding rule documented under `upsert_ticket_metadata`.
+The milestone-attach read-merge-write runs on the **edit** path and is
+entirely independent of `default_labels`: it neither reads nor reapplies
+`default_labels`, and attaching a milestone label never re-triggers the
+create-time default-labels behaviour. Conversely, a create that seeds
+`default_labels` does not attach the milestone label — milestone binding is
+always its own explicit read-merge-write step.
 
 ## Helper: `discover_field.ts`
 
