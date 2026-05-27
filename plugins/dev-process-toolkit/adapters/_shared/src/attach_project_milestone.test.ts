@@ -18,7 +18,7 @@
 //   binding did not land (silent-no-op trap, NFR-10 canonical shape).
 
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -257,7 +257,9 @@ describe("planFileHeadingToMilestoneName (AC-STE-118.2)", () => {
         if (e instanceof Error) err = e;
       }
       expect(err).not.toBeNull();
-      expect(err!.message).toMatch(/no recognizable H1 heading/);
+      // STE-335 AC-STE-335.2: the error noun broadened from "H1 heading" to
+      // "milestone heading" now that planFileHeadingToMilestoneName accepts H1/H2.
+      expect(err!.message).toMatch(/no recognizable milestone heading/);
     } finally {
       ctx.cleanup();
     }
@@ -461,5 +463,116 @@ describe("STE-329 AC-STE-329.4 — adapter-aware verify (label branch)", () => {
     expect(result.capability).toBe("milestone_attach_skipped_adapter_limit");
     expect(stub.calls).toEqual([]);
     expect(stub.labels).toEqual(["spec-driven"]);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// STE-335 — plan-heading parser unification (write path).
+//
+// `planFileHeadingToMilestoneName` must delegate to the shared parser
+// (adapters/_shared/src/plan_heading.ts) so it accepts the CURRENT plan
+// format (`## M<N>: <title> {#M<N>}`, H2 + colon) emitted by the plan
+// template and /spec-write, while still raising on a headingless plan and
+// still parsing the LEGACY `# M<N> — <title>` (H1 + em-dash) form.
+// ───────────────────────────────────────────────────────────────────────
+
+describe("STE-335 — planFileHeadingToMilestoneName delegates to the shared parser", () => {
+  function makePlan(body: string): { path: string; cleanup: () => void } {
+    const root = mkdtempSync(join(tmpdir(), "ste335-plan-"));
+    const path = join(root, "M.md");
+    writeFileSync(path, body);
+    return { path, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  }
+
+  test("AC-STE-335.2: current-format `## M<N>: <title> {#M<N>}` → `M<N> — <title>` (no throw)", () => {
+    const ctx = makePlan(
+      "---\nmilestone: M86\nstatus: active\n---\n\n## M86: Jira Project-Milestone Support {#M86}\n\nbody\n",
+    );
+    try {
+      const got = planFileHeadingToMilestoneName(ctx.path);
+      expect(got).toBe("M86 — Jira Project-Milestone Support");
+      // Separator normalized to U+2014 em-dash even though source used a colon.
+      expect(got.charCodeAt(4)).toBe(0x2014);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("AC-STE-335.2: current-format `## M<N>: <title>` without anchor → canonical", () => {
+    const ctx = makePlan("## M87: Plan-heading parser unification\n");
+    try {
+      expect(planFileHeadingToMilestoneName(ctx.path)).toBe(
+        "M87 — Plan-heading parser unification",
+      );
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("AC-STE-335.2: headingless plan still throws", () => {
+    const ctx = makePlan("# Some other heading\n\n## Subhead\n\nno milestone here\n");
+    try {
+      let err: Error | null = null;
+      try {
+        planFileHeadingToMilestoneName(ctx.path);
+      } catch (e) {
+        if (e instanceof Error) err = e;
+      }
+      expect(err).not.toBeNull();
+      expect(err!.message).toMatch(/no recognizable/i);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("AC-STE-335.6: legacy `# M<N> — <title>` (H1+em-dash) → identical canonical name", () => {
+    const ctx = makePlan("# M31 — Tracker Workflow Hardening {#M31}\n");
+    try {
+      const got = planFileHeadingToMilestoneName(ctx.path);
+      expect(got).toBe("M31 — Tracker Workflow Hardening");
+      expect(got.charCodeAt(4)).toBe(0x2014);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// STE-335 AC-STE-335.7 — repo-wide audit: no other live copy of the
+// `^# (M\d+ — …)` heading regex. The two known copies
+// (attach_project_milestone.ts PLAN_HEADING_REGEX, tracker_project_milestone_attached.ts
+// HEADING_RE) must be removed in favor of the shared parser, so only
+// plan_heading.ts defines the matcher.
+// ───────────────────────────────────────────────────────────────────────
+
+describe("STE-335 AC-STE-335.7 — single live copy of the heading regex", () => {
+  // The defunct H1-only literal both old copies declared. After the fix it
+  // must appear in NEITHER source file (they delegate to the shared parser).
+  const LEGACY_REGEX_LITERAL = "/^# (M\\d+ — ";
+
+  test("attach_project_milestone.ts no longer declares the H1-only heading regex", () => {
+    const src = readFileSync(join(import.meta.dir, "attach_project_milestone.ts"), "utf-8");
+    expect(src).not.toContain(LEGACY_REGEX_LITERAL);
+    // It must instead import the shared parser.
+    expect(src).toMatch(/parsePlanHeading/);
+    expect(src).toMatch(/\.\/plan_heading/);
+  });
+
+  test("tracker_project_milestone_attached.ts no longer declares the H1-only heading regex", () => {
+    const src = readFileSync(
+      join(import.meta.dir, "tracker_project_milestone_attached.ts"),
+      "utf-8",
+    );
+    expect(src).not.toContain(LEGACY_REGEX_LITERAL);
+    expect(src).toMatch(/parsePlanHeading/);
+    expect(src).toMatch(/\.\/plan_heading/);
+  });
+
+  test("plan_heading.ts is the sole module defining the heading matcher", () => {
+    const parser = readFileSync(join(import.meta.dir, "plan_heading.ts"), "utf-8");
+    // The shared module must declare a heading regex anchored at start-of-line
+    // accepting one or two `#` and capturing the M-token.
+    expect(parser).toMatch(/#\{1,2\}/);
+    expect(parser).toMatch(/M\\d\+/);
   });
 });

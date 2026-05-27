@@ -17,6 +17,7 @@
 // boundary (deduped at plan-file heading authorship time).
 
 import { readFileSync } from "node:fs";
+import { parsePlanHeading } from "./plan_heading";
 
 export class MilestoneAttachmentError extends Error {
   readonly expected: string;
@@ -173,23 +174,25 @@ export function milestoneLabel(canonicalName: string): string {
   return `milestone-${m[1]!}`;
 }
 
-const PLAN_HEADING_REGEX = /^# (M\d+ — .+?)(?:\s*\{#M\d+\})?\s*$/m;
-
 /**
- * Build the canonical milestone name from a plan-file path. Reads the H1
- * heading and strips the optional `{#M<N>}` anchor (per AC-STE-118.2).
+ * Build the canonical milestone name from a plan-file path. Delegates to the
+ * shared `parsePlanHeading` (./plan_heading) so it accepts both the current
+ * `## M<N>: <title> {#M<N>}` (H2 + colon) form and the legacy
+ * `# M<N> — <title>` (H1 + em-dash) form, normalizing either to the canonical
+ * `M<N> — <title>` (em-dash) and stripping the optional `{#M<N>}` anchor.
  *
- * Throws if the file cannot be read or the heading is missing — callers
- * should treat absence as a hard error (the plan file is the source of
- * truth and should always have a recognizable heading).
+ * Throws if the file cannot be read or no milestone heading is present —
+ * callers should treat absence as a hard error (the plan file is the source
+ * of truth and should always have a recognizable heading).
  */
 export function planFileHeadingToMilestoneName(planFilePath: string): string {
   const md = readFileSync(planFilePath, "utf-8");
-  const m = md.match(PLAN_HEADING_REGEX);
-  if (!m) {
+  const name = parsePlanHeading(md);
+  if (name === null) {
     throw new Error(
-      `planFileHeadingToMilestoneName: ${planFilePath} has no recognizable H1 heading (expected \`# M<N> — <title>\`)`,
+      `planFileHeadingToMilestoneName: ${planFilePath} has no recognizable milestone heading ` +
+        `(expected \`# M<N> — <title>\` or \`## M<N>: <title>\` — H1/H2 depth, em-dash or colon separator)`,
     );
   }
-  return m[1]!.trim();
+  return name;
 }

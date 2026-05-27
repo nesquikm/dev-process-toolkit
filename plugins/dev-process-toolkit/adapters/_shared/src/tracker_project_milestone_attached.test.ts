@@ -42,7 +42,15 @@ interface FixtureOpts {
     trackerKey?: string;
     body?: string;
   }[];
-  activePlans?: { n: number; heading: string }[];
+  activePlans?: {
+    n: number;
+    heading: string;
+    // STE-335: when set, the plan body uses this verbatim heading LINE
+    // (e.g. `## M86: …` — H2 + colon, the current /spec-write + template
+    // format) instead of the legacy `# <heading>` (H1 + em-dash) the builder
+    // defaults to. Lets the probe tests exercise current-format plans.
+    rawHeadingLine?: string;
+  }[];
 }
 
 // Minimal tracker-mode fixture (mode: linear is the harness's tracker-mode
@@ -68,9 +76,10 @@ function makeFixture(opts: FixtureOpts): { root: string; cleanup: () => void } {
     );
   }
   for (const plan of opts.activePlans ?? []) {
+    const headingLine = plan.rawHeadingLine ?? `# ${plan.heading}`;
     writeFileSync(
       join(specs, "plan", `M${plan.n}.md`),
-      `---\nmilestone: M${plan.n}\nstatus: active\n---\n\n# ${plan.heading}\n`,
+      `---\nmilestone: M${plan.n}\nstatus: active\n---\n\n${headingLine}\n`,
     );
   }
   return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
@@ -247,6 +256,206 @@ describe("STE-329 AC-STE-329.5 — Linear object branch stays unchanged under th
       const v = r.violations[0]!;
       expect(v.note).toMatch(/M31 — Tracker Workflow Hardening/);
       expect(v.note).toMatch(/M31 — Old name/);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// STE-335 — probe #26 on CURRENT-FORMAT (`## M<N>: <title>`, H2 + colon)
+// plans. Pre-fix, readPlanHeading's H1-only regex returns null on these
+// plans, so the probe `continue`-skips and passes VACUOUSLY (RED: the probe
+// never reaches the binding check). Post-fix readPlanHeading delegates to the
+// shared parser, returns the canonical `M<N> — <title>` name, and the binding
+// check fires (GREEN).
+//
+// The canonical name the parser yields normalizes the colon source to an
+// em-dash, so the object-branch byte-equality and the label-branch M-token
+// derivation both behave exactly as on a legacy em-dash plan.
+// ───────────────────────────────────────────────────────────────────────
+
+describe("STE-335 AC-STE-335.3/.5 — Linear object binding on a `## M<N>:` plan", () => {
+  // RED-anchoring control: a SECOND active FR on a `## M<N>:` plan whose
+  // tracker binding is wrong (mismatch). Pre-fix the H1-only readPlanHeading
+  // skips BOTH FRs vacuously → 0 violations, which would let a naive
+  // "→ pass" assertion pass without the fix. By pairing the matching FR with a
+  // mismatching one and asserting EXACTLY ONE violation (the mismatch, not the
+  // match), the test proves the probe actually reached the binding check on a
+  // current-format plan — forcing RED pre-fix.
+  test("AC-STE-335.5: byte-equals → pass while a sibling `## M<N>:` mismatch → violation (probe reached the check)", async () => {
+    const fx = makeFixture({
+      active: [
+        { id: "STE-117", milestone: "M31", trackerId: "STE-117" },
+        { id: "STE-200", milestone: "M88", trackerId: "STE-200" },
+      ],
+      activePlans: [
+        {
+          n: 31,
+          heading: "unused",
+          rawHeadingLine: "## M31: Tracker Workflow Hardening {#M31}",
+        },
+        {
+          n: 88,
+          heading: "unused",
+          rawHeadingLine: "## M88: Sibling Mismatch Control {#M88}",
+        },
+      ],
+    });
+    try {
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        // default binding = object
+        getIssue: makeIssueLookup([
+          {
+            id: "STE-117",
+            // Tracker stores the em-dash canonical name; parser must derive it
+            // from the colon-form plan heading for the byte-equality to hold.
+            projectMilestone: { name: "M31 — Tracker Workflow Hardening" },
+          },
+          {
+            id: "STE-200",
+            // Wrong name → must violate ONLY once the probe reaches the check.
+            projectMilestone: { name: "M88 — Wrong stored name" },
+          },
+        ]),
+      });
+      // Exactly one violation — the mismatch — and it names the sibling, not
+      // the matching FR. (Pre-fix both skip → 0 violations → RED.)
+      expect(r.violations.length).toBe(1);
+      const v = r.violations[0]!;
+      expect(v.note).toMatch(/STE-200/);
+      expect(v.note).toMatch(/M88 — Sibling Mismatch Control/);
+      expect(v.note).not.toMatch(/STE-117/);
+      expect(r.advisories).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("AC-STE-335.5: projectMilestone mismatch on a `## M<N>:` plan → violation", async () => {
+    const fx = makeFixture({
+      active: [{ id: "STE-117", milestone: "M31", trackerId: "STE-117" }],
+      activePlans: [
+        {
+          n: 31,
+          heading: "unused",
+          rawHeadingLine: "## M31: Tracker Workflow Hardening {#M31}",
+        },
+      ],
+    });
+    try {
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        milestoneBinding: "object",
+        getIssue: makeIssueLookup([
+          { id: "STE-117", projectMilestone: { name: "M31 — Old name" } },
+        ]),
+      });
+      expect(r.violations.length).toBe(1);
+      const v = r.violations[0]!;
+      // The probe reached the binding check (NOT a vacuous skip) and rendered
+      // the canonical name derived from the colon-form heading.
+      expect(v.note).toMatch(/M31 — Tracker Workflow Hardening/);
+      expect(v.note).toMatch(/M31 — Old name/);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("AC-STE-335.5: projectMilestone null on a `## M<N>:` plan → violation (not vacuous)", async () => {
+    const fx = makeFixture({
+      active: [{ id: "STE-117", milestone: "M31", trackerId: "STE-117" }],
+      activePlans: [
+        {
+          n: 31,
+          heading: "unused",
+          rawHeadingLine: "## M31: Tracker Workflow Hardening {#M31}",
+        },
+      ],
+    });
+    try {
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        milestoneBinding: "object",
+        getIssue: makeIssueLookup([{ id: "STE-117", projectMilestone: null }]),
+      });
+      expect(r.violations.length).toBe(1);
+      expect(r.violations[0]!.note).toMatch(/M31 — Tracker Workflow Hardening/);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
+
+describe("STE-335 AC-STE-335.3/.4 — Jira label binding on a `## M<N>:` plan", () => {
+  test("AC-STE-335.4: label present → pass while a sibling `## M<N>:` missing label → violation (probe reached the check)", async () => {
+    // Same RED-anchoring control as the object branch: pair the present-label
+    // FR with a sibling whose label is absent. Pre-fix both `## M<N>:` plans
+    // skip vacuously (0 violations); post-fix the sibling fires exactly one
+    // violation while the present-label FR stays clean.
+    const fx = makeFixture({
+      active: [
+        { id: "ABC-1", milestone: "M86", trackerId: "ABC-1", trackerKey: "jira" },
+        { id: "ABC-2", milestone: "M89", trackerId: "ABC-2", trackerKey: "jira" },
+      ],
+      activePlans: [
+        {
+          n: 86,
+          heading: "unused",
+          rawHeadingLine: "## M86: Jira Project-Milestone Support {#M86}",
+        },
+        {
+          n: 89,
+          heading: "unused",
+          rawHeadingLine: "## M89: Sibling Missing-Label Control {#M89}",
+        },
+      ],
+    });
+    try {
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        milestoneBinding: "label",
+        getIssue: makeIssueLookup([
+          { id: "ABC-1", labels: ["spec-driven", "milestone-M86"] },
+          // Sibling lacks milestone-M89 → must violate once the probe reaches it.
+          { id: "ABC-2", labels: ["spec-driven"] },
+        ]),
+      });
+      expect(r.violations.length).toBe(1);
+      const v = r.violations[0]!;
+      expect(v.note).toMatch(/ABC-2/);
+      expect(v.note).toMatch(/milestone-M89/);
+      expect(v.note).not.toMatch(/ABC-1/);
+      expect(r.advisories).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("AC-STE-335.4: ticket missing `milestone-<M-token>` on a `## M<N>:` plan → violation", async () => {
+    const fx = makeFixture({
+      active: [{ id: "ABC-1", milestone: "M86", trackerId: "ABC-1", trackerKey: "jira" }],
+      activePlans: [
+        {
+          n: 86,
+          heading: "unused",
+          rawHeadingLine: "## M86: Jira Project-Milestone Support {#M86}",
+        },
+      ],
+    });
+    try {
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        milestoneBinding: "label",
+        getIssue: makeIssueLookup([{ id: "ABC-1", labels: ["spec-driven"] }]),
+      });
+      expect(r.violations.length).toBe(1);
+      const v = r.violations[0]!;
+      expect(v.note).toMatch(/ABC-1/);
+      // M-token derived from the colon-form heading → milestone-M86.
+      expect(v.note).toMatch(/milestone-M86/);
+      expect(v.note).toMatch(/missing|not attached/i);
+      // STE-335 (Pass-2 review): the missing-label remedy is binding-aware —
+      // it points a Jira operator at the label/editJiraIssue path, never the
+      // Linear-only save_issue call (mirrors STE-329's MilestoneAttachmentError).
+      expect(v.message).toMatch(/editJiraIssue/);
+      expect(v.message).not.toContain("mcp__linear__save_issue");
     } finally {
       fx.cleanup();
     }
