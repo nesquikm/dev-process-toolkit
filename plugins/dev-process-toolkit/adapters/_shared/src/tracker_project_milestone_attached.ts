@@ -2,8 +2,10 @@
 //
 // For each `status: active` FR with a tracker block, assert that the
 // tracker ticket's `projectMilestone.name` byte-equals the canonical
-// milestone name derived from the local plan-file H1 heading. Closes the
-// drift surface where /spec-write didn't auto-attach (STE-115/116 origin).
+// milestone name derived from the local plan-file milestone heading (parsed
+// via the shared `parsePlanHeading`, which accepts both the current `## M<N>:`
+// and legacy `# M<N> —` forms — STE-335). Closes the drift surface where
+// /spec-write didn't auto-attach (STE-115/116 origin).
 //
 // Vacuous on:
 //   - mode: none
@@ -31,6 +33,8 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
+import { milestoneLabel } from "./attach_project_milestone";
+import { parsePlanHeading } from "./plan_heading";
 
 export interface TrackerProjectMilestoneAttachedViolation {
   file: string;
@@ -59,31 +63,51 @@ export interface TrackerProjectMilestoneAttachedDeps {
    * `mcp__linear__get_issue` in production; tests inject a stub.
    * Returning `{ projectMilestone: null }` indicates the ticket exists but
    * has no milestone attached. Throwing is treated as an opaque hard fail.
+   * On the `label` (Jira) binding the probe consults `labels` instead of
+   * `projectMilestone`; the object branch ignores `labels`.
    */
-  getIssue: (ticketId: string) => Promise<{ projectMilestone?: { name: string } | null }>;
+  getIssue: (
+    ticketId: string,
+  ) => Promise<{ projectMilestone?: { name: string } | null; labels?: string[] }>;
+  /**
+   * Which milestone-binding the active adapter uses. `object` (Linear,
+   * default when absent) verifies `projectMilestone.name`; `label` (Jira)
+   * verifies that the ticket's `labels` array contains `milestone-<M-token>`.
+   * In production the gate wires this from the active adapter's
+   * `milestone_binding:` frontmatter.
+   */
+  milestoneBinding?: "object" | "label";
 }
-
-const HEADING_RE = /^# (M\d+ — .+?)(?:\s*\{#M\d+\})?\s*$/m;
 
 interface FrFrontmatter {
   milestone: string | null;
   status: string | null;
-  trackerLinear: string | null;
+  // The bound tracker's key (`linear`, `jira`, or a custom adapter key) and
+  // ticket id, read from the first sub-key under the `tracker:` block. The
+  // probe is adapter-agnostic: a repo is bound to exactly one tracker
+  // (`mode:` in CLAUDE.md), so the first sub-key is the active binding —
+  // STE-329 generalized this from the prior `linear:`-only parse so the
+  // Jira `label` branch can find `jira:`-bound FRs.
+  trackerKey: string | null;
+  trackerId: string | null;
 }
 
 function parseFrFrontmatter(content: string): FrFrontmatter {
   const lines = content.split("\n");
-  if (lines[0] !== "---") return { milestone: null, status: null, trackerLinear: null };
+  if (lines[0] !== "---") {
+    return { milestone: null, status: null, trackerKey: null, trackerId: null };
+  }
   let milestone: string | null = null;
   let status: string | null = null;
-  let trackerLinear: string | null = null;
+  let trackerKey: string | null = null;
+  let trackerId: string | null = null;
   let inTracker = false;
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i]!;
     if (line === "---") break;
     // Two canonical tracker shapes (Schema Q):
     //   tracker: {}            — empty (no tracker bound)
-    //   tracker:               — followed by indented `  linear: <id>` lines
+    //   tracker:               — followed by indented `  <key>: <id>` lines
     // Any other shape on the `tracker:` line itself (inline mapping with
     // values, e.g. `tracker: { linear: STE-1 }`) is non-canonical for /implement
     // and falls through to the generic key parser below — we only enter
@@ -96,9 +120,13 @@ function parseFrFrontmatter(content: string): FrFrontmatter {
       inTracker = true;
       continue;
     }
-    if (inTracker && /^\s+linear:/.test(line)) {
-      const m = /^\s+linear:\s*(\S+)\s*$/.exec(line);
-      if (m) trackerLinear = m[1]!;
+    if (inTracker && /^\s+[a-z_]+:/.test(line)) {
+      // First indented `<key>: <id>` under `tracker:` is the active binding.
+      const m = /^\s+([a-z_]+):\s*(\S+)\s*$/.exec(line);
+      if (m && trackerKey === null) {
+        trackerKey = m[1]!;
+        trackerId = m[2]!;
+      }
       continue;
     }
     // Leaving the indented block.
@@ -108,13 +136,28 @@ function parseFrFrontmatter(content: string): FrFrontmatter {
     if (m[1] === "milestone") milestone = m[2]!.trim();
     else if (m[1] === "status") status = m[2]!.trim();
   }
-  return { milestone, status, trackerLinear };
+  return { milestone, status, trackerKey, trackerId };
 }
 
-function buildMessage(reason: string, file: string, kind: "missing" | "mismatch"): string {
+// STE-335: the `missing` remedy's manual-attach hint is binding-aware. The
+// `label` (Jira) branch — now reachable on current-format `## M<N>:` plans once
+// readPlanHeading delegates to the shared parser — would otherwise misdirect a
+// Jira operator to the Linear-only `save_issue` call. Mirrors the binding-aware
+// split already in MilestoneAttachmentError (STE-329). The `mismatch` kind only
+// fires on the object branch, so it stays Linear-specific.
+function buildMessage(
+  reason: string,
+  file: string,
+  kind: "missing" | "mismatch",
+  binding: "object" | "label" = "object",
+): string {
+  const manualAttach =
+    binding === "label"
+      ? "Or attach manually via your tracker's edit-issue call (e.g. mcp__atlassian__editJiraIssue) adding the `milestone-<M-token>` label to the issue's existing labels (read-merge-write — never clobber)."
+      : "Or attach manually via mcp__linear__save_issue(id=<ticket>, milestone=<canonical name from plan heading>).";
   const remedy =
     kind === "missing"
-      ? "Run /implement Phase 1 against this FR — Phase 1 entry calls attachProjectMilestone() idempotently. Or attach manually via mcp__linear__save_issue(id=<ticket>, milestone=<canonical name from plan H1>)."
+      ? `Run /implement Phase 1 against this FR — Phase 1 entry calls attachProjectMilestone() idempotently. ${manualAttach}`
       : "If the local plan-file heading is correct, run /spec-write --rename-milestone M<N> to rename the Linear milestone to match. If the tracker side is correct, edit specs/plan/M<N>.md heading to match.";
   return [
     `tracker_project_milestone_attached: ${reason}`,
@@ -175,6 +218,30 @@ function buildAdvisoryMessage(file: string, token: CapabilityGapToken): string {
   ].join("\n");
 }
 
+/**
+ * Capability-gap downgrade, shared by both the `label` (Jira) and `object`
+ * (Linear) binding branches: when the FR's `## Notes` declares a capability
+ * token, the missing-binding outcome routes to `advisories` instead of
+ * `violations`. Returns the advisory to push, or `null` when no token is
+ * declared (caller then hard-fails with a binding-specific violation).
+ */
+function capabilityGapAdvisory(
+  content: string,
+  fullPath: string,
+  rel: string,
+): TrackerProjectMilestoneAttachedAdvisory | null {
+  const declaredToken = notesCapabilityGapToken(content);
+  if (declaredToken === null) return null;
+  const prose = capabilityGapProse(declaredToken);
+  return {
+    file: fullPath,
+    line: 1,
+    reason: prose,
+    note: `${rel}:1 — ${prose}`,
+    message: buildAdvisoryMessage(rel, declaredToken),
+  };
+}
+
 function isTrackerMode(claudeMdContent: string): boolean {
   const lines = claudeMdContent.split("\n");
   const startIdx = lines.findIndex((l) => l === "## Task Tracking");
@@ -200,8 +267,7 @@ function isTrackerMode(claudeMdContent: string): boolean {
 function readPlanHeading(planPath: string): string | null {
   if (!existsSync(planPath)) return null;
   const md = readFileSync(planPath, "utf-8");
-  const m = md.match(HEADING_RE);
-  return m ? m[1]!.trim() : null;
+  return parsePlanHeading(md);
 }
 
 export async function runTrackerProjectMilestoneAttachedProbe(
@@ -226,27 +292,55 @@ export async function runTrackerProjectMilestoneAttachedProbe(
     const content = readFileSync(fullPath, "utf-8");
     const fm = parseFrFrontmatter(content);
     if (fm.status !== "active") continue;
-    if (!fm.trackerLinear) continue;
+    if (!fm.trackerId || !fm.trackerKey) continue;
     if (!fm.milestone) continue;
 
+    const trackerRef = `${fm.trackerKey}:${fm.trackerId}`;
     const planPath = join(projectRoot, "specs", "plan", `${fm.milestone}.md`);
     const heading = readPlanHeading(planPath);
     if (heading === null) continue; // probe #27 owns the orphan/missing-plan diagnostic
 
-    let issue: { projectMilestone?: { name: string } | null };
+    let issue: { projectMilestone?: { name: string } | null; labels?: string[] };
     try {
-      issue = await deps.getIssue(fm.trackerLinear);
+      issue = await deps.getIssue(fm.trackerId);
     } catch (e) {
-      const reason = `tracker fetch for ${fm.trackerLinear} failed: ${e instanceof Error ? e.message : String(e)}`;
+      const reason = `tracker fetch for ${trackerRef} failed: ${e instanceof Error ? e.message : String(e)}`;
       violations.push({
         file: fullPath,
         line: 1,
         reason,
         note: `${rel}:1 — ${reason}`,
-        message: buildMessage(reason, rel, "missing"),
+        message: buildMessage(reason, rel, "missing", deps.milestoneBinding),
       });
       continue;
     }
+
+    // STE-329 AC-STE-329.5: adapter-aware verification surface. The `label`
+    // (Jira) branch asserts the ticket's `labels` array contains
+    // `milestone-<M-token>`; the `object` (Linear / default) branch below
+    // verifies `projectMilestone.name`.
+    if (deps.milestoneBinding === "label") {
+      const expectedLabel = milestoneLabel(heading);
+      const labels = issue.labels ?? [];
+      if (labels.includes(expectedLabel)) continue;
+      // Missing / empty / mismatched label. The capability-gap downgrade
+      // (token in `## Notes`) still excuses absence on the label branch.
+      const advisory = capabilityGapAdvisory(content, fullPath, rel);
+      if (advisory !== null) {
+        advisories.push(advisory);
+        continue;
+      }
+      const reason = `${rel} (${trackerRef}) is missing milestone label — expected "${expectedLabel}"`;
+      violations.push({
+        file: fullPath,
+        line: 1,
+        reason,
+        note: `${rel}:1 — ${trackerRef} labels missing "${expectedLabel}" (not attached)`,
+        message: buildMessage(reason, rel, "missing", "label"),
+      });
+      continue;
+    }
+
     const attached = issue.projectMilestone?.name ?? null;
     if (attached === null) {
       // STE-194 + STE-214: capability-gap downgrade. Any of the three
@@ -254,35 +348,28 @@ export async function runTrackerProjectMilestoneAttachedProbe(
       // (smoke fixtures and other intentional gaps); absent any token still
       // hard-fails — the gate must continue to fire on FRs that should
       // have been attached.
-      const declaredToken = notesCapabilityGapToken(content);
-      if (declaredToken !== null) {
-        const prose = capabilityGapProse(declaredToken);
-        advisories.push({
-          file: fullPath,
-          line: 1,
-          reason: prose,
-          note: `${rel}:1 — ${prose}`,
-          message: buildAdvisoryMessage(rel, declaredToken),
-        });
+      const advisory = capabilityGapAdvisory(content, fullPath, rel);
+      if (advisory !== null) {
+        advisories.push(advisory);
         continue;
       }
-      const reason = `${rel} (linear:${fm.trackerLinear}) is missing projectMilestone — expected "${heading}"`;
+      const reason = `${rel} (${trackerRef}) is missing projectMilestone — expected "${heading}"`;
       violations.push({
         file: fullPath,
         line: 1,
         reason,
-        note: `${rel}:1 — linear:${fm.trackerLinear} not attached to projectMilestone (expected "${heading}")`,
+        note: `${rel}:1 — ${trackerRef} not attached to projectMilestone (expected "${heading}")`,
         message: buildMessage(reason, rel, "missing"),
       });
       continue;
     }
     if (attached !== heading) {
-      const reason = `${rel} (linear:${fm.trackerLinear}) projectMilestone mismatch — local: "${heading}" vs tracker: "${attached}"`;
+      const reason = `${rel} (${trackerRef}) projectMilestone mismatch — local: "${heading}" vs tracker: "${attached}"`;
       violations.push({
         file: fullPath,
         line: 1,
         reason,
-        note: `${rel}:1 — linear:${fm.trackerLinear} milestone "${attached}" != local "${heading}"`,
+        note: `${rel}:1 — ${trackerRef} milestone "${attached}" != local "${heading}"`,
         message: buildMessage(reason, rel, "mismatch"),
       });
     }

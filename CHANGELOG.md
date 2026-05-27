@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.31.1] — 2026-05-27 — "Unified"
+
+M87 fixes the milestone-binding parser drift that silently disabled M86/STE-329's binding on every current-format plan. The write path (attach) and the verify path (`/gate-check` probe #26) each carried a private H1+em-dash-only regex, but the live plan template and `/spec-write` emit `## M<N>: <title>` (H2 + colon) — so attach threw ("no recognizable heading") and the probe skipped vacuously for every downstream consumer.
+
+### Fixed
+
+- **STE-335 — Unify the plan-heading parser.** New shared `parsePlanHeading` (`adapters/_shared/src/plan_heading.ts`) matches a milestone heading at `#` or `##` depth, with an em-dash or colon separator, and an optional trailing `{#M<N>}` anchor, normalizing every form to the canonical `M<N> — <title>` (em-dash). Both `planFileHeadingToMilestoneName` (`attach_project_milestone.ts`) and probe #26's `readPlanHeading` (`tracker_project_milestone_attached.ts`) delegate to it; the two duplicate `^# (M\d+ — …)` regex copies are deleted. This restores M86/STE-329's milestone binding — both the Linear `object` and Jira `label` paths — end-to-end for every project whose plans come from the current template. Probe #26's missing-binding remedy also becomes binding-aware: the Jira `label` path now points at `editJiraIssue` (read-merge-write the `milestone-<M-token>` label) instead of misdirecting to Linear's `save_issue`. (STE-335)
+
+Total test count at release: 3257 tests, 0 failures, 0 errors.
+
+## [2.31.0] — 2026-05-26 — "Mirrored"
+
+M86 brings Jira to parity with Linear's *used* project-milestone surface (name-grouping + verify-after-write), entirely through the atlassian MCP with no raw REST. The MCP exposes no version/milestone create-or-list tool, so the milestone M-number is mirrored onto each Jira issue as a create-on-write `milestone-M<N>` label via `editJiraIssue` (read-merge-write, read-back verified) instead of a Linear-style projectMilestone object. Flips the Jira adapter's long-standing `project_milestone: false` (STE-38/STE-154) to `true`, and `attachProjectMilestone` + `/gate-check` probe #26 become adapter-aware.
+
+### Added
+
+- **STE-329 — Jira project-milestone binding via create-on-write labels.** `adapters/jira.md` Schema M flips `project_milestone: false → true` and adds `milestone_binding: label` (Linear / default stays `object`). The shared `attachProjectMilestone` helper (`adapters/_shared/src/attach_project_milestone.ts`) gains a `label` branch: derive `milestone-<M-token>` (leading `M\d+` of the canonical plan-H1 name — labels forbid spaces, so the title never leaks), attach read-merge-write via `addLabel` (union, idempotent, never clobbering `default_labels`/operator labels), and verify by re-reading the issue's `labels`; missing/mismatched → `MilestoneAttachmentError` (now binding-aware: Jira-appropriate remedy on the label path, Linear remedy on the object path). `/gate-check` probe #26 (`tracker_project_milestone_attached.ts`) becomes adapter-aware too — the Jira branch asserts `labels` contains `milestone-<M-token>`, and the tracker-key parse was generalized from `linear:`-only to any `<key>:` so genuine `jira:`-bound FRs are found. The Linear `object` path is byte-identical (no regression). `/spec-write` § 0b, `/implement` Phase 1 step 0.e, and `docs/tracker-adapters.md` un-Linear-only the milestone-attach surface. The live-Jira smoke (AC-STE-329.9) ships `[~]` — this repo is mode:linear, so no in-repo Jira FR exercises the branch. (STE-329)
+
+Total test count at release: 3221 tests, 0 failures, 0 errors.
+
 ## [2.30.0] — 2026-05-21 — "Quoted"
 
 M85 closes the `/conformance-loop` Phase A spawn snippet shape regression that fast-failed both Linear and Jira children with `error: unknown option '--tracker'` — ship-broken since STE-224 (M57, 2026-05-05), caught by a live `/conformance-loop --jira-project DST` run on 2026-05-21. Two-line spec edit wraps the slash command + skill args in a single quoted positional per STE-185's canonical form (already in use at Phase B `/implement` line 298).

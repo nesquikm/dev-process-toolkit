@@ -161,7 +161,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.30.0 — "Quoted"** (M85 closes the `/conformance-loop` Phase A spawn snippet shape regression — Linear + Jira children fast-failed at CLI parse with `error: unknown option '--tracker'` because the bare-arg form (`claude -p /smoke-test --tracker linear ...`) spilled skill-args into `[args]` instead of stuffing the quoted `<command>` positional. Ship-broken since STE-224 (M57, 2026-05-05); caught by a live `/conformance-loop --jira-project DST` run on 2026-05-21. Two-line spec edit + matching update to the STE-224 regression test, which had bug-mirrored the broken shape.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.31.1 — "Unified"** (M87 fixes the milestone-binding parser drift behind M86: the attach and verify paths each parsed only the legacy `# M<N> —` H1 heading, but the live plan template and `/spec-write` emit `## M<N>:` (H2 + colon), so milestone binding was silently broken for every downstream consumer. A new shared `parsePlanHeading` accepts a heading at H1/H2 depth with an em-dash or colon separator and an optional anchor, normalizing to the canonical `M<N> — <title>`; both call sites delegate and the two duplicate regexes are deleted. Probe #26's missing-binding remedy is now binding-aware for the Jira label path.)
 
 ## Core Philosophy
 
