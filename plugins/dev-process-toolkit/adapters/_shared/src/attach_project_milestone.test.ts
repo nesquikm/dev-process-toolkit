@@ -18,12 +18,13 @@
 //   binding did not land (silent-no-op trap, NFR-10 canonical shape).
 
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   attachProjectMilestone,
   MilestoneAttachmentError,
+  milestoneLabel,
   planFileHeadingToMilestoneName,
 } from "./attach_project_milestone";
 
@@ -256,9 +257,322 @@ describe("planFileHeadingToMilestoneName (AC-STE-118.2)", () => {
         if (e instanceof Error) err = e;
       }
       expect(err).not.toBeNull();
-      expect(err!.message).toMatch(/no recognizable H1 heading/);
+      // STE-335 AC-STE-335.2: the error noun broadened from "H1 heading" to
+      // "milestone heading" now that planFileHeadingToMilestoneName accepts H1/H2.
+      expect(err!.message).toMatch(/no recognizable milestone heading/);
     } finally {
       ctx.cleanup();
     }
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// STE-329 — Jira `label` milestone-binding path.
+//
+// The Jira adapter declares `milestone_binding: label`: instead of binding a
+// projectMilestone OBJECT (Linear), it mirrors the milestone M-token onto the
+// issue as a hyphen label `milestone-<M-token>`, attached read-merge-write and
+// verified by read-back. The Linear `object` branch above stays byte-identical.
+// ───────────────────────────────────────────────────────────────────────
+
+describe("STE-329 AC-STE-329.2 — milestoneLabel: M-token → label derivation", () => {
+  test("leading M\\d+ of the canonical name becomes `milestone-M<N>`", () => {
+    expect(milestoneLabel("M86 — Jira Project-Milestone Support")).toBe("milestone-M86");
+  });
+
+  test("anchor-stripped canonical name (no title) still derives the token", () => {
+    // The canonical name passed in is already anchor-stripped per
+    // planFileHeadingToMilestoneName; the label only needs the M-token.
+    expect(milestoneLabel("M5 — x")).toBe("milestone-M5");
+    expect(milestoneLabel("M120 — multi-digit milestone")).toBe("milestone-M120");
+  });
+
+  test("em-dash in the canonical name does not leak into the label (token only)", () => {
+    // The full name carries a U+2014 em-dash + spaces; the label is
+    // [A-Za-z0-9-] only (Jira labels forbid spaces).
+    const label = milestoneLabel("M27 — Dart/Python docs parity");
+    expect(label).toBe("milestone-M27");
+    expect(label).not.toMatch(/\s/);
+    expect(label).toMatch(/^[A-Za-z0-9-]+$/);
+  });
+
+  test("a name without a leading M-token throws (no silent empty label)", () => {
+    let err: Error | null = null;
+    try {
+      milestoneLabel("Some milestone without an M-number");
+    } catch (e) {
+      if (e instanceof Error) err = e;
+    }
+    expect(err).not.toBeNull();
+  });
+});
+
+// Widened provider stub for the `label` branch. Models a Jira issue's label
+// set plus a read-merge-write `addLabel` op. `milestoneBinding: "label"`
+// selects the Jira verify path inside attachProjectMilestone.
+interface LabelStub {
+  labels: string[];
+  // When set, the verify read-back returns these labels instead of the
+  // live set — used to simulate a silent no-op (write landed nowhere).
+  forceVerifyLabels?: string[];
+  calls: string[];
+}
+
+function makeLabelProvider(stub: LabelStub) {
+  return {
+    milestoneBinding: "label" as const,
+    // The label branch must NOT touch list/create — labels are
+    // create-on-write. These throw so the test fails loudly if the branch
+    // regresses into the object path.
+    async listMilestones(): Promise<{ name: string }[]> {
+      stub.calls.push("listMilestones");
+      throw new Error("label branch must not call listMilestones");
+    },
+    async saveMilestone(): Promise<void> {
+      stub.calls.push("saveMilestone");
+      throw new Error("label branch must not call saveMilestone");
+    },
+    async upsertTicketMetadata(): Promise<string> {
+      stub.calls.push("upsertTicketMetadata");
+      throw new Error("label branch must not call upsertTicketMetadata for the milestone");
+    },
+    // Read-merge-write attach: union the requested label into the current
+    // set (never clobber existing labels), idempotent on re-add.
+    async addLabel(ticketId: string, label: string): Promise<void> {
+      stub.calls.push(`addLabel(${ticketId},${label})`);
+      if (!stub.labels.includes(label)) stub.labels.push(label);
+    },
+    async getIssue(
+      ticketId: string,
+    ): Promise<{ projectMilestone?: { name: string } | null; labels?: string[] }> {
+      stub.calls.push(`getIssue(${ticketId})`);
+      const labels = stub.forceVerifyLabels !== undefined ? stub.forceVerifyLabels : stub.labels;
+      return { projectMilestone: null, labels: [...labels] };
+    },
+  };
+}
+
+describe("STE-329 AC-STE-329.3 — read-merge-write attach preserves existing labels", () => {
+  test("merge keeps default_labels / operator labels, adds milestone label", async () => {
+    const stub: LabelStub = {
+      labels: ["spec-driven", "operator-tag"], // pre-existing default_labels + operator label
+      calls: [],
+    };
+    const p = makeLabelProvider(stub);
+    await attachProjectMilestone(p, "DPT", "M86 — Jira Project-Milestone Support", "ABC-1");
+    // Union: existing labels untouched, milestone label appended.
+    expect(stub.labels).toContain("spec-driven");
+    expect(stub.labels).toContain("operator-tag");
+    expect(stub.labels).toContain("milestone-M86");
+    // Never clobbered the existing set.
+    expect(stub.labels.length).toBe(3);
+    // Object-path ops must never fire on the label branch.
+    expect(stub.calls.find((c) => c.startsWith("listMilestones"))).toBeUndefined();
+    expect(stub.calls.find((c) => c.startsWith("saveMilestone"))).toBeUndefined();
+    expect(stub.calls.find((c) => c.startsWith("addLabel"))).toBeDefined();
+  });
+
+  test("idempotent: re-adding an existing milestone label is a no-op", async () => {
+    const stub: LabelStub = {
+      labels: ["spec-driven", "milestone-M86"], // already attached
+      calls: [],
+    };
+    const p = makeLabelProvider(stub);
+    await attachProjectMilestone(p, "DPT", "M86 — Jira Project-Milestone Support", "ABC-1");
+    // No duplicate label; existing set unchanged.
+    expect(stub.labels.filter((l) => l === "milestone-M86").length).toBe(1);
+    expect(stub.labels).toContain("spec-driven");
+    expect(stub.labels.length).toBe(2);
+  });
+});
+
+describe("STE-329 AC-STE-329.4 — adapter-aware verify (label branch)", () => {
+  test("label present after read-back → { capability: null }", async () => {
+    const stub: LabelStub = { labels: ["spec-driven"], calls: [] };
+    const p = makeLabelProvider(stub);
+    const result = await attachProjectMilestone(
+      p,
+      "DPT",
+      "M86 — Jira Project-Milestone Support",
+      "ABC-1",
+    );
+    // Jira label-bind success: no milestone object created → capability null.
+    expect(result.capability).toBeNull();
+    expect(result.createdName).toBeUndefined();
+    // Verify re-read happened.
+    expect(stub.calls).toContain("getIssue(ABC-1)");
+  });
+
+  test("label absent after read-back → MilestoneAttachmentError (silent no-op trap)", async () => {
+    const stub: LabelStub = {
+      labels: ["spec-driven"],
+      // Simulate editJiraIssue silently dropping the write: verify read-back
+      // returns the old set without the milestone label.
+      forceVerifyLabels: ["spec-driven"],
+      calls: [],
+    };
+    const p = makeLabelProvider(stub);
+    let err: MilestoneAttachmentError | null = null;
+    try {
+      await attachProjectMilestone(p, "DPT", "M86 — Jira Project-Milestone Support", "ABC-1");
+    } catch (e) {
+      if (e instanceof MilestoneAttachmentError) err = e;
+    }
+    expect(err).not.toBeNull();
+    expect(err!.expected).toBe("milestone-M86");
+    expect(err!.message).toMatch(/Remedy:/);
+    expect(err!.message).toMatch(/Context:/);
+    // STE-329: the remedy must be Jira-appropriate, not the Linear default —
+    // it points at the label/editJiraIssue path, never `save_issue`.
+    expect(err!.binding).toBe("label");
+    expect(err!.message).toContain("binding=label");
+    expect(err!.message).toContain("editJiraIssue");
+    expect(err!.message).not.toContain("save_issue");
+  });
+
+  test("read-back shows a different milestone label only → MilestoneAttachmentError", async () => {
+    const stub: LabelStub = {
+      labels: ["spec-driven"],
+      // Wrong milestone label present, expected one absent.
+      forceVerifyLabels: ["spec-driven", "milestone-M30"],
+      calls: [],
+    };
+    const p = makeLabelProvider(stub);
+    let err: MilestoneAttachmentError | null = null;
+    try {
+      await attachProjectMilestone(p, "DPT", "M86 — Jira Project-Milestone Support", "ABC-1");
+    } catch (e) {
+      if (e instanceof MilestoneAttachmentError) err = e;
+    }
+    expect(err).not.toBeNull();
+    expect(err!.expected).toBe("milestone-M86");
+  });
+
+  test("capability short-circuit still honored on the label provider", async () => {
+    // supports('project_milestone') === false must short-circuit even on a
+    // label-binding provider (no label write attempted).
+    const stub: LabelStub = { labels: ["spec-driven"], calls: [] };
+    const p = makeLabelProvider(stub);
+    const noCap = { ...p, supports: (cap: string) => cap !== "project_milestone" };
+    const result = await attachProjectMilestone(
+      noCap,
+      "DPT",
+      "M86 — Jira Project-Milestone Support",
+      "ABC-1",
+    );
+    expect(result.capability).toBe("milestone_attach_skipped_adapter_limit");
+    expect(stub.calls).toEqual([]);
+    expect(stub.labels).toEqual(["spec-driven"]);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// STE-335 — plan-heading parser unification (write path).
+//
+// `planFileHeadingToMilestoneName` must delegate to the shared parser
+// (adapters/_shared/src/plan_heading.ts) so it accepts the CURRENT plan
+// format (`## M<N>: <title> {#M<N>}`, H2 + colon) emitted by the plan
+// template and /spec-write, while still raising on a headingless plan and
+// still parsing the LEGACY `# M<N> — <title>` (H1 + em-dash) form.
+// ───────────────────────────────────────────────────────────────────────
+
+describe("STE-335 — planFileHeadingToMilestoneName delegates to the shared parser", () => {
+  function makePlan(body: string): { path: string; cleanup: () => void } {
+    const root = mkdtempSync(join(tmpdir(), "ste335-plan-"));
+    const path = join(root, "M.md");
+    writeFileSync(path, body);
+    return { path, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  }
+
+  test("AC-STE-335.2: current-format `## M<N>: <title> {#M<N>}` → `M<N> — <title>` (no throw)", () => {
+    const ctx = makePlan(
+      "---\nmilestone: M86\nstatus: active\n---\n\n## M86: Jira Project-Milestone Support {#M86}\n\nbody\n",
+    );
+    try {
+      const got = planFileHeadingToMilestoneName(ctx.path);
+      expect(got).toBe("M86 — Jira Project-Milestone Support");
+      // Separator normalized to U+2014 em-dash even though source used a colon.
+      expect(got.charCodeAt(4)).toBe(0x2014);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("AC-STE-335.2: current-format `## M<N>: <title>` without anchor → canonical", () => {
+    const ctx = makePlan("## M87: Plan-heading parser unification\n");
+    try {
+      expect(planFileHeadingToMilestoneName(ctx.path)).toBe(
+        "M87 — Plan-heading parser unification",
+      );
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("AC-STE-335.2: headingless plan still throws", () => {
+    const ctx = makePlan("# Some other heading\n\n## Subhead\n\nno milestone here\n");
+    try {
+      let err: Error | null = null;
+      try {
+        planFileHeadingToMilestoneName(ctx.path);
+      } catch (e) {
+        if (e instanceof Error) err = e;
+      }
+      expect(err).not.toBeNull();
+      expect(err!.message).toMatch(/no recognizable/i);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("AC-STE-335.6: legacy `# M<N> — <title>` (H1+em-dash) → identical canonical name", () => {
+    const ctx = makePlan("# M31 — Tracker Workflow Hardening {#M31}\n");
+    try {
+      const got = planFileHeadingToMilestoneName(ctx.path);
+      expect(got).toBe("M31 — Tracker Workflow Hardening");
+      expect(got.charCodeAt(4)).toBe(0x2014);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// STE-335 AC-STE-335.7 — repo-wide audit: no other live copy of the
+// `^# (M\d+ — …)` heading regex. The two known copies
+// (attach_project_milestone.ts PLAN_HEADING_REGEX, tracker_project_milestone_attached.ts
+// HEADING_RE) must be removed in favor of the shared parser, so only
+// plan_heading.ts defines the matcher.
+// ───────────────────────────────────────────────────────────────────────
+
+describe("STE-335 AC-STE-335.7 — single live copy of the heading regex", () => {
+  // The defunct H1-only literal both old copies declared. After the fix it
+  // must appear in NEITHER source file (they delegate to the shared parser).
+  const LEGACY_REGEX_LITERAL = "/^# (M\\d+ — ";
+
+  test("attach_project_milestone.ts no longer declares the H1-only heading regex", () => {
+    const src = readFileSync(join(import.meta.dir, "attach_project_milestone.ts"), "utf-8");
+    expect(src).not.toContain(LEGACY_REGEX_LITERAL);
+    // It must instead import the shared parser.
+    expect(src).toMatch(/parsePlanHeading/);
+    expect(src).toMatch(/\.\/plan_heading/);
+  });
+
+  test("tracker_project_milestone_attached.ts no longer declares the H1-only heading regex", () => {
+    const src = readFileSync(
+      join(import.meta.dir, "tracker_project_milestone_attached.ts"),
+      "utf-8",
+    );
+    expect(src).not.toContain(LEGACY_REGEX_LITERAL);
+    expect(src).toMatch(/parsePlanHeading/);
+    expect(src).toMatch(/\.\/plan_heading/);
+  });
+
+  test("plan_heading.ts is the sole module defining the heading matcher", () => {
+    const parser = readFileSync(join(import.meta.dir, "plan_heading.ts"), "utf-8");
+    // The shared module must declare a heading regex anchored at start-of-line
+    // accepting one or two `#` and capturing the M-token.
+    expect(parser).toMatch(/#\{1,2\}/);
+    expect(parser).toMatch(/M\\d\+/);
   });
 });

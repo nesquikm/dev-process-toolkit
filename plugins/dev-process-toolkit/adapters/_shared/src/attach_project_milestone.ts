@@ -17,20 +17,31 @@
 // boundary (deduped at plan-file heading authorship time).
 
 import { readFileSync } from "node:fs";
+import { parsePlanHeading } from "./plan_heading";
 
 export class MilestoneAttachmentError extends Error {
   readonly expected: string;
   readonly actual: string | null;
+  readonly binding: "object" | "label";
 
-  constructor(expected: string, actual: string | null) {
+  // STE-329: the remedy is binding-aware — the `object` (Linear) path and the
+  // `label` (Jira) path land at different MCP calls, so a single hardcoded
+  // Linear remedy would misdirect a Jira operator hitting the label-verify trap.
+  constructor(expected: string, actual: string | null, binding: "object" | "label" = "object") {
+    const noun = binding === "label" ? "label" : "milestone";
+    const remedy =
+      binding === "label"
+        ? `re-fetch the ticket via the tracker's get-issue call (e.g. mcp__atlassian__getJiraIssue) and confirm the \`labels\` array contains "${expected}"; if the label silently dropped, verify the attach wrote the read-merge-write union to editJiraIssue.additional_fields.labels (there is no top-level \`labels\` param). Re-run /implement Phase 1 to retry.`
+        : `re-fetch the ticket via mcp__linear__get_issue and confirm the projectMilestone.name field; if Linear silently dropped the param, verify the adapter is forwarding \`milestone:\` as a string (not an ID) to mcp__linear__save_issue. Re-run /implement Phase 1 to retry.`;
     super(
-      `MilestoneAttachmentError: ticket binding mismatch — expected milestone "${expected}", got ${actual ? `"${actual}"` : "null"}.\n` +
-        `Remedy: re-fetch the ticket via mcp__linear__get_issue and confirm the projectMilestone.name field; if Linear silently dropped the param, verify the adapter is forwarding \`milestone:\` as a string (not an ID) to mcp__linear__save_issue. Re-run /implement Phase 1 to retry.\n` +
-        `Context: expected="${expected}", actual=${actual ? `"${actual}"` : "null"}, helper=attachProjectMilestone`,
+      `MilestoneAttachmentError: ticket binding mismatch — expected ${noun} "${expected}", got ${actual ? `"${actual}"` : "null"}.\n` +
+        `Remedy: ${remedy}\n` +
+        `Context: expected="${expected}", actual=${actual ? `"${actual}"` : "null"}, binding=${binding}, helper=attachProjectMilestone`,
     );
     this.name = "MilestoneAttachmentError";
     this.expected = expected;
     this.actual = actual;
+    this.binding = binding;
   }
 }
 
@@ -38,7 +49,25 @@ export interface MilestoneOps {
   listMilestones(project: string): Promise<{ name: string }[]>;
   saveMilestone(project: string, opts: { name: string }): Promise<void>;
   upsertTicketMetadata(ticketId: string, meta: { milestone?: string }): Promise<string>;
-  getIssue(ticketId: string): Promise<{ projectMilestone?: { name: string } | null }>;
+  getIssue(
+    ticketId: string,
+  ): Promise<{ projectMilestone?: { name: string } | null; labels?: string[] }>;
+  /**
+   * STE-329 AC-STE-329.3 — milestone-binding strategy. Linear binds a
+   * projectMilestone OBJECT (`"object"`, the default when absent). Jira
+   * tenants without milestone objects mirror the milestone M-token onto the
+   * issue as a `milestone-<M-token>` label instead (`"label"`). The label
+   * branch is create-on-write — it never enumerates or creates a milestone
+   * object — so it skips listMilestones / saveMilestone / upsertTicketMetadata.
+   */
+  milestoneBinding?: "object" | "label";
+  /**
+   * STE-329 AC-STE-329.3 — read-merge-write label attach. Required only when
+   * `milestoneBinding === "label"`. Implementations union the requested label
+   * into the issue's current label set (never clobbering existing labels) and
+   * are idempotent: re-adding an already-present label is a no-op.
+   */
+  addLabel?: (ticketId: string, label: string) => Promise<void>;
   /**
    * STE-198 AC-STE-198.1/.3 — capability probe. Adapters that lack
    * project-milestone support (Jira tenants with the feature off, custom
@@ -84,6 +113,27 @@ export async function attachProjectMilestone(
     return { capability: "milestone_attach_skipped_adapter_limit" };
   }
 
+  // STE-329 AC-STE-329.3 — `label` binding (Jira create-on-write). Mirror the
+  // milestone M-token onto the issue as a `milestone-<M-token>` label via a
+  // read-merge-write `addLabel` (union, idempotent). Never enumerates or
+  // creates a milestone object — listMilestones / saveMilestone /
+  // upsertTicketMetadata are not called on this branch.
+  if (provider.milestoneBinding === "label") {
+    if (!provider.addLabel) {
+      throw new Error(
+        "attachProjectMilestone: milestoneBinding === \"label\" requires an addLabel op on the provider",
+      );
+    }
+    const label = milestoneLabel(milestoneName);
+    await provider.addLabel(ticketId, label);
+    const fresh = await provider.getIssue(ticketId);
+    const labels = fresh.labels ?? [];
+    if (!labels.includes(label)) {
+      throw new MilestoneAttachmentError(label, null, "label");
+    }
+    return { capability: null };
+  }
+
   const existing = await provider.listMilestones(project);
   const found = existing.find((m) => m.name === milestoneName);
   let createdName: string | undefined;
@@ -104,23 +154,45 @@ export async function attachProjectMilestone(
   return { capability: null };
 }
 
-const PLAN_HEADING_REGEX = /^# (M\d+ — .+?)(?:\s*\{#M\d+\})?\s*$/m;
+/**
+ * STE-329 AC-STE-329.2 — derive the Jira milestone label from a canonical
+ * milestone name. Returns `milestone-<M-token>` where `<M-token>` is the
+ * leading `M\d+` of the canonical name (e.g. `M86 — Jira Project-Milestone
+ * Support` → `milestone-M86`). The label is `[A-Za-z0-9-]` only — Jira labels
+ * forbid spaces, so the descriptive title must not leak in.
+ *
+ * Throws if the canonical name has no leading `M\d+` token (no silent empty
+ * label).
+ */
+export function milestoneLabel(canonicalName: string): string {
+  const m = canonicalName.match(/^(M\d+)/);
+  if (!m) {
+    throw new Error(
+      `milestoneLabel: "${canonicalName}" has no leading M-token (expected a canonical name beginning with \`M<N>\`)`,
+    );
+  }
+  return `milestone-${m[1]!}`;
+}
 
 /**
- * Build the canonical milestone name from a plan-file path. Reads the H1
- * heading and strips the optional `{#M<N>}` anchor (per AC-STE-118.2).
+ * Build the canonical milestone name from a plan-file path. Delegates to the
+ * shared `parsePlanHeading` (./plan_heading) so it accepts both the current
+ * `## M<N>: <title> {#M<N>}` (H2 + colon) form and the legacy
+ * `# M<N> — <title>` (H1 + em-dash) form, normalizing either to the canonical
+ * `M<N> — <title>` (em-dash) and stripping the optional `{#M<N>}` anchor.
  *
- * Throws if the file cannot be read or the heading is missing — callers
- * should treat absence as a hard error (the plan file is the source of
- * truth and should always have a recognizable heading).
+ * Throws if the file cannot be read or no milestone heading is present —
+ * callers should treat absence as a hard error (the plan file is the source
+ * of truth and should always have a recognizable heading).
  */
 export function planFileHeadingToMilestoneName(planFilePath: string): string {
   const md = readFileSync(planFilePath, "utf-8");
-  const m = md.match(PLAN_HEADING_REGEX);
-  if (!m) {
+  const name = parsePlanHeading(md);
+  if (name === null) {
     throw new Error(
-      `planFileHeadingToMilestoneName: ${planFilePath} has no recognizable H1 heading (expected \`# M<N> — <title>\`)`,
+      `planFileHeadingToMilestoneName: ${planFilePath} has no recognizable milestone heading ` +
+        `(expected \`# M<N> — <title>\` or \`## M<N>: <title>\` — H1/H2 depth, em-dash or colon separator)`,
     );
   }
-  return m[1]!.trim();
+  return name;
 }
