@@ -2,8 +2,10 @@
 //
 // For each `status: active` FR with a tracker block, assert that the
 // tracker ticket's `projectMilestone.name` byte-equals the canonical
-// milestone name derived from the local plan-file H1 heading. Closes the
-// drift surface where /spec-write didn't auto-attach (STE-115/116 origin).
+// milestone name derived from the local plan-file milestone heading (parsed
+// via the shared `parsePlanHeading`, which accepts both the current `## M<N>:`
+// and legacy `# M<N> —` forms — STE-335). Closes the drift surface where
+// /spec-write didn't auto-attach (STE-115/116 origin).
 //
 // Vacuous on:
 //   - mode: none
@@ -32,6 +34,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { milestoneLabel } from "./attach_project_milestone";
+import { parsePlanHeading } from "./plan_heading";
 
 export interface TrackerProjectMilestoneAttachedViolation {
   file: string;
@@ -75,8 +78,6 @@ export interface TrackerProjectMilestoneAttachedDeps {
    */
   milestoneBinding?: "object" | "label";
 }
-
-const HEADING_RE = /^# (M\d+ — .+?)(?:\s*\{#M\d+\})?\s*$/m;
 
 interface FrFrontmatter {
   milestone: string | null;
@@ -138,10 +139,25 @@ function parseFrFrontmatter(content: string): FrFrontmatter {
   return { milestone, status, trackerKey, trackerId };
 }
 
-function buildMessage(reason: string, file: string, kind: "missing" | "mismatch"): string {
+// STE-335: the `missing` remedy's manual-attach hint is binding-aware. The
+// `label` (Jira) branch — now reachable on current-format `## M<N>:` plans once
+// readPlanHeading delegates to the shared parser — would otherwise misdirect a
+// Jira operator to the Linear-only `save_issue` call. Mirrors the binding-aware
+// split already in MilestoneAttachmentError (STE-329). The `mismatch` kind only
+// fires on the object branch, so it stays Linear-specific.
+function buildMessage(
+  reason: string,
+  file: string,
+  kind: "missing" | "mismatch",
+  binding: "object" | "label" = "object",
+): string {
+  const manualAttach =
+    binding === "label"
+      ? "Or attach manually via your tracker's edit-issue call (e.g. mcp__atlassian__editJiraIssue) adding the `milestone-<M-token>` label to the issue's existing labels (read-merge-write — never clobber)."
+      : "Or attach manually via mcp__linear__save_issue(id=<ticket>, milestone=<canonical name from plan heading>).";
   const remedy =
     kind === "missing"
-      ? "Run /implement Phase 1 against this FR — Phase 1 entry calls attachProjectMilestone() idempotently. Or attach manually via mcp__linear__save_issue(id=<ticket>, milestone=<canonical name from plan H1>)."
+      ? `Run /implement Phase 1 against this FR — Phase 1 entry calls attachProjectMilestone() idempotently. ${manualAttach}`
       : "If the local plan-file heading is correct, run /spec-write --rename-milestone M<N> to rename the Linear milestone to match. If the tracker side is correct, edit specs/plan/M<N>.md heading to match.";
   return [
     `tracker_project_milestone_attached: ${reason}`,
@@ -251,8 +267,7 @@ function isTrackerMode(claudeMdContent: string): boolean {
 function readPlanHeading(planPath: string): string | null {
   if (!existsSync(planPath)) return null;
   const md = readFileSync(planPath, "utf-8");
-  const m = md.match(HEADING_RE);
-  return m ? m[1]!.trim() : null;
+  return parsePlanHeading(md);
 }
 
 export async function runTrackerProjectMilestoneAttachedProbe(
@@ -295,7 +310,7 @@ export async function runTrackerProjectMilestoneAttachedProbe(
         line: 1,
         reason,
         note: `${rel}:1 — ${reason}`,
-        message: buildMessage(reason, rel, "missing"),
+        message: buildMessage(reason, rel, "missing", deps.milestoneBinding),
       });
       continue;
     }
@@ -321,7 +336,7 @@ export async function runTrackerProjectMilestoneAttachedProbe(
         line: 1,
         reason,
         note: `${rel}:1 — ${trackerRef} labels missing "${expectedLabel}" (not attached)`,
-        message: buildMessage(reason, rel, "missing"),
+        message: buildMessage(reason, rel, "missing", "label"),
       });
       continue;
     }
