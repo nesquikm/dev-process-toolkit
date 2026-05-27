@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.31.1] — 2026-05-27 — "Unified"
+
+M87 fixes the milestone-binding parser drift that silently disabled M86/STE-329's binding on every current-format plan. The write path (attach) and the verify path (`/gate-check` probe #26) each carried a private H1+em-dash-only regex, but the live plan template and `/spec-write` emit `## M<N>: <title>` (H2 + colon) — so attach threw ("no recognizable heading") and the probe skipped vacuously for every downstream consumer.
+
+### Fixed
+
+- **STE-335 — Unify the plan-heading parser.** New shared `parsePlanHeading` (`adapters/_shared/src/plan_heading.ts`) matches a milestone heading at `#` or `##` depth, with an em-dash or colon separator, and an optional trailing `{#M<N>}` anchor, normalizing every form to the canonical `M<N> — <title>` (em-dash). Both `planFileHeadingToMilestoneName` (`attach_project_milestone.ts`) and probe #26's `readPlanHeading` (`tracker_project_milestone_attached.ts`) delegate to it; the two duplicate `^# (M\d+ — …)` regex copies are deleted. This restores M86/STE-329's milestone binding — both the Linear `object` and Jira `label` paths — end-to-end for every project whose plans come from the current template. Probe #26's missing-binding remedy also becomes binding-aware: the Jira `label` path now points at `editJiraIssue` (read-merge-write the `milestone-<M-token>` label) instead of misdirecting to Linear's `save_issue`. (STE-335)
+
+Total test count at release: 3257 tests, 0 failures, 0 errors.
+
 ## [2.31.0] — 2026-05-26 — "Mirrored"
 
 M86 brings Jira to parity with Linear's *used* project-milestone surface (name-grouping + verify-after-write), entirely through the atlassian MCP with no raw REST. The MCP exposes no version/milestone create-or-list tool, so the milestone M-number is mirrored onto each Jira issue as a create-on-write `milestone-M<N>` label via `editJiraIssue` (read-merge-write, read-back verified) instead of a Linear-style projectMilestone object. Flips the Jira adapter's long-standing `project_milestone: false` (STE-38/STE-154) to `true`, and `attachProjectMilestone` + `/gate-check` probe #26 become adapter-aware.
