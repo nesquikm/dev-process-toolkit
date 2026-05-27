@@ -161,7 +161,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.31.0 — "Mirrored"** (M86 brings Jira to parity with Linear's used project-milestone surface — the atlassian MCP exposes no milestone create/list tool, so the milestone M-number is mirrored onto each Jira issue as a create-on-write `milestone-M<N>` label via `editJiraIssue` read-merge-write, read-back verified. Flips the Jira adapter's `project_milestone: false → true` + adds `milestone_binding: label`; `attachProjectMilestone` and `/gate-check` probe #26 become adapter-aware, with the Linear `object` path byte-identical. Live-Jira smoke ships `[~]` since this repo is mode:linear.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.31.1 — "Unified"** (M87 fixes the milestone-binding parser drift behind M86: the attach and verify paths each parsed only the legacy `# M<N> —` H1 heading, but the live plan template and `/spec-write` emit `## M<N>:` (H2 + colon), so milestone binding was silently broken for every downstream consumer. A new shared `parsePlanHeading` accepts a heading at H1/H2 depth with an em-dash or colon separator and an optional anchor, normalizing to the canonical `M<N> — <title>`; both call sites delegate and the two duplicate regexes are deleted. Probe #26's missing-binding remedy is now binding-aware for the Jira label path.)
 
 ## Core Philosophy
 
