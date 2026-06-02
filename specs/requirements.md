@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.31.1 ("Unified")**.
+**Latest shipped release:** **v2.32.0 ("Parity")**.
 
 ### Shipped milestones
 
@@ -352,4 +352,6 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-325.1..3 | .claude/skills/conformance-loop/SKILL.md | plugins/dev-process-toolkit/tests/conformance-loop-aggregator.test.ts |
 | AC-STE-329.1..9 | plugins/dev-process-toolkit/adapters/_shared/src/attach_project_milestone.ts, plugins/dev-process-toolkit/adapters/_shared/src/tracker_project_milestone_attached.ts, plugins/dev-process-toolkit/adapters/jira.md, plugins/dev-process-toolkit/docs/tracker-adapters.md, plugins/dev-process-toolkit/skills/gate-check/SKILL.md, plugins/dev-process-toolkit/skills/implement/SKILL.md, plugins/dev-process-toolkit/skills/spec-write/SKILL.md | plugins/dev-process-toolkit/adapters/_shared/src/attach_project_milestone.test.ts, plugins/dev-process-toolkit/adapters/_shared/src/tracker_project_milestone_attached.test.ts, plugins/dev-process-toolkit/tests/adapter-schema-jira-project-milestone.test.ts, plugins/dev-process-toolkit/tests/ste-329-skill-and-docs-conformance.test.ts |
 | AC-STE-335.1..7 | plugins/dev-process-toolkit/adapters/_shared/src/plan_heading.ts, plugins/dev-process-toolkit/adapters/_shared/src/attach_project_milestone.ts, plugins/dev-process-toolkit/adapters/_shared/src/tracker_project_milestone_attached.ts | plugins/dev-process-toolkit/adapters/_shared/src/plan_heading.test.ts, plugins/dev-process-toolkit/adapters/_shared/src/attach_project_milestone.test.ts, plugins/dev-process-toolkit/adapters/_shared/src/tracker_project_milestone_attached.test.ts |
+| AC-STE-336.1..10 | plugins/dev-process-toolkit/adapters/_shared/src/kotlin_detekt_configured.ts, plugins/dev-process-toolkit/examples/kotlin/gate-commands.md, plugins/dev-process-toolkit/examples/kotlin/release.yml, plugins/dev-process-toolkit/templates/permissions.json, plugins/dev-process-toolkit/skills/setup/SKILL.md, plugins/dev-process-toolkit/skills/gate-check/SKILL.md, plugins/dev-process-toolkit/docs/adaptation-guide.md, plugins/dev-process-toolkit/docs/setup-reference.md, README.md | plugins/dev-process-toolkit/tests/gate-check-kotlin-detekt-configured.test.ts, plugins/dev-process-toolkit/tests/setup-merge-settings-kotlin.test.ts, plugins/dev-process-toolkit/tests/kotlin-stack-docs-config.test.ts |
+| AC-STE-337.1..3 | README.md, plugins/dev-process-toolkit/docs/setup-tracker-mode.md, plugins/dev-process-toolkit/skills/setup/SKILL.md | plugins/dev-process-toolkit/tests/readme-bun-prerequisite.test.ts |
 

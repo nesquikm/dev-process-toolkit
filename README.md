@@ -7,7 +7,7 @@ A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** wor
 - **Spec-Driven Development (SDD)** — requirements, technical, testing, and plan files as the source of truth
 - **Multi-agent TDD orchestrator** — `/tdd` runs RED → GREEN → REFACTOR → AUDIT via four forked subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`, `tdd-spec-reviewer`) with context isolation, a strict `tdd-result` YAML hand-off, and bounded retries; `/implement` invokes it inline per FR
 - **Bounded three-stage self-review** — Stage A spec compliance → Stage B two-pass `code-reviewer` agent (Pass 1 spec compliance, Pass 2 code quality, fail-fast) → Stage C hardening, capped before human escalation
-- **Deterministic quality gates** — 59 numbered `/gate-check` probes (typecheck + lint + test + spec/plan/frontmatter/branch hygiene) override LLM judgment
+- **Deterministic quality gates** — 60 numbered `/gate-check` probes (typecheck + lint + test + spec/plan/frontmatter/branch hygiene) override LLM judgment
 - **Universal pre-commit branch gate** — every commit-producing skill calls `requireCommittableBranch`; trunk-OK narrows to `ci` only, so `chore`/`docs`/`feat` cannot land on `main` accidentally
 - **Non-technical drafting (`--no-tech`)** — `/brainstorm` and `/spec-write` skip the technical-design + testing interviews; FR ships with `needs_technical_review: true` and `/implement` refuses until a reviewer fills it in
 - **Topic-aware spec retrieval** — `spec-researcher` Read-only Haiku subagent (invoked by `/brainstorm` and `/spec-write` via the `spec-research` fork) returns related FRs from active + archived specs as a fixed-shape ≤ 25-line block, no parent-context pollution
@@ -19,7 +19,7 @@ A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** wor
 - **Atomic release commits** — `/ship-milestone` enforces the multi-file Release Checklist + folds staged doc fragments into the canonical tree in one commit
 - **Spec lifecycle management** — ULID-keyed FRs, `/spec-archive` for manual archival by ULID / tracker ID / `M<N>`, post-archive drift checks
 - **Browser-based UI verification** — `/visual-check` via Chrome DevTools MCP
-- **Stack-adaptive setup** — auto-detects TypeScript, Flutter, Python; generates `CLAUDE.md`, settings, and the `commit-msg` hook
+- **Stack-adaptive setup** — auto-detects TypeScript, Flutter, Python, Kotlin; generates `CLAUDE.md`, settings, and the `commit-msg` hook
 
 ## Install as Plugin
 
@@ -38,6 +38,17 @@ Then run the setup command in your project:
 ```
 
 This detects your stack, generates a CLAUDE.md, configures settings, and optionally creates spec files — all adapted to your project.
+
+## Prerequisites
+
+**[bun](https://bun.sh) must be installed.** The toolkit's `adapters/_shared` TypeScript helpers and tracker adapters — invoked by skills via `bun run` — execute on bun, **regardless of your own project's stack**. This is a requirement of the toolkit's own machinery, not of your code: a Flutter project still gates via `fvm flutter`, a Python project via its own toolchain. You do not rewrite your project in TypeScript or adopt bun for your own gates.
+
+Install bun and verify:
+
+```
+curl -fsSL https://bun.sh/install | bash
+bun --version
+```
 
 ## Workflow
 
@@ -90,7 +101,7 @@ flowchart LR
     Build --> Ship
 ```
 
-Under the hood, `/implement` invokes the `/tdd` orchestrator inline per FR — `/tdd` forks four subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`, `tdd-spec-reviewer`) into isolated contexts and parses their `tdd-result` YAML hand-off. It runs gate commands inline (e.g., `bun test`) rather than invoking the `/gate-check` skill (which layers 59 probes on top of those commands), and invokes `/docs --quick` once per FR for the Phase 4b doc fragment. `/brainstorm` and `/spec-write` similarly fork the read-only `spec-research` skill (paired with the `spec-researcher` Haiku subagent) for topic-aware retrieval of related active + archived FRs. After self-review and human approval, `/implement` commits and stops — you open the PR via `/pr` separately. `/ship-milestone` invokes `/docs --commit --full` to fold staged fragments into the canonical docs tree before cutting the release commit.
+Under the hood, `/implement` invokes the `/tdd` orchestrator inline per FR — `/tdd` forks four subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`, `tdd-spec-reviewer`) into isolated contexts and parses their `tdd-result` YAML hand-off. It runs gate commands inline (e.g., `bun test`) rather than invoking the `/gate-check` skill (which layers 60 probes on top of those commands), and invokes `/docs --quick` once per FR for the Phase 4b doc fragment. `/brainstorm` and `/spec-write` similarly fork the read-only `spec-research` skill (paired with the `spec-researcher` Haiku subagent) for topic-aware retrieval of related active + archived FRs. After self-review and human approval, `/implement` commits and stops — you open the PR via `/pr` separately. `/ship-milestone` invokes `/docs --commit --full` to fold staged fragments into the canonical docs tree before cutting the release commit.
 
 Spine skills (bold, stadium-shaped) are the recommended invoke path; secondary skills (muted rectangles) are auxiliary tools and auto-invoked helpers.
 
@@ -161,7 +172,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.31.1 — "Unified"** (M87 fixes the milestone-binding parser drift behind M86: the attach and verify paths each parsed only the legacy `# M<N> —` H1 heading, but the live plan template and `/spec-write` emit `## M<N>:` (H2 + colon), so milestone binding was silently broken for every downstream consumer. A new shared `parsePlanHeading` accepts a heading at H1/H2 depth with an em-dash or colon separator and an optional anchor, normalizing to the canonical `M<N> — <title>`; both call sites delegate and the two duplicate regexes are deleted. Probe #26's missing-binding remedy is now binding-aware for the Jira label path.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.32.0 — "Parity"** (M88 promotes Kotlin to a first-class stack at parity with Flutter/Python/TypeScript — `examples/kotlin/` configs, `/setup` auto-detection + a detekt scaffold-verify branch, a `stacks.kotlin` permissions key, and a new `kotlin-detekt-configured` gate probe (#60) — and documents bun as a universal toolkit prerequisite in a new README `## Prerequisites` section.)
 
 ## Core Philosophy
 
@@ -182,6 +193,7 @@ The key insight: **deterministic checks always override LLM judgment**. A failin
 ### Examples Provided For
 
 - **Python** — stack-detection config + CLAUDE.md template under `plugins/dev-process-toolkit/examples/python/` (not dogfooded in production by the plugin author, but the `/setup` detection path and example config are maintained alongside the TypeScript and Flutter examples).
+- **Kotlin** — stack-detection config + CLAUDE.md template under `plugins/dev-process-toolkit/examples/kotlin/` (not dogfooded in production by the plugin author, but the `/setup` detection path and example config are maintained alongside the TypeScript and Flutter examples).
 
 ## Documentation
 
