@@ -6,7 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
-## [Unreleased]
+## [2.32.0] — 2026-06-02 — "Parity"
+
+Kotlin promoted to a first-class stack; bun documented as a universal prerequisite.
 
 ### Added
 
@@ -15,6 +17,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Documentation
 
 - **STE-337 — bun documented as a universal prerequisite.** Adds a `## Prerequisites` section to `README.md` stating bun is required for the toolkit's `adapters/_shared` helpers regardless of the consumer's stack, and reconciles the tracker-mode bun mentions to reference it (promote-and-widen). (STE-337)
+
+Total test count at release: 3306 tests, 0 failures, 0 errors.
 
 ## [2.31.1] — 2026-05-27 — "Unified"
 
