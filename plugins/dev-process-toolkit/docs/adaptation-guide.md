@@ -15,7 +15,8 @@ The most important adaptation is mapping gate check commands to your toolchain. 
 | Python | `mypy .` | `ruff check .` | `pytest` | — |
 | Go | `go vet ./...` | `golangci-lint run` | `go test ./...` | `go build ./...` |
 | Rust | `cargo check` | `cargo clippy` | `cargo test` | `cargo build` |
-| Java/Kotlin | `./gradlew compileJava` | `./gradlew spotlessCheck` | `./gradlew test` | `./gradlew build` |
+| Java | `./gradlew compileJava` | `./gradlew spotlessCheck` | `./gradlew test` | `./gradlew build` |
+| Kotlin (Gradle/JVM) | `./gradlew compileKotlin` | `./gradlew detekt` | `./gradlew test` | `./gradlew build` |
 
 Skills like `/gate-check` and `/tdd` read these commands from your CLAUDE.md at runtime.
 

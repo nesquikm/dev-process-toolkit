@@ -18,6 +18,23 @@ If the user explicitly chose the legacy `tests/-mirror` layout in CLAUDE.md `## 
 
 The `bun-zero-match-placeholder` probe (gate-check #20) reads either the marker comment OR a real `*.test.ts` as satisfaction; downstream operators delete the placeholder once the project ships its first real test. The probe also enforces the declared layout — placing the placeholder in the wrong directory fails the gate.
 
+## Kotlin detekt scaffold-verify branch
+
+Triggered from skill step 2c when the detected stack is Kotlin/Gradle (presence of `build.gradle.kts` OR `settings.gradle.kts`). Gradle has no `detekt` task unless the detekt plugin is applied; running the first gate before the plugin exists fails with `Task 'detekt' not found`, so the scaffold must apply the plugin before the gate runs.
+
+The detekt Gradle plugin (`io.gitlab.arturbosch.detekt`) must be applied in `build.gradle.kts` before `./gradlew detekt` runs, else the task does not exist:
+
+```kotlin
+plugins {
+    kotlin("jvm") version "<latest>"
+    id("io.gitlab.arturbosch.detekt") version "<latest>"
+}
+```
+
+The scaffold also writes a placeholder `src/main/kotlin` source and a `src/test/kotlin` test so the Kotlin compile + test gates have inputs.
+
+The `kotlin-detekt-configured` probe (gate-check #60) is the read-side enforcement: it reads `build.gradle.kts` and fails the gate when the detekt plugin is not applied, mirroring the Bun zero-match probe's role for the Bun branch.
+
 ## Step 6b — commit-msg hook install
 
 `default: shell` — install the POSIX-shell Conventional-Commits hook (zero-dep). `$ARGUMENTS` contains `--commitlint` ⇒ install the commitlint-delegating variant.

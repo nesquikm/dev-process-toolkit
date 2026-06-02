@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [Unreleased]
+
+### Added
+
+- **STE-336 — Kotlin first-class stack (generic Gradle/JVM).** Adds Kotlin as a first-class supported stack: `examples/kotlin/` configs, `/setup` auto-detection, `stacks.kotlin` permissions, and the `kotlin-detekt-configured` gate probe #60. (STE-336)
+
+### Documentation
+
+- **STE-337 — bun documented as a universal prerequisite.** Adds a `## Prerequisites` section to `README.md` stating bun is required for the toolkit's `adapters/_shared` helpers regardless of the consumer's stack, and reconciles the tracker-mode bun mentions to reference it (promote-and-widen). (STE-337)
+
 ## [2.31.1] — 2026-05-27 — "Unified"
 
 M87 fixes the milestone-binding parser drift that silently disabled M86/STE-329's binding on every current-format plan. The write path (attach) and the verify path (`/gate-check` probe #26) each carried a private H1+em-dash-only regex, but the live plan template and `/spec-write` emit `## M<N>: <title>` (H2 + colon) — so attach threw ("no recognizable heading") and the probe skipped vacuously for every downstream consumer.

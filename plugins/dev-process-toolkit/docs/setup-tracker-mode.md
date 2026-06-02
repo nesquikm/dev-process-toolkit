@@ -61,6 +61,13 @@ proceed through the remaining tracker-mode steps in order.
 
 ## Bun prerequisite check
 
+Bun is a **universal** toolkit prerequisite — see the README `## Prerequisites`
+section for the canonical statement. The toolkit's `adapters/_shared` helpers
+and tracker adapters run on bun via `bun run` regardless of the consumer's own
+stack; tracker mode is one consumer of bun, not the sole reason it's required.
+The check below re-verifies that universal prerequisite at the point tracker
+mode needs it.
+
 Before any MCP work, verify:
 
 ```bash
