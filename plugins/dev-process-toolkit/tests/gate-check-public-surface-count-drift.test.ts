@@ -352,22 +352,23 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     expect(r.violations).toEqual([]);
   });
 
-  test("README.md L3 / L10 / L93 / L126 / L150 / L151 carry the byte-exact post-backfill tokens", () => {
+  test("README.md L3 / L10 / L104 / L137 / L161 / L162 carry the byte-exact post-backfill tokens", () => {
     const readme = readFileSync(join(repoRoot, "README.md"), "utf-8");
     const lines = readme.split("\n");
     // L3 — "16 commands, 8 agents"
     expect(lines[2]).toMatch(/16 commands?,\s+8 agents?/);
-    // L10 — 59 numbered (matches "59 numbered ... probes" — STE-324 added #59)
-    expect(lines[9]).toMatch(/\b59\b.*numbered/);
-    // L93 — "59 probes" (on-disk max-probe is 59 after STE-324)
-    expect(lines[92]).toMatch(/\b59\b\s+probes/);
-    // L126 — "Seven additional skills"
-    expect(lines[125]).toMatch(/Seven additional skills/);
-    // L150 — "23 (16 + 7)"
-    expect(lines[149]).toMatch(/23\s+\(16\s*\+\s*7\)/);
-    // L151 — "8 specialist agents" with spec-reviewer enumerated
-    expect(lines[150]).toMatch(/\b8 specialist agents\b/);
-    expect(lines[150]).toMatch(/spec-reviewer/);
+    // L10 — 60 numbered (matches "60 numbered ... probes" — STE-336 added #60)
+    expect(lines[9]).toMatch(/\b60\b.*numbered/);
+    // L104 — "60 probes" (on-disk max-probe is 60 after STE-336; STE-337 added
+    // the `## Prerequisites` section, shifting this token +11 lines from L93)
+    expect(lines[103]).toMatch(/\b60\b\s+probes/);
+    // L137 — "Seven additional skills"
+    expect(lines[136]).toMatch(/Seven additional skills/);
+    // L161 — "23 (16 + 7)"
+    expect(lines[160]).toMatch(/23\s+\(16\s*\+\s*7\)/);
+    // L162 — "8 specialist agents" with spec-reviewer enumerated
+    expect(lines[161]).toMatch(/\b8 specialist agents\b/);
+    expect(lines[161]).toMatch(/spec-reviewer/);
   });
 
   test("CLAUDE.md L15 / L16 carry the byte-exact post-backfill tokens", () => {
