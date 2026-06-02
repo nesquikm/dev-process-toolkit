@@ -65,6 +65,13 @@
       "Bash(python3)",
       "Bash(pytest)"
     ],
+    "kotlin": [
+      "Bash(./gradlew compileKotlin)",
+      "Bash(./gradlew detekt)",
+      "Bash(./gradlew test)",
+      "Bash(./gradlew build)",
+      "Bash(./gradlew --version)"
+    ],
     "generic": []
   }
 }

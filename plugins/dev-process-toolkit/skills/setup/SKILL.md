@@ -50,7 +50,7 @@ Detailed tracker-mode switching procedures live in `docs/setup-tracker-mode.md`.
 
 ### 1. Detect the project
 
-Check for project files (`package.json`, `pubspec.yaml`, `pyproject.toml`, `go.mod`, `Cargo.toml`, etc.) and source directories.
+Check for project files (`package.json`, `pubspec.yaml`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `build.gradle.kts` / `settings.gradle.kts` for Kotlin/Gradle, etc.) and source directories.
 
 If **no project files are found** (empty directory or only basic files), this is a new project — go to step 2.
 
@@ -62,7 +62,7 @@ For **existing projects** (project files found in step 1), validate prerequisite
 
 | Check | How | Remediation |
 |-------|-----|-------------|
-| Required tools installed | Run version commands using the **per-stack declared invocation prefix** (STE-209 AC-STE-209.5): when the rendered CLAUDE.md / `examples/<stack>/gate-commands.md` declares `fvm flutter`, the doctor probes `fvm flutter --version` (not bare `flutter --version`); same pattern for any wrapper (`bun` vs `node`, `pnpm` vs `npm`, etc.). Falls back to the bare command when no wrapper is declared. Examples: `node -v`, `fvm flutter --version` (when fvm is declared) or `flutter --version`, `python3 --version`. | Install the missing tool or update PATH |
+| Required tools installed | Run version commands using the **per-stack declared invocation prefix** (STE-209 AC-STE-209.5): when the rendered CLAUDE.md / `examples/<stack>/gate-commands.md` declares `fvm flutter`, the doctor probes `fvm flutter --version` (not bare `flutter --version`); same pattern for any wrapper (`bun` vs `node`, `pnpm` vs `npm`, etc.). Falls back to the bare command when no wrapper is declared. Examples: `node -v`, `fvm flutter --version` (when fvm is declared) or `flutter --version`, `python3 --version`, `./gradlew --version` (Kotlin/Gradle — probe the wrapper, NOT a bare `gradle --version`). | Install the missing tool or update PATH |
 | Gate commands runnable | Run the gating rule from CLAUDE.md (e.g., `npm run typecheck && npm run lint && npm run test`) | Fix failing commands or update CLAUDE.md gating rule |
 | CLAUDE.md present | Check if `CLAUDE.md` exists in project root | Will be created in step 5 |
 | .claude/settings.json present | Check if `.claude/settings.json` exists | Will be created in step 6 |
@@ -99,12 +99,15 @@ Key requirements for **every stack**:
 - **Flutter/Dart:** `flutter create .` (writes `test/widget_test.dart` automatically), add bloc_test + mocktail. do NOT add an extra placeholder file (e.g. `test/empty_test.dart`) — `flutter test` exits 0 against an empty `test/` directory on current Flutter SDKs, and `test/widget_test.dart` from `flutter create` keeps `test/` non-empty in the canonical bootstrap path.
 - **Python:** `uv init` or poetry init, add pytest + mypy + ruff, create src/__init__.py, tests/ dir
 - **Go:** `go mod init <module>`, create main.go, install golangci-lint
+- **Kotlin (Gradle/JVM):** scaffold `build.gradle.kts` applying the Kotlin-JVM plugin **and** the detekt Gradle plugin (`io.gitlab.arturbosch.detekt`), `settings.gradle.kts`, a placeholder `src/main/kotlin` source + a `src/test/kotlin` test — see step 2c branch + `docs/setup-reference.md` § Kotlin detekt scaffold-verify branch
 
 #### 2c. Verify scaffolding
 
 `verification:` Run the gate commands to verify they all pass. If anything fails, fix it immediately — the project must be gate-check-ready before proceeding to step 3.
 
 **Bun-specific scaffold-verify branch** writes a placeholder file before running the gate. See `docs/setup-reference.md` § Bun scaffold-verify branch for the placeholder location, marker comment, and layout-policy logic.
+
+**Kotlin detekt scaffold-verify branch** ensures the detekt Gradle plugin is applied in `build.gradle.kts` before the first gate (analogous to the Bun zero-match branch), so `./gradlew detekt` does not fail with "task 'detekt' not found". See `docs/setup-reference.md` § Kotlin detekt scaffold-verify branch.
 
 ### 3. Read the templates
 
@@ -114,7 +117,7 @@ Load reference material from the plugin directory:
 - `${CLAUDE_PLUGIN_ROOT}/examples/` — Stack-specific gate commands and patterns
 - `${CLAUDE_PLUGIN_ROOT}/docs/adaptation-guide.md` — Configuration reference
 
-Match the detected stack to the closest example. For other stacks, use the adaptation guide's gate command table.
+Match the detected stack to the closest example (e.g., a detected Kotlin/Gradle stack maps to `examples/kotlin/`). For other stacks, use the adaptation guide's gate command table.
 
 ### 4. Present the plan
 
@@ -172,7 +175,7 @@ Ask exactly once, near the end of the flow — after CLAUDE.md is drafted but be
 
 If the user picks `1` (or pre-baked answer is `none`), do NOT emit a `## Task Tracking` section in CLAUDE.md — absence is the canonical form for `mode: none`. Continue to step 7c.
 
-If the user picks 2–4, run the full numbered flow in `docs/setup-reference.md` § Step 7b — Tracker mode (covers Bun prereq, MCP detection, test call, Jira field discovery, Schema L emit, and workspace binding). Background detail in `docs/setup-tracker-mode.md`.
+If the user picks 2–4, run the full numbered flow in `docs/setup-reference.md` § Step 7b — Tracker mode (covers the bun re-verification — bun is a **universal** toolkit prerequisite per the README `## Prerequisites` section, re-checked here for tracker mode — plus MCP detection, test call, Jira field discovery, Schema L emit, and workspace binding). Background detail in `docs/setup-tracker-mode.md`.
 
 **Jira-specific prerequisite** (`mode: jira` only): the operator must have **created the Jira Space (project) in the Jira UI manually** before running `/setup` — the Atlassian MCP exposes no project-creation tool. After the operator supplies the project key, `/setup` validates visibility via `mcp__atlassian__getVisibleJiraProjects` and refuses with NFR-10 canonical shape on miss. AC-field discovery returning `{ ok: false }` is also a first-class branch: the operator chooses between creating a custom field (records `jira_ac_field: customfield_XXXXX`) or accepting the description-body sentinel (records `jira_ac_field: description`); both choices are recorded under the existing canonical key — no new Schema L key is added.
 
