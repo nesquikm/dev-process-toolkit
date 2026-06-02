@@ -15,6 +15,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
+export const PROBE_ID = "kotlin-detekt-configured";
+
 export interface Violation {
   file: string;
   line: number;
@@ -62,10 +64,10 @@ export async function runKotlinDetektConfiguredProbe(
     "build.gradle.kts declares detekt as a gate but the detekt Gradle plugin is not applied — `./gradlew detekt` will fail with \"task 'detekt' not found\"";
   const note = `${rel}:1 — ${reason}`;
   const message = [
-    `kotlin_detekt_configured: ${reason}`,
+    `${PROBE_ID}: ${reason}`,
     "Remedy: apply the detekt Gradle plugin per the AC-STE-336.5 /setup step 2c scaffold workaround — " +
       "add `id(\"io.gitlab.arturbosch.detekt\") version \"<latest>\"` to the `plugins { }` block (and an optional `detekt { }` config block) in build.gradle.kts.",
-    `Context: project=${projectRoot}, probe=kotlin_detekt_configured`,
+    `Context: project=${projectRoot}, probe=${PROBE_ID}`,
   ].join("\n");
 
   return {
