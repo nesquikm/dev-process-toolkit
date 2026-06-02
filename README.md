@@ -172,7 +172,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.31.1 — "Unified"** (M87 fixes the milestone-binding parser drift behind M86: the attach and verify paths each parsed only the legacy `# M<N> —` H1 heading, but the live plan template and `/spec-write` emit `## M<N>:` (H2 + colon), so milestone binding was silently broken for every downstream consumer. A new shared `parsePlanHeading` accepts a heading at H1/H2 depth with an em-dash or colon separator and an optional anchor, normalizing to the canonical `M<N> — <title>`; both call sites delegate and the two duplicate regexes are deleted. Probe #26's missing-binding remedy is now binding-aware for the Jira label path.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.32.0 — "Parity"** (M88 promotes Kotlin to a first-class stack at parity with Flutter/Python/TypeScript — `examples/kotlin/` configs, `/setup` auto-detection + a detekt scaffold-verify branch, a `stacks.kotlin` permissions key, and a new `kotlin-detekt-configured` gate probe (#60) — and documents bun as a universal toolkit prerequisite in a new README `## Prerequisites` section.)
 
 ## Core Philosophy
 
