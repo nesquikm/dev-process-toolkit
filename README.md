@@ -172,7 +172,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.32.0 — "Parity"** (M88 promotes Kotlin to a first-class stack at parity with Flutter/Python/TypeScript — `examples/kotlin/` configs, `/setup` auto-detection + a detekt scaffold-verify branch, a `stacks.kotlin` permissions key, and a new `kotlin-detekt-configured` gate probe (#60) — and documents bun as a universal toolkit prerequisite in a new README `## Prerequisites` section.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.33.0 — "Census"** (M89 hardens milestone-number allocation against cross-branch and Jira-mode collisions — `scanBranchMilestones` unions `M<N>` plan files across local + remote-tracking git refs (no-fetch default, opt-in `--fetch` / `milestone_scan_fetch`) as a fifth source in `nextFreeMilestoneNumber`, and the Jira driver gains `listMilestones()` via `milestone-<M-token>` label enumeration so the tracker leg fires in Jira mode.)
 
 ## Core Philosophy
 
