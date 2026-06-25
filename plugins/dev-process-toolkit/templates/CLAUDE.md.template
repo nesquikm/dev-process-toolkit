@@ -193,6 +193,31 @@ humans editing the file by hand.
 
 <!--
 ===============================================================================
+Optional: milestone_scan_fetch (default false; mode-agnostic).
+
+`/spec-write`'s milestone-number allocation guard runs a cross-branch scan
+(`scanBranchMilestones`) that unions `M<N>` plan files from every git ref
+into the next-free-number calculation. By default the scan reads only
+already-present refs (no network). Set the standalone line
+
+  milestone_scan_fetch: true
+
+to make the guard run a best-effort `git fetch --all --quiet` first, so
+milestones that exist only on a not-yet-fetched remote ref are included.
+Resolution precedence: `/spec-write --no-fetch` > `--fetch` >
+`milestone_scan_fetch` > built-in default `false`.
+
+This knob is **mode-agnostic**: it is read whether or not a `## Task
+Tracking` section exists (the cross-branch scan runs in both tracker and
+`mode: none` repos). It is NOT a `## Task Tracking` Schema-L key — keep it
+as its own top-level line; the `task-tracking-canonical-keys` gate-check
+probe reserves the Task-Tracking closed set {mode, mcp_server,
+jira_ac_field, branch_template}. Absent line ⇒ `false`.
+===============================================================================
+-->
+
+<!--
+===============================================================================
 Docs section. `/setup` step 7d sets the flags; the
 section is always emitted, even when all three default to `false`, so
 `/docs` and the `claudemd-docs-section-present` probe (gate-check #18)

@@ -222,3 +222,67 @@ describe("sources sorted ascending", () => {
     }
   });
 });
+
+// STE-338 AC-STE-338.4 — branchScanner injection (fifth source).
+//
+// `nextFreeMilestoneNumber` gains an optional injected 4th param
+// `branchScanner?: { listBranchMilestones(): Promise<number[]> }` that mirrors
+// the optional `provider`. Its numbers union into the result and surface as
+// `sources.branches`; an omitted scanner is vacuous (`branches: []`).
+interface BranchScannerStub {
+  listBranchMilestones: () => Promise<number[]>;
+  calls: number;
+}
+
+function makeBranchScanner(numbers: number[]): BranchScannerStub {
+  const stub: BranchScannerStub = {
+    calls: 0,
+    async listBranchMilestones() {
+      stub.calls += 1;
+      return numbers;
+    },
+  };
+  return stub;
+}
+
+describe("AC-STE-338.4: branchScanner union", () => {
+  test("injected scanner [88, 90] unions into next and sources.branches", async () => {
+    const fx = makeFixture({ active: [30] });
+    try {
+      const scanner = makeBranchScanner([88, 90]);
+      const got = await nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath, undefined, scanner);
+      expect(got.sources.branches).toEqual([88, 90]);
+      expect(got.next).toBe(91);
+      expect(got.sources.active).toEqual([30]);
+      expect(scanner.calls).toBe(1);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("branch source unions but is not double-counted when it overlaps a file leg", async () => {
+    const fx = makeFixture({ active: [90] });
+    try {
+      const scanner = makeBranchScanner([88, 90]);
+      const got = await nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath, undefined, scanner);
+      expect(got.sources.active).toEqual([90]);
+      expect(got.sources.branches).toEqual([88, 90]);
+      expect(got.next).toBe(91);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("omitted scanner ⇒ sources.branches: [] with next unchanged from the four-way baseline", async () => {
+    const fx = makeFixture({ active: [30] });
+    try {
+      const baseline = await nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath);
+      const got = await nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath, undefined);
+      expect(got.sources.branches).toEqual([]);
+      expect(got.next).toBe(baseline.next);
+      expect(got.next).toBe(31);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
