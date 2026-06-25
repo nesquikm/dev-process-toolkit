@@ -1,11 +1,14 @@
-// next_free_milestone_number — STE-119 AC-STE-119.2 + STE-284 AC-STE-284.1.
+// next_free_milestone_number — STE-119 AC-STE-119.2 + STE-284 AC-STE-284.1
+//   + STE-338 AC-STE-338.4.
 //
-// Four-way scan to find the next safe `M<N>` allocation. Sources:
+// Five-way scan to find the next safe `M<N>` allocation. Sources:
 //   1. Active plan files: `<specsDir>/plan/M<N>.md`
 //   2. Archived plan files: `<specsDir>/plan/archive/M<N>.md`
 //   3. CHANGELOG.md `M<N>` references (best-effort signal)
 //   4. Tracker milestones (optional, when `provider` is supplied) — names
 //      matching `M(\d+)` from `provider.listMilestones()`.
+//   5. Git branch milestones (optional, when `branchScanner` is supplied) —
+//      `M<N>` numbers from `branchScanner.listBranchMilestones()`.
 //
 // Returns `next = max(union) + 1` plus per-source breakdown so the caller
 // can render the diagnostic table required by AC-STE-119.7 / AC-STE-284.4.
@@ -18,6 +21,7 @@
 //   - missing / malformed CHANGELOG → vacuous (changelog source is the
 //     third leg, not load-bearing); the file-system check is the hard gate.
 //   - provider omitted / `mode: none` → `sources.tracker: []` (vacuous).
+//   - branchScanner omitted → `sources.branches: []` (vacuous).
 //   - tracker names that are not `M<N>` (e.g. "Backlog", "Cycle 7") are
 //     ignored. Duplicates are deduped; result is sorted ascending.
 
@@ -31,6 +35,7 @@ export interface MilestoneAvailability {
     archived: number[];
     changelog: number[];
     tracker: number[];
+    branches: number[];
   };
 }
 
@@ -41,6 +46,15 @@ export interface MilestoneAvailability {
  */
 export interface MilestoneListingProvider {
   listMilestones: (project?: string) => Promise<{ name: string }[]>;
+}
+
+/**
+ * Duck-typed branch scanner. Enumerates `M<N>` milestone numbers from git
+ * branch refs (local + remote). Injected like `provider`; awaited only when
+ * supplied. Returns numbers; the result is deduped + sorted ascending here.
+ */
+export interface BranchMilestoneScanner {
+  listBranchMilestones: () => Promise<number[]>;
 }
 
 const PLAN_FILENAME = /^M(\d+)\.md$/;
@@ -76,16 +90,23 @@ async function scanTracker(provider: MilestoneListingProvider): Promise<number[]
   return [...found].sort((a, b) => a - b);
 }
 
+async function scanBranches(scanner: BranchMilestoneScanner): Promise<number[]> {
+  const numbers = await scanner.listBranchMilestones();
+  return [...new Set(numbers)].sort((a, b) => a - b);
+}
+
 export async function nextFreeMilestoneNumber(
   specsDir: string,
   changelogPath?: string,
   provider?: MilestoneListingProvider,
+  branchScanner?: BranchMilestoneScanner,
 ): Promise<MilestoneAvailability> {
   const active = listMNumbers(join(specsDir, "plan"));
   const archived = listMNumbers(join(specsDir, "plan", "archive"));
   const changelog = changelogPath ? scanChangelog(changelogPath) : [];
   const tracker = provider ? await scanTracker(provider) : [];
-  const all = new Set<number>([...active, ...archived, ...changelog, ...tracker]);
+  const branches = branchScanner ? await scanBranches(branchScanner) : [];
+  const all = new Set<number>([...active, ...archived, ...changelog, ...tracker, ...branches]);
   const max = all.size === 0 ? 0 : Math.max(...all);
-  return { next: max + 1, sources: { active, archived, changelog, tracker } };
+  return { next: max + 1, sources: { active, archived, changelog, tracker, branches } };
 }
