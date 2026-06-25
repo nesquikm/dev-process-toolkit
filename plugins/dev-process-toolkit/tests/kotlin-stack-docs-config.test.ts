@@ -227,9 +227,13 @@ describe("AC-STE-336.10 — CHANGELOG ### Added entry cross-references the FR", 
   const changelog = read(join(repoRoot, "CHANGELOG.md"));
 
   test("an ### Added line mentions Kotlin and/or STE-336", () => {
-    // Find the first ### Added section and assert a Kotlin / STE-336 mention
-    // appears in the changelog under an Added heading.
-    const addedIdx = changelog.indexOf("### Added");
+    // AC-STE-336.10 is about M88's CHANGELOG entry, which lives permanently in
+    // the `## [2.32.0]` section. Pin the scan to that section (not the topmost
+    // ### Added) so a later release adding a newer section on top can't move
+    // STE-336 out of view and break this historical-entry assertion.
+    const releaseIdx = changelog.indexOf("## [2.32.0]");
+    expect(releaseIdx).toBeGreaterThanOrEqual(0);
+    const addedIdx = changelog.indexOf("### Added", releaseIdx);
     expect(addedIdx).toBeGreaterThanOrEqual(0);
     const after = changelog.slice(addedIdx);
     // Bound to the next "## " release heading.
