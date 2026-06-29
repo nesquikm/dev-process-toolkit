@@ -199,11 +199,11 @@ The key insight: **deterministic checks always override LLM judgment**. A failin
 
 ## Documentation
 
-- `plugins/dev-process-toolkit/docs/sdd-methodology.md` — What SDD is and how it works
-- `plugins/dev-process-toolkit/docs/skill-anatomy.md` — How Claude Code skills work
-- `plugins/dev-process-toolkit/docs/adaptation-guide.md` — Reference for customizing skills and configuration after `/setup`
-- `plugins/dev-process-toolkit/docs/patterns.md` — 25 proven patterns + anti-patterns
-- `plugins/dev-process-toolkit/docs/layout-reference.md` — spec layout behavioral contract (file-per-FR keyed by tracker ID / short-ULID; ULID in frontmatter; Provider interface; skill integration map)
-- `plugins/dev-process-toolkit/docs/workflow-overview.md` — End-to-end workflow map: phases, loops, evals, researcher forks, and artifact-write points
+- [`plugins/dev-process-toolkit/docs/sdd-methodology.md`](plugins/dev-process-toolkit/docs/sdd-methodology.md) — What SDD is and how it works
+- [`plugins/dev-process-toolkit/docs/skill-anatomy.md`](plugins/dev-process-toolkit/docs/skill-anatomy.md) — How Claude Code skills work
+- [`plugins/dev-process-toolkit/docs/adaptation-guide.md`](plugins/dev-process-toolkit/docs/adaptation-guide.md) — Reference for customizing skills and configuration after `/setup`
+- [`plugins/dev-process-toolkit/docs/patterns.md`](plugins/dev-process-toolkit/docs/patterns.md) — 25 proven patterns + anti-patterns
+- [`plugins/dev-process-toolkit/docs/layout-reference.md`](plugins/dev-process-toolkit/docs/layout-reference.md) — spec layout behavioral contract (file-per-FR keyed by tracker ID / short-ULID; ULID in frontmatter; Provider interface; skill integration map)
+- [`plugins/dev-process-toolkit/docs/workflow-overview.md`](plugins/dev-process-toolkit/docs/workflow-overview.md) — End-to-end workflow map: phases, loops, evals, researcher forks, and artifact-write points
 
 **Claude Code official docs:** https://code.claude.com/docs/en
