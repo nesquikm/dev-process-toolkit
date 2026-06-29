@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.32.0 ("Parity")**.
+**Latest shipped release:** **v2.33.0 ("Census")**.
 
 ### Shipped milestones
 
@@ -354,4 +354,6 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-335.1..7 | plugins/dev-process-toolkit/adapters/_shared/src/plan_heading.ts, plugins/dev-process-toolkit/adapters/_shared/src/attach_project_milestone.ts, plugins/dev-process-toolkit/adapters/_shared/src/tracker_project_milestone_attached.ts | plugins/dev-process-toolkit/adapters/_shared/src/plan_heading.test.ts, plugins/dev-process-toolkit/adapters/_shared/src/attach_project_milestone.test.ts, plugins/dev-process-toolkit/adapters/_shared/src/tracker_project_milestone_attached.test.ts |
 | AC-STE-336.1..10 | plugins/dev-process-toolkit/adapters/_shared/src/kotlin_detekt_configured.ts, plugins/dev-process-toolkit/examples/kotlin/gate-commands.md, plugins/dev-process-toolkit/examples/kotlin/release.yml, plugins/dev-process-toolkit/templates/permissions.json, plugins/dev-process-toolkit/skills/setup/SKILL.md, plugins/dev-process-toolkit/skills/gate-check/SKILL.md, plugins/dev-process-toolkit/docs/adaptation-guide.md, plugins/dev-process-toolkit/docs/setup-reference.md, README.md | plugins/dev-process-toolkit/tests/gate-check-kotlin-detekt-configured.test.ts, plugins/dev-process-toolkit/tests/setup-merge-settings-kotlin.test.ts, plugins/dev-process-toolkit/tests/kotlin-stack-docs-config.test.ts |
 | AC-STE-337.1..3 | README.md, plugins/dev-process-toolkit/docs/setup-tracker-mode.md, plugins/dev-process-toolkit/skills/setup/SKILL.md | plugins/dev-process-toolkit/tests/readme-bun-prerequisite.test.ts |
+| AC-STE-338.1..8 | plugins/dev-process-toolkit/adapters/_shared/src/branch_milestone_scan.ts, plugins/dev-process-toolkit/adapters/_shared/src/next_free_milestone_number.ts, plugins/dev-process-toolkit/skills/spec-write/SKILL.md, plugins/dev-process-toolkit/templates/CLAUDE.md.template | plugins/dev-process-toolkit/adapters/_shared/src/branch_milestone_scan.test.ts, plugins/dev-process-toolkit/adapters/_shared/src/next_free_milestone_number.test.ts |
+| AC-STE-339.1..6 | plugins/dev-process-toolkit/adapters/jira/src/list_milestones.ts, plugins/dev-process-toolkit/adapters/jira.md | plugins/dev-process-toolkit/adapters/jira/src/list_milestones.test.ts |
 

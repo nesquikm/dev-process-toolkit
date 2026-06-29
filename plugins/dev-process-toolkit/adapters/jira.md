@@ -66,6 +66,7 @@ NFR-10 canonical shape during `/setup`.
 | `list_project_statuses` | `mcp__atlassian__getJiraIssueTypeMetaWithFields` | Workflow-introspection call: returns the per-project issue-type field metadata, including the `status` field's `allowedValues` array (the workflow states reachable for that issue type in the bound project). The adapter extracts each `allowedValue.name` verbatim and returns an ordered string array. Project key is sourced from `### Jira`.project in CLAUDE.md via `readWorkspaceBinding(claudeMdPath, "jira")`; the issue type defaults to `Task` (or the `jira_issue_type:` override). Used by `/setup` Step Nb (STE-303) to seed `specs/tracker-config.yaml` with the workspace-bound status vocabulary. Reject with NFR-10 canonical shape when the project key is unresolved (mirrors the create-path silent-landing guard). Pure read; no mutation. |
 | `addCommentToJiraIssue` | `mcp__atlassian__addCommentToJiraIssue` | Available on the live MCP surface (smoke-test #5 enumerated tool list) for callers that need to post a markdown comment. Pass `contentFormat: "markdown"`. No /implement-internal caller today. |
 | Project visibility probe | `mcp__atlassian__getVisibleJiraProjects` | Called by `/setup` step 7b before any other Jira operation; refuses with NFR-10 canonical shape when the configured `project` key is not visible to the authenticated principal. |
+| `listMilestones` (optional driver method) | `mcp__atlassian__searchJiraIssuesUsingJql` | Enumerate milestones via the `milestone-<M-token>` labels. JQL-search the bound project for labelled issues, paginate, client-side filter `^milestone-(M\d+)$`, return the bare `M<N>` tokens. Best-effort: any failure ⇒ `[]`. Pure read; see § Milestone Listing below. |
 
 > **No `deleteJiraIssue` tool.** The MCP surface does not expose issue
 > deletion. `/spec-archive` for Jira transitions the ticket to `Done` (or a
@@ -381,6 +382,58 @@ entirely independent of `default_labels`: it neither reads nor reapplies
 create-time default-labels behaviour. Conversely, a create that seeds
 `default_labels` does not attach the milestone label — milestone binding is
 always its own explicit read-merge-write step.
+
+## Milestone Listing — `listMilestones()` via `milestone-<M-token>` label enumeration
+
+The Jira `AdapterDriver` implements the optional `listMilestones()` method so
+the tracker leg of `nextFreeMilestoneNumber` fires in Jira mode. Because Jira
+has no native milestone object on the MCP surface, the binding is realised as
+labels (see § Project Milestone above) — so *listing* milestones means
+*enumerating those labels*. There is no milestone-list MCP tool and JQL has no
+label-wildcard operator, so the scan enumerates labelled issues and filters
+client-side.
+
+**Pure-function core.** The label-scan + pagination + dedupe logic lives in the
+Schema-P helper `adapters/jira/src/list_milestones.ts` (`listMilestones(fetchPage, opts?)`),
+mirroring `discover_field.ts`: no network in the function itself — the caller
+injects `fetchPage`, which wraps the MCP call. `TrackerProvider.listMilestones()`
+already delegates `driver.listMilestones?.() ?? []`, so no provider change is
+needed; the Jira driver simply supplies this method.
+
+**Procedure (driver wiring).**
+
+1. **Search** — `mcp__atlassian__searchJiraIssuesUsingJql` with
+   `jql = "project = <projectKey> AND labels IS NOT EMPTY ORDER BY created DESC"`
+   (project key from `### Jira`.project), paginating page by page. Feed each
+   page's issues (their `labels` arrays) into the helper's `fetchPage`.
+2. **Filter** — client-side, each label is matched against `^milestone-(M\d+)$`
+   (exact anchor — `milestone-foo`, `milestone-`, `xmilestone-M5`, `M5`,
+   `milestone-M5-extra`, `milestone-M5 ` are all rejected, matching the
+   create-on-write `milestone-<M-token>` derivation).
+3. **Return** — the deduped, ascending-by-number set of bare `M<N>` tokens as
+   `{ name: "M<N>" }[]` — **not** the `milestone-` label — so the existing
+   `scanTracker` `^M(\d+)` extractor in `next_free_milestone_number.ts` consumes
+   it unchanged.
+
+**Pagination cap, no silent truncation.** The scan paginates to a documented
+cap (`MILESTONE_PAGE_CAP`, default 50; overridable via `opts.pageCap`). If the
+cap is reached before a page reports `isLast`, the helper stops and surfaces a
+one-line log (`opts.log`) noting pages may have been dropped — never a silent
+truncation.
+
+**Fail-soft / non-load-bearing.** Any JQL / network failure — including a
+failure on a later page — degrades `listMilestones()` to `[]`; it never throws
+into allocation. Identical posture to Linear's milestone leg and the
+cross-branch git leg.
+
+> **Supersedes.** This listing supersedes the earlier never-shipped "Jira
+> milestone API" enumeration approach (delivered here via label enumeration
+> instead), and closes the previously-deferred *listing* half of the
+> create-on-write `milestone-<M-token>` label binding: that binding implemented
+> milestone ATTACH (write) but explicitly did not implement LISTING (read).
+> Attach and listing are orthogonal halves of the same label-based milestone
+> model. (Ticket-level traceability lives in the FR + git history, not in this
+> shipped adapter doc.)
 
 ## Helper: `discover_field.ts`
 
