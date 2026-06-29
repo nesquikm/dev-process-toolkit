@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.33.0] — 2026-06-25 — "Census"
+
+Milestone-number allocation now scans across git branches/clones and enumerates Jira milestone labels, closing the cross-branch and Jira-mode collision windows.
+
+### Added
+
+- **STE-338 — Cross-branch milestone-number scan.** `scanBranchMilestones` adds a fifth source to `nextFreeMilestoneNumber`: `M<N>` plan files unioned across local heads + remote-tracking refs (no-fetch default, opt-in `--fetch` / `milestone_scan_fetch` config), fail-soft to `[]`. Wired into the `/spec-write` plan.md allocation guard as `sources.branches`. (STE-338)
+- **STE-339 — Jira `listMilestones()` via label enumeration.** The Jira driver enumerates `milestone-<M-token>` labels (paginated to a documented cap, fail-soft) so the tracker leg of `nextFreeMilestoneNumber` fires in Jira mode, pairing with the git-branch leg to defend allocation from both directions. (STE-339)
+
+Total test count at release: 3332 tests, 0 failures, 0 errors.
+
 ## [2.32.0] — 2026-06-02 — "Parity"
 
 Kotlin promoted to a first-class stack; bun documented as a universal prerequisite.
