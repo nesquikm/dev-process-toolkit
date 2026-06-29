@@ -352,7 +352,7 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     expect(r.violations).toEqual([]);
   });
 
-  test("README.md L3 / L10 / L104 / L137 / L161 / L162 carry the byte-exact post-backfill tokens", () => {
+  test("README.md L3 / L10 / L104 / L139 / L163 / L164 carry the byte-exact post-backfill tokens", () => {
     const readme = readFileSync(join(repoRoot, "README.md"), "utf-8");
     const lines = readme.split("\n");
     // L3 — "16 commands, 8 agents"
@@ -362,13 +362,14 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     // L104 — "60 probes" (on-disk max-probe is 60 after STE-336; STE-337 added
     // the `## Prerequisites` section, shifting this token +11 lines from L93)
     expect(lines[103]).toMatch(/\b60\b\s+probes/);
-    // L137 — "Seven additional skills"
-    expect(lines[136]).toMatch(/Seven additional skills/);
-    // L161 — "23 (16 + 7)"
-    expect(lines[160]).toMatch(/23\s+\(16\s*\+\s*7\)/);
-    // L162 — "8 specialist agents" with spec-reviewer enumerated
-    expect(lines[161]).toMatch(/\b8 specialist agents\b/);
-    expect(lines[161]).toMatch(/spec-reviewer/);
+    // L139 — "Seven additional skills" (the workflow-overview pointer added
+    // under the `## Workflow` diagram shifted this token +2 lines from L137)
+    expect(lines[138]).toMatch(/Seven additional skills/);
+    // L163 — "23 (16 + 7)"
+    expect(lines[162]).toMatch(/23\s+\(16\s*\+\s*7\)/);
+    // L164 — "8 specialist agents" with spec-reviewer enumerated
+    expect(lines[163]).toMatch(/\b8 specialist agents\b/);
+    expect(lines[163]).toMatch(/spec-reviewer/);
   });
 
   test("CLAUDE.md L15 / L16 carry the byte-exact post-backfill tokens", () => {

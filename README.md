@@ -109,6 +109,8 @@ Tracker integration (Linear, Jira, or `mode: none`) threads through Plan → Bui
 
 All commits in toolkit-managed repositories follow [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/), enforced locally by a `commit-msg` hook that `/setup` installs (a POSIX-shell hook by default; opt into `--commitlint` for projects with Node/Bun tooling).
 
+> The diagram above is a deliberately high-level lifecycle map. For the mechanics it omits — the TDD and self-review loops, the deterministic gates/evals, the `spec-research` / `deps-research` forks, and every artifact-write point — see [`docs/workflow-overview.md`](plugins/dev-process-toolkit/docs/workflow-overview.md).
+
 ## What You Get
 
 ### Commands
@@ -202,5 +204,6 @@ The key insight: **deterministic checks always override LLM judgment**. A failin
 - `plugins/dev-process-toolkit/docs/adaptation-guide.md` — Reference for customizing skills and configuration after `/setup`
 - `plugins/dev-process-toolkit/docs/patterns.md` — 25 proven patterns + anti-patterns
 - `plugins/dev-process-toolkit/docs/layout-reference.md` — spec layout behavioral contract (file-per-FR keyed by tracker ID / short-ULID; ULID in frontmatter; Provider interface; skill integration map)
+- `plugins/dev-process-toolkit/docs/workflow-overview.md` — End-to-end workflow map: phases, loops, evals, researcher forks, and artifact-write points
 
 **Claude Code official docs:** https://code.claude.com/docs/en
