@@ -174,7 +174,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.33.0 — "Census"** (M89 hardens milestone-number allocation against cross-branch and Jira-mode collisions — `scanBranchMilestones` unions `M<N>` plan files across local + remote-tracking git refs (no-fetch default, opt-in `--fetch` / `milestone_scan_fetch`) as a fifth source in `nextFreeMilestoneNumber`, and the Jira driver gains `listMilestones()` via `milestone-<M-token>` label enumeration so the tracker leg fires in Jira mode.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.33.1 — "Refresh"** (M90 self-heals a stale dart-analyzer helper `.dart_tool` — `extractViaDartAnalyzer` now refreshes deps with `dart pub get` and retries once on a non-zero `dart run` exit before degrading to regex-fallback, instead of silently falling back when the helper's pinned `analyzer` had been evicted from `~/.pub-cache`.)
 
 ## Core Philosophy
 
