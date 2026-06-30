@@ -26,8 +26,9 @@ src/
 
 <!-- SDD spec tree. File-per-FR layout (filename keys on
      the tracker ID in tracker mode or the short-ULID tail in `mode: none` —
-     the full ULID lives in frontmatter `id:`).
-     See docs/layout-reference.md for behavior reference. -->
+     the full ULID lives in frontmatter `id:`). Design-reference images
+     (mockups, design-system artifacts) live under `specs/design/` and are
+     never archived. See docs/layout-reference.md for behavior reference. -->
 ```
 specs/
 ├── frs/
@@ -37,6 +38,9 @@ specs/
 ├── plan/
 │   ├── M<N>.md                          # one file per milestone
 │   └── archive/                         # archived milestone plans
+├── design/                              # design-reference images (never archived)
+│   ├── system/                          # durable design-system artifacts
+│   └── frs/<id>/                        # per-FR mockups (folder keyed on FR stem)
 ├── requirements.md                      # cross-cutting only
 ├── technical-spec.md                    # architecture, ADRs, cross-cutting schemas
 └── testing-spec.md                      # framework + conventions

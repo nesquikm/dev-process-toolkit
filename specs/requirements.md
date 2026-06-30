@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.33.1 ("Refresh")**.
+**Latest shipped release:** **v2.34.0 ("Moodboard")**.
 
 ### Shipped milestones
 
@@ -356,4 +356,7 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-337.1..3 | README.md, plugins/dev-process-toolkit/docs/setup-tracker-mode.md, plugins/dev-process-toolkit/skills/setup/SKILL.md | plugins/dev-process-toolkit/tests/readme-bun-prerequisite.test.ts |
 | AC-STE-338.1..8 | plugins/dev-process-toolkit/adapters/_shared/src/branch_milestone_scan.ts, plugins/dev-process-toolkit/adapters/_shared/src/next_free_milestone_number.ts, plugins/dev-process-toolkit/skills/spec-write/SKILL.md, plugins/dev-process-toolkit/templates/CLAUDE.md.template | plugins/dev-process-toolkit/adapters/_shared/src/branch_milestone_scan.test.ts, plugins/dev-process-toolkit/adapters/_shared/src/next_free_milestone_number.test.ts |
 | AC-STE-339.1..6 | plugins/dev-process-toolkit/adapters/jira/src/list_milestones.ts, plugins/dev-process-toolkit/adapters/jira.md | plugins/dev-process-toolkit/adapters/jira/src/list_milestones.test.ts |
+| AC-STE-341.1..4 | plugins/dev-process-toolkit/docs/layout-reference.md, plugins/dev-process-toolkit/skills/spec-write/SKILL.md, plugins/dev-process-toolkit/skills/implement/SKILL.md, plugins/dev-process-toolkit/skills/spec-archive/SKILL.md, plugins/dev-process-toolkit/templates/CLAUDE.md.template | plugins/dev-process-toolkit/tests/design-references-convention.test.ts |
+| AC-STE-342.1..4 | plugins/dev-process-toolkit/adapters/_shared/src/design_asset_slug.ts, plugins/dev-process-toolkit/skills/spec-write/SKILL.md, plugins/dev-process-toolkit/skills/brainstorm/SKILL.md | plugins/dev-process-toolkit/adapters/_shared/src/design_asset_slug.test.ts, plugins/dev-process-toolkit/tests/design-references-capture-contract.test.ts |
+| AC-STE-343.1..3 | plugins/dev-process-toolkit/adapters/_shared/src/scan_design_references.ts, plugins/dev-process-toolkit/skills/gate-check/SKILL.md | plugins/dev-process-toolkit/tests/gate-check-design-references-resolve.test.ts |
 

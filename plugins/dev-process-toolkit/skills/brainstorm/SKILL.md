@@ -62,6 +62,14 @@ Immediately after Step 1.5's spec-research seed and **before** Step 2 proposes a
 
 On shape violation (banner missing, section reorder, line-budget exceeded), drop the block silently and surface the `deps_research_shape_violation` capability row at hand-off. The seed is enrichment, not load-bearing — Step 2 proceeds without the deps block, identical to the manifest-absent path. The block is read-only context; never copy it into a draft FR or quote it back to the user verbatim.
 
+### 1.6. Design-image capture (optional)
+
+When the user supplies design images (mockups, screenshots, reference designs) during the session, run a **design-image capture step**: for each image, thread a `{path, classification, caption}` record into the Step 4 hand-off to `/dev-process-toolkit:spec-write`. Classify each image as **durable** (a reusable, system-wide reference) or **per-feature** (specific to the feature under design — the default when in doubt), and write a one-line caption.
+
+Brainstorm **does not write the image or markdown file** itself — it only collects these records and threads them into the hand-off, preserving the no-write-during-brainstorming contract. `/dev-process-toolkit:spec-write` is the sole surface that persists these images (and their `## Design References` markdown); see `/spec-write` § 0b.
+
+A standalone `/brainstorm` that does not hand off **lists in its closing summary the captured design images** (path + classification + caption) so the user can re-supply them at `/spec-write` time.
+
 ### 2. Explore Approaches
 
 **Skipped under `--no-tech`.** Non-technical users can't pick architectural tradeoffs, so when the flag is set, skip this step entirely — don't propose alternatives, don't list tradeoffs. Jump straight to Step 3 ("Get Goal Approval" framing) once the problem is clear.
@@ -87,6 +95,7 @@ Once the design is approved:
 1. Summarize the approved decision in 2–3 sentences
 2. Transition: "Design approved. Run `/dev-process-toolkit:spec-write` and reference this decision, or I can start now."
 3. If the user says to start now, proceed into the `/dev-process-toolkit:spec-write` flow using the approved design as input — the design decision answers the "HOW" questions in `technical-spec.md`
+4. If the session captured design images (Step 1.6), thread their captured records into the hand-off so `/dev-process-toolkit:spec-write` persists them under `## Design References` — brainstorm itself writes nothing
 
 **`--no-tech` propagation.** When the brainstorm session was invoked with `--no-tech`, the flag auto-propagates to the hand-off: the recommended next command is `/dev-process-toolkit:spec-write --no-tech` (not the bare form), and "start now" invokes `/dev-process-toolkit:spec-write --no-tech` directly. The propagation is mandatory — do not drop the flag at hand-off, since the bare form would re-introduce the technical-design + testing interviews the non-technical author can't answer.
 
