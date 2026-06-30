@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.34.0] — 2026-06-30 — "Moodboard"
+
+Capture & store design reference images (Deliverable A): a version-controlled `specs/design/` tree, an optional `## Design References` FR section, a `/spec-write` + `/brainstorm` image-capture step, and a deterministic `/gate-check` probe that every referenced design-image path resolves on disk.
+
+### Added
+
+- **STE-341 — `specs/design/` storage convention + optional `## Design References` section.** Documents the `specs/design/{system,frs/<id>}/` tree + never-archived rule, and adds the optional repo-root-relative `## Design References` FR-body section (placed after `## Acceptance Criteria`). (STE-341)
+- **STE-342 — Image-capture step in `/spec-write` + `/brainstorm`.** `/spec-write` persists supplied design images (classify durable/per-feature via `AskUserQuestion`, deterministic kebab slug + numeric collision suffix) and references them; `/brainstorm` captures + classifies + threads records into the hand-off without writing specs. New pure helper `design_asset_slug.ts`. (STE-342)
+- **STE-343 — `/gate-check` probe #61 `design_references_resolve`.** Scans every spec file's `## Design References` entries and GATE FAILEDs on any repo-root-relative path that does not resolve on disk; vacuous until a project adopts design references. New pure helper `scan_design_references.ts`. (STE-343)
+
+Total test count at release: 3363 tests, 0 failures, 0 errors.
+
 ## [2.33.1] — 2026-06-30 — "Refresh"
 
 Dart-analyzer signature extraction now self-heals a stale helper `.dart_tool` by refreshing deps and retrying before degrading to regex-fallback.
