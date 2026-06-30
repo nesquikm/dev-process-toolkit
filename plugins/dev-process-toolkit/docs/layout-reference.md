@@ -28,7 +28,7 @@ const provider = mode === "none"
 - FR filename is governed by `Provider.filenameFor(spec)`. Tracker mode: `specs/frs/<tracker-id>.md` (e.g., `<TKR>-NN.md`). `mode: none`: `specs/frs/<short-ULID>.md` where `<short-ULID>` is `spec.id.slice(23, 29)` (matching the AC-prefix tail, e.g., `VDTAF4.md`). The full 26-char ULID is preserved in frontmatter `id:` in `mode: none` only; tracker mode has no `id:` line (the tracker ID is the canonical identity).
 - Archived FRs live at `specs/frs/archive/<name>.md` with the same stem as the active file — archival never renames.
 - Frontmatter shape is enforced at gate time by `/gate-check` probes #2 (`required-frontmatter`), #13 (`identity_mode_conditional`), and #27 (`frontmatter_milestone_not_archived`). The canonical emitter is `buildFRFrontmatter` in `adapters/_shared/src/fr_frontmatter.ts`.
-- Each FR has exactly these top-level sections in order: `## Requirement`, `## Acceptance Criteria`, `## Technical Design`, `## Testing`, `## Notes`.
+- Each FR has these required top-level sections, in order: `## Requirement`, `## Acceptance Criteria`, `## Technical Design`, `## Testing`, `## Notes`. An FR may optionally carry one additional `## Design References` section placed immediately after `## Acceptance Criteria` — the only optional section, purely additive, leaving the five required sections' order and required status unchanged (see `/spec-write` § 0b for its shape and a worked example). No `/gate-check` probe enforces this FR body section set or order, so an FR carrying the optional `## Design References` section never trips a false-positive GATE FAILED.
 - Skills **never rename** FR files after creation except during `/setup --migrate` mode transitions, which re-run `Provider.filenameFor` for the *new* mode and `git mv` each active FR to its new name in the migration commit. Archive is frozen by mode transitions.
 
 ## Plan file access
@@ -36,6 +36,15 @@ const provider = mode === "none"
 - Plan files live at `specs/plan/<M#>.md` (active or in-flight) or `specs/plan/archive/<M#>.md` (archived milestones).
 - Frontmatter shape is enforced at gate time by `/gate-check` probes #16 (`archive-plan-status`) and #27 (`frontmatter-milestone-not-archived`); the read-side parser is `parseFrontmatter` in `adapters/_shared/src/frontmatter.ts`.
 - Once `status: active`, content is immutable; any write fails with: *"Plan for <M#> is frozen. Create a `plan/<M#>-replan-<N>` branch to revise."*.
+
+## Design-reference storage
+
+Design-reference images (mockups, screenshots, design-system artifacts) live under `specs/design/`, split into two subtrees:
+
+- `specs/design/system/` — durable design-system artifacts (color tokens, type scales, component sheets) referenced by many FRs over time. Not keyed to any single FR.
+- `specs/design/frs/<id>/` — per-feature mockups, one folder per FR keyed by the FR's `Provider.filenameFor(spec)` stem (the tracker ID in tracker mode, or the short-ULID tail in `mode: none`). All images for one FR live in that FR's folder.
+
+**Never-archived rule:** `specs/design/` paths are immutable with respect to archival. No skill performs `git mv` on any `specs/design/` path, and no skill applies `rewriteArchiveLinks` rewrites to references that point under `specs/design/`. When an FR is archived (`specs/frs/<id>.md` → `specs/frs/archive/<id>.md`), its `specs/design/frs/<id>/` folder stays put — design references are never archived. Repo-root-relative image paths therefore remain valid across an FR's whole lifetime.
 
 ## Skill-specific behavior
 

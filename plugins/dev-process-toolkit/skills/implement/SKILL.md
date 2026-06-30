@@ -230,6 +230,7 @@ Before updating specs, compile all deviations discovered during Phase 2 into a t
 After the human approves the Phase 4 report (step 15), and **only then**, archive every FR belonging to the completed milestone plus the milestone's plan file. This keeps `specs/frs/` and `specs/plan/` size bounded.
 
 - **technical-spec.md is never auto-archived** — ADRs use `Superseded-by:` in place. `/implement` archival touches only `specs/frs/**` and `specs/plan/<M#>.md`.
+- **`specs/design/` is immutable across archival** — design-reference images under `specs/design/` are never `git mv`'d into `archive/` and never link-rewritten on archival; only the spec markdown moves, the referenced images stay put.
 - Run archival **only after explicit human approval in step 15**, never before. If the user asks for changes instead, abort archival entirely.
 - Single-FR runs (`/implement <FR-id>`) intentionally leave `status: active`; bulk archive a completed milestone via `/spec-archive M<N>` before running `/ship-milestone`.
 
