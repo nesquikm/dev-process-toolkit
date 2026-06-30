@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.33.1] — 2026-06-30 — "Refresh"
+
+Dart-analyzer signature extraction now self-heals a stale helper `.dart_tool` by refreshing deps and retrying before degrading to regex-fallback.
+
+### Fixed
+
+- **STE-340 — Self-heal stale `.dart_tool`.** `extractViaDartAnalyzer` ran `dart pub get` only when the helper's `.dart_tool` was absent, so a stale package config (pinned analyzer evicted from pub-cache) made `dart run` fail and silently degrade every Dart project to regex-fallback. A non-zero `dart run` exit now triggers one `pub get` refresh + retry before falling back; parse/empty/not-array failures (run exited 0) still short-circuit unchanged. (STE-340)
+
+Total test count at release: 3334 tests, 0 failures, 0 errors.
+
 ## [2.33.0] — 2026-06-25 — "Census"
 
 Milestone-number allocation now scans across git branches/clones and enumerates Jira milestone labels, closing the cross-branch and Jira-mode collision windows.
