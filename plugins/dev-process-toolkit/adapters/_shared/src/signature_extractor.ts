@@ -366,29 +366,34 @@ function defaultDartHelperDir(): string {
   return join(import.meta.dir, "..", "dart");
 }
 
-function extractViaDartAnalyzer(projectRoot: string, options: ExtractOptions): DartResult {
-  const dartBin = resolveDartBinary(options);
-  if (!dartBin) return { ok: false, reason: "dart not found on PATH" };
-  const helperDir = options.dartHelperDir ?? defaultDartHelperDir();
-  if (!existsSync(helperDir)) {
-    return { ok: false, reason: `dart helper missing: ${helperDir}` };
+/** Resolve the helper's Dart dependencies. */
+function runDartPubGet(dartBin: string, helperDir: string): { ok: true } | { ok: false; reason: string } {
+  const pg = Bun.spawnSync([dartBin, "pub", "get"], {
+    cwd: helperDir,
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: 60_000,
+  });
+  if (pg.exitCode !== 0) {
+    const err = new TextDecoder().decode(pg.stderr).trim();
+    const out = new TextDecoder().decode(pg.stdout).trim();
+    const detail = err || out || "no stderr/stdout";
+    return { ok: false, reason: `dart pub get failed (exit ${pg.exitCode}): ${detail}` };
   }
+  return { ok: true };
+}
 
-  if (!existsSync(join(helperDir, ".dart_tool"))) {
-    const pg = Bun.spawnSync([dartBin, "pub", "get"], {
-      cwd: helperDir,
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: 60_000,
-    });
-    if (pg.exitCode !== 0) {
-      const err = new TextDecoder().decode(pg.stderr).trim();
-      const out = new TextDecoder().decode(pg.stdout).trim();
-      const detail = err || out || "no stderr/stdout";
-      return { ok: false, reason: `dart pub get failed (exit ${pg.exitCode}): ${detail}` };
-    }
-  }
-
+/**
+ * One `dart run extract_signatures.dart` attempt. `runFailed` distinguishes a
+ * non-zero exit (retryable — often a stale `.dart_tool` whose pinned analyzer
+ * was evicted from pub-cache) from a parse failure (the run succeeded; a `pub
+ * get` retry would not help).
+ */
+function runDartExtractOnce(
+  dartBin: string,
+  helperDir: string,
+  projectRoot: string,
+): DartOk | (DartFail & { runFailed: boolean }) {
   const res = Bun.spawnSync([dartBin, "run", "extract_signatures.dart", projectRoot], {
     cwd: helperDir,
     stdout: "pipe",
@@ -397,20 +402,48 @@ function extractViaDartAnalyzer(projectRoot: string, options: ExtractOptions): D
   });
   if (res.exitCode !== 0) {
     const err = new TextDecoder().decode(res.stderr).trim();
-    return { ok: false, reason: `dart-analyzer exit ${res.exitCode}: ${err}` };
+    return { ok: false, runFailed: true, reason: `dart-analyzer exit ${res.exitCode}: ${err}` };
   }
   const out = new TextDecoder().decode(res.stdout).trim();
-  if (!out) return { ok: false, reason: "empty stdout from dart-analyzer" };
+  if (!out) return { ok: false, runFailed: false, reason: "empty stdout from dart-analyzer" };
   let parsed: unknown;
   try {
     parsed = JSON.parse(out);
   } catch (e) {
-    return { ok: false, reason: `invalid JSON from dart-analyzer: ${(e as Error).message}` };
+    return { ok: false, runFailed: false, reason: `invalid JSON from dart-analyzer: ${(e as Error).message}` };
   }
   if (!Array.isArray(parsed)) {
-    return { ok: false, reason: "dart-analyzer output is not a JSON array" };
+    return { ok: false, runFailed: false, reason: "dart-analyzer output is not a JSON array" };
   }
   return { ok: true, modules: parsed as ModuleSignatures[] };
+}
+
+function extractViaDartAnalyzer(projectRoot: string, options: ExtractOptions): DartResult {
+  const dartBin = resolveDartBinary(options);
+  if (!dartBin) return { ok: false, reason: "dart not found on PATH" };
+  const helperDir = options.dartHelperDir ?? defaultDartHelperDir();
+  if (!existsSync(helperDir)) {
+    return { ok: false, reason: `dart helper missing: ${helperDir}` };
+  }
+
+  // First use: resolve deps. Fail fast — a broken pub get can't be retried away.
+  if (!existsSync(join(helperDir, ".dart_tool"))) {
+    const pg = runDartPubGet(dartBin, helperDir);
+    if (!pg.ok) return { ok: false, reason: pg.reason };
+  }
+
+  let outcome = runDartExtractOnce(dartBin, helperDir, projectRoot);
+  if (!outcome.ok && outcome.runFailed) {
+    // A non-zero `dart run` exit usually means a stale `.dart_tool` — the
+    // pinned analyzer was evicted from pub-cache. Refresh deps once and retry
+    // before degrading to regex-fallback. If the refresh itself fails, keep the
+    // original (more informative) run failure.
+    if (runDartPubGet(dartBin, helperDir).ok) {
+      outcome = runDartExtractOnce(dartBin, helperDir, projectRoot);
+    }
+  }
+  if (!outcome.ok) return { ok: false, reason: outcome.reason };
+  return { ok: true, modules: outcome.modules };
 }
 
 // --- griffe path (STE-104) -----------------------------------------------

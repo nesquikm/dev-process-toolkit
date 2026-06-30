@@ -257,6 +257,51 @@ esac
     expect(ground.strategy).toBe("regex-fallback");
     expect(ground.warnings.some((w) => w.includes("dart-analyzer exit"))).toBe(true);
   });
+
+  test("stale .dart_tool: dart run fails first, auto `pub get` retry succeeds → dart-analyzer", () => {
+    const projectRoot = join(work, "dart-only");
+    mkdirSync(join(projectRoot, "lib"), { recursive: true });
+    writeFileSync(join(projectRoot, "pubspec.yaml"), `name: x\n`);
+    writeFileSync(join(projectRoot, "lib/foo.dart"), `int foo() => 1;\n`);
+
+    // Models a stale package config: `run` fails (like an evicted analyzer
+    // version) until `pub get` writes the .resolved marker, after which `run`
+    // emits a valid module array. Exercises the run-fail → pub-get → retry path.
+    const stubBin = join(work, "dart-stub.sh");
+    writeFileSync(
+      stubBin,
+      `#!/usr/bin/env bash
+case "$1" in
+  pub) touch ./.resolved; exit 0 ;;
+  run)
+    if [ -f ./.resolved ]; then
+      echo '[{"modulePath":"lib/foo.dart","exports":[]}]'
+    else
+      echo "Error when reading 'analyzer-7.7.1/...': No such file or directory" 1>&2
+      exit 254
+    fi
+    ;;
+  *) exit 1 ;;
+esac
+`,
+    );
+    chmodSync(stubBin, 0o755);
+
+    // Helper dir already has a (stale) .dart_tool, so the initial resolve is
+    // skipped and the failing first run drives the retry.
+    const helperDir = join(work, "stub-helper");
+    mkdirSync(join(helperDir, ".dart_tool"), { recursive: true });
+    writeFileSync(join(helperDir, "pubspec.yaml"), `name: stub\n`);
+
+    const ground = extractSignatures(projectRoot, bothModes, {
+      typedocBinary: null,
+      dartBinary: stubBin,
+      dartHelperDir: helperDir,
+    });
+    expect(ground.strategy).toBe("dart-analyzer");
+    expect(ground.warnings.some((w) => w.includes("fell through"))).toBe(false);
+    expect(ground.modules.some((m) => m.modulePath.endsWith("foo.dart"))).toBe(true);
+  });
 });
 
 describe.skipIf(!hasDart)("extractSignatures dart-analyzer — AC-STE-103.8 empty lib/", () => {
