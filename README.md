@@ -174,7 +174,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.33.1 — "Refresh"** (M90 self-heals a stale dart-analyzer helper `.dart_tool` — `extractViaDartAnalyzer` now refreshes deps with `dart pub get` and retries once on a non-zero `dart run` exit before degrading to regex-fallback, instead of silently falling back when the helper's pinned `analyzer` had been evicted from `~/.pub-cache`.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.34.0 — "Moodboard"** (M91 adds Deliverable A of design-reference support — a version-controlled `specs/design/` tree, an optional `## Design References` FR section, `/spec-write` + `/brainstorm` image capture, and a `/gate-check` probe that every referenced design-image path resolves on disk.)
 
 ## Core Philosophy
 
