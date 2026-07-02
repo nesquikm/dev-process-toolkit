@@ -174,7 +174,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.34.0 — "Moodboard"** (M91 adds Deliverable A of design-reference support — a version-controlled `specs/design/` tree, an optional `## Design References` FR section, `/spec-write` + `/brainstorm` image capture, and a `/gate-check` probe that every referenced design-image path resolves on disk.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.35.0 — "Authorized"** (M94 fixes the `/conformance-loop` false-green — the `claude -p` child-spawn is now allow-listed so headless nested spawns aren't classifier-denied, fenced by a pre-flight contains-check + `/gate-check` probe #62, and watched by a stream-json 0-byte/denied-spawn detector.)
 
 ## Core Philosophy
 

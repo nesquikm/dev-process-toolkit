@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.35.0] — 2026-07-02 — "Authorized"
+
+Fixes the `/conformance-loop` false-green: the tracked `permissions.allow` now authorizes the `claude -p` child-spawn, pre-flight + gate-check fences keep the pattern from silently vanishing again, and stream-json capture + a non-empty/non-denied detector make a 0-byte or classifier-denied child a hard finding instead of a silent pass.
+
+### Added
+
+- **STE-351 — Pre-flight contains-check + `ANTHROPIC_API_KEY` guard.** `/conformance-loop` pre-flight (f) now asserts `permissions.allow` **contains** `Bash(claude:*)` (mirrored as `/smoke-test` pre-flight #10) with NFR-10 refusal + `spawn_pattern_allow_present` token; new `/gate-check` probe #62 `spawn_pattern_allowlist` fails GATE when the pattern is absent from the tracked allow-list or the scaffold snippet; new Phase 0 refusal (g) blocks runs when `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` is set (subscription-billing guard, documented override). New pure helper `spawn_pattern_allowlist.ts`. (STE-351)
+- **STE-352 — stream-json child capture + 0-byte/denied-spawn detector.** `/smoke-test` canonical-chain children are captured as `--output-format stream-json --verbose` NDJSON (closes the F2 text-mode blind spot); each child's capture is asserted non-empty and free of `permission_denials` for a `claude` spawn — either is a high-severity finding; new Phase 2.X fixture group 8 reproduces the nested spawn live. New pure helpers `smoke_child_capture.ts` + shared NDJSON reader `stream_json_events.ts`. (STE-352)
+
+### Fixed
+
+- **STE-350 — Allow-list the `claude -p` child-spawn.** The tracked `.claude/settings.json` `permissions.allow` (and the `/smoke-test` test-project scaffold) omitted the one command the whole loop runs on, so headless nested spawns fell to the auto-mode classifier and died as 0-byte grandchildren reported green (STE-252 regression). Both allow-lists now carry `Bash(claude:*)`, and all 13 spawn sites export `CLAUDE_CONFIG_DIR` once and issue a bare `claude -p` so the pattern matches. Verified live: nested-spawn probe + dual-tracker conformance run, all grandchild captures non-empty with zero denials. (STE-350)
+
+Total test count at release: 3422 tests, 0 failures, 0 errors.
+
 ## [2.34.0] — 2026-06-30 — "Moodboard"
 
 Capture & store design reference images (Deliverable A): a version-controlled `specs/design/` tree, an optional `## Design References` FR section, a `/spec-write` + `/brainstorm` image-capture step, and a deterministic `/gate-check` probe that every referenced design-image path resolves on disk.
