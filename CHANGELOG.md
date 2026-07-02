@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.36.0] — 2026-07-02 — "Integrity"
+
+Makes the smoke-driver chain complete end-to-end headless: Phase 0.5 cleanup is scoped per tracker so tandem legs can't delete each other's live MCP config, every grandchild spawn is detached + pidfile-polled past the 10-minute Bash ceiling with an end-of-run chain-integrity assertion barring truncated runs from green, and workspace trust is pre-seeded so the scaffolded allow-list actually enforces at the grandchild layer.
+
+### Added
+
+- **STE-354 — Scope Phase 0.5 mcp-config cleanup to the resolved tracker.** `/smoke-test` Phase 0.5 now removes only `dpt-smoke-mcp-config-<tracker>.json` — the cross-tracker glob that raced the concurrent tandem leg's Phase 1 write (2026-07-02 F1) is gone; the STE-186 staleness intent is preserved per-leg, and § Operator-driven parallelism documents the cleanup as per-tracker-scoped by the same isolation invariant. (STE-354)
+- **STE-355 — Grandchild spawn lifecycle: detached spawn + bounded poll + chain-integrity assertion.** Every canonical-chain spawn (all six `/smoke-test` Phase 2 fences AND `/conformance-loop` Phase A's two legs) is now detached with PID capture and awaited via bounded `kill -0` + `sleep 30` poll calls — no single foreground Bash call caps a grandchild at the harness 600s ceiling (F2), and ending the session with a live pidfile is forbidden (F3). New `assertChainIntegrity` (exists + non-empty + stream-json `result` event per expected capture) runs as Phase 2.Y and bars truncated runs from a green summary with the pinned `STE-355 regression: chain truncated — <child> (<reason>)` diagnostic; `/conformance-loop` Phase A mirrors it with a leg-completeness check that fails an incomplete leg regardless of RC 0. (STE-355)
+- **STE-356 — Pre-seed workspace trust so the scaffolded allow-list enforces.** `/smoke-test` Phase 1 step 6b seeds `projects["<path>"].hasTrustDialogAccepted` in the live `$CLAUDE_CONFIG_DIR/.claude.json` via backup + merge-only jq + atomic `mv` under a bounded cross-leg spinlock; a spawn-time gate refuses (NFR-10) when the entry is missing and logs the `workspace_trust_seeded` token when present; new `checkAllowlistInert` detector turns any captured "Ignoring … permissions.allow entries" warning into a high-severity finding; both threat models name workspace trust as an enforcement precondition, and Phase 5 removes the seeded entries + backup. (STE-356)
+
+Total test count at release: 3499 tests, 0 failures, 0 errors.
+
 ## [2.35.0] — 2026-07-02 — "Authorized"
 
 Fixes the `/conformance-loop` false-green: the tracked `permissions.allow` now authorizes the `claude -p` child-spawn, pre-flight + gate-check fences keep the pattern from silently vanishing again, and stream-json capture + a non-empty/non-denied detector make a 0-byte or classifier-denied child a hard finding instead of a silent pass.

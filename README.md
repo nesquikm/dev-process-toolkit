@@ -174,7 +174,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.35.0 — "Authorized"** (M94 fixes the `/conformance-loop` false-green — the `claude -p` child-spawn is now allow-listed so headless nested spawns aren't classifier-denied, fenced by a pre-flight contains-check + `/gate-check` probe #62, and watched by a stream-json 0-byte/denied-spawn detector.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.36.0 — "Integrity"** (M95 makes the smoke-driver chain complete end-to-end headless — per-tracker scratch isolation, detached-spawn + bounded-poll grandchild lifecycle with a chain-integrity assertion, and pre-seeded workspace trust so the scaffolded allow-list actually enforces.)
 
 ## Core Philosophy
 
