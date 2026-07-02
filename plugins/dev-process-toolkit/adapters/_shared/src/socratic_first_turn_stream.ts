@@ -20,27 +20,22 @@
 // Malformed / unrecognized lines are silently skipped so a partial /
 // truncated capture still yields a usable prefix transcript. Callers that
 // need stricter validation should diff this helper's output against the
-// raw NDJSON line count.
+// raw NDJSON line count. The low-level NDJSON reader is shared with
+// smoke_child_capture via stream_json_events.ts.
 
 import type { TranscriptEntry } from "./socratic_first_turn";
+import {
+  assistantContentBlocks,
+  parseStreamJsonEvent,
+} from "./stream_json_events";
 
 /**
  * Parse one NDJSON line into zero or more transcript entries.
  * Empty / malformed / non-assistant lines yield an empty array.
  */
 export function parseStreamJsonLine(line: string): TranscriptEntry[] {
-  const trimmed = line.trim();
-  if (!trimmed) return [];
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch {
-    return [];
-  }
-  if (!parsed || typeof parsed !== "object") return [];
-
-  const event = parsed as Record<string, unknown>;
+  const event = parseStreamJsonEvent(line);
+  if (!event) return [];
 
   if (event.type === "system" && event.subtype === "refusal") {
     return [{ type: "refusal" }];
@@ -50,26 +45,17 @@ export function parseStreamJsonLine(line: string): TranscriptEntry[] {
 
   const message = event.message;
   if (!message || typeof message !== "object") return [];
-  const messageObj = message as Record<string, unknown>;
 
   const entries: TranscriptEntry[] = [];
-  const content = messageObj.content;
-  if (Array.isArray(content)) {
-    for (const block of content) {
-      if (!block || typeof block !== "object") continue;
-      const blockObj = block as Record<string, unknown>;
-      if (blockObj.type === "text") {
-        entries.push({ type: "text" });
-      } else if (
-        blockObj.type === "tool_use" &&
-        typeof blockObj.name === "string"
-      ) {
-        entries.push({ type: "tool_use", name: blockObj.name });
-      }
+  for (const block of assistantContentBlocks(event)) {
+    if (block.type === "text") {
+      entries.push({ type: "text" });
+    } else if (block.type === "tool_use" && typeof block.name === "string") {
+      entries.push({ type: "tool_use", name: block.name });
     }
   }
 
-  if (messageObj.stop_reason === "refusal") {
+  if ((message as Record<string, unknown>).stop_reason === "refusal") {
     entries.push({ type: "refusal" });
   }
 
