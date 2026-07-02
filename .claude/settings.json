@@ -5,6 +5,7 @@
       "Bash(bun test:*)",
       "Bash(bun:*)",
       "Bash(cat:*)",
+      "Bash(claude:*)",
       "Bash(cp:*)",
       "Bash(find:*)",
       "Bash(gh:*)",
