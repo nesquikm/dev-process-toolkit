@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.34.0 ("Moodboard")**.
+**Latest shipped release:** **v2.36.0 ("Integrity")**.
 
 ### Shipped milestones
 
@@ -359,4 +359,10 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-341.1..4 | plugins/dev-process-toolkit/docs/layout-reference.md, plugins/dev-process-toolkit/skills/spec-write/SKILL.md, plugins/dev-process-toolkit/skills/implement/SKILL.md, plugins/dev-process-toolkit/skills/spec-archive/SKILL.md, plugins/dev-process-toolkit/templates/CLAUDE.md.template | plugins/dev-process-toolkit/tests/design-references-convention.test.ts |
 | AC-STE-342.1..4 | plugins/dev-process-toolkit/adapters/_shared/src/design_asset_slug.ts, plugins/dev-process-toolkit/skills/spec-write/SKILL.md, plugins/dev-process-toolkit/skills/brainstorm/SKILL.md | plugins/dev-process-toolkit/adapters/_shared/src/design_asset_slug.test.ts, plugins/dev-process-toolkit/tests/design-references-capture-contract.test.ts |
 | AC-STE-343.1..3 | plugins/dev-process-toolkit/adapters/_shared/src/scan_design_references.ts, plugins/dev-process-toolkit/skills/gate-check/SKILL.md | plugins/dev-process-toolkit/tests/gate-check-design-references-resolve.test.ts |
+| AC-STE-350.1..3 | .claude/settings.json, .claude/skills/conformance-loop/SKILL.md, .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/claude-spawn-allowlist.test.ts |
+| AC-STE-351.1..4 | .claude/skills/conformance-loop/SKILL.md, .claude/skills/smoke-test/SKILL.md, plugins/dev-process-toolkit/adapters/_shared/src/spawn_pattern_allowlist.ts, plugins/dev-process-toolkit/skills/gate-check/SKILL.md | plugins/dev-process-toolkit/tests/conformance-loop-spawn-pattern-pre-flight.test.ts, plugins/dev-process-toolkit/tests/gate-check-spawn-pattern-allowlist.test.ts |
+| AC-STE-352.1..3 | .claude/skills/smoke-test/SKILL.md, plugins/dev-process-toolkit/adapters/_shared/src/smoke_child_capture.ts, plugins/dev-process-toolkit/adapters/_shared/src/stream_json_events.ts | plugins/dev-process-toolkit/tests/smoke-child-capture.test.ts, plugins/dev-process-toolkit/tests/smoke-test-ste352-stream-capture.test.ts |
+| AC-STE-354.1..2 | .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/smoke-test-m95-chain-integrity.test.ts |
+| AC-STE-355.1..3 | .claude/skills/smoke-test/SKILL.md, .claude/skills/conformance-loop/SKILL.md, plugins/dev-process-toolkit/adapters/_shared/src/smoke_child_capture.ts | plugins/dev-process-toolkit/tests/smoke-test-m95-chain-integrity.test.ts, plugins/dev-process-toolkit/tests/smoke-chain-integrity.test.ts |
+| AC-STE-356.1..4 | .claude/skills/smoke-test/SKILL.md, .claude/skills/conformance-loop/SKILL.md, plugins/dev-process-toolkit/adapters/_shared/src/smoke_child_capture.ts | plugins/dev-process-toolkit/tests/smoke-test-m95-chain-integrity.test.ts, plugins/dev-process-toolkit/tests/smoke-allowlist-inert.test.ts |
 

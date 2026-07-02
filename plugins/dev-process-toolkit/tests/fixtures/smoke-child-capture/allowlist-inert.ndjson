@@ -1,0 +1,4 @@
+Ignoring 10 permissions.allow entries from .claude/settings.json: this workspace has not been trusted
+{"type":"system","subtype":"init","session_id":"smoke-fixture-inert","tools":["Bash","Read","Write"]}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Proceeding without the scaffolded allow-list."}],"stop_reason":"end_turn"}}
+{"type":"result","subtype":"success","is_error":false,"result":"done","permission_denials":[]}
