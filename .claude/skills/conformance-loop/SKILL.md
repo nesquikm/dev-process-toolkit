@@ -37,7 +37,7 @@ Context: skill=conformance-loop, flag=<flag>
 
 ## Pre-flight refusals
 
-Each fires before any side effects, exits non-zero with an NFR-10-shape message. Six refusals (a)–(f) total; refusals (c)–(e) **delegate** to `/smoke-test`'s pre-flights of the same probe (so the canonical message and probe shape stay defined in one place). Refusal (f) is the Phase 0 `permissions.allow` pre-flight introduced by STE-252 — it runs before any `claude -p` spawn and asserts the tracked allow-list artifact is present and populated.
+Each fires before any side effects, exits non-zero with an NFR-10-shape message. Seven refusals (a)–(g) total; refusals (c)–(e) **delegate** to `/smoke-test`'s pre-flights of the same probe (so the canonical message and probe shape stay defined in one place). Refusal (f) is the Phase 0 `permissions.allow` pre-flight introduced by STE-252 — it runs before any `claude -p` spawn and asserts the tracked allow-list artifact is present and populated. Refusal (g) is the STE-351 subscription-billing guard — it runs before any spawn and asserts no API-billing env var is set.
 
 (a) **Toolkit-repo cwd.** `pwd` must end in `/dev-process-toolkit`. The skill spawns child `/smoke-test` invocations whose own pre-flight #1 expects toolkit-repo cwd; running `/conformance-loop` from elsewhere creates the test projects in the wrong place. NFR-10 canonical refusal:
 
@@ -79,7 +79,7 @@ Remedy: rm -rf ../dpt-test-project-linear ../dpt-test-project-jira (or pass --ke
 Context: skill=conformance-loop, probe=delegated-smoke-test-2, paths=[<list-of-non-empty>]
 ```
 
-(f) **`permissions.allow` populated in tracked `.claude/settings.json`** (Phase 0 pre-flight, STE-252 AC-STE-252.3). Read `.claude/settings.json` from the toolkit-repo root, JSON-parse it, and assert that `.permissions.allow` is a non-empty array (`length > 0`). The tracked allow-list is the audit-able policy artifact that constrains every `claude -p` child the skill spawns; an empty or missing array means the loop would fall back to interactive permission prompts mid-run and stall the hands-off contract. Probe shape mirrors the `jq -e '.permissions.allow | length > 0' .claude/settings.json` one-liner from the FR's technical-design § Phase 0 pre-flight. NFR-10 canonical refusal:
+(f) **`permissions.allow` populated in tracked `.claude/settings.json` AND contains the child-spawn pattern** (Phase 0 pre-flight, STE-252 AC-STE-252.3, strengthened by STE-351 AC-STE-351.1). Read `.claude/settings.json` from the toolkit-repo root, JSON-parse it, and assert that `.permissions.allow` is a non-empty array (`length > 0`) **and** that the array contains the canonical child-spawn pattern literal `Bash(claude:*)`. The tracked allow-list is the audit-able policy artifact that constrains every `claude -p` child the skill spawns; an empty or missing array means the loop would fall back to interactive permission prompts mid-run and stall the hands-off contract, and a populated array that *lacks the spawn pattern* is exactly the M94 false-green — the auto-mode classifier denies each nested `claude` spawn headless and the grandchildren die as 0-byte transcripts. A `length > 0` assertion alone does NOT catch that; the probe MUST be a contains-check on the pattern literal. Probe shape: `jq -e '.permissions.allow | index("Bash(claude:*)")' .claude/settings.json` (index/contains on the spawn-pattern literal), layered on the STE-252 `jq -e '.permissions.allow | length > 0' .claude/settings.json` non-empty check. Empty-or-missing array → NFR-10 canonical refusal:
 
 ```
 permissions.allow empty or missing in .claude/settings.json.
@@ -87,9 +87,27 @@ Remedy: populate the permissions.allow allow-list in tracked .claude/settings.js
 Context: skill=conformance-loop, pre-flight=permissions_allow_check, file=.claude/settings.json
 ```
 
-On the hit-path (the `.permissions.allow` array is a non-empty array), log the capability-row token `permissions_allow_present` to the same `/tmp/dpt-conformance-loop-<date>-approval.txt` file used by the Phase 0 pre-approval gate (one literal line, no inference) and proceed to the Phase 0 pre-approval prompt. The token is byte-grep-checkable by downstream `/gate-check` probes and smoke-test capability-row aggregators (same shape convention as `spec_write_draft_default_applied`).
+Non-empty array that lacks the `Bash(claude:*)` spawn pattern → NFR-10 canonical refusal:
 
-Each refusal above carries the literal phrase **NFR-10 canonical refusal** in the surrounding prose (seven `NFR-10 canonical refusal` markers across this section: one introductory mention plus the six (a)–(f) refusal anchors, satisfying the verify line `grep -c 'NFR-10 canonical refusal' >= 6`).
+```
+permissions.allow lacks the child-spawn pattern "Bash(claude:*)" in .claude/settings.json.
+Remedy: add "Bash(claude:*)" to the permissions.allow allow-list in tracked .claude/settings.json so nested claude -p child spawns are classifier-allowed headless, then re-run /conformance-loop.
+Context: skill=conformance-loop, pre-flight=spawn_pattern_allow_check, file=.claude/settings.json
+```
+
+On the hit-path (the `.permissions.allow` array is a non-empty array **and** contains the `Bash(claude:*)` spawn pattern), log the capability-row tokens `permissions_allow_present` and `spawn_pattern_allow_present` to the same `/tmp/dpt-conformance-loop-<date>-approval.txt` file used by the Phase 0 pre-approval gate (one literal line per token, no inference) and proceed to the Phase 0 pre-approval prompt. The token is byte-grep-checkable by downstream `/gate-check` probes and smoke-test capability-row aggregators (same shape convention as `spec_write_draft_default_applied`).
+
+(g) **No API-billing env vars set** (Phase 0 pre-flight, STE-351 AC-STE-351.3). Read the environment before any spawn; if `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set, the loop's many `claude -p` children would inherit it and silently bill that API account at per-token rates instead of running on the operator's subscription. Probe shape: `[ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ]`. Either variable set → NFR-10 canonical refusal:
+
+```
+ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN is set — an on-demand run would bill that API account at per-token rates rather than your subscription.
+Remedy: unset the variable for this run (`env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN claude`), or re-run /conformance-loop interactively acknowledging the API cost.
+Context: skill=conformance-loop, pre-flight=anthropic_key_guard, set=[<which-vars>]
+```
+
+**Interactive-override path:** an operator who *wants* API billing (e.g., a dedicated key funded for exactly this run) either unsets nothing and re-runs `/conformance-loop` in an interactive session — where the guard downgrades from hard refusal to a `y/N` cost-acknowledgment prompt (`proceed billing this API key? [y/N]`) — or exports `DPT_CONFORMANCE_ALLOW_API_BILLING=1` as the explicit override for that one invocation. Headless runs get no override prompt: non-interactive sessions cannot acknowledge cost, so the guard always refuses there unless the override variable is set. Aligns with the STE-191 KEY-surfacing pre-flight.
+
+Each refusal above carries the literal phrase **NFR-10 canonical refusal** in the surrounding prose (nine `NFR-10 canonical refusal` markers across this section: one introductory mention plus the eight refusal anchors — (a)–(e) and (g) carry one each, and the STE-351-strengthened (f) carries two, allow-list-empty and spawn-pattern-missing — satisfying the verify line `grep -c 'NFR-10 canonical refusal' >= 6`).
 
 ## Flow
 
@@ -139,6 +157,7 @@ DATE=$(date +%Y-%m-%d)
 LOG_LINEAR=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.log
 LOG_JIRA=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.log
 PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"   # cwd is the toolkit repo (verified by pre-flight (a))
+export CLAUDE_CONFIG_DIR=~/.claude-st             # STE-350: exported so spawn lines stay bare `claude -p`
 
 # Each /smoke-test child opens its own Phase 0 pre-approval gate; inject
 # the canonical marker into the heredoc body so the child auto-approves
@@ -148,7 +167,7 @@ PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"   # cwd is the toolkit repo (ver
 # same compound command line; the brace group scopes the heredoc to the
 # command and lets `&` background the whole group.
 {
-  CLAUDE_CONFIG_DIR=~/.claude-st claude -p "/smoke-test --tracker linear --linear-team ${LINEAR_TEAM:-STE}" \
+  claude -p "/smoke-test --tracker linear --linear-team ${LINEAR_TEAM:-STE}" \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${LOG_LINEAR}" 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
@@ -157,7 +176,7 @@ PROMPT_EOF
 PID_LINEAR=$!
 
 {
-  CLAUDE_CONFIG_DIR=~/.claude-st claude -p "/smoke-test --tracker jira --jira-project ${JIRA_PROJECT}" \
+  claude -p "/smoke-test --tracker jira --jira-project ${JIRA_PROJECT}" \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${LOG_JIRA}" 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
@@ -250,6 +269,7 @@ When `--auto-fix` is ON, sequentially walk the deduplicated **high-severity** fi
 ```bash
 IDX=0
 PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"
+export CLAUDE_CONFIG_DIR=~/.claude-st   # STE-350: exported so spawn lines stay bare `claude -p`
 for FINDING_TEXT in <high-severity-findings-from-aggregated-report>; do
   IDX=$((IDX + 1))
   LOG_SW=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-fix-${IDX}-spec-write.log
@@ -268,7 +288,7 @@ for FINDING_TEXT in <high-severity-findings-from-aggregated-report>; do
   #    `<dpt:auto-approve>v1</dpt:auto-approve>` is the byte-checkable
   #    pre-authorization handoff for /spec-write's draft + commit gates
   #    (STE-226); without it the child halts at the FR-draft prompt.
-  CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
+  claude -p \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${LOG_SW}" 2>&1 <<${EOF_TAG}
 <dpt:auto-approve>v1</dpt:auto-approve>
@@ -295,7 +315,7 @@ ${EOF_TAG}
   #    delimiter as the /spec-write spawn above; no body content needed
   #    beyond the marker because the slash command + argument live on
   #    the CLI argv.
-  CLAUDE_CONFIG_DIR=~/.claude-st claude -p "/dev-process-toolkit:implement ${NEW_TRACKER_ID}" \
+  claude -p "/dev-process-toolkit:implement ${NEW_TRACKER_ID}" \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${LOG_IMPL}" 2>&1 <<${EOF_TAG}
 <dpt:auto-approve>v1</dpt:auto-approve>
