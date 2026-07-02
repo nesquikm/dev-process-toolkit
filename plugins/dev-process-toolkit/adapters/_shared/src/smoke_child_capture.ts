@@ -1,6 +1,10 @@
-// smoke_child_capture (STE-352 AC-STE-352.1 + AC-STE-352.2) —
-// Readers for /smoke-test Phase 2's `claude -p --output-format stream-json`
-// child captures (NDJSON at /tmp/dpt-smoke-<tracker>-<skill>.log).
+// smoke_child_capture — readers and assertions for /smoke-test Phase 2's
+// `claude -p --output-format stream-json` child captures (NDJSON at
+// /tmp/dpt-smoke-<tracker>-<skill>.log). Three detector families live here,
+// in file order: the STE-352 per-capture readers (AC-STE-352.1 +
+// AC-STE-352.2) directly below, then the STE-356 allowlist-inert raw-text
+// detector and the STE-355 end-of-run chain-integrity assertion, each under
+// its own banner further down.
 //
 // Two capture failure modes hid the M94 STE-350 bug behind green smoke runs:
 //
@@ -21,6 +25,8 @@
 // or truncated capture still yields a usable prefix. Both modules share the
 // low-level NDJSON reader in stream_json_events.ts.
 
+import { existsSync, readFileSync } from "node:fs";
+
 import {
   assistantContentBlocks,
   parseStreamJsonEvents,
@@ -31,7 +37,13 @@ export interface ChildSpawnFinding {
   diagnostic: string;
 }
 
-const DIAGNOSTIC_PREFIX =
+// Every detector family emits the same finding shape — severity is always
+// "high"; only the per-family diagnostic prefix differs.
+function highFinding(diagnostic: string): ChildSpawnFinding {
+  return { severity: "high", diagnostic };
+}
+
+const SPAWN_DIAGNOSTIC_PREFIX =
   "STE-350 regression: nested claude -p spawn denied/empty — ";
 
 // Head-anchored `claude` spawn match: the denied command must START with the
@@ -57,8 +69,8 @@ export function extractAssistantText(ndjson: string): string {
   return blocks.join("\n");
 }
 
-function finding(child: string): ChildSpawnFinding {
-  return { severity: "high", diagnostic: `${DIAGNOSTIC_PREFIX}${child}` };
+function spawnFinding(child: string): ChildSpawnFinding {
+  return highFinding(`${SPAWN_DIAGNOSTIC_PREFIX}${child}`);
 }
 
 /**
@@ -73,7 +85,7 @@ export function checkChildSpawnCapture(
   ndjson: string,
   child: string,
 ): ChildSpawnFinding[] {
-  if (ndjson.trim().length === 0) return [finding(child)];
+  if (ndjson.trim().length === 0) return [spawnFinding(child)];
 
   for (const event of parseStreamJsonEvents(ndjson)) {
     if (event.type !== "result") continue;
@@ -88,9 +100,127 @@ export function checkChildSpawnCapture(
         typeof command === "string" &&
         CLAUDE_SPAWN_HEAD_RE.test(command.trimStart())
       ) {
-        return [finding(child)];
+        return [spawnFinding(child)];
       }
     }
   }
   return [];
+}
+
+// --- STE-356 AC-STE-356.3 — allowlist-inert runtime detector ----------------
+//
+// The 2026-07-02 conformance run (finding F4, high) showed grandchildren
+// spawned in fresh test-project cwds IGNORING the scaffolded
+// `.claude/settings.json` allow-list — captured logs opened with
+//
+//   Ignoring 10 permissions.allow entries from .claude/settings.json:
+//   this workspace has not been trusted
+//
+// so the STE-252 policy artifact was inert at the grandchild layer and the
+// canonical chain ran on auto-mode classifier goodwill. Allow-list inert =
+// policy breach, always a high-severity finding.
+
+const ALLOWLIST_INERT_DIAGNOSTIC_PREFIX =
+  "STE-356 regression: allow-list inert — ";
+
+// The warning is a stderr line interleaved into the 2>&1 NDJSON log, or
+// echoed inside an assistant text block when a child relays its
+// grandchild's stderr — so this is a RAW-TEXT detector (no NDJSON parsing).
+// All three markers must be present; the entry count is deliberately not
+// pinned ("Ignoring 3 …" fires the same as "Ignoring 10 …").
+const ALLOWLIST_INERT_MARKERS = [
+  "Ignoring",
+  "permissions.allow entries",
+  "has not been trusted",
+] as const;
+
+/**
+ * Detect an inert allow-list in a capture (STE-356 AC-STE-356.3).
+ *
+ * Returns exactly one high-severity finding,
+ * `STE-356 regression: allow-list inert — <child> (workspace untrusted)`,
+ * when the capture's raw text carries all three warning markers — one
+ * finding even if the warning repeats (child + grandchild both untrusted).
+ * A healthy capture (or fewer than all three markers) yields [].
+ * Emptiness/denial/truncation detection stays with checkChildSpawnCapture /
+ * assertChainIntegrity — the detectors are orthogonal by design.
+ */
+export function checkAllowlistInert(
+  raw: string,
+  child: string,
+): ChildSpawnFinding[] {
+  const inert = ALLOWLIST_INERT_MARKERS.every((marker) =>
+    raw.includes(marker),
+  );
+  if (!inert) return [];
+  return [
+    highFinding(
+      `${ALLOWLIST_INERT_DIAGNOSTIC_PREFIX}${child} (workspace untrusted)`,
+    ),
+  ];
+}
+
+// --- STE-355 AC-STE-355.2 — end-of-run chain-integrity assertion -----------
+//
+// The 2026-07-02 conformance run truncated silently on both legs (F2 + F3):
+// children fired grandchild spawns in the background and exited RC 0, so
+// per-skill captures were left missing, empty, or result-less. The reliable
+// truncation footprint on every captured leg was a stream-json capture with
+// no top-level `type: "result"` event.
+
+const CHAIN_DIAGNOSTIC_PREFIX = "STE-355 regression: chain truncated — ";
+
+/** One expected per-skill capture: the child's name + its log path. */
+export interface ChainCaptureExpectation {
+  child: string;
+  path: string;
+}
+
+function chainFinding(child: string, reason: string): ChildSpawnFinding {
+  return highFinding(`${CHAIN_DIAGNOSTIC_PREFIX}${child} (${reason})`);
+}
+
+/**
+ * Assert every expected per-skill capture completed (STE-355 AC-STE-355.2).
+ *
+ * A capture is healthy iff its file exists, is non-empty, and
+ * parseStreamJsonEvents finds a top-level `type: "result"` event — a
+ * result-shaped token inside assistant prose does not count. Each miss
+ * yields exactly one high-severity finding naming the truncated child,
+ * `STE-355 regression: chain truncated — <child> (<reason>)`, in input
+ * (chain) order; healthy captures contribute nothing. Denial detection is
+ * checkChildSpawnCapture's job — a denied-but-complete capture is
+ * chain-healthy here.
+ */
+export function assertChainIntegrity(
+  expected: ChainCaptureExpectation[],
+): ChildSpawnFinding[] {
+  const findings: ChildSpawnFinding[] = [];
+  for (const { child, path } of expected) {
+    if (!existsSync(path)) {
+      findings.push(chainFinding(child, "capture missing"));
+      continue;
+    }
+    let ndjson: string;
+    try {
+      ndjson = readFileSync(path, "utf8");
+    } catch {
+      // Exists-but-unreadable (EACCES, EISDIR, delete race after the
+      // existsSync check): a finding, never a driver crash — every other
+      // miss in this function degrades to a finding the same way.
+      findings.push(chainFinding(child, "capture unreadable"));
+      continue;
+    }
+    if (ndjson.trim().length === 0) {
+      findings.push(chainFinding(child, "capture empty"));
+      continue;
+    }
+    const hasResult = parseStreamJsonEvents(ndjson).some(
+      (event) => event.type === "result",
+    );
+    if (!hasResult) {
+      findings.push(chainFinding(child, "result event absent"));
+    }
+  }
+  return findings;
 }
