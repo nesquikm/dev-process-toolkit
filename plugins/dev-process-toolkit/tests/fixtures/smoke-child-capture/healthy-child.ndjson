@@ -1,0 +1,6 @@
+{"type":"system","subtype":"init","session_id":"smoke-fixture-healthy","tools":["Bash","Read","Write"]}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Drafting the FR now."},{"type":"tool_use","id":"toolu_01","name":"Write","input":{"file_path":"specs/frs/STE-999.md"}}],"stop_reason":null}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"ok"}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"spec_write_draft_default_applied\nspec_write_commit_default_applied"}],"stop_reason":null}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"```tdd-result\nrole: test-writer\nstatus: ok\n```"}],"stop_reason":"end_turn"}}
+{"type":"result","subtype":"success","is_error":false,"result":"Spec committed.","permission_denials":[]}
