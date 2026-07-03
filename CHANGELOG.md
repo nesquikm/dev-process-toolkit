@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.37.0] — 2026-07-03 — "Patience"
+
+Teaches both smoke drivers to actually wait: the fire-and-exit WAIT step becomes a bounded multi-iteration poll, the Phase 0.5 wipe is verified on disk with freshness-gated chain-completeness checks so stale logs can't false-pass, orphaned grandchildren are adopted instead of abandoned, and two plugin-side fixes let /setup's placeholder ride its own bootstrap commit and document the team-managed Jira status-vocabulary path.
+
+### Added
+
+- **STE-357 — Enforce the wait discipline: bounded multi-iteration polls, no turn-end with live pidfiles.** Both driver poll fences become bounded `for i in $(seq 1 18); do kill -0 … || break; sleep 30; done` loops (≈9 min per call, `kill -0` first so the harness leading-sleep block can't reject them); red-flag prose names the harness sleep-block hint recommending `run_in_background`/Monitor as NOT-license — background-wait + end-turn IS the fire-and-exit failure; a final-message self-check re-runs the pidfile-liveness fence and resumes polling while any pidfile is live. Runtime validation ships `[~]` pending the next conformance run. (STE-357)
+- **STE-358 — Verified Phase 0.5 wipe + freshness-gated chain-completeness checks.** The wipe widens to every per-run scratch class (prompt/`.log`/`.pid`/`.rc`/`.start`/`.attempt*`/mcp-config) with a post-`rm` `ls` zero-survivors assertion replacing self-report (survivors ⇒ NFR-10 refusal naming them); `assertChainIntegrity` gains an optional `runStart` parameter — a capture whose mtime predates run-start is `capture stale (pre-run)`, never healthy — wired into `/smoke-test` Phase 2.Y and `/conformance-loop` Phase A; Phase 1 step 6 documents that the child model layer denies all settings.json writes, so pre-creation must carry the full final allow-list. (STE-358)
+- **STE-359 — Orphan adoption for surviving grandchildren.** `/conformance-loop` Phase A scans the leg's six-skill pidfiles after a driver exits and adopts any still-answering PID — polled to exit with the bounded discipline before the leg-completeness check runs (adoption recovers evidence, not the chain); both drivers document the killed-with-parent vs survives-as-orphan nondeterminism as a residual risk with adoption as the deterministic recovery. Runtime validation ships `[~]`. (STE-359)
+- **STE-360 — Exempt the /setup Bun zero-match placeholder from pre-commit-tdd-orchestrator.** Staged `src/.placeholder.test.ts` carrying the `Bun zero-match workaround` marker (or staged as a deletion) no longer blocks the bootstrap commit; the dual key reads the index blob so a marker-less rename stays tdd-required, and mixed commits still require /tdd evidence; /setup's step 8b documents that the placeholder rides the bootstrap commit. (STE-360)
+- **STE-361 — adapters/jira.md: transitions API as primary status-vocabulary path for team-managed projects.** New `list_project_statuses()` section documents the two-path probe order — `getVisibleJiraProjects` `"simplified": true` detection, `allowedValues` company-managed-only, `getTransitionsForJiraIssue` → `to.name` (dedup in API order) primary for team-managed — preserving the ordered-verbatim string-array contract, with the zero-issue statusCategory fallback; /setup step 7f names the fallback ordering. (STE-361)
+
+Total test count at release: 3577 tests, 0 failures, 0 errors.
+
 ## [2.36.0] — 2026-07-02 — "Integrity"
 
 Makes the smoke-driver chain complete end-to-end headless: Phase 0.5 cleanup is scoped per tracker so tandem legs can't delete each other's live MCP config, every grandchild spawn is detached + pidfile-polled past the 10-minute Bash ceiling with an end-of-run chain-integrity assertion barring truncated runs from green, and workspace trust is pre-seeded so the scaffolded allow-list actually enforces at the grandchild layer.

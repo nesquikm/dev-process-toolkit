@@ -196,21 +196,26 @@ PID_JIRA=$!; echo $! > "${PID_FILE_JIRA}"
 echo "detached: linear=${PID_LINEAR} jira=${PID_JIRA} — poll until both exit"
 ```
 
-**Bounded poll-until-exit (repeated short Bash calls).** After the spawn call returns, poll until both PIDs exit — the same STE-355 discipline the smoke driver's Phase 2 uses for its grandchildren (`/smoke-test` § Grandchild spawn lifecycle). Each poll is its **own** Bash call, returning in seconds — well under the harness's 600 s (10-minute) per-call ceiling; never fold the repetition into one long call:
+**Bounded poll-until-exit (repeated bounded Bash calls).** After the spawn call returns, poll until both PIDs exit — the same STE-355 discipline the smoke driver's Phase 2 uses for its grandchildren (`/smoke-test` § Grandchild spawn lifecycle). Each poll call is a **bounded multi-iteration loop** iterating both legs' pidfiles inside the same loop — up to 18 checks 30 s apart, ≈ ≤540 s (≈ 9 min) per call, safely under the harness's 600 s (10-minute) per-call ceiling. That is one Bash call per ~9 min instead of ~80 single-check calls across a 40-minute leg; the old single-check-then-end-call shape is **not** sanctioned. Never fold the whole wait into one unbounded call:
 
 ```bash
-# One bounded poll call — repeat this call until it reports both legs exited.
+# One bounded poll call — up to 18 checks × 30 s ≈ 9 min (≤540 s), under the
+# harness's 600 s per-call ceiling. Repeat until it reports both legs exited.
 # (Fresh shell per Bash call: re-derive DATE/ITER first.)
-LIVE=""
-for LEG in linear jira; do
-  PIDFILE=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-${LEG}.pid
-  if [ -f "${PIDFILE}" ] && kill -0 "$(cat "${PIDFILE}")" 2>/dev/null; then
-    LIVE="${LIVE} ${LEG}"
-  else
-    rm -f "${PIDFILE}"   # leg exited — clear its pidfile
-  fi
+for i in $(seq 1 18); do
+  LIVE=""
+  for LEG in linear jira; do
+    PIDFILE=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-${LEG}.pid
+    if [ -f "${PIDFILE}" ] && kill -0 "$(cat "${PIDFILE}")" 2>/dev/null; then
+      LIVE="${LIVE} ${LEG}"
+    else
+      rm -f "${PIDFILE}"   # leg exited — clear its pidfile
+    fi
+  done
+  [ -z "${LIVE}" ] && break
+  sleep 30
 done
-if [ -n "${LIVE}" ]; then sleep 30; echo "still running:${LIVE} — poll again"; else echo "both legs exited — collect RCs"; fi
+if [ -n "${LIVE}" ]; then echo "still running:${LIVE} — poll again"; else echo "both legs exited — collect RCs"; fi
 ```
 
 **RC collection (after the poll loop reports both legs exited).** Read each leg's rc-file — written by its brace group's trailing `echo $?` as the leg exited — and abort on any non-zero. A missing rc-file after exit is treated as a failure:
@@ -219,6 +224,9 @@ if [ -n "${LIVE}" ]; then sleep 30; echo "still running:${LIVE} — poll again";
 RC_LINEAR=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.rc" 2>/dev/null || echo 1)
 RC_JIRA=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.rc" 2>/dev/null || echo 1)
 
+# STE-359: before acting on any failure here, run the orphan-adoption scan
+# below — a dead driver can leave live grandchildren whose completed
+# captures are recoverable.
 if [ "${RC_LINEAR}" -ne 0 ] || [ "${RC_JIRA}" -ne 0 ]; then
   echo "/conformance-loop: Phase A subprocess failed (linear=${RC_LINEAR}, jira=${RC_JIRA}). Aborting."
   exit 1
@@ -227,13 +235,35 @@ fi
 
 **Why detached + poll, not a same-call wait (STE-355 backfill).** A single foreground Bash call caps at the harness's **600 s (10-minute) per-call ceiling** — the same ceiling that SIGTERM'd the 2026-07-02 `/implement` grandchild (F2). With the smoke driver's STE-355 poll wrapper in place, each `/smoke-test` child genuinely awaits its grandchildren (~10+ minutes per leg), so the old spawn shape — foreground-`wait`ing both PIDs inside the spawn call (`wait "${PID_LINEAR}"; wait "${PID_JIRA}"`) — is guaranteed to hit that ceiling and truncate both legs. The spawn call detaches and returns immediately; the bounded poll above is how Phase A waits.
 
-**Live-pidfile session rule.** Ending the session — or reporting iteration results — while either leg's pidfile still answers `kill -0` is **forbidden**; the bounded poll loop above is the only sanctioned wait. Do not fire the spawns and end the turn "waiting for a completion notification" — a `-p` session cannot resume on background-task notifications, so the rest of the run silently never executes (the fire-and-exit shape, F3). The poll's exit branch removes each pidfile, so a clean Phase A leaves zero live pidfiles.
-
 **Residual risk — PID reuse.** `kill -0` answers for *any* live process with that PID, so a recycled PID could in principle keep a leg's poll looping after the child exited. Negligible at a 30 s poll interval, and the leg-completeness check below is the corroborating signal (a truncated leg fails the log-set verification regardless of what the poll believed) — noted so the wrapper isn't mistaken for a liveness proof.
 
-**Fail-fast on subprocess error.** If either leg's rc-file reports non-zero (or is missing after exit), the iteration aborts immediately — no aggregation, no Phase B dispatch, no re-iteration. Forensics live in the per-iteration log files. The operator decides whether to re-run after fixing the underlying cause.
+**Live-pidfile session rule.** Ending the session — or reporting iteration results — while either leg's pidfile still answers `kill -0` is **forbidden**; the bounded poll loop above is the only sanctioned wait. Do not fire the spawns and end the turn "waiting for a completion notification" — a `-p` session cannot resume on background-task notifications, so the rest of the run silently never executes (the fire-and-exit shape, F3). The poll's exit branch removes each pidfile, so a clean Phase A leaves zero live pidfiles.
 
-**Leg-completeness check (STE-355 mirror).** RC 0 alone is not proof a leg ran its chain — the 2026-07-02 run had both children fire grandchild spawns in the background and exit RC 0 "waiting for its completion notification". So after both children return, and before aggregation, Phase A verifies each leg's expected grandchild log set is complete and result-bearing: every log in `/tmp/dpt-smoke-<tracker>-{setup,spec-write,implement,gate-check,spec-review,simplify}.log` (with `<tracker>` = `linear` / `jira` per leg) must exist, be non-empty, and carry a stream-json `result` event. A leg whose log set is incomplete — or whose final message matches the fire-and-exit shape (grandchild spawned in the background, child exits awaiting a completion notification it can never receive) — is treated as a failed leg **regardless of RC 0**, and the iteration aborts via the same fail-fast path as a non-zero RC: no aggregation, no Phase B dispatch, no re-iteration; forensics live in the per-iteration and per-skill log files.
+**Red flag — the harness's foreground-sleep block hint is NOT license to background the wait.** If a poll call leads with `sleep`, the harness blocks it with an error hint that reads roughly "Foreground `sleep` is blocked. To wait for a condition, use `run_in_background` or the Monitor tool." Do **not** follow that hint here: handing the wait to `run_in_background`/Monitor and then ending the turn IS the F3 fire-and-exit failure — a `-p` driver session never receives the completion notification, so the rest of the iteration silently never executes. The bounded poll loop above already avoids the block by gating each iteration on `kill -0` *before* its `sleep 30`; keep waiting with that loop, in the foreground, until both legs' pidfiles die.
+
+**Final-message self-check (STE-357).** Before emitting **any** final message — success or failure — run the pidfile-liveness fence below over the run's pidfile glob (`/tmp/dpt-conformance-loop-*.pid`). Any live pidfile means a leg is still running: resume the bounded poll loop above; a live pidfile must **never end the turn**. Runtime validation ships deferred (`[~]`): the next conformance run must show both legs polling to completion.
+
+```bash
+# Final-message self-check — run before ANY final message (success or failure).
+LIVE=""
+for PIDFILE in /tmp/dpt-conformance-loop-*.pid; do
+  [ -e "${PIDFILE}" ] || continue
+  kill -0 "$(cat "${PIDFILE}")" 2>/dev/null && LIVE="${LIVE} ${PIDFILE}"
+done
+if [ -n "${LIVE}" ]; then echo "LIVE:${LIVE} — resume the bounded poll loop"; else echo "no live pidfiles — final message may be emitted"; fi
+```
+
+**Fail-fast on subprocess error.** If either leg's rc-file reports non-zero (or is missing after exit), the iteration aborts — no aggregation, no Phase B dispatch, no re-iteration — once the orphan-adoption scan below has run (STE-359: any surviving grandchildren are adopted and polled to exit first, so their completed captures are preserved as evidence before the abort). Forensics live in the per-iteration log files. The operator decides whether to re-run after fixing the underlying cause.
+
+**Orphan adoption (STE-359; iter-2 F3).** A leg's driver can die while its grandchildren live on. Post-exit — before declaring the leg failed via the fail-fast above or the completeness check below — scan that leg's per-skill pidfiles at `/tmp/dpt-smoke-<tracker>-{setup,spec-write,implement,gate-check,spec-review,simplify}.pid` (with `<tracker>` = `linear` / `jira` per leg); any pidfile whose PID still answers `kill -0` is an orphaned grandchild the parent **adopts**: poll it to exit with the same STE-357 bounded multi-iteration discipline as the leg poll above (up to 18 `kill -0` checks 30 s apart per Bash call, repeated calls until every adopted PID exits) before the leg-completeness check runs.
+
+An adopted grandchild that completes contributes its capture to the leg-completeness check — the leg may still fail on its other missing captures; adoption recovers **evidence, not the chain**. Iter-2 precedent: the orphaned Jira `/setup` grandchild completed healthily on its own after its driver died — adoption turns that manual save into procedure.
+
+**Residual risk — orphan-vs-killed nondeterminism (STE-359; iter-2 F3).** When a leg's driver dies with live grandchildren, whether a grandchild dies with its driver or survives as an orphan is environment-nondeterministic — process-group inheritance varies with spawn nesting, and iter-2 observed both outcomes in one run (the Linear `/setup` grandchild was killed with its parent while the Jira one survived and completed healthily). Process-group discipline (`setsid` / PGID-wide kill) was considered and rejected as the primary mechanism: it is OS/shell-dependent and unverifiable from SKILL.md prose. The adoption block above is the deterministic recovery — deterministic-by-construction at the layer this parent controls, it recovers a surviving orphan's capture regardless of which way the environment broke.
+
+**Leg-completeness check (STE-355 mirror).** RC 0 alone is not proof a leg ran its chain — the 2026-07-02 run had both children fire grandchild spawns in the background and exit RC 0 "waiting for its completion notification". So after both children return, and before aggregation, Phase A verifies each leg's expected grandchild log set is complete and result-bearing: every log in `/tmp/dpt-smoke-<tracker>-{setup,spec-write,implement,gate-check,spec-review,simplify}.log` (with `<tracker>` = `linear` / `jira` per leg) must exist, be fresh (mtime not before run-start — see the freshness gate below), be non-empty, and carry a stream-json `result` event. A leg whose log set is incomplete — or whose final message matches the fire-and-exit shape (grandchild spawned in the background, child exits awaiting a completion notification it can never receive) — is treated as a failed leg **regardless of RC 0**, and the iteration aborts via the same fail-fast path as a non-zero RC: no aggregation, no Phase B dispatch, no re-iteration; forensics live in the per-iteration and per-skill log files.
+
+**Freshness gate (STE-358; iter-2 F2).** The leg-completeness check is freshness-gated on the **run-start timestamp** captured at Phase 0 acceptance (the epoch-ms moment this invocation's pre-approval was logged): pass it as the `runStart` argument to `assertChainIntegrity` (`adapters/_shared/src/smoke_child_capture.ts`), so a log whose mtime predates run-start is the pinned `capture stale (pre-run)` finding — stale, never healthy, and it can never satisfy the completeness check regardless of its content. Result-bearing alone is not enough: the iter-2 (2026-07-02) run's surviving morning log carried a `result` event and would have false-passed an ungated check. The gate is strictly `mtime < run-start`; a log written exactly at run-start is fresh.
 
 **Path-safety guard delegated to children.** Per-tool-call enforcement now lives in the tracked `permissions.allow` allow-list (`.claude/settings.json`, STE-252) — every `claude -p` child runs in default permission mode and is constrained to the union of patterns enumerated there (Bash command-pattern entries + `Edit`/`Write`/`Read`/`Grep`/`Glob` + `mcp__linear__*` / `mcp__atlassian__*`). Each `/smoke-test` child still runs its own pre-flight #6 (the `realpath`-based allow-list check that pins the resolved test-project path to one of `{dpt-test-project-linear, dpt-test-project-jira}` under a `workspace/` ancestor, not a symlink, not the toolkit repo itself), but that guard is now a **cwd guard** — it bounds *where* the children operate, while the tracked `permissions.allow` block bounds *what* they can call. `/conformance-loop` does not duplicate the realpath cwd guard at the parent — pre-flight (a) verifies the parent cwd is the toolkit repo, the Phase 0 `permissions.allow` pre-flight (refusal (f)) verifies the policy artifact is populated, and the child's #6 fires before any side effects. The realpath check no longer carries the "bypass-justification" load-bearing role it had pre-STE-252; it remains for cwd hygiene only.
 

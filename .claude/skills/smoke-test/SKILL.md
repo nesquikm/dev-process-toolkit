@@ -208,17 +208,21 @@ Phase 2's heredoc-injected `<dpt:auto-approve>v1</dpt:auto-approve>` body line i
 
 ### Phase 0.5 — Clear stale per-run scratch
 
-After Phase 0 acceptance, before Phase 1.1, unconditionally clear stale per-run scratch from prior invocations. Three prefixes are wiped — every prompt-template scratch file, every per-skill log keyed on the resolved tracker, and the resolved tracker's own wrapped MCP config from a prior run:
+After Phase 0 acceptance, before Phase 1.1, unconditionally clear stale per-run scratch from prior invocations, then verify the wipe on disk. Every per-run scratch class is wiped (widened per STE-358) — prompt-template scratch files, and every per-run artifact keyed on the resolved tracker: per-skill logs, pidfiles, rc files, start markers, attempt logs, and the resolved tracker's own wrapped MCP config from a prior run:
 
 ```bash
-rm -f /tmp/dpt-smoke-prompt-*.txt /tmp/dpt-smoke-<tracker>-*.log /tmp/dpt-smoke-mcp-config-<tracker>.json
+rm -f /tmp/dpt-smoke-prompt-*.txt /tmp/dpt-smoke-<tracker>-*.log /tmp/dpt-smoke-<tracker>-*.pid /tmp/dpt-smoke-<tracker>-*.rc /tmp/dpt-smoke-<tracker>-*.start /tmp/dpt-smoke-<tracker>-*.attempt* /tmp/dpt-smoke-mcp-config-<tracker>.json
+# Verify on disk — the wiped globs must yield zero survivors (no output expected):
+ls /tmp/dpt-smoke-prompt-*.txt /tmp/dpt-smoke-<tracker>-*.log /tmp/dpt-smoke-<tracker>-*.pid /tmp/dpt-smoke-<tracker>-*.rc /tmp/dpt-smoke-<tracker>-*.start /tmp/dpt-smoke-<tracker>-*.attempt* /tmp/dpt-smoke-mcp-config-<tracker>.json 2>/dev/null
 ```
+
+**Verified wipe (STE-358; iter-2 F2).** The post-`rm` `ls` in the fence above is the pass condition: the wiped globs must yield **zero survivors** on disk (the `ls` prints nothing and exits non-zero). If any survivor is listed, refuse to proceed (NFR-10), naming the survivors in the refusal — do not continue to Phase 1.1 with stale scratch present. Self-reported "scratch cleared" without the on-disk assertion is **forbidden**: the iter-2 (2026-07-02) driver reported "Phase 0.5 — PASS (scratch cleared)" while the morning run's per-skill logs survived on disk, and a stale result-bearing log can false-pass downstream chain-completeness checks.
 
 This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template scratch files left over from prior runs caused Write-tool errors and stale-content reuse (a 2026-04-27 Linear-flavored prompt stub re-fired on a later Jira run). Clearing per-skill logs keyed on the resolved tracker prevents cross-run log smear when re-running against the same tracker. The `/tmp/dpt-smoke-mcp-config-<tracker>.json` path (smoke #9 / Linear F1; scoped per STE-354) removes only the resolved tracker's own wrapped config so Phase 1 step 5 always starts from a clean filesystem regardless of whether the operator uses the Write tool or a Bash heredoc to produce it. The STE-186 stale-cleanup intent is preserved and staleness coverage is unchanged — each leg cleans its own stale config, so every stale `mcp-config` file is still removed before the leg that owns it re-runs. The cross-tracker `mcp-config` glob was dropped (2026-07-02 F1) and must not be widened back: it races the concurrent tandem leg — under operator-driven parallelism, one leg's Phase 0.5 `rm` could delete the wrapped config the other leg's Phase 1 step 5 had just written.
 
 **Defense-in-depth annotation (STE-185).** The `dpt-smoke-prompt-*.txt` glob in the rm above is now **defense-in-depth, not load-bearing** — post-STE-185, the driver no longer writes any prompt-template scratch files to disk (heredoc-on-stdin replaces them; see Phase 2 § STE-185 below). On post-STE-185 runs, the glob is expected to be a no-op. A non-empty match indicates either a pre-STE-185 (legacy) driver run on this machine or stale files left by an external process — keeping the cleanup line costs nothing and protects against transitional drift while older smoke driver versions could still be checked out elsewhere.
 
-**audit-trail invariant — do NOT delete** `/tmp/dpt-smoke-findings-*.md` and `/tmp/dpt-smoke-<date>-<tracker>-approval.txt`. Those are audit-trail artifacts and are intentionally retained across runs (preserve them; never widen the rm to include the findings or approval prefix). The findings files accumulate across runs by design (one per tracker per date); the approval record is the operator's consent log and stays for forensics. Only the three scratch globs above are wiped — the findings file and approval record are explicitly excluded from cleanup.
+**audit-trail invariant — do NOT delete** `/tmp/dpt-smoke-findings-*.md` and `/tmp/dpt-smoke-<date>-<tracker>-approval.txt`. Those are audit-trail artifacts and are intentionally retained across runs (preserve them; never widen the rm to include the findings or approval prefix). The findings files accumulate across runs by design (one per tracker per date); the approval record is the operator's consent log and stays for forensics. Only the per-run scratch globs above are wiped — the findings file and approval record are explicitly excluded from cleanup (and from the post-`rm` `ls` verification).
 
 ### Phase 1 — Setup
 
@@ -244,7 +248,7 @@ This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template sc
      ```
 
      The same `--plugin-dir` shadowing concern from the Linear path applies, so wrapping is required either way.
-6. **Pre-create the sensitive files from the parent's Bash heredoc.** The child claude session — even in default permission mode (STE-252) — is still blocked from writing `.claude/settings.json` and `.mcp.json`: the harness's sensitive-path classification of those two files survives at the child's model layer regardless of `permissions.allow` content. The parent's Bash tool uses shell I/O (`cat > file <<EOF`), which is not subject to that classification, so the driver writes them directly. The `.claude/settings.json` allow-list is identical in both tracker paths; `.mcp.json` branches on `--tracker`:
+6. **Pre-create the sensitive files from the parent's Bash heredoc.** The child claude session — even in default permission mode (STE-252) — is still blocked from writing `.claude/settings.json` and `.mcp.json`: the harness's sensitive-path classification of those two files survives at the child's model layer regardless of `permissions.allow` content. The parent's Bash tool uses shell I/O (`cat > file <<EOF`), which is not subject to that classification, so the driver writes them directly. The child model layer denies ALL `.claude/settings.json` writes — full-file Write AND append-only Edit alike (iter-2 confirmed **no child-side merge path** exists) — so the parent's pre-creation must carry the FULL final allow-list; children can never extend it. The `.claude/settings.json` allow-list is identical in both tracker paths; `.mcp.json` branches on `--tracker`:
 
    ```bash
    mkdir -p .claude
@@ -400,12 +404,17 @@ A single foreground Bash call caps its child at the harness's **10-minute (600 s
 
 **Detached spawn with PID capture (one Bash call).** Background the `claude -p` invocation and capture its PID in the same call: `claude -p … > /tmp/dpt-smoke-<tracker>-<skill>.log 2>&1 & echo $! > /tmp/dpt-smoke-<tracker>-<skill>.pid`. Heredoc-on-stdin (§ STE-185 below) composes unchanged — the shell reads the heredoc body before the job detaches; the `< /dev/null` discipline for non-prompt-bearing children likewise composes. The reference snippets below carry the shape.
 
-**Bounded poll-until-exit (repeated short Bash calls).** After the spawn call returns, poll until the PID exits. Each poll is its **own** Bash call — never fold the repetition into one long call; every call stays well under the 10-minute ceiling:
+**Bounded poll-until-exit (repeated bounded Bash calls).** After the spawn call returns, poll until the PID exits. Each poll call is a **bounded multi-iteration loop** — up to 18 checks 30 s apart, ≈ ≤540 s (≈ 9 min) per call, safely under the harness's 600 s (10-minute) per-call ceiling. That is one Bash call per ~9 min instead of ~80 single-check calls across a 40-minute grandchild; the old single-check-then-end-call shape is **not** sanctioned. Never fold the whole wait into one unbounded call:
 
 ```bash
-# One bounded poll call — repeat this call until it reports "exited".
+# One bounded poll call — up to 18 checks × 30 s ≈ 9 min (≤540 s), under the
+# harness's 600 s per-call ceiling. Repeat this call until it reports "exited".
+for i in $(seq 1 18); do
+  kill -0 "$(cat /tmp/dpt-smoke-<tracker>-<skill>.pid)" 2>/dev/null || break
+  sleep 30
+done
 if kill -0 "$(cat /tmp/dpt-smoke-<tracker>-<skill>.pid)" 2>/dev/null; then
-  sleep 30; echo "still running — poll again"
+  echo "still running — poll again"
 else
   rm -f /tmp/dpt-smoke-<tracker>-<skill>.pid; echo "exited — proceed"
 fi
@@ -415,7 +424,23 @@ fi
 
 **Residual risk — PID reuse.** `kill -0` answers for *any* live process with that PID, so a recycled PID could in principle keep the poll looping after the grandchild exited. The risk is negligible at a 30 s poll interval on macOS/Linux PID ranges, and the Phase 2.Y chain-integrity assertion is the corroborating signal (a truncated child's capture fails the `result`-event check regardless of what the poll believed) — noted so the wrapper isn't mistaken for a liveness proof.
 
+**Residual risk — orphan-vs-killed nondeterminism (STE-359; iter-2 F3).** If this driver dies while a grandchild is still live, whether that grandchild dies with its parent or survives as an orphan is environment-nondeterministic — process-group inheritance varies with spawn nesting, and iter-2 observed both outcomes in a single run (the Linear `/setup` grandchild was killed with its driver while the Jira one survived and completed healthily on its own). Process-group discipline (`setsid` / PGID-wide kill) was considered and rejected as the primary mechanism: it is OS/shell-dependent and unverifiable from SKILL.md prose. The deterministic recovery lives one layer up — `/conformance-loop`'s Phase A orphan-adoption block scans this driver's per-skill pidfiles post-exit and adopts any still-answering PID, polling it to exit so a surviving orphan's completed capture is recovered as evidence regardless of which way the environment broke.
+
 **Live-pidfile session rule.** Ending the driver session — or reporting results — while any spawned grandchild is alive (a pidfile whose PID still answers `kill -0`) is **forbidden**; the bounded poll loop above is the **only sanctioned wait**. Do not substitute a single foreground Bash call (the 10-minute ceiling SIGTERMs the grandchild — F2), and do not fire the spawn then end the turn "waiting for its completion notification" (a `-p` session cannot resume on background-task notifications, so the rest of the run silently never executes — F3). The poll's exit branch removes the pidfile, so a clean session end leaves zero live pidfiles.
+
+**Red flag — the harness's foreground-sleep block hint is NOT license to background the wait.** If a poll call leads with `sleep`, the harness blocks it with an error hint that reads roughly "Foreground `sleep` is blocked. To wait for a condition, use `run_in_background` or the Monitor tool." Do **not** follow that hint here: handing the wait to `run_in_background`/Monitor and then ending the turn IS the F3 fire-and-exit failure — a `-p` driver session never receives the completion notification, so the rest of the run silently never executes. The bounded poll loop above already avoids the block by gating each iteration on `kill -0` *before* its `sleep 30`; keep waiting with that loop, in the foreground, until the pidfile dies.
+
+**Final-message self-check (STE-357).** Before emitting **any** final message — success or failure — run the pidfile-liveness fence below over the run's pidfile glob (`/tmp/dpt-smoke-*.pid`). Any live pidfile means a spawned grandchild is still running: resume the bounded poll loop above; a live pidfile must **never end the turn**. Runtime validation ships deferred (`[~]`): the next conformance run must show this driver polling every spawned grandchild to completion.
+
+```bash
+# Final-message self-check — run before ANY final message (success or failure).
+LIVE=""
+for PIDFILE in /tmp/dpt-smoke-*.pid; do
+  [ -e "${PIDFILE}" ] || continue
+  kill -0 "$(cat "${PIDFILE}")" 2>/dev/null && LIVE="${LIVE} ${PIDFILE}"
+done
+if [ -n "${LIVE}" ]; then echo "LIVE:${LIVE} — resume the bounded poll loop"; else echo "no live pidfiles — final message may be emitted"; fi
+```
 
 #### Phase 2 child-spawn discipline (stdin partition)
 
@@ -985,17 +1010,19 @@ If both sub-fixtures pass on a leg, append `STE-350 runtime check: PASS` to the 
 
 ### Phase 2.Y — End-of-run chain-integrity assertion (STE-355)
 
-Before any Phase 3 capture work, assert the canonical chain actually completed. Run `assertChainIntegrity` (`adapters/_shared/src/smoke_child_capture.ts`, built on the `stream_json_events` NDJSON reader) against every expected per-skill capture, in chain order:
+Before any Phase 3 capture work, assert the canonical chain actually completed. Run `assertChainIntegrity` (`adapters/_shared/src/smoke_child_capture.ts`, built on the `stream_json_events` NDJSON reader) against every expected per-skill capture, in chain order, passing the **run-start timestamp** captured at Phase 0 acceptance (the epoch-ms moment the approval was logged) as the `runStart` argument:
 
 ```
 /tmp/dpt-smoke-<tracker>-{setup,spec-write,implement,gate-check,spec-review,simplify}.log
 ```
 
-A capture is healthy iff the file **exists**, is **non-empty**, and carries a top-level stream-json `result` event — a result-shaped token inside assistant prose does not count. Any miss yields one **high**-severity finding naming the truncated child, in the pinned diagnostic shape:
+A capture is healthy iff the file **exists**, is **fresh** (mtime not before run-start), is **non-empty**, and carries a top-level stream-json `result` event — a result-shaped token inside assistant prose does not count. Any miss yields one **high**-severity finding naming the truncated child, in the pinned diagnostic shape:
 
 ```
-STE-355 regression: chain truncated — <child> (<capture missing | capture empty | result event absent>)
+STE-355 regression: chain truncated — <child> (<capture missing | capture stale (pre-run) | capture empty | result event absent>)
 ```
+
+**Freshness gate (STE-358; iter-2 F2).** A capture whose mtime predates run-start is `capture stale (pre-run)` — **never healthy**, regardless of what it contains: the freshness check runs before the content checks, so a stale result-bearing log surviving from a prior run (the iter-2 shape — the morning run's `dpt-smoke-linear-implement.log` carried a `result` event and would have false-passed an ungated completeness check) can never masquerade as this run's capture. The gate is strictly `mtime < run-start`; a capture written exactly at run-start is fresh. Defense-in-depth with the Phase 0.5 verified wipe — either alone closes the stale-log false-pass; both together survive a wipe bypass.
 
 Append each finding to the findings file in the Phase 3 template shape. A chain-integrity finding means the run is barred from a green summary: any finding forces the run summary to FAIL, regardless of how the individual skills scored. (Provenance: 2026-07-02 F2+F3 — both legs truncated silently behind RC 0; the STE-352 detector's `result: ABSENT` footprint was the reliable truncation signal on both captured legs.) Denial detection stays with `checkChildSpawnCapture` (STE-352) — a denied-but-complete capture is chain-healthy here; the two detectors are orthogonal by design.
 
