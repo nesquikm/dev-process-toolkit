@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"smoke-fixture-denied","tools":["Bash","Read","Write"]}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Spawning the gate-check child."}],"stop_reason":"end_turn"}}
+{"type":"result","subtype":"success","is_error":false,"result":"I could not run the gate-check child because the Bash command was not permitted.","permission_denials":[{"tool_name":"Bash","tool_use_id":"toolu_02","tool_input":{"command":"claude -p --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit --mcp-config /tmp/dpt-smoke-mcp-config-linear.json","description":"Spawn /gate-check child"}}]}

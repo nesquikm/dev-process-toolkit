@@ -37,7 +37,7 @@ Context: skill=conformance-loop, flag=<flag>
 
 ## Pre-flight refusals
 
-Each fires before any side effects, exits non-zero with an NFR-10-shape message. Six refusals (a)–(f) total; refusals (c)–(e) **delegate** to `/smoke-test`'s pre-flights of the same probe (so the canonical message and probe shape stay defined in one place). Refusal (f) is the Phase 0 `permissions.allow` pre-flight introduced by STE-252 — it runs before any `claude -p` spawn and asserts the tracked allow-list artifact is present and populated.
+Each fires before any side effects, exits non-zero with an NFR-10-shape message. Seven refusals (a)–(g) total; refusals (c)–(e) **delegate** to `/smoke-test`'s pre-flights of the same probe (so the canonical message and probe shape stay defined in one place). Refusal (f) is the Phase 0 `permissions.allow` pre-flight introduced by STE-252 — it runs before any `claude -p` spawn and asserts the tracked allow-list artifact is present and populated. Refusal (g) is the STE-351 subscription-billing guard — it runs before any spawn and asserts no API-billing env var is set.
 
 (a) **Toolkit-repo cwd.** `pwd` must end in `/dev-process-toolkit`. The skill spawns child `/smoke-test` invocations whose own pre-flight #1 expects toolkit-repo cwd; running `/conformance-loop` from elsewhere creates the test projects in the wrong place. NFR-10 canonical refusal:
 
@@ -79,7 +79,7 @@ Remedy: rm -rf ../dpt-test-project-linear ../dpt-test-project-jira (or pass --ke
 Context: skill=conformance-loop, probe=delegated-smoke-test-2, paths=[<list-of-non-empty>]
 ```
 
-(f) **`permissions.allow` populated in tracked `.claude/settings.json`** (Phase 0 pre-flight, STE-252 AC-STE-252.3). Read `.claude/settings.json` from the toolkit-repo root, JSON-parse it, and assert that `.permissions.allow` is a non-empty array (`length > 0`). The tracked allow-list is the audit-able policy artifact that constrains every `claude -p` child the skill spawns; an empty or missing array means the loop would fall back to interactive permission prompts mid-run and stall the hands-off contract. Probe shape mirrors the `jq -e '.permissions.allow | length > 0' .claude/settings.json` one-liner from the FR's technical-design § Phase 0 pre-flight. NFR-10 canonical refusal:
+(f) **`permissions.allow` populated in tracked `.claude/settings.json` AND contains the child-spawn pattern** (Phase 0 pre-flight, STE-252 AC-STE-252.3, strengthened by STE-351 AC-STE-351.1). Read `.claude/settings.json` from the toolkit-repo root, JSON-parse it, and assert that `.permissions.allow` is a non-empty array (`length > 0`) **and** that the array contains the canonical child-spawn pattern literal `Bash(claude:*)`. The tracked allow-list is the audit-able policy artifact that constrains every `claude -p` child the skill spawns; an empty or missing array means the loop would fall back to interactive permission prompts mid-run and stall the hands-off contract, and a populated array that *lacks the spawn pattern* is exactly the M94 false-green — the auto-mode classifier denies each nested `claude` spawn headless and the grandchildren die as 0-byte transcripts. A `length > 0` assertion alone does NOT catch that; the probe MUST be a contains-check on the pattern literal. Probe shape: `jq -e '.permissions.allow | index("Bash(claude:*)")' .claude/settings.json` (index/contains on the spawn-pattern literal), layered on the STE-252 `jq -e '.permissions.allow | length > 0' .claude/settings.json` non-empty check. Empty-or-missing array → NFR-10 canonical refusal:
 
 ```
 permissions.allow empty or missing in .claude/settings.json.
@@ -87,9 +87,27 @@ Remedy: populate the permissions.allow allow-list in tracked .claude/settings.js
 Context: skill=conformance-loop, pre-flight=permissions_allow_check, file=.claude/settings.json
 ```
 
-On the hit-path (the `.permissions.allow` array is a non-empty array), log the capability-row token `permissions_allow_present` to the same `/tmp/dpt-conformance-loop-<date>-approval.txt` file used by the Phase 0 pre-approval gate (one literal line, no inference) and proceed to the Phase 0 pre-approval prompt. The token is byte-grep-checkable by downstream `/gate-check` probes and smoke-test capability-row aggregators (same shape convention as `spec_write_draft_default_applied`).
+Non-empty array that lacks the `Bash(claude:*)` spawn pattern → NFR-10 canonical refusal:
 
-Each refusal above carries the literal phrase **NFR-10 canonical refusal** in the surrounding prose (seven `NFR-10 canonical refusal` markers across this section: one introductory mention plus the six (a)–(f) refusal anchors, satisfying the verify line `grep -c 'NFR-10 canonical refusal' >= 6`).
+```
+permissions.allow lacks the child-spawn pattern "Bash(claude:*)" in .claude/settings.json.
+Remedy: add "Bash(claude:*)" to the permissions.allow allow-list in tracked .claude/settings.json so nested claude -p child spawns are classifier-allowed headless, then re-run /conformance-loop.
+Context: skill=conformance-loop, pre-flight=spawn_pattern_allow_check, file=.claude/settings.json
+```
+
+On the hit-path (the `.permissions.allow` array is a non-empty array **and** contains the `Bash(claude:*)` spawn pattern), log the capability-row tokens `permissions_allow_present` and `spawn_pattern_allow_present` to the same `/tmp/dpt-conformance-loop-<date>-approval.txt` file used by the Phase 0 pre-approval gate (one literal line per token, no inference) and proceed to the Phase 0 pre-approval prompt. The token is byte-grep-checkable by downstream `/gate-check` probes and smoke-test capability-row aggregators (same shape convention as `spec_write_draft_default_applied`).
+
+(g) **No API-billing env vars set** (Phase 0 pre-flight, STE-351 AC-STE-351.3). Read the environment before any spawn; if `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set, the loop's many `claude -p` children would inherit it and silently bill that API account at per-token rates instead of running on the operator's subscription. Probe shape: `[ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ]`. Either variable set → NFR-10 canonical refusal:
+
+```
+ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN is set — an on-demand run would bill that API account at per-token rates rather than your subscription.
+Remedy: unset the variable for this run (`env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN claude`), or re-run /conformance-loop interactively acknowledging the API cost.
+Context: skill=conformance-loop, pre-flight=anthropic_key_guard, set=[<which-vars>]
+```
+
+**Interactive-override path:** an operator who *wants* API billing (e.g., a dedicated key funded for exactly this run) either unsets nothing and re-runs `/conformance-loop` in an interactive session — where the guard downgrades from hard refusal to a `y/N` cost-acknowledgment prompt (`proceed billing this API key? [y/N]`) — or exports `DPT_CONFORMANCE_ALLOW_API_BILLING=1` as the explicit override for that one invocation. Headless runs get no override prompt: non-interactive sessions cannot acknowledge cost, so the guard always refuses there unless the override variable is set. Aligns with the STE-191 KEY-surfacing pre-flight.
+
+Each refusal above carries the literal phrase **NFR-10 canonical refusal** in the surrounding prose (nine `NFR-10 canonical refusal` markers across this section: one introductory mention plus the eight refusal anchors — (a)–(e) and (g) carry one each, and the STE-351-strengthened (f) carries two, allow-list-empty and spawn-pattern-missing — satisfying the verify line `grep -c 'NFR-10 canonical refusal' >= 6`).
 
 ## Flow
 
@@ -127,7 +145,7 @@ When `--auto-fix` is ON, substitute `<auto-fix-line>` with `In Phase B, sequenti
 
 ### Phase A — Parallel /smoke-test fan-out + aggregation
 
-Each iteration's Phase A spawns two `claude -p /smoke-test ...` subprocess calls in parallel via a single Bash heredoc, captures their PIDs, and `wait`s on both before reading the per-tracker findings files. Subprocess output is captured to per-iteration log files at `/tmp/dpt-conformance-loop-<date>-iter-<N>-{linear,jira}.log` for forensics.
+Each iteration's Phase A spawns two `claude -p /smoke-test ...` subprocess calls in parallel — both detached from a single Bash call, each PID captured to a per-iteration pidfile at `/tmp/dpt-conformance-loop-<date>-iter-<N>-{linear,jira}.pid` — then awaits both via the bounded poll-until-exit discipline below before reading the per-tracker findings files. Subprocess output is captured to per-iteration log files at `/tmp/dpt-conformance-loop-<date>-iter-<N>-{linear,jira}.log` for forensics.
 
 **Parallelism mechanism.** Bash subprocess parallelism, **NOT the agent-team primitive** — agent teams have no `fork: true` flag and aren't recommended for serial orchestration per the Claude Code docs (`https://code.claude.com/docs/en/agent-teams`). Each subprocess is a top-level `claude -p` session, which can invoke skills via the literal-first-line pattern (sub-agents cannot, per docs).
 
@@ -138,7 +156,12 @@ ITER=<N>
 DATE=$(date +%Y-%m-%d)
 LOG_LINEAR=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.log
 LOG_JIRA=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.log
+PID_FILE_LINEAR=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.pid
+PID_FILE_JIRA=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.pid
+RC_FILE_LINEAR=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.rc
+RC_FILE_JIRA=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.rc
 PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"   # cwd is the toolkit repo (verified by pre-flight (a))
+export CLAUDE_CONFIG_DIR=~/.claude-st             # STE-350: exported so spawn lines stay bare `claude -p`
 
 # Each /smoke-test child opens its own Phase 0 pre-approval gate; inject
 # the canonical marker into the heredoc body so the child auto-approves
@@ -146,35 +169,101 @@ PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"   # cwd is the toolkit repo (ver
 # `{ ... } &` brace-group wrapper is required because heredoc-on-stdin
 # `<<'PROMPT_EOF'` and the trailing background `&` cannot live on the
 # same compound command line; the brace group scopes the heredoc to the
-# command and lets `&` background the whole group.
+# command and lets `&` background the whole group. The trailing
+# `echo $? > rc-file` inside each group persists the leg's exit code for
+# post-exit collection — this spawn call detaches both legs and returns
+# immediately (STE-355 backfill: no same-call foreground wait).
 {
-  CLAUDE_CONFIG_DIR=~/.claude-st claude -p "/smoke-test --tracker linear --linear-team ${LINEAR_TEAM:-STE}" \
+  claude -p "/smoke-test --tracker linear --linear-team ${LINEAR_TEAM:-STE}" \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${LOG_LINEAR}" 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
 PROMPT_EOF
+  echo $? > "${RC_FILE_LINEAR}"
 } &
-PID_LINEAR=$!
+PID_LINEAR=$!; echo $! > "${PID_FILE_LINEAR}"
 
 {
-  CLAUDE_CONFIG_DIR=~/.claude-st claude -p "/smoke-test --tracker jira --jira-project ${JIRA_PROJECT}" \
+  claude -p "/smoke-test --tracker jira --jira-project ${JIRA_PROJECT}" \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${LOG_JIRA}" 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
 PROMPT_EOF
+  echo $? > "${RC_FILE_JIRA}"
 } &
-PID_JIRA=$!
+PID_JIRA=$!; echo $! > "${PID_FILE_JIRA}"
 
-wait "${PID_LINEAR}"; RC_LINEAR=$?
-wait "${PID_JIRA}";   RC_JIRA=$?
+echo "detached: linear=${PID_LINEAR} jira=${PID_JIRA} — poll until both exit"
+```
 
+**Bounded poll-until-exit (repeated bounded Bash calls).** After the spawn call returns, poll until both PIDs exit — the same STE-355 discipline the smoke driver's Phase 2 uses for its grandchildren (`/smoke-test` § Grandchild spawn lifecycle). Each poll call is a **bounded multi-iteration loop** iterating both legs' pidfiles inside the same loop — up to 18 checks 30 s apart, ≈ ≤540 s (≈ 9 min) per call, safely under the harness's 600 s (10-minute) per-call ceiling. That is one Bash call per ~9 min instead of ~80 single-check calls across a 40-minute leg; the old single-check-then-end-call shape is **not** sanctioned. Never fold the whole wait into one unbounded call:
+
+```bash
+# One bounded poll call — up to 18 checks × 30 s ≈ 9 min (≤540 s), under the
+# harness's 600 s per-call ceiling. Repeat until it reports both legs exited.
+# (Fresh shell per Bash call: re-derive DATE/ITER first.)
+for i in $(seq 1 18); do
+  LIVE=""
+  for LEG in linear jira; do
+    PIDFILE=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-${LEG}.pid
+    if [ -f "${PIDFILE}" ] && kill -0 "$(cat "${PIDFILE}")" 2>/dev/null; then
+      LIVE="${LIVE} ${LEG}"
+    else
+      rm -f "${PIDFILE}"   # leg exited — clear its pidfile
+    fi
+  done
+  [ -z "${LIVE}" ] && break
+  sleep 30
+done
+if [ -n "${LIVE}" ]; then echo "still running:${LIVE} — poll again"; else echo "both legs exited — collect RCs"; fi
+```
+
+**RC collection (after the poll loop reports both legs exited).** Read each leg's rc-file — written by its brace group's trailing `echo $?` as the leg exited — and abort on any non-zero. A missing rc-file after exit is treated as a failure:
+
+```bash
+RC_LINEAR=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.rc" 2>/dev/null || echo 1)
+RC_JIRA=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.rc" 2>/dev/null || echo 1)
+
+# STE-359: before acting on any failure here, run the orphan-adoption scan
+# below — a dead driver can leave live grandchildren whose completed
+# captures are recoverable.
 if [ "${RC_LINEAR}" -ne 0 ] || [ "${RC_JIRA}" -ne 0 ]; then
   echo "/conformance-loop: Phase A subprocess failed (linear=${RC_LINEAR}, jira=${RC_JIRA}). Aborting."
   exit 1
 fi
 ```
 
-**Fail-fast on subprocess error.** If either child returns non-zero, the iteration aborts immediately — no aggregation, no Phase B dispatch, no re-iteration. Forensics live in the per-iteration log files. The operator decides whether to re-run after fixing the underlying cause.
+**Why detached + poll, not a same-call wait (STE-355 backfill).** A single foreground Bash call caps at the harness's **600 s (10-minute) per-call ceiling** — the same ceiling that SIGTERM'd the 2026-07-02 `/implement` grandchild (F2). With the smoke driver's STE-355 poll wrapper in place, each `/smoke-test` child genuinely awaits its grandchildren (~10+ minutes per leg), so the old spawn shape — foreground-`wait`ing both PIDs inside the spawn call (`wait "${PID_LINEAR}"; wait "${PID_JIRA}"`) — is guaranteed to hit that ceiling and truncate both legs. The spawn call detaches and returns immediately; the bounded poll above is how Phase A waits.
+
+**Residual risk — PID reuse.** `kill -0` answers for *any* live process with that PID, so a recycled PID could in principle keep a leg's poll looping after the child exited. Negligible at a 30 s poll interval, and the leg-completeness check below is the corroborating signal (a truncated leg fails the log-set verification regardless of what the poll believed) — noted so the wrapper isn't mistaken for a liveness proof.
+
+**Live-pidfile session rule.** Ending the session — or reporting iteration results — while either leg's pidfile still answers `kill -0` is **forbidden**; the bounded poll loop above is the only sanctioned wait. Do not fire the spawns and end the turn "waiting for a completion notification" — a `-p` session cannot resume on background-task notifications, so the rest of the run silently never executes (the fire-and-exit shape, F3). The poll's exit branch removes each pidfile, so a clean Phase A leaves zero live pidfiles.
+
+**Red flag — the harness's foreground-sleep block hint is NOT license to background the wait.** If a poll call leads with `sleep`, the harness blocks it with an error hint that reads roughly "Foreground `sleep` is blocked. To wait for a condition, use `run_in_background` or the Monitor tool." Do **not** follow that hint here: handing the wait to `run_in_background`/Monitor and then ending the turn IS the F3 fire-and-exit failure — a `-p` driver session never receives the completion notification, so the rest of the iteration silently never executes. The bounded poll loop above already avoids the block by gating each iteration on `kill -0` *before* its `sleep 30`; keep waiting with that loop, in the foreground, until both legs' pidfiles die.
+
+**Final-message self-check (STE-357).** Before emitting **any** final message — success or failure — run the pidfile-liveness fence below over the run's pidfile glob (`/tmp/dpt-conformance-loop-*.pid`). Any live pidfile means a leg is still running: resume the bounded poll loop above; a live pidfile must **never end the turn**. Runtime validation ships deferred (`[~]`): the next conformance run must show both legs polling to completion.
+
+```bash
+# Final-message self-check — run before ANY final message (success or failure).
+LIVE=""
+for PIDFILE in /tmp/dpt-conformance-loop-*.pid; do
+  [ -e "${PIDFILE}" ] || continue
+  kill -0 "$(cat "${PIDFILE}")" 2>/dev/null && LIVE="${LIVE} ${PIDFILE}"
+done
+if [ -n "${LIVE}" ]; then echo "LIVE:${LIVE} — resume the bounded poll loop"; else echo "no live pidfiles — final message may be emitted"; fi
+```
+
+**Fail-fast on subprocess error.** If either leg's rc-file reports non-zero (or is missing after exit), the iteration aborts — no aggregation, no Phase B dispatch, no re-iteration — once the orphan-adoption scan below has run (STE-359: any surviving grandchildren are adopted and polled to exit first, so their completed captures are preserved as evidence before the abort). Forensics live in the per-iteration log files. The operator decides whether to re-run after fixing the underlying cause.
+
+**Orphan adoption (STE-359; iter-2 F3).** A leg's driver can die while its grandchildren live on. Post-exit — before declaring the leg failed via the fail-fast above or the completeness check below — scan that leg's per-skill pidfiles at `/tmp/dpt-smoke-<tracker>-{setup,spec-write,implement,gate-check,spec-review,simplify}.pid` (with `<tracker>` = `linear` / `jira` per leg); any pidfile whose PID still answers `kill -0` is an orphaned grandchild the parent **adopts**: poll it to exit with the same STE-357 bounded multi-iteration discipline as the leg poll above (up to 18 `kill -0` checks 30 s apart per Bash call, repeated calls until every adopted PID exits) before the leg-completeness check runs.
+
+An adopted grandchild that completes contributes its capture to the leg-completeness check — the leg may still fail on its other missing captures; adoption recovers **evidence, not the chain**. Iter-2 precedent: the orphaned Jira `/setup` grandchild completed healthily on its own after its driver died — adoption turns that manual save into procedure.
+
+**Residual risk — orphan-vs-killed nondeterminism (STE-359; iter-2 F3).** When a leg's driver dies with live grandchildren, whether a grandchild dies with its driver or survives as an orphan is environment-nondeterministic — process-group inheritance varies with spawn nesting, and iter-2 observed both outcomes in one run (the Linear `/setup` grandchild was killed with its parent while the Jira one survived and completed healthily). Process-group discipline (`setsid` / PGID-wide kill) was considered and rejected as the primary mechanism: it is OS/shell-dependent and unverifiable from SKILL.md prose. The adoption block above is the deterministic recovery — deterministic-by-construction at the layer this parent controls, it recovers a surviving orphan's capture regardless of which way the environment broke.
+
+**Leg-completeness check (STE-355 mirror).** RC 0 alone is not proof a leg ran its chain — the 2026-07-02 run had both children fire grandchild spawns in the background and exit RC 0 "waiting for its completion notification". So after both children return, and before aggregation, Phase A verifies each leg's expected grandchild log set is complete and result-bearing: every log in `/tmp/dpt-smoke-<tracker>-{setup,spec-write,implement,gate-check,spec-review,simplify}.log` (with `<tracker>` = `linear` / `jira` per leg) must exist, be fresh (mtime not before run-start — see the freshness gate below), be non-empty, and carry a stream-json `result` event. A leg whose log set is incomplete — or whose final message matches the fire-and-exit shape (grandchild spawned in the background, child exits awaiting a completion notification it can never receive) — is treated as a failed leg **regardless of RC 0**, and the iteration aborts via the same fail-fast path as a non-zero RC: no aggregation, no Phase B dispatch, no re-iteration; forensics live in the per-iteration and per-skill log files.
+
+**Freshness gate (STE-358; iter-2 F2).** The leg-completeness check is freshness-gated on the **run-start timestamp** captured at Phase 0 acceptance (the epoch-ms moment this invocation's pre-approval was logged): pass it as the `runStart` argument to `assertChainIntegrity` (`adapters/_shared/src/smoke_child_capture.ts`), so a log whose mtime predates run-start is the pinned `capture stale (pre-run)` finding — stale, never healthy, and it can never satisfy the completeness check regardless of its content. Result-bearing alone is not enough: the iter-2 (2026-07-02) run's surviving morning log carried a `result` event and would have false-passed an ungated check. The gate is strictly `mtime < run-start`; a log written exactly at run-start is fresh.
 
 **Path-safety guard delegated to children.** Per-tool-call enforcement now lives in the tracked `permissions.allow` allow-list (`.claude/settings.json`, STE-252) — every `claude -p` child runs in default permission mode and is constrained to the union of patterns enumerated there (Bash command-pattern entries + `Edit`/`Write`/`Read`/`Grep`/`Glob` + `mcp__linear__*` / `mcp__atlassian__*`). Each `/smoke-test` child still runs its own pre-flight #6 (the `realpath`-based allow-list check that pins the resolved test-project path to one of `{dpt-test-project-linear, dpt-test-project-jira}` under a `workspace/` ancestor, not a symlink, not the toolkit repo itself), but that guard is now a **cwd guard** — it bounds *where* the children operate, while the tracked `permissions.allow` block bounds *what* they can call. `/conformance-loop` does not duplicate the realpath cwd guard at the parent — pre-flight (a) verifies the parent cwd is the toolkit repo, the Phase 0 `permissions.allow` pre-flight (refusal (f)) verifies the policy artifact is populated, and the child's #6 fires before any side effects. The realpath check no longer carries the "bypass-justification" load-bearing role it had pre-STE-252; it remains for cwd hygiene only.
 
@@ -250,6 +339,7 @@ When `--auto-fix` is ON, sequentially walk the deduplicated **high-severity** fi
 ```bash
 IDX=0
 PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"
+export CLAUDE_CONFIG_DIR=~/.claude-st   # STE-350: exported so spawn lines stay bare `claude -p`
 for FINDING_TEXT in <high-severity-findings-from-aggregated-report>; do
   IDX=$((IDX + 1))
   LOG_SW=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-fix-${IDX}-spec-write.log
@@ -268,7 +358,7 @@ for FINDING_TEXT in <high-severity-findings-from-aggregated-report>; do
   #    `<dpt:auto-approve>v1</dpt:auto-approve>` is the byte-checkable
   #    pre-authorization handoff for /spec-write's draft + commit gates
   #    (STE-226); without it the child halts at the FR-draft prompt.
-  CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
+  claude -p \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${LOG_SW}" 2>&1 <<${EOF_TAG}
 <dpt:auto-approve>v1</dpt:auto-approve>
@@ -295,7 +385,7 @@ ${EOF_TAG}
   #    delimiter as the /spec-write spawn above; no body content needed
   #    beyond the marker because the slash command + argument live on
   #    the CLI argv.
-  CLAUDE_CONFIG_DIR=~/.claude-st claude -p "/dev-process-toolkit:implement ${NEW_TRACKER_ID}" \
+  claude -p "/dev-process-toolkit:implement ${NEW_TRACKER_ID}" \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${LOG_IMPL}" 2>&1 <<${EOF_TAG}
 <dpt:auto-approve>v1</dpt:auto-approve>
@@ -428,6 +518,10 @@ End-of-run console summary: per-iteration table, termination reason, links to al
 ### Override sanction — `/smoke-test`'s "One run per release cycle" rule
 
 `/smoke-test` § Rules states "One run per release cycle. Don't re-run for fun; each run costs real tokens and Linear teardown labor." With token cost dropped from this design's scope (operator owns iteration count via `--max-iterations`), only the teardown labor remains — and the operator accepts the per-iteration teardown burden as the cost of automation. The "Capture, don't fix" rule is overridden only when `--auto-fix` is explicitly set; capture-only mode preserves the original rule.
+
+### Inherited precondition — workspace trust (STE-356)
+
+The tracked `permissions.allow` allow-list that `/smoke-test`'s threat model leans on as its load-bearing rail is enforcement-effective only when the spawn cwd's workspace is trusted — in an untrusted workspace the harness ignores the scaffolded `.claude/settings.json` entries wholesale and the policy artifact goes inert. `/smoke-test` Phase 1 step 6b is the seeding step (it merges `hasTrustDialogAccepted: true` for the test-project path into `$CLAUDE_CONFIG_DIR/.claude.json` before any spawn). The counterexample is the 2026-07-02 conformance run's F4 capture: grandchild logs opened with `Ignoring 10 permissions.allow entries from .claude/settings.json: this workspace has not been trusted`, so the canonical chain ran on auto-mode classifier goodwill instead of the reviewed policy. Every leg this loop fans out inherits that precondition; the `checkAllowlistInert` post-return detector in `/smoke-test` surfaces any recurrence as a high-severity `STE-356 regression: allow-list inert — <child> (workspace untrusted)` finding, which bars the leg from green.
 
 ### Residual risks (not protected against)
 

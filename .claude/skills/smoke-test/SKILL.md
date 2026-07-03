@@ -26,7 +26,7 @@ Two `/smoke-test` invocations may run **concurrently in two terminals**, one per
 - `--tracker linear` writes to `../dpt-test-project-linear` and `/tmp/dpt-smoke-*-linear.{md,log,json,txt}`.
 - `--tracker jira --jira-project <KEY>` writes to `../dpt-test-project-jira` and `/tmp/dpt-smoke-*-jira.{md,log,json,txt}`.
 
-The two runs never touch the same path, never read the same MCP config, and never write the same findings file. Each invocation owns its own approval gate, its own teardown checklist, and its own trace.
+The two runs never touch the same path, never read the same MCP config, and never write the same findings file. Each invocation owns its own approval gate (Phase 0 — Pre-approval), its own teardown checklist, and its own trace. Phase 0.5 cleanup honors the same isolation invariant: it is per-tracker-scoped — each leg removes only its own stale scratch, including `/tmp/dpt-smoke-mcp-config-<tracker>.json`, so neither leg can delete the config the other leg's Phase 1 step 5 just wrote.
 
 **No combined-mode flag.** `--tracker linear,jira` does not exist; there is no parent-side fan-out, no console-multiplexing, and **no merged findings file** — each terminal emits its own `/tmp/dpt-smoke-findings-<date>-<tracker>.md`. If a combined view is needed, read the two findings files side-by-side. This was a deliberate brainstorm choice (2026-04-30, approach 1 selected over approaches 2 and 3) — minimum viable surface area, clean failure isolation per tracker, no merged-findings logic to maintain.
 
@@ -47,7 +47,7 @@ Resolved values flow into the rest of the skill: pre-flights #3 / #5 fire on the
 
 ## Pre-flight refusals
 
-Each fires before any side effects, exits non-zero with an NFR-10-shape message. Pre-flights #3 / #5 are **Linear-only** and fire only when `--tracker linear` (default) is active; pre-flights #7 / #8 are **Jira-only** and fire only when `--tracker jira` is active. Pre-flights #1, #2, #4, #6 always fire regardless of `--tracker`:
+Each fires before any side effects, exits non-zero with an NFR-10-shape message. Pre-flights #3 / #5 are **Linear-only** and fire only when `--tracker linear` (default) is active; pre-flights #7 / #8 are **Jira-only** and fire only when `--tracker jira` is active. Pre-flights #1, #2, #4, #6, #10 always fire regardless of `--tracker`:
 
 1. **Not in the dev-process-toolkit repo.** `pwd` must end in `/dev-process-toolkit`. The skill writes to `../dpt-test-project-<tracker>` (a sibling of the repo); running it from elsewhere creates the test project in the wrong place.
 2. **`../dpt-test-project-<tracker>` already exists** (per-tracker basename — `../dpt-test-project-linear` for `--tracker linear`, `../dpt-test-project-jira` for `--tracker jira`). Refuse unless `--keep` was passed at the *previous* invocation against the **same tracker** (in which case verify the dir is empty / matches the expected post-teardown shape). **`--reset` escape hatch:** when `--reset` is present, this refusal is suppressed and the driver runs `rm -rf ../dpt-test-project-<tracker>` before continuing — surface in the Phase 0 contract as a separate operator-visible line. Default behavior unchanged — without `--reset` (or `--keep`), pre-flight #2 still refuses on existing dir, and the operator must `rm -rf` manually. The refusal message names the per-tracker path so a Linear run does not refuse just because a concurrent Jira run owns `../dpt-test-project-jira` (operator-driven parallelism, see § Operator-driven parallelism).
@@ -136,6 +136,14 @@ Each fires before any side effects, exits non-zero with an NFR-10-shape message.
 
    When the count is `<= 5`, emit a clean line `pre-flight #9: 0 orphans (or count under threshold)` and continue silently. **Linear path skips the probe entirely** — Linear's per-run project archival keeps no equivalent ghost cluster. Smoke #6 F5 motivated this; the cumulative count grows whenever Phase 5 teardown is interrupted before transitioning the just-created work items.
 
+10. **Child-spawn pattern present in the tracked allow-list** (STE-351 AC-STE-351.1 — mirrors `/conformance-loop` pre-flight (f)). Always fires regardless of `--tracker`. Read the toolkit repo's tracked `.claude/settings.json`, JSON-parse it, and assert `.permissions.allow` **contains** the canonical child-spawn pattern literal `Bash(claude:*)` — a contains-check (`jq -e '.permissions.allow | index("Bash(claude:*)")' .claude/settings.json`), not merely a non-empty check. The Phase 1 step 6 scaffold snippet copies this allow-list into the test project's `.claude/settings.json`; if the pattern is absent, every nested `claude -p` spawn issued by the children is classifier-denied headless and the grandchildren die as 0-byte transcripts (the M94 false-green). Refuse with NFR-10 canonical shape:
+
+    ```
+    permissions.allow lacks the child-spawn pattern "Bash(claude:*)" in .claude/settings.json.
+    Remedy: add "Bash(claude:*)" to the permissions.allow allow-list in the tracked .claude/settings.json (and keep the Phase 1 step 6 scaffold snippet in sync), then re-run /smoke-test.
+    Context: pre-flight=spawn_pattern_allow_check, file=.claude/settings.json, skill=smoke-test
+    ```
+
 ## Flow
 
 The flow is six phases. Each phase prints its name + status (RUN / PASS / FAIL / SKIP) so the operator can follow along. On any FAIL, the phase reports what happened and offers to continue or abort.
@@ -200,17 +208,21 @@ Phase 2's heredoc-injected `<dpt:auto-approve>v1</dpt:auto-approve>` body line i
 
 ### Phase 0.5 — Clear stale per-run scratch
 
-After Phase 0 acceptance, before Phase 1.1, unconditionally clear stale per-run scratch from prior invocations. Three prefixes are wiped — every prompt-template scratch file, every per-skill log keyed on the resolved tracker, and every wrapped MCP config from a prior run:
+After Phase 0 acceptance, before Phase 1.1, unconditionally clear stale per-run scratch from prior invocations, then verify the wipe on disk. Every per-run scratch class is wiped (widened per STE-358) — prompt-template scratch files, and every per-run artifact keyed on the resolved tracker: per-skill logs, pidfiles, rc files, start markers, attempt logs, and the resolved tracker's own wrapped MCP config from a prior run:
 
 ```bash
-rm -f /tmp/dpt-smoke-prompt-*.txt /tmp/dpt-smoke-<tracker>-*.log /tmp/dpt-smoke-mcp-config-*.json
+rm -f /tmp/dpt-smoke-prompt-*.txt /tmp/dpt-smoke-<tracker>-*.log /tmp/dpt-smoke-<tracker>-*.pid /tmp/dpt-smoke-<tracker>-*.rc /tmp/dpt-smoke-<tracker>-*.start /tmp/dpt-smoke-<tracker>-*.attempt* /tmp/dpt-smoke-mcp-config-<tracker>.json
+# Verify on disk — the wiped globs must yield zero survivors (no output expected):
+ls /tmp/dpt-smoke-prompt-*.txt /tmp/dpt-smoke-<tracker>-*.log /tmp/dpt-smoke-<tracker>-*.pid /tmp/dpt-smoke-<tracker>-*.rc /tmp/dpt-smoke-<tracker>-*.start /tmp/dpt-smoke-<tracker>-*.attempt* /tmp/dpt-smoke-mcp-config-<tracker>.json 2>/dev/null
 ```
 
-This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template scratch files left over from prior runs caused Write-tool errors and stale-content reuse (a 2026-04-27 Linear-flavored prompt stub re-fired on a later Jira run). Clearing per-skill logs keyed on the resolved tracker prevents cross-run log smear when re-running against the same tracker. The `/tmp/dpt-smoke-mcp-config-*.json` glob (smoke #9 / Linear F1) matches both the `linear` and `jira` variants in one pattern so Phase 1 step 5 always starts from a clean filesystem regardless of whether the operator uses the Write tool or a Bash heredoc to produce the wrapped config.
+**Verified wipe (STE-358; iter-2 F2).** The post-`rm` `ls` in the fence above is the pass condition: the wiped globs must yield **zero survivors** on disk (the `ls` prints nothing and exits non-zero). If any survivor is listed, refuse to proceed (NFR-10), naming the survivors in the refusal — do not continue to Phase 1.1 with stale scratch present. Self-reported "scratch cleared" without the on-disk assertion is **forbidden**: the iter-2 (2026-07-02) driver reported "Phase 0.5 — PASS (scratch cleared)" while the morning run's per-skill logs survived on disk, and a stale result-bearing log can false-pass downstream chain-completeness checks.
+
+This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template scratch files left over from prior runs caused Write-tool errors and stale-content reuse (a 2026-04-27 Linear-flavored prompt stub re-fired on a later Jira run). Clearing per-skill logs keyed on the resolved tracker prevents cross-run log smear when re-running against the same tracker. The `/tmp/dpt-smoke-mcp-config-<tracker>.json` path (smoke #9 / Linear F1; scoped per STE-354) removes only the resolved tracker's own wrapped config so Phase 1 step 5 always starts from a clean filesystem regardless of whether the operator uses the Write tool or a Bash heredoc to produce it. The STE-186 stale-cleanup intent is preserved and staleness coverage is unchanged — each leg cleans its own stale config, so every stale `mcp-config` file is still removed before the leg that owns it re-runs. The cross-tracker `mcp-config` glob was dropped (2026-07-02 F1) and must not be widened back: it races the concurrent tandem leg — under operator-driven parallelism, one leg's Phase 0.5 `rm` could delete the wrapped config the other leg's Phase 1 step 5 had just written.
 
 **Defense-in-depth annotation (STE-185).** The `dpt-smoke-prompt-*.txt` glob in the rm above is now **defense-in-depth, not load-bearing** — post-STE-185, the driver no longer writes any prompt-template scratch files to disk (heredoc-on-stdin replaces them; see Phase 2 § STE-185 below). On post-STE-185 runs, the glob is expected to be a no-op. A non-empty match indicates either a pre-STE-185 (legacy) driver run on this machine or stale files left by an external process — keeping the cleanup line costs nothing and protects against transitional drift while older smoke driver versions could still be checked out elsewhere.
 
-**audit-trail invariant — do NOT delete** `/tmp/dpt-smoke-findings-*.md` and `/tmp/dpt-smoke-<date>-<tracker>-approval.txt`. Those are audit-trail artifacts and are intentionally retained across runs (preserve them; never widen the rm to include the findings or approval prefix). The findings files accumulate across runs by design (one per tracker per date); the approval record is the operator's consent log and stays for forensics. Only the three scratch globs above are wiped — the findings file and approval record are explicitly excluded from cleanup.
+**audit-trail invariant — do NOT delete** `/tmp/dpt-smoke-findings-*.md` and `/tmp/dpt-smoke-<date>-<tracker>-approval.txt`. Those are audit-trail artifacts and are intentionally retained across runs (preserve them; never widen the rm to include the findings or approval prefix). The findings files accumulate across runs by design (one per tracker per date); the approval record is the operator's consent log and stays for forensics. Only the per-run scratch globs above are wiped — the findings file and approval record are explicitly excluded from cleanup (and from the post-`rm` `ls` verification).
 
 ### Phase 1 — Setup
 
@@ -236,7 +248,7 @@ This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template sc
      ```
 
      The same `--plugin-dir` shadowing concern from the Linear path applies, so wrapping is required either way.
-6. **Pre-create the sensitive files from the parent's Bash heredoc.** The child claude session — even in default permission mode (STE-252) — is still blocked from writing `.claude/settings.json` and `.mcp.json`: the harness's sensitive-path classification of those two files survives at the child's model layer regardless of `permissions.allow` content. The parent's Bash tool uses shell I/O (`cat > file <<EOF`), which is not subject to that classification, so the driver writes them directly. The `.claude/settings.json` allow-list is identical in both tracker paths; `.mcp.json` branches on `--tracker`:
+6. **Pre-create the sensitive files from the parent's Bash heredoc.** The child claude session — even in default permission mode (STE-252) — is still blocked from writing `.claude/settings.json` and `.mcp.json`: the harness's sensitive-path classification of those two files survives at the child's model layer regardless of `permissions.allow` content. The parent's Bash tool uses shell I/O (`cat > file <<EOF`), which is not subject to that classification, so the driver writes them directly. The child model layer denies ALL `.claude/settings.json` writes — full-file Write AND append-only Edit alike (iter-2 confirmed **no child-side merge path** exists) — so the parent's pre-creation must carry the FULL final allow-list; children can never extend it. The `.claude/settings.json` allow-list is identical in both tracker paths; `.mcp.json` branches on `--tracker`:
 
    ```bash
    mkdir -p .claude
@@ -245,7 +257,8 @@ This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template sc
      "permissions": {
        "allow": [
          "Bash(bun *)", "Bash(bunx *)", "Bash(git *)", "Bash(gh *)",
-         "Bash(mkdir *)", "Bash(ls *)", "Bash(rm *)", "Bash(mv *)", "Bash(cp *)"
+         "Bash(mkdir *)", "Bash(ls *)", "Bash(rm *)", "Bash(mv *)", "Bash(cp *)",
+         "Bash(claude:*)"
        ]
      }
    }
@@ -297,6 +310,33 @@ This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template sc
    `jira_ac_field: description` is the zero-config sentinel from STE-154 AC-STE-154.3 — ACs live as a bullet list under a `## Acceptance Criteria` heading inside each Jira issue's description body; pull_acs / push_ac_toggle parse and rewrite that section atomically. `default_labels: [dpt-smoke]` is the free-form `### Jira` sub-section field (per `docs/patterns.md` § Schema L Workspace binding sub-sections); the Jira adapter forwards every entry into `mcp__atlassian__createJiraIssue.additional_fields.labels` on every issue created during the run, which is what makes Phase 5 teardown's `labels = "dpt-smoke"` JQL find them.
 
    Match the rest of the canonical content from `plugins/dev-process-toolkit/skills/setup/SKILL.md` step 6/7 (refresh as the plugin evolves). The /setup child detects existing files and takes the idempotent-merge branch.
+
+6b. **Pre-seed workspace trust for the test-project path (STE-356).** Grandchildren spawned in a fresh test-project cwd ignore the scaffolded `.claude/settings.json` allow-list until the workspace is trusted — captured logs open with "Ignoring N permissions.allow entries from .claude/settings.json: this workspace has not been trusted" (2026-07-02 conformance finding F4), leaving the STE-252 policy artifact inert at the grandchild layer. Workspace trust lives in the operator's **live** `$CLAUDE_CONFIG_DIR/.claude.json` under `projects["<abs test-project path>"].hasTrustDialogAccepted`, so the driver seeds it here — after step 6's sensitive-file pre-creation, before any child spawn. The absolute test-project path is `$TEST_REAL` from pre-flight #6's `realpath` resolution (parent-dir realpath + hard-coded basename).
+
+   **This step writes to the operator's live config — backup, merge-only write, and atomic `mv` are load-bearing, not stylistic.** A clobber here would destroy MCP registrations and session state. Back the file up first, then jq read-merge-write into a temp file and atomically `mv` it over the original (never an in-place partial write):
+
+   ```bash
+   # Phase 1 precedes Phase 2's `export CLAUDE_CONFIG_DIR` — default explicitly.
+   CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude-st}/.claude.json"
+   # Cross-leg mutex: tandem legs share the ONE live config file (the sole
+   # exception to § Operator-driven parallelism's never-the-same-path rule).
+   # Bounded: after ~60 s the lock is presumed stale (a crashed leg never
+   # rmdir'd it) — refuse with NFR-10 naming the lock path; recover with
+   # `rmdir /tmp/dpt-claude-json.lock`, never by skipping the mutex.
+   tries=0; until mkdir /tmp/dpt-claude-json.lock 2>/dev/null; do
+     tries=$((tries+1)); [ "$tries" -ge 60 ] && exit 1
+     sleep 1
+   done
+   cp "$CFG" /tmp/dpt-smoke-<tracker>-claude-json.bak
+   jq --arg p "$TEST_REAL" \
+     '.projects[$p] = ((.projects[$p] // {}) + {hasTrustDialogAccepted: true})' \
+     "$CFG" > /tmp/dpt-smoke-<tracker>-claude-json.tmp \
+     && mv /tmp/dpt-smoke-<tracker>-claude-json.tmp "$CFG"
+   rmdir /tmp/dpt-claude-json.lock
+   ```
+
+   **Merge-only discipline.** The filter touches exactly one key of exactly one project entry: an existing `projects["<abs test-project path>"]` object is merged (`// {}` supplies the empty object when absent), `hasTrustDialogAccepted` is forced `true`, and every unrelated key — `mcpServers` registrations, session state, other `projects` entries — passes through untouched. The pre-write backup at `/tmp/dpt-smoke-<tracker>-claude-json.bak` is the recovery path if anything goes wrong; the temp-file + `mv` keeps the write atomic so a mid-write failure can never leave a truncated live config. Failure modes are safe-by-construction: a `cp` or `jq` failure (missing or unparseable `$CFG`) leaves the live config untouched because the `&&` chain gates the `mv` — on any failure, release the lock, then refuse (NFR-10) rather than spawning children whose workspace is untrusted. The `mkdir` spinlock serializes concurrent read-merge-write cycles from a tandem run's two legs (both legs write different `projects` keys of the same file; unlocked, one leg's merge could clobber the other's just-written seed and silently re-introduce the F4 inert-allow-list state). Phase 5 teardown removes the seeded entry — and the backup file — under the same lock.
+
 7. Print: "Setup phase complete. Test project: ../dpt-test-project-<tracker>; tracker: <linear|jira>; <Linear project URL | Jira Space key + site URL>; MCP config: /tmp/dpt-smoke-mcp-config-<tracker>.json; sensitive files pre-created."
 
 ### Phase 2 — Run the canonical chain
@@ -304,12 +344,13 @@ This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template sc
 Spawn one `claude-st -p` child per skill, sequentially. Each child:
 
 - Has `cwd=../dpt-test-project-<tracker>`.
-- Is invoked as `CLAUDE_CONFIG_DIR=~/.claude-st claude -p ...` — NOT `claude-st -p`. The parent invokes `CLAUDE_CONFIG_DIR=~/.claude-st claude -p …` directly because the `claude-st` zsh alias does not expand inside the parent harness's Bash tool.
+- Is invoked as bare `claude -p ...` with `CLAUDE_CONFIG_DIR=~/.claude-st` exported once at the top of the spawning Bash block (STE-350: exported rather than inlined so every spawn line begins with `claude` and the tracked `Bash(claude:*)` allow entry matches) — NOT `claude-st -p`, because the `claude-st` zsh alias does not expand inside the parent harness's Bash tool.
 - Runs in default permission mode and reads the tracked `.claude/settings.json` `permissions.allow` allow-list (STE-252) from the spawn cwd. The allow-list covers the chain's normal Bash + MCP operations at command-pattern granularity. NOT sufficient alone for `.claude/settings.json` / `.mcp.json` writes — the harness's sensitive-path classification of those two files survives default permission mode at the child's model layer, which is why Phase 1 step 6 pre-creates them from the parent. Combined: tracked allow-list for the bulk of the chain + parent-pre-creation for the sensitive paths = end-to-end runnable.
 - Passes `--mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json` (built in Phase 1 step 5; `linear` entry on the Linear path, `atlassian` entry on the Jira path). `--plugin-dir` (used to load the in-tree plugin under test) shadows plugin-loaded MCPs, so the active tracker MCP must be passed via `--mcp-config` from a per-tracker wrapper file written to `/tmp/`. The per-tracker filename keeps a concurrent run against the other tracker from clobbering this run's config (operator-driven parallelism).
 - Passes `--plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit` to load the in-tree plugin under test (not the cached version under `~/.claude-st/plugins/cache/`).
 - Receives a fully-pre-baked prompt where the slash command is the **literal first line of the user message**, not wrapped in natural language. Plugin skills carry `disable-model-invocation: true`, so the child's model cannot call them via the Skill tool — only user-typed slash commands trigger; the prompt-pre-bake puts the slash command as the literal first line of the user message. Pre-baked answers go on the lines after.
-- Has its stdout/stderr captured to `/tmp/dpt-smoke-<tracker>-<skill>.log` (e.g., `/tmp/dpt-smoke-jira-implement.log`).
+- Has its stdout/stderr captured to `/tmp/dpt-smoke-<tracker>-<skill>.log` (e.g., `/tmp/dpt-smoke-jira-implement.log`) as **stream-json NDJSON** — every spawn passes `--output-format stream-json --verbose` (STE-352; `--verbose` is required by `claude -p` for stream-json output). Default text mode emitted only the child's final result message, so mid-stream assistant tokens — per-probe capability rows, forked `tdd-result` fences — never reached the log (smoke F2, the blind spot that let the STE-350 0-byte-grandchild false-green survive). To read a capture, lift the assistant text via `extractAssistantText` (`adapters/_shared/src/smoke_child_capture.ts`; blocks are joined line-anchored so fences stay greppable), or project `text`/`tool_use` entries via the existing `parseStreamJsonTranscript` (`adapters/_shared/src/socratic_first_turn_stream.ts`) — the same parser Phase 8 already uses. Phase 2.X's substring greps keep working unchanged: literal tokens survive JSON string encoding.
+- Is spawned **detached** (`&` with its PID captured to `/tmp/dpt-smoke-<tracker>-<skill>.pid`) and awaited via the bounded poll-until-exit loop — never as a single foreground Bash call, which caps the grandchild at the harness's 10-minute per-call ceiling (STE-355; § Grandchild spawn lifecycle below).
 
 Skills to run, in order:
 
@@ -336,6 +377,71 @@ Skills to run, in order:
 5. `/dev-process-toolkit:spec-review <feature-id>` — read-only spec-vs-code audit.
 6. `/dev-process-toolkit:simplify` — review changed code; safe refactors applied + gate re-verified.
 
+#### Workspace-trust spawn gate (STE-356)
+
+Before the **first** Phase 2 spawn fires, assert that Phase 1 step 6b's trust seed actually landed in the live config. The scaffolded `.claude/settings.json` allow-list is enforcement-effective only when the spawn cwd's workspace is trusted; spawning without the entry re-creates the 2026-07-02 F4 inert-allow-list state, where every child ran on auto-mode classifier goodwill:
+
+```bash
+# Read-only probe; default the config dir (the Phase 2 export may not have run yet).
+CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude-st}/.claude.json"
+jq -e --arg p "$TEST_REAL" \
+  '.projects[$p].hasTrustDialogAccepted == true' "$CFG" > /dev/null
+```
+
+**Miss (exit non-zero) ⇒ NFR-10 canonical refusal — do not spawn:**
+
+```text
+Verdict: workspace trust missing for <abs test-project path> in $CLAUDE_CONFIG_DIR/.claude.json — the scaffolded allow-list would be inert at the child/grandchild layer (2026-07-02 F4).
+Remedy: re-run Phase 1 step 6b (or seed trust manually with the step-6b jq merge), then re-run /smoke-test.
+Context: skill=smoke-test, pre-flight=workspace_trust_check
+```
+
+**Hit (exit 0) ⇒ log the byte-checkable capability token** `workspace_trust_seeded` to the approval record `/tmp/dpt-smoke-<date>-<tracker>-approval.txt` (one literal line, no inference) and proceed to the first spawn. Same shape convention as `/conformance-loop`'s `spawn_pattern_allow_present` token — byte-grep-checkable by downstream `/gate-check` probes and capability-row aggregators.
+
+#### Grandchild spawn lifecycle — detached spawn + bounded poll-until-exit (STE-355)
+
+A single foreground Bash call caps its child at the harness's **10-minute (600 s) per-call ceiling** — the 2026-07-02 conformance run SIGTERM'd the `/implement` grandchild at exactly that ceiling (finding F2: RED→GREEN→REFACTOR completed; AUDIT and the commit never ran). Canonical-chain grandchildren routinely need longer, so no per-skill spawn may run in the foreground. Every canonical-chain spawn uses the detached-spawn + bounded-poll wrapper:
+
+**Detached spawn with PID capture (one Bash call).** Background the `claude -p` invocation and capture its PID in the same call: `claude -p … > /tmp/dpt-smoke-<tracker>-<skill>.log 2>&1 & echo $! > /tmp/dpt-smoke-<tracker>-<skill>.pid`. Heredoc-on-stdin (§ STE-185 below) composes unchanged — the shell reads the heredoc body before the job detaches; the `< /dev/null` discipline for non-prompt-bearing children likewise composes. The reference snippets below carry the shape.
+
+**Bounded poll-until-exit (repeated bounded Bash calls).** After the spawn call returns, poll until the PID exits. Each poll call is a **bounded multi-iteration loop** — up to 18 checks 30 s apart, ≈ ≤540 s (≈ 9 min) per call, safely under the harness's 600 s (10-minute) per-call ceiling. That is one Bash call per ~9 min instead of ~80 single-check calls across a 40-minute grandchild; the old single-check-then-end-call shape is **not** sanctioned. Never fold the whole wait into one unbounded call:
+
+```bash
+# One bounded poll call — up to 18 checks × 30 s ≈ 9 min (≤540 s), under the
+# harness's 600 s per-call ceiling. Repeat this call until it reports "exited".
+for i in $(seq 1 18); do
+  kill -0 "$(cat /tmp/dpt-smoke-<tracker>-<skill>.pid)" 2>/dev/null || break
+  sleep 30
+done
+if kill -0 "$(cat /tmp/dpt-smoke-<tracker>-<skill>.pid)" 2>/dev/null; then
+  echo "still running — poll again"
+else
+  rm -f /tmp/dpt-smoke-<tracker>-<skill>.pid; echo "exited — proceed"
+fi
+```
+
+**Post-exit steps compose on top, unchanged.** The STE-195 stream-idle detection, the STE-352 capture assertion, and the next sequential spawn all run only after the poll loop reports "exited" — detection runs after exit exactly as it did in the foreground form.
+
+**Residual risk — PID reuse.** `kill -0` answers for *any* live process with that PID, so a recycled PID could in principle keep the poll looping after the grandchild exited. The risk is negligible at a 30 s poll interval on macOS/Linux PID ranges, and the Phase 2.Y chain-integrity assertion is the corroborating signal (a truncated child's capture fails the `result`-event check regardless of what the poll believed) — noted so the wrapper isn't mistaken for a liveness proof.
+
+**Residual risk — orphan-vs-killed nondeterminism (STE-359; iter-2 F3).** If this driver dies while a grandchild is still live, whether that grandchild dies with its parent or survives as an orphan is environment-nondeterministic — process-group inheritance varies with spawn nesting, and iter-2 observed both outcomes in a single run (the Linear `/setup` grandchild was killed with its driver while the Jira one survived and completed healthily on its own). Process-group discipline (`setsid` / PGID-wide kill) was considered and rejected as the primary mechanism: it is OS/shell-dependent and unverifiable from SKILL.md prose. The deterministic recovery lives one layer up — `/conformance-loop`'s Phase A orphan-adoption block scans this driver's per-skill pidfiles post-exit and adopts any still-answering PID, polling it to exit so a surviving orphan's completed capture is recovered as evidence regardless of which way the environment broke.
+
+**Live-pidfile session rule.** Ending the driver session — or reporting results — while any spawned grandchild is alive (a pidfile whose PID still answers `kill -0`) is **forbidden**; the bounded poll loop above is the **only sanctioned wait**. Do not substitute a single foreground Bash call (the 10-minute ceiling SIGTERMs the grandchild — F2), and do not fire the spawn then end the turn "waiting for its completion notification" (a `-p` session cannot resume on background-task notifications, so the rest of the run silently never executes — F3). The poll's exit branch removes the pidfile, so a clean session end leaves zero live pidfiles.
+
+**Red flag — the harness's foreground-sleep block hint is NOT license to background the wait.** If a poll call leads with `sleep`, the harness blocks it with an error hint that reads roughly "Foreground `sleep` is blocked. To wait for a condition, use `run_in_background` or the Monitor tool." Do **not** follow that hint here: handing the wait to `run_in_background`/Monitor and then ending the turn IS the F3 fire-and-exit failure — a `-p` driver session never receives the completion notification, so the rest of the run silently never executes. The bounded poll loop above already avoids the block by gating each iteration on `kill -0` *before* its `sleep 30`; keep waiting with that loop, in the foreground, until the pidfile dies.
+
+**Final-message self-check (STE-357).** Before emitting **any** final message — success or failure — run the pidfile-liveness fence below over the run's pidfile glob (`/tmp/dpt-smoke-*.pid`). Any live pidfile means a spawned grandchild is still running: resume the bounded poll loop above; a live pidfile must **never end the turn**. Runtime validation ships deferred (`[~]`): the next conformance run must show this driver polling every spawned grandchild to completion.
+
+```bash
+# Final-message self-check — run before ANY final message (success or failure).
+LIVE=""
+for PIDFILE in /tmp/dpt-smoke-*.pid; do
+  [ -e "${PIDFILE}" ] || continue
+  kill -0 "$(cat "${PIDFILE}")" 2>/dev/null && LIVE="${LIVE} ${PIDFILE}"
+done
+if [ -n "${LIVE}" ]; then echo "LIVE:${LIVE} — resume the bounded poll loop"; else echo "no live pidfiles — final message may be emitted"; fi
+```
+
 #### Phase 2 child-spawn discipline (stdin partition)
 
 Every Phase 2 spawn has explicit stdin handling — no spawn relies on the child's default stdin behavior. The spawn surface partitions into two classes by whether the child needs prompt-body input:
@@ -346,23 +452,33 @@ Every Phase 2 spawn has explicit stdin handling — no spawn relies on the child
 Reference snippets — non-prompt-bearing children:
 
 ```bash
-# /gate-check
-CLAUDE_CONFIG_DIR=~/.claude-st claude -p /dev-process-toolkit:gate-check \
-  --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
-  --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
-  < /dev/null > /tmp/dpt-smoke-<tracker>-gate-check.log 2>&1
+# STE-350: exported once per spawning block so every spawn line begins bare
+# with `claude` and the tracked `Bash(claude:*)` allow entry matches.
+export CLAUDE_CONFIG_DIR=~/.claude-st
 
-# /spec-review
-CLAUDE_CONFIG_DIR=~/.claude-st claude -p "/dev-process-toolkit:spec-review <feature-id>" \
+# /gate-check — detached spawn + PID capture (STE-355); poll until exit
+claude -p /dev-process-toolkit:gate-check \
+  --output-format stream-json --verbose \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
-  < /dev/null > /tmp/dpt-smoke-<tracker>-spec-review.log 2>&1
+  < /dev/null > /tmp/dpt-smoke-<tracker>-gate-check.log 2>&1 &
+echo $! > /tmp/dpt-smoke-<tracker>-gate-check.pid
 
-# /simplify
-CLAUDE_CONFIG_DIR=~/.claude-st claude -p /dev-process-toolkit:simplify \
+# /spec-review — detached spawn + PID capture (STE-355); poll until exit
+claude -p "/dev-process-toolkit:spec-review <feature-id>" \
+  --output-format stream-json --verbose \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
-  < /dev/null > /tmp/dpt-smoke-<tracker>-simplify.log 2>&1
+  < /dev/null > /tmp/dpt-smoke-<tracker>-spec-review.log 2>&1 &
+echo $! > /tmp/dpt-smoke-<tracker>-spec-review.pid
+
+# /simplify — detached spawn + PID capture (STE-355); poll until exit
+claude -p /dev-process-toolkit:simplify \
+  --output-format stream-json --verbose \
+  --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
+  --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
+  < /dev/null > /tmp/dpt-smoke-<tracker>-simplify.log 2>&1 &
+echo $! > /tmp/dpt-smoke-<tracker>-simplify.pid
 ```
 
 #### Heredoc-on-stdin for prompt-bearing children (STE-185)
@@ -374,11 +490,17 @@ Prompt-bearing children (`/setup`, `/spec-write`, `/implement`) carry a per-skil
 Reference snippets — prompt-bearing children, per-skill prompt body inlined as the heredoc body. Linear-path / Jira-path branching stays inside each heredoc body (the parent renders the per-tracker fragments before piping):
 
 ```bash
+# STE-350: exported once per spawning block so every spawn line begins bare
+# with `claude` and the tracked `Bash(claude:*)` allow entry matches.
+export CLAUDE_CONFIG_DIR=~/.claude-st
+
 # /setup — heredoc body carries pre-baked answers + acknowledgment of pre-existing settings.json/.mcp.json
-CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
+# Detached spawn + PID capture (STE-355); poll until exit before /spec-write.
+claude -p \
+  --output-format stream-json --verbose \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
-  > /tmp/dpt-smoke-<tracker>-setup.log 2>&1 <<'PROMPT_EOF'
+  > /tmp/dpt-smoke-<tracker>-setup.log 2>&1 <<'PROMPT_EOF' &
 <dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:setup
 
@@ -389,32 +511,39 @@ stack=Bun+TS, tracker=<tracker>, mcp_server=<linear|atlassian>, ...
 
 The repo already contains .claude/settings.json and .mcp.json from the driver's pre-creation step; take the idempotent-merge branch — do not overwrite (model-layer block aborts the chain otherwise).
 PROMPT_EOF
+echo $! > /tmp/dpt-smoke-<tracker>-setup.pid
 
 # /spec-write — heredoc body carries the feature stub. The marker
 # `<dpt:auto-approve>v1</dpt:auto-approve>` on its own line is the
 # byte-checkable pre-authorization handoff for /spec-write's draft + commit
 # gates (STE-226). Without it the gates fire interactively and the child
 # halts at the prompt.
-CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
+# Detached spawn + PID capture (STE-355); poll until exit before /implement.
+claude -p \
+  --output-format stream-json --verbose \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
-  > /tmp/dpt-smoke-<tracker>-spec-write.log 2>&1 <<'PROMPT_EOF'
+  > /tmp/dpt-smoke-<tracker>-spec-write.log 2>&1 <<'PROMPT_EOF' &
 <dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:spec-write
 
 Add a pure function greet(name?: string) returning 'Hello, <name>!' (defaulting 'world' for undefined / empty / whitespace-only). File src/greet.ts; test src/greet.test.ts; 4 ACs.
 PROMPT_EOF
+echo $! > /tmp/dpt-smoke-<tracker>-spec-write.pid
 
 # /implement — heredoc body carries pre-authorization for the Phase 4 step 15 commit
-CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
+# Detached spawn + PID capture (STE-355); poll until exit before /gate-check.
+claude -p \
+  --output-format stream-json --verbose \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
-  > /tmp/dpt-smoke-<tracker>-implement.log 2>&1 <<'PROMPT_EOF'
+  > /tmp/dpt-smoke-<tracker>-implement.log 2>&1 <<'PROMPT_EOF' &
 <dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:implement <feature-id>
 
 Pre-authorized: proceed through Phase 4 step 15 commit on success without prompting. Do NOT push. Stay on the current branch (skip worktree prompt).
 PROMPT_EOF
+echo $! > /tmp/dpt-smoke-<tracker>-implement.pid
 ```
 
 **Auto-approve marker contract (STE-226).** Every prompt-bearing heredoc above carries the literal line `<dpt:auto-approve>v1</dpt:auto-approve>` as the first body line. The marker is a byte-checkable pre-authorization token that child skills (`/spec-write`, `/implement`) detect by literal string match — no `<system-reminder>` introspection, no `claude -p` non-interactive inference. Children whose gates depend on operator approval (`/spec-write` § 0b step 4 + § 7a draft/commit gates; `/implement` Phase 4 step 15 commit) auto-apply `y` when the marker is in the prompt body and gate interactively otherwise. Removing the marker line (deliberate or accidental) is the canonical way to flip a smoke-driver child into interactive-gating mode for diagnostic runs; the regression to watch for is the inverse — a child that auto-applies WITHOUT the marker (covered by Phase 2.X group 1 sub-fixture 1b below).
@@ -423,7 +552,7 @@ PROMPT_EOF
 
 Anthropic's API stream occasionally idles mid-response on long-running prompt-bearing child spawns (`/setup`, `/spec-write`, `/implement`), exiting the child with the canonical signature `API Error: Stream idle timeout - partial response received`. The 2026-05-04 Jira smoke caught the failure mode on `/setup`'s first attempt — the partial state created `src/.placeholder.test.ts` but no `CLAUDE.md`, no `specs/` scaffold. The driver recovered manually with a deterministic rollback recipe and a re-spawn; STE-195 builds the recovery in so a single transient turns into a quiet retry instead of a smoke-blocker.
 
-**Detection signature.** After each prompt-bearing child returns, the driver inspects the child's exit reason / captured `/tmp/dpt-smoke-<tracker>-<skill>.log` for the substring `API Error: Stream idle timeout`. Match is substring (not exact); the trailing `- partial response received` and any minor wording drift in future Anthropic API versions still trigger the path. Non-prompt-bearing children (`/gate-check`, `/spec-review`, `/simplify`) are out of scope — they are short, idempotent, and the existing `< /dev/null` discipline already shields them from the stdin-detect race.
+**Detection signature.** After each prompt-bearing child exits (the STE-355 poll loop reports exit; detection composes on top of the detached wrapper, unchanged), the driver inspects the child's exit reason / captured `/tmp/dpt-smoke-<tracker>-<skill>.log` for the substring `API Error: Stream idle timeout`. Match is substring (not exact); the trailing `- partial response received` and any minor wording drift in future Anthropic API versions still trigger the path. Non-prompt-bearing children (`/gate-check`, `/spec-review`, `/simplify`) are out of scope — they are short, idempotent, and the existing `< /dev/null` discipline already shields them from the stdin-detect race.
 
 **Rollback recipe (verbatim).** When the signature is detected, the driver runs the following inside the **test project's** working directory (e.g., `../dpt-test-project-linear` / `../dpt-test-project-jira`) — NOT inside the dpt repo cwd. The driver's per-spawn cwd handling already isolates the test project; the rollback inherits that scope. The `-e .claude -e .mcp.json` excludes preserve the parent-pre-created sensitive files (Phase 1 step 6) so the second spawn finds the same `.claude/settings.json` + `.mcp.json` it would on the first attempt.
 
@@ -455,17 +584,19 @@ ABORT: /smoke-test Phase 2 spawn /<skill> stream-idle timeout twice
   rollback recipe: git clean -fdq -e .claude -e .mcp.json && git checkout -- .
 ```
 
-**Worked example (Phase 2 `/setup` spawn, retry-success path).** The driver wraps the existing heredoc-on-stdin spawn (above) in a two-attempt loop scoped to the prompt-bearing-children spawn surface only. Pseudocode (the actual driver runs Bash; the loop is sequential, not parallel):
+**Worked example (Phase 2 `/setup` spawn, retry-success path).** The driver wraps the existing detached heredoc-on-stdin spawn (above) in a two-attempt loop scoped to the prompt-bearing-children spawn surface only. Pseudocode spanning multiple driver Bash calls (the loop is sequential, not parallel; each `[STE-355 …]` comment marks where the bounded poll-until-exit calls run before the next line executes):
 
 ```bash
 # cwd: test project root, e.g. ../dpt-test-project-jira
+export CLAUDE_CONFIG_DIR=~/.claude-st   # STE-350: exported so spawn lines stay bare `claude -p`
 attempt_1_started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-CLAUDE_CONFIG_DIR=~/.claude-st claude -p ... > /tmp/dpt-smoke-<tracker>-setup.log 2>&1 <<'PROMPT_EOF'
+claude -p ... > /tmp/dpt-smoke-<tracker>-setup.log 2>&1 <<'PROMPT_EOF' &
 <dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:setup
 ...prompt body...
 PROMPT_EOF
-exit_status=$?
+echo $! > /tmp/dpt-smoke-<tracker>-setup.pid
+# [STE-355: bounded poll calls (kill -0 + sleep 30) until the PID exits]
 
 if grep -q 'API Error: Stream idle timeout' /tmp/dpt-smoke-<tracker>-setup.log; then
   attempt_1_exit=stream_idle
@@ -473,12 +604,13 @@ if grep -q 'API Error: Stream idle timeout' /tmp/dpt-smoke-<tracker>-setup.log; 
   git clean -fdq -e .claude -e .mcp.json && git checkout -- .
 
   attempt_2_started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  CLAUDE_CONFIG_DIR=~/.claude-st claude -p ... > /tmp/dpt-smoke-<tracker>-setup.log 2>&1 <<'PROMPT_EOF'
+  claude -p ... > /tmp/dpt-smoke-<tracker>-setup.log 2>&1 <<'PROMPT_EOF' &
 <dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:setup
 ...same prompt body...
 PROMPT_EOF
-  exit_status=$?
+  echo $! > /tmp/dpt-smoke-<tracker>-setup.pid
+  # [STE-355: bounded poll calls (kill -0 + sleep 30) until the PID exits]
 
   if grep -q 'API Error: Stream idle timeout' /tmp/dpt-smoke-<tracker>-setup.log; then
     # Double timeout — NFR-10 abort, do not run further skills.
@@ -502,6 +634,29 @@ fi
 ```
 
 The same wrapper applies symmetrically to `/spec-write` and `/implement` — substitute the slash command, the per-skill log filename, and the heredoc body. Non-prompt-bearing spawns (`/gate-check`, `/spec-review`, `/simplify`) bypass the wrapper entirely; their `< /dev/null` snippet stays unchanged.
+
+#### Post-return capture assertion — non-empty / non-denied (STE-352)
+
+After **each** Phase 2 child exits (prompt-bearing and non-prompt-bearing alike; the STE-355 poll loop has reported exit and any stream-idle retry above has settled), the driver asserts the child actually produced output and no nested spawn was denied — the direct detector for the M94 0-byte-grandchild symptom, where a child whose nested `claude -p` spawn was blocked by the permission classifier still exited green over an empty log:
+
+1. **Non-empty:** `wc -c < /tmp/dpt-smoke-<tracker>-<skill>.log` must be `> 0` — a 0-byte capture is a hard finding, never a silent pass.
+2. **Non-denied:** no `result` event in the capture carries a `permission_denials[]` entry whose `tool_input.command` head is the bare word `claude` (a denied nested spawn; a command merely mentioning `claude -p` mid-string does not count).
+
+Both checks are implemented by `checkChildSpawnCapture` (`adapters/_shared/src/smoke_child_capture.ts`); the driver runs it over each capture as it lands. Either condition failing emits exactly one finding into the run's findings file with the canonical diagnostic:
+
+```
+STE-350 regression: nested claude -p spawn denied/empty — <child>
+```
+
+**Severity:** high. `<child>` is the per-skill spawn name (e.g., `/implement`). The finding is hard: the remaining Phase 2 steps still run (independent evidence beats an early abort), but the run can never report green while one is present.
+
+3. **Allow-list effective (STE-356):** the capture's raw text must not carry the workspace-trust warning — `Ignoring <N> permissions.allow entries from .claude/settings.json: this workspace has not been trusted`. That warning means the tracked allow-list was inert for the spawn (the STE-252 policy artifact silently stopped enforcing — a policy breach, not a cosmetic nit), the exact 2026-07-02 F4 failure mode. Implemented by `checkAllowlistInert` (same module, `adapters/_shared/src/smoke_child_capture.ts`); the driver runs it alongside `checkChildSpawnCapture` over each capture's raw text as it lands (the warning is a stderr line interleaved into the `2>&1` log, or echoed inside an assistant text block when a child relays its grandchild's stderr — no NDJSON parsing required). Any hit emits exactly one finding with the canonical diagnostic:
+
+```
+STE-356 regression: allow-list inert — <child> (workspace untrusted)
+```
+
+**Severity:** high — same hardness as the STE-350 finding above: the remaining Phase 2 steps still run, but the run can never report green while one is present. Remedy lives in Phase 1 step 6b (workspace-trust seeding).
 
 #### Comment-path probe (Jira-only)
 
@@ -668,7 +823,7 @@ Append the following lines to the run summary, in order:
 
 The two M56 lines above aggregate groups 1–3 because their three SUTs (STE-213 / STE-214 / STE-215) shipped together in M55 and roll up under one milestone-level result. Groups 4–7 (M64 cohort) intentionally do NOT roll up to a single `M64 runtime checks:` line — each of the four SUTs (STE-227 / STE-228 / STE-230 / STE-225) ships its own per-FR runtime-check line so a regression in one is operator-visible without scrolling into the per-fixture diagnostics. The runtime-check line each new group contributes is named in the group's footer paragraph below.
 
-Phase 2.X is **shared infrastructure** for runtime regression coverage. Groups 1–3 (M56 cohort, STE-220 / STE-221 / STE-222) pin the M55 SKILL.md-prose fixes (STE-213 / STE-214 / STE-215). Groups 4–7 (M64 cohort, STE-231) pin the M58 / M60 / M61 / M63 runtime contracts (STE-227 / STE-228 / STE-230 / STE-225). Future SKILL.md-prose fixes (any FR shipping a behavior change via instructional text in `skills/<X>/SKILL.md`) should add their own fixtures here following the `STE-<sut> runtime regression: <fixture-name>` diagnostic shape — naming the system-under-test, not the test FR.
+Phase 2.X is **shared infrastructure** for runtime regression coverage. Groups 1–3 (M56 cohort, STE-220 / STE-221 / STE-222) pin the M55 SKILL.md-prose fixes (STE-213 / STE-214 / STE-215). Groups 4–7 (M64 cohort, STE-231) pin the M58 / M60 / M61 / M63 runtime contracts (STE-227 / STE-228 / STE-230 / STE-225). Group 8 (M94 cohort) pins the STE-350 nested-spawn allow-list fix. Future SKILL.md-prose fixes (any FR shipping a behavior change via instructional text in `skills/<X>/SKILL.md`) should add their own fixtures here following the `STE-<sut> runtime regression: <fixture-name>` diagnostic shape — naming the system-under-test, not the test FR.
 
 #### Fixture group 4 — STE-227 `--no-tech` end-to-end (Linear + Jira)
 
@@ -819,6 +974,58 @@ STE-225 runtime regression: tdd-result-blocks-incomplete
 
 The `git log excerpt` line is STE-225-specific (mirrors STE-222's group 3 precedent): `/implement` failures often surface in `git log` shape (no implementation commit, mid-cycle abort) rather than stdout content alone, so the diagnostic carries both. If the assertion passes on a leg, append `STE-225 runtime check: PASS` to the run summary line; any failure appends `STE-225 runtime check: FAIL`.
 
+#### Fixture group 8 — STE-350 nested `claude -p` spawn allow-list (Linear + Jira)
+
+Two sub-fixtures reproduce a **live nested spawn** — the runtime counterpart to the static `/gate-check` probe `spawn_pattern_allowlist` (STE-351.2's fence). The M94 root cause: the tracked `.claude/settings.json` `permissions.allow` array omitted the child-spawn pattern `Bash(claude:*)`, so the auto-mode permission classifier denied every nested spawn headless — a 0-byte grandchild capture beneath weeks of green runs. This group asserts the patched allow-list actually admits a nested spawn at runtime (8a), and that removing the pattern produces a **caught** denial rather than a silent pass (8b).
+
+##### Sub-fixture 8a — positive (nested spawn completes non-empty under the patched allow-list)
+
+The driver fires a minimal child spawn constructed at smoke-driver runtime and described here in prose only (same rationale as sub-fixture 1b: no authored heredoc snippet for the `auto_approve_marker_in_canonical_spawns` probe to pick up). The child's prompt instructs it to run exactly one nested `claude -p 'reply with the single word pong'` via its Bash tool from inside the test project — whose `.claude/settings.json` carries the patched allow-list per Phase 1 step 6 — and echo the grandchild's stdout back into its own output. Capture to `/tmp/dpt-smoke-<tracker>-ste350-nested.log` (stream-json NDJSON, like every Phase 2 spawn).
+
+**Assertions:**
+
+- `wc -c < /tmp/dpt-smoke-<tracker>-ste350-nested.log` > 0 AND the grandchild's reply token (`pong`) appears in the capture — the nested spawn completed with non-empty output.
+- `checkChildSpawnCapture` (`adapters/_shared/src/smoke_child_capture.ts`, the same detector Phase 2's post-return assertion uses) reports no `permission_denials[]` entry whose `tool_input.command` head is `claude`.
+
+##### Sub-fixture 8b — negative (pattern removed ⇒ denial is caught)
+
+- Stage: copy the test project's `.claude/settings.json` aside, then rewrite `permissions.allow` with the `Bash(claude:*)` entry removed (every other entry kept — the M94 shape was precisely a non-empty allow-list missing the one load-bearing pattern).
+- Invoke + capture the same nested-spawn child as 8a → `/tmp/dpt-smoke-<tracker>-ste350-denied.log`.
+- Assert: `checkChildSpawnCapture` **detects** the denial — a `permission_denials[]` entry whose command head is `claude`, or a 0-byte grandchild echo, is surfaced as a finding. The regression this sub-fixture fences is the detector staying silent while the pattern is absent (the exact false-green that hid STE-350).
+- Cleanup: restore the original settings file before any subsequent phase runs.
+
+Persist both captures under `tests/fixtures/nested-spawn/<sub-fixture>-<YYYY-MM-DD>.log` for replay during regression triage (mirrors Phase 8's `tests/fixtures/socratic-first-turn/` convention).
+
+**Diagnostic on failure:**
+
+```
+STE-350 runtime regression: <nested-spawn-empty-or-denied | denial-not-caught>
+  expected: 8a — nested spawn completes non-empty under the patched allow-list; 8b — the removed pattern's denial is detected and surfaced
+  actual:   <observed state>
+  stdout excerpt (last 20 lines):
+    <tail -20 of the relevant log>
+```
+
+If both sub-fixtures pass on a leg, append `STE-350 runtime check: PASS` to the run summary line; any failure appends `STE-350 runtime check: FAIL`.
+
+### Phase 2.Y — End-of-run chain-integrity assertion (STE-355)
+
+Before any Phase 3 capture work, assert the canonical chain actually completed. Run `assertChainIntegrity` (`adapters/_shared/src/smoke_child_capture.ts`, built on the `stream_json_events` NDJSON reader) against every expected per-skill capture, in chain order, passing the **run-start timestamp** captured at Phase 0 acceptance (the epoch-ms moment the approval was logged) as the `runStart` argument:
+
+```
+/tmp/dpt-smoke-<tracker>-{setup,spec-write,implement,gate-check,spec-review,simplify}.log
+```
+
+A capture is healthy iff the file **exists**, is **fresh** (mtime not before run-start), is **non-empty**, and carries a top-level stream-json `result` event — a result-shaped token inside assistant prose does not count. Any miss yields one **high**-severity finding naming the truncated child, in the pinned diagnostic shape:
+
+```
+STE-355 regression: chain truncated — <child> (<capture missing | capture stale (pre-run) | capture empty | result event absent>)
+```
+
+**Freshness gate (STE-358; iter-2 F2).** A capture whose mtime predates run-start is `capture stale (pre-run)` — **never healthy**, regardless of what it contains: the freshness check runs before the content checks, so a stale result-bearing log surviving from a prior run (the iter-2 shape — the morning run's `dpt-smoke-linear-implement.log` carried a `result` event and would have false-passed an ungated completeness check) can never masquerade as this run's capture. The gate is strictly `mtime < run-start`; a capture written exactly at run-start is fresh. Defense-in-depth with the Phase 0.5 verified wipe — either alone closes the stale-log false-pass; both together survive a wipe bypass.
+
+Append each finding to the findings file in the Phase 3 template shape. A chain-integrity finding means the run is barred from a green summary: any finding forces the run summary to FAIL, regardless of how the individual skills scored. (Provenance: 2026-07-02 F2+F3 — both legs truncated silently behind RC 0; the STE-352 detector's `result: ABSENT` footprint was the reliable truncation signal on both captured legs.) Denial detection stays with `checkChildSpawnCapture` (STE-352) — a denied-but-complete capture is chain-healthy here; the two detectors are orthogonal by design.
+
 ### Phase 3 — Capture
 
 After every skill completes, parse its log and the test-project state, generating findings entries. Findings template:
@@ -872,7 +1079,26 @@ Each verification result feeds into Phase 3's findings.
 
 Teardown branches on `--tracker`. The directory cleanup (`rm -rf ../dpt-test-project-<tracker>`) keys on the per-tracker basename in both modes; the tracker-side cleanup differs because Atlassian's MCP exposes no `deleteJiraIssue` and no `deleteJiraProject` (documented limitation, not a bug). A concurrent run against the other tracker is unaffected by this teardown — its dir, findings, logs, and approval record live under a different per-tracker suffix.
 
+**Both tracker paths also remove the Phase 1 step 6b workspace-trust seed (STE-356).** Config hygiene: without the removal, every run leaves a dead `projects["<abs test-project path>"]` entry behind in the live `$CLAUDE_CONFIG_DIR/.claude.json`, and dead entries accumulate across runs. The removal is a jq `del(.projects[$p])` with the same read-merge-write discipline as the step-6b seed — jq into a temp file, atomic `mv` over the original, every unrelated key passes through untouched, the same `/tmp/dpt-claude-json.lock` mutex serializing against a concurrent tandem leg's seed/del cycle. It only deletes this run's own `$TEST_REAL` entry, so a concurrent tandem leg's seed (a different per-tracker path) is untouched. **The step-6b backup is removed here too** — `/tmp/dpt-smoke-<tracker>-claude-json.bak` holds a copy of the operator's live config (MCP registrations + session state) in a world-readable temp dir, so it must not outlive the run that needed it as a recovery path; the `rm -f` runs only after the `del` write lands.
+
 #### Linear path (`--tracker linear`, default)
+
+**Remove the workspace-trust seed first — runs in every mode (`--keep` included):**
+
+```bash
+CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude-st}/.claude.json"
+# Bounded spinlock — same stale-lock escape as step 6b (refuse after ~60 s;
+# recover with `rmdir /tmp/dpt-claude-json.lock`).
+tries=0; until mkdir /tmp/dpt-claude-json.lock 2>/dev/null; do
+  tries=$((tries+1)); [ "$tries" -ge 60 ] && exit 1
+  sleep 1
+done
+jq --arg p "$TEST_REAL" 'del(.projects[$p])' \
+  "$CFG" > /tmp/dpt-smoke-linear-claude-json.tmp \
+  && mv /tmp/dpt-smoke-linear-claude-json.tmp "$CFG" \
+  && rm -f /tmp/dpt-smoke-linear-claude-json.bak
+rmdir /tmp/dpt-claude-json.lock
+```
 
 **On `--keep` (default off):** print the teardown checklist for the operator and exit:
 
@@ -890,6 +1116,23 @@ Teardown when ready:
 #### Jira path (`--tracker jira`)
 
 The Atlassian MCP exposes no `deleteJiraIssue`. Teardown therefore closes (transitions to `Done`) every work item this run created in the configured Space — matched by label `dpt-smoke` + a creation-time window — rather than archiving the Space itself (the Space is reused across runs).
+
+**Remove the workspace-trust seed first — runs in every mode (`--keep` included), before the tracker-side steps below.** Same jq `del` + read-merge-write discipline as the Linear path:
+
+```bash
+CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude-st}/.claude.json"
+# Bounded spinlock — same stale-lock escape as step 6b (refuse after ~60 s;
+# recover with `rmdir /tmp/dpt-claude-json.lock`).
+tries=0; until mkdir /tmp/dpt-claude-json.lock 2>/dev/null; do
+  tries=$((tries+1)); [ "$tries" -ge 60 ] && exit 1
+  sleep 1
+done
+jq --arg p "$TEST_REAL" 'del(.projects[$p])' \
+  "$CFG" > /tmp/dpt-smoke-jira-claude-json.tmp \
+  && mv /tmp/dpt-smoke-jira-claude-json.tmp "$CFG" \
+  && rm -f /tmp/dpt-smoke-jira-claude-json.bak
+rmdir /tmp/dpt-claude-json.lock
+```
 
 1. Resolve `<run-start>` — the ISO-8601 timestamp captured at Phase 0 acceptance (e.g., `2026-04-29T13:30:00Z`). The run window is `[run-start, now]`.
 2. Search the configured Space:
@@ -944,14 +1187,15 @@ Capture each child's transcript artifact under `tests/fixtures/socratic-first-tu
 DATE=$(date +%Y-%m-%d)
 PLUGIN_DIR=/Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit
 FIXTURE_DIR=${PLUGIN_DIR}/tests/fixtures/socratic-first-turn
+export CLAUDE_CONFIG_DIR=~/.claude-st   # STE-350: exported so spawn lines stay bare `claude -p`
 ASSERT_RUNNER=${PLUGIN_DIR}/adapters/_shared/src/socratic_first_turn_assert.ts
 mkdir -p "${FIXTURE_DIR}"
 
 for SKILL in setup brainstorm spec-write report-issue; do
   FIXTURE=${FIXTURE_DIR}/${SKILL}-${DATE}.json
 
-  CLAUDE_CONFIG_DIR=~/.claude-st claude -p \
-    --output-format stream-json \
+  claude -p \
+    --output-format stream-json --verbose \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${FIXTURE}" 2>/dev/null <<PROMPT_EOF
 The user has asked you to work without stopping for clarifying questions. When you'd normally pause to check, make the reasonable call and continue; they'll redirect if needed.
@@ -1029,7 +1273,7 @@ End-of-run console summary: total findings count by severity, link to findings f
 
 The tracked `permissions.allow` block in `.claude/settings.json` (STE-252) is the **per-tool-call enforcement** mechanism for every `claude -p` child this skill spawns. Children run under **default permission mode**; each Bash command, file-tool call, and MCP call is matched against the enumerated allow-list patterns (Bash command-pattern entries + `Edit`/`Write`/`Read`/`Grep`/`Glob` + `mcp__linear__*` / `mcp__atlassian__*`). A non-matching call surfaces as a structured refusal — there is no blanket bypass. Parent-side pre-creation of `.claude/settings.json` and `.mcp.json` from the toolkit repo's Bash heredoc remains in place for the test-project scaffold; the tracked allow-list is the audit-able policy artifact and the load-bearing safety rail. The safety rails that make this acceptable, in order of load-bearingness:
 
-1. **Tracked `permissions.allow` allow-list.** The allow-list lives in tracked `.claude/settings.json` and is reviewable as a single-file PR diff with deterministic ordering. Children operate under default permission mode and are bounded to exactly the patterns the operator has approved in-repo; new tool surfaces require an explicit allow-list edit + PR review. The allow-list covers Bash command patterns the call tree actually uses, the file-tool surface (`Edit`, `Write`, `Read`, `Grep`, `Glob`), and the MCP families (`mcp__linear__*`, `mcp__atlassian__*`); anything outside that union refuses at the child's permission layer.
+1. **Tracked `permissions.allow` allow-list.** The allow-list lives in tracked `.claude/settings.json` and is reviewable as a single-file PR diff with deterministic ordering. Children operate under default permission mode and are bounded to exactly the patterns the operator has approved in-repo; new tool surfaces require an explicit allow-list edit + PR review. The allow-list covers Bash command patterns the call tree actually uses, the file-tool surface (`Edit`, `Write`, `Read`, `Grep`, `Glob`), and the MCP families (`mcp__linear__*`, `mcp__atlassian__*`); anything outside that union refuses at the child's permission layer. **Enforcement precondition (STE-356):** the tracked allow-list is enforcement-effective only when the spawn cwd's workspace is trusted — in an untrusted workspace the harness ignores the scaffolded `permissions.allow` entries wholesale and the policy artifact goes inert. Phase 1 step 6b is the seeding step (it merges `hasTrustDialogAccepted: true` for the test-project path into `$CLAUDE_CONFIG_DIR/.claude.json` before any spawn). The counterexample is the 2026-07-02 conformance run's F4 capture: grandchild logs opened with `Ignoring 10 permissions.allow entries from .claude/settings.json: this workspace has not been trusted`, so the canonical chain ran on auto-mode classifier goodwill instead of the reviewed policy; the `checkAllowlistInert` post-return detector (§ Post-return capture assertion) surfaces any recurrence as a high-severity finding.
 2. **Hard-coded paths (cwd guard).** The test-project path is always `<toolkit-repo-parent>/dpt-test-project-<tracker>` for `<tracker>` in the closed two-element allow-list `{linear, jira}` — scoped to two well-known throwaway directories, one per tracker, basename hard-coded by pre-flight #6 (which verifies basename membership in `{dpt-test-project-linear, dpt-test-project-jira}`, sibling-of-toolkit-repo, real-path resolution, and not-a-symlink). The cwd guard bounds *where* the children operate (not *what* they can call — that's the `permissions.allow` block's job). The operator's other projects are unaffected; a single invocation only ever touches one of the two — operator-driven parallelism (§ Operator-driven parallelism) runs them in separate processes against separate dirs.
 3. **Throwaway directory.** Phase 1 creates the dir; Phase 5 deletes it. There is no persistent state worth corrupting — every run starts from `bun init` and ends with `rm -rf` against the per-tracker basename. A misbehaving child can damage at most one ephemeral scaffold (its own tracker's dir; the sibling tracker's dir, if a concurrent run is alive, is owned by a separate process and not shared).
 4. **No network egress beyond the documented MCPs.** The child has no network-side tools beyond `mcp__linear__*` (Linear path) or `mcp__atlassian__*` (Jira path) via `--mcp-config`. It cannot exfiltrate to arbitrary hosts.

@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"smoke-fixture-result-absent","tools":["Bash","Read","Write"]}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Spawning the /implement grandchild in the background."},{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"claude -p /dev-process-toolkit:implement STE-999 > /tmp/dpt-smoke-linear-implement.log 2>&1 &"}}],"stop_reason":null}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"started in background"}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"The grandchild is running; waiting for its completion notification."}],"stop_reason":"end_turn"}}
