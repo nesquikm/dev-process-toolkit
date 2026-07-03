@@ -1,0 +1,64 @@
+---
+name: <slug>
+description: Drive the running Flutter app end-to-end and assert the real user journey (widget tree, taps, typed input, runtime errors). Fill in the TODO steps for <name>.
+disable-model-invocation: true
+allowed-tools: Bash, Read, mcp__dart__connect_dart_tooling_daemon, mcp__dart__get_widget_tree, mcp__dart__get_runtime_errors, mcp__dart__hot_reload
+---
+
+# <name> — Flutter runtime check
+
+A runnable scaffold for a project-authored verification skill that drives the
+**running Flutter app** (not just unit/widget tests) and asserts the real user
+journey end-to-end. Modeled on a `glacy-drive`-style skill: connect to the live
+app, read the widget tree, tap and type, then confirm the expected screen with
+no runtime errors.
+
+> Read the authoring guide — `docs/verification-skills.md` — before filling this
+> in. It explains how `verify_skill` wires this skill into the `## Verification`
+> hook and how the disable-model-invocation marker keeps it opt-in.
+
+## What this checks
+
+The end-to-end runtime journey a user actually walks through, exercised against
+the app running on a real device or simulator. Deterministic gates (analyzer,
+`flutter test`) still run first and always win; this check adds the runtime
+behavior those gates cannot see.
+
+TODO — list the concrete journey to assert, e.g.:
+
+- [ ] App launches to `<start-route>` with no runtime exceptions.
+- [ ] Tapping `<widget-key>` navigates to `<next-screen>`.
+- [ ] Typing `<sample-input>` into `<field-key>` and submitting shows `<result>`.
+- [ ] The widget tree contains `<expected-widget>` after the flow completes.
+
+## How to run
+
+1. **Boot the app in debug mode** so the Dart Tooling Daemon is reachable:
+
+   ```bash
+   # TODO: replace with your app's launch command / target device
+   flutter run -d <device-id> --debug
+   ```
+
+2. **Connect** to the running app with `mcp__dart__connect_dart_tooling_daemon`.
+   TODO: the exact MCP tool names below are placeholders — swap them for the
+   dart / Flutter MCP tools configured in your project's `.mcp.json`.
+
+3. **Drive the journey.** For each step in *What this checks*:
+   - Read the current UI with `mcp__dart__get_widget_tree`.
+   - Locate the target by key/label, then tap or type into it
+     (TODO: name the interaction tool your MCP exposes, e.g. `tap` / `enter_text`).
+   - `mcp__dart__hot_reload` only if the scenario requires re-running after a code edit.
+
+4. **Assert no runtime errors** via `mcp__dart__get_runtime_errors` after the
+   final step. Any uncaught exception or red screen is a FAIL.
+
+5. **Report** a pass/fail line per journey step:
+   - ✓ what passed
+   - ✗ what failed (with the widget/route where it broke)
+
+## Notes
+
+- Keep this skill opt-in: the `disable-model-invocation: true` marker above means
+  it only runs when a workflow explicitly invokes it via `verify_skill`.
+- TODO: delete these Notes once the steps above are project-specific.

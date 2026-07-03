@@ -19,6 +19,7 @@ A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** wor
 - **Atomic release commits** — `/ship-milestone` enforces the multi-file Release Checklist + folds staged doc fragments into the canonical tree in one commit
 - **Spec lifecycle management** — ULID-keyed FRs, `/spec-archive` for manual archival by ULID / tracker ID / `M<N>`, post-archive drift checks
 - **Browser-based UI verification** — `/visual-check` via Chrome DevTools MCP
+- **Project-authored verification skills** — declare a `verify_skill` in a `## Verification` block and `/implement`'s Phase 4b″ runs your project's own "does it actually run / look right?" check after the gate passes; `/setup` and `/implement` scaffold a stack-aware stub, or fall back to `/visual-check` (see [`plugins/dev-process-toolkit/docs/verification-skills.md`](./plugins/dev-process-toolkit/docs/verification-skills.md))
 - **Stack-adaptive setup** — auto-detects TypeScript, Flutter, Python, Kotlin; generates `CLAUDE.md`, settings, and the `commit-msg` hook
 
 ## Install as Plugin
