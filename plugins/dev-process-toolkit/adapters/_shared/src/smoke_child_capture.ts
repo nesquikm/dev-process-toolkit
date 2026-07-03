@@ -25,7 +25,7 @@
 // or truncated capture still yields a usable prefix. Both modules share the
 // low-level NDJSON reader in stream_json_events.ts.
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 
 import {
   assistantContentBlocks,
@@ -166,7 +166,10 @@ export function checkAllowlistInert(
 // children fired grandchild spawns in the background and exited RC 0, so
 // per-skill captures were left missing, empty, or result-less. The reliable
 // truncation footprint on every captured leg was a stream-json capture with
-// no top-level `type: "result"` event.
+// no top-level `type: "result"` event. STE-358 (AC-STE-358.2) later added
+// the optional `runStart` freshness gate: iter-2 (2026-07-02 F2) showed a
+// stale result-bearing capture surviving a wipe bypass would false-pass the
+// content checks alone.
 
 const CHAIN_DIAGNOSTIC_PREFIX = "STE-355 regression: chain truncated — ";
 
@@ -181,25 +184,50 @@ function chainFinding(child: string, reason: string): ChildSpawnFinding {
 }
 
 /**
- * Assert every expected per-skill capture completed (STE-355 AC-STE-355.2).
+ * Assert every expected per-skill capture completed (STE-355 AC-STE-355.2)
+ * and, when `runStart` is given, is fresh (STE-358 AC-STE-358.2).
  *
- * A capture is healthy iff its file exists, is non-empty, and
- * parseStreamJsonEvents finds a top-level `type: "result"` event — a
- * result-shaped token inside assistant prose does not count. Each miss
- * yields exactly one high-severity finding naming the truncated child,
+ * A capture is healthy iff its file exists, is fresh (when `runStart` is
+ * provided: `statSync(path).mtimeMs` is not strictly before it — mtime
+ * exactly at run-start is fresh), is non-empty, and parseStreamJsonEvents
+ * finds a top-level `type: "result"` event — a result-shaped token inside
+ * assistant prose does not count. Each miss yields exactly one
+ * high-severity finding naming the truncated child,
  * `STE-355 regression: chain truncated — <child> (<reason>)`, in input
- * (chain) order; healthy captures contribute nothing. Denial detection is
+ * (chain) order; healthy captures contribute nothing.
+ *
+ * The freshness gate runs BEFORE the content checks — a stale
+ * result-bearing capture (last run's log surviving a wipe bypass, the
+ * iter-2 2026-07-02 F2 shape) is `capture stale (pre-run)`, never healthy.
+ * `runStart` accepts epoch ms or a Date; omitted, behavior is the
+ * unchanged STE-355 contract (no freshness gate). Denial detection is
  * checkChildSpawnCapture's job — a denied-but-complete capture is
  * chain-healthy here.
  */
 export function assertChainIntegrity(
   expected: ChainCaptureExpectation[],
+  runStart?: number | Date,
 ): ChildSpawnFinding[] {
+  const runStartMs = runStart instanceof Date ? runStart.getTime() : runStart;
   const findings: ChildSpawnFinding[] = [];
   for (const { child, path } of expected) {
     if (!existsSync(path)) {
       findings.push(chainFinding(child, "capture missing"));
       continue;
+    }
+    if (runStartMs !== undefined) {
+      let mtimeMs: number | undefined;
+      try {
+        mtimeMs = statSync(path).mtimeMs;
+      } catch {
+        // Stat race (delete/EACCES after the existsSync check): skip the
+        // freshness gate and fall through — readFileSync below degrades
+        // the same miss to `capture unreadable`, never a driver crash.
+      }
+      if (mtimeMs !== undefined && mtimeMs < runStartMs) {
+        findings.push(chainFinding(child, "capture stale (pre-run)"));
+        continue;
+      }
     }
     let ndjson: string;
     try {

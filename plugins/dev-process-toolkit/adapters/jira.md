@@ -63,7 +63,7 @@ NFR-10 canonical shape during `/setup`.
 | `push_ac_toggle` | `mcp__atlassian__editJiraIssue` | Branches on `jira_ac_field`: write back the toggled custom-field value or rewrite the description's `## Acceptance Criteria` section atomically. Pass `contentFormat: "markdown"` to round-trip markdown without ADF conversion. |
 | `transition_status` | `mcp__atlassian__transitionJiraIssue` | Resolve transition id via `getTransitionsForJiraIssue` + `status_mapping`. Primary match is `to.name`; fallback is `to.statusCategory.key` (canonical category). |
 | `upsert_ticket_metadata` | `mcp__atlassian__createJiraIssue` (new) / `mcp__atlassian__editJiraIssue` (existing) | Body MUST include the back-link to `specs/frs/<TICKET-ID>.md`. On create, `project` is required (Jira API requirement) — sourced from the call argument or `### Jira`.project in CLAUDE.md; reject with NFR-10 canonical shape if neither supplies a value. `team` does not apply to Jira and is silently dropped if forwarded. **Labels:** when `### Jira`.default_labels is populated (free-form sub-section field, parsed as inline-YAML array per `docs/patterns.md`) **or** the call argument carries `labels`, forward every entry into `createJiraIssue.additional_fields.labels` (the only Jira-MCP path for setting labels — there is no top-level `labels` parameter, see the `mcp__atlassian__createJiraIssue` schema). Empty array or missing key ⇒ no `labels` field is set. **Update path** (`editJiraIssue`): labels are not modified — `defaultLabels` applies only on create per the workspace-binding rule. Default issue type is `Task`; override via `jira_issue_type:` in `### Jira`. Pass `contentFormat: "markdown"` so the rendered description body keeps its markdown shape. |
-| `list_project_statuses` | `mcp__atlassian__getJiraIssueTypeMetaWithFields` | Workflow-introspection call: returns the per-project issue-type field metadata, including the `status` field's `allowedValues` array (the workflow states reachable for that issue type in the bound project). The adapter extracts each `allowedValue.name` verbatim and returns an ordered string array. Project key is sourced from `### Jira`.project in CLAUDE.md via `readWorkspaceBinding(claudeMdPath, "jira")`; the issue type defaults to `Task` (or the `jira_issue_type:` override). Used by `/setup` Step Nb (STE-303) to seed `specs/tracker-config.yaml` with the workspace-bound status vocabulary. Reject with NFR-10 canonical shape when the project key is unresolved (mirrors the create-path silent-landing guard). Pure read; no mutation. |
+| `list_project_statuses` | `mcp__atlassian__getJiraIssueTypeMetaWithFields` (company-managed) / `mcp__atlassian__getTransitionsForJiraIssue` (team-managed) | Two-path status-vocabulary fetch dispatched on project style — probe order, output contract, project-key sourcing, and NFR-10 guard are documented in § `list_project_statuses` under Operations. Used by `/setup` Step Nb (STE-303) to seed `specs/tracker-config.yaml` with the workspace-bound status vocabulary. Pure read; no mutation. |
 | `addCommentToJiraIssue` | `mcp__atlassian__addCommentToJiraIssue` | Available on the live MCP surface (smoke-test #5 enumerated tool list) for callers that need to post a markdown comment. Pass `contentFormat: "markdown"`. No /implement-internal caller today. |
 | Project visibility probe | `mcp__atlassian__getVisibleJiraProjects` | Called by `/setup` step 7b before any other Jira operation; refuses with NFR-10 canonical shape when the configured `project` key is not visible to the authenticated principal. |
 | `listMilestones` (optional driver method) | `mcp__atlassian__searchJiraIssuesUsingJql` | Enumerate milestones via the `milestone-<M-token>` labels. JQL-search the bound project for labelled issues, paginate, client-side filter `^milestone-(M\d+)$`, return the bare `M<N>` tokens. Best-effort: any failure ⇒ `[]`. Pure read; see § Milestone Listing below. |
@@ -333,6 +333,51 @@ Every write here passes through the silent-no-op trap: post-call
 > idempotency-key headers on `createJiraIssue` — revisit if a future MCP
 > version surfaces them; the backoff retry path is the present-day
 > mitigation.
+
+### `list_project_statuses() → string[]`
+
+Fetches the workspace-bound status vocabulary that `/setup` Step Nb
+uses to seed `specs/tracker-config.yaml`. The fetch is a
+**two-path probe** dispatched on project style, because the
+`allowedValues` introspection is company-managed-only (live-MCP behaviour,
+conformance iter-2 2026-07-02 finding F5):
+
+1. **Detect project style** — `mcp__atlassian__getVisibleJiraProjects`
+   (the same visibility probe `/setup` step 7b already runs; reuse its
+   response rather than re-calling). A project entry carrying
+   `"simplified": true` is team-managed (next-gen); absent or `false`
+   means company-managed.
+2. **Company-managed ⇒ `allowedValues` path** (the original path,
+   unchanged). `mcp__atlassian__getJiraIssueTypeMetaWithFields` → the
+   `status` field's `allowedValues` array; extract each
+   `allowedValue.name`. This introspection is **company-managed-only**:
+   team-managed projects return no `allowedValues` for the `status`
+   field, so an empty result there signals a mis-detected project style,
+   not an empty workflow.
+3. **Team-managed ⇒ transitions-derived path** — the **primary** path for
+   team-managed projects. `mcp__atlassian__getTransitionsForJiraIssue`
+   against a representative issue in the bound project (or the project's
+   create-meta default issue type when no issue exists) → collect each
+   transition's `to.name` in API order, dedup preserving the
+   first occurrence. (`to.statusCategory` stays available for the
+   canonical category mapping, same as `transition_status`.)
+
+Both paths return the same output contract: an ordered string array
+of status names, verbatim casing and whitespace — so the
+`tracker-config.yaml` composition is untouched by the dispatch.
+
+**Zero-issue edge.** A fresh team-managed project with no issues offers
+nothing to call `getTransitionsForJiraIssue` against: fall back to the
+three canonical `statusCategory` names (`To Do` / `In Progress` / `Done`)
+and surface a `tracker_config_write_mcp_unavailable`-style advisory so the
+operator knows the seeded vocabulary is a category-level approximation of
+the workflow, not its real named states.
+
+Project key is sourced from `### Jira`.project in CLAUDE.md via
+`readWorkspaceBinding(claudeMdPath, "jira")`; the issue type defaults to
+`Task` (or the `jira_issue_type:` override). Reject with NFR-10 canonical
+shape when the project key is unresolved (mirrors the create-path
+silent-landing guard). Pure read; no mutation.
 
 ## Project Milestone — `milestone-<M-token>` label via `editJiraIssue` read-merge-write
 
