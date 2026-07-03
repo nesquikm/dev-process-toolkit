@@ -352,7 +352,7 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     expect(r.violations).toEqual([]);
   });
 
-  test("README.md L3 / L10 / L104 / L139 / L163 / L164 carry the byte-exact post-backfill tokens", () => {
+  test("README.md L3 / L10 / L105 / L140 / L164 / L165 carry the byte-exact post-backfill tokens", () => {
     const readme = readFileSync(join(repoRoot, "README.md"), "utf-8");
     const lines = readme.split("\n");
     // L3 — "16 commands, 8 agents"
@@ -360,16 +360,17 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     // L10 — 61 numbered (matches "61 numbered ... probes" — STE-343/M91 added
     // the #61 design_references_resolve probe)
     expect(lines[9]).toMatch(/\b61\b.*numbered/);
-    // L104 — "61 probes" (on-disk max-probe is 61 after STE-343/M91 added #61)
-    expect(lines[103]).toMatch(/\b61\b\s+probes/);
-    // L139 — "Seven additional skills" (the workflow-overview pointer added
-    // under the `## Workflow` diagram shifted this token +2 lines from L137)
-    expect(lines[138]).toMatch(/Seven additional skills/);
-    // L163 — "23 (16 + 7)"
-    expect(lines[162]).toMatch(/23\s+\(16\s*\+\s*7\)/);
-    // L164 — "8 specialist agents" with spec-reviewer enumerated
-    expect(lines[163]).toMatch(/\b8 specialist agents\b/);
-    expect(lines[163]).toMatch(/spec-reviewer/);
+    // L105 — "61 probes" (on-disk max-probe is 61 after STE-343/M91 added #61;
+    // +1 from L104 after the M93 verification-skills Features bullet landed)
+    expect(lines[104]).toMatch(/\b61\b\s+probes/);
+    // L140 — "Seven additional skills" (the workflow-overview pointer added
+    // under the `## Workflow` diagram; +1 from L139 after the M93 Features bullet)
+    expect(lines[139]).toMatch(/Seven additional skills/);
+    // L164 — "23 (16 + 7)" (+1 from L163 after the M93 Features bullet)
+    expect(lines[163]).toMatch(/23\s+\(16\s*\+\s*7\)/);
+    // L165 — "8 specialist agents" with spec-reviewer enumerated (+1 from L164)
+    expect(lines[164]).toMatch(/\b8 specialist agents\b/);
+    expect(lines[164]).toMatch(/spec-reviewer/);
   });
 
   test("CLAUDE.md L15 / L16 carry the byte-exact post-backfill tokens", () => {
