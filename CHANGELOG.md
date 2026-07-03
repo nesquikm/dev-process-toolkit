@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.37.0] — 2026-07-03 — "Patience"
+
+Teaches both smoke drivers to actually wait: the fire-and-exit WAIT step becomes a bounded multi-iteration poll, the Phase 0.5 wipe is verified on disk with freshness-gated chain-completeness checks so stale logs can't false-pass, orphaned grandchildren are adopted instead of abandoned, and two plugin-side fixes let /setup's placeholder ride its own bootstrap commit and document the team-managed Jira status-vocabulary path.
+
+### Added
+
+- **STE-357 — Enforce the wait discipline: bounded multi-iteration polls, no turn-end with live pidfiles.** Both driver poll fences become bounded `for i in $(seq 1 18); do kill -0 … || break; sleep 30; done` loops (≈9 min per call, `kill -0` first so the harness leading-sleep block can't reject them); red-flag prose names the harness sleep-block hint recommending `run_in_background`/Monitor as NOT-license — background-wait + end-turn IS the fire-and-exit failure; a final-message self-check re-runs the pidfile-liveness fence and resumes polling while any pidfile is live. Runtime validation ships `[~]` pending the next conformance run. (STE-357)
+- **STE-358 — Verified Phase 0.5 wipe + freshness-gated chain-completeness checks.** The wipe widens to every per-run scratch class (prompt/`.log`/`.pid`/`.rc`/`.start`/`.attempt*`/mcp-config) with a post-`rm` `ls` zero-survivors assertion replacing self-report (survivors ⇒ NFR-10 refusal naming them); `assertChainIntegrity` gains an optional `runStart` parameter — a capture whose mtime predates run-start is `capture stale (pre-run)`, never healthy — wired into `/smoke-test` Phase 2.Y and `/conformance-loop` Phase A; Phase 1 step 6 documents that the child model layer denies all settings.json writes, so pre-creation must carry the full final allow-list. (STE-358)
+- **STE-359 — Orphan adoption for surviving grandchildren.** `/conformance-loop` Phase A scans the leg's six-skill pidfiles after a driver exits and adopts any still-answering PID — polled to exit with the bounded discipline before the leg-completeness check runs (adoption recovers evidence, not the chain); both drivers document the killed-with-parent vs survives-as-orphan nondeterminism as a residual risk with adoption as the deterministic recovery. Runtime validation ships `[~]`. (STE-359)
+- **STE-360 — Exempt the /setup Bun zero-match placeholder from pre-commit-tdd-orchestrator.** Staged `src/.placeholder.test.ts` carrying the `Bun zero-match workaround` marker (or staged as a deletion) no longer blocks the bootstrap commit; the dual key reads the index blob so a marker-less rename stays tdd-required, and mixed commits still require /tdd evidence; /setup's step 8b documents that the placeholder rides the bootstrap commit. (STE-360)
+- **STE-361 — adapters/jira.md: transitions API as primary status-vocabulary path for team-managed projects.** New `list_project_statuses()` section documents the two-path probe order — `getVisibleJiraProjects` `"simplified": true` detection, `allowedValues` company-managed-only, `getTransitionsForJiraIssue` → `to.name` (dedup in API order) primary for team-managed — preserving the ordered-verbatim string-array contract, with the zero-issue statusCategory fallback; /setup step 7f names the fallback ordering. (STE-361)
+
+Total test count at release: 3577 tests, 0 failures, 0 errors.
+
+## [2.36.0] — 2026-07-02 — "Integrity"
+
+Makes the smoke-driver chain complete end-to-end headless: Phase 0.5 cleanup is scoped per tracker so tandem legs can't delete each other's live MCP config, every grandchild spawn is detached + pidfile-polled past the 10-minute Bash ceiling with an end-of-run chain-integrity assertion barring truncated runs from green, and workspace trust is pre-seeded so the scaffolded allow-list actually enforces at the grandchild layer.
+
+### Added
+
+- **STE-354 — Scope Phase 0.5 mcp-config cleanup to the resolved tracker.** `/smoke-test` Phase 0.5 now removes only `dpt-smoke-mcp-config-<tracker>.json` — the cross-tracker glob that raced the concurrent tandem leg's Phase 1 write (2026-07-02 F1) is gone; the STE-186 staleness intent is preserved per-leg, and § Operator-driven parallelism documents the cleanup as per-tracker-scoped by the same isolation invariant. (STE-354)
+- **STE-355 — Grandchild spawn lifecycle: detached spawn + bounded poll + chain-integrity assertion.** Every canonical-chain spawn (all six `/smoke-test` Phase 2 fences AND `/conformance-loop` Phase A's two legs) is now detached with PID capture and awaited via bounded `kill -0` + `sleep 30` poll calls — no single foreground Bash call caps a grandchild at the harness 600s ceiling (F2), and ending the session with a live pidfile is forbidden (F3). New `assertChainIntegrity` (exists + non-empty + stream-json `result` event per expected capture) runs as Phase 2.Y and bars truncated runs from a green summary with the pinned `STE-355 regression: chain truncated — <child> (<reason>)` diagnostic; `/conformance-loop` Phase A mirrors it with a leg-completeness check that fails an incomplete leg regardless of RC 0. (STE-355)
+- **STE-356 — Pre-seed workspace trust so the scaffolded allow-list enforces.** `/smoke-test` Phase 1 step 6b seeds `projects["<path>"].hasTrustDialogAccepted` in the live `$CLAUDE_CONFIG_DIR/.claude.json` via backup + merge-only jq + atomic `mv` under a bounded cross-leg spinlock; a spawn-time gate refuses (NFR-10) when the entry is missing and logs the `workspace_trust_seeded` token when present; new `checkAllowlistInert` detector turns any captured "Ignoring … permissions.allow entries" warning into a high-severity finding; both threat models name workspace trust as an enforcement precondition, and Phase 5 removes the seeded entries + backup. (STE-356)
+
+Total test count at release: 3499 tests, 0 failures, 0 errors.
+
+## [2.35.0] — 2026-07-02 — "Authorized"
+
+Fixes the `/conformance-loop` false-green: the tracked `permissions.allow` now authorizes the `claude -p` child-spawn, pre-flight + gate-check fences keep the pattern from silently vanishing again, and stream-json capture + a non-empty/non-denied detector make a 0-byte or classifier-denied child a hard finding instead of a silent pass.
+
+### Added
+
+- **STE-351 — Pre-flight contains-check + `ANTHROPIC_API_KEY` guard.** `/conformance-loop` pre-flight (f) now asserts `permissions.allow` **contains** `Bash(claude:*)` (mirrored as `/smoke-test` pre-flight #10) with NFR-10 refusal + `spawn_pattern_allow_present` token; new `/gate-check` probe #62 `spawn_pattern_allowlist` fails GATE when the pattern is absent from the tracked allow-list or the scaffold snippet; new Phase 0 refusal (g) blocks runs when `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` is set (subscription-billing guard, documented override). New pure helper `spawn_pattern_allowlist.ts`. (STE-351)
+- **STE-352 — stream-json child capture + 0-byte/denied-spawn detector.** `/smoke-test` canonical-chain children are captured as `--output-format stream-json --verbose` NDJSON (closes the F2 text-mode blind spot); each child's capture is asserted non-empty and free of `permission_denials` for a `claude` spawn — either is a high-severity finding; new Phase 2.X fixture group 8 reproduces the nested spawn live. New pure helpers `smoke_child_capture.ts` + shared NDJSON reader `stream_json_events.ts`. (STE-352)
+
+### Fixed
+
+- **STE-350 — Allow-list the `claude -p` child-spawn.** The tracked `.claude/settings.json` `permissions.allow` (and the `/smoke-test` test-project scaffold) omitted the one command the whole loop runs on, so headless nested spawns fell to the auto-mode classifier and died as 0-byte grandchildren reported green (STE-252 regression). Both allow-lists now carry `Bash(claude:*)`, and all 13 spawn sites export `CLAUDE_CONFIG_DIR` once and issue a bare `claude -p` so the pattern matches. Verified live: nested-spawn probe + dual-tracker conformance run, all grandchild captures non-empty with zero denials. (STE-350)
+
+Total test count at release: 3422 tests, 0 failures, 0 errors.
+
 ## [2.34.0] — 2026-06-30 — "Moodboard"
 
 Capture & store design reference images (Deliverable A): a version-controlled `specs/design/` tree, an optional `## Design References` FR section, a `/spec-write` + `/brainstorm` image-capture step, and a deterministic `/gate-check` probe that every referenced design-image path resolves on disk.
