@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.36.0 ("Integrity")**.
+**Latest shipped release:** **v2.37.0 ("Patience")**.
 
 ### Shipped milestones
 
@@ -365,4 +365,9 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-354.1..2 | .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/smoke-test-m95-chain-integrity.test.ts |
 | AC-STE-355.1..3 | .claude/skills/smoke-test/SKILL.md, .claude/skills/conformance-loop/SKILL.md, plugins/dev-process-toolkit/adapters/_shared/src/smoke_child_capture.ts | plugins/dev-process-toolkit/tests/smoke-test-m95-chain-integrity.test.ts, plugins/dev-process-toolkit/tests/smoke-chain-integrity.test.ts |
 | AC-STE-356.1..4 | .claude/skills/smoke-test/SKILL.md, .claude/skills/conformance-loop/SKILL.md, plugins/dev-process-toolkit/adapters/_shared/src/smoke_child_capture.ts | plugins/dev-process-toolkit/tests/smoke-test-m95-chain-integrity.test.ts, plugins/dev-process-toolkit/tests/smoke-allowlist-inert.test.ts |
+| AC-STE-357.1..3 | .claude/skills/smoke-test/SKILL.md, .claude/skills/conformance-loop/SKILL.md | plugins/dev-process-toolkit/tests/smoke-driver-m96-wait-discipline.test.ts |
+| AC-STE-358.1..3 | .claude/skills/smoke-test/SKILL.md, .claude/skills/conformance-loop/SKILL.md, plugins/dev-process-toolkit/adapters/_shared/src/smoke_child_capture.ts | plugins/dev-process-toolkit/tests/smoke-chain-integrity-freshness.test.ts, plugins/dev-process-toolkit/tests/smoke-driver-m96-verified-wipe-freshness.test.ts |
+| AC-STE-359.1..3 | .claude/skills/conformance-loop/SKILL.md, .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/smoke-driver-m96-orphan-adoption.test.ts |
+| AC-STE-360.1..2 | plugins/dev-process-toolkit/templates/hooks/_lib/hooks/pre-commit-tdd-orchestrator.ts, plugins/dev-process-toolkit/skills/setup/SKILL.md | plugins/dev-process-toolkit/tests/hook-modules-pre-commit-tdd-orchestrator.test.ts, plugins/dev-process-toolkit/tests/setup-placeholder-hook-exemption-prose.test.ts |
+| AC-STE-361.1..2 | plugins/dev-process-toolkit/adapters/jira.md, plugins/dev-process-toolkit/skills/setup/SKILL.md | plugins/dev-process-toolkit/tests/jira-md-conformance.test.ts |
 
