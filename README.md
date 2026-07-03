@@ -174,7 +174,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.36.0 — "Integrity"** (M95 makes the smoke-driver chain complete end-to-end headless — per-tracker scratch isolation, detached-spawn + bounded-poll grandchild lifecycle with a chain-integrity assertion, and pre-seeded workspace trust so the scaffolded allow-list actually enforces.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.37.0 — "Patience"** (M96 teaches the smoke drivers to wait — bounded multi-iteration polls with a final-message pidfile self-check, a disk-verified scratch wipe with freshness-gated chain-completeness checks, orphan adoption for surviving grandchildren, plus the /setup placeholder hook exemption and the team-managed Jira status-vocabulary path.)
 
 ## Core Philosophy
 
