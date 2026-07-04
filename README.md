@@ -175,7 +175,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.37.0 — "Patience"** (M96 teaches the smoke drivers to wait — bounded multi-iteration polls with a final-message pidfile self-check, a disk-verified scratch wipe with freshness-gated chain-completeness checks, orphan adoption for surviving grandchildren, plus the /setup placeholder hook exemption and the team-managed Jira status-vocabulary path.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.38.0 — "Test Drive"** (M93 gives projects a place to plug in a post-`/implement` verification skill: a `## Verification` convention plus a new `/implement` Phase 4b″ hook that runs the declared check after the gate passes and, on failure, classifies + proposes the next command; a stack-aware scaffold generator wired into `/setup` and `/implement` with a `/visual-check` fallback; and an authoring guide, `patterns.md` entry, and per-stack examples.)
 
 ## Core Philosophy
 
