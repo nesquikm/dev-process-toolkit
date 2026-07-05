@@ -341,6 +341,21 @@ This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template sc
 
 ### Phase 2 — Run the canonical chain
 
+#### Phase-2-entry context probe — SMOKE-CTX (STE-365)
+
+**Before the first grandchild spawn**, run this deterministic stdin-tty probe and read its banner line. It turns the driver's *belief* about its own execution context into an *observed fact* at the decision point — the fix for F3 (2026-07-04 conformance run: the driver misidentified its own `claude -p` context as interactive, fired the `/setup` grandchild via `run_in_background`, then ended the turn awaiting a completion notification that under `claude -p` never arrives, so `/setup` was torn down mid-run):
+
+```bash
+# Phase-2-entry context probe — run ONCE and read the banner before any spawn.
+if [ -t 0 ]; then
+  echo "SMOKE-CTX: interactive tty"
+else
+  echo "SMOKE-CTX: headless (claude -p) — background-task notifications will NOT arrive; the ONLY sanctioned wait is the bounded kill-0 poll. Do NOT run_in_background, do NOT Monitor, do NOT yield the turn to await a grandchild."
+fi
+```
+
+A `SMOKE-CTX: headless (claude -p)` banner is the common case for a `/conformance-loop`-spawned leg: every grandchild wait MUST use the bounded `kill -0` poll-until-exit loop below — never `run_in_background`, never the `Monitor` tool, never ending the turn to await a completion notification (F3). Only a `SMOKE-CTX: interactive tty` banner means a human is at the keyboard.
+
 Spawn one `claude-st -p` child per skill, sequentially. Each child:
 
 - Has `cwd=../dpt-test-project-<tracker>`.
@@ -448,6 +463,8 @@ Every Phase 2 spawn has explicit stdin handling — no spawn relies on the child
 
 - **Non-prompt-bearing children** (`/spec-review`, `/simplify`, `/gate-check`) — the slash command alone fully specifies the work; no extra prompt body is needed. Pipe `< /dev/null` immediately before the log redirect to skip `claude -p`'s 3-second auto-stdin-detect wait (smoke #9 / Linear F5 — STE-188). The warning `Warning: no stdin data received in 3s, proceeding without it.` is the source signal; `< /dev/null` is the documented remediation.
 - **Prompt-bearing children** (`/setup`, `/spec-write`, `/implement`) — covered by STE-185's heredoc-on-stdin discipline (per-skill prompt body inlined; see § STE-185 below). Adding `< /dev/null` to those would close stdin before the heredoc body is read and break prompt delivery — the partition is deliberate.
+
+> ⛔ **FORBIDDEN at this spawn site.** Do NOT await a grandchild with the Bash tool's `run_in_background` parameter, the `Monitor` tool, or by ending the turn "waiting for the completion notification" — under `claude -p` the notification never arrives (F3, 2026-07-04 conformance run: both legs fire-and-exited here). The ONLY sanctioned wait is the bounded `kill -0` poll-until-exit loop (§ Grandchild spawn lifecycle above) run in the foreground.
 
 Reference snippets — non-prompt-bearing children:
 
