@@ -247,6 +247,7 @@ fi
 
 ```bash
 # Final-message self-check — run before ANY final message (success or failure).
+setopt local_options null_glob 2>/dev/null || shopt -s nullglob 2>/dev/null || true
 LIVE=""
 for PIDFILE in /tmp/dpt-conformance-loop-*.pid; do
   [ -e "${PIDFILE}" ] || continue
