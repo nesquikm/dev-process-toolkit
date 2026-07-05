@@ -211,9 +211,9 @@ Phase 2's heredoc-injected `<dpt:auto-approve>v1</dpt:auto-approve>` body line i
 After Phase 0 acceptance, before Phase 1.1, unconditionally clear stale per-run scratch from prior invocations, then verify the wipe on disk. Every per-run scratch class is wiped (widened per STE-358) — prompt-template scratch files, and every per-run artifact keyed on the resolved tracker: per-skill logs, pidfiles, rc files, start markers, attempt logs, and the resolved tracker's own wrapped MCP config from a prior run:
 
 ```bash
-rm -f /tmp/dpt-smoke-prompt-*.txt /tmp/dpt-smoke-<tracker>-*.log /tmp/dpt-smoke-<tracker>-*.pid /tmp/dpt-smoke-<tracker>-*.rc /tmp/dpt-smoke-<tracker>-*.start /tmp/dpt-smoke-<tracker>-*.attempt* /tmp/dpt-smoke-mcp-config-<tracker>.json
+bash -c 'rm -f /tmp/dpt-smoke-prompt-*.txt /tmp/dpt-smoke-<tracker>-*.log /tmp/dpt-smoke-<tracker>-*.pid /tmp/dpt-smoke-<tracker>-*.rc /tmp/dpt-smoke-<tracker>-*.start /tmp/dpt-smoke-<tracker>-*.attempt* /tmp/dpt-smoke-mcp-config-<tracker>.json'
 # Verify on disk — the wiped globs must yield zero survivors (no output expected):
-ls /tmp/dpt-smoke-prompt-*.txt /tmp/dpt-smoke-<tracker>-*.log /tmp/dpt-smoke-<tracker>-*.pid /tmp/dpt-smoke-<tracker>-*.rc /tmp/dpt-smoke-<tracker>-*.start /tmp/dpt-smoke-<tracker>-*.attempt* /tmp/dpt-smoke-mcp-config-<tracker>.json 2>/dev/null
+bash -c 'ls /tmp/dpt-smoke-prompt-*.txt /tmp/dpt-smoke-<tracker>-*.log /tmp/dpt-smoke-<tracker>-*.pid /tmp/dpt-smoke-<tracker>-*.rc /tmp/dpt-smoke-<tracker>-*.start /tmp/dpt-smoke-<tracker>-*.attempt* /tmp/dpt-smoke-mcp-config-<tracker>.json 2>/dev/null'
 ```
 
 **Verified wipe (STE-358; iter-2 F2).** The post-`rm` `ls` in the fence above is the pass condition: the wiped globs must yield **zero survivors** on disk (the `ls` prints nothing and exits non-zero). If any survivor is listed, refuse to proceed (NFR-10), naming the survivors in the refusal — do not continue to Phase 1.1 with stale scratch present. Self-reported "scratch cleared" without the on-disk assertion is **forbidden**: the iter-2 (2026-07-02) driver reported "Phase 0.5 — PASS (scratch cleared)" while the morning run's per-skill logs survived on disk, and a stale result-bearing log can false-pass downstream chain-completeness checks.
@@ -449,6 +449,7 @@ fi
 
 ```bash
 # Final-message self-check — run before ANY final message (success or failure).
+setopt local_options null_glob 2>/dev/null || shopt -s nullglob 2>/dev/null || true
 LIVE=""
 for PIDFILE in /tmp/dpt-smoke-*.pid; do
   [ -e "${PIDFILE}" ] || continue
