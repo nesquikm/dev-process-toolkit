@@ -196,6 +196,8 @@ PID_JIRA=$!; echo $! > "${PID_FILE_JIRA}"
 echo "detached: linear=${PID_LINEAR} jira=${PID_JIRA} — poll until both exit"
 ```
 
+> ⛔ **FORBIDDEN at this spawn site.** Do NOT await either leg with the Bash tool's `run_in_background` parameter, the `Monitor` tool, or by ending the turn "waiting for the completion notification" — under `claude -p` the notification never arrives (F3, 2026-07-04 conformance run: both legs fire-and-exited at this exact `{ claude -p ... } &` spawn). The ONLY sanctioned wait is the bounded `kill -0` poll-until-exit loop below, run in the foreground.
+
 **Bounded poll-until-exit (repeated bounded Bash calls).** After the spawn call returns, poll until both PIDs exit — the same STE-355 discipline the smoke driver's Phase 2 uses for its grandchildren (`/smoke-test` § Grandchild spawn lifecycle). Each poll call is a **bounded multi-iteration loop** iterating both legs' pidfiles inside the same loop — up to 18 checks 30 s apart, ≈ ≤540 s (≈ 9 min) per call, safely under the harness's 600 s (10-minute) per-call ceiling. That is one Bash call per ~9 min instead of ~80 single-check calls across a 40-minute leg; the old single-check-then-end-call shape is **not** sanctioned. Never fold the whole wait into one unbounded call:
 
 ```bash
