@@ -13,8 +13,19 @@ Detailed reference (CHANGELOG subsection policy, version-bump semver rules, stru
 ## Invocation
 
 - `/ship-milestone M<N>` — explicit milestone.
-- `/ship-milestone` — no-arg form picks the **most recent in-progress milestone**: the `specs/plan/M<N>.md` with `status: active` (or with `frozen_at: null`). Refuse with NFR-10 if none qualifies.
+- `/ship-milestone` — no-arg form picks the **most recent in-progress milestone**: the `specs/plan/M<N>.md` with `status: active` (or with `frozen_at: null`). If none qualifies, run the ship-debt offer below before refusing.
 - Optional flags: `--version X.Y.Z` (override inferred bump), `--codename "<name>"` (skip prompt), `--summary "<text>"` (commit one-liner, else prompted).
+
+### Ship-debt offer
+
+When the bare no-arg form (`/ship-milestone` with no argument) finds **zero** plans with `status: active`, do not fall straight into the flat "no active plan" NFR-10 refusal. First scan `specs/plan/archive/` for ship debt: archived plans whose frontmatter **lacks `shipped_in`** and that are **not parked** (no `ship_state: parked` opt-out in frontmatter — the same predicate the `plan_ship_coherence` probe reads). Order candidates **newest-first** — sort by `archived_at` descending — and offer each in turn with the exact prompt:
+
+```
+Unshipped archived milestone M<N> — ship it? [y/N]
+```
+
+- `y` / `yes` (case-insensitive) — proceed with that milestone exactly as if `/ship-milestone M<N>` had been invoked; resolution takes the archive-fallback leg of Flow step 1.
+- **Decline** (anything else, default `N`) — move to the next candidate; once candidates are exhausted (or none existed), emit today's refusal text and exit code byte-identically — the offer changes nothing about the declined path.
 
 ## Pre-flight refusals
 
@@ -194,6 +205,25 @@ Next steps (not automated):
   1. git push  (when ready)
   2. /pr  (open release PR if this is a branch-based flow)
   3. Update any external references (tracker milestone close, announcement)
+```
+
+### 10. Opt-in /pr chain
+
+Fires only after a **successful release commit** lands **off-trunk** (the step-7 branch gate created `release/v<X.Y.Z>`, or the run was already on a feature branch). On-trunk landings and every refusal/abort path skip this step silently. After the step-9 checklist prints, prompt (exact format, mirroring /implement Phase 5's milestone-close prompt):
+
+```
+Open ceremony PR via /pr now? (y/n):
+```
+
+- **Accept** — input is `y` or `yes` (case-insensitive, trimmed). Chain into `/pr` **in-process** with all `/pr` gates intact — the tracker-mode probe, the uncommitted-changes confirmation, and the push run exactly as on a manual `/pr` invocation. Any push happens inside `/pr` under its own confirmation; `/ship-milestone` itself still never pushes — the chain does not erode that invariant.
+- **Decline** — input is `n` / `no` / empty / any other non-matching string. Do not chain; print the hint and exit 0: `Run: /pr`.
+
+Chain-start failure ⇒ NFR-10 canonical refusal, exit non-zero:
+
+```
+/ship-milestone: attempted to chain into /pr but it failed to start: <error>.
+Remedy: verify the plugin is installed and the pr skill is enabled, then run /pr manually.
+Context: milestone=M<N>, chain=pr, skill=ship-milestone
 ```
 
 ## Rules
