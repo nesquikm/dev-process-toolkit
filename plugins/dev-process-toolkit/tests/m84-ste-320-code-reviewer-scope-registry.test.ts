@@ -7,9 +7,11 @@
 //         (docs/skill-anatomy.md:152 is OUT OF SCOPE — meta-doc of Pass-2
 //          prompt scoping, not a global disclaimer.)
 //   A10 — adapters/_shared/src/closing_summary_capability_keys.ts under-
-//         covers 8 of 20 directive-backed tokens. Final registry = exactly
-//         20 keys = Set A (every key with a literal `MUST emit `<key>``
-//         directive in /spec-write SKILL.md).
+//         covers 8 of 20 directive-backed tokens. Final registry = Set A
+//         (every key with a literal `MUST emit `<key>`` directive in
+//         /spec-write SKILL.md) — 20 keys at M84; 21 since the M97
+//         STE-362 `milestone_attach_failed` expansion; 23 since the M97
+//         STE-363 archival-assertion pair.
 //
 // Tests assert the FINAL desired state — they all FAIL until the
 // implementer lands the edits.
@@ -67,6 +69,18 @@ const EXPECTED_SET_A: ReadonlySet<string> = new Set([
   "branch_gate_remote_probe_skipped",
   "tracker_local_orphan_local",
   "tracker_local_reconciled",
+  // Post-M84 expansion (M97 STE-362): loud permanent-failure surface for
+  // the project-milestone attach. The pin moves consciously — the key
+  // carries a literal `MUST emit \`milestone_attach_failed\`` directive
+  // in /spec-write SKILL.md, keeping Set A = discovered directives.
+  "milestone_attach_failed",
+  // Post-M84 expansion (M97 STE-363): archival-time milestone-binding
+  // assertion outcomes. The pin moves consciously 21 → 23 — both keys carry
+  // literal `MUST emit \`<key>\`` directives in /spec-write SKILL.md's § 7
+  // static map row (and in /spec-archive + /implement, pinned by the
+  // STE-363 meta-tests), keeping Set A = discovered directives.
+  "milestone_label_asserted_at_archive",
+  "milestone_label_archive_refused",
 ]);
 
 // Keys explicitly excluded from registration — they appear only as table-
@@ -169,9 +183,9 @@ describe("AC-STE-320.2 — adaptation-guide echo rewritten, skill-anatomy preser
 // AC-STE-320.3 — Registry expansion: 12 → 20 keys = Set A byte-for-byte
 // ---------------------------------------------------------------------------
 
-describe("AC-STE-320.3 — closing_summary_capability_keys.ts contains exactly 20 keys = Set A", () => {
-  test("CANONICAL_CAPABILITY_KEYS length is exactly 20", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(20);
+describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-for-byte (count grows only via conscious bumps below)", () => {
+  test("CANONICAL_CAPABILITY_KEYS length is exactly 23", () => {
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(23);
   });
 
   test("CANONICAL_CAPABILITY_KEYS contains every key in Set A", () => {
@@ -211,7 +225,7 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts contains exactly 2
     while ((match = re.exec(body)) !== null) {
       discovered.add(match[1]!);
     }
-    expect(discovered.size).toBe(20);
+    expect(discovered.size).toBe(23);
     for (const key of EXPECTED_SET_A) {
       expect(discovered.has(key)).toBe(true);
     }

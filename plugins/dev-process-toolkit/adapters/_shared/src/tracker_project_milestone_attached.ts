@@ -79,7 +79,7 @@ export interface TrackerProjectMilestoneAttachedDeps {
   milestoneBinding?: "object" | "label";
 }
 
-interface FrFrontmatter {
+export interface FrFrontmatter {
   milestone: string | null;
   status: string | null;
   // The bound tracker's key (`linear`, `jira`, or a custom adapter key) and
@@ -92,7 +92,10 @@ interface FrFrontmatter {
   trackerId: string | null;
 }
 
-function parseFrFrontmatter(content: string): FrFrontmatter {
+// Exported: assert_milestone_binding_at_archive (the archival-boundary
+// assertion, M97) shares this walk so the two milestone-binding surfaces
+// can never drift on frontmatter interpretation.
+export function parseFrFrontmatter(content: string): FrFrontmatter {
   const lines = content.split("\n");
   if (lines[0] !== "---") {
     return { milestone: null, status: null, trackerKey: null, trackerId: null };
