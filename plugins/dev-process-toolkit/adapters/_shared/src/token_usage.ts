@@ -14,6 +14,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -56,21 +57,31 @@ export function writeSessionRows(
 ): void {
   const path = ledgerPath(projectRoot);
 
-  let existing: TokenLedgerRow[] = [];
-  if (existsSync(path)) {
-    existing = readFileSync(path, "utf-8")
-      .split("\n")
-      .filter((line) => line.trim() !== "")
-      .map((line) => JSON.parse(line) as TokenLedgerRow)
-      .filter((row) => row.session_id !== sessionId);
-  }
+  // Fail-open read: a corrupted line on disk must never wedge the capture
+  // path (the hook would silently drop every future session's rows). The
+  // capture write is mandatory, so malformed lines are dropped here
+  // (self-heal) — unlike claimRowsForFR, which has no obligation to write
+  // and therefore declines to persist over bytes it could not fully parse.
+  const existing = readLedgerRows(projectRoot).filter(
+    (row) => row.session_id !== sessionId,
+  );
 
   const next = [...existing, ...rows];
+  atomicWriteLedger(path, next);
+}
+
+/**
+ * Whole-ledger write via temp-file + rename so a crash or concurrent reader
+ * never observes a torn (half-written) file. Concurrent read-modify-write
+ * cycles can still lose the slower writer's rows (last writer wins) — an
+ * accepted limitation for this advisory, self-correcting ledger: every
+ * SessionEnd/Stop fire re-derives its whole session from the transcript.
+ */
+function atomicWriteLedger(path: string, rows: TokenLedgerRow[]): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(
-    path,
-    next.map((row) => JSON.stringify(row)).join("\n") + "\n",
-  );
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
+  renameSync(tmp, path);
 }
 
 /**
@@ -109,9 +120,7 @@ export function rewriteLedgerRows(
   projectRoot: string,
   rows: TokenLedgerRow[],
 ): void {
-  const path = ledgerPath(projectRoot);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
+  atomicWriteLedger(ledgerPath(projectRoot), rows);
 }
 
 /** Sentinel `skill` value for transcript lines carrying no attributionSkill. */
