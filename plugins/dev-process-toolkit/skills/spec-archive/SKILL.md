@@ -81,6 +81,16 @@ No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` exc
 
 `specs/technical-spec.md` holds ongoing architectural truth, not shippable work. Architectural decisions are marked `Superseded-by: FR-<N>` in place — that matches the ADR convention (adr.github.io, Nygard) and preserves the decision trail where future implementers look for it. `/spec-archive` does not edit `technical-spec.md`. If the user asks to "archive" an ADR, direct them to supersede it in place instead.
 
+### `--backfill-milestone-labels` — one-shot milestone-binding backfill sweep
+
+`/spec-archive --backfill-milestone-labels` sweeps existing FRs whose bound tickets are missing their milestone binding and backfills them. Call `backfillMilestoneLabels(provider, project, specsDir, { mode, apply })` from `adapters/_shared/src/backfill_milestone_labels.ts`: it scans **both** the active `specs/frs/` tree and the archived `specs/frs/archive/` tree, keeping only FRs that carry both a `tracker:` binding and `milestone:` frontmatter. Each FR's canonical milestone name resolves from its plan-file heading (`specs/plan/<M>.md`, falling back to `specs/plan/archive/<M>.md`); the present/missing check is adapter-aware (`object` binding → `projectMilestone.name` byte-equals the canonical name; `label` binding → the issue's labels contain `milestone-<M-token>`).
+
+**Dry-run by default.** Without `--apply` the sweep writes nothing — it fetches each bound ticket read-only and previews every intended attach as a `ticket → milestone` row. `--dry-run` names the default explicitly; pass `--apply` to perform the attaches. Re-running `--apply` after a clean sweep is a no-op: every ticket classifies as already-correct and zero writes fire.
+
+**Aggregate report.** The sweep closes with the three count buckets — `backfilled` (attached this run, or intended in a dry-run), `already-correct` (binding present, skipped with no write), `failed` (attach did not land) — and, per failed ticket, its id, the expected milestone, and the plan file it maps to, each with the NFR-10 canonical detail (Remedy line). The sweep is best-effort per ticket: one failed attach is recorded and the remaining FRs still process; no partial abort.
+
+**Scope + vacuity.** FR-backed only: the sweep iterates FR files and their `tracker:` bindings — it never enumerates the tracker board, so a ticket with no FR (ad-hoc bugs, board-only items) can never be fetched or touched. Under `mode: none`, or when the adapter declares `project_milestone: false`, the sweep is vacuous — zero candidates, no tracker call, empty report.
+
 ### Diff Preview
 
 Before any filesystem change, render a diff preview the user can confirm or reject. For single-FR archival:
