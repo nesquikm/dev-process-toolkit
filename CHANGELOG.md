@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.40.0] — 2026-07-06 — "Stamped"
+
+Makes "shipped" a deterministic file property and turns the post-merge ship ceremony from unsupported folklore into a guided, gate-backed flow (M99) — motivated by M98 sitting merged-but-unshipped for two days with every version signal coherently stale.
+
+### Added
+
+- `/ship-milestone` stamps `shipped_in: v<X.Y.Z>` into the resolved plan's frontmatter inside the atomic release commit (live and archive-fallback paths); `stampShippedIn` helper is byte-preserving, idempotent, and double-ship-guarded; a one-shot backfill stamped all 95 legacy archived plans. (STE-368)
+- `plan_ship_coherence` gate probe (#63, ERROR): stamped archived plans must match a CHANGELOG heading, archived-unstamped-unparked fails the gate with the ceremony-recipe remedy, and `ship_state: parked` renders as a GATE PASSED WITH NOTES row; `/spec-archive` gains `--parked` + both exit hints. (STE-369)
+- Post-merge ceremony surfacing: `/pr` soft ship-state pre-flight (`[m]erge later / [s]hip first / [a]bort` + `Follow-up:` PR-body line), bare-`/ship-milestone` ship-debt offer, opt-in `Open ceremony PR via /pr now?` chain after off-trunk release commits, and a `## Post-merge ceremony` recipe in the reference docs. (STE-370)
+
+Total test count at release: 3819 tests, 0 failures, 0 errors.
+
 ## [2.39.0] — 2026-07-06 — "Headless"
 
 Hardens the autonomous headless (`claude -p`) `/conformance-loop` path (M98) — fixes the three smoke/conformance infrastructure findings from the 2026-07-04 live run so an autonomous run gets past its own driver and actually exercises the plugin under test.
