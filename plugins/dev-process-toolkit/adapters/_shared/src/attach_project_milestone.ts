@@ -122,13 +122,17 @@ const defaultSleep = (ms: number): Promise<void> =>
 /**
  * STE-362 AC-STE-362.1 — transient-only retry around one attach +
  * read-back-verify round-trip. The fast-path attempt runs with no wait; a
- * transient/network failure (Gateway-Timeout / 504 / connection reset /
- * equivalent) retries the WHOLE round-trip on the canonical `1s + 2s + 4s`
- * schedule. A `MilestoneAttachmentError` (binding mismatch — the write landed
- * but the read-back disagrees) is non-transient and NEVER retries: retrying a
- * mismatch would mask a real config bug (e.g., forwarding a milestone ID
- * instead of a name). The success path adds no latency (sleep fires only
- * after a caught transient error).
+ * failure retries the WHOLE round-trip on the canonical `1s + 2s + 4s`
+ * schedule. Classification is **by exclusion**: only `MilestoneAttachmentError`
+ * (binding mismatch — the write landed but the read-back disagrees) is
+ * known-permanent and NEVER retries (retrying a mismatch would mask a real
+ * config bug, e.g. forwarding a milestone ID instead of a name). Every other
+ * throw — Gateway-Timeout / 504 / connection reset, but also e.g. a 401 — is
+ * treated as possibly-transient and retried; MCP error shapes are too varied
+ * for a reliable positive network-class match (same trade-off as the
+ * `upsertTicketMetadata` idempotency retry), at the cost of ~7s extra latency
+ * before a genuinely permanent non-mismatch error surfaces. The success path
+ * adds no latency (sleep fires only after a caught error).
  */
 async function retryTransient<T>(
   roundTrip: () => Promise<T>,

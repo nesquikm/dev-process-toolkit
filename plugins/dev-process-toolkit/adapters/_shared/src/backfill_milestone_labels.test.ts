@@ -384,3 +384,23 @@ describe("AC-STE-364.4 — FR-backed scope + vacuity", () => {
     expect(stub.calls).toEqual([]);
   });
 });
+
+// Phase 3 Stage C hardening (M97): an FR whose plan file exists in NEITHER
+// specs/plan/ nor specs/plan/archive/ is skipped — never fetched, in no
+// bucket (probe #27 owns the orphan-milestone diagnostic).
+describe("hardening — FR with a plan file missing from both trees is skipped", () => {
+  test("orphan-milestone FR: zero fetches, absent from every report bucket", async () => {
+    const { specsDir } = makeRepo();
+    writeFr(specsDir, "STE-901"); // healthy candidate (M31 plan exists)
+    writeFr(specsDir, "STE-902", { milestone: "M404" }); // no plan anywhere
+    const stub = makeStub({ tickets: { "STE-901": {} } });
+    const report = await backfillMilestoneLabels(makeProvider(stub), "DPT", specsDir, {
+      mode: "linear",
+      apply: true,
+    });
+    const everyBucket = [...report.backfilled, ...report.alreadyCorrect, ...report.failed];
+    expect(everyBucket.some((e) => e.ticketId === "STE-902")).toBe(false);
+    expect(stub.calls.filter((c) => c.includes("STE-902"))).toEqual([]);
+    expect(report.backfilled.map((e) => e.ticketId)).toEqual(["STE-901"]);
+  });
+});
