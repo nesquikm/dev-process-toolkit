@@ -32,13 +32,14 @@ Full decision table: `docs/resolver-entry.md`.
 
 ### 1. Archival procedure
 
-Archival uses the same code path as `/implement` Phase 4.
+Archival uses the same code path as `/implement` Phase 4. The milestone-binding assertion below is **FR-backed scope only**: it iterates exactly the FR files being archived and their `tracker:` bindings — it never enumerates the tracker board and never fetches a ticket that has no FR; bugs and ad-hoc tickets are out of scope by construction.
 
 **Single-FR archival** (argument resolved to one ULID):
 
 1. Locate the FR file: read the spec's frontmatter and compute its base name via `Provider.filenameFor(spec)`. Verify `status: active` or `status: in_progress`.
 2. Present the Diff Preview (§ Diff Preview below) — the filename move, the frontmatter flip, and any `Provider.releaseLock` call.
 3. On explicit approval:
+   - **Milestone-binding assertion (tracker mode, `project_milestone: true`).** Before any move, call `assertMilestoneBindingAtArchive(provider, project, frFile, { projectRoot, mode })` from `adapters/_shared/src/assert_milestone_binding_at_archive.ts`: it fetches the FR's bound ticket and verifies the adapter-aware milestone binding (`object` → `projectMilestone.name` byte-equals the plan-heading canonical name; `label` → `labels` contains `milestone-<M-token>`), attaching once on a miss. Vacuous under `mode: none`, on capability-gap adapters, or when the plan file is absent. A `refused` outcome (the single attach attempt did not land) **refuses the archive** with the NFR-10 canonical shape naming the ticket, the expected label/milestone name, and the remedy (run `/spec-archive --backfill-milestone-labels`, or attach the milestone manually, then re-run) — the FR stays `status: active` and no `git mv` fires.
    - `git mv specs/frs/<name> specs/frs/archive/<name>` using the `Provider.filenameFor(spec)` base — stem preserved across the move. Archival never renames.
    - Flip frontmatter `status: active` → `status: archived`; set `archived_at: <ISO now>`. **Precision: full ISO-8601 with date + time + Z (e.g., `2026-04-30T17:23:11Z`); not date-only with zeroed time.** Render the wall-clock instant via `date -u +%Y-%m-%dT%H:%M:%SZ`, never the shorter `date +%Y-%m-%d` form (it rounds to midnight UTC, which an earlier smoke caught as a regression shape).
    - **Rewrite traceability links.** Call `rewriteArchiveLinks(repoRoot, frId)` from `adapters/_shared/src/spec_archive/rewrite_links.ts`. It scans `specs/requirements.md`, every `specs/plan/*.md`, every `specs/plan/archive/*.md`, and `CHANGELOG.md` (scoped to lines above the first dated `## [X.Y.Z] — YYYY-MM-DD` header — released sections are frozen) for `frs/<id>.md` references and rewrites them to `frs/archive/<id>.md`. Both Markdown link forms (`](frs/<id>.md)` and `](./frs/<id>.md)`) and bare path mentions are covered. Orphan FRs (no references anywhere) yield an empty rewrite, no error. The rewrites land in the **same atomic commit** as the `git mv` and frontmatter flip.
@@ -52,6 +53,7 @@ Archival uses the same code path as `/implement` Phase 4.
 
 1. Scan every active `specs/frs/*.md` for `milestone == M<N>`. If the match set is empty, branch to **plan-only archival** (STE-200 AC-STE-200.1, see below); otherwise refuse cleanly with `"M<N> has plan with unchecked ACs and no FRs; ambiguous state"` only when the plan is present but the auto-detect heuristic does not fire.
 2. Build the batch:
+   - Per matched FR (tracker mode): call `assertMilestoneBindingAtArchive` (same helper + arguments as the single-FR path) before that FR's `git mv` — the milestone binding is verified per FR, not once per batch. On a `refused` outcome the batch skips **only the offending FR** — no `git mv`, no frontmatter flip, no `releaseLock` for it — reports it with the same NFR-10 detail, and the other FRs proceed.
    - Per matched FR: `git mv specs/frs/<Provider.filenameFor(spec)> specs/frs/archive/<same-name>` + frontmatter flip + traceability-link rewrite (`rewriteArchiveLinks(repoRoot, frId)`) + `Provider.releaseLock`.
    - If `specs/plan/M<N>.md` exists, include `git mv specs/plan/M<N>.md specs/plan/archive/M<N>.md`.
 3. Present the Diff Preview covering every move + flip + traceability rewrite + release.
@@ -70,6 +72,8 @@ Archival uses the same code path as `/implement` Phase 4.
 `--parked` flag (AC-STE-369.4): `/spec-archive M<N> --parked` additionally writes `ship_state: parked` into the plan's frontmatter during the archival flip (milestone-group or plan-only — any path that moves the plan file). The `+ship_state: parked` line renders inside the existing mandatory Diff Preview approval gate — no new prompt. Parking marks the milestone as deliberately unshipped: the `plan_ship_coherence` gate probe surfaces it as a `parked milestones:` NOTES row instead of a violation. Unparking happens by shipping.
 
 **Exit hints** (milestone archival closing line): default runs end `Archived. Next: /ship-milestone M<N>`; parked runs end `Archived (parked). Unpark by shipping: /ship-milestone M<N>`.
+
+**Capability tokens (closing summary).** Per archived FR, the closing summary MUST emit `milestone_label_asserted_at_archive` when the milestone-binding assertion passed (binding present, or missing-then-attached) and MUST emit `milestone_label_archive_refused` when the assertion refused that FR's archive (attach did not land — FR skipped, still `status: active`). Exactly one literal backticked token per archived FR; narrative paraphrase is insufficient — `/gate-check`'s `closing_summary_capability_keys` probe greps the literal.
 
 No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` except the frontmatter flip (`status` / `archived_at`, plus `ship_state` under `--parked`) at move time. Full reference: `docs/layout-reference.md` § `/spec-archive`.
 
@@ -96,7 +100,7 @@ Before any filesystem change, render a diff preview the user can confirm or reje
 +++ (tracker-less: no lock file present)              — return "already-released" (silent no-op)
 ```
 
-For milestone-group archival, list each `git mv`, each frontmatter flip, each `releaseLock`, and the optional plan-file move explicitly. Do not summarize — the user must be able to read the full plan and confirm or reject. Close the bulk Diff Preview with a single aggregate summary row naming the two `releaseLock` return counts:
+For milestone-group archival, list each `git mv`, each frontmatter flip, each `releaseLock`, each FR's milestone-binding assertion outcome (`present` / `attached` / `refused` / vacuous — refused FRs render as skipped), and the optional plan-file move explicitly. Do not summarize — the user must be able to read the full plan and confirm or reject. Close the bulk Diff Preview with a single aggregate summary row naming the two `releaseLock` return counts:
 
 ```
 releaseLock summary: <N transitioned, M already-released>
