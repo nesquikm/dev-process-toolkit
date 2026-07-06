@@ -74,6 +74,7 @@ The set of files `/ship-milestone` is allowed to stage is pinned at:
 - `CHANGELOG.md`
 - `README.md`
 - every file under `docs/` (for the `/docs --commit --full` step)
+- the resolved plan path — `specs/plan/M<N>.md`, or `specs/plan/archive/M<N>.md` on the archive-fallback leg — for the `shipped_in` frontmatter stamp
 
 Anything else in `git status --porcelain` triggers pre-flight refusal 2. `/ship-milestone` never runs `git add -A`; it `git add`s each path explicitly.
 
