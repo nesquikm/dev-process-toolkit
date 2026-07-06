@@ -25,6 +25,8 @@ SDD doesn't replace TDD — it wraps it. Tests are still written first, but they
 
 `[Brainstorm]` is optional — run `/brainstorm` before writing specs when the solution space is genuinely open. `[→ Debug]` is the path when a gate check fails and the cause isn't immediately clear.
 
+A passing gate check proves the code compiles, lints, and its tests pass — not that the built thing actually runs or looks right in the app. A project-authored **verification skill** closes that gap: declare a `verify_skill` in a `## Verification` block and `/implement`'s Phase 4b″ runs it after the gate is green. See the [verification-skills authoring guide](verification-skills.md).
+
 ### 1. Specs Define the Contract
 
 Specs live in `specs/` and follow the file-per-FR layout:

@@ -1,0 +1,67 @@
+---
+name: <slug>
+description: Drive the running web UI in a real browser and assert the user journey end-to-end (navigate, click, type, read the DOM, check the console). Fill in the TODO steps for <name>.
+disable-model-invocation: true
+allowed-tools: Bash, mcp__claude-in-chrome__navigate, mcp__claude-in-chrome__computer, mcp__claude-in-chrome__read_page, mcp__claude-in-chrome__read_console_messages
+---
+
+# <name> — Web UI runtime check
+
+A runnable scaffold for a project-authored verification skill that drives the
+**running web UI** in a real browser and asserts the user journey end-to-end.
+Uses Chrome MCP directly, or delegates the visual pass to
+`/dev-process-toolkit:visual-check` when a rubber-duck MCP is configured.
+
+> Read the authoring guide — `docs/verification-skills.md` — before filling this
+> in. It covers how `verify_skill` wires this into the `## Verification` hook and
+> why the disable-model-invocation marker keeps the skill opt-in.
+
+## What this checks
+
+The real front-end journey rendered in a browser — routing, interaction, dynamic
+content, and console health — which unit/component tests cannot observe.
+Deterministic gates (typecheck, lint, `test`) run first and always win; this
+check adds the runtime UI behavior on top.
+
+TODO — list the concrete journey to assert, e.g.:
+
+- [ ] `<start-path>` renders with no console errors and no broken layout.
+- [ ] Clicking `<selector>` navigates to `<next-path>`.
+- [ ] Typing `<sample-input>` into `<field-selector>` and submitting shows `<result>`.
+- [ ] Responsive layout holds at mobile / tablet / desktop widths.
+
+## How to run
+
+1. **Start the dev server** and confirm it answers:
+
+   ```bash
+   # TODO: replace with your project's dev-server command + URL
+   curl -s -o /dev/null -w "%{http_code}" http://localhost:5173
+   ```
+
+   If it is not `200`, launch the server in the background, wait, then re-check.
+
+2. **Prefer the duck when available.** If a rubber-duck MCP is configured, hand
+   the checklist to `/dev-process-toolkit:visual-check` and let the duck drive
+   Chrome. Otherwise drive Chrome MCP directly (steps 3–4).
+
+3. **Navigate + drive** with the Chrome MCP tools:
+   - `mcp__claude-in-chrome__navigate` to `<start-path>`.
+   - `mcp__claude-in-chrome__read_page` to locate targets by text/selector.
+   - `mcp__claude-in-chrome__computer` to click and type through each step.
+   TODO: the exact tool set depends on your `.mcp.json`; adjust the
+   `allowed-tools` list above to match.
+
+4. **Check the console** with `mcp__claude-in-chrome__read_console_messages`
+   after the flow. Any JS error or unhandled rejection is a FAIL.
+
+5. **Report** a pass/fail line per journey step:
+   - ✓ what passed
+   - ✗ what failed (with the path/selector where it broke)
+
+## Notes
+
+- `verify_skill: visual-check` is a valid shortcut if all you need is the generic
+  visual pass — reach for this bespoke skill when the journey needs project logic.
+- The `disable-model-invocation: true` marker keeps this skill opt-in.
+- TODO: delete these Notes once the steps above are project-specific.

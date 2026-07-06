@@ -1,0 +1,56 @@
+---
+name: <slug>
+description: Project-authored end-to-end verification skill for <name>. Replace every TODO below with the concrete runtime check your stack needs.
+disable-model-invocation: true
+allowed-tools: Bash, Read
+---
+
+# <name> — end-to-end check (stack-neutral stub)
+
+A deliberately **all-TODO** scaffold for stacks the generator has no bespoke
+template for. It gives you the required shape — frontmatter, the two sections,
+and the opt-in marker — and leaves the runtime steps for you to author.
+
+> Read the authoring guide — `docs/verification-skills.md` — first. It walks
+> through choosing what to verify, wiring the skill via `verify_skill`, and why
+> the disable-model-invocation marker keeps it opt-in (never auto-invoked).
+
+## What this checks
+
+TODO — describe, in one or two sentences, the real end-to-end behavior this skill
+asserts that your deterministic gates (build / lint / tests) cannot. A good check
+drives the actual running artifact — a CLI, a service, a device — through a user
+journey and confirms the observed outcome.
+
+TODO — enumerate the concrete assertions:
+
+- [ ] TODO: precondition / entry point is reachable.
+- [ ] TODO: the primary journey produces the expected observable result.
+- [ ] TODO: no errors / warnings surface during the run.
+
+## How to run
+
+TODO — replace this with the exact commands or MCP tool calls for your stack.
+Widen `allowed-tools` in the frontmatter to include whatever this procedure uses
+(HTTP client, browser MCP, device driver, …).
+
+1. TODO: bring the artifact up (start the server / launch the app / build the CLI).
+
+   ```bash
+   # TODO: your launch / build command here
+   ```
+
+2. TODO: drive the journey step by step, asserting each observable outcome.
+
+3. TODO: tear down anything the run created so it is repeatable.
+
+4. **Report** a pass/fail line per step:
+   - ✓ what passed
+   - ✗ what failed (with where it broke)
+
+## Notes
+
+- The `disable-model-invocation: true` marker keeps this skill opt-in — it runs
+  only when a workflow explicitly invokes it through `verify_skill`.
+- TODO: once you have filled this in, delete every remaining TODO and this Notes
+  block.

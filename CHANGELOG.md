@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.39.0] — 2026-07-06 — "Headless"
+
+Hardens the autonomous headless (`claude -p`) `/conformance-loop` path (M98) — fixes the three smoke/conformance infrastructure findings from the 2026-07-04 live run so an autonomous run gets past its own driver and actually exercises the plugin under test.
+
+### Changed
+
+- Workspace trust becomes an operator **precondition** instead of a self-write. `/smoke-test` asserts `hasTrustDialogAccepted` (never writes it — the harness self-modification classifier denies that write under `claude -p`) and refuses with the jq seed one-liner if absent; `/conformance-loop` gains an up-front pre-flight (h) asserting both test-project paths; teardown no longer removes trust (operator-owned, persistent). Supersedes STE-356's self-seed. (STE-367)
+
+### Fixed
+
+- Fire-and-exit guard: `/smoke-test` Phase 2 opens with a `SMOKE-CTX` `[ -t 0 ]` context probe so the driver can no longer misidentify its `claude -p` context as interactive, plus a co-located prohibition on `run_in_background` / `Monitor` / turn-yield at both drivers' spawn sites and a drift meta-test. Attacks the F3 root cause that recurred despite M96's prose guardrails. (STE-365)
+- zsh-safe glob fences: the Phase 0.5 wipe `rm` + verify `ls` are wrapped in `bash -c` (preserving the STE-358 fence shape) and the final-message self-check `for`-loops are `nullglob`-guarded, so an unmatched glob no longer aborts under zsh's default `nomatch` — which had false-PASSed the verified wipe. (STE-366)
+
+Total test count at release: 3762 tests, 0 failures, 0 errors.
+
+## [2.38.0] — 2026-07-04 — "Test Drive"
+
+Gives toolkit users a place to plug in a post-`/implement` "does it actually run / look right?" check — because a green gate has never proven the app boots. A `## Verification` convention declares a project's check skill; a new `/implement` Phase 4b″ hook discovers and runs it after the gate passes, reports the outcome advisorily, and on failure classifies spec-gap vs impl-bug and proposes the next command (never auto-invoking it). `/setup` and `/implement` scaffold a stack-aware "drive" stub, or fall back to the generic `/visual-check` for small web UIs. Offers default to decline in non-interactive runs so an autonomous `/implement` never stalls.
+
+### Added
+
+- **STE-347 — `## Verification` convention + `/implement` Phase 4b″ hook.** A closed `{verify_skill, verify_mode}` CLAUDE.md block (`verify_mode ∈ {advisory (default), blocking, manual}`) plus a shared discovery-precedence resolver (declared → scan `.claude/skills/*` candidates → adopt-offer → ambiguity-ask → none) and a Phase 4b″ hook that runs the resolved check after gate-GREEN and before the step-14 report, gates the commit under `blocking`, and emits one of six literal `verify_skill_*` capability tokens. (STE-347)
+- **STE-348 — Stack-aware check-skill generator + scaffold-if-missing + `/visual-check` fallback.** A collision-safe `scaffoldCheckSkill` helper (slug charset-validated) shared by `/setup`'s opt-in seed step and `/implement`'s no-check branch writes a runnable `.claude/skills/<slug>-drive/SKILL.md` stub from four stack templates (Flutter / web / Python / generic), each carrying `disable-model-invocation: true`; `verify_skill: visual-check` is a valid zero-authoring value that routes Phase 4b″ to the shipped `/visual-check`. (STE-348)
+- **STE-349 — Verification-skills docs, `patterns.md` entry, and per-stack examples.** A new `docs/verification-skills.md` authoring guide, a `patterns.md` "Project-Authored Verification Skills" pattern cross-linking the Visual-Verification and Verification-Before-Completion patterns, worked check-skill examples for TypeScript/web, Flutter, and Python, and README + methodology cross-links. (STE-349)
+
+Total test count at release: 3739 tests, 0 failures, 0 errors.
+
 ## [2.37.0] — 2026-07-03 — "Patience"
 
 Teaches both smoke drivers to actually wait: the fire-and-exit WAIT step becomes a bounded multi-iteration poll, the Phase 0.5 wipe is verified on disk with freshness-gated chain-completeness checks so stale logs can't false-pass, orphaned grandchildren are adopted instead of abandoned, and two plugin-side fixes let /setup's placeholder ride its own bootstrap commit and document the team-managed Jira status-vocabulary path.

@@ -287,6 +287,14 @@ Procedure: pre-flight `git status --porcelain` check, stage the canonical set (C
 
 Full numbered procedure (decline + edit + failure paths): `docs/setup-reference.md` § Step 8b. Probes: `toolkit-bootstrap-committed` (#22, hard-fails on uncommitted toolkit-managed CLAUDE.md) + `setup-bootstrap-commit-subject` (#30, asserts subject + footer shape on the most recent `chore: bootstrap dev-process-toolkit*` commit; legacy-pre-FR-ship-date commits get a backwards-compat carve-out).
 
+### 8c. Seed a project check skill (opt-in)
+
+`default: skip` — offered after CLAUDE.md generation (step 5), before the 8a/8b commit sequence so the scaffold lands in the bootstrap commit. **Opt-in and skippable**; a **no-op on decline** (write nothing). Offer to scaffold a stack-aware, project-local **check skill** ("drive" skill) so `/implement` can run a real end-to-end verification pass after gate checks.
+
+On accept, call `scaffoldCheckSkill({ projectRoot, stack, slug })` from `adapters/_shared/src/scaffold_check_skill.ts`. It writes a **stack-appropriate** stub — Flutter → dart/Flutter-MCP drive; web/JS/TS → Chrome-MCP or `/dev-process-toolkit:visual-check`; Python/API → HTTP e2e; other/unknown → a documented generic TODO — to `.claude/skills/<slug>-drive/SKILL.md` with `disable-model-invocation: true` (inert until you fill its TODOs), then writes `verify_skill: <slug>-drive` into the CLAUDE.md `## Verification` block. Collision-safe: an existing skill is never overwritten (de-duplicated to `<slug>-drive-2`).
+
+Full procedure: `docs/setup-reference.md` § Step 8c — Seed a project check skill.
+
 ### 9. Verify
 
 Run gate check commands to verify they all pass. If any fail, fix immediately — don't report a broken setup.

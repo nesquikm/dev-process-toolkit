@@ -19,6 +19,7 @@ A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** wor
 - **Atomic release commits** — `/ship-milestone` enforces the multi-file Release Checklist + folds staged doc fragments into the canonical tree in one commit
 - **Spec lifecycle management** — ULID-keyed FRs, `/spec-archive` for manual archival by ULID / tracker ID / `M<N>`, post-archive drift checks
 - **Browser-based UI verification** — `/visual-check` via Chrome DevTools MCP
+- **Project-authored verification skills** — declare a `verify_skill` in a `## Verification` block and `/implement`'s Phase 4b″ runs your project's own "does it actually run / look right?" check after the gate passes; `/setup` and `/implement` scaffold a stack-aware stub, or fall back to `/visual-check` (see [`plugins/dev-process-toolkit/docs/verification-skills.md`](./plugins/dev-process-toolkit/docs/verification-skills.md))
 - **Stack-adaptive setup** — auto-detects TypeScript, Flutter, Python, Kotlin; generates `CLAUDE.md`, settings, and the `commit-msg` hook
 
 ## Install as Plugin
@@ -174,7 +175,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.37.0 — "Patience"** (M96 teaches the smoke drivers to wait — bounded multi-iteration polls with a final-message pidfile self-check, a disk-verified scratch wipe with freshness-gated chain-completeness checks, orphan adoption for surviving grandchildren, plus the /setup placeholder hook exemption and the team-managed Jira status-vocabulary path.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.39.0 — "Headless"** (M98 hardens the autonomous headless `/conformance-loop` path: a `SMOKE-CTX` context probe plus a co-located `run_in_background` prohibition stop the `/smoke-test` driver fire-and-exiting under `claude -p`; glob fences are made zsh-safe so an unmatched glob can't false-PASS the verified wipe; and workspace trust becomes an operator precondition the driver asserts rather than self-writes.)
 
 ## Core Philosophy
 
