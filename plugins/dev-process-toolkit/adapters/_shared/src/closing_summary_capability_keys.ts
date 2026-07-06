@@ -41,7 +41,9 @@ export interface ClosingSummaryCapabilityKeysReport {
  * STE-238 additions (`branch_gate_skipped_already_non_main`), and the M84
  * STE-320 expansion that closes the 12→20 directive-coverage gap (Set A —
  * every key with a literal `MUST emit \`<key>\`` directive in /spec-write
- * SKILL.md, verified by the triple-pass audit at M84). Excluded by design:
+ * SKILL.md, verified by the triple-pass audit at M84), and the M97 STE-362
+ * addition (`milestone_attach_failed` — loud permanent-failure surface for
+ * the project-milestone attach). Excluded by design:
  * `tracker_status_forced`, `tracker_status_skipped`, `tracker_status_cancelled`,
  * `tracker_status_unknown_encountered`, `tracker_tolerance_refused_non_tty`
  * — these appear only as table-header column labels at SKILL.md L330, not
@@ -68,6 +70,7 @@ export const CANONICAL_CAPABILITY_KEYS = [
   "tracker_status_genuine_drift",
   "tracker_local_orphan_local",
   "tracker_local_reconciled",
+  "milestone_attach_failed",
 ] as const;
 
 export type CapabilityKey = (typeof CANONICAL_CAPABILITY_KEYS)[number];
@@ -99,6 +102,7 @@ const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   tracker_status_genuine_drift: "spec-write",
   tracker_local_orphan_local: "spec-write",
   tracker_local_reconciled: "spec-write",
+  milestone_attach_failed: "spec-write",
 };
 
 /**

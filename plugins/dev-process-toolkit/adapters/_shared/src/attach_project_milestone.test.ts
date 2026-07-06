@@ -27,6 +27,11 @@ import {
   milestoneLabel,
   planFileHeadingToMilestoneName,
 } from "./attach_project_milestone";
+// STE-362: namespace import so the retry-wrapper contract tests can probe
+// exports that do not exist yet without a load-time named-import crash —
+// a missing member reads as `undefined` and fails via assertion instead of
+// taking the whole test file down with a SyntaxError.
+import * as attachModule from "./attach_project_milestone";
 
 interface Stub {
   milestones: { name: string }[];
@@ -574,5 +579,371 @@ describe("STE-335 AC-STE-335.7 — single live copy of the heading regex", () =>
     // accepting one or two `#` and capturing the M-token.
     expect(parser).toMatch(/#\{1,2\}/);
     expect(parser).toMatch(/M\\d\+/);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// STE-362 — transient-only retry wrapper around the attach + read-back
+// verify round-trip (AC-STE-362.1) + vacuity guarantees (AC-STE-362.4).
+//
+// Contract under test (M97):
+//   - attachProjectMilestone grows an optional 5th options param:
+//       attachProjectMilestone(provider, project, name, ticketId, { sleep })
+//     `sleep(ms)` is the injected wait the backoff schedule awaits — tests
+//     inject a recorder so no real time passes.
+//   - A transient/network failure (Gateway-Timeout / 504 / connection reset /
+//     equivalent) retries the WHOLE attach + read-back-verify round-trip on
+//     the canonical `1s + 2s + 4s` schedule: the no-wait fast-path attempt
+//     first, then up to 3 backoff attempts — the upsertTicketMetadata
+//     idempotency-retry shape from adapters/jira.md (fast path, then three
+//     backoff attempts waiting 1s / 2s / 4s; cumulative ~7s on the failure
+//     path only).
+//   - The schedule is exported as TRANSIENT_RETRY_SCHEDULE_MS =
+//     [1000, 2000, 4000] — one shared constant, no duplicated schedule.
+//   - A non-transient MilestoneAttachmentError (binding mismatch — the write
+//     landed but the read-back disagrees) NEVER retries: single round-trip,
+//     zero sleeps, immediate surface. Retrying a mismatch would mask a real
+//     config bug (e.g., forwarding a milestone ID instead of a name).
+//   - The success path adds no latency: zero sleep calls, exactly one
+//     attach + one verify.
+//   - supports("project_milestone") === false still short-circuits before
+//     any call — the wrapper never fires (AC-STE-362.4 vacuity).
+// ───────────────────────────────────────────────────────────────────────
+
+type AttachOpts = { sleep?: (ms: number) => Promise<void> };
+
+// Typed alias pinning the widened signature. The cast keeps this file
+// compiling against the pre-wrapper 4-param signature; at runtime the extra
+// argument is simply ignored by the old implementation, so the retry tests
+// fail RED via assertions (propagated transient error / empty sleep log),
+// not via a TypeError.
+const attachWithOpts = attachProjectMilestone as unknown as (
+  provider: Parameters<typeof attachProjectMilestone>[0],
+  project: string,
+  milestoneName: string,
+  ticketId: string,
+  opts?: AttachOpts,
+) => ReturnType<typeof attachProjectMilestone>;
+
+function exportedSchedule(): unknown {
+  return (attachModule as Record<string, unknown>)["TRANSIENT_RETRY_SCHEDULE_MS"];
+}
+
+function sleepRecorder(): { sleeps: number[]; sleep: (ms: number) => Promise<void> } {
+  const sleeps: number[] = [];
+  return {
+    sleeps,
+    sleep: async (ms: number) => {
+      sleeps.push(ms);
+    },
+  };
+}
+
+function countCalls(calls: string[], prefix: string): number {
+  return calls.filter((c) => c.startsWith(prefix)).length;
+}
+
+// Object-branch (Linear) provider with fault injection: each queued error is
+// thrown by the corresponding op exactly once (FIFO), then the op behaves
+// like the plain stub — modeling a transient failure that clears on retry.
+interface FlakyStub {
+  milestones: { name: string }[];
+  attached: string | null;
+  forceFinalAttach?: string | null;
+  calls: string[];
+  upsertErrors: Error[];
+  getIssueErrors: Error[];
+}
+
+function makeFlakyProvider(stub: FlakyStub) {
+  return {
+    async listMilestones(project: string): Promise<{ name: string }[]> {
+      stub.calls.push(`listMilestones(${project})`);
+      return [...stub.milestones];
+    },
+    async saveMilestone(project: string, opts: { name: string }): Promise<void> {
+      stub.calls.push(`saveMilestone(${project},${opts.name})`);
+      stub.milestones.push({ name: opts.name });
+    },
+    async upsertTicketMetadata(
+      ticketId: string,
+      meta: { milestone?: string },
+    ): Promise<string> {
+      stub.calls.push(`upsertTicketMetadata(${ticketId})`);
+      const err = stub.upsertErrors.shift();
+      if (err) throw err;
+      if (meta.milestone) stub.attached = meta.milestone;
+      return ticketId;
+    },
+    async getIssue(ticketId: string): Promise<{ projectMilestone: { name: string } | null }> {
+      stub.calls.push(`getIssue(${ticketId})`);
+      const err = stub.getIssueErrors.shift();
+      if (err) throw err;
+      const name = stub.forceFinalAttach !== undefined ? stub.forceFinalAttach : stub.attached;
+      return { projectMilestone: name ? { name } : null };
+    },
+  };
+}
+
+// Label-branch (Jira) provider with fault injection on addLabel.
+interface FlakyLabelStub {
+  labels: string[];
+  forceVerifyLabels?: string[];
+  calls: string[];
+  addLabelErrors: Error[];
+}
+
+function makeFlakyLabelProvider(stub: FlakyLabelStub) {
+  return {
+    milestoneBinding: "label" as const,
+    async listMilestones(): Promise<{ name: string }[]> {
+      stub.calls.push("listMilestones");
+      throw new Error("label branch must not call listMilestones");
+    },
+    async saveMilestone(): Promise<void> {
+      stub.calls.push("saveMilestone");
+      throw new Error("label branch must not call saveMilestone");
+    },
+    async upsertTicketMetadata(): Promise<string> {
+      stub.calls.push("upsertTicketMetadata");
+      throw new Error("label branch must not call upsertTicketMetadata for the milestone");
+    },
+    async addLabel(ticketId: string, label: string): Promise<void> {
+      stub.calls.push(`addLabel(${ticketId},${label})`);
+      const err = stub.addLabelErrors.shift();
+      if (err) throw err;
+      if (!stub.labels.includes(label)) stub.labels.push(label);
+    },
+    async getIssue(
+      ticketId: string,
+    ): Promise<{ projectMilestone?: { name: string } | null; labels?: string[] }> {
+      stub.calls.push(`getIssue(${ticketId})`);
+      const labels = stub.forceVerifyLabels !== undefined ? stub.forceVerifyLabels : stub.labels;
+      return { projectMilestone: null, labels: [...labels] };
+    },
+  };
+}
+
+describe("STE-362 AC-STE-362.1 — transient-only retry wrapper (object branch)", () => {
+  const NAME = "M97 — Milestone-label coverage";
+
+  test("canonical 1s/2s/4s backoff schedule is exported as a shared constant", () => {
+    // Shared shape with the upsertTicketMetadata idempotency retry — one
+    // exported constant, not a second hand-rolled schedule.
+    expect(exportedSchedule()).toEqual([1000, 2000, 4000]);
+  });
+
+  test("504 on attach → one 1s backoff, retry succeeds, verify lands", async () => {
+    const stub: FlakyStub = {
+      milestones: [{ name: NAME }],
+      attached: null,
+      calls: [],
+      upsertErrors: [new Error("504 Gateway Timeout")],
+      getIssueErrors: [],
+    };
+    const rec = sleepRecorder();
+    const result = await attachWithOpts(makeFlakyProvider(stub), "DPT", NAME, "STE-362", {
+      sleep: rec.sleep,
+    });
+    expect(result.capability).toBeNull();
+    // Exactly one backoff step fired (the 1s leg), then success.
+    expect(rec.sleeps).toEqual([1000]);
+    // Fast-path attempt + one retry attempt.
+    expect(countCalls(stub.calls, "upsertTicketMetadata")).toBe(2);
+    // Attempt 1 died at the attach, so only the retry reached the verify.
+    expect(countCalls(stub.calls, "getIssue")).toBe(1);
+    expect(stub.attached).toBe(NAME);
+  });
+
+  test("transient verify failure retries the WHOLE round-trip (attach re-runs too)", async () => {
+    // Connection reset on the read-back: the write may not have landed —
+    // the retry must re-run attach + verify, not just re-read.
+    const stub: FlakyStub = {
+      milestones: [{ name: NAME }],
+      attached: null,
+      calls: [],
+      upsertErrors: [],
+      getIssueErrors: [new Error("ECONNRESET: connection reset by peer")],
+    };
+    const rec = sleepRecorder();
+    const result = await attachWithOpts(makeFlakyProvider(stub), "DPT", NAME, "STE-362", {
+      sleep: rec.sleep,
+    });
+    expect(result.capability).toBeNull();
+    expect(rec.sleeps).toEqual([1000]);
+    expect(countCalls(stub.calls, "upsertTicketMetadata")).toBe(2);
+    expect(countCalls(stub.calls, "getIssue")).toBe(2);
+  });
+
+  test("two transient failures walk the schedule (1s then 2s) before succeeding", async () => {
+    const stub: FlakyStub = {
+      milestones: [{ name: NAME }],
+      attached: null,
+      calls: [],
+      upsertErrors: [
+        new Error("504 Gateway Timeout"),
+        new Error("connect ETIMEDOUT 18.205.93.1:443"),
+      ],
+      getIssueErrors: [],
+    };
+    const rec = sleepRecorder();
+    const result = await attachWithOpts(makeFlakyProvider(stub), "DPT", NAME, "STE-362", {
+      sleep: rec.sleep,
+    });
+    expect(result.capability).toBeNull();
+    expect(rec.sleeps).toEqual([1000, 2000]);
+    expect(countCalls(stub.calls, "upsertTicketMetadata")).toBe(3);
+  });
+
+  test("persistent transient failure exhausts 1s+2s+4s then surfaces the error", async () => {
+    const stub: FlakyStub = {
+      milestones: [{ name: NAME }],
+      attached: null,
+      calls: [],
+      // Fast path + all 3 backoff attempts fail.
+      upsertErrors: [
+        new Error("504 Gateway Timeout"),
+        new Error("504 Gateway Timeout"),
+        new Error("504 Gateway Timeout"),
+        new Error("504 Gateway Timeout"),
+      ],
+      getIssueErrors: [],
+    };
+    const rec = sleepRecorder();
+    let err: Error | null = null;
+    try {
+      await attachWithOpts(makeFlakyProvider(stub), "DPT", NAME, "STE-362", {
+        sleep: rec.sleep,
+      });
+    } catch (e) {
+      if (e instanceof Error) err = e;
+    }
+    expect(err).not.toBeNull();
+    // The transient error surfaces (permanent failure), NOT a mismatch shape.
+    expect(err).not.toBeInstanceOf(MilestoneAttachmentError);
+    expect(err!.message).toMatch(/504|Gateway/i);
+    // Full canonical schedule consumed: 1s + 2s + 4s.
+    expect(rec.sleeps).toEqual([1000, 2000, 4000]);
+    // Fast-path attempt + 3 backoff attempts = 4 round-trips.
+    expect(countCalls(stub.calls, "upsertTicketMetadata")).toBe(4);
+  });
+
+  test("binding mismatch (MilestoneAttachmentError) does NOT retry — zero sleeps, single round-trip", async () => {
+    // Non-transient: the write landed but the read-back disagrees. Retrying
+    // would mask a real config bug — the error must surface immediately.
+    const stub: FlakyStub = {
+      milestones: [{ name: NAME }],
+      attached: null,
+      forceFinalAttach: null, // simulate the silent-no-op mismatch on every read
+      calls: [],
+      upsertErrors: [],
+      getIssueErrors: [],
+    };
+    const rec = sleepRecorder();
+    let err: MilestoneAttachmentError | null = null;
+    try {
+      await attachWithOpts(makeFlakyProvider(stub), "DPT", NAME, "STE-362", {
+        sleep: rec.sleep,
+      });
+    } catch (e) {
+      if (e instanceof MilestoneAttachmentError) err = e;
+    }
+    expect(err).not.toBeNull();
+    expect(rec.sleeps).toEqual([]);
+    expect(countCalls(stub.calls, "upsertTicketMetadata")).toBe(1);
+    expect(countCalls(stub.calls, "getIssue")).toBe(1);
+  });
+
+  test("clean success adds no latency — zero sleeps, exactly one attach + one verify", async () => {
+    const stub: FlakyStub = {
+      milestones: [{ name: NAME }],
+      attached: null,
+      calls: [],
+      upsertErrors: [],
+      getIssueErrors: [],
+    };
+    const rec = sleepRecorder();
+    const result = await attachWithOpts(makeFlakyProvider(stub), "DPT", NAME, "STE-362", {
+      sleep: rec.sleep,
+    });
+    expect(result.capability).toBeNull();
+    expect(rec.sleeps).toEqual([]);
+    expect(countCalls(stub.calls, "upsertTicketMetadata")).toBe(1);
+    expect(countCalls(stub.calls, "getIssue")).toBe(1);
+  });
+});
+
+describe("STE-362 AC-STE-362.1 — retry wrapper covers the label branch (Jira)", () => {
+  const NAME = "M97 — Milestone-label coverage";
+
+  test("connection reset on addLabel → 1s backoff, retry lands the label", async () => {
+    const stub: FlakyLabelStub = {
+      labels: ["spec-driven"],
+      calls: [],
+      addLabelErrors: [new Error("read ECONNRESET")],
+    };
+    const rec = sleepRecorder();
+    const result = await attachWithOpts(makeFlakyLabelProvider(stub), "DPT", NAME, "GB-11", {
+      sleep: rec.sleep,
+    });
+    expect(result.capability).toBeNull();
+    expect(rec.sleeps).toEqual([1000]);
+    expect(countCalls(stub.calls, "addLabel")).toBe(2);
+    // Attempt 1 died at addLabel, so only the retry reached the verify.
+    expect(countCalls(stub.calls, "getIssue")).toBe(1);
+    expect(stub.labels).toContain("milestone-M97");
+    // Existing labels never clobbered across retries.
+    expect(stub.labels).toContain("spec-driven");
+  });
+
+  test("label-verify mismatch does NOT retry — zero sleeps, single round-trip", async () => {
+    const stub: FlakyLabelStub = {
+      labels: ["spec-driven"],
+      // Simulate editJiraIssue silently dropping the write on every read-back.
+      forceVerifyLabels: ["spec-driven"],
+      calls: [],
+      addLabelErrors: [],
+    };
+    const rec = sleepRecorder();
+    let err: MilestoneAttachmentError | null = null;
+    try {
+      await attachWithOpts(makeFlakyLabelProvider(stub), "DPT", NAME, "GB-11", {
+        sleep: rec.sleep,
+      });
+    } catch (e) {
+      if (e instanceof MilestoneAttachmentError) err = e;
+    }
+    expect(err).not.toBeNull();
+    expect(err!.binding).toBe("label");
+    expect(rec.sleeps).toEqual([]);
+    expect(countCalls(stub.calls, "addLabel")).toBe(1);
+    expect(countCalls(stub.calls, "getIssue")).toBe(1);
+  });
+});
+
+describe("STE-362 AC-STE-362.4 — vacuity: short-circuits keep the wrapper inert", () => {
+  test("supports:false short-circuits before the retry wrapper — zero calls, zero sleeps", async () => {
+    // The wrapper must exist (exported canonical schedule) so this vacuity
+    // claim is about the NEW retry wrapper, not the pre-wrapper status quo…
+    expect(exportedSchedule()).toEqual([1000, 2000, 4000]);
+    // …and yet stay fully inert on the capability short-circuit: ops primed
+    // to throw transient errors are never reached, no backoff leg fires, no
+    // extra tracker call is made.
+    const stub: FlakyStub = {
+      milestones: [],
+      attached: null,
+      calls: [],
+      upsertErrors: [new Error("504 Gateway Timeout")],
+      getIssueErrors: [new Error("504 Gateway Timeout")],
+    };
+    const rec = sleepRecorder();
+    const p = makeFlakyProvider(stub);
+    const noCap = { ...p, supports: (cap: string) => cap !== "project_milestone" };
+    const result = await attachWithOpts(noCap, "DPT", "M97 — Milestone-label coverage", "JIRA-1", {
+      sleep: rec.sleep,
+    });
+    expect(result.capability).toBe("milestone_attach_skipped_adapter_limit");
+    expect(stub.calls).toEqual([]);
+    expect(rec.sleeps).toEqual([]);
   });
 });
