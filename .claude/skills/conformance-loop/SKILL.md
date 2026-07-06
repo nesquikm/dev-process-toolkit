@@ -37,7 +37,7 @@ Context: skill=conformance-loop, flag=<flag>
 
 ## Pre-flight refusals
 
-Each fires before any side effects, exits non-zero with an NFR-10-shape message. Seven refusals (a)–(g) total; refusals (c)–(e) **delegate** to `/smoke-test`'s pre-flights of the same probe (so the canonical message and probe shape stay defined in one place). Refusal (f) is the Phase 0 `permissions.allow` pre-flight introduced by STE-252 — it runs before any `claude -p` spawn and asserts the tracked allow-list artifact is present and populated. Refusal (g) is the STE-351 subscription-billing guard — it runs before any spawn and asserts no API-billing env var is set.
+Each fires before any side effects, exits non-zero with an NFR-10-shape message. Eight refusals (a)–(h) total; refusals (c)–(e) **delegate** to `/smoke-test`'s pre-flights of the same probe (so the canonical message and probe shape stay defined in one place). Refusal (f) is the Phase 0 `permissions.allow` pre-flight introduced by STE-252 — it runs before any `claude -p` spawn and asserts the tracked allow-list artifact is present and populated. Refusal (g) is the STE-351 subscription-billing guard — it runs before any spawn and asserts no API-billing env var is set. Refusal (h) is the STE-367 workspace-trust precondition — it runs before any spawn and asserts both test-project paths are trusted.
 
 (a) **Toolkit-repo cwd.** `pwd` must end in `/dev-process-toolkit`. The skill spawns child `/smoke-test` invocations whose own pre-flight #1 expects toolkit-repo cwd; running `/conformance-loop` from elsewhere creates the test projects in the wrong place. NFR-10 canonical refusal:
 
@@ -107,7 +107,20 @@ Context: skill=conformance-loop, pre-flight=anthropic_key_guard, set=[<which-var
 
 **Interactive-override path:** an operator who *wants* API billing (e.g., a dedicated key funded for exactly this run) either unsets nothing and re-runs `/conformance-loop` in an interactive session — where the guard downgrades from hard refusal to a `y/N` cost-acknowledgment prompt (`proceed billing this API key? [y/N]`) — or exports `DPT_CONFORMANCE_ALLOW_API_BILLING=1` as the explicit override for that one invocation. Headless runs get no override prompt: non-interactive sessions cannot acknowledge cost, so the guard always refuses there unless the override variable is set. Aligns with the STE-191 KEY-surfacing pre-flight.
 
-Each refusal above carries the literal phrase **NFR-10 canonical refusal** in the surrounding prose (nine `NFR-10 canonical refusal` markers across this section: one introductory mention plus the eight refusal anchors — (a)–(e) and (g) carry one each, and the STE-351-strengthened (f) carries two, allow-list-empty and spawn-pattern-missing — satisfying the verify line `grep -c 'NFR-10 canonical refusal' >= 6`).
+(h) **Both test-project paths workspace-trusted (STE-367).** Before any `claude -p` spawn, assert that BOTH `../dpt-test-project-{linear,jira}` resolved paths carry `hasTrustDialogAccepted == true` in the operator's live `$CLAUDE_CONFIG_DIR/.claude.json`. STE-367 moved workspace-trust seeding out of the autonomous path — the harness auto-mode self-modification classifier denies the programmatic trust write under `claude -p` (2026-07-04 conformance finding F1), so the operator seeds trust **once, up front**, and this pre-flight enforces the precondition before the loop fans out (rather than each `/smoke-test` child hitting the same refusal mid-run, one Phase A leg at a time). Probe shape: `jq -e --arg p "<abs path>" '.projects[$p].hasTrustDialogAccepted == true' "$CFG"` for each resolved path. Either path untrusted → NFR-10 canonical refusal naming the untrusted path(s):
+
+```
+Workspace trust missing for <untrusted path(s)> in $CLAUDE_CONFIG_DIR/.claude.json — the scaffolded allow-list would be inert at the child/grandchild layer (2026-07-02 F4), and the /smoke-test child would refuse mid-run.
+Remedy: seed workspace trust ONCE for each untrusted path (the driver cannot — the harness self-modification classifier denies the write under claude -p):
+  CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude-st}/.claude.json"
+  for P in "$(cd ../dpt-test-project-linear && pwd)" "$(cd ../dpt-test-project-jira && pwd)"; do
+    jq --arg p "$P" '.projects[$p] |= (. // {} + {hasTrustDialogAccepted: true})' "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+  done
+Then re-run /conformance-loop. The entries persist across runs (operator-owned; /smoke-test teardown no longer removes them).
+Context: skill=conformance-loop, pre-flight=workspace_trust_check, paths=[<untrusted>]
+```
+
+Each refusal above carries the literal phrase **NFR-10 canonical refusal** in the surrounding prose (ten `NFR-10 canonical refusal` markers across this section: one introductory mention plus the nine refusal anchors — (a)–(e), (g), and (h) carry one each, and the STE-351-strengthened (f) carries two, allow-list-empty and spawn-pattern-missing — satisfying the verify line `grep -c 'NFR-10 canonical refusal' >= 6`).
 
 ## Flow
 
@@ -196,6 +209,8 @@ PID_JIRA=$!; echo $! > "${PID_FILE_JIRA}"
 echo "detached: linear=${PID_LINEAR} jira=${PID_JIRA} — poll until both exit"
 ```
 
+> ⛔ **FORBIDDEN at this spawn site.** Do NOT await either leg with the Bash tool's `run_in_background` parameter, the `Monitor` tool, or by ending the turn "waiting for the completion notification" — under `claude -p` the notification never arrives (F3, 2026-07-04 conformance run: both legs fire-and-exited at this exact `{ claude -p ... } &` spawn). The ONLY sanctioned wait is the bounded `kill -0` poll-until-exit loop below, run in the foreground.
+
 **Bounded poll-until-exit (repeated bounded Bash calls).** After the spawn call returns, poll until both PIDs exit — the same STE-355 discipline the smoke driver's Phase 2 uses for its grandchildren (`/smoke-test` § Grandchild spawn lifecycle). Each poll call is a **bounded multi-iteration loop** iterating both legs' pidfiles inside the same loop — up to 18 checks 30 s apart, ≈ ≤540 s (≈ 9 min) per call, safely under the harness's 600 s (10-minute) per-call ceiling. That is one Bash call per ~9 min instead of ~80 single-check calls across a 40-minute leg; the old single-check-then-end-call shape is **not** sanctioned. Never fold the whole wait into one unbounded call:
 
 ```bash
@@ -245,6 +260,7 @@ fi
 
 ```bash
 # Final-message self-check — run before ANY final message (success or failure).
+setopt local_options null_glob 2>/dev/null || shopt -s nullglob 2>/dev/null || true
 LIVE=""
 for PIDFILE in /tmp/dpt-conformance-loop-*.pid; do
   [ -e "${PIDFILE}" ] || continue
@@ -519,9 +535,9 @@ End-of-run console summary: per-iteration table, termination reason, links to al
 
 `/smoke-test` § Rules states "One run per release cycle. Don't re-run for fun; each run costs real tokens and Linear teardown labor." With token cost dropped from this design's scope (operator owns iteration count via `--max-iterations`), only the teardown labor remains — and the operator accepts the per-iteration teardown burden as the cost of automation. The "Capture, don't fix" rule is overridden only when `--auto-fix` is explicitly set; capture-only mode preserves the original rule.
 
-### Inherited precondition — workspace trust (STE-356)
+### Inherited precondition — workspace trust (STE-356; STE-367)
 
-The tracked `permissions.allow` allow-list that `/smoke-test`'s threat model leans on as its load-bearing rail is enforcement-effective only when the spawn cwd's workspace is trusted — in an untrusted workspace the harness ignores the scaffolded `.claude/settings.json` entries wholesale and the policy artifact goes inert. `/smoke-test` Phase 1 step 6b is the seeding step (it merges `hasTrustDialogAccepted: true` for the test-project path into `$CLAUDE_CONFIG_DIR/.claude.json` before any spawn). The counterexample is the 2026-07-02 conformance run's F4 capture: grandchild logs opened with `Ignoring 10 permissions.allow entries from .claude/settings.json: this workspace has not been trusted`, so the canonical chain ran on auto-mode classifier goodwill instead of the reviewed policy. Every leg this loop fans out inherits that precondition; the `checkAllowlistInert` post-return detector in `/smoke-test` surfaces any recurrence as a high-severity `STE-356 regression: allow-list inert — <child> (workspace untrusted)` finding, which bars the leg from green.
+The tracked `permissions.allow` allow-list that `/smoke-test`'s threat model leans on as its load-bearing rail is enforcement-effective only when the spawn cwd's workspace is trusted — in an untrusted workspace the harness ignores the scaffolded `.claude/settings.json` entries wholesale and the policy artifact goes inert. Workspace trust is an operator precondition (STE-367 supersedes STE-356's self-seed): the operator seeds `hasTrustDialogAccepted: true` for each test-project path into `$CLAUDE_CONFIG_DIR/.claude.json` once — the driver cannot, since the harness self-modification classifier denies the write under `claude -p` (2026-07-04 F1) — and pre-flight (h) above asserts both paths are trusted before the loop fans out, with each `/smoke-test` child's spawn gate re-asserting. The counterexample is the 2026-07-02 conformance run's F4 capture: grandchild logs opened with `Ignoring 10 permissions.allow entries from .claude/settings.json: this workspace has not been trusted`, so the canonical chain ran on auto-mode classifier goodwill instead of the reviewed policy. Every leg this loop fans out inherits that precondition; the `checkAllowlistInert` post-return detector in `/smoke-test` surfaces any recurrence as a high-severity `STE-356 regression: allow-list inert — <child> (workspace untrusted)` finding, which bars the leg from green.
 
 ### Residual risks (not protected against)
 

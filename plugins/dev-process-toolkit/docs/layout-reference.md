@@ -46,6 +46,15 @@ Design-reference images (mockups, screenshots, design-system artifacts) live und
 
 **Never-archived rule:** `specs/design/` paths are immutable with respect to archival. No skill performs `git mv` on any `specs/design/` path, and no skill applies `rewriteArchiveLinks` rewrites to references that point under `specs/design/`. When an FR is archived (`specs/frs/<id>.md` → `specs/frs/archive/<id>.md`), its `specs/design/frs/<id>/` folder stays put — design references are never archived. Repo-root-relative image paths therefore remain valid across an FR's whole lifetime.
 
+## Verification
+
+Projects may opt in to a post-gate verification pass by declaring an optional `## Verification` section in CLAUDE.md. The section's top-level key set is **closed** — exactly `{verify_skill, verify_mode}`; any other key inside the section is a config error surfaced to the operator, never silently ignored.
+
+- `verify_skill` — the slug of a project-local skill (a `.claude/skills/<name>` directory name) or the literal `visual-check` (the toolkit's built-in web-UI verification skill).
+- `verify_mode` — one of `advisory | blocking | manual`, defaulting to `advisory` when the section or the key is absent. `advisory` reports the check outcome without blocking; `blocking` gates commit approval on a passing check (or an explicit operator override); `manual` never auto-runs — the operator gets a one-line reminder naming the skill instead.
+
+The read-side parser is `readVerificationConfig` in `adapters/_shared/src/verification_config.ts`. It follows the same Schema-L conventions as `## Docs`: the section terminates at the next heading line, flat `key: value` pairs only. An out-of-set key or an out-of-set `verify_mode` value throws `MalformedVerificationConfigError` carrying the offending key and value.
+
 ## Skill-specific behavior
 
 ### `/spec-write`

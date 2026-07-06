@@ -222,6 +222,30 @@ jira_ac_field, branch_template}. Absent line ⇒ `false`.
 
 <!--
 ===============================================================================
+Optional: Verification section (project-authored verification skill).
+Declares a check that `/implement` runs after gate checks pass. Absent
+section ⇒ no check is declared. The key set is closed — exactly the two
+keys shown; any other key inside the section is a config error.
+
+Example (indented so the heading stays commented; paste at column 0 to
+opt in):
+
+  ## Verification
+
+  verify_skill: visual-check
+  verify_mode: advisory
+
+Keys:
+  - verify_skill: slug of a project-local `.claude/skills/<name>` skill,
+                  or the literal `visual-check` (the toolkit's built-in
+                  web-UI check).
+  - verify_mode:  advisory | blocking | manual. Absent key ⇒ default
+                  `advisory` (report the outcome, never block the commit).
+===============================================================================
+-->
+
+<!--
+===============================================================================
 Docs section. `/setup` step 7d sets the flags; the
 section is always emitted, even when all three default to `false`, so
 `/docs` and the `claudemd-docs-section-present` probe (gate-check #18)
