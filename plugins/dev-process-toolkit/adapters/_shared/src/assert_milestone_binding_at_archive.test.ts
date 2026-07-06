@@ -298,3 +298,53 @@ describe("AC-STE-363.4 — vacuity (no fetch, no assertion, byte-identical archi
     expect(stub.calls).toEqual([]);
   });
 });
+
+// Phase 3 review-fix hardening (M97): the classification fetch is guarded —
+// the helper's "never throws" contract holds even when getIssue itself dies
+// (network, auth, dead ticket). A throw here would abort a whole
+// milestone-group archival batch instead of skipping only the offending FR.
+describe("review-fix — thrown getIssue converts to refusal (never throws)", () => {
+  test("getIssue rejects → outcome refused with fetch-failure detail, no attach attempted", async () => {
+    const { root, frPath } = makeRepo();
+    const stub = makeStub();
+    const provider = makeProvider(stub);
+    provider.getIssue = async (ticketId: string) => {
+      stub.calls.push(`getIssue(${ticketId})`);
+      throw new Error("ECONNRESET: socket hang up");
+    };
+    const res = await assertMilestoneBindingAtArchive(provider, "DPT", frPath, {
+      projectRoot: root,
+      mode: "linear",
+    });
+    expect(res.outcome).toBe("refused");
+    expect(res.token).toBe("milestone_label_archive_refused");
+    expect(res.detail).toContain("ticket fetch failed");
+    expect(res.detail).toContain("ECONNRESET");
+    expect(res.detail).toContain(TICKET);
+    expect(res.detail).toContain("Remedy:");
+    expect(attachSideCalls(stub)).toEqual([]);
+  });
+});
+
+// Phase 3 Stage C hardening (M97): a non-mismatch attach failure (network
+// exhaustion, auth) threads its message into the refusal detail — operators
+// can tell a dead connection from a GB-11 silent drop.
+describe("hardening — non-mismatch attach failure threads its cause into the refusal", () => {
+  test("upsert throws persistently → refused with 'attach attempt failed' + raw message", async () => {
+    const { root, frPath } = makeRepo();
+    const stub = makeStub(); // attached: null → miss → attach path
+    const provider = makeProvider(stub);
+    provider.upsertTicketMetadata = async () => {
+      throw new Error("503 Service Unavailable");
+    };
+    const res = await assertMilestoneBindingAtArchive(provider, "DPT", frPath, {
+      projectRoot: root,
+      mode: "linear",
+      sleep: async () => {}, // instant backoff — the retry schedule is not under test here
+    });
+    expect(res.outcome).toBe("refused");
+    expect(res.detail).toContain("attach attempt failed");
+    expect(res.detail).toContain("503 Service Unavailable");
+    expect(res.detail).toContain("Remedy:");
+  });
+});

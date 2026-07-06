@@ -27,6 +27,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   attachProjectMilestone,
+  MilestoneAttachmentError,
   milestoneBindingPresent,
   milestoneLabel,
   planFileHeadingToMilestoneName,
@@ -48,6 +49,8 @@ export interface AssertMilestoneBindingAtArchiveDeps {
   projectRoot: string;
   /** Task-tracking mode from CLAUDE.md (`none` ⇒ vacuous). */
   mode: string;
+  /** Injected wait for the attach's transient-retry backoff (tests). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 function asserted(
@@ -67,13 +70,17 @@ function refused(
   ticketId: string,
   expected: string,
   binding: "object" | "label",
+  cause?: string,
 ): AssertMilestoneBindingAtArchiveResult {
   const noun = binding === "label" ? "label" : "milestone";
+  const headline = cause
+    ? `${MILESTONE_LABEL_ARCHIVE_REFUSED}: ${ticketId} could not be verified to carry ${noun} "${expected}" at the archival boundary — ${cause}.`
+    : `${MILESTONE_LABEL_ARCHIVE_REFUSED}: ${ticketId} is missing ${noun} "${expected}" at the archival boundary — one attach attempt did not land.`;
   return {
     outcome: "refused",
     token: MILESTONE_LABEL_ARCHIVE_REFUSED,
     detail: [
-      `${MILESTONE_LABEL_ARCHIVE_REFUSED}: ${ticketId} is missing ${noun} "${expected}" at the archival boundary — one attach attempt did not land.`,
+      headline,
       `Remedy: attach the milestone manually via the tracker's edit-issue call, or run /spec-archive --backfill-milestone-labels to backfill the binding, then re-run the archival.`,
       `Context: ticket=${ticketId}, expected="${expected}", binding=${binding}, helper=assertMilestoneBindingAtArchive`,
     ].join("\n"),
@@ -113,8 +120,17 @@ export async function assertMilestoneBindingAtArchive(
   const ticketId = fm.trackerId;
 
   // Present/missing classification is SHARED with the STE-364 backfill sweep
-  // (milestoneBindingPresent) — the two M97 surfaces cannot drift.
-  const issue = await provider.getIssue(ticketId);
+  // (milestoneBindingPresent) — the two M97 surfaces cannot drift. The fetch
+  // is guarded: a thrown getIssue (network, auth, dead ticket) converts to a
+  // refusal — the helper NEVER throws, so a milestone-group archival batch
+  // skips only this FR and the others proceed.
+  let issue: Awaited<ReturnType<MilestoneOps["getIssue"]>>;
+  try {
+    issue = await provider.getIssue(ticketId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return refused(ticketId, expected, binding, `ticket fetch failed (${msg})`);
+  }
   if (milestoneBindingPresent(issue, canonical, binding)) {
     return asserted(ticketId, expected, binding);
   }
@@ -122,11 +138,19 @@ export async function assertMilestoneBindingAtArchive(
   // Miss ⇒ attach ONCE. attachProjectMilestone carries the STE-362 transient
   // retry and read-back-verifies the binding itself; a still-missing binding
   // surfaces as MilestoneAttachmentError, which we convert into a refusal
-  // (never a throw at the archival boundary).
+  // (never a throw at the archival boundary). A non-mismatch attach failure
+  // (network exhaustion, auth) threads its message into the refusal detail so
+  // the operator can tell a dead connection from a GB-11 silent drop.
   try {
-    await attachProjectMilestone(provider, project, canonical, ticketId);
-  } catch {
-    return refused(ticketId, expected, binding);
+    await attachProjectMilestone(provider, project, canonical, ticketId, {
+      sleep: deps.sleep,
+    });
+  } catch (err) {
+    if (err instanceof MilestoneAttachmentError) {
+      return refused(ticketId, expected, binding);
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    return refused(ticketId, expected, binding, `attach attempt failed (${msg})`);
   }
   return asserted(ticketId, expected, binding);
 }
