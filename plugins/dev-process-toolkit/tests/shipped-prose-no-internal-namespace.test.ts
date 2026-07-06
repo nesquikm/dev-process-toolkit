@@ -45,7 +45,7 @@ function countNamespaceTokens(dir: string): number {
 // requires explaining why — tightening them is always welcome.
 const CEILINGS = {
   adapters: 5, // Tier 2 cleaned: 0 baseline, 5 buffer for future minor refs.
-  skills: 234, // Tier 3 conservative-sweep residue + STE-301 deps-research anchor refs (M78) + STE-318 four-stage AUDIT canon citing STE-296 M77 origin (M84) + STE-324 disable-model-invocation allowlist probe #59 citing STE-308 + HG95TQ origins (M84).
+  skills: 236, // Tier 3 conservative-sweep residue + STE-301 deps-research anchor refs (M78) + STE-318 four-stage AUDIT canon citing STE-296 M77 origin (M84) + STE-324 disable-model-invocation allowlist probe #59 citing STE-308 + HG95TQ origins (M84) + STE-369 plan_ship_coherence probe #63 row anchor and spec-archive --parked flag anchor (M99).
   docs: 250, // Tier 3 conservative-sweep residue (~216 + buffer).
 };
 
