@@ -490,30 +490,26 @@ describeIfConformanceLoopPresent("AC-STE-355.backfill — conformance-loop Phase
 // on-disk: workspace trust lives at $CLAUDE_CONFIG_DIR/.claude.json →
 // projects["<abs-path>"].hasTrustDialogAccepted.
 //
-// AC-STE-356.1: Phase 1 gains step 6b — back up the live config to
-//   /tmp/dpt-smoke-<tracker>-claude-json.bak, then jq read-merge-write
-//   `.projects["<abs>"] = ((.projects["<abs>"] // {}) +
-//   {hasTrustDialogAccepted: true})` into a temp file and atomically mv over
-//   the original; merge-only (every unrelated key passes through); the abs
-//   path comes from pre-flight #6's realpath resolution; before any spawn.
+// AC-STE-356.1: [SUPERSEDED by STE-367 (M98) — the step-6b trust WRITE is gone;
+//   the driver asserts trust as an operator precondition, it no longer seeds.
+//   New coverage lives in m98-ste-367-workspace-trust-precondition.test.ts.]
 //
 // AC-STE-356.2: a spawn-time jq -e assertion verifies the trust entry
 //   before the first Phase 2 spawn; miss ⇒ NFR-10 canonical refusal
-//   (inert verdict / step-6b remedy / Context: skill=smoke-test,
+//   (inert verdict / operator jq-seed remedy / Context: skill=smoke-test,
 //   pre-flight=workspace_trust_check); hit ⇒ the byte-checkable capability
-//   token `workspace_trust_seeded` in the approval file (same shape
-//   convention as `spawn_pattern_allow_present`).
+//   token `workspace_trust_present` (STE-367 rename) in the approval file
+//   (same shape convention as `spawn_pattern_allow_present`).
 //
 // AC-STE-356.3: the checkAllowlistInert runtime detector is wired into the
 //   STE-352 post-return assertion family, and the threat-model prose in
 //   BOTH project-local SKILL.mds names workspace trust as an enforcement
-//   precondition of the tracked allow-list (Phase 1 step 6b is the seeding
-//   step; the 2026-07-02 F4 capture is the counterexample).
+//   precondition of the tracked allow-list (the 2026-07-02 F4 capture is the
+//   counterexample). [STE-367: trust is now operator-seeded, not step-6b.]
 //
-// AC-STE-356.4: Phase 5 teardown removes the seeded projects["<path>"]
-//   entry via jq del(...) with the same read-merge-write discipline, in
-//   BOTH tracker paths (Linear + Jira) — config hygiene, no dead project
-//   entries accumulate.
+// AC-STE-356.4: [SUPERSEDED by STE-367 (M98) — teardown no longer removes
+//   trust; it is operator-owned and persists across runs. New coverage lives
+//   in m98-ste-367-workspace-trust-precondition.test.ts.]
 // ---------------------------------------------------------------------------
 
 // Everything from a marker to end-of-body (for trailing sections like
@@ -532,14 +528,6 @@ function phase1Slice(body: string): string {
   );
 }
 
-// § Phase 1 step 6b — from its first "6b" mention to step 7's print line.
-function step6bSlice(phase1: string): string {
-  const start = phase1.indexOf("6b");
-  if (start === -1) return "";
-  const end = phase1.indexOf("\n7. ", start);
-  return end === -1 ? phase1.slice(start) : phase1.slice(start, end);
-}
-
 // § Post-return capture assertion — the STE-352 detector family the
 // allowlist-inert check must join.
 function postReturnSlice(body: string): string {
@@ -550,79 +538,17 @@ function postReturnSlice(body: string): string {
   );
 }
 
-// § Phase 5 — Teardown, plus its two per-tracker path subsections.
-function phase5Slice(body: string): string {
-  return sectionSlice(body, "### Phase 5 — Teardown", "### Phase 8");
-}
-
-function linearTeardownSlice(phase5: string): string {
-  return sectionSlice(phase5, "#### Linear path", "#### Jira path");
-}
-
-function jiraTeardownSlice(phase5: string): string {
-  return tailFrom(phase5, "#### Jira path");
-}
-
-// The jq read-merge-write shape: existing project entry merged (`// {}`),
-// hasTrustDialogAccepted forced true, unrelated keys untouched. Tolerant of
-// the path placeholder/binding form and optional key quoting.
-const TRUST_MERGE_RE =
-  /\.projects\[[^\]\n]+\]\s*=\s*\(\(\.projects\[[^\]\n]+\]\s*\/\/\s*\{\}\)\s*\+\s*\{\s*"?hasTrustDialogAccepted"?\s*:\s*true\s*\}\)/;
-
 const TRUST_PROBE = "hasTrustDialogAccepted == true";
-const TRUST_BACKUP_LITERAL = "/tmp/dpt-smoke-<tracker>-claude-json.bak";
-const TRUST_TOKEN = "workspace_trust_seeded";
+const TRUST_TOKEN = "workspace_trust_present";
 const INERT_DIAG_PREFIX = "STE-356 regression: allow-list inert — ";
-const TRUST_DEL_RE = /del\(\s*\.projects\[/;
 
-describeIfPresent("AC-STE-356.1 — Phase 1 step 6b pre-seeds workspace trust", () => {
-  test("Phase 1 carries a step 6b targeting $CLAUDE_CONFIG_DIR/.claude.json", () => {
-    const step6b = step6bSlice(phase1Slice(skill!));
-    expect(step6b.length).toBeGreaterThan(0);
-    expect(step6b).toContain("CLAUDE_CONFIG_DIR");
-    expect(step6b).toContain(".claude.json");
-  });
+// AC-STE-356.1 (Phase 1 step-6b trust WRITE) is SUPERSEDED by STE-367 (M98):
+// the driver no longer writes `hasTrustDialogAccepted` — the harness auto-mode
+// self-modification classifier denies that write under `claude -p`, so trust is
+// now an operator PRECONDITION the driver asserts (not seeds). New-behavior
+// coverage lives in tests/m98-ste-367-workspace-trust-precondition.test.ts.
 
-  test("the seed is a jq read-merge-write: existing project entry merged, hasTrustDialogAccepted forced true", () => {
-    const step6b = step6bSlice(phase1Slice(skill!));
-    expect(step6b).toContain("jq");
-    expect(step6b).toMatch(TRUST_MERGE_RE);
-  });
-
-  test("merge-only discipline is documented — every unrelated key passes through untouched", () => {
-    const step6b = step6bSlice(phase1Slice(skill!));
-    expect(step6b).toMatch(/merge-only|merge only/i);
-    expect(step6b).toMatch(/unrelated/i);
-  });
-
-  test("the live config is backed up to /tmp/dpt-smoke-<tracker>-claude-json.bak before the write", () => {
-    const step6b = step6bSlice(phase1Slice(skill!));
-    expect(step6b).toContain(TRUST_BACKUP_LITERAL);
-  });
-
-  test("the write is atomic: jq into a temp file, then mv over the original", () => {
-    const step6b = step6bSlice(phase1Slice(skill!));
-    expect(step6b).toMatch(/\bmv\b/);
-    expect(step6b).toMatch(/atomic/i);
-    expect(step6b).toMatch(/temp/i);
-  });
-
-  test("the absolute test-project path comes from pre-flight #6's realpath resolution", () => {
-    const step6b = step6bSlice(phase1Slice(skill!));
-    expect(step6b).toContain("pre-flight #6");
-    expect(step6b).toMatch(/realpath/);
-  });
-
-  test("seeding precedes any child spawn: step 6b sits after step 6's sensitive-file pre-creation, inside Phase 1", () => {
-    const phase1 = phase1Slice(skill!);
-    const step6Idx = phase1.indexOf("cat > .claude/settings.json");
-    const step6bIdx = phase1.indexOf("6b");
-    expect(step6Idx).toBeGreaterThan(-1);
-    expect(step6bIdx).toBeGreaterThan(step6Idx);
-  });
-});
-
-describeIfPresent("AC-STE-356.2 — spawn-time trust assertion + workspace_trust_seeded token", () => {
+describeIfPresent("AC-STE-356.2 — spawn-time trust assertion + workspace_trust_present token (STE-367 rename)", () => {
   test("a jq -e probe asserts the trust entry exists, positioned before the first Phase 2 spawn fence", () => {
     const probeIdx = skill!.indexOf(TRUST_PROBE);
     expect(probeIdx).toBeGreaterThan(-1);
@@ -645,8 +571,8 @@ describeIfPresent("AC-STE-356.2 — spawn-time trust assertion + workspace_trust
     );
   });
 
-  test("miss ⇒ NFR-10 canonical refusal: inert verdict with the step-6b remedy", () => {
-    expect(skill!).toMatch(/inert[\s\S]{0,400}Remedy:[^\n]*6b/);
+  test("miss ⇒ NFR-10 canonical refusal: inert verdict with the operator jq seed remedy", () => {
+    expect(skill!).toMatch(/inert[\s\S]{0,400}Remedy:[^\n]*seed/);
   });
 
   test("refusal Context line carries skill=smoke-test and pre-flight=workspace_trust_check", () => {
@@ -664,16 +590,16 @@ describeIfPresent("AC-STE-356.2 — spawn-time trust assertion + workspace_trust
     ).toBe(true);
   });
 
-  test("hit ⇒ the literal workspace_trust_seeded token is logged to the approval file", () => {
+  test("hit ⇒ the literal workspace_trust_present token is logged to the approval file", () => {
     expect(skill!).toContain(TRUST_TOKEN);
     expect(skill!).toMatch(
-      /workspace_trust_seeded[\s\S]{0,600}approval|approval[\s\S]{0,600}workspace_trust_seeded/,
+      /workspace_trust_present[\s\S]{0,600}approval|approval[\s\S]{0,600}workspace_trust_present/,
     );
   });
 
   test("the token documents the spawn_pattern_allow_present shape convention", () => {
     expect(skill!).toMatch(
-      /workspace_trust_seeded[\s\S]{0,700}spawn_pattern_allow_present|spawn_pattern_allow_present[\s\S]{0,700}workspace_trust_seeded/,
+      /workspace_trust_present[\s\S]{0,700}spawn_pattern_allow_present|spawn_pattern_allow_present[\s\S]{0,700}workspace_trust_present/,
     );
   });
 });
@@ -709,10 +635,10 @@ describeIfPresent("AC-STE-356.3 — /smoke-test threat model names workspace tru
     expect(threat).toMatch(/only when[^\n]*trusted/i);
   });
 
-  test("Phase 1 step 6b is named as the seeding step", () => {
+  test("workspace trust is named as an operator precondition (STE-367: asserted, not step-6b-seeded)", () => {
     const threat = tailFrom(skill!, "## Threat model");
-    expect(threat).toContain("6b");
     expect(threat).toMatch(/seed/i);
+    expect(threat).toMatch(/precondition|assert/i);
   });
 
   test("the 2026-07-02 F4 capture is cited as the counterexample", () => {
@@ -730,10 +656,10 @@ describeIfConformanceLoopPresent("AC-STE-356.3 — /conformance-loop threat mode
     expect(threat).toMatch(/only when[^\n]*trusted/i);
   });
 
-  test("/smoke-test Phase 1 step 6b is named as the seeding step", () => {
+  test("workspace trust is named as an operator precondition (STE-367: asserted, not step-6b-seeded)", () => {
     const threat = tailFrom(conformanceLoop!, "## Threat model");
-    expect(threat).toContain("6b");
     expect(threat).toMatch(/seed/i);
+    expect(threat).toMatch(/precondition|assert/i);
   });
 
   test("the 2026-07-02 F4 capture is cited as the counterexample", () => {
@@ -743,34 +669,8 @@ describeIfConformanceLoopPresent("AC-STE-356.3 — /conformance-loop threat mode
   });
 });
 
-describeIfPresent("AC-STE-356.4 — Phase 5 teardown removes the seeded trust entry", () => {
-  test("Phase 5 removes the projects entry via jq del(.projects[...]) against the live .claude.json", () => {
-    const phase5 = phase5Slice(skill!);
-    expect(phase5.length).toBeGreaterThan(0);
-    expect(phase5).toMatch(TRUST_DEL_RE);
-    expect(phase5).toContain(".claude.json");
-  });
-
-  test("the removal keeps the same read-merge-write discipline as the step-6b seed", () => {
-    const phase5 = phase5Slice(skill!);
-    expect(phase5).toMatch(/read-merge-write/i);
-  });
-
-  test("the Linear tracker path carries the trust-entry removal", () => {
-    const linear = linearTeardownSlice(phase5Slice(skill!));
-    expect(linear.length).toBeGreaterThan(0);
-    expect(linear).toMatch(TRUST_DEL_RE);
-  });
-
-  test("the Jira tracker path carries the trust-entry removal", () => {
-    const jira = jiraTeardownSlice(phase5Slice(skill!));
-    expect(jira.length).toBeGreaterThan(0);
-    expect(jira).toMatch(TRUST_DEL_RE);
-  });
-
-  test("config-hygiene rationale is documented — no dead project entries accumulate", () => {
-    const phase5 = phase5Slice(skill!);
-    expect(phase5).toMatch(/hygiene/i);
-    expect(phase5).toMatch(/accumulat/i);
-  });
-});
+// AC-STE-356.4 (Phase 5 teardown REMOVES the seeded trust entry) is SUPERSEDED
+// by STE-367 (M98): the driver never writes trust, so teardown no longer removes
+// it — trust for the two fixed test-project paths is operator-owned and
+// intentionally persistent across runs. New-behavior coverage (teardown does NOT
+// del the entry) lives in tests/m98-ste-367-workspace-trust-precondition.test.ts.
