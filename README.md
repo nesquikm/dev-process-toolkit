@@ -175,7 +175,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.40.0 — "Stamped"** (M99 makes "shipped" a deterministic file property: `/ship-milestone` stamps `shipped_in` into the plan frontmatter inside the release commit, the `plan_ship_coherence` gate probe fails archived-but-unshipped milestones loudly with `ship_state: parked` as the visible opt-out, and the post-merge ceremony collapses to a guided `/pr` pre-flight + ship-debt offer + opt-in `/pr` chain.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.41.0 — "Labeled"** (M97 closes the milestone-label coverage holes: transient-retry attach on every `/implement` path, an archival-boundary assertion that refuses to seal a label gap behind an archived FR, and a one-shot `/spec-archive --backfill-milestone-labels` remediation sweep.)
 
 ## Core Philosophy
 
