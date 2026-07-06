@@ -13,8 +13,19 @@ Detailed reference (CHANGELOG subsection policy, version-bump semver rules, stru
 ## Invocation
 
 - `/ship-milestone M<N>` — explicit milestone.
-- `/ship-milestone` — no-arg form picks the **most recent in-progress milestone**: the `specs/plan/M<N>.md` with `status: active` (or with `frozen_at: null`). Refuse with NFR-10 if none qualifies.
+- `/ship-milestone` — no-arg form picks the **most recent in-progress milestone**: the `specs/plan/M<N>.md` with `status: active` (or with `frozen_at: null`). If none qualifies, run the ship-debt offer below before refusing.
 - Optional flags: `--version X.Y.Z` (override inferred bump), `--codename "<name>"` (skip prompt), `--summary "<text>"` (commit one-liner, else prompted).
+
+### Ship-debt offer
+
+When the bare no-arg form (`/ship-milestone` with no argument) finds **zero** plans with `status: active`, do not fall straight into the flat "no active plan" NFR-10 refusal. First scan `specs/plan/archive/` for ship debt: archived plans whose frontmatter **lacks `shipped_in`** and that are **not parked** (no `ship_state: parked` opt-out in frontmatter — the same predicate the `plan_ship_coherence` probe reads). Order candidates **newest-first** — sort by `archived_at` descending — and offer each in turn with the exact prompt:
+
+```
+Unshipped archived milestone M<N> — ship it? [y/N]
+```
+
+- `y` / `yes` (case-insensitive) — proceed with that milestone exactly as if `/ship-milestone M<N>` had been invoked; resolution takes the archive-fallback leg of Flow step 1.
+- **Decline** (anything else, default `N`) — move to the next candidate; once candidates are exhausted (or none existed), emit today's refusal text and exit code byte-identically — the offer changes nothing about the declined path.
 
 ## Pre-flight refusals
 
@@ -54,7 +65,7 @@ Any of these fire before any file write and exit non-zero with an NFR-10-shape m
 
    Both shapes exit non-zero and preserve the `Context:` line byte-identically. See `docs/ship-milestone-reference.md` § Refusal #1 remedy shapes for the full decision matrix including mixed tracker-Done / not-Done sets (the "any genuinely unshipped" branch wins on mix — safer than misdirecting to `/spec-archive` when a ticket genuinely isn't done yet).
 
-2. **Dirty working tree outside the expected set**. The expected-modified set is every entry in the host's `## Release Files` block plus the `docs/` subtree (for the `/docs --commit --full` step). `git status --porcelain` lines outside that set ⇒ refuse:
+2. **Dirty working tree outside the expected set**. The expected-modified set is every entry in the host's `## Release Files` block, plus the `docs/` subtree (for the `/docs --commit --full` step), plus the resolved plan path (`specs/plan/M<N>.md`, or `specs/plan/archive/M<N>.md` on the archive-fallback leg) for the `shipped_in` frontmatter stamp. `git status --porcelain` lines outside that set ⇒ refuse:
 
    ```
    /ship-milestone: working tree has uncommitted changes outside the release files: <list>.
@@ -85,6 +96,8 @@ Context: milestone=M<N>, skill=ship-milestone
 ```
 
 When neither path exists, refuse `Plan M<N> not found in specs/plan/ or specs/plan/archive/`. The fallback only activates when the active path is genuinely missing — for milestones whose plans are still in `specs/plan/`, behavior is unchanged.
+
+Whichever path survives this resolution — `specs/plan/M<N>.md` or the archive-fallback `specs/plan/archive/M<N>.md` — is the **resolved plan path**; step 7 later stamps `shipped_in` into its frontmatter as part of the release commit.
 
 Extract every FR with a live tracker ID / ULID. For each, read `specs/frs/<name>.md` frontmatter and pull `title`, `tracker.<key>`, `breaking` (default `false`), `changelog_category` (default `Added`), and `status` (must be `archived` after Pre-flight refusal #1 above — Unshipped FRs).
 
@@ -139,7 +152,7 @@ Context: milestone=M<N>, version=<X.Y.Z>, skill=ship-milestone
 
 ### 6. Unified diff + approval
 
-Print a single unified diff covering every modified file (every `## Release Files` entry that produced a non-empty bump + any `docs/` files `/docs --commit --full` touched). Then:
+Print a single unified diff covering every modified file (every `## Release Files` entry that produced a non-empty bump + any `docs/` files `/docs --commit --full` touched). The diff also renders the frontmatter stamp hunk — `shipped_in: v<X.Y.Z>` on the resolved plan file — alongside the release-file bumps; the stamp rides the existing single `Apply?` approval below, no extra prompt. Then:
 
 ```
 === Proposed diff (N files, M lines) ===
@@ -152,6 +165,10 @@ Accept case-insensitive `y` / `yes` as approval. The user can type `e` to open `
 ### 7. On approval — commit
 
 **Universal pre-commit branch gate (STE-228).** Before `git add` runs, call `requireCommittableBranch({ commitType: "chore", proposedBranchName, currentBranch, isAutoMode })` from `adapters/_shared/src/require_committable_branch.ts` with `proposedBranchName` returned by `branchNameFor({ version })` from `skills/ship-milestone/branch_name_for.ts` (release shape → `release/v<X.Y.Z>`; collision-suffix per STE-228 AC-STE-228.11 is exceedingly rare for this skill). On `created` / `edited` the gate runs `git checkout -b <branchName>` so the release commit lands on the new branch; `declined` rolls back staging via `git reset HEAD <paths>` (explicit list, never `--hard`) and exits non-zero before the release commit lands; `no-op` (off-trunk OR `commitType ∈ TRUNK_OK_TYPES = ["ci"]`) is silent. Auto-mode default-apply uses the `<dpt:auto-approve>v1</dpt:auto-approve>` marker per STE-226. See STE-228 § Branch-name canonical table for the full builder catalogue.
+
+**Stamp the resolved plan.** Before the commit is created, call `stampShippedIn(resolvedPlanPath, "v<X.Y.Z>")` from `adapters/_shared/src/plan_ship_stamp.ts` to write `shipped_in: v<X.Y.Z>` — the final version chosen for this release, after any `--version` override — into the resolved plan file's frontmatter. The stamp targets the resolved plan path from step 1, so it lands identically on the live path and the archive-fallback path, and the stamped plan file rides the same single atomic release commit.
+
+**Stamp semantics.** `shipped_in` is written only by this skill or the one-shot backfill script (run once against the historical archive, never shipped, deleted after the backfill commit). Absence of `shipped_in` on an archived plan means unshipped debt: the plan reached the archive without a release carrying it. Absence on a live plan is normal — the milestone simply hasn't shipped yet.
 
 `git add` the expected-modified set and create a single commit in [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) form. The commit-msg hook installed by `/setup` enforces the format locally.
 
@@ -188,6 +205,25 @@ Next steps (not automated):
   1. git push  (when ready)
   2. /pr  (open release PR if this is a branch-based flow)
   3. Update any external references (tracker milestone close, announcement)
+```
+
+### 10. Opt-in /pr chain
+
+Fires only after a **successful release commit** lands **off-trunk** (the step-7 branch gate created `release/v<X.Y.Z>`, or the run was already on a feature branch). On-trunk landings and every refusal/abort path skip this step silently. After the step-9 checklist prints, prompt (exact format, mirroring /implement Phase 5's milestone-close prompt):
+
+```
+Open ceremony PR via /pr now? (y/n):
+```
+
+- **Accept** — input is `y` or `yes` (case-insensitive, trimmed). Chain into `/pr` **in-process** with all `/pr` gates intact — the tracker-mode probe, the uncommitted-changes confirmation, and the push run exactly as on a manual `/pr` invocation. Any push happens inside `/pr` under its own confirmation; `/ship-milestone` itself still never pushes — the chain does not erode that invariant.
+- **Decline** — input is `n` / `no` / empty / any other non-matching string. Do not chain; print the hint and exit 0: `Run: /pr`.
+
+Chain-start failure ⇒ NFR-10 canonical refusal, exit non-zero:
+
+```
+/ship-milestone: attempted to chain into /pr but it failed to start: <error>.
+Remedy: verify the plugin is installed and the pr skill is enabled, then run /pr manually.
+Context: milestone=M<N>, chain=pr, skill=ship-milestone
 ```
 
 ## Rules
