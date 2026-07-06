@@ -216,6 +216,29 @@ Reach for `kind: regex` first — it covers any free-form line that doesn't fit 
 
 `MalformedReleaseFilesError` fires when an entry violates the schema (missing required field, unknown `kind`, regex pattern without `(?<version>)` group, etc.). Both follow the NFR-10 canonical refusal shape.
 
+## Post-merge ceremony
+
+The recipe for shipping a milestone whose implementation PR already merged to `main` without a release commit. Start from a **fresh branch off `main`**, then run the three steps in order:
+
+```text
+1. /spec-archive M<N> — only when FRs are still active (skip if already archived)
+2. /ship-milestone M<N> — bump the release files, regenerate docs, release commit
+3. /pr — push the branch and open the pull request
+```
+
+This block mirrors the `SHIP_CEREMONY_RECIPE` constant exported from `adapters/_shared/src/plan_ship_coherence.ts` **verbatim** — a single canonical string that never drifts. Edit the constant, then mirror it here; a meta-test pins the two copies to each other.
+
+Step 3 needs no separate invocation when the release commit lands off-trunk: `/ship-milestone` offers to chain `/pr` in-process, so the chained `/pr` closes the loop with all of its own gates intact (`/ship-milestone` itself still never pushes).
+
+### Already-archived milestones
+
+The already-archived case is fully supported today — no special flag or migration needed:
+
+- **STE-210 archive fallback** — `/ship-milestone` resolves the plan from `specs/plan/archive/M<N>.md` when the live path is gone, so a milestone whose FRs were archived before the merge still ships.
+- **STE-228 off-trunk branch-gate no-op** — the branch gate is a no-op off `main`, so the fresh ceremony branch flows through without prompting.
+
+Skip step 1 (`/spec-archive M<N>`) whenever the FRs are already archived on `main`; run it only when FRs are still active there.
+
 ## See also
 
 - `skills/ship-milestone/SKILL.md` — the canonical skill file.
