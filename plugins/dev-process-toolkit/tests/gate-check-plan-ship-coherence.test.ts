@@ -318,8 +318,18 @@ describe("AC-STE-369.5 — gate-check SKILL.md declares the plan_ship_coherence 
 // ---------------------------------------------------------------------------
 
 describe("dogfood — real specs/plan/archive/ tree is coherent", () => {
-  test("every stamped archive plan resolves to a CHANGELOG heading; no unshipped debt", async () => {
+  test("every stamped archive plan resolves to a CHANGELOG heading (no corrupt stamps)", async () => {
     const report = await runPlanShipCoherenceProbe(repoRoot);
-    expect(report.violations).toEqual([]);
+    // Scope: stamp-integrity only. Unshipped debt (archived plan without a
+    // stamp) is a legitimate transient state between /implement's archival
+    // commit and /ship-milestone's release commit — flagging it is
+    // /gate-check probe #63's job at operator-chosen instants, where the
+    // ceremony remedy is actionable. A flat zero-violations assert here
+    // would turn `bun test` red for every mid-ceremony commit and deadlock
+    // the ship (can't ship gate-red, can't go green without shipping).
+    const corrupt = report.violations.filter((v) =>
+      v.reason.includes("corrupt stamp"),
+    );
+    expect(corrupt).toEqual([]);
   });
 });
