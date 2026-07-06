@@ -141,4 +141,47 @@ describe("STE-368 — stampShippedIn: double-ship guard (AC-STE-368.3)", () => {
       ctx.cleanup();
     }
   });
+
+  // Structural refusals (STE-210 discipline carried over from archive_fr.ts):
+  // not part of AC-STE-368.3's three named behaviors, pinned here so the
+  // refusal branches stay exercised (Pass-1 review finding, M99).
+  test("plan with no frontmatter opener refuses NFR-10 and leaves the file untouched", async () => {
+    const bare = "# Implementation Plan\n\nNo frontmatter here.\n";
+    const ctx = makePlan(bare);
+    try {
+      let err: Error | null = null;
+      try {
+        await stampShippedIn(ctx.path, "2.40.0");
+      } catch (e) {
+        err = e as Error;
+      }
+      expect(err).not.toBeNull();
+      expect(err!.message).toMatch(/Refusing:.*no YAML frontmatter/);
+      expect(err!.message).toMatch(/Remedy:/);
+      expect(err!.message).toMatch(/Context:/);
+      expect(readFileSync(ctx.path, "utf-8")).toBe(bare);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("frontmatter that opens but never closes refuses NFR-10 and leaves the file untouched", async () => {
+    const unclosed = "---\nstatus: active\n\n# Implementation Plan\n";
+    const ctx = makePlan(unclosed);
+    try {
+      let err: Error | null = null;
+      try {
+        await stampShippedIn(ctx.path, "2.40.0");
+      } catch (e) {
+        err = e as Error;
+      }
+      expect(err).not.toBeNull();
+      expect(err!.message).toMatch(/Refusing:.*never closes/);
+      expect(err!.message).toMatch(/Remedy:/);
+      expect(err!.message).toMatch(/Context:/);
+      expect(readFileSync(ctx.path, "utf-8")).toBe(unclosed);
+    } finally {
+      ctx.cleanup();
+    }
+  });
 });
