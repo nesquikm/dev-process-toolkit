@@ -27,8 +27,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   attachProjectMilestone,
+  milestoneBindingPresent,
   milestoneLabel,
   planFileHeadingToMilestoneName,
+  resolveMilestoneBinding,
   type MilestoneOps,
 } from "./attach_project_milestone";
 import { parseFrFrontmatter } from "./tracker_project_milestone_attached";
@@ -106,16 +108,16 @@ export async function assertMilestoneBindingAtArchive(
     return { outcome: "vacuous" };
   }
 
-  const binding: "object" | "label" = provider.milestoneBinding === "label" ? "label" : "object";
+  const binding = resolveMilestoneBinding(provider);
   const expected = binding === "label" ? milestoneLabel(canonical) : canonical;
   const ticketId = fm.trackerId;
 
+  // Present/missing classification is SHARED with the STE-364 backfill sweep
+  // (milestoneBindingPresent) — the two M97 surfaces cannot drift.
   const issue = await provider.getIssue(ticketId);
-  const present =
-    binding === "label"
-      ? (issue.labels ?? []).includes(expected)
-      : (issue.projectMilestone?.name ?? null) === expected;
-  if (present) return asserted(ticketId, expected, binding);
+  if (milestoneBindingPresent(issue, canonical, binding)) {
+    return asserted(ticketId, expected, binding);
+  }
 
   // Miss ⇒ attach ONCE. attachProjectMilestone carries the STE-362 transient
   // retry and read-back-verifies the binding itself; a still-missing binding

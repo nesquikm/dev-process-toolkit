@@ -235,6 +235,33 @@ export function milestoneLabel(canonicalName: string): string {
 }
 
 /**
+ * M97 (STE-363 + STE-364) — normalize an adapter's milestone-binding
+ * strategy. `object` (Linear) is the default when the provider declares
+ * none; `label` (Jira) must be declared explicitly.
+ */
+export function resolveMilestoneBinding(provider: MilestoneOps): "object" | "label" {
+  return provider.milestoneBinding === "label" ? "label" : "object";
+}
+
+/**
+ * M97 (STE-363 + STE-364) — shared present/missing predicate for a ticket's
+ * milestone binding. The archival-boundary assertion and the backfill sweep
+ * both classify through this one function so the two surfaces cannot drift:
+ * `object` (Linear, default) ⇒ `projectMilestone.name` byte-equals the
+ * canonical plan-heading name; `label` (Jira) ⇒ `labels` contains
+ * `milestone-<M-token>` (milestoneLabel).
+ */
+export function milestoneBindingPresent(
+  issue: { projectMilestone?: { name: string } | null; labels?: string[] },
+  canonical: string,
+  binding: "object" | "label",
+): boolean {
+  return binding === "label"
+    ? (issue.labels ?? []).includes(milestoneLabel(canonical))
+    : (issue.projectMilestone?.name ?? null) === canonical;
+}
+
+/**
  * Build the canonical milestone name from a plan-file path. Delegates to the
  * shared `parsePlanHeading` (./plan_heading) so it accepts both the current
  * `## M<N>: <title> {#M<N>}` (H2 + colon) form and the legacy
