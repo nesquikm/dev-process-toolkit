@@ -175,7 +175,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.39.0 — "Headless"** (M98 hardens the autonomous headless `/conformance-loop` path: a `SMOKE-CTX` context probe plus a co-located `run_in_background` prohibition stop the `/smoke-test` driver fire-and-exiting under `claude -p`; glob fences are made zsh-safe so an unmatched glob can't false-PASS the verified wipe; and workspace trust becomes an operator precondition the driver asserts rather than self-writes.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.40.0 — "Stamped"** (M99 makes "shipped" a deterministic file property: `/ship-milestone` stamps `shipped_in` into the plan frontmatter inside the release commit, the `plan_ship_coherence` gate probe fails archived-but-unshipped milestones loudly with `ship_state: parked` as the visible opt-out, and the post-merge ceremony collapses to a guided `/pr` pre-flight + ship-debt offer + opt-in `/pr` chain.)
 
 ## Core Philosophy
 
