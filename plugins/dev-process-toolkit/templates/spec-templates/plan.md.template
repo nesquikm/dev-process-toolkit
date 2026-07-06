@@ -72,3 +72,11 @@ A task may also be marked `[deferred]` (e.g., `- [deferred] multiply — moved t
 
 **Gate:** `<your gate check commands>`
 <!-- ADAPT: Examples — `npm run typecheck && npm run lint && npm run test` (TypeScript); `fvm flutter analyze && fvm flutter test` (Flutter); `mypy . && ruff check . && pytest` (Python) -->
+
+<!--
+  Optional section: `## Token Stats` — a machine-managed rollup written by
+  /ship-milestone into the release commit. Sentinel-fenced (token-stats:begin /
+  token-stats:end): per-FR subtotals, a (main-loop) row, and a milestone total,
+  broken down by model. Do not add or edit it by hand — /ship-milestone
+  re-renders the fenced region in place at release time.
+-->
