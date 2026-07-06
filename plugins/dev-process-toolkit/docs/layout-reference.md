@@ -73,6 +73,7 @@ The read-side parser is `readVerificationConfig` in `adapters/_shared/src/verifi
 ### `/spec-archive`
 - Shared code path with `/implement` Phase 4: `git mv` + frontmatter flip.
 - Argument can be a ULID (direct) or `M<N>` (milestone-group; archives all FRs where `milestone == M<N>`). The milestone-group case produces N moves in one commit.
+- `--parked` additionally writes `ship_state: parked` into the plan's frontmatter during the flip (the opt-out the `plan_ship_coherence` gate probe reads); see `skills/spec-archive/SKILL.md` for the flag + exit hints.
 
 ### `/gate-check`
 - Conformance probes:
