@@ -175,7 +175,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.38.0 — "Test Drive"** (M93 gives projects a place to plug in a post-`/implement` verification skill: a `## Verification` convention plus a new `/implement` Phase 4b″ hook that runs the declared check after the gate passes and, on failure, classifies + proposes the next command; a stack-aware scaffold generator wired into `/setup` and `/implement` with a `/visual-check` fallback; and an authoring guide, `patterns.md` entry, and per-stack examples.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.39.0 — "Headless"** (M98 hardens the autonomous headless `/conformance-loop` path: a `SMOKE-CTX` context probe plus a co-located `run_in_background` prohibition stop the `/smoke-test` driver fire-and-exiting under `claude -p`; glob fences are made zsh-safe so an unmatched glob can't false-PASS the verified wipe; and workspace trust becomes an operator precondition the driver asserts rather than self-writes.)
 
 ## Core Philosophy
 
