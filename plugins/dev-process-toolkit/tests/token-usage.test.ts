@@ -510,3 +510,32 @@ describe("AC-STE-344.3(c) — degradation: no attributionSkill anywhere → sing
     );
   });
 });
+
+// Pass-1 review remediation (AC-STE-344.4 fail-open contract, write path):
+// a pre-existing corrupted ledger line must not wedge the capture path.
+describe("AC-STE-344.4 — writeSessionRows tolerates a pre-existing malformed ledger line", () => {
+  test("fresh rows land, malformed line is dropped (self-heal), nothing throws", () => {
+    const root = mkdtempSync(join(tmpdir(), "token-usage-"));
+    const path = ledgerPath(root);
+    mkdirSync(join(root, ".dev-process"), { recursive: true });
+    const goodForeign = JSON.stringify({
+      schema: "token-ledger/v1", ts: "2026-07-01T08:00:00Z", session_id: "other",
+      git_branch: "b", skill: "s", model: "m", input_tokens: 1, output_tokens: 2,
+      cache_read_input_tokens: 3, cache_creation_input_tokens: 4, message_count: 5,
+    });
+    writeFileSync(path, goodForeign + "\n{corrupted-not-json\n");
+
+    const fresh = [{
+      schema: "token-ledger/v1", ts: "2026-07-01T09:00:00Z", session_id: "mine",
+      git_branch: "b", skill: "s2", model: "m", input_tokens: 10, output_tokens: 20,
+      cache_read_input_tokens: 30, cache_creation_input_tokens: 40, message_count: 2,
+    }];
+    expect(() => writeSessionRows(root, "mine", fresh)).not.toThrow();
+
+    const lines = readFileSync(path, "utf-8").split("\n").filter((l) => l.trim() !== "");
+    const parsed = lines.map((l) => JSON.parse(l));
+    expect(parsed.some((r) => r.session_id === "other")).toBe(true);
+    expect(parsed.some((r) => r.session_id === "mine")).toBe(true);
+    expect(lines.some((l) => l.startsWith("{corrupted"))).toBe(false);
+  });
+});
