@@ -34,6 +34,8 @@ export interface TokenLedgerRow {
   cache_read_input_tokens: number;
   cache_creation_input_tokens: number;
   message_count: number;
+  /** Tracker ID of the FR that claimed this row (brainstorm→FR bridging, STE-345). */
+  claimed_by?: string;
 }
 
 /** Fixed ledger location: `<projectRoot>/.dev-process/token-ledger.jsonl`. */
@@ -69,6 +71,47 @@ export function writeSessionRows(
     path,
     next.map((row) => JSON.stringify(row)).join("\n") + "\n",
   );
+}
+
+/**
+ * Fail-open ledger read: `[]` when the ledger is absent or unreadable;
+ * malformed lines are skipped. `sawMalformed` (when provided) is set so
+ * callers that rewrite the ledger can decline to persist over garbage.
+ */
+export function readLedgerRows(
+  projectRoot: string,
+  state?: { sawMalformed?: boolean },
+): TokenLedgerRow[] {
+  const path = ledgerPath(projectRoot);
+  if (!existsSync(path)) return [];
+
+  let body: string;
+  try {
+    body = readFileSync(path, "utf-8");
+  } catch {
+    return [];
+  }
+
+  const rows: TokenLedgerRow[] = [];
+  for (const line of body.split("\n")) {
+    if (line.trim() === "") continue;
+    try {
+      rows.push(JSON.parse(line) as TokenLedgerRow);
+    } catch {
+      if (state) state.sawMalformed = true;
+    }
+  }
+  return rows;
+}
+
+/** Rewrite the whole ledger file from `rows` (claim-persistence path). */
+export function rewriteLedgerRows(
+  projectRoot: string,
+  rows: TokenLedgerRow[],
+): void {
+  const path = ledgerPath(projectRoot);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
 }
 
 /** Sentinel `skill` value for transcript lines carrying no attributionSkill. */
