@@ -67,7 +67,11 @@ Archival uses the same code path as `/implement` Phase 4.
 
 `--plan-only` flag (AC-STE-200.2): forces the plan-only branch when the auto-detect heuristic would not fire (escape hatch for unusual cases). Refuse if FR match set is non-empty — `--plan-only` is for explicitly-empty cases; mixed usage is operator error. Refuse if `specs/plan/M<N>.md` does not exist with `"No FRs and no plan file for M<N>"`.
 
-No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` except the frontmatter `status` flip at move time. Full reference: `docs/layout-reference.md` § `/spec-archive`.
+`--parked` flag (AC-STE-369.4): `/spec-archive M<N> --parked` additionally writes `ship_state: parked` into the plan's frontmatter during the archival flip (milestone-group or plan-only — any path that moves the plan file). The `+ship_state: parked` line renders inside the existing mandatory Diff Preview approval gate — no new prompt. Parking marks the milestone as deliberately unshipped: the `plan_ship_coherence` gate probe surfaces it as a `parked milestones:` NOTES row instead of a violation. Unparking happens by shipping.
+
+**Exit hints** (milestone archival closing line): default runs end `Archived. Next: /ship-milestone M<N>`; parked runs end `Archived (parked). Unpark by shipping: /ship-milestone M<N>`.
+
+No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` except the frontmatter flip (`status` / `archived_at`, plus `ship_state` under `--parked`) at move time. Full reference: `docs/layout-reference.md` § `/spec-archive`.
 
 ### 2. Technical-spec.md — never archive
 
@@ -162,5 +166,5 @@ The drift check **never blocks the archival operation itself**. The archive move
 - Every archival lands in one atomic commit (single FR or milestone group).
 - Tracker-ref miss → refuse and exit; never auto-import to archive.
 - Never edit `specs/technical-spec.md` — ADRs use `Superseded-by:` in place.
-- Never write under `specs/frs/archive/**` or `specs/plan/archive/**` except the `status` / `archived_at` frontmatter flip at move time.
+- Never write under `specs/frs/archive/**` or `specs/plan/archive/**` except the `status` / `archived_at` (and `ship_state` under `--parked`) frontmatter flip at move time.
 - Call `Provider.releaseLock(id)` for every archived FR.
