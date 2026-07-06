@@ -102,13 +102,67 @@ export interface AttachProjectMilestoneResult {
   createdName?: string;
 }
 
+/**
+ * STE-362 AC-STE-362.1 — canonical transient-retry backoff schedule, shared
+ * with the `upsertTicketMetadata` idempotency-retry shape (adapters/jira.md:
+ * fast path first, then three backoff attempts waiting 1s / 2s / 4s;
+ * cumulative ~7s on the failure path only). One exported constant — no
+ * duplicated schedule.
+ */
+export const TRANSIENT_RETRY_SCHEDULE_MS: readonly number[] = [1000, 2000, 4000];
+
+export interface AttachProjectMilestoneOptions {
+  /** Injected wait for the backoff schedule (tests pass a recorder). */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * STE-362 AC-STE-362.1 — transient-only retry around one attach +
+ * read-back-verify round-trip. The fast-path attempt runs with no wait; a
+ * failure retries the WHOLE round-trip on the canonical `1s + 2s + 4s`
+ * schedule. Classification is **by exclusion**: only `MilestoneAttachmentError`
+ * (binding mismatch — the write landed but the read-back disagrees) is
+ * known-permanent and NEVER retries (retrying a mismatch would mask a real
+ * config bug, e.g. forwarding a milestone ID instead of a name). Every other
+ * throw — Gateway-Timeout / 504 / connection reset, but also e.g. a 401 — is
+ * treated as possibly-transient and retried; MCP error shapes are too varied
+ * for a reliable positive network-class match (same trade-off as the
+ * `upsertTicketMetadata` idempotency retry), at the cost of ~7s extra latency
+ * before a genuinely permanent non-mismatch error surfaces. The success path
+ * adds no latency (sleep fires only after a caught error).
+ */
+async function retryTransient<T>(
+  roundTrip: () => Promise<T>,
+  sleep: (ms: number) => Promise<void>,
+): Promise<T> {
+  let backoffIndex = 0;
+  for (;;) {
+    try {
+      return await roundTrip();
+    } catch (err) {
+      if (err instanceof MilestoneAttachmentError) throw err; // non-transient
+      if (backoffIndex >= TRANSIENT_RETRY_SCHEDULE_MS.length) throw err; // exhausted
+      await sleep(TRANSIENT_RETRY_SCHEDULE_MS[backoffIndex]!);
+      backoffIndex += 1;
+    }
+  }
+}
+
 export async function attachProjectMilestone(
   provider: MilestoneOps,
   project: string,
   milestoneName: string,
   ticketId: string,
+  opts?: AttachProjectMilestoneOptions,
 ): Promise<AttachProjectMilestoneResult> {
+  const sleep = opts?.sleep ?? defaultSleep;
+
   // STE-198 AC-STE-198.1 (b): adapter declares no project_milestone capability.
+  // Short-circuits BEFORE the retry wrapper — no backoff leg, no tracker call
+  // (AC-STE-362.4 vacuity).
   if (provider.supports && !provider.supports("project_milestone")) {
     return { capability: "milestone_attach_skipped_adapter_limit" };
   }
@@ -124,14 +178,20 @@ export async function attachProjectMilestone(
         "attachProjectMilestone: milestoneBinding === \"label\" requires an addLabel op on the provider",
       );
     }
+    const addLabel = provider.addLabel;
     const label = milestoneLabel(milestoneName);
-    await provider.addLabel(ticketId, label);
-    const fresh = await provider.getIssue(ticketId);
-    const labels = fresh.labels ?? [];
-    if (!labels.includes(label)) {
-      throw new MilestoneAttachmentError(label, null, "label");
-    }
-    return { capability: null };
+    // STE-362 AC-STE-362.1: the attach + read-back-verify round-trip retries
+    // as a whole on a transient failure (the write may not have landed — a
+    // bare re-read is not enough).
+    return retryTransient(async () => {
+      await addLabel(ticketId, label);
+      const fresh = await provider.getIssue(ticketId);
+      const labels = fresh.labels ?? [];
+      if (!labels.includes(label)) {
+        throw new MilestoneAttachmentError(label, null, "label");
+      }
+      return { capability: null };
+    }, sleep);
   }
 
   const existing = await provider.listMilestones(project);
@@ -142,12 +202,16 @@ export async function attachProjectMilestone(
     await provider.saveMilestone(project, { name: milestoneName });
     createdName = milestoneName;
   }
-  await provider.upsertTicketMetadata(ticketId, { milestone: milestoneName });
-  const fresh = await provider.getIssue(ticketId);
-  const actual = fresh.projectMilestone?.name ?? null;
-  if (actual !== milestoneName) {
-    throw new MilestoneAttachmentError(milestoneName, actual);
-  }
+  // STE-362 AC-STE-362.1: attach + read-back-verify retried as one unit on
+  // transient failure; a MilestoneAttachmentError inside surfaces immediately.
+  await retryTransient(async () => {
+    await provider.upsertTicketMetadata(ticketId, { milestone: milestoneName });
+    const fresh = await provider.getIssue(ticketId);
+    const actual = fresh.projectMilestone?.name ?? null;
+    if (actual !== milestoneName) {
+      throw new MilestoneAttachmentError(milestoneName, actual);
+    }
+  }, sleep);
   if (createdName !== undefined) {
     return { capability: "milestone_create_required", createdName };
   }
@@ -172,6 +236,33 @@ export function milestoneLabel(canonicalName: string): string {
     );
   }
   return `milestone-${m[1]!}`;
+}
+
+/**
+ * M97 (STE-363 + STE-364) — normalize an adapter's milestone-binding
+ * strategy. `object` (Linear) is the default when the provider declares
+ * none; `label` (Jira) must be declared explicitly.
+ */
+export function resolveMilestoneBinding(provider: MilestoneOps): "object" | "label" {
+  return provider.milestoneBinding === "label" ? "label" : "object";
+}
+
+/**
+ * M97 (STE-363 + STE-364) — shared present/missing predicate for a ticket's
+ * milestone binding. The archival-boundary assertion and the backfill sweep
+ * both classify through this one function so the two surfaces cannot drift:
+ * `object` (Linear, default) ⇒ `projectMilestone.name` byte-equals the
+ * canonical plan-heading name; `label` (Jira) ⇒ `labels` contains
+ * `milestone-<M-token>` (milestoneLabel).
+ */
+export function milestoneBindingPresent(
+  issue: { projectMilestone?: { name: string } | null; labels?: string[] },
+  canonical: string,
+  binding: "object" | "label",
+): boolean {
+  return binding === "label"
+    ? (issue.labels ?? []).includes(milestoneLabel(canonical))
+    : (issue.projectMilestone?.name ?? null) === canonical;
 }
 
 /**

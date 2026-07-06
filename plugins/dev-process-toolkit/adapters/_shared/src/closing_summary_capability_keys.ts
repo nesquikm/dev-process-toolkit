@@ -41,7 +41,12 @@ export interface ClosingSummaryCapabilityKeysReport {
  * STE-238 additions (`branch_gate_skipped_already_non_main`), and the M84
  * STE-320 expansion that closes the 12→20 directive-coverage gap (Set A —
  * every key with a literal `MUST emit \`<key>\`` directive in /spec-write
- * SKILL.md, verified by the triple-pass audit at M84). Excluded by design:
+ * SKILL.md, verified by the triple-pass audit at M84), the M97 STE-362
+ * addition (`milestone_attach_failed` — loud permanent-failure surface for
+ * the project-milestone attach), and the M97 STE-363 archival-assertion pair
+ * (`milestone_label_asserted_at_archive` / `milestone_label_archive_refused`
+ * — per-FR milestone-binding assertion outcomes emitted by /spec-archive and
+ * /implement § Milestone Archival). Excluded by design:
  * `tracker_status_forced`, `tracker_status_skipped`, `tracker_status_cancelled`,
  * `tracker_status_unknown_encountered`, `tracker_tolerance_refused_non_tty`
  * — these appear only as table-header column labels at SKILL.md L330, not
@@ -68,6 +73,9 @@ export const CANONICAL_CAPABILITY_KEYS = [
   "tracker_status_genuine_drift",
   "tracker_local_orphan_local",
   "tracker_local_reconciled",
+  "milestone_attach_failed",
+  "milestone_label_asserted_at_archive",
+  "milestone_label_archive_refused",
 ] as const;
 
 export type CapabilityKey = (typeof CANONICAL_CAPABILITY_KEYS)[number];
@@ -99,6 +107,14 @@ const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   tracker_status_genuine_drift: "spec-write",
   tracker_local_orphan_local: "spec-write",
   tracker_local_reconciled: "spec-write",
+  milestone_attach_failed: "spec-write",
+  // The archival-assertion pair routes to spec-write (the canonical static-
+  // map source) — the fixture legs of the probe tests write only a fixture
+  // spec-write SKILL.md and expect one violation per canonical key. The
+  // /spec-archive + /implement MUST-emit directives are pinned separately
+  // by the M97 archival-assertion meta-tests.
+  milestone_label_asserted_at_archive: "spec-write",
+  milestone_label_archive_refused: "spec-write",
 };
 
 /**

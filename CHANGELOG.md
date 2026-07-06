@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.41.0] — 2026-07-06 — "Labeled"
+
+Closes the milestone-label coverage holes (M97) found on a downstream Jira project, where an FR-backed ticket shipped without its `milestone-M5` label and the gap went permanently invisible the moment its FR archived. Enforcement is FR-backed-only by design — bugs and ad-hoc tickets are never milestone-scoped.
+
+### Added
+
+- Archival-boundary milestone-binding assertion: `assertMilestoneBindingAtArchive` runs per FR before any `git mv` at `/spec-archive` and `/implement` Phase-4-close — adapter-aware (Linear `projectMilestone.name` byte-equality / Jira `milestone-<M-token>` label), attempt-then-refuse (one retrying attach, NFR-10 refusal on still-missing, the milestone-group batch skips only the offender), and never throws (a dead ticket fetch converts to a refusal with cause). Emits `milestone_label_asserted_at_archive` / `milestone_label_archive_refused` per archived FR. (STE-363)
+- `/spec-archive --backfill-milestone-labels`: one-shot remediation sweep over active + archived FRs — fetches each bound ticket and attaches any missing milestone binding. Dry-run by default, `--apply` to write, idempotent, best-effort per ticket with a `backfilled`/`already-correct`/`failed` aggregate report naming each failed ticket and its plan file. (STE-364)
+
+### Fixed
+
+- Milestone attach is reliable at write time: the attach + read-back-verify round-trip retries transient failures on the canonical `1s+2s+4s` schedule (a binding-mismatch `MilestoneAttachmentError` never retries; the success path adds no latency), the § 0.e attach + verify is guaranteed per FR on every `/implement` path including the milestone-scope fan-out, and a permanent failure surfaces as the loud `milestone_attach_failed` capability row (severity ≥ warning) instead of a silent info line. (STE-362)
+
+Total test count at release: 3898 tests, 0 failures, 0 errors.
+
 ## [2.40.0] — 2026-07-06 — "Stamped"
 
 Makes "shipped" a deterministic file property and turns the post-merge ship ceremony from unsupported folklore into a guided, gate-backed flow (M99) — motivated by M98 sitting merged-but-unshipped for two days with every version signal coherently stale.
