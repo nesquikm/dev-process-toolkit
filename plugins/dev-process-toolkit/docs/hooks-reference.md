@@ -6,7 +6,7 @@ This is the user manual for the **plugin-bundled, harness-auto-discovered Proces
 
 ## How the harness loads these hooks
 
-The Claude Code harness **auto-discovers** the plugin-bundled hook registration at session start. There is no `/setup` step, no user-settings.json mutation, no per-project opt-in. The 4 hooks fire across every project where the `dev-process-toolkit` plugin is enabled at user scope.
+The Claude Code harness **auto-discovers** the plugin-bundled hook registration at session start. There is no `/setup` step, no user-settings.json mutation, no per-project opt-in. The 5 hooks fire across every project where the `dev-process-toolkit` plugin is enabled at user scope.
 
 Per the Claude Code plugins reference (`code.claude.com/docs/en/plugins-reference.md#hooks` + `#environment-variables`):
 
@@ -15,7 +15,7 @@ Per the Claude Code plugins reference (`code.claude.com/docs/en/plugins-referenc
 3. At hook-fire time, the literal token `${CLAUDE_PLUGIN_ROOT}` is substituted inline against the plugin's runtime path on the user's machine — the plugin cache directory, not any dev-clone path.
 4. Plugin hooks fire in **every project** where the plugin is enabled (user scope). No per-project opt-in mechanism; opt-out is `claude plugin disable dev-process-toolkit` per the harness contract.
 
-**Install shape.** The four hook entries live in `<plugin-root>/hooks/hooks.json` as `command`-type entries whose `command` field is the literal inline form `"${CLAUDE_PLUGIN_ROOT}"/templates/hooks/process/<name>.sh` with `timeout: 5000`. The plugin owns the script bodies; updates propagate automatically when the plugin updates (no user action needed).
+**Install shape.** The five hook entries live in `<plugin-root>/hooks/hooks.json` as `command`-type entries whose `command` field is the literal inline form `"${CLAUDE_PLUGIN_ROOT}"/templates/hooks/process/<name>.sh` with `timeout: 5000`. The plugin owns the script bodies; updates propagate automatically when the plugin updates (no user action needed).
 
 **NFR-10 refusal shape.** On a contract miss, hooks exit non-zero and write a 3-line structured refusal to stderr in the canonical NFR-10 shape emitted by `templates/hooks/_lib/session.ts`:
 
@@ -42,14 +42,14 @@ The Claude Code harness surfaces this stderr block back to the model, which then
 
 Because the hooks ship bundled inside the plugin, editing them in place is not the override path — plugin updates would overwrite a forked `hooks/hooks.json` and the harness only honors `${CLAUDE_PLUGIN_ROOT}` expansion inside the plugin's own registration surface. Operators have two override paths:
 
-1. **Disable the plugin's bundled hook entirely.** Run `claude plugin disable dev-process-toolkit` (per the harness contract) to stop all 4 hooks from firing. There is no per-hook on/off; the registration is plugin-scoped.
+1. **Disable the plugin's bundled hook entirely.** Run `claude plugin disable dev-process-toolkit` (per the harness contract) to stop all 5 hooks from firing. There is no per-hook on/off; the registration is plugin-scoped.
 2. **Copy-and-override into the operator's own `.claude/`.** Snapshot-copy the seeded script (e.g., `cp ~/.claude/plugins/cache/dev-process-toolkit/dev-process-toolkit/<version>/templates/hooks/process/<name>.sh ~/.claude/hooks/<name>.sh`), edit the copy, then register the copy as a hook entry in the operator's own user-scoped `~/.claude/settings.json` (referencing the local path directly — `${CLAUDE_PLUGIN_ROOT}` does NOT expand outside the plugin's `hooks/hooks.json`). Disable the plugin's bundled version to avoid the original firing alongside the fork. Plugin updates no longer touch the operator's fork; re-snapshot manually for upstream changes.
 
 The copy-and-override path is intentionally heavier than the prior install-side model offered. It reflects the harness contract: plugin-bundled registrations are owned by the plugin, and operator customization lives in operator-scoped settings against operator-managed script paths.
 
 ## Reversal context — STE-285 original (wrong) design intent
 
-STE-285 (M71) originally seeded the 4 hooks via an install-side mechanism — a `/setup` hooks installer that wrote entries into a user project's `.claude/settings.json` with `args[0]` rendered as either a dev-clone absolute path (pre-STE-288) or the literal `${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/<name>.sh` token (STE-288, v2.22.1). That design followed the rejection chain STE-262 / STE-270 / STE-276, which explicitly cancelled plugin-bundled `hooks/hooks.json` on three grounds (spawn blast radius, triple-check conflict, no clean per-session state surface).
+STE-285 (M71) originally seeded the first 4 hooks via an install-side mechanism — a `/setup` hooks installer that wrote entries into a user project's `.claude/settings.json` with `args[0]` rendered as either a dev-clone absolute path (pre-STE-288) or the literal `${CLAUDE_PLUGIN_ROOT}/templates/hooks/process/<name>.sh` token (STE-288, v2.22.1). That design followed the rejection chain STE-262 / STE-270 / STE-276, which explicitly cancelled plugin-bundled `hooks/hooks.json` on three grounds (spawn blast radius, triple-check conflict, no clean per-session state surface).
 
 **2026-05-14 empirical discovery:** the operator ran the install-side `/setup` hooks installer (preselect mode) against v2.22.1 in `~/workspace/quack`, then a hook tried to fire; the harness emitted:
 
@@ -119,6 +119,14 @@ Empirical research via the `claude-code-guide` agent confirmed the contract: `${
   Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:tdd, hook=pre-commit-tdd-orchestrator
   ```
 - **Override pattern:** Disable the plugin or copy-and-override — snapshot-copy the seeded script into `~/.claude/hooks/pre-commit-tdd-orchestrator.sh`, edit (e.g., tighten or loosen the "FR-related staged" heuristic, allow-list certain commit types like `docs:` or `chore:`), and register the local absolute path in the operator's `~/.claude/settings.json`.
+
+### session-token-ledger
+
+- **Name:** `session-token-ledger`
+- **Event:** `SessionEnd`, with `Stop` wired as an equivalent trigger (robustness pick — survives unclean exits; both re-derive the whole session and replace its rows, so repeated firing is idempotent).
+- **Matcher:** `*`
+- **Behavior:** Capture hook, not a gate (STE-344, M92). Parses `transcript_path` + `session_id` from the stdin hook JSON via `parseHookPayload`, aggregates the session's per-`(attributionSkill, model)` token usage via `parseTranscriptTokenUsage`, and writes the rows to the git-ignored `<project>/.dev-process/token-ledger.jsonl` (`writeSessionRows` — replaces any rows already recorded for the `session_id`, atomic temp-file + rename write). **Fail-open by contract:** any parse/IO error exits `0` with no write and no stderr — there is no refusal shape, and the hook never blocks session teardown or dirties the tracked tree.
+- **Override pattern:** Disable the plugin, or copy-and-override — snapshot-copy `templates/hooks/process/session-token-ledger.sh` into `~/.claude/hooks/`, edit (e.g., change the ledger location or restrict to `SessionEnd` only), and register the local absolute path in the operator's `~/.claude/settings.json`.
 
 ---
 
