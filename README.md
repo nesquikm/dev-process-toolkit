@@ -175,7 +175,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.41.0 — "Labeled"** (M97 closes the milestone-label coverage holes: transient-retry attach on every `/implement` path, an archival-boundary assertion that refuses to seal a label gap behind an archived FR, and a one-shot `/spec-archive --backfill-milestone-labels` remediation sweep.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.42.0 — "Tally"** (M92 adds per-skill token-usage stats: a fail-open SessionEnd/Stop hook captures per-(skill, model) token aggregates into a git-ignored ledger, and machine-managed `## Token Stats` blocks render into FR files and milestone plans only at existing spec-write/commit boundaries — measurement, not enforcement.)
 
 ## Core Philosophy
 
