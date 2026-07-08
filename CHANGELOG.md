@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.42.0] — 2026-07-07 — "Tally"
+
+Per-skill token-usage stats (M92): the toolkit now records what each SDD skill costs. A fail-open hook captures per-(skill, model) token aggregates from the session transcript into a git-ignored ledger, and machine-managed `## Token Stats` blocks project it into spec files only at moments a spec file is already being written/committed — never a standalone dirty-tree event. A deliberate, measurement-only reversal of the prior "no token counts" stance (no caps introduced).
+
+### Added
+
+- Token-usage capture layer: `parseTranscriptTokenUsage` groups every transcript line's `message.usage` by `(attributionSkill ?? "(main-loop)", model)` — `context:fork` children roll up into their parent skill for free — and a `SessionEnd`/`Stop` bundled hook writes the session's rows to the git-ignored `.dev-process/token-ledger.jsonl` (idempotent per `session_id`, fail-open exit 0, self-healing on corrupted lines, atomic temp-file + rename writes). `.gitignore` wiring lands here and as `/setup` step 6c. (STE-344)
+- `## Token Stats` FR block: sentinel-fenced, machine-managed, placed last (after `## Notes`), byte-stable per-skill × per-model table with separate `brainstorm`/`spec-write` rows + subtotal; idempotent `upsertTokenStatsBlock` replace-in-place; convention test + FR-section-contract tolerance note; `/spec-write` renders it riding its own FR-file write and emits the `token_stats_rendered` capability row; brainstorm→FR bridging claims the most-recent unclaimed same-branch brainstorm session with durable `claimed_by` persistence (`claimRowsForFR`) so no FR double-counts. (STE-345)
+- Commit-boundary renders: `/implement` Phase 4 re-renders each in-scope FR's block into the archive commit (after `git mv`/flip, before commit), and `/ship-milestone` renders a milestone rollup into `specs/plan/M<N>.md` inside the release commit — per-FR subtotals, `(main-loop)`, a `design/exploration` bucket for never-claimed brainstorm rows, and a per-model `total`; idempotent + non-interfering, proven by test. (STE-346)
+
+Total test count at release: 3988 tests, 0 failures, 0 errors.
+
 ## [2.41.0] — 2026-07-06 — "Labeled"
 
 Closes the milestone-label coverage holes (M97) found on a downstream Jira project, where an FR-backed ticket shipped without its `milestone-M5` label and the gap went permanently invisible the moment its FR archived. Enforcement is FR-backed-only by design — bugs and ad-hoc tickets are never milestone-scoped.

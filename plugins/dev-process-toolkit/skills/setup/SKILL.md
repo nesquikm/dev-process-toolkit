@@ -153,6 +153,10 @@ The hook is a local-machine artifact (not tracked in git). `commitlint.config.js
 
 Full procedure (idempotency tier, `--commitlint` extras, manual install command): `docs/setup-reference.md` § Step 6b — commit-msg hook install.
 
+### 6c. Git-ignore the token-ledger directory
+
+Add a `.dev-process/` entry to the project's `.gitignore`: create the `.gitignore` file if it is absent; no-op when the entry is already present (existence-guarded, idempotent — safe to re-run). The bundled token-ledger hook itself needs no install step here — `hooks/hooks.json` is auto-discovered by Claude Code (per M74).
+
 ### 7. Configure MCP servers
 
 `verification:` When tracker mode != none, write `.mcp.json` with the resolved adapter's `mcpServers` entry. **Required, abort on failure** — the `setup-output-completeness` probe (gate-check #17) hard-fails when missing in tracker mode.

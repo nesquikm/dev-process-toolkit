@@ -46,7 +46,9 @@ export interface ClosingSummaryCapabilityKeysReport {
  * the project-milestone attach), and the M97 STE-363 archival-assertion pair
  * (`milestone_label_asserted_at_archive` / `milestone_label_archive_refused`
  * — per-FR milestone-binding assertion outcomes emitted by /spec-archive and
- * /implement § Milestone Archival). Excluded by design:
+ * /implement § Milestone Archival), and the M92 STE-345 addition
+ * (`token_stats_rendered` — the FR's `## Token Stats` block was refreshed
+ * from the token ledger riding the FR-file write). Excluded by design:
  * `tracker_status_forced`, `tracker_status_skipped`, `tracker_status_cancelled`,
  * `tracker_status_unknown_encountered`, `tracker_tolerance_refused_non_tty`
  * — these appear only as table-header column labels at SKILL.md L330, not
@@ -76,6 +78,7 @@ export const CANONICAL_CAPABILITY_KEYS = [
   "milestone_attach_failed",
   "milestone_label_asserted_at_archive",
   "milestone_label_archive_refused",
+  "token_stats_rendered",
 ] as const;
 
 export type CapabilityKey = (typeof CANONICAL_CAPABILITY_KEYS)[number];
@@ -115,6 +118,9 @@ const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   // by the M97 archival-assertion meta-tests.
   milestone_label_asserted_at_archive: "spec-write",
   milestone_label_archive_refused: "spec-write",
+  // M92 STE-345: /spec-write § 0b step 7 renders the Token Stats block
+  // riding the FR-file write; the MUST-emit directive lives in spec-write.
+  token_stats_rendered: "spec-write",
 };
 
 /**

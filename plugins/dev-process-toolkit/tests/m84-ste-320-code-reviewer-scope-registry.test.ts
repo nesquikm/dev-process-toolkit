@@ -11,7 +11,8 @@
 //         (every key with a literal `MUST emit `<key>`` directive in
 //         /spec-write SKILL.md) — 20 keys at M84; 21 since the M97
 //         STE-362 `milestone_attach_failed` expansion; 23 since the M97
-//         STE-363 archival-assertion pair.
+//         STE-363 archival-assertion pair; 24 since the M92 STE-345
+//         `token_stats_rendered` addition.
 //
 // Tests assert the FINAL desired state — they all FAIL until the
 // implementer lands the edits.
@@ -81,6 +82,12 @@ const EXPECTED_SET_A: ReadonlySet<string> = new Set([
   // STE-363 meta-tests), keeping Set A = discovered directives.
   "milestone_label_asserted_at_archive",
   "milestone_label_archive_refused",
+  // Post-M84 expansion (M92 STE-345): `## Token Stats` block rendered from
+  // the token ledger riding the FR-file write. The pin moves consciously
+  // 23 → 24 — the key carries a literal `MUST emit \`token_stats_rendered\``
+  // directive at /spec-write SKILL.md § 0b step 7, keeping Set A =
+  // discovered directives.
+  "token_stats_rendered",
 ]);
 
 // Keys explicitly excluded from registration — they appear only as table-
@@ -184,8 +191,8 @@ describe("AC-STE-320.2 — adaptation-guide echo rewritten, skill-anatomy preser
 // ---------------------------------------------------------------------------
 
 describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-for-byte (count grows only via conscious bumps below)", () => {
-  test("CANONICAL_CAPABILITY_KEYS length is exactly 23", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(23);
+  test("CANONICAL_CAPABILITY_KEYS length is exactly 24", () => {
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(24);
   });
 
   test("CANONICAL_CAPABILITY_KEYS contains every key in Set A", () => {
@@ -225,7 +232,7 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
     while ((match = re.exec(body)) !== null) {
       discovered.add(match[1]!);
     }
-    expect(discovered.size).toBe(23);
+    expect(discovered.size).toBe(24);
     for (const key of EXPECTED_SET_A) {
       expect(discovered.has(key)).toBe(true);
     }
