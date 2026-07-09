@@ -88,6 +88,22 @@ const EXPECTED_SET_A: ReadonlySet<string> = new Set([
   // directive at /spec-write SKILL.md § 0b step 7, keeping Set A =
   // discovered directives.
   "token_stats_rendered",
+  // Post-M84 expansion (M100 STE-373): deps-research skip-disposition pair.
+  // The pin moves consciously 24 → 26 — both keys carry literal
+  // `MUST emit \`<key>\`` directives in /spec-write SKILL.md § 0b step 2.5b
+  // (and mirrored in /brainstorm Step 1.5b), keeping Set A = discovered
+  // directives. Closes the previously-silent deps-research skip paths.
+  "deps_research_skipped_no_manifest",
+  "deps_research_skipped_no_tech",
+  // Post-M84 expansion (M100 STE-374): report-issue evidence-gate keys. The pin
+  // moves consciously 26 → 30 — all four carry literal `MUST emit \`<key>\``
+  // directives embedded in /spec-write SKILL.md § 7's report-issue static-map
+  // rows (the emission-site directives also live in /report-issue SKILL.md,
+  // pinned by the STE-374 meta-tests), keeping Set A = discovered directives.
+  "report_issue_session_matched_marker",
+  "report_issue_session_fallback_mtime",
+  "report_issue_severity_capped_unverified",
+  "report_issue_evidence_verified",
 ]);
 
 // Keys explicitly excluded from registration — they appear only as table-
@@ -191,8 +207,11 @@ describe("AC-STE-320.2 — adaptation-guide echo rewritten, skill-anatomy preser
 // ---------------------------------------------------------------------------
 
 describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-for-byte (count grows only via conscious bumps below)", () => {
-  test("CANONICAL_CAPABILITY_KEYS length is exactly 24", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(24);
+  // Conscious bump: 24 → 26 (M100/STE-373 deps-research skip-disposition pair)
+  // → 30 (M100/STE-374 report-issue evidence-gate keys: session matched/fallback
+  // + severity capped/evidence verified).
+  test("CANONICAL_CAPABILITY_KEYS length is exactly 30", () => {
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(30);
   });
 
   test("CANONICAL_CAPABILITY_KEYS contains every key in Set A", () => {
@@ -232,7 +251,7 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
     while ((match = re.exec(body)) !== null) {
       discovered.add(match[1]!);
     }
-    expect(discovered.size).toBe(24);
+    expect(discovered.size).toBe(30);
     for (const key of EXPECTED_SET_A) {
       expect(discovered.has(key)).toBe(true);
     }

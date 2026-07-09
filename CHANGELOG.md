@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.43.0] — 2026-07-09 — "Attested"
+
+Fork-consumer reliability (M100): a scary-looking fork output no longer cascades into silent feature-death or a false high-severity alarm. Closes the `deps-research` fork enforcement asymmetry (the deterministic gate its `spec-research` twin already had) and makes `/report-issue` evidence-based — capturing the session that actually contains the incident and refusing to assert high severity without evidence. Origin: a 2026-07-09 `/report-issue` gist reporting a deps-research prompt-injection whose own attached transcript neither reproduced nor even invoked the fork.
+
+### Added
+
+- Deps-research fork enforcement parity: the deterministic `deps_research_result_shape` gate (#64) — a structural clone of the `spec-research` twin's #41 probe, reusing the `parseDepsResearchBlock` parser — plus a definition-level `deps_research_disposition_contract` gate (#65). Two no-silent-skip disposition tokens (`deps_research_skipped_no_manifest` / `_no_tech`) make the complete legal disposition set byte-checkable, with no legal token for "compromised"/"injected"/"disabled", and an anti-cascade rule forbids the cross-invocation "fork compromised" belief that caused the original incident. Retires the now-obsolete STE-318 A14 phantom-probe guard (the probe is real now). (STE-373)
+- `/report-issue` evidence gate: marker-matched incident-session selection (`selectIncidentSession`) over the K most-recent candidate transcripts with the most-recent-mtime pick as fallback — fixing wrong-session capture — plus a pre-publish evidence check (`verifyIncidentEvidence`) and an advisory, never-blocking severity cap that tags a `high`/`critical` report whose incident is absent from its own captured transcript (`verified: false` + a `verification` block in `metadata.json`). (STE-374)
+
+Total test count at release: 4059 tests, 0 failures, 0 errors.
+
 ## [2.42.0] — 2026-07-07 — "Tally"
 
 Per-skill token-usage stats (M92): the toolkit now records what each SDD skill costs. A fail-open hook captures per-(skill, model) token aggregates from the session transcript into a git-ignored ledger, and machine-managed `## Token Stats` blocks project it into spec files only at moments a spec file is already being written/committed — never a standalone dirty-tree event. A deliberate, measurement-only reversal of the prior "no token counts" stance (no caps introduced).

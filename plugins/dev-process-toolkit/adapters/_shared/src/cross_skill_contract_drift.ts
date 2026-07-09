@@ -12,13 +12,12 @@
 //          still cite "3-tier ticket-binding resolver". The legacy
 //          Tier-2 fallback key was retired; only Tier 1 (branch-regex)
 //          + Tier 2 (interactive prompt) remain.
-//   A14 — Phantom `deps_research_result_shape` probe:
-//          agents/deps-researcher.md claimed a runtime probe that does
-//          not exist. The architectural-twin asymmetry with
-//          spec-researcher.md (which legitimately references the live
-//          probe #41 `spec_research_result_shape`) is intentional —
-//          deps-research output shape is operator-judgment, not
-//          byte-checkable.
+//   A14 — [retired in M100] The `deps_research_result_shape`
+//          phantom-probe guard was removed once STE-373 shipped the real
+//          probe at adapters/_shared/src/deps_research_result_shape.ts
+//          (#64). agents/deps-researcher.md now legitimately references
+//          it, matching the spec-researcher.md twin; the guard's job is
+//          done and keeping it would forbid the now-canonical reference.
 //
 // Walks the active-surface glob
 //   `plugins/dev-process-toolkit/{skills,docs,agents}/**/*.md`
@@ -71,8 +70,9 @@ export const FORBIDDEN_SUBSTRINGS = [
   // A6 — 2-tier ticket-binding resolver
   "3-tier ticket-binding",
   "3-tier resolver",
-  // A14 — Phantom probe
-  "deps_research_result_shape",
+  // A14 — the `deps_research_result_shape` phantom-probe guard was retired
+  // in M100/STE-373: the probe is now real (#64), so the reference is
+  // canonical, not drift.
 ] as const;
 
 const REMEDY_BY_PHRASE: Readonly<Record<string, string>> = {
@@ -103,11 +103,6 @@ const REMEDY_BY_PHRASE: Readonly<Record<string, string>> = {
     "replace with `2-tier resolver` matching " +
     "`docs/ticket-binding.md:11`; only Tier 1 (branch-regex) + Tier 2 " +
     "(interactive prompt) remain.",
-  "deps_research_result_shape":
-    "drop the phantom probe reference — no probe by that name exists in " +
-    "adapters/_shared/src/; deps-research output shape is operator-" +
-    "judgment, not runtime-enforced (architectural twin asymmetry with " +
-    "spec-researcher.md is intentional).",
 };
 
 // Canonical `<reason>` clause shared by both the short `note` field and the
