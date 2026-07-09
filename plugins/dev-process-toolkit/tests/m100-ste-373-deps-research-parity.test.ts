@@ -22,7 +22,7 @@
 // ceiling test caps those counts).
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CANONICAL_CAPABILITY_KEYS } from "../adapters/_shared/src/closing_summary_capability_keys";
 import { specWriteStep7Map } from "./_skill-md";
@@ -42,8 +42,13 @@ const depsAgentBody = readFileSync(
   join(pluginRoot, "agents", "deps-researcher.md"),
   "utf8",
 );
+// Resolve the FR from its active path, falling back to the archive path once
+// the milestone has been archived (the meta-test must survive its own FR's
+// /implement Phase 4 archival — active FR files are git mv'd into archive/).
+const frActivePath = join(repoRoot, "specs", "frs", "STE-373.md");
+const frArchivedPath = join(repoRoot, "specs", "frs", "archive", "STE-373.md");
 const frBody = readFileSync(
-  join(repoRoot, "specs", "frs", "STE-373.md"),
+  existsSync(frActivePath) ? frActivePath : frArchivedPath,
   "utf8",
 );
 
