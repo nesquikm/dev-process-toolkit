@@ -48,7 +48,11 @@ export interface ClosingSummaryCapabilityKeysReport {
  * — per-FR milestone-binding assertion outcomes emitted by /spec-archive and
  * /implement § Milestone Archival), and the M92 STE-345 addition
  * (`token_stats_rendered` — the FR's `## Token Stats` block was refreshed
- * from the token ledger riding the FR-file write). Excluded by design:
+ * from the token ledger riding the FR-file write), and the M100
+ * skip-disposition pair (`deps_research_skipped_no_manifest` /
+ * `deps_research_skipped_no_tech` — the two legal-skip dispositions the
+ * deps-research fork reports when the deps manifest is absent/empty or the
+ * run is `--no-tech`). Excluded by design:
  * `tracker_status_forced`, `tracker_status_skipped`, `tracker_status_cancelled`,
  * `tracker_status_unknown_encountered`, `tracker_tolerance_refused_non_tty`
  * — these appear only as table-header column labels at SKILL.md L330, not
@@ -71,6 +75,8 @@ export const CANONICAL_CAPABILITY_KEYS = [
   "deps_research_invoked",
   "deps_research_no_matches",
   "deps_research_shape_violation",
+  "deps_research_skipped_no_manifest",
+  "deps_research_skipped_no_tech",
   "tracker_status_advisory_non_tty",
   "tracker_status_genuine_drift",
   "tracker_local_orphan_local",
@@ -79,6 +85,19 @@ export const CANONICAL_CAPABILITY_KEYS = [
   "milestone_label_asserted_at_archive",
   "milestone_label_archive_refused",
   "token_stats_rendered",
+  // M100 STE-374 report-issue evidence gate: the selection-path pair records
+  // which incident-session pick fired — a marker-matched session was chosen, or
+  // the most-recent-mtime fallback was used. Exactly one emits per /report-issue
+  // run; both route to spec-write's § 7 static map.
+  "report_issue_session_matched_marker",
+  "report_issue_session_fallback_mtime",
+  // M100 STE-374 report-issue evidence gate: the verification-outcome pair
+  // records the pre-publish evidence check — the severity was capped because a
+  // high/critical report's incident was absent from the captured transcript
+  // (tagged unverified), or the incident was found in the transcript (verified).
+  // Both route to spec-write's § 7 static map.
+  "report_issue_severity_capped_unverified",
+  "report_issue_evidence_verified",
 ] as const;
 
 export type CapabilityKey = (typeof CANONICAL_CAPABILITY_KEYS)[number];
@@ -106,6 +125,11 @@ const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   deps_research_invoked: "spec-write",
   deps_research_no_matches: "spec-write",
   deps_research_shape_violation: "spec-write",
+  // M100 skip-disposition pair: the two legal-skip outcomes the deps-research
+  // fork reports when `specs/deps.yaml` is absent/empty or the run is
+  // `--no-tech`; both route to spec-write's static map.
+  deps_research_skipped_no_manifest: "spec-write",
+  deps_research_skipped_no_tech: "spec-write",
   tracker_status_advisory_non_tty: "spec-write",
   tracker_status_genuine_drift: "spec-write",
   tracker_local_orphan_local: "spec-write",
@@ -121,6 +145,16 @@ const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   // M92 STE-345: /spec-write § 0b step 7 renders the Token Stats block
   // riding the FR-file write; the MUST-emit directive lives in spec-write.
   token_stats_rendered: "spec-write",
+  // M100 STE-374: the /report-issue selection-path pair. Like every other key,
+  // the § 7 static map is the canonical owner surface — the MUST-emit directives
+  // for both live in spec-write's map row; report-issue wires the emission.
+  report_issue_session_matched_marker: "spec-write",
+  report_issue_session_fallback_mtime: "spec-write",
+  // M100 STE-374: the /report-issue verification-outcome pair. The § 7 static
+  // map carries both MUST-emit directives (canonical owner surface); report-issue
+  // wires the emission at the evidence-check / severity-cap site.
+  report_issue_severity_capped_unverified: "spec-write",
+  report_issue_evidence_verified: "spec-write",
 };
 
 /**

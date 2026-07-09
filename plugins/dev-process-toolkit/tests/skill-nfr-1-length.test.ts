@@ -12,7 +12,10 @@ import { join } from "node:path";
 
 const pluginRoot = join(import.meta.dir, "..");
 const skillsDir = join(pluginRoot, "skills");
-const SKILL_LINE_CAP = 351;
+// Cap bumped 351 -> 352 (M100/STE-373 deps-research skip-token § 7 row) ->
+// 354 (M100/STE-374 report-issue evidence-gate § 7 rows): contract-locked
+// prose pressure in spec-write.
+const SKILL_LINE_CAP = 354;
 
 const skills = readdirSync(skillsDir).filter((name) => {
   const full = join(skillsDir, name);
