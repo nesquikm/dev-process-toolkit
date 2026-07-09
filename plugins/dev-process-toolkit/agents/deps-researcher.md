@@ -51,7 +51,7 @@ The block has **three parts**: a literal banner line, a fenced `deps-research-re
 
 **Truncation marker.** If more than 3 candidates exist in a section, keep the top-3 by relevance, then append `- (… <K> more truncated)` (substituting the integer `K` for the dropped count) to that section. Example: `- (… 2 more truncated)`.
 
-**Line cap (hard).** ≤ 25 lines for the entire emitted block. Count `wc -l` on banner + opening fence + sections + closing fence. If your draft exceeds 25 lines, drop the lowest-ranked bullet from the lowest-priority section first and re-count before emitting. Output shape is operator-judgment, not runtime-enforced — the architectural twin asymmetry with `spec-researcher.md` is intentional (deps-research output shape carries no byte-checkable contract because dependency-package signatures vary across stack ecosystems).
+**Line cap (hard).** ≤ 25 lines for the entire emitted block. Count `wc -l` on banner + opening fence + sections + closing fence. If your draft exceeds 25 lines, drop the lowest-ranked bullet from the lowest-priority section first and re-count before emitting; the gate-probe `deps_research_result_shape` (#64) refuses any recorded block over the cap.
 
 **API Surface Highlights — verbatim only.** The signature snippets MUST be byte-identical excerpts from the matched package's `docs/reference/` files. Do NOT paraphrase, reformat, or simplify; the STE-72 invariant requires ground-truth-only signatures so downstream LLM consumers can trust them as authoritative.
 
