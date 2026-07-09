@@ -1,13 +1,14 @@
 // STE-318 — /gate-check probe `cross_skill_contract_drift` (#58).
 //
-// Closes three cross-skill contract drifts where shipped FRs changed runtime
-// canon but the documentation surfaces never caught up:
+// Closes two active cross-skill contract drifts where shipped FRs changed
+// runtime canon but the documentation surfaces never caught up:
 //   A2  — /tdd 4-stage architecture (STE-296, M77): 8 surfaces still describe
 //          /tdd as RED → GREEN → REFACTOR via "three forked subagents".
 //   A6  — 2-tier ticket-binding resolver (v1.21.0): 5 SKILL.md surfaces still
 //          cite "3-tier ticket-binding resolver".
-//   A14 — Phantom `deps_research_result_shape` probe: agents/deps-researcher.md
-//          claims a runtime probe that does not exist.
+//   A14 — [retired in M100/STE-373] the `deps_research_result_shape`
+//          phantom-probe guard was removed once STE-373 shipped the real
+//          probe (#64); the reference is now canonical, not drift.
 //
 // RED-state until the implementation lands at:
 //   plugins/dev-process-toolkit/adapters/_shared/src/cross_skill_contract_drift.ts
@@ -17,14 +18,14 @@
 //                  regex returns zero matches.
 //   AC-STE-318.2 — active-surface scan: forbidden "3-tier resolver" regex
 //                  returns zero matches in five named SKILL.md + doc files.
-//   AC-STE-318.3 — `agents/deps-researcher.md` no longer references
-//                  `deps_research_result_shape` as a runtime probe (branch a).
+//   AC-STE-318.3 — [superseded by M100/STE-373] the deps-researcher.md
+//                  probe reference is now canonical; STE-373's m100 meta-test
+//                  owns the agent-file content assertions.
 //   AC-STE-318.4 — new probe module + PROBE_ID + severity + #58 registration
 //                  in skills/gate-check/SKILL.md.
 //   AC-STE-318.5 — synthetic fixture coverage: (a) PASS clean fixture,
 //                  (b) FAIL re-introduced "three forked subagents",
-//                  (c) FAIL re-introduced "3-tier resolver",
-//                  (d) FAIL re-introduced `deps_research_result_shape`.
+//                  (c) FAIL re-introduced "3-tier resolver".
 
 import { describe, expect, test } from "bun:test";
 import {
@@ -320,23 +321,13 @@ describe("AC-STE-318.2 — active-surface scan: 3-tier resolver paraphrase", () 
 // AC-STE-318.3 — agents/deps-researcher.md drops the phantom probe reference
 // ---------------------------------------------------------------------------
 
-describe("AC-STE-318.3 — agents/deps-researcher.md no longer cites a runtime probe", () => {
-  test("the file does not contain the substring `deps_research_result_shape`", () => {
+describe("agents/deps-researcher.md now references the real probe (M100/STE-373 reversed the STE-318 A14 phantom guard)", () => {
+  test("the file references the now-real `deps_research_result_shape` probe (#64)", () => {
     expect(existsSync(depsResearcherAgentMdPath)).toBe(true);
     const text = readFileSync(depsResearcherAgentMdPath, "utf-8");
-    expect(text.includes("deps_research_result_shape")).toBe(false);
-  });
-
-  test("the rewritten line cites the operator-judgment / architectural-twin asymmetry", () => {
-    // Branch (a) wording per FR Technical Design — the replacement reads:
-    // "Output shape is operator-judgment, not runtime-enforced — the
-    // architectural twin asymmetry with `spec-researcher.md` is
-    // intentional ..."
-    const text = readFileSync(depsResearcherAgentMdPath, "utf-8");
-    // We assert presence of the key anchor phrases that disambiguate the
-    // rewrite from any future drift back to a probe claim.
-    expect(text).toMatch(/operator-judgment/);
-    expect(text).toMatch(/not runtime-enforced/);
+    expect(text.includes("deps_research_result_shape")).toBe(true);
+    // The retired phantom-guard vocabulary must be gone (STE-373 AC-STE-373.3).
+    expect(text).not.toMatch(/operator-judgment, not runtime-enforced/);
   });
 
   test("the architectural twin spec-researcher.md still correctly cites probe #41", () => {
@@ -390,7 +381,7 @@ describe("AC-STE-318.4 — probe module + PROBE_ID + #58 SKILL.md registration",
     expect(match![0]).toMatch(/Severity:\s*error/i);
   });
 
-  test("probe scans the four substring patterns from AC.1+AC.2 + the deps_research_result_shape substring", async () => {
+  test("probe returns zero violations on the real repo (post-STE-373: deps_research_result_shape is canonical, not forbidden)", async () => {
     // Sanity: against the real repo root (post-rewrite), the probe
     // returns zero violations — i.e., the documented active surfaces are
     // clean. Re-introduction is covered by the synthetic FAIL cases.
@@ -406,7 +397,7 @@ describe("AC-STE-318.4 — probe module + PROBE_ID + #58 SKILL.md registration",
 });
 
 // ---------------------------------------------------------------------------
-// AC-STE-318.5 — synthetic fixture coverage: PASS + three FAIL cases
+// AC-STE-318.5 — synthetic fixture coverage: PASS + two FAIL cases
 // ---------------------------------------------------------------------------
 
 interface Fixture {
@@ -463,7 +454,7 @@ function makeFixture(overrides: {
     "",
     "# deps-researcher",
     "",
-    "Output shape is operator-judgment, not runtime-enforced — the architectural twin asymmetry with spec-researcher.md is intentional.",
+    "Line cap (hard). ≤ 25 lines. The gate-probe `deps_research_result_shape` (#64) refuses any recorded block over the cap.",
     "",
   ].join("\n");
 
@@ -577,32 +568,6 @@ describe("AC-STE-318.5 — synthetic fixture coverage", () => {
       expect(hit).toBeDefined();
       expectNfr10Shape(hit!.message);
       expect(hit!.message).toMatch(/skills\/implement\/SKILL\.md/);
-    } finally {
-      fx.cleanup();
-    }
-  });
-
-  test("(d) FAIL — re-introduced `deps_research_result_shape` reference → NFR-10 violation", async () => {
-    const driftedDeps = [
-      "---",
-      "name: deps-researcher",
-      "---",
-      "",
-      "# deps-researcher",
-      "",
-      "Line cap (hard). ≤ 25 lines. The gate-probe `deps_research_result_shape` refuses any block over the cap.",
-      "",
-    ].join("\n");
-    const fx = makeFixture({ depsResearcherBody: driftedDeps });
-    try {
-      const r = await runCrossSkillContractDriftProbe(fx.root);
-      expect(r.violations.length).toBeGreaterThan(0);
-      const hit = r.violations.find((v) =>
-        /deps_research_result_shape/.test(v.message),
-      );
-      expect(hit).toBeDefined();
-      expectNfr10Shape(hit!.message);
-      expect(hit!.message).toMatch(/agents\/deps-researcher\.md/);
     } finally {
       fx.cleanup();
     }

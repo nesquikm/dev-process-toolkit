@@ -6,7 +6,7 @@ argument-hint: '[--full]'
 
 # Report Issue
 
-Capture a structured incident report for the dev-process-toolkit plugin and publish it to a secret GitHub gist. Default mode is privacy-first: curated repo state + dev narrative only, no transcript. The `--full` flag (or an in-flow `[y/N]` prompt during preview) opts the JSONL transcript in for high-signal cases.
+Capture a structured incident report for the dev-process-toolkit plugin and publish it to a secret GitHub gist. Default mode is privacy-first: curated repo state + dev narrative only, no transcript. The `--full` flag (or an in-flow `[y/N]` prompt during preview) opts the JSONL transcript in for high-signal cases. Before any upload, a pre-publish evidence check (`verifyIncidentEvidence`, wired in § 6) greps the captured transcript for the incident markers and records whether they were found.
 
 The gist URL goes back to the dev for sharing with the plugin maintainer or for self-debugging via `/dev-process-toolkit:brainstorm <gist-url>` in a fresh session.
 
@@ -73,6 +73,7 @@ Collect the following into the working directory. Pass every text artifact throu
 When `--full` is passed on the CLI, additionally bundle the current session's JSONL into the working directory before composing the gist payload below. When `--full` was **not** passed, do not collect the transcript here — the operator gets a `[y/N]` opt-in inside the preview gate (step 7) instead, so the file list + sizes are visible before any transcript-inclusion decision.
 
 - Source path: `<config-dir>/projects/<cwd-slug>/<session>.jsonl` where `<config-dir>` is `process.env.CLAUDE_CONFIG_DIR` when set (operators running Claude Code with a non-default root — e.g., `~/.claude-st` — fall under this path), otherwise `~/.claude`. `<cwd-slug>` is `pwd` with every `/` replaced by `-`. The current session is selected as the most-recent-mtime JSONL under that directory — `findCurrentSession(cwd)` returns the resolved path, or `null` when no candidate exists. Mtime is the deterministic best-known proxy for the live session UUID; if Claude Code later exposes `CLAUDE_SESSION_ID`, the helper SHOULD prefer that and fall back to mtime (call signature unchanged).
+- **Incident-matched selection.** A bare most-recent-mtime pick grabs the wrong JSONL whenever the incident lives in an older session than the newest one on disk. Resolve the incident's session with `selectIncidentSession(cwdSlugDir, markers)` from `adapters/_shared/src/report_issue_session_select.ts`: it scans the K most-recent (K=5) candidate JSONLs under `<config-dir>/projects/<cwd-slug>/` and returns the first whose content carries an incident **marker** — the skill/fork name(s) parsed from the narrative plus any user-supplied marker string(s) — a **marker-matched** pick (`matched: true`). When no candidate within the window matches, it uses the most-recent-mtime JSONL as the explicit **fallback** (`matched: false`, the same path `findCurrentSession(cwd)` returns), and surfaces `truncated: true` when more candidates existed than the K-window admitted. In the common case — the incident lives in the newest session and its marker matches there — the marker-matched pick and the mtime pick coincide, so the selected transcript is unchanged.
 - Run the full JSONL body through `scrubSecrets` before writing.
 
 When the resolved path is `null`, surface a one-line note in the preview ("transcript unavailable — session JSONL not found") and continue without the transcript file. Do not fail the skill — the curated payload is still useful.
@@ -94,11 +95,20 @@ Three files maximum, written into the temp working directory:
     "plugin_version": "<x.y.z>",
     "git_head": "<sha>",
     "severity": "<low|medium|high>",
+    "verified": <boolean>,
+    "verification": { "searched": <boolean>, "found": <boolean>, "markers": ["<marker>", ...] },
     "redaction_summary": [{ "pattern": "<key>", "count": <n> }, ...],
     "full_transcript_included": <boolean>
   }
   ```
+  The `verified` field reflects whether the incident was found in the captured transcript — it is the `found` boolean returned by `verifyIncidentEvidence` (wired below). The `verification` block records the exact `{ searched, found, markers }` triple that call returned, so the report carries proof — or the explicit absence of proof — inline in machine-readable form.
 - **`transcript.jsonl`** — full mode only; the scrubbed transcript verbatim.
+
+**Pre-publish evidence check.** Before the payload leaves for upload, verify the captured transcript actually witnessed the reported incident. Call `verifyIncidentEvidence(transcriptPath, markers)` from `adapters/_shared/src/report_issue_verify_evidence.ts` on the resolved transcript path (the same path § 5 selected, or `null` when no transcript was bundled) with the incident **markers** — the offending fork/skill output name(s) plus the narrative's key symptom markers. It greps the transcript for any marker (substring UNION) and returns `{ searched, found, markers }`: `searched` is whether the grep ran (false on a null / unreadable path), `found` is whether at least one marker appears in the transcript, and `markers` echoes the searched list. Record the searched markers and the boolean result before the upload so the report carries proof — or the explicit absence of proof — that its own transcript corroborates the incident.
+
+**Severity cap on absent evidence.** When the declared `severity` is `high` or `critical` AND the incident is NOT found in the captured transcript (`found: false`), auto-cap the severity — drop it to `medium` — set `verified: false`, and tag the report `unverified` in both `report.md` and `metadata.json`. When the incident IS found (`found: true`), set `verified: true` and leave the declared severity unchanged. `low` / `medium` reports carry the `verification` block for the record but are **never capped** — the cap applies only to the high/critical tier, where an unverified high-severity claim would otherwise over-weight triage. (The § 2 severity prompt currently offers `low` / `medium` / `high`, so the cap fires on `high` in practice today; the `critical` branch is handled forward-compatibly should the severity vocabulary later expand.) The verification outcome surfaces in the closing summary: MUST emit `report_issue_severity_capped_unverified` when the cap fires (high/critical + incident not found), and MUST emit `report_issue_evidence_verified` when the incident is found in the captured transcript.
+
+**Advisory, never blocking.** The evidence gate is **advisory** and never blocks the upload — the report still publishes on the unverified path. The capped severity + `unverified` tag + `verification` block make the evidentiary gap explicit in `metadata.json` (and the gist), but nothing aborts the `gh gist create`. The maintainer still receives even unverified reports; the only change is that a report can no longer silently assert high severity without evidence.
 
 ### 7. Preview gate
 
@@ -136,6 +146,7 @@ On every successful run, emit a closing summary that satisfies the per-skill con
 - Severity (echoed from the narrative).
 - The `report_issue_redacted_payload` capability row, fired unconditionally so operators see the scrub summary in console regardless of match count.
 - The `report_issue_default_applied` capability row when the marker drove auto-push (per step 7).
+- The incident-session selection row — **exactly one** of `report_issue_session_matched_marker` (the `selectIncidentSession` pick in § 5 returned `matched: true` — a marker-matched session was chosen) or `report_issue_session_fallback_mtime` (no candidate within the K-window matched; the most-recent-mtime fallback was used, `matched: false`) fires per run, so the operator sees which selection path resolved the captured transcript.
 - A `Next:` block offering both paths verbatim:
 
 ```
@@ -152,11 +163,15 @@ The `>=100 byte` floor is the regression signal that the summary fired at all (a
 
 ## Capability rows
 
-Three capability rows are registered in the static plain-language map at `/spec-write` § 7. They are emitted by this skill into the closing summary per the rules above:
+Seven capability rows are registered in the static plain-language map at `/spec-write` § 7. They are emitted by this skill into the closing summary per the rules above:
 
 - `report_issue_default_applied` — fires when the auto-approve marker drove the publish step.
 - `report_issue_declined` — fires when the operator declined the preview gate.
 - `report_issue_redacted_payload` — fires unconditionally on every successful publish so operators see the per-pattern match count without having to open `metadata.json`.
+- `report_issue_session_matched_marker` — fires when incident-session selection (§ 5) matched a marker in a candidate transcript. Exactly one of this / the mtime-fallback row fires per run.
+- `report_issue_session_fallback_mtime` — fires when no candidate transcript matched the incident markers and selection fell back to the most-recent-mtime session.
+- `report_issue_severity_capped_unverified` — fires when a high/critical report's incident is absent from the captured transcript and the severity was auto-capped (§ 6).
+- `report_issue_evidence_verified` — fires when the incident was found in the captured transcript.
 
 ## Rules
 
