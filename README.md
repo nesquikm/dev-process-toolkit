@@ -175,7 +175,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.42.0 — "Tally"** (M92 adds per-skill token-usage stats: a fail-open SessionEnd/Stop hook captures per-(skill, model) token aggregates into a git-ignored ledger, and machine-managed `## Token Stats` blocks render into FR files and milestone plans only at existing spec-write/commit boundaries — measurement, not enforcement.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.43.0 — "Attested"** (M100 closes the deps-research fork enforcement asymmetry with a deterministic `deps_research_result_shape` shape gate + no-silent-skip disposition tokens, and makes `/report-issue` evidence-based — marker-matched incident-session capture plus an advisory severity cap on any high-severity report whose evidence is absent from its own transcript.)
 
 ## Core Philosophy
 
