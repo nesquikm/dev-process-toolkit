@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.44.0] — 2026-07-10 — "Consent"
+
+Token-stats opt-in (M102): the per-skill token accounting introduced in M92 is now opt-in and **off by default**. A dedicated, always-emitted `## Token Stats` section in `CLAUDE.md` (closed key set `{enabled}`, default `false`) gates the feature end-to-end — when disabled, the bundled `SessionEnd`/`Stop` capture hook reads the flag and no-ops (no ledger writes; fail-off **and** fail-open, so a malformed or absent config never blocks session teardown), and all three render sites emit nothing. Existing projects stay off until they re-run `/setup`, for free via the `absent-section ⇒ off` parser convention. `/spec-write` now reports an honest `token_stats_disabled` disposition instead of falsely claiming a render. This repo dogfoods `enabled: true`, so the toolkit keeps accounting its own usage.
+
+### Changed
+
+- Token Stats opt-in config surface: an always-emitted `## Token Stats` `CLAUDE.md` section (closed `{enabled}` key set, default `false`), a `readTokenStatsConfig` parser mirroring `readVerificationConfig` (missing file or section ⇒ off), a one-at-a-time `/setup` interview step + a `## /setup audit` row, and documentation in `docs/layout-reference.md`. (STE-378)
+- Token Stats enforcement: the bundled `session-token-ledger.ts` capture hook and all three `## Token Stats` render sites (`/spec-write`, `/implement` archival, `/ship-milestone` rollup) now gate on the flag — capture no-ops when disabled (fail-off + fail-open, never throwing at session-end) and `/spec-write` emits the `token_stats_disabled` XOR `token_stats_rendered` disposition (new capability key; canonical set 30 → 31). (STE-379)
+
+Total test count at release: 4100 tests, 0 failures, 0 errors.
+
 ## [2.43.0] — 2026-07-09 — "Attested"
 
 Fork-consumer reliability (M100): a scary-looking fork output no longer cascades into silent feature-death or a false high-severity alarm. Closes the `deps-research` fork enforcement asymmetry (the deterministic gate its `spec-research` twin already had) and makes `/report-issue` evidence-based — capturing the session that actually contains the incident and refusing to assert high severity without evidence. Origin: a 2026-07-09 `/report-issue` gist reporting a deps-research prompt-injection whose own attached transcript neither reproduced nor even invoked the fork.
