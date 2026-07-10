@@ -87,3 +87,78 @@ describe("AC-STE-345.5 — /spec-write renders ## Token Stats riding its own FR-
     ).toBe(true);
   });
 });
+
+// STE-379 AC-STE-379.3 / AC-STE-379.5 — `token_stats_disabled` disposition.
+//
+// The Step-7 closing summary emits EXACTLY ONE literal backticked token per
+// run: `token_stats_rendered` when enabled (rendered or vacuous-empty),
+// `token_stats_disabled` when disabled. The new key is registered in
+// CANONICAL_CAPABILITY_KEYS with owner spec-write, carries a `MUST emit`
+// directive (probe #44 shape), gets a § 7 static-map row, and the 2-token
+// XOR is documented as the legal set for the token-stats disposition.
+
+/** ±window slices around each `token_stats_disabled` mention in the body. */
+function disabledTokenWindows(body: string): string[] {
+  const NEEDLE = "token_stats_disabled";
+  const windows: string[] = [];
+  let idx = body.indexOf(NEEDLE);
+  while (idx !== -1) {
+    windows.push(body.slice(Math.max(0, idx - 700), idx + 700));
+    idx = body.indexOf(NEEDLE, idx + NEEDLE.length);
+  }
+  return windows;
+}
+
+describe("AC-STE-379.3 / .5 — token_stats_disabled disposition (2-token XOR)", () => {
+  test("token_stats_disabled is registered in CANONICAL_CAPABILITY_KEYS (probe #44 orphan guard)", () => {
+    expect(CANONICAL_CAPABILITY_KEYS as readonly string[]).toContain(
+      "token_stats_disabled",
+    );
+  });
+
+  test("SKILL.md carries the literal `MUST emit \\`token_stats_disabled\\`` directive (probe #44 shape)", () => {
+    expect(specWriteBody()).toMatch(/MUST emit\s+`token_stats_disabled`/);
+  });
+
+  test("§ 7 static capability map carries a token_stats_disabled row", () => {
+    const body = specWriteBody();
+    const mapIdx = body.indexOf("Static plain-language map");
+    expect(mapIdx).toBeGreaterThan(-1);
+    const mapRegion = body.slice(mapIdx);
+    expect(mapRegion).toMatch(/^\|[^\n]*`token_stats_disabled`[^\n]*\|\s*$/m);
+  });
+
+  test("2-token XOR documented: token_stats_rendered vs token_stats_disabled, exactly one per run", () => {
+    const windows = disabledTokenWindows(specWriteBody());
+    expect(windows.length).toBeGreaterThan(0);
+    // Some window names BOTH disposition tokens together with exactly-one framing.
+    expect(
+      windows.some(
+        (w) =>
+          w.includes("token_stats_rendered") &&
+          w.includes("token_stats_disabled") &&
+          /exactly one|\bXOR\b|either|one of|2-token|two-token/i.test(w),
+      ),
+    ).toBe(true);
+  });
+
+  test("disposition selection (AC-379.5): enabled ⇒ token_stats_rendered, disabled ⇒ token_stats_disabled", () => {
+    const windows = disabledTokenWindows(specWriteBody());
+    // The disabled branch pairs `token_stats_disabled` with the OFF state.
+    expect(
+      windows.some(
+        (w) =>
+          w.includes("token_stats_disabled") &&
+          /disabled|enabled\s*===?\s*false|enabled:\s*false|\boff\b|not enabled/i.test(
+            w,
+          ),
+      ),
+    ).toBe(true);
+    // The enabled branch keeps `token_stats_rendered` for the ON state.
+    expect(
+      windows.some(
+        (w) => w.includes("token_stats_rendered") && /\benabled\b/i.test(w),
+      ),
+    ).toBe(true);
+  });
+});
