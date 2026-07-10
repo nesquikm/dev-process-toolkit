@@ -120,3 +120,7 @@ project: DPT — Dev Process Toolkit
 user_facing_mode: false
 packages_mode: false
 changelog_ci_owned: false
+
+## Token Stats
+
+enabled: true

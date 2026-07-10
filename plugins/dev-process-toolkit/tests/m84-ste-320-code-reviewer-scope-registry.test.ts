@@ -104,6 +104,12 @@ const EXPECTED_SET_A: ReadonlySet<string> = new Set([
   "report_issue_session_fallback_mtime",
   "report_issue_severity_capped_unverified",
   "report_issue_evidence_verified",
+  // Post-M84 expansion (M102 STE-379): token-stats opt-in disposition. The
+  // pin moves consciously 30 → 31 — `token_stats_disabled` carries a literal
+  // `MUST emit \`token_stats_disabled\`` directive at /spec-write SKILL.md
+  // § 0b step 7 (and a § 7 static-map row), the disabled leg of the 2-token
+  // XOR with `token_stats_rendered`, keeping Set A = discovered directives.
+  "token_stats_disabled",
 ]);
 
 // Keys explicitly excluded from registration — they appear only as table-
@@ -209,9 +215,10 @@ describe("AC-STE-320.2 — adaptation-guide echo rewritten, skill-anatomy preser
 describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-for-byte (count grows only via conscious bumps below)", () => {
   // Conscious bump: 24 → 26 (M100/STE-373 deps-research skip-disposition pair)
   // → 30 (M100/STE-374 report-issue evidence-gate keys: session matched/fallback
-  // + severity capped/evidence verified).
-  test("CANONICAL_CAPABILITY_KEYS length is exactly 30", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(30);
+  // + severity capped/evidence verified) → 31 (M102/STE-379 token_stats_disabled,
+  // the disabled leg of the token-stats opt-in 2-token XOR).
+  test("CANONICAL_CAPABILITY_KEYS length is exactly 31", () => {
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(31);
   });
 
   test("CANONICAL_CAPABILITY_KEYS contains every key in Set A", () => {
@@ -251,7 +258,7 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
     while ((match = re.exec(body)) !== null) {
       discovered.add(match[1]!);
     }
-    expect(discovered.size).toBe(30);
+    expect(discovered.size).toBe(31);
     for (const key of EXPECTED_SET_A) {
       expect(discovered.has(key)).toBe(true);
     }

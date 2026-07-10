@@ -34,6 +34,17 @@ const HOOKS_JSON_PATH = join(PLUGIN_ROOT, "hooks", "hooks.json");
 const SESSION_ID = "hook-session-1";
 const LEDGER_REL = join(".dev-process", "token-ledger.jsonl");
 
+// M102 STE-379 — the capture hook now gates on the project's `## Token Stats`
+// enabled flag (read via readTokenStatsConfig). Write-path fixtures declare
+// `enabled: true` so they keep exercising the write path once the gate lands
+// (spec-mandated fixture update under AC-STE-379.1); the new gate tests pass
+// DISABLED / MALFORMED / absent.
+const TOKEN_STATS_ENABLED = "# fixture project\n\n## Token Stats\n\nenabled: true\n";
+const TOKEN_STATS_DISABLED = "# fixture project\n\n## Token Stats\n\nenabled: false\n";
+// `TRUE` is out of the lowercase literal {true,false} set ⇒ readTokenStatsConfig
+// throws MalformedTokenStatsConfigError; the fail-off gate treats it as OFF.
+const TOKEN_STATS_MALFORMED = "# fixture project\n\n## Token Stats\n\nenabled: TRUE\n";
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
@@ -133,19 +144,49 @@ function usageLine(
 
 let projectRoot: string;
 let scratch: string;
+// M102 STE-379 — per-test project dirs the gate tests spin up with a specific
+// `## Token Stats` config; cleaned up alongside projectRoot/scratch.
+let extraDirs: string[] = [];
 
 beforeEach(() => {
   projectRoot = mkdtempSync(join(tmpdir(), "ste-344-hook-proj-"));
   scratch = mkdtempSync(join(tmpdir(), "ste-344-hook-scratch-"));
+  extraDirs = [];
+  // M102 STE-379: the write-path tests below run with cwd=projectRoot; declare
+  // `enabled: true` so they still exercise the write path once AC-379.1's gate
+  // lands (absent a `## Token Stats` section, the project parses as OFF).
+  writeFileSync(join(projectRoot, "CLAUDE.md"), TOKEN_STATS_ENABLED);
 });
 
 afterEach(() => {
-  for (const dir of [projectRoot, scratch]) {
+  for (const dir of [projectRoot, scratch, ...extraDirs]) {
     if (dir && existsSync(dir)) {
       rmSync(dir, { recursive: true, force: true });
     }
   }
 });
+
+/**
+ * M102 STE-379 — spin up a throwaway project dir seeded with a specific
+ * `## Token Stats` config (or none when `claudeMd === null`) for the gate tests.
+ */
+function makeGateProject(claudeMd: string | null): string {
+  const dir = mkdtempSync(join(tmpdir(), "ste-379-hook-proj-"));
+  extraDirs.push(dir);
+  if (claudeMd !== null) {
+    writeFileSync(join(dir, "CLAUDE.md"), claudeMd);
+  }
+  return dir;
+}
+
+function payloadFor(transcriptPath: string, cwd: string): string {
+  return JSON.stringify({
+    session_id: SESSION_ID,
+    transcript_path: transcriptPath,
+    cwd,
+    hook_event_name: "SessionEnd",
+  });
+}
 
 /** Transcript: 2 implement-skill lines + 1 main-loop line ⇒ 2 buckets. */
 function writeTranscript(): string {
@@ -378,5 +419,52 @@ describe("AC-STE-344.4 — fail-open: parse/IO errors exit 0 with no write and n
     const r = await runHookModule(payload, projectRoot);
     expect(r.exitCode).toBe(0);
     expect(r.stderr).not.toContain("Refusing:");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-STE-379.1 — capture-hook gate: honor the `## Token Stats` enabled flag
+// ---------------------------------------------------------------------------
+
+describe("AC-STE-379.1 — capture hook gates on readTokenStatsConfig().enabled (fully off)", () => {
+  test("enabled: false ⇒ writes NOTHING to the ledger and exits 0", async () => {
+    const dir = makeGateProject(TOKEN_STATS_DISABLED);
+    const transcript = writeTranscript();
+    const r = await runHookModule(payloadFor(transcript, dir), dir);
+    expect(r.exitCode).toBe(0);
+    // The transcript carries real usage rows, so absent the gate the hook
+    // WOULD write — the gate is what makes the ledger stay absent.
+    expect(readLedger(dir)).toEqual([]);
+    expect(existsSync(join(dir, LEDGER_REL))).toBe(false);
+  });
+
+  test("enabled: true ⇒ rows written exactly as today", async () => {
+    const dir = makeGateProject(TOKEN_STATS_ENABLED);
+    const transcript = writeTranscript();
+    const r = await runHookModule(payloadFor(transcript, dir), dir);
+    expect(r.exitCode).toBe(0);
+    // Same two (skill, model) buckets the unconditional-capture path produces.
+    expect(readLedger(dir).length).toBe(2);
+  });
+
+  test("malformed CLAUDE.md (`enabled: TRUE`) ⇒ fail-off: no write, exit 0", async () => {
+    const dir = makeGateProject(TOKEN_STATS_MALFORMED);
+    const transcript = writeTranscript();
+    const r = await runHookModule(payloadFor(transcript, dir), dir);
+    // MalformedTokenStatsConfigError is swallowed by the fail-open catch and
+    // treated as OFF — the error never gates session-end.
+    expect(r.exitCode).toBe(0);
+    expect(r.stderr).not.toContain("Refusing:");
+    expect(readLedger(dir)).toEqual([]);
+    expect(existsSync(join(dir, LEDGER_REL))).toBe(false);
+  });
+
+  test("absent CLAUDE.md ⇒ default-off: no write, exit 0", async () => {
+    const dir = makeGateProject(null);
+    const transcript = writeTranscript();
+    const r = await runHookModule(payloadFor(transcript, dir), dir);
+    expect(r.exitCode).toBe(0);
+    expect(readLedger(dir)).toEqual([]);
+    expect(existsSync(join(dir, LEDGER_REL))).toBe(false);
   });
 });
