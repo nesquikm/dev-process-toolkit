@@ -27,6 +27,7 @@ import { join } from "node:path";
 const pluginRoot = join(import.meta.dir, "..");
 const implementPath = join(pluginRoot, "skills", "implement", "SKILL.md");
 const shipPath = join(pluginRoot, "skills", "ship-milestone", "SKILL.md");
+const specWritePath = join(pluginRoot, "skills", "spec-write", "SKILL.md");
 const planTemplatePath = join(
   pluginRoot,
   "templates",
@@ -42,6 +43,10 @@ function implementBody(): string {
 
 function shipBody(): string {
   return readFileSync(shipPath, "utf8");
+}
+
+function specWriteBody(): string {
+  return readFileSync(specWritePath, "utf8");
 }
 
 /** All ±window slices around each `Token Stats` mention in a body. */
@@ -185,5 +190,52 @@ describe("AC-STE-346.4 — both wirings fold the render into their existing stag
       expect(windows.some((w) => FOLD_RE.test(w))).toBe(true);
       expect(windows.some((w) => STANDALONE_RE.test(w))).toBe(true);
     }
+  });
+});
+
+// STE-379 AC-STE-379.2 — render-site gates. All three `## Token Stats` render
+// sites must skip their render when `readTokenStatsConfig(...).enabled === false`:
+//   (1) /spec-write § 0b Step 7 (FR-file block),
+//   (2) /implement § Milestone Archival "Token Stats re-render",
+//   (3) /ship-milestone § 7 milestone rollup.
+// Byte-checkable, like the probe #44 MUST-emit directives: the prose window
+// around each render site references the readTokenStatsConfig `enabled` flag
+// AND states a skip/no-render when the flag is off.
+
+/**
+ * A render-site prose window "gates on disabled" when it references
+ * readTokenStatsConfig, names the `enabled` flag, states a skip/no-render, and
+ * ties that skip to the OFF/false/disabled state.
+ */
+function gatesOnDisabled(window: string): boolean {
+  return (
+    /readTokenStatsConfig/.test(window) &&
+    /\benabled\b/.test(window) &&
+    /\b(skip|skips|skipped|no[- ]?render|render(?:s|ed)? nothing|writes? nothing|write nothing|emit(?:s)? nothing|no block|do(?:es)? not (?:render|write)|no ## Token Stats)\b/i.test(
+      window,
+    ) &&
+    /(disabled|===?\s*false|is\s+false|enabled:\s*false|\boff\b|not enabled)/i.test(
+      window,
+    )
+  );
+}
+
+describe("AC-STE-379.2 — all three render sites skip when `## Token Stats` is disabled", () => {
+  test("(1) /spec-write § 0b Step 7 render site gates on readTokenStatsConfig().enabled", () => {
+    const windows = tokenStatsWindows(specWriteBody());
+    expect(windows.length).toBeGreaterThan(0);
+    expect(windows.some(gatesOnDisabled)).toBe(true);
+  });
+
+  test("(2) /implement § Milestone Archival re-render gates on readTokenStatsConfig().enabled", () => {
+    const windows = tokenStatsWindows(milestoneArchivalSection());
+    expect(windows.length).toBeGreaterThan(0);
+    expect(windows.some(gatesOnDisabled)).toBe(true);
+  });
+
+  test("(3) /ship-milestone § 7 rollup gates on readTokenStatsConfig().enabled", () => {
+    const windows = tokenStatsWindows(shipBody());
+    expect(windows.length).toBeGreaterThan(0);
+    expect(windows.some(gatesOnDisabled)).toBe(true);
   });
 });

@@ -186,3 +186,21 @@ describe("AC-STE-345.4 — FR-section contract admits the optional ## Token Stat
     ).toBe(true);
   });
 });
+
+describe("AC-STE-379.2 — the ## Token Stats convention records skip-when-disabled", () => {
+  test("layout-reference.md documents that `enabled: false` renders nothing (no capture, no render)", () => {
+    const layout = readFileSync(layoutPath, "utf8");
+    // Scope to a window around the DEDICATED ## Token Stats convention
+    // section (its own heading, last occurrence) — not the inline mention in
+    // the FR-section contract paragraph earlier in the doc.
+    const idx = layout.lastIndexOf(`\n${HEADING}`);
+    expect(idx).toBeGreaterThan(-1);
+    const window = layout.slice(idx, idx + 1200);
+    // The disabled state is part of the convention: when the flag is false,
+    // the read-side gate skips — no capture (hook no-ops) and no render.
+    expect(window).toMatch(/`?false`?/);
+    expect(window).toMatch(/no (?:capture|render)|no capture or render|no-?op/i);
+    // The skip is tied to the read-side config flag, not an unconditional render.
+    expect(window).toMatch(/enabled|flag/i);
+  });
+});
