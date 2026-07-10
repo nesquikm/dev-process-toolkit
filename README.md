@@ -175,7 +175,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.43.0 — "Attested"** (M100 closes the deps-research fork enforcement asymmetry with a deterministic `deps_research_result_shape` shape gate + no-silent-skip disposition tokens, and makes `/report-issue` evidence-based — marker-matched incident-session capture plus an advisory severity cap on any high-severity report whose evidence is absent from its own transcript.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.44.0 — "Consent"** (M102 makes the M92 per-skill token-usage stats opt-in and off by default — a dedicated `## Token Stats` CLAUDE.md flag gates capture and render end-to-end, so the bundled hook reads the flag and no-ops when disabled (fail-off and fail-open) and existing projects stay off until they re-run `/setup`.)
 
 ## Core Philosophy
 

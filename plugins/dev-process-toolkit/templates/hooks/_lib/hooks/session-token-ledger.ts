@@ -7,6 +7,8 @@
 // appends duplicates. Fail-open: any parse/IO error exits 0 with no write and
 // no stderr gate.
 
+import { join } from "node:path";
+import { readTokenStatsConfig } from "../../../../adapters/_shared/src/token_stats_config.ts";
 import {
   parseTranscriptTokenUsage,
   writeSessionRows,
@@ -20,6 +22,19 @@ try {
     process.exit(0);
   }
 
+  const projectRoot =
+    typeof payload.cwd === "string" && payload.cwd !== ""
+      ? payload.cwd
+      : process.cwd();
+
+  // STE-379 AC-STE-379.1 — gate on the project's `## Token Stats` enabled flag
+  // (default OFF). A missing/unreadable CLAUDE.md or a malformed section makes
+  // readTokenStatsConfig throw; that throw lands in the existing fail-open
+  // catch below (no write, exit 0) — the gate is fail-off AND fail-open.
+  if (!readTokenStatsConfig(join(projectRoot, "CLAUDE.md")).enabled) {
+    process.exit(0);
+  }
+
   const rows = parseTranscriptTokenUsage(payload.transcript_path);
   if (rows.length > 0) {
     // The payload's session_id is authoritative for the replace key.
@@ -28,10 +43,6 @@ try {
     for (const row of rows) {
       row.session_id = sessionId;
     }
-    const projectRoot =
-      typeof payload.cwd === "string" && payload.cwd !== ""
-        ? payload.cwd
-        : process.cwd();
     writeSessionRows(projectRoot, sessionId, rows);
   }
 } catch {

@@ -85,6 +85,12 @@ export const CANONICAL_CAPABILITY_KEYS = [
   "milestone_label_asserted_at_archive",
   "milestone_label_archive_refused",
   "token_stats_rendered",
+  // M102 STE-379: the disabled-state disposition — the XOR partner of
+  // `token_stats_rendered`. Exactly one of the two emits per /spec-write run:
+  // `token_stats_rendered` when the `## Token Stats` flag is enabled (block
+  // refreshed, or the vacuous-empty path), `token_stats_disabled` when the flag
+  // is off (bundled hook reads the flag and no-ops; no block, no ledger accrual).
+  "token_stats_disabled",
   // M100 STE-374 report-issue evidence gate: the selection-path pair records
   // which incident-session pick fired — a marker-matched session was chosen, or
   // the most-recent-mtime fallback was used. Exactly one emits per /report-issue
@@ -145,6 +151,10 @@ const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   // M92 STE-345: /spec-write § 0b step 7 renders the Token Stats block
   // riding the FR-file write; the MUST-emit directive lives in spec-write.
   token_stats_rendered: "spec-write",
+  // M102 STE-379: the disabled-state disposition (XOR partner of
+  // `token_stats_rendered`); the MUST-emit directive lives in spec-write § 0b
+  // step 7 alongside its enabled-state partner.
+  token_stats_disabled: "spec-write",
   // M100 STE-374: the /report-issue selection-path pair. Like every other key,
   // the § 7 static map is the canonical owner surface — the MUST-emit directives
   // for both live in spec-write's map row; report-issue wires the emission.

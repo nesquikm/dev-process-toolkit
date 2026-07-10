@@ -55,6 +55,14 @@ Projects may opt in to a post-gate verification pass by declaring an optional `#
 
 The read-side parser is `readVerificationConfig` in `adapters/_shared/src/verification_config.ts`. It follows the same Schema-L conventions as `## Docs`: the section terminates at the next heading line, flat `key: value` pairs only. An out-of-set key or an out-of-set `verify_mode` value throws `MalformedVerificationConfigError` carrying the offending key and value.
 
+## Token Stats
+
+Per-skill token-usage stats (M92) are opt-in and default-off, gated by an **always-emitted** `## Token Stats` section in CLAUDE.md. `/setup` writes the section unconditionally — like `## Docs`, it is present even when the feature is off — so the bundled token-stats hook and the read-side parser always have something to read. The section's top-level key set is **closed** — exactly `{enabled}`; any other key inside the section is a config error, never silently ignored.
+
+- `enabled` — one of `true | false`, lowercase literal (no quoting, no `yes`/`no`). Defaults to `false`. When `false`, the bundled hook reads the flag and no-ops (fail-off), and no capture or render happens.
+
+The read-side parser is `readTokenStatsConfig` in `adapters/_shared/src/token_stats_config.ts`, which follows the same Schema-L conventions as `## Docs` and `## Verification`: the section terminates at the next heading line, flat `key: value` pairs only. **Absent section ⇒ OFF** — existing projects (whose CLAUDE.md predates this section) stay off until they re-run `/setup`, which splices the section in. This makes off the safe default in both the absent-section (fail-off) and malformed-config (fail-open) cases.
+
 ## Skill-specific behavior
 
 ### `/spec-write`
