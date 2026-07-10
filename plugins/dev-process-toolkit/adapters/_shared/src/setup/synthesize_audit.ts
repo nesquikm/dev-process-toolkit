@@ -45,6 +45,7 @@ export interface ResolvedSchemaLValues {
   docsUserFacing?: ResolvedSchemaLEntry<boolean>;
   docsPackages?: ResolvedSchemaLEntry<boolean>;
   docsChangelogCi?: ResolvedSchemaLEntry<boolean>;
+  tokenStatsEnabled?: ResolvedSchemaLEntry<boolean>;
 }
 
 /**
@@ -107,6 +108,14 @@ function collectCandidates(d: ResolvedSchemaLValues): Candidate[] {
       field: "docs.changelog_ci_owned",
       value: d.docsChangelogCi.value,
       reason: d.docsChangelogCi.reason,
+    });
+  }
+  if (d.tokenStatsEnabled) {
+    out.push({
+      step: "7g",
+      field: "token_stats.enabled",
+      value: d.tokenStatsEnabled.value,
+      reason: d.tokenStatsEnabled.reason,
     });
   }
   return out;
