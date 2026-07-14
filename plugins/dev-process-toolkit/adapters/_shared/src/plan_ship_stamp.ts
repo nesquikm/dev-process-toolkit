@@ -96,11 +96,20 @@ export async function stampShippedIn(
   const fmSection = original.slice(4, closeIdx);
   const rest = original.slice(closeIdx + 4); // consume `\n---` only; `\n` stays with body
 
-  for (const line of fmSection.split("\n")) {
-    const m = /^shipped_in\s*:\s*(.*)$/.exec(line);
+  const fmLines = fmSection.split("\n");
+  for (let i = 0; i < fmLines.length; i += 1) {
+    const m = /^shipped_in\s*:\s*(.*)$/.exec(fmLines[i]!);
     if (!m) continue;
     const existing = (m[1] ?? "").trim();
     if (existing === stampValue) return; // idempotent no-op — no write
+    if (existing === "null" || existing === "") {
+      // Template pre-ship sentinel (`shipped_in: null`, emitted at plan
+      // creation) — this is the first real stamp: overwrite in place,
+      // preserving key position; never a double-ship conflict.
+      fmLines[i] = stampLine;
+      await writeFile(planPath, `---\n${fmLines.join("\n")}\n---${rest}`, "utf-8");
+      return;
+    }
     throw new ShippedInConflictError(planPath, existing, stampValue);
   }
 

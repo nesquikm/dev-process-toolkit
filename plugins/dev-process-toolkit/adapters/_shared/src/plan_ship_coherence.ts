@@ -144,7 +144,11 @@ export async function runPlanShipCoherenceProbe(
     }
     const rel = relative(projectRoot, file);
     const shippedIn = scanFrontmatterField(content, "shipped_in");
-    if (!shippedIn.present) {
+    // `shipped_in: null` is the plan template's pre-ship sentinel (present
+    // from plan creation, replaced by stampShippedIn at ship time). Treat it
+    // — and an empty value — as unstamped so a mid-ceremony archived plan
+    // classifies as unshipped debt, never as a corrupt stamp.
+    if (!shippedIn.present || shippedIn.value === "null" || shippedIn.value === "") {
       const shipState = scanFrontmatterField(content, "ship_state");
       if (shipState.present && shipState.value === "parked") {
         // AC-STE-369.3 — parked plans pass, surfaced via a NOTES row so
