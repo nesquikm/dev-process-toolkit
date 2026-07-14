@@ -57,7 +57,7 @@ Fires at Phase 1 entry, **between resolver (0.b′) and `claimLock` (0.c)** — 
 
 ### Proposal render
 
-4. Run a single LLM pass over the FR's `## Requirement` section (or the milestone plan file's "Why this milestone exists" section for milestone runs) and return `{type, slug}` as structured JSON. `type` ∈ `{feat, fix, chore}`; `slug` is a 2–4 word kebab-case phrase summarizing the work.
+4. Derive `type` deterministically via `branchTypeFor({ changelogCategory })` from `adapters/_shared/src/branch_type_for.ts`, where `changelogCategory` is the resolved FR's `changelog_category` frontmatter value (absent ⇒ STE-73 default `Added`); the helper's `noTech` opt never applies in `/implement` — the STE-227 `needs_technical_review` refusal at 0.b′¹ fires before 0.b″ ever runs (documented, not plumbed). Result: `type` ∈ `{feat, fix, chore}`. Then run a single LLM pass over the FR's `## Requirement` section (or the milestone plan file's "Why this milestone exists" section for milestone runs) for `{slug}` only — a 2–4 word kebab-case phrase summarizing the work.
 5. Call `buildBranchProposal({template, type, slug, milestone, trackerId, shortUlid})`. The function:
    - Clamps `{type}` to the allowed set (unknown ⇒ `feat`).
    - Sanitizes `{slug}` to `[a-z0-9-]`, collapses hyphen runs, strips leading/trailing hyphens.

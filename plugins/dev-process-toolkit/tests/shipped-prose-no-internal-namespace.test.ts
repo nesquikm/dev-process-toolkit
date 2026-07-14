@@ -45,7 +45,7 @@ function countNamespaceTokens(dir: string): number {
 // requires explaining why — tightening them is always welcome.
 const CEILINGS = {
   adapters: 5, // Tier 2 cleaned: 0 baseline, 5 buffer for future minor refs.
-  skills: 241, // Tier 3 conservative-sweep residue + STE-301 deps-research anchor refs (M78) + STE-318 four-stage AUDIT canon citing STE-296 M77 origin (M84) + STE-324 disable-model-invocation allowlist probe #59 citing STE-308 + HG95TQ origins (M84) + STE-369 plan_ship_coherence probe #63 row anchor and spec-archive --parked flag anchor (M99) + STE-373 deps_research_result_shape (#64) and deps_research_disposition_contract (#65) gate-check probe-row origin citations (M100) + STE-380 spec_write_next_line_doc (#66) gate-check probe-row origin citation (M103).
+  skills: 245, // Tier 3 conservative-sweep residue + STE-301 deps-research anchor refs (M78) + STE-318 four-stage AUDIT canon citing STE-296 M77 origin (M84) + STE-324 disable-model-invocation allowlist probe #59 citing STE-308 + HG95TQ origins (M84) + STE-369 plan_ship_coherence probe #63 row anchor and spec-archive --parked flag anchor (M99) + STE-373 deps_research_result_shape (#64) and deps_research_disposition_contract (#65) gate-check probe-row origin citations (M100) + STE-380 spec_write_next_line_doc (#66) gate-check probe-row origin citation (M103) + STE-381 changelog_category anchor (AC-STE-381.2) in /spec-write step 2 and STE-73 default-Added + STE-227 refusal-ordering citations in the /implement 0.b″ branchTypeFor derivation prose (M103).
   docs: 250, // Tier 3 conservative-sweep residue (~216 + buffer).
 };
 
