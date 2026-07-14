@@ -185,6 +185,26 @@ describe("AC-STE-369.2 — unshipped debt fails the gate", () => {
     expect(iPr).toBeGreaterThan(iShip);
   });
 
+  test("template sentinel shipped_in: null → unshipped debt, never a corrupt stamp", async () => {
+    // The plan template emits `shipped_in: null` from creation; the value is
+    // replaced by stampShippedIn at ship time. Mid-ceremony (archived,
+    // pre-release-commit) the sentinel must classify as unshipped debt —
+    // NOT as a malformed/corrupt stamp, which would flip the dogfood test
+    // red for every archive-then-ship transient.
+    const fx = makeFixture(CHANGELOG_TWO_RELEASES);
+    try {
+      writePlan(fx.archiveDir, "M103.md", { shipped_in: "null" });
+      const report = await runPlanShipCoherenceProbe(fx.root);
+      expect(report.violations.length).toBe(1);
+      const v = report.violations[0]!;
+      expect(v.reason).not.toContain("corrupt stamp");
+      expect(v.reason).toContain("unshipped debt");
+      expect(v.message).toContain(SHIP_CEREMONY_RECIPE);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
   test("two debtor plans → one violation each, deterministic file identity", async () => {
     const fx = makeFixture(CHANGELOG_TWO_RELEASES);
     try {
