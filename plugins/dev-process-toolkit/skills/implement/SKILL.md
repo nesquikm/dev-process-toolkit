@@ -10,7 +10,7 @@ Implement the following end-to-end: `$ARGUMENTS`
 
 ## Invocation forms
 
-Two shapes diverge at Phase 5. **`/implement <FR-id>`** to **ship one FR** (most common — smoke driver + `/spec-write`'s next step); **`/implement M<N>`** to **close out a milestone** (every active FR + Phase 5 close + archival). End states differ by design (STE-83): single-FR leaves FR + milestone `status: active`; milestone form archives both on green gate. If single-FR + plan fully checked, `/gate-check` probe #14 fires the **STE-180 advisory** (`M<N> plan fully checked but not archived — run /spec-archive M<N> or /implement M<N> to close`) — the gate tells you, not memory.
+Two shapes diverge at Phase 5. **`/implement <FR-id>`** to **ship one FR** (the smoke driver's prescribed form, and the path for FRs with no milestone binding); **`/implement M<N>`** to **close out a milestone** (every active FR + Phase 5 close + archival). End states differ by design (STE-83): single-FR leaves FR + milestone `status: active`; milestone form archives both on green gate. If single-FR + plan fully checked, `/gate-check` probe #14 fires the **STE-180 advisory** (`M<N> plan fully checked but not archived — run /spec-archive M<N> or /implement M<N> to close`) — the gate tells you, not memory.
 
 | Phase | `/implement <FR-id>` | `/implement M<N>` |
 |-------|----------------------|---------------------|
