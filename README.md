@@ -175,7 +175,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.44.0 — "Consent"** (M102 makes the M92 per-skill token-usage stats opt-in and off by default — a dedicated `## Token Stats` CLAUDE.md flag gates capture and render end-to-end, so the bundled hook reads the flag and no-ops when disabled (fail-off and fail-open) and existing projects stay off until they re-run `/setup`.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.45.0 — "Signpost"** (M103 makes the `/spec-write` flow deterministic on two axes — the closing `Next:` line recommends `/implement M<N>` for milestone-bound FRs (probe #66 pins the rule), and kickoff branch types derive from `changelog_category` frontmatter via the pure `branchTypeFor` helper instead of a freestyle LLM pass.)
 
 ## Core Philosophy
 

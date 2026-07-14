@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.45.0] — 2026-07-15 — "Signpost"
+
+Spec-write flow determinism (M103): the `/spec-write` closing `Next:` line now points milestone-bound work at the milestone close — the variant rule is re-keyed from new-FR presence to **milestone binding**, guarded by new doc-shape probe #66 — and kickoff branch types become a pure function of FR frontmatter: `changelog_category`-keyed `branchTypeFor` replaces the freestyle LLM `{type}` pass, so identically-shaped FRs propose identically-typed branches every session.
+
+### Changed
+
+- `/spec-write` `Next:`-line variant rule re-keyed on **milestone binding**: a run that writes ≥ 1 milestone-bound FR recommends `/dev-process-toolkit:implement M<N>` (one `Next:` line per distinct milestone), milestone-less FRs keep the FR-id form, and the retired new-FR-presence discriminator sentence is deleted. The rule paragraph, both tail-template `Next:` lines, and the retired-sentence absence tripwire are pinned by gate-check probe #66 (`runSpecWriteNextLineDocProbe`; README probe count 65 → 66); `/implement`'s § Invocation forms lede drops the "`/spec-write`'s next step" claim. (STE-380)
+- Deterministic branch-type derivation: pure `branchTypeFor({ changelogCategory, noTech })` (`--no-tech` ⇒ `chore`; `Fixed`/`Security` ⇒ `fix`; else `feat`) feeds both `buildBranchProposal` consumers (`/spec-write` § 7a and `/implement` 0.b″ — the LLM pass is rescoped to `{slug}` only), and `buildFRFrontmatter` gains a `changelogCategory` opt so every new FR carries an explicit `changelog_category:` line. (STE-381)
+
+### Fixed
+
+- `shipped_in: null` template sentinel handling: `plan_ship_coherence` now classifies the pre-ship sentinel as unshipped debt instead of a corrupt stamp (keeping `bun test` green during the archive-then-ship transient), and `stampShippedIn` overwrites the sentinel in place as the first real stamp instead of refusing as a double-ship. (mid-ceremony fix, no FR)
+
+Total test count at release: 4181 tests, 0 failures, 0 errors.
+
 ## [2.44.0] — 2026-07-10 — "Consent"
 
 Token-stats opt-in (M102): the per-skill token accounting introduced in M92 is now opt-in and **off by default**. A dedicated, always-emitted `## Token Stats` section in `CLAUDE.md` (closed key set `{enabled}`, default `false`) gates the feature end-to-end — when disabled, the bundled `SessionEnd`/`Stop` capture hook reads the flag and no-ops (no ledger writes; fail-off **and** fail-open, so a malformed or absent config never blocks session teardown), and all three render sites emit nothing. Existing projects stay off until they re-run `/setup`, for free via the `absent-section ⇒ off` parser convention. `/spec-write` now reports an honest `token_stats_disabled` disposition instead of falsely claiming a render. This repo dogfoods `enabled: true`, so the toolkit keeps accounting its own usage.
