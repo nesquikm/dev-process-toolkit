@@ -111,6 +111,43 @@ describe("STE-368 — stampShippedIn: same-version idempotency (AC-STE-368.3)", 
   });
 });
 
+describe("stampShippedIn: template pre-ship sentinel is unstamped", () => {
+  // The plan template emits `shipped_in: null` from creation (replaced at
+  // ship time). The sentinel must overwrite in place as a first real stamp —
+  // never trip the double-ship guard, never append a duplicate key.
+  test("`shipped_in: null` is overwritten in place with the stamp", async () => {
+    const withSentinel = PLAN.replace(
+      "frozen_at: null",
+      "frozen_at: null\nshipped_in: null",
+    );
+    const ctx = makePlan(withSentinel);
+    try {
+      await stampShippedIn(ctx.path, "2.40.0");
+      const after = readFileSync(ctx.path, "utf-8");
+      expect(after).toBe(withSentinel.replace("shipped_in: null", STAMP_LINE));
+      expect(after.match(/^shipped_in:/gm)?.length).toBe(1);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("empty `shipped_in:` value is overwritten in place with the stamp", async () => {
+    const withEmpty = PLAN.replace(
+      "frozen_at: null",
+      "frozen_at: null\nshipped_in:",
+    );
+    const ctx = makePlan(withEmpty);
+    try {
+      await stampShippedIn(ctx.path, "2.40.0");
+      const after = readFileSync(ctx.path, "utf-8");
+      expect(after).toBe(withEmpty.replace("shipped_in:", STAMP_LINE));
+      expect(after.match(/^shipped_in:/gm)?.length).toBe(1);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+});
+
 describe("STE-368 — stampShippedIn: double-ship guard (AC-STE-368.3)", () => {
   test("differing existing shipped_in refuses with NFR-10 canonical shape and leaves the file untouched", async () => {
     const stamped = PLAN.replace(
