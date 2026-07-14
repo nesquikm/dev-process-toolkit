@@ -1,9 +1,12 @@
 // Branch-naming automation (STE-64).
 //
-// Pure functions, no I/O. The LLM pass that returns `{type, slug}` lives
-// in the skill (adapters stay deterministic — NFR-8). Callers invoke
-// `buildBranchProposal` to render a proposal and `isCurrentBranchAcceptable`
-// to decide whether the branch prompt should fire at all.
+// Pure functions, no I/O. `{type}` is derived deterministically via
+// `branchTypeFor` (`branch_type_for.ts`, keyed on the FR's
+// `changelog_category` frontmatter — STE-381); the LLM pass, rescoped to
+// `{slug}` only, lives in the skill (adapters stay deterministic — NFR-8).
+// Callers invoke `buildBranchProposal` to render a proposal and
+// `isCurrentBranchAcceptable` to decide whether the branch prompt should
+// fire at all.
 //
 // Shell-injection defense (AC-STE-64.13): LLM output is clamped to
 // `[a-z0-9-]` before template substitution — `git checkout -b` already
@@ -49,7 +52,7 @@ export function isProtectedTrunk(branch: string): boolean {
 export interface BranchProposalContext {
   /** Schema L `branch_template:` value, e.g. `"{type}/m{N}-{slug}"`. */
   template: string;
-  /** Raw LLM-returned `{type}`; will be clamped. */
+  /** Derived `{type}` (callers pass `branchTypeFor`'s result); will be clamped. */
   type: string;
   /** Raw LLM-returned `{slug}`; will be sanitized. */
   slug: string;
