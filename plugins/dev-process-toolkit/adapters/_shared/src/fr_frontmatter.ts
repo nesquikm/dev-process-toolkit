@@ -75,6 +75,15 @@ export interface BuildFRFrontmatterOpts {
    * `false` produce byte-identical output with the field omitted entirely.
    */
   needsTechnicalReview?: boolean;
+  /**
+   * STE-381 AC-STE-381.2 — when provided, emit a
+   * `changelog_category: <value>` line after `created_at:` (the shipped
+   * M102-era file shape). Value comes from the closed Keep-a-Changelog set
+   * {Added, Changed, Deprecated, Removed, Fixed, Security}. Absent /
+   * `undefined` produce byte-identical output with the field omitted
+   * entirely.
+   */
+  changelogCategory?: "Added" | "Changed" | "Deprecated" | "Removed" | "Fixed" | "Security" | string;
 }
 
 /**
@@ -83,7 +92,7 @@ export interface BuildFRFrontmatterOpts {
  *
  * Field ordering (both modes):
  *   title → milestone → status → archived_at → (id | tracker)
- *     → [needs_technical_review] → created_at
+ *     → [needs_technical_review] → created_at → [changelog_category]
  *
  * Throws:
  *   - {@link InvalidFrontmatterInputError} when `spec.id` and `trackerBinding`
@@ -127,6 +136,9 @@ export function buildFRFrontmatter(
     lines.push("needs_technical_review: true");
   }
   lines.push(`created_at: ${spec.createdAt}`);
+  if (opts?.changelogCategory !== undefined) {
+    lines.push(`changelog_category: ${opts.changelogCategory}`);
+  }
   lines.push("---");
   return lines.join("\n") + "\n";
 }
