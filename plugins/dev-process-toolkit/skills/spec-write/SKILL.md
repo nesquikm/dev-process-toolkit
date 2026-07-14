@@ -288,11 +288,11 @@ Open questions / risks / inconsistencies (if any):
 - Risks identified (severity)
 - Open questions flagged during the process
 
-Next: Run `/dev-process-toolkit:implement <tracker-id>` when specs are ready.   <!-- new-FR run: recommend the FR-id form (most common, single-FR ship). -->
-Next: Run `/dev-process-toolkit:implement <milestone>` when specs are ready.   <!-- cross-cutting-only run (no new FR): recommend the M<N> form (milestone close). -->
+Next: Run `/dev-process-toolkit:implement M<N>` when specs are ready.   <!-- milestone-bound run (new FR with milestone: frontmatter) or cross-cutting-only run: recommend the M<N> form (milestone close). -->
+Next: Run `/dev-process-toolkit:implement <tracker-id>` when specs are ready.   <!-- milestone-less new FR: recommend the FR-id form (single-FR ship; no milestone to close). -->
 ```
 
-**Next-line variant rule.** When the run created a single new FR, recommend the FR-id form (`Run /dev-process-toolkit:implement <tracker-id>`) — that's the canonical "ship one FR" path per `skills/implement/SKILL.md` § Invocation forms (STE-181). When the run only edited cross-cutting specs (no new FR file written), recommend the M<N> form (`Run /dev-process-toolkit:implement M<N>`) — the operator is presumably finishing a milestone. Hybrid runs (new FR + cross-cutting edit) follow the new-FR shape.
+**Next-line variant rule.** The discriminator is **milestone binding**, not new-FR presence. When the run wrote ≥ 1 new FR whose frontmatter carries `milestone: M<N>`, recommend the milestone form (`Run /dev-process-toolkit:implement M<N>`) — the milestone is the unit of shipping, and the M-form runs the Phase 5 close the FR-id form silent-skips (`skills/implement/SKILL.md` § Invocation forms). Render one `Next:` line per distinct milestone when a run's new FRs span several. When a new FR carries no `milestone:` binding, recommend the FR-id form (`Run /dev-process-toolkit:implement <tracker-id>`) for that FR. Cross-cutting-only runs (no new FR file written) keep the M<N> form. Hybrid runs (new FR + cross-cutting edit) follow the new FR's milestone binding.
 
 **Capability-gap rendering.** The "Open questions / risks / inconsistencies" block must render every capability gap as **plain prose**, drawn from the static plain-language map below — never as a literal `AC-<tracker-id>.<N>` reference into this toolkit's own internal spec set. The toolkit's AC IDs are opaque jargon to project owners running `/spec-write` on their own repo (a 2026-04-28 smoke caught the regression: a toolkit-internal AC identifier for the milestone-attach capability surfaced as the rendered description of the gap, replacing what should have been plain prose). Echoing such an identifier inside this section's instructions is itself a regression risk — the LLM may copy it back into the rendered summary; describe failure modes by capability name only.
 

@@ -357,13 +357,13 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     const lines = readme.split("\n");
     // L3 — "16 commands, 8 agents"
     expect(lines[2]).toMatch(/16 commands?,\s+8 agents?/);
-    // L10 — 65 numbered (matches "65 numbered ... probes" — M100/STE-373 added
-    // #64 deps_research_result_shape + #65 deps_research_disposition_contract);
+    // L10 — 66 numbered (matches "66 numbered ... probes" — M103/STE-380 added
+    // #66 spec_write_next_line_doc on top of M100's #64+#65);
     // L10 sits above the M93 Features bullet so it is not shifted.
-    expect(lines[9]).toMatch(/\b65\b.*numbered/);
-    // L105 — "65 probes" (on-disk max-probe 65 after M100/STE-373 added #64+#65;
+    expect(lines[9]).toMatch(/\b66\b.*numbered/);
+    // L105 — "66 probes" (on-disk max-probe 66 after M103/STE-380 added #66;
     // +1 from L104 after the M93 verification-skills Features bullet landed)
-    expect(lines[104]).toMatch(/\b65\b\s+probes/);
+    expect(lines[104]).toMatch(/\b66\b\s+probes/);
     // L140 — "Seven additional skills" (+1 from L139 after the M93 Features bullet)
     expect(lines[139]).toMatch(/Seven additional skills/);
     // L164 — "23 (16 + 7)" (+1 from L163 after the M93 Features bullet)
