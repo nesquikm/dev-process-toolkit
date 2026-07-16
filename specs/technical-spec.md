@@ -47,7 +47,7 @@ dev-process-toolkit/
 ├── plugins/dev-process-toolkit/
 │   ├── .claude-plugin/plugin.json
 │   ├── skills/                          # 12 user-invocable SKILL.md files
-│   ├── agents/code-reviewer.md          # canonical review rubric (FR-22)
+│   ├── agents/                          # subagent templates incl. code-reviewer (canonical review rubric, FR-22)
 │   ├── templates/                       # CLAUDE.md + spec templates + settings.json
 │   ├── adapters/                        # tracker integration surface
 │   │   ├── _template.md  _template/src/
@@ -77,7 +77,7 @@ specs/
 
 .dpt/locks/<ulid>                        # Schema S — tracker-less lock file (committed;
                                          # project root, not under specs/ — see `.dpt/` tree
-                                         # in docs/layout-reference.md)
+                                         # in plugins/dev-process-toolkit/docs/layout-reference.md)
 ```
 
 The v1 monolithic layout (a single `specs/requirements.md` holding every FR, plus a flat per-milestone archive directory) is supported for detection-and-migration only; new projects start in v2.
@@ -124,7 +124,7 @@ These schemas enforce consistency wherever one skill produces output another rea
 Used by: `/gate-check` drift check, `/spec-review` traceability map.
 
 ```
-AC-X.Y → src/file.ts:42, tests/file.test.ts:15
+AC-X.Y → src/<file>.ts:42, tests/<file>.test.ts:15
 AC-X.Y → (not found)
 ```
 
@@ -217,7 +217,7 @@ Read contract:
 - Blank value (`jira_ac_field:` with nothing) = "not applicable in this mode" — legal only for tracker-specific keys.
 - Duplicate keys forbidden → NFR-10 canonical error.
 - Absence ⇒ `mode: none` (AC-29.5). `/setup` does not emit `mode: none` explicitly — absence is canonical.
-- Absent `branch_template:` ⇒ branch automation disabled in `/implement` (STE-64 AC-STE-64.1); all other keys and behaviors unchanged. Seeded by `/setup` with scope-aware default; editable at any time.
+- Absent `branch_template:` ⇒ branch automation disabled in `/implement` (STE-64 AC-STE-64.1); all other keys and behaviors unchanged. Seeded by `/setup` with the single canonical default `{type}/m{N}-{slug}` in every mode; editable at any time.
 - Audit trail: `git log` + `git blame` — no separate sync-log subsection is maintained. See `docs/patterns.md` § Audit trail.
 - The legacy Tier-2 fallback key (retired in v1.21.0) is ignored if still present. Ticket binding runs through branch-regex (Tier 1) then the interactive prompt (Tier 2) only.
 - **Canonical-key closed set (STE-114 AC-STE-114.1).** Top-level keys are limited to exactly `{mode, mcp_server, jira_ac_field, branch_template}`. Sub-section contents (`### Linear`, `### Jira`, etc.) are scoped out and free-form. Non-canonical top-level keys → `/gate-check` failure via the `task-tracking-canonical-keys` probe (gate-check #21). One-time migration helper for projects that picked up the drift before the constraint landed: `scripts/migrate-task-tracking-canonical.ts` (dry-run; outputs unified diff). Full rationale: `docs/patterns.md` § Schema L Canonical keys.
@@ -431,7 +431,7 @@ impact_set:                         # from Schema Y; absent when STE-71 unavaila
   configKeys: [...]
   stateEvents: [...]
 target_section: reference           # one of: tutorials | how-to | reference | explanation
-target_file: docs/reference/api/task_tracking_config.md
+target_file: docs/reference/api/<topic>.md
 generated_at: 2026-04-23T16:00:00Z
 ---
 ```
