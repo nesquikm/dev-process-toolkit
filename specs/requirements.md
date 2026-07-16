@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.47.0 ("Synopsis")**.
+**Latest shipped release:** **v2.48.0 ("Eponym")**.
 
 ### Shipped milestones
 
@@ -394,4 +394,6 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-385.1..6 | plugins/dev-process-toolkit/skills/spec-write/SKILL.md, plugins/dev-process-toolkit/docs/layout-reference.md, plugins/dev-process-toolkit/adapters/_shared/src/needs_technical_review_consistency.ts | plugins/dev-process-toolkit/tests/summary-section-convention.test.ts |
 | AC-STE-386.1..6 | plugins/dev-process-toolkit/adapters/_shared/src/scan_fr_summary_altitude.ts, plugins/dev-process-toolkit/skills/gate-check/SKILL.md, README.md | plugins/dev-process-toolkit/adapters/_shared/src/scan_fr_summary_altitude.test.ts, plugins/dev-process-toolkit/tests/gate-check-fr-summary-altitude.test.ts, plugins/dev-process-toolkit/tests/gate-check-public-surface-count-drift.test.ts |
 | AC-STE-387.1..6 | plugins/dev-process-toolkit/skills/spec-write/SKILL.md, plugins/dev-process-toolkit/docs/sdd-methodology.md, plugins/dev-process-toolkit/docs/workflow-overview.md, plugins/dev-process-toolkit/templates/CLAUDE.md.template | plugins/dev-process-toolkit/tests/review-contract-convention.test.ts |
+| AC-STE-388.1..8 | plugins/dev-process-toolkit/adapters/_shared/src/branch_proposal.ts, plugins/dev-process-toolkit/adapters/_shared/src/setup/migrate_branch_template.ts, plugins/dev-process-toolkit/skills/setup/SKILL.md, plugins/dev-process-toolkit/skills/spec-write/SKILL.md, plugins/dev-process-toolkit/skills/implement/SKILL.md, plugins/dev-process-toolkit/docs/setup-tracker-mode.md, plugins/dev-process-toolkit/docs/implement-reference.md, plugins/dev-process-toolkit/docs/patterns.md, plugins/dev-process-toolkit/templates/CLAUDE.md.template | plugins/dev-process-toolkit/adapters/_shared/src/canonical_branch_template.test.ts, plugins/dev-process-toolkit/adapters/_shared/src/branch_acceptable.test.ts, plugins/dev-process-toolkit/adapters/_shared/src/setup/migrate_branch_template.test.ts, plugins/dev-process-toolkit/tests/m106-ste-388-branch-naming.test.ts |
+| AC-STE-389.1..7 | plugins/dev-process-toolkit/skills/pr/SKILL.md, README.md | plugins/dev-process-toolkit/tests/m106-ste-389-derived-pr-title.test.ts |
 

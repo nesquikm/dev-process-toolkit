@@ -126,6 +126,126 @@ describe("isCurrentBranchAcceptable — tracker-ID match (AC-STE-64.4)", () => {
   });
 });
 
+describe("isCurrentBranchAcceptable — FR scopes accept the milestone-keyed shape (AC-STE-388.5)", () => {
+  test("fr-tracker + milestoneNumber: m-named branch is acceptable", () => {
+    expect(
+      isCurrentBranchAcceptable("feat/m106-milestone-branch-naming", {
+        kind: "fr-tracker",
+        trackerId: "STE-388",
+        milestoneNumber: "106",
+      }),
+    ).toBe(true);
+  });
+
+  test("fr-mode-none + milestoneNumber: m-named branch is acceptable", () => {
+    expect(
+      isCurrentBranchAcceptable("chore/m106-cleanup", {
+        kind: "fr-mode-none",
+        shortUlid: "vdtaf4",
+        milestoneNumber: "106",
+      }),
+    ).toBe(true);
+  });
+
+  test("legacy ticket-named branch stays acceptable when milestoneNumber is present (OR-match)", () => {
+    expect(
+      isCurrentBranchAcceptable("feat/ste-388-milestone-branch-naming", {
+        kind: "fr-tracker",
+        trackerId: "STE-388",
+        milestoneNumber: "106",
+      }),
+    ).toBe(true);
+  });
+
+  test("legacy short-ULID branch stays acceptable when milestoneNumber is present (OR-match)", () => {
+    expect(
+      isCurrentBranchAcceptable("feat/vdtaf4-add-thing", {
+        kind: "fr-mode-none",
+        shortUlid: "vdtaf4",
+        milestoneNumber: "106",
+      }),
+    ).toBe(true);
+  });
+
+  test("branch carrying neither m<N> nor the tracker ID is rejected", () => {
+    expect(
+      isCurrentBranchAcceptable("feat/unrelated-work", {
+        kind: "fr-tracker",
+        trackerId: "STE-388",
+        milestoneNumber: "106",
+      }),
+    ).toBe(false);
+  });
+
+  test("trunk stays rejected even when the scope carries milestoneNumber", () => {
+    expect(
+      isCurrentBranchAcceptable("main", {
+        kind: "fr-tracker",
+        trackerId: "STE-388",
+        milestoneNumber: "106",
+      }),
+    ).toBe(false);
+    expect(
+      isCurrentBranchAcceptable("master", {
+        kind: "fr-mode-none",
+        shortUlid: "vdtaf4",
+        milestoneNumber: "106",
+      }),
+    ).toBe(false);
+  });
+
+  test("absent milestoneNumber keeps the substring-only rule: m-named branch alone is NOT acceptable for an FR scope", () => {
+    expect(
+      isCurrentBranchAcceptable("feat/m106-milestone-branch-naming", {
+        kind: "fr-tracker",
+        trackerId: "STE-388",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isCurrentBranchAcceptable — FR-scope word-boundary corpus (AC-STE-388.5, m105 ≠ m1051)", () => {
+  test("m105 inside m1051 is rejected (digit-extending substring)", () => {
+    expect(
+      isCurrentBranchAcceptable("feat/m1051-something", {
+        kind: "fr-tracker",
+        trackerId: "STE-999",
+        milestoneNumber: "105",
+      }),
+    ).toBe(false);
+  });
+
+  test("m105 next to alpha is rejected", () => {
+    expect(
+      isCurrentBranchAcceptable("feat/dm105-something", {
+        kind: "fr-mode-none",
+        shortUlid: "zzzzzz",
+        milestoneNumber: "105",
+      }),
+    ).toBe(false);
+  });
+
+  test("exact word-bounded m105 is acceptable", () => {
+    expect(
+      isCurrentBranchAcceptable("feat/m105-fr-summary-section", {
+        kind: "fr-tracker",
+        trackerId: "STE-999",
+        milestoneNumber: "105",
+      }),
+    ).toBe(true);
+  });
+
+  test("word-bounded match is case-insensitive (M105)", () => {
+    expect(
+      isCurrentBranchAcceptable("feat/M105-fr-summary-section", {
+        kind: "fr-mode-none",
+        shortUlid: "zzzzzz",
+        milestoneNumber: "105",
+      }),
+    ).toBe(true);
+  });
+});
+
 describe("isCurrentBranchAcceptable — short-ULID match (AC-STE-64.4, AC-STE-64.7)", () => {
   test("branch containing short-ULID tail is acceptable", () => {
     expect(

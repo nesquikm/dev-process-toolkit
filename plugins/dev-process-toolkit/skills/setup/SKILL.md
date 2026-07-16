@@ -45,6 +45,7 @@ When `$ARGUMENTS` contains `--migrate` or `--migrate-dry-run`, skip steps 1–8 
 - Supported transitions: `none → <tracker>` / `<tracker> → none` / `<tracker> → <other>`. Unsupported = NFR-10 canonical refusal.
 - The CLAUDE.md `mode:` line + active-FR renames land in one commit; if the switch fails partway, the user reruns `/setup --migrate` from a clean working tree (no rollback prompt).
 - **Active-FR rename.** On any mode change, re-derive filenames for every active FR under `specs/frs/*.md` (not `archive/`) using the *target-mode* `Provider.filenameFor(spec)` and `git mv` each file to its new name. Archive is frozen by mode transitions. All renames + the CLAUDE.md `mode:` flip land in a single atomic commit.
+- **Branch-template re-seed.** Call `reseedBranchTemplate(claudeMdPath, { date })` from `adapters/_shared/src/setup/migrate_branch_template.ts`: a `branch_template:` value byte-identical to the retired seeded default `{type}/{ticket-id}-{slug}` is rewritten to `{type}/m{N}-{slug}` and logged in `## /setup audit`; any other value is preserved verbatim, and an absent key stays absent.
 
 Detailed tracker-mode switching procedures live in `docs/setup-tracker-mode.md`.
 
@@ -185,9 +186,7 @@ If the user picks 2–4, run the full numbered flow in `docs/setup-reference.md`
 
 ### 7c. Branch-naming template
 
-`default: <default-for-mode>` — proceed with the mode-specific default if no answer is supplied. Every resolved `branch_template` value appends `## /setup audit` entry recording `step:7c value:"<resolved>" reason:"<user-supplied|default applied>"` — provenance per resolution, not per run.
-
-Default-for-mode: `{type}/m{N}-{slug}` in `mode: none`; `{type}/{ticket-id}-{slug}` in any tracker mode.
+default: `{type}/m{N}-{slug}` — the single seeded default in both tracker mode and `mode: none`; proceed with it if no answer is supplied. Every resolved `branch_template` value appends `## /setup audit` entry recording `step:7c value:"<resolved>" reason:"<user-supplied|default applied>"` — provenance per resolution, not per run.
 
 - Empty response ⇒ accept default.
 - Non-empty response ⇒ use verbatim (`/implement` sanitizes LLM output at render time).

@@ -45,6 +45,28 @@ export function isProtectedTrunk(branch: string): boolean {
 }
 
 /**
+ * The two Schema L branch-template forms (STE-388). Single home for the
+ * literals — `canonicalBranchTemplate` selects between them and
+ * `setup/migrate_branch_template.ts` re-seeds from the ticket-keyed form.
+ */
+export const MILESTONE_BRANCH_TEMPLATE = "{type}/m{N}-{slug}";
+export const TICKET_BRANCH_TEMPLATE = "{type}/{ticket-id}-{slug}";
+
+/**
+ * Canonical branch template for a given milestone binding (STE-388).
+ *
+ * Pure selector: a non-empty all-digit `milestone` yields the
+ * milestone-keyed form `"{type}/m{N}-{slug}"`; anything else (absent,
+ * empty, or non-digit) falls back to the ticket-keyed form
+ * `"{type}/{ticket-id}-{slug}"`.
+ */
+export function canonicalBranchTemplate({ milestone }: { milestone?: string }): string {
+  return milestone !== undefined && /^\d+$/.test(milestone)
+    ? MILESTONE_BRANCH_TEMPLATE
+    : TICKET_BRANCH_TEMPLATE;
+}
+
+/**
  * Context needed to render a branch proposal. The FR / milestone-plan
  * identity is pre-extracted by the caller (skill responsibility); the
  * adapter's job is pure template rendering + sanitization.
@@ -67,11 +89,16 @@ export interface BranchProposalContext {
 /**
  * Which scope is `/implement` running? Drives
  * `isCurrentBranchAcceptable`'s match rule (AC-STE-64.4).
+ *
+ * FR-scoped variants optionally carry `milestoneNumber` (AC-STE-388.5):
+ * when present, a word-bounded `m<N>` branch match is accepted as an
+ * alternative to the tracker-ID / short-ULID substring, so both the
+ * milestone-keyed and legacy ticket-keyed naming generations pass.
  */
 export type RunScope =
   | { kind: "milestone"; number: string }
-  | { kind: "fr-tracker"; trackerId: string }
-  | { kind: "fr-mode-none"; shortUlid: string };
+  | { kind: "fr-tracker"; trackerId: string; milestoneNumber?: string }
+  | { kind: "fr-mode-none"; shortUlid: string; milestoneNumber?: string };
 
 /**
  * Thrown when the caller-supplied `{slug}` sanitizes to empty. Rendered by
@@ -155,22 +182,30 @@ export function buildBranchProposal(ctx: BranchProposalContext): string {
     .replace(/{slug}/g, finalSlug);
 }
 
+/** Word-bounded `m<N>` match (case-insensitive) so `m19` ≠ `m191` / `dm19`. */
+function matchesMilestone(branchName: string, milestoneNumber: string): boolean {
+  return new RegExp(`\\bm${milestoneNumber}\\b`, "i").test(branchName);
+}
+
 /**
  * Is the current git branch acceptable for the given run scope?
  *
- * Rule (AC-STE-64.4): acceptable IFF current branch is not `main`/`master`
- * AND the branch name contains the scope's identifier — `m{N}` for a
- * milestone run (word-boundary match so `m19` does not accept `m191`), or
- * the tracker ID / short-ULID (substring match, case-insensitive) for an
- * FR run.
+ * Rule (AC-STE-64.4, extended by AC-STE-388.5): acceptable IFF current
+ * branch is not `main`/`master` AND the branch name matches the scope —
+ * `m{N}` for a milestone run (word-boundary match so `m19` does not accept
+ * `m191`); for an FR run, the tracker ID / short-ULID (substring match,
+ * case-insensitive) OR, when the scope carries `milestoneNumber`, a
+ * word-bounded `m<N>` match (legacy ticket-keyed branches stay acceptable).
  */
 export function isCurrentBranchAcceptable(branchName: string, scope: RunScope): boolean {
   const lower = branchName.toLowerCase();
   if (isProtectedTrunk(lower)) return false;
 
   if (scope.kind === "milestone") {
-    const re = new RegExp(`\\bm${scope.number}\\b`, "i");
-    return re.test(branchName);
+    return matchesMilestone(branchName, scope.number);
+  }
+  if (scope.milestoneNumber !== undefined && matchesMilestone(branchName, scope.milestoneNumber)) {
+    return true;
   }
   if (scope.kind === "fr-tracker") {
     return lower.includes(scope.trackerId.toLowerCase());

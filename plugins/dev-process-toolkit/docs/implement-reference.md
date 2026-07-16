@@ -51,14 +51,14 @@ Fires at Phase 1 entry, **between resolver (0.b′) and `claimLock` (0.c)** — 
    - Present ⇒ continue.
 2. Extract the run-scope identifier from the resolver result:
    - Milestone run (`fallthrough` + arg matches `M<N>`) ⇒ `RunScope.kind = "milestone"`, `number = "<N>"`.
-   - Tracker-mode FR run ⇒ `RunScope.kind = "fr-tracker"`, `trackerId = <resolved tracker ID>`.
-   - Mode-none FR run ⇒ `RunScope.kind = "fr-mode-none"`, `shortUlid = spec.id.slice(23, 29).toLowerCase()`.
+   - Tracker-mode FR run ⇒ `RunScope.kind = "fr-tracker"`, `trackerId = <resolved tracker ID>`, plus optional `milestoneNumber = <digits of the FR's milestone: frontmatter>` when the FR is milestone-bound.
+   - Mode-none FR run ⇒ `RunScope.kind = "fr-mode-none"`, `shortUlid = spec.id.slice(23, 29).toLowerCase()`, plus the same optional `milestoneNumber`. With `milestoneNumber` present, a word-bounded `m<N>` branch OR the legacy ticket/short-ULID substring is acceptable — both naming generations pass.
 3. Call `isCurrentBranchAcceptable(currentBranch, scope)` from `adapters/_shared/src/branch_proposal.ts`. `true` ⇒ skip the proposal (branch already encodes the scope). `false` ⇒ continue.
 
 ### Proposal render
 
 4. Derive `type` deterministically via `branchTypeFor({ changelogCategory })` from `adapters/_shared/src/branch_type_for.ts`, where `changelogCategory` is the resolved FR's `changelog_category` frontmatter value (absent ⇒ STE-73 default `Added`); the helper's `noTech` opt never applies in `/implement` — the STE-227 `needs_technical_review` refusal at 0.b′¹ fires before 0.b″ ever runs (documented, not plumbed). Result: `type` ∈ `{feat, fix, chore}`. Then run a single LLM pass over the FR's `## Requirement` section (or the milestone plan file's "Why this milestone exists" section for milestone runs) for `{slug}` only — a 2–4 word kebab-case phrase summarizing the work.
-5. Call `buildBranchProposal({template, type, slug, milestone, trackerId, shortUlid})`. The function:
+5. Resolve the effective template via `canonicalBranchTemplate({ milestone })` from `adapters/_shared/src/branch_proposal.ts`, where `milestone` is the digits of the resolved FR's `milestone:` frontmatter for FR-scoped runs (milestone runs use the run-arg `<N>`, unchanged) — milestone-bound ⇒ `{type}/m{N}-{slug}`, milestone-less ⇒ `{type}/{ticket-id}-{slug}` fallback. Precedence: an explicit Schema L `branch_template:` value (anything other than the canonical seeded default) wins over the derived form — operator override preserved; the absent-key skip in Guard step 1 is unaffected. Then call `buildBranchProposal({template, type, slug, milestone, trackerId, shortUlid})`. The function:
    - Clamps `{type}` to the allowed set (unknown ⇒ `feat`).
    - Sanitizes `{slug}` to `[a-z0-9-]`, collapses hyphen runs, strips leading/trailing hyphens.
    - Throws `EmptySlugError` if the slug sanitizes to empty (⇒ surface as NFR-10 refusal and re-prompt).
