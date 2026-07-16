@@ -359,7 +359,7 @@ export interface Provider {
 
 **Two implementations:**
 
-- **`LocalProvider`** — tracker-less path. `sync()` no-ops (`kind: 'skipped'`); `claimLock()` uses `.dpt-locks/<ulid>` files committed to the claiming branch + `git fetch --all` + cross-branch `ls-tree` scan (skippable via `DPT_SKIP_FETCH=1`).
+- **`LocalProvider`** — tracker-less path. `sync()` no-ops (`kind: 'skipped'`); `claimLock()` uses `.dpt/locks/<ulid>` files committed to the claiming branch + `git fetch --all` + cross-branch `ls-tree` scan (skippable via `DPT_SKIP_FETCH=1`).
 - **`TrackerProvider`** — composes over the 4-op adapter surface. `sync()` calls `upsertTicketMetadata`; `claimLock()` uses `getTicketStatus` → `transitionStatus('in_progress')` + `upsertTicketMetadata({assignee})`; `releaseLock()` → `transitionStatus('done')`.
 
 **How adapters compose under `TrackerProvider`**:

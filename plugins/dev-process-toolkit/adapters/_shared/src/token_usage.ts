@@ -1,7 +1,9 @@
 // token_usage — per-skill token-usage capture layer (STE-344).
 //
 // AC-STE-344.1 — ledger schema + location. An append-only JSONL ledger at
-// `<projectRoot>/.dev-process/token-ledger.jsonl`; each line is one
+// `<projectRoot>/.dpt/ledger/token-ledger.jsonl` (re-pointed into the
+// consolidated `.dpt` tree by AC-STE-382.4; the path is composed by
+// `dpt_paths`); each line is one
 // `token-ledger/v1` aggregate for a `(session_id, skill, model)` triple,
 // where `skill` is the transcript's `attributionSkill` string or the
 // literal sentinel `(main-loop)`.
@@ -17,7 +19,9 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
+
+import { ledgerPath as dptLedgerPath } from "./dpt_paths";
 
 /** Schema discriminator carried on every ledger line. */
 export const TOKEN_LEDGER_SCHEMA = "token-ledger/v1";
@@ -39,9 +43,15 @@ export interface TokenLedgerRow {
   claimed_by?: string;
 }
 
-/** Fixed ledger location: `<projectRoot>/.dev-process/token-ledger.jsonl`. */
+/**
+ * Fixed ledger location: `<projectRoot>/.dpt/ledger/token-ledger.jsonl`.
+ *
+ * Kept as a re-export under this module's own name (many modules import
+ * `ledgerPath` from here); the path itself is composed by `dpt_paths`, the
+ * sole composer of `.dpt` literals (AC-STE-382.1/.4).
+ */
 export function ledgerPath(projectRoot: string): string {
-  return join(projectRoot, ".dev-process", "token-ledger.jsonl");
+  return dptLedgerPath(projectRoot);
 }
 
 /**

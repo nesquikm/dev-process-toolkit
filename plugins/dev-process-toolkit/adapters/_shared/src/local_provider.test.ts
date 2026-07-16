@@ -5,6 +5,7 @@ import { $ } from "bun";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { locksDir as dptLocksDir, scratchDir } from "./dpt_paths";
 import { LocalProvider } from "./local_provider";
 import { ULID_REGEX } from "./ulid";
 
@@ -84,12 +85,12 @@ describe("LocalProvider.getMetadata (M18 STE-61: filename = <short-ULID>.md)", (
 });
 
 describe("LocalProvider.claimLock / releaseLock (FR-46)", () => {
-  test("claimLock writes .dpt-locks/<id> and commits on the current branch", async () => {
+  test("claimLock writes .dpt/locks/<id> and commits on the current branch", async () => {
     const id = "fr_01HZ7XJFKP0000000000000A01";
     const p = new LocalProvider({ repoRoot: work });
     const result = await p.claimLock(id, "feat/test");
     expect(result.kind).toBe("claimed");
-    const lockPath = join(work, ".dpt-locks", id);
+    const lockPath = join(work, ".dpt", "locks", id);
     expect(existsSync(lockPath)).toBe(true);
     const content = readFileSync(lockPath, "utf-8");
     expect(content).toContain(`ulid: ${id}`);
@@ -112,7 +113,7 @@ describe("LocalProvider.claimLock / releaseLock (FR-46)", () => {
     const p = new LocalProvider({ repoRoot: work });
     await p.claimLock(id, "feat/test");
     await p.releaseLock(id);
-    expect(existsSync(join(work, ".dpt-locks", id))).toBe(false);
+    expect(existsSync(join(work, ".dpt", "locks", id))).toBe(false);
     // Idempotent on second call — now returns "already-released" (STE-84 AC-STE-84.3).
     await expect(p.releaseLock(id)).resolves.toBe("already-released");
   });
@@ -125,7 +126,7 @@ describe("LocalProvider.releaseLock return value (STE-84 AC-STE-84.3)", () => {
     await p.claimLock(id, "feat/test");
     const outcome = await p.releaseLock(id);
     expect(outcome).toBe("transitioned");
-    expect(existsSync(join(work, ".dpt-locks", id))).toBe(false);
+    expect(existsSync(join(work, ".dpt", "locks", id))).toBe(false);
   });
 
   test("lock-file-absent returns 'already-released' without side effects", async () => {
@@ -188,8 +189,8 @@ describe("LocalProvider Phase F — remote-branch lock detection (AC-46.2)", () 
     // Switch back to main and remove local lock file from working tree
     await $`git checkout -q main`.cwd(work);
     await $`git branch -q -D feat/other`.cwd(work);
-    if (existsSync(join(work, ".dpt-locks", id))) {
-      rmSync(join(work, ".dpt-locks", id));
+    if (existsSync(join(work, ".dpt", "locks", id))) {
+      rmSync(join(work, ".dpt", "locks", id));
     }
     // Now the lock only exists on origin/feat/other (remote-tracking ref)
     const result = await p.claimLock(id, "main");
@@ -207,7 +208,7 @@ describe("LocalProvider Phase F — stale lock cleanup (AC-46.5)", () => {
     await $`git checkout -q main`.cwd(work);
     await $`git merge -q --no-ff feat/merged-then-deleted -m "merge feat/merged"`.cwd(work);
     await $`git branch -q -D feat/merged-then-deleted`.cwd(work);
-    // Now .dpt-locks/<id> is on main's working tree, but the claiming branch is gone
+    // Now .dpt/locks/<id> is on main's working tree, but the claiming branch is gone
     const stale = await p.findStaleLocks();
     expect(stale.map((s) => s.id)).toContain(id);
     expect(stale.find((s) => s.id === id)?.reason).toBe("deleted");
@@ -239,5 +240,220 @@ describe("LocalProvider Phase F — stale lock cleanup (AC-46.5)", () => {
     // Cleanup commit message names the count
     const msg = (await $`git log -1 --format=%s`.cwd(work).text()).trim();
     expect(msg).toMatch(/clean up 2 stale locks/);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// STE-382 AC-STE-382.3 — lock paths derive from dpt_paths → `.dpt/locks`
+// -----------------------------------------------------------------------------
+
+describe("AC-STE-382.3 — default locksDir derives from dpt_paths (.dpt/locks)", () => {
+  test("claimLock writes under <repoRoot>/.dpt/locks, not the legacy .dpt-locks/", async () => {
+    const id = "fr_01HZ7XJFKP0000000000000LAYOUT1";
+    const p = new LocalProvider({ repoRoot: work, skipFetch: true });
+    const result = await p.claimLock(id, "feat/test");
+    expect(result.kind).toBe("claimed");
+
+    expect(existsSync(join(work, ".dpt", "locks", id))).toBe(true);
+    // The legacy tree must not be resurrected anywhere alongside it.
+    expect(existsSync(join(work, ".dpt-locks"))).toBe(false);
+  });
+
+  test("the default agrees byte-for-byte with dpt_paths.locksDir (single source)", async () => {
+    const id = "fr_01HZ7XJFKP0000000000000LAYOUT2";
+    const p = new LocalProvider({ repoRoot: work, skipFetch: true });
+    await p.claimLock(id, "feat/test");
+    // If LocalProvider ever re-composes its own literal, this drifts.
+    expect(existsSync(join(dptLocksDir(work), id))).toBe(true);
+  });
+
+  test("locks stay TRACKED and COMMITTED under the new path (STE-28 semantics)", async () => {
+    const id = "fr_01HZ7XJFKP0000000000000LAYOUT3";
+    const p = new LocalProvider({ repoRoot: work, skipFetch: true });
+    await p.claimLock(id, "feat/test");
+
+    // git ls-files proves the lock is in the index (tracked), not merely on disk.
+    const tracked = (await $`git ls-files`.cwd(work).text()).trim().split("\n");
+    expect(tracked).toContain(`.dpt/locks/${id}`);
+
+    // …and the claim produced its own commit naming the id.
+    const subject = (await $`git log -1 --format=%s`.cwd(work).text()).trim();
+    expect(subject).toContain("claim lock");
+    expect(subject).toContain(id);
+
+    // A tracked-but-uncommitted lock would leave the tree dirty; it must not.
+    const status = (await $`git status --porcelain`.cwd(work).text()).trim();
+    expect(status).toBe("");
+  });
+
+  test("releaseLock removes the tracked lock under .dpt/locks and commits", async () => {
+    const id = "fr_01HZ7XJFKP0000000000000LAYOUT4";
+    const p = new LocalProvider({ repoRoot: work, skipFetch: true });
+    await p.claimLock(id, "feat/test");
+    expect(await p.releaseLock(id)).toBe("transitioned");
+
+    const tracked = (await $`git ls-files`.cwd(work).text()).trim().split("\n");
+    expect(tracked).not.toContain(`.dpt/locks/${id}`);
+    expect(existsSync(join(work, ".dpt", "locks", id))).toBe(false);
+    const status = (await $`git status --porcelain`.cwd(work).text()).trim();
+    expect(status).toBe("");
+  });
+
+  test("findStaleLocks / cleanupStaleLocks operate under .dpt/locks", async () => {
+    const id = "fr_01HZ7XJFKP0000000000000LAYOUT5";
+    const p = new LocalProvider({ repoRoot: work, skipFetch: true });
+    await $`git checkout -q -b feat/gone-layout`.cwd(work);
+    await p.claimLock(id, "feat/gone-layout");
+    await $`git checkout -q main`.cwd(work);
+    await $`git merge -q --no-ff feat/gone-layout -m merge-gone-layout`.cwd(work);
+    await $`git branch -q -D feat/gone-layout`.cwd(work);
+
+    const stale = await p.findStaleLocks();
+    expect(stale.map((s) => s.id)).toContain(id);
+
+    const cleaned = await p.cleanupStaleLocks();
+    expect(cleaned.ids).toContain(id);
+    expect(existsSync(join(work, ".dpt", "locks", id))).toBe(false);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// STE-382 AC-STE-382.2 — the `:160` hard-coded ls-tree pathspec
+//
+// REGRESSION PROOF, not a formality. Today `findRemoteBranchWithLock` scans the
+// literal `.dpt-locks/<id>` while the write path derives from `this.locksDir`.
+// Injecting a non-default locksDir separates the two: the lock is written (and
+// pushed) under the injected path, so a hard-coded pathspec scans a path that
+// was never written, `ls-tree` answers empty for every branch, and the provider
+// silently reports "unclaimed" — the exact double-claim this milestone exists
+// to prevent.
+// -----------------------------------------------------------------------------
+
+describe("AC-STE-382.2 — cross-branch scan derives its pathspec from locksDir", () => {
+  test("a lock pushed under an INJECTED locksDir is detected on a remote branch", async () => {
+    const id = "fr_01HZ7XJFKP0000000000000INJECT1";
+    const customLocks = join(work, "custom", "lock-store");
+
+    const remoteDir = mkdtempSync(join(tmpdir(), "dpt-inject-remote-bare-"));
+    rmSync(remoteDir, { recursive: true, force: true });
+    await $`git init --bare -q ${remoteDir}`.cwd(work);
+    await $`git remote add origin ${remoteDir}`.cwd(work);
+
+    const p = new LocalProvider({
+      repoRoot: work,
+      locksDir: customLocks,
+      skipFetch: true,
+    });
+
+    // Claim on feat/other and push, so the lock exists ONLY on the remote tip.
+    await $`git checkout -q -b feat/other`.cwd(work);
+    await p.claimLock(id, "feat/other");
+    // Precondition: the write path really honored the injection.
+    expect(existsSync(join(customLocks, id))).toBe(true);
+    expect(existsSync(join(work, ".dpt", "locks", id))).toBe(false);
+    await $`git push -q origin feat/other`.cwd(work);
+
+    await $`git checkout -q main`.cwd(work);
+    await $`git branch -q -D feat/other`.cwd(work);
+    if (existsSync(join(customLocks, id))) rmSync(join(customLocks, id));
+
+    // The lock now lives only at `custom/lock-store/<id>` on origin/feat/other.
+    const result = await p.claimLock(id, "main");
+    expect(result.kind).toBe("taken-elsewhere");
+    expect(result.branch).toBe("origin/feat/other");
+
+    rmSync(remoteDir, { recursive: true, force: true });
+  });
+
+  test("the injected scan does not fall back to the legacy .dpt-locks/ literal", async () => {
+    const id = "fr_01HZ7XJFKP0000000000000INJECT2";
+    const customLocks = join(work, "custom", "lock-store");
+
+    const remoteDir = mkdtempSync(join(tmpdir(), "dpt-inject-remote-bare2-"));
+    rmSync(remoteDir, { recursive: true, force: true });
+    await $`git init --bare -q ${remoteDir}`.cwd(work);
+    await $`git remote add origin ${remoteDir}`.cwd(work);
+
+    // A decoy lock committed at the LEGACY literal path on a remote branch.
+    // A pathspec still hard-coded to `.dpt-locks/<id>` would match this decoy
+    // and answer taken-elsewhere for the wrong reason; a locksDir-derived
+    // pathspec ignores it entirely.
+    await $`git checkout -q -b feat/decoy`.cwd(work);
+    mkdirSync(join(work, ".dpt-locks"), { recursive: true });
+    writeFileSync(
+      join(work, ".dpt-locks", id),
+      `ulid: ${id}\nbranch: feat/decoy\nclaimed_at: 2026-07-15T00:00:00Z\nclaimer: t@t.test\n`,
+    );
+    await $`git add .dpt-locks`.cwd(work);
+    await $`git commit -q -m decoy`.cwd(work);
+    await $`git push -q origin feat/decoy`.cwd(work);
+    await $`git checkout -q main`.cwd(work);
+    await $`git branch -q -D feat/decoy`.cwd(work);
+    rmSync(join(work, ".dpt-locks"), { recursive: true, force: true });
+
+    const p = new LocalProvider({
+      repoRoot: work,
+      locksDir: customLocks,
+      skipFetch: true,
+    });
+    // Nothing was ever written under `custom/lock-store/` → the id is free.
+    const result = await p.claimLock(id, "main");
+    expect(result.kind).toBe("claimed");
+
+    rmSync(remoteDir, { recursive: true, force: true });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// STE-382 AC-STE-382.7 — EISDIR collision dissolved by layout
+//
+// No defensive isDirectory guard is added. The proof is that a directory-shaped
+// research-scratch entry is no longer reachable from the lock scan at all.
+// -----------------------------------------------------------------------------
+
+describe("AC-STE-382.7 — a directory-shaped scratch entry never reaches the lock scan", () => {
+  test("findStaleLocks is unaffected by .dpt/scratch/<ulid>/ directories", async () => {
+    const id = "fr_01HZ7XJFKP0000000000000EISDIR1";
+    const p = new LocalProvider({ repoRoot: work, skipFetch: true });
+
+    await $`git checkout -q -b feat/eisdir-gone`.cwd(work);
+    await p.claimLock(id, "feat/eisdir-gone");
+    await $`git checkout -q main`.cwd(work);
+    await $`git merge -q --no-ff feat/eisdir-gone -m merge-eisdir`.cwd(work);
+    await $`git branch -q -D feat/eisdir-gone`.cwd(work);
+
+    // Research scratch is a DIRECTORY. Pre-M104 it was sited inside the lock
+    // folder, where findStaleLocks' guard-free readFileSync threw EISDIR on it.
+    const scratch = scratchDir(work, "01HZZZQK5T0000000000SCRATCH");
+    mkdirSync(scratch, { recursive: true });
+    writeFileSync(join(scratch, "spec-research-result.txt"), "noise\n");
+    writeFileSync(join(scratch, "deps-research-result.txt"), "noise\n");
+
+    // Throws EISDIR if scratch ever re-enters the lock namespace.
+    const stale = await p.findStaleLocks();
+    expect(stale.map((s) => s.id)).toEqual([id]);
+    expect(stale[0]!.reason).toBe("deleted");
+  });
+
+  test("cleanupStaleLocks leaves the scratch tree untouched", async () => {
+    const id = "fr_01HZ7XJFKP0000000000000EISDIR2";
+    const p = new LocalProvider({ repoRoot: work, skipFetch: true });
+
+    await $`git checkout -q -b feat/eisdir-gone2`.cwd(work);
+    await p.claimLock(id, "feat/eisdir-gone2");
+    await $`git checkout -q main`.cwd(work);
+    await $`git merge -q --no-ff feat/eisdir-gone2 -m merge-eisdir2`.cwd(work);
+    await $`git branch -q -D feat/eisdir-gone2`.cwd(work);
+
+    const scratch = scratchDir(work, "01HZZZQK5T000000000SCRATCH2");
+    mkdirSync(scratch, { recursive: true });
+    const kept = join(scratch, "spec-research-result.txt");
+    writeFileSync(kept, "keep me\n");
+
+    const cleaned = await p.cleanupStaleLocks();
+    expect(cleaned.ids).toEqual([id]);
+    // Scratch is ignored, not swept: the lock cleanup has no business there.
+    expect(existsSync(kept)).toBe(true);
+    expect(readFileSync(kept, "utf-8")).toBe("keep me\n");
   });
 });
