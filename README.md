@@ -175,7 +175,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.48.0 — "Eponym"** (M106 unifies branch naming on one canonical milestone-keyed template — `{type}/m{N}-{slug}` — across every branch-creating surface, so the branch names the milestone that ships; ticket-keyed naming survives only as a milestone-less fallback and legacy acceptance, `/setup --migrate` re-seeds the retired default, and `/pr` titles are now always derived from the dominant commit's Conventional Commits subject with the never-honored title argument removed.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.48.1 — "Errata"** (M107 sweeps three stale branch-automation phrasings out of the shipped docs — the template’s trunk-OK comment now names only `ci`, the placeholder docs describe `{type}` as deterministically derived via `branchTypeFor`, and the technical spec names the single canonical seeded default — and clears all five probe-#37 tree-leaf advisories, with a new doc-conformance meta-test pinning the corrections and a dogfood assertion holding the probe at zero violations.)
 
 ## Core Philosophy
 

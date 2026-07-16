@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.48.1] — 2026-07-16 — "Errata"
+
+Docs-drift sweep (M107): the shipped docs catch up with three milestones of branch-automation changes. The template’s trunk-OK comment now names only `ci`, the placeholder docs stop calling `{type}` LLM-inferred (deterministic via `branchTypeFor` since STE-381), the technical spec’s Schema L note names the single canonical seeded default `{type}/m{N}-{slug}` (STE-388), and all five standing probe-#37 tree-leaf advisories in the technical spec are cleared — with a doc-conformance meta-test pinning every correction so the retired phrasings cannot return.
+
+### Fixed
+
+- Three stale branch-automation phrasings retired and five probe-#37 tree-leaf advisories cleared: `templates/CLAUDE.md.template`’s trunk-OK comment names `ci` as the only trunk-permitted type; `docs/setup-tracker-mode.md` + `docs/patterns.md` describe `{type}` as deterministically derived via `branchTypeFor` from `changelog_category` (unknown-clamp kept, `{slug}` stays LLM-inferred); `specs/technical-spec.md`’s Schema L bullet names the single canonical seeded default in every mode; the three genuinely stale tree leaves resolve again (`agents/` directory leaf, plugin-anchored layout-reference path, `<topic>` placeholder) and the two illustrative example fences use angle-bracket placeholders the probe cannot mistake for paths. One doc-conformance meta-test (15 tests) pins presence + absence per site, and a dogfood assertion holds `runCrossCuttingSpecStaleFileRefsProbe` at zero violations on this repo — probe #37 is now a de-facto error here. (STE-390)
+
+Total test count at release: 4447 tests, 0 failures, 0 errors.
+
 ## [2.48.0] — 2026-07-16 — "Eponym"
 
 Milestone-keyed branch naming (M106): the toolkit's branches now name the unit that actually ships — the milestone. One canonical branch template — `{type}/m{N}-{slug}` — replaces the deliberate-but-inconsistent mode split across every branch-creating surface (`/spec-write`'s § 7a pre-commit gate, `/implement`'s 0.b″ proposal, `/setup`'s seeded defaults), with ticket-keyed naming surviving only as a milestone-less fallback and as legacy acceptance so existing branches never re-prompt. Riding along, `/pr` sheds the one argument it never honored: PR titles are now always derived from the dominant commit's Conventional Commits subject, and free text after `/pr` gets an explicit redirect instead of silence.
