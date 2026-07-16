@@ -18,7 +18,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { ledgerPath } from "../adapters/_shared/src/token_usage";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
 const PLUGIN_ROOT = join(REPO_ROOT, "plugins", "dev-process-toolkit");
@@ -32,7 +33,12 @@ const WRAPPER_PATH = join(
 const HOOKS_JSON_PATH = join(PLUGIN_ROOT, "hooks", "hooks.json");
 
 const SESSION_ID = "hook-session-1";
-const LEDGER_REL = join(".dev-process", "token-ledger.jsonl");
+// M104 STE-382 AC-STE-382.4 — the ledger moved into the consolidated `.dpt/`
+// tree. Rather than re-pin a literal (which is exactly what went stale on the
+// move), every ledger location below derives from the production helper —
+// `token_usage.ledgerPath`, which composes via `dpt_paths`, the sole composer
+// of `.dpt` path literals (AC-STE-382.1). A future relocation cannot leave
+// this fixture behind.
 
 // M102 STE-379 — the capture hook now gates on the project's `## Token Stats`
 // enabled flag (read via readTokenStatsConfig). Write-path fixtures declare
@@ -108,7 +114,7 @@ type LedgerRow = {
 };
 
 function readLedger(projectRoot: string): LedgerRow[] {
-  const path = join(projectRoot, LEDGER_REL);
+  const path = ledgerPath(projectRoot);
   if (!existsSync(path)) {
     return [];
   }
@@ -348,7 +354,7 @@ describe("AC-STE-344.4 — re-fire is idempotent per session_id (replace, never 
     // Pre-seed the ledger: one stale row for THIS session (bogus numbers that
     // a correct re-derive must wipe) + one foreign-session row that must be
     // preserved byte-for-byte in field terms.
-    const ledgerFile = join(projectRoot, LEDGER_REL);
+    const ledgerFile = ledgerPath(projectRoot);
     const staleRow = {
       schema: "token-ledger/v1",
       ts: "2026-07-01T00:00:00Z",
@@ -368,7 +374,9 @@ describe("AC-STE-344.4 — re-fire is idempotent per session_id (replace, never 
       skill: "dev-process-toolkit:brainstorm",
       input_tokens: 42,
     };
-    mkdirSync(join(projectRoot, ".dev-process"), { recursive: true });
+    // `dpt_paths` is pure path composition (no I/O by design), so the fixture
+    // owns the mkdir — derived from the ledger path rather than re-named.
+    mkdirSync(dirname(ledgerFile), { recursive: true });
     writeFileSync(
       ledgerFile,
       JSON.stringify(staleRow) + "\n" + JSON.stringify(foreignRow) + "\n",
@@ -405,13 +413,13 @@ describe("AC-STE-344.4 — fail-open: parse/IO errors exit 0 with no write and n
     const r = await runHookModule("{definitely-not-json", projectRoot);
     expect(r.exitCode).toBe(0);
     expect(r.stderr).not.toContain("Refusing:");
-    expect(existsSync(join(projectRoot, LEDGER_REL))).toBe(false);
+    expect(existsSync(ledgerPath(projectRoot))).toBe(false);
   });
 
   test("empty stdin → exit 0, no ledger created", async () => {
     const r = await runHookModule("", projectRoot);
     expect(r.exitCode).toBe(0);
-    expect(existsSync(join(projectRoot, LEDGER_REL))).toBe(false);
+    expect(existsSync(ledgerPath(projectRoot))).toBe(false);
   });
 
   test("payload pointing at a missing transcript → exit 0", async () => {
@@ -435,7 +443,7 @@ describe("AC-STE-379.1 — capture hook gates on readTokenStatsConfig().enabled 
     // The transcript carries real usage rows, so absent the gate the hook
     // WOULD write — the gate is what makes the ledger stay absent.
     expect(readLedger(dir)).toEqual([]);
-    expect(existsSync(join(dir, LEDGER_REL))).toBe(false);
+    expect(existsSync(ledgerPath(dir))).toBe(false);
   });
 
   test("enabled: true ⇒ rows written exactly as today", async () => {
@@ -456,7 +464,7 @@ describe("AC-STE-379.1 — capture hook gates on readTokenStatsConfig().enabled 
     expect(r.exitCode).toBe(0);
     expect(r.stderr).not.toContain("Refusing:");
     expect(readLedger(dir)).toEqual([]);
-    expect(existsSync(join(dir, LEDGER_REL))).toBe(false);
+    expect(existsSync(ledgerPath(dir))).toBe(false);
   });
 
   test("absent CLAUDE.md ⇒ default-off: no write, exit 0", async () => {
@@ -465,6 +473,6 @@ describe("AC-STE-379.1 — capture hook gates on readTokenStatsConfig().enabled 
     const r = await runHookModule(payloadFor(transcript, dir), dir);
     expect(r.exitCode).toBe(0);
     expect(readLedger(dir)).toEqual([]);
-    expect(existsSync(join(dir, LEDGER_REL))).toBe(false);
+    expect(existsSync(ledgerPath(dir))).toBe(false);
   });
 });

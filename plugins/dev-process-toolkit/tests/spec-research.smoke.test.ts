@@ -27,6 +27,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { scratchDir } from "../adapters/_shared/src/dpt_paths";
 import {
   SPEC_RESEARCH_BANNER,
   SPEC_RESEARCH_SECTIONS,
@@ -73,7 +74,8 @@ function withTmpResultLog(
 ): void {
   const root = mkdtempSync(join(tmpdir(), "spec-research-smoke-"));
   try {
-    const dir = join(root, ".dpt-locks", "01H1SM");
+    // M104 STE-382 AC-STE-382.5 — scratch lives under `.dpt/scratch/<ulid>/`.
+    const dir = scratchDir(root, "01H1SM");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "spec-research-result.txt"), content);
     fn(root);

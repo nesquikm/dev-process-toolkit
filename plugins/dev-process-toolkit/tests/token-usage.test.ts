@@ -38,7 +38,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { ledgerPath as dptLedgerPath } from "../adapters/_shared/src/dpt_paths";
 import {
   ledgerPath,
   parseTranscriptTokenUsage,
@@ -146,12 +147,26 @@ function findRow(
 // AC-STE-344.1 — ledger schema + location
 // ---------------------------------------------------------------------------
 
-describe("AC-STE-344.1 — ledgerPath resolves to <projectRoot>/.dev-process/token-ledger.jsonl", () => {
+// M104 STE-382 AC-STE-382.4 — the ledger moved from `.dev-process/` into the
+// consolidated `.dpt/` tree and now derives from `dpt_paths` (the single
+// source of truth for every `.dpt` path literal). The AC-STE-344.1 contract
+// (a fixed, purely-composed location) is unchanged; only the location moved.
+describe("AC-STE-344.1 / AC-STE-382.4 — ledgerPath resolves to <projectRoot>/.dpt/ledger/token-ledger.jsonl", () => {
   test("ledgerPath(projectRoot) joins the fixed relative ledger location", () => {
     const root = join(tmpRoot, "proj");
     expect(ledgerPath(root)).toBe(
-      join(root, ".dev-process", "token-ledger.jsonl"),
+      join(root, ".dpt", "ledger", "token-ledger.jsonl"),
     );
+  });
+
+  test("token_usage.ledgerPath agrees byte-for-byte with dpt_paths.ledgerPath", () => {
+    const root = join(tmpRoot, "proj");
+    expect(ledgerPath(root)).toBe(dptLedgerPath(root));
+  });
+
+  test("the legacy .dev-process/ location is abandoned (forward-only, no fallback)", () => {
+    const root = join(tmpRoot, "proj");
+    expect(ledgerPath(root)).not.toContain(".dev-process");
   });
 });
 
@@ -517,7 +532,11 @@ describe("AC-STE-344.4 — writeSessionRows tolerates a pre-existing malformed l
   test("fresh rows land, malformed line is dropped (self-heal), nothing throws", () => {
     const root = mkdtempSync(join(tmpdir(), "token-usage-"));
     const path = ledgerPath(root);
-    mkdirSync(join(root, ".dev-process"), { recursive: true });
+    // Derive the ledger's parent from the production helper, never a literal:
+    // `dpt_paths` is pure path composition (no I/O), so the fixture owns the
+    // mkdir — but hardcoding the folder is what let this go stale across the
+    // M104 `.dev-process/` → `.dpt/ledger/` move.
+    mkdirSync(dirname(path), { recursive: true });
     const goodForeign = JSON.stringify({
       schema: "token-ledger/v1", ts: "2026-07-01T08:00:00Z", session_id: "other",
       git_branch: "b", skill: "s", model: "m", input_tokens: 1, output_tokens: 2,
