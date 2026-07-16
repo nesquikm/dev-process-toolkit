@@ -175,7 +175,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.47.0 — "Synopsis"** (M105 answers the toolkit's first external-user feedback — issue #39, "specs are too detailed to review" — additively: every new FR opens with a plain-language `## Summary` held to a deterministic altitude rule by new gate-check probe #67, and the review contract is stated at every approval touchpoint — the human approves Summary + Requirement + Acceptance Criteria, while Technical Design + Testing are verified by the deterministic gates and the TDD audit.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.48.0 — "Eponym"** (M106 unifies branch naming on one canonical milestone-keyed template — `{type}/m{N}-{slug}` — across every branch-creating surface, so the branch names the milestone that ships; ticket-keyed naming survives only as a milestone-less fallback and legacy acceptance, `/setup --migrate` re-seeds the retired default, and `/pr` titles are now always derived from the dominant commit's Conventional Commits subject with the never-honored title argument removed.)
 
 ## Core Philosophy
 
