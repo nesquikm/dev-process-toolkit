@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.46.0] — 2026-07-16 — "Homestead"
+
+`.dpt` layout consolidation (M104): the toolkit's two root-level state folders — `.dpt-locks/` (tracked lock coordination) and `.dev-process/` (git-ignored token ledger) — collapse into one `.dpt/` tree that preserves their opposite VCS semantics: `.dpt/locks/` stays tracked, `.dpt/ledger/` + `.dpt/scratch/` are ignored via a committed `.dpt/.gitignore` the toolkit writes and owns. A new `dpt_paths.ts` is the single source of every `.dpt` path literal, and the relayout fixes two latent defects it exposed — a hard-coded lock-scan pathspec that would have silently double-claimed after the move, and a file/directory namespace collision that threw `EISDIR` — both dissolved structurally rather than papered over with a guard. A dot-anchored path-drift meta-test locks the retired literals out for good.
+
+### Changed
+
+- Consolidate `.dpt-locks/` + `.dev-process/` into one `.dpt/` tree governed by `adapters/_shared/src/dpt_paths.ts`, the sole composer of `.dpt` path literals (`dptRoot` / `locksDir` / `ledgerPath` / `scratchDir` / `scratchRoot`; pure path composition, no I/O). `LocalProvider.findRemoteBranchWithLock` now derives its `ls-tree` pathspec from `this.locksDir` (repo-root-relative via `relative`) instead of a hard-coded `.dpt-locks/${id}` literal — closing a latent double-claim after the move — and the file/directory `EISDIR` namespace collision is dissolved by separating tracked locks (`.dpt/locks/`) from ignored scratch (`.dpt/scratch/`) with no defensive guard added. Gate-check probes #41/#64 re-point to `.dpt/scratch/**` with vacuity preserved; the token ledger moves to `.dpt/ledger/`. (STE-382)
+- `/setup` writes a committed, self-contained `.dpt/.gitignore` (`ledger/` + `scratch/`, deliberately relative so it is position-independent) via the idempotent byte-compare `writeDptGitignore` helper, replacing the retired `.dev-process/` append to the consumer's root `.gitignore` (AC-STE-344.5). The toolkit's own root `.gitignore` gains **no** `.dpt/` line — a blanket root entry would defeat the nested file, since git never descends into an excluded directory — and the legacy `.dev-process/` directory is deleted forward-only. Docs describe the tree, the tracked/ignored split, and the accepted blanket-root hazard. (STE-383)
+
+### Added
+
+- `tests/dpt-path-drift.test.ts` — a grep meta-test (STE-49 shape) that fails naming `file:line` if a retired `.dpt-locks` / `.dev-process` literal reappears under `docs/`, `skills/`, `adapters/`, `templates/`, `README.md`, or the cross-cutting specs. The `.dev-process` pattern is dot-anchored so it never matches `dev-process-toolkit`, the plugin's own name; `*.test.ts` decoy files and history surfaces (`CHANGELOG.md`, `specs/**/archive/`) are exempt with commented rationale, and tripwire fixtures prove the gate actually fires. (STE-384)
+
+Total test count at release: 4318 tests, 0 failures, 0 errors.
+
 ## [2.45.0] — 2026-07-15 — "Signpost"
 
 Spec-write flow determinism (M103): the `/spec-write` closing `Next:` line now points milestone-bound work at the milestone close — the variant rule is re-keyed from new-FR presence to **milestone binding**, guarded by new doc-shape probe #66 — and kickoff branch types become a pure function of FR frontmatter: `changelog_category`-keyed `branchTypeFor` replaces the freestyle LLM `{type}` pass, so identically-shaped FRs propose identically-typed branches every session.
