@@ -1,15 +1,23 @@
 // Tests for /gate-check probe `spec_research_result_shape`
 // (STE-230 AC-STE-230.12). Severity: error. Probe #41.
 //
-// Builds tmp fixtures under .dpt-locks/<ulid>/spec-research-result.txt
+// Builds tmp fixtures under .dpt/scratch/<ulid>/spec-research-result.txt
 // and asserts the probe surfaces banner / section-order / line-cap
 // drift while passing on canonical blocks. Vacuous when no log file
 // exists.
+//
+// M104 STE-382 AC-STE-382.5 — research scratch moved out of the TRACKED
+// `.dpt-locks/` namespace into the ignored `.dpt/scratch/`. The probe now
+// walks `.dpt/scratch/**` via `dpt_paths`. Vacuity is load-bearing and
+// preserved verbatim: an absent scratch dir ⇒ pass with no note (the
+// STE-230 AC-STE-230.12 contract), so a run that invoked no research fork
+// stays green.
 
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { dptRoot, scratchDir } from "../adapters/_shared/src/dpt_paths";
 import {
   SPEC_RESEARCH_BANNER,
   SPEC_RESEARCH_SECTIONS,
@@ -24,7 +32,7 @@ interface Fixture {
 function makeFixture(blocks: Fixture[]): { root: string; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), "spec-research-shape-probe-"));
   for (const b of blocks) {
-    const dir = join(root, ".dpt-locks", b.ulid);
+    const dir = scratchDir(root, b.ulid);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "spec-research-result.txt"), b.content);
   }
@@ -49,11 +57,12 @@ function canonicalBlock(): string {
 }
 
 // -----------------------------------------------------------------------------
-// Vacuous case — no `.dpt-locks/` directory at all.
+// Vacuous cases — AC-STE-382.5 keeps the AC-STE-230.12 vacuity contract.
+// VACUITY IS LOAD-BEARING: a no-research-fork run must stay green.
 // -----------------------------------------------------------------------------
 
 describe("spec_research_result_shape — vacuous", () => {
-  test("project root with no .dpt-locks/ directory → no violations", () => {
+  test("project root with no .dpt/ tree at all → no violations", () => {
     const root = mkdtempSync(join(tmpdir(), "spec-research-shape-vacuous-"));
     try {
       const report = runSpecResearchResultShapeProbe(root);
@@ -63,11 +72,41 @@ describe("spec_research_result_shape — vacuous", () => {
     }
   });
 
-  test(".dpt-locks/ exists but no spec-research-result.txt → no violations", () => {
+  test(".dpt/ exists but .dpt/scratch/ is absent → no violations (no research fork ran)", () => {
+    const root = mkdtempSync(join(tmpdir(), "spec-research-shape-no-scratch-"));
+    try {
+      // The common shape: locks and/or ledger present, scratch never created.
+      mkdirSync(join(dptRoot(root), "locks"), { recursive: true });
+      mkdirSync(join(dptRoot(root), "ledger"), { recursive: true });
+      const report = runSpecResearchResultShapeProbe(root);
+      expect(report.violations).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test(".dpt/scratch/ exists but no spec-research-result.txt → no violations", () => {
     const root = mkdtempSync(join(tmpdir(), "spec-research-shape-empty-"));
     try {
-      mkdirSync(join(root, ".dpt-locks", "01H123"), { recursive: true });
-      writeFileSync(join(root, ".dpt-locks", "01H123", "other.txt"), "noise\n");
+      mkdirSync(scratchDir(root, "01H123"), { recursive: true });
+      writeFileSync(join(scratchDir(root, "01H123"), "other.txt"), "noise\n");
+      const report = runSpecResearchResultShapeProbe(root);
+      expect(report.violations).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a legacy .dpt-locks/ result log is NOT scanned (forward-only, no fallback)", () => {
+    const root = mkdtempSync(join(tmpdir(), "spec-research-shape-legacy-"));
+    try {
+      // A broken block at the OLD site. Zero installs ⇒ forward-only: the probe
+      // reads the new tree only, so this must not surface as a violation.
+      mkdirSync(join(root, ".dpt-locks", "01HOLD"), { recursive: true });
+      writeFileSync(
+        join(root, ".dpt-locks", "01HOLD", "spec-research-result.txt"),
+        "## not even close\n",
+      );
       const report = runSpecResearchResultShapeProbe(root);
       expect(report.violations).toEqual([]);
     } finally {
@@ -93,16 +132,34 @@ describe("spec_research_result_shape — positive", () => {
     }
   });
 
-  test("flat layout (.dpt-locks/spec-research-result.txt) is also recognized", () => {
+  test("flat layout (.dpt/scratch/spec-research-result.txt) is also recognized", () => {
     const root = mkdtempSync(join(tmpdir(), "spec-research-shape-flat-"));
     try {
-      mkdirSync(join(root, ".dpt-locks"), { recursive: true });
+      mkdirSync(join(dptRoot(root), "scratch"), { recursive: true });
       writeFileSync(
-        join(root, ".dpt-locks", "spec-research-result.txt"),
+        join(dptRoot(root), "scratch", "spec-research-result.txt"),
         canonicalBlock(),
       );
       const report = runSpecResearchResultShapeProbe(root);
       expect(report.violations).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("flat-fallback drift IS caught (the walk really reaches the flat path)", () => {
+    // Guards the flat leg against becoming a silent no-op: a broken block at
+    // `.dpt/scratch/spec-research-result.txt` must still surface.
+    const root = mkdtempSync(join(tmpdir(), "spec-research-shape-flat-bad-"));
+    try {
+      mkdirSync(join(dptRoot(root), "scratch"), { recursive: true });
+      writeFileSync(
+        join(dptRoot(root), "scratch", "spec-research-result.txt"),
+        "## not even close\n",
+      );
+      const report = runSpecResearchResultShapeProbe(root);
+      expect(report.violations.length).toBeGreaterThan(0);
+      expect(report.violations[0]!.severity).toBe("error");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -2,7 +2,7 @@
 //
 // The spec-review audit flagged the claim marking as in-memory only:
 // `filterRowsForFR` sets `claimed_by` on bridged rows but nothing wrote the
-// mutation back to `.dev-process/token-ledger.jsonl`, so the no-double-count
+// mutation back to the on-disk token ledger, so the no-double-count
 // guarantee did not survive across separate /spec-write runs. These tests pin
 // the durable path: `claimRowsForFR(projectRoot, opts)` reads the ledger,
 // selects + claims via the same bridging semantics, persists the `claimed_by`
@@ -11,7 +11,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { ledgerPath, type TokenLedgerRow } from "../adapters/_shared/src/token_usage";
 import { claimRowsForFR } from "../adapters/_shared/src/token_stats_render";
@@ -35,7 +35,9 @@ function row(overrides: Partial<TokenLedgerRow>): TokenLedgerRow {
 
 function writeLedger(projectRoot: string, rows: TokenLedgerRow[]): void {
   const path = ledgerPath(projectRoot);
-  mkdirSync(join(projectRoot, ".dev-process"), { recursive: true });
+  // Derive the parent from the ledger path itself — STE-382 AC-STE-382.1: no
+  // module (or test helper) re-composes a `.dpt` literal of its own.
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
 }
 

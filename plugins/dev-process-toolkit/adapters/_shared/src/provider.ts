@@ -84,7 +84,7 @@ export interface Provider {
    *
    * Returns `"transitioned"` when the release performed work:
    *   - `TrackerProvider`: ticket moved from In Progress → Done.
-   *   - `LocalProvider`: `.dpt-locks/<id>` existed and was removed + committed.
+   *   - `LocalProvider`: `.dpt/locks/<id>` existed and was removed + committed.
    *
    * Returns `"already-released"` on the idempotent branch (STE-84 AC-STE-84.2):
    *   - `TrackerProvider`: ticket was already at the adapter's canonical Done

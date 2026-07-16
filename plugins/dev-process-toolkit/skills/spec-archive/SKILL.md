@@ -106,7 +106,7 @@ Before any filesystem change, render a diff preview the user can confirm or reje
 --- Provider.releaseLock(<ulid>)
 +++ (tracker mode: transition_status → done)          — return "transitioned" when the ticket was In Progress
 +++ (tracker mode: ticket already at canonical Done)  — return "already-released" (idempotent; no write)
-+++ (tracker-less: rm .dpt-locks/<ulid>)              — return "transitioned" when the lock file existed
++++ (tracker-less: rm .dpt/locks/<ulid>)              — return "transitioned" when the lock file existed
 +++ (tracker-less: no lock file present)              — return "already-released" (silent no-op)
 ```
 

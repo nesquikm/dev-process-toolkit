@@ -24,6 +24,7 @@ import {
   DEPS_RESEARCH_SECTIONS,
   parseDepsResearchBlock,
 } from "./deps_research_result";
+import { scratchRoot } from "./dpt_paths";
 
 export type Severity = "error" | "warning";
 
@@ -101,10 +102,11 @@ function scanResultFile(
 }
 
 /**
- * Walk a directory tree under `.dpt-locks/` and return every file that
- * matches the canonical result-log basename. Convention from AC-STE-301.11:
- * `.dpt-locks/<ulid>/deps-research-result.txt`. The recursive walk tolerates
- * a flat layout too (a single file at the lock-dir root), since the
+ * Walk a directory tree under `.dpt/scratch/` and return every file that
+ * matches the canonical result-log basename. Convention from AC-STE-301.11,
+ * relocated by STE-382 AC-STE-382.5:
+ * `.dpt/scratch/<ulid>/deps-research-result.txt`. The recursive walk
+ * tolerates a flat layout too (a single file at the scratch root), since the
  * convention is not externally enforced.
  *
  * Returns absolute paths.
@@ -138,22 +140,28 @@ function findResultFiles(dir: string): string[] {
 
 /**
  * Run the probe over a project root. Vacuous when no recorded result log
- * exists (`.dpt-locks/` absent, or no `deps-research-result.txt` found
- * anywhere under it). The probe never invokes the subagent itself — it is
- * purely a read-side shape check on whatever the parent skills happen to
- * have persisted, delegating shape validation to `parseDepsResearchBlock`.
+ * exists (`.dpt/scratch/` absent, or no `deps-research-result.txt` found
+ * anywhere under it) — the AC-STE-230.12 vacuity contract, preserved
+ * verbatim across the STE-382 AC-STE-382.5 relocation: a run that invoked
+ * no research fork stays green with no note. The probe never invokes the
+ * subagent itself — it is purely a read-side shape check on whatever the
+ * parent skills happen to have persisted, delegating shape validation to
+ * `parseDepsResearchBlock`.
+ *
+ * Forward-only: the retired pre-M104 scratch site is NOT scanned and is not
+ * consulted as a fallback (zero installs ⇒ no migration path needed).
  *
  * Project layout the probe expects:
  *
- *   <root>/.dpt-locks/<ulid>/deps-research-result.txt
- *   <root>/.dpt-locks/deps-research-result.txt   (flat fallback)
+ *   <root>/.dpt/scratch/<ulid>/deps-research-result.txt
+ *   <root>/.dpt/scratch/deps-research-result.txt   (flat fallback)
  */
 export function runDepsResearchResultShapeProbe(
   projectRoot: string,
 ): DepsResearchResultShapeReport {
-  const locksDir = join(projectRoot, ".dpt-locks");
-  if (!existsSync(locksDir)) return { violations: [] };
-  const files = findResultFiles(locksDir);
+  const root = scratchRoot(projectRoot);
+  if (!existsSync(root)) return { violations: [] };
+  const files = findResultFiles(root);
   const violations: DepsResearchResultShapeViolation[] = [];
   for (const f of files) {
     violations.push(...scanResultFile(f, projectRoot));
