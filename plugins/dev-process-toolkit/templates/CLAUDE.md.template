@@ -185,10 +185,11 @@ Schema L keys `/setup` emits:
                      `{type}/{ticket-id}-{slug}` keys on the ticket.
                      Absent `branch_template:` ⇒ `/implement` branch
                      automation disabled. Edit to customize.
-                     **Trunk-OK allowlist:** types `chore`, `docs`, `ci`
-                     are permitted on trunk (no derived-branch enforcement);
-                     `feat`, `fix`, `refactor`, `perf` enforce a derived
-                     branch via the proposal flow.
+                     **Trunk-OK allowlist:** only type `ci` is permitted
+                     on trunk (no derived-branch enforcement); every other
+                     type (`feat`, `fix`, `chore`, `docs`, `refactor`,
+                     `perf`, ...) enforces a derived branch via the
+                     proposal flow.
 
 For the full live-section contract (keys, sync-log form, per-tracker
 quirks), see docs/tracker-adapters.md. `/setup` emits the section when a
