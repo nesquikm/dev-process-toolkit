@@ -1,7 +1,6 @@
 ---
 name: pr
 description: Create a pull request with conventional format. Use when asked to create a PR, open a pull request, or push changes for review.
-argument-hint: '[PR title]'
 ---
 
 Create a pull request for the current branch.
@@ -42,7 +41,7 @@ This pre-flight is soft: it never auto-blocks, and every choice is the operator'
 3. If there are uncommitted changes, confirm with the user before staging and committing
 4. Push the branch with `-u` flag
 5. Create the PR using `gh pr create`:
-   - **Title**: mirror the underlying feature commit's [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) subject — `<type>(<scope>): <title>`, ≤ 72 characters. Use `!` for breaking changes (`feat(api)!: drop legacy endpoint`). When the branch carries multiple commits, pick the type/scope of the dominant change (the merge commit or release commit on a release branch). The PR title and the squash-merge subject must both validate against the commit-msg hook.
+   - **Title**: always derived from the dominant commit's [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) subject — `<type>(<scope>): <title>`, ≤ 72 characters — with no user-supplied override path. Use `!` for breaking changes (`feat(api)!: drop legacy endpoint`). When the branch carries multiple commits, the dominant commit is the merge commit or release commit on a release branch, otherwise the primary feature commit. The PR title and the squash-merge subject must both validate against the commit-msg hook.
    - Body format:
 
 ```
@@ -58,5 +57,5 @@ This pre-flight is soft: it never auto-blocks, and every choice is the operator'
 ## Notes
 
 - Default base branch is `main`
-- If `$ARGUMENTS` contains a PR title, use it
 - Always confirm with the user before pushing if there are uncommitted changes
+- When the invocation carries free text after `/pr`, explicitly reply "PR titles are derived from the commit subject; amend the commit to change the title" and proceed — the free text is never used as the title
