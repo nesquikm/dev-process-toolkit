@@ -71,10 +71,13 @@ specs/
 ├── frs/
 │   ├── fr_<ulid>.md                     # Schema Q — one file per FR
 │   └── archive/fr_<ulid>.md             # archived FRs (git-moved; status: archived)
-├── plan/
-│   ├── M<N>.md                          # Schema T — one file per milestone
-│   └── archive/M<N>.md                  # archived milestones
-└── .dpt-locks/<ulid>                    # Schema S — tracker-less lock file (committed)
+└── plan/
+    ├── M<N>.md                          # Schema T — one file per milestone
+    └── archive/M<N>.md                  # archived milestones
+
+.dpt/locks/<ulid>                        # Schema S — tracker-less lock file (committed;
+                                         # project root, not under specs/ — see `.dpt/` tree
+                                         # in docs/layout-reference.md)
 ```
 
 The v1 monolithic layout (a single `specs/requirements.md` holding every FR, plus a flat per-milestone archive directory) is supported for detection-and-migration only; new projects start in v2.
@@ -100,7 +103,7 @@ No runtime database. All state lives in Markdown + YAML files Claude reads and w
 |------|--------|---------|
 | `specs/frs/<ulid>.md` | Schema Q | one per FR — requirement, ACs, tech design, testing, notes |
 | `specs/plan/<M#>.md` | Schema T | one per milestone — goal, scope, tasks, gate |
-| `.dpt-locks/<ulid>` | Schema S | tracker-less in-flight lock (committed to branch) |
+| `.dpt/locks/<ulid>` | Schema S | tracker-less in-flight lock (committed to branch) |
 | `CLAUDE.md ## Task Tracking` | Schema L | tracker mode, MCP server, sync log |
 
 In-memory-only artifacts:
@@ -293,7 +296,7 @@ Rules: `milestone` must match a key in `specs/plan/`. `tracker` keys written in 
 
 Archived FRs live at `specs/frs/archive/<stem>.md` with the same mode-conditional frontmatter plus `status: archived` and a non-null `archived_at`. No separate archive-file schema exists — Schema Q is the single source of truth on both sides of the active/archived boundary.
 
-### Schema S: Lock file (`.dpt-locks/<ulid>`) — tracker-less mode
+### Schema S: Lock file (`.dpt/locks/<ulid>`) — tracker-less mode
 
 ```yaml
 ulid: fr_01HZ7XJFKPXYZ123ABCDEF
@@ -302,7 +305,7 @@ claimed_at: 2026-04-21T10:30:00Z
 claimer: user@example.com                # git user.email (advisory)
 ```
 
-Committed to the branch. Cross-branch visibility via `git fetch --all` + `git branch -r --contains .dpt-locks/<ulid>` (AC-46.2).
+Committed to the branch. Cross-branch visibility via `git fetch --all` + `git ls-tree -r <remote-branch> -- .dpt/locks/<ulid>` walked over every remote tip (AC-46.2). `ls-tree` rather than `--contains` because git has no command that asks which branches contain a given *path* — `--contains` takes a commit, not a path.
 
 ### Schema T: Plan file frontmatter (`specs/plan/<M#>.md`)
 
@@ -490,7 +493,7 @@ export interface IdentityMinter {
 
 Two implementations ship:
 
-- **`LocalProvider implements Provider, IdentityMinter`** — `mintId()` returns a ULID; `sync()` returns `{kind: 'skipped', …}`; `claimLock()` performs `git fetch --all` + cross-branch check then writes/commits `.dpt-locks/<ulid>`; `releaseLock()` deletes + commits. `getTicketStatus()` returns the sentinel `{ status: 'local-no-tracker' }`.
+- **`LocalProvider implements Provider, IdentityMinter`** — `mintId()` returns a ULID; `sync()` returns `{kind: 'skipped', …}`; `claimLock()` performs `git fetch --all` + cross-branch check then writes/commits `.dpt/locks/<ulid>`; `releaseLock()` deletes + commits. `getTicketStatus()` returns the sentinel `{ status: 'local-no-tracker' }`.
 - **`TrackerProvider implements Provider`** (not `IdentityMinter` — STE-76 dropped the `id:` ceremony from tracker-mode FRs; STE-85 made the ban structural) — wraps the adapter surface. `sync()` calls `upsert_ticket_metadata` + `pull_acs`; `claimLock()` → `transition_status('in_progress')` + assignee; `releaseLock()` → `transition_status('done')` or `'unstarted'` per context. `getTicketStatus()` delegates to the driver's `getTicketStatus` and returns the adapter-canonical status string verbatim, used by `/implement` Phase 4 post-release verification (AC-STE-54.2) and `/gate-check` ticket-state drift detection (AC-STE-54.3).
 
 ### Adapter 4-Op Interface
@@ -508,7 +511,7 @@ Adapter markdown files declare `capabilities: [...]`; a missing capability produ
 
 ### Lock Mechanism
 
-**Tracker-less state:** `{fs_presence: absent | present-on-current | present-on-other}`. Transitions: `claimLock` writes `.dpt-locks/<ulid>`; `releaseLock` deletes; cross-branch visibility via `git fetch --all` + `git branch -r --contains`.
+**Tracker-less state:** `{fs_presence: absent | present-on-current | present-on-other}`. Transitions: `claimLock` writes `.dpt/locks/<ulid>`; `releaseLock` deletes; cross-branch visibility via `git fetch --all` + `git ls-tree -r <remote-branch> -- .dpt/locks/<ulid>` walked over every remote tip (`--contains` takes a commit, not a path).
 
 **Tracker state:** derived live from `TrackerProvider.getMetadata(id)` — status + assignee map to `absent`/`present-on-current`/`present-on-other`. `claimLock` → `transition_status('in_progress')` + assignee; `releaseLock` → `transition_status('done')` on Phase 4 completion, `'unstarted'` on explicit release.
 
@@ -551,7 +554,7 @@ Downstream projects that adopt the plugin carry whatever dependencies their stac
 | Linear description normalization loop → infinite reconcile | High | `adapters/linear/src/normalize.ts` canonical-form normalization both directions; Tier 4 round-trip test asserts first-iteration convergence |
 | Jira custom-field GIDs differ per tenant | Medium | Per-project discovery at `/setup`; recorded in CLAUDE.md `jira_ac_field`; never hard-coded |
 | v1→v2 migration corrupts specs on edge inputs | High | Dry-run preview + backup tag + clean-tree precondition + atomic memory-staged writes; `git reset --hard <tag>` is always the rollback path |
-| `.dpt-locks/` doesn't prevent two branches claiming same FR (tracker-less) | Medium | Documented trade-off (AC-46.6); `git fetch --all` catches most cases; tracker mode is the strict answer |
+| `.dpt/locks/` doesn't prevent two branches claiming same FR (tracker-less) | Medium | Documented trade-off (AC-46.6); `git fetch --all` catches most cases; tracker mode is the strict answer |
 | Bun not installed for tracker-mode or migration | Low | `/setup` detects; surfaces `brew install bun` on macOS; hard-stop until available |
 | Pass B (drift semantic scan) context bloat on large archives | Low | Schema I enforces title + goal brief only; Pass B cost is bounded by archive title length, not archive body length |
 | Resolver prefix collision across two trackers (`FOO` in Linear + Jira) | Low | `<tracker>:<id>` disambiguation form is the documented remedy; `AmbiguousArgumentError` shape points the user at it |
