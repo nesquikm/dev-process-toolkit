@@ -123,7 +123,7 @@ function buildMessage(reason: string, file: string, kind: ViolationKind): string
     empty_section:
       "FR file's `## Technical Design` and/or `## Testing` section has an empty body. Fill the section with real content, or set `needs_technical_review: true` to declare the gap explicitly (which makes the placeholder line the expected body).",
     missing_section:
-      "FR file is missing the `## Technical Design` and/or `## Testing` heading entirely. Both sections are part of the canonical 5-section FR shape (Requirement / Acceptance Criteria / Technical Design / Testing / Notes). Add the missing heading and either fill it with real content or set `needs_technical_review: true` to declare the gap explicitly.",
+      "FR file is missing the `## Technical Design` and/or `## Testing` heading entirely. Both sections are part of the canonical 5-section FR shape (Requirement / Acceptance Criteria / Technical Design / Testing / Notes; an optional `## Summary` may open the body). Add the missing heading and either fill it with real content or set `needs_technical_review: true` to declare the gap explicitly.",
   }[kind];
   return [
     `needs_technical_review_consistency: ${reason}`,
