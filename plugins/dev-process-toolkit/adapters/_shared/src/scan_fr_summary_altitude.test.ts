@@ -9,15 +9,17 @@
 //
 // Walks ACTIVE FRs only — `specs/frs/*.md`, `archive/` excluded — and for
 // each file whose body carries a `## Summary` section (heading matched by
-// /^##\s+Summary\s*$/; the section ends at the next `^##` heading or EOF)
-// evaluates the four altitude rules over the SECTION BODY ONLY:
+// /^##\s+Summary\s*$/; the section ends at the next LEVEL-2 `## ` heading or
+// EOF — an h3 subheading inside the body does not end it) evaluates the four
+// altitude rules over the SECTION BODY ONLY:
 //
 //   line_cap   — more than 6 non-empty lines fails; the violation anchors at
 //                the first non-empty line beyond the cap (the 7th). The
 //                3-line floor is authoring guidance, NOT probe-enforced.
 //   backtick   — any backtick character on a line.
 //   ac_id      — an AC-ID token of the AC-prefix shape, regardless of
-//                tracker flavor (AC-STE-386.2 and AC-DST-45.1 both flag).
+//                flavor: tracker-mode (AC-STE-386.2, AC-DST-45.1) and the
+//                mode-none short-ULID shape (AC-VDTAF4.1) all flag.
 //   path_token — a whitespace-delimited token containing BOTH a slash and a
 //                dot-extension. "and/or", "read/write", "v2.46.0", and the
 //                sentence-final "request/response." must all stay clean.
@@ -176,6 +178,63 @@ describe("AC-STE-386.1 — rule matrix over the Summary section", () => {
       expect(jiraHits[0]).toMatchObject({
         line: lineOf(jiraFlavor, "AC-DST-45.1 during"),
         rule: "ac_id",
+      });
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("ac_id — the mode-none short-ULID flavor flags (no numeric ticket segment)", () => {
+    const letterStart = frWith("VDTAF4", [
+      "Closes AC-VDTAF4.1 without touching the sibling criteria.",
+    ]);
+    const digitStart = frWith("4F61D7", [
+      "Follow-up to AC-4F61D7.2 from the earlier local run.",
+    ]);
+    const fx = makeTree({
+      "specs/frs/VDTAF4.md": letterStart,
+      "specs/frs/4F61D7.md": digitStart,
+    });
+    try {
+      const violations = scanFrSummaryAltitude(fx.root) as Violation[];
+      const letterHits = violations.filter(
+        (v) => v.file === "specs/frs/VDTAF4.md",
+      );
+      expect(letterHits).toHaveLength(1);
+      expect(letterHits[0]).toMatchObject({
+        line: lineOf(letterStart, "AC-VDTAF4.1 without"),
+        rule: "ac_id",
+      });
+      const digitHits = violations.filter(
+        (v) => v.file === "specs/frs/4F61D7.md",
+      );
+      expect(digitHits).toHaveLength(1);
+      expect(digitHits[0]).toMatchObject({
+        line: lineOf(digitStart, "AC-4F61D7.2 from"),
+        rule: "ac_id",
+      });
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("section bound — an h3 subheading inside the Summary does not end the section", () => {
+    const content = frWith("STE-906", [
+      "Plain opening line.",
+      "### Details",
+      "Names `helper` after the subheading — still inside the section.",
+    ]);
+    const fx = makeTree({ "specs/frs/STE-906.md": content });
+    try {
+      const violations = scanFrSummaryAltitude(fx.root) as Violation[];
+      // The h3 must not terminate scanning: the backtick beyond it flags,
+      // and the `## Requirement` tail still bounds the section (no tail
+      // violations — frWith's tail carries backticks/AC-IDs/paths).
+      expect(violations).toHaveLength(1);
+      expect(violations[0]).toMatchObject({
+        file: "specs/frs/STE-906.md",
+        line: lineOf(content, "`helper` after"),
+        rule: "backtick",
       });
     } finally {
       fx.cleanup();
