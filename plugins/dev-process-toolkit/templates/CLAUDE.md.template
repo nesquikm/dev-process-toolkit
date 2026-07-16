@@ -180,8 +180,9 @@ Schema L keys `/setup` emits:
   - mode:            none | linear | jira | <custom>
   - mcp_server:      MCP server name from `claude mcp list`
   - jira_ac_field:   customfield_XXXXX (Jira only)
-  - branch_template: e.g. `{type}/m{N}-{slug}` (mode: none default)
-                     or `{type}/{ticket-id}-{slug}` (tracker-mode default).
+  - branch_template: e.g. `{type}/m{N}-{slug}` — the single seeded
+                     default in every mode. Customizable; e.g.
+                     `{type}/{ticket-id}-{slug}` keys on the ticket.
                      Absent `branch_template:` ⇒ `/implement` branch
                      automation disabled. Edit to customize.
                      **Trunk-OK allowlist:** types `chore`, `docs`, `ci`

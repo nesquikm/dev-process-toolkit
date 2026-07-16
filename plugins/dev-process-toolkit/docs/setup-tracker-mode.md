@@ -193,7 +193,7 @@ bottom of CLAUDE.md (Schema L):
 mode: <linear | jira | custom>
 mcp_server: <server name from `claude mcp list`>
 jira_ac_field: <customfield_XXXXX | description | blank>
-branch_template: <default-for-mode or user value>
+branch_template: <`{type}/m{N}-{slug}` default or user value>
 ```
 
 `jira_ac_field:` accepts three forms (only `mode: jira` projects use it
@@ -216,14 +216,11 @@ separate subsection is maintained.
 Immediately after Schema L is authored (or after step 7b in `mode: none`),
 prompt once:
 
-> Branch-naming template? (default: `<default-for-mode>`)
+> Branch-naming template? (default: `{type}/m{N}-{slug}`)
 
-**Defaults by mode**
+**Single seeded default**
 
-| Mode | Default template |
-|------|------------------|
-| `none` | `{type}/m{N}-{slug}` |
-| `linear` / `jira` / custom | `{type}/{ticket-id}-{slug}` |
+`{type}/m{N}-{slug}` — seeded in both tracker mode and `mode: none`; the per-mode split is retired.
 
 **Placeholders (substituted by `/implement` at prompt-time)**
 
@@ -253,3 +250,10 @@ switching — see `skills/setup/SKILL.md` § 0b for the inline
 procedure covering current-mode detection and target-mode prompt. The
 single commit that lands the mode flip is the audit trail; if the switch
 fails partway, rerun `/setup --migrate` from a clean working tree.
+
+`--migrate` also re-seeds `branch_template:` when — and only when — the
+existing value is byte-identical to the retired seeded default
+`{type}/{ticket-id}-{slug}`: it is rewritten to `{type}/m{N}-{slug}` and the
+re-seed is logged in `## /setup audit` (via `reseedBranchTemplate` in
+`adapters/_shared/src/setup/migrate_branch_template.ts`). Any other value is
+preserved verbatim, and an absent key stays absent.

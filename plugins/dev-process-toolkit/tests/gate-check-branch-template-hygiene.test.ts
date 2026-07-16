@@ -21,15 +21,16 @@ describe("STE-64 AC-STE-64.12 — CLAUDE.md.template documents branch_template:"
     expect(body).toContain("branch_template:");
   });
 
-  test("template's branch_template: documentation names both mode defaults (AC-STE-64.1)", () => {
-    // Traces to AC-STE-64.1's default-for-mode contract: `{type}/m{N}-{slug}`
-    // in `mode: none`, `{type}/{ticket-id}-{slug}` in tracker mode. The
-    // `/gate-check` probe #10 (AC-STE-64.12) catches a zero-match grep, but
-    // a template that listed only one default would still satisfy the probe
-    // while silently forcing every downstream project into one mode. This
-    // test enforces the stronger invariant — both defaults must remain
-    // discoverable in the template so `/setup` step 7c's prompt can resolve
-    // either one.
+  test("template's branch_template: documentation names both template forms (AC-STE-388.2)", () => {
+    // AC-STE-64.1's original default-for-mode split was retired by
+    // AC-STE-388.2: `{type}/m{N}-{slug}` is now the single seeded default in
+    // both modes, and `{type}/{ticket-id}-{slug}` survives only as the
+    // milestone-less derivation fallback + customization example. Both forms
+    // must stay discoverable in the template — the m-form because it is the
+    // seeded default, the ticket form because operators overriding
+    // `branch_template:` (and milestone-less FR runs) still resolve it.
+    // `/gate-check` probe #10 (AC-STE-64.12) only catches a zero-match grep;
+    // this test enforces the stronger both-forms invariant.
     const body = readFileSync(templatePath, "utf-8");
     expect(body).toContain("{type}/m{N}-{slug}");
     expect(body).toContain("{type}/{ticket-id}-{slug}");
