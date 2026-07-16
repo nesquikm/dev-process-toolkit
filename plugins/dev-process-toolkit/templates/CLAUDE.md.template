@@ -115,6 +115,7 @@ npm run typecheck && npm run lint && npm run test
 <!-- Explicit boundaries — tell Claude what it must never do -->
 - Do not commit without user approval
 - Do not add features not in the spec
+- Do not ask the human to re-review implementation sections at spec approval — the human approves the Summary, Requirement, and Acceptance Criteria; Technical Design and Testing are implementation-facing and are verified by the deterministic gates and the TDD audit
 <!-- Add your own: -->
 <!-- - Do not connect to real external services -->
 <!-- - Do not store PII -->
