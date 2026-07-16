@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.48.0] — 2026-07-16 — "Eponym"
+
+Milestone-keyed branch naming (M106): the toolkit's branches now name the unit that actually ships — the milestone. One canonical branch template — `{type}/m{N}-{slug}` — replaces the deliberate-but-inconsistent mode split across every branch-creating surface (`/spec-write`'s § 7a pre-commit gate, `/implement`'s 0.b″ proposal, `/setup`'s seeded defaults), with ticket-keyed naming surviving only as a milestone-less fallback and as legacy acceptance so existing branches never re-prompt. Riding along, `/pr` sheds the one argument it never honored: PR titles are now always derived from the dominant commit's Conventional Commits subject, and free text after `/pr` gets an explicit redirect instead of silence.
+
+### Changed
+
+- One canonical branch template `{type}/m{N}-{slug}` everywhere: new pure selector `canonicalBranchTemplate({ milestone })` in `adapters/_shared/src/branch_proposal.ts` (m-form for a milestone-bound FR, `{type}/{ticket-id}-{slug}` fallback otherwise) drives `/spec-write`'s § 7a gate and `/implement`'s 0.b″ proposal with `{N}` resolved from the FR's `milestone:` frontmatter; an explicit Schema L `branch_template:` value still wins and the absent-key skip is unchanged. FR-scoped acceptability is re-keyed — `RunScope` gains optional `milestoneNumber`, acceptable IFF off-trunk AND (word-bounded `m<N>` match OR legacy tracker-ID / short-ULID substring), word-boundary corpus extended (`m105` ≠ `m1051`) — so both naming generations pass without re-prompting. `/setup` step 7c seeds the single default in BOTH tracker mode and `mode: none`, `/setup --migrate` re-seeds only a value byte-identical to the retired seeded default (logged in `## /setup audit`; custom values untouched, absent stays absent, helper `reseedBranchTemplate`), and the four shipped docs no longer present the ticket-keyed form as a seeded default. (STE-388)
+
+### Removed
+
+- `/pr`'s `[PR title]` positional argument — the frontmatter `argument-hint` and the buried "use it" `$ARGUMENTS` Notes bullet are gone; the Step-5 Title bullet is hardened to derived-only (always the dominant commit's Conventional Commits subject, no user-supplied override path) and a Notes rule pins the exact redirect — "PR titles are derived from the commit subject; amend the commit to change the title" — for free text after `/pr`. README's Commands table renders the `/pr` Args cell as `—` with the new "— marks a skill that takes no arguments" note, `specs/testing-spec.md`'s Tier-1 frontmatter row is conditional ("argument-hint where the skill takes arguments") so a hint-less `/pr` conforms, and one doc-conformance meta-test pins every removal. (STE-389)
+
+Total test count at release: 4432 tests, 0 failures, 0 errors.
+
 ## [2.47.0] — 2026-07-16 — "Synopsis"
 
 FR Summary section + review contract (M105): the toolkit's first external-user feedback (GitHub issue #39, "specs are too detailed to review") ships additively — every FR `/spec-write` creates now opens with a plain-language `## Summary` written for human reviewers, a new gate-check probe holds that summary to a deterministic altitude rule, and the review contract is stated at every approval touchpoint: the human approves Summary + Requirement + Acceptance Criteria, while Technical Design + Testing are implementation-facing, verified by the deterministic gates and the TDD audit. No existing section loses precision; no existing FR is edited.
