@@ -46,6 +46,24 @@ Design-reference images (mockups, screenshots, design-system artifacts) live und
 
 **Never-archived rule:** `specs/design/` paths are immutable with respect to archival. No skill performs `git mv` on any `specs/design/` path, and no skill applies `rewriteArchiveLinks` rewrites to references that point under `specs/design/`. When an FR is archived (`specs/frs/<id>.md` → `specs/frs/archive/<id>.md`), its `specs/design/frs/<id>/` folder stays put — design references are never archived. Repo-root-relative image paths therefore remain valid across an FR's whole lifetime.
 
+## The `.dpt/` tree
+
+Toolkit-owned state lives in one folder at the project root. Every path under it is composed by `adapters/_shared/src/dpt_paths.ts` (`dptRoot`, `locksDir`, `ledgerPath`, `scratchRoot`, `scratchDir`) — no other module composes a `.dpt` literal.
+
+```
+.dpt/
+├── .gitignore      ← tracked — ships the rules itself ("ledger/" + "scratch/")
+├── locks/<id>      ← TRACKED — cross-branch coordination signal
+├── ledger/…jsonl   ← ignored — token-ledger capture
+└── scratch/<ulid>/ ← ignored — spec/deps research results
+```
+
+The tracked-vs-ignored split is governed by `.dpt/.gitignore`, a toolkit-owned file `/setup` writes on every run (idempotent by byte-compare; a drifted baseline is restored). It carries exactly two relative rules — `ledger/` and `scratch/` — so `.dpt/ledger/token-ledger.jsonl` and `.dpt/scratch/<ulid>/` are **ignored** while `.dpt/locks/<id>` stays **tracked**. Locks are tracked because they are a cross-branch coordination signal: a lock git cannot see cannot coordinate anything. The rules are relative rather than rooted, so the file is position-independent — it resolves against its own directory and behaves identically when `.dpt/` sits in a subdirectory instead of the repo root. The consumer's root `.gitignore` needs no toolkit entry at all, and this repo's own root `.gitignore` deliberately carries no `.dpt` line.
+
+**The polarity is tracked-by-default, deliberately.** The inverse — blanket-ignore `.dpt/` and re-include locks via `!.dpt/locks/` — silently unversions every lock, because git never descends into an excluded directory to read the negation. The failure modes are asymmetric: a forgotten rule under this polarity leaks scratch into a commit (loud, visible, harmless); a forgotten rule under the negate form stops tracking a coordination signal (silent, invisible, correctness-breaking).
+
+**Accepted hole.** A consumer whose **root** `.gitignore` carries a blanket `.dpt/` rule defeats the nested file entirely: git never descends into an excluded directory, so `.dpt/.gitignore` is never read, and the locks — along with the ignore file itself — resolve as ignored. No nested-file design can defeat a root exclusion, and `/setup` deliberately does not detect or warn on the conflict. This is a documented, **accepted** risk rather than a defended one; a future FR can add the detection if it bites in practice.
+
 ## Verification
 
 Projects may opt in to a post-gate verification pass by declaring an optional `## Verification` section in CLAUDE.md. The section's top-level key set is **closed** — exactly `{verify_skill, verify_mode}`; any other key inside the section is a config error surfaced to the operator, never silently ignored.
@@ -87,7 +105,7 @@ The read-side parser is `readTokenStatsConfig` in `adapters/_shared/src/token_st
 - Conformance probes:
   1. **Filename ↔ `Provider.filenameFor(spec)`** for every `specs/frs/**/*.md` (strict — every base name must equal `Provider.filenameFor(spec)`).
   2. **Required frontmatter fields** present for every FR file — the mode-invariant Schema Q keys `title`, `milestone`, `status`, `archived_at`, `tracker`, `created_at`. The `id:` field is **mode-conditional**: required in `mode: none`, absent in tracker mode (the tracker ID is the canonical identity). Mode-conditional enforcement lives in probe #13 `identity_mode_conditional`; see `skills/gate-check/SKILL.md:26` for the full contract. Missing a mode-invariant field = fail.
-  3. **Stale lock scan** — list `.dpt-locks/<ulid>` entries whose branch is merged or deleted. Offer `--cleanup-stale-locks` action that deletes them in one commit.
+  3. **Stale lock scan** — list `.dpt/locks/<ulid>` entries whose branch is merged or deleted. Offer `--cleanup-stale-locks` action that deletes them in one commit.
   4. **Plan post-freeze edit scan** — for each `specs/plan/<M#>.md` with `status: active` + non-null `frozen_at`, list commits to that path whose authored date is after `frozen_at`. No auto-revert (warning semantics).
 
 ### `/spec-review`
@@ -108,9 +126,11 @@ Tracker-mode switching. See `skills/setup/SKILL.md` § 0b for the full flow: cur
 | Mode | Strict? | Mechanism |
 |------|---------|-----------|
 | Tracker | Strict | `TrackerProvider.getMetadata(id)`: if `status=in_progress` AND `assignee != currentUser` → refuse |
-| Tracker-less | Best-effort | `git fetch --all` (skippable via `DPT_SKIP_FETCH=1`) + `git branch -r --contains .dpt-locks/<ulid>` → refuse if present on other branch |
+| Tracker-less | Best-effort | `git fetch --all` (skippable via `DPT_SKIP_FETCH=1`) + `git ls-tree -r <remote-branch> -- .dpt/locks/<ulid>` walked over every remote tip → refuse if present on another branch |
 
-Tracker-less races (two devs committing locks on separate branches without fetching first) are detectable at merge-time but not preventable. This is documented as a deliberate trade-off.
+The tracker-less scan walks each remote tip with `ls-tree` because git has no command that asks which branches contain a given *path* — `--contains` takes a commit, not a path. `LocalProvider.findRemoteBranchWithLock` in `adapters/_shared/src/local_provider.ts` is the implementation.
+
+Tracker-less races (two devs committing locks on separate branches without fetching first) are detectable at merge-time — the colliding `.dpt/locks/` paths conflict — but not preventable. This is documented as a deliberate trade-off.
 
 ## Test fixtures
 

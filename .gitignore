@@ -1,5 +1,4 @@
 .DS_Store
-.dev-process/
 .claude/settings.local.json
 .claude/worktrees/
 .claude/scheduled_tasks.lock
