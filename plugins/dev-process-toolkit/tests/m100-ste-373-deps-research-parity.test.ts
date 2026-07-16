@@ -71,15 +71,25 @@ const backticked = (body: string, token: string): boolean =>
   body.includes(`\`${token}\``);
 
 // -----------------------------------------------------------------------------
-// AC-STE-373.2 — block persistence to .dpt-locks/<ulid>/deps-research-result.txt.
+// AC-STE-373.2 — block persistence to the research-scratch path.
+//
+// M104 STE-382 AC-STE-382.6 — the persist-path prose (`/brainstorm` § 1.5b and
+// `/spec-write` § 0b step 2.5b) now names `.dpt/scratch/<ulid>/…`, matching
+// where probe #64 actually walks. Prose that still named `.dpt-locks/` would
+// send the parent skill to write outside the probe's scan tree — a silent
+// probe bypass, not a cosmetic drift.
 // -----------------------------------------------------------------------------
 
-describe("AC-STE-373.2 — deps-research block persistence", () => {
+describe("AC-STE-373.2 / AC-STE-382.6 — deps-research block persistence", () => {
   for (const [name, body] of PARENT_SKILLS) {
-    test(`${name} SKILL.md names the .dpt-locks/<ulid>/deps-research-result.txt path`, () => {
+    test(`${name} SKILL.md names the .dpt/scratch/<ulid>/deps-research-result.txt path`, () => {
       expect(body).toMatch(
-        /\.dpt-locks\/(?:<ulid>|\{ulid\}|[^\/\s`]+)\/deps-research-result\.txt/,
+        /\.dpt\/scratch\/(?:<ulid>|\{ulid\}|[^\/\s`]+)\/deps-research-result\.txt/,
       );
+    });
+
+    test(`${name} SKILL.md no longer names the legacy .dpt-locks/ scratch path`, () => {
+      expect(body).not.toMatch(/\.dpt-locks/);
     });
 
     test(`${name} SKILL.md describes persisting/writing the returned block to that path`, () => {

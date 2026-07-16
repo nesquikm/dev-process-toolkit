@@ -23,7 +23,11 @@ const SKIP_DIRS = new Set([
   "dist",
   "build",
   "out",
-  ".dpt-locks",
+  // The whole toolkit-owned tree (STE-382): locks, ledger, and research
+  // scratch. Scratch routinely holds arbitrary persisted text, so a stray
+  // `*.test.ts` or a verbatim marker comment in there must carry no
+  // gate-satisfying weight — walking it would silence this probe.
+  ".dpt",
 ]);
 
 export interface BunZeroMatchViolation {

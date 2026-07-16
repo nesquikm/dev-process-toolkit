@@ -259,7 +259,7 @@ flowchart TD
 | technical-spec.md / testing-spec.md (backfill + tree-leaf deletes) | /implement | merge | Build (Phase 2/4) |
 | specs/plan/M(N).md (AC checkbox flips) | /implement Phase 4c | stage | Build (Phase 4) |
 | docs/.pending/(fr-id).md (+ .signatures.json) | /docs --quick | stage | Build (Phase 4b) |
-| .dpt-locks/(id) | /implement LocalProvider | create on claim / delete on release | Build |
+| .dpt/locks/(id) | /implement LocalProvider | create on claim / delete on release | Build |
 | tracker ticket | /implement (claim → In Progress; release → Done) | claim / release | Build (Phase 1/4d) |
 | tracker AC checkbox | /gate-check (push_ac_toggle on PASSED) | toggle | Build (eval) |
 | changed source files | /gate-check --fix · /simplify · /debug | edit | Build (eval) |

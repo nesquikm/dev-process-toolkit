@@ -5,15 +5,20 @@
 // (probe #41), but the block-shape validation is delegated to the
 // EXISTING parser `parseDepsResearchBlock`
 // (adapters/_shared/src/deps_research_result.ts). The probe walks
-// recorded `.dpt-locks/**/deps-research-result.txt` logs, feeds each
+// recorded `.dpt/scratch/**/deps-research-result.txt` logs, feeds each
 // file's content to the parser, and maps every `{ ok: false, reason }`
 // to an NFR-10 `file:line — reason` violation.
 //
-// Builds tmp fixtures under .dpt-locks/<ulid>/deps-research-result.txt
+// Builds tmp fixtures under .dpt/scratch/<ulid>/deps-research-result.txt
 // using the real DEPS_RESEARCH_BANNER + DEPS_RESEARCH_SECTIONS
 // constants, and asserts the probe surfaces banner / section-order /
 // line-cap / multi-fence drift while passing on canonical blocks.
 // Vacuous when no log file exists.
+//
+// M104 STE-382 AC-STE-382.5 — research scratch moved out of the TRACKED
+// `.dpt-locks/` namespace into the ignored `.dpt/scratch/`, walked via
+// `dpt_paths`. Vacuity is load-bearing and preserved verbatim: an absent
+// scratch dir ⇒ pass with no note (STE-230 AC-STE-230.12 contract).
 
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -23,6 +28,7 @@ import {
   DEPS_RESEARCH_BANNER,
   DEPS_RESEARCH_SECTIONS,
 } from "../adapters/_shared/src/deps_research_result";
+import { dptRoot, scratchDir } from "../adapters/_shared/src/dpt_paths";
 import { runDepsResearchResultShapeProbe } from "../adapters/_shared/src/deps_research_result_shape";
 
 const FENCE_OPEN = "```deps-research-result";
@@ -36,7 +42,7 @@ interface Fixture {
 function makeFixture(blocks: Fixture[]): { root: string; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), "deps-research-shape-probe-"));
   for (const b of blocks) {
-    const dir = join(root, ".dpt-locks", b.ulid);
+    const dir = scratchDir(root, b.ulid);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "deps-research-result.txt"), b.content);
   }
@@ -60,7 +66,7 @@ function canonicalBlock(): string {
 // -----------------------------------------------------------------------------
 
 describe("deps_research_result_shape — vacuous", () => {
-  test("project root with no .dpt-locks/ directory → no violations", () => {
+  test("project root with no .dpt/ tree at all → no violations", () => {
     const root = mkdtempSync(join(tmpdir(), "deps-research-shape-vacuous-"));
     try {
       const report = runDepsResearchResultShapeProbe(root);
@@ -70,11 +76,38 @@ describe("deps_research_result_shape — vacuous", () => {
     }
   });
 
-  test(".dpt-locks/ exists but no deps-research-result.txt → no violations", () => {
+  test(".dpt/ exists but .dpt/scratch/ is absent → no violations (no research fork ran)", () => {
+    const root = mkdtempSync(join(tmpdir(), "deps-research-shape-no-scratch-"));
+    try {
+      mkdirSync(join(dptRoot(root), "locks"), { recursive: true });
+      mkdirSync(join(dptRoot(root), "ledger"), { recursive: true });
+      const report = runDepsResearchResultShapeProbe(root);
+      expect(report.violations).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test(".dpt/scratch/ exists but no deps-research-result.txt → no violations", () => {
     const root = mkdtempSync(join(tmpdir(), "deps-research-shape-empty-"));
     try {
-      mkdirSync(join(root, ".dpt-locks", "01H123"), { recursive: true });
-      writeFileSync(join(root, ".dpt-locks", "01H123", "other.txt"), "noise\n");
+      mkdirSync(scratchDir(root, "01H123"), { recursive: true });
+      writeFileSync(join(scratchDir(root, "01H123"), "other.txt"), "noise\n");
+      const report = runDepsResearchResultShapeProbe(root);
+      expect(report.violations).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a legacy .dpt-locks/ result log is NOT scanned (forward-only, no fallback)", () => {
+    const root = mkdtempSync(join(tmpdir(), "deps-research-shape-legacy-"));
+    try {
+      mkdirSync(join(root, ".dpt-locks", "01HOLD"), { recursive: true });
+      writeFileSync(
+        join(root, ".dpt-locks", "01HOLD", "deps-research-result.txt"),
+        "## not even close\n",
+      );
       const report = runDepsResearchResultShapeProbe(root);
       expect(report.violations).toEqual([]);
     } finally {
@@ -100,14 +133,44 @@ describe("deps_research_result_shape — positive", () => {
     }
   });
 
-  test("recursive walk recognizes a nested .dpt-locks/<ulid>/deps-research-result.txt", () => {
+  test("recursive walk recognizes a nested .dpt/scratch/<ulid>/deps-research-result.txt", () => {
     const root = mkdtempSync(join(tmpdir(), "deps-research-shape-nested-"));
     try {
-      const dir = join(root, ".dpt-locks", "01HZZZ");
+      const dir = scratchDir(root, "01HZZZ");
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, "deps-research-result.txt"), canonicalBlock());
       const report = runDepsResearchResultShapeProbe(root);
       expect(report.violations).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("flat layout (.dpt/scratch/deps-research-result.txt) is also recognized", () => {
+    const root = mkdtempSync(join(tmpdir(), "deps-research-shape-flat-"));
+    try {
+      mkdirSync(join(dptRoot(root), "scratch"), { recursive: true });
+      writeFileSync(
+        join(dptRoot(root), "scratch", "deps-research-result.txt"),
+        canonicalBlock(),
+      );
+      const report = runDepsResearchResultShapeProbe(root);
+      expect(report.violations).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("flat-fallback drift IS caught (the walk really reaches the flat path)", () => {
+    const root = mkdtempSync(join(tmpdir(), "deps-research-shape-flat-bad-"));
+    try {
+      mkdirSync(join(dptRoot(root), "scratch"), { recursive: true });
+      writeFileSync(
+        join(dptRoot(root), "scratch", "deps-research-result.txt"),
+        "## not even close\n",
+      );
+      const report = runDepsResearchResultShapeProbe(root);
+      expect(report.violations.length).toBeGreaterThan(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

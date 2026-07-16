@@ -344,7 +344,7 @@ export function filterRowsForFR(
 /**
  * Durable FR-row claim (AC-STE-345.6): read the ledger, select this FR's rows
  * via `filterRowsForFR`, and — when the bridging fallback claimed new rows —
- * persist the `claimed_by` marks back to `.dev-process/token-ledger.jsonl` so
+ * persist the `claimed_by` marks back to `.dpt/ledger/token-ledger.jsonl` so
  * no other FR double-counts them across separate runs. Fail-open: absent or
  * unreadable ledger returns `[]` with no write; a ledger containing malformed
  * lines is selected from but never rewritten (claims stay in-memory rather

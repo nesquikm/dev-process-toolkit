@@ -20,6 +20,7 @@
 
 import { type Stats, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { scratchRoot } from "./dpt_paths";
 
 export type Severity = "error" | "warning";
 
@@ -223,11 +224,12 @@ function scanResultFile(
 }
 
 /**
- * Walk a directory tree under `.dpt-locks/` and return every file that
+ * Walk a directory tree under `.dpt/scratch/` and return every file that
  * matches the canonical result-log basename. Convention from
- * AC-STE-230.12: `.dpt-locks/<ulid>/spec-research-result.txt`. The
- * recursive walk tolerates a flat layout too (a single file at the
- * lock-dir root), since the convention is not externally enforced.
+ * AC-STE-230.12, relocated by STE-382 AC-STE-382.5:
+ * `.dpt/scratch/<ulid>/spec-research-result.txt`. The recursive walk
+ * tolerates a flat layout too (a single file at the scratch root), since
+ * the convention is not externally enforced.
  *
  * Returns absolute paths.
  */
@@ -260,22 +262,27 @@ function findResultFiles(dir: string): string[] {
 
 /**
  * Run the probe over a project root. Vacuous when no recorded result
- * log exists (`.dpt-locks/` absent, or no `spec-research-result.txt`
- * found anywhere under it). The probe never invokes the subagent
- * itself — it is purely a read-side shape check on whatever the parent
- * skills happen to have persisted.
+ * log exists (`.dpt/scratch/` absent, or no `spec-research-result.txt`
+ * found anywhere under it) — the AC-STE-230.12 contract, preserved
+ * verbatim across the STE-382 AC-STE-382.5 relocation: a run that
+ * invoked no research fork stays green with no note. The probe never
+ * invokes the subagent itself — it is purely a read-side shape check on
+ * whatever the parent skills happen to have persisted.
+ *
+ * Forward-only: the retired pre-M104 scratch site is NOT scanned and is
+ * not consulted as a fallback (zero installs ⇒ no migration path needed).
  *
  * Project layout the probe expects:
  *
- *   <root>/.dpt-locks/<ulid>/spec-research-result.txt
- *   <root>/.dpt-locks/spec-research-result.txt   (flat fallback)
+ *   <root>/.dpt/scratch/<ulid>/spec-research-result.txt
+ *   <root>/.dpt/scratch/spec-research-result.txt   (flat fallback)
  */
 export function runSpecResearchResultShapeProbe(
   projectRoot: string,
 ): SpecResearchResultShapeReport {
-  const locksDir = join(projectRoot, ".dpt-locks");
-  if (!existsSync(locksDir)) return { violations: [] };
-  const files = findResultFiles(locksDir);
+  const root = scratchRoot(projectRoot);
+  if (!existsSync(root)) return { violations: [] };
+  const files = findResultFiles(root);
   const violations: SpecResearchResultShapeViolation[] = [];
   for (const f of files) {
     violations.push(...scanResultFile(f, projectRoot));

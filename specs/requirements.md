@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.45.0 ("Signpost")**.
+**Latest shipped release:** **v2.46.0 ("Homestead")**.
 
 ### Shipped milestones
 
@@ -202,8 +202,8 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 
 **Parallel-safe layout edge cases:**
 
-- Two branches claim `.dpt-locks/<ulid>` simultaneously without fetching first (tracker-less): both commits are valid on their branches. On merge, the `.dpt-locks/` files conflict at path level — git surfaces the conflict, human resolves. AC-46.6 documents this as a detectable-not-prevented race; tracker mode is the strict guarantee
-- `.dpt-locks/<ulid>` on a branch that was merged or deleted (stale lock): `/gate-check` flags per AC-46.5; user runs `/gate-check --cleanup-stale-locks` for a one-commit cleanup
+- Two branches claim `.dpt/locks/<ulid>` simultaneously without fetching first (tracker-less): both commits are valid on their branches. On merge, the `.dpt/locks/` files conflict at path level — git surfaces the conflict, human resolves. AC-46.6 documents this as a detectable-not-prevented race; tracker mode is the strict guarantee
+- `.dpt/locks/<ulid>` on a branch that was merged or deleted (stale lock): `/gate-check` flags per AC-46.5; user runs `/gate-check --cleanup-stale-locks` for a one-commit cleanup
 - ULID collision at mint time (statistically near-zero): `mintId()` detects via filesystem existence check and retries; after 3 retries, fails with a clear error naming the colliding file
 - Two trackers configured but only one has the FR's ref: `sync()` updates only the tracker(s) for which a ref is present; never invents a ref for a tracker that doesn't have one
 - User manually edits a frozen `specs/plan/<M#>.md` (bypassing the replan-branch discipline): `/gate-check` warns but does not auto-revert; the check lists the commit SHA that introduced the post-freeze edit
@@ -257,7 +257,7 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 - Real-time tracker sync — `sync()` runs on skill invocations only (entering `/implement`, Phase 4 completion, `/spec-write` save). No daemon, no file watcher, no pull-on-every-read
 - Spec-as-database querying — `grep`/`rg` over `specs/frs/**/*.md` is the only query surface; no DSL, no SQL over frontmatter, no Linear-style filter language
 - Multi-repo spec federation — `specs/` is per-repo; teams with multiple repos run DPT independently per-repo
-- Strict enforcement in tracker-less mode — `.dpt-locks/` + remote fetch is best-effort (AC-46.6); tracker mode is the strict guarantee. The plugin does NOT promise preventing parallel claims in tracker-less mode
+- Strict enforcement in tracker-less mode — `.dpt/locks/` + remote fetch is best-effort (AC-46.6); tracker mode is the strict guarantee. The plugin does NOT promise preventing parallel claims in tracker-less mode
 - Renaming ULIDs after mint — never supported; the ULID is the canonical repo-stable identity for the lifetime of the FR
 
 **Tracker-native-entry out-of-scope:**
@@ -388,4 +388,7 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-379.1..5 | plugins/dev-process-toolkit/templates/hooks/_lib/hooks/session-token-ledger.ts, plugins/dev-process-toolkit/adapters/_shared/src/closing_summary_capability_keys.ts, plugins/dev-process-toolkit/skills/spec-write/SKILL.md, plugins/dev-process-toolkit/skills/implement/SKILL.md, plugins/dev-process-toolkit/skills/ship-milestone/SKILL.md | plugins/dev-process-toolkit/tests/token-ledger-hook.test.ts, plugins/dev-process-toolkit/tests/token-ledger-noninterference.test.ts, plugins/dev-process-toolkit/tests/token-stats-spec-write-contract.test.ts, plugins/dev-process-toolkit/tests/token-stats-commit-boundary-contract.test.ts, plugins/dev-process-toolkit/tests/token-stats-convention.test.ts |
 | AC-STE-380.1..7 | plugins/dev-process-toolkit/adapters/_shared/src/spec_write_next_line_doc.ts, plugins/dev-process-toolkit/skills/spec-write/SKILL.md, plugins/dev-process-toolkit/skills/implement/SKILL.md, plugins/dev-process-toolkit/skills/gate-check/SKILL.md, README.md | plugins/dev-process-toolkit/tests/gate-check-spec-write-next-line-doc.test.ts, plugins/dev-process-toolkit/tests/gate-check-public-surface-count-drift.test.ts, plugins/dev-process-toolkit/tests/shipped-prose-no-internal-namespace.test.ts |
 | AC-STE-381.1..7 | plugins/dev-process-toolkit/adapters/_shared/src/branch_type_for.ts, plugins/dev-process-toolkit/adapters/_shared/src/fr_frontmatter.ts, plugins/dev-process-toolkit/adapters/_shared/src/branch_proposal.ts, plugins/dev-process-toolkit/skills/spec-write/SKILL.md, plugins/dev-process-toolkit/skills/implement/SKILL.md, plugins/dev-process-toolkit/docs/implement-reference.md | plugins/dev-process-toolkit/adapters/_shared/src/branch_type_for.test.ts, plugins/dev-process-toolkit/tests/fr-frontmatter-changelog-category.test.ts, plugins/dev-process-toolkit/tests/branch-type-derivation-doc-conformance.test.ts |
+| AC-STE-382.1..8 | plugins/dev-process-toolkit/adapters/_shared/src/dpt_paths.ts, plugins/dev-process-toolkit/adapters/_shared/src/local_provider.ts, plugins/dev-process-toolkit/adapters/_shared/src/token_usage.ts, plugins/dev-process-toolkit/adapters/_shared/src/spec_research_result_shape.ts, plugins/dev-process-toolkit/adapters/_shared/src/deps_research_result_shape.ts, plugins/dev-process-toolkit/adapters/_shared/src/bun_zero_match_placeholder.ts | plugins/dev-process-toolkit/adapters/_shared/src/dpt_paths.test.ts, plugins/dev-process-toolkit/adapters/_shared/src/local_provider.test.ts, plugins/dev-process-toolkit/tests/m104-ste-382-dpt-layout.test.ts |
+| AC-STE-383.1..7 | plugins/dev-process-toolkit/adapters/_shared/src/setup/dpt_gitignore.ts, plugins/dev-process-toolkit/skills/setup/SKILL.md, plugins/dev-process-toolkit/docs/layout-reference.md, plugins/dev-process-toolkit/docs/hooks-reference.md, .gitignore, .dpt/.gitignore | plugins/dev-process-toolkit/tests/m104-ste-383-dpt-gitignore.test.ts, plugins/dev-process-toolkit/tests/token-ledger-noninterference.test.ts |
+| AC-STE-384.1..5 | plugins/dev-process-toolkit/tests/_dpt-path-drift.ts, plugins/dev-process-toolkit/tests/dpt-path-drift.test.ts | plugins/dev-process-toolkit/tests/m104-ste-384-dpt-path-drift.test.ts, plugins/dev-process-toolkit/tests/archive-path-drift.test.ts |
 

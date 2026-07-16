@@ -175,7 +175,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.45.0 — "Signpost"** (M103 makes the `/spec-write` flow deterministic on two axes — the closing `Next:` line recommends `/implement M<N>` for milestone-bound FRs (probe #66 pins the rule), and kickoff branch types derive from `changelog_category` frontmatter via the pure `branchTypeFor` helper instead of a freestyle LLM pass.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.46.0 — "Homestead"** (M104 collapses the toolkit's two legacy root-level state folders — lock coordination and the token ledger — into one self-contained `.dpt/` tree with `.dpt/locks/` tracked and `.dpt/ledger/` + `.dpt/scratch/` ignored via a committed `.dpt/.gitignore` the toolkit owns; a new `dpt_paths.ts` single-sources every `.dpt/` path, two latent lock/EISDIR defects the relayout exposed are fixed structurally, and a path-drift meta-test locks the retired layout out.)
 
 ## Core Philosophy
 

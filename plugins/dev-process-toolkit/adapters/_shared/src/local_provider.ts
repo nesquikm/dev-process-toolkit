@@ -5,7 +5,7 @@
 //   - sync(): no-op returning skipped (AC-43.2)
 //   - getUrl(): always null
 //   - getMetadata(id): reads specs/frs/<id>.md or specs/frs/archive/<id>.md
-//   - claimLock(id, branch): writes .dpt-locks/<id> and commits; returns
+//   - claimLock(id, branch): writes .dpt/locks/<id> and commits; returns
 //       claimed | already-ours. The remote-scan (git fetch + cross-branch
 //       contains) that returns taken-elsewhere lives in Phase F; this base
 //       implementation handles the local case.
@@ -13,7 +13,8 @@
 
 import { $ } from "bun";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
+import { locksDir as dptLocksDir } from "./dpt_paths";
 import { parseFrontmatter } from "./frontmatter";
 import type { FRMetadata, FRSpec, IdentityMinter, LockResult, Provider, SyncResult } from "./provider";
 import { mintId as mintIdImpl } from "./ulid";
@@ -59,7 +60,10 @@ export class LocalProvider implements Provider, IdentityMinter {
   constructor(options: LocalProviderOptions) {
     this.repoRoot = options.repoRoot;
     this.specsDir = options.specsDir ?? join(options.repoRoot, "specs");
-    this.locksDir = options.locksDir ?? join(options.repoRoot, ".dpt-locks");
+    // AC-STE-382.3 — the default derives from `dpt_paths` (`.dpt/locks`), the
+    // sole composer of `.dpt` path literals. The injected override still wins:
+    // every lock path below is built from `this.locksDir`, never a literal.
+    this.locksDir = options.locksDir ?? dptLocksDir(options.repoRoot);
     this.now = options.now ?? (() => new Date().toISOString());
     this.gitUserEmail = options.gitUserEmail ?? "";
     this.skipFetch = options.skipFetch ?? process.env["DPT_SKIP_FETCH"] === "1";
@@ -147,17 +151,35 @@ export class LocalProvider implements Provider, IdentityMinter {
 
   /**
    * Returns the first remote branch (e.g., "origin/feat/other") that
-   * contains .dpt-locks/<ulid>, or null if none do.
-   * Implementation: `git ls-tree -r <branch> .dpt-locks/<ulid>` per remote
+   * contains the lock for <ulid>, or null if none do.
+   * Implementation: `git ls-tree -r <branch> -- <locksDir>/<ulid>` per remote
    * branch. `git branch -r --contains <path>` is not a valid git command
    * (contains takes a commit, not a path), so we walk tips instead.
+   *
+   * AC-STE-382.2 — the pathspec is derived from `this.locksDir`, never a
+   * literal: the write path (`claimLock`) and release path both honor an
+   * injected `locksDir`, so a hard-coded scan path would look where nothing
+   * was ever written and silently report the id unclaimed (double-claim).
+   * `ls-tree` resolves pathspecs against the tree root, so the absolute
+   * `this.locksDir` is made repo-root-relative here.
+   *
+   * INVARIANT: `locksDir` must resolve UNDER `repoRoot`. The default does by
+   * construction (`dptLocksDir(repoRoot)`), and the `locksDir` option exists as
+   * a test seam, so nothing enforces this at runtime. If it is ever violated,
+   * `relative()` yields a `..`-prefixed pathspec that git rejects as outside the
+   * repository, `safeGit` swallows the failure into `""`, and every branch reads
+   * as unclaimed — reintroducing the exact silent double-claim this method was
+   * fixed to prevent. A lock store outside the repo cannot be committed or
+   * `ls-tree`d at all, so the constraint is inherent to tracked-lock semantics
+   * rather than incidental to this line.
    */
   private async findRemoteBranchWithLock(id: string): Promise<string | null> {
     const refs = await this.safeGit("for-each-ref", "--format=%(refname:short)", "refs/remotes/");
     if (refs.length === 0) return null;
+    const pathspec = join(relative(this.repoRoot, this.locksDir), id);
     for (const branch of refs.split("\n").map((s) => s.trim()).filter(Boolean)) {
       if (branch.endsWith("/HEAD")) continue;
-      const out = await this.safeGit("ls-tree", "-r", "--name-only", branch, "--", `.dpt-locks/${id}`);
+      const out = await this.safeGit("ls-tree", "-r", "--name-only", branch, "--", pathspec);
       if (out.length > 0) return branch;
     }
     return null;
@@ -194,7 +216,7 @@ export class LocalProvider implements Provider, IdentityMinter {
   }
 
   /**
-   * Find .dpt-locks/<ulid> files on local branches whose branch is merged
+   * Find .dpt/locks/<ulid> files on local branches whose branch is merged
    * into main OR deleted. Returns one entry per stale lock; caller applies
    * the cleanup action. (AC-46.5)
    */

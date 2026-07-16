@@ -140,7 +140,7 @@ The spec tree is structured so three classic merge-collision classes are elimina
 
 **Mode transitions.** `/setup --migrate` handles tracker-mode transitions (`none ↔ <tracker>` / `<tracker> ↔ <other>`).
 
-**One-ticket-one-branch discipline.** Before `/implement` writes any code, `Provider.claimLock(id, branch)` runs. Tracker mode is strict — ticket status + assignee is the authoritative gate. Tracker-less mode is best-effort: `.dpt-locks/<ulid>` files + remote fetch + refuse-on-conflict. Merge-time path conflicts on `.dpt-locks/` catch races in tracker-less mode. `DPT_SKIP_FETCH=1` is the documented escape hatch for large-repo contexts.
+**One-ticket-one-branch discipline.** Before `/implement` writes any code, `Provider.claimLock(id, branch)` runs. Tracker mode is strict — ticket status + assignee is the authoritative gate. Tracker-less mode is best-effort: `.dpt/locks/<ulid>` files + remote fetch + refuse-on-conflict. Merge-time path conflicts on `.dpt/locks/` catch races in tracker-less mode. `DPT_SKIP_FETCH=1` is the documented escape hatch for large-repo contexts.
 
 **Plan-file kickoff discipline.** Plan files (`specs/plan/<M#>.md`) are single-writer artifacts. Once `status: active`, edits require a sanctioned `plan/<M#>-replan-<N>` branch. `/gate-check` warns on post-freeze commits without auto-reverting — the human decides whether a post-freeze edit is legitimate (correction) or drift (scope creep).
 

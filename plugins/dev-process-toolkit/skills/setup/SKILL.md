@@ -153,9 +153,9 @@ The hook is a local-machine artifact (not tracked in git). `commitlint.config.js
 
 Full procedure (idempotency tier, `--commitlint` extras, manual install command): `docs/setup-reference.md` § Step 6b — commit-msg hook install.
 
-### 6c. Git-ignore the token-ledger directory
+### 6c. Git-ignore the toolkit's own state directory
 
-Add a `.dev-process/` entry to the project's `.gitignore`: create the `.gitignore` file if it is absent; no-op when the entry is already present (existence-guarded, idempotent — safe to re-run). The bundled token-ledger hook itself needs no install step here — `hooks/hooks.json` is auto-discovered by Claude Code (per M74).
+Call `writeDptGitignore(projectRoot)` from `adapters/_shared/src/setup/dpt_gitignore.ts` on every run to write the toolkit-owned `.dpt/.gitignore`, creating `.dpt/` when absent, which keeps ledger + scratch state out of commits while leaving the lock namespace tracked. The write is existence-guarded and idempotent — the helper byte-compares the baseline and returns `unchanged` without touching the file on a match, so re-running is free. Record the returned outcome and path on the `## /setup audit` surface via `appendAuditRow`; the write is **best-effort**, so a failure logs its audit row and the run continues rather than failing — the same precedent step 6b follows for the commit-msg hook.
 
 ### 7. Configure MCP servers
 
