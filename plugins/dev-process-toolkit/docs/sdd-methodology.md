@@ -106,6 +106,10 @@ The agent never commits without explicit human approval. The report includes:
 - Gate check results
 - Any SPEC_DEVIATIONs
 
+### 7. Spec-Time Review Is Scoped
+
+Human review starts before implementation — at the FR draft gate — and its scope is partitioned the same way there as everywhere else. Review surface: the human approves the Summary, Requirement, and Acceptance Criteria; Technical Design and Testing are implementation-facing and are verified by the deterministic gates and the TDD audit. The human owns the WHAT; the deterministic machinery owns the HOW.
+
 ## Key Principles
 
 ### Acceptance Criteria Are Binary

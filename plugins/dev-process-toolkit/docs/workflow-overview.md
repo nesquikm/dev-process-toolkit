@@ -183,6 +183,7 @@ flowchart TD
 | Socratic clarification (loop) | /brainstorm Step 1 | one Q/turn until clear (~2-4 Qs) | no retry budget; halts at design-approval gate |
 | Design-approval gate (det.) | /brainstorm Step 3 | one explicit human approval | no spec writing until approved |
 | Socratic spec interview (loop) | /spec-write sections 1-6 | one AskUserQuestion per section | converges to draft + commit gates |
+| FR-draft approval gate (det.) | /spec-write step 4 | human approves Summary + Requirement + Acceptance Criteria; Technical Design + Testing are gate- and audit-verified | no save until approved |
 | Consistency cross-check (loop) | /spec-write Step 5 | one row per cross-spec inconsistency | fix-now per-change approval, else "still pending" |
 | Per-AC bidirectional diff/resolve | /spec-write 0.5 + /implement 0.3 | one prompt per non-identical AC | per-AC cancel aborts save, zero mutation |
 | Tracker-create idempotency backoff | /spec-write upsert on 504/reset | 3 JQL probes, 1s+2s+4s | all miss → fresh create + uncertain row |
