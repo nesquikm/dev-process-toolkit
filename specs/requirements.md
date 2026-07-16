@@ -202,8 +202,8 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 
 **Parallel-safe layout edge cases:**
 
-- Two branches claim `.dpt-locks/<ulid>` simultaneously without fetching first (tracker-less): both commits are valid on their branches. On merge, the `.dpt-locks/` files conflict at path level — git surfaces the conflict, human resolves. AC-46.6 documents this as a detectable-not-prevented race; tracker mode is the strict guarantee
-- `.dpt-locks/<ulid>` on a branch that was merged or deleted (stale lock): `/gate-check` flags per AC-46.5; user runs `/gate-check --cleanup-stale-locks` for a one-commit cleanup
+- Two branches claim `.dpt/locks/<ulid>` simultaneously without fetching first (tracker-less): both commits are valid on their branches. On merge, the `.dpt/locks/` files conflict at path level — git surfaces the conflict, human resolves. AC-46.6 documents this as a detectable-not-prevented race; tracker mode is the strict guarantee
+- `.dpt/locks/<ulid>` on a branch that was merged or deleted (stale lock): `/gate-check` flags per AC-46.5; user runs `/gate-check --cleanup-stale-locks` for a one-commit cleanup
 - ULID collision at mint time (statistically near-zero): `mintId()` detects via filesystem existence check and retries; after 3 retries, fails with a clear error naming the colliding file
 - Two trackers configured but only one has the FR's ref: `sync()` updates only the tracker(s) for which a ref is present; never invents a ref for a tracker that doesn't have one
 - User manually edits a frozen `specs/plan/<M#>.md` (bypassing the replan-branch discipline): `/gate-check` warns but does not auto-revert; the check lists the commit SHA that introduced the post-freeze edit
@@ -257,7 +257,7 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 - Real-time tracker sync — `sync()` runs on skill invocations only (entering `/implement`, Phase 4 completion, `/spec-write` save). No daemon, no file watcher, no pull-on-every-read
 - Spec-as-database querying — `grep`/`rg` over `specs/frs/**/*.md` is the only query surface; no DSL, no SQL over frontmatter, no Linear-style filter language
 - Multi-repo spec federation — `specs/` is per-repo; teams with multiple repos run DPT independently per-repo
-- Strict enforcement in tracker-less mode — `.dpt-locks/` + remote fetch is best-effort (AC-46.6); tracker mode is the strict guarantee. The plugin does NOT promise preventing parallel claims in tracker-less mode
+- Strict enforcement in tracker-less mode — `.dpt/locks/` + remote fetch is best-effort (AC-46.6); tracker mode is the strict guarantee. The plugin does NOT promise preventing parallel claims in tracker-less mode
 - Renaming ULIDs after mint — never supported; the ULID is the canonical repo-stable identity for the lifetime of the FR
 
 **Tracker-native-entry out-of-scope:**

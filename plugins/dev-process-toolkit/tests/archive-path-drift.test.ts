@@ -11,11 +11,20 @@ import { join } from "node:path";
 const pluginRoot = join(import.meta.dir, "..");
 const repoRoot = join(pluginRoot, "..", "..");
 
-// The full AC-STE-49.1 scope includes the live cross-cutting specs, but this
-// repo's own `specs/` is gitignored (dogfood workspace). Scan the tracked
-// targets (always present) plus any dogfood specs that happen to exist. A
-// downstream project running this plugin's `/gate-check` will exercise the
-// full scope against its own tracked specs.
+// `baseTargets` are always present. The cross-cutting specs are OPTIONAL
+// targets, filtered by `existsSync`: a downstream consumer project running this
+// plugin's `/gate-check` may not carry every cross-cutting spec file, and an
+// absent one must be tolerated rather than fatal. Nothing absent is ever handed
+// to grep — an unmatched operand makes grep exit >= 2, which the `status !== 1`
+// check below would report as a regression with no matches to show.
+//
+// The filter is NOT here because this repo's own `specs/` is untracked. It is
+// tracked — 420 files, and no ignore rule matches it (verified 2026-07-15 with
+// `git check-ignore specs/` + `git ls-files specs/`) — so all three optional
+// targets resolve here and the full AC-STE-49.1 scope really is scanned in this
+// repo. An earlier version of this comment claimed the opposite and was copied
+// forward unverified; M104 AC-STE-384.3 corrected it. The mechanism was always
+// right; only the justification was wrong.
 
 const baseTargets = [
   join(pluginRoot, "docs"),
