@@ -401,7 +401,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 - In `mode: none`, no skill makes MCP calls or reads tracker state. The tracker-mode branches are literally unreachable.
 - Duplicate keys in the section fail with NFR-10 canonical shape (Schema L).
 
-**Branch automation.** `branch_template:` is an additive Schema L key consumed **only** by `/implement` Phase 1 (via `buildBranchProposal` in `adapters/_shared/src/branch_proposal.ts`). Default values seeded by `/setup` step 7c: `{type}/m{N}-{slug}` in `mode: none`, `{type}/{ticket-id}-{slug}` in tracker mode. Absent key ⇒ branch automation disabled — legacy projects continue to run on whatever branch they're invoked from. Placeholders: `{type}` (LLM-inferred `feat`/`fix`/`chore`), `{N}` (milestone digits), `{ticket-id}` (tracker ID or lowercased short-ULID tail), `{slug}` (LLM-inferred 2–4 word kebab). Sanitization clamps LLM output to `[a-z0-9-]` before `git checkout -b` (defense in depth). No other mode-aware skill reads `branch_template:`.
+**Branch automation.** `branch_template:` is an additive Schema L key consumed **only** by `/implement` Phase 1 (via `buildBranchProposal` in `adapters/_shared/src/branch_proposal.ts`). Default seeded by `/setup` step 7c: `{type}/m{N}-{slug}` — the single canonical default in every mode; milestone-less FRs fall back to the ticket-keyed form at derivation time. Absent key ⇒ branch automation disabled — legacy projects continue to run on whatever branch they're invoked from. Placeholders: `{type}` (LLM-inferred `feat`/`fix`/`chore`), `{N}` (milestone digits), `{ticket-id}` (tracker ID or lowercased short-ULID tail), `{slug}` (LLM-inferred 2–4 word kebab). Sanitization clamps LLM output to `[a-z0-9-]` before `git checkout -b` (defense in depth). No other mode-aware skill reads `branch_template:`.
 
 **Canonical keys.** The closed set of top-level keys under `## Task Tracking` is exactly:
 
@@ -410,7 +410,7 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+
 | `mode` | `none` / `linear` / `jira` / `<custom>` | every mode-aware skill (Schema L probe) |
 | `mcp_server` | adapter MCP server name (e.g., `linear`, `atlassian`) | resolver, tracker calls |
 | `jira_ac_field` | `customfield_XXXXX` (Jira only; blank otherwise) | Jira adapter only |
-| `branch_template` | branch-naming template (e.g., `{type}/{ticket-id}-{slug}`) | `/implement` Phase 1 only |
+| `branch_template` | branch-naming template (e.g., `{type}/m{N}-{slug}`) | `/implement` Phase 1 only |
 
 These four keys are the closed set; emitting **additional top-level keys** under `## Task Tracking` is a `/gate-check` failure (probe `task-tracking-canonical-keys` — gate-check #21). Tracker-specific metadata (project IDs, team names, workspace URLs) belong in a sub-section under `## Task Tracking` (e.g., `### Linear`, `### Jira`) or in the adapter's own config — **not** as Schema L keys at the top level. Sub-section contents are scoped out of the canonical-key check. Adding a new canonical key requires a deliberate `docs/patterns.md` edit + probe code change in the same PR.
 
