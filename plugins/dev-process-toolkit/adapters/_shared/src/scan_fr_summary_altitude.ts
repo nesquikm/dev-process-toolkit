@@ -2,15 +2,18 @@
 // `fr_summary_altitude` probe (#67, STE-386). Given a project root, walk the
 // ACTIVE FRs only (`specs/frs/*.md`, `archive/` excluded), locate each file's
 // `## Summary` section (heading matched by /^##\s+Summary\s*$/ — an h3
-// `### Summary` does NOT count; the section ends at the next `^##` heading or
-// EOF), and enforce four altitude rules over the SECTION BODY ONLY:
+// `### Summary` does NOT count; the section ends at the next LEVEL-2 `## `
+// heading or EOF — an h3 subheading inside the body does not end it, so
+// content after it stays scanned), and enforce four altitude rules over the
+// SECTION BODY ONLY:
 //
 //   line_cap   — more than 6 non-empty lines fails; the violation anchors at
 //                the first non-empty line beyond the cap (the 7th). The
 //                3-line floor is authoring guidance (STE-385), NOT enforced.
 //   backtick   — any backtick character on a line (subsumes code fences).
 //   ac_id      — an AC-ID token of the AC-prefix shape, regardless of tracker
-//                flavor (AC-STE-386.2 and AC-DST-45.1 both flag).
+//                flavor: tracker-mode (AC-STE-386.2, AC-DST-45.1) and the
+//                mode-none short-ULID flavor (AC-VDTAF4.1) all flag.
 //   path_token — a whitespace-delimited token containing BOTH a slash and a
 //                dot-extension. "and/or", "read/write", "v2.46.0", and the
 //                sentence-final "request/response." all stay clean.
@@ -40,10 +43,14 @@ const LINE_CAP = 6;
 // A LEVEL-2 heading whose text is exactly "Summary". `### Summary` (h3) fails
 // because the char after `##` is `#`, not whitespace.
 const SUMMARY_HEADING_RE = /^##\s+Summary\s*$/;
-// Any following `^##` heading ends the section.
-const SECTION_END_RE = /^##/;
-// AC-ID token of the AC-prefix shape, any tracker flavor (STE, DST, …).
-const AC_ID_RE = /\bAC-[A-Z][A-Z0-9]*-\d+\.\d+/;
+// Only a following LEVEL-2 `## ` heading ends the section — `###` does not
+// (h3 starts with `##` + `#`, not whitespace), so an h3 subheading inside the
+// body cannot mask later violations. Mirrors scan_design_references.ts.
+const SECTION_END_RE = /^##\s/;
+// AC-ID token of the AC-prefix shape, any flavor: tracker-mode with a numeric
+// ticket segment (AC-STE-386.2, AC-DST-45.1) or the mode-none short-ULID
+// prefix with no ticket segment (AC-VDTAF4.1, AC-4F61D7.2).
+const AC_ID_RE = /\bAC-[A-Z0-9]+(?:-\d+)?\.\d+/;
 // Trailing sentence punctuation stripped from a token before the
 // dot-extension check ("request/response." must stay clean).
 const TRAILING_PUNCT_RE = /[.,;:!?)\]'"]+$/;
