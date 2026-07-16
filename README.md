@@ -175,7 +175,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.46.0 — "Homestead"** (M104 collapses the toolkit's two legacy root-level state folders — lock coordination and the token ledger — into one self-contained `.dpt/` tree with `.dpt/locks/` tracked and `.dpt/ledger/` + `.dpt/scratch/` ignored via a committed `.dpt/.gitignore` the toolkit owns; a new `dpt_paths.ts` single-sources every `.dpt/` path, two latent lock/EISDIR defects the relayout exposed are fixed structurally, and a path-drift meta-test locks the retired layout out.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.47.0 — "Synopsis"** (M105 answers the toolkit's first external-user feedback — issue #39, "specs are too detailed to review" — additively: every new FR opens with a plain-language `## Summary` held to a deterministic altitude rule by new gate-check probe #67, and the review contract is stated at every approval touchpoint — the human approves Summary + Requirement + Acceptance Criteria, while Technical Design + Testing are verified by the deterministic gates and the TDD audit.)
 
 ## Core Philosophy
 
