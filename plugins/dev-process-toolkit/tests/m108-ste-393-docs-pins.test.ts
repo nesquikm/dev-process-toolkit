@@ -19,7 +19,7 @@
 // assertion scopes to a dedicated section or a byte-exact new token.
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
@@ -90,10 +90,14 @@ describe("AC-STE-393.1 — plan.md.template ships `migration: none` with an expl
 });
 
 describe("AC-STE-393.1 — the M108 plan itself declares `migration: none`", () => {
-  test("specs/plan/M108.md frontmatter carries `migration: none`", () => {
-    expect(frontmatter(read(REPO_ROOT, "specs", "plan", "M108.md"))).toMatch(
-      /^migration:\s+none\s*$/m,
-    );
+  test("the M108 plan frontmatter carries `migration: none` (active or archived)", () => {
+    // Archive-fallback: /implement's own milestone close moves the plan to
+    // specs/plan/archive/M108.md. The declaration is what this asserts, not the
+    // path, so it reads whichever location the plan currently lives at.
+    const active = join(REPO_ROOT, "specs", "plan", "M108.md");
+    const archived = join(REPO_ROOT, "specs", "plan", "archive", "M108.md");
+    const planPath = existsSync(active) ? active : archived;
+    expect(frontmatter(readFileSync(planPath, "utf-8"))).toMatch(/^migration:\s+none\s*$/m);
   });
 });
 
