@@ -46,7 +46,7 @@ dev-process-toolkit/
 ├── .claude-plugin/marketplace.json
 ├── plugins/dev-process-toolkit/
 │   ├── .claude-plugin/plugin.json
-│   ├── skills/                          # 12 user-invocable SKILL.md files
+│   ├── skills/                          # 17 user-invocable SKILL.md files
 │   ├── agents/                          # subagent templates incl. code-reviewer (canonical review rubric, FR-22)
 │   ├── templates/                       # CLAUDE.md + spec templates + settings.json
 │   ├── adapters/                        # tracker integration surface
@@ -316,10 +316,13 @@ status: active                           # draft | active | complete
 kickoff_branch: plan/M<N>-kickoff
 frozen_at: 2026-04-21T10:30:00Z          # null if status=draft
 revision: 1                              # incremented on each replan branch
+migration: none                          # literal `none`, or a migration-registry entry id
 ---
 ```
 
 Once `status: active`, content is immutable — any write fails with replan-branch guidance (AC-44.3).
+
+`migration:` declares the plan's consumer-artifact migration story. Legal values are the literal `none` (the plan introduces no convention change consumers must migrate) or a migration-registry entry id (the plan is bound to that registry entry). The value is set deliberately at plan-drafting time; `/ship-milestone` refuses to release a plan whose declared id is absent from the registry at the shipping version.
 
 ### Schema V: `ResolveResult`
 

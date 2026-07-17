@@ -55,6 +55,7 @@ export const COMMIT_PRODUCING_SKILLS: readonly string[] = [
   "spec-archive",
   "ship-milestone",
   "implement",
+  "upgrade",
 ];
 
 /**

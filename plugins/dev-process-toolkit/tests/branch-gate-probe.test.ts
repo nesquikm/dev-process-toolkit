@@ -219,9 +219,10 @@ describe("commit_producing_skill_branch_gate — negative cases", () => {
 
 describe("commit_producing_skill_branch_gate — scope", () => {
   test("the canonical commit-producing skill list is exhaustive", () => {
-    // STE-228 calls out exactly these 5 skills as commit-producing.
+    // STE-228 called out the first 5; STE-391 added `upgrade`, whose step-4
+    // batch approval is a real commit.
     expect(new Set(COMMIT_PRODUCING_SKILLS)).toEqual(
-      new Set(["setup", "spec-write", "spec-archive", "ship-milestone", "implement"]),
+      new Set(["setup", "spec-write", "spec-archive", "ship-milestone", "implement", "upgrade"]),
     );
   });
 });
