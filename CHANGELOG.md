@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.49.0] — 2026-07-17 — "Passage"
+
+### Added
+- `/upgrade` skill + version-ordered consumer-artifact migration registry with four seed script entries — M104 legacy state, v1-era orphans, stale v2.21 hooks, and permission shapes (STE-391)
+- Assisted monolith-split migration entry: status-aware split of monolithic specs into the per-FR layout, with a mandatory backup and a byte-for-byte freeze of shipped history (STE-392)
+- Declared + gated migration coverage: a plan-level `migration:` declaration, a `/ship-milestone` pre-flight, and gate probe #68 `migration_coverage` (STE-393)
+
+Total test count at release: 4726 tests, 0 failures, 0 errors.
+
 ## [2.48.1] — 2026-07-16 — "Errata"
 
 Docs-drift sweep (M107): the shipped docs catch up with three milestones of branch-automation changes. The template’s trunk-OK comment now names only `ci`, the placeholder docs stop calling `{type}` LLM-inferred (deterministic via `branchTypeFor` since STE-381), the technical spec’s Schema L note names the single canonical seeded default `{type}/m{N}-{slug}` (STE-388), and all five standing probe-#37 tree-leaf advisories in the technical spec are cleared — with a doc-conformance meta-test pinning every correction so the retired phrasings cannot return.

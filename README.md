@@ -182,7 +182,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.48.1 — "Errata"** (M107 sweeps three stale branch-automation phrasings out of the shipped docs — the template’s trunk-OK comment now names only `ci`, the placeholder docs describe `{type}` as deterministically derived via `branchTypeFor`, and the technical spec names the single canonical seeded default — and clears all five probe-#37 tree-leaf advisories, with a new doc-conformance meta-test pinning the corrections and a dogfood assertion holding the probe at zero violations.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.49.0 — "Passage"** (M108 adds the `/upgrade` migration framework — a version-ordered registry that walks already-bootstrapped projects forward across convention changes: four scripted seed migrations, an operator-guided monolith→per-FR spec split, and a declared+gated coverage rule enforced by `/ship-milestone` and gate probe #68 so no future convention change ships without deciding its migration story.)
 
 ## Core Philosophy
 
