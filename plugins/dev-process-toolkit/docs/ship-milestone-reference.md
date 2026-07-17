@@ -35,6 +35,43 @@ Lives as the last line of the release entry, one blank line below the final subs
 
 **`e` edit-in-loop.** At the approval prompt, typing `e` opens `$EDITOR` (falling back to `vi`) on the proposed CHANGELOG entry alone (not the whole diff). After save-exit, the diff is recomputed and the prompt re-asked. Unlimited edit iterations, terminating on `y` or `N`.
 
+## Migration-coverage declaration + pre-flight
+
+Before any Release Files bump, `/ship-milestone` runs the migration-coverage
+pre-flight `assertMigrationDeclared`, implemented in
+`adapters/_shared/src/migrations/coverage.ts`. It gates the release on the
+milestone plan's `migration:` frontmatter declaration — the contract that binds
+each shipped milestone to the `/upgrade` registry.
+
+**The declaration contract.** Every milestone plan must carry a `migration:` key
+in its frontmatter, and its value takes one of exactly two shapes:
+
+| Value | Meaning |
+|-------|---------|
+| `none` | The release touches no consumer-facing artifacts — nothing for a bootstrapped project to migrate. |
+| `<registry entry id>` | The release retires state that an already-bootstrapped tree still carries, and this id is the `/upgrade` migration registry entry that heals it. |
+
+**When the pre-flight resolves.** The helper returns without throwing only when
+the plan declares `migration: none`, or a registry entry id whose
+`introduced_in` equals the version being shipped. Anything else refuses the
+release before a single file is bumped.
+
+**Refusal conditions.** `assertMigrationDeclared` throws (release refused) when:
+
+1. **Key absent** — the plan frontmatter declares no `migration:` key at all.
+   Remedy: add `migration: none` or `migration: <registry entry id>`.
+2. **Id not in the registry** — the plan declares an id, but no entry in
+   `adapters/_shared/src/migrations/index.ts` carries it.
+3. **Version mismatch** — the declared id exists, but its `introduced_in` does
+   not equal the version being shipped. The entry that heals *this* release's
+   legacy state is the one whose `introduced_in` is this release's version.
+
+Each refusal follows the NFR-10 canonical three-line shape and exits non-zero,
+so a malformed or missing declaration stops the release rather than shipping a
+milestone with no migration story. The archived-plan counterpart of this gate is
+`/gate-check` probe #68 (`migration_coverage`), which enforces the same
+declaration across shipped plans from the coverage epoch forward.
+
 ## Version bump rules
 
 Implemented in `adapters/_shared/src/version_bump.ts`. The `inferBump(ctx)` function applies these rules in order:
