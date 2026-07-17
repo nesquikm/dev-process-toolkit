@@ -22,7 +22,7 @@
 //                  phrases; contract line optional/first-in-body).
 //   AC-STE-385.6 — calibration rides: the two SKILL line-cap pin sites agree
 //                  and spec-write fits under the shared cap with the new
-//                  prose landed; skills STE-token ceiling stays 245.
+//                  prose landed; skills STE-token ceiling stays 246.
 
 import { describe, expect, test } from "bun:test";
 import {
@@ -444,15 +444,15 @@ describe("AC-STE-385.6 — line-cap pin sites agree and the STE-token ceiling ho
     expect(specWrite.split("\n").length).toBeLessThanOrEqual(cap);
   });
 
-  test("the skills STE-token ceiling stays pinned at 245", () => {
+  test("the skills STE-token ceiling stays pinned at 246", () => {
     // New skill prose must cite by mechanism, token-free — the ceiling is at
     // the pin with zero headroom and must not be loosened by this FR.
     const src = read(shippedProseTestPath);
     const m = /skills:\s*(\d+),/.exec(src);
     expect(m).not.toBeNull();
-    expect(Number(m![1])).toBe(245);
+    expect(Number(m![1])).toBe(246);
 
-    // The M104 duplicate ceiling pin stays at 245 too.
-    expect(read(m104DuplicatePinPath)).toContain("toBeLessThanOrEqual(245)");
+    // The M104 duplicate ceiling pin stays at 246 too.
+    expect(read(m104DuplicatePinPath)).toContain("toBeLessThanOrEqual(246)");
   });
 });

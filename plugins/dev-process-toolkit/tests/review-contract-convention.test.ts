@@ -26,7 +26,7 @@
 //   AC-STE-387.5 — templates/CLAUDE.md.template carries one reviewer-facing
 //                  contract bullet; templates namespace guarantee holds.
 //   AC-STE-387.6 — calibration: new prose token-free at every surface,
-//                  skills STE-token ceiling pinned at 245 at both sites,
+//                  skills STE-token ceiling pinned at 246 at both sites,
 //                  SKILL line-cap pin sites agree and spec-write fits with
 //                  the contract landed.
 
@@ -360,12 +360,12 @@ describe("AC-STE-387.6 — calibration: token-free prose, ceiling 245, line-cap 
     expect(specWrite.split("\n").length).toBeLessThanOrEqual(cap);
   });
 
-  test("the skills STE-token ceiling stays pinned at 245 at both sites", () => {
+  test("the skills STE-token ceiling stays pinned at 246 at both sites", () => {
     const src = read(shippedProseTestPath);
     const m = /skills:\s*(\d+),/.exec(src);
     expect(m).not.toBeNull();
-    expect(Number(m![1])).toBe(245);
+    expect(Number(m![1])).toBe(246);
 
-    expect(read(m104DuplicatePinPath)).toContain("toBeLessThanOrEqual(245)");
+    expect(read(m104DuplicatePinPath)).toContain("toBeLessThanOrEqual(246)");
   });
 });

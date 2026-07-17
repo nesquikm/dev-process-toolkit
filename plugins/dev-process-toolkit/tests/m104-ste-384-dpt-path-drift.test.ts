@@ -307,19 +307,43 @@ describe("AC-STE-384.2 — the `*.test.ts` decoy carve-out", () => {
 });
 
 describe("AC-STE-384.2 — the live decoys this carve-out exists for are real and still exempt", () => {
-  test("the 10 known `adapters/` decoys are all `*.test.ts`, and the live scan clears them", () => {
+  test("every `adapters/` retired literal sits in a decoy test or the SoT, and the live scan clears them", () => {
     // Ground truth measured 2026-07-15: local_provider.test.ts (9 hits) +
-    // dpt_paths.test.ts (1). If a future edit moves a decoy into a non-test
-    // file, this goes red and the carve-out gets revisited deliberately.
+    // dpt_paths.test.ts (1) — all `*.test.ts` decoys. If a future edit moves a
+    // decoy into a non-test file, this goes red and the carve-out gets
+    // revisited deliberately.
+    //
+    // REVISITED DELIBERATELY — M108 STE-391 (AC-STE-391.8). The migration
+    // registry added the first legitimate NON-test home for these literals:
+    // `migrations/legacy_paths.ts`, the retired-path single source of truth
+    // that `/upgrade`'s detectors import from. That file is the second allowed
+    // shape here, and it is named EXACTLY — not `migrations/**`, which would
+    // let an entry re-spell a literal inline and slip past. Its sibling
+    // `migrations/index.test.ts` rides the pre-existing `.test.ts` decoy rule.
+    const LEGACY_PATHS_SOT = join(
+      PLUGIN_ROOT,
+      "adapters",
+      "_shared",
+      "src",
+      "migrations",
+      "legacy_paths.ts",
+    );
     const raw = Bun.spawnSync(
       ["grep", "-rnE", "\\.dpt-locks|\\.dev-process", join(PLUGIN_ROOT, "adapters")],
       { stdout: "pipe", stderr: "pipe" },
     );
     const hits = raw.stdout.toString().trim().split("\n").filter((l) => l.length > 0);
     expect(hits.length).toBeGreaterThan(0);
-    for (const hit of hits) {
-      expect(hit.split(":")[0]!).toMatch(/\.test\.ts$/);
+
+    const files = new Set(hits.map((hit) => hit.split(":")[0]!));
+    for (const file of files) {
+      if (file === LEGACY_PATHS_SOT) continue;
+      expect(file).toMatch(/\.test\.ts$/);
     }
+    // Non-vacuous both ways: the SoT really does carry the literals (so the
+    // carve-out is load-bearing, not decorative), and the scan still clears
+    // the whole tree.
+    expect(files).toContain(LEGACY_PATHS_SOT);
     expect(findRetiredLiterals([join(PLUGIN_ROOT, "adapters")])).toEqual([]);
   });
 });

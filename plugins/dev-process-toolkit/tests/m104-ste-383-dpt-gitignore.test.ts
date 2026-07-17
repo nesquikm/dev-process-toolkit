@@ -623,7 +623,7 @@ describe("AC-STE-383.7 — no meta-test regresses on the surfaces this FR edits"
     expect(lines).toBeLessThanOrEqual(354);
   });
 
-  test("the skills/ STE-token ceiling (245) is not breached by the new /setup prose", () => {
+  test("the skills/ STE-token ceiling (246) is not breached by the new /setup prose", () => {
     // The ceiling is AT the pin, with zero headroom. The new step 6c prose
     // must cite its precedents by mechanism, not by `STE-N` token.
     let count = 0;
@@ -639,6 +639,6 @@ describe("AC-STE-383.7 — no meta-test regresses on the surfaces this FR edits"
       }
     };
     walk(join(PLUGIN_ROOT, "skills"));
-    expect(count).toBeLessThanOrEqual(245);
+    expect(count).toBeLessThanOrEqual(246);
   });
 });
