@@ -13,7 +13,8 @@
 // Scope. The probe inspects SKILL.md files for the canonical
 // commit-producing skill list:
 //
-//   ["setup", "spec-write", "spec-archive", "ship-milestone", "implement"]
+//   ["setup", "spec-write", "spec-archive", "ship-milestone", "implement",
+//    "upgrade"]
 //
 // In addition, an explicit `NON_COMMIT_PRODUCING_SKILLS` allowlist
 // (STE-229 AC-STE-229.10) documents the read-only / outbound-only skills
@@ -55,6 +56,7 @@ export const COMMIT_PRODUCING_SKILLS: readonly string[] = [
   "spec-archive",
   "ship-milestone",
   "implement",
+  "upgrade",
 ];
 
 /**

@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 
 // M104 STE-384 — the scan primitive behind the `.dpt-locks` / `.dev-process`
 // path-drift gate. Shared by two callers:
@@ -48,6 +48,39 @@ export interface Survivor {
 }
 
 /**
+ * The two files that name retired literals BY DESIGN, as path suffixes.
+ *
+ * M108 STE-391 AC-STE-391.8. The `/upgrade` migration registry's whole job is
+ * to DETECT the retired layouts and heal them — it cannot do that without
+ * naming them. Before M108 the retired literals had no legitimate home outside
+ * a test, so a blanket "no retired literals" rule was exactly right; the
+ * migration registry is the first legitimate exception, and it is deliberately
+ * narrow:
+ *
+ *   `adapters/_shared/src/migrations/legacy_paths.ts` — the retired-path single
+ *     source of truth, and the sole non-test composer of these strings. It is
+ *     the retired-path twin of `dpt_paths.ts`. Every registry entry IMPORTS
+ *     from it and never composes a literal of its own, so exempting this one
+ *     file — rather than the whole `migrations/` tree — keeps the SoT property
+ *     enforceable: an entry that re-spells `.dpt-locks` inline still fires.
+ *
+ *   `skills/upgrade/SKILL.md` — the runner's operator-facing prose has to be
+ *     able to say which folders it removes. Scoped to this ONE skill: every
+ *     other SKILL.md still fires, so a stale `.dev-process/` instruction in,
+ *     say, `skills/setup/SKILL.md` is still drift.
+ *
+ * SUFFIX-matched on the full relative path, not on the basename: a stray
+ * `legacy_paths.ts` somewhere else in the tree buys no immunity, and neither
+ * does `migrations/index.ts` next door. The carve-out is the path, and the
+ * path alone — `tests/m108-ste-391-docs-pins.test.ts` pins that polarity by
+ * feeding one identical body through both an exempt and a firing path.
+ */
+const BY_DESIGN_EXEMPT_SUFFIXES: string[] = [
+  join("adapters", "_shared", "src", "migrations", "legacy_paths.ts"),
+  join("skills", "upgrade", "SKILL.md"),
+];
+
+/**
  * Files exempt from the scan.
  *
  * `*.test.ts` — the DECOY carve-out. STE-382's regression guards assert the
@@ -59,9 +92,15 @@ export interface Survivor {
  * names a test (`my.test.ts.md`) buys no immunity, and a non-test sibling in
  * the same directory still fires. Accepted residual risk: drift hiding inside a
  * genuine test file. Bounded to test files by construction.
+ *
+ * `BY_DESIGN_EXEMPT_SUFFIXES` — the M108 STE-391 migration-registry carve-out;
+ * see that constant for the per-path rationale. Anchored on a leading separator
+ * so the match is a whole path segment: `…/skills/upgrade/SKILL.md` is exempt,
+ * a hypothetical `…/skills/not-upgrade/SKILL.md` is not.
  */
 function isExempt(file: string): boolean {
-  return file.endsWith(".test.ts");
+  if (file.endsWith(".test.ts")) return true;
+  return BY_DESIGN_EXEMPT_SUFFIXES.some((suffix) => file.endsWith(`${sep}${suffix}`));
 }
 
 /**
