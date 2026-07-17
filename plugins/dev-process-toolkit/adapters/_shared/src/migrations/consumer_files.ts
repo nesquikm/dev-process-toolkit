@@ -54,21 +54,34 @@ export function readJsonObject(path: string): Record<string, unknown> | null {
  * whether it ended with a newline. Writes only when the bytes move; returns true
  * when it wrote.
  *
- * `JSON.stringify` always emits `\n`. A CRLF-authored config (Windows) would have
- * every internal ending silently rewritten to LF on the first real change — the
- * opposite of the "every other byte preserved" the seed entries promise — so the
- * dominant ending is read off the file and reapplied.
+ * `JSON.stringify` always emits `\n` and a fixed indent. A CRLF-authored config
+ * (Windows) or a 4-space/tab-indented one would have its endings or indentation
+ * silently rewritten on the first real change — the opposite of the "every other
+ * byte preserved" the seed entries promise — so both the dominant ending and the
+ * indent unit are read off the file and reapplied.
  *
  * The file must exist — every caller reaches here having already parsed it.
  */
 export function writeJsonIfChanged(path: string, value: unknown): boolean {
   const raw = readFileSync(path, "utf-8");
   const eol = raw.includes("\r\n") ? "\r\n" : "\n";
-  const body = JSON.stringify(value, null, 2).replace(/\n/g, eol);
+  const body = JSON.stringify(value, null, detectJsonIndent(raw)).replace(/\n/g, eol);
   const next = body + (raw.endsWith("\n") ? eol : "");
   if (next === raw) return false;
   writeFileSync(path, next);
   return true;
+}
+
+/**
+ * The indent unit of a pretty-printed JSON file (a tab, or N spaces), read from
+ * its first indented line. Falls back to 2 spaces for a minified/single-line
+ * file — the toolkit's own default and the safest guess when there is nothing to
+ * observe.
+ */
+function detectJsonIndent(raw: string): string | number {
+  const m = /\n(\t+| +)\S/.exec(raw);
+  if (!m) return 2;
+  return m[1]!.startsWith("\t") ? "\t" : m[1]!.length;
 }
 
 /** The lines of `path`, or null when it does not exist. */

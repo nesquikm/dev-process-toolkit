@@ -221,7 +221,17 @@ function detectMonolith(projectRoot: string): DetectResult {
   if (live.length === 0) return { applies: false, evidence: [] };
 
   const frs = frsDir(projectRoot);
-  const split = existsSync(frs) ? readdirSync(frs) : null;
+  // Guard the readdir the same way the requirements read above is guarded: a
+  // `specs/frs` that is a regular file (or otherwise unreadable) must not throw
+  // ENOTDIR mid-detector and abort the registry walk — treat it as "not split".
+  let split: string[] | null = null;
+  if (existsSync(frs)) {
+    try {
+      split = readdirSync(frs);
+    } catch {
+      split = null;
+    }
+  }
   if (split !== null && split.length > 0) return { applies: false, evidence: [] };
 
   const named = live.map((n) => `FR-${n}`).join(", ");
@@ -601,6 +611,14 @@ const LEGACY_AC_ID = /\bAC-(\d+)\.(\d+)\b/g;
  * than anchored to the bullet's head: an AC whose body reads "same ranking rule
  * as AC-8.1" must follow its sibling to the new prefix, or the split file ships
  * a dangling pointer into a monolith that the freeze has since archived.
+ *
+ * KNOWN LIMITATION — same-FR references only. This rewrites EVERY `AC-<n>.<m>`
+ * in the lines to the one `prefix`, so an inter-FR reference (FR-12's body citing
+ * FR-8's `AC-8.1`) is re-keyed to FR-12's prefix — a wrong pointer. Splitting is
+ * an operator-reviewed assisted step (the operator confirms each split file), so
+ * a stray cross-FR id surfaces at review; a future signature could take the
+ * legacy FR number to scope the rewrite, but the prose flow does not thread one
+ * today. Cannot occur on the freeze-everything path (no split, no re-key).
  *
  * The provenance note lands LAST, after every AC, and names the legacy FR number
  * the ids themselves are about to stop carrying — once re-keyed, nothing else in

@@ -107,9 +107,12 @@ function readPermissionsTemplate(): PermissionsTemplate {
  * order and deduped.
  *
  * Two projection routes, narrowest first:
- *  1. the template's own stack group for that command (`Bash(bun *)` → every
- *     rule under `stacks.bun`, `Bash(bunx)` included — the glob asked for that
- *     toolchain and the template is what declares its shape);
+ *  1. the template's own stack group for that command, filtered to rules that
+ *     actually invoke it (`Bash(bun *)` → `Bash(bun install)` … `Bash(bunx)`).
+ *     The filter is load-bearing: a stack group is keyed by TOOLCHAIN, so
+ *     `stacks.python` carries `Bash(uv sync)`/`Bash(pytest)` — projecting the
+ *     whole group off `Bash(python *)` would GRANT commands the operator never
+ *     named, widening the allowlist. Only `Bash(<command>…`-prefixed rules pass.
  *  2. otherwise, every rule the template declares FOR that command across
  *     `_common` and the stack groups (`Bash(git *)` → the read-only git rules).
  *
@@ -127,9 +130,16 @@ function projectGlobRule(template: PermissionsTemplate, rule: string): string[] 
   // command like `__proto__` / `constructor` would resolve through the chain to
   // a non-array and crash `new Set(...)`, so only own array-valued groups count.
   const ownGroup = Object.hasOwn(template.stacks, command) ? template.stacks[command] : undefined;
-  const stackGroup = Array.isArray(ownGroup) ? ownGroup : undefined;
+  // Keep only the rules that actually invoke `command` — never the toolchain's
+  // adjacent tooling. An empty result (the group carries no `command` rules,
+  // e.g. `stacks.node` has npm/npx but no `Bash(node …)`) falls through to
+  // route 2 rather than granting the whole group.
+  const stackGroup =
+    Array.isArray(ownGroup)
+      ? ownGroup.filter((r) => r.startsWith(`Bash(${command}`))
+      : undefined;
   const candidates =
-    stackGroup ??
+    (stackGroup && stackGroup.length > 0 ? stackGroup : null) ??
     [...template._common, ...Object.values(template.stacks).flat()].filter(
       (candidate) => candidate.startsWith(`Bash(${command} `) || candidate === `Bash(${command})`,
     );
