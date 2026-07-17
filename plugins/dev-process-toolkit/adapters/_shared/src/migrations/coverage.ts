@@ -72,7 +72,11 @@ function readFrontmatterField(section: string, key: string): FieldHit {
   for (let i = 0; i < lines.length; i++) {
     const m = re.exec(lines[i]!);
     // +2: one for the leading `---\n`, one for 1-based line numbering.
-    if (m) return { value: (m[1] ?? "").trim(), line: i + 2 };
+    // Strip a YAML inline comment (whitespace + `#` to end of line). These
+    // frontmatter scalars are unquoted (`none`, a kebab id, a version), so a
+    // `#` after whitespace is a comment, never data — the plan template ships
+    // `migration: none  # literal ...` and it must read as `none`, not an id.
+    if (m) return { value: (m[1] ?? "").replace(/\s+#.*$/, "").trim(), line: i + 2 };
   }
   return { value: null, line: 0 };
 }
