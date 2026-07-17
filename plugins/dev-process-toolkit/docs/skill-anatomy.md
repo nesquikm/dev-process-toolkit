@@ -51,7 +51,7 @@ Declare `allowed-tools:` in SKILL.md frontmatter when the skill is **read-only b
 
 If the skill needs write or shell access (most skills do — `setup`, `implement`, `gate-check`, etc.), **omit the field** and inherit the session's full allowlist. Adding `allowed-tools:` to a write-capable skill silently strips its capabilities at runtime.
 
-The toolkit's canonical read-only example is `skills/spec-review/SKILL.md`, which carries `allowed-tools: Read, Glob, Grep, Skill` because it audits specs against the codebase without ever editing; the other 22 skills omit the field by design.
+The toolkit's canonical read-only example is `skills/spec-review/SKILL.md`, which carries `allowed-tools: Read, Glob, Grep, Skill` because it audits specs against the codebase without ever editing; the other 23 skills omit the field by design.
 
 ## Skill Types in the SDD Toolkit
 

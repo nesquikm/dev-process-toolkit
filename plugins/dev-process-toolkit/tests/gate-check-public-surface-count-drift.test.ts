@@ -35,6 +35,27 @@ import {
 } from "../adapters/_shared/src/public_surface_count_drift";
 
 const repoRoot = join(import.meta.dir, "..", "..", "..");
+
+/**
+ * The single line of `body` matching `anchor`.
+ *
+ * The count assertions below are content-anchored rather than line-indexed: the
+ * docs they read carry prose, diagrams, and images that shift on any cosmetic
+ * edit, and a shifted line is not a count regression. Uniqueness is asserted
+ * rather than taking the first hit, so this keeps what the line indices were
+ * really buying — that the token lives on one specific, identifiable line, not
+ * merely somewhere in the file.
+ */
+function onlyLine(body: string, anchor: RegExp): string {
+  const hits = body.split("\n").filter((line) => anchor.test(line));
+  if (hits.length !== 1) {
+    throw new Error(
+      `expected exactly 1 line matching ${anchor}, found ${hits.length}` +
+        (hits.length > 1 ? `:\n${hits.map((h) => `  ${h.slice(0, 80)}`).join("\n")}` : ""),
+    );
+  }
+  return hits[0];
+}
 const probeModulePath = join(
   repoRoot,
   "plugins",
@@ -352,46 +373,66 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     expect(r.violations).toEqual([]);
   });
 
-  test("README.md L3 / L10 / L105 / L140 / L164 / L165 carry the byte-exact post-backfill tokens", () => {
+  test("README.md carries the byte-exact post-backfill tokens", () => {
     const readme = readFileSync(join(repoRoot, "README.md"), "utf-8");
-    const lines = readme.split("\n");
-    // L3 — "16 commands, 8 agents"
-    expect(lines[2]).toMatch(/16 commands?,\s+8 agents?/);
-    // L10 — 67 numbered (matches "67 numbered ... probes" — M105/STE-386 added
-    // #67 fr_summary_altitude on top of M103's #66);
-    // L10 sits above the M93 Features bullet so it is not shifted.
-    expect(lines[9]).toMatch(/\b67\b.*numbered/);
-    // L105 — "67 probes" (on-disk max-probe 67 after M105/STE-386 added #67;
-    // +1 from L104 after the M93 verification-skills Features bullet landed)
-    expect(lines[104]).toMatch(/\b67\b\s+probes/);
-    // L140 — "Seven additional skills" (+1 from L139 after the M93 Features bullet)
-    expect(lines[139]).toMatch(/Seven additional skills/);
-    // L164 — "23 (16 + 7)" (+1 from L163 after the M93 Features bullet)
-    expect(lines[163]).toMatch(/23\s+\(16\s*\+\s*7\)/);
-    // L165 — "8 specialist agents" with spec-reviewer enumerated (+1 from L164)
-    expect(lines[164]).toMatch(/\b8 specialist agents\b/);
-    expect(lines[164]).toMatch(/spec-reviewer/);
-  });
+    // M108/STE-391 recalibration: `/upgrade` is the 17th user-invocable skill,
+    // so every count token below moved 16 → 17 / 23 → 24. Probe counts are
+    // untouched.
+    //
+    // Each token is located by a content anchor rather than a line index. These
+    // assertions used to pin absolute line numbers, which made every cosmetic
+    // edit a false red: a banner image added above the fold shifted six pinned
+    // lines by +4 and failed a suite that only cares about which NUMBERS the
+    // README claims, not which row they land on. The anchor is the thing that
+    // makes a line that line; `onlyLine` still asserts uniqueness, so the
+    // "this exact line" precision survives.
 
-  test("CLAUDE.md L15 / L16 carry the byte-exact post-backfill tokens", () => {
-    const claudeMd = readFileSync(join(repoRoot, "CLAUDE.md"), "utf-8");
-    const lines = claudeMd.split("\n");
-    // L15 — "23 slash commands (16 user-invocable + 7 dispatch …)"
-    expect(lines[14]).toMatch(
-      /23\s+slash commands\s+\(16\s+user-invocable\s+\+\s+7\s+dispatch/,
+    // "17 commands, 8 agents" — the one-paragraph pitch under the H1.
+    expect(onlyLine(readme, /^A Claude Code plugin that adds/)).toMatch(
+      /17 commands?,\s+8 agents?/,
     );
-    // L16 — "8 subagent templates"
-    expect(lines[15]).toMatch(/\b8\s+subagent templates\b/);
-    expect(lines[15]).toMatch(/spec-reviewer/);
+    // 68 numbered probes (M108/STE-393 added #68 migration_coverage on top of
+    // M105/STE-386's #67 fr_summary_altitude) — the Features bullet.
+    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b68\b.*numbered/);
+    // "68 probes" — the /implement-invokes-/tdd paragraph's aside.
+    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b68\b\s+probes/);
+    // "Seven additional skills" — still seven: `/upgrade` is user-invocable, so
+    // the dispatch half of the split is unchanged.
+    expect(onlyLine(readme, /additional skills \(`spec-research`/)).toMatch(
+      /Seven additional skills/,
+    );
+    // "24 (17 + 7)" — the skills/ row of the repo-tree block.
+    expect(onlyLine(readme, /^│\s+├── skills\//)).toMatch(/24\s+\(17\s*\+\s*7\)/);
+    // "8 specialist agents" with spec-reviewer enumerated — the agents/ row.
+    // M108 ships no new agent — the registry is a library, not a subagent.
+    const agentsRow = onlyLine(readme, /^│\s+├── agents\//);
+    expect(agentsRow).toMatch(/\b8 specialist agents\b/);
+    expect(agentsRow).toMatch(/spec-reviewer/);
   });
 
-  test("docs/skill-anatomy.md L54 says 'the other 22 skills'", () => {
+  test("CLAUDE.md carries the byte-exact post-backfill tokens", () => {
+    const claudeMd = readFileSync(join(repoRoot, "CLAUDE.md"), "utf-8");
+    // "24 slash commands (17 user-invocable + 7 dispatch …)" (M108/STE-391:
+    // `/upgrade` is the 17th user-invocable skill; the dispatch half is unchanged)
+    expect(onlyLine(claudeMd, /^├── skills\//)).toMatch(
+      /24\s+slash commands\s+\(17\s+user-invocable\s+\+\s+7\s+dispatch/,
+    );
+    // "8 subagent templates"
+    const agentsRow = onlyLine(claudeMd, /^├── agents\//);
+    expect(agentsRow).toMatch(/\b8\s+subagent templates\b/);
+    expect(agentsRow).toMatch(/spec-reviewer/);
+  });
+
+  test("docs/skill-anatomy.md says 'the other 23 skills'", () => {
+    // M108/STE-391: 22 → 23. This counts TOTAL skills minus the one canonical
+    // `allowed-tools:` carrier (spec-review), so it tracks the 23 → 24 on-disk
+    // total, not the 16 → 17 user-invocable split. `skills/upgrade/SKILL.md`
+    // omits the field, so it joins the "other" side.
     const doc = readFileSync(
       join(repoRoot, "plugins", "dev-process-toolkit", "docs", "skill-anatomy.md"),
       "utf-8",
     );
-    const lines = doc.split("\n");
-    expect(lines[53]).toMatch(/the other 22 skills/);
+    expect(onlyLine(doc, /canonical read-only example/)).toMatch(/the other 23 skills/);
   });
 
   test("skills/gate-check/SKILL.md carries a 'probe N+' next-probe anchor near the probe-authoring contract", () => {
@@ -401,10 +442,11 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     expect(skillMd).toMatch(/probe 60\+/);
   });
 
-  test("specs/testing-spec.md L58 says 'all 23 skills'", () => {
+  test("specs/testing-spec.md says 'all 24 skills'", () => {
+    // M108/STE-391: 23 → 24. Like the skill-anatomy anchor above, this row
+    // counts the on-disk skill total, not the 16 → 17 user-invocable split.
     const doc = readFileSync(join(repoRoot, "specs", "testing-spec.md"), "utf-8");
-    const lines = doc.split("\n");
-    expect(lines[57]).toMatch(/all 23 skills/);
+    expect(onlyLine(doc, /v2-minimal regression/)).toMatch(/all 24 skills/);
   });
 });
 

@@ -8,7 +8,7 @@
 // AC-STE-389.4: a Notes rule pins the explicit redirect for free text after
 // /pr ("PR titles are derived from the commit subject; amend the commit to
 // change the title") and proceeds; the new prose adds zero `STE-<N>` tokens
-// to skills/ (ceiling at 245/245), so the skill body must stay token-free.
+// to skills/ (ceiling at 246/246), so the skill body must stay token-free.
 // AC-STE-389.5: README's /pr row Args cell renders `—`, the `[PR title]`
 // literal is gone, and the Args-column note explains the `—` marker.
 // AC-STE-389.6: `specs/testing-spec.md` Tier-1 frontmatter row requires
@@ -110,7 +110,7 @@ describe("AC-STE-389.4 — explicit redirect rule in Notes", () => {
     expect(notes).toMatch(/proceed/i);
   });
 
-  test("the skill body stays STE-token-free (skills ceiling is at 245/245)", () => {
+  test("the skill body stays STE-token-free (skills ceiling is at 246/246)", () => {
     expect(/\bSTE-\d+\b/.test(read(PR_SKILL))).toBe(false);
   });
 });

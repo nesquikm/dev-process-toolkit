@@ -122,6 +122,8 @@ Validate: non-empty, ≤ 32 chars, no backticks, no newlines. Re-prompt on inval
 
 ### 4. Construct release-file changes
 
+**Migration-coverage pre-flight.** Before computing any bump, call `assertMigrationDeclared(planPath, MIGRATIONS, releaseVersion)` from `adapters/_shared/src/migrations/coverage.ts` (registry from `adapters/_shared/src/migrations/index.ts`; version from step 2). It refuses with the NFR-10 shape (naming the plan) when the plan's `migration:` key is absent or the template sentinel (`null`/empty), when a declared id is not present in the registry, or when the declared id's `introduced_in` ≠ the version being shipped. `migration: none` proceeds. The step rides the existing ceremony — no additional approval prompt; a refusal aborts before any file is rewritten.
+
 Read the host project's `## Release Files` block from `CLAUDE.md` via `parseReleaseFiles(content)` from `adapters/_shared/src/release_config.ts`. The block declares every path that gets rewritten on this release; no path is hard-coded in this skill body. Schema reference + per-kind worked examples live in `docs/ship-milestone-reference.md` § Release Files block schema.
 
 For each entry, compute the new file content via `bumpFile(entry, currentContent, opts)`:

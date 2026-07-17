@@ -4,6 +4,7 @@ status: active
 archived_at: null
 kickoff_branch: null
 frozen_at: null
+migration: none  # literal `none` (no consumer migration), or a migration-registry entry id
 ---
 
 <!--

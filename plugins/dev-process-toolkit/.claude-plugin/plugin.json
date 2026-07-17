@@ -1,6 +1,6 @@
 {
   "name": "dev-process-toolkit",
-  "version": "2.48.1",
+  "version": "2.49.0",
   "description": "Portable skills, agents, and templates that add Spec-Driven Development and TDD workflows to any Claude Code project.",
   "author": {
     "name": "nesquikm",
