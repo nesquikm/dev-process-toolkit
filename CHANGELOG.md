@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.51.0] — 2026-07-19 — "Crucible"
+
+Fixes the five high-severity shipped-plugin defects the 2026-07-19 `/conformance-loop` run surfaced (M110).
+
+### Added
+
+- Liveness detector `checkSkillCompletionSignal` for clean-exit/zero-work smoke captures — a child that halts at a prose question under `claude -p` and exits success now fails chain-integrity on the missing closing-summary marker (STE-400).
+
+### Fixed
+
+- Widen the Linear AC-fence strip regex (`AC_LINEAR_XML_RE`) to tolerate the issue-mention `href` attribute Linear's MCP now emits; adds href coverage that had let the upstream HTML-shape change ship undetected (STE-398).
+- socratic first-turn arbiter: distinct `vacuous` outcome (a no-loop transcript no longer reads as a pass) + project-scoped scaffolding detection (out-of-project writes no longer fail the run) (STE-399).
+- Route `/spec-write`'s milestone-allocation gate through the marker/refusal contract — marker default-applies the recommendation, marker-absent + non-tty refuses loudly instead of a silent no-op; new probe #70 (STE-401).
+- Gate `/report-issue`'s gist publish on the marker, not prose inference — marker-absent + non-tty refuses (no `gh gist create`); new probe #71 (STE-402).
+
+Total test count at release: 4938 tests, 0 failures, 0 errors.
+
 ## [2.50.0] — 2026-07-19 — "Beacon"
 
 Upgrade auto-detection (M109): a project no longer stays quietly stale. Gate probe #69 walks M108's migration registry on every gate run and reports consumer-artifact drift as notes that never block a merge, so discovery stops depending on an operator remembering a command exists — and with discovery solved, `/upgrade` leaves the slash menu entirely. Two silent-disable defects found along the way are repaired in the same release: probe #57's probe-count leg had been reading a fixed line index that never matched, so it had been enforcing nothing, and the token ledger never marked directly-claimed rows, so every FR written in a shared session reported the whole session's cost as its own.
