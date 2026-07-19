@@ -14,6 +14,8 @@
 // arbiter — drift between Phase 8 prose and the helper's contract is
 // caught by socratic_first_turn.test.ts.
 
+import { resolve, sep } from "node:path";
+
 /** Tool names that count as scaffolding for the first-turn contract. */
 export const SCAFFOLDING_TOOLS = ["Write", "Edit", "NotebookEdit"] as const;
 
@@ -34,9 +36,24 @@ export interface TranscriptEntry {
   type: "text" | "tool_use" | "refusal";
   /** Tool name when `type === 'tool_use'`; ignored otherwise. */
   name?: string;
+  /**
+   * Target path of a scaffolding tool_use (Write/Edit/NotebookEdit), lifted
+   * from the tool_input by the stream parser (STE-399 AC-STE-399.5). Absent
+   * for non-scaffolding tools and for scaffold events whose input carried no
+   * path. Consumed by the `projectRoot` scope check in assertFirstTurnShape.
+   */
+  path?: string;
 }
 
-export type FirstTurnOutcome = "ok-asked" | "ok-refused" | "violation";
+// STE-399 AC-STE-399.1: `vacuous` is the transcript that never asks, never
+// refuses, and never scaffolds — the first-turn contract is un-violated but
+// the loop was never entered. It is NOT a pass; the consuming CLI exits
+// non-zero on it (a skill that did nothing must not read as compliant).
+export type FirstTurnOutcome =
+  | "ok-asked"
+  | "ok-refused"
+  | "violation"
+  | "vacuous";
 
 export interface FirstTurnShape {
   outcome: FirstTurnOutcome;
@@ -76,6 +93,32 @@ function isScaffoldingTool(name: string | undefined): name is ScaffoldingTool {
 }
 
 /**
+ * True when `p` resolves to `root` itself or a path strictly inside it.
+ * Boundary-safe: `/root-sibling/x` is NOT inside `/root` (the `+ sep` guards
+ * against the prefix-collision `/root` vs `/root-sibling`).
+ */
+function isPathInside(root: string, p: string): boolean {
+  const r = resolve(root);
+  const rp = resolve(p);
+  return rp === r || rp.startsWith(r + sep);
+}
+
+/** Options for {@link assertFirstTurnShape}. */
+export interface FirstTurnOptions {
+  /**
+   * When set, a scaffolding tool_use counts as a first-turn violation only
+   * if its `path` resolves inside this root (STE-399 AC-STE-399.3/.4). A
+   * scaffold whose path is outside the root is an out-of-project write (an
+   * operator's global side-effect log, a skill's own temp scratch) and is
+   * skipped, not a violation. Omitted ⇒ unchanged by-name behavior: any
+   * scaffolding tool_use is a violation (AC-STE-399.6). A scaffold with no
+   * observable path stays a conservative violation even when `projectRoot`
+   * is set — an unlocatable early write is treated as suspicious.
+   */
+  projectRoot?: string;
+}
+
+/**
  * Walk the transcript front-to-back and classify the first turn.
  *
  * Returns the shape on success. Throws {@link SocraticFirstTurnViolationError}
@@ -84,7 +127,9 @@ function isScaffoldingTool(name: string | undefined): name is ScaffoldingTool {
  */
 export function assertFirstTurnShape(
   transcript: ReadonlyArray<TranscriptEntry>,
+  opts?: FirstTurnOptions,
 ): FirstTurnShape {
+  const projectRoot = opts?.projectRoot;
   for (let i = 0; i < transcript.length; i++) {
     const entry = transcript[i]!;
     if (entry.type === "refusal") {
@@ -98,13 +143,24 @@ export function assertFirstTurnShape(
         return { outcome: "ok-refused", askIndex: i };
       }
       if (isScaffoldingTool(entry.name)) {
+        // STE-399 AC-STE-399.3/.4: with a projectRoot, an out-of-project
+        // scaffold write is not a first-turn violation — skip it and keep
+        // scanning. Without a projectRoot (AC-STE-399.6) or without an
+        // observable path, the scaffold is a violation (conservative).
+        if (
+          projectRoot !== undefined &&
+          entry.path !== undefined &&
+          !isPathInside(projectRoot, entry.path)
+        ) {
+          continue;
+        }
         throw new SocraticFirstTurnViolationError(entry.name, i);
       }
     }
   }
-  // No ask, no refusal, no scaffold — treat as ok-asked with no askIndex.
-  // Empty / read-only / text-only transcripts are vacuous (no first-turn
-  // contract violation possible). Callers that want to assert "loop entered
-  // at all" must check `askIndex !== undefined`.
-  return { outcome: "ok-asked" };
+  // STE-399 AC-STE-399.1: no ask, no refusal, no in-scope scaffold — the
+  // first-turn contract is un-violated but the loop was never entered. This
+  // is `vacuous`, NOT a pass; the consuming CLI exits non-zero on it so a
+  // skill that did nothing cannot read as compliant.
+  return { outcome: "vacuous" };
 }

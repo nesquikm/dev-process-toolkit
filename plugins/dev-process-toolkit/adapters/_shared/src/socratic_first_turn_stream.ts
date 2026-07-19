@@ -23,11 +23,27 @@
 // raw NDJSON line count. The low-level NDJSON reader is shared with
 // smoke_child_capture via stream_json_events.ts.
 
-import type { TranscriptEntry } from "./socratic_first_turn";
+import { SCAFFOLDING_TOOLS, type TranscriptEntry } from "./socratic_first_turn";
 import {
   assistantContentBlocks,
   parseStreamJsonEvent,
 } from "./stream_json_events";
+
+const SCAFFOLDING_TOOL_SET: ReadonlySet<string> = new Set(SCAFFOLDING_TOOLS);
+
+/**
+ * STE-399 AC-STE-399.5: the write-target path of a scaffolding tool_use.
+ * Write/Edit carry `file_path`; NotebookEdit carries `notebook_path`.
+ * Non-scaffolding tools contribute no path (a Read's `file_path` is a read
+ * source, not a write target, and must not shadow the scope check).
+ */
+function scaffoldPath(name: string, input: unknown): string | undefined {
+  if (!SCAFFOLDING_TOOL_SET.has(name)) return undefined;
+  if (!input || typeof input !== "object") return undefined;
+  const rec = input as Record<string, unknown>;
+  const p = rec.file_path ?? rec.notebook_path;
+  return typeof p === "string" ? p : undefined;
+}
 
 /**
  * Parse one NDJSON line into zero or more transcript entries.
@@ -51,7 +67,12 @@ export function parseStreamJsonLine(line: string): TranscriptEntry[] {
     if (block.type === "text") {
       entries.push({ type: "text" });
     } else if (block.type === "tool_use" && typeof block.name === "string") {
-      entries.push({ type: "tool_use", name: block.name });
+      const path = scaffoldPath(block.name, block.input);
+      entries.push(
+        path === undefined
+          ? { type: "tool_use", name: block.name }
+          : { type: "tool_use", name: block.name, path },
+      );
     }
   }
 
