@@ -148,12 +148,20 @@ function parseReadmeTokens(text: string): {
   const lines = text.split("\n");
 
   // L3 — skills + agents tokens. Pattern: `N commands, M agents`.
+  //
+  // The `d` flag is load-bearing, not decoration: it yields each capture's real
+  // offset via `m.indices`. Locating the agents token by searching for its VALUE
+  // (`m[0].indexOf(m[2])`) silently mis-anchors whenever the agents digit also
+  // occurs inside the commands digits — "18 commands, 8 agents" finds the `8` in
+  // `18` and points ~12 columns early, into the wrong number.
   const line3 = lines[2];
   if (line3 !== undefined) {
-    const m = /(\d+)\s+commands?,\s+(\d+)\s+agents?/.exec(line3);
+    const m = /(\d+)\s+commands?,\s+(\d+)\s+agents?/d.exec(line3);
     if (m !== null) {
       const skillsCol = m.index + 1;
-      const agentsTokIdx = m.index + m[0].indexOf(m[2]!);
+      // `indices` is present because the pattern carries `d`; fall back to the
+      // match start rather than risk an undefined read if that ever changes.
+      const agentsTokIdx = m.indices?.[2]?.[0] ?? m.index;
       out.readmeCommands = {
         kind: "readme-commands",
         file: "README.md",
