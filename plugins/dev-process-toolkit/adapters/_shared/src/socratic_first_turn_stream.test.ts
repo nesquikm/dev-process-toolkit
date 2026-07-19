@@ -103,6 +103,56 @@ describe("parseStreamJsonLine", () => {
     expect(parseStreamJsonLine(line)).toEqual([]);
   });
 
+  test("AC-STE-399.5: Write tool_use surfaces file_path as entry.path", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            name: "Write",
+            input: { file_path: "/proj/specs/frs/STE-1.md", content: "x" },
+          },
+        ],
+      },
+    });
+    expect(parseStreamJsonLine(line)).toEqual([
+      { type: "tool_use", name: "Write", path: "/proj/specs/frs/STE-1.md" },
+    ]);
+  });
+
+  test("AC-STE-399.5: NotebookEdit tool_use surfaces notebook_path as entry.path", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            name: "NotebookEdit",
+            input: { notebook_path: "/proj/nb.ipynb" },
+          },
+        ],
+      },
+    });
+    expect(parseStreamJsonLine(line)).toEqual([
+      { type: "tool_use", name: "NotebookEdit", path: "/proj/nb.ipynb" },
+    ]);
+  });
+
+  test("AC-STE-399.5: non-scaffolding tool (Read) carries no path even with file_path input", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          { type: "tool_use", name: "Read", input: { file_path: "/x" } },
+        ],
+      },
+    });
+    expect(parseStreamJsonLine(line)).toEqual([
+      { type: "tool_use", name: "Read" },
+    ]);
+  });
+
   test("malformed JSON yields empty", () => {
     expect(parseStreamJsonLine("not json")).toEqual([]);
     expect(parseStreamJsonLine("{")).toEqual([]);

@@ -116,19 +116,84 @@ describe("AC-STE-237.5 — assertFirstTurnShape six-case matrix", () => {
     expect(result.askIndex).toBe(2);
   });
 
-  test("vacuous: empty transcript ⇒ ok-asked with no askIndex", () => {
+  test("AC-STE-399.1: empty transcript ⇒ vacuous (not ok-asked)", () => {
     const result = assertFirstTurnShape([]);
-    expect(result.outcome).toBe("ok-asked");
+    expect(result.outcome).toBe("vacuous");
     expect(result.askIndex).toBeUndefined();
   });
 
-  test("vacuous: read-only-only transcript (no ask, no scaffold) ⇒ ok-asked, no askIndex", () => {
+  test("AC-STE-399.1: read-only-only transcript (no ask, no scaffold) ⇒ vacuous", () => {
     const transcript: TranscriptEntry[] = [
       { type: "tool_use", name: "Read" },
       { type: "text" },
     ];
     const result = assertFirstTurnShape(transcript);
-    expect(result.outcome).toBe("ok-asked");
+    expect(result.outcome).toBe("vacuous");
     expect(result.askIndex).toBeUndefined();
+  });
+});
+
+describe("STE-399 — projectRoot-scoped scaffolding detection", () => {
+  const ROOT = "/Users/ns/workspace/dpt-test-project-linear";
+
+  test("AC-STE-399.3: scaffold write inside projectRoot ⇒ violation", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "tool_use", name: "Write", path: `${ROOT}/specs/frs/STE-1.md` },
+    ];
+    expect(() =>
+      assertFirstTurnShape(transcript, { projectRoot: ROOT }),
+    ).toThrow(SocraticFirstTurnViolationError);
+  });
+
+  test("AC-STE-399.4: scaffold write OUTSIDE projectRoot ⇒ no violation (vacuous)", () => {
+    const transcript: TranscriptEntry[] = [
+      {
+        type: "tool_use",
+        name: "Write",
+        path: "/Users/ns/english/mistakes/inbox/2026-07-20-x.md",
+      },
+    ];
+    const result = assertFirstTurnShape(transcript, { projectRoot: ROOT });
+    expect(result.outcome).toBe("vacuous");
+  });
+
+  test("AC-STE-399.4: outside-root scaffold then a real ask ⇒ ok-asked", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "tool_use", name: "Write", path: "/tmp/scratch/report.md" },
+      { type: "tool_use", name: "AskUserQuestion" },
+    ];
+    const result = assertFirstTurnShape(transcript, { projectRoot: ROOT });
+    expect(result.outcome).toBe("ok-asked");
+    expect(result.askIndex).toBe(1);
+  });
+
+  test("AC-STE-399.4: sibling-dir path is NOT treated as inside (boundary-safe)", () => {
+    const transcript: TranscriptEntry[] = [
+      {
+        type: "tool_use",
+        name: "Write",
+        path: `${ROOT}-sibling/leak.md`,
+      },
+    ];
+    const result = assertFirstTurnShape(transcript, { projectRoot: ROOT });
+    expect(result.outcome).toBe("vacuous");
+  });
+
+  test("AC-STE-399.6: scaffold with no path under projectRoot ⇒ conservative violation", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "tool_use", name: "Write" },
+    ];
+    expect(() =>
+      assertFirstTurnShape(transcript, { projectRoot: ROOT }),
+    ).toThrow(SocraticFirstTurnViolationError);
+  });
+
+  test("AC-STE-399.6: projectRoot omitted ⇒ unchanged by-name violation regardless of path", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "tool_use", name: "Write", path: "/anywhere/at/all.md" },
+    ];
+    expect(() => assertFirstTurnShape(transcript)).toThrow(
+      SocraticFirstTurnViolationError,
+    );
   });
 });
