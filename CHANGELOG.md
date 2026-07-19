@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.50.0] — 2026-07-19 — "Beacon"
+
+Upgrade auto-detection (M109): a project no longer stays quietly stale. Gate probe #69 walks M108's migration registry on every gate run and reports consumer-artifact drift as notes that never block a merge, so discovery stops depending on an operator remembering a command exists — and with discovery solved, `/upgrade` leaves the slash menu entirely. Two silent-disable defects found along the way are repaired in the same release: probe #57's probe-count leg had been reading a fixed line index that never matched, so it had been enforcing nothing, and the token ledger never marked directly-claimed rows, so every FR written in a shared session reported the whole session's cost as its own.
+
+### Added
+
+- Warn-only gate probe #69 `upgrade_staleness`: walks the migration registry's detectors and renders one byte-pinned NOTES row per applying entry, closing with a single remedy line. A Step 0 applicability short-circuit keeps non-toolkit trees silent even when they carry similarly-named directories, and a throwing detector degrades to a row instead of crashing the gate run. Never emits GATE FAILED — pre-existing drift must not block merges. (STE-394)
+
+### Changed
+
+- `/upgrade` is no longer user-invocable: it carries `user-invocable: false` and is off the slash menu, while model invocation stays deliberately intact so probe #69's notification still leads to the skill running. Skill counts move 17→16 user-invocable / 7→8 non-user-invocable across README, `CLAUDE.md` and the technical spec, and `docs/skill-anatomy.md` gains the previously-missing taxonomy case: a non-user-invocable skill that is neither a fork child nor background knowledge. (STE-395)
+
+### Fixed
+
+- Probe #57's probe-count leg was dead: it read README line 10, but the `N numbered` token lives at line 14, so the parse never matched and the comparison was skipped with zero violations — the count it was supposed to guard had been unenforced. The parse is re-anchored by content and narrowed to the full `N numbered /gate-check probes` token, so it fires on real drift without misreading incidental prose like "the 3 numbered steps" in a consumer README. (STE-394)
+- Token-stats same-session double-count: `filterRowsForFR` selected direct same-session rows but never marked them, so two FRs written in one session each reported the entire session's cost. Direct-path rows are now marked, and a row claimed by a second FR of the same session is demoted to the `design/exploration` bucket — shared cost was never separable, so it belongs to neither FR. This also restores the per-FR rollup subtotals promised by AC-STE-346.2, which had never been emitted because `rollupLabel` fell through whenever `claimed_by` was unset. Previously-recorded FR token numbers may decrease on first re-render; that is the fix landing. (STE-396)
+- The structurally-inert stale-plugin advisory is deleted from `/upgrade`: the registry ships inside the plugin, so its comparison held by construction and the advisory could never fire for any consumer. (STE-394)
+
+Total test count at release: 4908 tests, 0 failures, 0 errors.
+
 ## [2.49.0] — 2026-07-17 — "Passage"
 
 ### Added

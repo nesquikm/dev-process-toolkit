@@ -179,7 +179,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.49.0 — "Passage"** (M108 adds the `/upgrade` migration framework — a version-ordered registry that walks already-bootstrapped projects forward across convention changes: four scripted seed migrations, an operator-guided monolith→per-FR spec split, and a declared+gated coverage rule enforced by `/ship-milestone` and gate probe #68 so no future convention change ships without deciding its migration story.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.50.0 — "Beacon"** (M109 makes staleness self-announcing: gate probe #69 walks the migration registry every run and reports consumer-artifact drift as notes that never block a merge, so `/upgrade` no longer needs a slot on the slash menu. Two silent-disable defects are repaired alongside it — probe #57's probe-count leg had been reading a line index that never matched, and the token ledger never marked directly-claimed rows, so FRs sharing a session each reported the whole session's cost.)
 
 ## Core Philosophy
 
