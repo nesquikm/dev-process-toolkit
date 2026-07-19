@@ -278,13 +278,24 @@ export interface FilterRowsForFROptions {
 }
 
 /**
- * Ledger-row selector for one FR (AC-STE-345.6).
+ * Ledger-row selector for one FR (AC-STE-345.6, AC-STE-396.1/.2).
+ *
+ * **Mutates `claimed_by` in place** on the rows it resolves; persisting those
+ * marks is `claimRowsForFR`'s job.
  *
  * Selection rules:
  * - **Direct** — rows whose `session_id` is in `sessionLineage` (the FR's own
- *   sessions), unless already claimed by another FR.
+ *   sessions). An *unclaimed* one is selected and marked `claimed_by =
+ *   brainstormClaim` (AC-STE-396.1). One already claimed by a *different* FR
+ *   means both FRs came out of a single session, so the shared row is demoted
+ *   to the `design/exploration` bucket and returned to **neither** FR
+ *   (AC-STE-396.2) — the cost was genuinely shared and is not separable.
  * - **Previously claimed** — rows with `claimed_by === brainstormClaim` stay
- *   attached to this FR, wherever they came from.
+ *   attached to this FR, wherever they came from. A row already demoted to the
+ *   design bucket is terminal: never re-claimed, by this FR or any other.
+ * - **Off-lineage** — left exactly as they are: one claimed by another FR stays
+ *   claimed (and unselected); an unclaimed one falls through to bridging below
+ *   or to the milestone rollup.
  * - **Bridging** — when no brainstorm row is attached yet, the most-recent
  *   **unclaimed** detached `brainstorm` session on the FR's branch is claimed:
  *   its rows are selected and marked `claimed_by = brainstormClaim` so no
@@ -292,19 +303,39 @@ export interface FilterRowsForFROptions {
  *   rows are left alone (they fall through to the milestone "design" bucket).
  */
 export function filterRowsForFR(
-  ledger: (TokenLedgerRow & { claimed_by?: string })[],
+  ledger: TokenLedgerRow[],
   opts: FilterRowsForFROptions,
 ): TokenLedgerRow[] {
   const { branch, sessionLineage, brainstormClaim } = opts;
   const lineage = new Set(sessionLineage);
 
-  // Direct same-session rows + rows already claimed by this FR. A row
-  // claimed by a *different* FR is never selected (no double-count).
-  const selected = ledger.filter(
-    (row) =>
-      row.claimed_by === brainstormClaim ||
-      (row.claimed_by === undefined && lineage.has(row.session_id)),
-  );
+  // Resolve every row against this FR per the selection rules above; the
+  // marking here is what makes the claim durable via `claimRowsForFR`.
+  const selected: TokenLedgerRow[] = [];
+  for (const row of ledger) {
+    // Terminal — shared cost already booked to the milestone design bucket.
+    if (row.claimed_by === DESIGN_BUCKET) continue;
+
+    if (row.claimed_by === brainstormClaim) {
+      selected.push(row);
+      continue;
+    }
+
+    // Off-lineage rows are never touched, claimed or not.
+    if (!lineage.has(row.session_id)) continue;
+
+    if (row.claimed_by === undefined) {
+      // Direct path (AC-STE-396.1) — mark so a later FR sharing this session
+      // sees the claim rather than re-reporting the same rows.
+      row.claimed_by = brainstormClaim;
+      selected.push(row);
+    } else {
+      // Claimed by another FR *and* in this run's lineage ⇒ one session
+      // produced both FRs. Demote (AC-STE-396.2); neither FR gets it, and the
+      // original claimant loses it on its next run too.
+      row.claimed_by = DESIGN_BUCKET;
+    }
+  }
 
   // Bridge a detached brainstorm only when none is attached yet (neither
   // same-session nor previously claimed) — bridging is a fallback.
@@ -343,13 +374,14 @@ export function filterRowsForFR(
 
 /**
  * Durable FR-row claim (AC-STE-345.6): read the ledger, select this FR's rows
- * via `filterRowsForFR`, and — when the bridging fallback claimed new rows —
+ * via `filterRowsForFR`, and — when that run changed any row's claim, whether
+ * by claiming it or by demoting it to the design bucket (AC-STE-396.2) —
  * persist the `claimed_by` marks back to `.dpt/ledger/token-ledger.jsonl` so
  * no other FR double-counts them across separate runs. Fail-open: absent or
  * unreadable ledger returns `[]` with no write; a ledger containing malformed
  * lines is selected from but never rewritten (claims stay in-memory rather
- * than persisting over bytes we could not fully parse); no new claims ⇒ the
- * ledger bytes stay untouched.
+ * than persisting over bytes we could not fully parse); no claim changes ⇒
+ * the ledger bytes stay untouched.
  */
 export function claimRowsForFR(
   projectRoot: string,
@@ -359,15 +391,21 @@ export function claimRowsForFR(
   const ledger = readLedgerRows(projectRoot, state);
   if (ledger.length === 0) return [];
 
-  const claimedBefore = new Set(
-    ledger.filter((row) => row.claimed_by !== undefined),
+  // Snapshot each row's claim *value*, keyed by the row object. Comparing
+  // values (not just "was it claimed at all") is what catches a shared-session
+  // demotion (AC-STE-396.2), which rewrites an already-claimed row in place —
+  // a set-membership check would miss it and the demotion would never reach
+  // disk. Keying by identity rather than by index keeps the check correct
+  // however `filterRowsForFR` treats the array; the size guard covers a resize.
+  const claimsBefore = new Map<TokenLedgerRow, string | undefined>(
+    ledger.map((row) => [row, row.claimed_by]),
   );
   const selected = filterRowsForFR(ledger, opts);
 
-  const newlyClaimed = ledger.some(
-    (row) => row.claimed_by !== undefined && !claimedBefore.has(row),
-  );
-  if (newlyClaimed && !state.sawMalformed) {
+  const claimsChanged =
+    ledger.length !== claimsBefore.size ||
+    ledger.some((row) => row.claimed_by !== claimsBefore.get(row));
+  if (claimsChanged && !state.sawMalformed) {
     rewriteLedgerRows(projectRoot, ledger);
   }
   return selected;
