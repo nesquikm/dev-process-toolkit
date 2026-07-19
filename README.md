@@ -179,7 +179,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.50.0 — "Beacon"** (M109 makes staleness self-announcing: gate probe #69 walks the migration registry every run and reports consumer-artifact drift as notes that never block a merge, so `/upgrade` no longer needs a slot on the slash menu. Two silent-disable defects are repaired alongside it — probe #57's probe-count leg had been reading a line index that never matched, and the token ledger never marked directly-claimed rows, so FRs sharing a session each reported the whole session's cost.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.51.0 — "Crucible"** (M110 fixes the five high-severity shipped-plugin defects the 2026-07-19 conformance run surfaced: `/spec-write`'s milestone-allocation gate and `/report-issue`'s gist publish now route through the marker/refusal contract instead of silently no-op'ing or publishing on prose under `claude -p` (new probes #70/#71); the smoke chain-integrity check gains a liveness detector for clean-exit/zero-work captures; the socratic first-turn arbiter grows a distinct vacuous outcome and project-scoped scaffolding detection; and the Linear AC-fence strip regex is widened for the issue-mention `href` attribute an upstream change added.)
 
 ## Core Philosophy
 
