@@ -250,12 +250,12 @@ describe("AC-STE-393.6 — README probe-count pins move 68 → 69", () => {
     expect(body).not.toMatch(/layers 67 probes/);
   });
 
-  test("the Features bullet counts 69 numbered probes", () => {
-    expect(readme()).toMatch(/\b69\b\s+numbered `\/gate-check` probes/);
+  test("the Features bullet counts 71 numbered probes", () => {
+    expect(readme()).toMatch(/\b71\b\s+numbered `\/gate-check` probes/);
   });
 
-  test("the /implement-invokes-/tdd aside counts 69 probes", () => {
-    expect(readme()).toMatch(/layers 69 probes/);
+  test("the /implement-invokes-/tdd aside counts 71 probes", () => {
+    expect(readme()).toMatch(/layers 71 probes/);
   });
 });
 

@@ -63,6 +63,10 @@ export const CANONICAL_CAPABILITY_KEYS = [
   "spec_write_draft_declined",
   "spec_write_commit_default_applied",
   "spec_write_commit_declined",
+  // M110 STE-401: the milestone-allocation gate's marker-present default-apply
+  // token — routes through requireOrRefuse with the nextFreeMilestoneNumber
+  // recommendation as defaultValue (marker absent + non-tty ⇒ RequiresInputRefusedError).
+  "milestone_allocation_default_applied",
   "branch_gate_default_applied",
   "branch_gate_skipped_already_non_main",
   "branch_gate_created",
@@ -104,6 +108,10 @@ export const CANONICAL_CAPABILITY_KEYS = [
   // Both route to spec-write's § 7 static map.
   "report_issue_severity_capped_unverified",
   "report_issue_evidence_verified",
+  // M110 STE-402: the /report-issue publish gate's marker-absent + non-tty
+  // refusal token — the gist publish now routes through the three-branch
+  // marker/refusal contract; this fires when the gate refuses (no gh gist create).
+  "report_issue_publish_refused",
 ] as const;
 
 export type CapabilityKey = (typeof CANONICAL_CAPABILITY_KEYS)[number];
@@ -119,6 +127,9 @@ const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   spec_write_draft_declined: "spec-write",
   spec_write_commit_default_applied: "spec-write",
   spec_write_commit_declined: "spec-write",
+  // M110 STE-401: milestone-allocation gate default-apply; directive lives in
+  // spec-write § 3 (the milestone-allocation gate block) + § 7 static map.
+  milestone_allocation_default_applied: "spec-write",
   branch_gate_default_applied: "spec-write",
   branch_gate_skipped_already_non_main: "spec-write",
   branch_gate_created: "spec-write",
@@ -165,6 +176,10 @@ const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   // wires the emission at the evidence-check / severity-cap site.
   report_issue_severity_capped_unverified: "spec-write",
   report_issue_evidence_verified: "spec-write",
+  // M110 STE-402: the /report-issue publish-refused token; the § 7 static map
+  // carries the MUST-emit directive (canonical owner surface), report-issue
+  // wires the emission on the marker-absent + non-tty refusal path.
+  report_issue_publish_refused: "spec-write",
 };
 
 /**
