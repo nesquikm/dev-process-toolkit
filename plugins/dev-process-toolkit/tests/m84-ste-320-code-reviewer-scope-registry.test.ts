@@ -110,6 +110,13 @@ const EXPECTED_SET_A: ReadonlySet<string> = new Set([
   // § 0b step 7 (and a § 7 static-map row), the disabled leg of the 2-token
   // XOR with `token_stats_rendered`, keeping Set A = discovered directives.
   "token_stats_disabled",
+  // Post-M84 expansion (M110 STE-401/STE-402): the two marker/refusal gate
+  // tokens. The pin moves consciously 31 → 33 — `milestone_allocation_default_applied`
+  // carries a literal `MUST emit \`…\`` directive at /spec-write § 3 (the
+  // milestone-allocation gate block), and `report_issue_publish_refused` carries
+  // one in the § 7 static map — keeping Set A = discovered directives.
+  "milestone_allocation_default_applied",
+  "report_issue_publish_refused",
 ]);
 
 // Keys explicitly excluded from registration — they appear only as table-
@@ -218,7 +225,7 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
   // + severity capped/evidence verified) → 31 (M102/STE-379 token_stats_disabled,
   // the disabled leg of the token-stats opt-in 2-token XOR).
   test("CANONICAL_CAPABILITY_KEYS length is exactly 31", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(31);
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(33);
   });
 
   test("CANONICAL_CAPABILITY_KEYS contains every key in Set A", () => {
@@ -258,7 +265,7 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
     while ((match = re.exec(body)) !== null) {
       discovered.add(match[1]!);
     }
-    expect(discovered.size).toBe(31);
+    expect(discovered.size).toBe(33);
     for (const key of EXPECTED_SET_A) {
       expect(discovered.has(key)).toBe(true);
     }
