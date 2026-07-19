@@ -94,38 +94,44 @@ describe("AC-STE-391.8 — docs/upgrade-reference.md documents the registry cont
 });
 
 // ---------------------------------------------------------------------------
-// AC-STE-391.8 — count pins: 16 → 17 user-invocable at every pinned surface
+// AC-STE-391.8 — count pins at every pinned surface.
+//
+// M109 AC-STE-395.2 re-keyed these back to 16 user-invocable / 8
+// non-user-invocable (total unchanged at 24): `/upgrade` shipped under M108 as
+// the 17th user-invocable skill, then left the slash menu. The 16 ↔ 17 pins
+// below therefore INVERT — the token that used to be forbidden is now the
+// required one, and vice versa. The total-skill pins never moved.
 // ---------------------------------------------------------------------------
 
-describe("AC-STE-391.8 — README count pins move 16 → 17", () => {
+describe("AC-STE-391.8 — README count pins (M109 AC-STE-395.2: back to 16 + 8)", () => {
   const readme = (): string => readFileSync(join(REPO_ROOT, "README.md"), "utf-8");
 
-  test("no stale 16-user-invocable token survives", () => {
-    expect(readme()).not.toMatch(/16 user-invo/);
+  test("no stale 17-user-invocable token survives", () => {
+    expect(readme()).not.toMatch(/17 user-invo/);
   });
 
-  test("the lifecycle prose counts 17 user-invoked skills", () => {
-    expect(readme()).toMatch(/17 user-invo/);
+  test("the lifecycle prose counts 16 user-invoked skills", () => {
+    expect(readme()).toMatch(/16 user-invo/);
   });
 
-  test("the structure block counts 24 (17 + 7)", () => {
-    expect(readme()).toMatch(/24\s*\(17\s*\+\s*7\)/);
+  test("the structure block counts 24 (16 + 8)", () => {
+    expect(readme()).toMatch(/24\s*\(16\s*\+\s*8\)/);
   });
 
-  test("the skills table carries a /upgrade row", () => {
-    expect(readme()).toMatch(/^\|\s*`\/upgrade`/m);
+  test("the skills table no longer carries a /upgrade row", () => {
+    expect(readme()).not.toMatch(/^\|\s*`\/upgrade`/m);
   });
 });
 
-describe("AC-STE-391.8 — CLAUDE.md structure block counts move 16 → 17", () => {
+describe("AC-STE-391.8 — CLAUDE.md structure block (M109 AC-STE-395.2: back to 16 + 8)", () => {
   const claudeMd = (): string => readFileSync(join(REPO_ROOT, "CLAUDE.md"), "utf-8");
 
-  test("the skills line counts 24 slash commands (17 user-invocable + 7 dispatch)", () => {
-    expect(claudeMd()).toMatch(/24\s+slash commands\s+\(17\s+user-invocable\s+\+\s+7\s+dispatch/);
+  test("the skills line counts 24 slash commands (16 user-invocable + 8 dispatch)", () => {
+    expect(claudeMd()).toMatch(/24\s+slash commands\s+\(16\s+user-invocable\s+\+\s+8\s+dispatch/);
   });
 
-  test("no stale 16-user-invocable token survives", () => {
-    expect(claudeMd()).not.toMatch(/16\s+user-invocable/);
+  test("no stale 17-user-invocable token survives", () => {
+    expect(claudeMd()).not.toMatch(/17\s+user-invocable/);
   });
 });
 
@@ -135,14 +141,19 @@ describe("AC-STE-391.8 — CLAUDE.md structure block counts move 16 → 17", () 
 
 // `user-invocable: false` is a frontmatter field, and a SKILL.md body may also
 // quote it while documenting the fork contract — gate-check, spec-review, and
-// tdd all do. Only the frontmatter declaration decides dispatch-only status, so
-// the read is fenced to the leading `---` block.
-const declaresDispatchOnly = (body: string): boolean => {
+// tdd all do. Only the frontmatter declaration decides menu visibility, so the
+// read is fenced to the leading `---` block.
+//
+// M109 AC-STE-395.1 renamed this predicate from `declaresDispatchOnly`: the
+// predicate itself is unchanged, but the name became a lie the moment
+// `/upgrade` joined the set — it is non-user-invocable WITHOUT being a
+// `context: fork` dispatch child.
+const declaresNonUserInvocable = (body: string): boolean => {
   const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(body)?.[1] ?? "";
   return /^user-invocable:[ \t]*false[ \t]*$/m.test(frontmatter);
 };
 
-describe("AC-STE-391.9 — skills/ ground truth: 24 dirs, 17 user-invocable", () => {
+describe("AC-STE-391.9 — skills/ ground truth: 24 dirs, 16 user-invocable", () => {
   const skillDirs = (): string[] =>
     readdirSync(SKILLS_DIR).filter((name) => statSync(join(SKILLS_DIR, name)).isDirectory());
 
@@ -152,12 +163,12 @@ describe("AC-STE-391.9 — skills/ ground truth: 24 dirs, 17 user-invocable", ()
     expect(dirs).toContain("upgrade");
   });
 
-  test("exactly 17 skills are user-invocable (no `user-invocable: false`), upgrade among them", () => {
+  test("exactly 16 skills are user-invocable (no `user-invocable: false`), upgrade NOT among them", () => {
     const userInvocable = skillDirs().filter(
-      (dir) => !declaresDispatchOnly(readFileSync(join(SKILLS_DIR, dir, "SKILL.md"), "utf-8")),
+      (dir) => !declaresNonUserInvocable(readFileSync(join(SKILLS_DIR, dir, "SKILL.md"), "utf-8")),
     );
-    expect(userInvocable.length).toBe(17);
-    expect(userInvocable).toContain("upgrade");
+    expect(userInvocable.length).toBe(16);
+    expect(userInvocable).not.toContain("upgrade");
   });
 });
 

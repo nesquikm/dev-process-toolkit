@@ -25,7 +25,7 @@ name: my-skill                    # Display name, becomes /my-skill. Lowercase, 
 description: What it does         # Claude uses this to decide relevance. Under 250 chars; front-load the key use case.
 argument-hint: '<arg> [optional]' # Shown in autocomplete
 disable-model-invocation: true    # Only user can trigger (not Claude/subagents). Reserve for bootstrap-style skills that rewrite project scaffolding (e.g., /setup). Avoid on composable skills — it blocks legitimate agent-team composition.
-user-invocable: false             # Only Claude can trigger (hidden from / menu). Use for background knowledge.
+user-invocable: false             # Only Claude can trigger (hidden from / menu). Three uses: background knowledge, fork children, and menu de-listing (see below).
 allowed-tools: Read, Grep, Glob   # Tool restrictions when skill is active
 model: sonnet                     # Model override
 effort: low                       # Effort level: low, medium, high, max (Opus 4.6 only). Overrides session default.
@@ -44,6 +44,16 @@ shell: bash                       # Shell for !`command` blocks: bash (default) 
 | (default)                        | Yes            | Yes               | Description always in context, full skill loads when invoked |
 | `disable-model-invocation: true` | Yes            | No                | Description not in context, full skill loads when you invoke |
 | `user-invocable: false`          | No             | Yes               | Description always in context, full skill loads when invoked |
+
+### `user-invocable: false` — three distinct cases
+
+The flag hides a skill from the `/` menu without touching model invocation, and the toolkit reaches for it for three different reasons:
+
+1. **Background knowledge** — the skill exists so its description sits in context and Claude can pull the body in when a task turns out to need it.
+2. **Fork children** — dispatch-only skills paired with `context: fork` + `agent:` (`spec-research`, `deps-research`, `spec-review-audit`, and the four `tdd-*` children). A human never invokes them, and Claude only reaches them through their orchestrator.
+3. **Menu de-listing** — a real user-facing workflow deliberately taken off the `/` menu because a deterministic probe is a better discovery path than a menu slot the user has to already know about.
+
+`/upgrade` is the worked example of case 3, and it is the case the two rows above do not cover: it carries `user-invocable: false` while being neither a fork child nor background knowledge. There is no `context: fork` and no paired `agent:` — it runs in the main context, writes files, and produces a commit like any other workflow skill. Model invocation is deliberately preserved (it does **not** carry `disable-model-invocation: true`), so Claude can still run it when a project's bootstrap has drifted. Discovery moves to `/gate-check` probe #69 (`upgrade_staleness`), which detects the stale bootstrap and names the remedy — which is strictly better than a menu entry, because the probe fires without the user suspecting anything is wrong.
 
 ### `allowed-tools` convention (read-only-by-design skills)
 

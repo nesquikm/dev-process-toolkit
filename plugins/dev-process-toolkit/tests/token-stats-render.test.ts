@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   filterRowsForFR,
+  renderMilestoneRollup,
   renderTokenStatsBlock,
   upsertTokenStatsBlock,
 } from "../adapters/_shared/src/token_stats_render";
@@ -312,5 +313,584 @@ describe("AC-STE-345.6 — filterRowsForFR brainstorm→FR bridging", () => {
       brainstormClaim: "STE-346",
     });
     expect(forOther).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STE-396 — same-session double-count fix: direct-path marking + shared-session
+// demotion to the milestone design bucket.
+//
+// AC-STE-396.1 — `filterRowsForFR` marks direct-path rows: a row selected
+//   because its `session_id` is in `sessionLineage` and it carries no prior
+//   claim is assigned `claimed_by = <brainstormClaim>`.
+// AC-STE-396.2 — shared-session demotion: a row already claimed by a DIFFERENT
+//   FR whose `session_id` is in this run's lineage is re-marked
+//   `claimed_by = design/exploration` and returned to NEITHER FR. A row claimed
+//   by a different FR from a DIFFERENT session stays claimed, as today.
+// AC-STE-396.3 — demotion is idempotent and order-independent.
+// AC-STE-396.5 — rollup attribution: demoted rows render under the design
+//   bucket, FR-claimed rows get their per-FR subtotal lines, and the milestone
+//   `total` row never moves.
+// AC-STE-396.6 — sum invariant: per-FR blocks + design bucket == ledger total,
+//   every row counted exactly once, over a multi-FR / multi-session fixture.
+// AC-STE-396.8 — bridging is untouched: the detached-brainstorm claim path
+//   still marks the bridged rows with the FR id, never the design bucket.
+// ---------------------------------------------------------------------------
+
+/** Existing module constant reused as the demotion sentinel (token_stats_render.ts). */
+const DESIGN_BUCKET = "design/exploration";
+// Mirrors the module-private constant in token_stats_render.ts (not exported).
+const BRAINSTORM_SKILL = "dev-process-toolkit:brainstorm";
+
+/** Token columns, in render order, of one parsed markdown table row. */
+type Totals = [number, number, number, number];
+
+function zeroTotals(): Totals {
+  return [0, 0, 0, 0];
+}
+
+/** Trimmed cells of a markdown table line, outer pipes dropped. */
+function cells(line: string): string[] {
+  return line
+    .split("|")
+    .map((c) => c.trim())
+    .slice(1, -1);
+}
+
+/** The four token numbers of a rendered block's `subtotal` row. */
+function subtotalOf(block: string): Totals {
+  const line = block
+    .split("\n")
+    .find((l) => /^\|\s*subtotal\s*\|/.test(l.trimStart()));
+  expect(line).toBeDefined();
+  const nums = cells(line as string)
+    .slice(2)
+    .map(Number);
+  expect(nums).toHaveLength(4);
+  return nums as Totals;
+}
+
+/** Column sums of every rollup table line whose label cell equals `label`. */
+function bucketTotals(block: string, label: string): Totals {
+  const totals = zeroTotals();
+  for (const line of block.split("\n")) {
+    if (!line.trimStart().startsWith("|")) continue;
+    const c = cells(line);
+    if (c[0] !== label) continue;
+    for (let i = 0; i < 4; i++) totals[i] += Number(c[i + 2]);
+  }
+  return totals;
+}
+
+/** Column sums straight off the raw ledger rows. */
+function ledgerTotals(rows: TokenLedgerRow[]): Totals {
+  const totals = zeroTotals();
+  for (const r of rows) {
+    totals[0] += r.input_tokens;
+    totals[1] += r.output_tokens;
+    totals[2] += r.cache_read_input_tokens;
+    totals[3] += r.cache_creation_input_tokens;
+  }
+  return totals;
+}
+
+/** `claimed_by` of every ledger row, keyed by session|skill — the terminal state. */
+function claimState(ledger: ClaimableRow[]): Record<string, string> {
+  const state: Record<string, string> = {};
+  for (const r of ledger) state[keyOf(r)] = r.claimed_by ?? "(unclaimed)";
+  return state;
+}
+
+describe("AC-STE-396.1 — filterRowsForFR marks direct-path rows with the claiming FR", () => {
+  const opts = {
+    branch: BRANCH,
+    sessionLineage: ["sess-current"],
+    brainstormClaim: "STE-396",
+  };
+
+  test("an unclaimed row whose session is in the lineage is assigned claimed_by = brainstormClaim", () => {
+    const direct = makeRow({
+      skill: "dev-process-toolkit:spec-write",
+      session_id: "sess-current",
+    });
+    const ledger: ClaimableRow[] = [direct];
+
+    const selected = filterRowsForFR(ledger, opts);
+
+    expect(keysOf(selected)).toEqual(keysOf([direct]));
+    // The mark is what makes claimRowsForFR's claim-value diff persist it.
+    expect(direct.claimed_by).toBe("STE-396");
+  });
+
+  test("every direct-path row of a multi-skill session is marked, not just the brainstorm one", () => {
+    const brainstorm = makeRow({
+      skill: "dev-process-toolkit:brainstorm",
+      session_id: "sess-current",
+    });
+    const specWrite = makeRow({
+      skill: "dev-process-toolkit:spec-write",
+      session_id: "sess-current",
+    });
+    const implement = makeRow({
+      skill: "dev-process-toolkit:implement",
+      session_id: "sess-current",
+    });
+    const ledger: ClaimableRow[] = [brainstorm, specWrite, implement];
+
+    filterRowsForFR(ledger, opts);
+
+    expect(ledger.map((r) => r.claimed_by)).toEqual([
+      "STE-396",
+      "STE-396",
+      "STE-396",
+    ]);
+  });
+
+  test("rows outside the lineage are left unmarked (no over-claiming)", () => {
+    const outside = makeRow({
+      skill: "dev-process-toolkit:implement",
+      session_id: "sess-elsewhere",
+    });
+    const ledger: ClaimableRow[] = [outside];
+
+    const selected = filterRowsForFR(ledger, opts);
+
+    expect(selected).toHaveLength(0);
+    expect(outside.claimed_by).toBeUndefined();
+  });
+});
+
+describe("AC-STE-396.2 — shared-session rows are demoted to the design bucket", () => {
+  test("row claimed by a DIFFERENT FR whose session IS in this lineage is re-marked design/exploration and returned to neither FR", () => {
+    const shared = makeRow({
+      skill: "dev-process-toolkit:spec-write",
+      session_id: "sess-shared",
+      claimed_by: "STE-394",
+    });
+    const ledger: ClaimableRow[] = [shared];
+
+    const selected = filterRowsForFR(ledger, {
+      branch: BRANCH,
+      sessionLineage: ["sess-shared"],
+      brainstormClaim: "STE-395",
+    });
+
+    // Returned to neither FR.
+    expect(selected).toHaveLength(0);
+    // Re-marked with the design-bucket sentinel, not either FR id.
+    expect(shared.claimed_by).toBe(DESIGN_BUCKET);
+  });
+
+  test("the first FR loses the row too: re-selecting for the original claimant returns nothing", () => {
+    const shared = makeRow({
+      skill: "dev-process-toolkit:spec-write",
+      session_id: "sess-shared",
+      claimed_by: "STE-394",
+    });
+    const ledger: ClaimableRow[] = [shared];
+
+    filterRowsForFR(ledger, {
+      branch: BRANCH,
+      sessionLineage: ["sess-shared"],
+      brainstormClaim: "STE-395",
+    });
+
+    const backToFirst = filterRowsForFR(ledger, {
+      branch: BRANCH,
+      sessionLineage: ["sess-shared"],
+      brainstormClaim: "STE-394",
+    });
+    expect(backToFirst).toHaveLength(0);
+    expect(shared.claimed_by).toBe(DESIGN_BUCKET);
+  });
+
+  test("row claimed by a different FR from a DIFFERENT session stays claimed and is simply not selected (unchanged behaviour)", () => {
+    const foreign = makeRow({
+      skill: "dev-process-toolkit:spec-write",
+      session_id: "sess-theirs",
+      claimed_by: "STE-394",
+    });
+    const ledger: ClaimableRow[] = [foreign];
+
+    const selected = filterRowsForFR(ledger, {
+      branch: BRANCH,
+      sessionLineage: ["sess-mine"],
+      brainstormClaim: "STE-395",
+    });
+
+    expect(selected).toHaveLength(0);
+    expect(foreign.claimed_by).toBe("STE-394");
+  });
+
+  test("partial lineage overlap demotes only the shared session's rows", () => {
+    const onlyA = makeRow({
+      skill: "dev-process-toolkit:spec-write",
+      session_id: "sess-a-only",
+      claimed_by: "STE-394",
+    });
+    const shared = makeRow({
+      skill: "dev-process-toolkit:implement",
+      session_id: "sess-both",
+      claimed_by: "STE-394",
+    });
+    const onlyB = makeRow({
+      skill: "dev-process-toolkit:implement",
+      session_id: "sess-b-only",
+    });
+    const ledger: ClaimableRow[] = [onlyA, shared, onlyB];
+
+    const selected = filterRowsForFR(ledger, {
+      branch: BRANCH,
+      sessionLineage: ["sess-both", "sess-b-only"],
+      brainstormClaim: "STE-395",
+    });
+
+    expect(onlyA.claimed_by).toBe("STE-394");
+    expect(shared.claimed_by).toBe(DESIGN_BUCKET);
+    expect(onlyB.claimed_by).toBe("STE-395");
+    expect(keysOf(selected)).toEqual(keysOf([onlyB]));
+  });
+});
+
+describe("AC-STE-396.3 — demotion is idempotent and order-independent", () => {
+  const FR_A = { sessionLineage: ["sess-shared"], brainstormClaim: "STE-394" };
+  const FR_B = { sessionLineage: ["sess-shared"], brainstormClaim: "STE-395" };
+  const FR_C = { sessionLineage: ["sess-shared"], brainstormClaim: "STE-396" };
+
+  function sharedLedger(): ClaimableRow[] {
+    return [
+      makeRow({ skill: "dev-process-toolkit:spec-write", session_id: "sess-shared" }),
+      makeRow({ skill: "dev-process-toolkit:implement", session_id: "sess-shared" }),
+    ];
+  }
+
+  test("A-then-B and B-then-A reach the same terminal ledger state (both rows demoted)", () => {
+    const forward = sharedLedger();
+    filterRowsForFR(forward, { branch: BRANCH, ...FR_A });
+    filterRowsForFR(forward, { branch: BRANCH, ...FR_B });
+
+    const reverse = sharedLedger();
+    filterRowsForFR(reverse, { branch: BRANCH, ...FR_B });
+    filterRowsForFR(reverse, { branch: BRANCH, ...FR_A });
+
+    expect(claimState(forward)).toEqual(claimState(reverse));
+    expect(forward.map((r) => r.claimed_by)).toEqual([
+      DESIGN_BUCKET,
+      DESIGN_BUCKET,
+    ]);
+  });
+
+  test("a third FR from the same session changes nothing further and gets nothing", () => {
+    const ledger = sharedLedger();
+    filterRowsForFR(ledger, { branch: BRANCH, ...FR_A });
+    filterRowsForFR(ledger, { branch: BRANCH, ...FR_B });
+    const before = claimState(ledger);
+
+    const third = filterRowsForFR(ledger, { branch: BRANCH, ...FR_C });
+
+    expect(third).toHaveLength(0);
+    expect(claimState(ledger)).toEqual(before);
+  });
+
+  test("re-running any claim after demotion is a no-op", () => {
+    const ledger = sharedLedger();
+    filterRowsForFR(ledger, { branch: BRANCH, ...FR_A });
+    filterRowsForFR(ledger, { branch: BRANCH, ...FR_B });
+    const settled = claimState(ledger);
+
+    for (const fr of [FR_A, FR_B, FR_A]) {
+      const again = filterRowsForFR(ledger, { branch: BRANCH, ...fr });
+      expect(again).toHaveLength(0);
+      expect(claimState(ledger)).toEqual(settled);
+    }
+  });
+});
+
+describe("AC-STE-396.5 — rollup attribution: design bucket for demoted rows, subtotals for FR-claimed rows, total pinned", () => {
+  test("per-FR subtotal lines are emitted for direct-path rows that stay FR-claimed", () => {
+    const brainstorm = makeRow({
+      skill: "dev-process-toolkit:brainstorm",
+      model: "claude-opus-4",
+      session_id: "sess-solo",
+      input_tokens: 5,
+      output_tokens: 50,
+      cache_read_input_tokens: 500,
+      cache_creation_input_tokens: 5000,
+    });
+    const specWrite = makeRow({
+      skill: "dev-process-toolkit:spec-write",
+      model: "claude-opus-4",
+      session_id: "sess-solo",
+      input_tokens: 7,
+      output_tokens: 70,
+      cache_read_input_tokens: 700,
+      cache_creation_input_tokens: 7000,
+    });
+    const ledger: ClaimableRow[] = [brainstorm, specWrite];
+
+    filterRowsForFR(ledger, {
+      branch: BRANCH,
+      sessionLineage: ["sess-solo"],
+      brainstormClaim: "STE-396",
+    });
+
+    const rollup = renderMilestoneRollup(ledger, { frOrder: ["STE-396"] });
+
+    // AC-STE-346.2's promised per-FR subtotal line, restored.
+    expect(bucketTotals(rollup, "STE-396")).toEqual([12, 120, 1200, 12000]);
+    // No skill-labelled fallback lines survive for claimed rows.
+    expect(rollup).not.toContain("dev-process-toolkit:spec-write");
+  });
+
+  test("demoted rows render under the existing design/exploration bucket", () => {
+    const a = makeRow({
+      skill: "dev-process-toolkit:spec-write",
+      model: "claude-opus-4",
+      session_id: "sess-shared",
+      input_tokens: 3,
+      output_tokens: 30,
+      cache_read_input_tokens: 300,
+      cache_creation_input_tokens: 3000,
+    });
+    const ledger: ClaimableRow[] = [a];
+
+    filterRowsForFR(ledger, {
+      branch: BRANCH,
+      sessionLineage: ["sess-shared"],
+      brainstormClaim: "STE-394",
+    });
+    filterRowsForFR(ledger, {
+      branch: BRANCH,
+      sessionLineage: ["sess-shared"],
+      brainstormClaim: "STE-395",
+    });
+
+    const rollup = renderMilestoneRollup(ledger, {
+      frOrder: ["STE-394", "STE-395"],
+    });
+
+    expect(bucketTotals(rollup, DESIGN_BUCKET)).toEqual([3, 30, 300, 3000]);
+    expect(bucketTotals(rollup, "STE-394")).toEqual([0, 0, 0, 0]);
+    expect(bucketTotals(rollup, "STE-395")).toEqual([0, 0, 0, 0]);
+  });
+
+  test("the milestone total row is unchanged by demotion — rows move between buckets, never out of the total", () => {
+    const pristine = makeRow({
+      skill: "dev-process-toolkit:spec-write",
+      model: "claude-opus-4",
+      session_id: "sess-shared",
+      input_tokens: 3,
+      output_tokens: 30,
+      cache_read_input_tokens: 300,
+      cache_creation_input_tokens: 3000,
+    });
+    const frOrder = ["STE-394", "STE-395"];
+    const before = bucketTotals(
+      renderMilestoneRollup([pristine], { frOrder }),
+      "total",
+    );
+
+    const ledger: ClaimableRow[] = [pristine];
+    filterRowsForFR(ledger, {
+      branch: BRANCH,
+      sessionLineage: ["sess-shared"],
+      brainstormClaim: "STE-394",
+    });
+    filterRowsForFR(ledger, {
+      branch: BRANCH,
+      sessionLineage: ["sess-shared"],
+      brainstormClaim: "STE-395",
+    });
+
+    const after = bucketTotals(renderMilestoneRollup(ledger, { frOrder }), "total");
+    expect(after).toEqual(before);
+    expect(after).toEqual([3, 30, 300, 3000]);
+  });
+});
+
+describe("AC-STE-396.6 — sum invariant: per-FR blocks + design bucket == ledger total, exactly once", () => {
+  // Two sessions, three FRs (two of them sharing `sess-1`), and one detached
+  // brainstorm — so the bridging and direct paths are exercised together.
+  // Column totals: 31 / 310 / 3100 / 31000.
+  function invariantLedger(): ClaimableRow[] {
+    return [
+      makeRow({
+        skill: "dev-process-toolkit:brainstorm",
+        model: "claude-opus-4",
+        session_id: "sess-1",
+        ts: "2026-07-01T09:00:00Z",
+        input_tokens: 1,
+        output_tokens: 10,
+        cache_read_input_tokens: 100,
+        cache_creation_input_tokens: 1000,
+      }),
+      makeRow({
+        skill: "dev-process-toolkit:spec-write",
+        session_id: "sess-1",
+        input_tokens: 2,
+        output_tokens: 20,
+        cache_read_input_tokens: 200,
+        cache_creation_input_tokens: 2000,
+      }),
+      makeRow({
+        skill: "dev-process-toolkit:implement",
+        session_id: "sess-1",
+        input_tokens: 4,
+        output_tokens: 40,
+        cache_read_input_tokens: 400,
+        cache_creation_input_tokens: 4000,
+      }),
+      makeRow({
+        skill: "dev-process-toolkit:spec-write",
+        session_id: "sess-2",
+        input_tokens: 8,
+        output_tokens: 80,
+        cache_read_input_tokens: 800,
+        cache_creation_input_tokens: 8000,
+      }),
+      // Detached brainstorm — latest `ts`, so it deterministically wins bridging.
+      makeRow({
+        skill: "dev-process-toolkit:brainstorm",
+        model: "claude-opus-4",
+        session_id: "sess-detached",
+        ts: "2026-07-05T09:00:00Z",
+        input_tokens: 16,
+        output_tokens: 160,
+        cache_read_input_tokens: 1600,
+        cache_creation_input_tokens: 16000,
+      }),
+    ];
+  }
+
+  const frs = [
+    { sessionLineage: ["sess-1"], brainstormClaim: "STE-A" },
+    { sessionLineage: ["sess-1"], brainstormClaim: "STE-B" },
+    { sessionLineage: ["sess-2"], brainstormClaim: "STE-C" },
+  ];
+  const frOrder = ["STE-A", "STE-B", "STE-C"];
+
+  function permutations<T>(items: T[]): T[][] {
+    if (items.length <= 1) return [items];
+    const out: T[][] = [];
+    for (let i = 0; i < items.length; i++) {
+      const rest = [...items.slice(0, i), ...items.slice(i + 1)];
+      for (const tail of permutations(rest)) out.push([items[i] as T, ...tail]);
+    }
+    return out;
+  }
+
+  for (const order of permutations(frs)) {
+    const name = order.map((f) => f.brainstormClaim).join(" → ");
+
+    test(`claim order ${name}: every ledger row lands in exactly one bucket`, () => {
+      const ledger = invariantLedger();
+      const total = ledgerTotals(ledger);
+
+      // Pass 1 — claims settle in this order.
+      for (const fr of order) {
+        filterRowsForFR(ledger, { branch: BRANCH, ...fr });
+      }
+
+      // Pass 2 — the AC-STE-396.4 re-render: every touched FR is re-selected
+      // AFTER all claims settle, so a retroactive demotion is reflected.
+      const selections = frs.map((fr) => ({
+        claim: fr.brainstormClaim,
+        rows: filterRowsForFR(ledger, { branch: BRANCH, ...fr }),
+      }));
+
+      // Disjoint: no ledger row is claimed by two FRs.
+      const seen = new Set<TokenLedgerRow>();
+      for (const { rows } of selections) {
+        for (const r of rows) {
+          expect(seen.has(r)).toBe(false);
+          seen.add(r);
+        }
+      }
+
+      const frSum = zeroTotals();
+      for (const { rows } of selections) {
+        const sub = subtotalOf(renderTokenStatsBlock(rows));
+        for (let i = 0; i < 4; i++) frSum[i] += sub[i];
+      }
+      const rollup = renderMilestoneRollup(ledger, { frOrder });
+      const design = bucketTotals(rollup, DESIGN_BUCKET);
+
+      // STRUCTURAL property (holds for ANY ledger): the milestone total is the
+      // ledger total — relabeling only moves rows between buckets, so nothing
+      // can be gained or lost. This is what AC-STE-396.6 actually guarantees.
+      expect(bucketTotals(rollup, "total")).toEqual(total);
+
+      // FIXTURE-SCOPED check: `frSum + design == total` is NOT universal — an
+      // unattributed non-brainstorm row on a session no FR owns forms its own
+      // rollup bucket and breaks the equation without any regression (see
+      // AC-STE-396.6's restatement). It holds here only because this ledger
+      // leaves no such row, which the guard below pins so the equation cannot
+      // silently start meaning something weaker if the fixture grows.
+      const bucketed = new Set([...frOrder, DESIGN_BUCKET]);
+      const unbucketed = ledger.filter(
+        (r) => !bucketed.has(r.claimed_by ?? "") && r.skill !== BRAINSTORM_SKILL,
+      );
+      expect(unbucketed).toEqual([]);
+      for (let i = 0; i < 4; i++) {
+        expect(frSum[i] + design[i]).toBe(total[i]);
+      }
+    });
+  }
+
+  test("the re-render pass is stable: a third pass returns the same selections", () => {
+    const ledger = invariantLedger();
+    for (const fr of frs) filterRowsForFR(ledger, { branch: BRANCH, ...fr });
+
+    const second = frs.map((fr) =>
+      keysOf(filterRowsForFR(ledger, { branch: BRANCH, ...fr })),
+    );
+    const third = frs.map((fr) =>
+      keysOf(filterRowsForFR(ledger, { branch: BRANCH, ...fr })),
+    );
+    expect(third).toEqual(second);
+  });
+});
+
+describe("AC-STE-396.8 — bridging is untouched by the demotion path", () => {
+  test("a detached brainstorm is still bridged and marked with the FR id, never the design bucket", () => {
+    const detached = makeRow({
+      skill: "dev-process-toolkit:brainstorm",
+      session_id: "sess-detached",
+      ts: "2026-06-30T09:00:00Z",
+    });
+    const own = makeRow({
+      skill: "dev-process-toolkit:spec-write",
+      session_id: "sess-current",
+    });
+    const ledger: ClaimableRow[] = [detached, own];
+
+    const selected = filterRowsForFR(ledger, {
+      branch: BRANCH,
+      sessionLineage: ["sess-current"],
+      brainstormClaim: "STE-396",
+    });
+
+    expect(keysOf(selected)).toEqual(keysOf([detached, own]));
+    expect(detached.claimed_by).toBe("STE-396");
+    expect(detached.claimed_by).not.toBe(DESIGN_BUCKET);
+  });
+
+  test("a bridged row is NOT demoted by a later FR whose lineage excludes the detached session", () => {
+    const detached = makeRow({
+      skill: "dev-process-toolkit:brainstorm",
+      session_id: "sess-detached",
+      ts: "2026-06-30T09:00:00Z",
+      claimed_by: "STE-394",
+    });
+    const ledger: ClaimableRow[] = [detached];
+
+    const selected = filterRowsForFR(ledger, {
+      branch: BRANCH,
+      sessionLineage: ["sess-other"],
+      brainstormClaim: "STE-395",
+    });
+
+    expect(selected).toHaveLength(0);
+    expect(detached.claimed_by).toBe("STE-394");
   });
 });

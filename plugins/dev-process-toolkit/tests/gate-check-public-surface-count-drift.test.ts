@@ -375,9 +375,11 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
 
   test("README.md carries the byte-exact post-backfill tokens", () => {
     const readme = readFileSync(join(repoRoot, "README.md"), "utf-8");
-    // M108/STE-391 recalibration: `/upgrade` is the 17th user-invocable skill,
-    // so every count token below moved 16 → 17 / 23 → 24. Probe counts are
-    // untouched.
+    // M108/STE-391 recalibration: `/upgrade` shipped as the 17th user-invocable
+    // skill, moving 16 → 17 / 23 → 24. M109/STE-395 then de-listed it
+    // (`user-invocable: false`), so the user-invocable half went BACK to 16 and
+    // the non-user-invocable half to 8. The on-disk TOTAL never moved off 24.
+    // Probe counts are untouched by both.
     //
     // Each token is located by a content anchor rather than a line index. These
     // assertions used to pin absolute line numbers, which made every cosmetic
@@ -387,22 +389,24 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     // makes a line that line; `onlyLine` still asserts uniqueness, so the
     // "this exact line" precision survives.
 
-    // "17 commands, 8 agents" — the one-paragraph pitch under the H1.
+    // "16 commands, 8 agents" — the one-paragraph pitch under the H1.
     expect(onlyLine(readme, /^A Claude Code plugin that adds/)).toMatch(
-      /17 commands?,\s+8 agents?/,
+      /16 commands?,\s+8 agents?/,
     );
-    // 68 numbered probes (M108/STE-393 added #68 migration_coverage on top of
-    // M105/STE-386's #67 fr_summary_altitude) — the Features bullet.
-    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b68\b.*numbered/);
-    // "68 probes" — the /implement-invokes-/tdd paragraph's aside.
-    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b68\b\s+probes/);
-    // "Seven additional skills" — still seven: `/upgrade` is user-invocable, so
-    // the dispatch half of the split is unchanged.
+    // 69 numbered probes (M109/STE-394 added #69 upgrade_staleness on top of
+    // M108/STE-393's #68 migration_coverage) — the Features bullet.
+    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b69\b.*numbered/);
+    // "69 probes" — the /implement-invokes-/tdd paragraph's aside.
+    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b69\b\s+probes/);
+    // "Eight additional skills" — M109/STE-395: `/upgrade` joined the
+    // non-user-invocable set, so the byte-strict literal moved seven → eight.
+    // It is NOT a fork child, which is why the paragraph's `context: fork`
+    // claim had to be split rather than merely re-counted.
     expect(onlyLine(readme, /additional skills \(`spec-research`/)).toMatch(
-      /Seven additional skills/,
+      /Eight additional skills/,
     );
-    // "24 (17 + 7)" — the skills/ row of the repo-tree block.
-    expect(onlyLine(readme, /^│\s+├── skills\//)).toMatch(/24\s+\(17\s*\+\s*7\)/);
+    // "24 (16 + 8)" — the skills/ row of the repo-tree block.
+    expect(onlyLine(readme, /^│\s+├── skills\//)).toMatch(/24\s+\(16\s*\+\s*8\)/);
     // "8 specialist agents" with spec-reviewer enumerated — the agents/ row.
     // M108 ships no new agent — the registry is a library, not a subagent.
     const agentsRow = onlyLine(readme, /^│\s+├── agents\//);
@@ -412,10 +416,13 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
 
   test("CLAUDE.md carries the byte-exact post-backfill tokens", () => {
     const claudeMd = readFileSync(join(repoRoot, "CLAUDE.md"), "utf-8");
-    // "24 slash commands (17 user-invocable + 7 dispatch …)" (M108/STE-391:
-    // `/upgrade` is the 17th user-invocable skill; the dispatch half is unchanged)
+    // "24 slash commands (16 user-invocable + 8 dispatch …)" (M109/STE-395:
+    // `/upgrade` left the menu, so the split moved 17+7 → 16+8; the total holds
+    // at 24). This literal is load-bearing beyond its numbers — the probe's
+    // `splitMatch` regex reads it, and rewording off the regex silently
+    // disables the whole README-versus-CLAUDE leg (AC-STE-395.4).
     expect(onlyLine(claudeMd, /^├── skills\//)).toMatch(
-      /24\s+slash commands\s+\(17\s+user-invocable\s+\+\s+7\s+dispatch/,
+      /24\s+slash commands\s+\(16\s+user-invocable\s+\+\s+8\s+dispatch/,
     );
     // "8 subagent templates"
     const agentsRow = onlyLine(claudeMd, /^├── agents\//);
@@ -582,6 +589,393 @@ describe("AC-STE-315.5 — synthetic fixture coverage: PASS + 3 FAIL cases", () 
       expect(msg).toMatch(/Context:/);
       expect(msg).toMatch(/\b6\b/);
       expect(msg).toMatch(/\b8\b/);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M109 STE-394 AC-STE-394.8 — repair the DEAD probe-count leg.
+//
+// `parseReadmeTokens` read the probe token off a FIXED index (`lines[9]`, i.e.
+// README line 10). The token has not lived on line 10 for a long time — README
+// line 10 is the `## Features` heading and the `N numbered` token sits at line
+// 14 — so the regex never matched, `readmeProbes` stayed permanently
+// `undefined`, and the probe-count comparison was skipped with zero violations.
+// Case (c) above passes only because its synthetic README puts the token on
+// line 10 by construction: the fixture was shaped around the bug.
+//
+// The repair anchors the parse BY CONTENT (scan for the `N numbered` token),
+// and the assertions below are the non-vacuity proof the leg actually fires:
+// a README whose probe count disagrees with disk MUST produce a violation.
+// These are RED against today's code — that is the point.
+// ---------------------------------------------------------------------------
+
+describe("AC-STE-394.8 — the probe-count leg is live, not silently skipped", () => {
+  const realReadme = (): string => readFileSync(join(repoRoot, "README.md"), "utf-8");
+
+  /** The probe count the real README documents, whatever the current calibration. */
+  function documentedProbeCount(readme: string): number {
+    const m = readme.match(/(\d+) numbered `\/gate-check` probes/);
+    if (m === null) throw new Error("README carries no `N numbered /gate-check probes` token");
+    return Number(m[1]);
+  }
+
+  /** The 1-based README line the probe token actually lives on. */
+  function tokenLine(readme: string): number {
+    const idx = readme
+      .split("\n")
+      .findIndex((l) => /\d+ numbered `\/gate-check` probes/.test(l));
+    if (idx < 0) throw new Error("README carries no probe-count token line");
+    return idx + 1;
+  }
+
+  // Must agree with the REAL README bytes these fixtures pair it with. STE-395
+  // re-keyed that README to `16 commands`, so a 17/7 split here would silently
+  // fire the cross-doc commands leg — invisible to the probe-count-filtered
+  // assertions below, and it would make the "no over-fire" case a false green.
+  const matchingClaudeMd = claudeMdWith({
+    skillsLine:
+      "├── skills/                              → 24 slash commands (16 user-invocable + 8 dispatch)",
+    agentsLine: "├── agents/                              → 8 subagent templates",
+  });
+
+  test("the parse is anchored by content, not by a fixed line index", () => {
+    const src = readFileSync(probeModulePath, "utf-8");
+    // The dead fixed-index read is gone. `lines[9]` is the whole bug.
+    expect(src).not.toContain("lines[9]");
+    expect(src).not.toMatch(/const\s+line10\b/);
+  });
+
+  test("REAL README bytes + a disagreeing disk count ⇒ a probe-count violation", async () => {
+    const readme = realReadme();
+    const documented = documentedProbeCount(readme);
+    const fx = makeFixture({
+      skillsCount: 24,
+      agentsCount: 8,
+      // Deliberately one higher than what the README documents.
+      maxProbeNumber: documented + 1,
+      readmeContent: readme,
+      claudeMdContent: matchingClaudeMd,
+    });
+    try {
+      const r = await runPublicSurfaceCountDriftProbe(fx.root);
+      const hit = r.violations.find(
+        (v) => v.file === "README.md" && /probe count/i.test(v.reason),
+      );
+      expect(hit).toBeDefined();
+      expect(hit!.message).toContain(String(documented));
+      expect(hit!.message).toContain(String(documented + 1));
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("the violation anchors at the line the token really occupies — not line 10", async () => {
+    const readme = realReadme();
+    const documented = documentedProbeCount(readme);
+    const line = tokenLine(readme);
+    // The premise of the repair: the token has moved off the hard-coded index.
+    expect(line).not.toBe(10);
+    const fx = makeFixture({
+      skillsCount: 24,
+      agentsCount: 8,
+      maxProbeNumber: documented + 1,
+      readmeContent: readme,
+      claudeMdContent: matchingClaudeMd,
+    });
+    try {
+      const r = await runPublicSurfaceCountDriftProbe(fx.root);
+      const hit = r.violations.find(
+        (v) => v.file === "README.md" && /probe count/i.test(v.reason),
+      );
+      expect(hit).toBeDefined();
+      expect(hit!.line).toBe(line);
+      expect(hit!.message).toMatch(new RegExp(`^README\\.md:${line}:\\d+ — `, "m"));
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("a synthetic README with the token well past line 10 still parses", async () => {
+    // 20 lines of preamble, token on line 21 — nowhere near any fixed index.
+    const readmeContent = [
+      "# Dev Process Toolkit",
+      "",
+      "A Claude Code plugin. Includes 17 commands, 8 agents, spec templates, and documentation.",
+      "",
+      "<p align=\"center\">",
+      "  <img src=\"assets/banner.jpg\" alt=\"banner\" width=\"600\">",
+      "</p>",
+      "",
+      "## Features",
+      "",
+      "- a",
+      "- b",
+      "- c",
+      "- d",
+      "- e",
+      "- f",
+      "- g",
+      "- h",
+      "- i",
+      "- j",
+      "- **Deterministic quality gates** — 42 numbered `/gate-check` probes override LLM judgment",
+      "",
+    ].join("\n");
+    const fx = makeFixture({
+      skillsCount: 24,
+      agentsCount: 8,
+      maxProbeNumber: 69, // disagrees with the documented 42
+      readmeContent,
+      claudeMdContent: matchingClaudeMd,
+    });
+    try {
+      const r = await runPublicSurfaceCountDriftProbe(fx.root);
+      const hit = r.violations.find(
+        (v) => v.file === "README.md" && /probe count/i.test(v.reason),
+      );
+      expect(hit).toBeDefined();
+      expect(hit!.line).toBe(21);
+      expect(hit!.message).toMatch(/42/);
+      expect(hit!.message).toMatch(/69/);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("no over-fire: REAL README bytes + an AGREEING disk count ⇒ no probe-count violation", async () => {
+    const readme = realReadme();
+    const documented = documentedProbeCount(readme);
+    const fx = makeFixture({
+      skillsCount: 24,
+      agentsCount: 8,
+      maxProbeNumber: documented,
+      readmeContent: readme,
+      claudeMdContent: matchingClaudeMd,
+    });
+    try {
+      const r = await runPublicSurfaceCountDriftProbe(fx.root);
+      const hit = r.violations.find(
+        (v) => v.file === "README.md" && /probe count/i.test(v.reason),
+      );
+      expect(hit).toBeUndefined();
+      // Assert what the test name claims: a fully-agreeing tree fires NOTHING.
+      // Filtering to /probe count/i alone would let a stray cross-doc commands
+      // violation pass unseen — which is exactly what a stale 17/7 CLAUDE.md
+      // fixture used to do here.
+      expect(r.violations).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("a README carrying no probe token at all stays vacuous (no violation)", async () => {
+    const fx = makeFixture({
+      skillsCount: 24,
+      agentsCount: 8,
+      maxProbeNumber: 69,
+      readmeContent: "# Some Project\n\nNo counts documented here at all.\n",
+      claudeMdContent: matchingClaudeMd,
+    });
+    try {
+      const r = await runPublicSurfaceCountDriftProbe(fx.root);
+      const hit = r.violations.find(
+        (v) => v.file === "README.md" && /probe count/i.test(v.reason),
+      );
+      expect(hit).toBeUndefined();
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CONSUMER-SAFETY REGRESSION GUARD for AC-STE-394.8.
+//
+// Repairing the dead probe-count leg (above) turned a never-firing comparison
+// into a live one, and the scan that revives it is loose: any line anywhere in
+// the README matching `N numbered` claims the probe token. In the TOOLKIT repo
+// that is harmless — the only such line is the real one. In a CONSUMER project
+// it is a gate-breaking false positive:
+//
+//   * `computeObservedCounts` returns maxProbeNumber 0 whenever
+//     `plugins/dev-process-toolkit/skills/gate-check/SKILL.md` is absent, which
+//     is EVERY consumer project.
+//   * The diskChecks loop has no toolkit-tree guard and no zero-guard.
+//
+// So a consumer README carrying ordinary prose — "follow the 3 numbered steps"
+// — trips a severity:error GATE FAILED whose remedy instructs the user to
+// rewrite their own README to document "0 numbered probes". The probe must stay
+// silent on incidental prose.
+//
+// These assertions pin the BEHAVIOUR (zero violations on a consumer-shaped
+// tree), not the shape of the fix: narrowing the scan to the full
+// ``N numbered `/gate-check` probes`` token, gating on the toolkit tree, or
+// skipping a zero observed count all satisfy them equally. The AC-STE-394.8
+// block above independently proves the leg still fires on the real token, so
+// "delete the leg again" is not an escape hatch.
+// ---------------------------------------------------------------------------
+
+describe("AC-STE-394.8 consumer-safety guard — the probe-count scan must not over-fire on incidental prose", () => {
+  // A consumer project: NO `plugins/dev-process-toolkit/` tree at all. This is
+  // the shape of every project that installs the toolkit as a plugin rather
+  // than being the toolkit. `makeFixture` cannot express it — it always
+  // synthesizes the plugin tree — so the consumer tree is built here.
+  function makeConsumerFixture(opts: {
+    readmeContent: string;
+    claudeMdContent?: string;
+  }): Fixture {
+    const root = mkdtempSync(join(tmpdir(), "pscd-consumer-"));
+    // A believable consumer layout — source + specs, and pointedly no
+    // `plugins/dev-process-toolkit/`.
+    mkdirSync(join(root, "src"), { recursive: true });
+    mkdirSync(join(root, "specs", "frs"), { recursive: true });
+    writeFileSync(join(root, "src", "index.ts"), "export const answer = 42;\n");
+    writeFileSync(join(root, "README.md"), opts.readmeContent);
+    writeFileSync(
+      join(root, "CLAUDE.md"),
+      opts.claudeMdContent ??
+        [
+          "# Acme Widget Service",
+          "",
+          "## What This Is",
+          "",
+          "A small HTTP service for widgets.",
+          "",
+          "## Key Commands",
+          "",
+          "- `bun test` — full gate",
+          "- `bun run build` — compile",
+          "",
+          "## Gating rule",
+          "",
+          "`bun test` must pass before any commit.",
+          "",
+        ].join("\n"),
+    );
+    return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  }
+
+  // Guard the fixture's own premise: if this tree ever grows a toolkit
+  // directory the cases below would stop testing consumer behaviour.
+  test("the consumer fixture genuinely has no toolkit tree", () => {
+    const fx = makeConsumerFixture({
+      readmeContent: "# Acme\n\nFollow the 3 numbered steps below to get started.\n",
+    });
+    try {
+      expect(existsSync(join(fx.root, "plugins", "dev-process-toolkit"))).toBe(false);
+      expect(
+        existsSync(
+          join(fx.root, "plugins", "dev-process-toolkit", "skills", "gate-check", "SKILL.md"),
+        ),
+      ).toBe(false);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  // Each phrasing is ordinary English that happens to put a digit before the
+  // word "numbered". None of them documents a /gate-check probe count.
+  const incidentalPhrasings: Array<{ label: string; line: string }> = [
+    {
+      label: "\"the 3 numbered steps\" (the reproduced case)",
+      line: "Follow the 3 numbered steps below to get started.",
+    },
+    {
+      label: "\"12 numbered migrations\"",
+      line: "The changelog lists 12 numbered migrations applied since v1.",
+    },
+    {
+      label: "\"7 numbered sections\"",
+      line: "Our RFC template has 7 numbered sections you must fill in.",
+    },
+  ];
+
+  for (const phrasing of incidentalPhrasings) {
+    test(`consumer README with ${phrasing.label} ⇒ ZERO violations`, async () => {
+      const fx = makeConsumerFixture({
+        readmeContent: [
+          "# Acme Widget Service",
+          "",
+          "A small HTTP service for widgets. Not the toolkit.",
+          "",
+          "## Getting Started",
+          "",
+          phrasing.line,
+          "",
+          "1. Install dependencies",
+          "2. Configure the environment",
+          "3. Run the server",
+          "",
+        ].join("\n"),
+      });
+      try {
+        const r = await runPublicSurfaceCountDriftProbe(fx.root);
+        // The whole report must be clean: a single violation here is a
+        // severity:error GATE FAILED in someone else's repo.
+        if (r.violations.length > 0) {
+          const noted = r.violations.map((v) => v.message).join("\n---\n");
+          throw new Error(
+            `Probe over-fired on a consumer project (${r.violations.length} violation(s)):\n${noted}`,
+          );
+        }
+        expect(r.violations).toEqual([]);
+      } finally {
+        fx.cleanup();
+      }
+    });
+  }
+
+  test("the over-fire never emits the nonsensical 'reflect 0 numbered probes' remedy", async () => {
+    // The most user-hostile symptom: telling a consumer to rewrite their own
+    // README to claim zero probes, sourced from a toolkit path they do not have.
+    const fx = makeConsumerFixture({
+      readmeContent: [
+        "# Acme Widget Service",
+        "",
+        "Setup takes about five minutes.",
+        "",
+        "Follow the 3 numbered steps below to get started.",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const r = await runPublicSurfaceCountDriftProbe(fx.root);
+      const bad = r.violations.filter((v) => /probe/i.test(v.message));
+      expect(bad).toEqual([]);
+      for (const v of r.violations) {
+        expect(v.message).not.toMatch(/reflect 0 numbered probes/);
+        expect(v.message).not.toMatch(/plugins\/dev-process-toolkit/);
+      }
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("a consumer whose README documents counts for its OWN surfaces stays clean", async () => {
+    // Realistic drift-prone consumer prose: several incidental count tokens in
+    // one file, none of them the toolkit's probe token.
+    const fx = makeConsumerFixture({
+      readmeContent: [
+        "# Acme Widget Service",
+        "",
+        "Ships 4 numbered API versions and 9 numbered error codes.",
+        "",
+        "## Setup",
+        "",
+        "Follow the 3 numbered steps below to get started.",
+        "",
+        "## Runbook",
+        "",
+        "There are 22 numbered runbook entries in `docs/runbook.md`.",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const r = await runPublicSurfaceCountDriftProbe(fx.root);
+      expect(r.violations).toEqual([]);
     } finally {
       fx.cleanup();
     }

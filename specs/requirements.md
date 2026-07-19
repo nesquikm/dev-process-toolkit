@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.49.0 ("Passage")**.
+**Latest shipped release:** **v2.50.0 ("Beacon")**.
 
 ### Shipped milestones
 
@@ -400,4 +400,7 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-391.1..9 | adapters/_shared/src/migrations/index.ts, adapters/_shared/src/migrations/legacy_paths.ts, adapters/_shared/src/migrations/consumer_files.ts, adapters/_shared/src/migrations/entries/*.ts, skills/upgrade/SKILL.md | adapters/_shared/src/migrations/index.test.ts, tests/m108-ste-391-*.test.ts, tests/m108-migration-hardening.test.ts |
 | AC-STE-392.1..8 | adapters/_shared/src/migrations/monolith_split.ts | adapters/_shared/src/migrations/monolith_split.test.ts, tests/m108-ste-392-*.test.ts |
 | AC-STE-393.1..7 | adapters/_shared/src/migrations/coverage.ts, skills/gate-check/SKILL.md, skills/ship-milestone/SKILL.md | adapters/_shared/src/migrations/coverage.test.ts, tests/m108-ste-393-*.test.ts |
+| AC-STE-394.1..9 | adapters/_shared/src/upgrade_staleness.ts, adapters/_shared/src/public_surface_count_drift.ts, skills/gate-check/SKILL.md, skills/upgrade/SKILL.md, README.md | tests/gate-check-upgrade-staleness.test.ts, tests/m109-ste-394-docs-pins.test.ts, tests/gate-check-public-surface-count-drift.test.ts |
+| AC-STE-395.1..8 | skills/upgrade/SKILL.md, skills/setup/SKILL.md, docs/skill-anatomy.md, README.md, CLAUDE.md, specs/technical-spec.md | tests/m109-ste-395-delist-upgrade.test.ts, tests/m108-ste-391-upgrade-skill.test.ts, tests/m108-ste-391-docs-pins.test.ts |
+| AC-STE-396.1..9 | adapters/_shared/src/token_stats_render.ts, skills/spec-write/SKILL.md, skills/implement/SKILL.md, skills/ship-milestone/SKILL.md, docs/implement-reference.md | tests/token-stats-render.test.ts, tests/token-stats-claim-persistence.test.ts, tests/token-stats-commit-boundary-contract.test.ts |
 

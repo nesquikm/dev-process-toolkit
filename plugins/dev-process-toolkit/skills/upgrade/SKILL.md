@@ -1,6 +1,7 @@
 ---
 name: upgrade
 description: Bring an already-bootstrapped project up to current toolkit conventions. Walks the version-ordered migration registry, previews every change, and applies the scripted fixes in one approved commit.
+user-invocable: false
 ---
 
 # Upgrade
@@ -20,6 +21,8 @@ Deliberately lean. There is **no dry-run flag**, no backup tag, and no state-mar
 - **One approval commit** for the whole script batch.
 - **Detection-based idempotency** — re-running on a current tree exits with `Nothing to do.`
 
+Idempotency is a property of the tree, not of the toolkit install. Nothing here freezes the project after a run: code still running against it — a stale editor session, a divergent tool, a script wired to the old layout — can re-create the very state a migration just cleaned. That is survivable by design. Detection is cheap and stateless, so the next run simply finds the debt again and offers the same scripted fix.
+
 Run the steps in order. Each step's refusal is terminal: exit without mutating anything.
 
 ## Step 0 — never-bootstrapped probe
@@ -34,16 +37,9 @@ Context: mode=upgrade, ticket=unbound, skill=upgrade
 
 A hand-written `CLAUDE.md` with no marker and no managed sections takes this same path. Never migrate a file the toolkit does not own.
 
-## Step 1 — preamble advisories (warn-only)
+## Step 1 — preamble advisory (warn-only)
 
-Both advisories below are **warn-only**: emit the line, then continue the run. Neither refuses, and neither changes what the detector walk finds.
-
-**Stale plugin.** Compare the installed plugin version (the `version` field of the plugin manifest under `${CLAUDE_PLUGIN_ROOT}`) against the highest `introduced_in` in the registry. When the installed plugin is older than the newest entry's `introduced_in`, warn: the registry describes conventions this install does not ship yet, so code still running can re-create the very state the migration just cleaned. Name both versions, recommend updating the plugin first, and continue.
-
-```
-Advisory: installed plugin v<installed> is older than the newest migration's introduced_in (v<newest>).
-Migrations may be re-broken by the older code still running. Update the plugin, then re-run.
-```
+The advisory below is **warn-only**: emit the line, then continue the run. It never refuses, and it never changes what the detector walk finds.
 
 **Blanket `.dpt/` ignore.** Check the consumer's root `.gitignore` for a blanket rule covering the whole `.dpt/` tree (a bare `.dpt/` or `.dpt` line). The toolkit ships a nested `.dpt/.gitignore` that keeps ledger and scratch state out of commits **while leaving the lock namespace tracked**; a blanket root rule overrides it and hides locks from git entirely. Confirm with `git check-ignore -v` against a path inside the lock namespace — the rule that wins is the one it reports. Warn, name the offending `.gitignore` line, and continue.
 
