@@ -981,3 +981,71 @@ describe("AC-STE-394.8 consumer-safety guard — the probe-count scan must not o
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// The agents-token COLUMN must point at the agents digit.
+//
+// `parseReadmeTokens` located the agents token with `m[0].indexOf(m[2])` — a
+// search for the VALUE of the agents capture inside the whole match. When the
+// agents digit also occurs inside the commands digits ("18 commands, 8 agents";
+// "24 commands, 4 agents"), that search finds the earlier occurrence and the
+// violation anchors ~12 columns early, inside the COMMANDS number — pointing
+// the operator at the wrong token to edit.
+//
+// Unreachable at the 16/8 values shipped today, which is why nothing caught it:
+// no test in this file asserted `.column` at all. Follow-up to the advisory
+// logged in specs/frs/archive/STE-394.md § Implementation notes.
+// ---------------------------------------------------------------------------
+
+describe("readme-agents column anchors on the agents digit, not a digit inside the commands count", () => {
+  /** Column (1-based) where `<n> agents` really begins on the README's L3. */
+  function trueAgentsColumn(readme: string, agents: number): number {
+    const line3 = readme.split("\n")[2]!;
+    const idx = line3.indexOf(`${agents} agents`);
+    if (idx < 0) throw new Error("fixture L3 carries no `<n> agents` token");
+    return idx + 1;
+  }
+
+  // [label, commands, agents] — the agents digit is a substring of the
+  // commands digits in every overlapping case.
+  const cases: Array<[string, number, number]> = [
+    ["overlapping: 8 inside 18", 18, 8],
+    ["overlapping: 2 inside 12", 12, 2],
+    ["overlapping: 4 inside 24", 24, 4],
+    ["non-overlapping control: 16 / 8", 16, 8],
+  ];
+
+  for (const [label, commands, agents] of cases) {
+    test(`${label} — the violation anchors at the agents token`, async () => {
+      const readme = readmeWith({
+        skillsToken: `${commands} commands, ${agents} agents`,
+        probeCount: "69",
+      });
+      // Disk disagrees on agents only, so exactly the readme-agents leg fires.
+      const fx = makeFixture({
+        skillsCount: commands,
+        agentsCount: agents + 1,
+        maxProbeNumber: 69,
+        readmeContent: readme,
+        claudeMdContent: claudeMdWith({
+          skillsLine: `├── skills/                              → ${commands} slash commands (${commands} user-invocable + 0 dispatch)`,
+          agentsLine: `├── agents/                              → ${agents + 1} subagent templates`,
+        }),
+      });
+      try {
+        const r = await runPublicSurfaceCountDriftProbe(fx.root);
+        const hit = r.violations.find(
+          (v) => v.file === "README.md" && /agents count/i.test(v.reason),
+        );
+        expect(hit).toBeDefined();
+        expect(hit!.column).toBe(trueAgentsColumn(readme, agents));
+        // The rendered note carries the same column the operator navigates to.
+        expect(hit!.note).toContain(
+          `README.md:3:${trueAgentsColumn(readme, agents)}`,
+        );
+      } finally {
+        fx.cleanup();
+      }
+    });
+  }
+});
