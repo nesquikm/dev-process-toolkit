@@ -27,16 +27,23 @@ const paragraphs = (body: string): string[] => body.split(/\n{2,}/);
 // AC-STE-391.2 — the skill exists and is user-invocable
 // ---------------------------------------------------------------------------
 
-describe("AC-STE-391.2 — skills/upgrade/SKILL.md exists and is user-invocable", () => {
+describe("AC-STE-391.2 — skills/upgrade/SKILL.md exists and Claude can invoke it", () => {
   test("the file exists", () => {
     expect(existsSync(UPGRADE_SKILL)).toBe(true);
   });
 
-  test("frontmatter names the skill `upgrade` and does NOT mark it a dispatch fork", () => {
+  // M109 AC-STE-395.1 inverted this assertion. `/upgrade` left the slash menu
+  // (`user-invocable: false`) but did NOT become a dispatch fork — it carries
+  // no `context: fork` and no `agent:`, so the model-invocation path probe #69's
+  // remedy relies on stays intact. Non-user-invocable ≠ fork-dispatch, and the
+  // two halves are asserted separately below.
+  test("frontmatter names the skill `upgrade`, hides it from the menu, and is NOT a dispatch fork", () => {
     const fm = readUpgrade().match(/^---\n([\s\S]*?)\n---/);
     expect(fm).not.toBeNull();
     expect(fm![1]).toMatch(/^name:\s*upgrade\s*$/m);
-    expect(fm![1]).not.toMatch(/user-invocable:\s*false/);
+    expect(fm![1]).toMatch(/user-invocable:\s*false/);
+    expect(fm![1]).not.toMatch(/^context:\s*fork\s*$/m);
+    expect(fm![1]).not.toMatch(/^agent:\s*\S/m);
     expect(fm![1]).toMatch(/^description:\s*\S/m);
   });
 
@@ -58,14 +65,12 @@ describe("AC-STE-391.2 — step 0: never-bootstrapped trees route to /setup", ()
   });
 });
 
-describe("AC-STE-391.2 — preamble advisories are warn-only", () => {
-  test("installed-plugin-older-than-newest-entry advisory names introduced_in", () => {
-    const hits = paragraphs(readUpgrade()).filter(
-      (p) => p.includes("introduced_in") && /warn|advisor/i.test(p),
-    );
-    expect(hits.length).toBeGreaterThanOrEqual(1);
-  });
-
+// The stale-plugin advisory that once lived alongside this one was retired by
+// M109 AC-STE-394.6 (structurally inert: the registry ships inside the plugin,
+// so `max(introduced_in) <= installed` holds for every released build). Its
+// presence assertion is SPEC-SUPERSEDED; `tests/m109-ste-394-docs-pins.test.ts`
+// now pins its ABSENCE.
+describe("AC-STE-391.2 — the preamble advisory is warn-only", () => {
   test("blanket `.dpt/` root-.gitignore advisory is present", () => {
     const hits = paragraphs(readUpgrade()).filter(
       (p) => p.includes(".dpt/") && p.includes(".gitignore") && /warn|advisor|blanket/i.test(p),
@@ -136,13 +141,22 @@ describe("AC-STE-391.2 — the permission entry NEVER auto-applies", () => {
 // AC-STE-391.7 — /setup emits the upgrade hint
 // ---------------------------------------------------------------------------
 
-describe("AC-STE-391.7 — /setup audit row recommends /dev-process-toolkit:upgrade", () => {
+// M109 AC-STE-395.5 re-keyed the recommendation target. `/upgrade` is off the
+// slash menu, so telling a human to run it is a dead instruction; the row now
+// points at `/gate-check`, whose probe #69 reports the drift and hands Claude
+// the remedy. The `upgrade_available` capability key is unchanged — only the
+// user-facing invocation literal moved.
+describe("AC-STE-391.7 — /setup audit row routes a legacy tree at /gate-check", () => {
   test("the capability key `upgrade_available` appears in skills/setup/SKILL.md", () => {
     expect(readSetup()).toContain("upgrade_available");
   });
 
-  test("the row recommends the runner by its full invocation name", () => {
-    expect(readSetup()).toContain("/dev-process-toolkit:upgrade");
+  test("the row no longer recommends the de-listed runner by invocation name", () => {
+    expect(readSetup()).not.toContain("/dev-process-toolkit:upgrade");
+  });
+
+  test("the row recommends /gate-check instead", () => {
+    expect(readSetup()).toMatch(/gate-check/);
   });
 
   test("the hint is best-effort and wired to the registry detectors (STE-133 precedent)", () => {

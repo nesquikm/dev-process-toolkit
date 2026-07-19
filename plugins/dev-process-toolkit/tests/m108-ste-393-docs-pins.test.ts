@@ -233,24 +233,29 @@ describe("AC-STE-393.6 — docs/upgrade-reference.md documents the declaration c
 });
 
 // ---------------------------------------------------------------------------
-// AC-STE-393.6 — probe-count pins bump 67 → 68 at every pinned surface
+// AC-STE-393.6 — probe-count pins track the current count at every pinned
+// surface. Recalibrated 68 → 69 by M109/STE-394's #69 upgrade_staleness.
 // ---------------------------------------------------------------------------
 
-describe("AC-STE-393.6 — README probe-count pins move 67 → 68", () => {
+describe("AC-STE-393.6 — README probe-count pins move 68 → 69", () => {
   const readme = (): string => read(REPO_ROOT, "README.md");
 
-  test("no stale `67 numbered` / `layers 67 probes` token survives", () => {
+  // Kept at 67 deliberately: each `mNNN-*-docs-pins` file owns the tripwire for
+  // the token ITS release retired. The current-era guard (no stale `68`) lives
+  // in `tests/m109-ste-394-docs-pins.test.ts`, so re-keying this one would
+  // duplicate that guard and drop the 67 tripwire in exchange for nothing.
+  test("no stale M107-era `67 numbered` / `layers 67 probes` token survives", () => {
     const body = readme();
     expect(body).not.toMatch(/\b67\b\s+numbered/);
     expect(body).not.toMatch(/layers 67 probes/);
   });
 
-  test("the Features bullet counts 68 numbered probes", () => {
-    expect(readme()).toMatch(/\b68\b\s+numbered `\/gate-check` probes/);
+  test("the Features bullet counts 69 numbered probes", () => {
+    expect(readme()).toMatch(/\b69\b\s+numbered `\/gate-check` probes/);
   });
 
-  test("the /implement-invokes-/tdd aside counts 68 probes", () => {
-    expect(readme()).toMatch(/layers 68 probes/);
+  test("the /implement-invokes-/tdd aside counts 69 probes", () => {
+    expect(readme()).toMatch(/layers 69 probes/);
   });
 });
 

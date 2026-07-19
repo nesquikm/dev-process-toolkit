@@ -46,7 +46,7 @@ dev-process-toolkit/
 ├── .claude-plugin/marketplace.json
 ├── plugins/dev-process-toolkit/
 │   ├── .claude-plugin/plugin.json
-│   ├── skills/                          # 17 user-invocable SKILL.md files
+│   ├── skills/                          # 16 user-invocable SKILL.md files
 │   ├── agents/                          # subagent templates incl. code-reviewer (canonical review rubric, FR-22)
 │   ├── templates/                       # CLAUDE.md + spec templates + settings.json
 │   ├── adapters/                        # tracker integration surface
