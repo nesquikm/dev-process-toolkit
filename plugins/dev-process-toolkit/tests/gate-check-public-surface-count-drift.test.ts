@@ -631,9 +631,13 @@ describe("AC-STE-394.8 — the probe-count leg is live, not silently skipped", (
     return idx + 1;
   }
 
+  // Must agree with the REAL README bytes these fixtures pair it with. STE-395
+  // re-keyed that README to `16 commands`, so a 17/7 split here would silently
+  // fire the cross-doc commands leg — invisible to the probe-count-filtered
+  // assertions below, and it would make the "no over-fire" case a false green.
   const matchingClaudeMd = claudeMdWith({
     skillsLine:
-      "├── skills/                              → 24 slash commands (17 user-invocable + 7 dispatch)",
+      "├── skills/                              → 24 slash commands (16 user-invocable + 8 dispatch)",
     agentsLine: "├── agents/                              → 8 subagent templates",
   });
 
@@ -757,6 +761,11 @@ describe("AC-STE-394.8 — the probe-count leg is live, not silently skipped", (
         (v) => v.file === "README.md" && /probe count/i.test(v.reason),
       );
       expect(hit).toBeUndefined();
+      // Assert what the test name claims: a fully-agreeing tree fires NOTHING.
+      // Filtering to /probe count/i alone would let a stray cross-doc commands
+      // violation pass unseen — which is exactly what a stale 17/7 CLAUDE.md
+      // fixture used to do here.
+      expect(r.violations).toEqual([]);
     } finally {
       fx.cleanup();
     }

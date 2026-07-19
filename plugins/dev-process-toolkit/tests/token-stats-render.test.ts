@@ -339,6 +339,8 @@ describe("AC-STE-345.6 — filterRowsForFR brainstorm→FR bridging", () => {
 
 /** Existing module constant reused as the demotion sentinel (token_stats_render.ts). */
 const DESIGN_BUCKET = "design/exploration";
+// Mirrors the module-private constant in token_stats_render.ts (not exported).
+const BRAINSTORM_SKILL = "dev-process-toolkit:brainstorm";
 
 /** Token columns, in render order, of one parsed markdown table row. */
 type Totals = [number, number, number, number];
@@ -805,7 +807,6 @@ describe("AC-STE-396.6 — sum invariant: per-FR blocks + design bucket == ledge
         }
       }
 
-      // Numeric: Σ per-FR rendered subtotals + design bucket == ledger total.
       const frSum = zeroTotals();
       for (const { rows } of selections) {
         const sub = subtotalOf(renderTokenStatsBlock(rows));
@@ -814,12 +815,25 @@ describe("AC-STE-396.6 — sum invariant: per-FR blocks + design bucket == ledge
       const rollup = renderMilestoneRollup(ledger, { frOrder });
       const design = bucketTotals(rollup, DESIGN_BUCKET);
 
+      // STRUCTURAL property (holds for ANY ledger): the milestone total is the
+      // ledger total — relabeling only moves rows between buckets, so nothing
+      // can be gained or lost. This is what AC-STE-396.6 actually guarantees.
+      expect(bucketTotals(rollup, "total")).toEqual(total);
+
+      // FIXTURE-SCOPED check: `frSum + design == total` is NOT universal — an
+      // unattributed non-brainstorm row on a session no FR owns forms its own
+      // rollup bucket and breaks the equation without any regression (see
+      // AC-STE-396.6's restatement). It holds here only because this ledger
+      // leaves no such row, which the guard below pins so the equation cannot
+      // silently start meaning something weaker if the fixture grows.
+      const bucketed = new Set([...frOrder, DESIGN_BUCKET]);
+      const unbucketed = ledger.filter(
+        (r) => !bucketed.has(r.claimed_by ?? "") && r.skill !== BRAINSTORM_SKILL,
+      );
+      expect(unbucketed).toEqual([]);
       for (let i = 0; i < 4; i++) {
         expect(frSum[i] + design[i]).toBe(total[i]);
       }
-
-      // The milestone total is the ledger total — nothing gained or lost.
-      expect(bucketTotals(rollup, "total")).toEqual(total);
     });
   }
 
