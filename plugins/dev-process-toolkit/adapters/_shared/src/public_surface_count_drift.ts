@@ -173,20 +173,40 @@ function parseReadmeTokens(text: string): {
     }
   }
 
-  // L10 — probe count. Pattern: `N numbered`.
-  const line10 = lines[9];
-  if (line10 !== undefined) {
-    const m = /(\d+)\s+numbered/.exec(line10);
-    if (m !== null) {
-      out.readmeProbes = {
-        kind: "readme-probes",
-        file: "README.md",
-        line: 10,
-        column: m.index + 1,
-        documented: Number.parseInt(m[1]!, 10),
-        raw: m[0],
-      };
-    }
+  // Probe count. Pattern: the FULL toolkit token —
+  // ``N numbered `/gate-check` probes`` — not the bare `N numbered` prefix.
+  //
+  // Anchored BY CONTENT, not by a fixed line index (STE-394 AC-STE-394.8).
+  // The token used to be read off a hard-coded index, which silently rotted
+  // the instant the README grew a line above the fold: the index landed on
+  // the `## Features` heading, the regex never matched, `readmeProbes` stayed
+  // permanently `undefined`, and the probe-count comparison was skipped with
+  // zero violations — a dead leg that looked green. Scanning for the first
+  // line that carries the token keeps the leg live across cosmetic edits, and
+  // the reported line is the token's TRUE 1-based line number so the
+  // violation anchors where a reader can actually find it.
+  //
+  // The token must be matched in full because reviving the leg armed it in
+  // CONSUMER projects too, where no `plugins/dev-process-toolkit/` tree exists
+  // and `maxProbeNumber` is therefore 0. Under a loose `N numbered` match any
+  // ordinary README prose — "follow the 3 numbered steps" — would parse as a
+  // documented probe count and emit a severity:error violation telling the
+  // author to rewrite their own README to claim zero probes. Requiring the
+  // literal `/gate-check` reference keeps the leg silent on incidental prose
+  // while still firing on the real token, which every fixture and the shipped
+  // README already spell out in full.
+  for (const [idx, line] of lines.entries()) {
+    const m = /(\d+) numbered `\/gate-check` probes/.exec(line);
+    if (m === null) continue;
+    out.readmeProbes = {
+      kind: "readme-probes",
+      file: "README.md",
+      line: idx + 1,
+      column: m.index + 1,
+      documented: Number.parseInt(m[1]!, 10),
+      raw: m[0],
+    };
+    break; // first match wins — one line owns the count
   }
 
   return out;
