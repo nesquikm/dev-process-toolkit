@@ -393,11 +393,11 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     expect(onlyLine(readme, /^A Claude Code plugin that adds/)).toMatch(
       /16 commands?,\s+8 agents?/,
     );
-    // 69 numbered probes (M109/STE-394 added #69 upgrade_staleness on top of
+    // 71 numbered probes (M110 added #70 spec_write_milestone_gate_routed + #71 report_issue_publish_gate_marker on top of
     // M108/STE-393's #68 migration_coverage) — the Features bullet.
-    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b69\b.*numbered/);
-    // "69 probes" — the /implement-invokes-/tdd paragraph's aside.
-    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b69\b\s+probes/);
+    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b72\b.*numbered/);
+    // "72 probes" — the /implement-invokes-/tdd paragraph's aside.
+    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b72\b\s+probes/);
     // "Eight additional skills" — M109/STE-395: `/upgrade` joined the
     // non-user-invocable set, so the byte-strict literal moved seven → eight.
     // It is NOT a fork child, which is why the paragraph's `context: fork`

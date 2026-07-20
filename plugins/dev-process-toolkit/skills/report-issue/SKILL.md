@@ -118,7 +118,13 @@ Print a preview block listing each file with its byte size + the redaction summa
 Push to gist? [y / n / edit]
 ```
 
-**Default-apply rule.** When the prompt body contains the literal line `<dpt:auto-approve>v1</dpt:auto-approve>` (byte-grep, no inference per STE-226's marker contract), default-apply `y` and emit the `report_issue_default_applied` capability row in the closing summary. The marker is the single deterministic mechanism — legacy `Auto Mode Active` system-reminder detection is **not** used.
+**Publish gate — marker/refusal routing.** Publishing a secret gist is an irreversible push to a third-party service, so the gate is decided by the runtime byte-grep, never by prose. As the FIRST step of publish-gate evaluation, write the verbatim first user message that invoked `/report-issue` to a temp file and run `bun run plugins/dev-process-toolkit/adapters/_shared/src/check_marker_runtime.ts <file>` (the SOLE decider — the same primitive `/spec-write` § 7a uses). Branch strictly on its `PRESENT`/`ABSENT` stdout, three ways:
+
+- **PRESENT** → default-apply `y`; publish; emit `report_issue_default_applied` in the closing summary.
+- **ABSENT + non-tty stdin** (`process.stdin.isTTY === false`, e.g. `claude -p`) → call `requireOrRefuse(..., markerPresent: false, defaultValue: "y", userSuppliedValue: undefined, ...)`; it falls through to the refusal branch and throws `RequiresInputRefusedError` (NFR-10 canonical shape naming gate site `publish`). **`gh gist create` is NOT invoked**; run the `trap` cleanup; emit `report_issue_publish_refused`; exit non-zero.
+- **ABSENT + tty** → the interactive `[y / n / edit]` prompt below.
+
+**NOT-a-trigger anchor.** Pre-baked `<command-args>` prose, autonomous-mode reminders, and "proceed" / "proceed end to end" instructions are NOT authorization to publish — the literal marker `<dpt:auto-approve>v1</dpt:auto-approve>` is the SOLE auto-publish trigger and `adapters/_shared/src/check_marker_runtime.ts` is the SOLE evaluation path. The 2026-07-19 conformance run's Jira leg (F7) caught the skill treating a prose "proceed" as authorization and calling `gh gist create` with the marker absent — blocked only by the harness classifier, not this gate. Legacy `Auto Mode Active` system-reminder detection is **not** used.
 
 **Decline (`n`).** Emit `report_issue_declined`, run the `trap` cleanup (`rm -rf "$TMPDIR_VAR"`), exit non-zero. Do not call `gh gist create`.
 

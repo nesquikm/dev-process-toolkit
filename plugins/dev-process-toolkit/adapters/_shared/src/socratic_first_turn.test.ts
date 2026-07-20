@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 import {
   assertFirstTurnShape,
   SocraticFirstTurnViolationError,
+  TRACKER_CREATE_TOOLS,
   type TranscriptEntry,
 } from "./socratic_first_turn";
 
@@ -116,19 +117,145 @@ describe("AC-STE-237.5 — assertFirstTurnShape six-case matrix", () => {
     expect(result.askIndex).toBe(2);
   });
 
-  test("vacuous: empty transcript ⇒ ok-asked with no askIndex", () => {
+  test("AC-STE-399.1: empty transcript ⇒ vacuous (not ok-asked)", () => {
     const result = assertFirstTurnShape([]);
-    expect(result.outcome).toBe("ok-asked");
+    expect(result.outcome).toBe("vacuous");
     expect(result.askIndex).toBeUndefined();
   });
 
-  test("vacuous: read-only-only transcript (no ask, no scaffold) ⇒ ok-asked, no askIndex", () => {
+  test("AC-STE-399.1: read-only-only transcript (no ask, no scaffold) ⇒ vacuous", () => {
     const transcript: TranscriptEntry[] = [
       { type: "tool_use", name: "Read" },
       { type: "text" },
     ];
     const result = assertFirstTurnShape(transcript);
-    expect(result.outcome).toBe("ok-asked");
+    expect(result.outcome).toBe("vacuous");
     expect(result.askIndex).toBeUndefined();
+  });
+});
+
+describe("STE-404 — tracker-create tools forbidden before the first ask/refusal", () => {
+  test("TRACKER_CREATE_TOOLS names the create MCP tools", () => {
+    expect(TRACKER_CREATE_TOOLS).toContain("mcp__atlassian__createJiraIssue");
+    expect(TRACKER_CREATE_TOOLS).toContain("mcp__linear__save_issue");
+  });
+
+  test("AC-STE-404.1: createJiraIssue before the first ask ⇒ violation", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "tool_use", name: "mcp__atlassian__createJiraIssue" },
+    ];
+    expect(() => assertFirstTurnShape(transcript)).toThrow(
+      SocraticFirstTurnViolationError,
+    );
+  });
+
+  test("AC-STE-404.1: linear save_issue before the first ask ⇒ violation (even after read-only orientation)", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "tool_use", name: "Read" },
+      { type: "tool_use", name: "mcp__linear__save_issue" },
+      { type: "tool_use", name: "AskUserQuestion" },
+    ];
+    expect(() => assertFirstTurnShape(transcript)).toThrow(
+      SocraticFirstTurnViolationError,
+    );
+    try {
+      assertFirstTurnShape(transcript);
+    } catch (err) {
+      const e = err as SocraticFirstTurnViolationError;
+      expect(e.toolName).toBe("mcp__linear__save_issue");
+      expect(e.index).toBe(1);
+    }
+  });
+
+  test("AC-STE-404.1: a tracker create AFTER the first ask is fine (ok-asked, no throw)", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "tool_use", name: "AskUserQuestion" },
+      { type: "tool_use", name: "mcp__linear__save_issue" },
+    ];
+    const r = assertFirstTurnShape(transcript);
+    expect(r.outcome).toBe("ok-asked");
+    expect(r.askIndex).toBe(0);
+  });
+
+  test("AC-STE-404.1: a tracker create after a refusal is fine (ok-refused)", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "refusal" },
+      { type: "tool_use", name: "mcp__atlassian__createJiraIssue" },
+    ];
+    expect(assertFirstTurnShape(transcript).outcome).toBe("ok-refused");
+  });
+
+  test("AC-STE-404.2: tracker-create violation is path-agnostic — fires even with projectRoot set", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "tool_use", name: "mcp__atlassian__createJiraIssue" },
+    ];
+    expect(() =>
+      assertFirstTurnShape(transcript, { projectRoot: "/proj" }),
+    ).toThrow(SocraticFirstTurnViolationError);
+  });
+});
+
+describe("STE-399 — projectRoot-scoped scaffolding detection", () => {
+  const ROOT = "/Users/ns/workspace/dpt-test-project-linear";
+
+  test("AC-STE-399.3: scaffold write inside projectRoot ⇒ violation", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "tool_use", name: "Write", path: `${ROOT}/specs/frs/STE-1.md` },
+    ];
+    expect(() =>
+      assertFirstTurnShape(transcript, { projectRoot: ROOT }),
+    ).toThrow(SocraticFirstTurnViolationError);
+  });
+
+  test("AC-STE-399.4: scaffold write OUTSIDE projectRoot ⇒ no violation (vacuous)", () => {
+    const transcript: TranscriptEntry[] = [
+      {
+        type: "tool_use",
+        name: "Write",
+        path: "/Users/ns/english/mistakes/inbox/2026-07-20-x.md",
+      },
+    ];
+    const result = assertFirstTurnShape(transcript, { projectRoot: ROOT });
+    expect(result.outcome).toBe("vacuous");
+  });
+
+  test("AC-STE-399.4: outside-root scaffold then a real ask ⇒ ok-asked", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "tool_use", name: "Write", path: "/tmp/scratch/report.md" },
+      { type: "tool_use", name: "AskUserQuestion" },
+    ];
+    const result = assertFirstTurnShape(transcript, { projectRoot: ROOT });
+    expect(result.outcome).toBe("ok-asked");
+    expect(result.askIndex).toBe(1);
+  });
+
+  test("AC-STE-399.4: sibling-dir path is NOT treated as inside (boundary-safe)", () => {
+    const transcript: TranscriptEntry[] = [
+      {
+        type: "tool_use",
+        name: "Write",
+        path: `${ROOT}-sibling/leak.md`,
+      },
+    ];
+    const result = assertFirstTurnShape(transcript, { projectRoot: ROOT });
+    expect(result.outcome).toBe("vacuous");
+  });
+
+  test("AC-STE-399.6: scaffold with no path under projectRoot ⇒ conservative violation", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "tool_use", name: "Write" },
+    ];
+    expect(() =>
+      assertFirstTurnShape(transcript, { projectRoot: ROOT }),
+    ).toThrow(SocraticFirstTurnViolationError);
+  });
+
+  test("AC-STE-399.6: projectRoot omitted ⇒ unchanged by-name violation regardless of path", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "tool_use", name: "Write", path: "/anywhere/at/all.md" },
+    ];
+    expect(() => assertFirstTurnShape(transcript)).toThrow(
+      SocraticFirstTurnViolationError,
+    );
   });
 });

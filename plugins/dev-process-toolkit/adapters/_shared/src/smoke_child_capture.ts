@@ -73,6 +73,53 @@ function spawnFinding(child: string): ChildSpawnFinding {
   return highFinding(`${SPAWN_DIAGNOSTIC_PREFIX}${child}`);
 }
 
+// --- STE-400 — clean-exit / zero-work liveness detector --------------------
+//
+// The 2026-07-19 conformance run produced a false-green no detector caught: a
+// `/spec-write` child halted at an unanswerable gate under `claude -p`, stated
+// the question in prose, and ended its turn — exiting `subtype=success` with
+// zero artifacts. That capture is non-empty, non-denied, allow-list-clean, and
+// carries a top-level `result` event, so it passes checkChildSpawnCapture,
+// checkAllowlistInert, AND assertChainIntegrity (which checks for the PRESENCE
+// of a result event, not whether the skill did its job).
+//
+// The deterministic "skill completed" signal is its closing-summary marker in
+// the ASSISTANT-TEXT stream — every canonical skill emits one as its last act,
+// and a child that halted early never emits it. The check scores
+// extractAssistantText ONLY: the skill body (injected as a user message and
+// echoed in tool_results) enumerates its own closing-summary tokens, so a
+// raw-NDJSON grep would match the DOCUMENTATION of the marker rather than its
+// EMISSION — the F3-class false-positive the same run surfaced.
+
+const COMPLETION_DIAGNOSTIC_PREFIX =
+  "STE-400 regression: skill produced no completion signal — ";
+
+/**
+ * Detect a clean-exit / zero-work run (STE-400). Returns exactly one
+ * high-severity finding,
+ * `STE-400 regression: skill produced no completion signal — <child> (…)`,
+ * when the capture's assistant text does NOT contain `marker` (the skill's
+ * closing-summary completion signal); returns [] when it does. Scores
+ * `extractAssistantText` only — a `marker` occurrence confined to a
+ * user / tool_result event (the skill body echoing its own template) does
+ * NOT satisfy the check. An empty capture has empty assistant text and so
+ * yields the finding, consistent with the sibling detectors' empty handling.
+ * Orthogonal to the other three families — a capture can be spawn-clean,
+ * allow-list-clean, and chain-complete yet still fail this liveness check.
+ */
+export function checkSkillCompletionSignal(
+  ndjson: string,
+  child: string,
+  marker: string,
+): ChildSpawnFinding[] {
+  if (extractAssistantText(ndjson).includes(marker)) return [];
+  return [
+    highFinding(
+      `${COMPLETION_DIAGNOSTIC_PREFIX}${child} (clean exit, completion marker "${marker}" absent from assistant text)`,
+    ),
+  ];
+}
+
 /**
  * Assert a child's capture is non-empty and non-denied.
  *
