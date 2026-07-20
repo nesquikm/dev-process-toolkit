@@ -21,6 +21,23 @@ export const SCAFFOLDING_TOOLS = ["Write", "Edit", "NotebookEdit"] as const;
 
 export type ScaffoldingTool = (typeof SCAFFOLDING_TOOLS)[number];
 
+// STE-404: tracker-create MCP tools are as consequential as scaffolding a
+// file — creating a ticket before the first ask/refusal is the F4
+// autonomous-reminder gate-bypass shape (2026-07-20 re-run: /spec-write went
+// straight to createJiraIssue → DST-49 without asking). They are forbidden
+// before the first ask/refusal just like SCAFFOLDING_TOOLS, but WITHOUT the
+// STE-399 projectRoot path predicate — a tracker create has no path, so the
+// violation is name-only and unconditional. `mcp__linear__save_issue` covers
+// both create and update, but before the first ask/refusal in /spec-write it
+// can only be a create (no prior FR exists to update), so flagging any
+// first-turn save_issue is correct and conservative.
+export const TRACKER_CREATE_TOOLS = [
+  "mcp__atlassian__createJiraIssue",
+  "mcp__linear__save_issue",
+] as const;
+
+export type TrackerCreateTool = (typeof TRACKER_CREATE_TOOLS)[number];
+
 /** Tool name whose first occurrence satisfies the Socratic loop entry. */
 export const ASK_TOOL = "AskUserQuestion";
 
@@ -92,6 +109,13 @@ function isScaffoldingTool(name: string | undefined): name is ScaffoldingTool {
   return (SCAFFOLDING_TOOLS as readonly string[]).includes(name);
 }
 
+function isTrackerCreateTool(
+  name: string | undefined,
+): name is TrackerCreateTool {
+  if (!name) return false;
+  return (TRACKER_CREATE_TOOLS as readonly string[]).includes(name);
+}
+
 /**
  * True when `p` resolves to `root` itself or a path strictly inside it.
  * Boundary-safe: `/root-sibling/x` is NOT inside `/root` (the `+ sep` guards
@@ -154,6 +178,12 @@ export function assertFirstTurnShape(
         ) {
           continue;
         }
+        throw new SocraticFirstTurnViolationError(entry.name, i);
+      }
+      // STE-404: a tracker create before the first ask/refusal is the F4
+      // gate-bypass shape. Name-only, path-agnostic (no projectRoot check) —
+      // a create is scope-agnostic and always a first-turn violation.
+      if (isTrackerCreateTool(entry.name)) {
         throw new SocraticFirstTurnViolationError(entry.name, i);
       }
     }
