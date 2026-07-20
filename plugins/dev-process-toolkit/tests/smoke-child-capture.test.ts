@@ -31,6 +31,7 @@ import { join } from "node:path";
 
 import {
   checkChildSpawnCapture,
+  checkSkillCompletionSignal,
   extractAssistantText,
 } from "../adapters/_shared/src/smoke_child_capture";
 
@@ -186,5 +187,66 @@ describe("AC-STE-352.2 — checkChildSpawnCapture: non-empty / non-denied assert
     expect(findings).toHaveLength(1);
     expect(findings[0].severity).toBe("high");
     expect(findings[0].diagnostic).toContain(`${DIAG_PREFIX}spec-review`);
+  });
+});
+
+// STE-400 — checkSkillCompletionSignal: a capture can parse, exit with a
+// result event, and still represent a clean-exit/zero-work run (the skill
+// halted at an unanswerable gate without emitting its closing summary). The
+// detector greps the ASSISTANT TEXT for the skill's completion marker; its
+// absence is the false-green signal assertChainIntegrity cannot see.
+describe("STE-400 — checkSkillCompletionSignal", () => {
+  const asstLine = (text: string) =>
+    JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "text", text }] },
+    });
+  const userLine = (text: string) =>
+    JSON.stringify({
+      type: "user",
+      message: { content: [{ type: "tool_result", content: text }] },
+    });
+  const resultLine = () =>
+    JSON.stringify({ type: "result", subtype: "success", is_error: false });
+
+  const MARKER = "## /spec-write summary";
+
+  test("AC-STE-400.2: assistant text carrying the marker ⇒ []", () => {
+    const ndjson = [
+      asstLine("Drafting the FR."),
+      asstLine(`Done.\n${MARKER}\n\n| FR id | ... |`),
+      resultLine(),
+    ].join("\n");
+    expect(checkSkillCompletionSignal(ndjson, "spec-write", MARKER)).toEqual([]);
+  });
+
+  test("AC-STE-400.1/.4: result-bearing but marker-absent ⇒ one high finding naming the child", () => {
+    const ndjson = [
+      asstLine(
+        "The milestone binding is ambiguous — which milestone should this FR target?",
+      ),
+      resultLine(),
+    ].join("\n");
+    const findings = checkSkillCompletionSignal(ndjson, "spec-write", MARKER);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe("high");
+    expect(findings[0].diagnostic).toContain("spec-write");
+  });
+
+  test("AC-STE-400.3: marker only in a user/tool_result event ⇒ still a finding (assistant-text scoping)", () => {
+    // The skill body (echoed as a user/tool_result event) enumerates the
+    // marker as documentation; that must NOT satisfy the completion check.
+    const ndjson = [
+      userLine(`SKILL body: emit the closing summary header ${MARKER} ...`),
+      asstLine("Which milestone should this FR target?"),
+      resultLine(),
+    ].join("\n");
+    const findings = checkSkillCompletionSignal(ndjson, "spec-write", MARKER);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].diagnostic).toContain("spec-write");
+  });
+
+  test("AC-STE-400.5: empty capture ⇒ marker-absent ⇒ one finding", () => {
+    expect(checkSkillCompletionSignal("", "spec-write", MARKER)).toHaveLength(1);
   });
 });

@@ -59,6 +59,51 @@ describe("STE-211 — stripLinearACFences (AC-STE-211.3 / AC-STE-211.4)", () => 
   });
 });
 
+describe("STE-398 — stripLinearACFences tolerates Linear's href attribute", () => {
+  test("AC-STE-398.1: strips id+href wrapper (href present, id first)", () => {
+    const input =
+      '- AC-<issue id="752f4657-b359-4e75-b942-e9d47cbf782a" href="https://linear.app/x/issue/STE-203/foo">STE-203</issue>.1: foo';
+    expect(stripLinearACFences(input)).toBe("- AC-STE-203.1: foo");
+  });
+
+  test("AC-STE-398.2: strips regardless of attribute order (href before id)", () => {
+    const input =
+      '- AC-<issue href="https://linear.app/x/issue/STE-204/bar" id="abc-def">STE-204</issue>.2: bar';
+    expect(stripLinearACFences(input)).toBe("- AC-STE-204.2: bar");
+  });
+
+  test("AC-STE-398.2: strips with additional attributes present", () => {
+    const input =
+      '- AC-<issue id="abc" href="https://linear.app/x" data-mention="1">STE-205</issue>.3: baz';
+    expect(stripLinearACFences(input)).toBe("- AC-STE-205.3: baz");
+  });
+
+  test("AC-STE-398.2: strips multiple href-carrying wrappers on multiple lines", () => {
+    const input =
+      '- AC-<issue id="a" href="https://x/STE-203">STE-203</issue>.1: foo\n' +
+      '- AC-<issue id="b" href="https://x/STE-204">STE-204</issue>.2: bar\n';
+    const expected = "- AC-STE-203.1: foo\n- AC-STE-204.2: bar\n";
+    expect(stripLinearACFences(input)).toBe(expected);
+  });
+
+  test("AC-STE-398.3: bare href-carrying issue reference (no AC- prefix) keeps its wrapper", () => {
+    const input =
+      'See <issue id="abc" href="https://linear.app/x/issue/STE-205/foo">STE-205</issue> for details.';
+    expect(stripLinearACFences(input)).toBe(input);
+  });
+
+  test("AC-STE-398.4: round-trip strip(format(x)) === x still holds with href-adjacent bodies", () => {
+    const inputs = [
+      "AC-STE-203.1: foo",
+      "- AC-STE-204.5: bar\nRefs: STE-205 (see https://linear.app/x)",
+      "Mixed: AC-STE-1.1, AC-DPT-99.7",
+    ];
+    for (const x of inputs) {
+      expect(stripLinearACFences(formatLinearDescription(x))).toBe(x);
+    }
+  });
+});
+
 describe("STE-211 — round-trip property (AC-STE-211 design contract)", () => {
   test("strip(format(x)) === x for AC-prefix bodies", () => {
     const inputs = [

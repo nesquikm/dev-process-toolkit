@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.53.0] — 2026-07-20 — "Legible"
+
+M110 follow-up: closes the HIGH + low the v2.52.0 conformance re-run surfaced while confirming the v2.52.0 "Gatekeeper" fix worked.
+
+### Fixed
+
+- Make a correct non-tty requires-input refusal machine-recognizable: `RequiresInputRefusedError` now carries a canonical `<dpt:requires-input-refused>v1</dpt:requires-input-refused>` marker, and the stream parser maps that marker in an assistant text block to a `refusal` — so `assertFirstTurnShape` renders `ok-refused` (a pass) instead of `vacuous`. Previously a correct refusal under `claude -p` was prose-only and indistinguishable from doing nothing, so Phase 8 could catch a violation but never render a pass (F5) (STE-408).
+- Fix tty-detection: `isStdinNonTty()` used `isTTY === false`, missing the `undefined` a heredoc/subshell stdin presents under `claude -p` — now `isTTY !== true`, so only a genuine interactive terminal is treated as tty (F3) (STE-408).
+
+Total test count at release: 4956 tests, 0 failures, 0 errors.
+
+## [2.52.0] — 2026-07-20 — "Gatekeeper"
+
+M110 follow-up: closes the HIGH finding the 2026-07-20 `/conformance-loop` re-run surfaced while validating v2.51.0.
+
+### Fixed
+
+- Fence `/spec-write` against the autonomous-reminder gate-bypass: the tracker-create MCP tools (`mcp__atlassian__createJiraIssue`, `mcp__linear__save_issue`) are now forbidden before the first ask/refusal in the `assertFirstTurnShape` arbiter — closing the F4 magpie shape where, under the autonomous-mode reminder and no marker, the skill made a real tracker write before asking. New gate probe #72 pins the SKILL clause; the marker-absent non-tty soft-halt now requires the byte-checkable refusal (F2) (STE-404).
+
+Total test count at release: 4950 tests, 0 failures, 0 errors.
+
+## [2.51.0] — 2026-07-19 — "Crucible"
+
+Fixes the five high-severity shipped-plugin defects the 2026-07-19 `/conformance-loop` run surfaced (M110).
+
+### Added
+
+- Liveness detector `checkSkillCompletionSignal` for clean-exit/zero-work smoke captures — a child that halts at a prose question under `claude -p` and exits success now fails chain-integrity on the missing closing-summary marker (STE-400).
+
+### Fixed
+
+- Widen the Linear AC-fence strip regex (`AC_LINEAR_XML_RE`) to tolerate the issue-mention `href` attribute Linear's MCP now emits; adds href coverage that had let the upstream HTML-shape change ship undetected (STE-398).
+- socratic first-turn arbiter: distinct `vacuous` outcome (a no-loop transcript no longer reads as a pass) + project-scoped scaffolding detection (out-of-project writes no longer fail the run) (STE-399).
+- Route `/spec-write`'s milestone-allocation gate through the marker/refusal contract — marker default-applies the recommendation, marker-absent + non-tty refuses loudly instead of a silent no-op; new probe #70 (STE-401).
+- Gate `/report-issue`'s gist publish on the marker, not prose inference — marker-absent + non-tty refuses (no `gh gist create`); new probe #71 (STE-402).
+
+Total test count at release: 4938 tests, 0 failures, 0 errors.
+
 ## [2.50.0] — 2026-07-19 — "Beacon"
 
 Upgrade auto-detection (M109): a project no longer stays quietly stale. Gate probe #69 walks M108's migration registry on every gate run and reports consumer-artifact drift as notes that never block a merge, so discovery stops depending on an operator remembering a command exists — and with discovery solved, `/upgrade` leaves the slash menu entirely. Two silent-disable defects found along the way are repaired in the same release: probe #57's probe-count leg had been reading a fixed line index that never matched, so it had been enforcing nothing, and the token ledger never marked directly-claimed rows, so every FR written in a shared session reported the whole session's cost as its own.

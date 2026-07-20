@@ -23,7 +23,14 @@
 
 const AC_PLAIN_RE = /\bAC-([A-Z]+-\d+)(\.\d+)\b/g;
 const AC_BACKTICK_RE = /\bAC-`([A-Z]+-\d+)`(\.\d+)\b/g;
-const AC_LINEAR_XML_RE = /\bAC-<issue id="[^"]*">([A-Z]+-\d+)<\/issue>(\.\d+)\b/g;
+// STE-398: Linear's MCP now emits an `href` attribute alongside `id`
+// (`<issue id="…" href="…">`). The pattern accepts any attribute set after
+// `issue` — `<issue\s[^>]*>` requires ≥ 1 attribute and cannot cross the
+// closing `>`, so it stays inside the single tag — while the `\bAC-` prefix
+// and `(\.\d+)` suffix keep the match scoped to AC prefixes (bare issue
+// references like `Refs: STE-205` are untouched).
+const AC_LINEAR_XML_RE =
+  /\bAC-<issue\s[^>]*>([A-Z]+-\d+)<\/issue>(\.\d+)\b/g;
 
 /**
  * STE-211 AC-STE-211.1 / AC-STE-211.2: wrap AC prefixes in inline-code
