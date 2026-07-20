@@ -3,8 +3,12 @@
 // Re-feeds the committed v4 violation transcript at
 // `tests/fixtures/socratic-first-turn/regression/spec-write-2026-05-07.json`
 // through `parseStreamJsonTranscript` + `assertFirstTurnShape` and asserts
-// the helper still detects it as a Socratic-first-turn violation with
-// `toolName === "Write"` and `index === 23`.
+// the helper still detects it as a Socratic-first-turn violation.
+//
+// STE-404: the fixture's true first violation is a tracker create
+// (`mcp__linear__save_issue @ 19`) ahead of the Write @ 23. The arbiter now
+// surfaces the earlier tracker create (the magpie ticket-create the incident
+// was about); the transcript still throws a violation.
 //
 // The fixture lives under `regression/` (not the per-date sibling path) so
 // future `/smoke-test` Phase 8 runs that overwrite the per-date file
@@ -36,7 +40,7 @@ const REGRESSION_FIXTURE = join(
 );
 
 describe("AC-STE-251.4 — F1 reproducer replay (regression fixture)", () => {
-  test("the v4 spec-write transcript still surfaces a Write@23 violation", () => {
+  test("the v4 spec-write transcript surfaces the tracker-create save_issue@19 violation (STE-404)", () => {
     const ndjson = readFileSync(REGRESSION_FIXTURE, "utf-8");
     const transcript = parseStreamJsonTranscript(ndjson);
 
@@ -51,12 +55,14 @@ describe("AC-STE-251.4 — F1 reproducer replay (regression fixture)", () => {
       }
     }
     expect(captured).not.toBeNull();
-    expect(captured!.toolName).toBe("Write");
-    expect(captured!.index).toBe(23);
+    // STE-404: the earlier tracker-create (save_issue @ 19) is the true first
+    // violation, ahead of the Write @ 23 the pre-STE-404 arbiter surfaced.
+    expect(captured!.toolName).toBe("mcp__linear__save_issue");
+    expect(captured!.index).toBe(19);
     // Forward-compat: the canonical NFR-10 message references the
     // protocol doc + names the offending tool/index.
     expect(captured!.message).toContain("Socratic first-turn contract violation");
-    expect(captured!.message).toContain("Write");
+    expect(captured!.message).toContain("mcp__linear__save_issue");
     expect(captured!.message).toContain("docs/auto-mode-protocol.md");
   });
 

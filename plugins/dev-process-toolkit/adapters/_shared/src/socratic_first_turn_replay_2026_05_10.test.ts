@@ -3,8 +3,15 @@
 // Re-feeds the committed v4 violation transcript at
 // `tests/fixtures/socratic-first-turn/regression/spec-write-2026-05-10.json`
 // through `parseStreamJsonTranscript` + `assertFirstTurnShape` and asserts
-// the helper still detects it as a Socratic-first-turn violation with
-// `toolName === "Write"` and `index === 19`.
+// the helper still detects it as a Socratic-first-turn violation.
+//
+// STE-404: the fixture's TRUE first violation is a tracker create
+// (`mcp__linear__save_issue @ 16`, the magpie ticket-create) that precedes
+// the Write @ 19. Before STE-404 the arbiter's forbidden set omitted
+// tracker-create tools, so it surfaced the later Write; now it correctly
+// surfaces the earlier `mcp__linear__save_issue @ 16`. The transcript still
+// throws a violation (the regression baseline's intent) — the catch moved to
+// the earlier, more-faithful offending action.
 //
 // Sibling to STE-251's `socratic_first_turn_replay.test.ts` (Write@23 from
 // the 2026-05-07 fixture). Two regression baselines from different
@@ -38,7 +45,7 @@ const REGRESSION_FIXTURE = join(
 );
 
 describe("AC-STE-270.1 — F1 reproducer replay (2026-05-10 regression fixture)", () => {
-  test("the v4 spec-write transcript still surfaces a Write@19 violation", () => {
+  test("the v4 spec-write transcript surfaces the tracker-create save_issue@16 violation (STE-404)", () => {
     const ndjson = readFileSync(REGRESSION_FIXTURE, "utf-8");
     const transcript = parseStreamJsonTranscript(ndjson);
 
@@ -53,12 +60,14 @@ describe("AC-STE-270.1 — F1 reproducer replay (2026-05-10 regression fixture)"
       }
     }
     expect(captured).not.toBeNull();
-    expect(captured!.toolName).toBe("Write");
-    expect(captured!.index).toBe(19);
+    // STE-404: the earlier tracker-create (save_issue @ 16) is the true first
+    // violation, ahead of the Write @ 19 the pre-STE-404 arbiter surfaced.
+    expect(captured!.toolName).toBe("mcp__linear__save_issue");
+    expect(captured!.index).toBe(16);
     // Forward-compat: the canonical NFR-10 message references the
     // protocol doc + names the offending tool/index.
     expect(captured!.message).toContain("Socratic first-turn contract violation");
-    expect(captured!.message).toContain("Write");
+    expect(captured!.message).toContain("mcp__linear__save_issue");
     expect(captured!.message).toContain("docs/auto-mode-protocol.md");
   });
 

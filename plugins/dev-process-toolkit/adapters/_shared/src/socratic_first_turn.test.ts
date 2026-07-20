@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 import {
   assertFirstTurnShape,
   SocraticFirstTurnViolationError,
+  TRACKER_CREATE_TOOLS,
   type TranscriptEntry,
 } from "./socratic_first_turn";
 
@@ -130,6 +131,67 @@ describe("AC-STE-237.5 — assertFirstTurnShape six-case matrix", () => {
     const result = assertFirstTurnShape(transcript);
     expect(result.outcome).toBe("vacuous");
     expect(result.askIndex).toBeUndefined();
+  });
+});
+
+describe("STE-404 — tracker-create tools forbidden before the first ask/refusal", () => {
+  test("TRACKER_CREATE_TOOLS names the create MCP tools", () => {
+    expect(TRACKER_CREATE_TOOLS).toContain("mcp__atlassian__createJiraIssue");
+    expect(TRACKER_CREATE_TOOLS).toContain("mcp__linear__save_issue");
+  });
+
+  test("AC-STE-404.1: createJiraIssue before the first ask ⇒ violation", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "tool_use", name: "mcp__atlassian__createJiraIssue" },
+    ];
+    expect(() => assertFirstTurnShape(transcript)).toThrow(
+      SocraticFirstTurnViolationError,
+    );
+  });
+
+  test("AC-STE-404.1: linear save_issue before the first ask ⇒ violation (even after read-only orientation)", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "tool_use", name: "Read" },
+      { type: "tool_use", name: "mcp__linear__save_issue" },
+      { type: "tool_use", name: "AskUserQuestion" },
+    ];
+    expect(() => assertFirstTurnShape(transcript)).toThrow(
+      SocraticFirstTurnViolationError,
+    );
+    try {
+      assertFirstTurnShape(transcript);
+    } catch (err) {
+      const e = err as SocraticFirstTurnViolationError;
+      expect(e.toolName).toBe("mcp__linear__save_issue");
+      expect(e.index).toBe(1);
+    }
+  });
+
+  test("AC-STE-404.1: a tracker create AFTER the first ask is fine (ok-asked, no throw)", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "tool_use", name: "AskUserQuestion" },
+      { type: "tool_use", name: "mcp__linear__save_issue" },
+    ];
+    const r = assertFirstTurnShape(transcript);
+    expect(r.outcome).toBe("ok-asked");
+    expect(r.askIndex).toBe(0);
+  });
+
+  test("AC-STE-404.1: a tracker create after a refusal is fine (ok-refused)", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "refusal" },
+      { type: "tool_use", name: "mcp__atlassian__createJiraIssue" },
+    ];
+    expect(assertFirstTurnShape(transcript).outcome).toBe("ok-refused");
+  });
+
+  test("AC-STE-404.2: tracker-create violation is path-agnostic — fires even with projectRoot set", () => {
+    const transcript: TranscriptEntry[] = [
+      { type: "tool_use", name: "mcp__atlassian__createJiraIssue" },
+    ];
+    expect(() =>
+      assertFirstTurnShape(transcript, { projectRoot: "/proj" }),
+    ).toThrow(SocraticFirstTurnViolationError);
   });
 });
 
