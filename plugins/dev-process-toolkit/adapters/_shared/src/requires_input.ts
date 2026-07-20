@@ -23,6 +23,17 @@ export type RequireOutcome =
   | "default-applied"
   | "refused";
 
+// STE-408 (F5): canonical byte-checkable marker carried in every
+// RequiresInputRefusedError message. Under `claude -p` a refusal is prose
+// narration with no structured stream event, so a correct refusal was
+// indistinguishable from "did nothing" (both `vacuous`) at the Phase-8
+// surface. Surfacing the error's message emits this marker; the stream
+// parser (socratic_first_turn_stream.ts) maps it to a `refusal` entry so
+// assertFirstTurnShape renders `ok-refused`. Shape mirrors the
+// `<dpt:auto-approve>v1</dpt:auto-approve>` auto-approve marker.
+export const REQUIRES_INPUT_REFUSED_MARKER =
+  "<dpt:requires-input-refused>v1</dpt:requires-input-refused>";
+
 export interface RequireOrRefuseSpec {
   /**
    * Resolved interactive answer captured from a TTY prompt. `undefined`
@@ -102,7 +113,12 @@ export class RequiresInputRefusedError extends Error {
  * "not non-tty" — interactive sessions never trip the non-tty branch.
  */
 function isStdinNonTty(): boolean {
-  return (process.stdin as { isTTY?: boolean }).isTTY === false;
+  // STE-408 (F3): `isTTY` is `true` only for a genuine interactive terminal;
+  // a heredoc / subshell / pipe stdin (the `claude -p` shape) leaves it
+  // `undefined`, and an explicit non-tty leaves it `false`. Treat anything
+  // that is NOT the literal `true` as non-tty — the prior strict `=== false`
+  // check missed the `undefined` case and misreported `stdin=tty` under -p.
+  return (process.stdin as { isTTY?: boolean }).isTTY !== true;
 }
 
 function buildRefusalMessage(
@@ -132,9 +148,14 @@ function buildRefusalMessage(
     `skill=${spec.skillName}, step=${spec.stepName}, key=${key}, ` +
     `marker=${spec.markerPresent ? "present" : "absent"}, ` +
     `stdin=${nonTty ? "non-tty" : "tty"}`;
-  return [`Verdict: ${verdict}`, `Remedy: ${remedy}`, `Context: ${ctx}`].join(
-    "\n",
-  );
+  // STE-408 (F5): append the canonical refusal marker so a surfaced refusal
+  // is machine-recognizable (the stream parser maps it to a `refusal` entry).
+  return [
+    `Verdict: ${verdict}`,
+    `Remedy: ${remedy}`,
+    `Context: ${ctx}`,
+    REQUIRES_INPUT_REFUSED_MARKER,
+  ].join("\n");
 }
 
 /**
