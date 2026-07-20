@@ -179,7 +179,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.51.0 — "Crucible"** (M110 fixes the five high-severity shipped-plugin defects the 2026-07-19 conformance run surfaced: `/spec-write`'s milestone-allocation gate and `/report-issue`'s gist publish now route through the marker/refusal contract instead of silently no-op'ing or publishing on prose under `claude -p` (new probes #70/#71); the smoke chain-integrity check gains a liveness detector for clean-exit/zero-work captures; the socratic first-turn arbiter grows a distinct vacuous outcome and project-scoped scaffolding detection; and the Linear AC-fence strip regex is widened for the issue-mention `href` attribute an upstream change added.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.52.0 — "Gatekeeper"** (M110 follow-up: the 2026-07-20 conformance re-run validated the v2.51.0 "Crucible" fixes and surfaced one HIGH — under the autonomous-mode reminder with no marker, `/spec-write` made a real tracker write before asking. The first-turn arbiter now forbids the tracker-create MCP tools before the first ask/refusal, closing the magpie gap the earlier Write/Edit/NotebookEdit set missed (new probe #72). v2.51.0 shipped the five original Crucible fixes: the milestone-allocation + gist-publish gates on the marker/refusal contract (probes #70/#71), a clean-exit liveness detector, the socratic vacuous outcome + project-scoped scaffolding, and the Linear AC-fence `href` widening.)
 
 ## Core Philosophy
 

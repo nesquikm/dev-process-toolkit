@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.52.0] — 2026-07-20 — "Gatekeeper"
+
+M110 follow-up: closes the HIGH finding the 2026-07-20 `/conformance-loop` re-run surfaced while validating v2.51.0.
+
+### Fixed
+
+- Fence `/spec-write` against the autonomous-reminder gate-bypass: the tracker-create MCP tools (`mcp__atlassian__createJiraIssue`, `mcp__linear__save_issue`) are now forbidden before the first ask/refusal in the `assertFirstTurnShape` arbiter — closing the F4 magpie shape where, under the autonomous-mode reminder and no marker, the skill made a real tracker write before asking. New gate probe #72 pins the SKILL clause; the marker-absent non-tty soft-halt now requires the byte-checkable refusal (F2) (STE-404).
+
+Total test count at release: 4950 tests, 0 failures, 0 errors.
+
 ## [2.51.0] — 2026-07-19 — "Crucible"
 
 Fixes the five high-severity shipped-plugin defects the 2026-07-19 `/conformance-loop` run surfaced (M110).
