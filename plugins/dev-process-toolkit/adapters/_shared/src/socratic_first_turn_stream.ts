@@ -23,6 +23,7 @@
 // raw NDJSON line count. The low-level NDJSON reader is shared with
 // smoke_child_capture via stream_json_events.ts.
 
+import { REQUIRES_INPUT_REFUSED_MARKER } from "./requires_input";
 import { SCAFFOLDING_TOOLS, type TranscriptEntry } from "./socratic_first_turn";
 import {
   assistantContentBlocks,
@@ -65,7 +66,19 @@ export function parseStreamJsonLine(line: string): TranscriptEntry[] {
   const entries: TranscriptEntry[] = [];
   for (const block of assistantContentBlocks(event)) {
     if (block.type === "text") {
-      entries.push({ type: "text" });
+      // STE-408 (F5): an assistant text block carrying the canonical
+      // requires-input refusal marker is a surfaced RequiresInputRefusedError
+      // — project it as a `refusal` so assertFirstTurnShape renders ok-refused
+      // (not vacuous). Assistant-scoped by construction: user / tool_result
+      // events (e.g. the SKILL body documenting the marker) never reach here.
+      if (
+        typeof block.text === "string" &&
+        block.text.includes(REQUIRES_INPUT_REFUSED_MARKER)
+      ) {
+        entries.push({ type: "refusal" });
+      } else {
+        entries.push({ type: "text" });
+      }
     } else if (block.type === "tool_use" && typeof block.name === "string") {
       const path = scaffoldPath(block.name, block.input);
       entries.push(

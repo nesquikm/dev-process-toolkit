@@ -298,3 +298,46 @@ describe("end-to-end: parseStreamJsonTranscript -> assertFirstTurnShape", () => 
     expect(result.askIndex).toBe(2);
   });
 });
+
+// STE-408 F5 — the canonical requires-input refusal marker in ASSISTANT text
+// projects to a `refusal` entry, so a surfaced refusal renders ok-refused
+// (not vacuous). A marker in a user/tool_result event does NOT (assistant-only).
+describe("STE-408 — requires-input refusal marker recognition", () => {
+  const MARKER = "<dpt:requires-input-refused>v1</dpt:requires-input-refused>";
+
+  test("AC-STE-408.3: assistant text with the marker projects to a refusal entry", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [{ type: "text", text: `Refusing.\n${MARKER}\nRe-invoke interactively.` }],
+      },
+    });
+    expect(parseStreamJsonLine(line)).toEqual([{ type: "refusal" }]);
+  });
+
+  test("AC-STE-408.3: end-to-end — a marker-bearing refusal ⇒ assertFirstTurnShape ok-refused (not vacuous)", () => {
+    const ndjson = [
+      JSON.stringify({ type: "system", subtype: "init" }),
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          content: [
+            { type: "text", text: "Read the specs first." },
+            { type: "text", text: `Cannot proceed. ${MARKER}` },
+          ],
+        },
+      }),
+    ].join("\n");
+    const transcript = parseStreamJsonTranscript(ndjson);
+    const r = assertFirstTurnShape(transcript);
+    expect(r.outcome).toBe("ok-refused");
+  });
+
+  test("AC-STE-408.4: the marker in a user/tool_result event does NOT project a refusal", () => {
+    const line = JSON.stringify({
+      type: "user",
+      message: { content: [{ type: "tool_result", content: `SKILL body documents ${MARKER}` }] },
+    });
+    expect(parseStreamJsonLine(line)).toEqual([]);
+  });
+});

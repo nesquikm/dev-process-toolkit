@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  REQUIRES_INPUT_REFUSED_MARKER,
   requireOrRefuse,
   RequiresInputRefusedError,
   type RequireOrRefuseSpec,
@@ -293,10 +294,11 @@ describe("AC-STE-251.2 — non-tty branch matrix (tty x answer-shape)", () => {
     });
   });
 
-  test("isTTY=undefined (default Bun stdin in some environments) ⇒ treated as tty (preserves v2.17.0 behavior)", () => {
-    // Defensive: only the literal `false` value triggers the non-tty branch.
-    // `undefined` (the default for non-stream-piped Bun stdin in some setups)
-    // stays on the existing tty-path remedy.
+  test("isTTY=undefined (heredoc/subshell stdin, the claude -p shape) ⇒ treated as non-tty (STE-408 F3 correction)", () => {
+    // STE-408 (F3): the prior strict `=== false` check treated `undefined` as
+    // tty, so a `claude -p` heredoc/subshell run (isTTY undefined) misreported
+    // `stdin=tty`. `isTTY !== true` now correctly classifies `undefined` as
+    // non-tty — only a genuine interactive terminal (isTTY === true) is tty.
     withIsTTY(undefined, () => {
       let captured: RequiresInputRefusedError | null = null;
       try {
@@ -306,8 +308,74 @@ describe("AC-STE-251.2 — non-tty branch matrix (tty x answer-shape)", () => {
       }
       expect(captured).not.toBeNull();
       const msg = captured!.message;
-      expect(msg).not.toContain("Non-tty stdin");
-      expect(msg).toContain("stdin=tty");
+      expect(msg).toContain("Non-tty stdin");
+      expect(msg).toContain("stdin=non-tty");
     });
+  });
+});
+
+// STE-408 — F3 (isTTY-undefined non-tty detection) + F5 (canonical refusal marker).
+describe("STE-408 — tty-detection + refusal marker", () => {
+  const priorFor = () =>
+    Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+  const restore = (prior: PropertyDescriptor | undefined) => {
+    if (prior) Object.defineProperty(process.stdin, "isTTY", prior);
+    else delete (process.stdin as { isTTY?: boolean }).isTTY;
+  };
+  const setTty = (v: boolean | undefined) => {
+    if (v === undefined) delete (process.stdin as { isTTY?: boolean }).isTTY;
+    else
+      Object.defineProperty(process.stdin, "isTTY", {
+        value: v,
+        configurable: true,
+      });
+  };
+
+  test("AC-STE-408.1: isTTY undefined (heredoc/subshell stdin) ⇒ treated non-tty", () => {
+    const prior = priorFor();
+    setTty(undefined);
+    try {
+      requireOrRefuse({ ...baseSpec, markerPresent: false }, "tracker_mode", SENTINEL);
+      throw new Error("expected refusal");
+    } catch (e) {
+      const msg = (e as RequiresInputRefusedError).message;
+      expect(msg).toContain("Non-tty stdin"); // the non-tty remedy branch fired
+      expect(msg).toContain("stdin=non-tty");
+      expect(msg).not.toContain("stdin=tty,"); // not the tty branch
+    } finally {
+      restore(prior);
+    }
+  });
+
+  test("AC-STE-408.1: isTTY true stays interactive (tty remedy, not non-tty)", () => {
+    const prior = priorFor();
+    setTty(true);
+    try {
+      requireOrRefuse({ ...baseSpec, markerPresent: false }, "tracker_mode", SENTINEL);
+      throw new Error("expected refusal");
+    } catch (e) {
+      const msg = (e as RequiresInputRefusedError).message;
+      expect(msg).toContain("stdin=tty");
+      expect(msg).not.toContain("Non-tty stdin");
+    } finally {
+      restore(prior);
+    }
+  });
+
+  test("AC-STE-408.2: the refusal message carries the canonical refusal marker", () => {
+    const prior = priorFor();
+    setTty(false);
+    try {
+      requireOrRefuse({ ...baseSpec, markerPresent: false }, "tracker_mode", SENTINEL);
+      throw new Error("expected refusal");
+    } catch (e) {
+      const msg = (e as RequiresInputRefusedError).message;
+      expect(msg).toContain(REQUIRES_INPUT_REFUSED_MARKER);
+      expect(REQUIRES_INPUT_REFUSED_MARKER).toBe(
+        "<dpt:requires-input-refused>v1</dpt:requires-input-refused>",
+      );
+    } finally {
+      restore(prior);
+    }
   });
 });
