@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.53.0] — 2026-07-20 — "Legible"
+
+M110 follow-up: closes the HIGH + low the v2.52.0 conformance re-run surfaced while confirming the v2.52.0 "Gatekeeper" fix worked.
+
+### Fixed
+
+- Make a correct non-tty requires-input refusal machine-recognizable: `RequiresInputRefusedError` now carries a canonical `<dpt:requires-input-refused>v1</dpt:requires-input-refused>` marker, and the stream parser maps that marker in an assistant text block to a `refusal` — so `assertFirstTurnShape` renders `ok-refused` (a pass) instead of `vacuous`. Previously a correct refusal under `claude -p` was prose-only and indistinguishable from doing nothing, so Phase 8 could catch a violation but never render a pass (F5) (STE-408).
+- Fix tty-detection: `isStdinNonTty()` used `isTTY === false`, missing the `undefined` a heredoc/subshell stdin presents under `claude -p` — now `isTTY !== true`, so only a genuine interactive terminal is treated as tty (F3) (STE-408).
+
+Total test count at release: 4956 tests, 0 failures, 0 errors.
+
 ## [2.52.0] — 2026-07-20 — "Gatekeeper"
 
 M110 follow-up: closes the HIGH finding the 2026-07-20 `/conformance-loop` re-run surfaced while validating v2.51.0.
