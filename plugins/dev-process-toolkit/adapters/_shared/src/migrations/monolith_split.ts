@@ -193,6 +193,37 @@ function liveFrSectionNumbers(markdown: string): number[] {
 // ---------------------------------------------------------------------------
 
 /**
+ * Does `dir` hold real per-FR content — a regular `.md` file found by a
+ * recursive scan that ignores dot-entries (dotfiles AND dot-directories)?
+ *
+ * Only a real per-FR markdown file evidences a completed split. A `.gitkeep`,
+ * an empty `archive/` scaffold, or any other non-`.md` residue is NOT content:
+ * dot-entries are skipped at every level, so a `.gitkeep`-only or
+ * /setup-scaffold-shaped `specs/frs/` reads as "no content seen" rather than
+ * "already split".
+ *
+ * A throw at any level — ENOTDIR when `specs/frs` is a regular file, an
+ * unreadable subtree — is caught and treated as "no content seen there",
+ * preserving the detector's degrade-not-throw posture (the ENOTDIR guard the
+ * caller used to keep is subsumed into this catch).
+ */
+function hasRealFrContent(dir: string): boolean {
+  try {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith(".")) continue;
+      if (entry.isDirectory()) {
+        if (hasRealFrContent(join(dir, entry.name))) return true;
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        return true;
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+/**
  * Fires on the conjunction the AC pins: FR-heading sections present in
  * `specs/requirements.md` AND `specs/frs/` absent or empty.
  *
@@ -232,7 +263,7 @@ function detectMonolith(projectRoot: string): DetectResult {
       split = null;
     }
   }
-  if (split !== null && split.length > 0) return { applies: false, evidence: [] };
+  if (hasRealFrContent(frs)) return { applies: false, evidence: [] };
 
   const named = live.map((n) => `FR-${n}`).join(", ");
   return {
@@ -241,7 +272,7 @@ function detectMonolith(projectRoot: string): DetectResult {
       `specs/requirements.md carries ${live.length} live FR-heading section(s) (${named}) — the monolithic layout retired in v1.16.0`,
       split === null
         ? "specs/frs/ is absent — no FR has been split out into a per-FR file yet"
-        : "specs/frs/ is present but empty — no FR has been split out into a per-FR file yet",
+        : "specs/frs/ carries only scaffold artifacts — no FR has been split out into a per-FR file yet",
       existsSync(flatPlanPath(projectRoot))
         ? "AC checkbox state lives in the flat specs/plan.md, split-brain from the sections' own AC bullets"
         : "no flat specs/plan.md — the sections' AC bullets carry no plan-side checkbox state to reconcile",

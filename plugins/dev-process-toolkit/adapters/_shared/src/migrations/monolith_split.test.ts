@@ -19,7 +19,7 @@
 // and keeps every value assertion strict. Everything else is asserted as-is.
 
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -576,6 +576,199 @@ describe("AC-STE-392.8 — the registry's own invariants survive the new entry",
     for (const e of MIGRATIONS) {
       if (e.kind === "script") expect(typeof e.apply).toBe("function");
       else expect(e.apply).toBeUndefined();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-STE-409.1 … .6 — content-aware emptiness limb
+//
+// Today the detector's second limb is `split.length > 0` (monolith_split.ts:235):
+// specs/frs/ counts as "already split" the moment `readdirSync` returns ANY
+// entry — so a `.gitkeep`-only or /setup-scaffold-shaped folder silently
+// disables the migration. STE-409 replaces that with a recursive,
+// dot-entry-skipping, `.md`-only content check: only real per-FR markdown counts
+// as evidence of a completed split. These fixtures pin every shape.
+// ---------------------------------------------------------------------------
+
+/** The live-monolith precondition every STE-409 shape shares (both files). */
+const LIVE_MONOLITH: Record<string, string> = {
+  "specs/requirements.md": MONOLITH_REQUIREMENTS,
+  "specs/plan.md": MONOLITH_PLAN,
+};
+
+/** A real per-FR markdown body — the only thing that evidences a split. */
+const PER_FR_FILE = "---\ntitle: Widget import\n---\n\n# STE-500\n";
+
+/** AC-STE-409.5 — the present-but-contentless evidence line, byte-for-byte. */
+const SCAFFOLD_EVIDENCE =
+  "specs/frs/ carries only scaffold artifacts — no FR has been split out into a per-FR file yet";
+
+/** The absent/unreadable branch keeps today's wording, byte-for-byte. */
+const ABSENT_EVIDENCE = "specs/frs/ is absent — no FR has been split out into a per-FR file yet";
+
+describe("AC-STE-409.1 — a `.gitkeep`-only specs/frs/ is not-split", () => {
+  test("live FR sections + specs/frs/ holding only `.gitkeep` ⇒ applies", () => {
+    // A recursive scan that skips dot-entries finds no regular `.md` file, so the
+    // emptiness limb still holds. Today `readdirSync` returns [".gitkeep"], so the
+    // `split.length > 0` limb reads this as "already split" — this is RED now.
+    withTree({ ...LIVE_MONOLITH, "specs/frs/.gitkeep": "" }, (root) => {
+      expect(monolithSplit.detect(root).applies).toBe(true);
+    });
+  });
+});
+
+describe("AC-STE-409.2 — the exact /setup scaffold shape is not-split", () => {
+  test("specs/frs/.gitkeep + specs/frs/archive/.gitkeep, live sections ⇒ applies", () => {
+    // The scaffold listing is [".gitkeep", "archive"]; a plain dotfile filter
+    // still leaves `archive`, so the check must recurse and find NO `.md`. Today
+    // `split.length > 0` is 2 > 0 ⇒ reads as split — RED now.
+    withTree(
+      { ...LIVE_MONOLITH, "specs/frs/.gitkeep": "", "specs/frs/archive/.gitkeep": "" },
+      (root) => {
+        expect(monolithSplit.detect(root).applies).toBe(true);
+      },
+    );
+  });
+});
+
+describe("AC-STE-409.3 — a real per-FR .md preserves STE-392 re-run semantics", () => {
+  test("(a) a real top-level per-FR .md ⇒ does NOT re-fire (applies false)", () => {
+    withTree({ ...LIVE_MONOLITH, "specs/frs/STE-500.md": PER_FR_FILE }, (root) => {
+      expect(monolithSplit.detect(root).applies).toBe(false);
+    });
+  });
+
+  test("(b) an archive-only real .md (specs/frs/ otherwise .gitkeep-only) ⇒ applies false", () => {
+    // The recursive scan reaches specs/frs/archive/STE-500.md — a real `.md`
+    // under a non-dot subdirectory — so the split reads as done and stays quiet.
+    withTree(
+      {
+        ...LIVE_MONOLITH,
+        "specs/frs/.gitkeep": "",
+        "specs/frs/archive/STE-500.md": PER_FR_FILE,
+      },
+      (root) => {
+        expect(monolithSplit.detect(root).applies).toBe(false);
+      },
+    );
+  });
+});
+
+describe("AC-STE-409.4 — purity + throw-guard on a non-directory specs/frs/", () => {
+  test("specs/frs is a regular FILE ⇒ degrades to not-split WITHOUT throwing", () => {
+    // The ENOTDIR the readdir would raise must be caught and treated as "no
+    // content seen": live sections + no readable frs content ⇒ applies true.
+    withTree({ ...LIVE_MONOLITH, "specs/frs": "i am a file, not a directory\n" }, (root) => {
+      expect(() => monolithSplit.detect(root)).not.toThrow();
+      expect(monolithSplit.detect(root).applies).toBe(true);
+    });
+  });
+
+  test("detect stays synchronous on the non-directory shape", () => {
+    withTree({ ...LIVE_MONOLITH, "specs/frs": "regular file\n" }, (root) => {
+      const res = monolithSplit.detect(root) as unknown as { then?: unknown };
+      expect(typeof res.then).not.toBe("function");
+    });
+  });
+
+  test("detect mutates nothing on the non-directory shape", () => {
+    withTree({ ...LIVE_MONOLITH, "specs/frs": "regular file\n" }, (root) => {
+      const before = snapshot(root);
+      monolithSplit.detect(root);
+      expect(snapshot(root)).toEqual(before);
+    });
+  });
+});
+
+describe("AC-STE-409.5 — present-but-contentless evidence names scaffold artifacts", () => {
+  test("scaffold-shape tree emits the scaffold-artifacts line byte-for-byte", () => {
+    // RED now: on a scaffold-shape tree today's detector returns applies:false
+    // with evidence:[], so no entry equals this string.
+    withTree(
+      { ...LIVE_MONOLITH, "specs/frs/.gitkeep": "", "specs/frs/archive/.gitkeep": "" },
+      (root) => {
+        expect(monolithSplit.detect(root).evidence).toContain(SCAFFOLD_EVIDENCE);
+      },
+    );
+  });
+
+  test("`.gitkeep`-only tree emits the same scaffold-artifacts line byte-for-byte", () => {
+    withTree({ ...LIVE_MONOLITH, "specs/frs/.gitkeep": "" }, (root) => {
+      expect(monolithSplit.detect(root).evidence).toContain(SCAFFOLD_EVIDENCE);
+    });
+  });
+
+  test("the absent branch keeps today's `is absent` wording, byte-for-byte", () => {
+    withTree({ ...LIVE_MONOLITH }, (root) => {
+      expect(monolithSplit.detect(root).evidence).toContain(ABSENT_EVIDENCE);
+    });
+  });
+});
+
+describe("AC-STE-409.6 — every specs/frs/ shape maps to the exact `applies` verdict", () => {
+  test("(1) `.gitkeep`-only ⇒ applies true", () => {
+    withTree({ ...LIVE_MONOLITH, "specs/frs/.gitkeep": "" }, (root) => {
+      expect(monolithSplit.detect(root).applies).toBe(true);
+    });
+  });
+
+  test("(2) full scaffold shape (.gitkeep + archive/.gitkeep) ⇒ applies true", () => {
+    withTree(
+      { ...LIVE_MONOLITH, "specs/frs/.gitkeep": "", "specs/frs/archive/.gitkeep": "" },
+      (root) => {
+        expect(monolithSplit.detect(root).applies).toBe(true);
+      },
+    );
+  });
+
+  test("(3) a real top-level per-FR .md ⇒ applies false", () => {
+    withTree({ ...LIVE_MONOLITH, "specs/frs/STE-500.md": PER_FR_FILE }, (root) => {
+      expect(monolithSplit.detect(root).applies).toBe(false);
+    });
+  });
+
+  test("(4) an archive-only real .md ⇒ applies false", () => {
+    withTree(
+      { ...LIVE_MONOLITH, "specs/frs/.gitkeep": "", "specs/frs/archive/STE-500.md": PER_FR_FILE },
+      (root) => {
+        expect(monolithSplit.detect(root).applies).toBe(false);
+      },
+    );
+  });
+
+  test("(5) a plain-empty specs/frs/ directory ⇒ applies true (existing case stays green)", () => {
+    const root = makeTree({ ...LIVE_MONOLITH });
+    try {
+      mkdirSync(join(root, "specs", "frs"), { recursive: true });
+      expect(monolithSplit.detect(root).applies).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("(6) an absent specs/frs/ directory ⇒ applies true (existing case stays green)", () => {
+    withTree({ ...LIVE_MONOLITH }, (root) => {
+      expect(monolithSplit.detect(root).applies).toBe(true);
+    });
+  });
+});
+
+describe("AC-STE-409.1 hardening — only a REGULAR `.md` file is real content", () => {
+  test("a symlink named `*.md` under specs/frs/ does NOT count as a split (applies stays true)", () => {
+    // Phase-3 Pass-2 review finding: the leaf check is `isFile()`, not
+    // `!isDirectory()`. AC-STE-409.1 pins "a regular `.md` file"; a symlink (or
+    // FIFO/device) named `*.md` is not one, so a crafted `specs/frs/` entry must
+    // not silence the monolith advisory on a hostile consumer tree. `Dirent`
+    // reports the entry's own type, so the symlink is neither a dir nor a file
+    // and the recursive scan skips it — no content seen ⇒ the split still pends.
+    const root = makeTree({ ...LIVE_MONOLITH, "target-outside.md": PER_FR_FILE });
+    try {
+      mkdirSync(join(root, "specs", "frs"), { recursive: true });
+      symlinkSync(join(root, "target-outside.md"), join(root, "specs", "frs", "ghost.md"));
+      expect(monolithSplit.detect(root).applies).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
