@@ -196,3 +196,18 @@ export async function runUpgradeStalenessProbe(
     violations: [],
   };
 }
+
+// M111 STE-411 — deterministic read-only CLI that `/upgrade` Step 0 consumes.
+//
+// `bun run adapters/_shared/src/upgrade_staleness.ts <projectRoot>` runs the
+// probe in-process and prints its NOTES block one line per element: the
+// legacy-monolith hint (or registry rows + remedy) on a stale tree, EMPTY
+// stdout on a clean one, exit 0 in both cases. Step 0 shells out to this
+// instead of re-deriving staleness in prose, so the skill and the gate share
+// one byte-pinned verdict. Imported by tests, `import.meta.main` is false and
+// this block never runs — keeping the module free of side effects at import.
+if (import.meta.main) {
+  const projectRoot = process.argv[2] ?? process.cwd();
+  const report = await runUpgradeStalenessProbe(projectRoot);
+  if (report.notes.length > 0) console.log(report.notes.join("\n"));
+}
