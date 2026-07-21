@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.54.0] — 2026-07-21 — "Semaphore"
+
+M111 "Semaphore": make a legacy monolithic-specs tree announce itself, closing the two-facet gap the 2026-07-21 `/report-issue` gist surfaced (a hand-written CLAUDE.md tree got zero signal a migration exists; `/setup`'s `.gitkeep` scaffold defeated the detector even on the supported path).
+
+### Changed
+
+- Probe #69 (`upgrade_staleness`) now emits a warn-only legacy-monolith advisory row on unmanaged trees — one narrow read-only carve-out that runs only the monolith-split sniff and closes with the byte-pinned `LEGACY_MONOLITH_HINT`; it never fails the gate and the numbered probe count stays 72 (STE-410).
+- `/upgrade` Step 0 renders the monolith-split row + hint on the never-bootstrapped path via a deterministic read-only CLI, instead of the misleading bare "nothing to migrate"; the ownership invariant ("Never migrate a file the toolkit does not own.") is unchanged (STE-411).
+- `/setup` step 8 guards the `specs/frs/` scaffold on `monolithSplit.detect`: on a live monolithic tree it skips the `.gitkeep` seeding, never overwrites the existing `requirements.md`, and logs a `frs-scaffold-skipped` audit row routing to `/gate-check` (STE-412).
+
+### Fixed
+
+- The monolith-split detector's emptiness limb is now content-aware: a recursive, dot-skipping, regular-`.md`-only scan replaces the raw `readdirSync` listing check, so `/setup`'s `.gitkeep` scaffold (plus an empty `archive/`) no longer masquerades as a completed split and silently disables the migration (STE-409).
+
+Total test count at release: 5003 tests, 0 failures, 0 errors.
+
 ## [2.53.0] — 2026-07-20 — "Legible"
 
 M110 follow-up: closes the HIGH + low the v2.52.0 conformance re-run surfaced while confirming the v2.52.0 "Gatekeeper" fix worked.

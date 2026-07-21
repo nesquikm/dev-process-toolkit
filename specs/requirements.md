@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.53.0 ("Legible")**.
+**Latest shipped release:** **v2.54.0 ("Semaphore")**.
 
 ### Shipped milestones
 
@@ -403,4 +403,8 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-394.1..9 | adapters/_shared/src/upgrade_staleness.ts, adapters/_shared/src/public_surface_count_drift.ts, skills/gate-check/SKILL.md, skills/upgrade/SKILL.md, README.md | tests/gate-check-upgrade-staleness.test.ts, tests/m109-ste-394-docs-pins.test.ts, tests/gate-check-public-surface-count-drift.test.ts |
 | AC-STE-395.1..8 | skills/upgrade/SKILL.md, skills/setup/SKILL.md, docs/skill-anatomy.md, README.md, CLAUDE.md, specs/technical-spec.md | tests/m109-ste-395-delist-upgrade.test.ts, tests/m108-ste-391-upgrade-skill.test.ts, tests/m108-ste-391-docs-pins.test.ts |
 | AC-STE-396.1..9 | adapters/_shared/src/token_stats_render.ts, skills/spec-write/SKILL.md, skills/implement/SKILL.md, skills/ship-milestone/SKILL.md, docs/implement-reference.md | tests/token-stats-render.test.ts, tests/token-stats-claim-persistence.test.ts, tests/token-stats-commit-boundary-contract.test.ts |
+| AC-STE-409.1..6 | plugins/dev-process-toolkit/adapters/_shared/src/migrations/monolith_split.ts | plugins/dev-process-toolkit/adapters/_shared/src/migrations/monolith_split.test.ts |
+| AC-STE-410.1..6 | plugins/dev-process-toolkit/adapters/_shared/src/upgrade_staleness.ts, plugins/dev-process-toolkit/skills/gate-check/SKILL.md | plugins/dev-process-toolkit/tests/gate-check-upgrade-staleness.test.ts |
+| AC-STE-411.1..3 | plugins/dev-process-toolkit/adapters/_shared/src/upgrade_staleness.ts, plugins/dev-process-toolkit/skills/upgrade/SKILL.md | plugins/dev-process-toolkit/tests/m111-ste-411-upgrade-hint-pins.test.ts, plugins/dev-process-toolkit/tests/m109-ste-395-delist-upgrade.test.ts |
+| AC-STE-412.1..5 | plugins/dev-process-toolkit/skills/setup/SKILL.md | plugins/dev-process-toolkit/tests/m111-ste-412-setup-scaffold-guard.test.ts |
 
