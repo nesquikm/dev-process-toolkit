@@ -493,7 +493,7 @@ describe("AC-STE-395.5 — the 9 mid-run recovery remedies stay byte-unchanged",
     expect(body).toContain(
       "Remedy: fix the unreadable path (permissions, broken symlink), then re-run `/dev-process-toolkit:upgrade`",
     );
-    expect(occurrences(body, "/dev-process-toolkit:upgrade")).toBe(2);
+    expect(occurrences(body, "/dev-process-toolkit:upgrade")).toBe(3); // STE-411 added the Step-0 hint occurrence (LEGACY_MONOLITH_HINT).
   });
 
   test("monolith_split.ts keeps all seven of its recovery remedies", () => {

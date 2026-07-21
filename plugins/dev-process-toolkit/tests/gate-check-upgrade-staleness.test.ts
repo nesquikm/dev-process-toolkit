@@ -67,6 +67,7 @@ import {
   legacyLocksDir,
 } from "../adapters/_shared/src/migrations/legacy_paths";
 import {
+  LEGACY_MONOLITH_HINT,
   PROBE_ID,
   UPGRADE_STALENESS_REMEDY,
   type UpgradeStalenessReport,
@@ -874,5 +875,151 @@ describe("HARDENING — the LIVE registry survives an unreadable consumer file",
     } finally {
       chmodSync(gitignore, 0o644);
     }
+  });
+});
+
+// ===========================================================================
+// STE-410 — legacy-monolith advisory row on UNMANAGED trees
+//
+// STE-394 pinned Step 0 to a total short-circuit: an unmanaged tree (no
+// toolkit-managed CLAUDE.md section) returns clean WITHOUT walking a single
+// detector. STE-410 carves ONE narrow exception into that short-circuit — on an
+// unmanaged tree the probe runs ONLY the monolith-split sniff (the retired
+// pre-1.16.0 layout, whose two-limb conjunction is DPT-specific evidence), and
+// when it applies emits exactly one advisory row closed by LEGACY_MONOLITH_HINT
+// (route via /setup THEN /upgrade, because /upgrade Step 0 refuses unmanaged
+// trees). Every other unmanaged tree stays byte-identical to today.
+// ===========================================================================
+
+/**
+ * The text of gate-check SKILL.md numbered probe #n — from its `N. **` line up
+ * to (not including) the next numbered probe, so a multi-line entry is captured
+ * whole and a sibling probe's prose never leaks into the assertion.
+ */
+function probeEntry(body: string, n: number): string {
+  const lines = body.split("\n");
+  const start = lines.findIndex((l) => new RegExp(`^${n}\\. \\*\\*`).test(l));
+  if (start === -1) throw new Error(`gate-check SKILL.md has no numbered probe #${n}`);
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^\d+\. \*\*/.test(lines[i]!)) {
+      end = i;
+      break;
+    }
+  }
+  return lines.slice(start, end).join("\n");
+}
+
+describe("AC-STE-410.1 — LEGACY_MONOLITH_HINT byte-pinned literal", () => {
+  test("the exported hint is byte-exact and routes /setup THEN /upgrade", () => {
+    expect(LEGACY_MONOLITH_HINT).toBe(
+      "legacy monolithic specs detected — run /dev-process-toolkit:setup to bootstrap, then /dev-process-toolkit:upgrade to split specs/requirements.md into per-FR files.",
+    );
+  });
+});
+
+describe("AC-STE-410.2 — unmanaged tree + monolith ⇒ one hint-closed row, ONLY the monolith sniff runs", () => {
+  test("exactly one monolith-split row, notes = [row, hint], violations empty, registry stays unwalked", async () => {
+    const root = makeTree({ "CLAUDE.md": UNMANAGED });
+    plantMonolith(root);
+    // Plant a SECOND entry's live legacy state alongside. If the full registry
+    // were (wrongly) walked on the unmanaged path, m104-legacy-state would
+    // render its own row; asserting it does NOT is the proof that only the
+    // monolith sniff ran and the rest of the registry stayed unwalked.
+    plantLegacyLocks(root);
+    expect(liveEntry("m104-legacy-state").detect(root).applies).toBe(true);
+
+    const entry = liveEntry("monolith-split");
+    const row = `${entry.id} (${entry.introduced_in}): ${entry.detect(root).evidence.join("; ")}`;
+
+    const r = await runUpgradeStalenessProbe(root);
+    // Exactly one row, and it is the monolith row — no m104-legacy-state row.
+    expect(r.rows).toEqual([row]);
+    expect(r.rows.some((l) => l.startsWith("m104-legacy-state "))).toBe(false);
+    // The NOTES block is the row followed by the hint — NOT the registry remedy.
+    expect(r.notes).toEqual([row, LEGACY_MONOLITH_HINT]);
+    expect(r.notes).not.toContain(UPGRADE_STALENESS_REMEDY);
+    // Warn-only: the probe never FAILs the gate, even on the carve-out path.
+    expect(r.violations).toEqual([]);
+  });
+});
+
+describe("AC-STE-410.3 — unmanaged tree, sniff not applying ⇒ byte-identical clean return", () => {
+  test("unmanaged + clean tree ⇒ zero rows, zero notes, empty violations, no hint", async () => {
+    const root = makeTree({ "CLAUDE.md": UNMANAGED, "README.md": "# clean\n" });
+    const r = await runUpgradeStalenessProbe(root);
+    expect(r.rows).toEqual([]);
+    expect(r.notes).toEqual([]);
+    expect(r.violations).toEqual([]);
+    // The AC-STE-394.4 vacuity-in-both-directions contract survives the carve-out:
+    // with no monolith the hint is never emitted.
+    expect(r.notes).not.toContain(LEGACY_MONOLITH_HINT);
+  });
+});
+
+describe("AC-STE-410.4 — managed-tree behavior byte-identical: full walk, remedy-closed, never the hint", () => {
+  test("managed + monolith ⇒ monolith row via the FULL registry walk, closed by UPGRADE_STALENESS_REMEDY", async () => {
+    const root = makeTree({ "CLAUDE.md": MANAGED_BY_TASK_TRACKING });
+    plantMonolith(root);
+    const entry = liveEntry("monolith-split");
+    const row = `${entry.id} (${entry.introduced_in}): ${entry.detect(root).evidence.join("; ")}`;
+
+    const r = await runUpgradeStalenessProbe(root);
+    // The managed path renders the monolith row through the registry walk,
+    // exactly as it did before STE-410.
+    expect(r.rows).toEqual([row]);
+    // The NOTES block closes with the registry remedy, NOT the unmanaged hint.
+    expect(r.notes).toEqual([row, UPGRADE_STALENESS_REMEDY]);
+    expect(r.notes[r.notes.length - 1]).toBe(UPGRADE_STALENESS_REMEDY);
+    expect(r.notes).not.toContain(LEGACY_MONOLITH_HINT);
+  });
+});
+
+describe("AC-STE-410.5 — hostile unmanaged tree degrades to silence; the probe resolves", () => {
+  // The unmanaged-path sniff calls the LIVE `monolithSplit.detect`, which (post
+  // STE-409) guards its own file reads: `readFileSync`, `readdirSync`, and the
+  // recursive `hasRealFrContent` all catch. So a `specs/requirements.md` that is
+  // a DIRECTORY degrades to `applies:false` at the detector layer rather than
+  // throwing, and the probe's own try/catch is belt-and-suspenders. Either way
+  // the OBSERVABLE AC-STE-410.5 contract holds: on a hostile unmanaged tree the
+  // probe RESOLVES to the clean zero-row return — silence, never a row, never a
+  // rejection. (A chmod-000 `specs/frs` was rejected as the hostile shape: the
+  // guarded detector returns `applies:true` for it, which would render a ROW,
+  // the opposite of the silence this AC pins.)
+  test("specs/requirements.md as a DIRECTORY ⇒ clean zero-row return, probe resolves not rejects", async () => {
+    const root = makeTree({ "CLAUDE.md": UNMANAGED });
+    mkdirSync(join(root, "specs", "requirements.md"), { recursive: true });
+
+    const { report, error } = await runOrCapture(root);
+    expect(error).toBeNull(); // resolves — a hostile shape must not reject the probe
+    expect(report).not.toBeNull();
+    expect(report!.rows).toEqual([]);
+    expect(report!.notes).toEqual([]);
+    expect(report!.violations).toEqual([]);
+    expect(report!.notes).not.toContain(LEGACY_MONOLITH_HINT);
+  });
+});
+
+describe("AC-STE-410.6 — gate-check SKILL #69 documents the carve-out; probe count unchanged", () => {
+  const body = readFileSync(gateCheckSkill, "utf-8");
+
+  test("the #69 upgrade_staleness entry documents the unmanaged-tree legacy-monolith carve-out", () => {
+    const entry = probeEntry(body, 69);
+    // still the upgrade_staleness probe...
+    expect(entry).toMatch(/^69\.\s+\*\*`?upgrade_staleness`?\*\*/);
+    // ...now naming the legacy-monolith carve-out and its hint literal...
+    expect(entry).toMatch(/monolith/i);
+    expect(entry).toContain("LEGACY_MONOLITH_HINT");
+    // ...while the warn-only / never-fails severity survives the Step 0 amend.
+    expect(entry).toMatch(/severity:\s*notes/i);
+    expect(entry).toMatch(/never/i);
+    expect(entry).toContain("GATE FAILED");
+  });
+
+  test("the numbered probe count is unchanged — the highest numbered probe stays 72", () => {
+    const numbers = [...body.matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
+    expect(numbers.length).toBeGreaterThan(0);
+    expect(Math.max(...numbers)).toBe(72);
+    expect(numbers.length).toBe(72);
   });
 });
