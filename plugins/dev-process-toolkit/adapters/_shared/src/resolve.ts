@@ -18,6 +18,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { parseFrontmatter } from "./frontmatter";
+import { isMilestoneToken } from "./milestone_token";
 
 export type ResolveKind = "ulid" | "tracker-id" | "url" | "milestone" | "fallthrough";
 
@@ -66,7 +67,7 @@ const URL_RE = /^https?:\/\//;
 const LEADING_ID_PREFIX_RE = /^([A-Z]+)-/;
 // STE-202 AC-STE-202.3 — milestone is now a first-class resolver kind so
 // `/implement M<N>` no longer routes through the `fallthrough` branch.
-const MILESTONE_RE = /^M(\d+)$/;
+// The shared union matcher also admits Epic-keyed `M_<epic-key>` milestones.
 
 export function resolveFRArgument(arg: string, config: ResolverConfig): ResolveResult {
   // 1. Explicit prefix form always wins when the key is configured.
@@ -92,7 +93,7 @@ export function resolveFRArgument(arg: string, config: ResolverConfig): ResolveR
   //     so a tracker whose id-pattern accepts `M\d+` doesn't shadow the
   //     milestone form. `/implement M<N>` reads this kind directly rather
   //     than going through fallthrough.
-  if (MILESTONE_RE.test(arg)) {
+  if (isMilestoneToken(arg)) {
     return { kind: "milestone", milestone: arg };
   }
 

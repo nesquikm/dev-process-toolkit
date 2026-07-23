@@ -22,6 +22,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { MILESTONE_TOKEN_SOURCE } from "./milestone_token";
 
 export interface LeakageHit {
   file: string;
@@ -61,7 +62,8 @@ const HEADING_LINE = /^#{1,4}\s+(.+?)(?:\s*\{#[^}]*\})?\s*$/;
 function milestoneTokenMatches(line: string): string[] {
   // Fresh per-call regex — avoids the shared-lastIndex hazard of a
   // module-scope /g instance if this function is ever called re-entrantly.
-  const re = /\bM\d+\b/g;
+  // Union grammar: numeric M<N> and Epic-keyed M_<epic-key> refs both count.
+  const re = new RegExp(String.raw`\b(?:${MILESTONE_TOKEN_SOURCE})\b`, "g");
   const hits: string[] = [];
   let match: RegExpExecArray | null;
   while ((match = re.exec(line)) !== null) hits.push(match[0]);
