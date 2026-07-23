@@ -19,6 +19,7 @@
 import {
   MILESTONE_TOKEN_SOURCE,
   compareMilestoneTokens,
+  isMilestoneToken,
 } from "../../_shared/src/milestone_token";
 
 export interface JiraLabelledIssue {
@@ -31,6 +32,19 @@ export interface JiraSearchPage {
 }
 
 export type JiraSearchPageFetcher = (page: number) => Promise<JiraSearchPage>;
+
+// STE-375 AC-STE-375.3 — Epic-enumeration leg. The injected seam over the
+// `issuetype = Epic` JQL (`searchJiraIssuesUsingJql`, paginated like the
+// label leg). Milestone Epics are selected CLIENT-SIDE: an Epic counts iff
+// its summary's first whitespace-delimited word parses under the shared
+// milestone-token union grammar. Each match contributes `M_<epic-key>` (key
+// verbatim) — never a full labelled-task scan.
+export interface JiraEpicSearchPage {
+  epics: { key: string; summary?: string }[];
+  isLast?: boolean;
+}
+
+export type JiraEpicPageFetcher = (page: number) => Promise<JiraEpicSearchPage>;
 
 /**
  * Documented default pagination cap. Bounds the scan when no page reports
@@ -45,38 +59,75 @@ export const MILESTONE_PAGE_CAP = 50;
 // so malformed labels (`milestone-M_`, `milestone-M5-extra`) stay rejected.
 const MILESTONE_LABEL = new RegExp(`^milestone-(${MILESTONE_TOKEN_SOURCE})$`);
 
+/**
+ * Shared pagination driver for both enumeration legs: calls `fetch(0)`,
+ * `fetch(1)`, … up to `cap` pages, feeding each page to `onPage` and stopping
+ * early when a page reports `isLast`. Returns `true` on a clean isLast
+ * finish, `false` when the cap was exhausted first — the caller surfaces the
+ * possible truncation (AC-STE-339.2: no silent cap).
+ */
+async function scanPages<P extends { isLast?: boolean }>(
+  fetch: (page: number) => Promise<P>,
+  cap: number,
+  onPage: (result: P) => void,
+): Promise<boolean> {
+  for (let page = 0; page < cap; page++) {
+    const result = await fetch(page);
+    onPage(result);
+    if (result.isLast) return true;
+  }
+  return false;
+}
+
 export async function listMilestones(
   fetchPage: JiraSearchPageFetcher,
-  opts?: { pageCap?: number; log?: (msg: string) => void },
+  opts?: {
+    pageCap?: number;
+    log?: (msg: string) => void;
+    fetchEpicPage?: JiraEpicPageFetcher;
+  },
 ): Promise<{ name: string }[]> {
   const cap = opts?.pageCap ?? MILESTONE_PAGE_CAP;
   const log = opts?.log;
   const found = new Set<string>();
 
   try {
-    let reachedLast = false;
-    let page = 0;
-    for (; page < cap; page++) {
-      const result = await fetchPage(page);
+    // Grandfathered milestone-M<N> label leg (STE-339) — persists solely for
+    // pre-Epic milestones; the epic leg below is the primary enumeration.
+    const reachedLast = await scanPages(fetchPage, cap, (result) => {
       for (const issue of result.issues) {
         for (const label of issue.labels ?? []) {
           const match = label.match(MILESTONE_LABEL);
           if (match) found.add(match[1]!);
         }
       }
-      if (result.isLast) {
-        reachedLast = true;
-        break;
-      }
-    }
-    // The loop can only exit without an isLast page by exhausting the cap, so
-    // later pages may have been dropped — surface it (AC-STE-339.2: no silent
-    // truncation). A clean isLast finish sets reachedLast and logs nothing.
+    });
+    // scanPages only returns false by exhausting the cap, so later pages may
+    // have been dropped — surface it (AC-STE-339.2: no silent truncation).
+    // A clean isLast finish logs nothing.
     if (!reachedLast && log) {
       log(`listMilestones: stopped at page cap ${cap}; more pages may have been dropped (no isLast reached).`);
     }
+
+    // Epic-enumeration leg (AC-STE-375.3): same pagination + cap discipline
+    // as the label leg, over the `issuetype = Epic` seam. Client-side name
+    // filter — only Epics whose summary LEADS with a milestone token count;
+    // each contributes `M_<epic-key>` into the same deduping union.
+    const fetchEpicPage = opts?.fetchEpicPage;
+    if (fetchEpicPage) {
+      const epicReachedLast = await scanPages(fetchEpicPage, cap, (result) => {
+        for (const epic of result.epics) {
+          const firstWord = epic.summary?.trim().split(/\s+/)[0] ?? "";
+          if (isMilestoneToken(firstWord)) found.add(`M_${epic.key}`);
+        }
+      });
+      if (!epicReachedLast && log) {
+        log(`listMilestones: epic scan stopped at page cap ${cap}; more pages may have been dropped (no isLast reached).`);
+      }
+    }
   } catch {
-    // Fail-soft: a throwing/rejecting fetcher (at any page) degrades to [].
+    // Fail-soft: a throwing/rejecting fetcher (either leg, at any page)
+    // degrades the whole scan to [].
     return [];
   }
 
