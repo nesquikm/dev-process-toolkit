@@ -147,6 +147,13 @@ export type AttachProjectMilestoneCapability =
 export interface AttachProjectMilestoneResult {
   capability: AttachProjectMilestoneCapability;
   createdName?: string;
+  /**
+   * STE-377 AC-STE-377.1 — the tracker-assigned Epic key (create, found,
+   * and already-bound legs of the `epic` binding all surface it) so
+   * /spec-write can derive the milestone id via `milestoneIdFromEpicKey`
+   * with no scan and no plan file written first. Absent off the epic path.
+   */
+  epicKey?: string;
 }
 
 /**
@@ -311,7 +318,11 @@ export async function attachProjectMilestone(
     // FIND leg first: a createEpic that landed server-side but timed out on
     // the response is found by name on the retry and reused — a blind
     // re-create would mint a duplicate Epic.
-    const findOrCreate = await retryTransient(async () => {
+    const { epicKey, createdName, alreadyBound } = await retryTransient<{
+      epicKey: string;
+      createdName?: string;
+      alreadyBound: boolean;
+    }>(async () => {
       const epics = await listEpics(project);
       const found = epics.find((e) => e.name === milestoneName);
       if (found) {
@@ -319,19 +330,14 @@ export async function attachProjectMilestone(
         // `parent` already equals the milestone Epic's key, the attach is a
         // no-op — the parent is not rewritten and no second Epic is created.
         const current = await provider.getIssue(ticketId);
-        return {
-          epicKey: found.key,
-          createdName: undefined as string | undefined,
-          alreadyBound: (current.parent ?? null) === found.key,
-        };
+        return { epicKey: found.key, alreadyBound: (current.parent ?? null) === found.key };
       }
       const created = await createEpic(project, { name: milestoneName });
       return { epicKey: created.key, createdName: milestoneName, alreadyBound: false };
     }, sleep);
-    if (findOrCreate.alreadyBound) {
-      return { capability: null };
+    if (alreadyBound) {
+      return { capability: null, epicKey };
     }
-    const { epicKey, createdName } = findOrCreate;
     // Parent set + read-back verify (epic binding — the parent key must
     // byte-equal the milestone Epic's key).
     await writeAndVerify(provider, ticketId, sleep, {
@@ -341,9 +347,9 @@ export async function attachProjectMilestone(
       binding: "epic",
     });
     if (createdName !== undefined) {
-      return { capability: "milestone_create_required", createdName };
+      return { capability: "milestone_create_required", createdName, epicKey };
     }
-    return { capability: null };
+    return { capability: null, epicKey };
   }
 
   // STE-329 AC-STE-329.3 — `label` binding (Jira create-on-write). Mirror the
