@@ -14,6 +14,7 @@ Detailed reference (CHANGELOG subsection policy, version-bump semver rules, stru
 
 - `/ship-milestone M<N>` — explicit milestone.
 - `/ship-milestone` — no-arg form picks the **most recent in-progress milestone**: the `specs/plan/M<N>.md` with `status: active` (or with `frozen_at: null`). If none qualifies, run the ship-debt offer below before refusing.
+- **Epic-keyed milestones** (Jira milestone-as-Epic): a `specs/plan/M_<epic-key>.md` plan ships exactly like an `M<N>` plan — same resolution, same pre-flights, same `shipped_in` stamp. Everywhere this skill says `M<N>`, the `M_<epic-key>` form is equally valid, including the CHANGELOG milestone-ref convention (`Refs: M_<epic-key>` is an accepted milestone token).
 - Optional flags: `--version X.Y.Z` (override inferred bump), `--codename "<name>"` (skip prompt), `--summary "<text>"` (commit one-liner, else prompted).
 
 ### Ship-debt offer

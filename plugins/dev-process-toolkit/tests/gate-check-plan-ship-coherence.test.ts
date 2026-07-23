@@ -353,3 +353,61 @@ describe("dogfood — real specs/plan/archive/ tree is coherent", () => {
     expect(corrupt).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// STE-376 AC-STE-376.5 — the archive walk accepts M_<epic-key> filenames.
+// An archived Epic-keyed plan must stay inside the unstamped-ship-debt scan
+// (today's `/^M\d+\.md$/` filter would silently skip it) while well-formed
+// stamped/parked epic plans keep passing.
+// ---------------------------------------------------------------------------
+
+describe("STE-376 — epic-keyed archived plans stay inside the ship-debt scan (AC-STE-376.5)", () => {
+  test("unstamped, unparked M_PROJ_500.md → unshipped-debt violation (never silently skipped)", async () => {
+    const fx = makeFixture(CHANGELOG_TWO_RELEASES);
+    try {
+      writePlan(fx.archiveDir, "M_PROJ_500.md");
+      const report = await runPlanShipCoherenceProbe(fx.root);
+      expect(report.violations.length).toBe(1);
+      expect(report.violations[0]!.note).toMatch(/M_PROJ_500\.md/);
+      expect(report.violations[0]!.reason).toMatch(/neither a shipped_in stamp nor ship_state/);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("stamped M_PROJ_500.md matching a CHANGELOG heading → zero violations", async () => {
+    const fx = makeFixture(CHANGELOG_TWO_RELEASES);
+    try {
+      writePlan(fx.archiveDir, "M_PROJ_500.md", { shipped_in: "v2.40.0" });
+      const report = await runPlanShipCoherenceProbe(fx.root);
+      expect(report.violations).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("malformed stamp on M_PROJ_500.md → corrupt-stamp violation (malformed values still flagged)", async () => {
+    const fx = makeFixture(CHANGELOG_TWO_RELEASES);
+    try {
+      writePlan(fx.archiveDir, "M_PROJ_500.md", { shipped_in: "2.40.0" }); // missing `v`
+      const report = await runPlanShipCoherenceProbe(fx.root);
+      expect(report.violations.length).toBe(1);
+      expect(report.violations[0]!.reason).toMatch(/malformed shipped_in stamp/);
+      expect(report.violations[0]!.note).toMatch(/M_PROJ_500\.md/);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("parked M_PROJ_500.md surfaces in the parked NOTES row", async () => {
+    const fx = makeFixture(CHANGELOG_TWO_RELEASES);
+    try {
+      writePlan(fx.archiveDir, "M_PROJ_500.md", { ship_state: "parked" });
+      const report = await runPlanShipCoherenceProbe(fx.root);
+      expect(report.violations).toEqual([]);
+      expect(report.notes.join("\n")).toContain("M_PROJ_500");
+    } finally {
+      fx.cleanup();
+    }
+  });
+});

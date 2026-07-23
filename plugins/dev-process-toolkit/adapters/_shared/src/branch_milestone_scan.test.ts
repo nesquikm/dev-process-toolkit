@@ -201,3 +201,19 @@ describe("scanBranchMilestones — fail-soft (AC-STE-338.3)", () => {
     expect(got).toEqual([]);
   });
 });
+
+describe("scanBranchMilestones — M_<epic-key> tolerance (AC-STE-376.3)", () => {
+  test("an epic-keyed plan file on a branch is accepted without error and excluded from the numeric set", async () => {
+    commitPlanFileOnBranch(work, "epic", join("specs", "plan", "M_PROJ_500.md"));
+    commitPlanFileOnBranch(work, "a", join("specs", "plan", "M40.md"));
+    const got = await scanBranchMilestones(work);
+    // The opaque epic id contributes NO integer — never NaN, never 500.
+    expect(got).toEqual([40]);
+  });
+
+  test("an archived epic-keyed plan file is likewise excluded from the numeric set", async () => {
+    commitPlanFileOnBranch(work, "epic-arch", join("specs", "plan", "archive", "M_PROJ_500.md"));
+    const got = await scanBranchMilestones(work);
+    expect(got).toEqual([]);
+  });
+});

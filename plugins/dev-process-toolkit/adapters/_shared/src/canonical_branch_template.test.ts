@@ -15,7 +15,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { branchNameFor } from "../../../skills/spec-write/branch_name_for";
-import { canonicalBranchTemplate } from "./branch_proposal";
+import { buildBranchProposal, canonicalBranchTemplate } from "./branch_proposal";
 
 const M_FORM = "{type}/m{N}-{slug}";
 const TICKET_FORM = "{type}/{ticket-id}-{slug}";
@@ -104,5 +104,50 @@ describe("/spec-write § 7a gate derives the template via canonicalBranchTemplat
 
   test("SpecWriteBranchInput keeps its shape: cross-cutting literal unchanged", () => {
     expect(branchNameFor({ shape: "cross-cutting" })).toBe("docs/specs-cross-cutting");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STE-376 AC-STE-376.6 — canonicalBranchTemplate consumes the shared union
+// matcher: an FR bound to an `M_<epic-key>` milestone gets a milestone-keyed
+// proposal (`{type}/m_<epic_key>-{slug}`, key lowercased) instead of silently
+// falling back to ticket-keyed naming. Numeric proposals are byte-unchanged.
+// Note: bare digit strings ("106") stay the numeric input shape, and the
+// non-token "M106" input keeps its ticket-fallback behavior (asserted above)
+// — only the full epic token routes to the epic-keyed form.
+// ---------------------------------------------------------------------------
+
+describe("canonicalBranchTemplate — M_<epic-key> milestone (AC-STE-376.6)", () => {
+  test("epic token does NOT fall back to the ticket-keyed template", () => {
+    expect(canonicalBranchTemplate({ milestone: "M_PROJ_500" })).not.toBe(TICKET_FORM);
+  });
+
+  test("hyphen-form epic token does NOT fall back to the ticket-keyed template", () => {
+    expect(canonicalBranchTemplate({ milestone: "M_PROJ-500" })).not.toBe(TICKET_FORM);
+  });
+
+  test("epic-bound FR renders {type}/m_<epic_key>-{slug} (key lowercased)", () => {
+    const template = canonicalBranchTemplate({ milestone: "M_PROJ_500" });
+    const branch = buildBranchProposal({
+      template,
+      type: "feat",
+      slug: "epic-grammar",
+      milestone: "M_PROJ_500",
+      trackerId: "STE-376",
+    });
+    expect(branch).toBe("feat/m_proj_500-epic-grammar");
+  });
+
+  test("numeric milestone proposals are byte-unchanged", () => {
+    const template = canonicalBranchTemplate({ milestone: "106" });
+    expect(template).toBe(M_FORM);
+    const branch = buildBranchProposal({
+      template,
+      type: "feat",
+      slug: "epic-grammar",
+      milestone: "106",
+      trackerId: "STE-376",
+    });
+    expect(branch).toBe("feat/m106-epic-grammar");
   });
 });

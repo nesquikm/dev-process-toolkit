@@ -576,9 +576,12 @@ describe("STE-335 AC-STE-335.7 — single live copy of the heading regex", () =>
   test("plan_heading.ts is the sole module defining the heading matcher", () => {
     const parser = readFileSync(join(import.meta.dir, "plan_heading.ts"), "utf-8");
     // The shared module must declare a heading regex anchored at start-of-line
-    // accepting one or two `#` and capturing the M-token.
+    // accepting one or two `#` and composing the M-token from the shared
+    // union source — since STE-376 the numeric `M\d+` leaf lives in
+    // milestone_token.ts, the single live copy.
     expect(parser).toMatch(/#\{1,2\}/);
-    expect(parser).toMatch(/M\\d\+/);
+    expect(parser).toMatch(/MILESTONE_TOKEN_SOURCE/);
+    expect(parser).toMatch(/\.\/milestone_token/);
   });
 });
 

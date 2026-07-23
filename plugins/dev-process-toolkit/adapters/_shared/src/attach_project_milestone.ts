@@ -17,6 +17,7 @@
 // boundary (deduped at plan-file heading authorship time).
 
 import { readFileSync } from "node:fs";
+import { isMilestoneToken } from "./milestone_token";
 import { parsePlanHeading } from "./plan_heading";
 
 export class MilestoneAttachmentError extends Error {
@@ -219,23 +220,25 @@ export async function attachProjectMilestone(
 }
 
 /**
- * STE-329 AC-STE-329.2 — derive the Jira milestone label from a canonical
- * milestone name. Returns `milestone-<M-token>` where `<M-token>` is the
- * leading `M\d+` of the canonical name (e.g. `M86 — Jira Project-Milestone
- * Support` → `milestone-M86`). The label is `[A-Za-z0-9-]` only — Jira labels
+ * STE-329 AC-STE-329.2 (+ STE-376 AC-STE-376.1) — derive the Jira milestone
+ * label from a canonical milestone name. Returns `milestone-<M-token>` where
+ * `<M-token>` is the leading milestone token of the canonical name under the
+ * shared union grammar (`milestone_token`): `M86 — Jira Project-Milestone
+ * Support` → `milestone-M86`, `M_PROJ_500 — Epic-keyed milestone` →
+ * `milestone-M_PROJ_500`. The label is `[A-Za-z0-9_-]` only — Jira labels
  * forbid spaces, so the descriptive title must not leak in.
  *
- * Throws if the canonical name has no leading `M\d+` token (no silent empty
- * label).
+ * Throws if the canonical name has no leading milestone token (no silent
+ * empty label).
  */
 export function milestoneLabel(canonicalName: string): string {
-  const m = canonicalName.match(/^(M\d+)/);
-  if (!m) {
+  const token = canonicalName.split(/\s/, 1)[0] ?? "";
+  if (!isMilestoneToken(token)) {
     throw new Error(
-      `milestoneLabel: "${canonicalName}" has no leading M-token (expected a canonical name beginning with \`M<N>\`)`,
+      `milestoneLabel: "${canonicalName}" has no leading M-token (expected a canonical name beginning with \`M<N>\` or \`M_<epic-key>\`)`,
     );
   }
-  return `milestone-${m[1]!}`;
+  return `milestone-${token}`;
 }
 
 /**

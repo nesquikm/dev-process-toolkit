@@ -88,3 +88,53 @@ describe("STE-197 — plan-file-single-milestone probe", () => {
     }
   });
 });
+
+// STE-376 AC-STE-376.5 — the probe's walk + heading count accept the
+// M_<epic-key> union shape: Epic-keyed plan files are inspected (never
+// silently skipped) and epic milestone headings count toward the
+// exactly-one invariant.
+describe("STE-376 — M_<epic-key> plan files (AC-STE-376.5)", () => {
+  test("epic-keyed plan file carrying two milestone headings is flagged (not skipped)", async () => {
+    const root = makeFixture();
+    try {
+      writeFileSync(
+        join(root, "specs", "plan", "M_PROJ_500.md"),
+        "---\nmilestone: M_PROJ_500\nstatus: active\n---\n\n# Plan\n\n## M_PROJ_500: Epic-keyed milestone\n\n## M2: Stray second milestone\n",
+      );
+      const report = await runPlanFileSingleMilestoneProbe(root);
+      expect(report.violations.length).toBe(1);
+      expect(report.violations[0]!.count).toBe(2);
+      expect(report.violations[0]!.note).toMatch(/M_PROJ_500\.md:1 —/);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test("well-formed single-heading epic plan passes (no false positive)", async () => {
+    const root = makeFixture();
+    try {
+      writeFileSync(
+        join(root, "specs", "plan", "M_PROJ_500.md"),
+        "---\nmilestone: M_PROJ_500\nstatus: active\n---\n\n# Plan\n\n## M_PROJ_500: Epic-keyed milestone\n\n**Goal:** epic grammar\n",
+      );
+      const report = await runPlanFileSingleMilestoneProbe(root);
+      expect(report.violations).toEqual([]);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test("archived epic-keyed plan files are walked too", async () => {
+    const root = makeFixture();
+    try {
+      writeFileSync(
+        join(root, "specs", "plan", "archive", "M_PROJ_500.md"),
+        "## M_PROJ_500: Foo\n## M_OTHER_9: Bar\n",
+      );
+      const report = await runPlanFileSingleMilestoneProbe(root);
+      expect(report.violations.length).toBe(1);
+    } finally {
+      cleanup(root);
+    }
+  });
+});

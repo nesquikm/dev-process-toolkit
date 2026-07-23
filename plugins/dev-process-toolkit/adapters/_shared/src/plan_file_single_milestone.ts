@@ -12,6 +12,7 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { MILESTONE_TOKEN_SOURCE, PLAN_FILENAME_RE } from "./milestone_token";
 
 export interface PlanFileSingleMilestoneViolation {
   file: string;
@@ -24,7 +25,7 @@ export interface PlanFileSingleMilestoneReport {
   violations: PlanFileSingleMilestoneViolation[];
 }
 
-const MILESTONE_HEADING_RE = /^## M\d+:/gm;
+const MILESTONE_HEADING_RE = new RegExp(`^## ${MILESTONE_TOKEN_SOURCE}:`, "gm");
 
 async function listPlanFiles(projectRoot: string): Promise<string[]> {
   const out: string[] = [];
@@ -36,7 +37,7 @@ async function listPlanFiles(projectRoot: string): Promise<string[]> {
     try {
       const entries = await readdir(dir, { withFileTypes: true });
       for (const e of entries) {
-        if (e.isFile() && /^M\d+\.md$/.test(e.name)) {
+        if (e.isFile() && PLAN_FILENAME_RE.test(e.name)) {
           out.push(join(dir, e.name));
         }
       }
