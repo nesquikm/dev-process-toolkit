@@ -24,8 +24,8 @@ Call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src
 - **`tracker-id` / `url`** → branch on mode: tracker mode uses `findFRPathByTrackerRef(specsDir, trackerKey, trackerId)` (path-returning, no `id:` requirement); `mode: none` uses `findFRByTrackerRef(specsDir, trackerKey, trackerId)` (ULID-returning). The tracker-mode helper is the canonical lookup — `findFRByTrackerRef` would always miss in tracker mode (no `id:` line) and trigger the refuse branch below against an FR that exists on disk.
   - Hit → archive that single FR. No import, no tracker network call.
   - Miss → **refuse** with the NFR-10 canonical error: `"No local FR mapped to <tracker>:<id>. Archival never auto-imports. To dismiss the tracker ticket, close it in the tracker directly."` Exit non-zero. No side effects. `/spec-archive` **never** auto-imports.
-- **`fallthrough`** and `$ARGUMENTS` matches `^M\d+$` → batch archival of every FR with `milestone == <M<N>>` plus the plan file (step 1). `/spec-archive M12` is the canonical group form.
-- **`fallthrough`** otherwise → refuse and prompt the user for a valid ULID / tracker ref / `M<N>` (NFR-18).
+- **`fallthrough`** and `$ARGUMENTS` matches the shared milestone-token grammar (`M<N>` or Epic-keyed `M_<epic-key>`) → batch archival of every FR with `milestone == <token>` plus the plan file (step 1). `/spec-archive M12` is the canonical group form.
+- **`fallthrough`** otherwise → refuse and prompt the user for a valid ULID / tracker ref / milestone token (NFR-18).
 - `AmbiguousArgumentError` → surface per NFR-10 with the `<tracker>:<id>` disambiguation remedy; exit non-zero.
 
 Full decision table: `docs/resolver-entry.md`.

@@ -275,3 +275,29 @@ describe("AC-STE-284.2: 2026-05-13 partial-scan reproduction (canonical case)", 
     }
   });
 });
+
+describe("STE-376 union grammar — epic-keyed milestones reconcile", () => {
+  test("M_PROJ_500 present on both sides → no mismatch", async () => {
+    const specsDir = makeSpecsDir();
+    try {
+      writePlan(specsDir, "M_PROJ_500");
+      const provider = new StubTrackerProvider([], [{ name: "M_PROJ_500" }]);
+      const r = await reconcileTrackerLocal(provider, specsDir);
+      expect(r.milestoneMismatches).toEqual([]);
+    } finally {
+      rmSync(specsDir, { recursive: true, force: true });
+    }
+  });
+
+  test("tracker-only epic milestone surfaces as a mismatch (not silently dropped)", async () => {
+    const specsDir = makeSpecsDir();
+    try {
+      const provider = new StubTrackerProvider([], [{ name: "M_PROJ_500" }]);
+      const r = await reconcileTrackerLocal(provider, specsDir);
+      expect(r.milestoneMismatches).toHaveLength(1);
+      expect(r.milestoneMismatches[0]!.id).toBe("M_PROJ_500");
+    } finally {
+      rmSync(specsDir, { recursive: true, force: true });
+    }
+  });
+});

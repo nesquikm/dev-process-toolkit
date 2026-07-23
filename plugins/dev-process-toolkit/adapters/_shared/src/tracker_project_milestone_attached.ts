@@ -33,7 +33,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
-import { milestoneLabel } from "./attach_project_milestone";
+import { milestoneBindingPresent, milestoneLabel } from "./attach_project_milestone";
 import { parsePlanHeading } from "./plan_heading";
 
 export interface TrackerProjectMilestoneAttachedViolation {
@@ -68,15 +68,18 @@ export interface TrackerProjectMilestoneAttachedDeps {
    */
   getIssue: (
     ticketId: string,
-  ) => Promise<{ projectMilestone?: { name: string } | null; labels?: string[] }>;
+  ) => Promise<{ projectMilestone?: { name: string } | null; labels?: string[]; parent?: string | null }>;
   /**
    * Which milestone-binding the active adapter uses. `object` (Linear,
-   * default when absent) verifies `projectMilestone.name`; `label` (Jira)
-   * verifies that the ticket's `labels` array contains `milestone-<M-token>`.
-   * In production the gate wires this from the active adapter's
+   * default when absent) verifies `projectMilestone.name`; `label` (Jira
+   * legacy) verifies that the ticket's `labels` array contains
+   * `milestone-<M-token>`; `epic` (Jira Epic-first) verifies the ticket's
+   * `parent` key sanitizes back to the Epic-keyed milestone token, falling
+   * back to the label surface for grandfathered numeric milestones. In
+   * production the gate wires this from the active adapter's
    * `milestone_binding:` frontmatter.
    */
-  milestoneBinding?: "object" | "label";
+  milestoneBinding?: "object" | "label" | "epic";
 }
 
 export interface FrFrontmatter {
@@ -152,12 +155,14 @@ function buildMessage(
   reason: string,
   file: string,
   kind: "missing" | "mismatch",
-  binding: "object" | "label" = "object",
+  binding: "object" | "label" | "epic" = "object",
 ): string {
   const manualAttach =
-    binding === "label"
-      ? "Or attach manually via your tracker's edit-issue call (e.g. mcp__atlassian__editJiraIssue) adding the `milestone-<M-token>` label to the issue's existing labels (read-merge-write — never clobber)."
-      : "Or attach manually via mcp__linear__save_issue(id=<ticket>, milestone=<canonical name from plan heading>).";
+    binding === "epic"
+      ? "Or attach manually via your tracker's edit-issue call (e.g. mcp__atlassian__editJiraIssue additional_fields.parent) setting the issue's `parent` to the milestone Epic's key."
+      : binding === "label"
+        ? "Or attach manually via your tracker's edit-issue call (e.g. mcp__atlassian__editJiraIssue) adding the `milestone-<M-token>` label to the issue's existing labels (read-merge-write — never clobber)."
+        : "Or attach manually via mcp__linear__save_issue(id=<ticket>, milestone=<canonical name from plan heading>).";
   const remedy =
     kind === "missing"
       ? `Run /implement Phase 1 against this FR — Phase 1 entry calls attachProjectMilestone() idempotently. ${manualAttach}`
@@ -303,7 +308,7 @@ export async function runTrackerProjectMilestoneAttachedProbe(
     const heading = readPlanHeading(planPath);
     if (heading === null) continue; // probe #27 owns the orphan/missing-plan diagnostic
 
-    let issue: { projectMilestone?: { name: string } | null; labels?: string[] };
+    let issue: { projectMilestone?: { name: string } | null; labels?: string[]; parent?: string | null };
     try {
       issue = await deps.getIssue(fm.trackerId);
     } catch (e) {
@@ -318,10 +323,34 @@ export async function runTrackerProjectMilestoneAttachedProbe(
       continue;
     }
 
-    // STE-329 AC-STE-329.5: adapter-aware verification surface. The `label`
-    // (Jira) branch asserts the ticket's `labels` array contains
-    // `milestone-<M-token>`; the `object` (Linear / default) branch below
-    // verifies `projectMilestone.name`.
+    // STE-329 AC-STE-329.5: adapter-aware verification surface. The `epic`
+    // (Jira Epic-first) branch routes through the shared
+    // milestoneBindingPresent predicate — parent-key sanitize check for
+    // Epic-keyed milestones, label fallback for grandfathered numeric ones;
+    // the `label` (Jira legacy) branch asserts the ticket's `labels` array
+    // contains `milestone-<M-token>`; the `object` (Linear / default) branch
+    // below verifies `projectMilestone.name`.
+    if (deps.milestoneBinding === "epic") {
+      if (milestoneBindingPresent(issue, heading, "epic")) continue;
+      const advisory = capabilityGapAdvisory(content, fullPath, rel);
+      if (advisory !== null) {
+        advisories.push(advisory);
+        continue;
+      }
+      const token = heading.split(/\s/, 1)[0] ?? "";
+      const expectedDesc = token.startsWith("M_")
+        ? `parent Epic key sanitizing to "${token}" (observed parent: ${issue.parent ? `"${issue.parent}"` : "none"})`
+        : `label "${milestoneLabel(heading)}" (grandfathered numeric milestone under the epic binding)`;
+      const reason = `${rel} (${trackerRef}) is missing its milestone binding — expected ${expectedDesc}`;
+      violations.push({
+        file: fullPath,
+        line: 1,
+        reason,
+        note: `${rel}:1 — ${trackerRef} epic milestone binding missing (expected ${expectedDesc})`,
+        message: buildMessage(reason, rel, "missing", "epic"),
+      });
+      continue;
+    }
     if (deps.milestoneBinding === "label") {
       const expectedLabel = milestoneLabel(heading);
       const labels = issue.labels ?? [];
