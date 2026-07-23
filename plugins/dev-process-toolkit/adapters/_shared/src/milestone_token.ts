@@ -75,6 +75,25 @@ export function isMilestoneToken(token: string): boolean {
 }
 
 /**
+ * STE-377 AC-STE-377.1 — Epic-first milestone-id derivation. Sanitize a
+ * tracker-assigned Epic key to the filesystem/label-safe `M_<epic-key>` id:
+ * every character outside `[A-Za-z0-9_]` becomes `_` (`PROJ-500` →
+ * `M_PROJ_500`). Idempotent over already-sanitized keys, so the id
+ * re-derives stably from its own parsed `key`. Throws when the result is
+ * malformed under the union grammar (empty key ⇒ bare `M_`) — never a
+ * silent bad id.
+ */
+export function milestoneIdFromEpicKey(key: string): string {
+  const id = `M_${key.replace(/[^A-Za-z0-9_]/g, "_")}`;
+  if (!isMilestoneToken(id) || !/^M_[A-Za-z0-9_]+$/.test(id)) {
+    throw new Error(
+      `milestoneIdFromEpicKey: Epic key "${key}" does not sanitize to a well-formed \`M_<epic-key>\` milestone id`,
+    );
+  }
+  return id;
+}
+
+/**
  * Deterministic ordering over bare milestone tokens: numeric tokens first,
  * ascending by numeric part; epic-keyed (and unparseable) tokens follow,
  * compared by code point — never locale-sensitive.
