@@ -924,6 +924,423 @@ describe("STE-362 AC-STE-362.1 — retry wrapper covers the label branch (Jira)"
   });
 });
 
+// ───────────────────────────────────────────────────────────────────────
+// STE-375 — Jira `epic` milestone binding (M101).
+//
+// Contract under test: attachProjectMilestone accepts a THIRD binding,
+// `milestoneBinding: "epic"`, alongside `"object"` (Linear) and `"label"`
+// (Jira legacy). The epic branch:
+//
+//   1. (optional probe) `epicBindingAvailable(project): Promise<boolean>` —
+//      the injected seam over `getJiraProjectIssueTypesMetadata` + the
+//      parent-settability check. `false` ⇒ degrade to the `label` binding
+//      and surface `milestone_epic_unsupported` (informational capability
+//      row, never a throw). Absent ⇒ assume available (same posture as the
+//      optional `supports` probe).
+//   2. `listEpics(project): Promise<{ key: string; name: string }[]>` —
+//      find-BEFORE-create: match by byte-equal canonical plan-heading name
+//      (STE-118 discipline).
+//   3. `createEpic(project, { name }): Promise<{ key: string }>` — only on
+//      a find miss (`createJiraIssue issuetype=Epic` in jira.md prose);
+//      surfaces `milestone_create_required` + `createdName` like the
+//      object-branch auto-create.
+//   4. Idempotency pre-check: `getIssue(ticketId)` now also exposes
+//      `parent?: string | null`; when it already equals the Epic key the
+//      attach is a NO-OP (no parent rewrite, no second Epic).
+//   5. `setParent(ticketId, epicKey): Promise<void>` — the
+//      `editJiraIssue additional_fields.parent` seam — then read-back
+//      verify `parent === epicKey`; mismatch ⇒ MilestoneAttachmentError
+//      with `binding: "epic"` (never retried); transient create/parent-set
+//      failures retry the WHOLE round-trip on TRANSIENT_RETRY_SCHEDULE_MS.
+//
+// The epic branch NEVER scatters a `milestone-M<N>` label and never calls
+// the object-path ops (listMilestones / saveMilestone /
+// upsertTicketMetadata).
+// ───────────────────────────────────────────────────────────────────────
+
+const EPIC_NAME = "M101 — Jira milestone-as-Epic identity"; // U+2014 em-dash
+
+type EpicAttachResult = { capability: string | null; createdName?: string };
+
+// Cast keeps this file compiling against the pre-epic MilestoneOps type
+// (binding union still "object" | "label"); at runtime the current
+// implementation simply falls through to the object branch, so these tests
+// fail RED via assertions, not TypeErrors (same pattern as attachWithOpts).
+const attachEpic = attachProjectMilestone as unknown as (
+  provider: unknown,
+  project: string,
+  milestoneName: string,
+  ticketId: string,
+  opts?: { sleep?: (ms: number) => Promise<void> },
+) => Promise<EpicAttachResult>;
+
+interface EpicStub {
+  epics: { key: string; name: string }[];
+  /** The FR Task's current parent Epic key (null = unparented). */
+  parent: string | null;
+  /** When set, read-backs return THIS parent instead of the live one —
+   *  simulates a silent no-op / silently-dropped parent write. */
+  forceVerifyParent?: string | null;
+  labels: string[];
+  calls: string[];
+  /** Key minted for the next createEpic call. */
+  nextEpicKey: string;
+  createEpicErrors: Error[];
+  setParentErrors: Error[];
+  /** Landed-but-timed-out simulation: createEpic registers the Epic
+   *  server-side BEFORE throwing its queued error. */
+  createLandsBeforeThrow?: boolean;
+  /** When defined, the provider exposes the epicBindingAvailable probe. */
+  epicAvailable?: boolean;
+}
+
+function makeEpicProvider(stub: EpicStub) {
+  const provider: Record<string, unknown> = {
+    milestoneBinding: "epic" as const,
+    async listEpics(project: string): Promise<{ key: string; name: string }[]> {
+      stub.calls.push(`listEpics(${project})`);
+      return stub.epics.map((e) => ({ ...e }));
+    },
+    async createEpic(project: string, opts: { name: string }): Promise<{ key: string }> {
+      stub.calls.push(`createEpic(${project},${opts.name})`);
+      const err = stub.createEpicErrors.shift();
+      if (err) {
+        if (stub.createLandsBeforeThrow) {
+          stub.epics.push({ key: stub.nextEpicKey, name: opts.name });
+        }
+        throw err;
+      }
+      stub.epics.push({ key: stub.nextEpicKey, name: opts.name });
+      return { key: stub.nextEpicKey };
+    },
+    async setParent(ticketId: string, epicKey: string): Promise<void> {
+      stub.calls.push(`setParent(${ticketId},${epicKey})`);
+      const err = stub.setParentErrors.shift();
+      if (err) throw err;
+      stub.parent = epicKey;
+    },
+    async getIssue(ticketId: string): Promise<{
+      projectMilestone: { name: string } | null;
+      parent: string | null;
+      labels: string[];
+    }> {
+      stub.calls.push(`getIssue(${ticketId})`);
+      const parent =
+        stub.forceVerifyParent !== undefined ? stub.forceVerifyParent : stub.parent;
+      return { projectMilestone: null, parent, labels: [...stub.labels] };
+    },
+    // Present so the fallback leg CAN attach via label — and so the epic
+    // branch's never-scatters-a-label claim is observable (the op exists
+    // but must not fire on the epic path).
+    async addLabel(ticketId: string, label: string): Promise<void> {
+      stub.calls.push(`addLabel(${ticketId},${label})`);
+      if (!stub.labels.includes(label)) stub.labels.push(label);
+    },
+    // Object-path ops must never fire on the epic branch — throw loudly.
+    async listMilestones(): Promise<{ name: string }[]> {
+      stub.calls.push("listMilestones");
+      throw new Error("epic branch must not call listMilestones");
+    },
+    async saveMilestone(): Promise<void> {
+      stub.calls.push("saveMilestone");
+      throw new Error("epic branch must not call saveMilestone");
+    },
+    async upsertTicketMetadata(): Promise<string> {
+      stub.calls.push("upsertTicketMetadata");
+      throw new Error("epic branch must not call upsertTicketMetadata");
+    },
+  };
+  if (stub.epicAvailable !== undefined) {
+    provider["epicBindingAvailable"] = async (project: string): Promise<boolean> => {
+      stub.calls.push(`epicBindingAvailable(${project})`);
+      return stub.epicAvailable!;
+    };
+  }
+  return provider;
+}
+
+function baseEpicStub(overrides: Partial<EpicStub> = {}): EpicStub {
+  return {
+    epics: [],
+    parent: null,
+    labels: [],
+    calls: [],
+    nextEpicKey: "DPT-500",
+    createEpicErrors: [],
+    setParentErrors: [],
+    ...overrides,
+  };
+}
+
+describe("STE-375 AC-STE-375.1 — epic binding: find-or-create + parent set", () => {
+  test("existing Epic matched by canonical name → parent set to its key, no create, no sleeps", async () => {
+    const stub = baseEpicStub({ epics: [{ key: "DPT-500", name: EPIC_NAME }] });
+    const rec = sleepRecorder();
+    const result = await attachEpic(makeEpicProvider(stub), "DPT", EPIC_NAME, "STE-375", {
+      sleep: rec.sleep,
+    });
+    // Find-before-create: the named Epic is reused, never re-created.
+    expect(stub.calls.find((c) => c.startsWith("createEpic"))).toBeUndefined();
+    expect(stub.epics.length).toBe(1);
+    // The FR Task's parent is the Epic's key.
+    expect(stub.calls).toContain("setParent(STE-375,DPT-500)");
+    expect(stub.parent).toBe("DPT-500");
+    // Read-back verify fired.
+    expect(stub.calls).toContain("getIssue(STE-375)");
+    // Success against an existing Epic → no capability row, no latency.
+    expect(result.capability).toBeNull();
+    expect(result.createdName).toBeUndefined();
+    expect(rec.sleeps).toEqual([]);
+    // Object-path ops never fire on the epic branch.
+    expect(stub.calls.find((c) => c.startsWith("listMilestones"))).toBeUndefined();
+    expect(stub.calls.find((c) => c.startsWith("saveMilestone"))).toBeUndefined();
+    expect(stub.calls.find((c) => c.startsWith("upsertTicketMetadata"))).toBeUndefined();
+  });
+
+  test("no Epic with the canonical name → create-on-miss, then parent set + capability row", async () => {
+    const stub = baseEpicStub({ nextEpicKey: "DPT-501" });
+    const rec = sleepRecorder();
+    const result = await attachEpic(makeEpicProvider(stub), "DPT", EPIC_NAME, "STE-375", {
+      sleep: rec.sleep,
+    });
+    expect(stub.calls).toContain(`createEpic(DPT,${EPIC_NAME})`);
+    expect(stub.epics).toEqual([{ key: "DPT-501", name: EPIC_NAME }]);
+    expect(stub.parent).toBe("DPT-501");
+    // Auto-create surfaces the same capability shape as the object branch.
+    expect(result.capability).toBe("milestone_create_required");
+    expect(result.createdName).toBe(EPIC_NAME);
+    expect(rec.sleeps).toEqual([]);
+  });
+
+  test("the epic path never scatters a milestone-M<N> label", async () => {
+    const stub = baseEpicStub({
+      epics: [{ key: "DPT-500", name: EPIC_NAME }],
+      labels: ["spec-driven"],
+    });
+    const rec = sleepRecorder();
+    await attachEpic(makeEpicProvider(stub), "DPT", EPIC_NAME, "STE-375", {
+      sleep: rec.sleep,
+    });
+    expect(stub.calls.find((c) => c.startsWith("addLabel"))).toBeUndefined();
+    expect(stub.labels).toEqual(["spec-driven"]);
+    expect(stub.labels).not.toContain("milestone-M101");
+  });
+
+  test("byte-equality name match: hyphen-minus name does NOT reuse the em-dash Epic", async () => {
+    const stub = baseEpicStub({
+      epics: [{ key: "DPT-500", name: EPIC_NAME }], // em-dash
+      nextEpicKey: "DPT-502",
+    });
+    const rec = sleepRecorder();
+    // Caller passes hyphen-minus; the em-dash Epic must NOT match (STE-118
+    // byte-equality discipline), so a new Epic is created.
+    await attachEpic(
+      makeEpicProvider(stub),
+      "DPT",
+      "M101 - Jira milestone-as-Epic identity",
+      "STE-375",
+      { sleep: rec.sleep },
+    );
+    expect(
+      stub.calls.find((c) => c.startsWith("createEpic(DPT,M101 - ")),
+    ).toBeDefined();
+    expect(stub.parent).toBe("DPT-502");
+  });
+});
+
+describe("STE-375 AC-STE-375.2 — idempotent attach", () => {
+  test("parent already equals the Epic key → no-op: no create, parent never rewritten", async () => {
+    const stub = baseEpicStub({
+      epics: [{ key: "DPT-500", name: EPIC_NAME }],
+      parent: "DPT-500", // already bound
+    });
+    const rec = sleepRecorder();
+    const result = await attachEpic(makeEpicProvider(stub), "DPT", EPIC_NAME, "STE-375", {
+      sleep: rec.sleep,
+    });
+    // No second Epic, no parent rewrite.
+    expect(stub.calls.find((c) => c.startsWith("createEpic"))).toBeUndefined();
+    expect(stub.calls.find((c) => c.startsWith("setParent"))).toBeUndefined();
+    expect(stub.epics.length).toBe(1);
+    expect(stub.parent).toBe("DPT-500");
+    expect(result.capability).toBeNull();
+    expect(rec.sleeps).toEqual([]);
+  });
+
+  test("re-running a successful attach creates nothing and rewrites nothing", async () => {
+    const stub = baseEpicStub({ nextEpicKey: "DPT-503" });
+    const rec = sleepRecorder();
+    const p = makeEpicProvider(stub);
+    // First run: create + parent-set.
+    await attachEpic(p, "DPT", EPIC_NAME, "STE-375", { sleep: rec.sleep });
+    expect(stub.parent).toBe("DPT-503");
+    const createsAfterRun1 = countCalls(stub.calls, "createEpic");
+    const parentSetsAfterRun1 = countCalls(stub.calls, "setParent");
+    expect(createsAfterRun1).toBe(1);
+    // Second run: full no-op — Epic reused (find-before-create), parent
+    // untouched.
+    const result = await attachEpic(p, "DPT", EPIC_NAME, "STE-375", { sleep: rec.sleep });
+    expect(countCalls(stub.calls, "createEpic")).toBe(createsAfterRun1);
+    expect(countCalls(stub.calls, "setParent")).toBe(parentSetsAfterRun1);
+    expect(stub.epics.length).toBe(1);
+    expect(result.capability).toBeNull();
+  });
+});
+
+describe("STE-375 AC-STE-375.4 — Epic-absent fallback degrades to the label binding", () => {
+  test("epicBindingAvailable:false → label attach + milestone_epic_unsupported row, no throw", async () => {
+    const stub = baseEpicStub({
+      labels: ["spec-driven"],
+      epicAvailable: false,
+    });
+    const rec = sleepRecorder();
+    const result = await attachEpic(makeEpicProvider(stub), "DPT", EPIC_NAME, "STE-375", {
+      sleep: rec.sleep,
+    });
+    // Informational capability row — surfaced, not raised.
+    expect(result.capability).toBe("milestone_epic_unsupported");
+    // The FR still attached via the legacy label path (read-merge-write union).
+    expect(stub.labels).toContain("milestone-M101");
+    expect(stub.labels).toContain("spec-driven");
+    expect(stub.calls.find((c) => c.startsWith("addLabel"))).toBeDefined();
+    // Label-path read-back verify still fires.
+    expect(stub.calls).toContain("getIssue(STE-375)");
+    // No Epic machinery on the degraded path.
+    expect(stub.calls.find((c) => c.startsWith("createEpic"))).toBeUndefined();
+    expect(stub.calls.find((c) => c.startsWith("setParent"))).toBeUndefined();
+    expect(stub.parent).toBeNull();
+  });
+});
+
+describe("STE-375 AC-STE-375.5 — read-back verify + epic error shape", () => {
+  test("parent-set silently drops → MilestoneAttachmentError binding:'epic', never retried", async () => {
+    const stub = baseEpicStub({
+      epics: [{ key: "DPT-500", name: EPIC_NAME }],
+      forceVerifyParent: null, // write lands nowhere on every read-back
+    });
+    const rec = sleepRecorder();
+    let err: MilestoneAttachmentError | null = null;
+    try {
+      await attachEpic(makeEpicProvider(stub), "DPT", EPIC_NAME, "STE-375", {
+        sleep: rec.sleep,
+      });
+    } catch (e) {
+      if (e instanceof MilestoneAttachmentError) err = e;
+    }
+    expect(err).not.toBeNull();
+    expect(err!.binding).toBe("epic");
+    // The read-back asserts on the Epic KEY, not the canonical name.
+    expect(err!.expected).toBe("DPT-500");
+    expect(err!.actual).toBeNull();
+    // NFR-10 canonical shape + binding-aware remedy: the epic remedy talks
+    // about the parent field, never the Linear save_issue path.
+    expect(err!.message).toMatch(/Remedy:/);
+    expect(err!.message).toMatch(/Context:/);
+    expect(err!.message).toContain("binding=epic");
+    expect(err!.message).toMatch(/parent/i);
+    expect(err!.message).not.toContain("save_issue");
+    // A binding mismatch is non-transient: zero sleeps, single parent-set.
+    expect(rec.sleeps).toEqual([]);
+    expect(countCalls(stub.calls, "setParent")).toBe(1);
+  });
+
+  test("read-back shows a DIFFERENT parent Epic → error names both keys", async () => {
+    const stub = baseEpicStub({
+      epics: [{ key: "DPT-500", name: EPIC_NAME }],
+      parent: "DPT-111",
+      forceVerifyParent: "DPT-111", // rewrite silently dropped
+    });
+    const rec = sleepRecorder();
+    let err: MilestoneAttachmentError | null = null;
+    try {
+      await attachEpic(makeEpicProvider(stub), "DPT", EPIC_NAME, "STE-375", {
+        sleep: rec.sleep,
+      });
+    } catch (e) {
+      if (e instanceof MilestoneAttachmentError) err = e;
+    }
+    expect(err).not.toBeNull();
+    expect(err!.expected).toBe("DPT-500");
+    expect(err!.actual).toBe("DPT-111");
+    expect(err!.binding).toBe("epic");
+  });
+
+  test("transient 504 on parent-set → one 1s backoff, retry lands the parent", async () => {
+    const stub = baseEpicStub({
+      epics: [{ key: "DPT-500", name: EPIC_NAME }],
+      setParentErrors: [new Error("504 Gateway Timeout")],
+    });
+    const rec = sleepRecorder();
+    const result = await attachEpic(makeEpicProvider(stub), "DPT", EPIC_NAME, "STE-375", {
+      sleep: rec.sleep,
+    });
+    expect(result.capability).toBeNull();
+    expect(rec.sleeps).toEqual([1000]);
+    expect(countCalls(stub.calls, "setParent")).toBe(2);
+    expect(stub.parent).toBe("DPT-500");
+  });
+
+  test("persistent transient parent-set failure exhausts 1s+2s+4s then surfaces the error", async () => {
+    const stub = baseEpicStub({
+      epics: [{ key: "DPT-500", name: EPIC_NAME }],
+      setParentErrors: [
+        new Error("504 Gateway Timeout"),
+        new Error("504 Gateway Timeout"),
+        new Error("504 Gateway Timeout"),
+        new Error("504 Gateway Timeout"),
+      ],
+    });
+    const rec = sleepRecorder();
+    let err: Error | null = null;
+    try {
+      await attachEpic(makeEpicProvider(stub), "DPT", EPIC_NAME, "STE-375", {
+        sleep: rec.sleep,
+      });
+    } catch (e) {
+      if (e instanceof Error) err = e;
+    }
+    expect(err).not.toBeNull();
+    // Permanent-transient surfaces the ORIGINAL error, not a mismatch shape.
+    expect(err).not.toBeInstanceOf(MilestoneAttachmentError);
+    expect(err!.message).toMatch(/504|Gateway/i);
+    expect(rec.sleeps).toEqual([1000, 2000, 4000]);
+  });
+
+  test("transient failure on createEpic → retried on the canonical schedule, single Epic", async () => {
+    const stub = baseEpicStub({
+      nextEpicKey: "DPT-504",
+      createEpicErrors: [new Error("read ECONNRESET")],
+    });
+    const rec = sleepRecorder();
+    await attachEpic(makeEpicProvider(stub), "DPT", EPIC_NAME, "STE-375", {
+      sleep: rec.sleep,
+    });
+    expect(rec.sleeps).toEqual([1000]);
+    expect(countCalls(stub.calls, "createEpic")).toBe(2);
+    expect(stub.epics.length).toBe(1);
+    expect(stub.parent).toBe("DPT-504");
+  });
+
+  test("landed-but-timed-out create: the retry re-runs find-before-create — no duplicate Epic", async () => {
+    // The createEpic call registers the Epic server-side, then times out.
+    // The retry must re-run the FIND leg first and reuse the landed Epic —
+    // a blind re-create would mint a duplicate.
+    const stub = baseEpicStub({
+      nextEpicKey: "DPT-505",
+      createEpicErrors: [new Error("504 Gateway Timeout")],
+      createLandsBeforeThrow: true,
+    });
+    const rec = sleepRecorder();
+    await attachEpic(makeEpicProvider(stub), "DPT", EPIC_NAME, "STE-375", {
+      sleep: rec.sleep,
+    });
+    expect(rec.sleeps).toEqual([1000]);
+    expect(countCalls(stub.calls, "createEpic")).toBe(1);
+    expect(stub.epics.length).toBe(1);
+    expect(stub.parent).toBe("DPT-505");
+  });
+});
+
 describe("STE-362 AC-STE-362.4 — vacuity: short-circuits keep the wrapper inert", () => {
   test("supports:false short-circuits before the retry wrapper — zero calls, zero sleeps", async () => {
     // The wrapper must exist (exported canonical schedule) so this vacuity

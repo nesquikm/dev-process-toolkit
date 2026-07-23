@@ -23,17 +23,24 @@ import { parsePlanHeading } from "./plan_heading";
 export class MilestoneAttachmentError extends Error {
   readonly expected: string;
   readonly actual: string | null;
-  readonly binding: "object" | "label";
+  readonly binding: "object" | "label" | "epic";
 
   // STE-329: the remedy is binding-aware — the `object` (Linear) path and the
   // `label` (Jira) path land at different MCP calls, so a single hardcoded
   // Linear remedy would misdirect a Jira operator hitting the label-verify trap.
-  constructor(expected: string, actual: string | null, binding: "object" | "label" = "object") {
-    const noun = binding === "label" ? "label" : "milestone";
+  // STE-375 adds the `epic` binding (parent-Epic key verify).
+  constructor(
+    expected: string,
+    actual: string | null,
+    binding: "object" | "label" | "epic" = "object",
+  ) {
+    const noun = binding === "label" ? "label" : binding === "epic" ? "parent Epic" : "milestone";
     const remedy =
       binding === "label"
         ? `re-fetch the ticket via the tracker's get-issue call (e.g. mcp__atlassian__getJiraIssue) and confirm the \`labels\` array contains "${expected}"; if the label silently dropped, verify the attach wrote the read-merge-write union to editJiraIssue.additional_fields.labels (there is no top-level \`labels\` param). Re-run /implement Phase 1 to retry.`
-        : `re-fetch the ticket via mcp__linear__get_issue and confirm the projectMilestone.name field; if Linear silently dropped the param, verify the adapter is forwarding \`milestone:\` as a string (not an ID) to mcp__linear__save_issue. Re-run /implement Phase 1 to retry.`;
+        : binding === "epic"
+          ? `re-fetch the ticket via the tracker's get-issue call (e.g. mcp__atlassian__getJiraIssue) and confirm the \`parent\` field is the Epic key "${expected}"; if the parent silently dropped, verify the attach wrote the Epic key to the issue's parent field. Re-run /implement Phase 1 to retry.`
+          : `re-fetch the ticket via mcp__linear__get_issue and confirm the projectMilestone.name field; if Linear silently dropped the param, verify the adapter is forwarding \`milestone:\` as a string (not an ID) to mcp__linear__save_issue. Re-run /implement Phase 1 to retry.`;
     super(
       `MilestoneAttachmentError: ticket binding mismatch — expected ${noun} "${expected}", got ${actual ? `"${actual}"` : "null"}.\n` +
         `Remedy: ${remedy}\n` +
@@ -46,13 +53,23 @@ export class MilestoneAttachmentError extends Error {
   }
 }
 
+/**
+ * Read-back projection of a ticket consumed by the verify legs: the Linear
+ * milestone object (`object` binding), the Jira milestone labels (`label`
+ * binding), and — STE-375 — the ticket's current parent Epic key (`epic`
+ * binding).
+ */
+export interface TicketMilestoneView {
+  projectMilestone?: { name: string } | null;
+  labels?: string[];
+  parent?: string | null;
+}
+
 export interface MilestoneOps {
   listMilestones(project: string): Promise<{ name: string }[]>;
   saveMilestone(project: string, opts: { name: string }): Promise<void>;
   upsertTicketMetadata(ticketId: string, meta: { milestone?: string }): Promise<string>;
-  getIssue(
-    ticketId: string,
-  ): Promise<{ projectMilestone?: { name: string } | null; labels?: string[] }>;
+  getIssue(ticketId: string): Promise<TicketMilestoneView>;
   /**
    * STE-329 AC-STE-329.3 — milestone-binding strategy. Linear binds a
    * projectMilestone OBJECT (`"object"`, the default when absent). Jira
@@ -60,8 +77,23 @@ export interface MilestoneOps {
    * issue as a `milestone-<M-token>` label instead (`"label"`). The label
    * branch is create-on-write — it never enumerates or creates a milestone
    * object — so it skips listMilestones / saveMilestone / upsertTicketMetadata.
+   *
+   * STE-375 AC-STE-375.1 — `"epic"` binds the milestone as an Epic issue:
+   * find-or-create the Epic matched by the canonical name, then set the FR
+   * Task's `parent` to the Epic's key. Never scatters a `milestone-M<N>`
+   * label and never calls the object-path ops.
    */
-  milestoneBinding?: "object" | "label";
+  milestoneBinding?: "object" | "label" | "epic";
+  /**
+   * STE-375 AC-STE-375.1 — epic-binding ops. Required only when
+   * `milestoneBinding === "epic"`. `listEpics` enumerates the project's
+   * Epics (key + name) for the byte-equality name match; `createEpic`
+   * creates the milestone Epic on a miss; `setParent` points the FR Task's
+   * parent at the Epic's key.
+   */
+  listEpics?: (project: string) => Promise<{ key: string; name: string }[]>;
+  createEpic?: (project: string, opts: { name: string }) => Promise<{ key: string }>;
+  setParent?: (ticketId: string, epicKey: string) => Promise<void>;
   /**
    * STE-329 AC-STE-329.3 — read-merge-write label attach. Required only when
    * `milestoneBinding === "label"`. Implementations union the requested label
@@ -69,6 +101,15 @@ export interface MilestoneOps {
    * are idempotent: re-adding an already-present label is a no-op.
    */
   addLabel?: (ticketId: string, label: string) => Promise<void>;
+  /**
+   * STE-375 AC-STE-375.4 — optional epic-availability probe: the injected
+   * seam over `getJiraProjectIssueTypesMetadata` + the parent-settability
+   * check. `false` ⇒ the `epic` binding degrades to the `label` binding and
+   * the attach surfaces `milestone_epic_unsupported` (informational
+   * capability row — never a throw). Absent ⇒ assume available (same
+   * posture as the optional `supports` probe).
+   */
+  epicBindingAvailable?: (project: string) => Promise<boolean>;
   /**
    * STE-198 AC-STE-198.1/.3 — capability probe. Adapters that lack
    * project-milestone support (Jira tenants with the feature off, custom
@@ -92,11 +133,16 @@ export interface MilestoneOps {
  * - `"milestone_attach_skipped_adapter_limit"` ⇒ the adapter declared
  *   `supports("project_milestone") === false`; the helper short-circuits
  *   without any list/save/upsert calls.
+ * - `"milestone_epic_unsupported"` (STE-375 AC-STE-375.4) ⇒ the `epic`
+ *   binding's availability probe returned `false` (project issue-type
+ *   metadata lacks Epic / parent unsettable); the attach degraded to the
+ *   legacy `label` binding and still landed via the label path.
  */
 export type AttachProjectMilestoneCapability =
   | null
   | "milestone_create_required"
-  | "milestone_attach_skipped_adapter_limit";
+  | "milestone_attach_skipped_adapter_limit"
+  | "milestone_epic_unsupported";
 
 export interface AttachProjectMilestoneResult {
   capability: AttachProjectMilestoneCapability;
@@ -152,6 +198,69 @@ async function retryTransient<T>(
   }
 }
 
+/**
+ * STE-362 AC-STE-362.1 — one write + read-back-verify round-trip, retried as
+ * a whole on transient failure (the write may not have landed — a bare
+ * re-read is not enough). `read` projects the fresh ticket to the
+ * binding-specific value that must byte-equal `expected`; a mismatch throws
+ * MilestoneAttachmentError (known-permanent — surfaces immediately, never
+ * retried). Shared by all three binding paths: `object`
+ * (projectMilestone.name), `label` (labels union), `epic` (parent key).
+ */
+function writeAndVerify(
+  provider: MilestoneOps,
+  ticketId: string,
+  sleep: (ms: number) => Promise<void>,
+  round: {
+    write: () => Promise<void>;
+    expected: string;
+    read: (fresh: TicketMilestoneView) => string | null;
+    binding: "object" | "label" | "epic";
+  },
+): Promise<void> {
+  return retryTransient(async () => {
+    await round.write();
+    const fresh = await provider.getIssue(ticketId);
+    const actual = round.read(fresh);
+    if (actual !== round.expected) {
+      throw new MilestoneAttachmentError(round.expected, actual, round.binding);
+    }
+  }, sleep);
+}
+
+/**
+ * STE-329 AC-STE-329.3 — `label` binding attach (Jira create-on-write).
+ * Mirrors the milestone M-token onto the issue as a `milestone-<M-token>`
+ * label via a read-merge-write `addLabel` (union, idempotent), then
+ * read-back verifies. Shared by the declared `label` binding (`capability:
+ * null` on success) and the `epic` binding's Epic-absent fallback
+ * (STE-375 AC-STE-375.4 — `capability: "milestone_epic_unsupported"`).
+ */
+async function attachViaMilestoneLabel(
+  provider: MilestoneOps,
+  milestoneName: string,
+  ticketId: string,
+  sleep: (ms: number) => Promise<void>,
+  capability: AttachProjectMilestoneCapability,
+): Promise<AttachProjectMilestoneResult> {
+  if (!provider.addLabel) {
+    throw new Error(
+      'attachProjectMilestone: the label milestone binding requires an addLabel op on the provider',
+    );
+  }
+  const addLabel = provider.addLabel;
+  const label = milestoneLabel(milestoneName);
+  await writeAndVerify(provider, ticketId, sleep, {
+    write: () => addLabel(ticketId, label),
+    expected: label,
+    // Presence projected to label-or-null so a mismatch reports actual=null
+    // (the label is missing from the set, not "wrong").
+    read: (fresh) => ((fresh.labels ?? []).includes(label) ? label : null),
+    binding: "label",
+  });
+  return { capability };
+}
+
 export async function attachProjectMilestone(
   provider: MilestoneOps,
   project: string,
@@ -168,31 +277,82 @@ export async function attachProjectMilestone(
     return { capability: "milestone_attach_skipped_adapter_limit" };
   }
 
+  // STE-375 AC-STE-375.1 — `epic` binding (Jira milestone-as-Epic). Find or
+  // create the milestone Epic matched by the canonical plan-heading name
+  // (byte equality, STE-118 discipline), then set the FR Task's `parent` to
+  // the Epic's key. Never scatters a `milestone-M<N>` label and never calls
+  // the object-path ops (listMilestones / saveMilestone / upsertTicketMetadata).
+  if (provider.milestoneBinding === "epic") {
+    // STE-375 AC-STE-375.4 — Epic-absent fallback. The optional
+    // `epicBindingAvailable` probe (injected seam over
+    // `getJiraProjectIssueTypesMetadata` + the parent-settability check)
+    // returning `false` degrades the binding to the legacy `label` path and
+    // surfaces `milestone_epic_unsupported` as an INFORMATIONAL capability
+    // row — never a throw. The probe runs before the epic-ops guard: a
+    // degraded provider needs only `addLabel`. Probe absent ⇒ assume
+    // available (same posture as the optional `supports` probe).
+    if (provider.epicBindingAvailable && !(await provider.epicBindingAvailable(project))) {
+      return attachViaMilestoneLabel(
+        provider,
+        milestoneName,
+        ticketId,
+        sleep,
+        "milestone_epic_unsupported",
+      );
+    }
+    const { listEpics, createEpic, setParent } = provider;
+    if (!listEpics || !createEpic || !setParent) {
+      throw new Error(
+        'attachProjectMilestone: milestoneBinding === "epic" requires listEpics/createEpic/setParent ops on the provider',
+      );
+    }
+    // STE-375 AC-STE-375.5 — the find-or-create leg retries as ONE unit on
+    // transient failure (STE-362 canonical schedule). Each retry re-runs the
+    // FIND leg first: a createEpic that landed server-side but timed out on
+    // the response is found by name on the retry and reused — a blind
+    // re-create would mint a duplicate Epic.
+    const findOrCreate = await retryTransient(async () => {
+      const epics = await listEpics(project);
+      const found = epics.find((e) => e.name === milestoneName);
+      if (found) {
+        // STE-375 AC-STE-375.2 — idempotency pre-check: when the ticket's
+        // `parent` already equals the milestone Epic's key, the attach is a
+        // no-op — the parent is not rewritten and no second Epic is created.
+        const current = await provider.getIssue(ticketId);
+        return {
+          epicKey: found.key,
+          createdName: undefined as string | undefined,
+          alreadyBound: (current.parent ?? null) === found.key,
+        };
+      }
+      const created = await createEpic(project, { name: milestoneName });
+      return { epicKey: created.key, createdName: milestoneName, alreadyBound: false };
+    }, sleep);
+    if (findOrCreate.alreadyBound) {
+      return { capability: null };
+    }
+    const { epicKey, createdName } = findOrCreate;
+    // Parent set + read-back verify (epic binding — the parent key must
+    // byte-equal the milestone Epic's key).
+    await writeAndVerify(provider, ticketId, sleep, {
+      write: () => setParent(ticketId, epicKey),
+      expected: epicKey,
+      read: (fresh) => fresh.parent ?? null,
+      binding: "epic",
+    });
+    if (createdName !== undefined) {
+      return { capability: "milestone_create_required", createdName };
+    }
+    return { capability: null };
+  }
+
   // STE-329 AC-STE-329.3 — `label` binding (Jira create-on-write). Mirror the
   // milestone M-token onto the issue as a `milestone-<M-token>` label via a
   // read-merge-write `addLabel` (union, idempotent). Never enumerates or
   // creates a milestone object — listMilestones / saveMilestone /
   // upsertTicketMetadata are not called on this branch.
   if (provider.milestoneBinding === "label") {
-    if (!provider.addLabel) {
-      throw new Error(
-        "attachProjectMilestone: milestoneBinding === \"label\" requires an addLabel op on the provider",
-      );
-    }
-    const addLabel = provider.addLabel;
-    const label = milestoneLabel(milestoneName);
-    // STE-362 AC-STE-362.1: the attach + read-back-verify round-trip retries
-    // as a whole on a transient failure (the write may not have landed — a
-    // bare re-read is not enough).
-    return retryTransient(async () => {
-      await addLabel(ticketId, label);
-      const fresh = await provider.getIssue(ticketId);
-      const labels = fresh.labels ?? [];
-      if (!labels.includes(label)) {
-        throw new MilestoneAttachmentError(label, null, "label");
-      }
-      return { capability: null };
-    }, sleep);
+    return attachViaMilestoneLabel(provider, milestoneName, ticketId, sleep, null);
   }
 
   const existing = await provider.listMilestones(project);
@@ -203,16 +363,16 @@ export async function attachProjectMilestone(
     await provider.saveMilestone(project, { name: milestoneName });
     createdName = milestoneName;
   }
-  // STE-362 AC-STE-362.1: attach + read-back-verify retried as one unit on
-  // transient failure; a MilestoneAttachmentError inside surfaces immediately.
-  await retryTransient(async () => {
-    await provider.upsertTicketMetadata(ticketId, { milestone: milestoneName });
-    const fresh = await provider.getIssue(ticketId);
-    const actual = fresh.projectMilestone?.name ?? null;
-    if (actual !== milestoneName) {
-      throw new MilestoneAttachmentError(milestoneName, actual);
-    }
-  }, sleep);
+  // Attach + read-back verify (object binding — the projectMilestone name
+  // must byte-equal the canonical plan-heading name).
+  await writeAndVerify(provider, ticketId, sleep, {
+    write: async () => {
+      await provider.upsertTicketMetadata(ticketId, { milestone: milestoneName });
+    },
+    expected: milestoneName,
+    read: (fresh) => fresh.projectMilestone?.name ?? null,
+    binding: "object",
+  });
   if (createdName !== undefined) {
     return { capability: "milestone_create_required", createdName };
   }
