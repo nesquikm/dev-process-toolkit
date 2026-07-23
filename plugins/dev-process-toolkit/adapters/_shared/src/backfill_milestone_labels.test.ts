@@ -94,7 +94,7 @@ interface Stub {
   milestones: { name: string }[];
   tickets: Record<string, Partial<TicketState>>;
   calls: string[];
-  milestoneBinding?: "object" | "label";
+  milestoneBinding?: "object" | "label" | "epic";
   supports?: (cap: string) => boolean;
 }
 
@@ -402,5 +402,29 @@ describe("hardening — FR with a plan file missing from both trees is skipped",
     expect(everyBucket.some((e) => e.ticketId === "STE-902")).toBe(false);
     expect(stub.calls.filter((c) => c.includes("STE-902"))).toEqual([]);
     expect(report.backfilled.map((e) => e.ticketId)).toEqual(["STE-901"]);
+  });
+});
+
+describe("STE-375 epic binding — backfill classifies epic-bound tickets alreadyCorrect", () => {
+  test("parent sanitizes to the milestone token → alreadyCorrect, zero writes", async () => {
+    const { specsDir } = makeRepo();
+    writeFileSync(join(specsDir, "plan", "M_DST_42.md"), "# M_DST_42 — Epic fixture\n\n- [x] task\n");
+    writeFileSync(
+      join(specsDir, "frs", "DST-77.md"),
+      "---\ntitle: Fixture FR\nmilestone: M_DST_42\nstatus: active\narchived_at: null\ntracker:\n  jira: DST-77\n---\n\n# DST-77: Fixture\n",
+    );
+    const stub = makeStub({ milestoneBinding: "epic" });
+    const provider = {
+      ...makeProvider(stub),
+      async getIssue(ticketId: string) {
+        stub.calls.push(`getIssue(${ticketId})`);
+        return { projectMilestone: null, labels: [], parent: "DST-42" };
+      },
+    };
+    const res = await backfillMilestoneLabels(provider, "DST", specsDir, { mode: "jira" });
+    expect(ids(res.alreadyCorrect)).toEqual(["DST-77"]);
+    expect(res.backfilled).toEqual([]);
+    expect(res.failed).toEqual([]);
+    expect(writeCalls(stub.calls)).toEqual([]);
   });
 });

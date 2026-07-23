@@ -20,6 +20,7 @@ import {
   MILESTONE_TOKEN_SOURCE,
   compareMilestoneTokens,
   isMilestoneToken,
+  milestoneIdFromEpicKey,
 } from "../../_shared/src/milestone_token";
 
 export interface JiraLabelledIssue {
@@ -118,7 +119,16 @@ export async function listMilestones(
       const epicReachedLast = await scanPages(fetchEpicPage, cap, (result) => {
         for (const epic of result.epics) {
           const firstWord = epic.summary?.trim().split(/\s+/)[0] ?? "";
-          if (isMilestoneToken(firstWord)) found.add(`M_${epic.key}`);
+          if (!isMilestoneToken(firstWord)) continue;
+          // Canonical id via the shared sanitizer (key `DPT-500` →
+          // `M_DPT_500`) — the SAME identity /spec-write mints and the
+          // parent-sanitize membership check compares against. A malformed
+          // or empty key skips this Epic; it never degrades the leg.
+          try {
+            found.add(milestoneIdFromEpicKey(epic.key));
+          } catch {
+            continue;
+          }
         }
       });
       if (!epicReachedLast && log) {

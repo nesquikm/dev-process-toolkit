@@ -178,3 +178,30 @@ describe("findPostFreezeEdits — git-log scan (AC-44.4)", () => {
     expect(m13Edits[0]?.sha).toMatch(/^[0-9a-f]+$/);
   });
 });
+
+describe("STE-376 union grammar — Epic-keyed plans stay inside the post-freeze scan", () => {
+  test("flags post-freeze commits to specs/plan/M_PROJ_500.md (not silently skipped)", async () => {
+    const planPath = join(work, "specs", "plan", "M_PROJ_500.md");
+    const initialFm = [
+      "---",
+      "milestone: M_PROJ_500",
+      "status: active",
+      "kickoff_branch: plan/m_proj_500-kickoff",
+      "frozen_at: 2020-01-01T00:00:00Z", // well in the past
+      "revision: 1",
+      "---",
+      "",
+      "# M_PROJ_500 initial",
+      "",
+    ].join("\n");
+    writeFileSync(planPath, initialFm);
+    await $`git add -A`.cwd(work).quiet();
+    await $`git commit -q -m epic-plan`.cwd(work).quiet();
+    writeFileSync(planPath, initialFm + "\npost-freeze line\n");
+    await $`git add -A`.cwd(work).quiet();
+    await $`git commit -q -m epic-post-freeze-edit`.cwd(work).quiet();
+    const edits = await findPostFreezeEdits(work);
+    const epicEdits = edits.filter((e) => e.milestone === "M_PROJ_500");
+    expect(epicEdits.length).toBeGreaterThan(0);
+  });
+});
