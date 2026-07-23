@@ -17,7 +17,7 @@
 // boundary (deduped at plan-file heading authorship time).
 
 import { readFileSync } from "node:fs";
-import { isMilestoneToken } from "./milestone_token";
+import { isMilestoneToken, milestoneIdFromEpicKey, parseMilestoneToken } from "./milestone_token";
 import { parsePlanHeading } from "./plan_heading";
 
 export class MilestoneAttachmentError extends Error {
@@ -410,28 +410,52 @@ export function milestoneLabel(canonicalName: string): string {
 /**
  * M97 (STE-363 + STE-364) — normalize an adapter's milestone-binding
  * strategy. `object` (Linear) is the default when the provider declares
- * none; `label` (Jira) must be declared explicitly.
+ * none; `label` (Jira legacy) and `epic` (Jira Epic-first) must be declared
+ * explicitly.
  */
-export function resolveMilestoneBinding(provider: MilestoneOps): "object" | "label" {
-  return provider.milestoneBinding === "label" ? "label" : "object";
+export function resolveMilestoneBinding(provider: MilestoneOps): "object" | "label" | "epic" {
+  if (provider.milestoneBinding === "label") return "label";
+  if (provider.milestoneBinding === "epic") return "epic";
+  return "object";
 }
 
 /**
  * M97 (STE-363 + STE-364) — shared present/missing predicate for a ticket's
- * milestone binding. The archival-boundary assertion and the backfill sweep
- * both classify through this one function so the two surfaces cannot drift:
- * `object` (Linear, default) ⇒ `projectMilestone.name` byte-equals the
- * canonical plan-heading name; `label` (Jira) ⇒ `labels` contains
- * `milestone-<M-token>` (milestoneLabel).
+ * milestone binding. The archival-boundary assertion, the backfill sweep, and
+ * gate probe verification all classify through this one function so the
+ * surfaces cannot drift: `object` (Linear, default) ⇒ `projectMilestone.name`
+ * byte-equals the canonical plan-heading name; `label` (Jira legacy) ⇒
+ * `labels` contains `milestone-<M-token>` (milestoneLabel); `epic` (Jira
+ * Epic-first) ⇒ for an Epic-keyed milestone the ticket's `parent` key
+ * sanitizes back to the milestone token (`milestoneIdFromEpicKey(parent) ===
+ * M_<epic-key>` — the self-describing membership check), while a
+ * grandfathered numeric `M<N>` milestone under the epic binding falls back to
+ * the label surface (those milestones predate Epics and were attached via
+ * labels).
  */
 export function milestoneBindingPresent(
-  issue: { projectMilestone?: { name: string } | null; labels?: string[] },
+  issue: { projectMilestone?: { name: string } | null; labels?: string[]; parent?: string | null },
   canonical: string,
-  binding: "object" | "label",
+  binding: "object" | "label" | "epic",
 ): boolean {
-  return binding === "label"
-    ? (issue.labels ?? []).includes(milestoneLabel(canonical))
-    : (issue.projectMilestone?.name ?? null) === canonical;
+  if (binding === "label") {
+    return (issue.labels ?? []).includes(milestoneLabel(canonical));
+  }
+  if (binding === "epic") {
+    const token = canonical.split(/\s/, 1)[0] ?? "";
+    if (parseMilestoneToken(token)?.kind === "epic") {
+      const parent = issue.parent ?? null;
+      if (parent === null || parent === "") return false;
+      try {
+        return milestoneIdFromEpicKey(parent) === token;
+      } catch {
+        return false;
+      }
+    }
+    // Grandfathered numeric milestone under the epic binding: label surface.
+    return (issue.labels ?? []).includes(milestoneLabel(canonical));
+  }
+  return (issue.projectMilestone?.name ?? null) === canonical;
 }
 
 /**

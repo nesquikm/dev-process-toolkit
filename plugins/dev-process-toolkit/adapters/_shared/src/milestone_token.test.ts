@@ -108,6 +108,14 @@ describe("AC-STE-376.1 — consumers reference the shared matcher (STE-335 AC-7 
     join(sharedSrc, "migrations", "coverage.ts"),
     join(sharedSrc, "migrations", "monolith_split.ts"),
     join(sharedSrc, "..", "..", "jira", "src", "list_milestones.ts"),
+    // Stage-A sweep closure — the four consumers routed through the shared
+    // matcher after the first audit round; pinned so a private copy cannot
+    // silently return.
+    join(sharedSrc, "resolve.ts"),
+    join(sharedSrc, "plan_task_fr_coverage.ts"),
+    join(sharedSrc, "reconcile_tracker_local.ts"),
+    join(sharedSrc, "root_hygiene.ts"),
+    join(sharedSrc, "plan_lock.ts"),
   ];
 
   for (const file of CONSUMERS) {

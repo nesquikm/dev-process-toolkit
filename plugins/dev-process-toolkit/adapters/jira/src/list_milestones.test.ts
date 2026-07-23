@@ -291,10 +291,12 @@ describe("listMilestones — M_<epic-key> label tolerance (AC-STE-376.3)", () =>
 //     milestone token under the shared union grammar (`M<N>` / `M_<key>`,
 //     isMilestoneToken on the first whitespace-delimited word) count as
 //     milestone Epics — ordinary product Epics are excluded.
-//   - Each milestone Epic contributes `M_<epic-key>` (the KEY verbatim,
-//     e.g. key `DPT-500` → name `M_DPT-500`) — the milestone id and the
-//     future `parent = <epic-key>` query share the same key. (STE-377's
-//     `milestoneIdFromEpicKey` sanitizer is out of scope here.)
+//   - Each milestone Epic contributes the CANONICAL sanitized id via
+//     `milestoneIdFromEpicKey` (key `DPT-500` → name `M_DPT_500`) — the
+//     SAME identity /spec-write mints for plan files and frontmatter, so
+//     enumeration and allocation can never disagree about a milestone's
+//     name (Pass-2 review fix: the verbatim-key form created a second
+//     string identity for the same Epic).
 //   - The result is the UNION of the epic leg and the grandfathered
 //     `milestone-M<N>` label leg, deduped, in the compareMilestoneTokens
 //     order (numeric ascending first, then epic-keyed by code point).
@@ -326,7 +328,7 @@ function epicPagedFetcher(pages: EpicPage[]): (page: number) => Promise<EpicPage
 const EMPTY_LABEL_LEG = pagedFetcher([]);
 
 describe("listMilestones — Epic-enumeration leg (AC-STE-375.3)", () => {
-  test("milestone Epics yield M_<epic-key> names (key verbatim, hyphen preserved)", async () => {
+  test("milestone Epics yield canonical M_<epic-key> names (key sanitized, hyphen → underscore)", async () => {
     const fetchEpicPage = epicPagedFetcher([
       {
         epics: [
@@ -338,10 +340,12 @@ describe("listMilestones — Epic-enumeration leg (AC-STE-375.3)", () => {
     ]);
     const got = await listWithEpics(EMPTY_LABEL_LEG, { fetchEpicPage });
     const names = got.map((m) => m.name);
-    expect(names).toContain("M_DPT-500");
-    expect(names).toContain("M_DPT-510");
-    // The raw Epic key never leaks without the M_ prefix.
+    expect(names).toContain("M_DPT_500");
+    expect(names).toContain("M_DPT_510");
+    // The raw Epic key never leaks without the M_ prefix, and the
+    // unsanitized hyphen form never appears alongside the canonical id.
     expect(names).not.toContain("DPT-500");
+    expect(names).not.toContain("M_DPT-500");
   });
 
   test("client-side name filter: Epics without a milestone-token summary are excluded", async () => {
@@ -357,9 +361,9 @@ describe("listMilestones — Epic-enumeration leg (AC-STE-375.3)", () => {
     ]);
     const got = await listWithEpics(EMPTY_LABEL_LEG, { fetchEpicPage });
     const names = got.map((m) => m.name);
-    expect(names).toContain("M_DPT-500");
-    expect(names).not.toContain("M_DPT-7");
-    expect(names).not.toContain("M_DPT-8");
+    expect(names).toContain("M_DPT_500");
+    expect(names).not.toContain("M_DPT_7");
+    expect(names).not.toContain("M_DPT_8");
   });
 
   test("union with grandfathered milestone-M<N> labels — numeric first, then epic-keyed", async () => {
@@ -376,13 +380,15 @@ describe("listMilestones — Epic-enumeration leg (AC-STE-375.3)", () => {
     expect(got).toEqual([
       { name: "M30" },
       { name: "M86" },
-      { name: "M_DPT-500" },
+      { name: "M_DPT_500" },
     ]);
   });
 
   test("dedupe across legs: a name present as BOTH an Epic and a label appears once", async () => {
     const fetchLabelPage = pagedFetcher([
-      { issues: [issue("milestone-M_DPT-500")], isLast: true },
+      // milestoneLabel derives labels from the canonical milestone name, so
+      // real epic-milestone labels carry the sanitized token.
+      { issues: [issue("milestone-M_DPT_500")], isLast: true },
     ]);
     const fetchEpicPage = epicPagedFetcher([
       {
@@ -396,9 +402,9 @@ describe("listMilestones — Epic-enumeration leg (AC-STE-375.3)", () => {
     const got = await listWithEpics(fetchLabelPage, { fetchEpicPage });
     const names = got.map((m) => m.name);
     // Epic-only name proves the epic leg ran…
-    expect(names).toContain("M_DPT-777");
+    expect(names).toContain("M_DPT_777");
     // …and the double-represented name is deduped to a single entry.
-    expect(names.filter((n) => n === "M_DPT-500").length).toBe(1);
+    expect(names.filter((n) => n === "M_DPT_500").length).toBe(1);
   });
 
   test("epic leg paginates in order until a page reports isLast", async () => {
@@ -413,8 +419,8 @@ describe("listMilestones — Epic-enumeration leg (AC-STE-375.3)", () => {
     };
     const got = await listWithEpics(EMPTY_LABEL_LEG, { fetchEpicPage });
     const names = got.map((m) => m.name);
-    expect(names).toContain("M_DPT-500");
-    expect(names).toContain("M_DPT-501");
+    expect(names).toContain("M_DPT_500");
+    expect(names).toContain("M_DPT_501");
     expect(calls).toEqual([0, 1]);
   });
 
@@ -431,7 +437,7 @@ describe("listMilestones — Epic-enumeration leg (AC-STE-375.3)", () => {
       fetchEpicPage,
     });
     expect(fetched).toBe(3);
-    expect(got.map((m) => m.name)).toContain("M_DPT-500");
+    expect(got.map((m) => m.name)).toContain("M_DPT_500");
     expect(logged.length).toBe(1);
     expect(logged[0]!.toLowerCase()).toMatch(/drop|truncat|cap|beyond|more page/);
   });

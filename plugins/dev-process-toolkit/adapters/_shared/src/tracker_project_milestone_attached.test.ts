@@ -544,3 +544,62 @@ describe("STE-376 — epic-keyed milestone binding (AC-STE-376.5)", () => {
     }
   });
 });
+
+describe("STE-375 epic binding — probe #26 parent-key verification", () => {
+  test("epic-bound ticket (parent sanitizes to the milestone token) → zero violations", async () => {
+    const fx = makeFixture({
+      active: [{ id: "DST-77", milestone: "M_DST_42", trackerId: "DST-77", trackerKey: "jira" }],
+    });
+    try {
+      writeFileSync(
+        join(fx.root, "specs", "plan", "M_DST_42.md"),
+        "---\nmilestone: M_DST_42\nstatus: active\n---\n\n# M_DST_42 — Epic fixture\n",
+      );
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        milestoneBinding: "epic",
+        getIssue: async () => ({ projectMilestone: null, labels: [], parent: "DST-42" }),
+      });
+      expect(r.violations).toEqual([]);
+      expect(r.advisories).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("epic-bound ticket with no parent → hard violation naming the expected token", async () => {
+    const fx = makeFixture({
+      active: [{ id: "DST-77", milestone: "M_DST_42", trackerId: "DST-77", trackerKey: "jira" }],
+    });
+    try {
+      writeFileSync(
+        join(fx.root, "specs", "plan", "M_DST_42.md"),
+        "---\nmilestone: M_DST_42\nstatus: active\n---\n\n# M_DST_42 — Epic fixture\n",
+      );
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        milestoneBinding: "epic",
+        getIssue: async () => ({ projectMilestone: null, labels: [], parent: null }),
+      });
+      expect(r.violations.length).toBe(1);
+      expect(r.violations[0]!.note).toMatch(/M_DST_42/);
+      expect(r.violations[0]!.message).toMatch(/parent/);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("grandfathered numeric milestone under the epic binding passes via the label surface", async () => {
+    const fx = makeFixture({
+      active: [{ id: "ABC-1", milestone: "M86", trackerId: "ABC-1", trackerKey: "jira" }],
+      activePlans: [{ n: 86, heading: "M86 — Jira Project-Milestone Support {#M86}" }],
+    });
+    try {
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        milestoneBinding: "epic",
+        getIssue: async () => ({ projectMilestone: null, labels: ["milestone-M86"], parent: null }),
+      });
+      expect(r.violations).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
