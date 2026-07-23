@@ -7,11 +7,19 @@
 // the injected `fetchPage` is the only seam — no network, no auth.
 //
 // listMilestones drives pagination by calling fetchPage(0), fetchPage(1), …
-// accumulating each page's issues. Every label matching ^milestone-(M\d+)$
-// contributes its captured M<N> token. The result is a deduped, ascending-by-
-// numeric-part array of { name: "M<N>" } — the BARE M-token (e.g. "M30"), never
-// the "milestone-" prefixed label — so the existing scanTracker `^M(\d+)`
-// extractor in next_free_milestone_number.ts consumes it unchanged.
+// accumulating each page's issues. Every label matching the milestone-token
+// union (^milestone-(M<N>|M_<epic-key>)$, STE-376 AC-STE-376.3) contributes
+// its captured bare token. The result is deduped: numeric tokens first,
+// ascending by numeric part, then epic-keyed tokens (lexicographic) — the
+// BARE token (e.g. "M30", "M_PROJ_500"), never the "milestone-" prefixed
+// label. The existing scanTracker `^M(\d+)` extractor in
+// next_free_milestone_number.ts consumes this unchanged: epic-keyed names
+// are opaque to it and never bump the sequential counter.
+
+import {
+  MILESTONE_TOKEN_SOURCE,
+  compareMilestoneTokens,
+} from "../../_shared/src/milestone_token";
 
 export interface JiraLabelledIssue {
   labels?: string[];
@@ -31,9 +39,11 @@ export type JiraSearchPageFetcher = (page: number) => Promise<JiraSearchPage>;
  */
 export const MILESTONE_PAGE_CAP = 50;
 
-// Exact-scope anchor: only `milestone-M<N>` (no prefix, no suffix, no trailing
-// whitespace) counts; the captured group is the bare `M<N>` token.
-const MILESTONE_LABEL = /^milestone-(M\d+)$/;
+// Exact-scope anchor: only `milestone-M<N>` / `milestone-M_<epic-key>` (no
+// prefix, no suffix, no trailing whitespace) counts; the captured group is the
+// bare token. The union shape comes from the shared `milestone_token` sources,
+// so malformed labels (`milestone-M_`, `milestone-M5-extra`) stay rejected.
+const MILESTONE_LABEL = new RegExp(`^milestone-(${MILESTONE_TOKEN_SOURCE})$`);
 
 export async function listMilestones(
   fetchPage: JiraSearchPageFetcher,
@@ -70,9 +80,9 @@ export async function listMilestones(
     return [];
   }
 
-  // Every token in `found` is the `M\d+` capture of MILESTONE_LABEL, so the
-  // numeric part is always `slice(1)` — no second regex / non-null assertion.
-  return [...found]
-    .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
-    .map((name) => ({ name }));
+  // Every token in `found` parses under the union grammar (it is the capture
+  // of MILESTONE_LABEL). compareMilestoneTokens orders numeric tokens first,
+  // ascending by numeric part; epic-keyed tokens are opaque (never read as
+  // numbers) and follow, sorted by code point for determinism.
+  return [...found].sort(compareMilestoneTokens).map((name) => ({ name }));
 }

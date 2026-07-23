@@ -461,3 +461,86 @@ describe("STE-335 AC-STE-335.3/.4 — Jira label binding on a `## M<N>:` plan", 
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// STE-376 AC-STE-376.5 — M_<epic-key> milestone headings. The probe must
+// parse an Epic-keyed plan heading and verify the binding; the pre-union
+// behavior (parsePlanHeading → null → silent skip) would let a missing or
+// mismatched binding pass unreported.
+// ---------------------------------------------------------------------------
+
+describe("STE-376 — epic-keyed milestone binding (AC-STE-376.5)", () => {
+  /** Active FR bound to M_PROJ_500 + an Epic-keyed plan file. */
+  function makeEpicFixture(headingLine: string, trackerKey: "jira" | "linear") {
+    const fx = makeFixture({
+      active: [
+        { id: "DST-9", milestone: "M_PROJ_500", trackerId: "DST-9", trackerKey },
+      ],
+    });
+    writeFileSync(
+      join(fx.root, "specs", "plan", "M_PROJ_500.md"),
+      `---\nmilestone: M_PROJ_500\nstatus: active\n---\n\n${headingLine}\n`,
+    );
+    return fx;
+  }
+
+  test("label binding: missing milestone-M_PROJ_500 label → hard fail (never a silent skip)", async () => {
+    const fx = makeEpicFixture("## M_PROJ_500: Epic-keyed milestone", "jira");
+    try {
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        milestoneBinding: "label",
+        getIssue: makeIssueLookup([{ id: "DST-9", labels: ["spec-driven"] }]),
+      });
+      expect(r.violations.length).toBe(1);
+      expect(r.violations[0]!.note).toMatch(/milestone-M_PROJ_500/);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("label binding: milestone-M_PROJ_500 present → zero violations", async () => {
+    const fx = makeEpicFixture("## M_PROJ_500: Epic-keyed milestone", "jira");
+    try {
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        milestoneBinding: "label",
+        getIssue: makeIssueLookup([
+          { id: "DST-9", labels: ["spec-driven", "milestone-M_PROJ_500"] },
+        ]),
+      });
+      expect(r.violations).toEqual([]);
+      expect(r.advisories).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("object binding: mismatched projectMilestone name → violation naming the epic canonical heading", async () => {
+    const fx = makeEpicFixture("# M_PROJ_500 — Epic-keyed milestone", "linear");
+    try {
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        getIssue: makeIssueLookup([
+          { id: "DST-9", projectMilestone: { name: "M_PROJ_500 — Wrong Title" } },
+        ]),
+      });
+      expect(r.violations.length).toBe(1);
+      expect(r.violations[0]!.note).toMatch(/M_PROJ_500/);
+      expect(r.violations[0]!.reason).toMatch(/mismatch/);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("object binding: byte-equal epic canonical name → zero violations", async () => {
+    const fx = makeEpicFixture("# M_PROJ_500 — Epic-keyed milestone", "linear");
+    try {
+      const r = await runTrackerProjectMilestoneAttachedProbe(fx.root, {
+        getIssue: makeIssueLookup([
+          { id: "DST-9", projectMilestone: { name: "M_PROJ_500 — Epic-keyed milestone" } },
+        ]),
+      });
+      expect(r.violations).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});

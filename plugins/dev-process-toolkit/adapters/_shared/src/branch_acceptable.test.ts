@@ -274,3 +274,56 @@ describe("isCurrentBranchAcceptable — short-ULID match (AC-STE-64.4, AC-STE-64
     ).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// STE-376 AC-STE-376.6 — matchesMilestone consumes the shared union matcher:
+// a run scoped to an `M_<epic-key>` milestone accepts the epic-keyed branch
+// form (`{type}/m_<epic_key>-{slug}`), with the same word-boundary discipline
+// as the numeric `m<N>` match.
+// ---------------------------------------------------------------------------
+
+describe("isCurrentBranchAcceptable — epic-keyed milestone match (AC-STE-376.6)", () => {
+  test("milestone run scoped to M_PROJ_500 accepts feat/m_proj_500-epic-grammar", () => {
+    expect(
+      isCurrentBranchAcceptable("feat/m_proj_500-epic-grammar", {
+        kind: "milestone",
+        number: "M_PROJ_500",
+      }),
+    ).toBe(true);
+  });
+
+  test("fr-tracker scope carrying the epic milestone accepts the m_-keyed branch without the ticket id", () => {
+    expect(
+      isCurrentBranchAcceptable("feat/m_proj_500-epic-grammar", {
+        kind: "fr-tracker",
+        trackerId: "STE-999",
+        milestoneNumber: "M_PROJ_500",
+      }),
+    ).toBe(true);
+  });
+
+  test("legacy ticket-keyed branch stays acceptable when the scope carries an epic milestone", () => {
+    expect(
+      isCurrentBranchAcceptable("feat/ste-376-epic-grammar", {
+        kind: "fr-tracker",
+        trackerId: "STE-376",
+        milestoneNumber: "M_PROJ_500",
+      }),
+    ).toBe(true);
+  });
+
+  test("word boundary: m_proj_5001 does not satisfy an M_PROJ_500 scope", () => {
+    expect(
+      isCurrentBranchAcceptable("feat/m_proj_5001-epic-grammar", {
+        kind: "milestone",
+        number: "M_PROJ_500",
+      }),
+    ).toBe(false);
+  });
+
+  test("main is still rejected for an epic-scoped run", () => {
+    expect(
+      isCurrentBranchAcceptable("main", { kind: "milestone", number: "M_PROJ_500" }),
+    ).toBe(false);
+  });
+});

@@ -211,3 +211,68 @@ describe("listMilestones — fail-soft (AC-STE-339.3)", () => {
     expect(got).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// STE-376 AC-STE-376.3 — the label token filter accepts the M_<epic-key>
+// union shape. Epic-keyed labels are surfaced as bare tokens (existence
+// checks need them) while staying opaque to the numeric max+1 computation
+// (scanTracker in next_free_milestone_number.ts ignores non-`M<N>` names).
+// ---------------------------------------------------------------------------
+
+describe("listMilestones — M_<epic-key> label tolerance (AC-STE-376.3)", () => {
+  test("milestone-M_PROJ_500 is surfaced as { name: 'M_PROJ_500' } alongside numeric tokens", async () => {
+    const fetch = pagedFetcher([
+      {
+        issues: [issue("milestone-M30", "frontend"), issue("milestone-M_PROJ_500")],
+        isLast: true,
+      },
+    ]);
+    const got = await listMilestones(fetch);
+    const names = got.map((m) => m.name);
+    expect(names).toContain("M30");
+    expect(names).toContain("M_PROJ_500");
+  });
+
+  test("hyphen-form epic label (milestone-M_PROJ-500) is surfaced whole", async () => {
+    const fetch = pagedFetcher([
+      { issues: [issue("milestone-M_PROJ-500")], isLast: true },
+    ]);
+    const got = await listMilestones(fetch);
+    expect(got.map((m) => m.name)).toContain("M_PROJ-500");
+  });
+
+  test("duplicate epic labels are deduped", async () => {
+    const fetch = pagedFetcher([
+      {
+        issues: [issue("milestone-M_PROJ_500"), issue("milestone-M_PROJ_500")],
+        isLast: true,
+      },
+    ]);
+    const got = await listMilestones(fetch);
+    expect(got.filter((m) => m.name === "M_PROJ_500").length).toBe(1);
+  });
+
+  test("malformed epic label milestone-M_ (empty key) is not surfaced", async () => {
+    const fetch = pagedFetcher([
+      { issues: [issue("milestone-M_", "milestone-M5")], isLast: true },
+    ]);
+    const got = await listMilestones(fetch);
+    expect(got.map((m) => m.name)).toEqual(["M5"]);
+  });
+
+  test("numeric tokens keep their ascending numeric order when epic tokens are present", async () => {
+    const fetch = pagedFetcher([
+      {
+        issues: [
+          issue("milestone-M100"),
+          issue("milestone-M_PROJ_500"),
+          issue("milestone-M9"),
+        ],
+        isLast: true,
+      },
+    ]);
+    const got = await listMilestones(fetch);
+    const numeric = got.map((m) => m.name).filter((n) => /^M\d+$/.test(n));
+    expect(numeric).toEqual(["M9", "M100"]);
+  });
+});
