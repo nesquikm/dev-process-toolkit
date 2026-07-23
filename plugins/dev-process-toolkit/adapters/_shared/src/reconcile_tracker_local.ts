@@ -15,6 +15,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFrontmatter } from "./frontmatter";
+import { isMilestoneToken, PLAN_FILENAME_RE } from "./milestone_token";
 import type { Provider } from "./provider";
 
 export type ReconcileItemKind = "tracker-orphan" | "local-orphan" | "milestone-mismatch";
@@ -43,8 +44,8 @@ export interface LocalFRBinding {
   trackerIds: string[];
 }
 
-const MILESTONE_NAME_RE = /^M\d+$/;
-const PLAN_FILE_RE = /^M\d+\.md$/;
+// Shared union grammar — Epic-keyed `M_<epic-key>` milestones reconcile
+// alongside numeric `M<N>` (they are listable via the Jira Epic leg).
 
 /**
  * Reconcile tracker-side state (active FR IDs + milestone names) against
@@ -121,7 +122,7 @@ export async function reconcileTrackerLocal(
   const localPlanSet = new Set(localPlanMilestones);
   const trackerMilestoneSet = new Set<string>();
   for (const m of trackerMilestones) {
-    if (MILESTONE_NAME_RE.test(m.name)) trackerMilestoneSet.add(m.name);
+    if (isMilestoneToken(m.name)) trackerMilestoneSet.add(m.name);
   }
   for (const name of trackerMilestoneSet) {
     if (!localPlanSet.has(name)) {
@@ -201,7 +202,7 @@ function readLocalPlanMilestones(specsDir: string): string[] {
   const entries = readdirSync(planDir, { withFileTypes: true });
   for (const entry of entries) {
     if (!entry.isFile()) continue;
-    if (!PLAN_FILE_RE.test(entry.name)) continue;
+    if (!PLAN_FILENAME_RE.test(entry.name)) continue;
     out.push(entry.name.replace(/\.md$/, ""));
   }
   return out;

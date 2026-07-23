@@ -254,6 +254,17 @@ describe("resolveFRArgument — fallthrough (AC-51.7, NFR-18)", () => {
     expect(r.milestone).toBe("M12");
   });
 
+  test("Epic-keyed milestone 'M_PROJ_500' → milestone (shared union grammar)", () => {
+    const r = resolveFRArgument("M_PROJ_500", fullStack);
+    expect(r.kind).toBe("milestone");
+    expect(r.milestone).toBe("M_PROJ_500");
+  });
+
+  test("malformed epic token 'M_' → fallthrough, not milestone", () => {
+    const r = resolveFRArgument("M_", fullStack);
+    expect(r.kind).toBe("fallthrough");
+  });
+
   test("empty string → fallthrough", () => {
     const r = resolveFRArgument("", fullStack);
     expect(r.kind).toBe("fallthrough");
