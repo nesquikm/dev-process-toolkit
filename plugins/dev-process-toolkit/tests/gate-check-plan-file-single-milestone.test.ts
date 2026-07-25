@@ -53,7 +53,10 @@ describe("STE-197 — plan-file-single-milestone probe", () => {
       expect(report.violations.length).toBe(1);
       expect(report.violations[0]!.count).toBe(2);
       expect(report.violations[0]!.note).toMatch(/M1\.md:1 —/);
-      expect(report.violations[0]!.reason).toMatch(/2 `## M<N>:` headings/);
+      // STE-415: separator-neutral wording — the reason names the count and the
+      // exactly-one invariant without pinning one separator (the probe now
+      // counts both `## M<N>:` and `## M<N> —` headings).
+      expect(report.violations[0]!.reason).toMatch(/carries 2 .*headings; expected exactly 1/);
     } finally {
       cleanup(root);
     }
@@ -133,6 +136,105 @@ describe("STE-376 — M_<epic-key> plan files (AC-STE-376.5)", () => {
       );
       const report = await runPlanFileSingleMilestoneProbe(root);
       expect(report.violations.length).toBe(1);
+    } finally {
+      cleanup(root);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STE-415 AC-STE-415.2 — MILESTONE_HEADING_RE widened to BOTH separators. The
+// new emit form is `## M<N> — <Title> {#M<N>}` (em-dash); a colon-only counter
+// would score an em-dash multi-milestone plan file as 0 headings and silently
+// drop the advisory this probe exists to raise.
+// ---------------------------------------------------------------------------
+
+const EM_DASH = "—";
+
+describe("STE-415 — separator-neutral milestone-heading count", () => {
+  test("em-dash multi-milestone plan file is flagged (count 2)", async () => {
+    const root = makeFixture();
+    try {
+      writeFileSync(
+        join(root, "specs", "plan", "M1.md"),
+        [
+          "---",
+          "milestone: M1",
+          "status: active",
+          "---",
+          "",
+          "# Plan",
+          "",
+          `## M1 ${EM_DASH} Foundation {#M1}`,
+          "",
+          `## M2 ${EM_DASH} Core arithmetic operations {#M2}`,
+          "",
+        ].join("\n"),
+      );
+      const report = await runPlanFileSingleMilestoneProbe(root);
+      expect(report.violations.length).toBe(1);
+      expect(report.violations[0]!.count).toBe(2);
+      expect(report.violations[0]!.note).toMatch(/M1\.md:1 —/);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test("mixed colon + em-dash headings count together (count 2)", async () => {
+    const root = makeFixture();
+    try {
+      writeFileSync(
+        join(root, "specs", "plan", "M1.md"),
+        `## M1: Foundation\n\n## M2 ${EM_DASH} Core arithmetic operations\n`,
+      );
+      const report = await runPlanFileSingleMilestoneProbe(root);
+      expect(report.violations.length).toBe(1);
+      expect(report.violations[0]!.count).toBe(2);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test("epic-keyed em-dash headings are counted too (union grammar preserved)", async () => {
+    const root = makeFixture();
+    try {
+      writeFileSync(
+        join(root, "specs", "plan", "M_PROJ_500.md"),
+        `## M_PROJ_500 ${EM_DASH} Epic-keyed milestone {#M_PROJ_500}\n\n## M2 ${EM_DASH} Stray second milestone\n`,
+      );
+      const report = await runPlanFileSingleMilestoneProbe(root);
+      expect(report.violations.length).toBe(1);
+      expect(report.violations[0]!.count).toBe(2);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test("a single em-dash heading yields no advisory (no false positive)", async () => {
+    const root = makeFixture();
+    try {
+      writeFileSync(
+        join(root, "specs", "plan", "M1.md"),
+        `---\nmilestone: M1\nstatus: active\n---\n\n# Plan\n\n## M1 ${EM_DASH} Foundation {#M1}\n\n**Goal:** scaffold\n`,
+      );
+      const report = await runPlanFileSingleMilestoneProbe(root);
+      expect(report.violations).toEqual([]);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test("the advisory reason is separator-neutral (no colon-only `## M<N>:` literal)", async () => {
+    const root = makeFixture();
+    try {
+      writeFileSync(
+        join(root, "specs", "plan", "M1.md"),
+        `## M1 ${EM_DASH} Foundation\n\n## M2 ${EM_DASH} Core\n`,
+      );
+      const report = await runPlanFileSingleMilestoneProbe(root);
+      expect(report.violations.length).toBe(1);
+      expect(report.violations[0]!.reason).not.toContain("## M<N>:");
+      expect(report.violations[0]!.reason).toMatch(/carries 2 .*headings; expected exactly 1/);
     } finally {
       cleanup(root);
     }

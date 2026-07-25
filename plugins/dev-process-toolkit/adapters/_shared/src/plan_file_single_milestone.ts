@@ -1,7 +1,9 @@
 // plan_file_single_milestone — /gate-check probe (STE-197 AC-STE-197.5).
 //
 // Invariant: every `specs/plan/*.md` and `specs/plan/archive/*.md` file
-// must scaffold exactly one `## M<N>:` heading. Multi-milestone plan
+// must scaffold exactly one `## M<N>` milestone heading, counted under
+// EITHER separator — the canonical em-dash emit form `## M<N> — <Title>`
+// (STE-415) or the legacy colon form `## M<N>:`. Multi-milestone plan
 // files are the F3.2 bug shape from the 2026-05-04 Dart-lib smoke run —
 // `/setup` copying the un-trimmed template verbatim left M1 + M2 +
 // dependency graph in a single file, breaking downstream skills.
@@ -25,7 +27,13 @@ export interface PlanFileSingleMilestoneReport {
   violations: PlanFileSingleMilestoneViolation[];
 }
 
-const MILESTONE_HEADING_RE = new RegExp(`^## ${MILESTONE_TOKEN_SOURCE}:`, "gm");
+// Separator-neutral (STE-415): the emit side canonicalized to the em-dash
+// form, and legacy colon plan files stay countable. The token leaf is the
+// shared `M<N>` | `M_<epic-key>` union — never a private `M\d+` copy.
+const MILESTONE_HEADING_RE = new RegExp(
+  `^## ${MILESTONE_TOKEN_SOURCE} *(?:—|:)`,
+  "gm",
+);
 
 async function listPlanFiles(projectRoot: string): Promise<string[]> {
   const out: string[] = [];
@@ -50,7 +58,8 @@ async function listPlanFiles(projectRoot: string): Promise<string[]> {
 
 /**
  * Walk every `specs/plan/M*.md` (active + archive) and report files that
- * carry more than one `## M\d+:` heading. Pure function — no writes.
+ * carry more than one `## M<N>` milestone heading (either separator).
+ * Pure function — no writes.
  *
  * Call site: `/gate-check` conformance probes + the STE-197 integration
  * test at `tests/gate-check-plan-file-single-milestone.test.ts`.
@@ -71,7 +80,7 @@ export async function runPlanFileSingleMilestoneProbe(
     const matches = content.match(MILESTONE_HEADING_RE) ?? [];
     if (matches.length > 1) {
       const rel = relative(projectRoot, file);
-      const reason = `plan file carries ${matches.length} \`## M<N>:\` headings; expected exactly 1`;
+      const reason = `plan file carries ${matches.length} \`## M<N>\` milestone headings; expected exactly 1`;
       violations.push({
         file,
         count: matches.length,

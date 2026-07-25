@@ -61,7 +61,7 @@ Archival uses the same code path as `/implement` Phase 4. The milestone-binding 
 
 **Plan-only archival** (STE-200 AC-STE-200.1 / AC-STE-200.2 — milestone has zero FRs in `specs/frs/`):
 
-1. Auto-detect: when the FR match set for `M<N>` is empty AND `specs/plan/M<N>.md` exists, run the auto-detect heuristic — fire the plan-only branch when **any** of: (a) plan frontmatter `kind: scaffolding` (per STE-197), OR (b) every `^- [ ]` checkbox under the milestone's `## M<N>:` block is `[x]` (or `[deferred]`), OR (c) the operator passed `--plan-only` explicitly.
+1. Auto-detect: when the FR match set for `M<N>` is empty AND `specs/plan/M<N>.md` exists, run the auto-detect heuristic — fire the plan-only branch when **any** of: (a) plan frontmatter `kind: scaffolding` (per STE-197), OR (b) every `^- [ ]` task checkbox in `specs/plan/M<N>.md` is `[x]` (or `[deferred]`) — the scan is heading-agnostic, so it does not depend on the milestone heading's separator form, OR (c) the operator passed `--plan-only` explicitly.
 2. Run the drift Pass A grep against the live tree (live trees only — no FR rows to walk).
 3. `git mv specs/plan/M<N>.md specs/plan/archive/M<N>.md` and flip the plan frontmatter `status: active → archived` with `archived_at: <ISO now>` (per STE-197 AC-STE-197.4 — synthesize a frontmatter block for legacy frontmatter-less plans).
 4. Surface a `plan_only_archival` capability row in the closing summary.

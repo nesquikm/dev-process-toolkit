@@ -3,8 +3,9 @@
 // For each `status: active` FR with a tracker block, assert that the
 // tracker ticket's `projectMilestone.name` byte-equals the canonical
 // milestone name derived from the local plan-file milestone heading (parsed
-// via the shared `parsePlanHeading`, which accepts both the current `## M<N>:`
-// and legacy `# M<N> —` forms — STE-335). Closes the drift surface where
+// via the shared `parsePlanHeading`, which accepts the current `## M<N> —`
+// H2 form and still parses the legacy `# M<N> —` H1 and `## M<N>: <title>`
+// colon forms — STE-335). Closes the drift surface where
 // /spec-write didn't auto-attach (STE-115/116 origin).
 //
 // Vacuous on:
@@ -146,7 +147,7 @@ export function parseFrFrontmatter(content: string): FrFrontmatter {
 }
 
 // STE-335: the `missing` remedy's manual-attach hint is binding-aware. The
-// `label` (Jira) branch — now reachable on current-format `## M<N>:` plans once
+// `label` (Jira) branch — now reachable on canonical `## M<N> —` plans once
 // readPlanHeading delegates to the shared parser — would otherwise misdirect a
 // Jira operator to the Linear-only `save_issue` call. Mirrors the binding-aware
 // split already in MilestoneAttachmentError (STE-329). The `mismatch` kind only
