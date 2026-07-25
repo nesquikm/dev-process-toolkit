@@ -56,9 +56,9 @@ export interface AssertMilestoneBindingAtArchiveDeps {
 function asserted(
   ticketId: string,
   expected: string,
-  binding: "object" | "label",
+  binding: "object" | "label" | "epic",
 ): AssertMilestoneBindingAtArchiveResult {
-  const noun = binding === "label" ? "label" : "milestone";
+  const noun = binding === "label" ? "label" : binding === "epic" ? "parent-Epic binding for" : "milestone";
   return {
     outcome: "asserted",
     token: MILESTONE_LABEL_ASSERTED_AT_ARCHIVE,
@@ -69,10 +69,10 @@ function asserted(
 function refused(
   ticketId: string,
   expected: string,
-  binding: "object" | "label",
+  binding: "object" | "label" | "epic",
   cause?: string,
 ): AssertMilestoneBindingAtArchiveResult {
-  const noun = binding === "label" ? "label" : "milestone";
+  const noun = binding === "label" ? "label" : binding === "epic" ? "parent-Epic binding for" : "milestone";
   const headline = cause
     ? `${MILESTONE_LABEL_ARCHIVE_REFUSED}: ${ticketId} could not be verified to carry ${noun} "${expected}" at the archival boundary — ${cause}.`
     : `${MILESTONE_LABEL_ARCHIVE_REFUSED}: ${ticketId} is missing ${noun} "${expected}" at the archival boundary — one attach attempt did not land.`;

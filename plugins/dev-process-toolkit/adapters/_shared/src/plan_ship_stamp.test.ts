@@ -222,3 +222,77 @@ describe("STE-368 — stampShippedIn: double-ship guard (AC-STE-368.3)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// STE-376 AC-STE-376.4 — an Epic-keyed plan (`specs/plan/M_<epic-key>.md`)
+// stamps exactly as an `M<N>` plan: same fresh-stamp shape, same idempotent
+// no-op, same double-ship guard.
+// ---------------------------------------------------------------------------
+
+describe("AC-STE-376.4 — epic-keyed plans stamp identically", () => {
+  const EPIC_PLAN = [
+    "---",
+    "milestone: M_PROJ_500",
+    "status: archived",
+    "archived_at: 2026-07-23T00:00:00Z",
+    "---",
+    "",
+    "## M_PROJ_500: Epic-keyed milestone",
+    "",
+    "Body stays byte-for-byte.",
+    "",
+  ].join("\n");
+
+  function makeEpicPlan(): { path: string; cleanup: () => void } {
+    const root = mkdtempSync(join(tmpdir(), "plan-ship-stamp-epic-"));
+    const path = join(root, "M_PROJ_500.md");
+    writeFileSync(path, EPIC_PLAN);
+    return { path, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  }
+
+  test("fresh stamp writes shipped_in into the epic plan's frontmatter, body untouched", async () => {
+    const ctx = makeEpicPlan();
+    try {
+      await stampShippedIn(ctx.path, "2.55.0");
+      const after = readFileSync(ctx.path, "utf-8");
+      const closeIdx = after.indexOf("\n---\n", 4);
+      expect(closeIdx).toBeGreaterThan(-1);
+      const fm = after.slice(4, closeIdx);
+      expect(fm).toContain("shipped_in: v2.55.0");
+      expect(fm).toContain("milestone: M_PROJ_500");
+      expect(after.slice(closeIdx)).toContain("## M_PROJ_500: Epic-keyed milestone");
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("same-version re-run on an epic plan is a byte-identical no-op", async () => {
+    const ctx = makeEpicPlan();
+    try {
+      await stampShippedIn(ctx.path, "2.55.0");
+      const once = readFileSync(ctx.path, "utf-8");
+      await stampShippedIn(ctx.path, "2.55.0");
+      expect(readFileSync(ctx.path, "utf-8")).toBe(once);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("double-ship guard fires identically on an epic plan", async () => {
+    const ctx = makeEpicPlan();
+    try {
+      await stampShippedIn(ctx.path, "2.55.0");
+      let err: Error | null = null;
+      try {
+        await stampShippedIn(ctx.path, "2.56.0");
+      } catch (e) {
+        err = e as Error;
+      }
+      expect(err).not.toBeNull();
+      expect(err!.message).toMatch(/Refusing:/);
+      expect(err!.message).toMatch(/double-ship/);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+});

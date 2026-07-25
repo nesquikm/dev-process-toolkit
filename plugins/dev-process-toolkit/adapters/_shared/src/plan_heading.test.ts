@@ -138,3 +138,64 @@ describe("AC-STE-335.6 — legacy H1+em-dash regression", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// STE-376 AC-STE-376.2 — M_<epic-key> union grammar. `parsePlanHeading`
+// accepts Epic-keyed milestone tokens across the same {`#`,`##`} × {`—`,`:`}
+// matrix as numeric tokens, normalizing to `M_<epic-key> — <title>`.
+// ---------------------------------------------------------------------------
+
+describe("AC-STE-376.2 — M_<epic-key> depth × separator matrix", () => {
+  const EPIC_CANONICAL = "M_PROJ_500 — Epic-keyed milestone"; // U+2014 em-dash
+
+  test("H1 + em-dash → canonical", () => {
+    expect(parsePlanHeading("# M_PROJ_500 — Epic-keyed milestone\n")).toBe(EPIC_CANONICAL);
+  });
+
+  test("H1 + colon → canonical (separator normalized to em-dash)", () => {
+    expect(parsePlanHeading("# M_PROJ_500: Epic-keyed milestone\n")).toBe(EPIC_CANONICAL);
+  });
+
+  test("H2 + em-dash → canonical", () => {
+    expect(parsePlanHeading("## M_PROJ_500 — Epic-keyed milestone\n")).toBe(EPIC_CANONICAL);
+  });
+
+  test("H2 + colon → canonical (current plan-template form)", () => {
+    expect(parsePlanHeading("## M_PROJ_500: Epic-keyed milestone\n")).toBe(EPIC_CANONICAL);
+  });
+
+  test("anchor form is stripped from the canonical name", () => {
+    expect(parsePlanHeading("## M_PROJ_500: Epic-keyed milestone {#M_PROJ_500}\n")).toBe(
+      EPIC_CANONICAL,
+    );
+  });
+
+  test("colon source still yields a U+2014 em-dash separator", () => {
+    const got = parsePlanHeading("## M_PROJ_500: Epic-keyed milestone\n");
+    expect(got).not.toBeNull();
+    // "M_PROJ_500 " is 11 chars — the separator byte sits at index 11.
+    expect(got!.charCodeAt(11)).toBe(0x2014);
+  });
+
+  test("hyphen-form epic key (raw Jira key shape) parses whole", () => {
+    expect(parsePlanHeading("## M_PROJ-500: Epic-keyed milestone\n")).toBe(
+      "M_PROJ-500 — Epic-keyed milestone",
+    );
+  });
+
+  test("frontmatter + blank line + epic heading still parses", () => {
+    const md =
+      "---\nmilestone: M_PROJ_500\nstatus: active\n---\n\n## M_PROJ_500: Epic-keyed milestone {#M_PROJ_500}\n\nbody\n";
+    expect(parsePlanHeading(md)).toBe("M_PROJ_500 — Epic-keyed milestone");
+  });
+});
+
+describe("AC-STE-376.2 — malformed epic tokens stay unparsed", () => {
+  test("`## M_: <title>` (empty key) → null", () => {
+    expect(parsePlanHeading("## M_: Empty key\n")).toBeNull();
+  });
+
+  test("ASCII-hyphen separator after an epic token → null (only em-dash or colon)", () => {
+    expect(parsePlanHeading("## M_PROJ_500 - Epic-keyed milestone\n")).toBeNull();
+  });
+});

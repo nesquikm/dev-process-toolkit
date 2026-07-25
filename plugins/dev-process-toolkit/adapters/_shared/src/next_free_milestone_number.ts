@@ -27,6 +27,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { NUMERIC_MILESTONE_NUMBER_SOURCE } from "./milestone_token";
 
 export interface MilestoneAvailability {
   next: number;
@@ -57,9 +58,9 @@ export interface BranchMilestoneScanner {
   listBranchMilestones: () => Promise<number[]>;
 }
 
-const PLAN_FILENAME = /^M(\d+)\.md$/;
-const CHANGELOG_M_REF = /\bM(\d+)\b/g;
-const TRACKER_MILESTONE_NAME = /^M(\d+)/;
+const PLAN_FILENAME = new RegExp(String.raw`^${NUMERIC_MILESTONE_NUMBER_SOURCE}\.md$`);
+const CHANGELOG_M_REF = new RegExp(String.raw`\b${NUMERIC_MILESTONE_NUMBER_SOURCE}\b`, "g");
+const TRACKER_MILESTONE_NAME = new RegExp(`^${NUMERIC_MILESTONE_NUMBER_SOURCE}`);
 
 function listMNumbers(dir: string): number[] {
   if (!existsSync(dir)) return [];

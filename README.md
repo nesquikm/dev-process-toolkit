@@ -179,7 +179,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.54.0 — "Semaphore"** (M111: a legacy monolithic-specs tree now announces itself. Probe #69 (`upgrade_staleness`) emits a warn-only legacy-monolith advisory row on unmanaged trees (bootstrap-then-upgrade remedy), `/upgrade` Step 0 renders the same hint on the never-bootstrapped path, and `/setup` step 8 skips the `specs/frs/` scaffold over a live monolithic `requirements.md`. The monolith-split detector's emptiness limb is now content-aware — a recursive, dot-skipping, regular-`.md`-only scan — so a `.gitkeep` scaffold no longer masquerades as a completed split and silently disables the migration. Closes the 2026-07-21 `/report-issue` gist; the bootstrap-first ownership gate stays hard.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.55.0 — "Lineage"** (M101: Jira milestones become first-class Epics. `attach_project_milestone` gains the `epic` binding (FR Tasks parented to the milestone Epic, membership = a `parent = <epic-key>` query), `/spec-write` allocates Jira milestones Epic-first with collision-free `M_<epic-key>` ids minted from the Epic’s tracker key, and the shared milestone-token grammar accepts `M_<key>` alongside legacy `M<N>` across every parser, probe, and branch proposal. Linear + `mode: none` keep sequential `M<N>`; label-milestones grandfather.)
 
 ## Core Philosophy
 

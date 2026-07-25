@@ -72,7 +72,7 @@ interface Stub {
   /** When false, attach writes silently don't land (the GB-11 shape). */
   attachLands: boolean;
   calls: string[];
-  milestoneBinding?: "object" | "label";
+  milestoneBinding?: "object" | "label" | "epic";
   supports?: (cap: string) => boolean;
 }
 
@@ -346,5 +346,50 @@ describe("hardening — non-mismatch attach failure threads its cause into the r
     expect(res.detail).toContain("attach attempt failed");
     expect(res.detail).toContain("503 Service Unavailable");
     expect(res.detail).toContain("Remedy:");
+  });
+});
+
+describe("STE-375 epic binding — archival assertion via parent-key sanitize", () => {
+  function makeEpicRepo(): { root: string; frPath: string } {
+    const root = mkdtempSync(join(tmpdir(), "ste-363-epic-"));
+    mkdirSync(join(root, "specs", "frs"), { recursive: true });
+    mkdirSync(join(root, "specs", "plan"), { recursive: true });
+    const frPath = join(root, "specs", "frs", `${TICKET}.md`);
+    writeFileSync(
+      frPath,
+      `---\ntitle: Fixture FR\nmilestone: M_DST_42\nstatus: active\narchived_at: null\ntracker:\n  jira: ${TICKET}\n---\n\n# ${TICKET}: Fixture\n`,
+    );
+    writeFileSync(join(root, "specs", "plan", "M_DST_42.md"), "# M_DST_42 — Epic fixture\n\n- [x] task\n");
+    return { root, frPath };
+  }
+
+  test("parent sanitizes to the milestone token → asserted, zero attach calls", async () => {
+    const { root, frPath } = makeEpicRepo();
+    const stub = makeStub({ milestoneBinding: "epic" });
+    const provider = {
+      ...makeProvider(stub),
+      async getIssue(ticketId: string) {
+        stub.calls.push(`getIssue(${ticketId})`);
+        return { projectMilestone: null, labels: [], parent: "DST-42" };
+      },
+    };
+    const res = await assertMilestoneBindingAtArchive(provider, "DST", frPath, {
+      projectRoot: root,
+      mode: "jira",
+    });
+    expect(res.outcome).toBe("asserted");
+    expect(res.token).toBe("milestone_label_asserted_at_archive");
+    expect(attachSideCalls(stub)).toEqual([]);
+  });
+
+  test("grandfathered numeric milestone under the epic binding asserts via the label surface", async () => {
+    const { root, frPath } = makeRepo({ trackerBlock: `tracker:\n  jira: ${TICKET}` });
+    const stub = makeStub({ milestoneBinding: "epic", labels: [LABEL] });
+    const res = await assertMilestoneBindingAtArchive(makeProvider(stub), "DST", frPath, {
+      projectRoot: root,
+      mode: "jira",
+    });
+    expect(res.outcome).toBe("asserted");
+    expect(attachSideCalls(stub)).toEqual([]);
   });
 });

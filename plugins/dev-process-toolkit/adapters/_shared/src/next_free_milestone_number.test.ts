@@ -286,3 +286,99 @@ describe("AC-STE-338.4: branchScanner union", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// STE-376 AC-STE-376.3 — M_<epic-key> tolerance. Epic-keyed milestone ids are
+// opaque: the scan accepts them without error and EXCLUDES them from the
+// `max(M<N>) + 1` computation — an `M_<key>` id is never parsed as an integer
+// and never bumps the sequential counter.
+// ---------------------------------------------------------------------------
+
+describe("AC-STE-376.3 — epic-keyed ids never join the sequential union", () => {
+  test("active {M100, M_PROJ_500} → next 101 (epic id excluded from max)", async () => {
+    const fx = makeFixture({ active: [100] });
+    try {
+      writeFileSync(
+        join(fx.specsDir, "plan", "M_PROJ_500.md"),
+        "---\nmilestone: M_PROJ_500\nstatus: active\n---\n\n## M_PROJ_500: Epic-keyed milestone\n",
+      );
+      const got = await nextFreeMilestoneNumber(fx.specsDir);
+      expect(got.next).toBe(101);
+      expect(got.sources.active).toEqual([100]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("archived M_PROJ_500 never parses as an integer (no NaN, no 500)", async () => {
+    const fx = makeFixture({ active: [40], archived: [39] });
+    try {
+      writeFileSync(
+        join(fx.specsDir, "plan", "archive", "M_PROJ_500.md"),
+        "---\nmilestone: M_PROJ_500\nstatus: archived\n---\n",
+      );
+      const got = await nextFreeMilestoneNumber(fx.specsDir);
+      expect(got.next).toBe(41);
+      // The five numeric source lists must stay integer-only — an opaque
+      // epic id must never surface as NaN or as its trailing digits.
+      const numericLists = [
+        got.sources.active,
+        got.sources.archived,
+        got.sources.changelog,
+        got.sources.tracker,
+        got.sources.branches,
+      ];
+      for (const list of numericLists) {
+        expect(list.every((n) => Number.isInteger(n))).toBe(true);
+        expect(list).not.toContain(500);
+      }
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("tracker milestones {M100, M_PROJ_500, M_PROJ-500} → tracker [100], next 101, no error", async () => {
+    const fx = makeFixture({});
+    try {
+      const provider = {
+        listMilestones: async () => [
+          { name: "M100" },
+          { name: "M_PROJ_500" },
+          { name: "M_PROJ-500" },
+        ],
+      };
+      const got = await nextFreeMilestoneNumber(fx.specsDir, undefined, provider);
+      expect(got.next).toBe(101);
+      expect(got.sources.tracker).toEqual([100]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("CHANGELOG naming M_PROJ_500 contributes no numeric ref", async () => {
+    const fx = makeFixture({
+      changelog: "# Changelog\n\nM99 shipped. M_PROJ_500 ships from the Epic lane.\n",
+    });
+    try {
+      const got = await nextFreeMilestoneNumber(fx.specsDir, fx.changelogPath);
+      expect(got.sources.changelog).toEqual([99]);
+      expect(got.next).toBe(100);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("epic-only specs tree → next 1 (epic ids never seed the counter)", async () => {
+    const fx = makeFixture({});
+    try {
+      writeFileSync(
+        join(fx.specsDir, "plan", "M_PROJ_500.md"),
+        "---\nmilestone: M_PROJ_500\nstatus: active\n---\n",
+      );
+      const got = await nextFreeMilestoneNumber(fx.specsDir);
+      expect(got.next).toBe(1);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});

@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.55.0] — 2026-07-23 — "Lineage"
+
+M101 "Lineage": Jira milestones become first-class Epics. Each milestone is realized as a Jira Epic that owns its FR Tasks via the native `parent` field (membership is a `parent = <epic-key>` query, not a label scan), identified by a collision-free `M_<epic-key>` id minted from the Epic’s tracker key — no scan-to-allocate, no concurrent-allocation race. Jira-only: Linear keeps native milestone objects, `mode: none` keeps sequential `M<N>`, and existing label-milestones grandfather.
+
+### Added
+
+- `attach_project_milestone` gains the `epic` binding: find-or-create the milestone Epic by canonical plan-heading name, set the FR Task’s `parent`, read-back verify, idempotent re-attach, transient retries on the canonical backoff. Epic-absent Jira templates degrade to the legacy `label` binding with the new `milestone_epic_unsupported` capability row; the read-side surfaces (gate probe #26, the archival-boundary assertion, the backfill sweep) verify the epic binding through the shared `milestoneBindingPresent` predicate. Jira `listMilestones()` enumerates milestone Epics (`issuetype = Epic`, canonical sanitized ids) and unions them with grandfathered `milestone-M<N>` labels — never a full labelled-task scan (STE-375).
+- `/spec-write` Jira-mode Epic-first allocation: the milestone Epic is created before any plan or FR file is written and the milestone id `M_<epic-key>` derives from the Epic’s unique key via the new `milestoneIdFromEpicKey` sanitizer — collision-free by construction, routed through the same milestone-allocation gate; Linear + `mode: none` keep the sequential `nextFreeMilestoneNumber` path byte-unchanged (STE-377).
+
+### Changed
+
+- The milestone-token grammar is centralized in `milestone_token.ts` as a union matcher (`M<N>` | `M_<epic-key>`) consumed by every milestone-aware surface: plan-heading parse, the sequential scans (`M_<key>` opaque to max+1), `/ship-milestone` stamping + the CHANGELOG convention, gate probes #16/#26/#32/#63/#68 including the archive walks, branch proposals (`{type}/m_<epic_key>-{slug}`), argument resolution, tracker-local reconciliation, root-spec hygiene, and the plan post-freeze scan (STE-376).
+
+Total test count at release: 5163 tests, 0 failures, 0 errors.
+
 ## [2.54.0] — 2026-07-21 — "Semaphore"
 
 M111 "Semaphore": make a legacy monolithic-specs tree announce itself, closing the two-facet gap the 2026-07-21 `/report-issue` gist surfaced (a hand-written CLAUDE.md tree got zero signal a migration exists; `/setup`'s `.gitkeep` scaffold defeated the detector even on the supported path).

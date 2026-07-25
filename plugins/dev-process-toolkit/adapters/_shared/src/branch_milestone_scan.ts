@@ -16,7 +16,9 @@ export interface BranchScanOpts {
   fetch?: boolean;
 }
 
-const PLAN_FILE_RE = /(?:^|\/)M(\d+)\.md$/;
+import { NUMERIC_MILESTONE_NUMBER_SOURCE } from "./milestone_token";
+
+const PLAN_FILE_RE = new RegExp(String.raw`(?:^|/)${NUMERIC_MILESTONE_NUMBER_SOURCE}\.md$`);
 
 function safeGit(repoRoot: string, ...args: string[]): string {
   try {

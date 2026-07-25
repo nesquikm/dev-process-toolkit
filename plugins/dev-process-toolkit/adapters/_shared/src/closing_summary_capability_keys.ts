@@ -88,6 +88,12 @@ export const CANONICAL_CAPABILITY_KEYS = [
   "milestone_attach_failed",
   "milestone_label_asserted_at_archive",
   "milestone_label_archive_refused",
+  // M101 STE-375: the Jira epic-binding Epic-absent fallback — the bound
+  // project's issue-type metadata (getJiraProjectIssueTypesMetadata) lacks
+  // the Epic type or the project cannot set `parent`, so the milestone
+  // attach degraded to the legacy `milestone-<M-token>` label path.
+  // Informational row, never a throw.
+  "milestone_epic_unsupported",
   "token_stats_rendered",
   // M102 STE-379: the disabled-state disposition — the XOR partner of
   // `token_stats_rendered`. Exactly one of the two emits per /spec-write run:
@@ -159,6 +165,9 @@ const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   // by the M97 archival-assertion meta-tests.
   milestone_label_asserted_at_archive: "spec-write",
   milestone_label_archive_refused: "spec-write",
+  // M101 STE-375: the epic-binding Epic-absent fallback disposition; the § 7
+  // static map is the canonical owner surface for the MUST-emit directive.
+  milestone_epic_unsupported: "spec-write",
   // M92 STE-345: /spec-write § 0b step 7 renders the Token Stats block
   // riding the FR-file write; the MUST-emit directive lives in spec-write.
   token_stats_rendered: "spec-write",

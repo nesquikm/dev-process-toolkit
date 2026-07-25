@@ -42,19 +42,41 @@ describe("AC-STE-329.1 — jira.md frontmatter flips project_milestone to true",
   });
 });
 
-describe("AC-STE-329.1 — jira.md frontmatter adds milestone_binding: label", () => {
-  test("frontmatter contains the literal `milestone_binding: label` key", () => {
+// STE-375 AC-STE-375.4 (M101) extends the STE-329 milestone_binding schema:
+// the enum grows from { object, label } to { object, label, epic }, and
+// jira.md's declared binding flips from `label` to `epic` (the label path
+// stays as the documented runtime FALLBACK when the project's issue-type
+// metadata lacks Epic / cannot set parent — see § Project Milestone).
+const MILESTONE_BINDING_ENUM = ["object", "label", "epic"] as const;
+
+describe("STE-375 — jira.md frontmatter declares milestone_binding: epic", () => {
+  test("frontmatter contains the literal `milestone_binding: epic` key", () => {
     const fm = frontmatter(read(jiraPath));
-    expect(fm).toMatch(/^milestone_binding:\s*label\s*$/m);
+    expect(fm).toMatch(/^milestone_binding:\s*epic\s*$/m);
+  });
+
+  test("the superseded `milestone_binding: label` declaration is gone", () => {
+    const fm = frontmatter(read(jiraPath));
+    expect(fm).not.toMatch(/^milestone_binding:\s*label\s*$/m);
+  });
+
+  test("the declared value is a member of the documented enum (object | label | epic)", () => {
+    const fm = frontmatter(read(jiraPath));
+    const m = fm.match(/^milestone_binding:\s*(\S+)\s*$/m);
+    expect(m).not.toBeNull();
+    expect(MILESTONE_BINDING_ENUM).toContain(
+      m![1]! as (typeof MILESTONE_BINDING_ENUM)[number],
+    );
   });
 });
 
 describe("AC-STE-329.1 — Linear keeps object semantics (default when key absent)", () => {
-  test("linear.md does NOT declare milestone_binding: label (object is the default)", () => {
+  test("linear.md declares neither milestone_binding: label nor epic (object is the default)", () => {
     const fm = frontmatter(read(linearPath));
     // Linear stays on the projectMilestone-object path. It either omits
     // the key (→ defaults to `object`) or explicitly carries `object`,
-    // but it must never carry `label`.
+    // but it must never carry `label` or `epic`.
     expect(fm).not.toMatch(/^milestone_binding:\s*label\s*$/m);
+    expect(fm).not.toMatch(/^milestone_binding:\s*epic\s*$/m);
   });
 });

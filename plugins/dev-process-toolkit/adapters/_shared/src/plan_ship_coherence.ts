@@ -15,6 +15,8 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
+// Union grammar: `M<N>` and `M_<epic-key>` archived plans are both walked.
+import { PLAN_FILENAME_RE, compareMilestoneTokens } from "./milestone_token";
 
 const PROBE = "plan_ship_coherence";
 
@@ -94,7 +96,7 @@ async function listArchivePlans(projectRoot: string): Promise<string[]> {
   try {
     const entries = await readdir(dir, { withFileTypes: true });
     return entries
-      .filter((e) => e.isFile() && /^M\d+\.md$/.test(e.name))
+      .filter((e) => e.isFile() && PLAN_FILENAME_RE.test(e.name))
       .map((e) => join(dir, e.name))
       .sort();
   } catch {
@@ -153,7 +155,7 @@ export async function runPlanShipCoherenceProbe(
       if (shipState.present && shipState.value === "parked") {
         // AC-STE-369.3 — parked plans pass, surfaced via a NOTES row so
         // parking never becomes a silent get-to-green stamp.
-        // listArchivePlans filtered on /^M\d+\.md$/, so basename is the milestone.
+        // listArchivePlans filtered on PLAN_FILENAME_RE, so basename is the milestone.
         parked.push(basename(file, ".md"));
         continue;
       }
@@ -206,7 +208,8 @@ export async function runPlanShipCoherenceProbe(
 
   if (parked.length > 0) {
     // Single GATE PASSED WITH NOTES row enumerating every parked milestone.
-    parked.sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+    // Numeric ids sort numerically and precede epic-keyed ids (lexical).
+    parked.sort(compareMilestoneTokens);
     notes.push(`parked milestones: ${parked.join(", ")}`);
   }
 

@@ -315,3 +315,24 @@ describe("AC-STE-59.5 prose assertions on gate-check SKILL.md", () => {
     expect(body).toMatch(/root_hygiene|runRootHygiene/);
   });
 });
+
+describe("STE-376 union grammar — epic-keyed milestone refs are scanned", () => {
+  test("archived epic-keyed milestone in live-framing is flagged", () => {
+    const ctx = makeSpecsDir();
+    try {
+      writeFileSync(join(ctx.specsDir, "plan", "archive", "M_PROJ_500.md"), "# M_PROJ_500\n");
+      // NOTE: hyphenated prose suffixes ("M_PROJ_500-era") parse as part of
+      // the epic key (hyphens are legal inside keys, e.g. M_PROJ-500), so the
+      // ref here uses a space separator — the realistic prose shape.
+      writeRequirements(ctx.specsDir, "This plugin replaces the M_PROJ_500 era behavior.");
+      writeFileSync(join(ctx.specsDir, "technical-spec.md"), "# Tech\n");
+      writeFileSync(join(ctx.specsDir, "testing-spec.md"), "# Testing\n");
+      const hits = findMilestoneLeakage(ctx.specsDir);
+      expect(hits.length).toBe(1);
+      expect(hits[0]!.milestone).toBe("M_PROJ_500");
+      expect(hits[0]!.file).toBe("requirements.md");
+    } finally {
+      ctx.cleanup();
+    }
+  });
+});

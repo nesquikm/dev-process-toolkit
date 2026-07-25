@@ -27,6 +27,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
+import { NUMERIC_MILESTONE_NUMBER_SOURCE } from "../milestone_token";
 import type { DetectResult, MigrationEntry } from "./index";
 
 // ---------------------------------------------------------------------------
@@ -798,9 +799,14 @@ function milestoneKey(value: string): string {
 /**
  * A flat-plan milestone heading: `## M2: Import pipeline`. Case-insensitive to
  * match `milestoneKey`, which treats `M2`/`m2`/`2` as one — a lowercase heading
- * used to slip past this and mint a stub with zero of its real rows.
+ * used to slip past this and mint a stub with zero of its real rows. The token
+ * shape comes from the shared `milestone_token` sources; the capture is the
+ * bare number, which `milestoneKey` normalizes back to `M<N>`.
  */
-const PLAN_MILESTONE_HEADING = /^#{1,6}\s+(M\d+)\b/i;
+const PLAN_MILESTONE_HEADING = new RegExp(
+  String.raw`^#{1,6}\s+${NUMERIC_MILESTONE_NUMBER_SOURCE}\b`,
+  "i",
+);
 
 /**
  * Each milestone's REMAINING checkbox rows, keyed by its legacy M-number.

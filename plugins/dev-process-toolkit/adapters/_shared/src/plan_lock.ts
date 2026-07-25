@@ -11,6 +11,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFrontmatter } from "./frontmatter";
+import { isMilestoneToken, PLAN_FILENAME_RE } from "./milestone_token";
 
 export const PLAN_FROZEN_MESSAGE = (milestone: string): string =>
   `Plan for ${milestone} is frozen. Create a \`plan/${milestone}-replan-<N>\` branch to revise.`;
@@ -46,7 +47,7 @@ function normalizeMilestone(raw: unknown): string {
   if (typeof raw !== "string") return "";
   const trimmed = raw.trim();
   if (trimmed.length === 0) return "";
-  return /^M\d+$/.test(trimmed) ? trimmed : `M${trimmed.replace(/^M/, "")}`;
+  return isMilestoneToken(trimmed) ? trimmed : `M${trimmed.replace(/^M/, "")}`;
 }
 
 export interface PostFreezeEdit {
@@ -62,7 +63,7 @@ export async function findPostFreezeEdits(repoRoot: string): Promise<PostFreezeE
   const out: PostFreezeEdit[] = [];
   let files: string[];
   try {
-    files = readdirSync(specsPlanDir).filter((f) => f.endsWith(".md") && /^M\d+\.md$/.test(f));
+    files = readdirSync(specsPlanDir).filter((f) => PLAN_FILENAME_RE.test(f));
   } catch {
     return out;
   }
