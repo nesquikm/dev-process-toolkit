@@ -41,9 +41,12 @@ describe("STE-197 — plan.md.template shape", () => {
     expect(typeof fm["milestone"]).toBe("string");
   });
 
-  test("AC-STE-197.1: scaffolds exactly one `## M<N>:` heading", () => {
+  // STE-415 AC-STE-415.2 (c): the scaffold-count assertion moves to the em-dash
+  // emit form — the template now scaffolds `## M<N> — <Title> {#M<N>}`, the
+  // canonical shape `parsePlanHeading` normalizes to (and probe #26 expects).
+  test("AC-STE-197.1: scaffolds exactly one `## M<N> — ` heading", () => {
     const body = readTemplate();
-    const headings = body.match(/^## M[^:\s]+:/gm) ?? [];
+    const headings = body.match(/^## M\S+ — /gm) ?? [];
     expect(headings.length).toBe(1);
   });
 

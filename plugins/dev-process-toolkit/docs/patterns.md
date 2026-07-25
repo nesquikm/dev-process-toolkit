@@ -319,17 +319,17 @@ Drift findings are **advisory** (GATE PASSED WITH NOTES, never GATE FAILED) beca
 
 | Unit type | Heading form | Anchor format | Source of truth |
 |-----------|-------------|---------------|-----------------|
-| Milestone | `## M{N}: {title}` | `{#M{N}}` — appended to the heading line | `templates/spec-templates/plan.md.template` |
+| Milestone | `## M{N} — {title}` | `{#M{N}}` — appended to the heading line | `templates/spec-templates/plan.md.template` |
 | FR | `### FR-{N}: {title}` | `{#FR-{N}}` — appended to the heading line | `templates/spec-templates/requirements.md.template` |
 | AC | `- AC-{N}.{M}: {text}` | The AC ID itself acts as the anchor — existing convention, no change | list-item line in requirements.md |
 
 Example of a properly anchored milestone heading:
 
 ```markdown
-## M3: User authentication {#M3}
+## M3 — User authentication {#M3}
 ```
 
-Grep pattern to find missing anchors: `^##\s+M[0-9]+:` in `plan.md` and `^###\s+FR-[0-9]+:` in `requirements.md` — any match whose line does NOT also contain `{#M` / `{#FR-` is a doctor warning. Archival (HG95V9) and `/spec-archive` (HG95VA) resolve pointer targets through these anchors.
+Grep pattern to find missing anchors: `^##\s+M[0-9]+\s*(—|:)` in `plan.md` and `^###\s+FR-[0-9]+:` in `requirements.md` — any match whose line does NOT also contain `{#M` / `{#FR-` is a doctor warning. Archival (HG95V9) and `/spec-archive` (HG95VA) resolve pointer targets through these anchors.
 
 ### Pattern: Archival Lifecycle
 
