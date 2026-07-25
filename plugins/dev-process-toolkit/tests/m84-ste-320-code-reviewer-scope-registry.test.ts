@@ -117,6 +117,12 @@ const EXPECTED_SET_A: ReadonlySet<string> = new Set([
   // one in the § 7 static map — keeping Set A = discovered directives.
   "milestone_allocation_default_applied",
   "report_issue_publish_refused",
+  // Post-M84 expansion (M101 STE-375): Jira Epic-absent fallback disposition.
+  // The pin moves consciously 33 → 34 — `milestone_epic_unsupported` carries
+  // a literal `MUST emit \`milestone_epic_unsupported\`` directive in
+  // /spec-write SKILL.md § 7's bundled milestone static-map row, keeping
+  // Set A = discovered directives.
+  "milestone_epic_unsupported",
 ]);
 
 // Keys explicitly excluded from registration — they appear only as table-
@@ -225,7 +231,7 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
   // + severity capped/evidence verified) → 31 (M102/STE-379 token_stats_disabled,
   // the disabled leg of the token-stats opt-in 2-token XOR).
   test("CANONICAL_CAPABILITY_KEYS length is exactly 31", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(33);
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(34);
   });
 
   test("CANONICAL_CAPABILITY_KEYS contains every key in Set A", () => {
@@ -265,7 +271,7 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
     while ((match = re.exec(body)) !== null) {
       discovered.add(match[1]!);
     }
-    expect(discovered.size).toBe(33);
+    expect(discovered.size).toBe(34);
     for (const key of EXPECTED_SET_A) {
       expect(discovered.has(key)).toBe(true);
     }

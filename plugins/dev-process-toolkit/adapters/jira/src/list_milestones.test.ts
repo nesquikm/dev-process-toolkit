@@ -1,4 +1,5 @@
-// STE-339 — Jira listMilestones() via milestone-label enumeration.
+// STE-339 — Jira listMilestones(): Epic-enumeration primary leg (M101) +
+// grandfathered milestone-label leg.
 //
 // listMilestones is a PURE FUNCTION over an INJECTED page-fetcher (mirroring
 // how nextFreeMilestoneNumber injects `provider` / `branchScanner`); the real
@@ -209,5 +210,253 @@ describe("listMilestones — fail-soft (AC-STE-339.3)", () => {
     const got = await listMilestones(fetch);
     // A mid-scan failure is non-load-bearing: the whole scan degrades to [].
     expect(got).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STE-376 AC-STE-376.3 — the label token filter accepts the M_<epic-key>
+// union shape. Epic-keyed labels are surfaced as bare tokens (existence
+// checks need them) while staying opaque to the numeric max+1 computation
+// (scanTracker in next_free_milestone_number.ts ignores non-`M<N>` names).
+// ---------------------------------------------------------------------------
+
+describe("listMilestones — M_<epic-key> label tolerance (AC-STE-376.3)", () => {
+  test("milestone-M_PROJ_500 is surfaced as { name: 'M_PROJ_500' } alongside numeric tokens", async () => {
+    const fetch = pagedFetcher([
+      {
+        issues: [issue("milestone-M30", "frontend"), issue("milestone-M_PROJ_500")],
+        isLast: true,
+      },
+    ]);
+    const got = await listMilestones(fetch);
+    const names = got.map((m) => m.name);
+    expect(names).toContain("M30");
+    expect(names).toContain("M_PROJ_500");
+  });
+
+  test("hyphen-form epic label (milestone-M_PROJ-500) is surfaced whole", async () => {
+    const fetch = pagedFetcher([
+      { issues: [issue("milestone-M_PROJ-500")], isLast: true },
+    ]);
+    const got = await listMilestones(fetch);
+    expect(got.map((m) => m.name)).toContain("M_PROJ-500");
+  });
+
+  test("duplicate epic labels are deduped", async () => {
+    const fetch = pagedFetcher([
+      {
+        issues: [issue("milestone-M_PROJ_500"), issue("milestone-M_PROJ_500")],
+        isLast: true,
+      },
+    ]);
+    const got = await listMilestones(fetch);
+    expect(got.filter((m) => m.name === "M_PROJ_500").length).toBe(1);
+  });
+
+  test("malformed epic label milestone-M_ (empty key) is not surfaced", async () => {
+    const fetch = pagedFetcher([
+      { issues: [issue("milestone-M_", "milestone-M5")], isLast: true },
+    ]);
+    const got = await listMilestones(fetch);
+    expect(got.map((m) => m.name)).toEqual(["M5"]);
+  });
+
+  test("numeric tokens keep their ascending numeric order when epic tokens are present", async () => {
+    const fetch = pagedFetcher([
+      {
+        issues: [
+          issue("milestone-M100"),
+          issue("milestone-M_PROJ_500"),
+          issue("milestone-M9"),
+        ],
+        isLast: true,
+      },
+    ]);
+    const got = await listMilestones(fetch);
+    const numeric = got.map((m) => m.name).filter((n) => /^M\d+$/.test(n));
+    expect(numeric).toEqual(["M9", "M100"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STE-375 AC-STE-375.3 — Epic-enumeration listing (M101).
+//
+// Contract under test: listMilestones gains an OPTIONAL second injected
+// fetcher, `opts.fetchEpicPage`, the seam over the `issuetype = Epic` JQL
+// (`searchJiraIssuesUsingJql`, paginated like the label leg). Each epic page
+// has the shape `{ epics: { key: string; summary?: string }[]; isLast?:
+// boolean }` (exported as `JiraEpicSearchPage` / `JiraEpicPageFetcher`).
+//
+//   - CLIENT-SIDE NAME FILTER: only Epics whose summary leads with a
+//     milestone token under the shared union grammar (`M<N>` / `M_<key>`,
+//     isMilestoneToken on the first whitespace-delimited word) count as
+//     milestone Epics — ordinary product Epics are excluded.
+//   - Each milestone Epic contributes the CANONICAL sanitized id via
+//     `milestoneIdFromEpicKey` (key `DPT-500` → name `M_DPT_500`) — the
+//     SAME identity /spec-write mints for plan files and frontmatter, so
+//     enumeration and allocation can never disagree about a milestone's
+//     name (Pass-2 review fix: the verbatim-key form created a second
+//     string identity for the same Epic).
+//   - The result is the UNION of the epic leg and the grandfathered
+//     `milestone-M<N>` label leg, deduped, in the compareMilestoneTokens
+//     order (numeric ascending first, then epic-keyed by code point).
+//   - Listing milestones no longer NEEDS the full labelled-task scan: the
+//     epic leg alone yields the epic-keyed names (the label leg persists
+//     solely for grandfathered milestones).
+// ---------------------------------------------------------------------------
+
+type EpicPage = { epics: { key: string; summary?: string }[]; isLast?: boolean };
+
+// Cast keeps this file compiling against the pre-epic opts type; the current
+// implementation ignores the unknown `fetchEpicPage` key, so these tests
+// fail RED via assertions (missing epic names), not TypeErrors.
+const listWithEpics = listMilestones as unknown as (
+  fetchPage: (page: number) => Promise<JiraSearchPage>,
+  opts?: {
+    pageCap?: number;
+    log?: (msg: string) => void;
+    fetchEpicPage?: (page: number) => Promise<EpicPage>;
+  },
+) => Promise<{ name: string }[]>;
+
+/** Epic-leg analogue of pagedFetcher: serves pages by index, defaulting to
+ *  an empty terminal page. */
+function epicPagedFetcher(pages: EpicPage[]): (page: number) => Promise<EpicPage> {
+  return async (page: number) => pages[page] ?? { epics: [], isLast: true };
+}
+
+const EMPTY_LABEL_LEG = pagedFetcher([]);
+
+describe("listMilestones — Epic-enumeration leg (AC-STE-375.3)", () => {
+  test("milestone Epics yield canonical M_<epic-key> names (key sanitized, hyphen → underscore)", async () => {
+    const fetchEpicPage = epicPagedFetcher([
+      {
+        epics: [
+          { key: "DPT-500", summary: "M101 — Jira milestone-as-Epic identity" },
+          { key: "DPT-510", summary: "M_DPT-510 — Epic-keyed milestone" },
+        ],
+        isLast: true,
+      },
+    ]);
+    const got = await listWithEpics(EMPTY_LABEL_LEG, { fetchEpicPage });
+    const names = got.map((m) => m.name);
+    expect(names).toContain("M_DPT_500");
+    expect(names).toContain("M_DPT_510");
+    // The raw Epic key never leaks without the M_ prefix, and the
+    // unsanitized hyphen form never appears alongside the canonical id.
+    expect(names).not.toContain("DPT-500");
+    expect(names).not.toContain("M_DPT-500");
+  });
+
+  test("client-side name filter: Epics without a milestone-token summary are excluded", async () => {
+    const fetchEpicPage = epicPagedFetcher([
+      {
+        epics: [
+          { key: "DPT-7", summary: "Checkout revamp" }, // ordinary product Epic
+          { key: "DPT-8" }, // no summary at all
+          { key: "DPT-500", summary: "M101 — Jira milestone-as-Epic identity" },
+        ],
+        isLast: true,
+      },
+    ]);
+    const got = await listWithEpics(EMPTY_LABEL_LEG, { fetchEpicPage });
+    const names = got.map((m) => m.name);
+    expect(names).toContain("M_DPT_500");
+    expect(names).not.toContain("M_DPT_7");
+    expect(names).not.toContain("M_DPT_8");
+  });
+
+  test("union with grandfathered milestone-M<N> labels — numeric first, then epic-keyed", async () => {
+    const fetchLabelPage = pagedFetcher([
+      { issues: [issue("milestone-M86"), issue("milestone-M30")], isLast: true },
+    ]);
+    const fetchEpicPage = epicPagedFetcher([
+      {
+        epics: [{ key: "DPT-500", summary: "M_DPT-500 — Lineage" }],
+        isLast: true,
+      },
+    ]);
+    const got = await listWithEpics(fetchLabelPage, { fetchEpicPage });
+    expect(got).toEqual([
+      { name: "M30" },
+      { name: "M86" },
+      { name: "M_DPT_500" },
+    ]);
+  });
+
+  test("dedupe across legs: a name present as BOTH an Epic and a label appears once", async () => {
+    const fetchLabelPage = pagedFetcher([
+      // milestoneLabel derives labels from the canonical milestone name, so
+      // real epic-milestone labels carry the sanitized token.
+      { issues: [issue("milestone-M_DPT_500")], isLast: true },
+    ]);
+    const fetchEpicPage = epicPagedFetcher([
+      {
+        epics: [
+          { key: "DPT-500", summary: "M_DPT-500 — Lineage" },
+          { key: "DPT-777", summary: "M_DPT-777 — Epic-only milestone" },
+        ],
+        isLast: true,
+      },
+    ]);
+    const got = await listWithEpics(fetchLabelPage, { fetchEpicPage });
+    const names = got.map((m) => m.name);
+    // Epic-only name proves the epic leg ran…
+    expect(names).toContain("M_DPT_777");
+    // …and the double-represented name is deduped to a single entry.
+    expect(names.filter((n) => n === "M_DPT_500").length).toBe(1);
+  });
+
+  test("epic leg paginates in order until a page reports isLast", async () => {
+    const calls: number[] = [];
+    const pages: EpicPage[] = [
+      { epics: [{ key: "DPT-500", summary: "M_DPT-500 — one" }], isLast: false },
+      { epics: [{ key: "DPT-501", summary: "M_DPT-501 — two" }], isLast: true },
+    ];
+    const fetchEpicPage = async (page: number): Promise<EpicPage> => {
+      calls.push(page);
+      return pages[page] ?? { epics: [], isLast: true };
+    };
+    const got = await listWithEpics(EMPTY_LABEL_LEG, { fetchEpicPage });
+    const names = got.map((m) => m.name);
+    expect(names).toContain("M_DPT_500");
+    expect(names).toContain("M_DPT_501");
+    expect(calls).toEqual([0, 1]);
+  });
+
+  test("epic leg honors the page cap and logs the truncation (no silent cap)", async () => {
+    let fetched = 0;
+    const fetchEpicPage = async (_page: number): Promise<EpicPage> => {
+      fetched++;
+      return { epics: [{ key: "DPT-500", summary: "M_DPT-500 — loop" }], isLast: false };
+    };
+    const logged: string[] = [];
+    const got = await listWithEpics(EMPTY_LABEL_LEG, {
+      pageCap: 3,
+      log: (msg) => logged.push(msg),
+      fetchEpicPage,
+    });
+    expect(fetched).toBe(3);
+    expect(got.map((m) => m.name)).toContain("M_DPT_500");
+    expect(logged.length).toBe(1);
+    expect(logged[0]!.toLowerCase()).toMatch(/drop|truncat|cap|beyond|more page/);
+  });
+
+  test("fail-soft: a throwing epic fetcher degrades the whole scan to [] (never throws)", async () => {
+    // Identical posture to the label leg (AC-STE-339.3): listMilestones is
+    // non-load-bearing and never throws into allocation.
+    const fetchLabelPage = pagedFetcher([
+      { issues: [issue("milestone-M30")], isLast: true },
+    ]);
+    const fetchEpicPage = async (_page: number): Promise<EpicPage> => {
+      throw new Error("epic JQL boom");
+    };
+    let resolved: { name: string }[] | "threw" = "threw";
+    await expect(
+      (async () => {
+        resolved = await listWithEpics(fetchLabelPage, { fetchEpicPage });
+      })(),
+    ).resolves.toBeUndefined();
+    expect(resolved).toEqual([]);
   });
 });

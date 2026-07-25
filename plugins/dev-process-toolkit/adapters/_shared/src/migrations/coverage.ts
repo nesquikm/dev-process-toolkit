@@ -18,6 +18,8 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+// Union grammar: `M<N>` and `M_<epic-key>` plan filenames are both walked.
+import { PLAN_FILENAME_RE } from "../milestone_token";
 import { MIGRATIONS, type MigrationEntry } from "./index";
 
 /**
@@ -238,7 +240,7 @@ async function listPlanFiles(dir: string): Promise<string[]> {
   try {
     const entries = await readdir(dir, { withFileTypes: true });
     return entries
-      .filter((e) => e.isFile() && /^M\d+\.md$/.test(e.name))
+      .filter((e) => e.isFile() && PLAN_FILENAME_RE.test(e.name))
       .map((e) => join(dir, e.name))
       .sort();
   } catch {

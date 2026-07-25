@@ -106,3 +106,22 @@ describe("STE-201 — plan-task-fr-coverage probe", () => {
     }
   });
 });
+
+describe("STE-376 union grammar — epic-keyed plans stay inside the walk", () => {
+  test("unbacked task in specs/plan/M_PROJ_500.md is flagged (not silently skipped)", async () => {
+    const root = makeFixture();
+    try {
+      const epicHeader =
+        "---\nmilestone: M_PROJ_500\nstatus: active\n---\n\n## M_PROJ_500: Epic plan\n\n**FR list**:\n\n| FR | Title | Tracker |\n|----|-------|---------|\n| STE-193 | subtract | linear:`STE-193` |\n";
+      writeFileSync(
+        join(root, "specs", "plan", "M_PROJ_500.md"),
+        epicHeader + "\n**Tasks:**\n\n- [ ] multiply\n",
+      );
+      const r = await runPlanTaskFrCoverageProbe(root);
+      expect(r.violations.length).toBe(1);
+      expect(r.violations[0]!.note).toMatch(/M_PROJ_500\.md:\d+/);
+    } finally {
+      cleanup(root);
+    }
+  });
+});

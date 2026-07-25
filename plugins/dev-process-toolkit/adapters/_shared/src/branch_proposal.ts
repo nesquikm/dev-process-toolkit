@@ -14,6 +14,8 @@
 // `$()`, newlines, path-traversal `../`, Unicode homoglyphs, …) can never
 // escape the sanitizer.
 
+import { MILESTONE_NUMBER_RE, parseMilestoneToken } from "./milestone_token";
+
 // ALLOWED_TYPES mirrors the commit-msg hook's accept set
 // (`templates/git-hooks/commit-msg.sh`) minus `ci` — STE-228 TRUNK_OK_TYPES
 // excludes `ci:` from per-branch flow because `ci:` commits land on trunk.
@@ -53,17 +55,43 @@ export const MILESTONE_BRANCH_TEMPLATE = "{type}/m{N}-{slug}";
 export const TICKET_BRANCH_TEMPLATE = "{type}/{ticket-id}-{slug}";
 
 /**
- * Canonical branch template for a given milestone binding (STE-388).
+ * Canonical branch template for a given milestone binding (STE-388,
+ * extended by AC-STE-376.6).
  *
- * Pure selector: a non-empty all-digit `milestone` yields the
- * milestone-keyed form `"{type}/m{N}-{slug}"`; anything else (absent,
- * empty, or non-digit) falls back to the ticket-keyed form
- * `"{type}/{ticket-id}-{slug}"`.
+ * Pure selector: a non-empty all-digit `milestone` OR a full epic token
+ * (`M_<epic-key>`, per the shared union matcher in `milestone_token.ts`)
+ * yields the milestone-keyed form `"{type}/m{N}-{slug}"`; anything else
+ * (absent, empty, non-digit non-token — including the full numeric token
+ * `"M106"`, whose bare-digit shape is the supported input) falls back to
+ * the ticket-keyed form `"{type}/{ticket-id}-{slug}"`.
  */
 export function canonicalBranchTemplate({ milestone }: { milestone?: string }): string {
-  return milestone !== undefined && /^\d+$/.test(milestone)
+  if (milestone === undefined) return TICKET_BRANCH_TEMPLATE;
+  if (MILESTONE_NUMBER_RE.test(milestone)) return MILESTONE_BRANCH_TEMPLATE;
+  return parseMilestoneToken(milestone)?.kind === "epic"
     ? MILESTONE_BRANCH_TEMPLATE
     : TICKET_BRANCH_TEMPLATE;
+}
+
+/**
+ * Branch-safe (sanitizer) form of an epic key: lowercased, hyphens
+ * normalized to underscores — `PROJ-500` / `PROJ_500` → `proj_500`.
+ * Output alphabet is `[a-z0-9_]` (epic-key grammar guarantees no other
+ * characters survive). Rendering-only; token identity stays case-exact.
+ */
+function epicBranchKey(key: string): string {
+  return key.toLowerCase().replace(/-/g, "_");
+}
+
+/**
+ * The `{N}` substitution for a milestone binding (AC-STE-376.6): bare
+ * digits pass through byte-unchanged (`"19"` → `m19`); a full epic token
+ * renders as `_<epic_key>` in sanitizer form (`"M_PROJ_500"` →
+ * `m_proj_500`); anything else passes through untouched (legacy behavior).
+ */
+function milestoneBranchToken(milestone: string): string {
+  const token = parseMilestoneToken(milestone);
+  return token?.kind === "epic" ? `_${epicBranchKey(token.key)}` : milestone;
 }
 
 /**
@@ -78,7 +106,11 @@ export interface BranchProposalContext {
   type: string;
   /** Raw LLM-returned `{slug}`; will be sanitized. */
   slug: string;
-  /** Milestone number (digits only), e.g. `"19"`. Substitutes `{N}`. */
+  /**
+   * Milestone binding — bare number (`"19"`) or full epic token
+   * (`"M_PROJ_500"`, AC-STE-376.6). Substitutes `{N}` via
+   * `milestoneBranchToken`.
+   */
   milestone?: string;
   /** Tracker ID, e.g. `"STE-64"`. Substitutes `{ticket-id}` in tracker mode. */
   trackerId?: string;
@@ -154,7 +186,7 @@ export function buildBranchProposal(ctx: BranchProposalContext): string {
   }
   const cleanType = clampType(ctx.type);
   const ticketId = resolveTicketId(ctx);
-  const milestone = ctx.milestone ?? "";
+  const milestone = milestoneBranchToken(ctx.milestone ?? "");
 
   // Render with empty slug first to compute the slug budget.
   const renderedWithoutSlug = ctx.template
@@ -182,9 +214,17 @@ export function buildBranchProposal(ctx: BranchProposalContext): string {
     .replace(/{slug}/g, finalSlug);
 }
 
-/** Word-bounded `m<N>` match (case-insensitive) so `m19` ≠ `m191` / `dm19`. */
+/**
+ * Word-bounded `m<N>` match (case-insensitive) so `m19` ≠ `m191` / `dm19`.
+ * AC-STE-376.6: an epic-token scope (`M_PROJ_500`) matches its sanitizer
+ * branch form `m_proj_500` with the same word-boundary discipline
+ * (`m_proj_500` ≠ `m_proj_5001`). Numeric scopes are byte-unchanged.
+ */
 function matchesMilestone(branchName: string, milestoneNumber: string): boolean {
-  return new RegExp(`\\bm${milestoneNumber}\\b`, "i").test(branchName);
+  const token = parseMilestoneToken(milestoneNumber);
+  const needle =
+    token?.kind === "epic" ? `m_${epicBranchKey(token.key)}` : `m${milestoneNumber}`;
+  return new RegExp(`\\b${needle}\\b`, "i").test(branchName);
 }
 
 /**

@@ -14,7 +14,7 @@ capabilities:
   - transition_status
   - upsert_ticket_metadata
 project_milestone: true
-milestone_binding: label
+milestone_binding: epic
 list_project_statuses: true
 ticket_description_template: |
   {fr_body}
@@ -66,7 +66,7 @@ NFR-10 canonical shape during `/setup`.
 | `list_project_statuses` | `mcp__atlassian__getJiraIssueTypeMetaWithFields` (company-managed) / `mcp__atlassian__getTransitionsForJiraIssue` (team-managed) | Two-path status-vocabulary fetch dispatched on project style — probe order, output contract, project-key sourcing, and NFR-10 guard are documented in § `list_project_statuses` under Operations. Used by `/setup` Step Nb (STE-303) to seed `specs/tracker-config.yaml` with the workspace-bound status vocabulary. Pure read; no mutation. |
 | `addCommentToJiraIssue` | `mcp__atlassian__addCommentToJiraIssue` | Available on the live MCP surface (smoke-test #5 enumerated tool list) for callers that need to post a markdown comment. Pass `contentFormat: "markdown"`. No /implement-internal caller today. |
 | Project visibility probe | `mcp__atlassian__getVisibleJiraProjects` | Called by `/setup` step 7b before any other Jira operation; refuses with NFR-10 canonical shape when the configured `project` key is not visible to the authenticated principal. |
-| `listMilestones` (optional driver method) | `mcp__atlassian__searchJiraIssuesUsingJql` | Enumerate milestones via the `milestone-<M-token>` labels. JQL-search the bound project for labelled issues, paginate, client-side filter `^milestone-(M\d+)$`, return the bare `M<N>` tokens. Best-effort: any failure ⇒ `[]`. Pure read; see § Milestone Listing below. |
+| `listMilestones` (optional driver method) | `mcp__atlassian__searchJiraIssuesUsingJql` | Enumerate milestone Epics via `issuetype = Epic` (primary leg) and union the grandfathered `milestone-<M-token>` labels (legacy leg). Both legs paginate with client-side union-grammar filters, dedupe, and return bare `M_<epic-key>` / `M<N>` tokens. Best-effort: any failure ⇒ `[]`. Pure read; see § Milestone Listing below. |
 
 > **No `deleteJiraIssue` tool.** The MCP surface does not expose issue
 > deletion. `/spec-archive` for Jira transitions the ticket to `Done` (or a
@@ -379,12 +379,52 @@ Project key is sourced from `### Jira`.project in CLAUDE.md via
 shape when the project key is unresolved (mirrors the create-path
 silent-landing guard). Pure read; no mutation.
 
-## Project Milestone — `milestone-<M-token>` label via `editJiraIssue` read-merge-write
+## Project Milestone — milestone-as-Epic via `parent`, label fallback
 
 Jira opts into project-milestone binding (`project_milestone: true` in the
-frontmatter), but Jira has no per-issue "milestone" field on the standard
-MCP surface — so the binding is realised as a **label** rather than a native
-milestone object. Each FR's frontmatter `milestone: M<N>` maps to the
+frontmatter). Jira has no per-issue "milestone" field on the standard MCP
+surface, but it does have a native container: the **Epic**. The primary
+binding (`milestone_binding: epic` in the frontmatter) realises each
+milestone as an Epic issue named with the canonical plan-heading name; the
+FR Task binds by pointing its `parent` field at that Epic's key. When the
+bound project has no Epic type (or cannot set `parent`), the binding
+degrades to the legacy **label** path documented further down — never a
+hard failure.
+
+### Epic path (primary — `milestone_binding: epic`)
+
+**Find-or-create.** Enumerate the project's Epics via
+`mcp__atlassian__searchJiraIssuesUsingJql` with
+`jql = "project = <projectKey> AND issuetype = Epic"` and match the
+canonical plan-heading milestone name by byte equality against each Epic's
+summary. On a miss, create the Epic via
+`mcp__atlassian__createJiraIssue(projectKey=<projectKey>,
+issueTypeName="Epic", summary=<canonical name>)` — the auto-create surfaces
+the `milestone_create_required` capability row, same as the other bindings.
+
+**Membership — `parent` set.** Bind the FR Task by writing the Epic's key to
+its `parent` field: `mcp__atlassian__editJiraIssue(issueIdOrKey=ticket_id,
+additional_fields={ parent: { key: <epic-key> } })`. The epic path never
+scatters a `milestone-<M-token>` label and never touches milestone objects.
+Idempotency pre-check: when the issue's `parent` already equals the Epic's
+key the attach is a no-op — the parent is not rewritten and no second Epic
+is created.
+
+**Read-back verify.** Re-read the issue (`getJiraIssue`) and assert
+`parent = <epic-key>`. A mismatch surfaces the canonical binding-mismatch
+error (never retried); transient failures retry the whole round-trip on the
+canonical `1s + 2s + 4s` schedule.
+
+**Epic-absent fallback.** Probe the bound project's issue-type metadata via
+`mcp__atlassian__getJiraProjectIssueTypesMetadata`. When the Epic type is
+absent — or the project cannot set `parent` — the attach degrades to the
+label path below and the closing summary surfaces the **informational**
+`milestone_epic_unsupported` capability row (the FR still attaches via the
+legacy label; the degraded path is never an error).
+
+### Label path (fallback — legacy `milestone_binding: label`)
+
+Each FR's frontmatter `milestone: M<N>` maps to the
 `milestone-<M-token>` label (e.g. `milestone-M86`), and the milestone-attach
 flow (`/spec-write` § 0b, `/implement` Phase 1 step 0.e) attaches that label
 to the pushed ticket.
@@ -428,57 +468,66 @@ create-time default-labels behaviour. Conversely, a create that seeds
 `default_labels` does not attach the milestone label — milestone binding is
 always its own explicit read-merge-write step.
 
-## Milestone Listing — `listMilestones()` via `milestone-<M-token>` label enumeration
+## Milestone Listing — `listMilestones()` via Epic enumeration + grandfathered labels
 
 The Jira `AdapterDriver` implements the optional `listMilestones()` method so
-the tracker leg of `nextFreeMilestoneNumber` fires in Jira mode. Because Jira
-has no native milestone object on the MCP surface, the binding is realised as
-labels (see § Project Milestone above) — so *listing* milestones means
-*enumerating those labels*. There is no milestone-list MCP tool and JQL has no
-label-wildcard operator, so the scan enumerates labelled issues and filters
-client-side.
+the tracker leg of `nextFreeMilestoneNumber` fires in Jira mode. With the
+Epic-first binding (§ Project Milestone above), *listing* milestones means
+*enumerating milestone Epics* — a handful of objects, never a full
+labelled-task scan — with the legacy `milestone-<M-token>` labels unioned in
+as a grandfathered second leg so pre-Epic milestones stay visible.
 
-**Pure-function core.** The label-scan + pagination + dedupe logic lives in the
-Schema-P helper `adapters/jira/src/list_milestones.ts` (`listMilestones(fetchPage, opts?)`),
-mirroring `discover_field.ts`: no network in the function itself — the caller
-injects `fetchPage`, which wraps the MCP call. `TrackerProvider.listMilestones()`
-already delegates `driver.listMilestones?.() ?? []`, so no provider change is
-needed; the Jira driver simply supplies this method.
+**Pure-function core.** The two-leg scan + pagination + dedupe logic lives in
+the Schema-P helper `adapters/jira/src/list_milestones.ts`
+(`listMilestones(fetchPage, opts?)`; the Epic leg injects via
+`opts.fetchEpicPage`), mirroring `discover_field.ts`: no network in the
+function itself — the caller injects the fetchers, which wrap the MCP calls.
+`TrackerProvider.listMilestones()` already delegates
+`driver.listMilestones?.() ?? []`, so no provider change is needed; the Jira
+driver simply supplies this method.
 
 **Procedure (driver wiring).**
 
-1. **Search** — `mcp__atlassian__searchJiraIssuesUsingJql` with
-   `jql = "project = <projectKey> AND labels IS NOT EMPTY ORDER BY created DESC"`
+1. **Epic leg (primary)** — `mcp__atlassian__searchJiraIssuesUsingJql` with
+   `jql = "project = <projectKey> AND issuetype = Epic ORDER BY created DESC"`
    (project key from `### Jira`.project), paginating page by page. Feed each
-   page's issues (their `labels` arrays) into the helper's `fetchPage`.
-2. **Filter** — client-side, each label is matched against `^milestone-(M\d+)$`
-   (exact anchor — `milestone-foo`, `milestone-`, `xmilestone-M5`, `M5`,
-   `milestone-M5-extra`, `milestone-M5 ` are all rejected, matching the
-   create-on-write `milestone-<M-token>` derivation).
-3. **Return** — the deduped, ascending-by-number set of bare `M<N>` tokens as
-   `{ name: "M<N>" }[]` — **not** the `milestone-` label — so the existing
-   `scanTracker` `^M(\d+)` extractor in `next_free_milestone_number.ts` consumes
-   it unchanged.
+   page's Epics (`{ key, summary }`) into the helper's `fetchEpicPage`.
+   Client-side name filter: an Epic counts iff its summary's first
+   whitespace-delimited word is a valid milestone token (union grammar); each
+   match contributes `M_<epic-key>` (key verbatim).
+2. **Label leg (grandfathered)** — the same JQL tool with
+   `jql = "project = <projectKey> AND labels IS NOT EMPTY ORDER BY created DESC"`,
+   feeding each page's issues (their `labels` arrays) into `fetchPage`.
+   Client-side, each label is matched against the exact-anchored union shape
+   `^milestone-(<M-token>)$` — accepting `milestone-M<N>` and
+   `milestone-M_<epic-key>` while `milestone-foo`, `milestone-`,
+   `xmilestone-M5`, `M5`, `milestone-M5-extra`, `milestone-M5 ` all stay
+   rejected, matching the create-on-write `milestone-<M-token>` derivation.
+3. **Return** — the deduped union of both legs as bare tokens
+   (`{ name }[]` of `M<N>` / `M_<epic-key>` — **not** the `milestone-`
+   label), numeric tokens first ascending, epic-keyed tokens after (opaque,
+   code-point order) — so the existing `scanTracker` extractor in
+   `next_free_milestone_number.ts` consumes it unchanged and `M_<key>` ids
+   never bump the sequential counter.
 
-**Pagination cap, no silent truncation.** The scan paginates to a documented
+**Pagination cap, no silent truncation.** Each leg paginates to a documented
 cap (`MILESTONE_PAGE_CAP`, default 50; overridable via `opts.pageCap`). If the
-cap is reached before a page reports `isLast`, the helper stops and surfaces a
-one-line log (`opts.log`) noting pages may have been dropped — never a silent
-truncation.
+cap is reached before a page reports `isLast`, the helper stops that leg and
+surfaces a one-line log (`opts.log`) noting pages may have been dropped —
+never a silent truncation.
 
 **Fail-soft / non-load-bearing.** Any JQL / network failure — including a
-failure on a later page — degrades `listMilestones()` to `[]`; it never throws
-into allocation. Identical posture to Linear's milestone leg and the
-cross-branch git leg.
+failure on a later page of either leg — degrades `listMilestones()` to `[]`;
+it never throws into allocation. Identical posture to Linear's milestone leg
+and the cross-branch git leg.
 
-> **Supersedes.** This listing supersedes the earlier never-shipped "Jira
-> milestone API" enumeration approach (delivered here via label enumeration
-> instead), and closes the previously-deferred *listing* half of the
-> create-on-write `milestone-<M-token>` label binding: that binding implemented
-> milestone ATTACH (write) but explicitly did not implement LISTING (read).
-> Attach and listing are orthogonal halves of the same label-based milestone
-> model. (Ticket-level traceability lives in the FR + git history, not in this
-> shipped adapter doc.)
+> **Supersedes.** The Epic leg supersedes the label-only listing that closed
+> the deferred *listing* half of the create-on-write `milestone-<M-token>`
+> label binding (itself superseding the never-shipped "Jira milestone API"
+> enumeration). Grandfathered labels remain listed via the union so pre-Epic
+> milestones never disappear; attach (write) and listing (read) stay
+> orthogonal halves of the same milestone model. (Ticket-level traceability
+> lives in the FR + git history, not in this shipped adapter doc.)
 
 ## Helper: `discover_field.ts`
 

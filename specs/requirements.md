@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.54.0 ("Semaphore")**.
+**Latest shipped release:** **v2.55.0 ("Lineage")**.
 
 ### Shipped milestones
 
@@ -407,4 +407,7 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-410.1..6 | plugins/dev-process-toolkit/adapters/_shared/src/upgrade_staleness.ts, plugins/dev-process-toolkit/skills/gate-check/SKILL.md | plugins/dev-process-toolkit/tests/gate-check-upgrade-staleness.test.ts |
 | AC-STE-411.1..3 | plugins/dev-process-toolkit/adapters/_shared/src/upgrade_staleness.ts, plugins/dev-process-toolkit/skills/upgrade/SKILL.md | plugins/dev-process-toolkit/tests/m111-ste-411-upgrade-hint-pins.test.ts, plugins/dev-process-toolkit/tests/m109-ste-395-delist-upgrade.test.ts |
 | AC-STE-412.1..5 | plugins/dev-process-toolkit/skills/setup/SKILL.md | plugins/dev-process-toolkit/tests/m111-ste-412-setup-scaffold-guard.test.ts |
+| AC-STE-376.1..6 | adapters/_shared/src/milestone_token.ts, adapters/_shared/src/plan_heading.ts, adapters/_shared/src/next_free_milestone_number.ts, adapters/_shared/src/branch_proposal.ts, adapters/_shared/src/plan_ship_coherence.ts, adapters/_shared/src/migrations/coverage.ts, adapters/jira/src/list_milestones.ts | adapters/_shared/src/milestone_token.test.ts, adapters/_shared/src/plan_heading.test.ts, tests/m101-ste-376-epic-milestone-grammar.test.ts |
+| AC-STE-375.1..5 | adapters/_shared/src/attach_project_milestone.ts, adapters/jira/src/list_milestones.ts, adapters/_shared/src/closing_summary_capability_keys.ts, adapters/_shared/src/tracker_project_milestone_attached.ts, adapters/jira.md | adapters/_shared/src/attach_project_milestone.test.ts, adapters/jira/src/list_milestones.test.ts, tests/m101-ste-375-epic-milestone-binding.test.ts, tests/adapter-schema-jira-project-milestone.test.ts |
+| AC-STE-377.1..5 | adapters/_shared/src/milestone_token.ts, adapters/_shared/src/attach_project_milestone.ts, skills/spec-write/SKILL.md | adapters/_shared/src/epic_first_allocation.test.ts, tests/spec-write-jira-epic-first-allocation.test.ts |
 
