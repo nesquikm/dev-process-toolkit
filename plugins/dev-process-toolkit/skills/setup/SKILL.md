@@ -67,7 +67,7 @@ For **existing projects** (project files found in step 1), validate prerequisite
 | Gate commands runnable | Run the gating rule from CLAUDE.md (e.g., `npm run typecheck && npm run lint && npm run test`) | Fix failing commands or update CLAUDE.md gating rule |
 | CLAUDE.md present | Check if `CLAUDE.md` exists in project root | Will be created in step 5 |
 | .claude/settings.json present | Check if `.claude/settings.json` exists | Will be created in step 6 |
-| Spec anchor IDs (if `specs/` exists) | Grep `specs/plan/M*.md` for every `## M{N}:` and `specs/requirements.md` for every `### FR-{N}:` heading; each must carry a matching `{#M{N}}` or `{#FR-{N}}` anchor | Add the missing `{#M{N}}` / `{#FR-{N}}` anchor. Missing anchors do NOT cause doctor failure — they report under `GATE PASSED WITH NOTES` |
+| Spec anchor IDs (if `specs/` exists) | Grep `specs/plan/M*.md` for every `## M{N} —` heading (legacy `## M{N}:` too) and `specs/requirements.md` for every `### FR-{N}:` heading; each must carry a matching `{#M{N}}` or `{#FR-{N}}` anchor | Add the missing `{#M{N}}` / `{#FR-{N}}` anchor. Missing anchors do NOT cause doctor failure — they report under `GATE PASSED WITH NOTES` |
 
 Report pass/fail for each check with remediation. Missing anchor IDs surface under `GATE PASSED WITH NOTES`, never as a hard failure.
 

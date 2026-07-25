@@ -460,10 +460,11 @@ export function milestoneBindingPresent(
 
 /**
  * Build the canonical milestone name from a plan-file path. Delegates to the
- * shared `parsePlanHeading` (./plan_heading) so it accepts both the current
- * `## M<N>: <title> {#M<N>}` (H2 + colon) form and the legacy
- * `# M<N> — <title>` (H1 + em-dash) form, normalizing either to the canonical
- * `M<N> — <title>` (em-dash) and stripping the optional `{#M<N>}` anchor.
+ * shared `parsePlanHeading` (./plan_heading) so it accepts the current
+ * `## M<N> — <title> {#M<N>}` (H2 + em-dash) form plus the legacy
+ * `# M<N> — <title>` (H1) and `## M<N>: <title>` (H2 + colon) forms — the
+ * legacy shapes are still parsed, and every shape normalizes to the canonical
+ * `M<N> — <title>` (em-dash) with the optional `{#M<N>}` anchor stripped.
  *
  * Throws if the file cannot be read or no milestone heading is present —
  * callers should treat absence as a hard error (the plan file is the source
@@ -475,7 +476,8 @@ export function planFileHeadingToMilestoneName(planFilePath: string): string {
   if (name === null) {
     throw new Error(
       `planFileHeadingToMilestoneName: ${planFilePath} has no recognizable milestone heading ` +
-        `(expected \`# M<N> — <title>\` or \`## M<N>: <title>\` — H1/H2 depth, em-dash or colon separator)`,
+        `(expected \`## M<N> — <title>\`; the legacy \`# M<N> — <title>\` H1 form and ` +
+        `\`## M<N>: <title>\` colon form are still accepted)`,
     );
   }
   return name;

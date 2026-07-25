@@ -3,8 +3,9 @@
 // Decides whether `/spec-archive M<N>` should branch to the plan-only
 // archival path. Three eligibility signals:
 //   (a) plan frontmatter carries `kind: scaffolding` (STE-197 marker).
-//   (b) every task checkbox under the `## M<N>:` block is `[x]` or
-//       `[deferred]` (zero unchecked).
+//   (b) every task checkbox in the plan file is `[x]` or `[deferred]`
+//       (zero unchecked). The scan is heading-agnostic — no heading
+//       scoping at all, so no separator form to keep in sync.
 //   (c) operator passed `--plan-only` explicitly (escape hatch).
 //
 // The helper is pure — no side effects, no writes. Callers that intend
@@ -61,8 +62,9 @@ export async function evaluatePlanOnlyEligibility(
     return { eligible: true, reason: "scaffolding", planExists: true };
   }
 
-  // (b) every task checkbox under any `## M<N>:` block is `[x]` or
-  // `[deferred]`. Empty / no tasks ⇒ ineligible (ambiguous state per
+  // (b) every task checkbox in the file is `[x]` or `[deferred]`. The walk
+  // below is heading-agnostic: every task line counts, whatever section it
+  // sits under. Empty / no tasks ⇒ ineligible (ambiguous state per
   // STE-200's no-FRs + unchecked-ACs refusal rule).
   let totalTasks = 0;
   let uncheckedTasks = 0;
