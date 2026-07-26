@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.55.1] — 2026-07-26 — "Deadbolt"
+
+M112 "Deadbolt": the non-tty smoke-driver hard gate. Both legs of a conformance run had exited rc=0 without running the canonical chain and left orphaned tracker data — one rationalized past the SMOKE-CTX advisory by narrating itself an "interactive parent" while headless, the other paused mid-run to ask the operator a rate-limit question and ended its turn, which under `-p` is a silent no-op. The tty probe is now binding rather than advisory, mid-run judgment calls route off the auto-approve marker instead of a prose question, and a driver about to end its turn with an unfinished chain or a live grandchild aborts loudly, reaps, and tears down instead of exiting quietly as success.
+
+### Fixed
+
+- Non-tty smoke-test driver hard gate against leg-stranding. The `[ -t 0 ]` result is the sole determinant of headless vs interactive and the classification is binding — the "interactive parent" self-narration is named as the forbidden rationalization and re-opens no background-wait or turn-yield path. A new discretionary-halt guard resolves every mid-run judgment call deterministically off the `<dpt:auto-approve>v1</dpt:auto-approve>` marker (present ⇒ proceed, absent ⇒ abort with full teardown), so no prose-ask-then-end-turn path survives under `-p`. The final-message self-check becomes a hard abort-with-teardown that must exit non-zero on either trigger — an incomplete chain or a live pidfile — retiring the `[~]` runtime-deferred posture into a byte-checkable contract. All three abort paths reap live pidfiles, confirming process identity with `ps` before signalling, and reap *before* the destructive teardown, so no abort strands a tracker project, a test directory, or a grandchild. Mirrored into `/conformance-loop`, itself a headless driver, and byte-pinned by a colocated meta-test across both drivers (STE-414).
+
+Total test count at release: 5334 tests, 0 failures, 0 errors.
+
 ## [2.55.0] — 2026-07-23 — "Lineage"
 
 M101 "Lineage": Jira milestones become first-class Epics. Each milestone is realized as a Jira Epic that owns its FR Tasks via the native `parent` field (membership is a `parent = <epic-key>` query, not a label scan), identified by a collision-free `M_<epic-key>` id minted from the Epic’s tracker key — no scan-to-allocate, no concurrent-allocation race. Jira-only: Linear keeps native milestone objects, `mode: none` keeps sequential `M<N>`, and existing label-milestones grandfather.
