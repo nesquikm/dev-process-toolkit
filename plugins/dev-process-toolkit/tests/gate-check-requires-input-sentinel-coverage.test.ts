@@ -465,3 +465,27 @@ describe("recognizer is cheap on hostile input", () => {
     expect(isRequiresInputDeclaration("   > *  `requires-input: no safe default.`")).toBe(true);
   });
 });
+
+describe("documents that DESCRIBE the rule must not declare a gate", () => {
+  // The recognizer is prose-sensitive by construction, so a doc explaining it
+  // can accidentally scope its own skill in. `docs/` is not globbed today, but
+  // the protocol doc asks every marker-consuming skill to carry its disclaimer
+  // prose — copied into a SKILL.md verbatim, a declaring line would scope that
+  // skill in and demand a helper it has no gate for. Two live mechanisms were
+  // found: a hard wrap that left the annotation line-leading, and the template
+  // placeholder inside a reason-bearing span.
+  const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
+
+  test.each([
+    ["docs/auto-mode-protocol.md", join("plugins", "dev-process-toolkit", "docs", "auto-mode-protocol.md")],
+    ["gate-check probe catalogue", join("plugins", "dev-process-toolkit", "skills", "gate-check", "SKILL.md")],
+  ])("%s carries the token but declares no gate", (_n, rel) => {
+    const body = readFileSync(join(REPO_ROOT, rel as string), "utf-8");
+    expect(body).toContain("requires-input:");
+    const declaring = body
+      .split("\n")
+      .map((line, i) => [i + 1, line] as const)
+      .filter(([, line]) => isRequiresInputDeclaration(line));
+    expect(declaring).toEqual([]);
+  });
+});
