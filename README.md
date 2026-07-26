@@ -179,7 +179,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.55.2 — "Canon"** (M113: milestone-name emit canonicalization. `/spec-write` and the plan template stop emitting the colon-form milestone heading and mandate the em-dash canonical `M<N> — <Title>` at milestone-create time, cross-referencing `parsePlanHeading` as the single source of truth so the create-side name and gate-check probe #26 cannot diverge. Probe #32 counts both separators; the parser stays colon-tolerant for legacy plans.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.55.3 — "Toggle"** (M114: Linear acceptance-criteria checkboxes. The Linear push path now emits each AC as a markdown task-list checkbox, restoring the `pull_acs` / `push_ac_toggle` round-trip for Linear-created tickets — idempotent, section-scoped, never resetting a checked box, and CRLF-safe. Jira keeps its plain bullets.)
 
 ## Core Philosophy
 
