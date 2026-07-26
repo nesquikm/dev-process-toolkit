@@ -12,6 +12,7 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { normalizeFrontmatterSource } from "./frontmatter";
 
 interface FRFrontmatterScan {
   hasId: boolean;
@@ -19,6 +20,9 @@ interface FRFrontmatterScan {
 }
 
 function scanFrontmatter(content: string): FRFrontmatterScan {
+  // Fold BOM + CRLF/lone-CR first, or a Windows-authored file reads as
+  // having no frontmatter and this check silently passes on an unparsed file.
+  content = normalizeFrontmatterSource(content);
   if (!content.startsWith("---\n")) return { hasId: false, hasPopulatedTracker: false };
   const closeIdx = content.indexOf("\n---", 4);
   if (closeIdx < 0) return { hasId: false, hasPopulatedTracker: false };
