@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.55.2] — 2026-07-26 — "Canon"
+
+M113 "Canon": milestone-name emit canonicalization. The plan-heading parser already normalized both `## M<N>: Title` and `## M<N> — Title` to the em-dash canonical form, but `/spec-write` and the plan template still *emitted* the colon form — so an LLM-emulated consumer reading the heading by eye created the tracker milestone under the colon name and gate-check probe #26 went red on an otherwise-clean chain. This closes the emit side and pins the create-side name and the probe-side expectation to the one shared normalizer, so they cannot drift again.
+
+### Fixed
+
+- `/spec-write` emits em-dash canonical milestone names. § 0b now states the name passed to the milestone create/attach call MUST be the em-dash form `M<N> — <Title>`, names the colon form forbidden at create time, and cross-references `parsePlanHeading` as the single source of truth; the "Stable anchor IDs" exemplar and `plan.md.template` stop emitting the colon separator while keeping the `{#M<N>}` anchor; and probe #32's heading matcher is widened to count both separators, still composed from the shared milestone-token union so `M_<epic-key>` plans keep counting. The parser stays colon-tolerant, so legacy plan files canonicalize exactly as before. Flipping the emit side also stranded five colon-only readers, now all separator-neutral or corrected: the `/setup` doctor anchor check and the `docs/patterns.md` missing-anchor grep had gone silently vacuous against the new template, two doc sites contradicted the very template they cite as their source of truth, and the plan-only archival prose claimed a heading-scoped scan the implementation never performed (STE-415).
+
+Total test count at release: 5334 tests, 0 failures, 0 errors.
+
 ## [2.55.1] — 2026-07-26 — "Deadbolt"
 
 M112 "Deadbolt": the non-tty smoke-driver hard gate. Both legs of a conformance run had exited rc=0 without running the canonical chain and left orphaned tracker data — one rationalized past the SMOKE-CTX advisory by narrating itself an "interactive parent" while headless, the other paused mid-run to ask the operator a rate-limit question and ended its turn, which under `-p` is a silent no-op. The tty probe is now binding rather than advisory, mid-run judgment calls route off the auto-approve marker instead of a prose question, and a driver about to end its turn with an unfinished chain or a live grandchild aborts loudly, reaps, and tears down instead of exiting quietly as success.

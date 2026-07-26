@@ -179,7 +179,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.55.1 — "Deadbolt"** (M112: the non-tty smoke-driver hard gate. The `[ -t 0 ]` headless classification is binding and the "interactive parent" self-narration is named forbidden; a discretionary-halt guard routes every mid-run judgment call off the auto-approve marker instead of a prose question; and the final-message self-check becomes a hard abort-with-teardown that reaps live pidfiles — identity-checked with `ps` — before tearing down, and exits non-zero. Mirrored into `/conformance-loop`.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.55.2 — "Canon"** (M113: milestone-name emit canonicalization. `/spec-write` and the plan template stop emitting the colon-form milestone heading and mandate the em-dash canonical `M<N> — <Title>` at milestone-create time, cross-referencing `parsePlanHeading` as the single source of truth so the create-side name and gate-check probe #26 cannot diverge. Probe #32 counts both separators; the parser stays colon-tolerant for legacy plans.)
 
 ## Core Philosophy
 
