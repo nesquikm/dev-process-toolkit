@@ -29,7 +29,7 @@
 // NO `STE-<digits>` token — pinned explicitly by the last test in the file.
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { checkboxifyLinearACs } from "../adapters/linear/src/format_description";
 
@@ -195,10 +195,16 @@ describe("the transform preserves INPUT state — and an FR body carries none", 
   test("an FR file on disk really does carry plain, stateless AC bullets", () => {
     // Non-vacuity for the premise: FR bodies are the transform's real input on
     // the update path, and none of them carries a checkbox.
-    const fr = readFileSync(
-      join(pluginRoot, "..", "..", "specs", "frs", "STE-417.md"),
-      "utf-8",
-    );
+    // Archive-fallback: pinning the live path alone breaks the moment this FR
+    // is archived, which is a guaranteed future event, not a hypothetical.
+    const repoRoot = join(pluginRoot, "..", "..");
+    const activePath = join(repoRoot, "specs", "frs", "STE-417.md");
+    const archivePath = join(repoRoot, "specs", "frs", "archive", "STE-417.md");
+    const frPath = existsSync(activePath) ? activePath : archivePath;
+    if (!existsSync(frPath)) {
+      throw new Error(`STE-417 FR file not found at ${activePath} or ${archivePath}`);
+    }
+    const fr = readFileSync(frPath, "utf-8");
     expect(fr).toMatch(/^- AC-STE-417\.1:/m);
     expect(fr).not.toMatch(/^- \[[ xX]\] AC-/m);
   });
