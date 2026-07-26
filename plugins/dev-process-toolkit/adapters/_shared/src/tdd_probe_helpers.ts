@@ -16,6 +16,7 @@
 // to keep remedy text discoverable from the probe file.
 
 import { relative } from "node:path";
+import { normalizeFrontmatterSource } from "./frontmatter";
 
 export type Severity = "error";
 
@@ -35,8 +36,12 @@ export interface IntegrityReport {
 
 export const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/;
 
+// Every reader below normalizes first — five probes share these helpers to
+// assert `context: fork` / `agent:` / `user-invocable:` frontmatter, and they
+// also scan consumer-project `.claude/skills/`, where CRLF is ordinary.
+
 export function parseFrontmatterFields(body: string): Record<string, string> {
-  const m = FRONTMATTER_RE.exec(body);
+  const m = FRONTMATTER_RE.exec(normalizeFrontmatterSource(body));
   if (!m) return {};
   const out: Record<string, string> = {};
   for (const line of m[1]!.split("\n")) {
@@ -50,7 +55,7 @@ export function parseFrontmatterFields(body: string): Record<string, string> {
 }
 
 export function lineNumberOfKey(body: string, key: string): number {
-  const m = FRONTMATTER_RE.exec(body);
+  const m = FRONTMATTER_RE.exec(normalizeFrontmatterSource(body));
   if (!m) return 1;
   const lines = m[1]!.split("\n");
   for (let i = 0; i < lines.length; i++) {

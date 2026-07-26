@@ -22,9 +22,9 @@
 // and restore the file's original bytes on write.
 
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { flipArchivedFrontmatter } from "../adapters/_shared/src/archive_fr";
 import {
   hasBom,
@@ -36,6 +36,8 @@ import {
 import { runIdentityModeConditionalProbe } from "../adapters/_shared/src/identity_mode_conditional";
 import { runFrontmatterMilestoneNotArchivedProbe } from "../adapters/_shared/src/frontmatter_milestone_not_archived";
 import { stampShippedIn } from "../adapters/_shared/src/plan_ship_stamp";
+import { parseFrontmatterFields, lineNumberOfKey } from "../adapters/_shared/src/tdd_probe_helpers";
+import { parseFrFrontmatter } from "../adapters/_shared/src/tracker_project_milestone_attached";
 
 const ULID = "fr_01K9ZQ8XJ4VDTAF4VDTAF4VDTA";
 const BOM = "﻿";
@@ -353,5 +355,119 @@ describe("writers never rewrite content the edit did not touch", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Second sweep — readers the first pass missed, found by the spec-review audit
+// ---------------------------------------------------------------------------
+
+describe("lone-CR is a real line ending on the WRITE path too", () => {
+  // The first fix widened the READ path but left `splitFrontmatter` anchored on
+  // `\r?\n`, so a lone-CR file still fell through to the "no frontmatter"
+  // branch — which in flipArchivedFrontmatter PREPENDS a second block. The
+  // docstrings claimed lone-CR tolerance the regex did not have.
+  const CR_DOC = "---\rtitle: x\rstatus: active\rarchived_at: null\r---\r\r# body\r";
+
+  test("splitFrontmatter parses it and round-trips byte-identically", () => {
+    const s = splitFrontmatter(CR_DOC)!;
+    expect(s).not.toBeNull();
+    expect(s.eol).toBe("\r");
+    expect(joinFrontmatter(s, s.lines)).toBe(CR_DOC);
+  });
+
+  test("flipArchivedFrontmatter does NOT prepend a second block", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cr-flip-"));
+    const file = join(dir, "STE-1.md");
+    try {
+      writeFileSync(file, CR_DOC);
+      await flipArchivedFrontmatter(file, "2026-07-26T10:00:00Z");
+      const out = readFileSync(file, "utf-8");
+      expect(out.match(/---/g)!.length).toBe(2);
+      expect(out).toContain("status: archived\r");
+      expect(out).toContain("# body");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("parseFrFrontmatter — shared by probe #26 and the archival assertion", () => {
+  // One miss here blinds BOTH milestone-binding surfaces, which is precisely
+  // the drift this shared export exists to prevent.
+  const expected = { milestone: "M1", status: "active", trackerKey: "linear", trackerId: "STE-1" };
+
+  test.each([
+    ["LF", "---\ntitle: x\nmilestone: M1\nstatus: active\ntracker:\n  linear: STE-1\n---\n"],
+    ["CRLF", "---\r\ntitle: x\r\nmilestone: M1\r\nstatus: active\r\ntracker:\r\n  linear: STE-1\r\n---\r\n"],
+    ["lone CR", "---\rtitle: x\rmilestone: M1\rstatus: active\rtracker:\r  linear: STE-1\r---\r"],
+    ["BOM", "﻿---\ntitle: x\nmilestone: M1\nstatus: active\ntracker:\n  linear: STE-1\n---\n"],
+  ])("%s yields the same binding", (_n, body) => {
+    expect(parseFrFrontmatter(body as string)).toEqual(expected);
+  });
+});
+
+describe("tdd_probe_helpers — shared by five fork-integrity probes", () => {
+  test.each([
+    ["LF", "---\ncontext: fork\nagent: tdd-test-writer\nuser-invocable: false\n---\n"],
+    ["CRLF", "---\r\ncontext: fork\r\nagent: tdd-test-writer\r\nuser-invocable: false\r\n---\r\n"],
+    ["BOM", "﻿---\ncontext: fork\nagent: tdd-test-writer\nuser-invocable: false\n---\n"],
+  ])("%s parses the fork-integrity fields", (_n, body) => {
+    expect(parseFrontmatterFields(body as string)).toEqual({
+      context: "fork",
+      agent: "tdd-test-writer",
+      "user-invocable": "false",
+    });
+  });
+
+  test("lineNumberOfKey stays accurate under CRLF", () => {
+    expect(lineNumberOfKey("---\r\ncontext: fork\r\nagent: x\r\n---\r\n", "agent")).toBe(
+      lineNumberOfKey("---\ncontext: fork\nagent: x\n---\n", "agent"),
+    );
+  });
+});
+
+describe("BOM handling at the edges", () => {
+  test("a BOM'd file with no frontmatter keeps its BOM at index 0 after synthesis", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bom-syn-"));
+    const file = join(dir, "STE-1.md");
+    try {
+      writeFileSync(file, "﻿# no frontmatter here\n");
+      await flipArchivedFrontmatter(file, "2026-07-26T10:00:00Z");
+      const out = readFileSync(file, "utf-8");
+      expect(out.charCodeAt(0)).toBe(0xfeff);
+      // and it is not buried mid-document
+      expect(out.slice(1)).not.toContain("﻿");
+      expect(out).toContain("status: archived");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("no frontmatter reader is left unnormalized", () => {
+  test("every adapters/ module that anchors on a `---` opener normalizes first", () => {
+    // Structural sweep: the convention is only real if it is enforced. A new
+    // probe that hand-rolls an opener check without normalizing turns this red.
+    const srcDir = join(import.meta.dir, "..", "adapters", "_shared", "src");
+    const anchor = /startsWith\("---|=== "---"|!== "---"|\/\^---\\n/;
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const name of readdirSync(dir)) {
+        const p = join(dir, name);
+        if (statSync(p).isDirectory()) {
+          walk(p);
+          continue;
+        }
+        if (!name.endsWith(".ts") || name.endsWith(".test.ts")) continue;
+        const body = readFileSync(p, "utf-8");
+        if (!anchor.test(body)) continue;
+        if (!/normalizeFrontmatterSource|splitFrontmatter/.test(body)) {
+          offenders.push(relative(srcDir, p));
+        }
+      }
+    };
+    walk(srcDir);
+    expect(offenders).toEqual([]);
   });
 });

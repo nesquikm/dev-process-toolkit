@@ -7,10 +7,18 @@
 ## The Rule
 
 The harness-injected system reminder *"The user has asked you to work without
-stopping for clarifying questions"* is **not** an override of any
-`requires-input:` annotation. The reminder turns down the chattiness of the
-session, not the structural correctness of skill gates. A `requires-input:`
-step refuses without a real answer regardless of the reminder.
+stopping for clarifying questions"* is **not** an override of any annotation
+of the `requires-input:` kind. The reminder turns down the chattiness of the
+session, not the structural correctness of skill gates. Such a step refuses
+without a real answer regardless of the reminder.
+
+<!-- Keep every `requires-input:` mention in this file mid-sentence and
+     reason-free. A line-leading occurrence, or one inside a code span that
+     also carries a reason, DECLARES a gate under the recognizer this document
+     describes — which would scope any skill that copies the prose into its
+     own SKILL.md. A hard wrap alone is enough to do it, so re-flow with care;
+     a test pins this. -->
+
 
 Three (and only three) sources count as a real answer for a gated step:
 
@@ -49,9 +57,9 @@ the marker line — the read-side companion to the write-side discipline of
 this section.
 
 **Marker presence is informational for `requires-input:` steps.** The marker
-relaxes only gates that have a safe default; per-step refusal contracts
-(`requires-input: <reason>`) declare explicitly that no safe default exists,
-so the marker cannot relax them. This is the load-bearing distinction the
+relaxes only gates that have a safe default; a per-step refusal contract —
+the annotation plus its reason — declares explicitly that no safe default
+exists, so the marker cannot relax them. This is the load-bearing distinction the
 v2.13.0 incident exposed (model-imputed `tracker_mode=none` despite step 7b
 being `requires-input:`).
 

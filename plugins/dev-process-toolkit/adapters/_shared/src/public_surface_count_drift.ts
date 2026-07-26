@@ -15,6 +15,7 @@
 import { Glob } from "bun";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { normalizeFrontmatterSource } from "./frontmatter";
 
 export const PROBE_ID = "public_surface_count_drift";
 
@@ -73,7 +74,9 @@ async function computeObservedCounts(
       if (!existsSync(skillMd)) continue;
       try {
         const text = readFileSync(skillMd, "utf-8");
-        if (!text.startsWith("---")) continue;
+        // Strip a BOM first: a BOM-prefixed SKILL.md would otherwise be
+        // skipped, silently undercounting the documented public surface.
+        if (!normalizeFrontmatterSource(text).startsWith("---")) continue;
       } catch {
         continue;
       }

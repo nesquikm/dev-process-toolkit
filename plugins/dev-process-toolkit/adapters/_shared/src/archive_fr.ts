@@ -38,7 +38,7 @@
 // it between the two git invocations.
 
 import { readFile, writeFile } from "node:fs/promises";
-import { joinFrontmatter, splitFrontmatter } from "./frontmatter";
+import { hasBom, joinFrontmatter, splitFrontmatter } from "./frontmatter";
 import { join, dirname, basename } from "node:path";
 
 export interface ArchiveFlipResult {
@@ -77,7 +77,11 @@ export async function flipArchivedFrontmatter(
   const split = splitFrontmatter(original);
   if (split === null) {
     // STE-197 AC-STE-197.4 — synthesize frontmatter for legacy files.
-    const prepended = `---\nstatus: archived\narchived_at: ${archivedAt}\n---\n\n${original}`;
+    // Lift any BOM to the front — prepending in front of it would bury a
+    // U+FEFF mid-document.
+    const bom = hasBom(original) ? "﻿" : "";
+    const bodyAfterBom = bom === "" ? original : original.slice(1);
+    const prepended = `${bom}---\nstatus: archived\narchived_at: ${archivedAt}\n---\n\n${bodyAfterBom}`;
     await writeFile(archivePath, prepended, "utf-8");
     return { alreadyArchived: false, archivedAt };
   }
