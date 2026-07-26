@@ -311,8 +311,8 @@ Committed to the branch. Cross-branch visibility via `git fetch --all` + `git ls
 
 ```yaml
 ---
-milestone: M<N>                          # `M<N>` or the opaque `M_<key>` form
-id: fr_01K9ZQ8XJ4VDTAF4VDTAF4VDTA        # mode-conditional — see below
+milestone: M_VDTAF4                      # `M<N>` or the opaque `M_<key>` form
+id: fr_01K9ZQ8XJ4VDTAF4VDTAF4VDTA        # mode-conditional; minted plans only
 status: active                           # draft | active | complete
 kickoff_branch: plan/M<N>-kickoff
 frozen_at: 2026-04-21T10:30:00Z          # null if status=draft
