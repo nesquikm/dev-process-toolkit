@@ -30,7 +30,7 @@ flowchart LR
 
 ## 2. Plan + Research (detail)
 
-`/brainstorm` and `/spec-write` each fork a read-only researcher (`spec-research`, and `deps-research` when `specs/deps.yaml` is non-empty) for topic-aware retrieval before any artifact is written. The 5-way milestone-number scan and the auto-approve marker gate guard the write.
+`/brainstorm` and `/spec-write` each fork a read-only researcher (`spec-research`, and `deps-research` when `specs/deps.yaml` is non-empty) for topic-aware retrieval before any artifact is written. The milestone-identity guard and the auto-approve marker gate guard the write — the 5-way number scan on Linear, key-derived ids on Jira and in `mode: none`.
 
 ```mermaid
 flowchart TD
@@ -46,7 +46,7 @@ flowchart TD
     deps["/deps — manifest surface"]:::skill
     fSpecR["spec-research FORK → spec-researcher (haiku)"]:::fork
     fDepsR["deps-research FORK → deps-researcher (haiku)"]:::fork
-    gMs{"5-way milestone-number scan (NFR-10)"}:::gate
+    gMs{"milestone identity: 5-way scan (Linear) | key-derived (jira, none) (NFR-10)"}:::gate
     gMarker{"FR-draft + auto-approve marker gate"}:::gate
 
     aFrs[("specs/frs/(id).md")]:::artifact
