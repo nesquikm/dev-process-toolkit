@@ -179,7 +179,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.55.3 — "Toggle"** (M114: Linear acceptance-criteria checkboxes. The Linear push path now emits each AC as a markdown task-list checkbox, restoring the `pull_acs` / `push_ac_toggle` round-trip for Linear-created tickets — idempotent, section-scoped, never resetting a checked box, and CRLF-safe. Jira keeps its plain bullets.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.56.0 — "Mint"** (M115: tracker-less milestone identity minting. In `mode: none`, milestone ids are now minted as an opaque `M_<short-ULID>` from the local ULID minter instead of scanned as the next free number, closing the cross-branch allocation race by construction. New gate probe #73 enforces the plan-frontmatter `id:` bimodally. Linear and Jira allocation are byte-unchanged, and existing numeric plans coexist with no migration.)
 
 ## Core Philosophy
 
