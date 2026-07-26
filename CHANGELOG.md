@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.55.3] — 2026-07-26 — "Toggle"
+
+M114 "Toggle": Linear acceptance-criteria checkboxes. The Linear push path wrote acceptance criteria as plain bullets, so Linear rendered no togglable checkbox and the documented `pull_acs` / `push_ac_toggle` round-trip had nothing to operate on — the read step found no box to report and the write step no box to flip. This closes the push-side gap M52 explicitly scoped out.
+
+### Fixed
+
+- Linear AC push emits task-list checkboxes. `checkboxifyLinearACs` renders each acceptance criterion inside the `## Acceptance Criteria` section as a markdown task-list checkbox before the description reaches `save_issue`, restoring the pull-then-toggle round-trip for Linear-created tickets. Existing state is never reset — a checked box stays checked — and the transform is idempotent, section-scoped, and commutes with `formatLinearDescription` (the checkbox is a line prefix; the backtick-wrap touches the AC-ID token). Three sharp edges surfaced while building it are closed too: the push-side "already a box" predicate was narrower than `normalize`'s pull-side one, so a slack `- [x ]` came out as `- [ ] [x ] …` and destroyed the operator's checked state; skipping rather than canonicalizing let slack boxes reach Linear as GFM-invalid markup that renders as literal text with no togglable box; and splitting on `\n` without folding CRLF meant no bullet in a CRLF-sourced body converted at all — silently, because the section-boundary regexes trim while the line regexes anchor on end-of-string. Jira keeps its plain bullets, guarded against cross-adapter leakage (STE-416).
+
+Total test count at release: 5334 tests, 0 failures, 0 errors.
+
 ## [2.55.2] — 2026-07-26 — "Canon"
 
 M113 "Canon": milestone-name emit canonicalization. The plan-heading parser already normalized both `## M<N>: Title` and `## M<N> — Title` to the em-dash canonical form, but `/spec-write` and the plan template still *emitted* the colon form — so an LLM-emulated consumer reading the heading by eye created the tracker milestone under the colon name and gate-check probe #26 went red on an otherwise-clean chain. This closes the emit side and pins the create-side name and the probe-side expectation to the one shared normalizer, so they cannot drift again.
