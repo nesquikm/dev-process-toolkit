@@ -23,7 +23,13 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { milestoneLabel } from "./attach_project_milestone";
-import { isMilestoneToken, parseMilestoneToken } from "./milestone_token";
+import {
+  isMilestoneToken,
+  milestoneIdFromUlid,
+  parseMilestoneToken,
+  PLAN_FILENAME_RE,
+} from "./milestone_token";
+import { mintId } from "./ulid";
 
 describe("AC-STE-376.1 — union accept: numeric M<N>", () => {
   test("M101 is a milestone token", () => {
@@ -124,4 +130,110 @@ describe("AC-STE-376.1 — consumers reference the shared matcher (STE-335 AC-7 
       expect(src).toMatch(/milestone_token/);
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// STE-417 AC-STE-417.1 — `milestoneIdFromUlid`: the tracker-less producer for
+// the SAME opaque `M_<key>` branch `milestoneIdFromEpicKey` already feeds.
+//
+// No grammar change: `EPIC_KEY_SOURCE = [A-Za-z0-9][A-Za-z0-9_-]*` already
+// admits a 6-char Crockford tail, so `M_F4VDTA` parses today. This block pins
+// the NEW producer only:
+//   - `M_${ulid.slice(23, 29)}` — the tail, sharing `acPrefix`'s offsets
+//     verbatim (the minter is monotonic, so same-ms mints share LEADING
+//     random chars; the tail is what diverges)
+//   - Crockford charset of the derived tail (no I/L/O/U)
+//   - round-trip `parseMilestoneToken(milestoneIdFromUlid(mintId()))`
+//   - throw on any input that fails `ULID_REGEX` — never a silent bad id,
+//     mirroring `milestoneIdFromEpicKey`'s contract
+// ---------------------------------------------------------------------------
+
+// A well-formed minted id: `fr_` + 26 Crockford chars = 29 chars total.
+const MINTED = "fr_01K9ZQ8XJ4VDTAF4VDTAF4VDTA";
+
+describe("AC-STE-417.1 — milestoneIdFromUlid derives M_<6-char tail>", () => {
+  test("a minted 29-char id derives its last-6 tail", () => {
+    expect(MINTED.length).toBe(29);
+    expect(milestoneIdFromUlid(MINTED)).toBe("M_F4VDTA");
+  });
+
+  test("the derived id is exactly `M_${ulid.slice(23, 29)}` — acPrefix's offsets", () => {
+    expect(milestoneIdFromUlid(MINTED)).toBe(`M_${MINTED.slice(23, 29)}`);
+  });
+
+  test("the tail is Crockford base32 — 6 chars, no I/L/O/U", () => {
+    const id = milestoneIdFromUlid(MINTED);
+    expect(id).toMatch(/^M_[0-9A-HJKMNP-TV-Z]{6}$/);
+    expect(id.slice(2)).toHaveLength(6);
+    expect(id.slice(2)).not.toMatch(/[ILOU]/);
+  });
+
+  test("distinct minted ids with a shared timestamp head still derive distinct tails", () => {
+    const a = "fr_01K9ZQ8XJ4VDTAF4VDTAF4VDTA";
+    const b = "fr_01K9ZQ8XJ4VDTAF4VDTAF4VDTB";
+    expect(milestoneIdFromUlid(a)).toBe("M_F4VDTA");
+    expect(milestoneIdFromUlid(b)).toBe("M_F4VDTB");
+    expect(milestoneIdFromUlid(a)).not.toBe(milestoneIdFromUlid(b));
+  });
+});
+
+describe("AC-STE-417.1 — round-trip through the union grammar", () => {
+  test("parseMilestoneToken(milestoneIdFromUlid(mintId())) → { kind: epic, key: <6-char tail> }", () => {
+    const ulid = mintId();
+    const id = milestoneIdFromUlid(ulid);
+    expect(parseMilestoneToken(id)).toEqual({ kind: "epic", key: ulid.slice(23, 29) });
+    expect((parseMilestoneToken(id) as { kind: "epic"; key: string }).key).toHaveLength(6);
+  });
+
+  test("the derived id is accepted by isMilestoneToken", () => {
+    expect(isMilestoneToken(milestoneIdFromUlid(mintId()))).toBe(true);
+  });
+
+  test("the derived id names a legal plan file under PLAN_FILENAME_RE", () => {
+    expect(PLAN_FILENAME_RE.test(`${milestoneIdFromUlid(mintId())}.md`)).toBe(true);
+  });
+
+  test("re-deriving from the parsed key reproduces the id (M_ + key)", () => {
+    const ulid = mintId();
+    const id = milestoneIdFromUlid(ulid);
+    const parsed = parseMilestoneToken(id) as { kind: "epic"; key: string };
+    expect(`M_${parsed.key}`).toBe(id);
+  });
+});
+
+describe("AC-STE-417.1 — throws on malformed input (never a silent bad id)", () => {
+  const MALFORMED: [string, string][] = [
+    ["", "empty string"],
+    ["fr_", "prefix only"],
+    ["fr_TOOSHORT", "body shorter than 26 chars"],
+    ["01K9ZQ8XJ4VDTAF4VDTAF4VDTA", "no fr_ prefix"],
+    ["fr_01K9ZQ8XJ4VDTAF4VDTAF4VDTAX", "body longer than 26 chars"],
+    ["fr_01k9zq8xj4vdtaf4vdtaf4vdta", "lowercase body"],
+    ["fr_I1K9ZQ8XJ4VDTAF4VDTAF4VDTA", "Crockford-excluded I in the body"],
+    ["fr_L1K9ZQ8XJ4VDTAF4VDTAF4VDTA", "Crockford-excluded L in the body"],
+    ["fr_O1K9ZQ8XJ4VDTAF4VDTAF4VDTA", "Crockford-excluded O in the body"],
+    ["fr_U1K9ZQ8XJ4VDTAF4VDTAF4VDTA", "Crockford-excluded U in the body"],
+    ["M_F4VDTA", "an already-derived milestone id"],
+  ];
+
+  for (const [input, why] of MALFORMED) {
+    test(`"${input}" (${why}) throws`, () => {
+      expect(() => milestoneIdFromUlid(input)).toThrow();
+    });
+  }
+
+  test("the throw names the helper so the diagnostic is traceable", () => {
+    expect(() => milestoneIdFromUlid("fr_NOPE")).toThrow(/milestoneIdFromUlid/);
+  });
+});
+
+describe("AC-STE-417.1 — the slice(23, 29) offsets are shared with acPrefix", () => {
+  const sharedSrc = import.meta.dir;
+
+  test("both producers spell the same tail offsets", () => {
+    const acPrefixSrc = readFileSync(join(sharedSrc, "ac_prefix.ts"), "utf-8");
+    const tokenSrc = readFileSync(join(sharedSrc, "milestone_token.ts"), "utf-8");
+    expect(acPrefixSrc).toContain("slice(23, 29)");
+    expect(tokenSrc).toContain("slice(23, 29)");
+  });
 });

@@ -311,7 +311,8 @@ Committed to the branch. Cross-branch visibility via `git fetch --all` + `git ls
 
 ```yaml
 ---
-milestone: M<N>
+milestone: M<N>                          # `M<N>` or the opaque `M_<key>` form
+id: fr_01K9ZQ8XJ4VDTAF4VDTAF4VDTA        # mode-conditional — see below
 status: active                           # draft | active | complete
 kickoff_branch: plan/M<N>-kickoff
 frozen_at: 2026-04-21T10:30:00Z          # null if status=draft
@@ -321,6 +322,10 @@ migration: none                          # literal `none`, or a migration-regist
 ```
 
 Once `status: active`, content is immutable — any write fails with replan-branch guidance (AC-44.3).
+
+`milestone:` carries either grammar branch of the union milestone token: the sequential `M<N>` form, or the opaque `M_<key>` form produced by Jira Epic-first derivation (`M_PROJ_500`) and by tracker-less minting (`M_<short-ULID>`).
+
+`id:` is **mode-conditional**, mirroring the FR-side bimodal identity invariant. In `mode: none` a **minted** plan carries the full `fr_<26-char ULID>` that `Provider.mintId()` returned, verbatim — the plan's `M_<short-ULID>` filename is the 6-char tail of that value, so the key is what makes the identity reconstructable. In any tracker mode the key is **absent** (the tracker assigns identity). Enforced bidirectionally at gate time by probe #73 `plan_identity_mode_conditional`, which additionally asserts a recorded `id:` derives its own filename. Plans outside the minter's output range — sequential `M<N>` plans, and Epic-keyed plans carried over by a tracker → `mode: none` transition — are grandfathered and never required to carry the key, so adopting minted ids needs no migration.
 
 `migration:` declares the plan's consumer-artifact migration story. Legal values are the literal `none` (the plan introduces no convention change consumers must migrate) or a migration-registry entry id (the plan is bound to that registry entry). The value is set deliberately at plan-drafting time; `/ship-milestone` refuses to release a plan whose declared id is absent from the registry at the shipping version.
 
