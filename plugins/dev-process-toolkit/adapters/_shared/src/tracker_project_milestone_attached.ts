@@ -36,6 +36,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { milestoneBindingPresent, milestoneLabel } from "./attach_project_milestone";
 import { parsePlanHeading } from "./plan_heading";
+import { normalizeFrontmatterSource } from "./frontmatter";
 
 export interface TrackerProjectMilestoneAttachedViolation {
   file: string;
@@ -99,8 +100,11 @@ export interface FrFrontmatter {
 // Exported: assert_milestone_binding_at_archive (the archival-boundary
 // assertion, M97) shares this walk so the two milestone-binding surfaces
 // can never drift on frontmatter interpretation.
-export function parseFrFrontmatter(content: string): FrFrontmatter {
-  const lines = content.split("\n");
+export function parseFrFrontmatter(rawContent: string): FrFrontmatter {
+  // Normalize first. This walk is SHARED with the M97 archival-boundary
+  // assertion, so a CRLF/BOM FR would blind both milestone-binding surfaces
+  // at once — the exact drift this export exists to prevent.
+  const lines = normalizeFrontmatterSource(rawContent).split("\n");
   if (lines[0] !== "---") {
     return { milestone: null, status: null, trackerKey: null, trackerId: null };
   }

@@ -38,6 +38,7 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
+import { normalizeFrontmatterSource } from "./frontmatter";
 import { PLAN_FILENAME_RE, milestoneIdFromUlid, parseMilestoneToken } from "./milestone_token";
 import { readTaskTrackingSection } from "./resolver_config";
 import { ULID_REGEX } from "./ulid";
@@ -95,7 +96,7 @@ function normalizeSource(raw: string): string {
 
 function scanFrontmatterForId(rawContent: string): IdScan {
   const absent: IdScan = { present: false, line: 0, value: "", wellFormed: false, idLines: [] };
-  const content = normalizeSource(rawContent);
+  const content = normalizeFrontmatterSource(rawContent);
   if (!content.startsWith("---\n")) return absent;
   const closeIdx = content.indexOf("\n---", 4);
   if (closeIdx < 0) return absent;

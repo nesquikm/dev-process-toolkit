@@ -372,6 +372,19 @@ Grep pattern to find missing anchors: `^##\s+M[0-9]+\s*(—|:)` in `plan.md` and
 
 **Rationale (accuracy-first tradeoff):** the hybrid Pass A + Pass B approach was chosen over grep-only, semantic-only, or convention-based scope tags because (1) grep alone misses the canary, (2) a pure semantic pass is non-deterministic on explicit tokens grep would never miss, (3) scope tags require retrofitting existing specs and ongoing discipline and would have failed the exact Flutter case that motivated the pattern. Running both is essentially free since the skill already runs inside Claude Code — no separate API call. The false-positive cost on Pass B is paid for by the accuracy of catching scope-limiting narrative the grep pass can never see.
 
+### Pattern: Frontmatter Reads Go Through the Shared Normalizer
+
+**Problem**: Roughly a dozen modules read YAML frontmatter, and each one that hand-rolls its own opener check anchors on a literal `---\n`. A Windows-authored (CRLF), classic-Mac (lone `\r`) or BOM-prefixed file then reads as having **no frontmatter at all** — and that failure is silent in the dangerous direction. A strict caller throws, but a `lenient: true` caller receives `{}` instead, so the probe above it reports **PASS on a file it never actually parsed**. The same blindness pointed both ways in practice: one probe simultaneously hid a forbidden `id:` and reported a populated `tracker:` block as missing; another called a well-formed file malformed; a third skipped its check entirely; and an archival writer took its legacy-synthesis branch and prepended a *second* frontmatter block above the real one.
+
+This is a convention problem, not a clever-code problem. Every one of those readers was individually reasonable; the defect only exists because there was nowhere that said "read frontmatter this way." Left unrecorded it recurs — one probe had already reinvented a byte-identical private normalizer, and two more readers were missed on the first sweep and only caught by a later audit.
+
+**Solution**: `adapters/_shared/src/frontmatter.ts` owns the contract. Reading and writing are deliberately different calls, because they have different obligations:
+
+- **Reading** — `normalizeFrontmatterSource(raw)` before any opener check or `split("\n")`. It strips a BOM and folds CRLF and lone-CR to LF. `\r\n` is folded before lone `\r` so a CRLF never becomes a blank line, and neither substitution changes the line **count**, so reported line numbers stay accurate. Idempotent, and a no-op on LF content — adopting it can never change a verdict that was already correct.
+- **Writing** — `splitFrontmatter(raw)` / `joinFrontmatter(split, lines)`. Never normalize a document you intend to save: folding the body is irreversible, and re-applying one line ending on save rewrites lines the edit never touched. The split carries the body through byte-for-byte, so a two-field frontmatter edit changes two fields and nothing else. `hasFrontmatterOpener(raw)` distinguishes "no frontmatter" from "opened but never closed" when those carry different refusals.
+
+**Enforcement**: a structural sweep in `tests/frontmatter-line-ending-normalization.test.ts` walks `adapters/_shared/src/**` and fails when a module anchors on a `---` opener without referencing one of the shared helpers. A new probe that hand-rolls the check turns it red in the same commit — the convention is enforced rather than merely documented.
+
 ### Pattern: Tracker Mode Probe (Schema L)
 
 **Problem** (cross-cuts Pattern 9): Two modes coexist — `mode: none` (default, ACs in `specs/requirements.md`) and `mode: <tracker>` (Linear, Jira, custom — ACs in a task tracker). Every affected skill — `/setup`, `/spec-write`, `/implement`, `/gate-check`, `/pr`, `/spec-review`, `/spec-archive` — must run the right branch. If any skill guesses mode inconsistently or reads tracker state when the section is absent, the `mode: none` branch contract (Pattern 9) breaks silently.

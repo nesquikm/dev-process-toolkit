@@ -35,8 +35,9 @@ const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/m;
  * neither substitution changes the line COUNT, so reported line numbers stay
  * accurate. Idempotent, and a no-op on already-LF content.
  *
- * Writers must normalize for parsing but restore the original bytes on write —
- * see `detectEol` / `applyEol`.
+ * Writers must NOT use this on a whole document they intend to save: folding
+ * the body is irreversible. They use `splitFrontmatter` / `joinFrontmatter`,
+ * which carry the body through byte-for-byte.
  */
 export function normalizeFrontmatterSource(raw: string): string {
   return raw.replace(/^﻿/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -65,13 +66,17 @@ export interface FrontmatterSplit {
   /** Logical frontmatter lines, line endings already stripped. */
   lines: string[];
   /** The line ending used INSIDE the frontmatter block. */
-  eol: "\r\n" | "\n";
+  eol: "\r\n" | "\r" | "\n";
   /** Everything after the closing `---`, VERBATIM — never re-encoded. */
   rest: string;
 }
 
-const FM_SPLIT_RE = /^(﻿?)---(\r?\n)([\s\S]*?)(\r?\n)---/;
-const FM_OPENER_RE = /^﻿?---\r?\n/;
+// All three line endings, not just `\r?\n`. A `\r?\n`-only pattern silently
+// excluded lone-CR files, which sent them down the "no frontmatter" branch —
+// and in `flipArchivedFrontmatter` that branch PREPENDS a second frontmatter
+// block. Verified: a lone-CR file came out with four `---` delimiters.
+const FM_SPLIT_RE = /^(﻿?)---(\r\n|\r|\n)([\s\S]*?)(\r\n|\r|\n)---/;
+const FM_OPENER_RE = /^﻿?---(?:\r\n|\r|\n)/;
 
 /**
  * True when the document OPENS a frontmatter block, regardless of whether it
@@ -92,7 +97,7 @@ export function splitFrontmatter(raw: string): FrontmatterSplit | null {
   return {
     bom: m[1] ?? "",
     lines: (m[3] ?? "").split(/\r\n|\r|\n/),
-    eol: (m[2] as "\r\n" | "\n") ?? "\n",
+    eol: (m[2] as "\r\n" | "\r" | "\n") ?? "\n",
     rest: raw.slice(m[0].length),
   };
 }
