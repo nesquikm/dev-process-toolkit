@@ -21,6 +21,7 @@
 // close — same anchoring as archive_fr.ts.
 
 import { readFile, writeFile } from "node:fs/promises";
+import { hasFrontmatterOpener, joinFrontmatter, splitFrontmatter } from "./frontmatter";
 
 /**
  * NFR-10 canonical refusal for the double-ship guard: the plan already
@@ -67,7 +68,23 @@ export async function stampShippedIn(
   const stampLine = `shipped_in: ${stampValue}`;
 
   const original = await readFile(planPath, "utf-8");
-  if (!original.startsWith("---\n")) {
+  // `splitFrontmatter` tolerates CRLF / lone-CR / BOM and carries the body
+  // through VERBATIM. Without CRLF tolerance this helper refused to stamp a
+  // plan whose frontmatter is perfectly well-formed; without a verbatim body,
+  // a one-line stamp would rewrite every line ending in the file.
+  const split = splitFrontmatter(original);
+  if (split === null) {
+    // Distinguish "never opened" from "opened but never closed" — the two
+    // carry different remedies, and an existing regression pins both.
+    if (hasFrontmatterOpener(original)) {
+      throw new Error(
+        [
+          `Refusing: plan frontmatter opens with \`---\` but never closes.`,
+          `Remedy: close the frontmatter block with a \`---\` line, then re-run.`,
+          `Context: mode=plan-ship-stamp, file=${planPath}, attempted=${stampValue}`,
+        ].join("\n"),
+      );
+    }
     throw new Error(
       [
         `Refusing: plan file has no YAML frontmatter block to stamp \`shipped_in\` into.`,
@@ -77,26 +94,7 @@ export async function stampShippedIn(
     );
   }
 
-  // Anchor past the opener so a body `---` HR can never match first.
-  let closeIdx = original.indexOf("\n---\n", 4);
-  if (closeIdx < 0) {
-    if (original.endsWith("\n---")) {
-      closeIdx = original.length - 4;
-    } else {
-      throw new Error(
-        [
-          `Refusing: plan frontmatter opens with \`---\` but never closes.`,
-          `Remedy: close the frontmatter block with a \`---\` line, then re-run.`,
-          `Context: mode=plan-ship-stamp, file=${planPath}, attempted=${stampValue}`,
-        ].join("\n"),
-      );
-    }
-  }
-
-  const fmSection = original.slice(4, closeIdx);
-  const rest = original.slice(closeIdx + 4); // consume `\n---` only; `\n` stays with body
-
-  const fmLines = fmSection.split("\n");
+  const fmLines = split.lines;
   for (let i = 0; i < fmLines.length; i += 1) {
     const m = /^shipped_in\s*:\s*(.*)$/.exec(fmLines[i]!);
     if (!m) continue;
@@ -107,7 +105,7 @@ export async function stampShippedIn(
       // creation) — this is the first real stamp: overwrite in place,
       // preserving key position; never a double-ship conflict.
       fmLines[i] = stampLine;
-      await writeFile(planPath, `---\n${fmLines.join("\n")}\n---${rest}`, "utf-8");
+      await writeFile(planPath, joinFrontmatter(split, fmLines), "utf-8");
       return;
     }
     throw new ShippedInConflictError(planPath, existing, stampValue);
@@ -115,6 +113,5 @@ export async function stampShippedIn(
 
   // Fresh stamp: append exactly one line at the end of the frontmatter,
   // leaving every other key and the entire body byte-for-byte intact.
-  const newContent = `---\n${fmSection}\n${stampLine}\n---${rest}`;
-  await writeFile(planPath, newContent, "utf-8");
+  await writeFile(planPath, joinFrontmatter(split, [...fmLines, stampLine]), "utf-8");
 }
