@@ -34,7 +34,8 @@ const provider = mode === "none"
 ## Plan file access
 
 - Plan files live at `specs/plan/<M#>.md` (active or in-flight) or `specs/plan/archive/<M#>.md` (archived milestones).
-- Frontmatter shape is enforced at gate time by `/gate-check` probes #16 (`archive-plan-status`) and #27 (`frontmatter-milestone-not-archived`); the read-side parser is `parseFrontmatter` in `adapters/_shared/src/frontmatter.ts`.
+- Milestone id is governed by mode. Tracker mode with Jira derives `M_<epic-key>` from the milestone Epic; Linear keeps the sequential `M<N>` scan. In `mode: none` there is no tracker key to claim from, so `/spec-write` mints one — `Provider.mintId()` returns the full `fr_<26-char ULID>`, and `milestoneIdFromUlid` derives the plan id `M_<short-ULID>` from `ulid.slice(23, 29)` (the same tail offsets the FR filename and AC prefix use). The minted value is preserved verbatim in plan frontmatter `id:` in `mode: none` only; tracker mode has no `id:` line. Existing sequential `M<N>` plans in a tracker-less project keep resolving, archiving and shipping unchanged alongside minted ones — coexistence, no migration.
+- Frontmatter shape is enforced at gate time by `/gate-check` probes #16 (`archive-plan-status`), #27 (`frontmatter-milestone-not-archived`), and #73 (`plan_identity_mode_conditional`, the mode-conditional `id:` invariant); the read-side parser is `parseFrontmatter` in `adapters/_shared/src/frontmatter.ts`.
 - Once `status: active`, content is immutable; any write fails with: *"Plan for <M#> is frozen. Create a `plan/<M#>-replan-<N>` branch to revise."*.
 
 ## Design-reference storage
@@ -104,7 +105,7 @@ The read-side parser is `readTokenStatsConfig` in `adapters/_shared/src/token_st
 ### `/gate-check`
 - Conformance probes:
   1. **Filename ↔ `Provider.filenameFor(spec)`** for every `specs/frs/**/*.md` (strict — every base name must equal `Provider.filenameFor(spec)`).
-  2. **Required frontmatter fields** present for every FR file — the mode-invariant Schema Q keys `title`, `milestone`, `status`, `archived_at`, `tracker`, `created_at`. The `id:` field is **mode-conditional**: required in `mode: none`, absent in tracker mode (the tracker ID is the canonical identity). Mode-conditional enforcement lives in probe #13 `identity_mode_conditional`; see `skills/gate-check/SKILL.md:26` for the full contract. Missing a mode-invariant field = fail.
+  2. **Required frontmatter fields** present for every FR file — the mode-invariant Schema Q keys `title`, `milestone`, `status`, `archived_at`, `tracker`, `created_at`. The `id:` field is **mode-conditional**: required in `mode: none`, absent in tracker mode (the tracker ID is the canonical identity). Mode-conditional enforcement lives in probe #13 `identity_mode_conditional`; see `skills/gate-check/SKILL.md:26` for the full contract. Missing a mode-invariant field = fail. The plan-side twin of the same bimodal rule — a minted `M_<short-ULID>` plan carries `id:` in `mode: none`, no plan carries it in tracker mode — is a separate module enforced by probe #73 `plan_identity_mode_conditional`.
   3. **Stale lock scan** — list `.dpt/locks/<ulid>` entries whose branch is merged or deleted. Offer `--cleanup-stale-locks` action that deletes them in one commit.
   4. **Plan post-freeze edit scan** — for each `specs/plan/<M#>.md` with `status: active` + non-null `frozen_at`, list commits to that path whose authored date is after `frozen_at`. No auto-revert (warning semantics).
 

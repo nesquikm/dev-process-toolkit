@@ -1016,10 +1016,10 @@ describe("AC-STE-410.6 — gate-check SKILL #69 documents the carve-out; probe c
     expect(entry).toContain("GATE FAILED");
   });
 
-  test("the numbered probe count is unchanged — the highest numbered probe stays 72", () => {
+  test("the numbered probe count is unchanged — the highest numbered probe stays 73", () => {
     const numbers = [...body.matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
     expect(numbers.length).toBeGreaterThan(0);
-    expect(Math.max(...numbers)).toBe(72);
-    expect(numbers.length).toBe(72);
+    expect(Math.max(...numbers)).toBe(73);
+    expect(numbers.length).toBe(73);
   });
 });

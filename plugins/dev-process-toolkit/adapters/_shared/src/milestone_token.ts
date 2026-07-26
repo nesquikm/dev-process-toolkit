@@ -11,6 +11,8 @@
 // every consumer for a `milestone_token` reference so a private copy cannot
 // silently return.
 
+import { ULID_REGEX } from "./ulid";
+
 /** Digits of a numeric milestone id (`101` of `M101`). */
 const NUMBER_SOURCE = String.raw`\d+`;
 
@@ -88,6 +90,36 @@ export function milestoneIdFromEpicKey(key: string): string {
   if (!isMilestoneToken(id) || !/^M_[A-Za-z0-9_]+$/.test(id)) {
     throw new Error(
       `milestoneIdFromEpicKey: Epic key "${key}" does not sanitize to a well-formed \`M_<epic-key>\` milestone id`,
+    );
+  }
+  return id;
+}
+
+/**
+ * Tracker-less milestone-id derivation — the `mode: none` sibling of
+ * `milestoneIdFromEpicKey`, feeding the SAME opaque `M_<key>` branch of the
+ * union grammar (no grammar change: `EPIC_KEY_SOURCE` already admits a 6-char
+ * Crockford tail).
+ *
+ * The key is `ulid.slice(23, 29)` — the same offsets `acPrefix`
+ * (`ac_prefix.ts`) uses, for the same reason: `ulid.ts` mints monotonic ULIDs,
+ * so same-millisecond mints share their LEADING random chars and only the
+ * tail is entropic. See that module's header for the full rationale.
+ *
+ * Throws when the input is not a well-formed minted id under `ULID_REGEX`, or
+ * when the derived id is malformed under the union grammar — mirroring
+ * `milestoneIdFromEpicKey`'s never-a-silent-bad-id contract.
+ */
+export function milestoneIdFromUlid(ulid: string): string {
+  if (!ULID_REGEX.test(ulid)) {
+    throw new Error(
+      `milestoneIdFromUlid: "${ulid}" is not a well-formed minted id (\`fr_\` + 26 Crockford base32 chars)`,
+    );
+  }
+  const id = `M_${ulid.slice(23, 29)}`;
+  if (!isMilestoneToken(id)) {
+    throw new Error(
+      `milestoneIdFromUlid: minted id "${ulid}" does not derive a well-formed \`M_<key>\` milestone id (got "${id}")`,
     );
   }
   return id;
