@@ -179,7 +179,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.55.0 — "Lineage"** (M101: Jira milestones become first-class Epics. `attach_project_milestone` gains the `epic` binding (FR Tasks parented to the milestone Epic, membership = a `parent = <epic-key>` query), `/spec-write` allocates Jira milestones Epic-first with collision-free `M_<epic-key>` ids minted from the Epic’s tracker key, and the shared milestone-token grammar accepts `M_<key>` alongside legacy `M<N>` across every parser, probe, and branch proposal. Linear + `mode: none` keep sequential `M<N>`; label-milestones grandfather.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.55.1 — "Deadbolt"** (M112: the non-tty smoke-driver hard gate. The `[ -t 0 ]` headless classification is binding and the "interactive parent" self-narration is named forbidden; a discretionary-halt guard routes every mid-run judgment call off the auto-approve marker instead of a prose question; and the final-message self-check becomes a hard abort-with-teardown that reaps live pidfiles — identity-checked with `ps` — before tearing down, and exits non-zero. Mirrored into `/conformance-loop`.)
 
 ## Core Philosophy
 
