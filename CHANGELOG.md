@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.56.0] — 2026-07-26 — "Mint"
+
+M115 "Mint": tracker-less milestone identity minting. A project with no tracker picked its next milestone number by scanning whatever the local checkout happened to see — active plans, archived plans, the changelog, and whichever git refs were present. Two developers on branches neither had pushed would both scan the same visible history, both land on the same number, and find out only when the branches met. The fifth cross-branch scan leg added in M89 narrowed that window and said of itself that it was detection, not prevention.
+
+### Changed
+
+- Tracker-less milestone ids are minted, not allocated. In `mode: none`, `/spec-write` now takes a ULID from the same local minter that has produced tracker-less FR identity since M37 and derives an opaque `M_<short-ULID>` from its 6-char tail, bypassing the five-way scan exactly as the Jira Epic-first path does. Two independent mints cannot collide by construction, so the race closes rather than narrowing. This reverses the tracker-less carve-out recorded in M101, whose premise — that tracker-less mode had no key to claim from — was false: `Provider.mintId()` was already that key. The union milestone-token grammar accepted the shape before this change, so it adds a producer, not a grammar; Linear keeps its five-way scan and Jira keeps Epic-first, both byte-unchanged, and existing numeric plans keep resolving, archiving and shipping with no migration. Minting routes through the existing 3-attempt `mintUniqueId` retry, whose predicate checks the active *and* archive plan directories, so a 6-char tail collision re-mints instead of overwriting somebody's milestone. New gate probe #73 enforces the plan-frontmatter `id:` bimodally — present on a minted plan in `mode: none`, absent on every plan in tracker mode — and additionally requires that a recorded id derive its own filename, so the key stays load-bearing rather than decorative. It ships as a sibling module rather than widening probe #13 past its deliberate FR-only boundary, and its grandfather set is scoped to the minter's own output range so that neither legacy numeric plans nor Epic-keyed plans carried over by a mode switch are policed for an id that never existed. The ordinal is given up deliberately: in tracker-less mode there is no longer an answer to "which milestone is next", and chronology lives in the release version and codename instead (STE-417).
+
+Total test count at release: 5462 tests, 0 failures, 0 errors.
+
 ## [2.55.3] — 2026-07-26 — "Toggle"
 
 M114 "Toggle": Linear acceptance-criteria checkboxes. The Linear push path wrote acceptance criteria as plain bullets, so Linear rendered no togglable checkbox and the documented `pull_acs` / `push_ac_toggle` round-trip had nothing to operate on — the read step found no box to report and the write step no box to flip. This closes the push-side gap M52 explicitly scoped out.
