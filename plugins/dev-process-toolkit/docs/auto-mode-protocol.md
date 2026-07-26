@@ -224,12 +224,27 @@ Initial scope (audited by `/gate-check` probe `requires_input_sentinel_coverage`
 | `/report-issue`    | gist push                         | STE-226 marker (default-apply)                      |
 
 The probe globs `plugins/dev-process-toolkit/skills/*/SKILL.md` and
-`.claude/skills/*/SKILL.md`; for every skill body containing a non-comment
-`requires-input:` annotation, it asserts (a) a `requireOrRefuse(...)`
-reference and (b) a relative-path citation of `docs/auto-mode-protocol.md`.
-Either missing ⇒ separate violation, surfaced as
+`.claude/skills/*/SKILL.md`. Scope is decided per occurrence, not per file: a
+skill is in scope only when some non-comment line DECLARES a gate. A line
+declares a gate when the annotation owns that line (after blockquote /
+table-cell / heading / list / emphasis decoration and one optional backtick),
+or when an inline-code span carries the annotation together with a concrete
+reason. Naming the contract mid-sentence in running prose — as the
+"Marker presence is informational" disclaimer above does, and as every
+marker-consuming skill is asked to — is a mention, not a declaration, and
+never pulls the citing skill into scope.
+
+**Annotation form is the contract.** Write a gate as its own line, or supply
+its reason inside the same inline-code span; a bare token buried mid-sentence
+is indistinguishable from prose and will not be audited. For every in-scope
+skill the probe asserts (a) a `requireOrRefuse(...)` reference and (b) a
+relative-path citation of `docs/auto-mode-protocol.md`. Either missing ⇒
+separate violation, surfaced as
 `requires_input_sentinel_coverage_violation` capability rows in the
-`/gate-check` report.
+`/gate-check` report. The recognizer `isRequiresInputDeclaration(line)` in
+`adapters/_shared/src/requires_input_sentinel_coverage.ts` is the single
+source of truth for the distinction; prose that DESCRIBES the rule must be run
+through it before committing, or the describing skill scopes itself in.
 
 ## Related FRs
 
