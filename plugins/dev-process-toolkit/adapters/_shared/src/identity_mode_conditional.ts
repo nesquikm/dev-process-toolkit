@@ -15,6 +15,7 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { normalizeFrontmatterSource } from "./frontmatter";
 import { readTaskTrackingSection } from "./resolver_config";
 
 // AC-STE-86.8: inlined to avoid runtime dep on ulid.ts.
@@ -56,7 +57,14 @@ interface IdScan {
  * `scanFrontmatterForId` and `scanFrontmatterForTracker` — both scanners
  * walked the same 7-line prelude before this hoist.
  */
-function splitFrontmatterLines(content: string): string[] | null {
+function splitFrontmatterLines(rawContent: string): string[] | null {
+  // Normalize BOM + line endings before anchoring on the `---\n` opener.
+  // Without this a CRLF or BOM-prefixed FR scans as having no frontmatter,
+  // which is wrong in BOTH directions: in tracker mode a forbidden `id:` goes
+  // undetected AND a populated `tracker:` block is reported missing, while in
+  // `mode: none` a well-formed FR is failed for a missing `id:`. All three
+  // were reproduced. Line COUNT is preserved, so line numbers stay accurate.
+  const content = normalizeFrontmatterSource(rawContent);
   if (!content.startsWith("---\n")) return null;
   const closeIdx = content.indexOf("\n---", 4);
   if (closeIdx < 0) return null;

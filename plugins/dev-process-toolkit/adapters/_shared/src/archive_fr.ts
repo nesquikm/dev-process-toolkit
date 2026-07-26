@@ -38,6 +38,7 @@
 // it between the two git invocations.
 
 import { readFile, writeFile } from "node:fs/promises";
+import { joinFrontmatter, splitFrontmatter } from "./frontmatter";
 import { join, dirname, basename } from "node:path";
 
 export interface ArchiveFlipResult {
@@ -66,33 +67,22 @@ export async function flipArchivedFrontmatter(
   archivedAt: string,
 ): Promise<ArchiveFlipResult> {
   const original = await readFile(archivePath, "utf-8");
-  if (!original.startsWith("---\n")) {
+  // `splitFrontmatter` tolerates CRLF / lone-CR / BOM and carries the body
+  // through VERBATIM. Two things depend on that. Without CRLF tolerance a
+  // Windows-authored file fails the opener check and takes the synthesis
+  // branch below, prepending a SECOND frontmatter block above the real one —
+  // corruption, not merely a skipped check. And without a verbatim body, a
+  // two-field frontmatter edit would rewrite every line ending in the file
+  // (both failure modes reproduced against fixtures).
+  const split = splitFrontmatter(original);
+  if (split === null) {
     // STE-197 AC-STE-197.4 — synthesize frontmatter for legacy files.
     const prepended = `---\nstatus: archived\narchived_at: ${archivedAt}\n---\n\n${original}`;
     await writeFile(archivePath, prepended, "utf-8");
     return { alreadyArchived: false, archivedAt };
   }
-  // Match the YAML frontmatter close `\n---\n` (or `\n---` at EOF) — `\n---`
-  // alone would also match an HR line (e.g., a body `---` separator),
-  // collapsing the frontmatter scan onto body content. We anchor to
-  // `\n---\n` then consume only the leading 4 chars so the trailing `\n`
-  // stays with the body (preserving any post-frontmatter blank line
-  // through idempotent re-runs).
-  let closeIdx = original.indexOf("\n---\n", 4);
-  if (closeIdx < 0) {
-    if (original.endsWith("\n---")) {
-      closeIdx = original.length - 4;
-    } else {
-      // Malformed frontmatter (open without close) — treat as legacy.
-      const prepended = `---\nstatus: archived\narchived_at: ${archivedAt}\n---\n\n${original}`;
-      await writeFile(archivePath, prepended, "utf-8");
-      return { alreadyArchived: false, archivedAt };
-    }
-  }
 
-  const fmSection = original.slice(4, closeIdx);
-  const rest = original.slice(closeIdx + 4); // consume `\n---` only; `\n` stays with body
-  const lines = fmSection.split("\n");
+  const lines = split.lines;
   let alreadyArchived = false;
   let sawStatus = false;
   let sawArchivedAt = false;
@@ -124,7 +114,7 @@ export async function flipArchivedFrontmatter(
   }
   if (!sawStatus) newLines.push("status: archived");
   if (!sawArchivedAt) newLines.push(`archived_at: ${archivedAt}`);
-  const newContent = `---\n${newLines.join("\n")}\n---${rest}`;
+  const newContent = joinFrontmatter(split, newLines);
   if (newContent !== original) {
     await writeFile(archivePath, newContent, "utf-8");
   }

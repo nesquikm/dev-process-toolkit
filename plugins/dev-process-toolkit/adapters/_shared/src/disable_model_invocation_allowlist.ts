@@ -24,6 +24,7 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { normalizeFrontmatterSource } from "./frontmatter";
 
 export const PROBE_ID = "disable_model_invocation_allowlist";
 
@@ -97,6 +98,9 @@ function extractFrontmatter(
 ): { text: string; startLine: number } | null {
   // Frontmatter convention: file begins with `---\n`, terminates at the
   // next `\n---` line. Mirrors readFrontmatterDescription in the AC.7 test.
+  // Fold BOM + CRLF/lone-CR first, or a Windows-authored file reads as
+  // having no frontmatter and this check silently passes on an unparsed file.
+  body = normalizeFrontmatterSource(body);
   if (!body.startsWith("---\n")) return null;
   const closeIdx = body.indexOf("\n---", 4);
   if (closeIdx === -1) return null;

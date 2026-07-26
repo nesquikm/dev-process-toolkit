@@ -22,6 +22,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
+import { normalizeFrontmatterSource } from "./frontmatter";
 
 export interface NeedsTechnicalReviewConsistencyViolation {
   file: string;
@@ -50,8 +51,10 @@ interface ParsedFrontmatter {
   endLine: number; // 1-indexed line number of the closing `---` (or 0 if no frontmatter)
 }
 
-function parseFrontmatter(content: string): ParsedFrontmatter {
-  const lines = content.split("\n");
+function parseFrontmatter(rawContent: string): ParsedFrontmatter {
+  // Normalize first: a CRLF/BOM file otherwise reads as having no frontmatter,
+  // so the flag scans as absent and this probe silently skips its check.
+  const lines = normalizeFrontmatterSource(rawContent).split("\n");
   if (lines[0] !== "---") {
     return {
       needsTechnicalReview: false,

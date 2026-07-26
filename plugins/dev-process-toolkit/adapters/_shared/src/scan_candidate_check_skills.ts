@@ -20,6 +20,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parseFrontmatter } from "./frontmatter";
+import { normalizeFrontmatterSource } from "./frontmatter";
 
 export interface CandidateCheckSkill {
   slug: string;
@@ -39,6 +40,9 @@ const SLUG_PATTERNS = ["drive", "check", "verify"];
  * the resolver would offer to run.
  */
 function hasVerifyMarker(content: string): boolean {
+  // Fold BOM + CRLF/lone-CR first, or a Windows-authored file reads as
+  // having no frontmatter and this check silently passes on an unparsed file.
+  content = normalizeFrontmatterSource(content);
   if (!content.startsWith("---\n")) return false;
   return parseFrontmatter(content, { lenient: true }).verify === true;
 }

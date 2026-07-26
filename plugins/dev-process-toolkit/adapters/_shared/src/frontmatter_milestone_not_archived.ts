@@ -15,6 +15,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
+import { normalizeFrontmatterSource } from "./frontmatter";
 
 export interface FrontmatterMilestoneViolation {
   file: string;
@@ -34,8 +35,10 @@ interface ParsedFrontmatter {
   status: string | null;
 }
 
-function parseFrontmatter(content: string): ParsedFrontmatter {
-  const lines = content.split("\n");
+function parseFrontmatter(rawContent: string): ParsedFrontmatter {
+  // Normalize first: a CRLF/BOM file otherwise reads as having no frontmatter
+  // at all, and this probe then reports `malformed` on a perfectly good FR.
+  const lines = normalizeFrontmatterSource(rawContent).split("\n");
   if (lines[0] !== "---") return { milestone: null, milestoneLine: 1, status: null };
   let milestone: string | null = null;
   let milestoneLine = 1;

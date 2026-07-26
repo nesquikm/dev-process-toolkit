@@ -21,6 +21,7 @@ import { join, relative } from "node:path";
 // Union grammar: `M<N>` and `M_<epic-key>` plan filenames are both walked.
 import { PLAN_FILENAME_RE } from "../milestone_token";
 import { MIGRATIONS, type MigrationEntry } from "./index";
+import { normalizeFrontmatterSource } from "../frontmatter";
 
 /**
  * The release at which milestone-plan migration coverage begins to be enforced.
@@ -48,6 +49,9 @@ type FrontmatterResult =
  * `---` line anchored PAST the opener so a body `---` HR can never match first.
  */
 function readFrontmatterSection(content: string): FrontmatterResult {
+  // Fold BOM + CRLF/lone-CR first, or a Windows-authored file reads as
+  // having no frontmatter and this check silently passes on an unparsed file.
+  content = normalizeFrontmatterSource(content);
   if (!content.startsWith("---\n")) return { kind: "no-frontmatter" };
   let closeIdx = content.indexOf("\n---\n", 4);
   if (closeIdx < 0) {
