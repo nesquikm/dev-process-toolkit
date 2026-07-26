@@ -8,6 +8,16 @@ migration: none  # literal `none` (no consumer migration), or a migration-regist
 ---
 
 <!--
+  Mode-conditional identity key: in mode: none a MINTED plan also carries `id: fr_<26-char ULID>`
+  in the frontmatter above — the value Provider.mintId() returned, verbatim, and the value the
+  `M_<short-ULID>` filename derives from. Tracker mode omits the key entirely; the tracker ID is
+  the canonical identity there. It is documented here rather than scaffolded because this
+  template is copied verbatim into tracker-mode projects too, and `/gate-check` probe #73
+  (`plan_identity_mode_conditional`) fails any tracker-mode plan that carries `id:`. Legacy
+  sequential `M<N>` plans in a tracker-less project keep working without the key — no migration.
+-->
+
+<!--
   Tracker-ID placeholder convention: when drafting FR rows in tracker
   mode, use the literal placeholder `<tracker-id>` (e.g.,
   `| <tracker-id> | <Title> | ... |`) until the tracker allocator

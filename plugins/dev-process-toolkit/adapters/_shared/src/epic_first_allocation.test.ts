@@ -11,9 +11,16 @@
 //   .3 FR binding + self-describing membership: Task `parent` = Epic key,
 //      `milestone: M_<epic-key>` frontmatter is a first-class milestone
 //      binding, and the id re-derives from its own parent key.
-//   .4 Linear + mode:none unchanged: `nextFreeMilestoneNumber` five-way
-//      scan stays sequential (`M_<key>` tokens excluded, STE-376) and no
-//      Epic is created off the Jira path.
+//   .4 Linear unchanged: `nextFreeMilestoneNumber` five-way scan stays
+//      sequential (`M_<key>` tokens excluded, STE-376) and no Epic is
+//      created off the Jira path. RE-SCOPED by STE-417 (AC-STE-417.5):
+//      `mode: none` no longer rides this arm — it mints an opaque
+//      ULID-derived id and bypasses the scan entirely. That divergence is
+//      DELIBERATE, not drift: STE-377 declined tracker-less minting on the
+//      premise that no key was available to claim from, and STE-417
+//      overturns that call because `Provider.mintId()` supplies exactly
+//      such a key. The `mode: none` arm below therefore asserts the
+//      minted path, including that the scan is NOT reachable from it.
 //   .5 plan file at `specs/plan/M_<epic-key>.md` with a canonical
 //      `# M_<epic-key> — <title>` heading that parses (STE-376) and that
 //      /ship-milestone can later stamp (`stampShippedIn`).
@@ -31,9 +38,11 @@ import { runFrontmatterMilestoneNotArchivedProbe } from "./frontmatter_milestone
 import {
   isMilestoneToken,
   milestoneIdFromEpicKey,
+  milestoneIdFromUlid,
   parseMilestoneToken,
   PLAN_FILENAME_RE,
 } from "./milestone_token";
+import { mintMilestoneId } from "./mint_milestone_id";
 import { nextFreeMilestoneNumber } from "./next_free_milestone_number";
 import { stampShippedIn } from "./plan_ship_stamp";
 
@@ -294,10 +303,10 @@ describe("AC-STE-377.3 — FR binding + self-describing membership", () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────
-// AC-STE-377.4 — Linear + mode:none unchanged
+// AC-STE-377.4 — Linear unchanged (mode:none re-scoped out by STE-417)
 // ───────────────────────────────────────────────────────────────────────
 
-describe("AC-STE-377.4 — Linear + mode:none milestone allocation is byte-unchanged", () => {
+describe("AC-STE-377.4 — Linear milestone allocation is byte-unchanged", () => {
   function makeScanFixture(): { specs: string; changelog: string; cleanup: () => void } {
     const root = mkdtempSync(join(tmpdir(), "ste377-scan-"));
     const specs = join(root, "specs");
@@ -337,12 +346,13 @@ describe("AC-STE-377.4 — Linear + mode:none milestone allocation is byte-uncha
     }
   });
 
-  test("mode:none (no provider, no branchScanner) keeps the sequential path", async () => {
+  test("Linear (provider, no branchScanner) keeps the sequential path", async () => {
     const fx = makeScanFixture();
     try {
-      const r = await nextFreeMilestoneNumber(fx.specs, fx.changelog);
+      const provider = { listMilestones: async () => [{ name: "M97 — Labeled" }] };
+      const r = await nextFreeMilestoneNumber(fx.specs, fx.changelog, provider);
       expect(r.next).toBe(102);
-      expect(r.sources.tracker).toEqual([]);
+      expect(r.sources.tracker).toEqual([97]);
       expect(r.sources.branches).toEqual([]);
     } finally {
       fx.cleanup();
@@ -394,6 +404,103 @@ describe("AC-STE-377.4 — Linear + mode:none milestone allocation is byte-uncha
     expect(result.capability).toBeNull();
     expect(calls).toContain("upsertTicketMetadata"); // object path unchanged
     expect(calls).not.toContain("createEpic");
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// AC-STE-417.5 — the tracker-less arm re-scoped OUT of AC-STE-377.4
+//
+// STE-377 pinned "Linear AND mode: none milestone allocation byte-unchanged".
+// STE-417 reverses the tracker-less half on the grounds that STE-377's stated
+// premise — no key available to claim from — is false. What follows is the
+// replacement contract for the arm that used to live in the block above:
+// `mode: none` mints, and the sequential scan is not merely unused on that
+// path, it is unreachable from it.
+// ───────────────────────────────────────────────────────────────────────
+
+describe("AC-STE-417.5 — mode: none DIVERGES: the minted path never calls nextFreeMilestoneNumber", () => {
+  // Same visible history as the AC-STE-377.4 scan fixture: a sequential
+  // allocator looking at this tree answers 102.
+  function makeMintFixture(): { specs: string; changelog: string; cleanup: () => void } {
+    const root = mkdtempSync(join(tmpdir(), "ste417-diverge-"));
+    const specs = join(root, "specs");
+    mkdirSync(join(specs, "plan", "archive"), { recursive: true });
+    writeFileSync(join(specs, "plan", "M101.md"), "# M101 — Sequential milestone\n");
+    writeFileSync(join(specs, "plan", "archive", "M99.md"), "# M99 — Archived milestone\n");
+    const changelog = join(root, "CHANGELOG.md");
+    writeFileSync(changelog, "# Changelog\n\nM100 shipped.\n");
+    return { specs, changelog, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  }
+
+  test("the minted id is opaque — it is not max+1 over the visible plan tree", () => {
+    const fx = makeMintFixture();
+    try {
+      // The fixture's visible history would make `nextFreeMilestoneNumber`
+      // answer 102. The minted path must ignore all of it.
+      const result = mintMilestoneId(fx.specs);
+      expect(result.milestoneId).not.toBe("M102");
+      expect(result.milestoneId).not.toMatch(/^M\d+$/);
+      expect(result.milestoneId).toMatch(/^M_[0-9A-HJKMNP-TV-Z]{6}$/);
+      expect(result.milestoneId).toBe(milestoneIdFromUlid(result.id));
+      expect(isMilestoneToken(result.milestoneId)).toBe(true);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("the same plan tree yields a DIFFERENT id on a second allocation (no shared counter)", () => {
+    const fx = makeMintFixture();
+    try {
+      const a = mintMilestoneId(fx.specs);
+      const b = mintMilestoneId(fx.specs);
+      expect(a.id).not.toBe(b.id);
+      expect(a.milestoneId).not.toBe(b.milestoneId);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("the five-way scan is UNREACHABLE from the minted path, not merely unused", () => {
+    const fx = makeMintFixture();
+    try {
+      // `nextFreeMilestoneNumber` is async: every one of its five legs is
+      // awaited. A synchronous return from `mintMilestoneId` is proof the
+      // scan was never entered — no promise, nothing to await.
+      const result = mintMilestoneId(fx.specs) as unknown as { then?: unknown };
+      expect(result).not.toBeInstanceOf(Promise);
+      expect(typeof result.then).toBe("undefined");
+      // ...and the module imports neither the scan nor the branch leg
+      // (import + call shapes only — prose may still NAME the bypass).
+      const src = readFileSync(join(import.meta.dir, "mint_milestone_id.ts"), "utf-8");
+      expect(src).not.toMatch(/from\s+["'][^"']*next_free_milestone_number["']/);
+      expect(src).not.toMatch(/\bnextFreeMilestoneNumber\s*\(/);
+      expect(src).not.toMatch(/from\s+["'][^"']*branch_milestone_scan["']/);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("existing M<N> plans in the same tracker-less tree still resolve (coexistence)", async () => {
+    const fx = makeMintFixture();
+    try {
+      const minted = mintMilestoneId(fx.specs);
+      writeFileSync(
+        join(fx.specs, "plan", `${minted.milestoneId}.md`),
+        `# ${minted.milestoneId} — Minted milestone\n`,
+      );
+      // The sequential helper still answers for any legacy `M<N>` caller and
+      // is unperturbed by the minted plan sitting beside them.
+      const r = await nextFreeMilestoneNumber(fx.specs, fx.changelog);
+      expect(r.next).toBe(102);
+      expect(r.sources.active).toEqual([101]);
+      expect(PLAN_FILENAME_RE.test(`${minted.milestoneId}.md`)).toBe(true);
+      expect(parseMilestoneToken(minted.milestoneId)).toEqual({
+        kind: "epic",
+        key: minted.id.slice(23, 29),
+      });
+    } finally {
+      fx.cleanup();
+    }
   });
 });
 
