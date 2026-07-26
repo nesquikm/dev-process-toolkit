@@ -200,7 +200,7 @@ humans editing the file by hand.
 
 <!--
 ===============================================================================
-Optional: milestone_scan_fetch (default false; mode-agnostic).
+Optional: milestone_scan_fetch (default false; Linear only in practice).
 
 `/spec-write`'s milestone-number allocation guard runs a cross-branch scan
 (`scanBranchMilestones`) that unions `M<N>` plan files from every git ref
@@ -214,9 +214,12 @@ milestones that exist only on a not-yet-fetched remote ref are included.
 Resolution precedence: `/spec-write --no-fetch` > `--fetch` >
 `milestone_scan_fetch` > built-in default `false`.
 
-This knob is **mode-agnostic**: it is read whether or not a `## Task
-Tracking` section exists (the cross-branch scan runs in both tracker and
-`mode: none` repos). It is NOT a `## Task Tracking` Schema-L key — keep it
+The knob is **read** whether or not a `## Task Tracking` section exists, but
+it only has an EFFECT where the cross-branch scan actually runs. Jira derives
+its milestone id from the Epic key and `mode: none` mints an opaque
+`M_<short-ULID>`; both bypass the scan entirely, so on those two paths this
+line — and `--fetch` / `--no-fetch` — is inert. Linear is the one mode where
+it changes anything. It is NOT a `## Task Tracking` Schema-L key — keep it
 as its own top-level line; the `task-tracking-canonical-keys` gate-check
 probe reserves the Task-Tracking closed set {mode, mcp_server,
 jira_ac_field, branch_template}. Absent line ⇒ `false`.
