@@ -25,7 +25,7 @@
 // content is intentional legacy coverage.
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const pluginRoot = join(import.meta.dir, "..");
@@ -34,6 +34,41 @@ const EM_DASH = "—";
 function read(relPath: string): string {
   return readFileSync(join(pluginRoot, relPath), "utf8");
 }
+
+// --- SCOPE GAP (T5) --------------------------------------------------------
+//
+// `pluginRoot` above resolved every read under `plugins/dev-process-toolkit/`,
+// so the read-side sweep this file exists to be — "find every consumer that
+// matches ONLY the colon form" — never scanned the two project-local driver
+// SKILLs at REPO root under `.claude/skills/`. One of them carries a colon-only
+// milestone-heading matcher that STE-415's emit flip made unsatisfiable, and
+// the sweep designed to catch exactly that class walked straight past it.
+//
+// The repo-root anchor + `readIfPresent` + `describe.skip`-when-absent idiom is
+// lifted from `tests/m112-ste-414-nontty-hard-gate.test.ts`: the harness SKILLs
+// are a dogfood-only surface, so a plugin-only checkout skips instead of
+// failing.
+const repoRoot = join(import.meta.dir, "..", "..", "..");
+
+function readIfPresent(path: string): string | null {
+  if (!existsSync(path)) return null;
+  return readFileSync(path, "utf8");
+}
+
+const harnessSkillPaths: ReadonlyArray<readonly [string, string]> = [
+  ["smoke-test", join(repoRoot, ".claude", "skills", "smoke-test", "SKILL.md")],
+  [
+    "conformance-loop",
+    join(repoRoot, ".claude", "skills", "conformance-loop", "SKILL.md"),
+  ],
+];
+
+const harnessSkills = harnessSkillPaths.map(
+  ([name, path]) => [name, readIfPresent(path)] as const,
+);
+const describeIfHarnessPresent = harnessSkills.some(([, body]) => body === null)
+  ? describe.skip
+  : describe;
 
 const setupSkill = read("skills/setup/SKILL.md");
 const specArchiveSkill = read("skills/spec-archive/SKILL.md");
@@ -306,3 +341,88 @@ describe("T4d — tracker_project_milestone_attached.ts comments", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// T5 — repo-root harness driver SKILLs (the surface the sweep never reached)
+//
+// `.claude/skills/smoke-test/SKILL.md` Phase 4 "verify-on-disk" runs the
+// STE-197 plan-file-shape probe against a plan file that `/setup` has JUST
+// scaffolded from `templates/spec-templates/plan.md.template`. The probe still
+// demands "exactly one `^## M\d+:` heading", so after STE-415 flipped the
+// template to the em-dash form the probe matches ZERO headings in a freshly
+// scaffolded `specs/plan/M1.md`. It is not merely stale — it is UNSATISFIABLE,
+// so at runtime it can only false-fail or be silently rationalized past, which
+// is the one outcome the smoke driver's whole prose-hardening line exists to
+// prevent.
+//
+// Deliberately OUT OF SCOPE, same as the file header says: the `M\d+` LEAF.
+// It predates the `M_<epic-key>` union grammar in
+// `adapters/_shared/src/milestone_token.ts`, and widening it is a separate
+// pre-existing concern. Every assertion below is SEPARATOR-scoped and every
+// probe input uses a plain `M1`, so nothing here depends on the leaf.
+// ---------------------------------------------------------------------------
+
+/**
+ * Backticked literals in `text` that read as a milestone H2 heading matcher.
+ * `(?<!#)#{2}(?!#)` keeps `### FR-{N}:` (whose colon IS the real emit form)
+ * out of the sweep.
+ */
+function milestoneHeadingMatchers(text: string): string[] {
+  const re = /`([^`\n]*?(?<!#)#{2}(?!#)\s*M(?:\\d\+|<N>|\{N\}|\d+)[^`\n]*)`/g;
+  return [...text.matchAll(re)].map((m) => m[1]!);
+}
+
+/** A plan-file body exactly as `/setup` scaffolds it from the template. */
+const SCAFFOLDED_HEADING = templateHeadingLine.replace(/M<N>/g, "M1");
+
+describeIfHarnessPresent(
+  "T5 — repo-root harness driver SKILLs are inside the read-side sweep",
+  () => {
+    test("scope guard: the sweep reaches BOTH harness SKILLs and finds matchers to judge", () => {
+      // Non-vacuity for everything below. `pluginRoot` could never reach these
+      // files, so a sweep that silently found nothing is the original bug.
+      for (const [name, body] of harnessSkills) {
+        expect([name, body === null]).toEqual([name, false]);
+      }
+      const total = harnessSkills.flatMap(([, body]) =>
+        milestoneHeadingMatchers(body!),
+      );
+      expect(total.length).toBeGreaterThan(0);
+    });
+
+    test("slice sanity: the scaffolded heading really is the em-dash form", () => {
+      expect(SCAFFOLDED_HEADING).toContain(`## M1 ${EM_DASH}`);
+      expect(SCAFFOLDED_HEADING).toContain("{#M1}");
+    });
+
+    for (const [name, body] of harnessSkills) {
+      test(`every milestone-heading matcher in ${name}/SKILL.md accepts the heading the plan template emits`, () => {
+        const matchers = milestoneHeadingMatchers(body!);
+        const offenders = matchers.filter(
+          (m) => !new RegExp(m, "m").test(SCAFFOLDED_HEADING),
+        );
+        expect(offenders).toEqual([]);
+      });
+    }
+
+    // Targeted leg — names the exact probe, so the failure points at the row
+    // to edit rather than at "some literal somewhere in a 1275-line file".
+    test("the STE-197 plan-file-shape probe is satisfiable against a freshly scaffolded plan file", () => {
+      const smoke = harnessSkills.find(([n]) => n === "smoke-test")![1]!;
+      const row = lineContaining(smoke, "STE-197 plan-file shape");
+      expect(row).toContain("specs/plan/M1.md");
+      const matchers = milestoneHeadingMatchers(row);
+      expect(matchers.length).toBe(1);
+      expect(new RegExp(matchers[0]!, "m").test(SCAFFOLDED_HEADING)).toBe(true);
+    });
+
+    test("drift guard: the STE-197 row keeps its other three assertions", () => {
+      const smoke = harnessSkills.find(([n]) => n === "smoke-test")![1]!;
+      const row = lineContaining(smoke, "STE-197 plan-file shape");
+      expect(row).toContain("YAML frontmatter");
+      expect(row).toMatch(/exactly one/i);
+      expect(row).toContain("## Milestone Dependency Graph");
+      expect(row).toContain("<tracker-id>");
+    });
+  },
+);
