@@ -34,6 +34,33 @@ export type RequireOutcome =
 export const REQUIRES_INPUT_REFUSED_MARKER =
   "<dpt:requires-input-refused>v1</dpt:requires-input-refused>";
 
+/**
+ * Render the NFR-10 canonical refusal message: the three labelled lines
+ * followed by {@link REQUIRES_INPUT_REFUSED_MARKER} as a fourth.
+ *
+ * Every `RequiresInputRefusedError` message in the toolkit is built here, so
+ * the four-line shape is undriftable by construction rather than by two
+ * modules promising each other to stay byte-identical. Both refusal sites —
+ * this module's `requireOrRefuse` and the marker-gate arbiter in
+ * `gate_marker_refusal.ts` — compose their own Verdict / Remedy / Context
+ * prose and hand it here; only the envelope is shared. The marker must be the
+ * LAST line: `socratic_first_turn_stream.ts` recognizes a refusal by scanning
+ * assistant text for it, and `assertFirstTurnShape` then reads `ok-refused`
+ * where an unmarked refusal read `vacuous`.
+ */
+export function renderRefusalMessage(parts: {
+  verdict: string;
+  remedy: string;
+  context: string;
+}): string {
+  return [
+    `Verdict: ${parts.verdict}`,
+    `Remedy: ${parts.remedy}`,
+    `Context: ${parts.context}`,
+    REQUIRES_INPUT_REFUSED_MARKER,
+  ].join("\n");
+}
+
 export interface RequireOrRefuseSpec {
   /**
    * Resolved interactive answer captured from a TTY prompt. `undefined`
@@ -148,14 +175,10 @@ function buildRefusalMessage(
     `skill=${spec.skillName}, step=${spec.stepName}, key=${key}, ` +
     `marker=${spec.markerPresent ? "present" : "absent"}, ` +
     `stdin=${nonTty ? "non-tty" : "tty"}`;
-  // STE-408 (F5): append the canonical refusal marker so a surfaced refusal
-  // is machine-recognizable (the stream parser maps it to a `refusal` entry).
-  return [
-    `Verdict: ${verdict}`,
-    `Remedy: ${remedy}`,
-    `Context: ${ctx}`,
-    REQUIRES_INPUT_REFUSED_MARKER,
-  ].join("\n");
+  // STE-408 (F5): the shared renderer appends the canonical refusal marker so
+  // a surfaced refusal is machine-recognizable (the stream parser maps it to a
+  // `refusal` entry).
+  return renderRefusalMessage({ verdict, remedy, context: ctx });
 }
 
 /**

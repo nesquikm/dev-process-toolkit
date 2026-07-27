@@ -820,7 +820,7 @@ describeIfPresent(
       expect(
         reapsLivePidfilesOnAbort(
           finalMessageSelfCheckClause(grandchildMachinery(skill!)),
-          "/tmp/dpt-smoke-*.pid",
+          "/tmp/dpt-smoke-<tracker>-*.pid",
         ),
       ).toBe(true);
     });
@@ -845,7 +845,7 @@ describeIfPresent(
       const clause = finalMessageSelfCheckClause(grandchildMachinery(skill!));
       expect(
         instructionOffset(clause, (sentence) =>
-          carriesReapInstruction(sentence, "/tmp/dpt-smoke-*.pid"),
+          carriesReapInstruction(sentence, "/tmp/dpt-smoke-<tracker>-*.pid"),
         ),
       ).toBeGreaterThanOrEqual(0);
       expect(
@@ -857,7 +857,7 @@ describeIfPresent(
       expect(
         reapPrecedesDestructiveTeardown(
           finalMessageSelfCheckClause(grandchildMachinery(skill!)),
-          "/tmp/dpt-smoke-*.pid",
+          "/tmp/dpt-smoke-<tracker>-*.pid",
         ),
       ).toBe(true);
     });
@@ -866,7 +866,7 @@ describeIfPresent(
       expect(
         reapNotSequencedAfterTeardown(
           finalMessageSelfCheckClause(grandchildMachinery(skill!)),
-          "/tmp/dpt-smoke-*.pid",
+          "/tmp/dpt-smoke-<tracker>-*.pid",
         ),
       ).toBe(true);
     });
@@ -900,7 +900,7 @@ describeIfPresent(
       expect(
         identityCheckPrecedesReap(
           finalMessageSelfCheckClause(grandchildMachinery(skill!)),
-          "/tmp/dpt-smoke-*.pid",
+          "/tmp/dpt-smoke-<tracker>-*.pid",
         ),
       ).toBe(true);
     });
