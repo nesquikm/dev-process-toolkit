@@ -179,7 +179,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.56.0 — "Mint"** (M115: tracker-less milestone identity minting. In `mode: none`, milestone ids are now minted as an opaque `M_<short-ULID>` from the local ULID minter instead of scanned as the next free number, closing the cross-branch allocation race by construction. New gate probe #73 enforces the plan-frontmatter `id:` bimodally. Linear and Jira allocation are byte-unchanged, and existing numeric plans coexist with no migration.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.56.1 — "Keystone"** (M116: headless conformance unblock. `/spec-write` is drivable under `claude -p` again via a marker-gated sanctioned answer block that answers the Socratic interview rather than skipping it; `/setup` adopts the same mechanism. Driver abort verdicts became machine-checkable, capability-row assertions moved off unsound raw-log greps, smoke artifacts are tracker-scoped, and short-ULID collisions are now detected across the archive boundary.)
 
 ## Core Philosophy
 
