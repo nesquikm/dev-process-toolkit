@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.56.1] — 2026-07-27 — "Keystone"
+
+M116 — Headless Conformance Unblock. Closes the eight high-severity findings from the 2026-07-27 `/conformance-loop` run plus a parallel short-ULID identity audit. The keystone is `/spec-write`, which had become undrivable under `claude -p`: `AskUserQuestion` is unregistered there and the Socratic interview has no safe default, so the chain truncated at step 2 and three of six canonical steps were unreachable.
+
+### Fixed
+
+- **Headless drivability of `/spec-write`.** A new `auto_answers` module supplies interview answers from an operator-authored, byte-fenced block admitted only when the auto-approve marker is present in the same prompt body. Answers land in `requireOrRefuse`'s existing pre-baked slot, so the interview is *answered*, never skipped — the unconditional Socratic loop entry survives verbatim for every unmarked caller, and unmarked prose is never an answer source. (STE-418)
+- **Machine-recognizable refusals from the consolidated arbiter.** `gate_marker_refusal` omitted the canonical refusal marker its sibling appends, so a refusal raised through it projected as `vacuous` — indistinguishable from doing nothing. Both refusal sites now share one renderer. (STE-418)
+- **`/setup` first-turn contract.** `/setup` declared the contract but never operationalized it: zero marker byte-greps, and write-producing steps reachable before any ask. It now routes through the same arbiter and answer source as `/spec-write`, so the two skills agree on what an absent ask tool means. (STE-419)
+- **Driver abort verdicts.** Both drivers asserted an abort "MUST exit non-zero", which a model inside `claude -p` cannot do — so the parent's fail-fast was dead code and passed on a run where both legs aborted. A tracker-scoped verdict artifact plus rc reconciliation makes the existing gate truthful; every pinned clause stays byte-identical. (STE-420)
+- **Capability-row assertions.** Raw-transcript greps could never be sound: the invoked skill's body arrives as a synthetic `user` event, so every token a skill documents is present in every capture of that skill. Assertions now score through an assistant-text projection with a positional refusal-marker gate that tells an emitted row from post-refusal prose. Nine sites rewritten; one token spelling corrected. (STE-421)
+- **Phase 8 assert runner invocation.** The documented snippet passed two arguments where the runner takes three, so out-of-project writes counted as violations and manufactured run-killing false alarms against skills that behaved correctly. (STE-422)
+- **Tracker-scoped smoke artifacts.** Five unscoped pidfile-glob literals across four lines — one of them on the destructive reap — plus a date-keyed fixture path whose rationale claimed the date prevented concurrent collision. A tandem fixture proves a scoped reap leaves a live partner untouched. (STE-423)
+- **Short-ULID collision detection across the archive boundary.** Plan and feature-record walks gained cross-file duplicate detection spanning active and archived trees; feature-record minting gained the synchronous existence predicate the milestone minter already had; and the collision scan no longer fails open on an unreadable record that still owns the tail its filename spells. Two prevention-by-construction claims restated as detection within one working tree. (STE-424)
+
+Total test count at release: 5958 tests, 0 failures, 0 errors.
+
 ## [2.56.0] — 2026-07-26 — "Mint"
 
 M115 "Mint": tracker-less milestone identity minting. A project with no tracker picked its next milestone number by scanning whatever the local checkout happened to see — active plans, archived plans, the changelog, and whichever git refs were present. Two developers on branches neither had pushed would both scan the same visible history, both land on the same number, and find out only when the branches met. The fifth cross-branch scan leg added in M89 narrowed that window and said of itself that it was detection, not prevention.
