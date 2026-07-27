@@ -86,6 +86,7 @@ import {
   requireOrRefuse,
   RequiresInputRefusedError,
 } from "../adapters/_shared/src/requires_input";
+import { isRequiresInputDeclaration } from "../adapters/_shared/src/requires_input_sentinel_coverage";
 import {
   assertFirstTurnShape,
   SCAFFOLDING_TOOLS,
@@ -1049,3 +1050,476 @@ describe("AC-STE-419.5 — the interactive path is untouched", () => {
     expect(setupSkill()).toContain("`default: commit`");
   });
 });
+
+// ===========================================================================
+// POST-AUDIT — the PRODUCER half of `/setup`'s answer source was never wired
+// ===========================================================================
+//
+// THE REGRESSION THIS MILESTONE INTRODUCED. Everything above makes `/setup`
+// STRICTER: step 7b (`skills/setup/SKILL.md`,
+// `requires-input: tracker mode … no safe default exists`) now routes through
+// `requireOrRefuse`, and AC-STE-419.3 makes pre-baked `<command-args>` prose
+// explicitly a NON-trigger. The sanctioned `<dpt:answers>v1` block is therefore
+// `/setup`'s ONLY legitimate non-tty answer source.
+//
+// But only the CONSUMER half shipped. The `/setup` child heredoc in
+// `.claude/skills/smoke-test/SKILL.md` still carries the auto-approve marker
+// plus pre-baked prose (`stack=Bun+TS, tracker=<tracker>, …`) and NO
+// `<dpt:answers>v1` block — the only block in the whole driver is the
+// `/spec-write` one. With the marker present but no block,
+// `resolveInterviewAnswer` returns `undefined` and step 7b refuses, so the next
+// headless leg truncates at step 1 of 6 — one step EARLIER than the
+// `/spec-write` failure M116 exists to close. Nothing above this line
+// references the driver at all, so nothing pins it.
+//
+// THE SECOND, NARROWER HALF. `/setup` step 7f (tracker-config write) declares
+// `requires-input:` too, and fires in EVERY tracker mode — so it runs on both
+// smoke legs. `docs/auto-mode-protocol.md`'s `/setup` Consumers entry NAMES 7f
+// as covered, but its eight-key list (`stack`, `tracker_mode`,
+// `branch_template`, `user_facing_mode`, `packages_mode`, `changelog_ci_owned`,
+// `token_stats_enabled`, `create_specs`) carries no key for it. Per the doc's
+// own rule — "a key the block omits refuses individually" — 7f refuses
+// unconditionally even once a block exists.
+//
+// WHY THE GATE LIST BELOW IS DERIVED, NOT TRANSCRIBED. The defect class is
+// producer/consumer drift: a gate exists on one side and its answer key does
+// not exist on the other. Transcribing the gate list here would let the two
+// drift apart again the moment `/setup` grows a ninth `requires-input:` step.
+// So the gates are parsed out of the shipped SKILL through the SHIPPED
+// recognizer (`isRequiresInputDeclaration`, the single source of truth probe
+// #x uses), and the keys are parsed out of the shipped driver through the
+// SHIPPED parser (`extractAutoAnswers`).
+//
+// FRAMING, UNCHANGED. Nothing here weakens the Socratic Loop Contract. The
+// block is a transport for `requireOrRefuse`'s `preBakedValue` slot: the
+// interview is ANSWERED, never skipped, and the marker stays a hard
+// precondition. The tripwires at the top of this file — and the drift/decoy
+// pins below — exist so a "fix" that widens the trigger surface fails here.
+//
+// EDIT SURFACE. `.claude/skills/smoke-test/SKILL.md` and
+// `docs/auto-mode-protocol.md` carry no line cap and no STE-token ceiling, so
+// the fix belongs there. `skills/setup/SKILL.md` is AT its 358-line cap and
+// `skills/` is at 246/246 STE-tokens — the TRIPWIRE describes at the top of
+// this file already fail a fix that reaches for the SKILL carelessly.
+
+// Repo-root-relative: a sweep scoped to PLUGIN_ROOT cannot see `.claude/skills/`.
+const SMOKE_SKILL_PATH = join(
+  REPO_ROOT,
+  ".claude",
+  "skills",
+  "smoke-test",
+  "SKILL.md",
+);
+
+const smokeSkill = existsSync(SMOKE_SKILL_PATH) ? read(SMOKE_SKILL_PATH) : null;
+const describeIfSmokePresent = smokeSkill === null ? describe.skip : describe;
+
+/**
+ * The heredoc body of the `claude -p` spawn whose stdout redirects to
+ * `logToken` — the text strictly between the `<<'PROMPT_EOF'` line and the
+ * closing `PROMPT_EOF` line, so the first line is the child's first prompt-body
+ * line. Same construction as `tests/m116-ste-418-wiring.test.ts`, deliberately
+ * duplicated rather than exported from a test file.
+ */
+function heredocBody(logToken: string): string {
+  const body = smokeSkill!;
+  const at = body.indexOf(logToken);
+  expect(at).toBeGreaterThanOrEqual(0);
+  const open = body.indexOf("<<'PROMPT_EOF'", at);
+  expect(open).toBeGreaterThanOrEqual(0);
+  const start = body.indexOf("\n", open) + 1;
+  const close = body.indexOf("\nPROMPT_EOF", start);
+  expect(close).toBeGreaterThan(start);
+  return body.slice(start, close);
+}
+
+const setupHeredoc = (): string =>
+  heredocBody("/tmp/dpt-smoke-<tracker>-setup.log");
+
+/**
+ * The `- \`/<skill>\`` bullet under `## Sanctioned Answers Block`'s
+ * `**Consumers.**` intro, sliced to the next top-level bullet or heading.
+ * Scoping matters: the eight `/setup` keys and the twelve `/spec-write` keys
+ * live in sibling bullets of one section, so an unscoped substring search over
+ * the whole doc would pass for either skill without its entry changing at all.
+ */
+function consumerEntry(doc: string, skill: string): string {
+  const at = doc.indexOf("**Consumers.**");
+  expect(at, "the doc lost its `**Consumers.**` intro").toBeGreaterThanOrEqual(
+    0,
+  );
+  const region = doc.slice(at);
+  const start = region.indexOf(`- \`${skill}\``);
+  expect(
+    start,
+    `the Consumers list lost its \`${skill}\` entry`,
+  ).toBeGreaterThanOrEqual(0);
+  const rest = region.slice(start + 2); // step past the leading "- "
+  const stop = rest.search(/\n(?:- |## )/);
+  return rest.slice(0, stop === -1 ? rest.length : stop);
+}
+
+const setupConsumerEntry = (): string =>
+  consumerEntry(read(PROTOCOL_PATH), "/setup");
+const specWriteConsumerEntry = (): string =>
+  consumerEntry(read(PROTOCOL_PATH), "/spec-write");
+
+// ---------------------------------------------------------------------------
+// Gate derivation — parsed from the shipped SKILL through the shipped
+// recognizer, so a future `requires-input:` step is in scope automatically.
+// ---------------------------------------------------------------------------
+
+interface SetupGate {
+  /** `7b`, `7f`, … — from the nearest preceding numbered step heading. */
+  step: string;
+  /** 1-based line in `skills/setup/SKILL.md`, for failure messages. */
+  line: number;
+  /** The declared reason, verbatim. */
+  reason: string;
+}
+
+/** `### 7f. Tracker-config write` → `7f`. */
+const STEP_HEADING_RE = /^#{2,4}\s+(\d+[a-z]?)\./;
+
+/** The `<reason>` template placeholder in the § Step contract legend. */
+const PLACEHOLDER_REASON_RE = /^<[^>]*>$/;
+
+/** Reason text of a declaration line, in either recognized shape. */
+function declaredReason(line: string): string | null {
+  const spanRe = /`([^`\n]*)`/g;
+  let m: RegExpExecArray | null;
+  while ((m = spanRe.exec(line)) !== null) {
+    const inner = m[1]!;
+    if (inner.startsWith("requires-input:")) {
+      return inner.slice("requires-input:".length).trim();
+    }
+  }
+  const bare = line.replace(/^[\s>|#*_+-]*`?/, "");
+  if (bare.startsWith("requires-input:")) {
+    return bare.slice("requires-input:".length).trim();
+  }
+  return null;
+}
+
+/**
+ * A declaration states a REAL gate — one that refuses without an answer —
+ * only when it carries a prose reason. Two shapes are excluded on purpose:
+ *
+ *   * `` `requires-input: <reason>` `` — the § Step contract legend that
+ *     DEFINES the annotation kind, not a gate;
+ *   * `` `requires-input: false` `` — step 7g's shorthand for "this is NOT a
+ *     `requires-input:` gate" (its own prose says so). The shipped recognizer
+ *     scores it a declaration because the span is reason-bearing; the filter
+ *     below is where that known false positive is handled, visibly, once.
+ */
+function isRealGateReason(reason: string): boolean {
+  if (reason === "") return false;
+  if (PLACEHOLDER_REASON_RE.test(reason)) return false;
+  return /\s/.test(reason);
+}
+
+/** Every `requires-input:` gate `/setup` actually declares, with its step. */
+function setupGates(): SetupGate[] {
+  const lines = setupLines();
+  const gates: SetupGate[] = [];
+  let step: string | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const heading = STEP_HEADING_RE.exec(line);
+    if (heading) step = heading[1]!;
+    if (!isRequiresInputDeclaration(line)) continue;
+    const reason = declaredReason(line);
+    if (reason === null || !isRealGateReason(reason)) continue;
+    if (step === null) continue;
+    gates.push({ step, line: i + 1, reason });
+  }
+  return gates;
+}
+
+/**
+ * The answer key `docs/auto-mode-protocol.md`'s `/setup` Consumers entry pairs
+ * with `step`, or `null` when the entry names the step without naming a key.
+ * The house shape the entry already uses for 7b is ``step 7b's `tracker_mode` ``.
+ *
+ * A positional window would be worse than useless here: the entry's flat
+ * eight-key list sits AFTER every step mention, so any forward window wide
+ * enough to reach 7b's key also swallows the list and passes for every step.
+ * Requiring the key ADJACENT to the step reference is what makes the pin real.
+ */
+function pairedKeyFor(entry: string, step: string): string | null {
+  const re = new RegExp(
+    `(?:step|§)\\s*${step}(?:['’]s)?\\s*(?:[—–:=-]\\s*)?\`([A-Za-z0-9_]+)\``,
+  );
+  return re.exec(entry)?.[1] ?? null;
+}
+
+/** Keys the SHIPPED driver bakes into the `/setup` child heredoc. */
+const bakedSetupKeys = (): string[] =>
+  Object.keys(extractAutoAnswers(setupHeredoc()).answers);
+
+describeIfSmokePresent(
+  "POST-AUDIT — the /setup child heredoc emits a sanctioned answers block",
+  () => {
+    test("the marker is still the FIRST body line (STE-226 spawn contract)", () => {
+      // Re-pinned here, not merely inherited: the block lands in this heredoc,
+      // and pushing it above the marker would make `extractAutoAnswers` inert.
+      expect(setupHeredoc().split("\n")[0]).toBe(AUTO_APPROVE_MARKER);
+    });
+
+    test("the slash command is still the line after the marker", () => {
+      expect(setupHeredoc().split("\n")[1]).toBe("/dev-process-toolkit:setup");
+    });
+
+    test("the pre-baked orientation prose the chain depends on survives", () => {
+      // NON-REGRESSION. This prose is CONTEXT, not an answer source — AC-STE-419.3
+      // makes it explicitly a non-trigger. The block is added ALONGSIDE it; a
+      // "fix" that deletes the settings.json acknowledgment aborts the chain at
+      // the model-layer overwrite block instead of at step 7b.
+      const h = setupHeredoc();
+      expect(h).toContain("stack=Bun+TS");
+      expect(h).toContain("take the idempotent-merge branch");
+    });
+
+    test("the heredoc carries a delimited answers block", () => {
+      const h = setupHeredoc();
+      expect(h).toContain(AUTO_ANSWERS_OPEN);
+      expect(h).toContain(AUTO_ANSWERS_CLOSE);
+    });
+
+    test("the block opens AFTER the marker and closes after it opens", () => {
+      const h = setupHeredoc();
+      const marker = h.indexOf(AUTO_APPROVE_MARKER);
+      const open = h.indexOf(AUTO_ANSWERS_OPEN);
+      const close = h.indexOf(
+        AUTO_ANSWERS_CLOSE,
+        open + AUTO_ANSWERS_OPEN.length,
+      );
+      expect(marker).toBeGreaterThanOrEqual(0);
+      expect(open).toBeGreaterThan(marker);
+      expect(close).toBeGreaterThan(open);
+    });
+
+    test("END-TO-END: the SHIPPED parser accepts the SHIPPED driver text", () => {
+      // The strongest available pin — the real consumer over the real producer,
+      // no fixture in between. A block the driver emits but the parser rejects
+      // leaves the chain truncated one step EARLIER than the 2026-07-27 run.
+      const result = extractAutoAnswers(setupHeredoc());
+      expect(result.present).toBe(true);
+      expect(Object.keys(result.answers).length).toBeGreaterThan(0);
+    });
+
+    test("every answer the driver bakes in has a non-empty value", () => {
+      // A `key:` with a blank value parses `present` but answers nothing — the
+      // interview would resolve to empty strings and `/setup` would write a
+      // hollow CLAUDE.md. Pin real content, not merely a well-formed shape.
+      const entries = Object.entries(extractAutoAnswers(setupHeredoc()).answers);
+      expect(entries.length).toBeGreaterThan(0);
+      for (const [key, value] of entries) {
+        expect(typeof value).toBe("string");
+        expect(
+          value.trim().length,
+          `answer for ${key} is empty`,
+        ).toBeGreaterThan(0);
+      }
+    });
+
+    test("resolveInterviewAnswer reaches every baked key through the shipped resolver", () => {
+      // `extractAutoAnswers` proves the block parses; this proves the call
+      // shape `/setup` SKILL.md names actually returns those answers.
+      const h = setupHeredoc();
+      const keys = bakedSetupKeys();
+      expect(keys.length).toBeGreaterThan(0);
+      for (const key of keys) {
+        expect(resolveInterviewAnswer(h, key)).toBe(
+          extractAutoAnswers(h).answers[key]!,
+        );
+      }
+    });
+
+    test("TRIPWIRE — an UNMARKED /setup body stays inert; the block is never a trigger", () => {
+      // The block must not become a second, standalone auto-apply trigger. The
+      // first assertion keeps the second from passing vacuously: today the body
+      // parses to nothing with or without the marker, which proves nothing.
+      const h = setupHeredoc();
+      expect(extractAutoAnswers(h).present).toBe(true);
+      const unmarked = h.split(AUTO_APPROVE_MARKER).join("");
+      expect(unmarked).not.toContain(AUTO_APPROVE_MARKER);
+      expect(unmarked).toContain(AUTO_ANSWERS_OPEN);
+      expect(extractAutoAnswers(unmarked)).toEqual({
+        present: false,
+        answers: {},
+      });
+      expect(resolveInterviewAnswer(unmarked, "tracker_mode")).toBeUndefined();
+    });
+  },
+);
+
+describeIfSmokePresent(
+  "POST-AUDIT — producer/consumer drift between the /setup driver and the doc",
+  () => {
+    test("FLOOR: the driver's key set parses and covers the documented interview", () => {
+      // Without a floor the DRIFT PIN below iterates an empty key set and
+      // passes while checking nothing — the exact way this defect hid.
+      const keys = bakedSetupKeys();
+      expect(keys.length).toBeGreaterThanOrEqual(
+        Object.keys(SETUP_INTERVIEW_ANSWERS).length,
+      );
+      for (const k of Object.keys(SETUP_INTERVIEW_ANSWERS)) {
+        expect(keys, `the driver bakes no \`${k}\` answer`).toContain(k);
+      }
+    });
+
+    test("DRIFT PIN: every parsed driver key is named in the /setup entry", () => {
+      // Derived, not transcribed — add a key to the heredoc without documenting
+      // a consumer and this fails, which is the actual defect class here.
+      // Backticked match, matching the entry's house style, so a key cannot
+      // pass by being a substring of ordinary prose.
+      const entry = setupConsumerEntry();
+      for (const key of bakedSetupKeys()) {
+        expect(
+          entry,
+          `the driver bakes \`${key}\` but the doc names no consumer for it`,
+        ).toContain(`\`${key}\``);
+      }
+    });
+
+    test("the entry extractor is non-vacuous — one bullet, not the whole doc", () => {
+      const entry = setupConsumerEntry();
+      expect(entry.length).toBeGreaterThan(40);
+      expect(entry).not.toContain("- `/spec-write`");
+      expect(entry).not.toContain("## Socratic Loop Contract");
+    });
+
+    test("NON-VACUITY: /spec-write's own keys stay OUT of the /setup entry", () => {
+      // Guards the lazy fix — pasting every conceivable key into the entry (or
+      // into the heredoc) so the drift pin above goes green. The decoys are
+      // deliberately REAL interview keys of the sibling consumer, so they are
+      // exactly what a copy-paste would drag in.
+      const setup = setupConsumerEntry();
+      const specWrite = specWriteConsumerEntry();
+      const baked = new Set(bakedSetupKeys());
+      for (const decoy of ["feature_summary", "acceptance_criteria"]) {
+        expect(
+          specWrite,
+          `\`${decoy}\` should be a documented /spec-write interview key`,
+        ).toContain(`\`${decoy}\``);
+        expect(
+          setup,
+          `the /setup entry claims \`${decoy}\`, which /setup never asks`,
+        ).not.toContain(`\`${decoy}\``);
+        expect(
+          baked.has(decoy),
+          `the /setup heredoc bakes \`${decoy}\`, which /setup never asks`,
+        ).toBe(false);
+      }
+    });
+  },
+);
+
+describe("POST-AUDIT — every declared /setup gate is answerable", () => {
+  test("the gate list derives from the SKILL and is non-empty", () => {
+    const gates = setupGates();
+    expect(gates.length).toBeGreaterThanOrEqual(2);
+    const steps = gates.map((g) => g.step);
+    // FLOOR, not a transcription: both of these declare a prose reason today.
+    expect(steps).toContain("7b"); // tracker mode
+    expect(steps).toContain("7f"); // tracker-config write
+  });
+
+  test("the derivation excludes the legend and step 7g's `false` shorthand", () => {
+    // Non-vacuity for `isRealGateReason`. The § Step contract legend
+    // (`requires-input: <reason>`) DEFINES the kind, and 7g's
+    // `requires-input: false` says in its own prose "this is not a
+    // `requires-input` gate" — both score as declarations under the shipped
+    // recognizer, and neither is a gate that can refuse.
+    const steps = setupGates().map((g) => g.step);
+    expect(steps).not.toContain("7g");
+    expect(isRequiresInputDeclaration("`requires-input: false` (safe default)")).toBe(
+      true,
+    );
+    expect(isRealGateReason("false")).toBe(false);
+    expect(isRealGateReason("<reason>")).toBe(false);
+    expect(
+      isRealGateReason(
+        "tracker mode is a workspace-wide decision; no safe default exists.",
+      ),
+    ).toBe(true);
+  });
+
+  test("step 7f is not a rare branch — it fires in EVERY tracker mode", () => {
+    // Scope check for the finding: 7f is not a rare branch. Its own annotation
+    // scopes it to `mode: linear` / `mode: jira` / `mode: <custom>`, which is
+    // both smoke legs — so an unanswerable 7f blocks every headless tracker run.
+    const gate = setupGates().find((g) => g.step === "7f");
+    expect(gate, "step 7f no longer declares a `requires-input:` gate").toBeDefined();
+    expect(setupSkill()).toContain("runs **only in tracker mode**");
+  });
+
+  test("the doc's /setup entry names each declared gate step", () => {
+    const entry = setupConsumerEntry();
+    for (const gate of setupGates()) {
+      expect(
+        entry,
+        `the /setup Consumers entry never mentions step ${gate.step} ` +
+          `(declared at skills/setup/SKILL.md:${gate.line})`,
+      ).toMatch(new RegExp(`(?:step|§)\\s*${gate.step}\\b`));
+    }
+  });
+
+  test("COVERAGE PIN: the doc pairs an answer key with every declared gate", () => {
+    // The narrower half of the finding. The entry NAMES step 7f as covered but
+    // pairs no key with it, so under the doc's own rule — "a key the block
+    // omits refuses individually" — 7f refuses unconditionally even once a
+    // block exists. 7b shows the shape that works: ``step 7b's `tracker_mode` ``.
+    const entry = setupConsumerEntry();
+    for (const gate of setupGates()) {
+      expect(
+        pairedKeyFor(entry, gate.step),
+        `the /setup Consumers entry names no answer key for step ${gate.step} ` +
+          `("${gate.reason}") — a gate with no key refuses unconditionally`,
+      ).not.toBeNull();
+    }
+  });
+});
+
+describeIfSmokePresent(
+  "POST-AUDIT — COVERAGE PIN: the driver bakes a key for every declared gate",
+  () => {
+    test("each declared gate's paired key is an answer the driver actually supplies", () => {
+      // The end of the chain: SKILL declares the gate → doc pairs a key with it
+      // → driver bakes that key → shipped parser returns it. A gate that breaks
+      // any link refuses, and the headless leg truncates there.
+      const entry = setupConsumerEntry();
+      const baked = bakedSetupKeys();
+      for (const gate of setupGates()) {
+        const key = pairedKeyFor(entry, gate.step);
+        expect(
+          key,
+          `no documented answer key for step ${gate.step}`,
+        ).not.toBeNull();
+        expect(
+          baked,
+          `the /setup child heredoc bakes no \`${key}\` answer for step ` +
+            `${gate.step}, so that gate refuses and the headless leg truncates`,
+        ).toContain(key!);
+      }
+    });
+
+    test("and it resolves to a non-empty value through the shipped resolver", () => {
+      const entry = setupConsumerEntry();
+      const h = setupHeredoc();
+      for (const gate of setupGates()) {
+        const key = pairedKeyFor(entry, gate.step);
+        expect(key).not.toBeNull();
+        const value = resolveInterviewAnswer(h, key!);
+        expect(typeof value, `step ${gate.step} answer is not a string`).toBe(
+          "string",
+        );
+        expect(
+          String(value).trim().length,
+          `step ${gate.step}'s \`${key}\` answer is blank`,
+        ).toBeGreaterThan(0);
+      }
+    });
+  },
+);

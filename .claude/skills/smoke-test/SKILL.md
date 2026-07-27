@@ -529,6 +529,14 @@ Reference snippets — prompt-bearing children, per-skill prompt body inlined as
 export CLAUDE_CONFIG_DIR=~/.claude-st
 
 # /setup — heredoc body carries pre-baked answers + acknowledgment of pre-existing settings.json/.mcp.json
+# The prose lines are ORIENTATION only — pre-baked `<command-args>`-style text
+# is explicitly NOT an auto-apply trigger and answers nothing. The
+# `<dpt:answers>v1` … `</dpt:answers>` block below the marker is /setup's only
+# legitimate non-tty answer source: under `claude -p` the child has no
+# AskUserQuestion tool, so without it step 7b (tracker mode) and step 7f
+# (tracker-config write) refuse and the chain truncates at step 1 of 6. The
+# marker is a hard precondition for the block, and an unmarked or malformed
+# block is inert (see `docs/auto-mode-protocol.md` § Sanctioned Answers Block).
 # Detached spawn + PID capture (STE-355); poll until exit before /spec-write.
 claude -p \
   --output-format stream-json --verbose \
@@ -544,6 +552,18 @@ stack=Bun+TS, tracker=<tracker>, mcp_server=<linear|atlassian>, ...
 (Jira path) project=<--jira-project flag value>, jira_ac_field=description, branch_template=default, docs flags=all-false, default_labels=[dpt-smoke]; emit `### Jira` workspace binding; skip discover_field.ts (zero-config sentinel path); skip Linear team probe.
 
 The repo already contains .claude/settings.json and .mcp.json from the driver's pre-creation step; take the idempotent-merge branch — do not overwrite (model-layer block aborts the chain otherwise).
+
+<dpt:answers>v1
+stack: Bun+TS
+tracker_mode: <tracker>
+branch_template: {type}/m{N}-{slug}
+user_facing_mode: false
+packages_mode: false
+changelog_ci_owned: false
+token_stats_enabled: false
+create_specs: yes
+tracker_config: approve
+</dpt:answers>
 PROMPT_EOF
 echo $! > /tmp/dpt-smoke-<tracker>-setup.pid
 
@@ -603,7 +623,7 @@ echo $! > /tmp/dpt-smoke-<tracker>-implement.pid
 
 **Auto-approve marker contract (STE-226).** Every prompt-bearing heredoc above carries the literal line `<dpt:auto-approve>v1</dpt:auto-approve>` as the first body line. The marker is a byte-checkable pre-authorization token that child skills (`/spec-write`, `/implement`) detect by literal string match — no `<system-reminder>` introspection, no `claude -p` non-interactive inference. Children whose gates depend on operator approval (`/spec-write` § 0b step 4 + § 7a draft/commit gates; `/implement` Phase 4 step 15 commit) auto-apply `y` when the marker is in the prompt body and gate interactively otherwise. Removing the marker line (deliberate or accidental) is the canonical way to flip a smoke-driver child into interactive-gating mode for diagnostic runs; the regression to watch for is the inverse — a child that auto-applies WITHOUT the marker (covered by Phase 2.X group 1 sub-fixture 1b below).
 
-**Sanctioned answers block (the interview half).** The marker pre-authorizes approval gates that have a safe default; it does not answer clarifying questions, which have none. Under `claude -p` the child has no `AskUserQuestion` tool registered, so every interview step would refuse and the canonical chain would truncate at `/spec-write` — the failure the 2026-07-27 conformance run hit on both legs. The `/spec-write` heredoc therefore carries an operator-authored `<dpt:answers>v1` … `</dpt:answers>` block beneath the marker, one `key: value` pair per line, parsed by `extractAutoAnswers` / `resolveInterviewAnswer` in `plugins/dev-process-toolkit/adapters/_shared/src/auto_answers.ts` and fed to `requireOrRefuse(...)`'s `preBakedValue` slot — the interview is answered, not skipped. The marker is a hard precondition: drop the marker line and the block is inert, and a malformed block (unterminated, or delimiters out of order) fails closed to the same inert result rather than half-answering the interview. Keep every value non-empty — a blank value parses as an answer and would ship a hollow FR. Contract: `docs/auto-mode-protocol.md` § Sanctioned Answers Block.
+**Sanctioned answers block (the interview half).** The marker pre-authorizes approval gates that have a safe default; it does not answer clarifying questions, which have none. Under `claude -p` the child has no `AskUserQuestion` tool registered, so every interview step would refuse and the canonical chain would truncate at `/spec-write` — the failure the 2026-07-27 conformance run hit on both legs — or, once `/setup`'s own gates route through the same helper, one step EARLIER at `/setup`. Both prompt-bearing interview children (`/setup` and `/spec-write`) therefore carry an operator-authored `<dpt:answers>v1` … `</dpt:answers>` block beneath the marker, one `key: value` pair per line, one key per gate the child will reach — `/setup`'s block answers the Schema L resolutions including step 7b's `tracker_mode` and step 7f's `tracker_config`, parsed by `extractAutoAnswers` / `resolveInterviewAnswer` in `plugins/dev-process-toolkit/adapters/_shared/src/auto_answers.ts` and fed to `requireOrRefuse(...)`'s `preBakedValue` slot — the interview is answered, not skipped. The marker is a hard precondition: drop the marker line and the block is inert, and a malformed block (unterminated, or delimiters out of order) fails closed to the same inert result rather than half-answering the interview. Keep every value non-empty — a blank value parses as an answer and would ship a hollow FR. Contract: `docs/auto-mode-protocol.md` § Sanctioned Answers Block.
 
 #### Stream-idle retry-with-rollback for prompt-bearing children (STE-195)
 
