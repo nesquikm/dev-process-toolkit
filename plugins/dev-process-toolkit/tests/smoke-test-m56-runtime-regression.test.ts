@@ -71,7 +71,11 @@ describeIfPresent("STE-222 — Phase 2.X fixtures for STE-215 cross-cutting drif
     // control (no deletion ⇒ silent no-op) / probe-side (stale ref on disk
     // ⇒ ADVISORY).
     expect(body).toMatch(/propagate.*removal to cross-cutting specs/i);
-    expect(body).toMatch(/cross-cutting-spec-stale-file-refs|cross_cutting_spec_stale_file_refs/);
+    // STE-421 AC.4: the underscored form is the one the probe actually emits
+    // at runtime, so it is the only spelling a fixture may assert. The
+    // hyphenated form is the probe *id* (prose only) — accepting either here
+    // is what let the 3c fixture assert a token the runtime never prints.
+    expect(body).toMatch(/cross_cutting_spec_stale_file_refs/);
   });
 
   test("the STE-215 regression diagnostic uses the correct tracker ID (system-under-test)", () => {

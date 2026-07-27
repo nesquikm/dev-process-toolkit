@@ -1,7 +1,8 @@
 // LocalProvider — tracker-less Provider implementation (FR-43, FR-46).
 //
 // Behavior:
-//   - mintId(): delegates to ulid module (AC-43.5 — always local, offline-safe)
+//   - mintId(): delegates to ulid module (AC-43.5 — always local, offline-safe),
+//       guarded by a synchronous active+archive tail-collision probe (STE-424)
 //   - sync(): no-op returning skipped (AC-43.2)
 //   - getUrl(): always null
 //   - getMetadata(id): reads specs/frs/<id>.md or specs/frs/archive/<id>.md
@@ -17,7 +18,7 @@ import { join, relative } from "node:path";
 import { locksDir as dptLocksDir } from "./dpt_paths";
 import { parseFrontmatter } from "./frontmatter";
 import type { FRMetadata, FRSpec, IdentityMinter, LockResult, Provider, SyncResult } from "./provider";
-import { mintId as mintIdImpl } from "./ulid";
+import { mintUniqueId } from "./ulid";
 
 export interface LocalProviderOptions {
   repoRoot: string;
@@ -34,15 +35,28 @@ export interface LocalProviderOptions {
   skipFetch?: boolean;
 }
 
-function getFrPath(specsDir: string, id: string): string {
-  // M18 STE-61: FR filename in `mode: none` is `<spec.id.slice(23, 29)>.md`
-  // (the short-ULID tail). The legacy `<fr_ULID>.md` shape is retired.
+/**
+ * The two filenames a minted id can legitimately name, in lookup order:
+ * active first, then archived. M18 STE-61: the FR filename in `mode: none` is
+ * `<spec.id.slice(23, 29)>.md` (the short-ULID tail); the legacy `<fr_ULID>.md`
+ * shape is retired.
+ *
+ * STE-424 AC-STE-424.3 — the read path (`getFrPath`) and the mint-time
+ * collision probe (`mintId`) MUST agree on this pair. If minting probed a
+ * narrower set than reading resolves, a tail already owned by a record the
+ * reader can find would be minted again and the next write would land on an
+ * occupied name.
+ */
+function frPathCandidates(specsDir: string, id: string): string[] {
   const shortTail = id.slice(23, 29);
-  const candidates = [
+  return [
     join(specsDir, "frs", `${shortTail}.md`),
     join(specsDir, "frs", "archive", `${shortTail}.md`),
   ];
-  for (const candidate of candidates) {
+}
+
+function getFrPath(specsDir: string, id: string): string {
+  for (const candidate of frPathCandidates(specsDir, id)) {
     if (existsSync(candidate)) return candidate;
   }
   throw new Error(`local_provider: FR ${id} not found under ${specsDir}/frs/ or /archive/`);
@@ -69,8 +83,29 @@ export class LocalProvider implements Provider, IdentityMinter {
     this.skipFetch = options.skipFetch ?? process.env["DPT_SKIP_FETCH"] === "1";
   }
 
+  /**
+   * Mint a feature-record id whose derived 6-char tail does not already name a
+   * record under `<specsDir>/frs/` or `<specsDir>/frs/archive/`.
+   *
+   * STE-424 AC-STE-424.3 — this used to return the raw mint with no predicate
+   * at all. Only 6 of the minted id's 26 characters survive into the filename
+   * (a 2^30 keyspace), so distinct ULIDs CAN land on the same tail; without a
+   * probe the collision was silently accepted and the next write clobbered an
+   * existing record. Archived records still OWN their tail, so the archive is
+   * probed alongside the active tree — same pair `getFrPath` resolves against.
+   *
+   * Synchronous by design: `mintUniqueId`'s `exists` predicate must be
+   * synchronous (an async predicate returns a truthy Promise, so every attempt
+   * reads as a collision and the retry is defeated), hence `existsSync`. An
+   * absent `frs/` or `frs/archive/` tree is not a collision — nothing is taken
+   * yet. Three consecutive collisions throw rather than return a clobbering id.
+   *
+   * Minting is PURE: it names a record file, it never creates one.
+   */
   mintId(): string {
-    return mintIdImpl();
+    return mintUniqueId({
+      exists: (candidate) => frPathCandidates(this.specsDir, candidate).some((p) => existsSync(p)),
+    });
   }
 
   async getMetadata(id: string): Promise<FRMetadata> {

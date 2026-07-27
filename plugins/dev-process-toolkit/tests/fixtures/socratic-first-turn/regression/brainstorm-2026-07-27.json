@@ -1,0 +1,12 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"STE-422 regression reproducer, derived from the untracked 2026-07-27 Linear-leg smoke capture tests/fixtures/socratic-first-turn/<skill>-2026-07-27.json (a multi-hundred-KB run artifact that is deliberately NOT committed). Only the prefix of assistant events up to and including the decisive entry is kept; text bodies are truncated and tool inputs are reduced to the scaffold file_path the projectRoot scope check reads. Verdict-equivalence with the full capture is asserted by tests/m116-ste-422-assert-runner-projectroot.test.ts whenever the full capture is present."}]},"session_id":"ste-422-brainstorm-2026-07-27","uuid":"ste-422-derived-brainstorm-2026-07-27","timestamp":"2026-07-27T00:00:00.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll start the brainstorm session. …"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Skill","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"ToolSearch","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Write","input":{"file_path":"/Users/ns/english/mistakes/inbox/2026-07-27-defaulting-to-world-q7.md"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"**English corrections** 1. \"returning 'Hello, <name>!' defaulting to 'world'…\" → **\"…'Hel … <dpt:requires-input-refused>v1</dpt:requires-input-refused>"}]}}

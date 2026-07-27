@@ -1,0 +1,21 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"STE-422 regression reproducer, derived from the untracked 2026-07-27 Linear-leg smoke capture tests/fixtures/socratic-first-turn/<skill>-2026-07-27.json (a multi-hundred-KB run artifact that is deliberately NOT committed). Only the prefix of assistant events up to and including the decisive entry is kept; text bodies are truncated and tool inputs are reduced to the scaffold file_path the projectRoot scope check reads. Verdict-equivalence with the full capture is asserted by tests/m116-ste-422-assert-runner-projectroot.test.ts whenever the full capture is present."}]},"session_id":"ste-422-setup-2026-07-27","uuid":"ste-422-derived-setup-2026-07-27","timestamp":"2026-07-27T00:00:00.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll start by reading the setup skill to follow its exact procedure. …"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Skill","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"ToolSearch","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Read-only orientation done. This project is **already bootstrapped** (`chore: bootstrap de …"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Now the doctor validation + gate verification (Steps 1b, 9), plus the Linear MCP verificat …"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"ToolSearch","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Gate passes (`exit=0`). Now the unconditional MCP verification probes — Step 7b test call …"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__linear__get_team","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__linear__list_issue_statuses","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__linear__list_projects","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"All probes green: team `STE` → \"Stellarlab Mike's Sandbox\", project `DPT Smoke Test (2026- …"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Migration registry is absent → best-effort walk swallows (no `upgrade_available`). Monolit …"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/Users/ns/workspace/dpt-test-project-linear/CLAUDE.md"}}]}}

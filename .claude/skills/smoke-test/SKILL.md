@@ -11,7 +11,7 @@ Drive the dev-process-toolkit plugin end-to-end against a freshly-scaffolded Bun
 
 This is the autonomous variant: the parent claude session spawns `claude-st -p` children, captures their output, and writes findings + a teardown checklist. The skill drives **either** the Linear path (default, `--tracker linear`) **or** the Jira path (`--tracker jira --jira-project <KEY>`) — the canonical chain (`/setup → /spec-write → /implement → /gate-check → /spec-review → /simplify`) is identical in both modes; only Phase 1 (project setup) and Phase 5 (teardown) branch on `--tracker`. Per-run findings live at `/tmp/dpt-smoke-findings-<date>-<tracker>.md`; that's the persistent audit trail.
 
-Every per-run artifact is keyed on the resolved `<tracker>` (one of `linear` / `jira`): the test-project basename is `../dpt-test-project-<tracker>`, the findings file is `/tmp/dpt-smoke-findings-<date>-<tracker>.md`, per-skill logs are `/tmp/dpt-smoke-<tracker>-<skill>.log`, the wrapped MCP config is `/tmp/dpt-smoke-mcp-config-<tracker>.json`, and the approval record is `/tmp/dpt-smoke-<date>-<tracker>-approval.txt`. This is what makes the two-terminal tandem run (§ Operator-driven parallelism, below) safe.
+Every per-run artifact is keyed on the resolved `<tracker>` (one of `linear` / `jira`): the test-project basename is `../dpt-test-project-<tracker>`, the findings file is `/tmp/dpt-smoke-findings-<date>-<tracker>.md`, per-skill logs are `/tmp/dpt-smoke-<tracker>-<skill>.log`, grandchild pidfiles are `/tmp/dpt-smoke-<tracker>-<skill>.pid` (globbed as `/tmp/dpt-smoke-<tracker>-*.pid`), the wrapped MCP config is `/tmp/dpt-smoke-mcp-config-<tracker>.json`, the approval record is `/tmp/dpt-smoke-<date>-<tracker>-approval.txt`, and Phase 8 transcript fixtures are `tests/fixtures/socratic-first-turn/<skill>-<tracker>-<YYYY-MM-DD>.json`. That shared `<tracker>` segment — not the calendar day, and not luck — is what makes the two-terminal tandem run (§ Operator-driven parallelism, below) safe.
 
 ## When to use
 
@@ -23,10 +23,10 @@ Every per-run artifact is keyed on the resolved `<tracker>` (one of `linear` / `
 
 Two `/smoke-test` invocations may run **concurrently in two terminals**, one per tracker, without filesystem collision or artifact-overwrite races. Per-tracker artifact isolation makes this safe by construction:
 
-- `--tracker linear` writes to `../dpt-test-project-linear` and `/tmp/dpt-smoke-*-linear.{md,log,json,txt}`.
-- `--tracker jira --jira-project <KEY>` writes to `../dpt-test-project-jira` and `/tmp/dpt-smoke-*-jira.{md,log,json,txt}`.
+- `--tracker linear` writes to `../dpt-test-project-linear`, to `/tmp/dpt-smoke-linear-*.{log,pid,rc,start,attempt}`, `/tmp/dpt-smoke-mcp-config-linear.json`, `/tmp/dpt-smoke-findings-<date>-linear.md` and `/tmp/dpt-smoke-<date>-linear-approval.txt`, and to `tests/fixtures/socratic-first-turn/<skill>-linear-<YYYY-MM-DD>.json`.
+- `--tracker jira --jira-project <KEY>` writes to `../dpt-test-project-jira`, to `/tmp/dpt-smoke-jira-*.{log,pid,rc,start,attempt}`, `/tmp/dpt-smoke-mcp-config-jira.json`, `/tmp/dpt-smoke-findings-<date>-jira.md` and `/tmp/dpt-smoke-<date>-jira-approval.txt`, and to `tests/fixtures/socratic-first-turn/<skill>-jira-<YYYY-MM-DD>.json`.
 
-The two runs never touch the same path, never read the same MCP config, and never write the same findings file. Each invocation owns its own approval gate (Phase 0 — Pre-approval), its own teardown checklist, and its own trace. Phase 0.5 cleanup honors the same isolation invariant: it is per-tracker-scoped — each leg removes only its own stale scratch, including `/tmp/dpt-smoke-mcp-config-<tracker>.json`, so neither leg can delete the config the other leg's Phase 1 step 5 just wrote.
+**What the isolation actually rests on — the tracker segment (STE-423).** The safety claim is not "the two legs happen to differ"; it is that every path either leg *writes, globs, or reaps* carries the resolved `<tracker>` segment, so the two legs' path sets are disjoint by construction and no glob one leg expands can name a file the other leg owns. Four classes carry it: the test-project directory, the `/tmp/` per-run scratch (logs, rc / start / attempt markers, wrapped MCP config, findings file, approval record), the Phase 8 transcript fixtures, and — the class that bites hardest when it is missed — the **pidfile globs** used for liveness detection and for reaping (`/tmp/dpt-smoke-<tracker>-*.pid`). The pidfile class is load-bearing in a way the others are not, because its glob feeds a `kill`, not merely a write: an unscoped pidfile glob would expand onto the partner leg's pidfiles, and the `ps -p <pid> -o comm=` identity check does **not** rescue the partner — the partner's grandchild is a genuine `claude` process and sails straight through that guard. So the claim extends exactly as far as the tracker segment does, and no further: any path that drops the segment drops the guarantee with it. Each invocation also owns its own approval gate (Phase 0 — Pre-approval), its own teardown checklist, and its own trace. Phase 0.5 cleanup honors the same invariant: it is per-tracker-scoped — each leg removes only its own stale scratch, including `/tmp/dpt-smoke-mcp-config-<tracker>.json`, so neither leg can delete the config the other leg's Phase 1 step 5 just wrote.
 
 **No combined-mode flag.** `--tracker linear,jira` does not exist; there is no parent-side fan-out, no console-multiplexing, and **no merged findings file** — each terminal emits its own `/tmp/dpt-smoke-findings-<date>-<tracker>.md`. If a combined view is needed, read the two findings files side-by-side. This was a deliberate brainstorm choice (2026-04-30, approach 1 selected over approaches 2 and 3) — minimum viable surface area, clean failure isolation per tracker, no merged-findings logic to maintain.
 
@@ -336,7 +336,7 @@ fi
 
 **The forbidden rationalization is byte-pinned.** The driver MUST NOT self-narrate itself as an **"interactive parent"** — the verbatim 2026-07-24 Jira-leg wording — while stdin is non-tty. That self-narration is forbidden, carries no authority to override the banner, and does NOT re-open any background-wait or turn-yield path: under a headless banner every grandchild wait MUST use the bounded `kill -0` poll-until-exit loop below — never `run_in_background`, never the `Monitor` tool, never ending the turn to await a completion notification (F3). Advisory prose was the escape hatch that let STE-355 → STE-357 → STE-365 each get narrated past; there is no discretion left here to exercise.
 
-**Headless-gate violation ⇒ abort with full teardown.** If the driver finds it has violated this hard gate — acted on an "interactive" self-classification under a headless banner, spawned via `run_in_background`, reached for `Monitor`, or yielded the turn awaiting a grandchild — the leg is void. It MUST abort immediately and run `### Phase 5 — Teardown` (archive/close the tracker project + `rm -rf` the test directory) before exiting, so a violated run never leaves orphaned tracker data or test directories behind (the 2026-07-24 failure mode on both legs). Reap first: before that teardown runs, `kill` every PID recorded in a still-answering pidfile (identity-checked exactly as the `Final-message self-check` clause's reap-first rule requires) and `rm -f /tmp/dpt-smoke-*.pid`, because `rm -rf`-ing a directory a live grandchild is still writing into races it.
+**Headless-gate violation ⇒ abort with full teardown.** If the driver finds it has violated this hard gate — acted on an "interactive" self-classification under a headless banner, spawned via `run_in_background`, reached for `Monitor`, or yielded the turn awaiting a grandchild — the leg is void. It MUST abort immediately and run `### Phase 5 — Teardown` (archive/close the tracker project + `rm -rf` the test directory) before exiting, so a violated run never leaves orphaned tracker data or test directories behind (the 2026-07-24 failure mode on both legs). Reap first: before that teardown runs, `kill` every PID recorded in a still-answering pidfile (identity-checked exactly as the `Final-message self-check` clause's reap-first rule requires) and then `bash -c 'rm -f /tmp/dpt-smoke-<tracker>-*.pid'`, because `rm -rf`-ing a directory a live grandchild is still writing into races it. Both halves of that removal are load-bearing (STE-423): the glob carries the resolved `<tracker>` so a tandem partner's pidfiles are never in the match set, and the `bash -c` wrapper is required because the operator's shell is zsh, where an unmatched glob is an error that would kill the abort itself instead of expanding to nothing.
 
 Spawn one `claude-st -p` child per skill, sequentially. Each child:
 
@@ -380,7 +380,7 @@ Skills to run, in order:
 
 **Branch 1 — marker present ⇒ proceed.** If the marker `<dpt:auto-approve>v1</dpt:auto-approve>` is present in the invoking prompt body, the judgment call is already pre-authorized: the driver MUST proceed with the FULL run — whole canonical chain, all fixtures, no self-imposed reduction — and log the decision in passing rather than pausing on it.
 
-**Branch 2 — marker absent ⇒ abort with full teardown.** If the marker is absent, the leg holds no authority to decide for the operator and MUST abort immediately: run `### Phase 5 — Teardown` (archive/close the tracker project + `rm -rf` the test directory), then exit non-zero. Abort-with-teardown is the ONLY sanctioned no-marker resolution; parking the leg mid-run is not one, because it strands exactly the tracker data and test directory that teardown exists to remove. Reap first: before that teardown runs, `kill` every PID recorded in a still-answering pidfile (identity-checked exactly as the `Final-message self-check` clause's reap-first rule requires) and `rm -f /tmp/dpt-smoke-*.pid`, because `rm -rf`-ing a directory a live grandchild is still writing into races it.
+**Branch 2 — marker absent ⇒ abort with full teardown.** If the marker is absent, the leg holds no authority to decide for the operator and MUST abort immediately: run `### Phase 5 — Teardown` (archive/close the tracker project + `rm -rf` the test directory), then exit non-zero. Abort-with-teardown is the ONLY sanctioned no-marker resolution; parking the leg mid-run is not one, because it strands exactly the tracker data and test directory that teardown exists to remove. Reap first: before that teardown runs, `kill` every PID recorded in a still-answering pidfile (identity-checked exactly as the `Final-message self-check` clause's reap-first rule requires) and then `bash -c 'rm -f /tmp/dpt-smoke-<tracker>-*.pid'`, because `rm -rf`-ing a directory a live grandchild is still writing into races it. Both halves of that removal are load-bearing (STE-423): the glob carries the resolved `<tracker>` so a tandem partner's pidfiles are never in the match set, and the `bash -c` wrapper is required because the operator's shell is zsh, where an unmatched glob is an error that would kill the abort itself instead of expanding to nothing.
 
 **There is NO prose-ask-then-end-turn path under non-tty.** Stating the question in prose and ending the turn is not a pause under a headless banner — it is a silent no-op: the leg exits rc=0, the canonical chain never runs, and the tracker project is left orphaned. That is the verbatim 2026-07-24 Linear-leg failure: the driver asked the operator a 3-option rate-limit question, ended its turn, and left the Linear project behind with the chain unrun. So under non-tty there is no prose-ask, no end-the-turn-and-await-an-answer, and nothing between Branch 1 and Branch 2 to exercise discretion over.
 
@@ -442,19 +442,36 @@ fi
 
 **Red flag — the harness's foreground-sleep block hint is NOT license to background the wait.** If a poll call leads with `sleep`, the harness blocks it with an error hint that reads roughly "Foreground `sleep` is blocked. To wait for a condition, use `run_in_background` or the Monitor tool." Do **not** follow that hint here: handing the wait to `run_in_background`/Monitor and then ending the turn IS the F3 fire-and-exit failure — a `-p` driver session never receives the completion notification, so the rest of the run silently never executes. The bounded poll loop above already avoids the block by gating each iteration on `kill -0` *before* its `sleep 30`; keep waiting with that loop, in the foreground, until the pidfile dies.
 
-**Final-message self-check (STE-357, hardened by STE-414).** Before emitting **any** final message — success or failure — run the pidfile-liveness fence below over the run's pidfile glob (`/tmp/dpt-smoke-*.pid`). Two triggers arm this check: (1) an *incomplete grandchild chain* — the canonical chain was not run to completion; (2) *any live pidfile* — a spawned grandchild is still running. On either trigger the driver MUST loudly abort — emit an explicit `SMOKE-ABORT: <trigger>` line as the first line of the final message. The abort MUST exit non-zero — a loud banner is not sufficient, because rc is one of several corroborating signals the parent reads — the per-skill log set is another — and a false green must never be reported in the exit code. Signal only what this run spawned: for each PID recorded in a still-answering pidfile, confirm its identity with `ps -p <pid> -o comm=` and reap it only when that reports a `claude` process, because a PID recycled since the `kill -0` probe would otherwise take a real signal aimed at an unrelated process on the operator's machine. The abort MUST reap FIRST, before anything destructive runs: `kill` every PID recorded in a still-answering pidfile, then `rm -f /tmp/dpt-smoke-*.pid`, so the invariant closing this paragraph holds on the abort branch instead of being aspirational. Only once that reap is done may the driver run `### Phase 5 — Teardown` in full (archive/close the tracker project, `rm -rf` the test directory) before the turn ends — quiesce the grandchild first, then destroy the state it was writing into, because tearing down around a live process races it: the grandchild can still be writing into the directory being removed and still posting to the project being archived. A live pidfile must **never end the turn** quietly: if the chain is still runnable, resume the bounded poll loop above and finish it; if it is not, take the abort-with-teardown path. The two branches are ordered, not discretionary — *resume* is available only while the chain can still be finished **in this same turn**, and taking it means no final message is emitted at all; the moment finishing is off the table (the session is ending, the chain is unrunnable, or the remaining work would be picked up in a later turn) the abort-with-teardown path above is the only move left. There is no third branch in which the turn ends while a pidfile still answers `kill -0`.
+**Final-message self-check (STE-357, hardened by STE-414).** Before emitting **any** final message — success or failure — run the pidfile-liveness fence below over the run's own tracker-scoped pidfile glob (`/tmp/dpt-smoke-<tracker>-*.pid` — never a cross-tracker one, which would walk a tandem partner's pidfiles; STE-423). Two triggers arm this check: (1) an *incomplete grandchild chain* — the canonical chain was not run to completion; (2) *any live pidfile* — a spawned grandchild is still running. On either trigger the driver MUST loudly abort — emit an explicit `SMOKE-ABORT: <trigger>` line as the first line of the final message. The abort MUST exit non-zero — a loud banner is not sufficient, because rc is one of several corroborating signals the parent reads — the per-skill log set is another — and a false green must never be reported in the exit code. Signal only what this run spawned: for each PID recorded in a still-answering pidfile, confirm its identity with `ps -p <pid> -o comm=` and reap it only when that reports a `claude` process, because a PID recycled since the `kill -0` probe would otherwise take a real signal aimed at an unrelated process on the operator's machine. The abort MUST reap FIRST, before anything destructive runs: `kill` every PID recorded in a still-answering pidfile, then `rm -f /tmp/dpt-smoke-<tracker>-*.pid`, so the invariant closing this paragraph holds on the abort branch instead of being aspirational. Only once that reap is done may the driver run `### Phase 5 — Teardown` in full (archive/close the tracker project, `rm -rf` the test directory) before the turn ends — quiesce the grandchild first, then destroy the state it was writing into, because tearing down around a live process races it: the grandchild can still be writing into the directory being removed and still posting to the project being archived. A live pidfile must **never end the turn** quietly: if the chain is still runnable, resume the bounded poll loop above and finish it; if it is not, take the abort-with-teardown path. The two branches are ordered, not discretionary — *resume* is available only while the chain can still be finished **in this same turn**, and taking it means no final message is emitted at all; the moment finishing is off the table (the session is ending, the chain is unrunnable, or the remaining work would be picked up in a later turn) the abort-with-teardown path above is the only move left. There is no third branch in which the turn ends while a pidfile still answers `kill -0`.
 
 Exiting rc=0 is not proof the chain ran. This driver must NEVER exit rc=0 silently with an unfinished chain or a live grandchild — a silent rc=0 exit under either trigger IS the failure mode this clause exists to stop (2026-07-24: both conformance legs exited rc=0 in ~8 min without running the chain and left orphaned tracker data behind). A silent success exit is legal only when the canonical chain completed AND zero pidfiles still answer `kill -0`. Stated unqualified, with no adverb left to argue over: the driver must never exit rc=0 on the abort branch, under either trigger, loud or not.
+
+The verdict artifact is what turns that mandate into something the parent can actually check. Under `claude -p` this driver is an LLM turn, not the process — it cannot set the exit status, and the harness returns 0 for any session that finishes — so rc is physically unable to carry the verdict (2026-07-27: the Jira leg opened its final message with `SMOKE-ABORT: incomplete grandchild chain (/implement + /spec-review never ran)` and summarized itself as `VERDICT: FAIL (rc=1)`, while the rc-file the parent collected held `0`, and the documented gate read that `0` and continued). So before the final message is emitted — on every branch, success or failure — write the machine-readable verdict artifact at `/tmp/dpt-smoke-verdict-<tracker>.json` with the `emit` command in the fence below (`adapters/_shared/src/smoke_verdict.ts`, STE-420); it records `outcome` (`pass` / `fail` / `abort`) and, on an abort, the `trigger` that armed it. That verdict artifact — not the process exit status — is the authoritative record of this leg's outcome: `/conformance-loop`'s Phase A reconciles each leg's collected rc against it (missing, malformed, stale, or non-`pass` ⇒ non-zero) before writing the rc-file every documented consumer reads. Feed it BOTH triggers, because the pidfile scan alone sees just one of them: the live-pidfile list the fence computes, and the incomplete-chain finding set from Phase 2.Y's `assertChainIntegrity` (`adapters/_shared/src/smoke_child_capture.ts`).
 
 ```bash
 # Final-message self-check — run before ANY final message (success or failure).
 setopt local_options null_glob 2>/dev/null || shopt -s nullglob 2>/dev/null || true
 LIVE=""
-for PIDFILE in /tmp/dpt-smoke-*.pid; do
+for PIDFILE in /tmp/dpt-smoke-<tracker>-*.pid; do
   [ -e "${PIDFILE}" ] || continue
   kill -0 "$(cat "${PIDFILE}")" 2>/dev/null && LIVE="${LIVE} ${PIDFILE}"
 done
 if [ -n "${LIVE}" ]; then echo "LIVE:${LIVE} — finish the bounded poll loop, or abort loudly, confirm each recorded PID is still a claude process before signalling it, reap these pidfiles, THEN run Phase 5 teardown, and exit non-zero; never exit rc=0"; else echo "no live pidfiles — final message may be emitted (only if the canonical chain completed)"; fi
+
+# STE-420 — emit the verdict artifact, on EVERY branch, before the final
+# message. Both triggers feed it: `--live` carries the pidfile scan above, and
+# one `--chain-finding` flag per Phase 2.Y assertChainIntegrity finding carries
+# the incomplete-chain trigger (omit the flag when the chain is clean — the
+# pidfile scan cannot see that trigger). `--outcome` escalates a
+# chain-complete, pidfile-clean run this driver is nonetheless reporting as
+# SMOKE-TEST FAIL; it can never mask an armed trigger.
+DPT_PLUGIN_DIR=/Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit
+SMOKE_OUTCOME=pass   # `fail` when reporting SMOKE-TEST FAIL; `abort` on either trigger
+bun "${DPT_PLUGIN_DIR}/adapters/_shared/src/smoke_verdict.ts" emit \
+  --tracker <tracker> --path /tmp/dpt-smoke-verdict-<tracker>.json \
+  --outcome "${SMOKE_OUTCOME}" --live "${LIVE}"
+  # …append one `--chain-finding "<diagnostic>"` per Phase 2.Y finding.
+cat /tmp/dpt-smoke-verdict-<tracker>.json
 ```
 
 #### Phase 2 child-spawn discipline (stdin partition)
@@ -535,6 +552,12 @@ echo $! > /tmp/dpt-smoke-<tracker>-setup.pid
 # byte-checkable pre-authorization handoff for /spec-write's draft + commit
 # gates (STE-226). Without it the gates fire interactively and the child
 # halts at the prompt.
+# The `<dpt:answers>v1` … `</dpt:answers>` block below carries the pre-baked
+# interview answers. Under `claude -p` the child has no AskUserQuestion tool,
+# so without the block every clarifying question refuses and the chain
+# truncates here; the marker is a hard precondition for the block, and an
+# unmarked or malformed block is inert (see `docs/auto-mode-protocol.md`
+# § Sanctioned Answers Block).
 # Detached spawn + PID capture (STE-355); poll until exit before /implement.
 claude -p \
   --output-format stream-json --verbose \
@@ -545,6 +568,21 @@ claude -p \
 /dev-process-toolkit:spec-write
 
 Add a pure function greet(name?: string) returning 'Hello, <name>!' (defaulting 'world' for undefined / empty / whitespace-only). File src/greet.ts; test src/greet.test.ts; 4 ACs.
+
+<dpt:answers>v1
+feature_summary: a pure greet(name?: string) helper returning 'Hello, <name>!' and defaulting to 'world'
+acceptance_criteria: 4 ACs — named greeting, undefined name, empty string, whitespace-only string
+implementation_file: src/greet.ts
+test_file: src/greet.test.ts
+changelog_category: Added
+milestone: accept the recommended next free milestone
+technical_design: one exported pure function, no dependencies; trim the input and fall back to 'world' when the result is empty
+testing: bun test unit coverage in src/greet.test.ts, one case per AC, no mocks needed
+cross_cutting_requirements: none — the feature is self-contained
+out_of_scope: localization, formatting options, and any I/O
+non_functional_requirements: none beyond the repo's existing gate
+risks: none identified — pure function, no external dependencies
+</dpt:answers>
 PROMPT_EOF
 echo $! > /tmp/dpt-smoke-<tracker>-spec-write.pid
 
@@ -564,6 +602,8 @@ echo $! > /tmp/dpt-smoke-<tracker>-implement.pid
 ```
 
 **Auto-approve marker contract (STE-226).** Every prompt-bearing heredoc above carries the literal line `<dpt:auto-approve>v1</dpt:auto-approve>` as the first body line. The marker is a byte-checkable pre-authorization token that child skills (`/spec-write`, `/implement`) detect by literal string match — no `<system-reminder>` introspection, no `claude -p` non-interactive inference. Children whose gates depend on operator approval (`/spec-write` § 0b step 4 + § 7a draft/commit gates; `/implement` Phase 4 step 15 commit) auto-apply `y` when the marker is in the prompt body and gate interactively otherwise. Removing the marker line (deliberate or accidental) is the canonical way to flip a smoke-driver child into interactive-gating mode for diagnostic runs; the regression to watch for is the inverse — a child that auto-applies WITHOUT the marker (covered by Phase 2.X group 1 sub-fixture 1b below).
+
+**Sanctioned answers block (the interview half).** The marker pre-authorizes approval gates that have a safe default; it does not answer clarifying questions, which have none. Under `claude -p` the child has no `AskUserQuestion` tool registered, so every interview step would refuse and the canonical chain would truncate at `/spec-write` — the failure the 2026-07-27 conformance run hit on both legs. The `/spec-write` heredoc therefore carries an operator-authored `<dpt:answers>v1` … `</dpt:answers>` block beneath the marker, one `key: value` pair per line, parsed by `extractAutoAnswers` / `resolveInterviewAnswer` in `plugins/dev-process-toolkit/adapters/_shared/src/auto_answers.ts` and fed to `requireOrRefuse(...)`'s `preBakedValue` slot — the interview is answered, not skipped. The marker is a hard precondition: drop the marker line and the block is inert, and a malformed block (unterminated, or delimiters out of order) fails closed to the same inert result rather than half-answering the interview. Keep every value non-empty — a blank value parses as an answer and would ship a hollow FR. Contract: `docs/auto-mode-protocol.md` § Sanctioned Answers Block.
 
 #### Stream-idle retry-with-rollback for prompt-bearing children (STE-195)
 
@@ -706,6 +746,22 @@ Failure shape (canonical across all groups): `STE-<sut> runtime regression: <fix
 
 Phase 2.X fires AFTER Phase 2 step 6 (`/simplify`) returns successfully and BEFORE Phase 3 (Capture). Fixture groups are independent; a failure in one does not abort the others.
 
+#### Capability-row evidence — the shared assistant-scoped runner (STE-421)
+
+Every "did the skill emit its capability row?" assertion below — and in Phase 9 — resolves through the bundled `capability_row_assert.ts` runner. **Never through `grep` on the capture.** The reason is measured, not theoretical: `claude -p` injects the invoked skill's SKILL.md body into the transcript as a **single synthetic `user` event** (`{"type":"user","isSynthetic":true,…}`, a text block — *not* a tool_result), and that body enumerates the skill's own capability keys. So every key a skill **documents** is present in the raw log of **every** capture of that skill, unconditionally, never run-dependently. On the 2026-07-27 run one 83 KB synthetic-user event accounted for all five `/spec-write` keys' raw hits on a leg where `/spec-write` refused at its first-turn gate and emitted nothing at all — fixtures 1a, 5a and 6 each scored PASS against a total non-emission.
+
+The runner projects the capture through `extractAssistantText` (only `assistant` events' text blocks survive) and scores that. It also subtracts occurrences that land **after** the STE-408 refusal marker `<dpt:requires-input-refused>v1</dpt:requires-input-refused>` in that projection: those are post-refusal explanatory prose ("no row exists because § 7 was never reached"), never emissions — which is what stops a *correct* refusal from being reported as a marker-contract regression by the absence-asserting fixtures (1b, 5b). The rule is positional: the same token ahead of the marker still scores PRESENT.
+
+```bash
+PLUGIN_DIR=/Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit
+CAP_ASSERT=${PLUGIN_DIR}/adapters/_shared/src/capability_row_assert.ts
+# usage: bun "${CAP_ASSERT}" <present|absent|any-of> <capture.log> <key…>
+#   present  every named key emitted        absent  none emitted
+#   any-of   at least one emitted           exit 0 = expectation met, 1 = not
+```
+
+The runner prints one line — `<expectation>: <ok|fail> <key>=<present|absent>(assistant=N,post-refusal=N,raw=N)` — so a failing fixture's diagnostic can quote the assistant-vs-raw split directly and the operator can see at a glance whether the old method would have disagreed. Unit coverage: `tests/m116-ste-421-assistant-scoped-capability.test.ts`.
+
 #### Fixture group 1 — STE-226 spec-write marker carve-out (Linear + Jira)
 
 Two sub-fixtures verify that the byte-checkable marker (`<dpt:auto-approve>v1</dpt:auto-approve>`) is the **only** trigger for `/spec-write`'s draft + commit auto-apply path. STE-213 (M55) and STE-220 (M56) attempted the same carve-out via prose-only contracts and both falsified end-to-end across four smoke runs; STE-226 (M59) replaces the prose-only detection with this byte-checkable marker. The two sub-fixtures together close both directions of the failure surface — marker-present must auto-apply (1a), marker-absent must NOT auto-apply (1b).
@@ -716,8 +772,7 @@ Two sub-fixtures verify that the byte-checkable marker (`<dpt:auto-approve>v1</d
 
 **Assertions:**
 
-- `grep -F 'spec_write_draft_default_applied' /tmp/dpt-smoke-<tracker>-spec-write.log` exit 0 (row present in stdout).
-- `grep -F 'spec_write_commit_default_applied' /tmp/dpt-smoke-<tracker>-spec-write.log` exit 0 (row present in stdout).
+- `bun "${CAP_ASSERT}" present /tmp/dpt-smoke-<tracker>-spec-write.log spec_write_draft_default_applied spec_write_commit_default_applied` exit 0 (both rows emitted in the child's own assistant text).
 
 **Diagnostic on failure:**
 
@@ -735,8 +790,7 @@ A new `/spec-write` spawn is fired with the marker line **omitted** from the her
 
 **Assertions:**
 
-- `grep -F 'spec_write_draft_default_applied' /tmp/dpt-smoke-<tracker>-spec-write-1b.log` exit 1 (row absent — gate fired interactively, no auto-apply).
-- `grep -F 'spec_write_commit_default_applied' /tmp/dpt-smoke-<tracker>-spec-write-1b.log` exit 1 (row absent for the same reason).
+- `bun "${CAP_ASSERT}" absent /tmp/dpt-smoke-<tracker>-spec-write-1b.log spec_write_draft_default_applied spec_write_commit_default_applied` exit 0 (neither row emitted — gate fired interactively, no auto-apply). A refusal that *explains* the missing rows in its wrap-up prose is still `absent`: the runner discounts occurrences downstream of the refusal marker.
 - Stdout ends at the gate prompt without ever reaching § 7 emit.
 - **Post-TIGHTEN cross-tracker assertion (STE-294 AC.4):** Linear-side AND Jira-side both raised `RequiresInputRefusedError` (NFR-10 canonical shape — Verdict / Remedy / Context) under non-tty stdin when the marker is absent. The byte-checkable refusal is the ONLY acceptable outcome; an autonomous-mode reminder paraphrase, pre-baked `<command-args>` prose, or "standing instruction" inference MUST NOT flip the gate. Both legs of the tandem run produce the same refusal class — asymmetry between Linear-leg refusal and Jira-leg auto-apply (or vice-versa) is the M59→M65 regression shape this assertion fences.
 
@@ -814,7 +868,7 @@ System-under-test is `/gate-check` **probe #37** (`cross-cutting-spec-stale-file
 
 - Stage: pre-create a stale leaf in `specs/technical-spec.md` referencing a path that doesn't exist on disk (no `/implement` run). The leaf token MUST contain a `/` to qualify as a path-shaped reference (the probe filters bare-basename tokens by design — see F8 follow-up: a path like `src/staleref-fixture-3c.ts` qualifies; a bare `staleref-fixture-3c.ts` does not).
 - Invoke + capture: `claude -p /dev-process-toolkit:gate-check` → `/tmp/dpt-smoke-<tracker>-ste222-probe.log`.
-- Assert: `grep -F 'cross-cutting-spec-stale-file-refs' /tmp/dpt-smoke-<tracker>-ste222-probe.log` exit 0 with ADVISORY context (NOT `GATE FAILED` — STE-215 AC.5 specifies ADVISORY). The probe surfaces as `probe #37` in the verdict block.
+- Assert: `bun "${CAP_ASSERT}" present /tmp/dpt-smoke-<tracker>-ste222-probe.log cross_cutting_spec_stale_file_refs` exit 0, with ADVISORY context (NOT `GATE FAILED` — STE-215 AC.5 specifies ADVISORY). The probe surfaces as `probe #37` in the verdict block. **The asserted token is the UNDERSCORED one** — that is what the probe's violation message actually emits at runtime. The hyphenated spelling is the probe *id* used in prose (above and in `/gate-check`'s own SKILL body); asserting it here scored a correct probe run as broken (STE-421 AC.4).
 - Cleanup.
 
 **Diagnostic on any sub-fixture failure:**
@@ -860,7 +914,7 @@ Each step is a fresh `claude -p` spawn using the existing heredoc-on-stdin patte
 **Assertions (per step):**
 
 - Step 1: FR file exists at `../dpt-test-project-linear/specs/frs/<id>.md` with `grep -F 'needs_technical_review: true' ../dpt-test-project-linear/specs/frs/<id>.md` exit 0 (frontmatter flag set).
-- Step 2: `grep -F 'implement_refused_needs_technical_review' /tmp/dpt-smoke-linear-no-tech-step-2.log` exit 0 (capability row present); `git -C ../dpt-test-project-linear log --oneline --since '<step-2-start>'` returns no rows (no commit landed during step 2).
+- Step 2: `bun "${CAP_ASSERT}" present /tmp/dpt-smoke-linear-no-tech-step-2.log implement_refused_needs_technical_review` exit 0 (capability row emitted in the child's assistant text); `git -C ../dpt-test-project-linear log --oneline --since '<step-2-start>'` returns no rows (no commit landed during step 2).
 - Step 3: `grep -F 'needs_technical_review: true' ../dpt-test-project-linear/specs/frs/<id>.md` exit 1 (flag cleared after re-invoke without `--no-tech`).
 - Step 4: `git -C ../dpt-test-project-linear log --oneline --since '<step-4-start>'` returns ≥ 1 row (implementation commit landed); `test -f ../dpt-test-project-linear/specs/frs/archive/<id>.md` exit 0 (archive landed); `mcp__linear__get_issue STE-<id>` returns `status: "Done"`.
 
@@ -904,7 +958,7 @@ Two sub-fixtures (5a marker present + 5b marker absent) verify both directions o
 
 **Assertions:**
 
-- `grep -F 'branch_gate_default_applied' /tmp/dpt-smoke-<tracker>-spec-write.log` exit 0 (gate auto-applied with the marker present).
+- `bun "${CAP_ASSERT}" present /tmp/dpt-smoke-<tracker>-spec-write.log branch_gate_default_applied` exit 0 (gate auto-applied with the marker present).
 - `git -C ../dpt-test-project-<tracker> branch --show-current` returns the proposed branch name (matching the `branch_template:` rendering for `type=feat`, slug derived from the FR title) — NOT `main`.
 
 **Diagnostic on failure:**
@@ -923,7 +977,7 @@ A new `/spec-write` spawn is fired with the marker line **omitted** from the her
 
 **Assertions:**
 
-- `grep -F 'branch_gate_default_applied' /tmp/dpt-smoke-<tracker>-spec-write-5b.log` exit 1 (row absent — gate fired interactively, no auto-apply).
+- `bun "${CAP_ASSERT}" absent /tmp/dpt-smoke-<tracker>-spec-write-5b.log branch_gate_default_applied` exit 0 (row not emitted — gate fired interactively, no auto-apply).
 - `git -C ../dpt-test-project-<tracker> branch --list <proposed-name>` returns nothing (gate did NOT create the proposed branch since the child halted at the prompt).
 - Stdout tail ends at the gate prompt (no `branch_gate_default_applied` row, no `## 7) Emit capability summary` block).
 
@@ -949,7 +1003,7 @@ Single sub-fixture (Linear + Jira, runs on both legs). The smoke driver does not
 
 **Assertion (lenient):**
 
-- `grep -cE 'spec_research_invoked|spec_research_no_matches|spec_research_shape_violation' /tmp/dpt-smoke-<tracker>-spec-write.log` ≥ 1 (at least one of the three audit rows present).
+- `bun "${CAP_ASSERT}" any-of /tmp/dpt-smoke-<tracker>-spec-write.log spec_research_invoked spec_research_no_matches spec_research_shape_violation` exit 0 (at least one of the three audit rows emitted).
 
 The lenient bound is deliberate. The empty-FR-set path emits `spec_research_no_matches` and naturally fires on a fresh test project (no prior FRs to retrieve). The non-empty path emits `spec_research_invoked` once a related FR exists. The shape-violation path emits `spec_research_shape_violation` if the subagent's return doesn't conform to its contract. Asserting OR over the three rows covers every defined post-condition without over-constraining the smoke to a particular test-project state — drift in any of those keys is already caught by the existing `/gate-check` probes for the static plain-language map (no new key added per AC-STE-231.7).
 
@@ -1162,7 +1216,7 @@ Capture the child's response stream (the parsed `tool_use` and `text` entries fr
 
 **Fail criterion (per skill):** `assertFirstTurnShape(...)` throws `SocraticFirstTurnViolationError`. The error's NFR-10 message names the offending tool (`Write` / `Edit` / `NotebookEdit`) + zero-based index in the response stream. Append a `socratic_first_turn_contract_violation` capability row to the smoke summary; **hard-fail the smoke run** — the violation surfaces a Pattern-26 regression in the live skill body.
 
-Capture each child's transcript artifact under `tests/fixtures/socratic-first-turn/<skill>-<YYYY-MM-DD>.json` for replay during regression triage. The fixture filename includes the date so concurrent runs don't collide; per-tracker scoping is unnecessary because Phase 8 is tracker-agnostic by construction (the in-scope skills are `mode: none`-compatible — `/setup` Step 7b's tracker prompt fires *inside* the Socratic loop, not as a precondition).
+Capture each child's transcript artifact under `tests/fixtures/socratic-first-turn/<skill>-<tracker>-<YYYY-MM-DD>.json` for replay during regression triage. The `<tracker>` segment is the part that keeps a tandem partner's Phase 8 fixtures out of this leg's write set (STE-423); the trailing calendar day only separates successive runs of the *same* leg, and cannot separate two legs that ran on the same day — which is the sanctioned tandem mode (§ Operator-driven parallelism). Phase 8 is tracker-agnostic in *content* (the in-scope skills are `mode: none`-compatible — `/setup` Step 7b's tracker prompt fires *inside* the Socratic loop, not as a precondition), but tracker-agnostic content is not a tracker-agnostic write target: both legs run this phase, and both write here.
 
 **Skill rotation.** Phase 8 fires once per smoke run, sequentially across the four in-scope skills (no parallelism — child-spawn cost is dominated by `claude -p` startup, not loop entry latency). A failed first-turn contract on one skill does not skip the remaining three — capture all four fixtures, then surface the aggregate verdict at end-of-phase.
 
@@ -1174,10 +1228,18 @@ PLUGIN_DIR=/Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit
 FIXTURE_DIR=${PLUGIN_DIR}/tests/fixtures/socratic-first-turn
 export CLAUDE_CONFIG_DIR=~/.claude-st   # STE-350: exported so spawn lines stay bare `claude -p`
 ASSERT_RUNNER=${PLUGIN_DIR}/adapters/_shared/src/socratic_first_turn_assert.ts
+# STE-422: the resolved test-project path, absolute — this is the runner's
+# third argument (see the emission block below). Derived from PLUGIN_DIR so it
+# does not depend on the driver's cwd.
+TRACKER="${TRACKER:?--tracker must resolve to linear|jira before Phase 8}"
+TOOLKIT_REPO=${PLUGIN_DIR%/plugins/dev-process-toolkit}
+TEST_PROJECT_DIR=$(dirname "${TOOLKIT_REPO}")/dpt-test-project-${TRACKER}
 mkdir -p "${FIXTURE_DIR}"
 
 for SKILL in setup brainstorm spec-write report-issue; do
-  FIXTURE=${FIXTURE_DIR}/${SKILL}-${DATE}.json
+  # STE-423: the fixture name carries the resolved tracker, so a tandem
+  # partner's Phase 8 capture can never land on this leg's path.
+  FIXTURE=${FIXTURE_DIR}/${SKILL}-${TRACKER}-${DATE}.json
 
   claude -p \
     --output-format stream-json --verbose \
@@ -1192,8 +1254,17 @@ PROMPT_EOF
   # Runner emits one of:
   #   <skill>: ok-asked askIndex=<i>
   #   <skill>: ok-refused askIndex=<i>
+  #   <skill>: vacuous askIndex=-1           (exits 3)
   #   <skill>: violation tool=<X> index=<i>   (exits 1)
-  bun "${ASSERT_RUNNER}" "${SKILL}" "${FIXTURE}"
+  #
+  # STE-422: the THIRD argument is mandatory. It scopes scaffold detection to
+  # the run's own test project; the two-argument form is deliberately
+  # conservative and counts ANY out-of-project write as a violation, so the
+  # operator's global-instruction side-effect write at the top of a child's
+  # first turn manufactures a run-killing false alarm (2026-07-27: /brainstorm
+  # scored `violation Write@9` instead of `ok-refused@10`). A Phase 8 violation
+  # hard-fails the whole run, so the missing argument kills healthy runs.
+  bun "${ASSERT_RUNNER}" "${SKILL}" "${FIXTURE}" "${TEST_PROJECT_DIR}"
 done
 ```
 
@@ -1209,7 +1280,20 @@ Three lenient-assertion fixtures, each spawning `claude -p /spec-write` with a h
   2. **Marker-driven branch gate** — heredoc carries the marker AND invokes `/spec-write` once on `main` with commit type `chore` (expects `branch_gate_default_applied`); a second sub-fixture invokes off-trunk on `feat/scratch` (expects `branch_gate_skipped_already_non_main`). The new `branch_gate_skipped_already_non_main` token is added to the static map at `/spec-write` § 7 under STE-238 AC.6.
   3. **Spec-research seed paths** — heredoc invokes `/spec-write` on a project carrying at least one archived FR (expects `spec_research_invoked`); a second sub-fixture invokes on a fresh project with empty `specs/frs/` (expects `spec_research_no_matches`). The third path — `spec_research_shape_violation` — is not exercised by Phase 9 because reproducing a shape violation requires an artificial subagent failure injection beyond the smoke harness's reach; the source-level probe `closing_summary_capability_keys` covers the directive presence.
 
-**Lenient assertion (per STE-231 AC.3 shape).** For each fixture the assertion is "at least one expected key for the scenario MUST appear in stdout" — case-sensitive substring grep on the captured `claude -p` log. Non-deterministic LLM prose surrounding the literal token is allowed. Missing token → hard-fail the smoke run with the canonical diagnostic `STE-238 runtime regression: <fixture-name> — expected token "<key>" missing from stdout`. Capture fixture artifacts under `tests/fixtures/capability-rows/<fixture-name>-<YYYY-MM-DD>.log` for replay.
+**Lenient assertion (per STE-231 AC.3 shape).** For each fixture the assertion is "at least one expected key for the scenario MUST be *emitted*" — `any-of` through the shared assistant-scoped runner (§ Phase 2.X — Capability-row evidence). Non-deterministic LLM prose surrounding the literal token is allowed; what is not allowed is counting the token where it appears in the injected SKILL body, in a tool_result the child read, or in post-refusal wrap-up prose. Phase 9's pre-STE-421 method was a case-sensitive substring grep on the raw captured log, which matched the skill's own documentation of its keys on every run and so could never fail.
+
+```bash
+CAP_ASSERT=${PLUGIN_DIR}/adapters/_shared/src/capability_row_assert.ts
+P9=/tmp/dpt-smoke-${TRACKER}-phase9
+
+bun "${CAP_ASSERT}" any-of "${P9}-draft-commit.log" spec_write_draft_default_applied spec_write_commit_default_applied
+bun "${CAP_ASSERT}" any-of "${P9}-branch-on-main.log" branch_gate_default_applied
+bun "${CAP_ASSERT}" any-of "${P9}-branch-off-trunk.log" branch_gate_skipped_already_non_main
+bun "${CAP_ASSERT}" any-of "${P9}-research-seeded.log" spec_research_invoked
+bun "${CAP_ASSERT}" any-of "${P9}-research-fresh.log" spec_research_no_matches
+```
+
+A non-zero exit → hard-fail the smoke run with the canonical diagnostic `STE-238 runtime regression: <fixture-name> — expected token "<key>" not emitted`, quoting the runner's verdict line (its `assistant=N … raw=N` split is the evidence that the token was documented but never emitted). Capture fixture artifacts under `tests/fixtures/capability-rows/<fixture-name>-<YYYY-MM-DD>.log` for replay.
 
 **Phase 9 fires after Phase 8** — both new phases run before tracker-agnostic teardown. The two phases are independent: a Phase 8 failure does not skip Phase 9, and vice versa, so the operator gets the full picture of both regression surfaces in one run.
 

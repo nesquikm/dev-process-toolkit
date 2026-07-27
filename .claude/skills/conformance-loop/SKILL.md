@@ -206,6 +206,11 @@ PID_FILE_LINEAR=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.pid
 PID_FILE_JIRA=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.pid
 RC_FILE_LINEAR=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.rc
 RC_FILE_JIRA=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.rc
+# STE-420: run-start in epoch ms (the Phase 0 acceptance moment). It is the
+# freshness gate for the per-leg verdict artifacts reconciled below — an
+# artifact older than this is a previous run's leftover, never this run's
+# verdict, and reconciles to non-zero.
+RUN_START_MS=$(($(date +%s) * 1000))
 PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"   # cwd is the toolkit repo (verified by pre-flight (a))
 export CLAUDE_CONFIG_DIR=~/.claude-st             # STE-350: exported so spawn lines stay bare `claude -p`
 
@@ -225,7 +230,17 @@ export CLAUDE_CONFIG_DIR=~/.claude-st             # STE-350: exported so spawn l
     > "${LOG_LINEAR}" 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
 PROMPT_EOF
-  echo $? > "${RC_FILE_LINEAR}"
+  RC_RAW_LINEAR=$?
+  # STE-420: `claude -p` hands back 0 for any session that finishes, so this
+  # leg's exit status cannot carry its verdict. Reconcile the raw status
+  # against the leg's own verdict artifact and persist THAT as the rc — a
+  # `fail`/`abort` outcome, a missing artifact, a malformed one, or a stale
+  # one all reconcile to non-zero, and a real non-zero status is never
+  # downgraded. Every documented rc-file consumer below keeps its shape.
+  bun "${PLUGIN_DIR}/adapters/_shared/src/smoke_verdict.ts" reconcile \
+    --rc "${RC_RAW_LINEAR}" \
+    --artifact /tmp/dpt-smoke-verdict-linear.json \
+    --run-start "${RUN_START_MS}" > "${RC_FILE_LINEAR}"
 } &
 PID_LINEAR=$!; echo $! > "${PID_FILE_LINEAR}"
 
@@ -235,7 +250,13 @@ PID_LINEAR=$!; echo $! > "${PID_FILE_LINEAR}"
     > "${LOG_JIRA}" 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
 PROMPT_EOF
-  echo $? > "${RC_FILE_JIRA}"
+  RC_RAW_JIRA=$?
+  # STE-420: same reconciliation on this leg — the jira artifact, never the
+  # linear one, so the two legs' verdicts can never cross (STE-423 scoping).
+  bun "${PLUGIN_DIR}/adapters/_shared/src/smoke_verdict.ts" reconcile \
+    --rc "${RC_RAW_JIRA}" \
+    --artifact /tmp/dpt-smoke-verdict-jira.json \
+    --run-start "${RUN_START_MS}" > "${RC_FILE_JIRA}"
 } &
 PID_JIRA=$!; echo $! > "${PID_FILE_JIRA}"
 
@@ -266,7 +287,7 @@ done
 if [ -n "${LIVE}" ]; then echo "still running:${LIVE} — poll again"; else echo "both legs exited — collect RCs"; fi
 ```
 
-**RC collection (after the poll loop reports both legs exited).** Read each leg's rc-file — written by its brace group's trailing `echo $?` as the leg exited — and abort on any non-zero. A missing rc-file after exit is treated as a failure:
+**RC collection (after the poll loop reports both legs exited).** Read each leg's rc-file — written by its brace group as the leg exited, carrying the *verdict-reconciled* status rather than the raw `claude -p` one (STE-420) — and abort on any non-zero. A missing rc-file after exit is treated as a failure:
 
 ```bash
 RC_LINEAR=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.rc" 2>/dev/null || echo 1)
@@ -281,6 +302,8 @@ if [ "${RC_LINEAR}" -ne 0 ] || [ "${RC_JIRA}" -ne 0 ]; then
 fi
 ```
 
+Each value read here was already reconciled against that leg's verdict artifact at `/tmp/dpt-smoke-verdict-<tracker>.json` by the spawn wrapper above (`adapters/_shared/src/smoke_verdict.ts`, STE-420). A non-`pass` outcome, an absent artifact (the leg died before writing one), a malformed one, and a stale one whose mtime predates run-start — fresh means an mtime at or after `RUN_START_MS` — each map to their own non-zero code, and a genuinely non-zero process status is never downgraded to 0. That is why this gate can keep its documented shape: it still just aborts on any non-zero, but the number it reads is now the leg's real verdict instead of the 0 `claude -p` returns for every session that finishes (2026-07-27: both legs declared failure in prose and both rc-files held `0`, so this gate was dead code).
+
 **Why detached + poll, not a same-call wait (STE-355 backfill).** A single foreground Bash call caps at the harness's **600 s (10-minute) per-call ceiling** — the same ceiling that SIGTERM'd the 2026-07-02 `/implement` grandchild (F2). With the smoke driver's STE-355 poll wrapper in place, each `/smoke-test` child genuinely awaits its grandchildren (~10+ minutes per leg), so the old spawn shape — foreground-`wait`ing both PIDs inside the spawn call (`wait "${PID_LINEAR}"; wait "${PID_JIRA}"`) — is guaranteed to hit that ceiling and truncate both legs. The spawn call detaches and returns immediately; the bounded poll above is how Phase A waits.
 
 **Residual risk — PID reuse.** `kill -0` answers for *any* live process with that PID, so a recycled PID could in principle keep a leg's poll looping after the child exited. Negligible at a 30 s poll interval, and the leg-completeness check below is the corroborating signal (a truncated leg fails the log-set verification regardless of what the poll believed) — noted so the wrapper isn't mistaken for a liveness proof. That negligible-risk reading covers the polling loop only — a false positive there merely keeps a leg's poll running. It does not carry to the abort branch's reap below, which sends a real signal: a recycled PID there would terminate an unrelated process, which is exactly why the reap must confirm identity with `ps` before it signals anything.
@@ -292,6 +315,8 @@ fi
 **Final-message self-check (STE-357, hardened by STE-414).** Before emitting **any** final message — success or failure — run the pidfile-liveness fence below over the run's pidfile glob (`/tmp/dpt-conformance-loop-*.pid`). Two triggers arm this check: (1) an *incomplete leg chain* — a spawned leg did not run its canonical chain to completion; (2) *any live pidfile* — a spawned leg is still running. On either trigger the driver MUST loudly abort — emit an explicit `LOOP-ABORT: <trigger>` line as the first line of the final message. The abort MUST exit non-zero — a loud `LOOP-ABORT:` banner is not sufficient, because rc is one of several corroborating signals the operator reads — the per-skill log set the leg-completeness check verifies is another — and a false green must never be reported in the exit code. Signal only what this run spawned: for each PID recorded in a still-answering pidfile, confirm its identity with `ps -p <pid> -o comm=` and reap it only when that reports a `claude` process, because a PID recycled since the `kill -0` probe would otherwise take a real signal aimed at an unrelated process on the operator's machine. The abort MUST reap FIRST, before anything destructive runs: `kill` every PID recorded in a still-answering pidfile, then `rm -f /tmp/dpt-conformance-loop-*.pid`, so the invariant closing this paragraph holds on the abort branch instead of being aspirational. Only once that reap is done may the driver run the per-leg teardown in full (the `/smoke-test` `### Phase 5 — Teardown` actions: archive/close each leg's tracker project, `rm -rf ../dpt-test-project-{linear,jira}`) before the turn ends — quiesce both legs first, then destroy the state they were writing into, because tearing down around a live leg races it: the leg can still be writing into the directory being removed and still posting to the project being archived. A live pidfile must **never end the turn** quietly: if the leg is still pollable, resume the bounded poll loop above and finish it; if it is not, take the abort-with-teardown path. The two branches are ordered, not discretionary — *resume* is available only while the legs can still be polled to completion **in this same turn**, and taking it means no final message is emitted at all; the moment finishing is off the table (the session is ending, a leg is unpollable, or the remaining work would be picked up in a later turn) the abort-with-teardown path above is the only move left. There is no third branch in which the turn ends while a leg's pidfile still answers `kill -0`.
 
 Exiting rc=0 is not proof the legs ran their chains. This driver must NEVER exit rc=0 silently with an unfinished leg chain or a live leg — a silent rc=0 exit under either trigger IS the failure mode this clause exists to stop (2026-07-24: both conformance legs exited rc=0 in ~8 min without running the chain and left orphaned tracker data behind). A silent success exit is legal only when both legs' canonical chains completed AND zero pidfiles still answer `kill -0`. Stated unqualified, with no adverb left to argue over: the driver must never exit rc=0 on the abort branch, under either trigger, loud or not.
+
+The same runtime limit applies here, one layer up. A `claude -p` session cannot set its own exit status — the harness returns 0 for any session that finishes — so neither a leg's rc nor this driver's own can carry a verdict by itself (2026-07-27: both legs declared failure in prose, the Jira one leading with `SMOKE-ABORT: incomplete grandchild chain`, while both rc-files held `0`). Each leg's verdict artifact at `/tmp/dpt-smoke-verdict-<tracker>.json` — `linear` and `jira`, written by that leg's `/smoke-test` final-message self-check — is therefore the authoritative record of its outcome, and the Phase A spawn wrapper above reconciles it into the rc-file the RC-collection gate reads (`adapters/_shared/src/smoke_verdict.ts`, STE-420). This driver's own abort is bound by the same rule: emit the `LOOP-ABORT:` banner, and grade the iteration off the reconciled rc-files and the artifacts behind them rather than off a status the process is not the one setting.
 
 ```bash
 # Final-message self-check — run before ANY final message (success or failure).

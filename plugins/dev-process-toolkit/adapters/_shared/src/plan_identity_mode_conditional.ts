@@ -35,6 +35,21 @@
 //
 // Filename acceptance rides the shared `milestone_token` union matcher
 // (`PLAN_FILENAME_RE` / `parseMilestoneToken`) — never a private `M\d+` copy.
+//
+// CROSS-FILE DUPLICATE PASS. Every check above is PER-FILE self-consistency:
+// a plan's `id:` must derive a plan's OWN basename. Self-consistency is not
+// uniqueness. Two independently minted plans whose short ULIDs collide on the
+// same 6-char tail each derive their own filename, so both pass the per-file
+// check and sit green side by side — one in `specs/plan/`, one in
+// `specs/plan/archive/`, invisible to a walk that keeps no cross-file state.
+// The token is the key every downstream reader uses (archive lookup, ship
+// stamp, milestone resolution), so a collision silently resolves to whichever
+// file the reader walks first. The walk therefore accumulates a
+// basename → files index across BOTH trees and, after the walk, raises one
+// violation per token claimed by more than one plan. The pass is
+// mode-independent: a duplicate token is a defect whether or not the project
+// runs a tracker, and it is keyed on the FILENAME so legacy sequential plans
+// (which carry no `id:` to derive from) are covered too.
 
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
@@ -56,7 +71,8 @@ export interface PlanIdentityModeViolation {
     | "absent"
     | "fr_<26-char ULID>"
     | "an id: the filename derives from"
-    | "exactly one id: line";
+    | "exactly one id: line"
+    | "one plan file per milestone token";
   actual: string;
   note: string;
   message: string;
@@ -66,6 +82,16 @@ export interface PlanIdentityModeConditionalReport {
   mode: string;
   severity: "warning" | "error";
   violations: PlanIdentityModeViolation[];
+}
+
+/** One plan file's contribution to the cross-file duplicate index. */
+interface PlanTokenClaim {
+  file: string;
+  rel: string;
+  /** The `id:` line if the plan carries one, else 1 — notes must cite a line. */
+  line: number;
+  /** The recorded minted id, or `""` for a legacy plan that carries none. */
+  id: string;
 }
 
 interface IdScan {
@@ -194,6 +220,10 @@ export async function runPlanIdentityModeConditionalProbe(
   const isTracker = mode !== "none";
   const files = await listPlanFiles(join(projectRoot, "specs", "plan"));
   const violations: PlanIdentityModeViolation[] = [];
+  // basename (= milestone token) → every plan file claiming it, across
+  // `specs/plan/` and `specs/plan/archive/` together. `listPlanFiles` already
+  // recurses into `archive/` and sorts, so insertion order is deterministic.
+  const claimsByToken = new Map<string, PlanTokenClaim[]>();
 
   for (const file of files) {
     let content: string;
@@ -204,6 +234,20 @@ export async function runPlanIdentityModeConditionalProbe(
     }
     const rel = relative(projectRoot, file);
     const scan = scanFrontmatterForId(content);
+
+    // Cross-file accumulation happens for EVERY walked plan, before any
+    // mode branch or grandfathering `continue` — a token collision is not
+    // conditional on mode, id shape, or whether the plan carries an id at all.
+    const token = basename(file, ".md");
+    const claim: PlanTokenClaim = {
+      file,
+      rel,
+      line: scan.present ? scan.line : 1,
+      id: scan.present ? scan.value : "",
+    };
+    const claims = claimsByToken.get(token);
+    if (claims === undefined) claimsByToken.set(token, [claim]);
+    else claims.push(claim);
 
     if (isTracker) {
       // Tracker mode: `id:` must be absent — shape-independent.
@@ -302,6 +346,30 @@ export async function runPlanIdentityModeConditionalProbe(
         ),
       });
     }
+  }
+
+  // Cross-file pass, APPENDED after the per-file walk so the existing
+  // per-file violation ordering is untouched.
+  for (const [token, claims] of claimsByToken) {
+    if (claims.length < 2) continue;
+    const first = claims[0]!;
+    const relProse = claims.map((c) => c.rel).join(", ");
+    const relCtx = claims.map((c) => c.rel).join(" | ");
+    const idCtx = claims.map((c) => (c.id.length > 0 ? c.id : "(no id:)")).join(" | ");
+    const expected = "one plan file per milestone token" as const;
+    const actual = `${claims.length} plan files derive ${token} (${relProse})`;
+    violations.push({
+      file: first.file,
+      line: first.line,
+      expected,
+      actual,
+      note: buildNote(first.file, first.line, `expected ${expected}, actual ${actual}`, projectRoot),
+      message: buildMessage(
+        `duplicate milestone token — ${claims.length} plan files collide on ${token} across specs/plan/ and specs/plan/archive/ (${relProse})`,
+        `rename all but one of ${relProse} off ${token} — for a minted plan, re-mint it and rewrite both its filename and its id: line together, since the filename is the 6-char tail of the recorded id. Each file is individually self-consistent, so nothing else flags this: every reader keyed on the token (archive lookup, ship stamp, milestone resolution) silently resolves to whichever colliding file it walks first`,
+        { mode, token, files: relCtx, ids: idCtx },
+      ),
+    });
   }
 
   return {
