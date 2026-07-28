@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.57.0] — 2026-07-28 — "Litmus"
+
+Smoke-driver hygiene: the ten medium and three low findings from the 2026-07-27 `/conformance-loop` run. None blocked a headless run alone — together they were what made a healthy run hard to read and a failing run hard to trust.
+
+### Changed
+
+- Phase 8 now prepares a scratch workspace per in-scope skill, inside the guarded test project, so each skill's Socratic entry is actually reachable and a pass and a violation are distinguishable outcomes; a `vacuous` result is reported as a named inconclusive that cannot count toward an aggregate pass (STE-429)
+
+### Fixed
+
+- The nested-spawn negative fixture is retired and its regression value re-homed at a deterministic detector mutation check. The tracked allow-list is not the operative gate under an auto default permission mode, so the fixture passed identically whether its detector worked or not — its third appearance. Fixture-group outcomes now render as passed / failed / not-reached / n-a-by-design, so a group that never executed is never absorbed into a pass; raw Phase 8 captures are git-ignored and an end-of-run check names every artifact the run created (STE-425)
+- The Phase 1 step 6 scaffold snippet covers the tool-surface union the threat model requires and drops the glob shape, which was not merely untidy — a rule without a `:*` suffix is an exact rule matching only the literal string, so nine of its ten entries authorized nothing. The documented branch-template default is corrected, and a meta-test pins the snippet against the tracked settings file (STE-426)
+- Two threat-model invariants measurement contradicted are restated: the cwd guard bounds the spawn working directory, not where a child's writes land, and the child layer does not deny every settings write. The parent-pre-creation rationale is re-derived on grounds that survive (STE-427)
+- A correct `/report-issue` publish refusal now renders as a structured pass — the refusal must be surfaced verbatim so its canonical marker reaches the stream — and Phase 8 asserts all four in-scope fixtures exist before emitting any aggregate verdict, naming the skill it never reached (STE-428)
+- The transient-failure retry covers connection drops, gated on a verifiably clean tree rather than on the error class, with per-attempt captures so the audit row can honestly record both attempts; probe #49 no longer reports a scaffolding milestone as an orphan, so a freshly bootstrapped project gates clean (STE-430)
+
+Total test count at release: 6262 tests, 0 failures, 0 errors.
+
 ## [2.56.1] — 2026-07-27 — "Keystone"
 
 M116 — Headless Conformance Unblock. Closes the eight high-severity findings from the 2026-07-27 `/conformance-loop` run plus a parallel short-ULID identity audit. The keystone is `/spec-write`, which had become undrivable under `claude -p`: `AskUserQuestion` is unregistered there and the Socratic interview has no safe default, so the chain truncated at step 2 and three of six canonical steps were unreachable.
