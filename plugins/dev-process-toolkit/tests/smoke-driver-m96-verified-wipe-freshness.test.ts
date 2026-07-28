@@ -25,10 +25,10 @@ import { join } from "node:path";
 //   Phase 0 acceptance into the chain-completeness check; a capture whose
 //   mtime predates run-start is `capture stale (pre-run)`, never healthy.
 //
-// AC-STE-358.3: Phase 1 step 6 documents that the child model layer denies
-//   ALL .claude/settings.json writes — full-file Write AND append-only
-//   Edit — so no child-side merge path exists; the parent's pre-creation
-//   must carry the FULL final allow-list; children can never extend it.
+// AC-STE-358.3: Phase 1 step 6 documents the settings-write contract.
+//   AS SHIPPED, this AC pinned a claim that has since been measured FALSE —
+//   see the block comment above the AC-STE-358.3 fence below for the
+//   correction and why the fence was re-aimed rather than deleted.
 
 const repoRoot = join(import.meta.dir, "..", "..", "..");
 const skillPath = join(repoRoot, ".claude", "skills", "smoke-test", "SKILL.md");
@@ -265,28 +265,69 @@ describeIfConformanceLoopPresent("AC-STE-358.2 — /conformance-loop Phase A pas
 });
 
 // ---------------------------------------------------------------------------
-// AC-STE-358.3 — Phase 1 step 6: no child-side merge path (F6 doc note)
+// AC-STE-358.3 — Phase 1 step 6: the settings-write contract (F6 doc note),
+// AS CORRECTED BY M117 / STE-427.
+//
+// STE-358 shipped this fence pinning four literals: that the child model layer
+// "denies ALL" .claude/settings.json writes (full-file Write AND append-only
+// Edit alike), that "no child-side merge path" existed, that the pre-creation
+// must carry the FULL final allow-list, and that children could "never extend"
+// it. The 2026-07-27 conformance run measured the first, second and fourth
+// FALSE: the driver's heredoc scaffolded 29 allow-list entries and the
+// post-`/setup` committed file carried 50, the /setup child's own bootstrap
+// commit body reporting "merged canonical bun allow-list into the pre-existing
+// file (29 entries preserved, 21 added)" — a recurrence of a 2026-07-20
+// observation.
+//
+// The fence is RE-AIMED, not deleted: a shipped AC keeps a pin, and deleting
+// this block would silently drop STE-358's coverage of step 6 altogether. Each
+// test below now pins the corrected contract on the same surface —
+//   * the retired literals may be CITED as history but not re-asserted bare;
+//   * the measured merge is recorded, with its numbers;
+//   * the pre-creation requirement SURVIVES (the correction is not licence to
+//     drop the step);
+//   * the surviving denial is stated narrowly — the sensitive-path
+//     classification, which is real for .mcp.json and for a child's direct
+//     full-file Write, and which never foreclosed /setup's merge.
+// Full AC-level coverage lives in m117-ste-427-invariant-correction.test.ts.
 // ---------------------------------------------------------------------------
 
-describeIfPresent("AC-STE-358.3 — Phase 1 step 6 documents the no-child-side-merge contract", () => {
-  test("step 6 names append-only Edit as denied alongside full-file Write for .claude/settings.json", () => {
+/** The three literals the 2026-07-27 run measured false. */
+const STE427_RETIRED_CLAIMS: readonly RegExp[] = [
+  /no child-side merge path/i,
+  /never extend/i,
+  /denies ALL/i,
+];
+
+/** Prose that marks a claim as cited-as-history rather than asserted. */
+const STE427_RETIREMENT_MARKER =
+  /falsified|no longer (?:holds|true)|withdrawn|retracted|refuted|contradicted|measured false|proved false|superseded|turned out false/i;
+
+describeIfPresent("AC-STE-358.3 (corrected by STE-427) — Phase 1 step 6 documents the settings-write contract", () => {
+  test("step 6 does not re-assert a retired claim without marking it retired", () => {
     const step6 = step6Slice(phase1Slice(skill!));
     expect(step6.length).toBeGreaterThan(0);
-    expect(step6).toMatch(/append-only/i);
-    expect(
-      someParagraphMatches(step6, [
-        /append-only/i,
-        /\bEdit\b/,
-        /den(y|ies|ied)|block(ed|s)?/i,
-        /settings\.json/,
-      ]),
-    ).toBe(true);
+    for (const paragraph of step6.split(/\n\n+/)) {
+      for (const claim of STE427_RETIRED_CLAIMS) {
+        if (claim.test(paragraph)) {
+          expect(paragraph).toMatch(STE427_RETIREMENT_MARKER);
+        }
+      }
+    }
   });
 
-  test("no child-side merge path exists", () => {
-    expect(step6Slice(phase1Slice(skill!))).toMatch(
-      /no child-side merge path/i,
-    );
+  test("step 6 records the measured child-side merge, with its numbers", () => {
+    const step6 = step6Slice(phase1Slice(skill!));
+    expect(step6.length).toBeGreaterThan(0);
+    expect(
+      someParagraphMatches(step6, [
+        /merg/i,
+        /settings\.json/,
+        /\b29\b/,
+        /\b50\b/,
+        /2026-07-27/,
+      ]),
+    ).toBe(true);
   });
 
   test("the pre-creation must carry the FULL final allow-list", () => {
@@ -299,7 +340,17 @@ describeIfPresent("AC-STE-358.3 — Phase 1 step 6 documents the no-child-side-m
     ).toBe(true);
   });
 
-  test("children can never extend the allow-list", () => {
-    expect(step6Slice(phase1Slice(skill!))).toMatch(/never extend/i);
+  test("the surviving denial is the narrow sensitive-path one, not a blanket merge ban", () => {
+    const step6 = step6Slice(phase1Slice(skill!));
+    expect(step6.length).toBeGreaterThan(0);
+    expect(step6).toMatch(/sensitive-path classification/i);
+    expect(
+      someParagraphMatches(step6, [
+        /sensitive-path classification/i,
+        /\.mcp\.json/,
+        /settings\.json/,
+        /Write/,
+      ]),
+    ).toBe(true);
   });
 });

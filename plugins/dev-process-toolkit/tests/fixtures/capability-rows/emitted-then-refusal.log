@@ -1,0 +1,5 @@
+{"type":"system","subtype":"dpt_fixture_provenance","note":"STE-421 constructed fixture (AC-STE-421.3, presence direction). The MIRROR of refusal-prose-only.log: identical token, identical capture shape, the only difference is that the emission precedes the refusal marker instead of following it. Pins that the discriminator keys on POSITION, not on the mere presence of a marker anywhere in the capture."}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll start by loading the spec-write skill."}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"## 7) Emit capability summary\n\n```\nspec_write_draft_default_applied value:\"accepted\" marker:present\n```\n\nDraft accepted under the auto-approve marker; FR written to `specs/frs/`."}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"A later gate had no safe default, so the run stopped there:\n\n```\n<dpt:requires-input-refused>v1</dpt:requires-input-refused>\n```\n"}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"partial run: draft gate auto-applied, later gate refused"}

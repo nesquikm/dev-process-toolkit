@@ -1,0 +1,15 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"STE-422 regression reproducer, derived from the untracked 2026-07-27 Linear-leg smoke capture tests/fixtures/socratic-first-turn/<skill>-2026-07-27.json (a multi-hundred-KB run artifact that is deliberately NOT committed). Only the prefix of assistant events up to and including the decisive entry is kept; text bodies are truncated and tool inputs are reduced to the scaffold file_path the projectRoot scope check reads. Verdict-equivalence with the full capture is asserted by tests/m116-ste-422-assert-runner-projectroot.test.ts whenever the full capture is present."}]},"session_id":"ste-422-spec-write-2026-07-27","uuid":"ste-422-derived-spec-write-2026-07-27","timestamp":"2026-07-27T00:00:00.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll start the spec-write workflow. …"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Skill","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll start by orienting myself with read-only probes. …"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Non-tty stdin confirmed (`isTTY === undefined`). Running the deterministic marker check an …"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"ToolSearch","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Marker byte-grep returned `ABSENT`, stdin is non-tty, and `AskUserQuestion` is not availab …"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"The skill refused. Here's what happened and why. ## `/spec-write` — refused at the Socrat … <dpt:requires-input-refused>v1</dpt:requires-input-refused>"}]}}

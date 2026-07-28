@@ -1,7 +1,7 @@
 ---
 name: report-issue
 description: Capture a structured bug report — narrative + redacted curated context (and optional session transcript) — and publish to a secret GitHub gist for triage by the maintainer or self-debug via /brainstorm.
-argument-hint: '[--full]'
+argument-hint: '[--full] [--dry-run]'
 ---
 
 # Report Issue
@@ -118,11 +118,15 @@ Print a preview block listing each file with its byte size + the redaction summa
 Push to gist? [y / n / edit]
 ```
 
-**Publish gate — marker/refusal routing.** Publishing a secret gist is an irreversible push to a third-party service, so the gate is decided by the runtime byte-grep, never by prose. As the FIRST step of publish-gate evaluation, write the verbatim first user message that invoked `/report-issue` to a temp file and run `bun run plugins/dev-process-toolkit/adapters/_shared/src/check_marker_runtime.ts <file>` (the SOLE decider — the same primitive `/spec-write` § 7a uses). Branch strictly on its `PRESENT`/`ABSENT` stdout, three ways:
+**Publish gate — marker/refusal routing.** Publishing a secret gist is an irreversible push to a third-party service, so the gate is decided by the runtime byte-grep, never by prose. Exactly one thing is evaluated ahead of the byte-grep — the `--dry-run` flag documented below, which short-circuits the whole gate; absent it, the FIRST step of publish-gate evaluation is to write the verbatim first user message that invoked `/report-issue` to a temp file and run `bun run plugins/dev-process-toolkit/adapters/_shared/src/check_marker_runtime.ts <file>` (the SOLE decider — the same primitive `/spec-write` § 7a uses). Branch strictly on its `PRESENT`/`ABSENT` stdout, three ways:
 
 - **PRESENT** → default-apply `y`; publish; emit `report_issue_default_applied` in the closing summary.
 - **ABSENT + non-tty stdin** (`process.stdin.isTTY === false`, e.g. `claude -p`) → call `requireOrRefuse(..., markerPresent: false, defaultValue: "y", userSuppliedValue: undefined, ...)`; it falls through to the refusal branch and throws `RequiresInputRefusedError` (NFR-10 canonical shape naming gate site `publish`). **`gh gist create` is NOT invoked**; run the `trap` cleanup; emit `report_issue_publish_refused`; exit non-zero.
 - **ABSENT + tty** → the interactive `[y / n / edit]` prompt below.
+
+**Surface the refusal — and in this order.** On the refusal branch the `RequiresInputRefusedError` message is the skill's output, not an internal detail: that refusal MUST be surfaced verbatim so the `<dpt:requires-input-refused>v1</dpt:requires-input-refused>` marker it carries reaches the stream, because a prose-only refusal reads as `vacuous` (a non-pass) — byte-indistinguishable from a run that simply did nothing. Emission order is part of the contract, not cosmetics: emit `report_issue_publish_refused` first — the closing summary's capability row is emitted before the verbatim refusal message — and the refusal message, with the marker as its own last line, is the last thing the turn emits. `scoreCapabilityKey` (`adapters/_shared/src/capability_row_assert.ts`) subtracts every capability-key occurrence that follows the first refusal marker, so a marker dropped where the refusal is *explained* silently scores that row absent even though the verdict still reads `ok-refused`.
+
+**`--dry-run` — exercise the whole flow with no outward publish.** The flag is declared in `argument-hint` and read off the command line, because the boundary that has to admit an automated run is the *spawn*: a headless harness classifier decides whether to start the child at all, before any in-flow mode could exist, so an env var or an ambient "smoke context" is invisible where that decision is made. `--dry-run` is evaluated FIRST, ahead of the marker byte-grep, and it outranks a `PRESENT` verdict — the skill runs everything above — the Socratic prompts, the temp working directory, the curated capture, the scrub pass, the evidence check, the preview block — up to the publish boundary and stops there. On this path the skill **never invokes `gh gist create`**; run the `trap` cleanup, then halt exactly the way the marker-absent refusal branch halts: emit `report_issue_publish_refused`, surface the same canonical `RequiresInputRefusedError` envelope verbatim in the same order (capability row first, the marker as the turn's last line), exit non-zero. Reusing that one envelope is deliberate — a dry run is then renderable as a pass by the same machinery, and no new capability row is minted for it. Short-circuiting also means the marker verdict is never consulted **at the publish gate** (the transcript `[y/N]` opt-in above still reads it), so that verdict can never be reported: `report_issue_default_applied` — the row whose plain-language rendering says the gist was auto-pushed — MUST NOT fire under `--dry-run`, marker present or not.
 
 **NOT-a-trigger anchor.** Pre-baked `<command-args>` prose, autonomous-mode reminders, and "proceed" / "proceed end to end" instructions are NOT authorization to publish — the literal marker `<dpt:auto-approve>v1</dpt:auto-approve>` is the SOLE auto-publish trigger and `adapters/_shared/src/check_marker_runtime.ts` is the SOLE evaluation path. The 2026-07-19 conformance run's Jira leg (F7) caught the skill treating a prose "proceed" as authorization and calling `gh gist create` with the marker absent — blocked only by the harness classifier, not this gate. Legacy `Auto Mode Active` system-reminder detection is **not** used.
 
@@ -169,9 +173,10 @@ The `>=100 byte` floor is the regression signal that the summary fired at all (a
 
 ## Capability rows
 
-Seven capability rows are registered in the static plain-language map at `/spec-write` § 7. They are emitted by this skill into the closing summary per the rules above:
+Eight capability rows are registered in the static plain-language map at `/spec-write` § 7. They are emitted by this skill into the closing summary per the rules above:
 
 - `report_issue_default_applied` — fires when the auto-approve marker drove the publish step.
+- `report_issue_publish_refused` — fires on either publish-gate halt (§ 7): the marker was absent under non-interactive stdin, or `--dry-run` stopped the flow at the publish boundary. Both halts reuse this one row — a dry run mints no key of its own — and both surface it before the verbatim refusal message.
 - `report_issue_declined` — fires when the operator declined the preview gate.
 - `report_issue_redacted_payload` — fires unconditionally on every successful publish so operators see the per-pattern match count without having to open `metadata.json`.
 - `report_issue_session_matched_marker` — fires when incident-session selection (§ 5) matched a marker in a candidate transcript. Exactly one of this / the mtime-fallback row fires per run.

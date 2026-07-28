@@ -1,0 +1,21 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"STE-422 regression reproducer, derived from the untracked 2026-07-27 Linear-leg smoke capture tests/fixtures/socratic-first-turn/<skill>-2026-07-27.json (a multi-hundred-KB run artifact that is deliberately NOT committed). Only the prefix of assistant events up to and including the decisive entry is kept; text bodies are truncated and tool inputs are reduced to the scaffold file_path the projectRoot scope check reads. Verdict-equivalence with the full capture is asserted by tests/m116-ste-422-assert-runner-projectroot.test.ts whenever the full capture is present."}]},"session_id":"ste-422-report-issue-2026-07-27","uuid":"ste-422-derived-report-issue-2026-07-27","timestamp":"2026-07-27T00:00:00.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll start by loading the report-issue skill. …"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Skill","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"**English corrections first:** - \"M1 is kind: scaffolding so it has no tracker milestone …"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"ToolSearch","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"`gh auth status` → exit 0 with `gist` scope. `process.stdin.isTTY` is `undefined` → **non- …"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"All four helpers confirmed. Now **§ 2 — the Socratic loop**. `AskUserQuestion` is unavaila …"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"All four resolved `user-supplied` — no refusal on the narrative gate. Now **§ 3–§ 5**: tem …"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Write","input":{"file_path":"/var/folders/6j/8c728gpj4gx0pfmnc9sl_9sw0000gn/T/tmp.fehgbBbNPQ/build.ts"}}]}}

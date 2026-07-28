@@ -30,6 +30,20 @@
 // messages are actionable and machine-parseable for the /gate-check probe
 // `marker_helper_invoked_per_gate` (AC-STE-313.6).
 //
+// STE-418 (AC-STE-418.2) — the message carries a FOURTH line: the canonical
+// `REQUIRES_INPUT_REFUSED_MARKER`. Rationale: under `claude -p` a refusal
+// surfaces only as assistant prose — there is no structured stream event for
+// "I correctly declined". Without the marker, a refusal raised through THIS
+// arbiter and a child that simply did nothing were byte-indistinguishable at
+// the Phase 8 surface: `parseStreamJsonTranscript` found no recognizable entry
+// and `assertFirstTurnShape` projected `vacuous` for both. Appending the marker
+// makes the refusal machine-recognizable — the parser maps it to a `refusal`
+// entry and the shape reads `ok-refused`. This module does not assemble that
+// envelope itself: it composes gate-site-specific Verdict / Remedy / Context
+// prose and hands it to `renderRefusalMessage` in `./requires_input`, the sole
+// renderer of the four-line shape, so this arbiter and `requireOrRefuse`
+// cannot drift apart.
+//
 // AC-STE-313.5 — paraphrase triggers (`"work without stopping"`,
 // `"autonomous-mode"`, `"standing instruction"`, pre-baked `<command-args>`
 // prose, `claude -p` non-tty inference) are NOT acceptable substitutes for
@@ -42,7 +56,10 @@
 // itself so unit tests can drive both branches deterministically.
 
 import { checkMarkerRuntime } from "./check_marker_runtime";
-import { RequiresInputRefusedError } from "./requires_input";
+import {
+  renderRefusalMessage,
+  RequiresInputRefusedError,
+} from "./requires_input";
 
 /** Canonical marker token — used by the remedy-message renderer below. */
 const MARKER = "<dpt:auto-approve>v1</dpt:auto-approve>";
@@ -132,9 +149,11 @@ function buildRefusalMessage(gateSite: GateSite): string {
   const ctx =
     `skill=${desc.skillName}, step=${desc.stepName}, gate_site=${gateSite}, ` +
     `marker=absent, stdin=non-tty`;
-  return [`Verdict: ${verdict}`, `Remedy: ${remedy}`, `Context: ${ctx}`].join(
-    "\n",
-  );
+  // The shared renderer supplies the canonical refusal marker as the fourth
+  // line, so an arbiter refusal is byte-identical in shape to a
+  // `requireOrRefuse` one and the Phase-8 stream parser reads `ok-refused`
+  // rather than `vacuous`. See the module header for the full rationale.
+  return renderRefusalMessage({ verdict, remedy, context: ctx });
 }
 
 /**

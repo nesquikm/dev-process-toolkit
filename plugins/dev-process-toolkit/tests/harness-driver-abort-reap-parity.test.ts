@@ -357,7 +357,7 @@ describeIfSmoke(
       boldParagraph(subsection(smoke!, HALT_GUARD), NO_MARKER_ABORT);
     const selfCheck = () =>
       boldClause(subsection(smoke!, GRANDCHILD), SELF_CHECK);
-    const PID_GLOB = "/tmp/dpt-smoke-*.pid";
+    const PID_GLOB = "/tmp/dpt-smoke-<tracker>-*.pid";
 
     // --- DISCRIMINATOR ------------------------------------------------------
     // The third abort clause already carries the reap-first rule (STE-414

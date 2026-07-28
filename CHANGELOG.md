@@ -6,6 +6,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.57.1] — 2026-07-28 — "Abstain"
+
+Post-release review of the M116 + M117 branch. Three gates answered "pass" when they could not read their own input, and one deferral was recorded everywhere except the release entry. No new milestone and no new FRs: these are defects in what M116 and M117 shipped, closed on the same branch before it merges.
+
+### Fixed
+
+- **An unreadable rc-file is a failure, not a zero.** `/conformance-loop`'s Phase A gate read each leg's rc-file as `$(cat … || echo 1)`. `cat` **succeeds** on a file that exists but is empty, so the fallback fired only on a missing file and left the variable empty for every other bad shape — and `[ "" -ne 0 ]` is a `test(1)` usage error whose non-zero status *skips* the abort branch, so the gate fell through. That input is reachable: STE-420 replaced a `echo $?` that always wrote an integer with a `bun … reconcile > rc-file` redirect, and the redirect creates the file *before* `bun` runs, so any invocation producing no stdout leaves 0 bytes. The same dead-gate outcome STE-420 exists to eliminate, by a quieter route. The read is now validated as a plain integer, which also closes the non-empty non-integer case a bare emptiness check would still miss, and passes a genuine reconciled code through untouched so STE-420's per-cause codes survive.
+- **A misspelled `--outcome` is rejected, not discarded.** `smoke_verdict emit` folded any unrecognized `--outcome` to `undefined`, and the builder then computed `pass` — so `--outcome FAIL` wrote `{"outcome":"pass"}` and exited 0, as did `failed`, `Abort`, `abrt`, `fail (rc=1)` and an empty value from an unset shell variable in the documented fence. The asymmetry was the tell: a missing `--tracker` already produced a loud usage error and exit 2, while the one flag carrying the entire verdict was the only one whose bad value produced no diagnostic at all. It now exits 2 with a message naming the accepted values and writes no artifact. An **absent** `--outcome` remains supported — the usage line spells it optional and the two triggers decide the verdict on their own.
+- **Phase 8 coverage is dated, not just measured.** The gate tested `-s` on a day-keyed fixture path, and the capture convention already conceded that key cannot separate two runs of the same leg on the same day. A second run whose spawn was denied one layer out — the Bash call itself refused, so no shell ran and no redirect truncated anything — found the earlier run's 100–450 KB capture at the identical path and counted the denial as covered. Reachable rather than theoretical, and reachable *because* STE-425's disposal rule keeps those captures on disk for replay. Each capture is now graded against a phase-start stamp: non-empty **and** newer. This is the freshness rule STE-420 already applies to the per-leg verdict artifacts, so the driver grades both kinds of evidence by one rule instead of two. Nothing is deleted to achieve it, and a gate that cannot find its stamp reports itself **unusable** and withholds the pass rather than granting one.
+- **The one AC that shipped unproven says so in the release record.** AC-STE-418.4's deferral was recorded on the AC and in the M116 plan but not in the v2.56.1 entry, which listed eight clean bullets and read as a milestone that shipped whole. Added above under the `### Known limitations at ship` heading v1.15.0 established for the same case, and pinned by a test scoped to that release's own section.
+
+All three guards are mutation-checked, and every shell assertion **executes** the snippet extracted from the driver SKILL rather than grepping it — a grep passes against prose describing a guard the snippet does not implement, which is the class of check being replaced here.
+
+Total test count at release: 6300 tests, 0 failures, 0 errors.
+
+## [2.57.0] — 2026-07-28 — "Litmus"
+
+Smoke-driver hygiene: the ten medium and three low findings from the 2026-07-27 `/conformance-loop` run. None blocked a headless run alone — together they were what made a healthy run hard to read and a failing run hard to trust.
+
+### Changed
+
+- Phase 8 now prepares a scratch workspace per in-scope skill, inside the guarded test project, so each skill's Socratic entry is actually reachable and a pass and a violation are distinguishable outcomes; a `vacuous` result is reported as a named inconclusive that cannot count toward an aggregate pass (STE-429)
+
+### Fixed
+
+- The nested-spawn negative fixture is retired and its regression value re-homed at a deterministic detector mutation check. The tracked allow-list is not the operative gate under an auto default permission mode, so the fixture passed identically whether its detector worked or not — its third appearance. Fixture-group outcomes now render as passed / failed / not-reached / n-a-by-design, so a group that never executed is never absorbed into a pass; raw Phase 8 captures are git-ignored and an end-of-run check names every artifact the run created (STE-425)
+- The Phase 1 step 6 scaffold snippet covers the tool-surface union the threat model requires and drops the glob shape, which was not merely untidy — a rule without a `:*` suffix is an exact rule matching only the literal string, so nine of its ten entries authorized nothing. The documented branch-template default is corrected, and a meta-test pins the snippet against the tracked settings file (STE-426)
+- Two threat-model invariants measurement contradicted are restated: the cwd guard bounds the spawn working directory, not where a child's writes land, and the child layer does not deny every settings write. The parent-pre-creation rationale is re-derived on grounds that survive (STE-427)
+- A correct `/report-issue` publish refusal now renders as a structured pass — the refusal must be surfaced verbatim so its canonical marker reaches the stream — and Phase 8 asserts all four in-scope fixtures exist before emitting any aggregate verdict, naming the skill it never reached (STE-428)
+- The transient-failure retry covers connection drops, gated on a verifiably clean tree rather than on the error class, with per-attempt captures so the audit row can honestly record both attempts; probe #49 no longer reports a scaffolding milestone as an orphan, so a freshly bootstrapped project gates clean (STE-430)
+
+Total test count at release: 6262 tests, 0 failures, 0 errors.
+
+## [2.56.1] — 2026-07-27 — "Keystone"
+
+M116 — Headless Conformance Unblock. Closes the eight high-severity findings from the 2026-07-27 `/conformance-loop` run plus a parallel short-ULID identity audit. The keystone is `/spec-write`, which had become undrivable under `claude -p`: `AskUserQuestion` is unregistered there and the Socratic interview has no safe default, so the chain truncated at step 2 and three of six canonical steps were unreachable.
+
+### Fixed
+
+- **Headless drivability of `/spec-write`.** A new `auto_answers` module supplies interview answers from an operator-authored, byte-fenced block admitted only when the auto-approve marker is present in the same prompt body. Answers land in `requireOrRefuse`'s existing pre-baked slot, so the interview is *answered*, never skipped — the unconditional Socratic loop entry survives verbatim for every unmarked caller, and unmarked prose is never an answer source. (STE-418)
+- **Machine-recognizable refusals from the consolidated arbiter.** `gate_marker_refusal` omitted the canonical refusal marker its sibling appends, so a refusal raised through it projected as `vacuous` — indistinguishable from doing nothing. Both refusal sites now share one renderer. (STE-418)
+- **`/setup` first-turn contract.** `/setup` declared the contract but never operationalized it: zero marker byte-greps, and write-producing steps reachable before any ask. It now routes through the same arbiter and answer source as `/spec-write`, so the two skills agree on what an absent ask tool means. (STE-419)
+- **Driver abort verdicts.** Both drivers asserted an abort "MUST exit non-zero", which a model inside `claude -p` cannot do — so the parent's fail-fast was dead code and passed on a run where both legs aborted. A tracker-scoped verdict artifact plus rc reconciliation makes the existing gate truthful; every pinned clause stays byte-identical. (STE-420)
+- **Capability-row assertions.** Raw-transcript greps could never be sound: the invoked skill's body arrives as a synthetic `user` event, so every token a skill documents is present in every capture of that skill. Assertions now score through an assistant-text projection with a positional refusal-marker gate that tells an emitted row from post-refusal prose. Nine sites rewritten; one token spelling corrected. (STE-421)
+- **Phase 8 assert runner invocation.** The documented snippet passed two arguments where the runner takes three, so out-of-project writes counted as violations and manufactured run-killing false alarms against skills that behaved correctly. (STE-422)
+- **Tracker-scoped smoke artifacts.** Five unscoped pidfile-glob literals across four lines — one of them on the destructive reap — plus a date-keyed fixture path whose rationale claimed the date prevented concurrent collision. A tandem fixture proves a scoped reap leaves a live partner untouched. (STE-423)
+- **Short-ULID collision detection across the archive boundary.** Plan and feature-record walks gained cross-file duplicate detection spanning active and archived trees; feature-record minting gained the synchronous existence predicate the milestone minter already had; and the collision scan no longer fails open on an unreadable record that still owns the tail its filename spells. Two prevention-by-construction claims restated as detection within one working tree. (STE-424)
+
+### Known limitations at ship
+
+- **AC-STE-418.4 ships deferred — the chain-completion proof is recorded, not live.** The replay half landed: a six-capture set driven through `assertChainIntegrity` returns zero findings, and the negative direction reproduces both the `/implement` and the `/spec-review` truncation rows. The live half — an actual `/smoke-test` leg producing those six captures — is a ~10-minute `claude -p` fan-out with real tracker writes, and was not run in the implementation session. Closed by retroactive validation on the next conformance run, not by the shipped tests. (STE-418)
+
+Total test count at release: 5958 tests, 0 failures, 0 errors.
+
 ## [2.56.0] — 2026-07-26 — "Mint"
 
 M115 "Mint": tracker-less milestone identity minting. A project with no tracker picked its next milestone number by scanning whatever the local checkout happened to see — active plans, archived plans, the changelog, and whichever git refs were present. Two developers on branches neither had pushed would both scan the same visible history, both land on the same number, and find out only when the branches met. The fifth cross-branch scan leg added in M89 narrowed that window and said of itself that it was detection, not prevention.

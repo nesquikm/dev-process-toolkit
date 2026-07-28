@@ -20,6 +20,15 @@ import { parseFrontmatter } from "./frontmatter";
 import type { FRSpec } from "./provider";
 
 /**
+ * The shape of a short-ULID tail: 6 chars of Crockford Base32 (I, L, O and U
+ * excluded). One constant, two jobs — it decides whether a NEW spec's prefix
+ * is a tail at all (tracker-mode prefixes are not, so they skip the scan), and
+ * it decides whether an unreadable EXISTING record's filename stem may be
+ * treated as the tail that record owns (STE-424).
+ */
+const SHORT_ULID_TAIL_RE = /^[0-9A-HJKMNP-TV-Z]{6}$/;
+
+/**
  * Thrown by `scanShortUlidCollision` when a new `mode: none` FR's
  * short-ULID tail matches an existing FR's short-ULID tail. Callers
  * re-render as NFR-10 canonical shape.
@@ -69,13 +78,32 @@ export function acPrefix(spec: FRSpec): string {
 }
 
 /**
- * Pre-write collision scan (AC-73.3). Reads every `specs/frs/*.md`
- * (excluding `archive/`) and throws `ShortUlidCollisionError` if the
- * new spec's prefix collides with any existing file's prefix.
+ * Pre-write collision scan (AC-73.3). Reads every `specs/frs/*.md` AND
+ * every `specs/frs/archive/*.md` and throws `ShortUlidCollisionError` if
+ * the new spec's prefix collides with any existing record's prefix.
+ *
+ * The archive is in scope because an archived record still OWNS its
+ * short-ULID tail: the tail is the filename stem, the AC prefix and the
+ * milestone token all at once, so handing it to a second record means the
+ * next write lands on an occupied name. A missing `archive/` directory is
+ * tolerated (consumer trees may not have one yet).
  *
  * Tracker-mode new specs bypass the scan: their prefix is a tracker ID,
  * which is collision-proof by construction (tracker allocator). Only
  * `mode: none` specs need the scan.
+ *
+ * An EXISTING record this scan cannot read is NOT waved through. A record
+ * whose frontmatter is truncated, absent, or carries no usable identity
+ * (no `id:`, empty `tracker: {}`) still OWNS the tail its filename spells:
+ * `<tail>.md` is the canonical record name, so handing that tail to a second
+ * record means the next write lands on an occupied name regardless of whether
+ * the incumbent parses. So when `parseFrontmatter`/`acPrefix` yield nothing,
+ * the filename stem becomes the comparison prefix — but only when the stem is
+ * itself tail-shaped (`SHORT_ULID_TAIL_RE`). A stem that is not a tail
+ * (`README`, `notes`, `index`) is never a collision candidate, which is what
+ * keeps this from degrading into "any unparseable `.md` refuses every mint".
+ * The self-skip stays keyed on identity, so the fallback applies only where
+ * no readable identity exists.
  *
  * Caller contract: invoke BEFORE writing the new FR file. On success,
  * caller is free to write; on throw, nothing has been written.
@@ -84,40 +112,66 @@ export async function scanShortUlidCollision(specsDir: string, newSpec: FRSpec):
   const newPrefix = acPrefix(newSpec);
   // If the prefix doesn't look like a short-ULID slice (6 chars of
   // Crockford Base32), the new spec is in tracker mode — skip the scan.
-  if (!/^[0-9A-HJKMNP-TV-Z]{6}$/.test(newPrefix)) return;
+  if (!SHORT_ULID_TAIL_RE.test(newPrefix)) return;
 
   const frsDir = join(specsDir, "frs");
-  let entries: string[];
-  try {
-    entries = await readdir(frsDir);
-  } catch {
-    return; // no frs dir yet — nothing to collide with
-  }
-
   const newId = newSpec.frontmatter["id"] as string;
-  for (const entry of entries) {
-    if (!entry.endsWith(".md")) continue;
-    if (entry === `${newId}.md`) continue; // don't collide with self
-    const path = join(frsDir, entry);
-    let content: string;
+
+  // Active records first, then archived ones. Each directory is probed
+  // independently so an absent `frs/` or `frs/archive/` is a no-op rather
+  // than a crash.
+  for (const dir of [frsDir, join(frsDir, "archive")]) {
+    let entries: string[];
     try {
-      content = await readFile(path, "utf8");
+      entries = await readdir(dir);
     } catch {
-      continue;
+      continue; // dir not present — nothing there to collide with
     }
-    let existingFm: Record<string, unknown>;
-    try {
-      existingFm = parseFrontmatter(content);
-    } catch {
-      continue;
-    }
-    const existingSpec: FRSpec = { frontmatter: existingFm, body: "" };
-    const existingPrefix = acPrefix(existingSpec);
-    if (existingPrefix === newPrefix) {
-      const existingId = typeof existingFm["id"] === "string"
+
+    for (const entry of entries) {
+      if (!entry.endsWith(".md")) continue;
+      const path = join(dir, entry);
+      let content: string;
+      try {
+        content = await readFile(path, "utf8");
+      } catch {
+        continue;
+      }
+      // A record we cannot parse is NOT dismissed — see the doc comment. It
+      // falls through to the filename-stem fallback below.
+      let existingFm: Record<string, unknown> | undefined;
+      try {
+        existingFm = parseFrontmatter(content);
+      } catch {
+        existingFm = undefined;
+      }
+      const stem = entry.replace(/\.md$/, "");
+      const existingId = typeof existingFm?.["id"] === "string"
         ? (existingFm["id"] as string)
-        : entry.replace(/\.md$/, "");
-      throw new ShortUlidCollisionError(newId, existingId, newPrefix);
+        : stem;
+      // Self-skip is keyed on IDENTITY, not on filename. Real records are
+      // named `<tail>.md`, never `<full-id>.md`, so a filename comparison
+      // never matches a real tree — and a re-scan run after the record is
+      // on disk would report it colliding with itself.
+      if (existingId === newId) continue;
+      let existingPrefix: string | undefined;
+      if (existingFm !== undefined) {
+        try {
+          existingPrefix = acPrefix({ frontmatter: existingFm, body: "" });
+        } catch {
+          existingPrefix = undefined; // no usable identity — fall back to the filename
+        }
+      }
+      if (existingPrefix === undefined) {
+        // The record carries no readable identity, so the filename stem is the
+        // only statement of which tail it owns. Honour it when it IS a tail;
+        // ignore it otherwise (`README.md` and friends own nothing).
+        if (!SHORT_ULID_TAIL_RE.test(stem)) continue;
+        existingPrefix = stem;
+      }
+      if (existingPrefix === newPrefix) {
+        throw new ShortUlidCollisionError(newId, existingId, newPrefix);
+      }
     }
   }
 }
