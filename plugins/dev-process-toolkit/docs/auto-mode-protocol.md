@@ -94,6 +94,90 @@ operator sees `Verdict:` (what happened, what the requires-input reason was),
 `Remedy:` (how to unblock — pre-bake the flag or run interactively), and
 `Context:` (skill / step / key / marker observation) on three separate lines.
 
+## Sanctioned Answers Block
+
+A child spawned under `claude -p` has no `AskUserQuestion` tool registered, so
+an interview step has no way to obtain an answer and correctly refuses. That
+refusal is right, but on its own it leaves an autonomous driver with no
+legitimate way to drive an interview-bearing skill at all. The sanctioned
+answers block supplies the missing half: an explicit, operator-authored
+transport for **source #2** (pre-baked) above. It is **not** a fourth answer
+source, and it is not a gate relaxation — the interview is ANSWERED, never
+skipped.
+
+**Shape and contract.** The block is delimited by the literal byte-strings
+`<dpt:answers>v1` and `</dpt:answers>`, carrying one `key: value` pair per
+line between them (split on the FIRST colon, so a value may hold its own
+colons). The implementation is `adapters/_shared/src/auto_answers.ts`:
+`extractAutoAnswers(promptBody)` lifts the whole block, and
+`resolveInterviewAnswer(promptBody, key)` returns one answer — or `undefined`
+when the body is unmarked, the block is absent or malformed, or the block
+simply does not answer that key. That return value is exactly what a caller
+hands to `requireOrRefuse(...)`'s `preBakedValue` slot, so a hit resolves as
+**pre-baked** and a miss lets the ordinary refusal fire untouched — the block
+never reaches the `default-applied` slot, which stays reserved for gates that
+have a documented safe default. **The marker is a hard precondition:**
+`extractAutoAnswers` byte-greps the same body for
+`<dpt:auto-approve>v1</dpt:auto-approve>` first and returns an inert result
+when it is absent, however well-formed the block.
+**A malformed block fails closed** — an unterminated block, or a close
+delimiter that precedes its open, yields the same inert result rather than a
+best-effort partial parse, because a partial answer set silently satisfying an
+interview is strictly worse than a visible refusal.
+And unmarked prose is **never an answer source**: harness
+`<system-reminder>` text, "work without stopping" paraphrases, pre-baked
+`<command-args>` flag prose, and `claude -p` non-interactive stdin inference
+are not triggers, and none of them become answers by being verbose.
+
+Producer / consumer worked example: the `/smoke-test` Phase 2 driver emits the
+marker as the first body line of each interview-bearing child heredoc
+(`/setup` and `/spec-write`) and a `<dpt:answers>v1` block beneath it, one key
+per clarifying question that child will reach; `/spec-write` names the
+resolver, the module, and both branch directions at its milestone-allocation
+gate and, in the same wiring paragraph, across the § 1–§ 6 FR-content
+interview, and `/setup` names the same three at its own step contract. The
+producer and consumer halves must ship together: a gate wired to refuse
+without an answer, on a child whose heredoc bakes no key for it, truncates the
+chain at that gate.
+
+**Consumers.** Two skills read this block today, through the identical call
+shape, so an absent ask tool means the same thing in both:
+
+- `/spec-write` — at its milestone-allocation gate (§ 7a), alongside that
+  gate's `defaultValue` recommendation, **and at every clarifying question of
+  the § 1–§ 6 FR-content interview**, which has no safe default anywhere and so
+  refuses rather than default-applies. The interview keys a driver may supply
+  are `feature_summary`, `acceptance_criteria`, `implementation_file`,
+  `test_file`, `changelog_category`, `milestone`, `technical_design`,
+  `testing`, `cross_cutting_requirements`, `out_of_scope`,
+  `non_functional_requirements` and `risks` — each read via
+  `resolveInterviewAnswer(promptBody, key)` from
+  `adapters/_shared/src/auto_answers.ts` and handed to `requireOrRefuse(...)`'s
+  `preBakedValue` slot, the identical call shape `/setup` uses below. The
+  question is still emitted as an `AskUserQuestion` call and answered from the
+  block; a key the block omits refuses individually and is never invented, and
+  the rest are unaffected.
+- `/setup` — at every gated step of the step contract in
+  `skills/setup/SKILL.md`: step 7b's `tracker_mode` (tracker mode is a
+  workspace-wide decision) and step 7f's `tracker_config` (the
+  approve / edit / cancel decision over the proposed tracker-config write,
+  which fires in every tracker mode and so is reached on every non-`none`
+  run). `/setup` has no safe default at those gates, so the
+  block is the *only* way an autonomous driver can answer them; without it the
+  `setup-socratic` gate site in `adapters/_shared/src/gate_marker_refusal.ts`
+  refuses, and the refusal is the correct outcome. The interview keys a driver
+  may supply are the Schema L resolutions `/setup` performs — `stack`,
+  `tracker_mode`, `branch_template`, `user_facing_mode`, `packages_mode`,
+  `changelog_ci_owned`, `token_stats_enabled`, `create_specs` — plus
+  `tracker_config` for the step 7f decision, each read via
+  `resolveInterviewAnswer(promptBody, key)` from
+  `adapters/_shared/src/auto_answers.ts` and handed to `requireOrRefuse(...)`'s
+  `preBakedValue` slot. A key the block omits refuses individually; the rest
+  are unaffected. Every key named here is one the `/smoke-test` driver's
+  `/setup` child heredoc bakes in, and vice versa — the two sides are pinned
+  against each other, because a documented key with no producer and a baked
+  key with no consumer both truncate the headless chain.
+
 ## Socratic Loop Contract
 
 STE-232's per-step refusal closed the **per-gate** side of the autonomous-mode

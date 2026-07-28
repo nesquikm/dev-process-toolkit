@@ -11,7 +11,23 @@
 // Zero runtime dep on ulid.ts (AC-STE-86.8) — the ULID shape regex is
 // inlined as a private constant. The probe is a bimodal-invariant enforcer
 // and must not cross the scope-3 isolation boundary around mode-none
-// identity minting.
+// identity minting. The 6-char tail below is likewise sliced inline rather
+// than imported, for the same reason.
+//
+// Cross-file duplicate pass (M116): the bimodal walk above is per-file and
+// active-only, so two records deriving the SAME 6-char short-ULID tail sit
+// green side by side — each is individually well-formed. The tail is the key
+// every downstream reader uses (filename stem, AC prefix, archive lookup), and
+// the colliding twin usually lives in `specs/frs/archive/`, invisible to a
+// walk that stops at the active directory and keeps no cross-file state. A
+// SEPARATE accumulator therefore spans `specs/frs/` and `specs/frs/archive/`
+// together and reports duplicates only.
+//
+// Deliberately additive, NOT a widening of the bimodal loop: this repo runs
+// `mode: linear` and its archive holds 31 legacy mode-none records that each
+// carry both an `id:` line and a `tracker: {}` block. Running the bimodal
+// invariant over them would turn the repo's own dogfood assertion red, so the
+// archive contributes tail claims and nothing else.
 
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
@@ -32,7 +48,12 @@ export const IDENTITY_MODE_CONDITIONAL_SEVERITY: "warning" | "error" = "error";
 export interface IdentityModeViolation {
   file: string;
   line: number;
-  expected: "present" | "absent" | "populated" | "fr_<26-char ULID>";
+  expected:
+    | "present"
+    | "absent"
+    | "populated"
+    | "fr_<26-char ULID>"
+    | "one FR per short-ULID tail";
   actual: string;
   note: string;
   message: string;
@@ -161,17 +182,81 @@ function resolveMode(projectRoot: string): string {
   return mode;
 }
 
-async function listActiveFRs(projectRoot: string): Promise<string[]> {
-  const frsDir = join(projectRoot, "specs", "frs");
+/**
+ * Every `*.md` directly inside `dir`, sorted. Non-recursive by design: the
+ * active walk must NOT descend into `archive/`, and the archive walk is a
+ * separate, explicitly-named call so the two scopes stay legible.
+ *
+ * A missing directory yields `[]` rather than throwing — consumer trees
+ * routinely have no `specs/frs/archive/` until their first archival.
+ */
+async function listFRsIn(dir: string): Promise<string[]> {
   try {
-    const entries = await readdir(frsDir, { withFileTypes: true });
+    const entries = await readdir(dir, { withFileTypes: true });
     return entries
       .filter((e) => e.isFile() && e.name.endsWith(".md"))
-      .map((e) => join(frsDir, e.name))
+      .map((e) => join(dir, e.name))
       .sort();
   } catch {
     return [];
   }
+}
+
+async function listActiveFRs(projectRoot: string): Promise<string[]> {
+  return listFRsIn(join(projectRoot, "specs", "frs"));
+}
+
+async function listArchivedFRs(projectRoot: string): Promise<string[]> {
+  return listFRsIn(join(projectRoot, "specs", "frs", "archive"));
+}
+
+/** One FR's contribution to the cross-file short-ULID duplicate index. */
+interface TailClaim {
+  file: string;
+  rel: string;
+  /** 1-based line of the `id:` key — notes must cite a line. */
+  line: number;
+  /** The recorded minted id, `fr_` + 26 Crockford base32 chars. */
+  id: string;
+}
+
+/**
+ * The 6-char short-ULID tail of a well-formed `fr_<26-char ULID>` value.
+ *
+ * `slice(23, 29)` — `fr_` is 3 chars, the ULID is 26, so the tail is the last
+ * six. Sliced inline to keep the zero-runtime-dep boundary above intact: this
+ * probe must not import the module whose output it polices.
+ */
+function tailOfMintedId(id: string): string {
+  return id.slice(23, 29);
+}
+
+/**
+ * Record `file`'s tail claim when its frontmatter carries a well-formed minted
+ * id. Malformed values are skipped — the bimodal walk already reports those in
+ * `mode: none`, and slicing a garbage value would key the map on noise.
+ *
+ * Routed through `scanFrontmatterForId` on purpose: a whole-file `^id:` scan
+ * reads fenced YAML quoted in an FR's BODY as a second identity and mints
+ * phantom duplicates (`specs/frs/archive/STE-110.md` quotes exactly that).
+ */
+function recordTailClaim(
+  claims: Map<string, TailClaim[]>,
+  file: string,
+  scan: IdScan,
+  projectRoot: string,
+): void {
+  if (!scan.present || !scan.wellFormed) return;
+  const tail = tailOfMintedId(scan.value);
+  const bucket = claims.get(tail);
+  const claim: TailClaim = {
+    file,
+    rel: relative(projectRoot, file),
+    line: scan.line,
+    id: scan.value,
+  };
+  if (bucket === undefined) claims.set(tail, [claim]);
+  else bucket.push(claim);
 }
 
 function buildNote(file: string, line: number, reason: string, projectRoot: string): string {
@@ -201,6 +286,9 @@ export async function runIdentityModeConditionalProbe(
   const isTracker = mode !== "none";
   const files = await listActiveFRs(projectRoot);
   const violations: IdentityModeViolation[] = [];
+  // Keyed on the 6-char tail; spans active + archive. Insertion order is
+  // deterministic — both walks sort, and the active walk runs first.
+  const claimsByTail = new Map<string, TailClaim[]>();
 
   for (const file of files) {
     let content: string;
@@ -211,6 +299,7 @@ export async function runIdentityModeConditionalProbe(
     }
     const scan = scanFrontmatterForId(content);
     const trackerScan = scanFrontmatterForTracker(content);
+    recordTailClaim(claimsByTail, file, scan, projectRoot);
 
     if (isTracker) {
       // Tracker mode: id: must be absent.
@@ -314,6 +403,46 @@ export async function runIdentityModeConditionalProbe(
         });
       }
     }
+  }
+
+  // Archive leg of the duplicate accumulator — claims ONLY. The bimodal
+  // invariant above stays active-only (see the module header): archived
+  // records are frozen history and legitimately predate the current mode.
+  for (const file of await listArchivedFRs(projectRoot)) {
+    let content: string;
+    try {
+      content = await readFile(file, "utf-8");
+    } catch {
+      continue;
+    }
+    recordTailClaim(claimsByTail, file, scanFrontmatterForId(content), projectRoot);
+  }
+
+  // Cross-file pass, APPENDED after the per-file walk so the existing
+  // per-file violation ordering is untouched.
+  for (const [tail, claims] of claimsByTail) {
+    if (claims.length < 2) continue;
+    const first = claims[0]!;
+    const relProse = claims.map((c) => c.rel).join(", ");
+    const expected = "one FR per short-ULID tail" as const;
+    const actual = `${claims.length} FRs derive ${tail} (${relProse})`;
+    violations.push({
+      file: first.file,
+      line: first.line,
+      expected,
+      actual,
+      note: buildNote(first.file, first.line, `expected ${expected}, actual ${actual}`, projectRoot),
+      message: buildMessage(
+        `duplicate short-ULID tail — ${claims.length} FRs collide on ${tail} across specs/frs/ and specs/frs/archive/ (${relProse})`,
+        `re-mint all but one of ${relProse} and rewrite each record's filename and id: line together, since the filename stem and the AC prefix are both the 6-char tail of the recorded id. Each file is individually well-formed, so nothing else flags this: every reader keyed on the tail silently resolves to whichever colliding record it walks first`,
+        {
+          mode,
+          tail,
+          files: claims.map((c) => c.rel).join(" | "),
+          ids: claims.map((c) => c.id).join(" | "),
+        },
+      ),
+    });
   }
 
   return {

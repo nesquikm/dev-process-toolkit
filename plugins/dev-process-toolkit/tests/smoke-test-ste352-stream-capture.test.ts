@@ -18,10 +18,12 @@ import { join } from "node:path";
 //
 // AC-STE-352.3: a Phase 2.X fixture group (SUT = STE-350, per the
 //   `STE-<sut> runtime regression: <fixture-name>` convention) reproduces a
-//   nested `claude -p` spawn, asserts non-empty completion under the
-//   patched allow-list, and carries a negative variant (pattern removed ⇒
-//   the denial is caught). The live-runtime leg is smoke-validated; these
-//   tests pin the documented fixture contract.
+//   nested `claude -p` spawn and asserts non-empty completion under the
+//   patched allow-list. The live-runtime leg is smoke-validated; these
+//   tests pin the documented fixture contract. STE-425 (M117) retired the
+//   live negative variant — under an `auto` default permission mode the
+//   classifier, not the tracked allow-list, gates the spawn, so the negative
+//   could not fail — and re-homed it as a deterministic mutation check.
 
 const repoRoot = join(import.meta.dir, "..", "..", "..");
 const skillPath = join(repoRoot, ".claude", "skills", "smoke-test", "SKILL.md");
@@ -119,10 +121,41 @@ describeIfPresent("AC-STE-352.3 — Phase 2.X regression fixture group for SUT S
     expect(group).toMatch(/allow[- ]?list|Bash\(claude:\*\)|permissions\.allow/);
   });
 
-  test("a negative variant asserts the denial is caught when the allow pattern is removed", () => {
+  // STE-425 (M117) re-homes this coverage. The negative used to be a LIVE
+  // sub-fixture (8b): stage the test project's `.claude/settings.json` with
+  // `Bash(claude:*)` removed, then assert `checkChildSpawnCapture` catches the
+  // denial. Under `permissions.defaultMode: auto` the harness classifier — not
+  // the tracked allow-list — gates the spawn, so on three consecutive runs the
+  // pattern was verified absent and the nested spawn still returned its token
+  // with `permission_denials: []`. The fixture scored PASS whether its detector
+  // worked or not. It is retired; the assertion it claimed now lives as a
+  // deterministic mutation check that CAN fail, and this test pins the SKILL's
+  // pointer to it plus the pointer's non-vacuity.
+  const MUTATION_CHECK_REL = "tests/m117-ste-425-falsifiable-coverage.test.ts";
+
+  test("the negative case is re-homed at a deterministic mutation check, not a live fixture", () => {
     const group = ste350GroupSlice(skill!);
-    expect(group).toMatch(/removed|absent|omitted|without the (entry|pattern)/i);
-    expect(group).toMatch(/denied|denial/i);
+    expect(group.length).toBeGreaterThan(0);
+
+    // No live negative sub-fixture, and no staging of a pattern-stripped
+    // settings file, remains in the group.
+    expect(group).not.toMatch(/Sub-fixture 8b/);
+    expect(group).not.toContain("ste350-denied");
+
+    // The group names the detector and says where the falsifiable replacement
+    // lives.
+    expect(group).toContain("checkChildSpawnCapture");
+    expect(group).toMatch(/mutation/i);
+    expect(group).toContain(MUTATION_CHECK_REL);
+
+    // The pointer is not vacuous: that file exists, exercises the detector on a
+    // `claude`-headed denial, and asserts a mutated predicate FAILS.
+    const mutationCheckPath = join(import.meta.dir, "..", MUTATION_CHECK_REL);
+    expect(existsSync(mutationCheckPath)).toBe(true);
+    const mutationCheck = readFileSync(mutationCheckPath, "utf8");
+    expect(mutationCheck).toContain("checkChildSpawnCapture");
+    expect(mutationCheck).toMatch(/MUTATION/);
+    expect(mutationCheck).toMatch(/permission_denials/);
   });
 
   test("diagnostics follow the Phase 2.X SUT convention (STE-350, not the test FR STE-352)", () => {

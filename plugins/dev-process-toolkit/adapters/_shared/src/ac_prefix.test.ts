@@ -171,7 +171,14 @@ describe("scanShortUlidCollision — mode: none collision detection (AC-73.3)", 
     }
   });
 
-  test("scan ignores archive/ subdirectory", async () => {
+  // DELIBERATE REVERSAL (STE-424 AC-STE-424.4), not a regression. This case
+  // previously asserted `resolves.toBeUndefined()` under the name "scan ignores
+  // archive/ subdirectory" — it ENFORCED the defect it looks like it was
+  // guarding. An archived record still owns its short-ULID tail: the tail is
+  // the FR filename stem, the AC prefix and the milestone token all at once, so
+  // handing it to a second record means the next write lands on an occupied
+  // name. The assertion below is flipped in the same change as the behavior.
+  test("scan DOES cover archive/ — an archived record's tail is still taken", async () => {
     const specsDir = makeSpecsDir();
     try {
       const archivedId = "fr_01KPTSA7W7AAAAAAAAAAARCHV0";
@@ -195,9 +202,11 @@ describe("scanShortUlidCollision — mode: none collision detection (AC-73.3)", 
         id: "fr_01KQDDDDDDDDDDDDDDDDARCHV0",
         tracker: {},
       });
-      // Even though new spec's tail "ARCHV0" matches the archived one's,
-      // the scan should skip archive/ and not throw.
-      await expect(scanShortUlidCollision(specsDir, newSpec)).resolves.toBeUndefined();
+      // The new spec's tail "ARCHV0" matches the archived record's, so the
+      // scan must refuse the write rather than resolve clean.
+      await expect(scanShortUlidCollision(specsDir, newSpec)).rejects.toBeInstanceOf(
+        ShortUlidCollisionError,
+      );
     } finally {
       rmSync(specsDir, { recursive: true, force: true });
     }

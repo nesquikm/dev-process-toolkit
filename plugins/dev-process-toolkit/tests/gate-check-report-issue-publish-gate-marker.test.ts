@@ -31,6 +31,11 @@ const KNOWN_GOOD = [
   '"proceed" instructions are NOT authorization to publish — the marker is',
   "the sole auto-publish trigger.",
   "",
+  "That refusal MUST be surfaced verbatim so the",
+  "<dpt:requires-input-refused>v1</dpt:requires-input-refused> marker it",
+  "carries reaches the stream; emit the capability row first, the refusal",
+  "message last.",
+  "",
 ].join("\n");
 
 function makeFixture(body?: string): { root: string; cleanup: () => void } {
