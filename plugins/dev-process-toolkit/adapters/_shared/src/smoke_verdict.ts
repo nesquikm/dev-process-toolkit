@@ -365,15 +365,37 @@ if (import.meta.main) {
       console.error("usage: bun smoke_verdict.ts emit --tracker <linear|jira> [--path <p>]");
       process.exit(2);
     }
+    // An ABSENT `--outcome` is a supported mode — the usage line above spells
+    // it optional, and with nothing declared `buildSmokeVerdict` computes the
+    // outcome from the two triggers, which is the whole point of the flag being
+    // additive. An UNRECOGNIZED value is a different thing entirely, and
+    // folding it to `undefined` made the one flag carrying the entire verdict
+    // the only flag whose bad value produced no diagnostic at all: `--outcome
+    // FAIL` wrote `{"outcome":"pass"}` and exited 0, and so did every other
+    // realistic misspelling a driver reaches for under pressure — `failed`,
+    // `Abort`, `abrt`, `fail (rc=1)`. A missing `--tracker` above is already
+    // loud; this is the same treatment for the same class of operator error.
+    // `--outcome` with an empty value (an unset `${SMOKE_OUTCOME}` in the
+    // documented fence) is a present-but-wrong value, not an absence, so it is
+    // rejected too rather than silently downgraded to a computed pass.
+    const declaredRaw = first(flags, "outcome");
+    if (
+      declaredRaw !== undefined &&
+      !(SMOKE_OUTCOMES as readonly string[]).includes(declaredRaw)
+    ) {
+      console.error(
+        `smoke_verdict emit: unrecognized --outcome ${JSON.stringify(declaredRaw)} — ` +
+          `expected one of ${SMOKE_OUTCOMES.join(" | ")}, ` +
+          "or omit the flag to compute the outcome from the triggers",
+      );
+      process.exit(2);
+    }
+    const declared = declaredRaw as SmokeOutcome | undefined;
     const path = first(flags, "path") || smokeVerdictPath(tracker);
     const live = (first(flags, "live") ?? "").split(/\s+/).filter(Boolean);
     const chainFindings: ChildSpawnFinding[] = (flags["chain-finding"] ?? [])
       .filter(Boolean)
       .map((diagnostic) => ({ severity: "high", diagnostic }));
-    const declaredRaw = first(flags, "outcome");
-    const declared = (SMOKE_OUTCOMES as readonly string[]).includes(declaredRaw ?? "")
-      ? (declaredRaw as SmokeOutcome)
-      : undefined;
     const verdict = buildSmokeVerdict({ livePidfiles: live, chainFindings, declared });
     // `--trigger` ADDS operator context; it never replaces the computed
     // diagnosis. Overwriting would discard the one string that names the

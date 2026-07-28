@@ -139,7 +139,16 @@
 //   slice is non-empty first.
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
@@ -427,25 +436,60 @@ function coverageGateSnippet(): string {
 }
 
 /**
- * Run the documented coverage-gate snippet over a throwaway fixture directory
- * seeded with `present`. Returns its stdout, trimmed. The gate's only inputs
- * are `FIXTURE_DIR`, `TRACKER` and `DATE`, which the surrounding fence already
- * assigns — anything else it reaches for is a bug in the snippet.
+ * Seconds a capture's mtime is placed AHEAD of the phase-start stamp to count
+ * as this run's. Not 1: `/bin/bash`'s `-nt` compares whole seconds on macOS
+ * (`/bin/zsh` compares sub-second), so a same-second write is not "newer" there
+ * and a clock-race helper would flake between shells. Every mtime this file
+ * exercises is set explicitly for that reason — the predicate under test is
+ * "older or newer than the stamp", never "how fast did the test run".
  */
-function runCoverageGate(present: readonly string[]): string {
+const FRESH_SKEW_S = 2;
+
+/** Stamp a file's mtime `deltaS` seconds either side of `baseS` (epoch s). */
+function setMtime(path: string, baseS: number, deltaS: number): void {
+  utimesSync(path, baseS + deltaS, baseS + deltaS);
+}
+
+/**
+ * Run the documented coverage-gate snippet over a throwaway fixture directory
+ * seeded with `present`. Returns its stdout, trimmed. The gate's inputs are
+ * `FIXTURE_DIR`, `TRACKER`, `DATE` and `PHASE8_STAMP`, which the surrounding
+ * fence already assigns — anything else it reaches for is a bug in the snippet.
+ *
+ * `stale` names captures written by an EARLIER run of this leg on the SAME
+ * calendar day — the shape STE-425's disposal rule leaves on disk. They are
+ * non-empty and sit at the identical day-keyed path, so a size-only gate counts
+ * them; they are dated BEFORE the stamp, so a freshness gate does not.
+ */
+function runCoverageGate(
+  present: readonly string[],
+  opts: { stale?: readonly string[]; stamp?: "present" | "absent" } = {},
+): string {
   const snippet = coverageGateSnippet();
   const dir = mkdtempSync(join(tmpdir(), "ste-428-phase8-"));
+  const stampPath = join(dir, ".phase8-start");
   try {
+    // Phase start: everything the rotation produces is dated after this.
+    writeFileSync(stampPath, "");
+    const baseS = Math.floor(statSync(stampPath).mtimeMs / 1000);
+
+    for (const skill of opts.stale ?? []) {
+      const p = join(dir, `${skill}-linear-2026-07-27.json`);
+      writeFileSync(p, '{"type":"result","subtype":"success"}\n');
+      setMtime(p, baseS, -FRESH_SKEW_S); // a predecessor run's capture
+    }
     for (const skill of present) {
-      writeFileSync(
-        join(dir, `${skill}-linear-2026-07-27.json`),
-        '{"type":"result","subtype":"success"}\n',
-      );
+      const p = join(dir, `${skill}-linear-2026-07-27.json`);
+      writeFileSync(p, '{"type":"result","subtype":"success"}\n');
+      setMtime(p, baseS, FRESH_SKEW_S); // this run's capture
     }
     const script = [
       `FIXTURE_DIR=${JSON.stringify(dir)}`,
       "TRACKER=linear",
       "DATE=2026-07-27",
+      opts.stamp === "absent"
+        ? "PHASE8_STAMP="
+        : `PHASE8_STAMP=${JSON.stringify(stampPath)}`,
       snippet,
     ].join("\n");
     const proc = Bun.spawnSync(["bash", "-c", script]);
@@ -895,17 +939,22 @@ describeIfSmoke("AC-STE-428.3 — Phase 8 four-fixture coverage gate", () => {
     // A denied spawn still leaves the shell redirect's 0-byte file behind, so
     // an existence-only check would score the exact failure mode as covered.
     const dir = mkdtempSync(join(tmpdir(), "ste-428-phase8-empty-"));
+    const stampPath = join(dir, ".phase8-start");
     try {
+      writeFileSync(stampPath, "");
+      const baseS = Math.floor(statSync(stampPath).mtimeMs / 1000);
       for (const skill of IN_SCOPE_SKILLS) {
-        writeFileSync(
-          join(dir, `${skill}-linear-2026-07-27.json`),
-          skill === "report-issue" ? "" : '{"type":"result"}\n',
-        );
+        const p = join(dir, `${skill}-linear-2026-07-27.json`);
+        writeFileSync(p, skill === "report-issue" ? "" : '{"type":"result"}\n');
+        // All four are FRESH: this test isolates the size predicate, so the
+        // freshness one must not be what fails report-issue.
+        setMtime(p, baseS, FRESH_SKEW_S);
       }
       const script = [
         `FIXTURE_DIR=${JSON.stringify(dir)}`,
         "TRACKER=linear",
         "DATE=2026-07-27",
+        `PHASE8_STAMP=${JSON.stringify(stampPath)}`,
         coverageGateSnippet(),
       ].join("\n");
       const proc = Bun.spawnSync(["bash", "-c", script]);

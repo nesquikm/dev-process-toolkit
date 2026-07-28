@@ -25,6 +25,54 @@ reproduces should be deleted with a one-line reason rather than left to rot.
 
 ---
 
+## From the M116 + M117 post-release review (v2.57.1, 2026-07-28)
+
+### 1. The `/spec-write` driver answers block has no `requirement` key
+
+**Only a live `/smoke-test` leg can settle this. Do not guess at it.** A wrong
+guess silently changes what the driver answers, which is worse than the gap.
+
+The evidence, all re-measured on 2026-07-28:
+
+- `plugins/dev-process-toolkit/skills/spec-write/SKILL.md` § "Milestone-allocation
+  gate" enumerates the § 1–§ 6 FR-content prompts as nine: **Summary, Requirement,
+  Acceptance Criteria, Technical Design, Testing, cross-cutting scope, out-of-scope,
+  NFRs, risks.** `resolveInterviewAnswer(promptBody, key)` is called once per
+  question, *keyed by that question's own answer key*.
+- The smoke driver bakes **21** keys across its two `<dpt:answers>v1` blocks
+  (`.claude/skills/smoke-test/SKILL.md`). Eight of the nine prompts have an
+  obvious key. **`Requirement` has none** — there is no `requirement` key, and
+  no key whose name plausibly stands in for it.
+- Nothing catches it. The drift pin at
+  `plugins/dev-process-toolkit/tests/m116-ste-418-wiring.test.ts:719` runs
+  **driver → doc**: every key the driver bakes must be named in the doc. A
+  documented prompt with *no* driver key is invisible to it, by construction.
+
+It **might** be benign: if `Requirement` folds into `feature_summary` at runtime,
+nothing is missing. But the prompt-to-key vocabulary is **defined nowhere** — no
+module maps prompt names to answer keys, so neither reading can be settled from
+the tree. If it is not benign, a headless `/spec-write` refuses at the Requirement
+question and the chain truncates at step 2 again — the exact failure M116 exists
+to close.
+
+**What the next conformance run should look for.** In the `/spec-write` child's
+capture: whether a Requirement question is posed at all, and if so whether it
+resolves `pre-baked` (benign — some key answered it) or raises
+`RequiresInputRefusedError` at gate site `requirement` (not benign — add the key
+and the doc entry together, so the drift pin covers it). Either outcome should
+then be written into the doc as the prompt-to-key map that does not currently
+exist, which closes this item and the whole class with it.
+
+### 2. The PR-body half of a disclosure has no gate
+
+v2.57.1 added the AC-STE-418.4 deferral to the CHANGELOG, where
+`tests/m116-ste-418-deferral-disclosure.test.ts` now pins it. The same gap
+existed in the PR #54 body's "Recorded limitations" section and was fixed by
+hand. Nothing in this repo can assert against a GitHub PR body, so that half is
+protected by nothing. Recorded rather than solved: the CHANGELOG is the durable
+record and it is now gated; the PR body is a review-time artifact. If PR bodies
+start carrying claims the CHANGELOG does not, this becomes worth fixing.
+
 ## From M117 — Smoke-Driver Hygiene (2026-07-28)
 
 ### 1. Phase 8 `/report-issue` coverage still depends on classifier variance — `STE-431`

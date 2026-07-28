@@ -39,6 +39,10 @@ M116 — Headless Conformance Unblock. Closes the eight high-severity findings f
 - **Tracker-scoped smoke artifacts.** Five unscoped pidfile-glob literals across four lines — one of them on the destructive reap — plus a date-keyed fixture path whose rationale claimed the date prevented concurrent collision. A tandem fixture proves a scoped reap leaves a live partner untouched. (STE-423)
 - **Short-ULID collision detection across the archive boundary.** Plan and feature-record walks gained cross-file duplicate detection spanning active and archived trees; feature-record minting gained the synchronous existence predicate the milestone minter already had; and the collision scan no longer fails open on an unreadable record that still owns the tail its filename spells. Two prevention-by-construction claims restated as detection within one working tree. (STE-424)
 
+### Known limitations at ship
+
+- **AC-STE-418.4 ships deferred — the chain-completion proof is recorded, not live.** The replay half landed: a six-capture set driven through `assertChainIntegrity` returns zero findings, and the negative direction reproduces both the `/implement` and the `/spec-review` truncation rows. The live half — an actual `/smoke-test` leg producing those six captures — is a ~10-minute `claude -p` fan-out with real tracker writes, and was not run in the implementation session. Closed by retroactive validation on the next conformance run, not by the shipped tests. (STE-418)
+
 Total test count at release: 5958 tests, 0 failures, 0 errors.
 
 ## [2.56.0] — 2026-07-26 — "Mint"
