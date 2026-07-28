@@ -1,0 +1,18 @@
+[
+  {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "terminal_reason": "completed",
+    "permission_denials": [
+      {
+        "tool_name": "Bash",
+        "tool_use_id": "toolu_01CzjDn3JdKcrSVfmbsrs28H",
+        "tool_input": {
+          "command": "git commit -F - <<'EOF'\nchore: bootstrap dev-process-toolkit\n\nWire the Spec-Driven Development + TDD workflow into this Bun + TypeScript\nproject, in Linear tracker mode.\n\nFiles written:\n- CLAUDE.md — stack, gate command, Schema L (mode: linear, team STE,\n  project \"DPT Smoke Test (2026-07-27)\"), Docs/Token Stats/Release Files,\n  and the /setup audit provenance log\n- .claude/settings.json — merged canonical bun allow-list into the\n  pre-existing file (29 entries preserved, 21 added)\n- .dpt/.gitignore — keeps toolkit ledger + scratch out of commits\n- specs/{requirements,technical-spec,testing-spec}.md — cross-cutting specs\n- specs/plan/M1.md — bootstrap milestone (kind: scaffolding)\n- specs/tracker-config.yaml — verbatim Linear statuses + canonical role map\n- src/.placeholder.test.ts — Bun zero-match shield\n\n.mcp.json was already present and byte-matches the canonical Linear entry;\nmerged, not overwritten.\n\nToolkit: dev-process-toolkit v2.56.0\nEOF",
+          "description": "Create bootstrap commit"
+        }
+      }
+    ]
+  }
+]

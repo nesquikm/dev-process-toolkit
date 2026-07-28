@@ -44,10 +44,17 @@ export interface ReportIssuePublishGateReport {
 //     (no `gh gist create`).
 //   - the NOT-a-trigger anchor phrase — the literal that forbids treating a
 //     prose "proceed" as publish authorization (the F7 failure).
+//   - the surfacing mandate + the canonical refusal marker — the 2026-07-27
+//     Linear leg refused correctly but narrated the refusal in its own words,
+//     so the marker the `RequiresInputRefusedError` message carries never
+//     reached the stream and the capture scored `vacuous` (a non-pass), i.e.
+//     byte-indistinguishable from a run that did nothing.
 export const PUBLISH_GATE_REQUIRED_LITERALS = [
   "check_marker_runtime.ts",
   "RequiresInputRefusedError",
   "NOT authorization to publish",
+  "refusal MUST be surfaced verbatim",
+  "<dpt:requires-input-refused>v1</dpt:requires-input-refused>",
 ] as const;
 
 const SKILL_REL_PATH =
@@ -58,8 +65,11 @@ const REMEDY =
   "skills/report-issue/SKILL.md: it MUST name the runtime byte-grep " +
   "`adapters/_shared/src/check_marker_runtime.ts` as the sole decider, refuse " +
   "on the marker-absent + non-tty branch via `RequiresInputRefusedError` " +
-  "(no `gh gist create`), and carry the NOT-a-trigger anchor stating prose / " +
-  "\"proceed\" instructions are `NOT authorization to publish`.";
+  "(no `gh gist create`), carry the NOT-a-trigger anchor stating prose / " +
+  "\"proceed\" instructions are `NOT authorization to publish`, and mandate " +
+  "surfacing that refusal verbatim so the canonical " +
+  "`<dpt:requires-input-refused>` marker it carries reaches the stream " +
+  "(a prose-only refusal scores `vacuous`, a non-pass).";
 
 function buildMessage(relFile: string, line: number, reason: string): string {
   return [
