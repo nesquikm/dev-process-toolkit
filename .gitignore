@@ -4,3 +4,10 @@
 .claude/scheduled_tasks.lock
 .claude/ralph-loop.local.md
 node_modules/
+
+# Raw per-run smoke Phase 8 transcript captures (100s of KB each, one per
+# in-scope skill per leg). They are local replay evidence and were never
+# committed; ignoring them is what keeps the toolkit tree clean for the next
+# smoke run's pre-flight #4. A `*` never crosses a `/`, so the trimmed
+# reproducers under `socratic-first-turn/regression/` stay tracked.
+plugins/dev-process-toolkit/tests/fixtures/socratic-first-turn/*.json

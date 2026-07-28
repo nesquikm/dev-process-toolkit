@@ -20,8 +20,18 @@
 // The probe is mode-aware via the underlying helper: `LocalProvider`
 // (`mode: 'none'`) returns three empty lists, so the probe surfaces severity
 // info with zero violations on every local-only project.
+//
+// Scaffolding carve-out: a LOCAL-side milestone mismatch whose plan declares
+// `kind: scaffolding` is dropped here rather than in the shared helper. The
+// helper's report stays faithful (its other consumer is /spec-write's preamble
+// reconcile, which wants the full picture); only the gate-check render
+// suppresses the row, because the bootstrap plan has no tracker milestone by
+// design and every freshly bootstrapped project would otherwise open life with
+// a meaningless warning. The filter keys on the structural `side`
+// discriminator, never on the `details` prose.
 
 import { join } from "node:path";
+import { evaluatePlanOnlyEligibility } from "./plan_only_archival";
 import type { Provider } from "./provider";
 import {
   readLocalFRBindings,
@@ -45,6 +55,16 @@ export interface RunProbeDeps {
   provider: Provider;
 }
 
+// Splits the two local-orphan sub-kinds apart: "no `tracker:` block at all"
+// (warning) vs "binds to IDs the tracker does not carry" (error). This one IS
+// still a `details` prose match, and deliberately so — BOTH sub-kinds are
+// `side: "local"`, so the structural discriminator cannot separate them and
+// widening the `side` filter to cover this branch would silently collapse the
+// error tier into the warning tier. Separating them structurally needs a new
+// field on `ReconcileItem`, which no AC covers; until then the byte-stability
+// of the two `details` templates is pinned by
+// `tests/m117-ste-430-retry-and-gate-noise.test.ts` and by
+// `adapters/_shared/src/__tests__/reconcile_tracker_local.test.ts`.
 const LOCAL_ORPHAN_DANGLING_RE = /binds to tracker IDs/;
 
 /**
@@ -88,6 +108,7 @@ export async function runTrackerLocalReconciliationDriftProbe(
   }
 
   for (const item of report.milestoneMismatches) {
+    if (item.side === "local" && (await isScaffoldingPlan(specsDir, item.id))) continue;
     violations.push({
       kind: "milestone-mismatch",
       severity: "warning",
@@ -114,6 +135,28 @@ export async function runTrackerLocalReconciliationDriftProbe(
   else severity = "info";
 
   return { severity, violations };
+}
+
+/**
+ * True when `<specsDir>/plan/<milestone>.md` declares the scaffolding kind in
+ * its frontmatter — the bootstrap plan `/setup` writes, which has no tracker
+ * milestone BY DESIGN and must not be reported as local-side milestone drift.
+ *
+ * Routed through `evaluatePlanOnlyEligibility`, which already owns this exact
+ * frontmatter read and whose `parseFrontmatter(..., { lenient: true })` call
+ * normalizes BOM + CRLF before matching. A hand-rolled `kind:` line scanner
+ * here would re-create the CRLF/BOM blindness that was swept out of this
+ * repo's frontmatter readers once already, and it would fail OPEN — an
+ * unparsed scaffolding plan would resume emitting the spurious warning.
+ *
+ * Deliberately narrow: only `reason === "scaffolding"` suppresses. The
+ * sibling `"all-checked"` eligibility reason is about archival readiness, not
+ * about whether a tracker milestone is expected to exist, so a fully-checked
+ * feature plan still reports drift.
+ */
+async function isScaffoldingPlan(specsDir: string, milestone: string): Promise<boolean> {
+  const verdict = await evaluatePlanOnlyEligibility(specsDir, milestone);
+  return verdict.planExists && verdict.reason === "scaffolding";
 }
 
 interface DuplicateBinding {

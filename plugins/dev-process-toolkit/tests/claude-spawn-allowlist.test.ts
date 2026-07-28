@@ -47,19 +47,84 @@ const smokeTestPath = join(
 const SPAWN_ALLOW_ENTRY = "Bash(claude:*)";
 
 // Canonical test-project scaffold allow-list (STE-106 shape) including the
-// new spawn entry. The nine pre-existing entries are the scaffold's
-// long-standing content; STE-350 adds only the spawn authorization.
+// spawn entry STE-350 added.
+//
+// STE-426 AC.1 recalibration: the scaffold used to carry ten Bash-only
+// entries, so anything scaffolded from it verbatim had every file tool and
+// every tracker call denied at the first step — the snippet did not cover the
+// tool-surface union the skill's own threat-model rail 1 and Allowlist matrix
+// state as the enforcement contract. AC.1 added that union in working
+// (`<prefix>:*`) shape.
+//
+// STE-426 AC.2 recalibration: the nine glob-shaped entries (`Bash(bun *)` …
+// `Bash(cp *)`) that had been the scaffold's long-standing content are GONE.
+// Under the matcher model this file pins below (§ AC-STE-430 matcher), a rule
+// with no `:*` suffix is an EXACT rule, so `Bash(git *)` authorized only the
+// literal string `git *` — i.e. nothing. Their colon-form equivalents landed
+// in AC.1, so retiring them preserves the effective grant while silencing
+// probe #35 (`setup_permissions_shape`) and probe #69's `permission-shapes`
+// entry on every freshly scaffolded test project. `Bash(claude:*)` was never
+// glob-shaped and stays.
+//
+// STE-426 AC.4 does NOT retire this constant, and deliberately so. Deriving it
+// from the snippet would make the set-equality test below compare the snippet
+// to itself. Deriving it from the tracked `.claude/settings.json` is impossible
+// without a hand-written translation table, because the two files' Bash sets
+// legitimately differ: the toolkit repo grants `bun test`/`cat`/`kill`/
+// `realpath`/`tee`/`wait`/`wc`, while the test project needs `bunx`/`date`/
+// `grep`/`jq`/`mv`/`test`. Only the non-Bash tail could be derived — and that
+// tail is ALREADY pinned to the tracked file, in both directions, by
+// AC-STE-426.4.
+//
+// The decisive reason to keep a hand-written third value: a set-equality pin
+// BETWEEN TWO FILES cannot detect a CORRELATED edit. Delete `Write` from the
+// snippet and from `.claude/settings.json` in the same commit and AC.4 stays
+// green — this golden is the only assertion that goes red. Recalibrating it
+// once per deliberate change (AC.1, then AC.2) is the change-detector doing
+// its job, not maintenance burden to optimize away.
+//
+// Drift directions covered, across this suite and AC-STE-426.*: any snippet
+// membership change (the set-equality test below); snippet-vs-tracked non-Bash
+// divergence in either direction (AC.4); a glob-shaped rule on either surface
+// (AC.4 + AC.2); a dropped threat-model rail-1 surface or Allowlist-matrix
+// command (AC.1); a missing `Bash(claude:*)` on either surface (probe #62,
+// severity ERROR, fail-closed).
+//
+// Deliberately UNCOVERED, so the next reader does not assume otherwise:
+//   * the tracked file's Bash set may drift freely from the snippet's — the two
+//     serve different roles and are 13 entries apart today. Nothing asserts
+//     them equal and nothing should.
+//   * AC.1 measures the snippet against the matrix in the SAME SKILL.md, so it
+//     is a self-consistency pin, not a pin against what the chain really runs.
+//     A chain that grows a new command satisfies AC.1 as long as the matrix is
+//     left un-updated too (its floor is 10; the matrix lists 13).
 const CANONICAL_SCAFFOLD_ALLOW = [
-  "Bash(bun *)",
-  "Bash(bunx *)",
-  "Bash(git *)",
-  "Bash(gh *)",
-  "Bash(mkdir *)",
-  "Bash(ls *)",
-  "Bash(rm *)",
-  "Bash(mv *)",
-  "Bash(cp *)",
   SPAWN_ALLOW_ENTRY,
+  // Bash commands the Allowlist matrix says the canonical chain needs, in the
+  // prefix shape the harness actually honors (`gh` is matrix-absent but keeps
+  // parity with the retired glob entry — /pr and Phase 5 teardown need it).
+  "Bash(bun:*)",
+  "Bash(bunx:*)",
+  "Bash(cp:*)",
+  "Bash(date:*)",
+  "Bash(find:*)",
+  "Bash(gh:*)",
+  "Bash(git:*)",
+  "Bash(grep:*)",
+  "Bash(jq:*)",
+  "Bash(ls:*)",
+  "Bash(mkdir:*)",
+  "Bash(mv:*)",
+  "Bash(rm:*)",
+  "Bash(test:*)",
+  // The file-tool surface and the MCP families rail 1 enumerates.
+  "Edit",
+  "Write",
+  "Read",
+  "Grep",
+  "Glob",
+  "mcp__linear__*",
+  "mcp__atlassian__*",
 ];
 
 interface ReadJsonResult {

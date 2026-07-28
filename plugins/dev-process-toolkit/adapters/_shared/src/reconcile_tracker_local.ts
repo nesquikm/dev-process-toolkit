@@ -20,10 +20,25 @@ import type { Provider } from "./provider";
 
 export type ReconcileItemKind = "tracker-orphan" | "local-orphan" | "milestone-mismatch";
 
+/**
+ * Which side of the reconcile OWNS the artifact that has no counterpart on the
+ * other side. `"tracker"` — the tracker carries it and nothing local matches;
+ * `"local"` — the working tree carries it and nothing on the tracker matches.
+ *
+ * Load-bearing for `milestone-mismatch`, where both directions emit an
+ * identical `kind` and were previously distinguishable only by free-text
+ * `details`. Consumers that need one direction only (the
+ * `tracker_local_reconciliation_drift` probe filters the local direction to
+ * apply its scaffolding-plan carve-out) branch on this field rather than
+ * regexing prose that a copy edit can silently invalidate.
+ */
+export type ReconcileSide = "local" | "tracker";
+
 export interface ReconcileItem {
   kind: ReconcileItemKind;
   id: string;
   details: string;
+  side: ReconcileSide;
 }
 
 export interface ReconcileTrackerLocalResult {
@@ -91,6 +106,7 @@ export async function reconcileTrackerLocal(
       kind: "tracker-orphan",
       id: trackerId,
       details: `Tracker active FR ${trackerId} has no local file under ${specsDir}/frs/.`,
+      side: "tracker",
     });
   }
 
@@ -103,6 +119,7 @@ export async function reconcileTrackerLocal(
         kind: "local-orphan",
         id: fr.filename,
         details: `Local FR ${fr.filename} has no tracker binding (\`tracker:\` is empty).`,
+        side: "local",
       });
       continue;
     }
@@ -112,6 +129,7 @@ export async function reconcileTrackerLocal(
         kind: "local-orphan",
         id: fr.filename,
         details: `Local FR ${fr.filename} binds to tracker IDs [${fr.trackerIds.join(", ")}] but none are active on the tracker.`,
+        side: "local",
       });
     }
   }
@@ -130,6 +148,7 @@ export async function reconcileTrackerLocal(
         kind: "milestone-mismatch",
         id: name,
         details: `Tracker milestone ${name} has no local plan file at ${specsDir}/plan/${name}.md.`,
+        side: "tracker",
       });
     }
   }
@@ -139,6 +158,7 @@ export async function reconcileTrackerLocal(
         kind: "milestone-mismatch",
         id: name,
         details: `Local plan ${specsDir}/plan/${name}.md has no matching tracker milestone.`,
+        side: "local",
       });
     }
   }

@@ -125,13 +125,15 @@ In `.claude/settings.json`, add tool permissions that your skills need:
 {
   "permissions": {
     "allow": [
-      "Bash(npm run *)",
-      "Bash(git *)",
-      "Bash(gh *)"
+      "Bash(npm run:*)",
+      "Bash(git:*)",
+      "Bash(gh:*)"
     ]
   }
 }
 ```
+
+Note the `:*` suffix. A rule written `Bash(git *)` — a space before the asterisk — is an **exact** rule: it matches only the literal string `git *` and therefore authorizes nothing, so every `git` command falls through to whatever the ambient permission mode decides. The prefix form `Bash(git:*)` is what actually grants the command family. `/gate-check` probe #35 (`setup_permissions_shape`) flags the exact-rule shape as an advisory for this reason.
 
 See `examples/` for stack-specific permission lists.
 
