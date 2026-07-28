@@ -179,7 +179,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.57.0 — "Keystone"** (M116: headless conformance unblock. `/spec-write` is drivable under `claude -p` again via a marker-gated sanctioned answer block that answers the Socratic interview rather than skipping it; `/setup` adopts the same mechanism. Driver abort verdicts became machine-checkable, capability-row assertions moved off unsound raw-log greps, smoke artifacts are tracker-scoped, and short-ULID collisions are now detected across the archive boundary.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.57.1 — "Abstain"** (post-release review of M116 + M117: three driver gates answered "pass" when they could not read their own input — an empty rc-file, a misspelled `--outcome`, and a day-keyed fixture path that counted a previous run's capture — and each now refuses to grade instead of grading blind. Shipped on top of v2.56.1 "Keystone", the headless conformance unblock, and v2.57.0 "Litmus", the smoke-driver hygiene pass.)
 
 ## Core Philosophy
 
