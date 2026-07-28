@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.57.1] — 2026-07-28 — "Abstain"
+
+Post-release review of the M116 + M117 branch. Three gates answered "pass" when they could not read their own input, and one deferral was recorded everywhere except the release entry. No new milestone and no new FRs: these are defects in what M116 and M117 shipped, closed on the same branch before it merges.
+
+### Fixed
+
+- **An unreadable rc-file is a failure, not a zero.** `/conformance-loop`'s Phase A gate read each leg's rc-file as `$(cat … || echo 1)`. `cat` **succeeds** on a file that exists but is empty, so the fallback fired only on a missing file and left the variable empty for every other bad shape — and `[ "" -ne 0 ]` is a `test(1)` usage error whose non-zero status *skips* the abort branch, so the gate fell through. That input is reachable: STE-420 replaced a `echo $?` that always wrote an integer with a `bun … reconcile > rc-file` redirect, and the redirect creates the file *before* `bun` runs, so any invocation producing no stdout leaves 0 bytes. The same dead-gate outcome STE-420 exists to eliminate, by a quieter route. The read is now validated as a plain integer, which also closes the non-empty non-integer case a bare emptiness check would still miss, and passes a genuine reconciled code through untouched so STE-420's per-cause codes survive.
+- **A misspelled `--outcome` is rejected, not discarded.** `smoke_verdict emit` folded any unrecognized `--outcome` to `undefined`, and the builder then computed `pass` — so `--outcome FAIL` wrote `{"outcome":"pass"}` and exited 0, as did `failed`, `Abort`, `abrt`, `fail (rc=1)` and an empty value from an unset shell variable in the documented fence. The asymmetry was the tell: a missing `--tracker` already produced a loud usage error and exit 2, while the one flag carrying the entire verdict was the only one whose bad value produced no diagnostic at all. It now exits 2 with a message naming the accepted values and writes no artifact. An **absent** `--outcome` remains supported — the usage line spells it optional and the two triggers decide the verdict on their own.
+- **Phase 8 coverage is dated, not just measured.** The gate tested `-s` on a day-keyed fixture path, and the capture convention already conceded that key cannot separate two runs of the same leg on the same day. A second run whose spawn was denied one layer out — the Bash call itself refused, so no shell ran and no redirect truncated anything — found the earlier run's 100–450 KB capture at the identical path and counted the denial as covered. Reachable rather than theoretical, and reachable *because* STE-425's disposal rule keeps those captures on disk for replay. Each capture is now graded against a phase-start stamp: non-empty **and** newer. This is the freshness rule STE-420 already applies to the per-leg verdict artifacts, so the driver grades both kinds of evidence by one rule instead of two. Nothing is deleted to achieve it, and a gate that cannot find its stamp reports itself **unusable** and withholds the pass rather than granting one.
+- **The one AC that shipped unproven says so in the release record.** AC-STE-418.4's deferral was recorded on the AC and in the M116 plan but not in the v2.56.1 entry, which listed eight clean bullets and read as a milestone that shipped whole. Added above under the `### Known limitations at ship` heading v1.15.0 established for the same case, and pinned by a test scoped to that release's own section.
+
+All three guards are mutation-checked, and every shell assertion **executes** the snippet extracted from the driver SKILL rather than grepping it — a grep passes against prose describing a guard the snippet does not implement, which is the class of check being replaced here.
+
+Total test count at release: 6300 tests, 0 failures, 0 errors.
+
 ## [2.57.0] — 2026-07-28 — "Litmus"
 
 Smoke-driver hygiene: the ten medium and three low findings from the 2026-07-27 `/conformance-loop` run. None blocked a headless run alone — together they were what made a healthy run hard to read and a failing run hard to trust.
