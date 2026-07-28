@@ -1412,6 +1412,16 @@ PASSES=0
 VIOLATIONS=0
 INCONCLUSIVE=0
 FAULTS=0
+# Phase-start stamp — the freshness reference the coverage gate below grades
+# each capture against, and the same rule STE-420 already applies to the verdict
+# artifacts (an artifact older than run-start is a previous run's leftover,
+# never this run's). The fixture path is keyed by calendar day, which by its own
+# admission cannot separate two runs of the same leg on the same day, so size
+# alone would count a predecessor's capture as this run's coverage. `mktemp`
+# rather than a fixed path: the stamp is unguessable and fresh per run, so no
+# earlier run's stamp can be read as this one's, and a failed `mktemp` leaves
+# the variable empty, which the gate treats as unusable rather than as a pass.
+PHASE8_STAMP=$(mktemp "${TMPDIR:-/tmp}/dpt-phase8-start-${TRACKER}.XXXXXX")
 
 for SKILL in setup brainstorm spec-write report-issue; do
   # STE-423: the fixture name carries the resolved tracker, so a tandem
@@ -1519,26 +1529,42 @@ done
 # A spawn the classifier denies never starts a child, so its skill contributes
 # to no bucket at all — and the redirect has already created the file, so an
 # existence-only test (`-e`) scores that denial as covered. `-s` is the whole
-# point: an EMPTY fixture is a MISSING fixture. Inputs are FIXTURE_DIR,
-# TRACKER and DATE, all assigned above; the gate reads nothing else.
+# point: an EMPTY fixture is a MISSING fixture.
+#
+# `-s` alone is still not enough, because it is a SIZE test on a DAY-KEYED
+# path. A denial one layer out — the Bash call itself refused, so no shell runs
+# and no redirect truncates anything — leaves the fixture path holding whatever
+# an earlier run of this same leg wrote on this same calendar day, and STE-425
+# keeps those captures on disk deliberately. Size says "covered"; the file is a
+# predecessor's. So each capture must ALSO be newer than PHASE8_STAMP, stamped
+# just before the rotation. Inputs are FIXTURE_DIR, TRACKER, DATE and
+# PHASE8_STAMP, all assigned above; the gate reads nothing else.
 COVERAGE_MISSING=""
 COVERAGE_PRESENT=0
-for COVERAGE_SKILL in setup brainstorm spec-write report-issue; do
-  COVERAGE_FIXTURE=${FIXTURE_DIR}/${COVERAGE_SKILL}-${TRACKER}-${DATE}.json
-  if [ -s "${COVERAGE_FIXTURE}" ]; then
-    COVERAGE_PRESENT=$((COVERAGE_PRESENT + 1))
-  else
-    # Accumulated in rotation order, so the report names them in the order
-    # the loop above fires them.
-    COVERAGE_MISSING="${COVERAGE_MISSING} ${COVERAGE_SKILL}"
-  fi
-done
-if [ -n "${COVERAGE_MISSING}" ]; then
-  echo "PHASE8-COVERAGE: incomplete — missing${COVERAGE_MISSING}"
-  COVERAGE_OK=0
+COVERAGE_OK=0
+if [ -z "${PHASE8_STAMP}" ] || [ ! -e "${PHASE8_STAMP}" ]; then
+  # No usable freshness reference ⇒ the gate cannot tell this run's captures
+  # from a previous run's, so it refuses to grade instead of grading blind.
+  # `-nt` against a nonexistent second operand is TRUE for every existing
+  # file, which is precisely the fail-open this branch exists to pre-empt.
+  echo "PHASE8-COVERAGE: unusable — no phase-start stamp; cannot date the captures"
 else
-  echo "PHASE8-COVERAGE: complete — ${COVERAGE_PRESENT}/4 fixtures"
-  COVERAGE_OK=1
+  for COVERAGE_SKILL in setup brainstorm spec-write report-issue; do
+    COVERAGE_FIXTURE=${FIXTURE_DIR}/${COVERAGE_SKILL}-${TRACKER}-${DATE}.json
+    if [ -s "${COVERAGE_FIXTURE}" ] && [ "${COVERAGE_FIXTURE}" -nt "${PHASE8_STAMP}" ]; then
+      COVERAGE_PRESENT=$((COVERAGE_PRESENT + 1))
+    else
+      # Accumulated in rotation order, so the report names them in the order
+      # the loop above fires them.
+      COVERAGE_MISSING="${COVERAGE_MISSING} ${COVERAGE_SKILL}"
+    fi
+  done
+  if [ -n "${COVERAGE_MISSING}" ]; then
+    echo "PHASE8-COVERAGE: incomplete — missing${COVERAGE_MISSING}"
+  else
+    echo "PHASE8-COVERAGE: complete — ${COVERAGE_PRESENT}/4 fixtures"
+    COVERAGE_OK=1
+  fi
 fi
 # END phase-8 coverage gate
 
@@ -1565,6 +1591,8 @@ The heredoc body deliberately omits the `<dpt:auto-approve>v1</dpt:auto-approve>
 **Inconclusive is not a pass (STE-429).** An inconclusive result is reported per skill and names the skill it belongs to — `<skill>: INCONCLUSIVE (vacuous)` — and it is **never** folded into the aggregate Phase 8 verdict as a passing skill. The end-of-phase aggregate therefore carries three counts, not two: passes, violations, and inconclusives, each naming its skills. A rotation that scored two passes and two inconclusives renders exactly that; it never renders four passes (nor, for that matter, four failures). An inconclusive skill is not a violation, and the two are reported separately so triage lands on the per-skill workspace preparation above rather than on the skill body. But **not-a-violation is not a pass**: an inconclusive result bars the aggregate from reporting one, exactly as a missing fixture does. A rotation of four inconclusives is the weakest possible evidence about the contract, and it must never exit as though the contract held — which is what would happen if only violations and driver faults were counted. That is why the aggregate guard below requires `INCONCLUSIVE` to be zero alongside `VIOLATIONS` and `FAULTS`. Where this vocabulary meets the fixture-group outcomes of the Phase 2.X summary line (`passed` / `failed` / `not-reached` / `not-applicable`, STE-425), an inconclusive Phase 8 skill maps to `not-reached` and never to `passed`; `fixtureGroupsAggregate` grades a `not-reached` record `fail`, and Phase 8's own guard has to agree with it or the same evidence would read two ways in one run.
 
 **Four-fixture coverage gate (STE-428).** Those three counts describe only the skills that produced a capture, so the aggregate is evidence about the rotation only when the rotation actually happened: Phase 8 asserts that all four in-scope skills' fixtures exist and are non-empty *before* it renders that verdict. Coverage is a condition of its own, independent of every per-skill disposition: a spawn the auto-mode classifier denies is refused **before the child starts**, so the rotation produces no capture for that skill and there is no runner result to bucket — measured 2026-07-27 on the Jira leg, where the fourth spawn (`report-issue`) was denied and the phase silently covered three of the four while its summary read as full coverage. Existence alone is too weak a test: the shell redirect creates the capture file before the denial, so a denied spawn leaves a 0-byte fixture behind and an empty fixture therefore counts as **missing**. When any fixture is absent or empty the gate names the missing skill — every missing one, in rotation order (`setup brainstorm spec-write report-issue`) — and incomplete coverage bars the aggregate from reporting a pass. A run that covered three of four can never render as an aggregate pass; it renders the name of the skill it never reached.
+
+**Presence is dated, not just measured.** Non-empty is a claim about size, and the fixture path is keyed by calendar day — a key that, by the capture convention's own admission above, cannot separate two runs of the same leg on the same day. So a size-only gate has one input it cannot read correctly: a second run on a day whose predecessor left captures behind. The 0-byte case the redirect produces is only the denial shape where a shell ran; when the denial lands one layer out and the Bash call itself is refused, no redirect truncates anything and the predecessor's 100–450 KB capture is still sitting at the identical path. The gate would count it, and the very disposal rule that keeps captures on disk for replay (§ Disposal rule) is what keeps that input available. Each fixture is therefore graded against `PHASE8_STAMP`, a phase-start marker stamped immediately before the rotation: non-empty **and** newer than the stamp. This is the freshness rule STE-420 already applies to the per-leg verdict artifacts — an artifact older than run-start is a previous run's leftover, never this run's — so the driver grades both kinds of evidence by one rule rather than two. Nothing is deleted to achieve it: the alternative of clearing the four target paths before the rotation would close the same hole by destroying a predecessor's evidence, and it would close it only when the clearing itself ran, where a stamp comparison that cannot find its reference reports the gate **unusable** and withholds the pass instead of granting one.
 
 **Why the runner's `projectRoot` argument is mandatory — inherited configuration (STE-427).** Every Phase 8 spawn line exports `CLAUDE_CONFIG_DIR=~/.claude-st`, so each child **inherits the operator's configuration directory** and the global-instruction set inside it (§ Threat model). A child that obeys one of those global instructions writes outside the test project on its very first turn — measured 2026-07-27, when the `/setup` and `/brainstorm` children wrote into the operator's own notes tree. Such a write is not this run's scaffold, which is exactly why `assertFirstTurnShape` must be told which tree counts: its `projectRoot` option scopes scaffold detection, and the runner reads that scope from its third argument. Withhold it and the inherited-instruction write is scored `violation Write@9` against a child that had in fact refused at index 10 — so scoping the first-turn assertion is a correctness requirement, not an optimization. What Phase 8 hands over as that project root is **the per-skill workspace**, not the chain's test project containing it (STE-429): the workspace is the tree the child actually ran in, so its scaffold writes are the only ones this exercise owns.
 

@@ -287,11 +287,17 @@ done
 if [ -n "${LIVE}" ]; then echo "still running:${LIVE} — poll again"; else echo "both legs exited — collect RCs"; fi
 ```
 
-**RC collection (after the poll loop reports both legs exited).** Read each leg's rc-file — written by its brace group as the leg exited, carrying the *verdict-reconciled* status rather than the raw `claude -p` one (STE-420) — and abort on any non-zero. A missing rc-file after exit is treated as a failure:
+**RC collection (after the poll loop reports both legs exited).** Read each leg's rc-file — written by its brace group as the leg exited, carrying the *verdict-reconciled* status rather than the raw `claude -p` one (STE-420) — and abort on any non-zero. A missing rc-file after exit is treated as a failure, and so is an unreadable one: what the gate compares must be a plain integer, validated after the read rather than assumed by it. `cat` **succeeds** on a file that exists but is empty, so a `|| echo 1` fallback fires only on a missing file and leaves the variable empty for every other bad shape — and `[ "" -ne 0 ]` is a `test(1)` usage error whose non-zero status *skips* the abort branch, so the gate fails open on exactly the input it exists to catch. That input is reachable: the rc-file is created by the shell redirect **before** `bun` runs, so any invocation producing no stdout — bun missing, a module throw, a bad flag — leaves 0 bytes behind, and a partial or diagnostic write leaves something that is not a number. The integer check below folds all three into a failure with one predicate:
 
 ```bash
-RC_LINEAR=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.rc" 2>/dev/null || echo 1)
-RC_JIRA=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.rc" 2>/dev/null || echo 1)
+RC_LINEAR=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.rc" 2>/dev/null)
+RC_JIRA=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.rc" 2>/dev/null)
+
+# Anything that is not a plain integer — absent, empty, truncated, a stray
+# diagnostic — is a FAILED READ, never a zero. Both bad shapes reach `[ … -ne
+# 0 ]` as a usage error, whose non-zero status skips the branch below.
+case "${RC_LINEAR}" in ''|*[!0-9]*) RC_LINEAR=1 ;; esac
+case "${RC_JIRA}"   in ''|*[!0-9]*) RC_JIRA=1 ;; esac
 
 # STE-359: before acting on any failure here, run the orphan-adoption scan
 # below — a dead driver can leave live grandchildren whose completed
