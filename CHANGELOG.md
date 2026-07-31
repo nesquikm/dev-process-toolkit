@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.58.0] — 2026-07-31 — "Deed"
+
+M118 — Unmanaged-Tree Probe Guards. Found by a live `/gate-check` run against a Flutter app the toolkit never bootstrapped: both deterministic gates were green, and the gate still failed — on a file the toolkit does not own, with a remedy telling the operator to paste toolkit content into it. Two probes promised a narrower scope in their own prose than their code implemented, and the narrower prose was the correct one in both cases.
+
+### Added
+
+- **A probe that reads `CLAUDE.md` now has to say whose tree it is.** New probe #74 `claudemd_probe_managed_guard` selects every module in the shared adapter layer that builds a path to `CLAUDE.md` and requires it to either consult the shared managed-tree predicate or carry a named exemption with a stated reason. Probe #18 drifted for forty-odd releases because the managed-tree question was answered by hand in five places and nobody owned the answer; this is the fuse that makes the next such module fail loudly at gate time instead of quietly on someone else's repo (STE-434)
+
+### Fixed
+
+- **Probe #18 no longer fails a project for having written its own `CLAUDE.md`.** Its only scope guard was `existsSync`, so it equated *file absent* with *tree not toolkit-managed* — two different predicates, and the gap between them is most of the world, since `CLAUDE.md` is a Claude Code convention rather than a toolkit one. Error severity made it a hard GATE FAILED, and on a project whose commit hook runs `/gate-check` it fired on every commit. The managed-tree test is now one shared predicate (`toolkit_managed.ts`) accepting the `/setup` marker or a `## Task Tracking` section, BOM- and CRLF-tolerant, which probe #69 also consumes. Deliberately **not** the marker-only guard the obvious fix suggests: this repo's own `CLAUDE.md` carries no marker, so marker-only would have made the probe permanently vacuous on the one tree where it has teeth — while the existing baseline test, which asserts an empty violation list, stayed green. That test is now two-sided. Probe #18 ignores the `## Docs` signal, because accepting it as evidence inside the probe that asserts it exists is circular. Severity stays error: post-guard, every tree the probe can fire on is one the toolkit wrote or maintains, where a missing section is the toolkit's own defect (STE-432)
+- **Probe #37 reads the fence info string instead of counting backticks.** It toggled fence state on any ` ``` ` line, so ` ```dart `, ` ```sh ` and ` ```yaml ` blocks were all scanned as directory trees — six notes on the reporting project, six false positives, from package imports (`package:foo/foo.dart`) and app-relative asset paths that resolve fine from the asset root but not from the repo root. A third class, shell-command path arguments, turned up during verification and was never reported. The scanner now tracks the open fence's info string rather than a boolean — a boolean plus a skip-filter desynchronizes and leaks tagged content into the following prose — and scans only fences opened bare or tagged `text` / `tree`. Every directory tree in this repo's specs and templates is already in a bare fence, so no coverage was lost and no existing fixture changed (STE-433)
+
+Total test count at release: 6375 tests, 0 failures, 0 errors.
+
 ## [2.57.1] — 2026-07-28 — "Abstain"
 
 Post-release review of the M116 + M117 branch. Three gates answered "pass" when they could not read their own input, and one deferral was recorded everywhere except the release entry. No new milestone and no new FRs: these are defects in what M116 and M117 shipped, closed on the same branch before it merges.
