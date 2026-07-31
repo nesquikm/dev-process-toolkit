@@ -6,6 +6,7 @@ import {
   hasDefaultApplicableOutcomes,
   runSetupAuditSectionPresenceProbe,
 } from "../adapters/_shared/src/setup_audit_section_presence";
+import { detectManagedSignals } from "../adapters/_shared/src/toolkit_managed";
 
 // STE-108 AC-STE-108.6 — `setup-audit-section-presence` /gate-check probe.
 //
@@ -167,6 +168,64 @@ describe("STE-123 — /setup SKILL.md prose declares step 8a", () => {
     // `synthesizeAuditSection` + `hasDefaultApplicableOutcomes` references
     // above; assert the audit-section heading remains a hard contract.
     expect(setupSkill).toMatch(/## \/setup audit/);
+  });
+});
+
+describe("AC-STE-432.9 — probes #19 and #22 keep MARKER-ONLY acceptance", () => {
+  // Regression fence, not a formality. Probe #19 asserts an invariant only
+  // `/setup`'s own write path can create. This repo is a managed tree that
+  // `/setup` never wrote: `## Task Tracking` is present, `## Docs` is present
+  // (so `hasDefaultApplicableOutcomes` is true), and there is no
+  // `## /setup audit` heading anywhere. Widening probe #19 to STE-432's
+  // marker-OR-section form would turn this repo's own gate RED.
+  const fixture = [
+    "# Project",
+    "",
+    "## Task Tracking",
+    "",
+    "mode: linear",
+    "branch_template: feat/{ticket-id}",
+    "",
+    "## Docs",
+    "",
+    "user_facing_mode: false",
+    "",
+  ].join("\n");
+
+  test("managed-by-section but marker-less CLAUDE.md → zero violations from probe #19", async () => {
+    const ctx = makeProject(fixture);
+    try {
+      // The fixture IS a managed tree by the shared predicate's vocabulary …
+      const signals = detectManagedSignals(ctx.root);
+      expect(signals).toContain("task_tracking_section");
+      expect(signals).toContain("docs_section");
+      // … but carries no marker, which is the only signal probe #19 accepts.
+      expect(signals).not.toContain("setup_marker");
+      // Non-vacuity: the trigger condition IS satisfied and the audit section
+      // IS absent, so a widened guard would produce a violation here.
+      expect(hasDefaultApplicableOutcomes(fixture)).toBe(true);
+      expect(fixture).not.toContain("## /setup audit");
+
+      const report = await runSetupAuditSectionPresenceProbe(ctx.root);
+      expect(report.violations).toEqual([]);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("both probes express acceptance as a detectManagedSignals membership test", () => {
+    const probe19 = readFileSync(
+      join(pluginRoot, "adapters", "_shared", "src", "setup_audit_section_presence.ts"),
+      "utf-8",
+    );
+    const probe22 = readFileSync(
+      join(pluginRoot, "adapters", "_shared", "src", "toolkit_bootstrap_committed.ts"),
+      "utf-8",
+    );
+    for (const source of [probe19, probe22]) {
+      expect(source).toContain("detectManagedSignals");
+      expect(source).toContain('"setup_marker"');
+    }
   });
 });
 
