@@ -5,12 +5,34 @@
 // `## Task Tracking` checks. Catches the silent feature-drop failure mode
 // from the v1.29.0 smoke test (F4).
 //
-// Vacuous when CLAUDE.md is absent (project not toolkit-managed). HTML
-// comments are stripped before the heading scan — a `## Docs` line nested
-// inside `<!-- … -->` does not count.
+// SCOPE (STE-432 AC-STE-432.2): the probe only runs on toolkit-managed trees,
+// decided by the shared predicate in `./toolkit_managed.ts`. A hand-written
+// `CLAUDE.md` the toolkit never bootstrapped is out of scope — the old guard was
+// `existsSync(CLAUDE.md)`, which made this an error-severity gate failure on any
+// project that authored its own file, with a remedy telling the operator to
+// paste toolkit content into a file the toolkit does not own.
+//
+// The `ignore: ["docs_section"]` carve-out is load-bearing: accepting `## Docs`
+// as the evidence that a tree is managed, inside the probe that ASSERTS `## Docs`
+// is present, is circular — it would make the probe vacuous on exactly the trees
+// it exists to catch.
+//
+// HTML comments are stripped before the heading scan on the ASSERTION side — a
+// `## Docs` line nested inside `<!-- … -->` does not count. (Detection reads the
+// raw body; see `toolkit_managed.ts`.)
+//
+// BOTH SIDES MUST AGREE ON WHAT A HEADING IS. Apart from the comment strip, the
+// assertion below normalizes and matches exactly like `toolkit_managed.ts`'s
+// `docs_section` detector. It previously did not: detection normalized BOM+CRLF
+// and matched `^##\s+Docs\s*$`, while the assertion read the RAW body and matched
+// `^## Docs\s*$` (one literal space). A tree with `##  Docs` or a BOM-prefixed
+// first-line heading therefore cleared the managed-ness guard and then FAILED the
+// assertion despite genuinely having the section — an error-severity false
+// positive, the exact failure class M118 exists to eliminate.
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { isToolkitManaged } from "./toolkit_managed";
 
 const HEADING_LINE = "## Docs";
 
@@ -30,17 +52,38 @@ function stripHtmlComments(s: string): string {
   return s.replace(/<!--[\s\S]*?-->/g, "");
 }
 
+/**
+ * Strip a leading UTF-8 BOM and fold CRLF (and lone CR) to LF.
+ *
+ * MUST STAY IN STEP with `normalize()` in `./toolkit_managed.ts`. It is
+ * duplicated rather than imported on purpose: `toolkit_managed.ts` has a closed
+ * export contract (AC-STE-432.1 enumerates its exports) and widening it for one
+ * private helper was explicitly rejected. If that normalization changes, change
+ * this one too — the two sides diverging is the asymmetry this fixes.
+ */
+function normalize(body: string): string {
+  const withoutBom = body.charCodeAt(0) === 0xfeff ? body.slice(1) : body;
+  return withoutBom.replace(/\r\n?/g, "\n");
+}
+
 export async function runClaudeMdDocsSectionProbe(
   projectRoot: string,
 ): Promise<ClaudeMdDocsSectionReport> {
+  if (!isToolkitManaged(projectRoot, { ignore: ["docs_section"] })) {
+    return { violations: [] };
+  }
+
   const claudeMd = join(projectRoot, "CLAUDE.md");
-  if (!existsSync(claudeMd)) return { violations: [] };
-
   const raw = readFileSync(claudeMd, "utf-8");
-  const stripped = stripHtmlComments(raw);
+  // Normalize first (so `^`/`$` anchor the same way they do on the detection
+  // side), then strip comments — the strip MUST stay ahead of the heading test,
+  // or a commented-out `## Docs` would satisfy the contract.
+  const stripped = stripHtmlComments(normalize(raw));
 
-  // Match a literal `## Docs` line — the canonical Schema-D heading.
-  if (/^## Docs\s*$/m.test(stripped)) return { violations: [] };
+  // The canonical Schema-D heading, matched with `toolkit_managed.ts`'s
+  // `docs_section` pattern byte for byte — anchored, so `## Documentation` is
+  // still not a match.
+  if (/^##\s+Docs\s*$/m.test(stripped)) return { violations: [] };
 
   const rel = relative(projectRoot, claudeMd);
   const reason = `${HEADING_LINE} section missing — /docs cannot read mode flags without it`;
