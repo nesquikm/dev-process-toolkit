@@ -35,8 +35,11 @@
 //     no `"plan"` literal in `identity_mode_conditional.ts`
 //     (`tests/gate-check-plan-identity-mode-conditional.test.ts` asserts both).
 //     The tail must therefore be derived without importing the minter.
-//   * NO probe #74. Both checks land in the EXISTING probes #13 and #73, so
-//     the probe count stays 73 and the ~26 pinned count sites do not move.
+//   * M116 spends NO probe number of its own. Both checks land in the EXISTING
+//     probes #13 and #73, so this milestone left the count at 73 and moved
+//     none of the ~26 pinned count sites. That is a fact about M116, not a
+//     freeze: M118 later added #74 on its own budget, and the count assertion
+//     at the foot of this file tracks the LIVE total, whatever it is today.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -1172,18 +1175,24 @@ describe("AC-STE-424.2 — gate-check SKILL.md stops claiming probe #13 excludes
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// No probe #74 — both checks land in the EXISTING probes
+// M116 added no probe of its own — both checks land in the EXISTING probes
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("STE-424 — the probe count does not move", () => {
-  test("gate-check SKILL.md still enumerates exactly 73 probes, contiguous", () => {
-    // A new probe would ripple to ~26 pinned count sites across README.md,
-    // skills/gate-check/SKILL.md and five test files. Both checks belong to
-    // probes #13 and #73, which already walk the trees they need.
+describe("STE-424 — the probe count tracks the live total", () => {
+  test("gate-check SKILL.md enumerates exactly 74 probes, contiguous", () => {
+    // STE-424 deliberately spent no probe number: a new probe ripples to ~26
+    // pinned count sites across README.md, skills/gate-check/SKILL.md and five
+    // test files, and both of this FR's checks belong to probes #13 and #73,
+    // which already walk the trees they need.
+    //
+    // The number below is therefore NOT an M116 freeze — it is the live total,
+    // which M118 moved 73 → 74 when it added #74 `claudemd_probe_managed_guard`.
+    // A later milestone that spends a probe number bumps this literal along
+    // with the other pinned sites; that is the intended cost, not a regression.
     const numbers = [...read(gateCheckSkillPath).matchAll(/^(\d+)\. \*\*/gm)].map((m) =>
       Number(m[1]),
     );
-    expect(numbers.length).toBe(73);
-    expect(Math.max(...numbers)).toBe(73);
+    expect(numbers.length).toBe(74);
+    expect(Math.max(...numbers)).toBe(74);
   });
 });

@@ -1000,7 +1000,7 @@ describe("AC-STE-410.5 — hostile unmanaged tree degrades to silence; the probe
   });
 });
 
-describe("AC-STE-410.6 — gate-check SKILL #69 documents the carve-out; probe count unchanged", () => {
+describe("AC-STE-410.6 — gate-check SKILL #69 documents the carve-out; M111 spent no probe number", () => {
   const body = readFileSync(gateCheckSkill, "utf-8");
 
   test("the #69 upgrade_staleness entry documents the unmanaged-tree legacy-monolith carve-out", () => {
@@ -1016,10 +1016,13 @@ describe("AC-STE-410.6 — gate-check SKILL #69 documents the carve-out; probe c
     expect(entry).toContain("GATE FAILED");
   });
 
-  test("the numbered probe count is unchanged — the highest numbered probe stays 73", () => {
+  test("the carve-out amends #69 in place — the enumeration is the live 74, contiguous", () => {
+    // AC-STE-410.6 amended an existing entry rather than registering a probe,
+    // so M111 moved no count site. The literal below is the LIVE total (M118
+    // added #74 `claudemd_probe_managed_guard`), not an M111 freeze.
     const numbers = [...body.matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
     expect(numbers.length).toBeGreaterThan(0);
-    expect(Math.max(...numbers)).toBe(73);
-    expect(numbers.length).toBe(73);
+    expect(Math.max(...numbers)).toBe(74);
+    expect(numbers.length).toBe(74);
   });
 });
