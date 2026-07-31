@@ -8,10 +8,21 @@
 // `git rm`, downstream toolkit consumers).
 
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCrossCuttingSpecStaleFileRefsProbe } from "../adapters/_shared/src/cross_cutting_spec_stale_file_refs";
+// STE-433 asserts on the exported accept-list constant. A namespace import
+// keeps the suite loadable while the export is still missing (a named import
+// of a non-existent export is a link-time SyntaxError that would take the
+// whole file down instead of failing one test).
+import * as staleFileRefsModule from "../adapters/_shared/src/cross_cutting_spec_stale_file_refs";
 
 function makeFixture(opts: {
   technicalSpec?: string;
@@ -180,5 +191,313 @@ describe("AC-STE-215.5 — stale-file-ref detection", () => {
     } finally {
       fx.cleanup();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STE-433 — the fence scan is gated on the info string.
+//
+// Probe #37 used to flip a boolean on every triple-backtick line without ever
+// reading the info string, so `dart` / `sh` / `yaml` fences were scanned as
+// though they were directory trees. Every fixture below whose expectation is
+// "zero violations" uses a token that the matcher WOULD have flagged before
+// the gate landed (≥ 5 chars, contains `/`, dot-extension, non-URL, does not
+// resolve under the fixture root) — otherwise the assertion would be vacuous.
+// ---------------------------------------------------------------------------
+
+const pluginRoot = join(import.meta.dir, "..");
+const repoRoot = join(import.meta.dir, "..", "..", "..");
+const gateCheckSkillPath = join(pluginRoot, "skills", "gate-check", "SKILL.md");
+const probeModulePath = join(
+  pluginRoot,
+  "adapters",
+  "_shared",
+  "src",
+  "cross_cutting_spec_stale_file_refs.ts",
+);
+
+/** Entry #37 of /gate-check's probe list, from its heading line to entry #38. */
+function readGateCheckEntry37(): string {
+  const lines = readFileSync(gateCheckSkillPath, "utf8").split("\n");
+  const start = lines.findIndex((l) =>
+    /^37\.\s+\*\*`cross-cutting-spec-stale-file-refs`\*\*/.test(l),
+  );
+  if (start < 0) return "";
+  let end = start + 1;
+  while (end < lines.length && !/^38\.\s/.test(lines[end]!)) end++;
+  return lines.slice(start, end).join("\n");
+}
+
+/** The probe module's leading comment header (everything above the imports). */
+function readProbeModuleHeader(): string {
+  const lines = readFileSync(probeModulePath, "utf8").split("\n");
+  const firstImport = lines.findIndex((l) => l.startsWith("import "));
+  return lines.slice(0, firstImport < 0 ? lines.length : firstImport).join("\n");
+}
+
+describe("AC-STE-433 — fence scan gated on the info string", () => {
+  test("AC-STE-433.1 — the accept-list is an exported constant naming bare / `text` / `tree`", () => {
+    const exported = (staleFileRefsModule as unknown as Record<string, unknown>)
+      .TREE_FENCE_INFO_ACCEPT_LIST;
+    expect(exported).toBeDefined();
+    // Array or Set — either is fine; the members are the contract.
+    const members = [...(exported as Iterable<string>)];
+    expect(members.slice().sort()).toEqual(["", "text", "tree"]);
+  });
+
+  test("AC-STE-433.1 — a fence with an unlisted info string is not scanned", async () => {
+    const fx = makeFixture({
+      technicalSpec: [
+        "# Technical Spec",
+        "",
+        "```yaml",
+        "paths:",
+        "  - config/settings/app.yaml",
+        "```",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const r = await runCrossCuttingSpecStaleFileRefsProbe(fx.root);
+      expect(r.violations).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("AC-STE-433.2 — a `dart` fence with a `package:` import yields zero violations", async () => {
+    const fx = makeFixture({
+      technicalSpec: [
+        "# Technical Spec",
+        "",
+        "```dart",
+        "import 'package:my_app/models/user.dart';",
+        "```",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const r = await runCrossCuttingSpecStaleFileRefsProbe(fx.root);
+      expect(r.violations).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("AC-STE-433.3 — a `dart` fence with an app-relative asset literal yields zero violations", async () => {
+    const fx = makeFixture({
+      technicalSpec: [
+        "# Technical Spec",
+        "",
+        "```dart",
+        "const kLogo = 'assets/images/logo.png';",
+        "```",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const r = await runCrossCuttingSpecStaleFileRefsProbe(fx.root);
+      expect(r.violations).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("AC-STE-433.4 — an `sh` fence with two path arguments yields zero violations", async () => {
+    const fx = makeFixture({
+      testingSpec: [
+        "# Testing Spec",
+        "",
+        "```sh",
+        "cp build/output/app.js dist/bundle/app.js",
+        "```",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const r = await runCrossCuttingSpecStaleFileRefsProbe(fx.root);
+      expect(r.violations).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("AC-STE-433.5 — a bare fence whose leaf does not resolve still yields exactly one warning", async () => {
+    const fx = makeFixture({
+      technicalSpec: [
+        "# Technical Spec",
+        "",
+        "```",
+        "src/",
+        "└── src/removed/gone-widget.ts",
+        "```",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const r = await runCrossCuttingSpecStaleFileRefsProbe(fx.root);
+      expect(r.violations).toHaveLength(1);
+      expect(r.violations[0]!.severity).toBe("warning");
+      expect(r.violations[0]!.note).toContain("src/removed/gone-widget.ts");
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("AC-STE-433.6 — a `text`-tagged fence behaves identically to a bare fence", async () => {
+    const fx = makeFixture({
+      technicalSpec: [
+        "# Technical Spec",
+        "",
+        "```text",
+        "src/",
+        "└── src/removed/text-tagged.ts",
+        "```",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const r = await runCrossCuttingSpecStaleFileRefsProbe(fx.root);
+      expect(r.violations).toHaveLength(1);
+      expect(r.violations[0]!.severity).toBe("warning");
+      expect(r.violations[0]!.note).toContain("src/removed/text-tagged.ts");
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("AC-STE-433.6 — a `tree`-tagged fence behaves identically to a bare fence", async () => {
+    const fx = makeFixture({
+      technicalSpec: [
+        "# Technical Spec",
+        "",
+        "```tree",
+        "src/",
+        "└── src/removed/tree-tagged.ts",
+        "```",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const r = await runCrossCuttingSpecStaleFileRefsProbe(fx.root);
+      expect(r.violations).toHaveLength(1);
+      expect(r.violations[0]!.severity).toBe("warning");
+      expect(r.violations[0]!.note).toContain("src/removed/tree-tagged.ts");
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("AC-STE-433.6 — a CRLF file's info string is normalized before the accept-list check", async () => {
+    const fx = makeFixture({
+      technicalSpec: [
+        "# Technical Spec",
+        "",
+        "```text",
+        "src/",
+        "└── src/removed/crlf-leaf.ts",
+        "```",
+        "",
+      ].join("\r\n"),
+    });
+    try {
+      const r = await runCrossCuttingSpecStaleFileRefsProbe(fx.root);
+      expect(r.violations).toHaveLength(1);
+      expect(r.violations[0]!.note).toContain("src/removed/crlf-leaf.ts");
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("AC-STE-433.6 — whitespace around the info string is normalized", async () => {
+    const fx = makeFixture({
+      technicalSpec: [
+        "# Technical Spec",
+        "",
+        "```  tree  ",
+        "src/",
+        "└── src/removed/padded-info.ts",
+        "```",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const r = await runCrossCuttingSpecStaleFileRefsProbe(fx.root);
+      expect(r.violations).toHaveLength(1);
+      expect(r.violations[0]!.note).toContain("src/removed/padded-info.ts");
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  // LOAD-BEARING. A line-filtering implementation (skip tagged fence lines
+  // instead of tracking the open fence) desynchronizes the toggle: the `dart`
+  // fence's CLOSING marker is then read as an OPENING one, so the prose below
+  // it lands inside scan scope and the real tree fence falls outside it. Such
+  // an implementation also reports exactly one violation — the wrong one —
+  // which is why this test asserts WHICH path was flagged.
+  test("AC-STE-433.7 — a tagged fence still closes: dart fence + prose + bare tree ⇒ one violation", async () => {
+    const fx = makeFixture({
+      technicalSpec: [
+        "# Technical Spec",
+        "",
+        "```dart",
+        "import 'package:my_app/models/user.dart';",
+        "```",
+        "",
+        "The helper at `lib/legacy/removed_helper.dart` was deleted last quarter.",
+        "",
+        "```",
+        "lib/",
+        "└── lib/widgets/ghost_button.dart",
+        "```",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const r = await runCrossCuttingSpecStaleFileRefsProbe(fx.root);
+      expect(r.violations).toHaveLength(1);
+      // The one violation must be the bare-fence tree leaf...
+      expect(r.violations[0]!.note).toContain("lib/widgets/ghost_button.dart");
+      // ...not the prose mention leaked in by a desynchronized fence toggle...
+      expect(
+        r.violations.filter((v) => v.note.includes("removed_helper.dart")),
+      ).toEqual([]);
+      // ...and not the dart import either.
+      expect(
+        r.violations.filter((v) => v.note.includes("my_app/models/user.dart")),
+      ).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("AC-STE-433.8 — the probe returns zero violations on this repo's root", async () => {
+    const r = await runCrossCuttingSpecStaleFileRefsProbe(repoRoot);
+    expect(r.violations.map((v) => v.note)).toEqual([]);
+  });
+
+  test("AC-STE-433.9 — /gate-check entry #37 names the accept-list and the out-of-scope rule", () => {
+    const entry = readGateCheckEntry37();
+    expect(entry).not.toBe("");
+    for (const needle of ["`text`", "`tree`", "language-tagged", "out of scope"]) {
+      expect(entry).toContain(needle);
+    }
+    expect(entry.toLowerCase()).toContain("bare");
+  });
+
+  test("AC-STE-433.9 — the probe module header names the accept-list and the out-of-scope rule", () => {
+    const header = readProbeModuleHeader();
+    expect(header).not.toBe("");
+    for (const needle of [
+      "TREE_FENCE_INFO_ACCEPT_LIST",
+      "`text`",
+      "`tree`",
+      "language-tagged",
+      "out of scope",
+    ]) {
+      expect(header).toContain(needle);
+    }
+    expect(header.toLowerCase()).toContain("bare");
   });
 });

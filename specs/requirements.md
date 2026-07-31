@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.57.1 ("Abstain")**.
+**Latest shipped release:** **v2.58.0 ("Deed")**.
 
 ### Shipped milestones
 
@@ -427,4 +427,7 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-428.1..4 | .claude/skills/smoke-test/SKILL.md, .claude/skills/conformance-loop/SKILL.md, plugins/dev-process-toolkit/adapters/_shared/src/smoke_fixture_groups.ts, plugins/dev-process-toolkit/adapters/_shared/src/reconcile_tracker_local.ts, plugins/dev-process-toolkit/adapters/_shared/src/tracker_local_reconciliation_drift.ts, plugins/dev-process-toolkit/adapters/_shared/src/report_issue_publish_gate_marker.ts, plugins/dev-process-toolkit/skills/report-issue/SKILL.md | plugins/dev-process-toolkit/tests/m117-ste-428-*.test.ts |
 | AC-STE-429.1..4 | .claude/skills/smoke-test/SKILL.md, .claude/skills/conformance-loop/SKILL.md, plugins/dev-process-toolkit/adapters/_shared/src/smoke_fixture_groups.ts, plugins/dev-process-toolkit/adapters/_shared/src/reconcile_tracker_local.ts, plugins/dev-process-toolkit/adapters/_shared/src/tracker_local_reconciliation_drift.ts, plugins/dev-process-toolkit/adapters/_shared/src/report_issue_publish_gate_marker.ts, plugins/dev-process-toolkit/skills/report-issue/SKILL.md | plugins/dev-process-toolkit/tests/m117-ste-429-*.test.ts |
 | AC-STE-430.1..5 | .claude/skills/smoke-test/SKILL.md, .claude/skills/conformance-loop/SKILL.md, plugins/dev-process-toolkit/adapters/_shared/src/smoke_fixture_groups.ts, plugins/dev-process-toolkit/adapters/_shared/src/reconcile_tracker_local.ts, plugins/dev-process-toolkit/adapters/_shared/src/tracker_local_reconciliation_drift.ts, plugins/dev-process-toolkit/adapters/_shared/src/report_issue_publish_gate_marker.ts, plugins/dev-process-toolkit/skills/report-issue/SKILL.md | plugins/dev-process-toolkit/tests/m117-ste-430-*.test.ts |
+| AC-STE-432.1..12 | plugins/dev-process-toolkit/adapters/_shared/src/toolkit_managed.ts, plugins/dev-process-toolkit/adapters/_shared/src/claudemd_docs_section.ts, plugins/dev-process-toolkit/adapters/_shared/src/upgrade_staleness.ts, plugins/dev-process-toolkit/adapters/_shared/src/setup_audit_section_presence.ts, plugins/dev-process-toolkit/adapters/_shared/src/toolkit_bootstrap_committed.ts | plugins/dev-process-toolkit/tests/toolkit-managed-predicate.test.ts, plugins/dev-process-toolkit/tests/gate-check-claudemd-docs-section.test.ts, plugins/dev-process-toolkit/tests/gate-check-setup-audit-section-presence.test.ts |
+| AC-STE-433.1..9 | plugins/dev-process-toolkit/adapters/_shared/src/cross_cutting_spec_stale_file_refs.ts | plugins/dev-process-toolkit/tests/gate-check-cross-cutting-spec-stale-file-refs.test.ts |
+| AC-STE-434.1..7 | plugins/dev-process-toolkit/adapters/_shared/src/claudemd_probe_managed_guard.ts | plugins/dev-process-toolkit/tests/gate-check-claudemd-probe-managed-guard.test.ts |
 
