@@ -179,7 +179,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.57.1 — "Abstain"** (post-release review of M116 + M117: three driver gates answered "pass" when they could not read their own input — an empty rc-file, a misspelled `--outcome`, and a day-keyed fixture path that counted a previous run's capture — and each now refuses to grade instead of grading blind. Shipped on top of v2.56.1 "Keystone", the headless conformance unblock, and v2.57.0 "Litmus", the smoke-driver hygiene pass.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.58.0 — "Deed"** (M118, unmanaged-tree probe guards: `/gate-check` no longer hard-fails a project for having written its own `CLAUDE.md`, and the stale-file-ref probe reads the fence info string instead of scanning `dart` and `sh` blocks as directory trees. A new probe #74 keeps the managed-tree question in one place so the next module cannot re-derive it by hand.)
 
 ## Core Philosophy
 
