@@ -378,13 +378,13 @@ describe("AC-STE-380.5 — probe #66 registered in gate-check SKILL.md", () => {
     expect(block).toContain("#47");
   });
 
-  test("README probe count is current (73 after M115 added #73)", () => {
-    // Recalibrated 72 → 73: M115 added #73 plan_identity_mode_conditional on
-    // top of M110's #70/#71/#72.
+  test("README probe count is current (74 after M118 added #74)", () => {
+    // Recalibrated 73 → 74: M118 added #74 claudemd_probe_managed_guard on
+    // top of M115's #73 plan_identity_mode_conditional.
     const readme = readFileSync(readmePath, "utf-8");
-    expect(readme).toContain("73 numbered");
+    expect(readme).toContain("74 numbered");
     expect(readme).not.toContain("68 numbered");
-    expect(readme).toMatch(/layers 73 probes/);
+    expect(readme).toMatch(/layers 74 probes/);
     expect(readme).not.toMatch(/layers 68 probes/);
   });
 });
@@ -394,18 +394,18 @@ describe("AC-STE-380.5 — probe #66 registered in gate-check SKILL.md", () => {
 // ---------------------------------------------------------------------------
 
 describe("AC-STE-380.7 — probe-count calibration stays coherent across surfaces", () => {
-  test("highest numbered gate-check probe is 73 and README agrees", () => {
-    // Recalibrated 72 → 73: M115 added #73 plan_identity_mode_conditional.
+  test("highest numbered gate-check probe is 74 and README agrees", () => {
+    // Recalibrated 73 → 74: M118 added #74 claudemd_probe_managed_guard.
     const b = readFileSync(gateCheckSkill, "utf-8");
     const numbers = [...b.matchAll(/^(\d+)\. \*\*/gm)].map((m) =>
       Number(m[1]),
     );
     expect(numbers.length).toBeGreaterThan(0);
-    expect(Math.max(...numbers)).toBe(73);
+    expect(Math.max(...numbers)).toBe(74);
 
     const readme = readFileSync(readmePath, "utf-8");
     const counted = readme.match(/(\d+) numbered `\/gate-check` probes/);
     expect(counted).not.toBeNull();
-    expect(Number(counted![1])).toBe(73);
+    expect(Number(counted![1])).toBe(74);
   });
 });
