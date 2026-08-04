@@ -68,7 +68,21 @@ const entryModulePath = join(
   "mode_none_sequential_milestone.ts",
 );
 const upgradeSkill = join(repoRoot, "plugins", "dev-process-toolkit", "skills", "upgrade", "SKILL.md");
-const m119Plan = join(repoRoot, "specs", "plan", "M119.md");
+/**
+ * M119's plan file, live path first and `archive/` as the fallback.
+ *
+ * The milestone archives itself at the end of its own `/implement` run, so a
+ * test pinned to the live path passes for the length of the implementation and
+ * then fails the moment the work it verifies is complete. AC-STE-442.8 is about
+ * what the plan DECLARES, which survives the move — so resolve the plan rather
+ * than the path.
+ */
+function resolveM119Plan(): string {
+  const live = join(repoRoot, "specs", "plan", "M119.md");
+  const archived = join(repoRoot, "specs", "plan", "archive", "M119.md");
+  return existsSync(live) ? live : archived;
+}
+const m119Plan = resolveM119Plan();
 
 /** `M_` + a 6-char Crockford tail — the exact output range of `milestoneIdFromUlid`. */
 const MINTED_PLAN_NAME_RE = /^M_[0-9A-HJKMNP-TV-Z]{6}\.md$/;
