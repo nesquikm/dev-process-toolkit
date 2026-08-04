@@ -20,12 +20,17 @@ import {
 const SPEC_WRITE_SKILL = "plugins/dev-process-toolkit/skills/spec-write/SKILL.md";
 
 // A minimal SKILL body carrying every required literal — the known-good case.
+// M119 STE-440 adds `resolveMilestoneIdentity` to the required set (the
+// recommendation the gate default-applies is what the dispatcher returns), so
+// the fixture carries it too — otherwise this file's own known-good case would
+// go red the moment the literal joins the array.
 const KNOWN_GOOD = [
   "# Spec Write",
   "",
   "**Milestone-allocation gate (STE-401).** The milestone-binding decision",
   "routes through `requireOrRefuse(...)` with the computed recommendation as",
-  "defaultValue: marker present ⇒ default-applied, MUST emit",
+  "defaultValue — the recommendation being whatever `resolveMilestoneIdentity`",
+  "returned for this mode: marker present ⇒ default-applied, MUST emit",
   "`milestone_allocation_default_applied`; marker absent + non-tty ⇒",
   "`RequiresInputRefusedError` naming gate site `milestone-allocation`. A",
   "prose-ask-then-end-turn is forbidden under non-tty.",

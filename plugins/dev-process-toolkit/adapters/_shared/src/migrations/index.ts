@@ -10,6 +10,7 @@
 // `./legacy_paths` — the entries import them, never compose them.
 
 import { m104LegacyState } from "./entries/m104_legacy_state";
+import { modeNoneSequentialMilestone } from "./entries/mode_none_sequential_milestone";
 import { permissionShapes } from "./entries/permission_shapes";
 import { staleHookEntries } from "./entries/stale_hook_entries";
 import { v1Orphans } from "./entries/v1_orphans";
@@ -30,7 +31,17 @@ export interface ApplyResult {
 export interface MigrationEntry {
   /** Unique across the registry. */
   id: string;
-  /** Semver of the release that made the legacy state legacy. */
+  /**
+   * Semver of the release that made the legacy state legacy — EXCEPT that the
+   * enforced rule is narrower and wins where the two diverge. A plan declaring
+   * `migration: <id>` is gated by `assertMigrationDeclared` and probe #68,
+   * which both require this value to equal the version being SHIPPED (and, for
+   * an archived plan, that plan's `shipped_in`). Most entries satisfy both
+   * readings because their migration shipped in the release that created the
+   * legacy state; `mode-none-sequential-milestone` is the first where they part
+   * company, and it carries the shipping version. See
+   * `docs/upgrade-reference.md` § `introduced_in`.
+   */
   introduced_in: string;
   title: string;
   kind: "script" | "assisted";
@@ -92,6 +103,7 @@ export const MIGRATIONS: MigrationEntry[] = [
   permissionShapes, // 2.7.0
   staleHookEntries, // 2.22.2
   m104LegacyState, // 2.46.0
+  modeNoneSequentialMilestone, // 2.59.0
 ];
 
 validateRegistry(MIGRATIONS);

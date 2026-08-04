@@ -191,8 +191,9 @@ flowchart TD
 | spec_research_result_shape #41 | gate-check + parent | banner + 3 sections + <=25 lines + single fence | drop seed, emit shape_violation |
 | spec_write_first_turn_drift_scan | gate-check vs SKILL.md | first non-tty call = AskUserQuestion or refusal | drift → GATE FAILED |
 | Auto-approve marker byte-grep | /spec-write, /deps | PRESENT→default y; ABSENT+non-tty→refuse | sole decider, no inference |
-| nextFreeMilestoneNumber 5-way scan | /spec-write plan alloc, **Linear only** | max(active∪archived∪changelog∪tracker∪branches)+1 | collision → NFR-10 refusal |
-| Key-derived milestone id | /spec-write plan alloc, jira + mode:none | Epic key → `M_<epic-key>`; minted ULID tail → `M_<short-ULID>` | collision-free by construction; allocator bypassed |
+| resolveMilestoneIdentity dispatch | /spec-write plan alloc, **all three modes** | one call routes by mode; `mode: none` cannot return `M<N>` | unknown mode → throw, never a sequential fallback |
+| ├ nextFreeMilestoneNumber 5-way scan | dispatcher's **Linear only** branch | max(active∪archived∪changelog∪tracker∪branches)+1 | collision → NFR-10 refusal |
+| └ Key-derived milestone id | dispatcher's jira + mode:none branches | Epic key → `M_<epic-key>`; minted ULID tail → `M_<short-ULID>` | collision-free by construction; allocator bypassed |
 | Post-write FR self-checks | /spec-write | frontmatter / guessed-id / short-ULID scans | shape error / placeholder → halt |
 | Risk scan (llm-review) | /spec-write Step 6 | per high-severity risk | resolve or accept before hand-off |
 | Deps Socratic mgmt flows | /deps add/edit/delete/sync | one prompt per step | DepsManifestShapeError (NFR-10) |
