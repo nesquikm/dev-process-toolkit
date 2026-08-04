@@ -8,16 +8,22 @@
 //   - mode: <tracker> → NO plan file may carry an `id:` line at all,
 //                       whatever its id shape.
 //
-// LEGACY COEXISTENCE. The mode-none direction is keyed on the plan-id SHAPE,
-// not on the mode alone: a flat "every mode-none plan needs `id:`" rule would
-// hard-fail every pre-existing plan in every tracker-less consumer project on
-// upgrade — the migration the spec explicitly rules out. So the requirement is
-// scoped to exactly `milestoneIdFromUlid`'s OUTPUT RANGE (`M_` + a 6-char
-// Crockford base32 tail). Everything outside that range is grandfathered:
-//   - sequential `M<N>` plans, which predate minted ids; and
+// LEGACY COEXISTENCE. The mode-none `id:`-REQUIRED rule is keyed on the plan-id
+// SHAPE, not on the mode alone: a flat "every mode-none plan needs `id:`" rule
+// would hard-fail every pre-existing plan in every tracker-less consumer project
+// on upgrade — the migration the spec explicitly rules out. So the requirement
+// is scoped to exactly `milestoneIdFromUlid`'s OUTPUT RANGE (`M_` + a 6-char
+// Crockford base32 tail). Nothing outside that range is ever asked for an `id:`,
+// but the two out-of-range shapes part company on what IS asked of them:
 //   - Epic-keyed `M_PROJ_500` plans carried over by a jira → none mode
-//     transition, which never had a ULID to record and whose operator cannot
-//     satisfy a "add the minted id" remedy.
+//     transition are grandfathered UNCONDITIONALLY. They never had a ULID to
+//     record and their operator cannot satisfy any identity remedy, so no
+//     evidence could change the disposition and none is gathered.
+//   - sequential `M<N>` plans are grandfathered BY PROVENANCE — see the
+//     PROVENANCE block below. Shape alone cannot separate a plan written before
+//     minting existed from one mis-named moments ago, because the two are
+//     byte-identical, so the shape-only carve-out passed both forever and the
+//     invariant was unenforceable for exactly the new plans it exists to catch.
 // Scoping by the producer's own range is not the fragile charset heuristic the
 // spec ruled out for the token GRAMMAR — that rejected proposal was a third
 // parser `kind` affecting every consumer. This is one probe declining to police
@@ -25,6 +31,17 @@
 // (letters, `_`, digits), so it cannot land inside the tail range by accident.
 // The tracker-mode direction stays unconditional; no plan of any shape may
 // carry `id:`.
+//
+// PROVENANCE. A sequential `M<N>` plan under `mode: none` is dispositioned by
+// when git says it ARRIVED, into exactly four labels (`classifyPlanProvenance`):
+// `fresh` is an error-severity violation, `legacy` and `exempt` say nothing —
+// that is the upgrade-safety property the carve-out has always bought — and
+// `undecidable` (a git repository whose introducing commit is unreachable) is a
+// warning-severity ADVISORY, the only disposition that neither reddens CI on a
+// plan the operator cannot fix nor restores the silent blind spot. `kind:
+// legacy` in the frontmatter clears it permanently. Severity therefore travels
+// per VIOLATION and the report takes the maximum across its rows, so one
+// advisory never masks a hard failure and an advisory-only run stays green.
 //
 // SIBLING MODULE, NOT AN EXTENSION of `identity_mode_conditional.ts`. That
 // module documents a deliberate scope-isolation boundary (FR-only walk, zero
@@ -51,16 +68,27 @@
 // runs a tracker, and it is keyed on the FILENAME so legacy sequential plans
 // (which carry no `id:` to derive from) are covered too.
 
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
-import { normalizeFrontmatterSource } from "./frontmatter";
+import { normalizeFrontmatterSource, parseFrontmatter } from "./frontmatter";
 import { PLAN_FILENAME_RE, milestoneIdFromUlid, parseMilestoneToken } from "./milestone_token";
 import { readTaskTrackingSection } from "./resolver_config";
 import { ULID_REGEX } from "./ulid";
 
 const ANY_ID_LINE_RE = /^id:\s*(.*)$/;
 
-/** A regression must hard-fail, not slip through as `GATE PASSED WITH NOTES`. */
+/**
+ * The module's DECLARED severity — a regression must hard-fail, not slip through
+ * as `GATE PASSED WITH NOTES`.
+ *
+ * No longer the report-wide value: rows carry their own severity and the report
+ * takes the maximum, because one walk can emit a hard failure and an advisory
+ * together. This stays the fallback for a ZERO-row report, where there is no
+ * maximum to take, so the registration's declared severity is still readable
+ * without running the probe.
+ */
 export const PLAN_IDENTITY_MODE_CONDITIONAL_SEVERITY: "warning" | "error" = "error";
 
 export interface PlanIdentityModeViolation {
@@ -72,8 +100,18 @@ export interface PlanIdentityModeViolation {
     | "fr_<26-char ULID>"
     | "an id: the filename derives from"
     | "exactly one id: line"
-    | "one plan file per milestone token";
+    | "one plan file per milestone token"
+    | "a minted M_<6-char Crockford> plan"
+    | "a discoverable introducing commit";
   actual: string;
+  /**
+   * Per-row severity. `error` fails the gate; `warning` is an advisory the run
+   * reports without going red. It travels with the ROW, not the report, because
+   * one walk can now emit both: a mis-named fresh plan is a hard failure while
+   * an unreadable provenance is only an advisory, and a report-wide constant
+   * would collapse the pair to whichever value was written last.
+   */
+  severity: "warning" | "error";
   note: string;
   message: string;
 }
@@ -104,22 +142,18 @@ interface IdScan {
 }
 
 /**
- * Strip a UTF-8 BOM and fold every line-ending flavour to `\n`.
+ * Locate every `id:` key inside the plan's frontmatter block.
  *
- * Load-bearing, not cosmetic. The frontmatter scan below anchors on a literal
- * `---\n` opener, so ANY unhandled prefix or separator makes a whole plan file
- * read as "no frontmatter" — which is silently wrong in both directions: in
- * tracker mode it PASSES a plan carrying a forbidden `id:` (false negative on
- * an error-severity probe), and in `mode: none` it reports a well-formed
- * minted plan as missing its key (false-positive GATE FAILED). Both were
- * reproduced against real fixtures. `\r\n` is folded before lone `\r` so CRLF
- * never becomes a blank line, and neither substitution changes the line count,
- * so reported line numbers stay accurate.
+ * Normalising through the shared `normalizeFrontmatterSource` is load-bearing,
+ * not cosmetic. The scan anchors on a literal `---\n` opener, so ANY unhandled
+ * BOM or `\r\n` separator makes a whole plan file read as "no frontmatter" —
+ * silently wrong in BOTH directions: in tracker mode it PASSES a plan carrying a
+ * forbidden `id:` (false negative on an error-severity probe), and in
+ * `mode: none` it reports a well-formed minted plan as missing its key
+ * (false-positive GATE FAILED). Both were reproduced against real fixtures.
+ * The shared helper is also what `classifyPlanProvenance` reads `kind:` through,
+ * so the two entry points agree on what counts as frontmatter by construction.
  */
-function normalizeSource(raw: string): string {
-  return raw.replace(/^﻿/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-}
-
 function scanFrontmatterForId(rawContent: string): IdScan {
   const absent: IdScan = { present: false, line: 0, value: "", wellFormed: false, idLines: [] };
   const content = normalizeFrontmatterSource(rawContent);
@@ -206,6 +240,203 @@ function isMintedPlanId(fileName: string): boolean {
   return token?.kind === "epic" && MINTED_TAIL_RE.test(token.key);
 }
 
+// The mint epoch: 2026-07-26T00:00:00Z, the ship date of v2.56.0 "Mint" — the
+// release that taught the producer to mint milestone ids, and so the instant
+// after which a sequential `M<N>` plan can no longer have been written in good
+// faith. A plan whose introducing commit is dated strictly BEFORE it gets the
+// legacy carve-out and stays silent; a plan dated at or after it is `fresh`.
+export const MINT_EPOCH = "2026-07-26T00:00:00Z";
+
+/** The complete provenance vocabulary — exactly four labels, nothing else. */
+export type PlanProvenanceClass = "fresh" | "legacy" | "undecidable" | "exempt";
+
+/**
+ * `kind:` values that opt a plan out of the provenance check entirely.
+ *
+ * `scaffolding` is the vocabulary `/setup` already writes (read by
+ * `plan_only_archival.ts` and, through it, `tracker_local_reconciliation_drift`);
+ * `legacy` is the operator's permanent way to clear an `undecidable` advisory.
+ * A two-value allow-list on purpose — carrying *a* `kind:` key exempts nothing.
+ */
+const EXEMPT_PLAN_KINDS: readonly string[] = ["scaffolding", "legacy"];
+
+/**
+ * Run a git query in `projectRoot`, returning `null` when git refuses.
+ *
+ * stderr is piped rather than inherited so a severed-object repository does not
+ * spray `fatal: bad object` across an otherwise clean gate run.
+ */
+function gitQuery(projectRoot: string, args: string[]): string | null {
+  try {
+    return execFileSync("git", args, {
+      cwd: projectRoot,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Classify one plan's provenance — the signal that separates a freshly
+ * mis-named sequential plan from a genuinely legacy one.
+ *
+ * A pure function of exactly three inputs: the project root, the plan's path,
+ * and the plan's raw frontmatter source. It reads git and the string it was
+ * handed; it never re-reads the path, never writes, and never mutates the
+ * working tree, so repeated calls agree and `git status` is unchanged after.
+ *
+ * The resolution order is load-bearing:
+ *
+ *   1. `kind: scaffolding` / `kind: legacy` ⇒ `exempt`, whatever git says.
+ *   2. Not a git repository ⇒ `legacy`. There is no provenance to read, and
+ *      failing here would be the forced migration this design exists to avoid.
+ *   3. Untracked ⇒ `fresh`. A file git does not know cannot predate anything;
+ *      it was written by the current session. Earliest, cheapest catch.
+ *      A git that REFUSES to answer is not the same as one answering "not
+ *      tracked" and degrades to `undecidable` instead — see the note at the
+ *      `ls-files` call.
+ *   4. Tracked but absent from the tip tree ⇒ `fresh` (staged, never
+ *      committed). THE discriminator: staged-and-never-committed and
+ *      severed-history read identically on `ls-files` (present) and
+ *      `git log --diff-filter=A` (empty). Only `HEAD:<path>` parts them, so a
+ *      classifier that stops at those two misfiles the cheapest catch as an
+ *      advisory.
+ *   5. No discoverable introducing commit ⇒ `undecidable`.
+ *   6. Otherwise compare the introducing commit's author date to `MINT_EPOCH`,
+ *      inclusive at the boundary: at-or-after ⇒ `fresh`, before ⇒ `legacy`.
+ *      The date is rename-aware — see `introducingCommitDate`, without which
+ *      archiving a legacy plan would re-date it to the archive commit.
+ *
+ * Scope is the caller's job: this answers "when did it arrive", not "is it a
+ * plan the probe polices".
+ */
+export function classifyPlanProvenance(
+  projectRoot: string,
+  planPath: string,
+  rawPlanSource: string,
+): PlanProvenanceClass {
+  // `parseFrontmatter` normalises through `normalizeFrontmatterSource`, so
+  // CRLF- and BOM-prefixed plans resolve their `kind:` like any other.
+  const kind = parseFrontmatter(rawPlanSource, { lenient: true })["kind"];
+  if (typeof kind === "string" && EXEMPT_PLAN_KINDS.includes(kind.trim())) return "exempt";
+
+  if (!existsSync(join(projectRoot, ".git"))) return "legacy";
+
+  // git speaks POSIX separators even on Windows, where `relative` yields `\`.
+  const rel = relative(projectRoot, planPath).split("\\").join("/");
+
+  // A git that cannot answer AT ALL is not evidence of freshness. Distinguish
+  // "git says untracked" (empty output, a real answer) from "git refused"
+  // (null — missing binary, corrupt object store, unreadable index). The
+  // second degrades to the advisory, because an operator whose git is broken
+  // cannot fix it by renaming a plan, and an ERROR row there would hard-fail
+  // every legacy plan in the repository on a condition they did not cause.
+  const tracked = gitQuery(projectRoot, ["ls-files", "--", rel]);
+  if (tracked === null) return "undecidable";
+  if (tracked.trim().length === 0) return "fresh";
+
+  if (gitQuery(projectRoot, ["cat-file", "-e", `HEAD:${rel}`]) === null) return "fresh";
+
+  const introducedAt = introducingCommitDate(projectRoot, rel);
+  if (introducedAt === null) return "undecidable";
+
+  return introducedAt >= Date.parse(MINT_EPOCH) ? "fresh" : "legacy";
+}
+
+/**
+ * The author date of the commit that introduced `rel`, in epoch millis, or
+ * `null` when no introducing commit is discoverable.
+ *
+ * RENAME-AWARE, and that is the load-bearing part. `git log --diff-filter=A`
+ * scoped to a single path stops at the rename: a plan `git mv`'d into
+ * `specs/plan/archive/` reports the ARCHIVE commit's date, not the date the
+ * plan was written. Archival is exactly what `/spec-archive` and `/implement`
+ * Phase 4 do to every plan they close, so without `--follow` a genuinely
+ * legacy plan would read as post-epoch the moment it was archived, classify
+ * `fresh`, and hard-fail — the forced migration this design exists to avoid,
+ * fired by the toolkit's own archival step.
+ *
+ * Deliberately NOT `git log --follow`. `--follow` resolves renames by content
+ * SIMILARITY, and plan files are template-shaped: two unrelated plans routinely
+ * clear the default 50% threshold, so `--follow` will happily report a fresh
+ * mis-named plan as a "rename" of some older plan and date it before the epoch.
+ * That laundering is the precise failure this probe exists to catch, so a
+ * heuristic that can produce it is not usable here. (Observed against the
+ * incident fixture: the post-epoch plan silently classified `legacy`.)
+ *
+ * Instead we hop renames EXPLICITLY. Find the commit that added the current
+ * path; ask that one commit whether the path arrived as a rename destination;
+ * if so, continue from the source path. Rename detection stays scoped to a
+ * single commit's own diff, where the pairing is unambiguous, rather than being
+ * inferred across unrelated history. A path that was never renamed costs one
+ * extra `git show` and stops immediately.
+ *
+ * The hop count is bounded so a pathological or cyclic history cannot spin.
+ */
+function introducingCommitDate(projectRoot: string, rel: string): number | null {
+  let path = rel;
+  const seen = new Set<string>();
+
+  for (let hop = 0; hop < MAX_RENAME_HOPS; hop++) {
+    if (seen.has(path)) return null;
+    seen.add(path);
+
+    const out = gitQuery(projectRoot, [
+      "log",
+      "--diff-filter=A",
+      "-1",
+      "--format=%H%x00%aI",
+      "--",
+      path,
+    ]);
+    const [sha, iso] = (out ?? "").trim().split("\0");
+    if (sha === undefined || iso === undefined) return null;
+    const parsed = Date.parse(iso);
+    if (!Number.isFinite(parsed)) return null;
+
+    const source = renameSourceIn(projectRoot, sha, path);
+    if (source === null) return parsed;
+    path = source;
+  }
+
+  return null;
+}
+
+/** Bound on the explicit rename walk — a plan renamed 20 times is pathological. */
+const MAX_RENAME_HOPS = 20;
+
+/** `R<score>\t<source>\t<destination>` rows of `--name-status` output. */
+const RENAME_ROW_RE = /^R\d*\t(.+)\t(.+)$/;
+
+/**
+ * The path `dest` was renamed FROM in commit `sha`, or `null` when that commit
+ * added it outright.
+ *
+ * The commit is inspected WITHOUT a pathspec on purpose. Passing `-- <dest>`
+ * would filter the source side out of the diff before rename detection runs,
+ * so every rename would read as a plain add — the same blindness this function
+ * exists to remove, reintroduced one layer down.
+ */
+function renameSourceIn(projectRoot: string, sha: string, dest: string): string | null {
+  const out = gitQuery(projectRoot, [
+    "show",
+    "-M",
+    "--name-status",
+    "--format=",
+    "--diff-filter=R",
+    sha,
+  ]);
+  if (out === null) return null;
+
+  for (const line of out.split("\n")) {
+    const m = RENAME_ROW_RE.exec(line.trim());
+    if (m !== null && m[2] === dest) return m[1]!;
+  }
+  return null;
+}
+
 /**
  * Scan every plan file under `projectRoot/specs/plan/**` and return the list
  * of violations. Pure function — no side effects, no writes.
@@ -259,6 +490,7 @@ export async function runPlanIdentityModeConditionalProbe(
         line: scan.line,
         expected,
         actual,
+        severity: "error",
         note: buildNote(file, scan.line, `expected ${expected}, actual ${actual}`, projectRoot),
         message: buildMessage(
           `tracker-mode plan carries an id: line that should be absent (observed ${actual})`,
@@ -269,9 +501,57 @@ export async function runPlanIdentityModeConditionalProbe(
       continue;
     }
 
-    // mode: none — only MINTED plan ids carry the key. Sequential `M<N>`
-    // plans predate minting and are grandfathered (coexistence, no migration).
-    if (!isMintedPlanId(basename(file))) continue;
+    // mode: none — only MINTED plan ids carry the key. A NON-minted plan is
+    // dispositioned by git PROVENANCE rather than by its filename shape: the
+    // shape alone cannot tell a plan written before minting existed from one
+    // mis-named moments ago, so the shape-only carve-out passed both, forever.
+    if (!isMintedPlanId(basename(file))) {
+      // Epic-keyed `M_PROJ_500` plans stay grandfathered unconditionally: they
+      // are carried over by a jira → none transition, never had a ULID to
+      // record, and their operator cannot satisfy any identity remedy. Only
+      // sequential `M<N>` plans are queried, which also bounds the git cost.
+      if (parseMilestoneToken(token)?.kind !== "numeric") continue;
+
+      const provenance = classifyPlanProvenance(projectRoot, file, content);
+      if (provenance === "fresh") {
+        const expected = "a minted M_<6-char Crockford> plan" as const;
+        const actual = `sequential ${token} introduced at or after the mint epoch`;
+        violations.push({
+          file,
+          line: 1,
+          expected,
+          actual,
+          severity: "error",
+          note: buildNote(file, 1, `expected ${expected}, actual ${actual}`, projectRoot),
+          message: buildMessage(
+            `tracker-less plan ${basename(file)} is a NEW sequential milestone — git introduces it at or after the mint epoch, so it cannot be a legacy plan`,
+            `re-mint this milestone and rename ${rel} to the M_<6-char Crockford> filename its minted id derives, recording that id verbatim in the frontmatter. If the plan genuinely predates minting and git provenance is misleading (a re-created tree, a squashed import), declare it with kind: legacy in the frontmatter instead`,
+            { mode, file: rel, provenance, epoch: MINT_EPOCH },
+          ),
+        });
+      } else if (provenance === "undecidable") {
+        // Advisory, not a failure: the project IS a git repository but the
+        // introducing commit is unreachable. Failing would go red on plans the
+        // operator cannot fix; passing silently would restore the blind spot.
+        const expected = "a discoverable introducing commit" as const;
+        const actual = `no introducing commit for ${token} is reachable in this repository`;
+        violations.push({
+          file,
+          line: 1,
+          expected,
+          actual,
+          severity: "warning",
+          note: buildNote(file, 1, `expected ${expected}, actual ${actual}`, projectRoot),
+          message: buildMessage(
+            `tracker-less plan ${basename(file)} has unreadable provenance — git cannot reach the commit that introduced it, so it can be neither cleared as legacy nor failed as new`,
+            `add kind: legacy to the frontmatter of ${rel} to clear this advisory permanently — that is the only remedy that works here. The introducing commit is unreachable in this object store (severed or pruned), or git declined to answer; restoring the missing object would also clear it, but deepening a shallow clone will not, because a shallow clone answers this query with its boundary commit rather than failing it`,
+            { mode, file: rel, provenance, epoch: MINT_EPOCH },
+          ),
+        });
+      }
+      // `legacy` and `exempt` produce nothing — the upgrade-safety property.
+      continue;
+    }
 
     if (scan.idLines.length > 1) {
       // YAML duplicate keys are last-wins in `parseFrontmatter`, but this scan
@@ -285,6 +565,7 @@ export async function runPlanIdentityModeConditionalProbe(
         line: scan.idLines[0]!,
         expected,
         actual,
+        severity: "error",
         note: buildNote(file, scan.idLines[0]!, `expected ${expected}, actual ${actual}`, projectRoot),
         message: buildMessage(
           `mode-none minted plan carries ${scan.idLines.length} id: lines (${actual})`,
@@ -299,10 +580,11 @@ export async function runPlanIdentityModeConditionalProbe(
         line: 1,
         expected,
         actual: "missing",
+        severity: "error",
         note: buildNote(file, 1, `expected id: line ${expected}, actual missing`, projectRoot),
         message: buildMessage(
           `mode-none minted plan is missing its id: line`,
-          `add the minted id: fr_<26-char ULID> line to ${rel} frontmatter — the plan id derives from it, so the plan must record the value verbatim. If this plan was never minted (hand-authored or ported, so no id ever existed), rename it off the minted M_<6-char Crockford> shape instead — ids outside the minter's output range are not policed`,
+          `add the minted id: fr_<26-char ULID> line to ${rel} frontmatter — the plan id derives from it, so the plan must record the value verbatim. If this plan was never minted (hand-authored or ported, so no id ever existed), rename it off the minted M_<6-char Crockford> shape AND declare kind: legacy in the same edit — a sequential M<N> name is dispositioned by git provenance, not by its shape, so a rename landing today reads as a NEW mis-named plan and fails unless the frontmatter says otherwise`,
           { mode, file: rel },
         ),
       });
@@ -314,6 +596,7 @@ export async function runPlanIdentityModeConditionalProbe(
         line: scan.line,
         expected,
         actual,
+        severity: "error",
         note: buildNote(file, scan.line, `expected ${expected}, actual ${actual}`, projectRoot),
         message: buildMessage(
           `mode-none minted plan has a malformed id: value (observed ${actual})`,
@@ -333,6 +616,7 @@ export async function runPlanIdentityModeConditionalProbe(
         line: scan.line,
         expected,
         actual: `${scan.value} (derives ${derived})`,
+        severity: "error",
         note: buildNote(
           file,
           scan.line,
@@ -363,6 +647,7 @@ export async function runPlanIdentityModeConditionalProbe(
       line: first.line,
       expected,
       actual,
+      severity: "error",
       note: buildNote(first.file, first.line, `expected ${expected}, actual ${actual}`, projectRoot),
       message: buildMessage(
         `duplicate milestone token — ${claims.length} plan files collide on ${token} across specs/plan/ and specs/plan/archive/ (${relProse})`,
@@ -374,7 +659,16 @@ export async function runPlanIdentityModeConditionalProbe(
 
   return {
     mode,
-    severity: PLAN_IDENTITY_MODE_CONDITIONAL_SEVERITY,
+    // Maximum across the rows, so one advisory never masks a hard failure and
+    // an advisory-only run does not fail the gate. With zero rows there is no
+    // maximum to take, so the report falls back to the module's declared
+    // default — the value the gate has always read for an empty report.
+    severity:
+      violations.length === 0
+        ? PLAN_IDENTITY_MODE_CONDITIONAL_SEVERITY
+        : violations.some((v) => v.severity === "error")
+          ? "error"
+          : "warning",
     violations,
   };
 }
