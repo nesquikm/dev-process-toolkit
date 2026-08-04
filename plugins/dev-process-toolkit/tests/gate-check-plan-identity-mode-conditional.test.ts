@@ -12,10 +12,23 @@
 // (coexistence, no migration)". A flat "every mode-none plan needs `id:`" rule
 // would hard-fail every pre-existing sequential plan in every tracker-less
 // consumer project on upgrade — precisely the migration AC.5 rules out. The
-// invariant is therefore keyed on the plan-id SHAPE: minted (`M_<key>`) plans
-// carry the key, legacy sequential (`M<N>`) plans are grandfathered, exactly
-// as probe #68 grandfathers pre-epoch archived plans. The tracker-mode
-// direction stays unconditional — no plan of any shape may carry `id:`.
+// invariant is therefore scoped to minted (`M_<key>`) plans, exactly as probe
+// #68 grandfathers pre-epoch archived plans. The tracker-mode direction stays
+// unconditional — no plan of any shape may carry `id:`.
+//
+// STE-441 RE-KEYED THE SEQUENTIAL CARVE-OUT. It used to be keyed on filename
+// SHAPE alone, which could not tell a genuinely legacy `M<N>` plan from one
+// mis-named moments ago, so both passed forever. It is now keyed on GIT
+// INTRODUCTION PROVENANCE: a sequential plan whose introducing commit predates
+// `MINT_EPOCH` is `legacy` and silent, one introduced at or after it (or never
+// committed at all) is `fresh` and fails, an unreachable introducing commit is
+// an `undecidable` advisory, and `kind: scaffolding` / `kind: legacy` is
+// `exempt`. When the project is not a git repository the probe is vacuous for
+// that plan — which is the leg the mode-none sequential fixtures BELOW ride,
+// since they are bare `mkdtemp` trees with no `.git`. Each of them asserts that
+// precondition explicitly, so a passing test can never be read as evidence that
+// filename shape still grandfathers anything. The provenance legs themselves
+// live in `tests/m119-ste-441-plan-provenance.test.ts`.
 //
 // SIBLING MODULE, NOT AN EXTENSION. `adapters/_shared/src/identity_mode_conditional.ts`
 // documents a deliberate scope-isolation boundary (FR-only walk, zero runtime
@@ -28,7 +41,7 @@
 // fixture per direction.
 
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { milestoneIdFromUlid } from "../adapters/_shared/src/milestone_token";
@@ -214,11 +227,14 @@ describe("AC-STE-417.3 — tracker mode, no plan may carry id:", () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC-STE-417.5 — coexistence: legacy sequential plans are grandfathered
+// AC-STE-417.5 — coexistence, as re-keyed by STE-441: a sequential plan is
+// silent because the project has NO GIT PROVENANCE to read, not because of the
+// shape of its filename. Both fixtures below assert the `.git`-absent
+// precondition, because that — and only that — is why they pass now.
 // ---------------------------------------------------------------------------
 
-describe("AC-STE-417.5 — legacy `M<N>` plans in a tracker-less project never fire", () => {
-  test("a mode-none sequential plan with no id: passes (no migration)", async () => {
+describe("AC-STE-417.5 — sequential `M<N>` plans in a NON-GIT tracker-less project never fire", () => {
+  test("a mode-none sequential plan with no id: passes — the probe is vacuous without git", async () => {
     const p = makeProject({
       mode: "none",
       plans: [
@@ -227,6 +243,10 @@ describe("AC-STE-417.5 — legacy `M<N>` plans in a tracker-less project never f
       ],
     });
     try {
+      // The load-bearing precondition. In a git repository these same two
+      // untracked plans classify `fresh` and BOTH fail — see
+      // `tests/m119-ste-441-plan-provenance.test.ts`.
+      expect(existsSync(join(p.root, ".git"))).toBe(false);
       const report = await runPlanIdentityModeConditionalProbe(p.root);
       expect(report.mode).toBe("none");
       expect(report.violations).toEqual([]);
@@ -235,7 +255,7 @@ describe("AC-STE-417.5 — legacy `M<N>` plans in a tracker-less project never f
     }
   });
 
-  test("a mixed tree fires only on the minted plan, never on the sequential one", async () => {
+  test("a mixed NON-GIT tree fires only on the minted plan, never on the sequential one", async () => {
     const p = makeProject({
       mode: "none",
       plans: [
@@ -244,6 +264,9 @@ describe("AC-STE-417.5 — legacy `M<N>` plans in a tracker-less project never f
       ],
     });
     try {
+      // The minted leg needs no provenance — it fails on its missing `id:`
+      // alone. The sequential leg is silent only because there is no `.git`.
+      expect(existsSync(join(p.root, ".git"))).toBe(false);
       const report = await runPlanIdentityModeConditionalProbe(p.root);
       expect(report.violations.length).toBe(1);
       expect(report.violations[0]!.file).toContain(`${MINTED_PLAN}.md`);

@@ -14,7 +14,13 @@ migration: none  # literal `none` (no consumer migration), or a migration-regist
   the canonical identity there. It is documented here rather than scaffolded because this
   template is copied verbatim into tracker-mode projects too, and `/gate-check` probe #73
   (`plan_identity_mode_conditional`) fails any tracker-mode plan that carries `id:`. Legacy
-  sequential `M<N>` plans in a tracker-less project keep working without the key — no migration.
+  sequential `M<N>` plans in a tracker-less project keep working without the key — no migration —
+  but that carve-out is keyed on git provenance, not on the filename: a sequential plan introduced
+  at or after the mint epoch (2026-07-26), or one git cannot date at all, reads as a mis-named NEW
+  plan and probe #73 flags it. Declare a genuinely old plan (or a throwaway one) with
+  `kind: legacy` — or `kind: scaffolding` — in the frontmatter above and the probe goes silent for
+  it permanently. Like `id:`, `kind:` is documented here and never scaffolded: shipping it as a
+  live key would exempt every plan this template creates.
 -->
 
 <!--

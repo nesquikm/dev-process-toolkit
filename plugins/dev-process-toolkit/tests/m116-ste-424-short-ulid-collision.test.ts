@@ -265,9 +265,19 @@ describe("AC-STE-424.1 — the plan duplicate check spans the archive boundary w
     }
   });
 
-  test("positive control — legacy sequential plans across the boundary stay grandfathered", async () => {
+  test("positive control — sequential plans across the boundary raise no DUPLICATE", async () => {
     // `M1.md` active + `M20.md` archived carry no `id:` at all. The duplicate
     // pass must not invent violations for plans it never minted.
+    //
+    // STE-441 note: this fixture is a bare `mkdtemp` tree with no `.git`, so
+    // the sequential plans are silent under probe #73's provenance carve-out by
+    // NON-GIT VACUITY — not because their filename shape grandfathers them, as
+    // it did before that change. The assertion below pins that reason, so this
+    // green test cannot be misread as evidence the shape rule survives. In a
+    // git repository these two untracked plans classify `fresh` and both fail
+    // (`tests/m119-ste-441-plan-provenance.test.ts`), while the duplicate pass
+    // — which is what THIS test is controlling for — stays silent either way,
+    // since `M1` and `M20` are distinct tokens.
     const p = makePlanProject({
       mode: "none",
       plans: [
@@ -276,6 +286,7 @@ describe("AC-STE-424.1 — the plan duplicate check spans the archive boundary w
       ],
     });
     try {
+      expect(existsSync(join(p.root, ".git"))).toBe(false);
       expect((await runPlanIdentityModeConditionalProbe(p.root)).violations).toEqual([]);
     } finally {
       p.cleanup();
