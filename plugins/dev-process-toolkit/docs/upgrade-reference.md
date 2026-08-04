@@ -101,6 +101,19 @@ entry itself ships in v2.49.0. This is what makes the ordering meaningful:
 version order is the order the conventions actually changed in, so replaying it
 top-to-bottom never lets an older entry undo a newer one.
 
+**The enforced rule is narrower than that description, and it wins.** When a
+milestone plan declares `migration: <id>`, `assertMigrationDeclared` and the
+migration-coverage probe (#68) both require the entry's `introduced_in` to equal
+the version being **shipped** — and, for an archived plan, that plan's
+`shipped_in` stamp. Every entry above satisfies both readings at once because
+its migration shipped in the same release that created the legacy state, so the
+divergence never surfaced. `mode-none-sequential-milestone` is the first entry
+where the two part company: the state became legacy in v2.56.0 (when minting
+shipped) but the repair ships in v2.59.0, and it carries `2.59.0`. Declaring
+`2.56.0` there — the value this section's own description implies — passes every
+unit test and then refuses the release at ship time. When the two readings
+diverge, follow the enforcement, and say so in the entry's header.
+
 It also drives the stale-plugin advisory: an install older than the newest
 `introduced_in` is running code that can re-create the very state the migration
 just cleaned.
@@ -192,10 +205,14 @@ naming exactly what it rewrites, **even when the auto-approve marker
 pre-authorizes the batch commit; it never relaxes this flag — the same principle
 by which the marker is read but never relaxes a `requires-input:` gate.
 
-Today exactly one entry carries it: `permission-shapes`, because it rewrites the
-user's **security** configuration (the `permissions.allow` allowlist and MCP
-server entries). Treat the flag as the general rail, not a special case for
-today's single entry.
+Two entries carry it today. `permission-shapes`, because it rewrites the user's
+**security** configuration (the `permissions.allow` allowlist and MCP server
+entries). And `mode-none-sequential-milestone`, because its filesystem-only
+detector cannot use git and therefore cannot tell a genuinely legacy plan from a
+mis-named fresh one — it offers to repair both, a set deliberately wider than
+the one the git-keyed gate probe #73 fails on, so the operator reviews the
+per-plan evidence rows and approves or declines with that scope in front of
+them. Treat the flag as the general rail, not a special case for either.
 
 Declining a flagged entry drops that one entry from the batch and leaves the rest
 intact; the run continues.

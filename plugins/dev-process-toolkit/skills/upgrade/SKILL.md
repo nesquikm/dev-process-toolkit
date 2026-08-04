@@ -88,7 +88,9 @@ Otherwise present the detected set before asking for anything, in registry order
 
 | id | introduced_in | kind | title | evidence |
 |---|---|---|---|---|
-| `<entry.id>` | `<entry.introduced_in>` | script / assisted | `<entry.title>` | `<evidence[0]>` … |
+| `<entry.id>` | `<entry.introduced_in>` | script / assisted | `<entry.title>` | `<evidence[0]>` |
+
+Render **one row per evidence entry** — repeat the row for `<evidence[1]>`, `<evidence[2]>`, … leaving the first four cells blank on the repeats. Never truncate the list and never collapse it to the first entry with an ellipsis: detectors emit one evidence row per affected file precisely so the operator approves a scope they have seen in full, and an entry requiring explicit approval cannot be approved per-file if the files are hidden behind a `…`.
 
 A detector that throws is a bug, not a detection: surface the throw in NFR-10 shape naming the entry id, and refuse the run rather than silently treating the entry as not-applicable.
 
@@ -108,7 +110,9 @@ Body: one line per applied entry — `<id> (<introduced_in>): <summary>`. Do not
 
 **The permission-shapes entry NEVER auto-applies.** It carries `requires_explicit_approval: true` because it rewrites the user's *security* configuration — the `permissions.allow` allowlist and MCP server entries. Ask for its own explicit per-entry approval, in its own prompt naming exactly what it rewrites, **even when the auto-approve marker `<dpt:auto-approve>v1</dpt:auto-approve>` is present**: the marker pre-authorizes the batch commit, but it never relaxes this entry. This is the same principle by which the marker is read but never relaxes a `requires-input:` gate. Declining drops that one entry from the batch and leaves the rest intact; the run continues.
 
-Treat `requires_explicit_approval: true` as the general rail, not a special case for today's single entry: any future entry carrying the flag gets its own prompt on the same terms.
+**The mode-none-sequential-milestone entry NEVER auto-applies either.** It renames milestone plan files and rewrites the `milestone:` binding of every FR pointing at them, and its detector is filesystem-only by registry contract — so it cannot read git provenance and cannot tell a genuinely legacy plan from a mis-named fresh one. It offers to repair both, deliberately wider than the set the git-keyed plan-identity gate probe fails on. Ask for its own explicit approval with every affected plan listed, so the operator declines the ones they want kept; a project that prefers its sequential plans declines and declares `kind: legacy` on them instead.
+
+Treat `requires_explicit_approval: true` as the general rail, not a special case for the two entries carrying it today: any future entry carrying the flag gets its own prompt on the same terms.
 
 ## Step 5 — assisted entries
 

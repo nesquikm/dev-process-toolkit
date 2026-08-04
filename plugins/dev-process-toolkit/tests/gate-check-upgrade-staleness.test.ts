@@ -203,6 +203,35 @@ function plantMonolith(root: string): void {
   );
 }
 
+/**
+ * Plant a mis-named tracker-less milestone plan (mode-none-sequential-milestone).
+ *
+ * The `MANAGED_BY_TASK_TRACKING` CLAUDE.md every case-table fixture carries
+ * already declares `mode: none`, so a bare sequential plan — no `id:` key, no
+ * `kind:` exemption — is the whole legacy state. No other entry reads
+ * `specs/plan/`, so this plants exactly one row.
+ */
+function plantModeNoneSequentialPlan(root: string): void {
+  const path = join(root, "specs", "plan", "M5.md");
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(
+    path,
+    [
+      "---",
+      "milestone: M5",
+      "status: active",
+      "archived_at: null",
+      "---",
+      "",
+      "# Implementation Plan",
+      "",
+      "## M5 — Legacy Thing {#M5}",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
 /** A synthetic entry whose detector returns a fixed verdict. */
 function fixtureEntry(
   id: string,
@@ -555,6 +584,7 @@ describe("AC-STE-394.9 — each live legacy state renders exactly its own row", 
     ["stale-hook-entries", plantStaleHookEntry],
     ["permission-shapes", plantLegacyPermissionShape],
     ["monolith-split", plantMonolith],
+    ["mode-none-sequential-milestone", plantModeNoneSequentialPlan],
   ];
 
   // Completeness guard. Without it the table above is a hand-maintained list
