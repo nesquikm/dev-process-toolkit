@@ -46,11 +46,15 @@ export interface MilestoneGateRoutedReport {
 //   - `RequiresInputRefusedError` — the marker-absent + non-tty outcome.
 //   - the non-tty refusal anchor phrase — the literal that forbids the F1
 //     prose-ask-then-end-turn no-op.
+//   - `resolveMilestoneIdentity` (STE-440) — the single identity dispatcher the
+//     recommendation comes from. It rides this probe rather than a new one so
+//     the documented probe count stays put.
 export const MILESTONE_GATE_REQUIRED_LITERALS = [
   "requireOrRefuse",
   "milestone_allocation_default_applied",
   "RequiresInputRefusedError",
   "prose-ask-then-end-turn is forbidden under non-tty",
+  "resolveMilestoneIdentity",
 ] as const;
 
 const SKILL_REL_PATH =

@@ -28,6 +28,24 @@
 // sits one line under the per-SKILL line cap. Nothing pinned here contains an
 // `STE-N` token, and the whole mode-none branch is required to live INSIDE the
 // existing milestone-allocation-guard paragraph rather than in a new one.
+//
+// ── M119 STE-440 RETIREMENT (AC-STE-440.6) ─────────────────────────────────
+// The guard no longer instructs three per-mode calls; it instructs one
+// `resolveMilestoneIdentity` call that routes by mode in code. Five pins below
+// asserted the wording that change deletes, so they are retired in place and
+// re-aimed at the dispatcher contract:
+//   1. the `milestoneIdFromUlid` literal (mints/derives test)
+//   2. the `bypass \`nextFreeMilestoneNumber\`` >= 2 occurrence count
+//   3. the `mintMilestoneId` literal (shared-minter-module test)
+//   4. the `never hand-roll the mint` literal (same test)
+//   5. the full `nextFreeMilestoneNumber(specsDir, changelogPath, provider,
+//      branchScanner)` call literal (Linear-byte-unchanged test)
+// Everything else in this file stands: the artifact SHAPES each mode produces,
+// the module references, and the record-the-`id` instruction are unchanged by
+// STE-440, which moves the routing decision without moving any outcome.
+// The replacement assertions live in
+// `tests/m119-ste-440-dispatcher-surfaces.test.ts` (prose) and
+// `tests/m119-ste-440-milestone-identity-dispatcher.test.ts` (behavior).
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -73,19 +91,24 @@ describe("AC-STE-417.2 — /spec-write gains a mode: none minted-id branch", () 
     const p = guard();
     expect(p).toContain("mode: none");
     expect(p).toContain("mintId()");
-    expect(p).toContain("milestoneIdFromUlid");
+    // RETIRED (STE-440 #1): the `milestoneIdFromUlid` literal. The derivation
+    // is no longer something the guard instructs a reader to call — the
+    // dispatcher performs it inside the mode-none branch, and
+    // `tests/m119-ste-440-milestone-identity-dispatcher.test.ts` asserts
+    // `milestoneIdFromUlid(id) === milestoneId` on the returned value itself.
+    expect(p).toContain("resolveMilestoneIdentity");
     expect(p).toContain("specs/plan/M_<short-ULID>.md");
     expect(p).toContain("milestone: M_<short-ULID>");
   });
 
-  test("the branch names the nextFreeMilestoneNumber bypass in full", () => {
+  test("the minted path still says what it does INSTEAD of the sequential scan", () => {
     const p = guard();
     expect(p).toContain("no scan, no fetch, no five-source collision refusal");
-    // Two bypass clauses now live in this paragraph — Jira's and the minted
-    // path's. One occurrence would mean the minted branch reuses Jira's
-    // sentence instead of declaring its own.
-    const bypasses = p.match(/bypass `nextFreeMilestoneNumber`/g) ?? [];
-    expect(bypasses.length).toBeGreaterThanOrEqual(2);
+    // RETIRED (STE-440 #2): the `bypass \`nextFreeMilestoneNumber\`` >= 2
+    // occurrence count. Two per-branch bypass declarations were the shape of a
+    // prose-routed guard; with one dispatcher deciding the route the count is
+    // bounded ABOVE, not below — see the `<= 1` pin in
+    // `tests/m119-ste-440-dispatcher-surfaces.test.ts`.
   });
 
   test("minting routes through the collision-guarded minter", () => {
@@ -94,14 +117,20 @@ describe("AC-STE-417.2 — /spec-write gains a mode: none minted-id branch", () 
 
   // --- Phase-3 hardening: gaps the end-of-FR spec audit surfaced -----------
 
-  test("the branch names the shared minter MODULE, not a hand-rolled call", () => {
-    // Without a named call site the module is unreachable prose and a drafting
-    // agent re-implements the predicate — dropping the archive leg, which is
-    // exactly the half that silently overwrites an archived plan.
+  test("the branch names the shared minter MODULE, reached through the dispatcher", () => {
+    // Without a named module the archive leg of the collision predicate is
+    // unreachable prose and a drafting agent re-implements it — dropping
+    // exactly the half that silently overwrites an archived plan. The MODULE
+    // reference therefore stays.
+    //
+    // RETIRED (STE-440 #3, #4): the `mintMilestoneId` and `never hand-roll the
+    // mint` literals. Hand-rolling is no longer a habit prose discourages: the
+    // dispatcher is the only call the guard instructs and it owns the
+    // delegation, pinned structurally (import + call shape) in
+    // `tests/m119-ste-440-milestone-identity-dispatcher.test.ts`.
     const p = guard();
-    expect(p).toContain("mintMilestoneId");
     expect(p).toContain("adapters/_shared/src/mint_milestone_id.ts");
-    expect(p).toContain("never hand-roll the mint");
+    expect(p).toContain("resolveMilestoneIdentity");
   });
 
   test("the branch tells the producer to RECORD the minted id in plan frontmatter", () => {
@@ -143,10 +172,15 @@ describe("AC-STE-417.2 — /spec-write gains a mode: none minted-id branch", () 
   });
 
   test("the Linear five-way scan is byte-unchanged", () => {
+    // RETIRED (STE-440 #5): the full
+    // `nextFreeMilestoneNumber(specsDir, changelogPath, provider, branchScanner)`
+    // call literal. The dispatcher forwards those four arguments now, and the
+    // equality assertion in
+    // `tests/m119-ste-440-milestone-identity-dispatcher.test.ts` ("ALL FIVE
+    // scan legs are forwarded") pins the forwarding against the helper's own
+    // answer — which a prose literal never could. What the guard still owes a
+    // reader is WHERE the scan lives and WHAT it scans.
     const p = guard();
-    expect(p).toContain(
-      "call `nextFreeMilestoneNumber(specsDir, changelogPath, provider, branchScanner)`",
-    );
     expect(p).toContain("adapters/_shared/src/next_free_milestone_number.ts");
     expect(p).toContain("It runs a **five-way scan**");
     expect(p).toContain("`active` / `archived` / `changelog` / `tracker` / `branches`");

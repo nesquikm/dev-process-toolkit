@@ -54,10 +54,23 @@ describe("AC-STE-377.1/.3/.5 — spec-write SKILL documents the Jira Epic-first 
     });
   }
 
-  test("the sequential five-way-scan guard is still present for Linear + mode:none (AC .4)", () => {
+  test("the sequential five-way-scan guard is still present for the Linear path (AC .4)", () => {
     // The existing allocation guard paragraph must survive the Jira branch
-    // edit — nextFreeMilestoneNumber remains the Linear/mode:none path.
-    expect(skill).toContain("nextFreeMilestoneNumber(specsDir, changelogPath, provider, branchScanner)");
+    // edit — the five-way scan remains the Linear path.
+    //
+    // RETIRED (M119 STE-440): the full
+    // `nextFreeMilestoneNumber(specsDir, changelogPath, provider, branchScanner)`
+    // call literal. This was the SIXTH pin on that wording — AC-STE-440.6
+    // enumerates five and all five live in
+    // `tests/m115-ste-417-docs-pins.test.ts`; this one sits in a different
+    // file and was undercounted. It is retired for the same reason as the
+    // other five: /spec-write now instructs ONE `resolveMilestoneIdentity`
+    // call that routes by mode, so no per-mode call signature survives in the
+    // prose. Coverage moved to
+    // `tests/m119-ste-440-milestone-identity-dispatcher.test.ts`, which
+    // asserts the dispatcher's linear branch equals the helper's own answer
+    // with all four arguments forwarded.
+    expect(skill).toContain("adapters/_shared/src/next_free_milestone_number.ts");
     expect(skill).toContain("five-way scan");
   });
 });
