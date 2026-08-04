@@ -992,7 +992,7 @@ describe("AC-STE-441.10 — plan.md.template documents `kind: legacy`", () => {
 // a plan `git mv`'d into `specs/plan/archive/` reports the ARCHIVE commit's
 // date rather than the date it was written. Archival by `git mv` is exactly
 // what `/spec-archive` and `/implement` Phase 4 do to every plan they close —
-// so without `--follow` every tracker-less consumer that archived a genuinely
+// so without rename-awareness every tracker-less consumer that archived a genuinely
 // legacy sequential plan would hard-fail on the next gate run, which is the
 // forced migration § Requirement declares a hard constraint against, fired by
 // the toolkit's own archival step.
@@ -1044,8 +1044,8 @@ describe("AC-STE-441.2 — archiving a legacy plan does not re-date it", () => {
   });
 
   test("archiving does NOT launder a post-epoch mis-named plan into legacy", () => {
-    // The fix takes the EARLIER of the plain and `--follow` dates, so a rename
-    // can only make a plan look older. Guard the other direction: a plan that
+    // The fix hops renames explicitly to the source path, so a rename can only
+    // make a plan look older. Guard the other direction: a plan that
     // was genuinely introduced after the epoch must stay `fresh` once archived,
     // or the repair would double as a way to hide the defect.
     const p = makeProject({
