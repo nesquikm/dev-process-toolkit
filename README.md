@@ -179,7 +179,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.58.0 — "Deed"** (M118, unmanaged-tree probe guards: `/gate-check` no longer hard-fails a project for having written its own `CLAUDE.md`, and the stale-file-ref probe reads the fence info string instead of scanning `dart` and `sh` blocks as directory trees. A new probe #74 keeps the managed-tree question in one place so the next module cannot re-derive it by hand.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.59.0 — "Provenance"** (M119, mode-none milestone identity: `/spec-write` routes milestone allocation through one dispatcher instead of three prose branches, and probe #73 grandfathers sequential tracker-less plans by git provenance rather than filename shape — so a freshly mis-named plan is no longer byte-identical to a legitimately old one. `/upgrade` gains a scripted repair for projects already holding them.)
 
 ## Core Philosophy
 
