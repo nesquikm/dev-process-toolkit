@@ -1,5 +1,5 @@
 ---
-milestone: M<N>
+milestone: <milestone-id>  # replace — see "Milestone identity" below
 status: active
 archived_at: null
 kickoff_branch: null
@@ -29,6 +29,12 @@ migration: none  # literal `none` (no consumer migration), or a migration-regist
 -->
 
 # Implementation Plan
+
+**Milestone identity.** Replace the `<milestone-id>` placeholder in the frontmatter above with the id
+your tracking mode allocates: in `mode: none` (tracker-less) it is **minted** locally as
+`M_<short-ULID>`; in tracker mode it is a sequential `M<N>` taken from the milestone scan, or
+`M_<epic-key>` where milestones mirror Epics. Never guess the next sequential number by eye — the id
+is resolved for you when the plan is created. Delete this note once the value is filled in.
 
 ## Milestone Order
 
