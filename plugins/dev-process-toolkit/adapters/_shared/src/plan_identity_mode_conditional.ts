@@ -290,8 +290,11 @@ function gitQuery(projectRoot: string, args: string[]): string | null {
  * The resolution order is load-bearing:
  *
  *   1. `kind: scaffolding` / `kind: legacy` ⇒ `exempt`, whatever git says.
- *   2. Not a git repository ⇒ `legacy`. There is no provenance to read, and
+ *   2. Not a git working tree ⇒ `legacy`. There is no provenance to read, and
  *      failing here would be the forced migration this design exists to avoid.
+ *      Asked of git (`rev-parse --show-toplevel`), not inferred from a `.git`
+ *      entry at the project root — a monorepo package has none and is still
+ *      fully datable.
  *   3. Untracked ⇒ `fresh`. A file git does not know cannot predate anything;
  *      it was written by the current session. Earliest, cheapest catch.
  *      A git that REFUSES to answer is not the same as one answering "not
@@ -306,8 +309,9 @@ function gitQuery(projectRoot: string, args: string[]): string | null {
  *   5. No discoverable introducing commit ⇒ `undecidable`.
  *   6. Otherwise compare the introducing commit's author date to `MINT_EPOCH`,
  *      inclusive at the boundary: at-or-after ⇒ `fresh`, before ⇒ `legacy`.
- *      The date is rename-aware — see `introducingCommitDate`, without which
- *      archiving a legacy plan would re-date it to the archive commit.
+ *      The date is keyed on the milestone token's two canonical paths — see
+ *      `introducingCommitDate` — without which archiving a legacy plan would
+ *      re-date it to the archive commit.
  *
  * Scope is the caller's job: this answers "when did it arrive", not "is it a
  * plan the probe polices".
@@ -322,7 +326,12 @@ export function classifyPlanProvenance(
   const kind = parseFrontmatter(rawPlanSource, { lenient: true })["kind"];
   if (typeof kind === "string" && EXEMPT_PLAN_KINDS.includes(kind.trim())) return "exempt";
 
-  if (!existsSync(join(projectRoot, ".git"))) return "legacy";
+  // Ask git whether this is a working tree, rather than testing for a `.git`
+  // ENTRY at the project root. A package inside a monorepo has no `.git` of
+  // its own, so the `existsSync` test this replaces classified every plan
+  // there `legacy` — silently, including one created moments ago, which is
+  // the blind spot this probe exists to close.
+  if (gitQuery(projectRoot, ["rev-parse", "--show-toplevel"]) === null) return "legacy";
 
   // git speaks POSIX separators even on Windows, where `relative` yields `\`.
   const rel = relative(projectRoot, planPath).split("\\").join("/");
@@ -337,7 +346,13 @@ export function classifyPlanProvenance(
   if (tracked === null) return "undecidable";
   if (tracked.trim().length === 0) return "fresh";
 
-  if (gitQuery(projectRoot, ["cat-file", "-e", `HEAD:${rel}`]) === null) return "fresh";
+  // `./` prefix is load-bearing. `<rev>:<path>` resolves path from the REPO
+  // ROOT, while `rel` is project-root-relative and `gitQuery` runs with the
+  // project root as cwd — so in a monorepo package the bare form asks about a
+  // path that does not exist, git errors, and every legacy plan there reads
+  // `fresh` and hard-fails. A leading `./` switches the syntax to
+  // cwd-relative, which is what `rel` already is.
+  if (gitQuery(projectRoot, ["cat-file", "-e", `HEAD:./${rel}`]) === null) return "fresh";
 
   const introducedAt = introducingCommitDate(projectRoot, rel);
   if (introducedAt === null) return "undecidable";
@@ -349,22 +364,25 @@ export function classifyPlanProvenance(
  * The author date of the commit that introduced `rel`, in epoch millis, or
  * `null` when no introducing commit is discoverable.
  *
- * RENAME-AWARE, and that is the load-bearing part. `git log --diff-filter=A`
- * scoped to a single path stops at the rename: a plan `git mv`'d into
+ * ARCHIVE-AWARE, and that is the load-bearing part. `git log --diff-filter=A`
+ * scoped to a single path stops at the archive move: a plan relocated into
  * `specs/plan/archive/` reports the ARCHIVE commit's date, not the date the
  * plan was written. Archival is exactly what `/spec-archive` and `/implement`
- * Phase 4 do to every plan they close, so without `--follow` a genuinely
- * legacy plan would read as post-epoch the moment it was archived, classify
+ * Phase 4 do to every plan they close, so a query blind to it would read a
+ * genuinely legacy plan as post-epoch the moment it was archived, classify
  * `fresh`, and hard-fail — the forced migration this design exists to avoid,
  * fired by the toolkit's own archival step.
  *
- * Deliberately NOT `git log --follow`. `--follow` resolves renames by content
- * SIMILARITY, and plan files are template-shaped: two unrelated plans routinely
- * clear the default 50% threshold, so `--follow` will happily report a fresh
- * mis-named plan as a "rename" of some older plan and date it before the epoch.
- * That laundering is the precise failure this probe exists to catch, so a
- * heuristic that can produce it is not usable here. (Observed against the
- * incident fixture: the post-epoch plan silently classified `legacy`.)
+ * Deliberately NOT `git log --follow`, and not git rename detection at all.
+ * Both resolve renames by content SIMILARITY, and plan files are
+ * template-shaped: unrelated plans routinely clear the default 50% threshold,
+ * so a fresh mis-named plan gets reported as a "rename" of some older one and
+ * dated before the epoch. That laundering is the precise failure this probe
+ * exists to catch, so no similarity heuristic is usable here. (Observed
+ * against the incident fixture under `--follow`, and again under explicit
+ * per-commit rename detection: the post-epoch plan silently classified
+ * `legacy`.) Keying on the token's own two paths removes the heuristic
+ * entirely rather than tuning it.
  *
  * Instead we hop renames EXPLICITLY. Find the commit that added the current
  * path; ask that one commit whether the path arrived as a rename destination;
@@ -376,65 +394,60 @@ export function classifyPlanProvenance(
  * The hop count is bounded so a pathological or cyclic history cannot spin.
  */
 function introducingCommitDate(projectRoot: string, rel: string): number | null {
-  let path = rel;
-  const seen = new Set<string>();
-
-  for (let hop = 0; hop < MAX_RENAME_HOPS; hop++) {
-    if (seen.has(path)) return null;
-    seen.add(path);
-
-    const out = gitQuery(projectRoot, [
-      "log",
-      "--diff-filter=A",
-      "-1",
-      "--format=%H%x00%aI",
-      "--",
-      path,
-    ]);
-    const [sha, iso] = (out ?? "").trim().split("\0");
-    if (sha === undefined || iso === undefined) return null;
-    const parsed = Date.parse(iso);
-    if (!Number.isFinite(parsed)) return null;
-
-    const source = renameSourceIn(projectRoot, sha, path);
-    if (source === null) return parsed;
-    path = source;
-  }
-
-  return null;
-}
-
-/** Bound on the explicit rename walk — a plan renamed 20 times is pathological. */
-const MAX_RENAME_HOPS = 20;
-
-/** `R<score>\t<source>\t<destination>` rows of `--name-status` output. */
-const RENAME_ROW_RE = /^R\d*\t(.+)\t(.+)$/;
-
-/**
- * The path `dest` was renamed FROM in commit `sha`, or `null` when that commit
- * added it outright.
- *
- * The commit is inspected WITHOUT a pathspec on purpose. Passing `-- <dest>`
- * would filter the source side out of the diff before rename detection runs,
- * so every rename would read as a plain add — the same blindness this function
- * exists to remove, reintroduced one layer down.
- */
-function renameSourceIn(projectRoot: string, sha: string, dest: string): string | null {
+  // IDENTITY-KEYED, NOT RENAME-DETECTED. A plan's milestone token IS its
+  // identity, and a sequential plan can only ever live at two canonical paths:
+  // `specs/plan/<token>.md` while active, `specs/plan/archive/<token>.md` once
+  // archived. So the introduction date is simply the OLDEST add across those
+  // two paths — no rename detection, no hop walk, no similarity heuristic.
+  //
+  // Three defects died with the walk this replaces, each reproduced first:
+  //
+  //   1. CONTENT-CHANGING ARCHIVAL. Git only emits an `R` row above its 50%
+  //      similarity threshold. `/implement` Phase 4 appends a `## Summary`
+  //      section and a `shipped_in` stamp in the same commit that archives,
+  //      which drops the pair below it — git reports plain `D` + `A`, the
+  //      rename lookup found nothing, and a legacy plan re-dated to its
+  //      archive commit and hard-failed. Verbatim the forced migration this
+  //      design forbids, fired by the toolkit's own archival step.
+  //   2. REOPEN CYCLES. `--diff-filter=A -1` returns the MOST RECENT add, so
+  //      an archived → reopened → re-archived plan walked
+  //      `archive/M2` → `M2` → `archive/M2`, tripped its own cycle guard, and
+  //      returned `undecidable`. 31 of THIS repository's 118 archived plans
+  //      (M84–M118, every modern one) classified that way.
+  //   3. CROSS-TOKEN LAUNDERING. Git pairs renames by greedy global similarity
+  //      over the whole commit. One commit that stamps-and-archives `M2` while
+  //      creating a fresh `M3` yields `R078 M2 → M3`, so the fresh plan
+  //      inherited the old date and classified `legacy` — the precise
+  //      laundering `--follow` was rejected for, reintroduced by the explicit
+  //      walk. Restricting the query to THIS token's two paths makes a sibling
+  //      plan structurally unreachable, so no similarity score can launder it.
+  //
+  // `--full-history` is load-bearing: default history simplification prunes
+  // the introducing commit of a path that was later renamed away, so the plain
+  // query returns empty for exactly the archived plans this must date. Dates
+  // sort lexicographically because `%aI` is strict ISO-8601 with a fixed-width
+  // offset, so `sort()` on the raw strings is a chronological sort.
+  const token = basename(rel, ".md");
   const out = gitQuery(projectRoot, [
-    "show",
-    "-M",
-    "--name-status",
-    "--format=",
-    "--diff-filter=R",
-    sha,
+    "log",
+    "--full-history",
+    "--diff-filter=A",
+    "--format=%aI",
+    "--",
+    `specs/plan/${token}.md`,
+    `specs/plan/archive/${token}.md`,
   ]);
   if (out === null) return null;
 
-  for (const line of out.split("\n")) {
-    const m = RENAME_ROW_RE.exec(line.trim());
-    if (m !== null && m[2] === dest) return m[1]!;
-  }
-  return null;
+  const dates = out
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .map((iso) => Date.parse(iso))
+    .filter((n) => Number.isFinite(n));
+  if (dates.length === 0) return null;
+
+  return Math.min(...dates);
 }
 
 /**

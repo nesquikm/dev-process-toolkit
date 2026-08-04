@@ -48,6 +48,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -1089,5 +1090,192 @@ describe("AC-STE-441.4 — an unusable git degrades to the advisory, not an erro
     } finally {
       p.cleanup();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Post-review regression block.
+//
+// An independent review of PR #56 broke the original explicit-rename-hop
+// implementation four ways. Every case below FAILS against that implementation
+// and passes against the token-keyed union query that replaced it. They are
+// grouped here rather than folded into the suites above because each one is a
+// standing guard against a specific way the hop was wrong, and a reader
+// bisecting a future regression needs to see them together.
+//
+// The shared root cause: the hop asked git "was this path renamed", which is a
+// SIMILARITY question with a 50% threshold and a greedy global pairing. The
+// replacement asks "when did this milestone token first appear at either of
+// its two canonical paths", which is an identity question with no heuristic in
+// it at all.
+// ---------------------------------------------------------------------------
+
+describe("post-review regressions — token-keyed provenance", () => {
+  /** Archive a plan the way `/implement` Phase 4 really does: move + stamp. */
+  function archiveWithStamp(root: string, name: string, iso: string): void {
+    const from = join("specs", "plan", name);
+    const to = join("specs", "plan", "archive", name);
+    const stem = name.replace(/\.md$/, "");
+    git(root, ["mv", from, to]);
+    // The content change is the point: Phase 4 appends a Summary section and a
+    // shipped_in stamp in the SAME commit that relocates the file, which drops
+    // the pair below git's default 50% rename-similarity threshold.
+    writeFileSync(
+      join(root, to),
+      [
+        "---",
+        `milestone: ${stem}`,
+        "status: archived",
+        "archived_at: 2026-08-01T00:00:00Z",
+        "shipped_in: v9.9.9",
+        "---",
+        "",
+        `# ${stem} — Fixture`,
+        "",
+        "## Summary",
+        "",
+        ...Array.from({ length: 40 }, (_, i) => `Shipped behaviour line ${i}.`),
+        "",
+      ].join("\n"),
+    );
+    git(root, ["add", "--", to]);
+    commitAt(root, iso, `chore(specs): archive ${stem}`);
+  }
+
+  test("a legacy plan archived in a CONTENT-CHANGING commit stays legacy", () => {
+    // Regression: git emits plain `D` + `A` rather than an `R` row once the
+    // stamp drops similarity below threshold, so the rename lookup found
+    // nothing and the plan was re-dated to its archive commit ⇒ `fresh` ⇒ a
+    // hard-RED forced migration fired by the toolkit's own archival step.
+    const p = makeProject({ plans: [{ name: "M5.md", committedAt: LONG_BEFORE_EPOCH }] });
+    try {
+      archiveWithStamp(p.root, "M5.md", ONE_SECOND_AFTER_EPOCH);
+      const abs = join(p.root, "specs", "plan", "archive", "M5.md");
+      expect(classifyPlanProvenance(p.root, abs, read(abs))).toBe("legacy");
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test("a plan archived, reopened, and re-archived stays legacy (no cycle)", () => {
+    // Regression: `--diff-filter=A -1` returns the MOST RECENT add, so the walk
+    // went archive → active → archive, tripped its own `seen` guard, and
+    // returned `undecidable`. 31 of this repository's own archived plans hit
+    // exactly this, every milestone from M84 onward.
+    const p = makeProject({ plans: [{ name: "M5.md", committedAt: LONG_BEFORE_EPOCH }] });
+    try {
+      const active = join("specs", "plan", "M5.md");
+      const archived = join("specs", "plan", "archive", "M5.md");
+
+      git(p.root, ["mv", active, archived]);
+      commitAt(p.root, ONE_SECOND_BEFORE_EPOCH, "chore(specs): archive M5");
+
+      git(p.root, ["mv", archived, active]);
+      commitAt(p.root, ONE_SECOND_AFTER_EPOCH, "chore(specs): reopen M5");
+
+      git(p.root, ["mv", active, archived]);
+      commitAt(p.root, ONE_SECOND_AFTER_EPOCH, "chore(specs): re-archive M5");
+
+      const absArchived = join(p.root, archived);
+      expect(classifyPlanProvenance(p.root, absArchived, read(absArchived))).toBe("legacy");
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test("a fresh sibling created in the archive commit is NOT laundered to legacy", () => {
+    // Regression: git pairs renames by greedy global similarity across the whole
+    // commit, so stamping-and-archiving M5 while creating a fresh M6 in the same
+    // commit yielded `R0xx specs/plan/M5.md → specs/plan/M6.md`. The fresh plan
+    // inherited the old date and classified `legacy` — the exact laundering
+    // `--follow` was rejected for, reintroduced by the explicit walk. Both
+    // directions are asserted: the new plan must stay fresh AND the archived one
+    // must stay legacy.
+    const p = makeProject({ plans: [{ name: "M5.md", committedAt: LONG_BEFORE_EPOCH }] });
+    try {
+      const from = join("specs", "plan", "M5.md");
+      const to = join("specs", "plan", "archive", "M5.md");
+      const sibling = join("specs", "plan", "M6.md");
+
+      git(p.root, ["mv", from, to]);
+      // A near-identical sibling — the strongest similarity competitor there is.
+      writeFileSync(join(p.root, sibling), read(join(p.root, to)));
+      git(p.root, ["add", "--", to, sibling]);
+      commitAt(p.root, ONE_SECOND_AFTER_EPOCH, "chore(specs): archive M5, open M6");
+
+      const absSibling = join(p.root, sibling);
+      const absTo = join(p.root, to);
+      expect(classifyPlanProvenance(p.root, absSibling, read(absSibling))).toBe("fresh");
+      expect(classifyPlanProvenance(p.root, absTo, read(absTo))).toBe("legacy");
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test("a project nested inside a git repository is still dated, not silently legacy", () => {
+    // Regression: applicability was inferred from a `.git` ENTRY at the project
+    // root, which a monorepo package does not have — so every plan there
+    // classified `legacy` silently, including one written moments ago. That is
+    // the blind spot this probe exists to close, reopened for every monorepo.
+    //
+    // The `HEAD:<path>` half is asserted implicitly: `<rev>:<path>` resolves
+    // from the REPO root, so the bare form asks about a path that does not
+    // exist in a nested package and the plan would read `fresh`. A `legacy`
+    // verdict for the old plan proves the `./` cwd-relative form is in use.
+    const outer = mkdtempSync(join(tmpdir(), "ste441-monorepo-"));
+    try {
+      git(outer, ["init", "-q", "."]);
+      git(outer, ["config", "user.email", "fixture@example.invalid"]);
+      git(outer, ["config", "user.name", "Fixture"]);
+      git(outer, ["config", "commit.gpgsign", "false"]);
+
+      const pkg = join(outer, "packages", "app");
+      mkdirSync(join(pkg, "specs", "plan", "archive"), { recursive: true });
+      writeFileSync(join(pkg, "CLAUDE.md"), claudeMd("none"));
+      writeFileSync(join(pkg, "specs", "plan", "M5.md"), planSource("M5"));
+      git(outer, ["add", "-A"]);
+      commitAt(outer, LONG_BEFORE_EPOCH, "chore: monorepo base with an old plan");
+
+      // Committed long before the epoch ⇒ genuinely legacy, and datable.
+      expect(
+        classifyPlanProvenance(pkg, join(pkg, "specs", "plan", "M5.md"), planSource("M5")),
+      ).toBe("legacy");
+
+      // Written today inside the same package ⇒ must be caught, not grandfathered.
+      writeFileSync(join(pkg, "specs", "plan", "M6.md"), planSource("M6"));
+      git(outer, ["add", "-A"]);
+      commitAt(outer, ONE_SECOND_AFTER_EPOCH, "chore: mis-named plan added today");
+      expect(
+        classifyPlanProvenance(pkg, join(pkg, "specs", "plan", "M6.md"), planSource("M6")),
+      ).toBe("fresh");
+    } finally {
+      rmSync(outer, { recursive: true, force: true });
+    }
+  });
+
+  test("dogfood — no archived plan in THIS repository classifies undecidable", () => {
+    // The finding that proved the hop was broken was not a fixture: 31 of this
+    // repository's own 118 archived plans returned `undecidable`, every
+    // milestone from M84 onward, while the plain query could date all 118. A
+    // synthetic fixture would not have caught it, so the repository itself is
+    // the fixture. `undecidable` here means the walk lost information git had.
+    const repoRoot = join(PLUGIN_ROOT, "..", "..");
+    const archiveDir = join(repoRoot, "specs", "plan", "archive");
+    if (!existsSync(archiveDir)) return; // consumer checkouts without this tree
+    const plans = readdirSync(archiveDir).filter((f) => /^M\d+\.md$/.test(f));
+    // Guard the guard: an empty list would make the assertion below vacuous,
+    // which is how this test silently passed against the very implementation
+    // it was written to fail.
+    expect(plans.length).toBeGreaterThan(50);
+
+    const undecidable = plans.filter(
+      (f) =>
+        classifyPlanProvenance(
+          repoRoot,
+          join(archiveDir, f), // absolute — the classifier relativises internally
+          read(join(archiveDir, f)),
+        ) === "undecidable",
+    );
+    expect(undecidable).toEqual([]);
   });
 });
