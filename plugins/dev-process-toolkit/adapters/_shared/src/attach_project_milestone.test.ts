@@ -274,10 +274,12 @@ describe("planFileHeadingToMilestoneName (AC-STE-118.2)", () => {
 // ───────────────────────────────────────────────────────────────────────
 // STE-329 — Jira `label` milestone-binding path.
 //
-// The Jira adapter declares `milestone_binding: label`: instead of binding a
-// projectMilestone OBJECT (Linear), it mirrors the milestone M-token onto the
-// issue as a hyphen label `milestone-<M-token>`, attached read-merge-write and
-// verified by read-back. The Linear `object` branch above stays byte-identical.
+// The LEGACY Jira binding (the adapter has since moved to
+// `milestone_binding: epic`; this path is the fallback the Epic-availability
+// probe degrades to): instead of binding a projectMilestone OBJECT (Linear),
+// it mirrors the milestone M-token onto the issue as a hyphen label
+// `milestone-<M-token>`, attached read-merge-write and verified by read-back.
+// The Linear `object` branch above stays byte-identical.
 // ───────────────────────────────────────────────────────────────────────
 
 describe("STE-329 AC-STE-329.2 — milestoneLabel: M-token → label derivation", () => {
