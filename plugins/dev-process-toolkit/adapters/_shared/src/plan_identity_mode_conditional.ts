@@ -679,7 +679,7 @@ export async function runPlanIdentityModeConditionalProbe(
             note: buildNote(file, 1, `expected ${expected}, actual ${actual}`, projectRoot),
             message: buildMessage(
               `jira-mode plan ${basename(file)} is a NEW sequential milestone — git introduces it at or after the jira Epic epoch, so it cannot be a legacy plan`,
-              `create the milestone as a Jira Epic and rename ${rel} to the M_<KEY> filename that Epic derives. If the plan genuinely predates the Epic-first path and git provenance is misleading (a re-created tree, a squashed import), declare it with kind: legacy in the frontmatter instead`,
+              `create the milestone as a Jira Epic and rename ${rel} to the M_<KEY> filename that Epic derives. If the plan genuinely predates the Epic-first path and git provenance is misleading — a re-created tree, a squashed import, or a SHALLOW CLONE (which answers the provenance query with its boundary commit rather than failing, so every legacy plan in it reads as new) — declare it with kind: legacy in the frontmatter instead`,
               { mode, file: rel, provenance, epoch: JIRA_EPIC_EPOCH },
             ),
           });

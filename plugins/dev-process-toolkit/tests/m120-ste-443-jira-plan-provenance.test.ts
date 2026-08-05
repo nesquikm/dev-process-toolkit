@@ -1151,3 +1151,87 @@ describe("AC-STE-443.10 — the arm ships inside probe #73, not as a probe #75",
     expect(rows[0]!.startsWith("73. **")).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Post-review addition: the shallow-clone exposure, pinned rather than assumed.
+//
+// A double review of this milestone confirmed that the jira arm newly extends
+// a known tracker-less limitation to a population that was previously immune.
+// `git log --diff-filter=A` in a shallow clone answers with the GRAFT BOUNDARY
+// commit instead of failing, so a genuinely pre-epoch plan reads as post-epoch
+// and hard-fails. Under `mode: none` that was already true and documented; a
+// jira project had no arm at all before this milestone, so `--depth 1` CI on
+// such a project goes from clean to red.
+//
+// This is an accepted tradeoff, not a defect being fixed here — the provenance
+// query cannot distinguish a boundary date from a real one, and deepening the
+// clone from inside a gate probe would break the no-network invariant. What
+// was missing was any test recording it, so the next reader could not tell the
+// behaviour from an oversight. `kind: legacy` remains the operator's remedy
+// and is asserted below so the documented escape hatch is known to work here.
+// ---------------------------------------------------------------------------
+
+describe("shallow clone — accepted exposure, pinned", () => {
+  /** Clone `src` at depth 1 through a file:// URL, which is what makes it shallow. */
+  function shallowClone(src: string): string {
+    const dst = mkdtempSync(join(tmpdir(), "m120-shallow-"));
+    rmSync(dst, { recursive: true, force: true });
+    execFileSync("git", ["clone", "--quiet", "--depth", "1", `file://${src}`, dst], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
+    });
+    return dst;
+  }
+
+  /** Push the graft boundary past the epoch — without this the boundary is
+   *  pre-epoch and the plan classifies `legacy` for the wrong reason, which is
+   *  how a first attempt at this fixture silently proved nothing. */
+  function advancePastEpoch(root: string): void {
+    for (const day of ["06", "07", "08"]) {
+      writeFileSync(join(root, "filler.txt"), `filler ${day}\n`);
+      git(root, ["add", "--", "filler.txt"]);
+      commitAt(root, `2026-08-${day}T09:00:00Z`, `chore: filler ${day}`);
+    }
+  }
+
+  test("a pre-epoch jira plan fails at --depth 1 but passes at full depth", async () => {
+    const p = makeProject({ mode: "jira", plans: [{ name: "M42.md", committedAt: "2026-07-01T12:00:00Z" }] });
+    let shallow: string | null = null;
+    try {
+      advancePastEpoch(p.root);
+
+      const full = await planIdentityModule.runPlanIdentityModeConditionalProbe(p.root);
+      expect(full.violations.filter((v) => v.severity === "error")).toEqual([]);
+
+      shallow = shallowClone(p.root);
+      const errs = (
+        await planIdentityModule.runPlanIdentityModeConditionalProbe(shallow)
+      ).violations.filter((v) => v.severity === "error");
+      expect(errs.length).toBe(1);
+      // The epoch in the row is the jira one, not the tracker-less one — a
+      // shared builder handed the wrong constant would still produce a row.
+      expect(errs[0]!.message).toContain(JIRA_EPIC_EPOCH);
+    } finally {
+      if (shallow !== null) rmSync(shallow, { recursive: true, force: true });
+      p.cleanup();
+    }
+  });
+
+  test("kind: legacy clears it, so the documented remedy works in a shallow clone", async () => {
+    const p = makeProject({
+      mode: "jira",
+      plans: [{ name: "M42.md", fm: ["kind: legacy"], committedAt: "2026-07-01T12:00:00Z" }],
+    });
+    let shallow: string | null = null;
+    try {
+      advancePastEpoch(p.root);
+      shallow = shallowClone(p.root);
+      const r = await planIdentityModule.runPlanIdentityModeConditionalProbe(shallow);
+      expect(r.violations).toEqual([]);
+    } finally {
+      if (shallow !== null) rmSync(shallow, { recursive: true, force: true });
+      p.cleanup();
+    }
+  });
+});
