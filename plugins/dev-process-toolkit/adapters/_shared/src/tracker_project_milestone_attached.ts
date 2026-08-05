@@ -77,9 +77,13 @@ export interface TrackerProjectMilestoneAttachedDeps {
    * legacy) verifies that the ticket's `labels` array contains
    * `milestone-<M-token>`; `epic` (Jira Epic-first) verifies the ticket's
    * `parent` key sanitizes back to the Epic-keyed milestone token, falling
-   * back to the label surface for grandfathered numeric milestones. In
-   * production the gate wires this from the active adapter's
-   * `milestone_binding:` frontmatter.
+   * back to the label surface for grandfathered numeric milestones.
+   *
+   * The value is supplied by the CALLER on this deps object; no adapter key is
+   * parsed for it. `adapters/jira.md` declares `milestone_binding: epic` in its
+   * own frontmatter, but nothing reads that key at runtime — an earlier version
+   * of this comment claimed the gate wired the value from there, which sent
+   * readers hunting for a parser that has never existed.
    */
   milestoneBinding?: "object" | "label" | "epic";
 }

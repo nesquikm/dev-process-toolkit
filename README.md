@@ -179,7 +179,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.59.0 — "Provenance"** (M119, mode-none milestone identity: `/spec-write` routes milestone allocation through one dispatcher instead of three prose branches, and probe #73 grandfathers sequential tracker-less plans by git provenance rather than filename shape — so a freshly mis-named plan is no longer byte-identical to a legitimately old one. `/upgrade` gains a scripted repair for projects already holding them.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.60.0 — "Ledger"** (M120, Jira milestone identity: probe #73 gains a jira-keyed provenance arm, so a sequential `M<N>` plan created in a Jira project after this release fails the gate instead of passing silently — everything committed before it is grandfathered. `mode: linear` is deliberately untouched, since sequential numbering is correct there. The contradictory prose about Jira milestone binding is corrected across every surface that carried it.)
 
 ## Core Philosophy
 

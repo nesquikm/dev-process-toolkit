@@ -13,9 +13,11 @@
 //     label; capability-gap downgrade tokens still apply.
 //
 // The probe learns which binding the active adapter uses via a new
-// `deps.milestoneBinding` injection (`"object"` default when absent). In
-// production the gate wires it from the active adapter's
-// `milestone_binding:` frontmatter; tests inject it directly. `deps.getIssue`
+// `deps.milestoneBinding` injection (`"object"` default when absent). The
+// value is supplied by the CALLER on that deps object — no adapter key is
+// parsed for it, in production or anywhere else; `adapters/jira.md` declares
+// `milestone_binding: epic` in its own frontmatter but nothing reads that key
+// at runtime. Tests inject it directly, same as production. `deps.getIssue`
 // widens to optionally surface `labels: string[]` so the label branch can
 // assert containment; the object branch ignores it.
 
