@@ -343,9 +343,13 @@ describe("AC-STE-445.3 — a registered leg no group rosters is loud, not all-N/
     // Group 2 is Linear-only by design (probe #26 is vacuous on Jira).
     expect([...coveringLeg!("linear")]).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     expect([...coveringLeg!("jira")]).toEqual([1, 3, 4, 5, 6, 7, 8]);
-    // STE-446 widened the enum, and the rosters now DERIVE from it, so the new
-    // leg is covered by the same seven groups the Jira leg is.
-    expect([...coveringLeg!("none")]).toEqual([1, 3, 4, 5, 6, 7, 8]);
+    // STE-446 widened the enum and the rosters now DERIVE from it. STE-449's
+    // audit then took group 4 OFF the tracker-less leg: its two sub-fixtures are
+    // 4a-Linear and 4b-Jira, and step 4 of each asserts a tracker ticket reaches
+    // Done — there is no tracker-less instance to run. So the new leg is covered
+    // by SIX groups, one fewer than the Jira leg. Restated by hand rather than
+    // derived: computing it from the roster would compare the roster with itself.
+    expect([...coveringLeg!("none")]).toEqual([1, 3, 5, 6, 7, 8]);
     expect([...coveringLeg!("zzsynthetic")]).toEqual([]);
   });
 
@@ -395,11 +399,24 @@ describe("AC-STE-445.3 — a registered leg no group rosters is loud, not all-N/
     // roster the leg. So every group must roster the whole registered set,
     // except the one documented by-design exemption. Re-pointing any group's
     // `legs` at a partial literal fails here.
+    // Two exemptions, and they are exempt for DIFFERENT reasons — which is why
+    // this map declares them one by one instead of counting them. An exemption
+    // that appears here without a reason beside it is the drift this arm exists
+    // to catch; an un-updated copy of the leg list would show up as a group
+    // silently dropping a leg it never declared.
     const DECLARED_EXEMPTIONS: Readonly<Record<number, readonly string[]>> = {
       // Group 2's SUT is probe #26, which is vacuous on every non-Linear
-      // tracker. This is the ONLY leg-scoped group, and it is scoped by
-      // capability, not by an un-updated copy of the leg list.
+      // tracker. Scoped by CAPABILITY: no leg can ever be added back, because
+      // the thing under test does not exist off Linear.
       2: ["linear"],
+      // Group 4 (STE-449 audit). Scoped by FIXTURE CONSTITUTION, not by
+      // capability: the group is two tracker-parameterized sub-fixtures whose
+      // step 4 asserts a tracker ticket reaching Done, so it has no tracker-less
+      // instance to run. Steps 1-3 of the `--no-tech` contract ARE
+      // tracker-agnostic, so this exemption is retired the moment someone writes
+      // a tracker-less sub-fixture — unlike group 2's, which is permanent.
+      // Recorded as a coverage gap in specs/notes/follow-ups.md § M121.
+      4: ["linear", "jira"],
     };
     const full = [...(SMOKE_LEGS as readonly string[])].sort();
     const offenders = groups!
