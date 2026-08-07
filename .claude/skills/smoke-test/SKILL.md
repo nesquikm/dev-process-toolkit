@@ -1033,13 +1033,13 @@ Append the following lines to the run summary, in order:
 
 - `M56 runtime checks: PASS (STE-226 + STE-214 + STE-215 verified at runtime)` — all 7 sub-fixtures of groups 1–3 green **on this leg**. Group 1's token is `STE-226`, matching the runtime-check line it actually emits; the older `STE-220` spelling is that group's *diagnostic* prefix and is not greppable as a runtime-check line. This line is a claim about seven sub-fixtures that ran, so it is forfeited by any group nobody reached, not merely by a regression.
 - `M56 runtime checks: <N> regressions surfaced (see findings file)` — 1+ failures; each failure already logged its canonical `STE-<sut> runtime regression: …` diagnostic. Phase 3 (Capture) folds the diagnostics into the findings file under a `## Phase 2.X regressions` heading.
-- The per-group block described below — one `STE-<sut> runtime check: <PASS|FAIL|NOT-REACHED|N/A>` line for each of the eight fixture groups, on every run, with no exceptions.
+- The per-group block described below — one `STE-<sut> runtime check: <PASS|FAIL|NOT-REACHED|N/A>` line for **every** fixture group the canonical roster carries, on every run, with no exceptions. Read the count from the roster rather than from this sentence — the roster is the authority, and a count restated here is a second copy that goes stale the next time a group is added.
 
-**A group that did not execute is never rendered as a pass (STE-425).** Every fixture group carries exactly one of four outcomes — `PASS`, `FAIL`, `NOT-REACHED`, `N/A` — and each group's footer paragraph names the line it contributes. Groups 4–8 spell out only their `PASS` and `FAIL` branches, and that is not a two-outcome exemption: the renderer below owns all four for all eight groups, so an unreached group 6 renders `NOT-REACHED` whether or not its own footer says the word. Groups 1–3 name the branch explicitly because theirs is the silence that was actually absorbed. The aggregate is computed from those eight records and from nothing else, so it can never infer that a group passed from the absence of a complaint about it: a `NOT-REACHED` record fails the run exactly the way a `FAIL` does, and a run that produces no records at all is a FAIL rather than a green run with nothing to say. Before STE-425 the footers for groups 1, 2 and 3 documented a PASS branch only and could render nothing else — which is how the 2026-07-27 Linear leg's unreached group 2 was absorbed into a green aggregate instead of being named.
+**A group that did not execute is never rendered as a pass (STE-425).** Every fixture group carries exactly one of four outcomes — `PASS`, `FAIL`, `NOT-REACHED`, `N/A` — and each group's footer paragraph names the line it contributes. Groups 4–8 spell out only their `PASS` and `FAIL` branches, and that is not a two-outcome exemption: the renderer below owns all four for every group on the roster, so an unreached group 6 renders `NOT-REACHED` whether or not its own footer says the word. Groups 1–3 name the branch explicitly because theirs is the silence that was actually absorbed. The aggregate is computed from those records and from nothing else, so it can never infer that a group passed from the absence of a complaint about it: a `NOT-REACHED` record fails the run exactly the way a `FAIL` does, and a run that produces no records at all is a FAIL rather than a green run with nothing to say. Before STE-425 the footers for groups 1, 2 and 3 documented a PASS branch only and could render nothing else — which is how the 2026-07-27 Linear leg's unreached group 2 was absorbed into a green aggregate instead of being named.
 
 **`NOT-REACHED` and `N/A` are different findings, and collapsing them into one bucket re-creates the same bug one level up.** `NOT-REACHED` means the group applies to this leg and did not run — a real coverage gap the operator owes a decision on (wall-clock exhaustion, an earlier refusal that truncated the chain, a leg that ended early). `N/A` means this leg's by-design roster excludes the group: group 2 is Linear-only because probe #26, its system under test, is vacuous on Jira, so its silence on the Jira leg is correct and costs the run nothing. A single bucket would either forge a gap on every Jira run or hide a genuine Linear-leg gap behind a by-design exemption.
 
-Compute the block instead of tallying it by hand. `adapters/_shared/src/smoke_fixture_groups.ts` — the per-fixture-group sibling of `smoke_verdict.ts`'s per-leg model — holds the canonical eight-group roster with each group's SUT token and leg roster, reconciles the groups this leg actually reported against that roster, renders the head line plus the per-group lines, and returns a non-zero exit status whenever the aggregate is not a pass:
+Compute the block instead of tallying it by hand. `adapters/_shared/src/smoke_fixture_groups.ts` — the per-fixture-group sibling of `smoke_verdict.ts`'s per-leg model — holds the canonical fixture-group roster with each group's SUT token and leg roster, reconciles the groups this leg actually reported against that roster, renders the head line plus the per-group lines, and returns a non-zero exit status whenever the aggregate is not a pass:
 
 ```bash
 # Groups named by neither flag come back NOT-REACHED — or N/A when this leg's
@@ -1052,7 +1052,7 @@ Head line shape: `Fixture groups: <PASS|FAIL> — <n> passed, <n> failed, <n> no
 
 The two M56 lines above aggregate groups 1–3 because their three SUTs (STE-213 / STE-214 / STE-215) shipped together in M55 and roll up under one milestone-level result. Groups 4–7 (M64 cohort) intentionally do NOT roll up to a single `M64 runtime checks:` line — each of the four SUTs (STE-227 / STE-228 / STE-230 / STE-225) ships its own per-FR runtime-check line so a regression in one is operator-visible without scrolling into the per-fixture diagnostics. The runtime-check line each new group contributes is named in the group's footer paragraph below.
 
-Phase 2.X is **shared infrastructure** for runtime regression coverage. Groups 1–3 (M56 cohort, STE-220 / STE-221 / STE-222) pin the M55 SKILL.md-prose fixes (STE-213 / STE-214 / STE-215). Groups 4–7 (M64 cohort, STE-231) pin the M58 / M60 / M61 / M63 runtime contracts (STE-227 / STE-228 / STE-230 / STE-225). Group 8 (M94 cohort) pins the STE-350 nested-spawn allow-list fix. Future SKILL.md-prose fixes (any FR shipping a behavior change via instructional text in `skills/<X>/SKILL.md`) should add their own fixtures here following the `STE-<sut> runtime regression: <fixture-name>` diagnostic shape — naming the system-under-test, not the test FR.
+Phase 2.X is **shared infrastructure** for runtime regression coverage. Groups 1–3 (M56 cohort, STE-220 / STE-221 / STE-222) pin the M55 SKILL.md-prose fixes (STE-213 / STE-214 / STE-215). Groups 4–7 (M64 cohort, STE-231) pin the M58 / M60 / M61 / M63 runtime contracts (STE-227 / STE-228 / STE-230 / STE-225). Group 8 (M94 cohort) pins the STE-350 nested-spawn allow-list fix. Group 9 (M121 cohort, STE-450) pins the identity surfaces that only exist under `mode: none` — probe #13's and probe #73's enforcing arms, plus the probe-#26 skip-reason leak check. Future SKILL.md-prose fixes (any FR shipping a behavior change via instructional text in `skills/<X>/SKILL.md`) should add their own fixtures here following the `STE-<sut> runtime regression: <fixture-name>` diagnostic shape — naming the system-under-test, not the test FR.
 
 #### Fixture group 4 — STE-227 `--no-tech` end-to-end (Linear + Jira)
 
@@ -1237,6 +1237,77 @@ STE-350 runtime regression: nested-spawn-empty-or-denied
 ```
 
 If sub-fixture 8a passes on a leg, append `STE-350 runtime check: PASS` to the run summary line; any failure appends `STE-350 runtime check: FAIL`.
+
+#### Fixture group 9 — STE-321 tracker-less identity surfaces (tracker-less-only)
+
+Three sub-fixtures, and this group is the structural MIRROR of group 2. That group is Linear-only because its system under test goes **vacuous** elsewhere; this one is tracker-less-only because the two probes 9a and 9b exercise **invert** elsewhere rather than merely going quiet. Under any tracker mode gate probe #13 requires exactly the `tracker:` block this group asserts is forbidden, and forbids exactly the `id:` line this group asserts is required; probe #73 likewise requires the plan `id:` to be absent. Neither enforcing arm is reachable from a leg that configures a tracker, however well that leg runs — so this is not the tracker legs' coverage repeated at a different setting, it is coverage nothing else has.
+
+9c is the exception and is stated as one rather than folded in: its subject, probe #26, is the ordinary **vacuity** case — group 2's rationale exactly — and it rides on this group because the leak it checks is only observable where the probe goes quiet. Do not read "invert" as covering all three.
+
+Registering it is also the only evidence the roster's `legs` field is genuinely N-way data. Before this group every roster was either the whole registered leg set or a subset of the two tracker legs, so a two-state flag would have modelled the table exactly; a group rostering `["none"]` alone cannot be expressed that way. Group 2 could not supply that evidence by itself — one exemption on the leg the field was originally written around is what a flag looks like too.
+
+**The three sub-fixtures are independent and fail independently.** Each carries its own named diagnostic, so one failure names *which* identity surface broke instead of reporting the group as generically red. The diagnostic PREFIXES are not one-per-SUT and should not be read as such — 9a and 9b share `STE-321` while naming their respective probes inside their `expected:` lines, and only 9c takes a different prefix. The group's runtime-check line carries `STE-321` — the FR that owns probe #13's bidirectional **`tracker:`** invariant, which is 9a's red-producing input and the surface the group is centred on. Note what that token does NOT claim: the bimodal **`id:`** invariant in the same probe belongs to STE-86, and probe #73's mode-none minted arm to M115's minting cohort. A group spanning three systems under test cannot name them all in one line, so it names the one its own falsifiability rests on.
+
+9c departs from the house shape deliberately and it is worth saying so, because group 3 is NOT the precedent it looks like: there all three sub-fixtures share a single `STE-215 runtime regression:` prefix even though 3c's real subject is probe #37. 9c instead carries its own `STE-238 runtime regression:` prefix, because the convention this phase states is "name the system under test, not the fixture's own FR", and 9c's is genuinely a different FR from 9a's. The group's summary line is unaffected — it is keyed on the roster's `sut`, not on any diagnostic prefix.
+
+##### Sub-fixture 9a — probe #13's enforcing arm (minted `id:` required, `tracker:` block forbidden)
+
+Both directions, because either alone is satisfiable by a probe that never fires at all.
+
+- **Control.** Leave the test project's own FR untouched (minted `id:`, no `tracker:` block — the artifact AC-STE-448.7 already verifies on this leg). Invoke `claude -p /dev-process-toolkit:gate-check` in `../dpt-test-project-none`, capture stdout to `/tmp/dpt-smoke-<tracker>-ste450-control.log`, and assert no `identity_mode_conditional` violation is reported.
+- **Violation.** Stage one extra FR at `../dpt-test-project-none/specs/frs/<TAIL2>.md` carrying (i) a **freshly minted** `id:` — never a copy of an id already on disk, which would trip probe #13's cross-file duplicate-tail pass instead and score this assertion red for the wrong reason, (ii) the mode-invariant frontmatter keys `title` / `milestone` / `status` / `archived_at` / `created_at`, and (iii) a populated `tracker:` block. Invoke and capture to `/tmp/dpt-smoke-<tracker>-ste450-tracker-block.log`. Assert the run reaches `GATE FAILED` **and** the capture carries the probe's own message `mode-none FR carries a tracker: block that should be absent`.
+- Cleanup: remove the staged FR.
+
+**Diagnostic on failure:**
+
+```
+STE-321 runtime regression: <9a-control | 9a-tracker-block>
+  expected: <no identity_mode_conditional violation | GATE FAILED naming the staged FR's tracker: block>
+  actual:   <observed>
+  stdout excerpt (last 20 lines):
+    <tail -20 of the relevant log>
+```
+
+##### Sub-fixture 9b — probe #73's enforcing arm (the minted plan's id self-derives its filename)
+
+The plan-side twin, and the half that an id-only check cannot reach: the filename stem is six of the recorded id's twenty-nine characters, so a plan can carry a perfectly valid `id:` under a stem derived from something else entirely and every id-shape check still passes.
+
+- **Control.** The run's own plan at `../dpt-test-project-none/specs/plan/M_<TAIL>.md` (or its `archive/` path) is left as-is; the control capture from 9a is reused rather than re-spawned. Assert no `plan_identity_mode_conditional` violation is reported.
+- **Violation.** Stage one extra plan file whose stem is a **valid but different** minted key from the one its own frontmatter `id:` derives — mint a second id, name the file from the first, record the second. Invoke and capture to `/tmp/dpt-smoke-<tracker>-ste450-plan-stem.log`. Assert `GATE FAILED` **and** the probe's message `mode-none minted plan's id: does not derive its own filename`.
+- Cleanup: remove the staged plan.
+
+Do NOT stage this violation by renaming a sequential `M<N>.md` into place: a sequential tracker-less plan introduced today is classified `fresh` by probe #73's git-provenance arm and fails for that reason instead, which is a different row with a different remedy and would score this assertion green-for-the-wrong-reason in reverse.
+
+**Diagnostic on failure:**
+
+```
+STE-321 runtime regression: <9b-control | 9b-plan-stem>
+  expected: <no plan_identity_mode_conditional violation | GATE FAILED naming the staged plan's non-deriving id>
+  actual:   <observed>
+  stdout excerpt (last 20 lines):
+    <tail -20 of the relevant log>
+```
+
+##### Sub-fixture 9c — the cross-mode skip-reason leak check
+
+The cheapest of the three and the one pinning a real cross-mode leak: a skip reason authored for the tracker case can survive into a mode where the remedy it names is nonsense. Probe #26 goes vacuous here — its system under test needs an adapter declaring Schema M `project_milestone: true`, and a tracker-less project has no adapter at all — so whatever it says about itself on this leg is said to a project that can never act on it.
+
+- Assert `grep -c 'require Linear MCP' /tmp/dpt-smoke-<tracker>-ste450-control.log` is `0`. The phrase exists in this repository only as a negative pin, so any occurrence in a capture is a fresh paraphrase — which is exactly the F9 finding STE-238 was written for.
+- Assert the canonical rendering is the one the shared helper produces, by running it rather than by restating it: `bun -e` over `adapters/_shared/src/tracker_probe_skip_reason.ts`, calling `renderProbeSkipReason` with cause `mode_none`, prints a line naming `mode: none` as the cause and containing no MCP remedy. That output is the byte-checkable arbiter; a skip line in the capture that speaks for probe #26 must agree with it.
+
+> **Read this before recording 9c as coverage of the routing claim.** `renderProbeSkipReason` has **no production caller**. Probe #26's mode-none path returns an empty report and emits no text at all, so "the skip text routes through the shared renderer" is enforced today as a **directive** in `plugins/dev-process-toolkit/skills/gate-check/SKILL.md`, not as a wired call — a model that ignores the directive produces no skip line for the first assertion to catch, and only the forbidden-phrase assertion still bites. The positive half is therefore conditional by construction and 9c does not claim otherwise. Recorded at `specs/notes/follow-ups.md` § 0g; closing it means wiring the probe, which is outside STE-450's scope.
+
+**Diagnostic on failure:**
+
+```
+STE-238 runtime regression: 9c-skip-reason-leak
+  expected: no `require Linear MCP` in the capture; any probe #26 skip line agrees byte-for-byte with renderProbeSkipReason(cause: mode_none)
+  actual:   <observed line>
+  stdout excerpt (last 20 lines):
+    <tail -20 /tmp/dpt-smoke-<tracker>-ste450-control.log>
+```
+
+If all three sub-fixtures pass, append `STE-321 runtime check: PASS` to the run summary line; any sub-fixture failure appends `STE-321 runtime check: FAIL`, and a group that never executed appends `STE-321 runtime check: NOT-REACHED` rather than nothing at all. On a tracker leg the group is n/a by design — its probes' enforcing arms do not exist there — and appends `STE-321 runtime check: N/A`, which is not a gap; § Phase 2.X summary line keeps the two apart.
 
 ### Phase 2.Y — End-of-run chain-integrity assertion (STE-355)
 

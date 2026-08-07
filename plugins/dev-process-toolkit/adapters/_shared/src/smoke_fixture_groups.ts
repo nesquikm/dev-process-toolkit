@@ -80,10 +80,22 @@ export type SmokeLeg = (typeof SMOKE_LEGS)[number];
  * STE-449 AUDIT RESULT, recorded because the shape reads as a regression:
  * group 4 is NOT on the alias. It is the one group whose exclusion is a
  * property of the fixture rather than of the system under test — see its
- * rationale. Every other non-`ALL_LEGS` entry (group 2) is excluded because its
- * SUT is vacuous elsewhere. The two reasons are different and the distinction
- * is load-bearing: group 2 will never gain a leg, group 4 gains one the moment
- * a tracker-less sub-fixture is written.
+ * rationale. Group 2 is excluded because its SUT is vacuous elsewhere. The two
+ * reasons are different and the distinction is load-bearing: group 2 will never
+ * gain a leg, group 4 gains one the moment a tracker-less sub-fixture is
+ * written.
+ *
+ * STE-450 adds a THIRD reason class, and it points the other way. Groups 2 and
+ * 4 are exempt FROM the tracker-less leg; group 9 is exempt from the TRACKER
+ * legs, because the two probes its first two sub-fixtures exercise do not
+ * merely go vacuous under a tracker — they INVERT, demanding the opposite of
+ * what they demand under `mode: none`. (Its third sub-fixture rides along on
+ * the ordinary vacuity case; the group's roster is set by the inverting pair,
+ * which is why the rationale names only those two.) That inversion is why a
+ * partial roster here is evidence rather than an exception: until group 9
+ * existed, every roster was either the full alias or a subset of
+ * `{linear, jira}`, so nothing distinguished a genuinely N-way `legs` field
+ * from a two-state flag wearing a list's clothing.
  */
 const ALL_LEGS: readonly SmokeLeg[] = SMOKE_LEGS;
 
@@ -157,6 +169,13 @@ export const CANONICAL_FIXTURE_GROUPS: readonly FixtureGroupSpec[] = [
     legs: ALL_LEGS,
     rationale:
       "asserts a nested claude -p completes non-empty under the settings allow-list — a permission-layer property with no tracker surface",
+  },
+  {
+    group: 9,
+    sut: "STE-321",
+    legs: ["none"],
+    rationale:
+      "probes #13 and #73 INVERT under a tracker mode — there they demand a tracker block and forbid the minted id — so their tracker-less enforcing arms are unreachable from any leg that configures a tracker",
   },
 ];
 
@@ -246,7 +265,7 @@ function appliesToLeg(spec: FixtureGroupSpec, leg: string): boolean {
  * order. Empty when no group covers it.
  *
  * Roster-literal on purpose: this deliberately does NOT go through
- * `appliesToLeg`, whose everything-applies fallback would answer "all eight"
+ * `appliesToLeg`, whose everything-applies fallback would answer "every group"
  * for a leg no group has ever heard of. That fallback is the right answer to
  * `appliesToLeg`'s question ("should this group have run?" — err toward keeping
  * the gap visible); it is the wrong answer to THIS one ("which groups signed up
@@ -493,7 +512,7 @@ if (import.meta.main) {
     // The second boundary refusal, and it guards the OTHER direction. The check
     // above rejects a leg `SMOKE_LEGS` does not know; this one rejects a leg
     // `SMOKE_LEGS` DOES know that no fixture group rosters. Such a leg clears
-    // the guard above, then fails `appliesToLeg` for all eight groups, so every
+    // the guard above, then fails `appliesToLeg` for every group, so every
     // record reconciles to `not-applicable`, `fixtureGroupsAggregate` calls that
     // set a pass, and the CLI exits 0 — a leg that checked nothing reporting
     // green. That is this module's own defect one level up, and it becomes
@@ -525,7 +544,7 @@ if (import.meta.main) {
     // drops it by construction (it folds onto the canonical roster). Dropping is
     // the safe direction — the group the caller MEANT stays `not-reached` — but
     // dropping SILENTLY is the failure mode this whole module exists to remove,
-    // so name it. rc is unaffected: the eight canonical records still decide it.
+    // so name it. rc is unaffected: the canonical records still decide it.
     const known = new Set(CANONICAL_FIXTURE_GROUPS.map((spec) => spec.group));
     const stray = [...new Set(observed.map((entry) => entry.group))]
       .filter((group) => !known.has(group))
