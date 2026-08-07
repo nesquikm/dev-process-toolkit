@@ -27,6 +27,22 @@ reproduces should be deleted with a one-line reason rather than left to rot.
 
 ## From M121 implementation (2026-08-07)
 
+### 0. Two live inconsistencies STE-446 created or left behind
+
+Both were surfaced at STE-446's commit gate and deliberately not fixed there (outside every AC of that FR). Recording them because a gate report is scrollback and this file is not.
+
+**(a) `smoke_fixture_groups.ts`'s `USAGE` string contradicts its own refusal line, in the same CLI output.** After STE-446 widened the leg set, the `--leg` guard correctly refuses with all three legs named, while the usage line printed immediately below it still reads `--leg <linear|jira>`. A single invocation therefore prints two different supported-set claims. Observed directly in the refactorer's CLI transcript. STE-447's AC.8 covers the *`smoke_verdict.ts`* usage string; **check whether its scope extends to this one or whether this is a separate surface** — they are different files with the same defect.
+
+**(b) `tests/m116-ste-420-verdict-artifact.test.ts` hand-rolls a brace-group parser that is now a near-copy of the shared one, with a WEAKER regex.** The test uses `/^\{\n([\s\S]*?)^\} &/gm`; `parseSpawnFenceGroups` in `adapters/_shared/src/leg_prose_surfaces.ts` uses the tab-tolerant `/^\{[ \t]*\n([\s\S]*?)^\}[ \t]*&/gm`. They agree today and would diverge the moment the driver's spawn fence gained trailing whitespace on a brace line — the test would stop finding groups the parser still finds, silently. Pointing that test at the shared parser retires the divergence.
+
+### 0b. Two tooling hazards for anyone running mutation probes
+
+This milestone's method is "mutate, observe RED, restore". Two ways that goes wrong, both hit live:
+
+**Restore with an absolute path, never a relative one after a `cd`.** A probe that ends `cp /tmp/backup .claude/skills/…/SKILL.md` will silently miss if an earlier `cd` in the same compound command changed the working directory — the `cp` fails, the `&&` chain stops, and the **mutated file stays on disk**. Hit once this session; caught only by reading the error text. Use absolute paths on both sides of the restore and verify with `git status` afterwards rather than trusting the copy.
+
+**`bun test -t "<name>"` treats its argument as a REGEX.** Filtering on a test whose name contains parentheses — `-t "direction (i)"` — matches zero tests and reports `matched 0 tests`, which reads like a passing filter rather than a failed one. Use a distinctive literal substring without regex metacharacters.
+
 ### 1. Cross-commit atomicity is NOT enforced — AC-STE-446.7 ships with one arm
 
 **This is a known, deliberate absence. Do not read the green suite as covering it.**
