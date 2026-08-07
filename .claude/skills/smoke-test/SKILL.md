@@ -904,7 +904,7 @@ CAP_ASSERT=${PLUGIN_DIR}/adapters/_shared/src/capability_row_assert.ts
 
 The runner prints one line — `<expectation>: <ok|fail> <key>=<present|absent>(assistant=N,post-refusal=N,raw=N)` — so a failing fixture's diagnostic can quote the assistant-vs-raw split directly and the operator can see at a glance whether the old method would have disagreed. Unit coverage: `tests/m116-ste-421-assistant-scoped-capability.test.ts`.
 
-#### Fixture group 1 — STE-226 spec-write marker carve-out (Linear + Jira)
+#### Fixture group 1 — STE-226 spec-write marker carve-out (Linear + Jira + tracker-less)
 
 Two sub-fixtures verify that the byte-checkable marker (`<dpt:auto-approve>v1</dpt:auto-approve>`) is the **only** trigger for `/spec-write`'s draft + commit auto-apply path. STE-213 (M55) and STE-220 (M56) attempted the same carve-out via prose-only contracts and both falsified end-to-end across four smoke runs; STE-226 (M59) replaces the prose-only detection with this byte-checkable marker. The two sub-fixtures together close both directions of the failure surface — marker-present must auto-apply (1a), marker-absent must NOT auto-apply (1b).
 
@@ -950,7 +950,7 @@ If both sub-fixtures pass, append `STE-226 runtime check: PASS` to the run summa
 
 #### Fixture group 2 — STE-221 probe #26 ## Notes scanner (Linear-only)
 
-Three sub-fixtures, each writing a temporary FR file under `specs/frs/`, invoking `claude -p /dev-process-toolkit:gate-check`, capturing stdout, then cleaning up. Linear leg only — probe #26 is vacuous on Jira (adapter Schema M `project_milestone: false`).
+Three sub-fixtures, each writing a temporary FR file under `specs/frs/`, invoking `claude -p /dev-process-toolkit:gate-check`, capturing stdout, then cleaning up. Linear leg only — probe #26 needs an adapter declaring Schema M `project_milestone: true`; Jira declares `false` and a tracker-less project has no adapter at all.
 
 ##### Sub-fixture 2a — positive (canonical capability key)
 
@@ -985,9 +985,9 @@ STE-214 runtime regression: <sub-fixture-name>
 
 If all three pass, append `STE-214 runtime check: PASS` to the run summary line; any sub-fixture failure appends `STE-214 runtime check: FAIL`. On the Linear leg a group that never executed appends `STE-214 runtime check: NOT-REACHED` — that is the exact line the 2026-07-27 Linear leg owed and did not emit. On the Jira leg the group is n/a by design (probe #26 is vacuous there) and appends `STE-214 runtime check: N/A`, which is not a gap; § Phase 2.X summary line keeps the two apart.
 
-#### Fixture group 3 — STE-222 cross-cutting drift propagation (Linear + Jira)
+#### Fixture group 3 — STE-222 cross-cutting drift propagation (Linear + Jira + tracker-less)
 
-Three sub-fixtures. Both legs run — `/implement`'s Phase 4b' propagation hook is adapter-agnostic.
+Three sub-fixtures. Every rostered leg runs — `/implement`'s Phase 4b' propagation hook is adapter-agnostic.
 
 ##### Sub-fixture 3a — positive (deletion ⇒ propagation commit)
 
@@ -1106,9 +1106,9 @@ STE-227 runtime regression: <fixture-name>
 
 If all 8 sub-fixture steps (4a + 4b combined) pass, append `STE-227 runtime check: PASS` to the run summary line; any step failure appends `STE-227 runtime check: FAIL` and the per-step diagnostic above is the operator-visible signal for triage.
 
-#### Fixture group 5 — STE-228 branch-gate marker contract (Linear + Jira)
+#### Fixture group 5 — STE-228 branch-gate marker contract (Linear + Jira + tracker-less)
 
-Two sub-fixtures (5a marker present + 5b marker absent) verify both directions of the branch-gate marker contract introduced by STE-228 (M61) — auto-apply when the `<dpt:auto-approve>v1</dpt:auto-approve>` marker is present on the proposing skill's prompt body, halt interactively when the marker is absent. Both sub-fixtures run on each of Linear + Jira (4 fixture instances per smoke run).
+Two sub-fixtures (5a marker present + 5b marker absent) verify both directions of the branch-gate marker contract introduced by STE-228 (M61) — auto-apply when the `<dpt:auto-approve>v1</dpt:auto-approve>` marker is present on the proposing skill's prompt body, halt interactively when the marker is absent. Both sub-fixtures run on every rostered leg (2 sub-fixtures x 3 legs = 6 fixture instances per smoke run).
 
 ##### Sub-fixture 5a — marker present (auto-apply path)
 
@@ -1153,9 +1153,9 @@ If both sub-fixtures pass on a leg, append `STE-228 runtime check: PASS` to the 
 
 **Coverage-gap note (deferred to a future milestone).** Per-skill expansion of group 5 to `/spec-archive` and `/ship-milestone` is deferred — both are explicitly NOT in the canonical chain (running them on the test project would corrupt real data: `/spec-archive` mutates the real `specs/frs/` tree; `/ship-milestone` writes a release commit to the real plugin repo). The canonical chain transitively exercises STE-228's universal branch gate for `/setup` (Phase 1 bootstrap), `/spec-write` (Phase 2 step 2), and `/implement` (Phase 2 step 3) — three of the five commit-producing skills. Drift in `/spec-archive` or `/ship-milestone`'s gate wiring is currently caught only by their bun unit tests; a future milestone can add an out-of-canonical-chain probe-style fixture (similar to STE-221's `/gate-check` invocations) once a non-destructive harness for the remaining two skills is in place.
 
-#### Fixture group 6 — STE-230 spec-research subagent runtime (Linear + Jira)
+#### Fixture group 6 — STE-230 spec-research subagent runtime (Linear + Jira + tracker-less)
 
-Single sub-fixture (Linear + Jira, runs on both legs). The smoke driver does not spawn a new child — the assertion runs against the existing `/tmp/dpt-smoke-<tracker>-spec-write.log` from Phase 2 step 2.
+Single sub-fixture; runs on every rostered leg. The smoke driver does not spawn a new child — the assertion runs against the existing `/tmp/dpt-smoke-<tracker>-spec-write.log` from Phase 2 step 2.
 
 **Source:** `/tmp/dpt-smoke-<tracker>-spec-write.log` (already captured during Phase 2 step 2 — `/spec-write` invokes the spec-research forked subagent during the `## 1) Frame the goal` retrieval step per STE-230).
 
@@ -1177,9 +1177,9 @@ STE-230 runtime regression: spec-research-no-audit-row
 
 If the assertion passes on a leg, append `STE-230 runtime check: PASS` to the run summary line; any failure appends `STE-230 runtime check: FAIL`.
 
-#### Fixture group 7 — STE-225 TDD orchestrator forks runtime (Linear + Jira)
+#### Fixture group 7 — STE-225 TDD orchestrator forks runtime (Linear + Jira + tracker-less)
 
-Single sub-fixture (Linear + Jira, runs on both legs). The smoke driver does not spawn a new child — the assertion runs against the existing `/tmp/dpt-smoke-<tracker>-implement.log` from Phase 2 step 3.
+Single sub-fixture; runs on every rostered leg. The smoke driver does not spawn a new child — the assertion runs against the existing `/tmp/dpt-smoke-<tracker>-implement.log` from Phase 2 step 3.
 
 **Source:** `/tmp/dpt-smoke-<tracker>-implement.log` (already captured during Phase 2 step 3 — `/implement` invokes the TDD orchestrator inline, which forks `tdd-test-writer` + `tdd-implementer` + `tdd-refactorer` per STE-225, each emitting a `tdd-result` fenced block to its parent log).
 
@@ -1203,7 +1203,7 @@ STE-225 runtime regression: tdd-result-blocks-incomplete
 
 The `git log excerpt` line is STE-225-specific (mirrors STE-222's group 3 precedent): `/implement` failures often surface in `git log` shape (no implementation commit, mid-cycle abort) rather than stdout content alone, so the diagnostic carries both. If the assertion passes on a leg, append `STE-225 runtime check: PASS` to the run summary line; any failure appends `STE-225 runtime check: FAIL`.
 
-#### Fixture group 8 — STE-350 nested `claude -p` spawn allow-list (Linear + Jira)
+#### Fixture group 8 — STE-350 nested `claude -p` spawn allow-list (Linear + Jira + tracker-less)
 
 One live sub-fixture (8a) reproduces a **live nested spawn** — the runtime counterpart to the static `/gate-check` probe `spawn_pattern_allowlist` (STE-351.2's fence). The M94 root cause: the tracked `.claude/settings.json` `permissions.allow` array omitted the child-spawn pattern `Bash(claude:*)`, so the auto-mode permission classifier denied every nested spawn headless — a 0-byte grandchild capture beneath weeks of green runs. This group asserts the patched allow-list actually admits a nested spawn at runtime. The matching negative — pattern removed ⇒ denial **caught** rather than silently passed — was **retired as a live fixture** by STE-425 and re-homed as a deterministic check in `bun test`; see § Why the negative half is not a live sub-fixture below.
 

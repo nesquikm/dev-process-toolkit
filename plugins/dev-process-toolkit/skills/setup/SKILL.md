@@ -187,11 +187,11 @@ If the user picks 2–4, run the full numbered flow in `docs/setup-reference.md`
 
 ### 7c. Branch-naming template
 
-default: `{type}/m{N}-{slug}` — the single seeded default in both tracker mode and `mode: none`; proceed with it if no answer is supplied. Every resolved `branch_template` value appends `## /setup audit` entry recording `step:7c value:"<resolved>" reason:"<user-supplied|default applied>"` — provenance per resolution, not per run.
+default: `{type}/m{N}-{slug}` — the single seeded default, and it is **seeded only where Schema L exists, i.e. in tracker mode**; proceed with it if no answer is supplied. Every resolved `branch_template` value appends `## /setup audit` entry recording `step:7c value:"<resolved>" reason:"<user-supplied|default applied>"` — provenance per resolution, not per run.
 
 - Empty response ⇒ accept default.
 - Non-empty response ⇒ use verbatim (`/implement` sanitizes LLM output at render time).
-- Write the resolved value as `branch_template: <value>` in Schema L. `mode: none` projects that elected `1` in 7b: skip writing; branch automation stays disabled.
+- Write the resolved value as `branch_template: <value>` in Schema L. `mode: none` projects that elected `1` in 7b: **skip writing** — Schema L *is* the `## Task Tracking` section (step 7b above), and a tracker-less project emits no such section, so there is nowhere for the key to go. **That disables ONE of the two mechanisms reading the key, not both** (the blunter claim this bullet used to carry was false for the second, and contradicted the seeded-default line above): `/implement` § 0.b″'s branch proposal is gated on Schema L and is **skipped entirely**, while the universal pre-commit branch gate (`requireCommittableBranch`, called before staging by `/spec-write`, `/setup`, `/spec-archive`, `/ship-milestone`, `/deps`, `/upgrade`) **has no tracker awareness and never reads Schema L** — it keeps running, taking its name from each skill's `branchNameFor(...)` over `canonicalBranchTemplate({ milestone })` in code. `{N}` still resolves: a minted `M_<tail>` id parses as an epic token, so `M_WV047W` ⇒ `feat/m_wv047w-<slug>`. **What `/setup` WRITES does not change** — no key is emitted under `mode: none`, exactly as before.
 - **Skip condition:** if CLAUDE.md already has `branch_template:`, do not re-ask.
 
 See `docs/setup-tracker-mode.md` § Branch template for the long-form prompt and placeholder substitution rules.

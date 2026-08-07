@@ -64,15 +64,26 @@ export type SmokeLeg = (typeof SMOKE_LEGS)[number];
  * diagnostic convention is "name the SUT, not the fixture's own FR", so the
  * roster follows the line, not the heading.
  *
- * `legs` is the by-design leg roster. Everything runs on every registered leg
- * except group 2, which is Linear-only because probe #26 — its system under
- * test — is vacuous on Jira.
+ * `legs` is the by-design leg roster and `rationale` is the one-line reason it
+ * takes that shape (STE-449). The rationale is not decoration: before STE-449
+ * seven of the eight rosters were `ALL_LEGS` by inheritance rather than by
+ * derivation, so nobody could tell a group that had been audited onto every leg
+ * from one that had simply never been asked. Every entry now states what its
+ * assertion depends on, which is what makes a future widening reviewable.
  *
  * STE-446: this alias IS `SMOKE_LEGS`, not a parallel literal. The previous
  * hand-written copy is precisely why all eight rosters stayed static when the
  * enum was mutated during the M121 design measurement — the roster read the
  * copy and never saw the new leg. Aliasing keeps the rosters genuinely derived,
  * so widening the enum widens the coverage with it.
+ *
+ * STE-449 AUDIT RESULT, recorded because the shape reads as a regression:
+ * group 4 is NOT on the alias. It is the one group whose exclusion is a
+ * property of the fixture rather than of the system under test — see its
+ * rationale. Every other non-`ALL_LEGS` entry (group 2) is excluded because its
+ * SUT is vacuous elsewhere. The two reasons are different and the distinction
+ * is load-bearing: group 2 will never gain a leg, group 4 gains one the moment
+ * a tracker-less sub-fixture is written.
  */
 const ALL_LEGS: readonly SmokeLeg[] = SMOKE_LEGS;
 
@@ -83,17 +94,70 @@ export interface FixtureGroupSpec {
   sut: string;
   /** The legs this group is expected to run on. */
   legs: readonly SmokeLeg[];
+  /**
+   * One line: what this group's assertion depends on, and therefore why its
+   * roster is what it is. Required and non-empty for every group (STE-449).
+   */
+  rationale: string;
 }
 
 export const CANONICAL_FIXTURE_GROUPS: readonly FixtureGroupSpec[] = [
-  { group: 1, sut: "STE-226", legs: ALL_LEGS },
-  { group: 2, sut: "STE-214", legs: ["linear"] },
-  { group: 3, sut: "STE-215", legs: ALL_LEGS },
-  { group: 4, sut: "STE-227", legs: ALL_LEGS },
-  { group: 5, sut: "STE-228", legs: ALL_LEGS },
-  { group: 6, sut: "STE-230", legs: ALL_LEGS },
-  { group: 7, sut: "STE-225", legs: ALL_LEGS },
-  { group: 8, sut: "STE-350", legs: ALL_LEGS },
+  {
+    group: 1,
+    sut: "STE-226",
+    legs: ALL_LEGS,
+    rationale:
+      "the auto-approve marker gates /spec-write's draft and commit prompts, which exist in every mode; no assertion reads a tracker",
+  },
+  {
+    group: 2,
+    sut: "STE-214",
+    legs: ["linear"],
+    rationale:
+      "probe #26's milestone-attach keys need an adapter declaring Schema M project_milestone: true — Linear alone; Jira declares false and a tracker-less project has no adapter at all",
+  },
+  {
+    group: 3,
+    sut: "STE-215",
+    legs: ALL_LEGS,
+    rationale:
+      "the Phase 4b' propagation hook and probe #37 read cross-cutting spec files and git history; the SKILL states the hook is adapter-agnostic",
+  },
+  {
+    group: 4,
+    sut: "STE-227",
+    legs: ["linear", "jira"],
+    rationale:
+      "constituted as exactly two tracker-parameterized sub-fixtures (4a/4b) whose step-4 assertion reads a tracker ticket reaching Done; no tracker-less sub-fixture exists to run",
+  },
+  {
+    group: 5,
+    sut: "STE-228",
+    legs: ALL_LEGS,
+    rationale:
+      "STE-228's universal pre-commit branch gate has no tracker awareness and /spec-write calls it unconditionally, so the marker contract fires identically with no tracker configured",
+  },
+  {
+    group: 6,
+    sut: "STE-230",
+    legs: ALL_LEGS,
+    rationale:
+      "spec-research retrieves related FRs from the specs/frs/ tree on disk; none of its three audit rows depends on a tracker",
+  },
+  {
+    group: 7,
+    sut: "STE-225",
+    legs: ALL_LEGS,
+    rationale:
+      "counts tdd-result fences in the /implement capture; the orchestrator's fork contract is tracker-independent",
+  },
+  {
+    group: 8,
+    sut: "STE-350",
+    legs: ALL_LEGS,
+    rationale:
+      "asserts a nested claude -p completes non-empty under the settings allow-list — a permission-layer property with no tracker surface",
+  },
 ];
 
 // --- records ---------------------------------------------------------------

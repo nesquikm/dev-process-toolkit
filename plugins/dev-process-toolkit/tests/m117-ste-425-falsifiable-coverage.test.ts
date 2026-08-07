@@ -564,6 +564,10 @@ interface ObservedGroup {
 }
 interface FixtureGroupsModule {
   FIXTURE_GROUP_OUTCOMES: readonly string[];
+  // Declared because the heading-annotation test reads it. It was being used
+  // off an interface that did not list it — `bun test` does not typecheck, so
+  // the gate stayed green on a property TypeScript believed absent.
+  SMOKE_LEGS: readonly string[];
   CANONICAL_FIXTURE_GROUPS: readonly GroupSpec[];
   reconcileFixtureGroups(
     observed: readonly ObservedGroup[],
@@ -636,15 +640,60 @@ describe("AC-STE-425.2 — the outcome vocabulary", () => {
       (s) => s.legs.length === 1 && s.legs[0] === "linear",
     ).map((s) => s.group);
     expect(linearOnly).toEqual([2]);
-    // STE-446 re-pointed the seven full rosters at `SMOKE_LEGS` itself, so the
-    // expected set is RE-STATED BY HAND here rather than read off the enum:
-    // deriving it would compare the enum against the enum and could never fail.
-    // Widening the leg set is meant to land here and be re-stated deliberately.
+  });
+
+  // STE-449 replaced a two-bucket check ("group 2, and all the rest") with the
+  // full eight-row table. The old shape could not distinguish a group that had
+  // been AUDITED onto every leg from one that had merely inherited the alias,
+  // and it went RED the moment a second exemption existed for a different
+  // reason — which is what the audit found. Every roster is RE-STATED BY HAND:
+  // deriving it from `SMOKE_LEGS` would compare the enum against the enum and
+  // could never fail. Widening the leg set is meant to land here.
+  test("every group's roster matches the audited table, row by row", () => {
+    const m = mod();
+    const EXPECTED: Readonly<Record<number, readonly string[]>> = {
+      1: ["jira", "linear", "none"],
+      2: ["linear"],
+      3: ["jira", "linear", "none"],
+      // Group 4 is two tracker-parameterized sub-fixtures (4a/4b) whose step 4
+      // asserts a tracker ticket reaching Done — no tracker-less instance.
+      4: ["jira", "linear"],
+      5: ["jira", "linear", "none"],
+      6: ["jira", "linear", "none"],
+      7: ["jira", "linear", "none"],
+      8: ["jira", "linear", "none"],
+    };
+    const actual = Object.fromEntries(
+      m.CANONICAL_FIXTURE_GROUPS.map((s) => [s.group, [...s.legs].sort()]),
+    );
+    expect(actual).toEqual(EXPECTED as unknown as typeof actual);
+  });
+
+  // AC-STE-449.1's own pin. A roster without a stated reason is the state this
+  // FR existed to end, so emptiness is the failure — not merely a missing field.
+  test("every group carries a non-empty, non-placeholder rationale", () => {
+    const m = mod();
+    expect(m.CANONICAL_FIXTURE_GROUPS).toHaveLength(8);
     for (const spec of m.CANONICAL_FIXTURE_GROUPS) {
-      if (spec.group !== 2) {
-        expect([...spec.legs].sort()).toEqual(["jira", "linear", "none"]);
-      }
+      const why = (spec as { rationale?: unknown }).rationale;
+      expect({ group: spec.group, isString: typeof why === "string" }).toEqual({
+        group: spec.group,
+        isString: true,
+      });
+      // A one-word or whitespace rationale satisfies "non-empty" while saying
+      // nothing, so the floor is a real clause rather than a truthiness check.
+      expect({
+        group: spec.group,
+        words: String(why).trim().split(/\s+/).length >= 6,
+      }).toEqual({ group: spec.group, words: true });
     }
+    // Distinctness: eight copies of one sentence would clear every check above.
+    const unique = new Set(
+      m.CANONICAL_FIXTURE_GROUPS.map((s) =>
+        String((s as { rationale?: unknown }).rationale).trim(),
+      ),
+    );
+    expect(unique.size).toBe(8);
   });
 });
 
@@ -663,14 +712,116 @@ D("AC-STE-425.2 — the roster agrees with the SKILL it models", () => {
     }
   });
 
-  test("every roster entry's `legs` agrees with the group heading's annotation", () => {
+  // STE-449 REWROTE THIS TEST, and the reason is the finding that produced it.
+  //
+  // It used to assert `heading matches /Linear \+ Jira/` for every non-Linear-
+  // only group. That is satisfied by the substring, so it stayed green while
+  // STE-446 widened all seven of those rosters to three legs and left every
+  // heading still announcing two — the headings were stale for an entire
+  // milestone and the assertion pinning them could not notice. It was scanning
+  // for a shape the content no longer took.
+  //
+  // The repair is to DERIVE the expected annotation from the roster instead of
+  // matching a fragment of it: a group that gains or loses a leg without its
+  // heading being updated is now RED, in both directions.
+  test("every group heading enumerates exactly its own roster", () => {
     const m = mod();
     const slices = fixtureGroupSlices(SKILL!);
-    for (const spec of m.CANONICAL_FIXTURE_GROUPS) {
+    expect(slices.size).toBe(8); // non-vacuity: the parse found every block
+
+    // Operator-facing label per registered leg. A leg added to `SMOKE_LEGS`
+    // without a label lands here as `undefined` and fails loudly rather than
+    // rendering a heading nobody can read.
+    const LABELS: Readonly<Record<string, string>> = {
+      linear: "Linear",
+      jira: "Jira",
+      none: "tracker-less",
+    };
+    expect(
+      (m.SMOKE_LEGS as readonly string[]).filter((leg) => !LABELS[leg]),
+    ).toEqual([]);
+
+    const annotationFor = (legs: readonly string[]): string => {
+      // Registry order, never roster order — so two groups with the same set
+      // cannot disagree on how they spell it.
+      const ordered = (m.SMOKE_LEGS as readonly string[]).filter((leg) =>
+        legs.includes(leg),
+      );
+      const labels = ordered.map((leg) => LABELS[leg]!);
+      return labels.length === 1 ? `${labels[0]}-only` : labels.join(" + ");
+    };
+
+    const mismatches = m.CANONICAL_FIXTURE_GROUPS.map((spec) => {
       const heading = (slices.get(spec.group) ?? "").split("\n")[0] ?? "";
-      const linearOnly = /Linear-only/i.test(heading);
-      expect(spec.legs.length === 1).toBe(linearOnly);
-      if (!linearOnly) expect(heading).toMatch(/Linear \+ Jira/);
+      const want = `(${annotationFor(spec.legs as readonly string[])})`;
+      return heading.includes(want)
+        ? null
+        : { group: spec.group, want, heading };
+    }).filter((entry) => entry !== null);
+    expect(mismatches).toEqual([]);
+  });
+
+  // THE HEADING REPAIR ALONE WAS NOT ENOUGH, and that is worth its own test.
+  // STE-449 corrected the eight heading annotations — and the body prose
+  // immediately beneath FOUR of them went on asserting the retired two-leg
+  // roster, pinned by nothing. Group 5, the group this FR was written about,
+  // even carried the arithmetic: "4 fixture instances per smoke run", when two
+  // sub-fixtures over three legs is six. The assertion above reads only
+  // `split("\n")[0]`, so it could not see any of it. Same stale-after-widening
+  // defect, one line further down. This one reads the BODY.
+  // A ROSTER CLAIM, NOT THE WORDS "both legs". The first draft banned the
+  // bare phrase and flagged two bodies that are correct: group 8's dated
+  // "MEASURED on both legs of 2026-07-27" (a record of a run that really did
+  // have two legs — history, not a roster claim) and group 1's STE-294
+  // cross-tracker symmetry assertion. Both are legitimate; the second is a
+  // known gap recorded at follow-ups § 0f(d) and is the FR author's call, not
+  // a phrasing fix. So this matches the operative shape — a present-tense
+  // statement of which legs the group RUNS ON — per docs/patterns.md § 31.
+  const STALE_ROSTER_CLAIMS: readonly (readonly [RegExp, string])[] = [
+    [/\bruns? on both legs\b/i, "runs on both legs"],
+    [/\bBoth legs run\b/i, "Both legs run"],
+    [/\bon each of Linear \+ Jira\b/i, "on each of Linear + Jira"],
+    // `Linear + Jira` NOT continuing into a third leg — the heading form
+    // `Linear + Jira + tracker-less` is legitimate and must not match.
+    [/Linear \+ Jira(?! \+)/, "Linear + Jira"],
+  ];
+
+  test("no group BODY still states the two-leg roster its heading retired", () => {
+    const m = mod();
+    const slices = fixtureGroupSlices(SKILL!);
+    const offenders = m.CANONICAL_FIXTURE_GROUPS.flatMap((spec) => {
+      const body = (slices.get(spec.group) ?? "").split("\n").slice(1).join("\n");
+      expect(body.length).toBeGreaterThan(0); // non-vacuity: the slice has text
+      return STALE_ROSTER_CLAIMS.filter(([re]) => re.test(body)).map(
+        ([, label]) => `group ${spec.group}: "${label}"`,
+      );
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  // Narrowing an assertion and blinding it are the same edit, so the matcher
+  // is checked against the four strings it was built to catch — the ACTUAL
+  // pre-repair text of groups 3, 5, 6 and 7. Without this, deleting a pattern
+  // would leave the test above green and silent.
+  test("the stale-roster matcher still bites the text it was built for", () => {
+    const PRE_REPAIR = [
+      "Three sub-fixtures. Both legs run — `/implement`'s Phase 4b' hook is adapter-agnostic.",
+      "Both sub-fixtures run on each of Linear + Jira (4 fixture instances per smoke run).",
+      "Single sub-fixture (Linear + Jira, runs on both legs).",
+    ];
+    for (const text of PRE_REPAIR) {
+      const matched = STALE_ROSTER_CLAIMS.some(([re]) => re.test(text));
+      expect({ text, matched }).toEqual({ text, matched: true });
+    }
+    // And the two legitimate forms must NOT match, or the test above is a
+    // tripwire that fires on correct prose.
+    for (const ok of [
+      "MEASURED on both legs of 2026-07-27, with `Bash(claude:*)` absent.",
+      "runs on every rostered leg",
+      "(Linear + Jira + tracker-less)",
+    ]) {
+      const matched = STALE_ROSTER_CLAIMS.some(([re]) => re.test(ok));
+      expect({ ok, matched }).toEqual({ ok, matched: false });
     }
   });
 });
