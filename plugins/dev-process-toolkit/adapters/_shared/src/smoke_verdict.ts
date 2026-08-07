@@ -362,7 +362,20 @@ if (import.meta.main) {
   if (command === "emit") {
     const tracker = first(flags, "tracker");
     if (!tracker) {
-      console.error("usage: bun smoke_verdict.ts emit --tracker <linear|jira> [--path <p>]");
+      // STE-447 AC.8. This line used to read `--tracker <linear|jira>`, naming a
+      // CLOSED TWO-VALUE SET that the guard it documents has never enforced:
+      // `smokeVerdictPath` validates the argument's SHAPE — a bare
+      // [A-Za-z0-9][A-Za-z0-9_-]* token — and rejects nothing on membership
+      // grounds. The old wording was wrong in both directions at once: it
+      // refused legs the CLI accepts (`none` has been registered since STE-446)
+      // while implying a membership check no caller can rely on. State the rule
+      // the code applies.
+      console.error(
+        "usage: bun smoke_verdict.ts emit --tracker <leg> [--path <p>]\n" +
+          "  --tracker accepts any bare [A-Za-z0-9][A-Za-z0-9_-]* token; it is " +
+          "validated by SHAPE, not by membership in a fixed set, and becomes the " +
+          "<leg> segment of /tmp/dpt-smoke-verdict-<leg>.json.",
+      );
       process.exit(2);
     }
     // An ABSENT `--outcome` is a supported mode — the usage line above spells

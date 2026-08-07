@@ -337,8 +337,20 @@ export function renderFixtureGroupSummary(
 // fence instead of tallying groups in prose.
 //
 // Usage:
-//   bun smoke_fixture_groups.ts render --leg <linear|jira>
+//   bun smoke_fixture_groups.ts render --leg <leg>
 //                                      [--passed "1 3 4"] [--failed "5"]
+//   bun smoke_fixture_groups.ts legs
+//
+// `legs` prints the registered leg set, one space-separated line, and exits 0.
+// It exists so a driver bash fence can RESOLVE the leg set instead of restating
+// it: `/conformance-loop` pre-flight (0) reads it to expand a `--legs`
+// selection and to refuse an empty one (STE-447). Reading the authority here is
+// what keeps that gate from becoming a fourth hand-maintained copy of the leg
+// list — the second-hardcoded-copy failure STE-446 exists to have ended.
+// (Deliberately not naming the identifier STE-446 deleted: its AC.1 pins a
+// zero-hit grep for that name across adapters/ and tests/, and a comment
+// mentioning it would satisfy the grep while the copy stays gone. Rewording
+// here is cheaper than weakening a shipped predecessor's pin.)
 //
 // Groups named by neither flag are `not-reached` (or `not-applicable` when the
 // leg's roster excludes them). Prints the summary block on stdout and exits 0
@@ -347,9 +359,15 @@ export function renderFixtureGroupSummary(
 // exits 2, the same usage code smoke_verdict.ts uses, so a malformed
 // invocation is never mistaken for either verdict.
 
+// The supported-leg alternation is DERIVED, never restated. Before STE-447 this
+// line read `--leg <linear|jira>` while the `--leg` guard immediately below it
+// refused with all three registered legs named — one invocation printing two
+// different supported-set claims, recorded as loose end (a) in
+// specs/notes/follow-ups.md and closed here.
 const USAGE =
-  "usage: bun smoke_fixture_groups.ts render --leg <linear|jira> " +
-  '[--passed "1 3 4"] [--failed "5"]';
+  `usage: bun smoke_fixture_groups.ts render --leg <${SMOKE_LEGS.join("|")}> ` +
+  '[--passed "1 3 4"] [--failed "5"]\n' +
+  "       bun smoke_fixture_groups.ts legs";
 
 function parseArgs(argv: readonly string[]): Record<string, string[]> {
   const flags: Record<string, string[]> = {};
@@ -384,6 +402,13 @@ function groupList(values: readonly string[] | undefined): number[] {
 if (import.meta.main) {
   const [command, ...rest] = process.argv.slice(2);
   const flags = parseArgs(rest);
+
+  // STE-447: the authority, printed. One line, space-separated, in registry
+  // order — the shape `/conformance-loop` pre-flight (0) word-splits directly.
+  if (command === "legs") {
+    console.log(SMOKE_LEGS.join(" "));
+    process.exit(0);
+  }
 
   if (command === "render") {
     // Mirrors smoke_verdict.ts's `--tracker` guard. `appliesToLeg`'s

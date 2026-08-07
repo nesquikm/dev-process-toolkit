@@ -31,7 +31,7 @@ reproduces should be deleted with a one-line reason rather than left to rot.
 
 Both were surfaced at STE-446's commit gate and deliberately not fixed there (outside every AC of that FR). Recording them because a gate report is scrollback and this file is not.
 
-**(a) `smoke_fixture_groups.ts`'s `USAGE` string contradicts its own refusal line, in the same CLI output.** After STE-446 widened the leg set, the `--leg` guard correctly refuses with all three legs named, while the usage line printed immediately below it still reads `--leg <linear|jira>`. A single invocation therefore prints two different supported-set claims. Observed directly in the refactorer's CLI transcript. STE-447's AC.8 covers the *`smoke_verdict.ts`* usage string; **check whether its scope extends to this one or whether this is a separate surface** — they are different files with the same defect.
+**(a) — CLOSED by STE-447.** The `smoke_fixture_groups.ts` `USAGE` string contradicting its own refusal line. The question this entry posed was answered rather than assumed: AC-STE-447.8 names `smoke_verdict.ts` specifically, so its scope does **not** extend here — this was a separate surface. It was fixed anyway, because STE-447 had to edit that same `USAGE` constant to advertise the new `legs` subcommand, and knowingly re-shipping a contradiction from a line you are already rewriting is not scope discipline. The alternation is now derived (`SMOKE_LEGS.join("|")`) rather than restated, so it cannot drift again.
 
 **(b) `tests/m116-ste-420-verdict-artifact.test.ts` hand-rolls a brace-group parser that is now a near-copy of the shared one, with a WEAKER regex.** The test uses `/^\{\n([\s\S]*?)^\} &/gm`; `parseSpawnFenceGroups` in `adapters/_shared/src/leg_prose_surfaces.ts` uses the tab-tolerant `/^\{[ \t]*\n([\s\S]*?)^\}[ \t]*&/gm`. They agree today and would diverge the moment the driver's spawn fence gained trailing whitespace on a brace line — the test would stop finding groups the parser still finds, silently. Pointing that test at the shared parser retires the divergence.
 
@@ -42,6 +42,83 @@ This milestone's method is "mutate, observe RED, restore". Two ways that goes wr
 **Restore with an absolute path, never a relative one after a `cd`.** A probe that ends `cp /tmp/backup .claude/skills/…/SKILL.md` will silently miss if an earlier `cd` in the same compound command changed the working directory — the `cp` fails, the `&&` chain stops, and the **mutated file stays on disk**. Hit once this session; caught only by reading the error text. Use absolute paths on both sides of the restore and verify with `git status` afterwards rather than trusting the copy.
 
 **`bun test -t "<name>"` treats its argument as a REGEX.** Filtering on a test whose name contains parentheses — `-t "direction (i)"` — matches zero tests and reports `matched 0 tests`, which reads like a passing filter rather than a failed one. Use a distinctive literal substring without regex metacharacters.
+
+### 0a. A reduced `--legs` run reports a WRONG verdict under `--auto-fix` — STE-452 scope
+
+**This is a usability defect, not a scoping note, and it is written here rather than only in skill prose because STE-452 rewrites the `green` probe and must meet it.** STE-447 shipped the `--legs` selector; it did not adapt the termination probe, which is out of its ACs.
+
+**Measured 2026-08-07** by extracting the `green`-probe fence from `.claude/skills/conformance-loop/SKILL.md` and executing it against materialized findings files:
+
+- **Full selection, all per-leg findings files present, zero high lines** → `STATUS=green`, break taken. Correct.
+- **Reduced selection (`--legs linear`, only that leg's findings file on disk)** → the probe greps every REGISTERED leg, so it emits to stderr:
+  ```
+  grep: /tmp/dpt-smoke-findings-<date>-jira.md: No such file or directory
+  grep: /tmp/dpt-smoke-findings-<date>-none.md: No such file or directory
+  bash: line 3: [: : integer expression expected
+  ```
+  `STATUS` stays **unset** and **the script continues**. It does not refuse and it does not abort.
+
+**The three operator experiences, distinguished, because only one of them is acceptable:**
+
+1. **It does NOT refuse.** No NFR-10 message, no non-zero exit from the probe.
+2. **It ERRORS only in the sense of shell diagnostics.** Three stderr lines that read like a malfunction, with no explanation tying them to the `--legs` flag the operator passed.
+3. **What it actually does — CORRECTED 2026-08-07 after the STE-447 audit executed the RC-collection fence.**
+
+**The first version of this entry was WRONG and is corrected here rather than quietly edited, because the error is instructive.** It claimed that under capture-only the operator "DOES get the aggregated report and a verdict", and flagged that half as read-from-prose rather than executed. It was an inference, and the inference was false. The audit executed the fence; the measured behaviour is worse and arrives earlier.
+
+**A reduced run never reaches the `green` probe at all. It hard-aborts at RC collection, in BOTH modes.** Executed against the RC-collection fence with only `linear.rc` present:
+
+```
+/conformance-loop: Phase A subprocess failed (linear=0, jira=1, none=1). Aborting.
+rc=1
+```
+
+The RC gate reads every REGISTERED leg's rc-file. An unselected leg wrote none, `cat` yields empty, the `case '' -> RC=1` normalization (correctly, for its own purpose) treats an unreadable rc as a failure, and the gate aborts. **That gate sits before aggregation and before the capture-only short-circuit**, so the run produces no aggregated report, no findings file and no verdict in either mode.
+
+**Revised severity, and it cuts both ways.** This is *safer* than the false-`exhausted` verdict the earlier version of this entry described — the run fails loudly and non-zero rather than reporting a confident falsehood, so the vacuous-green hazard is not reachable through this path either. But it means **`--legs` is effectively unusable today for any proper subset**: the selector parses, the guard refuses emptiness correctly, and then the run dies at the first gate that counts legs. And the diagnostic actively misleads — *"Phase A subprocess failed"* names a subprocess failure when no subprocess was ever spawned for those legs.
+
+**So the honest statement of what STE-447 shipped:** the guard is sound and the selector's happy path is not. A reduced run is refused by a downstream gate with a wrong explanation.
+
+**Scope when STE-452 picks this up — larger than the `green` probe alone.** At least four surfaces count legs off the registered set and each needs the selection:
+
+- **RC collection** (the one that actually fires first — start here).
+- **The `green` termination probe** (the surface originally named here).
+- **The leg-completeness check**, which verifies each leg's grandchild log set.
+- **Aggregation**, which reads a per-leg findings file per registered leg.
+
+The common requirement is that `SELECTED_LEGS`, resolved by pre-flight (0), must reach all of them. For each: an absent artifact for a SELECTED leg stays an abort (STE-452's own "absent-file semantic" task); an absent artifact for an UNSELECTED leg must be a no-op. Those two cases are indistinguishable today because none of the four can see the selection.
+
+### 0c. Three leg-count assumptions STE-447 measured but could not fix
+
+All three were found while implementing STE-447, are covered by none of its nine ACs, and are recorded rather than absorbed. Each is a place where widening `SMOKE_LEGS` to three left a two-leg assumption behind.
+
+**(a) `tests/smoke-test-driver-hardening.test.ts:237` budgets the auto-approve marker at "at least 4", and the 4 is two-leg arithmetic.** The test title states its own derivation: *"conformance-loop carries the marker at least 4 times (Phase A linear + jira + Phase B spec-write + implement)"*. With three registered legs the true count is 5, so the assertion has one leg of slack. **Consequence:** a leg whose spawn block ships WITHOUT the `<dpt:auto-approve>v1</dpt:auto-approve>` marker still satisfies it — and a marker-less leg halts at its child's Phase 0 prompt under `claude -p`, which is the failure STE-226 exists to prevent. `at least`-style budgets derived from a leg count are the same class as the unanchored-prefix pins in § 2 below; the fix is to derive the expected count from `SMOKE_LEGS.length` rather than to bump 4 to 5.
+
+**(b) All three abort/teardown clauses in `.claude/skills/conformance-loop/SKILL.md` still tear down a two-leg brace expansion.** `rm -rf ../dpt-test-project-{linear,jira}` appears at the headless-gate-violation abort, the discretionary-halt Branch 2 abort, and the final-message self-check (lines 294, 302, 465 as of this writing). None of them removes `../dpt-test-project-none`. **Consequence:** every abort path leaks the tracker-less leg's test directory, which then trips pre-flight (e) on the next run and looks like an operator error rather than a driver one. AC-STE-447.6 scopes the *pre-flights* to the selection and deliberately stops there; the teardown clauses are a different surface and were left untouched rather than widened without a test. Note the interaction when this is picked up: teardown must iterate the SPAWNED set, not the registered set and not the selected set — a leg that was selected but refused before spawning has no directory to remove.
+
+**(c) The extract-and-execute-a-fence pattern now has three independent implementations.** `tests/driver-gate-fail-open-guards.test.ts:82`, `tests/m117-ste-428-report-issue-renderable.test.ts:362` and `tests/m121-ste-447-legs-selector.test.ts` each define their own fence extractor, and they do not agree: two use a `/```bash\n([\s\S]*?)```/g` regex and one uses a line scanner over `/^\s*```/`. They agree on the drivers' current formatting and would diverge on an indented fence. Three copies is the threshold § 4 of the M117 section sets for extracting a shared module ("extract when a third wants it"), so this is that trigger firing. Worth pairing with the same file's `parseSpawnFenceGroups`, which is a fourth brace-group parser.
+
+### 0d. TOOLKIT FINDING — the pre-commit `/tdd` gate is satisfied by skill INVOCATION alone, and its named remedy damages verified work
+
+**This is a finding about the SHIPPED PLUGIN, not an M121 defect.** It is recorded here because M121 is where it surfaced, but it belongs to `plugins/dev-process-toolkit/templates/hooks/`, it affects every consumer project the toolkit bootstraps, and it is exactly the class of thing `/conformance-loop` exists to find. It should become a tracker ticket against the toolkit rather than being absorbed into this milestone.
+
+**Mechanism, stated precisely because the obvious reading is wrong.** There is no `pre-commit` git hook in this repository — the only git hook installed is `commit-msg`. The block comes from a **PreToolUse Bash hook the plugin injects** via `plugins/dev-process-toolkit/hooks/hooks.json`, running `templates/hooks/_lib/hooks/pre-commit-tdd-orchestrator.ts`. It intercepts `git commit*`, classifies the staged paths, and on `tdd-required` calls `requireSkillToolUse("dev-process-toolkit:tdd", ...)`, exiting 2 on a miss.
+
+**Half one — the gate measures a string, not a process.** `requireSkillToolUse` scans the **session transcript** for a `Skill` tool_use naming `dev-process-toolkit:tdd`. That is the entire pass condition. It does not check that the RED stage ran, that GREEN ran, that a cycle completed, that any `tdd-result` block was emitted, or that anything whatsoever was verified. **The moment the skill is invoked, the evidence exists.**
+
+Observed in this session: STE-447 was implemented directly and the commit was refused; the skill was then invoked, and only the AUDIT stage was run — because it is the only stage coherent against a finished FR. **The gate would have passed identically had the skill been loaded and nothing run at all.** AUDIT was run because it is independently valuable, not because the gate required it.
+
+**Epistemic status, stated so nobody over-reads this.** The claim in the previous paragraph is **inferred from reading the hook source and observing this run** — the pass condition is a transcript grep, and nothing downstream of the invocation is consulted. It is **NOT** the result of a controlled experiment in which the skill was invoked and then nothing was done. That experiment was deliberately not run. The inference is strong but it is an inference.
+
+**Half two, and the sharper one — the gate's prescribed cure is harmful.** The hook's own refusal text names its remedy: *"run /dev-process-toolkit:tdd before retrying this action."* Taken literally against an FR that is already complete and green, that remedy is destructive. The RED stage's contract is to write failing tests for every AC and confirm RED; against a finished implementation the only routes to red are (a) inventing requirements the ACs do not state, (b) reverting the implementation, or (c) weakening assertions in tests that already pass. It is failure mode (A) false-RED **by construction**, and (c) is the live hazard: in this session the RED stage would have been pointed at the file carrying the executed fence, the reachability anchor, the slice-sanity anchor and the throwing falsifiability witnesses. GREEN and REFACTOR inherit the same incoherence — there is nothing to turn green, and the refactorer's correctness gate is "tests still pass", which they already do.
+
+**So the gate is trivially satisfiable AND its prescribed cure is harmful.** Those two together are the finding. A process gate whose evidence is a transcript mention is not measuring the process; it is measuring whether a particular string appeared, and any session that types the invocation satisfies it regardless of what happens afterwards.
+
+**A framing to avoid, recorded because it was the first one reached for.** The tempting write-up is *"an FR completed to a higher standard by another route is blocked, while an FR that merely invoked the skill passes."* That asymmetry is real, but it is the **symptom**; the defect is that invocation alone is the evidence. Writing it the first way makes it sound like a scoping quibble about which routes count as TDD. It is not — it is that the gate cannot tell the difference between a completed cycle and a typed command.
+
+**Why it was not overridden.** Bypassing with `--no-verify` was considered and declined. The argument for bypass — that the property the gate proxies for was not merely met but exceeded here (executed-fence tests, two mutations run against the real file, falsifiability proven in both directions) — is probably true, and is precisely the species of reasoning Core Principle 1 ("Deterministic gates override LLM judgment") exists to subordinate. Whether a genuine override belongs in this gate is a decision for the toolkit owner, not for an implementing session.
+
+**Scope when this is picked up.** Two candidate directions, neither costed: bind the evidence to a completed cycle (a `tdd-result` block, or an orchestrator-written receipt) rather than to a tool_use record; and give the hook a coherent path for work that arrives finished — an audit-only mode whose remedy is the AUDIT stage rather than the full cycle, so the prescribed cure stops being destructive. Note the interaction: fixing only the first half makes the second worse, because a stricter evidence requirement forces more sessions down the harmful remedy.
 
 ### 1. Cross-commit atomicity is NOT enforced — AC-STE-446.7 ships with one arm
 
@@ -108,10 +185,21 @@ the assertion never noticed — it would catch only a shrink or a reorder of the
 first two members. STE-445 fixes that instance.
 
 A second instance was found in the same session:
-`tests/m98-ste-366-zsh-glob-fences.test.ts:261` whitelists
+`tests/m98-ste-366-zsh-glob-fences.test.ts:261` whitelisted
 `/^for \w+ in linear jira\b/`, which matches a widened `for LEG in linear jira none`
 by prefix. Benign in effect — it whitelists fixed-loop shapes and a widened fixed
-loop is still one — but it accepts a change it never reviewed. STE-447 fixes it.
+loop is still one — but it accepts a change it never reviewed. **CLOSED by
+STE-447 (AC.9).** It is now built from `SMOKE_LEGS` and anchored at both ends.
+
+**One lesson from closing it, because it generalizes to the whole class.**
+Anchoring ALONE would have traded a false accept for a silent vacancy: the
+whitelist is consulted only for lines it matches, so a drifted loop simply
+stops matching and the negative control asserts nothing about it — green, and
+quieter than before. The anchored pattern therefore ships paired with a
+non-vacuity test that fails when it stops resolving against the driver's real
+loop. **Anyone sweeping the rest of this class should budget for that pair, not
+for a one-line regex edit** — an anchor without a resolution check converts a
+false-accept bug into a can't-fail bug, which is worse.
 
 **The class is what needs sweeping, not these two instances.** Any assertion that
 prefix-matches a string assembled from a collection will silently tolerate that

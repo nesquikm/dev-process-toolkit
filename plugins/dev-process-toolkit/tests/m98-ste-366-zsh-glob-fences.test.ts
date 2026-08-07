@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { SMOKE_LEGS } from "../adapters/_shared/src/smoke_fixture_groups";
+
 // M98 "zsh-safe glob fences" — prose-conformance meta-tests for the two
 // project-local driver SKILL.mds. This file carries STE-366; the sibling
 // STE-365 pins live in m98-ste-365-fire-and-exit-guard.test.ts.
@@ -100,11 +102,33 @@ const GUARD_TOKEN_RE = /null_?glob|bash -c/;
 const NULLGLOB_RE = /null_?glob/;
 
 // A `for VAR in /tmp/dpt-…*` glob-EXPANSION loop — the only shape that needs a
-// guard. Fixed word-lists (`for LEG in linear jira`, `for SKILL in setup …`),
+// guard. Fixed word-lists (`for LEG in linear jira none`, `for SKILL in setup …`),
 // command-substitutions (`for i in $(seq 1 18)`), and placeholder targets
 // (`for FINDING_TEXT in <…>`) do NOT match: their `in` target is not a
 // /tmp/dpt-…* glob.
 const GLOB_FOR_RE = /for \w+ in \/tmp\/dpt-[^\s]*\*/;
+
+// AC-STE-447.9 — the fixed LEG-loop whitelist, DERIVED from SMOKE_LEGS and
+// ANCHORED at both ends.
+//
+// It previously read `/^for \w+ in linear jira\b/`: unanchored at the tail, so
+// it matched `for LEG in linear jira none; do` by PREFIX. That is the
+// unanchored-prefix class recorded in specs/notes/follow-ups.md § 2 — the
+// registered leg set could grow without bound and this whitelist would keep
+// accepting the widened loop, having reviewed only its first two words. Benign
+// in effect (a widened fixed loop is still a fixed loop, so nothing was
+// mis-flagged) but it accepted a change it never saw.
+//
+// Anchoring ALONE would have traded a false accept for a silent vacancy: a
+// drifted loop would simply stop matching, `isFixedLoop` would be false, and
+// the negative control would assert nothing about it. So the anchored form is
+// paired with the non-vacuity test below, which fails if this pattern stops
+// matching the driver's real loop. Together they mean the whitelist tracks
+// SMOKE_LEGS in both directions — enum widened without the loop, or loop
+// widened without the enum, either one is RED.
+const FIXED_LEG_LOOP_RE = new RegExp(
+  `^for \\w+ in ${SMOKE_LEGS.join(" ")}\\s*;?\\s*do$`,
+);
 
 // The Phase 0.5 wipe fence: the bash fence carrying the `rm`.
 function wipeFence(phase05: string): string | undefined {
@@ -258,7 +282,7 @@ for (const [name, body] of drivers) {
         for (const line of fence.split("\n")) {
           const trimmed = line.trim();
           const isFixedLoop =
-            /^for \w+ in linear jira\b/.test(trimmed) ||
+            FIXED_LEG_LOOP_RE.test(trimmed) ||
             /^for \w+ in \$\(seq /.test(trimmed) ||
             /^for SKILL in setup /.test(trimmed) ||
             /^for FINDING_TEXT in </.test(trimmed);
@@ -270,3 +294,47 @@ for (const [name, body] of drivers) {
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// AC-STE-447.9 — non-vacuity anchor for the derived fixed-leg-loop whitelist
+// ---------------------------------------------------------------------------
+
+describeIfConformanceLoopPresent(
+  "AC-STE-447.9 — the fixed leg-loop whitelist is derived and still resolves",
+  () => {
+    /** Every trimmed executable line of every bash fence in the loop driver. */
+    function loopFenceLines(): string[] {
+      return bashFences(conformanceLoop!).flatMap(executableLines);
+    }
+
+    test("the SMOKE_LEGS-derived pattern matches the driver's poll-loop word list", () => {
+      // THE POINT OF THIS TEST. The negative control above only asserts things
+      // about lines its whitelist MATCHES, so an anchored whitelist that stops
+      // matching goes quiet rather than red. This is the assertion that makes
+      // the silence audible: if SMOKE_LEGS gains a leg the poll loop does not
+      // list, or the poll loop lists a leg SMOKE_LEGS does not register, the
+      // derived pattern resolves to zero lines and this fails.
+      const matched = loopFenceLines().filter((line) =>
+        FIXED_LEG_LOOP_RE.test(line),
+      );
+      expect(matched.length).toBeGreaterThan(0);
+    });
+
+    test("the pattern is anchored — it rejects a leg list widened past SMOKE_LEGS", () => {
+      // Falsifiability witness for the anchoring itself, run against SYNTHETIC
+      // text so it needs no backup/restore and cannot leave the tree dirty if
+      // an assertion throws (the discipline STE-446 settled on after a
+      // mutate-restore probe left a mutation on disk twice).
+      //
+      // The old unanchored `/^for \w+ in linear jira\b/` accepted this line.
+      // The derived anchored form must not.
+      const widened = `for LEG in ${SMOKE_LEGS.join(" ")} zzunreviewed; do`;
+      expect(FIXED_LEG_LOOP_RE.test(widened)).toBe(false);
+
+      // …and the complement: a list SHORT of the registered set is rejected
+      // too, so the pattern cannot drift in the shrinking direction either.
+      const shortened = `for LEG in ${SMOKE_LEGS.slice(0, -1).join(" ")}; do`;
+      expect(FIXED_LEG_LOOP_RE.test(shortened)).toBe(false);
+    });
+  },
+);
