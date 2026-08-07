@@ -1,5 +1,12 @@
-// leg_prose_surfaces — STE-446: the five prose surfaces that must enumerate
-// exactly the legs `SMOKE_LEGS` registers.
+// leg_prose_surfaces — STE-446: the prose surfaces that must enumerate exactly
+// the legs `SMOKE_LEGS` registers. STE-446 registered five, and the registry
+// below is still exactly those five — AC-STE-446.2 pins the count.
+//
+// STE-448 added a sixth surface (the smoke driver's `--tracker` alternations)
+// BESIDE the registry, not in it, when admitting the tracker-less leg — see
+// `smokeTrackerFlagLegs` at the foot of this file for why. A reader landing
+// here should not take the registry as six-strong; that misreading is exactly
+// what the first draft of this header caused.
 //
 // WHAT THIS MODULE IS. Each surface answers ONE question about a driver
 // document: *which leg tokens does this surface's prose actually enumerate?*
@@ -189,6 +196,54 @@ const SMOKE_PIDFILE_RE = /\/tmp\/dpt-smoke-[^\s`'")]*\.pid/g;
 const SMOKE_PIDFILE_SEGMENT_RE = /^\/tmp\/dpt-smoke-([^-/]+)-/;
 const BARE_LEG_TOKEN_RE = /^[a-z][a-z0-9_]*$/;
 
+// --- surface (vi): the smoke driver's `--tracker` alternations --------------
+
+/**
+ * One `<a>|<b>|…` alternation of bare lowercase leg tokens, in a context that
+ * is unambiguously about the `--tracker` flag.
+ *
+ * TWO shapes, both anchored on the literal `--tracker`, because the smoke
+ * driver states its supported set in two grammars: the flag spelling itself
+ * (`--tracker linear|jira|none`, used by the frontmatter `argument-hint` and
+ * the argument-parsing bullet) and the shell guard's diagnostic
+ * (`--tracker must resolve to linear|jira|none before …`). They are disjoint:
+ * the first requires a pipe immediately after the flag, which
+ * `--tracker must …` does not have.
+ *
+ * The `--tracker` anchor is LOAD-BEARING, not decoration. An unanchored
+ * "any lowercase alternation" scan matches ordinary prose — `<user-supplied|
+ * default applied>` yields the pair `supplied|default` — so the surface would
+ * report phantom legs and the set-equality comparison would fail for a reason
+ * that has nothing to do with the leg set.
+ */
+const SMOKE_TRACKER_ALTERNATION_RES: readonly RegExp[] = [
+  /--tracker[ \t]+([a-z][a-z0-9_]*(?:\|[a-z][a-z0-9_]*)+)/g,
+  /--tracker must resolve to[ \t]+([a-z][a-z0-9_]*(?:\|[a-z][a-z0-9_]*)+)/g,
+];
+
+/**
+ * Every `--tracker` alternation site in the smoke driver, as a list of token
+ * lists — ONE entry per site, deliberately NOT flattened.
+ *
+ * `proseLegs` below has to return one set, so it returns the union; but a
+ * union cannot see a site that has gone STALE as a strict subset of another
+ * (frontmatter left at two legs while the bullet names three unions to three
+ * and passes). The per-site view is what makes each copy independently
+ * falsifiable, and the AC-STE-448.1 test asserts every site equals the
+ * authority rather than only their union.
+ */
+export function smokeTrackerAlternationSites(
+  smokeTestDoc: string,
+): readonly (readonly string[])[] {
+  const sites: (readonly string[])[] = [];
+  for (const re of SMOKE_TRACKER_ALTERNATION_RES) {
+    for (const alternation of captures(smokeTestDoc, new RegExp(re))) {
+      sites.push(dedupe(alternation.split("|")));
+    }
+  }
+  return sites;
+}
+
 // --- the registry ----------------------------------------------------------
 
 /**
@@ -286,3 +341,21 @@ export const LEG_PROSE_SURFACES: readonly LegProseSurface[] = [
     },
   },
 ];
+
+/**
+ * The `--tracker` alternation surface as ONE set — the union of every site.
+ *
+ * DELIBERATELY NOT REGISTERED IN `LEG_PROSE_SURFACES` ABOVE. AC-STE-446.2 pins
+ * that registry at exactly five entries, "one per Requirement bullet" of
+ * STE-446, and a sixth surface is not one of those bullets. Relaxing a shipped
+ * predecessor's count to make room for a successor is the move this milestone
+ * forbids, so STE-448's surface lives beside the registry and is asserted in
+ * its own AC block instead. The binding is the same strength either way: the
+ * expected side is `SMOKE_LEGS`, supplied by the caller, and widening the enum
+ * turns it RED.
+ */
+export function smokeTrackerFlagLegs(
+  smokeTestDoc: string,
+): readonly string[] {
+  return dedupe(smokeTrackerAlternationSites(smokeTestDoc).flat());
+}
