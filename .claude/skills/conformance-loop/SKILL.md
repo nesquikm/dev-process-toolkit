@@ -1,7 +1,7 @@
 ---
 name: conformance-loop
 description: Drive `/smoke-test` against both trackers in parallel and aggregate the per-tracker findings files into one deduplicated report. Default `capture-only` mode honors `/smoke-test`'s "Capture, don't fix" rule unchanged. Opt-in `--auto-fix` mode walks the deduplicated high-severity findings list and dispatches `/dev-process-toolkit:spec-write` + `/dev-process-toolkit:implement` per finding, then re-iterates until termination. Project-local skill, not plugin.
-argument-hint: '[--auto-fix] [--max-iterations N] [--linear-team STE] [--jira-project KEY] [--dry-run]'
+argument-hint: '[--auto-fix] [--max-iterations N] [--legs linear,jira,none] [--linear-team STE] [--jira-project KEY] [--dry-run]'
 disable-model-invocation: true
 ---
 
@@ -15,7 +15,7 @@ This skill is the formally-sanctioned exception to `/smoke-test`'s "Capture, don
 
 - Pre-release sanity check before `/ship-milestone M<N>` runs, when both Linear and Jira surfaces need to be exercised in one shot.
 - After landing any FR that touches `skills/setup/SKILL.md`, `skills/spec-write/SKILL.md`, `skills/implement/SKILL.md`, `skills/gate-check/SKILL.md`, `skills/spec-archive/SKILL.md`, or any of the `templates/` files.
-- **Not** for every commit, not in CI — this is expensive (real LLM tokens, real Linear + Jira writes) and slow (`max-iterations × ~10 min × 2`-tracker wall-clock per run).
+- **Not** for every commit, not in CI — this is expensive (real LLM tokens, real Linear + Jira writes) and slow (`max-iterations × ~10 min` wall-clock per run). Leg count does not enter that product: the legs are detached concurrent brace groups sharing one bounded poll, so a run's wall-clock is set by its SLOWEST leg, not by their sum. A third leg costs tokens, not minutes.
 
 ## Argument parsing
 
@@ -23,21 +23,133 @@ Parse `$ARGUMENTS` once, before any pre-flight runs:
 
 - `--auto-fix` — boolean, **default OFF**. When OFF (capture-only mode, the default), the loop exits after Phase A of iteration 1 with the aggregated findings report and dispatches no fixers — this honors `/smoke-test`'s "Capture, don't fix" rule unchanged. When ON, Phase B fires per high-severity finding (sequential `/dev-process-toolkit:spec-write` → `/dev-process-toolkit:implement` per finding), and the loop re-iterates until one of the three termination conditions trips.
 - `--max-iterations N` — integer, **default 3**. Hard cap on iteration count (counts both capture-only and auto-fix iterations). The loop exits with `status: max-iterations` once the counter reaches `N`. Operator owns this number — there is no budget cap; cost is controlled by iteration count.
+- `--legs <comma-separated>` — the leg selector, **default: every leg registered in `SMOKE_LEGS`**. Restricts the set Phase A spawns to the named legs, as the documented opt-out for a token-tight run (a leg costs tokens, not wall-clock — see § When to use). Omitting the flag selects everything; it is not the same as passing an empty value, which selects nothing and is refused. Resolution and both of its refusals are pre-flight (0) below, which runs before pre-flight (a).
 - `--linear-team STE` — pass-through to the Linear `/smoke-test` child via `--linear-team`. Default `STE` (matches `/smoke-test`'s default).
-- `--jira-project KEY` — **required** when the Jira child fires. Pass-through to the Jira `/smoke-test` child via `--jira-project`. The Jira child's pre-flight #8 enforces visibility of the Space; `/conformance-loop`'s pre-flight (d) verifies presence of the flag before any side effects.
+- `--jira-project KEY` — **required only when `jira` is in the selected leg set.** Pass-through to the Jira `/smoke-test` child via `--jira-project`. The Jira child's pre-flight #8 enforces visibility of the Space; `/conformance-loop`'s pre-flight (d) verifies presence of the flag before any side effects — and skips that verification entirely when the selection does not include `jira`, because a flag the run will never use is not a precondition for it. `--legs linear,none` without `--jira-project` therefore does not refuse.
 - `--dry-run` — boolean, default OFF. Mocks the subprocess spawn and returns canned per-tracker findings files (used by `conformance-loop-dry-run.test.ts` to cover parallelism mechanics + aggregation + termination without invoking real `claude -p` children). Wires the same Phase A → termination path as a real run; only the subprocess call is replaced by reading from a fixture directory.
 
 Unknown flags refuse with NFR-10 canonical refusal naming the unknown flag and the supported set:
 
 ```
 Unknown flag '<flag>' passed to /conformance-loop.
-Remedy: pick from the supported set: --auto-fix, --max-iterations N, --linear-team STE, --jira-project KEY, --dry-run.
+Remedy: pick from the supported set: --auto-fix, --max-iterations N, --linear-team STE, --jira-project KEY, --dry-run, --legs linear,jira,none.
 Context: skill=conformance-loop, flag=<flag>
 ```
 
 ## Pre-flight refusals
 
-Each fires before any side effects, exits non-zero with an NFR-10-shape message. Eight refusals (a)–(h) total; refusals (c)–(e) **delegate** to `/smoke-test`'s pre-flights of the same probe (so the canonical message and probe shape stay defined in one place). Refusal (f) is the Phase 0 `permissions.allow` pre-flight introduced by STE-252 — it runs before any `claude -p` spawn and asserts the tracked allow-list artifact is present and populated. Refusal (g) is the STE-351 subscription-billing guard — it runs before any spawn and asserts no API-billing env var is set. Refusal (h) is the STE-367 workspace-trust precondition — it runs before any spawn and asserts both test-project paths are trusted.
+Each fires before any side effects, exits non-zero with an NFR-10-shape message. **Nine refusals total — (0) plus (a)–(h)**, emitting eleven distinct canonical messages between them; refusals (c)–(e) **delegate** to `/smoke-test`'s pre-flights of the same probe (so the canonical message and probe shape stay defined in one place).
+
+**(0) is deliberately not a letter, and that is a compatibility decision rather than a stylistic one.** It is ORDERED FIRST — it runs before pre-flight (a)'s cwd probe — but the lettered refusals keep the letters they have always had. Re-lettering to insert it as a new `(a)` would silently re-point every by-letter cross-reference in this file, in `/smoke-test`, and in the test suite at a different refusal than the one its author meant. Refusal (f) is the Phase 0 `permissions.allow` pre-flight introduced by STE-252 — it runs before any `claude -p` spawn and asserts the tracked allow-list artifact is present and populated. Refusal (g) is the STE-351 subscription-billing guard — it runs before any spawn and asserts no API-billing env var is set. Refusal (h) is the STE-367 workspace-trust precondition — it runs before any spawn and asserts both test-project paths are trusted.
+
+(0) **Leg selection resolves to a non-empty subset of `SMOKE_LEGS` (STE-447).** Runs immediately after argument parsing and **before pre-flight (a)**, because a refusal that fires later has already had the opportunity to touch the filesystem. Resolving `--legs` is what introduces the possibility of an empty run, and an empty run is not a cheap run — it is a **vacuously green** one. A run that spawns nothing writes no per-leg findings file; a findings file that does not exist contributes no `**Severity:** high` lines; and the `green` termination probe reads zero high lines as convergence. The loop would report `green` having tested nothing. That is the milestone's own "no findings and no evidence must never reconcile to the same verdict" rule one level up from a missing findings file, so the selector that creates the hazard is the thing that must close it — fail-closed, before any spawn.
+
+An **omitted** `--legs` selects every registered leg. An **empty** `--legs ""` is a different input: the operator named a selection and the selection was empty. The two are distinguished by set-vs-unset, never by emptiness, and only the first is a default.
+
+Unrecognized value(s) → NFR-10 canonical refusal, in the same shape as the unknown-flag refusal above (it names the offending value and the supported set):
+
+```
+Unknown --legs value(s) '<values>' passed to /conformance-loop.
+Remedy: pick from the registered leg set: <registered>.
+Context: skill=conformance-loop, pre-flight=legs_unknown_value, unknown=[<values>]
+```
+
+Resolved selection of zero legs → NFR-10 canonical refusal:
+
+```
+--legs resolved to zero legs — /conformance-loop refuses to run.
+Remedy: pass --legs with at least one registered leg (<registered>), or omit --legs to select every registered leg.
+Context: skill=conformance-loop, pre-flight=legs_zero_selection, resolved=[]
+```
+
+An unreadable authority module → NFR-10 canonical refusal. **A registry that cannot be read is its own refusal, never an empty set** — reading it as empty would route a broken module straight into the vacuous-green path this gate exists to close:
+
+```
+Registered leg set unreadable — /conformance-loop cannot resolve SMOKE_LEGS.
+Remedy: re-run from the toolkit repo root so <plugin dir> resolves, then verify the authority module prints its legs.
+Context: skill=conformance-loop, pre-flight=legs_registry_unreadable
+```
+
+Probe shape. The registered set is read from the authority module rather than restated here, so this gate cannot drift from `SMOKE_LEGS` (STE-446):
+
+```bash
+# Pre-flight (0) — leg selection. Runs after argument parsing and BEFORE
+# pre-flight (a): before the cwd probe, before any pidfile is written, before
+# any log is opened. Nothing above this point touches the filesystem.
+#
+# LEGS_ARG is the raw `--legs` value. UNSET means the flag was omitted (select
+# everything); SET-BUT-EMPTY means an empty selection was named (refuse).
+PLUGIN_DIR="${PLUGIN_DIR:-$(pwd)/plugins/dev-process-toolkit}"
+REGISTERED_LEGS="$(bun "${PLUGIN_DIR}/adapters/_shared/src/smoke_fixture_groups.ts" legs 2>/dev/null)"
+if [ -z "${REGISTERED_LEGS}" ]; then
+  echo "Registered leg set unreadable — /conformance-loop cannot resolve SMOKE_LEGS." >&2
+  echo "Remedy: re-run from the toolkit repo root so ${PLUGIN_DIR} resolves, then verify the authority module prints its legs." >&2
+  echo "Context: skill=conformance-loop, pre-flight=legs_registry_unreadable" >&2
+  exit 2
+fi
+
+if [ -z "${LEGS_ARG+isset}" ]; then
+  SELECTED_LEGS="${REGISTERED_LEGS}"          # flag omitted ⇒ every registered leg
+else
+  SELECTED_LEGS=""; UNKNOWN_LEGS=""
+  # `set -f` (noglob) is LOAD-BEARING, not hygiene. The `for` list below is an
+  # UNQUOTED command substitution, so without it the shell runs pathname
+  # expansion on the operator's value BEFORE the loop body sees it — and the
+  # metacharacter guard inside the loop would then be inspecting FILENAMES the
+  # glob already matched, never the glob. Measured: with globbing on, in a
+  # directory containing a file named `linear`, `--legs 'li?ear'` resolved to
+  # `legs_selected=linear` — an unregistered value silently admitted by the one
+  # gate that may not fail open. The guard was not merely weak there, it was
+  # unreachable for every glob that matched anything.
+  #
+  # Compounding it: pre-flight (0) deliberately runs before (a)'s cwd probe, so
+  # the directory those filenames would come from is not yet verified.
+  set -f
+  for CANDIDATE in $(printf '%s' "${LEGS_ARG}" | tr ',' ' '); do
+    # With globbing off, a candidate carrying a metacharacter now reaches this
+    # guard as the literal the operator typed, and is rejected before the
+    # membership `case` below.
+    case "${CANDIDATE}" in *[!A-Za-z0-9_-]*)
+      UNKNOWN_LEGS="${UNKNOWN_LEGS}${UNKNOWN_LEGS:+ }${CANDIDATE}"; continue ;;
+    esac
+    case " ${REGISTERED_LEGS} " in
+      *" ${CANDIDATE} "*)
+        case " ${SELECTED_LEGS} " in
+          *" ${CANDIDATE} "*) ;;                                            # already selected
+          *) SELECTED_LEGS="${SELECTED_LEGS}${SELECTED_LEGS:+ }${CANDIDATE}" ;;
+        esac ;;
+      *) UNKNOWN_LEGS="${UNKNOWN_LEGS}${UNKNOWN_LEGS:+ }${CANDIDATE}" ;;
+    esac
+  done
+  set +f
+  if [ -n "${UNKNOWN_LEGS}" ]; then
+    echo "Unknown --legs value(s) '${UNKNOWN_LEGS}' passed to /conformance-loop." >&2
+    echo "Remedy: pick from the registered leg set: ${REGISTERED_LEGS}." >&2
+    echo "Context: skill=conformance-loop, pre-flight=legs_unknown_value, unknown=[${UNKNOWN_LEGS}]" >&2
+    exit 2
+  fi
+fi
+
+if [ -z "${SELECTED_LEGS}" ]; then
+  echo "--legs resolved to zero legs — /conformance-loop refuses to run." >&2
+  echo "Remedy: pass --legs with at least one registered leg (${REGISTERED_LEGS}), or omit --legs to select every registered leg." >&2
+  echo "Context: skill=conformance-loop, pre-flight=legs_zero_selection, resolved=[]" >&2
+  exit 2
+fi
+echo "legs_selected=${SELECTED_LEGS}"
+```
+
+`SELECTED_LEGS` is the leg set for the rest of the invocation: pre-flights (c), (d), (e) and (h) below iterate it, Phase A spawns one leg per member of it, and Phase 0's contract reports it. The bounded poll loop and the `green` probe keep iterating the **registered** set rather than the selection, and each handles an unselected leg differently:
+
+- The poll loop is safe by construction — an unselected leg writes no pidfile, its `[ -f "${PIDFILE}" ]` test fails, and it is skipped.
+- **Four downstream surfaces are NOT adapted to a partial selection, and a reduced run currently dies at the first of them.** Measured, not inferred:
+  - **The rc-collection gate** aborts first (§ RC collection, below). It reads every registered leg's rc-file; an unselected leg wrote none, the `case '' -> RC=1` normalization treats an unreadable rc as a failure, and the gate exits 1 with `Phase A subprocess failed (linear=0, jira=1, none=1). Aborting.` — a diagnostic that names a subprocess failure when no subprocess was ever spawned for those legs. This fires **before** aggregation and **before** the capture-only short-circuit, so a reduced run yields no report and no verdict in either mode.
+  - **The `green` probe** would likewise `grep -c` an absent findings file, whose empty result makes `[ "" -eq 0 ]` a `test(1)` usage error, so the green branch is not taken. Unreachable today because RC collection aborts first.
+  - **The leg-completeness check** and **aggregation** count legs off the registered set for the same reason.
+
+**So the honest statement: the guard is sound and the selector's happy path is not.** `--legs` with a proper subset parses correctly, refuses emptiness correctly, and is then refused by a downstream gate with a misleading explanation. That is a fail-CLOSED outcome — no vacuous green is reachable through it — but it is not a working reduced run. Adapting all four surfaces to `SELECTED_LEGS` is STE-452's scope and is recorded in `specs/notes/follow-ups.md` § 0a with the measured evidence.
+
+What pre-flight (0) guarantees is narrower, and is the guarantee that matters here: the loop never proceeds past argument parsing with an empty selection at all. That is why the guard above, not any probe below, is where emptiness is caught.
 
 (a) **Toolkit-repo cwd.** `pwd` must end in `/dev-process-toolkit`. The skill spawns child `/smoke-test` invocations whose own pre-flight #1 expects toolkit-repo cwd; running `/conformance-loop` from elsewhere creates the test projects in the wrong place. NFR-10 canonical refusal:
 
@@ -55,7 +167,7 @@ Remedy: restore the project-local /smoke-test skill (it is the dependency this s
 Context: skill=conformance-loop, probe=dependency, missing=.claude/skills/smoke-test/SKILL.md
 ```
 
-(c) **Linear MCP loadable + STE team visible.** Delegates to `/smoke-test` pre-flights #3 (Linear MCP available in `~/.claude-st/`) + #5 (Linear team key resolvable). The probe runs once at this top-level rather than letting the Linear child fail mid-spawn — fast-fail saves ~10 min of wall-clock per failed run. NFR-10 canonical refusal (carries the `/smoke-test` probe name verbatim):
+(c) **Linear MCP loadable + STE team visible.** **Scoped to the selection (STE-447): this probe runs only when `linear` is in `SELECTED_LEGS`, and is skipped entirely otherwise.** Delegates to `/smoke-test` pre-flights #3 (Linear MCP available in `~/.claude-st/`) + #5 (Linear team key resolvable). The probe runs once at this top-level rather than letting the Linear child fail mid-spawn — fast-fail saves ~10 min of wall-clock per failed run. NFR-10 canonical refusal (carries the `/smoke-test` probe name verbatim):
 
 ```
 Linear MCP not loaded or team '<key>' not visible.
@@ -63,7 +175,7 @@ Remedy: register the Linear MCP in ~/.claude-st/, verify the team key resolves v
 Context: skill=conformance-loop, probe=delegated-smoke-test-3+5, tracker=linear, team=<key>
 ```
 
-(d) **Atlassian MCP loadable + Jira project visible + `--jira-project` passed.** Delegates to `/smoke-test` pre-flights #7 (Atlassian MCP loadable + OAuth-bound) + #8 (Jira project visible / `--jira-project` flag present). The flag-missing variant fires here, not in the Jira child, so the operator sees the refusal before any subprocess spawn. NFR-10 canonical refusal:
+(d) **Atlassian MCP loadable + Jira project visible + `--jira-project` passed.** **Scoped to the selection (STE-447 AC.5): this probe — including its `--jira-project`-missing arm — runs only when `jira` is in `SELECTED_LEGS`.** A run that will never spawn the Jira leg has no use for a Jira project key, so requiring one would refuse a perfectly well-formed reduced run; `--legs linear,none` without `--jira-project` must proceed, and does. Delegates to `/smoke-test` pre-flights #7 (Atlassian MCP loadable + OAuth-bound) + #8 (Jira project visible / `--jira-project` flag present). The flag-missing variant fires here, not in the Jira child, so the operator sees the refusal before any subprocess spawn. NFR-10 canonical refusal:
 
 ```
 Atlassian MCP not loaded or Jira project '<key>' not visible (or --jira-project missing).
@@ -71,12 +183,12 @@ Remedy: register the Atlassian Rovo MCP in ~/.claude-st/, complete OAuth via mcp
 Context: skill=conformance-loop, probe=delegated-smoke-test-7+8, tracker=jira, project=<key>
 ```
 
-(e) **Both `../dpt-test-project-{linear,jira}` paths free OR `--keep` was passed.** Delegates to `/smoke-test` pre-flight #2 (existing-test-project refusal) — fired twice, once per tracker. The two paths are operator-driven-parallelism-safe (different basenames, different MCP configs), but `/conformance-loop` runs both serially per iteration's Phase A and so MUST verify both up front. NFR-10 canonical refusal:
+(e) **Every SELECTED leg's `../dpt-test-project-<leg>` path free OR `--keep` was passed.** **Scoped to the selection (STE-447): the probe iterates `SELECTED_LEGS`, one check per selected leg, rather than the former hardcoded `{linear,jira}` pair.** Delegates to `/smoke-test` pre-flight #2 (existing-test-project refusal) — fired once per selected leg. The per-leg paths are operator-driven-parallelism-safe (different basenames, different MCP configs), but `/conformance-loop` fans out across all of them in one iteration's Phase A and so MUST verify every selected one up front. An unselected leg's directory is deliberately NOT checked: this run will not write into it, and refusing over a directory the run never touches would make `--legs` unusable on any machine with a leftover tree. NFR-10 canonical refusal:
 
 ```
-Test-project paths exist: '../dpt-test-project-linear' and/or '../dpt-test-project-jira' is non-empty.
-Remedy: rm -rf ../dpt-test-project-linear ../dpt-test-project-jira (or pass --keep at the prior /smoke-test invocation), then re-run /conformance-loop.
-Context: skill=conformance-loop, probe=delegated-smoke-test-2, paths=[<list-of-non-empty>]
+Test-project path(s) exist and are non-empty for selected leg(s): <non-empty selected paths>.
+Remedy: rm -rf the listed ../dpt-test-project-<leg> directories (or pass --keep at the prior /smoke-test invocation), then re-run /conformance-loop. Only SELECTED legs are checked — narrow the run with --legs to skip a leg whose tree you want to keep.
+Context: skill=conformance-loop, probe=delegated-smoke-test-2, selected=[<SELECTED_LEGS>], paths=[<list-of-non-empty>]
 ```
 
 (f) **`permissions.allow` populated in tracked `.claude/settings.json` AND contains the child-spawn pattern** (Phase 0 pre-flight, STE-252 AC-STE-252.3, strengthened by STE-351 AC-STE-351.1). Read `.claude/settings.json` from the toolkit-repo root, JSON-parse it, and assert that `.permissions.allow` is a non-empty array (`length > 0`) **and** that the array contains the canonical child-spawn pattern literal `Bash(claude:*)`. The tracked allow-list is the audit-able policy artifact that constrains every `claude -p` child the skill spawns; an empty or missing array means the loop would fall back to interactive permission prompts mid-run and stall the hands-off contract, and a populated array that *lacks the spawn pattern* is the M94 false-green the probe was built against — nested `claude` spawns denied headless, grandchildren dying as 0-byte transcripts. A `length > 0` assertion alone does NOT catch that; the probe MUST be a contains-check on the pattern literal. **Narrowed 2026-07-27 (STE-425), and this applies to both drivers:** wherever `permissions.defaultMode` is `auto` — as in the operator's own global `~/.claude-st/settings.json`, measured on both legs — the harness classifier, not the tracked allow-list, is what admits or denies a nested spawn, so an absent pattern does not by itself produce that denial and a present one guarantees nothing at runtime. This refusal is kept regardless, on the two merits that survive the measurement: it holds the scaffold and the tracked list in sync (`/gate-check` probe #62 enforces the same literal at severity ERROR, fail-closed), and the allow-list **is** the operative gate in any checkout whose default permission mode is not `auto`. See `/smoke-test` pre-flight #10 § Why this probe survives for the full re-derivation; the two drivers keep the same decision on the same literal. Probe shape: `jq -e '.permissions.allow | index("Bash(claude:*)")' .claude/settings.json` (index/contains on the spawn-pattern literal), layered on the STE-252 `jq -e '.permissions.allow | length > 0' .claude/settings.json` non-empty check. Empty-or-missing array → NFR-10 canonical refusal:
@@ -107,20 +219,21 @@ Context: skill=conformance-loop, pre-flight=anthropic_key_guard, set=[<which-var
 
 **Interactive-override path:** an operator who *wants* API billing (e.g., a dedicated key funded for exactly this run) either unsets nothing and re-runs `/conformance-loop` in an interactive session — where the guard downgrades from hard refusal to a `y/N` cost-acknowledgment prompt (`proceed billing this API key? [y/N]`) — or exports `DPT_CONFORMANCE_ALLOW_API_BILLING=1` as the explicit override for that one invocation. Headless runs get no override prompt: non-interactive sessions cannot acknowledge cost, so the guard always refuses there unless the override variable is set. Aligns with the STE-191 KEY-surfacing pre-flight.
 
-(h) **Both test-project paths workspace-trusted (STE-367).** Before any `claude -p` spawn, assert that BOTH `../dpt-test-project-{linear,jira}` resolved paths carry `hasTrustDialogAccepted == true` in the operator's live `$CLAUDE_CONFIG_DIR/.claude.json`. STE-367 moved workspace-trust seeding out of the autonomous path — the harness auto-mode self-modification classifier denies the programmatic trust write under `claude -p` (2026-07-04 conformance finding F1), so the operator seeds trust **once, up front**, and this pre-flight enforces the precondition before the loop fans out (rather than each `/smoke-test` child hitting the same refusal mid-run, one Phase A leg at a time). Probe shape: `jq -e --arg p "<abs path>" '.projects[$p].hasTrustDialogAccepted == true' "$CFG"` for each resolved path. Either path untrusted → NFR-10 canonical refusal naming the untrusted path(s):
+(h) **Every SELECTED leg's test-project path workspace-trusted (STE-367).** **Scoped to the selection (STE-447): the probe iterates `SELECTED_LEGS` rather than a hardcoded pair** — with the full default selection that is `../dpt-test-project-linear`, `../dpt-test-project-jira` and `../dpt-test-project-none`; with `--legs linear` it is that one path alone. Before any `claude -p` spawn, assert that EVERY selected leg's `../dpt-test-project-<leg>` resolved path carries `hasTrustDialogAccepted == true` in the operator's live `$CLAUDE_CONFIG_DIR/.claude.json`. STE-367 moved workspace-trust seeding out of the autonomous path — the harness auto-mode self-modification classifier denies the programmatic trust write under `claude -p` (2026-07-04 conformance finding F1), so the operator seeds trust **once, up front**, and this pre-flight enforces the precondition before the loop fans out (rather than each `/smoke-test` child hitting the same refusal mid-run, one Phase A leg at a time). Probe shape: `jq -e --arg p "<abs path>" '.projects[$p].hasTrustDialogAccepted == true' "$CFG"` for each resolved path. Either path untrusted → NFR-10 canonical refusal naming the untrusted path(s):
 
 ```
 Workspace trust missing for <untrusted path(s)> in $CLAUDE_CONFIG_DIR/.claude.json — the scaffolded allow-list would be inert at the child/grandchild layer (2026-07-02 F4), and the /smoke-test child would refuse mid-run.
 Remedy: seed workspace trust ONCE for each untrusted path (the driver cannot — the harness self-modification classifier denies the write under claude -p):
   CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude-st}/.claude.json"
-  for P in "$(cd ../dpt-test-project-linear && pwd)" "$(cd ../dpt-test-project-jira && pwd)"; do
+  for SEL in ${SELECTED_LEGS}; do
+    P="$(cd "../dpt-test-project-${SEL}" && pwd)" || continue
     jq --arg p "$P" '.projects[$p] |= (. // {} + {hasTrustDialogAccepted: true})' "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
   done
 Then re-run /conformance-loop. The entries persist across runs (operator-owned; /smoke-test teardown no longer removes them).
 Context: skill=conformance-loop, pre-flight=workspace_trust_check, paths=[<untrusted>]
 ```
 
-Each refusal above carries the literal phrase **NFR-10 canonical refusal** in the surrounding prose (ten `NFR-10 canonical refusal` markers across this section: one introductory mention plus the nine refusal anchors — (a)–(e), (g), and (h) carry one each, and the STE-351-strengthened (f) carries two, allow-list-empty and spawn-pattern-missing — satisfying the verify line `grep -c 'NFR-10 canonical refusal' >= 6`).
+Each refusal above carries the literal phrase **NFR-10 canonical refusal** in the surrounding prose. There are **12 refusal anchors** in this section: (a)–(e), (g) and (h) carry one each; (0) carries THREE (unknown value, zero selection, unreadable registry) and the STE-351-strengthened (f) carries two (allow-list-empty, spawn-pattern-missing). This restated total is machine-checked against the section rather than hand-maintained — `tests/m121-ste-447-legs-selector.test.ts` recomputes the anchor count and fails if the two disagree, which is why the number above can be trusted. (A whole-section `grep -o 'NFR-10 canonical refusal' | wc -l` reports 14, not 11: this sentence mentions the phrase three more times. The count that means something is the anchor count, and the previous revision of this sentence — which claimed "ten markers … nine refusal anchors" while the section carried nine anchors and thirteen mentions — is why the number is now derived instead of asserted.)
 
 ## Flow
 
@@ -128,13 +241,16 @@ The flow is a loop of one or more iterations. Each iteration runs Phase A (paral
 
 ### Phase 0 — Pre-approval gate
 
-Print the contract to the operator and prompt for `y` to proceed. The prompt MUST include: both trackers active, real Linear + Jira writes, max wall-clock estimate (`max-iterations × ~10 min × 2`), max-iterations cap, auto-fix on/off (resolved value, not the literal flag).
+Print the contract to the operator and prompt for `y` to proceed. The prompt MUST include: the resolved leg selection, which tracker writes that selection implies, the max wall-clock estimate, the max-iterations cap, and auto-fix on/off (resolved value, not the literal flag).
+
+**The wall-clock estimate does not multiply by leg count (STE-447 AC.7).** It is `max-iterations × ~10 min`, full stop. The previous form — `max-iterations × ~10 min × 2 trackers` — was already wrong when it was written and would have become a factor-of-three overstatement under a third leg. The legs are detached concurrent brace groups awaited by one shared bounded poll (§ Leg spawn + bounded poll), so an iteration ends when its SLOWEST leg ends, not when the sum of its legs ends. Adding or removing a leg with `--legs` changes the token cost of a run and does not change its duration; presenting leg count as a time multiplier told the operator that dropping a leg would buy back wall-clock it never spent.
 
 ```
 /conformance-loop will:
-  1. Spawn one parallel /smoke-test subprocess session per registered leg per
-     iteration — --tracker linear, --tracker jira, --tracker none (real Linear
-     + Jira writes on the first two; the none leg is tracker-less).
+  1. Spawn one parallel /smoke-test subprocess session per SELECTED leg per
+     iteration — one --tracker <leg> child for each leg in <SELECTED_LEGS>
+     (real Linear writes on the linear leg, real Jira writes on the jira leg;
+     the none leg is tracker-less and writes to no tracker at all).
   2. Aggregate per-tracker findings into /tmp/dpt-conformance-loop-<date>-iter-<N>.md
      with cross-tracker dedup.
   3. <auto-fix-line>
@@ -142,13 +258,17 @@ Print the contract to the operator and prompt for `y` to proceed. The prompt MUS
 Configuration:
   --auto-fix:        <ON|OFF (capture-only)>
   --max-iterations:  <N>
-  --linear-team:     <STE>
-  --jira-project:    <KEY>
-  Estimated max wall-clock: <max-iterations × ~10 min × 2 trackers>
+  --legs:            <SELECTED_LEGS>  (default: every registered leg)
+  --linear-team:     <STE>            (omitted when linear is not selected)
+  --jira-project:    <KEY>            (omitted when jira is not selected)
+  Estimated max wall-clock: <max-iterations × ~10 min>
+  (leg count does not enter this product — the legs run concurrently)
 
+Tracker-write lines are printed ONLY for the legs actually selected:
 Real Linear writes will occur (test project + ~6 issues per iteration).
 Real Jira writes will occur in Space <jira-project> (~6 work items per iteration,
 all carrying the dpt-smoke label so /smoke-test Phase 5 teardown can transition them).
+The none leg performs no tracker writes of any kind.
 
 Proceed? [y/n]
 ```
@@ -159,7 +279,7 @@ When `--auto-fix` is ON, substitute `<auto-fix-line>` with `In Phase B, sequenti
 
 ### Phase A — Parallel /smoke-test fan-out + aggregation
 
-Each iteration's Phase A spawns one `claude -p /smoke-test ...` subprocess call **per registered leg** in parallel — all detached from a single Bash call, each PID captured to a per-iteration pidfile at `/tmp/dpt-conformance-loop-<date>-iter-<N>-{linear,jira,none}.pid` — then awaits them all via the bounded poll-until-exit discipline below before reading the per-leg findings files. Subprocess output is captured to per-iteration log files at `/tmp/dpt-conformance-loop-<date>-iter-<N>-{linear,jira,none}.log` for forensics.
+Each iteration's Phase A spawns one `claude -p /smoke-test ...` subprocess call **per SELECTED leg** — the set pre-flight (0) resolved from `--legs`, which with the flag omitted is every registered leg — in parallel — all detached from a single Bash call, each PID captured to a per-iteration pidfile at `/tmp/dpt-conformance-loop-<date>-iter-<N>-{linear,jira,none}.pid` — then awaits them all via the bounded poll-until-exit discipline below before reading the per-leg findings files. Subprocess output is captured to per-iteration log files at `/tmp/dpt-conformance-loop-<date>-iter-<N>-{linear,jira,none}.log` for forensics.
 
 **The leg set is `SMOKE_LEGS`, and only `SMOKE_LEGS` (STE-446).** Every per-leg enumeration in this skill restates the leg set declared by `adapters/_shared/src/smoke_fixture_groups.ts`. Do not add a leg to one surface only.
 
@@ -235,6 +355,15 @@ RUN_START_MS=$(($(date +%s) * 1000))
 PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"   # cwd is the toolkit repo (verified by pre-flight (a))
 export CLAUDE_CONFIG_DIR=~/.claude-st             # STE-350: exported once per spawning block so every spawn line begins bare with `claude` and the tracked `Bash(claude:*)` allow entry matches.
 
+# STE-447: one brace group per REGISTERED leg is written out below, but a
+# group is spawned only when its leg is present in ${SELECTED_LEGS}. Skip the
+# whole group — brace group, pidfile write and rc reconciliation together — for
+# any leg the selection excludes; do not spawn it and then discard its result.
+# The groups stay written out per registered leg rather than collapsed into a
+# loop because the enum-derived assertions in leg_prose_surfaces.ts read this
+# fence's per-leg groups; the runtime leg registry that would retire them is
+# recorded as deferred scope in specs/notes/follow-ups.md.
+#
 # Each /smoke-test child opens its own Phase 0 pre-approval gate; inject
 # the canonical marker into the heredoc body so the child auto-approves
 # and proceeds into Phase 1 without halting at the prompt (STE-226). The
