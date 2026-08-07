@@ -184,8 +184,14 @@ function legMod(): LegDerivationModule {
 }
 
 // The renderer/guard surface AC.3 needs, on the existing module.
+interface FixtureGroupSpecShape {
+  group: number;
+  sut: string;
+  legs: readonly string[];
+}
 interface FixtureGroupsExtras {
   groupsCoveringLeg?(leg: string): readonly number[];
+  CANONICAL_FIXTURE_GROUPS?: readonly FixtureGroupSpecShape[];
 }
 const fixtureGroupsExtras = (await import(
   FIXTURE_GROUPS_SRC
@@ -251,7 +257,9 @@ describe("AC-STE-445.1 — a permanent mutation test proves the binding can fail
   test("the harness never mutates the real source file", () => {
     legMod().runLegDerivationMutation();
     const src = readFileSync(FIXTURE_GROUPS_SRC, "utf8");
-    expect(src).toContain('export const SMOKE_LEGS = ["linear", "jira"] as const;');
+    expect(src).toContain(
+      'export const SMOKE_LEGS = ["linear", "jira", "none"] as const;',
+    );
     expect(src).not.toContain(legMod().SYNTHETIC_LEG);
   });
 
@@ -284,12 +292,12 @@ describe("AC-STE-445.1 — a permanent mutation test proves the binding can fail
     // matched this string. The post-fix expectation must not.
     expect(
       m.legErrorMatchesCanonicalSet(
-        'smoke_fixture_groups: --leg must be one of linear | jira | zzsynthetic (got "jirra")\n',
+        'smoke_fixture_groups: --leg must be one of linear | jira | none | zzsynthetic (got "jirra")\n',
       ),
     ).toBe(false);
     expect(
       m.legErrorMatchesCanonicalSet(
-        'smoke_fixture_groups: --leg must be one of linear | jira (got "jirra")\n' +
+        'smoke_fixture_groups: --leg must be one of linear | jira | none (got "jirra")\n' +
           "usage: bun smoke_fixture_groups.ts render --leg <linear|jira>",
       ),
     ).toBe(true);
@@ -335,29 +343,77 @@ describe("AC-STE-445.3 — a registered leg no group rosters is loud, not all-N/
     // Group 2 is Linear-only by design (probe #26 is vacuous on Jira).
     expect([...coveringLeg!("linear")]).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     expect([...coveringLeg!("jira")]).toEqual([1, 3, 4, 5, 6, 7, 8]);
+    // STE-446 widened the enum, and the rosters now DERIVE from it, so the new
+    // leg is covered by the same seven groups the Jira leg is.
+    expect([...coveringLeg!("none")]).toEqual([1, 3, 4, 5, 6, 7, 8]);
     expect([...coveringLeg!("zzsynthetic")]).toEqual([]);
   });
 
-  test("the CLI refuses a rostered-by-nobody leg instead of rendering all-N/A", () => {
-    // Today, with the enum widened, `appliesToLeg` stops taking its
-    // everything-applies fallback and returns false for all eight groups. Every
-    // record becomes `not-applicable`, `fixtureGroupsAggregate` calls that a
-    // PASS, and the CLI exits 0 — a leg that checked nothing reporting green.
-    // That is the silence-reads-as-green defect the module exists to remove,
-    // one level up. Refuse at the boundary, mirroring the `--leg` guard.
-    const m = legMod();
-    const r = m.runMutatedLegCli(m.SYNTHETIC_LEG, [
-      "render",
-      "--leg",
-      m.SYNTHETIC_LEG,
-      "--passed",
-      "1 3 4 5 6 7 8",
-    ]);
-    expect(r.exitCode).toBe(2);
-    expect(r.stdout).not.toContain("Fixture groups:");
-    expect(r.stdout).not.toContain("N/A");
-    expect(r.stderr).toContain(m.SYNTHETIC_LEG);
-    expect(r.stderr).toMatch(/no fixture group/i);
+  test("every registered leg is rostered, so the guard's state cannot arise", () => {
+    // WHAT THIS USED TO ASSERT, AND WHY IT NO LONGER DOES (re-aimed by STE-446).
+    //
+    // This test previously drove the STE-445 registered-but-unrostered guard
+    // through the mutated CLI: `--leg <synthetic>` on a copy whose `SMOKE_LEGS`
+    // had gained that leg, expecting rc 2 and a "no fixture group rosters it"
+    // refusal instead of eight `not-applicable` records rendering as a pass.
+    //
+    // STE-446 AC.1 pointed the group rosters at the enum
+    // (`const ALL_LEGS: readonly SmokeLeg[] = SMOKE_LEGS`, deleting the second
+    // hardcoded copy that used to sit beside it — deliberately not spelled
+    // here, because AC.1's grep for that identifier covers `tests/` too and a
+    // mere mention in a comment is a hit). The mutation now widens the enum AND the
+    // rosters together, so the same invocation renders
+    // `Fixture groups: PASS — 7 passed … 1 n/a` at rc 0. Measured 2026-08-07.
+    // The guard's precondition is unreachable by construction, so the old
+    // assertion cannot be honestly repaired — only faked, by adding an
+    // injectable-roster API purely to rebuild a state that can no longer occur.
+    //
+    // That is a STRENGTHENING, not a coverage loss: single-source construction
+    // made the vacuous-pass state UNREPRESENTABLE rather than merely detected.
+    // The guard itself stays at the CLI boundary as a fail-closed backstop
+    // (FR STE-446 § Implementation notes, `roster_guard_left_at_cli_boundary`).
+    //
+    // WHAT IT ASSERTS NOW: the derivation that bought that strengthening. Both
+    // arms fail the moment a partial literal roster comes back — which is the
+    // regression actually worth catching, since it is what would make the
+    // guard's state reachable again.
+    const coveringLeg = fixtureGroupsExtras.groupsCoveringLeg;
+    const groups = fixtureGroupsExtras.CANONICAL_FIXTURE_GROUPS;
+    expect(typeof coveringLeg).toBe("function");
+    expect(Array.isArray(groups)).toBe(true);
+
+    // Arm 1 — the headline property: no leg the enum registers is rostered by
+    // nobody. The full pre-STE-446 shape (`ALL_LEGS` a `["linear","jira"]`
+    // literal read by seven groups) leaves `none` at zero groups and fails here.
+    const unrostered = (SMOKE_LEGS as readonly string[]).filter(
+      (leg) => coveringLeg!(leg).length === 0,
+    );
+    expect(unrostered).toEqual([]);
+
+    // Arm 2 — the sharper one, and it is load-bearing: arm 1 alone survives a
+    // SINGLE group being re-pointed at a literal, because the other seven still
+    // roster the leg. So every group must roster the whole registered set,
+    // except the one documented by-design exemption. Re-pointing any group's
+    // `legs` at a partial literal fails here.
+    const DECLARED_EXEMPTIONS: Readonly<Record<number, readonly string[]>> = {
+      // Group 2's SUT is probe #26, which is vacuous on every non-Linear
+      // tracker. This is the ONLY leg-scoped group, and it is scoped by
+      // capability, not by an un-updated copy of the leg list.
+      2: ["linear"],
+    };
+    const full = [...(SMOKE_LEGS as readonly string[])].sort();
+    const offenders = groups!
+      .map((spec) => {
+        const expected = DECLARED_EXEMPTIONS[spec.group] ?? full;
+        const actual = [...spec.legs].sort();
+        const want = [...expected].sort();
+        const same =
+          actual.length === want.length &&
+          actual.every((leg, i) => leg === want[i]);
+        return same ? null : `group ${spec.group}: ${JSON.stringify(spec.legs)}`;
+      })
+      .filter((entry) => entry !== null);
+    expect(offenders).toEqual([]);
   });
 
   test("the two canonical legs are unaffected by the guard", () => {

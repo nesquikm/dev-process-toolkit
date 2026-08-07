@@ -101,6 +101,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
+import { SMOKE_LEGS } from "../adapters/_shared/src/smoke_fixture_groups";
 import { assertChainIntegrity } from "../adapters/_shared/src/smoke_child_capture";
 import { verdictFor } from "../adapters/_shared/src/socratic_first_turn_assert";
 import { parseStreamJsonTranscript } from "../adapters/_shared/src/socratic_first_turn_stream";
@@ -581,13 +582,20 @@ D("AC-STE-429.1 — pre-flight #6's closed basename allow-list is NOT widened", 
     expect(slice).toContain("Reference implementation");
   });
 
-  test("the allow-list is exactly the two tracker-keyed basenames", () => {
+  test("the allow-list is exactly one basename per registered leg", () => {
     // A per-skill workspace basename admitted here would weaken the cwd guard
-    // STE-427 is concurrently rewriting. `toEqual`, not `toContain`.
-    expect(basenameAllowList()).toEqual([
-      "dpt-test-project-linear",
-      "dpt-test-project-jira",
-    ]);
+    // STE-427 is concurrently rewriting. `toEqual`, not `toContain` — this AC
+    // forbids EXTRAS, and that is what the equality carries.
+    //
+    // The expected set is derived from `SMOKE_LEGS` rather than restated as a
+    // literal pair (STE-446). The literal pair was never this AC's contract:
+    // it conflated "no non-leg basename is admitted" (the guard) with "there
+    // are exactly two legs" (an unrelated fact that STE-446 changed). Deriving
+    // keeps the guard and drops the coincidence — a Phase 8 workspace basename
+    // still fails, because it is not a leg.
+    expect(basenameAllowList()).toEqual(
+      SMOKE_LEGS.map((leg) => `dpt-test-project-${leg}`),
+    );
   });
 
   test("the prose still describes the allow-list as CLOSED", () => {

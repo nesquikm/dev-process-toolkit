@@ -132,8 +132,9 @@ Print the contract to the operator and prompt for `y` to proceed. The prompt MUS
 
 ```
 /conformance-loop will:
-  1. Spawn parallel /smoke-test --tracker linear and /smoke-test --tracker jira
-     subprocess sessions per iteration (real Linear + Jira writes).
+  1. Spawn one parallel /smoke-test subprocess session per registered leg per
+     iteration — --tracker linear, --tracker jira, --tracker none (real Linear
+     + Jira writes on the first two; the none leg is tracker-less).
   2. Aggregate per-tracker findings into /tmp/dpt-conformance-loop-<date>-iter-<N>.md
      with cross-tracker dedup.
   3. <auto-fix-line>
@@ -158,7 +159,24 @@ When `--auto-fix` is ON, substitute `<auto-fix-line>` with `In Phase B, sequenti
 
 ### Phase A — Parallel /smoke-test fan-out + aggregation
 
-Each iteration's Phase A spawns two `claude -p /smoke-test ...` subprocess calls in parallel — both detached from a single Bash call, each PID captured to a per-iteration pidfile at `/tmp/dpt-conformance-loop-<date>-iter-<N>-{linear,jira}.pid` — then awaits both via the bounded poll-until-exit discipline below before reading the per-tracker findings files. Subprocess output is captured to per-iteration log files at `/tmp/dpt-conformance-loop-<date>-iter-<N>-{linear,jira}.log` for forensics.
+Each iteration's Phase A spawns one `claude -p /smoke-test ...` subprocess call **per registered leg** in parallel — all detached from a single Bash call, each PID captured to a per-iteration pidfile at `/tmp/dpt-conformance-loop-<date>-iter-<N>-{linear,jira,none}.pid` — then awaits them all via the bounded poll-until-exit discipline below before reading the per-leg findings files. Subprocess output is captured to per-iteration log files at `/tmp/dpt-conformance-loop-<date>-iter-<N>-{linear,jira,none}.log` for forensics.
+
+**The leg set is `SMOKE_LEGS`, and only `SMOKE_LEGS` (STE-446).** Every per-leg enumeration in this skill restates the leg set declared by `adapters/_shared/src/smoke_fixture_groups.ts`. Do not add a leg to one surface only.
+
+**Exactly which enumerations are MACHINE-ENFORCED, and which are not.** `adapters/_shared/src/leg_prose_surfaces.ts` binds five surfaces to the enum, so adding or dropping a leg there turns this document's prose RED until it catches up:
+
+| Enumeration | Bound? |
+|---|---|
+| the spawn fence's brace groups | **yes** |
+| the poll-loop word list | **yes** |
+| the pidfile globs (`.pid` paths only) | **yes** |
+| the `green` probe's findings-file list | **yes** |
+| the closing-summary table's columns | **yes** |
+| the per-leg **log** paths (`.log`) | **no** — the pidfile matcher is `.pid`-only |
+| the `RC_FILE_*` / `RC_*` family | **no** by prose; covered behaviourally by `driver-gate-fail-open-guards.test.ts`, which drives the rc gate over `SMOKE_LEGS` |
+| the Phase 0 operator-contract fence's `--tracker …` list | **no** |
+
+The three unbound rows are stated because an earlier revision of this paragraph claimed the log paths were bound and they are not — measured: stripping every per-leg `.log` reference reds zero surfaces. A reader must be able to tell which enumerations a widened enum will catch and which need updating by hand.
 
 **Parallelism mechanism.** Bash subprocess parallelism, **NOT the agent-team primitive** — agent teams have no `fork: true` flag and aren't recommended for serial orchestration per the Claude Code docs (`https://code.claude.com/docs/en/agent-teams`). Each subprocess is a top-level `claude -p` session, which can invoke skills via the literal-first-line pattern (sub-agents cannot, per docs).
 
@@ -202,10 +220,13 @@ ITER=<N>
 DATE=$(date +%Y-%m-%d)
 LOG_LINEAR=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.log
 LOG_JIRA=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.log
+LOG_NONE=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-none.log
 PID_FILE_LINEAR=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.pid
 PID_FILE_JIRA=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.pid
+PID_FILE_NONE=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-none.pid
 RC_FILE_LINEAR=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.rc
 RC_FILE_JIRA=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.rc
+RC_FILE_NONE=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-none.rc
 # STE-420: run-start in epoch ms (the Phase 0 acceptance moment). It is the
 # freshness gate for the per-leg verdict artifacts reconciled below — an
 # artifact older than this is a previous run's leftover, never this run's
@@ -260,7 +281,24 @@ PROMPT_EOF
 } &
 PID_JIRA=$!; echo $! > "${PID_FILE_JIRA}"
 
-echo "detached: linear=${PID_LINEAR} jira=${PID_JIRA} — poll until both exit"
+{
+  claude -p "/smoke-test --tracker none" \
+    --plugin-dir "${PLUGIN_DIR}" \
+    > "${LOG_NONE}" 2>&1 <<'PROMPT_EOF'
+<dpt:auto-approve>v1</dpt:auto-approve>
+PROMPT_EOF
+  RC_RAW_NONE=$?
+  # STE-420 + STE-446: same reconciliation on the tracker-less leg — its own
+  # artifact, never another leg's, so no two legs' verdicts can cross
+  # (STE-423 scoping, stated for N legs).
+  bun "${PLUGIN_DIR}/adapters/_shared/src/smoke_verdict.ts" reconcile \
+    --rc "${RC_RAW_NONE}" \
+    --artifact /tmp/dpt-smoke-verdict-none.json \
+    --run-start "${RUN_START_MS}" > "${RC_FILE_NONE}"
+} &
+PID_NONE=$!; echo $! > "${PID_FILE_NONE}"
+
+echo "detached: linear=${PID_LINEAR} jira=${PID_JIRA} none=${PID_NONE} — poll until all exit"
 ```
 
 > ⛔ **FORBIDDEN at this spawn site.** Do NOT await either leg with the Bash tool's `run_in_background` parameter, the `Monitor` tool, or by ending the turn "waiting for the completion notification" — under `claude -p` the notification never arrives (F3, 2026-07-04 conformance run: both legs fire-and-exited at this exact `{ claude -p ... } &` spawn). Nor does self-narrating as an "interactive parent" re-open any of those paths — the Phase-A-entry `[ -t 0 ]` LOOP-CTX result is the sole determinant, a headless classification binds this spawn site for the rest of the run, and no self-classification, however phrased, overrides it. The ONLY sanctioned wait is the bounded `kill -0` poll-until-exit loop below, run in the foreground.
@@ -269,11 +307,12 @@ echo "detached: linear=${PID_LINEAR} jira=${PID_JIRA} — poll until both exit"
 
 ```bash
 # One bounded poll call — up to 18 checks × 30 s ≈ 9 min (≤540 s), under the
-# harness's 600 s per-call ceiling. Repeat until it reports both legs exited.
+# harness's 600 s per-call ceiling. Repeat until it reports every leg exited.
 # (Fresh shell per Bash call: re-derive DATE/ITER first.)
+# The word list below IS the registered leg set (SMOKE_LEGS) — keep it in step.
 for i in $(seq 1 18); do
   LIVE=""
-  for LEG in linear jira; do
+  for LEG in linear jira none; do
     PIDFILE=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-${LEG}.pid
     if [ -f "${PIDFILE}" ] && kill -0 "$(cat "${PIDFILE}")" 2>/dev/null; then
       LIVE="${LIVE} ${LEG}"
@@ -284,7 +323,7 @@ for i in $(seq 1 18); do
   [ -z "${LIVE}" ] && break
   sleep 30
 done
-if [ -n "${LIVE}" ]; then echo "still running:${LIVE} — poll again"; else echo "both legs exited — collect RCs"; fi
+if [ -n "${LIVE}" ]; then echo "still running:${LIVE} — poll again"; else echo "every leg exited — collect RCs"; fi
 ```
 
 **RC collection (after the poll loop reports both legs exited).** Read each leg's rc-file — written by its brace group as the leg exited, carrying the *verdict-reconciled* status rather than the raw `claude -p` one (STE-420) — and abort on any non-zero. A missing rc-file after exit is treated as a failure, and so is an unreadable one: what the gate compares must be a plain integer, validated after the read rather than assumed by it. `cat` **succeeds** on a file that exists but is empty, so a `|| echo 1` fallback fires only on a missing file and leaves the variable empty for every other bad shape — and `[ "" -ne 0 ]` is a `test(1)` usage error whose non-zero status *skips* the abort branch, so the gate fails open on exactly the input it exists to catch. That input is reachable: the rc-file is created by the shell redirect **before** `bun` runs, so any invocation producing no stdout — bun missing, a module throw, a bad flag — leaves 0 bytes behind, and a partial or diagnostic write leaves something that is not a number. The integer check below folds all three into a failure with one predicate:
@@ -292,18 +331,20 @@ if [ -n "${LIVE}" ]; then echo "still running:${LIVE} — poll again"; else echo
 ```bash
 RC_LINEAR=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.rc" 2>/dev/null)
 RC_JIRA=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.rc" 2>/dev/null)
+RC_NONE=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-none.rc" 2>/dev/null)
 
 # Anything that is not a plain integer — absent, empty, truncated, a stray
 # diagnostic — is a FAILED READ, never a zero. Both bad shapes reach `[ … -ne
 # 0 ]` as a usage error, whose non-zero status skips the branch below.
 case "${RC_LINEAR}" in ''|*[!0-9]*) RC_LINEAR=1 ;; esac
 case "${RC_JIRA}"   in ''|*[!0-9]*) RC_JIRA=1 ;; esac
+case "${RC_NONE}"   in ''|*[!0-9]*) RC_NONE=1 ;; esac
 
 # STE-359: before acting on any failure here, run the orphan-adoption scan
 # below — a dead driver can leave live grandchildren whose completed
 # captures are recoverable.
-if [ "${RC_LINEAR}" -ne 0 ] || [ "${RC_JIRA}" -ne 0 ]; then
-  echo "/conformance-loop: Phase A subprocess failed (linear=${RC_LINEAR}, jira=${RC_JIRA}). Aborting."
+if [ "${RC_LINEAR}" -ne 0 ] || [ "${RC_JIRA}" -ne 0 ] || [ "${RC_NONE}" -ne 0 ]; then
+  echo "/conformance-loop: Phase A subprocess failed (linear=${RC_LINEAR}, jira=${RC_JIRA}, none=${RC_NONE}). Aborting."
   exit 1
 fi
 ```
@@ -353,6 +394,7 @@ An adopted grandchild that completes contributes its capture to the leg-complete
 
 - `/tmp/dpt-smoke-findings-${DATE}-linear.md` — Linear-side findings.
 - `/tmp/dpt-smoke-findings-${DATE}-jira.md` — Jira-side findings.
+- `/tmp/dpt-smoke-findings-${DATE}-none.md` — tracker-less-leg findings.
 
 Parse each into a list of finding records (each finding is delimited by `### F<N> — <one-line summary>` per `/smoke-test` Phase 3's findings template). Apply the cross-tracker dedup heuristic (see § Cross-tracker dedup below) and emit the unified report at `/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}.md`.
 
@@ -519,12 +561,13 @@ done
 
 After each iteration (Phase A + optional Phase B), the loop checks three exit conditions in order. The first to trip wins:
 
-(a) **`green`** — both per-tracker findings files have zero `**Severity:** high` lines:
+(a) **`green`** — **every** per-leg findings file has zero `**Severity:** high` lines. The file list below is the registered leg set (`SMOKE_LEGS`); a leg missing from it is a leg whose high-severity findings can never bar green:
 
 ```bash
 HIGH_LINEAR=$(grep -c '^\*\*Severity:\*\* high' /tmp/dpt-smoke-findings-${DATE}-linear.md)
 HIGH_JIRA=$(grep -c '^\*\*Severity:\*\* high' /tmp/dpt-smoke-findings-${DATE}-jira.md)
-if [ "${HIGH_LINEAR}" -eq 0 ] && [ "${HIGH_JIRA}" -eq 0 ]; then
+HIGH_NONE=$(grep -c '^\*\*Severity:\*\* high' /tmp/dpt-smoke-findings-${DATE}-none.md)
+if [ "${HIGH_LINEAR}" -eq 0 ] && [ "${HIGH_JIRA}" -eq 0 ] && [ "${HIGH_NONE}" -eq 0 ]; then
   STATUS=green
   break
 fi
@@ -565,13 +608,13 @@ Emit a unified per-iteration table to stdout, plus the termination reason and li
 ```
 ## /conformance-loop summary
 
-| iter | status   | high (linear) | high (jira) | medium (linear+jira) | fixer-changes | wall-clock |
-|------|----------|---------------|-------------|----------------------|---------------|-----------|
-|    1 | running  |             3 |           2 |                    4 |             2 | 11m 14s   |
-|    2 | running  |             1 |           1 |                    3 |             2 | 10m 47s   |
-|    3 | green    |             0 |           0 |                    2 |             — | 10m 02s   |
+| iter | status   | high (linear) | high (jira) | high (none) | medium (linear+jira+none) | fixer-changes | wall-clock |
+|------|----------|---------------|-------------|-------------|---------------------------|---------------|-----------|
+|    1 | running  |             3 |           2 |           1 |                         4 |             2 | 11m 14s   |
+|    2 | running  |             1 |           1 |           0 |                         3 |             2 | 10m 47s   |
+|    3 | green    |             0 |           0 |           0 |                         2 |             — | 10m 02s   |
 
-Termination reason: green (zero **Severity:** high lines in both per-tracker files)
+Termination reason: green (zero **Severity:** high lines in every per-leg findings file)
 
 Artifacts:
 - iter-1: /tmp/dpt-conformance-loop-<date>-iter-1.md
@@ -579,11 +622,14 @@ Artifacts:
 - iter-3: /tmp/dpt-conformance-loop-<date>-iter-3.md
 - linear logs: /tmp/dpt-conformance-loop-<date>-iter-*-linear.log
 - jira logs:   /tmp/dpt-conformance-loop-<date>-iter-*-jira.log
+- none logs:   /tmp/dpt-conformance-loop-<date>-iter-*-none.log
 - approval:    /tmp/dpt-conformance-loop-<date>-approval.txt
 
 Open questions / risks / inconsistencies:
 - (rendered from capability-key map; see § Capability-key map)
 ```
+
+One `high (<leg>)` column per registered leg (`SMOKE_LEGS`), and the `medium` column names every one of them — a leg without a column is a leg whose findings the operator never reads off this table.
 
 #### Capability-key map (for closing summary's open-questions block)
 
@@ -604,7 +650,7 @@ The `STATUS` value from the termination check maps directly to one of the three 
 All output paths carry the per-iteration `<ITER>` suffix so a subsequent iteration cannot overwrite the prior iteration's artifacts:
 
 - `/tmp/dpt-conformance-loop-<DATE>-iter-<N>.md` — aggregated report (the deliverable per iteration).
-- `/tmp/dpt-conformance-loop-<DATE>-iter-<N>-{linear,jira}.log` — per-iteration child stdout/stderr.
+- `/tmp/dpt-conformance-loop-<DATE>-iter-<N>-{linear,jira,none}.log` — per-iteration child stdout/stderr.
 - `/tmp/dpt-conformance-loop-<DATE>-iter-<N>-fix-<IDX>-{spec-write,implement}.log` — per-fix-step child stdout/stderr (Phase B only).
 - `/tmp/dpt-conformance-loop-<DATE>-approval.txt` — operator approval record from Phase 0 (one per invocation, not per iteration).
 

@@ -43,8 +43,11 @@ export const FIXTURE_GROUP_OUTCOMES = [
 
 export type FixtureGroupOutcome = (typeof FIXTURE_GROUP_OUTCOMES)[number];
 
-/** The two legs a tandem `/conformance-loop` run drives. */
-export const SMOKE_LEGS = ["linear", "jira"] as const;
+/**
+ * The legs a tandem `/conformance-loop` run drives. THE authority — every other
+ * statement of the leg set derives from this array, never from a second copy.
+ */
+export const SMOKE_LEGS = ["linear", "jira", "none"] as const;
 
 export type SmokeLeg = (typeof SMOKE_LEGS)[number];
 
@@ -61,11 +64,17 @@ export type SmokeLeg = (typeof SMOKE_LEGS)[number];
  * diagnostic convention is "name the SUT, not the fixture's own FR", so the
  * roster follows the line, not the heading.
  *
- * `legs` is the by-design leg roster. Everything runs on both legs except
- * group 2, which is Linear-only because probe #26 — its system under test — is
- * vacuous on Jira.
+ * `legs` is the by-design leg roster. Everything runs on every registered leg
+ * except group 2, which is Linear-only because probe #26 — its system under
+ * test — is vacuous on Jira.
+ *
+ * STE-446: this alias IS `SMOKE_LEGS`, not a parallel literal. The previous
+ * hand-written copy is precisely why all eight rosters stayed static when the
+ * enum was mutated during the M121 design measurement — the roster read the
+ * copy and never saw the new leg. Aliasing keeps the rosters genuinely derived,
+ * so widening the enum widens the coverage with it.
  */
-const BOTH_LEGS: readonly SmokeLeg[] = ["linear", "jira"];
+const ALL_LEGS: readonly SmokeLeg[] = SMOKE_LEGS;
 
 export interface FixtureGroupSpec {
   /** 1-based group number, matching the SKILL's `#### Fixture group <N>`. */
@@ -77,14 +86,14 @@ export interface FixtureGroupSpec {
 }
 
 export const CANONICAL_FIXTURE_GROUPS: readonly FixtureGroupSpec[] = [
-  { group: 1, sut: "STE-226", legs: BOTH_LEGS },
+  { group: 1, sut: "STE-226", legs: ALL_LEGS },
   { group: 2, sut: "STE-214", legs: ["linear"] },
-  { group: 3, sut: "STE-215", legs: BOTH_LEGS },
-  { group: 4, sut: "STE-227", legs: BOTH_LEGS },
-  { group: 5, sut: "STE-228", legs: BOTH_LEGS },
-  { group: 6, sut: "STE-230", legs: BOTH_LEGS },
-  { group: 7, sut: "STE-225", legs: BOTH_LEGS },
-  { group: 8, sut: "STE-350", legs: BOTH_LEGS },
+  { group: 3, sut: "STE-215", legs: ALL_LEGS },
+  { group: 4, sut: "STE-227", legs: ALL_LEGS },
+  { group: 5, sut: "STE-228", legs: ALL_LEGS },
+  { group: 6, sut: "STE-230", legs: ALL_LEGS },
+  { group: 7, sut: "STE-225", legs: ALL_LEGS },
+  { group: 8, sut: "STE-350", legs: ALL_LEGS },
 ];
 
 // --- records ---------------------------------------------------------------
@@ -145,6 +154,17 @@ function normalizeLeg(leg: unknown): string {
 }
 
 /**
+ * Is this token a leg the enum REGISTERS? One spelling of the membership test,
+ * shared by the two callers that ask it for opposite reasons — `appliesToLeg`
+ * below, which treats an unregistered leg as "everything applies", and the
+ * CLI's `--leg` guard, which refuses it outright. Naming it keeps the two
+ * readings of the same fact from drifting into two spellings of it.
+ */
+function isRegisteredLeg(leg: string): boolean {
+  return (SMOKE_LEGS as readonly string[]).includes(leg);
+}
+
+/**
  * True when this group is expected to run on this leg.
  *
  * An UNKNOWN leg token is treated as "everything applies": exempting a group
@@ -153,7 +173,7 @@ function normalizeLeg(leg: unknown): string {
  * that keeps the gap visible.
  */
 function appliesToLeg(spec: FixtureGroupSpec, leg: string): boolean {
-  if (!(SMOKE_LEGS as readonly string[]).includes(leg)) return true;
+  if (!isRegisteredLeg(leg)) return true;
   return (spec.legs as readonly string[]).includes(leg);
 }
 
@@ -374,7 +394,7 @@ if (import.meta.main) {
     // computing an answer for a leg nobody named.
     const legRaw = first(flags, "leg");
     const leg = normalizeLeg(legRaw);
-    if (!(SMOKE_LEGS as readonly string[]).includes(leg)) {
+    if (!isRegisteredLeg(leg)) {
       console.error(
         `smoke_fixture_groups: --leg must be one of ${SMOKE_LEGS.join(" | ")} ` +
           `(got ${JSON.stringify(legRaw ?? "")})\n${USAGE}`,
