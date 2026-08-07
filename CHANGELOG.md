@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [Unreleased]
+
+M121 — Tracker-less Conformance Coverage (in progress).
+
+### Changed
+
+- **A leg registered in `SMOKE_LEGS` but rostered by no fixture group is now refused instead of rendering a vacuous pass.** `smoke_fixture_groups.ts` gains `groupsCoveringLeg` and a second CLI boundary guard: such a leg exits 2 with a diagnostic naming the fault, where it previously exited 0 after rendering all eight groups `not-applicable` — indistinguishable, to any reader or downstream aggregator, from a clean run. The everything-applies fallback for genuinely *unrecognized* legs is untouched and deliberate: a typo'd leg still reports `not-reached` rather than acquiring a by-design exemption, so its gap stays visible. This is a behavior change to a surface that ships to every plugin consumer, not a test-only edit. It is **unreachable in production until M121's next FR widens the leg enum** — while the enum is `["linear","jira"]` every registered leg is rostered, so no input reaches the new path; it is exercised today only through the mutation harness, which reaches it by widening the enum in a temporary copy. The refusal is **CLI-boundary-only**: the library render and reconcile functions still resolve such a leg to eight `not-applicable` records, which matters only once a library caller exists or the enum widens (STE-445)
+
 ## [2.60.0] — 2026-08-05 — "Ledger"
 
 M120 — Jira Milestone-Identity Enforcement. The second half of the defect v2.59.0 closed for tracker-less projects. Probe #73 was bidirectional but asymmetric: under `mode: none` a freshly created sequential plan is an error decided by git provenance, while under *any* tracker mode the only rule was that no plan may carry an identity key. A sequential `M<N>` plan in a Jira project was therefore fully gate-clean — which is how two consumer projects accumulated five of them in the fortnight after the Epic-first path shipped, with a green gate on every run and no signal to anyone. The asymmetry was invisible because both halves live in one module and each looked complete on its own.

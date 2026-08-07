@@ -158,6 +158,25 @@ function appliesToLeg(spec: FixtureGroupSpec, leg: string): boolean {
 }
 
 /**
+ * The canonical group numbers whose `legs` roster NAMES this leg, in roster
+ * order. Empty when no group covers it.
+ *
+ * Roster-literal on purpose: this deliberately does NOT go through
+ * `appliesToLeg`, whose everything-applies fallback would answer "all eight"
+ * for a leg no group has ever heard of. That fallback is the right answer to
+ * `appliesToLeg`'s question ("should this group have run?" — err toward keeping
+ * the gap visible); it is the wrong answer to THIS one ("which groups signed up
+ * for this leg?"), where the honest answer for an unrostered leg is nothing.
+ * The emptiness is the signal the CLI guard reads.
+ */
+export function groupsCoveringLeg(leg: string): readonly number[] {
+  const normalized = normalizeLeg(leg);
+  return CANONICAL_FIXTURE_GROUPS.filter((spec) =>
+    (spec.legs as readonly string[]).includes(normalized),
+  ).map((spec) => spec.group);
+}
+
+/**
  * Reconcile what the run reported against the canonical roster.
  *
  * Always returns one record per canonical group, in roster order — the run
@@ -359,6 +378,27 @@ if (import.meta.main) {
       console.error(
         `smoke_fixture_groups: --leg must be one of ${SMOKE_LEGS.join(" | ")} ` +
           `(got ${JSON.stringify(legRaw ?? "")})\n${USAGE}`,
+      );
+      process.exit(2);
+    }
+    // The second boundary refusal, and it guards the OTHER direction. The check
+    // above rejects a leg `SMOKE_LEGS` does not know; this one rejects a leg
+    // `SMOKE_LEGS` DOES know that no fixture group rosters. Such a leg clears
+    // the guard above, then fails `appliesToLeg` for all eight groups, so every
+    // record reconciles to `not-applicable`, `fixtureGroupsAggregate` calls that
+    // set a pass, and the CLI exits 0 — a leg that checked nothing reporting
+    // green. That is this module's own defect one level up, and it becomes
+    // reachable the moment `SMOKE_LEGS` grows without the roster growing with
+    // it. Refuse, mirroring the `--leg` guard: exit 2, so the vacuous render is
+    // never mistaken for either verdict.
+    const covering = groupsCoveringLeg(leg);
+    if (covering.length === 0) {
+      console.error(
+        `smoke_fixture_groups: leg ${JSON.stringify(leg)} is registered in ` +
+          `SMOKE_LEGS but no fixture group rosters it — every group would ` +
+          `render not-applicable and the run would report a vacuous pass. Add ` +
+          `the leg to a group's \`legs\` roster, or drop it from SMOKE_LEGS.\n` +
+          USAGE,
       );
       process.exit(2);
     }

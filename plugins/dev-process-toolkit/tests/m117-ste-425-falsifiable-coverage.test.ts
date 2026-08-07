@@ -132,6 +132,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { legErrorMatchesCanonicalSet } from "../adapters/_shared/src/leg_derivation_mutation";
 import { checkChildSpawnCapture } from "../adapters/_shared/src/smoke_child_capture";
 import { parseStreamJsonEvents } from "../adapters/_shared/src/stream_json_events";
 
@@ -864,7 +865,15 @@ describe("AC-STE-425.2 — the CLI carries the aggregate in its exit status", ()
     ]) {
       const r = runGroupsCli(args);
       expect(r.exitCode).toBe(2);
-      expect(r.stderr).toMatch(/--leg must be one of linear \| jira/);
+      // STE-445: exact-set, anchored, and hardcoded in one shared place. An
+      // unanchored substring is satisfied by a WIDENED enum (`linear | jira |
+      // zzsynthetic` still contains `linear | jira`), and an expectation
+      // derived from SMOKE_LEGS moves with the actual and can never fail.
+      // On failure, report the line that was actually printed.
+      const firstStderrLine = r.stderr.split("\n")[0] ?? "";
+      expect(
+        legErrorMatchesCanonicalSet(r.stderr) ? "<canonical leg set>" : firstStderrLine,
+      ).toBe("<canonical leg set>");
       expect(r.stdout).not.toContain("Fixture groups:");
     }
   });
