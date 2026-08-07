@@ -1,6 +1,6 @@
 ---
 status: live
-updated_at: 2026-07-28
+updated_at: 2026-08-07
 ---
 
 # Open follow-ups
@@ -22,6 +22,73 @@ anything a probe already catches — the gate is the durable record for those.
 the same change that closes it and note the closure in the shipping FR. Entries
 that go stale without shipping are worse than no entry, so an item that no longer
 reproduces should be deleted with a one-line reason rather than left to rot.
+
+---
+
+## From the M121 design session (2026-08-07)
+
+### 1. The runtime leg registry — deferred from M121
+
+M121 makes `SMOKE_LEGS` the sole leg-set authority and binds five skill-prose
+surfaces to it via derivation meta-tests, but the two project-local driver skills
+keep **N literal brace groups** in their spawn fences. Adding a fifth leg would
+still mean editing prose in two files.
+
+The eventual shape is a **runtime leg registry**: one entry per leg carrying its
+id, MCP family, required flags, spawn argv and pre-flight set, materialized into
+the shell so the spawn block becomes a single loop regardless of N.
+
+**Why it was deferred rather than built.** The registry introduces a failure mode
+M121 does not otherwise have: if the registry CLI dies or emits an empty list,
+**zero legs spawn and the run reports green** — no findings files, no
+high-severity lines, `STATUS=green`. Trading a coverage gap for a vacuity gap is
+not progress, and a fail-closed guard for it needs its own falsifiable tests,
+which would have displaced the tracker-less coverage work that is M121's actual
+purpose.
+
+**Scope when it is picked up.** The zero-legs-spawned vacuous-green guard is part
+of this item's scope, not an afterthought. Note that M121's `--legs` selector
+already introduces operator-controlled emptiness and STE-447 guards *that* path;
+the registry adds a second route to the same hazard (a registry that resolves to
+nothing without any operator input), and it needs its own guard on the same
+fail-closed principle.
+
+**Inherited analysis — do not re-derive.** Measured 2026-08-07 against v2.60.0:
+widening `SMOKE_LEGS` with a synthetic fourth leg left the full gate at
+`6605 pass / 15 skip / 0 fail`, byte-identical to baseline — zero tests red.
+`grep -rln "SMOKE_LEGS\|SmokeLeg" tests/ adapters/` returned only the defining
+module. The enum was an exported authority imported by nothing.
+
+### 2. Sweep for other unanchored-prefix assertions over generated strings
+
+`tests/m117-ste-425-falsifiable-coverage.test.ts:867` asserted
+`toMatch(/--leg must be one of linear \| jira/)` against a string built by
+`SMOKE_LEGS.join(" | ")`. Unanchored, so the enum could grow without bound and
+the assertion never noticed — it would catch only a shrink or a reorder of the
+first two members. STE-445 fixes that instance.
+
+A second instance was found in the same session:
+`tests/m98-ste-366-zsh-glob-fences.test.ts:261` whitelists
+`/^for \w+ in linear jira\b/`, which matches a widened `for LEG in linear jira none`
+by prefix. Benign in effect — it whitelists fixed-loop shapes and a widened fixed
+loop is still one — but it accepts a change it never reviewed. STE-447 fixes it.
+
+**The class is what needs sweeping, not these two instances.** Any assertion that
+prefix-matches a string assembled from a collection will silently tolerate that
+collection growing. Worth a targeted pass over the test suite for
+`toMatch(/…/)` against `.join(`-built values.
+
+### 3. `docs/layout-reference.md` contradicts `technical-spec.md` on tracker-key invariance
+
+`plugins/dev-process-toolkit/docs/layout-reference.md:108` lists `tracker` among
+the **mode-invariant** Schema Q keys. `specs/technical-spec.md:260` and the
+gate-check skill both say the opposite — the key is mode-conditional, present in
+tracker mode and forbidden under `mode: none`. Gate probe #13 enforces the
+technical-spec reading, so the code is not ambiguous; the doc is simply wrong.
+
+Surfaced during the M121 design survey and deliberately kept out of M121's scope
+so it would not block the design. It is a one-line doc fix, but it should be made
+deliberately rather than folded into an unrelated milestone.
 
 ---
 
