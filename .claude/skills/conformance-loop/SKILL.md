@@ -355,14 +355,20 @@ RUN_START_MS=$(($(date +%s) * 1000))
 PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"   # cwd is the toolkit repo (verified by pre-flight (a))
 export CLAUDE_CONFIG_DIR=~/.claude-st             # STE-350: exported once per spawning block so every spawn line begins bare with `claude` and the tracked `Bash(claude:*)` allow entry matches.
 
-# STE-447: one brace group per REGISTERED leg is written out below, but a
-# group is spawned only when its leg is present in ${SELECTED_LEGS}. Skip the
-# whole group — brace group, pidfile write and rc reconciliation together — for
-# any leg the selection excludes; do not spawn it and then discard its result.
+# STE-447: one brace group per REGISTERED leg is written out below, each
+# wrapped in a MEMBERSHIP TEST against ${SELECTED_LEGS}. The wrapper is real
+# shell, not an instruction: an unselected leg's group never runs, so it opens
+# no log, writes no pidfile and reconciles no rc. The first revision of this
+# expressed the restriction as a COMMENT asking the driver to skip excluded
+# groups, which made `--legs linear` a three-leg run for any reader that took
+# the fence literally — a selector whose own title promises restriction has to
+# restrict in the code, not in a request.
+#
 # The groups stay written out per registered leg rather than collapsed into a
 # loop because the enum-derived assertions in leg_prose_surfaces.ts read this
-# fence's per-leg groups; the runtime leg registry that would retire them is
-# recorded as deferred scope in specs/notes/follow-ups.md.
+# fence's per-leg groups; the case wrapper keeps each `{` / `} &` at column 0
+# so that parser still finds all three. The runtime leg registry that would
+# retire the repetition is deferred scope in specs/notes/follow-ups.md.
 #
 # Each /smoke-test child opens its own Phase 0 pre-approval gate; inject
 # the canonical marker into the heredoc body so the child auto-approves
@@ -374,6 +380,7 @@ export CLAUDE_CONFIG_DIR=~/.claude-st             # STE-350: exported once per s
 # `echo $? > rc-file` inside each group persists the leg's exit code for
 # post-exit collection — this spawn call detaches both legs and returns
 # immediately (STE-355 backfill: no same-call foreground wait).
+case " ${SELECTED_LEGS} " in *" linear "*)
 {
   claude -p "/smoke-test --tracker linear --linear-team ${LINEAR_TEAM:-STE}" \
     --plugin-dir "${PLUGIN_DIR}" \
@@ -393,7 +400,9 @@ PROMPT_EOF
     --run-start "${RUN_START_MS}" > "${RC_FILE_LINEAR}"
 } &
 PID_LINEAR=$!; echo $! > "${PID_FILE_LINEAR}"
+;; esac
 
+case " ${SELECTED_LEGS} " in *" jira "*)
 {
   claude -p "/smoke-test --tracker jira --jira-project ${JIRA_PROJECT}" \
     --plugin-dir "${PLUGIN_DIR}" \
@@ -409,7 +418,9 @@ PROMPT_EOF
     --run-start "${RUN_START_MS}" > "${RC_FILE_JIRA}"
 } &
 PID_JIRA=$!; echo $! > "${PID_FILE_JIRA}"
+;; esac
 
+case " ${SELECTED_LEGS} " in *" none "*)
 {
   claude -p "/smoke-test --tracker none" \
     --plugin-dir "${PLUGIN_DIR}" \
@@ -426,6 +437,7 @@ PROMPT_EOF
     --run-start "${RUN_START_MS}" > "${RC_FILE_NONE}"
 } &
 PID_NONE=$!; echo $! > "${PID_FILE_NONE}"
+;; esac
 
 echo "detached: linear=${PID_LINEAR} jira=${PID_JIRA} none=${PID_NONE} — poll until all exit"
 ```

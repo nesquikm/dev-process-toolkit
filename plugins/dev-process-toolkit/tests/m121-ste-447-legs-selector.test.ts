@@ -259,7 +259,7 @@ describeIfLoop("AC-STE-447.1 — --legs parses, defaults to all, restricts", () 
     }
   });
 
-  test("a single-leg selection spawns exactly one leg", () => {
+  test("a single-leg selection RESOLVES to exactly one leg (resolution only — the spawn fence is asserted separately below)", () => {
     const r = runFence(SMOKE_LEGS[0]!);
     expect(r.status).toBe(0);
     expect(selectedLegs(r)).toEqual([SMOKE_LEGS[0]!]);
@@ -270,6 +270,170 @@ describeIfLoop("AC-STE-447.1 — --legs parses, defaults to all, restricts", () 
     const r = runFence(`${SMOKE_LEGS[0]!},${SMOKE_LEGS[0]!}`);
     expect(r.status).toBe(0);
     expect(selectedLegs(r)).toEqual([SMOKE_LEGS[0]!]);
+  });
+});
+
+// ===========================================================================
+// AC-STE-447.1, third clause — the SPAWN FENCE itself restricts.
+// ===========================================================================
+
+describeIfLoop("AC-STE-447.1 — the spawn fence spawns only the selected legs", () => {
+  /**
+   * WHY THIS EXISTS, stated bluntly because its absence shipped a defect.
+   *
+   * The AC.1 tests above run the pre-flight (0) fence plus a TEST-ONLY
+   * continuation, so they prove `SELECTED_LEGS` RESOLVES correctly and nothing
+   * more. One of them was even called "a single-leg selection spawns exactly
+   * one leg" — a name asserting something no assertion in it checked, since
+   * the artifacts it counted were written by the continuation, not by the
+   * skill. Meanwhile the real Phase A fence carried three UNCONDITIONAL brace
+   * groups and a comment asking the driver to skip excluded ones, so
+   * `--legs linear` was a three-leg run for any reader that took the fence
+   * literally. The flag did not do the thing its own title promised.
+   *
+   * This runs the ACTUAL spawn fence with `claude` and `bun` stubbed, and
+   * asserts on the artifacts THE FENCE creates.
+   */
+  function spawnFence(): string {
+    return bashFences(loop!).find((f) => f.includes("detached:")) ?? "";
+  }
+
+  /**
+   * The spawn fence sets its OWN `ITER=<N>` and `DATE=$(date +%Y-%m-%d)`, so a
+   * caller cannot simply export those — the fence overwrites them, every run
+   * lands on the same real-date path, and two concurrent suite runs collide in
+   * /tmp. Worse, `ITER=<N>` is a stdin REDIRECT from a file called `N`, not an
+   * assignment, so `${ITER}` expands empty.
+   *
+   * Both substitutions are asserted to have applied. A silently-no-opping
+   * mutation is indistinguishable from one that had no effect — the hazard
+   * recorded in specs/notes/follow-ups.md § 0b — and here it would have made
+   * every artifact land somewhere the assertions do not look, which reads as
+   * "the fence spawned nothing" rather than as "the test is broken".
+   */
+  function spawnFenceWith(token: string): string {
+    const fence = spawnFence();
+    let out = fence.replace(/^ITER=<N>$/m, "ITER=1");
+    if (out === fence) throw new Error("ITER placeholder not substituted — test would be vacuous");
+    const before = out;
+    out = out.replace(/^DATE=\$\(date [^)]*\)$/m, `DATE=${token}`);
+    if (out === before) throw new Error("DATE assignment not substituted — test would be vacuous");
+    return out;
+  }
+
+  interface SpawnRun {
+    /** Legs whose `.log` the fence actually opened. */
+    logs: string[];
+    /** Legs whose `.pid` the fence actually wrote. */
+    pids: string[];
+  }
+
+  let spawnSeq = 0;
+  function runSpawnFence(selected: readonly string[]): SpawnRun {
+    const token = `ste447spawn-${process.pid}-${spawnSeq++}`;
+    const bin = mkdtempSync(join(tmpdir(), "ste447-bin-"));
+    try {
+      // Stub every external the fence reaches for. They must succeed, so a
+      // missing artifact can only mean the group did not run.
+      for (const cmd of ["claude", "bun"]) {
+        const p = join(bin, cmd);
+        writeFileSync(p, "#!/bin/sh\ncat >/dev/null 2>&1 || true\nexit 0\n", { mode: 0o755 });
+      }
+      const script = [
+        "set -u",
+        `export PATH=${JSON.stringify(bin)}:$PATH`,
+        "LINEAR_TEAM=STE",
+        "JIRA_PROJECT=DST",
+        `SELECTED_LEGS=${JSON.stringify(selected.join(" "))}`,
+        spawnFenceWith(token),
+        "wait",
+      ].join("\n");
+      Bun.spawnSync(["bash", "-c", script], { cwd: repoRoot });
+
+      const seen = (ext: string) =>
+        SMOKE_LEGS.filter((leg) =>
+          existsSync(`/tmp/dpt-conformance-loop-${token}-iter-1-${leg}.${ext}`),
+        );
+      const out = { logs: seen("log"), pids: seen("pid") };
+      for (const leg of SMOKE_LEGS) {
+        for (const ext of ["log", "pid", "rc"]) {
+          rmSync(`/tmp/dpt-conformance-loop-${token}-iter-1-${leg}.${ext}`, { force: true });
+        }
+      }
+      return out;
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  }
+
+  test("slice sanity: the Phase A spawn fence resolves and carries a group per registered leg", () => {
+    const fence = spawnFence();
+    expect(fence.length).toBeGreaterThan(500);
+    for (const leg of SMOKE_LEGS) expect(fence).toContain(`--tracker ${leg}`);
+  });
+
+  test("REACHABILITY ANCHOR: the full selection opens a log and a pidfile for every leg", () => {
+    // Without this the restriction assertions below could pass because the
+    // fence produces nothing under any input.
+    const r = runSpawnFence(SMOKE_LEGS);
+    expect(r.logs).toEqual([...SMOKE_LEGS]);
+    expect(r.pids).toEqual([...SMOKE_LEGS]);
+  });
+
+  test("--legs linear spawns ONLY linear — no jira log, no none log, no pidfiles", () => {
+    // The assertion the FR's title promised and the earlier tests did not make.
+    const only = SMOKE_LEGS[0]!;
+    const r = runSpawnFence([only]);
+    expect(r.logs).toEqual([only]);
+    expect(r.pids).toEqual([only]);
+    for (const leg of SMOKE_LEGS.filter((l) => l !== only)) {
+      expect(r.logs).not.toContain(leg);
+      expect(r.pids).not.toContain(leg);
+    }
+  });
+
+  test("a two-leg selection spawns exactly those two", () => {
+    const subset = SMOKE_LEGS.slice(0, 2);
+    const r = runSpawnFence(subset);
+    expect(r.pids).toEqual([...subset]);
+  });
+
+  test("FALSIFIABILITY: strip the membership wrappers and every leg spawns again", () => {
+    // The named RED input for this AC. Removing the `case ... in *" <leg> "*)`
+    // wrappers restores the pre-fix fence — three unconditional groups — and a
+    // single-leg selection spawns all three. This is what the shipped defect
+    // looked like, kept as a standing witness rather than a memory.
+    const token = `ste447strip-${process.pid}`;
+    const stripped = spawnFenceWith(token)
+      .replace(/^case " \$\{SELECTED_LEGS\} " in \*" [a-z]+ "\*\)\n/gm, "")
+      .replace(/^;; esac\n/gm, "");
+    expect(stripped).not.toBe(spawnFenceWith(token));
+    const bin = mkdtempSync(join(tmpdir(), "ste447-bin-"));
+    try {
+      for (const cmd of ["claude", "bun"]) {
+        writeFileSync(join(bin, cmd), "#!/bin/sh\ncat >/dev/null 2>&1 || true\nexit 0\n", { mode: 0o755 });
+      }
+      Bun.spawnSync(["bash", "-c", [
+        "set -u",
+        `export PATH=${JSON.stringify(bin)}:$PATH`,
+        "LINEAR_TEAM=STE", "JIRA_PROJECT=DST",
+        `SELECTED_LEGS=${JSON.stringify(SMOKE_LEGS[0]!)}`,
+        stripped, "wait",
+      ].join("\n")], { cwd: repoRoot });
+
+      const spawned = SMOKE_LEGS.filter((leg) =>
+        existsSync(`/tmp/dpt-conformance-loop-${token}-iter-1-${leg}.log`),
+      );
+      // Every leg, despite a single-leg selection — the defect, reproduced.
+      expect(spawned).toEqual([...SMOKE_LEGS]);
+      for (const leg of SMOKE_LEGS) {
+        for (const ext of ["log", "pid", "rc"]) {
+          rmSync(`/tmp/dpt-conformance-loop-${token}-iter-1-${leg}.${ext}`, { force: true });
+        }
+      }
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
   });
 });
 
