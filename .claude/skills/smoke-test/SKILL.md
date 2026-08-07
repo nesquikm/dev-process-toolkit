@@ -57,7 +57,7 @@ Each fires before any side effects, exits non-zero with an NFR-10-shape message.
 6. **Path-safety on the test-project location.** Before spawning any child (see Phase 0), the driver MUST verify the resolved test-project path:
    - Resolves with `realpath` (no broken symlinks). On macOS `realpath` requires the path to exist; resolve via the parent dir + basename instead, since the test-project itself doesn't yet exist when this fires.
    - Has the toolkit-repo path as its parent's parent (i.e. is a true sibling of `dev-process-toolkit`, not an ancestor, child, or unrelated location).
-   - Basename matches one of the closed allow-list `{dpt-test-project-linear, dpt-test-project-jira}` exactly — no other forms accepted (the bare `dpt-test-project` basename is intentionally rejected). Hard-coded by design; the cwd guard pins child spawns to two well-known throwaway paths, one per tracker.
+   - Basename matches one of the closed allow-list `{dpt-test-project-linear, dpt-test-project-jira, dpt-test-project-none}` exactly — no other forms accepted (the bare `dpt-test-project` basename is intentionally rejected). One entry per registered leg (`SMOKE_LEGS` in `adapters/_shared/src/smoke_fixture_groups.ts`, bound to this allow-list by `adapters/_shared/src/leg_prose_surfaces.ts`, STE-446); the cwd guard pins child spawns to that closed set of well-known throwaway paths, one per leg.
    - Is not a symlink, is not inside `$HOME` directly (must be under a `workspace/` ancestor), is not the toolkit repo itself.
    Any failure refuses with NFR-10. This is the load-bearing **cwd guard** that pins the test-project path to one of two known throwaway directories — it fixes the **spawn working directory** each child starts in, while the tracked `permissions.allow` allow-list (`.claude/settings.json`, STE-252) bounds *what* tool calls they may issue. What the cwd guard does *not* do is bound where a child's writes land: a child can write outside the test project from that working directory, and this pre-flight has nothing to say about it. The cwd guard no longer "justifies" any bypass posture; per-tool-call enforcement runs out of the tracked allow-list under default permission mode in Phase 2.
 
@@ -71,7 +71,7 @@ Each fires before any side effects, exits non-zero with an NFR-10-shape message.
    TEST_DIR_REAL="$(realpath "$(dirname "$TEST_PATH")")" || exit 1
    TEST_REAL="$TEST_DIR_REAL/$(basename "$TEST_PATH")"
    case "$(basename "$TEST_REAL")" in
-     dpt-test-project-linear|dpt-test-project-jira) ;;
+     dpt-test-project-linear|dpt-test-project-jira|dpt-test-project-none) ;;
      *) exit 1 ;;
    esac
    [ "$(dirname "$TEST_REAL")" = "$(dirname "$TOOLKIT_REAL")" ] || exit 1

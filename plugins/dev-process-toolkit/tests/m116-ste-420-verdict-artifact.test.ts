@@ -57,6 +57,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { assertChainIntegrity } from "../adapters/_shared/src/smoke_child_capture";
+// STE-446: the registered leg set is the sole authority for how many brace
+// groups the Phase A spawn fence must carry and which tracker token each owns.
+import { SMOKE_LEGS } from "../adapters/_shared/src/smoke_fixture_groups";
 import {
   buildSmokeVerdict,
   formatSmokeVerdict,
@@ -927,27 +930,49 @@ describeIfLoop("AC-STE-420.2 — Phase A spawn wrapper reconciles each leg's rc-
     return groups;
   }
 
-  test("slice sanity: the Phase A spawn fence still has exactly two brace groups", () => {
+  /**
+   * Every leg named by a `dpt-smoke-verdict-<leg>.json` path inside one group,
+   * deduped. This is the STE-423 scoping property read off the group itself
+   * rather than assumed: a group whose artifact path names another leg reports
+   * that other leg here, and the per-leg assertion below goes RED in BOTH
+   * directions (the group missing its own artifact, and the group carrying a
+   * foreign one).
+   */
+  function verdictLegs(group: string): string[] {
+    const re = /dpt-smoke-verdict-([A-Za-z][A-Za-z0-9_-]*)\.json/g;
+    return [...new Set([...group.matchAll(re)].map((m) => m[1]!))];
+  }
+
+  test("slice sanity: the Phase A spawn fence has one brace group per registered leg", () => {
     const fence = spawnFence();
     expect(fence.length).toBeGreaterThan(200);
-    expect(braceGroups(fence).length).toBe(2);
+    // STE-446: the count is DERIVED from the leg enum, never restated as a
+    // literal. `SMOKE_LEGS` is the sole leg-set authority and the fence is an
+    // independently hand-maintained document, so the two sides do not trace to
+    // the same source and this comparison can really fail — a registered leg
+    // with no brace group lands here as RED rather than as a silent gap.
+    expect(braceGroups(fence).length).toBe(SMOKE_LEGS.length);
   });
 
-  for (const [tracker, rcVar] of [
-    ["linear", "RC_FILE_LINEAR"],
-    ["jira", "RC_FILE_JIRA"],
-  ] as const) {
-    test(`${tracker} brace group: reconciles the verdict into ${rcVar} after the leg exits`, () => {
-      const group = braceGroups(spawnFence()).find((g) =>
+  for (const tracker of SMOKE_LEGS) {
+    const rcVar = `RC_FILE_${tracker.toUpperCase()}`;
+    test(`${tracker} brace group: reconciles its own verdict into ${rcVar} after the leg exits`, () => {
+      // Exactly one group owns this leg's `--tracker` token — not "at least
+      // one", so a duplicated or copy-pasted group is RED too.
+      const owned = braceGroups(spawnFence()).filter((g) =>
         g.includes(`--tracker ${tracker}`),
       );
-      expect(group).toBeDefined();
-      const g = group!;
+      expect({ tracker, groups: owned.length }).toEqual({ tracker, groups: 1 });
+      const g = owned[0]!;
 
       // The rc-file write survives — every documented consumer keeps working.
       expect(g).toContain(rcVar);
-      // The reconciliation is wired in, keyed on this leg's own artifact.
-      expect(g).toContain(`dpt-smoke-verdict-${tracker}.json`);
+      // The reconciliation is wired in, keyed on this leg's own artifact and
+      // on NO other leg's — STE-423 leg scoping, stated for N legs.
+      expect({ tracker, verdicts: verdictLegs(g) }).toEqual({
+        tracker,
+        verdicts: [tracker],
+      });
       expect(g).toMatch(/smoke_verdict/);
 
       // Ordering: reconcile AFTER the leg exits, and the LAST rc-file write is

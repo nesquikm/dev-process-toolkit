@@ -636,8 +636,14 @@ describe("AC-STE-425.2 — the outcome vocabulary", () => {
       (s) => s.legs.length === 1 && s.legs[0] === "linear",
     ).map((s) => s.group);
     expect(linearOnly).toEqual([2]);
+    // STE-446 re-pointed the seven full rosters at `SMOKE_LEGS` itself, so the
+    // expected set is RE-STATED BY HAND here rather than read off the enum:
+    // deriving it would compare the enum against the enum and could never fail.
+    // Widening the leg set is meant to land here and be re-stated deliberately.
     for (const spec of m.CANONICAL_FIXTURE_GROUPS) {
-      if (spec.group !== 2) expect([...spec.legs].sort()).toEqual(["jira", "linear"]);
+      if (spec.group !== 2) {
+        expect([...spec.legs].sort()).toEqual(["jira", "linear", "none"]);
+      }
     }
   });
 });

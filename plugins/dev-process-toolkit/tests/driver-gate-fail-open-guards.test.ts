@@ -52,6 +52,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { SMOKE_LEGS } from "../adapters/_shared/src/smoke_fixture_groups";
+
 const pluginRoot = join(import.meta.dir, "..");
 const repoRoot = join(pluginRoot, "..", "..");
 
@@ -91,27 +93,33 @@ describeIfLoop("(A) RC collection: an rc-file it cannot read is never a pass", (
 
   /**
    * Run the documented RC-collection snippet against materialized rc-files.
-   * `undefined` means the file is absent. Returns the snippet's exit status and
-   * stdout — the abort branch is the one that exits non-zero.
+   *
+   * The leg set comes from `SMOKE_LEGS` (STE-446), not from a literal pair: the
+   * gate aborts when ANY leg's rc-file is unreadable, so a fixture that
+   * materializes only two of them would make every "aborts" assertion below
+   * pass for the wrong reason and would leave the discriminator permanently
+   * red. Legs `overrides` does not name get a clean `"0"`; a named leg whose
+   * value is `undefined` is deliberately ABSENT from disk.
    *
    * The snippet hard-codes `/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-…`,
    * so DATE carries a per-invocation token instead of a date: the real path
    * shape is what is under test, and two concurrent runs of this suite must not
    * meet in /tmp.
    */
+  type RcOverrides = Readonly<Record<string, string | undefined>>;
+
   let seq = 0;
-  function runRcGate(
-    linear: string | undefined,
-    jira: string | undefined,
-  ): { status: number; stdout: string } {
+  function runRcGate(overrides: RcOverrides): { status: number; stdout: string } {
     const token = `guardtest-${process.pid}-${seq++}`;
-    const paths = {
-      linear: `/tmp/dpt-conformance-loop-${token}-iter-1-linear.rc`,
-      jira: `/tmp/dpt-conformance-loop-${token}-iter-1-jira.rc`,
-    };
+    const paths = SMOKE_LEGS.map((leg) => ({
+      leg,
+      path: `/tmp/dpt-conformance-loop-${token}-iter-1-${leg}.rc`,
+    }));
     try {
-      if (linear !== undefined) writeFileSync(paths.linear, linear);
-      if (jira !== undefined) writeFileSync(paths.jira, jira);
+      for (const { leg, path } of paths) {
+        const value = leg in overrides ? overrides[leg] : "0";
+        if (value !== undefined) writeFileSync(path, value);
+      }
       const script = [`DATE=${token}`, "ITER=1", rcFence()].join("\n");
       const proc = Bun.spawnSync(["bash", "-c", script]);
       return {
@@ -119,8 +127,7 @@ describeIfLoop("(A) RC collection: an rc-file it cannot read is never a pass", (
         stdout: new TextDecoder().decode(proc.stdout).trim(),
       };
     } finally {
-      rmSync(paths.linear, { force: true });
-      rmSync(paths.jira, { force: true });
+      for (const { path } of paths) rmSync(path, { force: true });
     }
   }
 
@@ -132,54 +139,54 @@ describeIfLoop("(A) RC collection: an rc-file it cannot read is never a pass", (
     expect(fence).toContain("exit 1");
   });
 
-  test("DISCRIMINATOR: two clean legs still pass (the gate is not stuck closed)", () => {
-    const r = runRcGate("0", "0");
+  test("DISCRIMINATOR: every leg clean still passes (the gate is not stuck closed)", () => {
+    const r = runRcGate({});
     expect(r.status).toBe(0);
     expect(r.stdout).toBe("");
   });
 
   // --- the regression this file exists for --------------------------------
 
-  test("REGRESSION: an EMPTY linear rc-file aborts instead of falling through", () => {
+  test("REGRESSION: an EMPTY rc-file aborts instead of falling through — on EVERY leg", () => {
     // `cat` exits 0 on an existing empty file, so the old `|| echo 1` never
     // fired and `[ "" -ne 0 ]` skipped the abort. Verified failing open in
-    // bash, zsh and sh before the fix.
-    const r = runRcGate("", "0");
-    expect(r.status).not.toBe(0);
-    expect(r.stdout).toContain("Aborting");
+    // bash, zsh and sh before the fix. Driven per leg (STE-446) because the
+    // original pair of tests existed to prove the fix reached the SECOND leg
+    // too — that argument does not stop at two.
+    for (const leg of SMOKE_LEGS) {
+      const r = runRcGate({ [leg]: "" });
+      expect({ leg, aborted: r.status !== 0 }).toEqual({ leg, aborted: true });
+      expect(r.stdout).toContain("Aborting");
+    }
   });
 
-  test("REGRESSION: an EMPTY jira rc-file aborts too (both legs, not just the first)", () => {
-    const r = runRcGate("0", "");
-    expect(r.status).not.toBe(0);
-    expect(r.stdout).toContain("Aborting");
-  });
-
-  test("REGRESSION: both rc-files empty aborts", () => {
-    const r = runRcGate("", "");
-    expect(r.status).not.toBe(0);
+  test("REGRESSION: every rc-file empty aborts", () => {
+    const all = Object.fromEntries(SMOKE_LEGS.map((leg) => [leg, ""]));
+    expect(runRcGate(all).status).not.toBe(0);
   });
 
   test("a NON-INTEGER rc-file aborts — a diagnostic on stdout is not a zero", () => {
     // Same test(1) usage error as the empty case, reached whenever the
     // redirect captures something that is not the reconciled number.
     for (const junk of ["error: bun not found", "warn\n0", "0 ", "-1", "nan"]) {
-      const r = runRcGate(junk, "0");
+      const r = runRcGate({ linear: junk });
       expect({ junk, status: r.status }).toEqual({ junk, status: r.status });
       expect(r.status).not.toBe(0);
     }
   });
 
   test("a MISSING rc-file still aborts (the behaviour the old `|| echo 1` bought)", () => {
-    expect(runRcGate(undefined, "0").status).not.toBe(0);
-    expect(runRcGate("0", undefined).status).not.toBe(0);
+    for (const leg of SMOKE_LEGS) {
+      const r = runRcGate({ [leg]: undefined });
+      expect({ leg, aborted: r.status !== 0 }).toEqual({ leg, aborted: true });
+    }
   });
 
   test("a real non-zero rc is preserved, not flattened to 1", () => {
     // `reconcile` maps missing / malformed / stale / non-pass artifacts to
     // DISTINCT non-zero codes, and the SKILL prose promises each "maps to its
     // own". A validator that rewrote every failure to 1 would erase that.
-    const r = runRcGate("4", "0");
+    const r = runRcGate({ linear: "4" });
     expect(r.status).not.toBe(0);
     expect(r.stdout).toContain("linear=4");
   });

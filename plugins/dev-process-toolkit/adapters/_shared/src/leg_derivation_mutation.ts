@@ -9,12 +9,17 @@
 // `linear | jira | zzsynthetic` still CONTAINS `linear | jira`.
 //
 // THE EXPECTATION IS A HARDCODED LITERAL, DELIBERATELY. The CLI builds its
-// error text as `SMOKE_LEGS.join(" | ")`. If the expectation were derived from
-// the same array, widening the array would move the actual and the expected
-// together and the assertion could never fail — a vacuous test wearing the
-// costume of a derivation. So the full canonical set is spelled out below by
+// error text by joining the leg enum with " | ". If the expectation were
+// derived from the same array, widening the array would move the actual and the
+// expected together and the assertion could never fail — a vacuous test wearing
+// the costume of a derivation. So the full canonical set is spelled out below by
 // hand and matched ANCHORED. Widening the leg set is therefore required to
 // break this file, which forces a human to come here and re-state the new set.
+// (The enum is deliberately not named with its accessor here: STE-446's AC.1
+// pins that this module contains no expression that could build the pattern
+// from the array, and that pin is textual.)
+//
+// RE-STATED 2026-08-07 for STE-446, by hand: the canonical set gained `none`.
 //
 // THE MUTATION IS EXECUTED, NOT DESCRIBED. `smoke_fixture_groups.ts` is
 // self-contained (zero imports), so the harness copies that one file to a temp
@@ -49,7 +54,7 @@ export const SYNTHETIC_LEG = "zzsynthetic";
  * consume it (and the AC.4 registry) can point at one literal.
  */
 export const CANONICAL_LEG_ERROR_PATTERN =
-  /^smoke_fixture_groups: --leg must be one of linear \| jira \(got .*\)$/;
+  /^smoke_fixture_groups: --leg must be one of linear \| jira \| none \(got .*\)$/;
 
 /** Anchored, first-line-exact. `toContain` here would reinstate the defect. */
 export function legErrorMatchesCanonicalSet(stderr: string): boolean {
@@ -233,7 +238,7 @@ const DERIVATION_SPECS: readonly DerivationSpec[] = [
     // — widening the leg set included — therefore turns AC.4 RED here as well
     // as AC.1 RED at the assertion.
     expectationLiteral:
-      "^smoke_fixture_groups: --leg must be one of linear \\| jira \\(got .*\\)$",
+      "^smoke_fixture_groups: --leg must be one of linear \\| jira \\| none \\(got .*\\)$",
     matches: (result) => legErrorMatchesCanonicalSet(result.stderr),
   },
 ];

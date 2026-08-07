@@ -25,6 +25,30 @@ reproduces should be deleted with a one-line reason rather than left to rot.
 
 ---
 
+## From M121 implementation (2026-08-07)
+
+### 1. Cross-commit atomicity is NOT enforced — AC-STE-446.7 ships with one arm
+
+**This is a known, deliberate absence. Do not read the green suite as covering it.**
+
+AC-STE-446.7 requires that widening `SMOKE_LEGS` and re-pointing the fixture-group rosters land in the **same commit**, because a split leaves an intermediate revision where a leg is registered by the enum and rostered by no group — the STE-445 guard fires and every `--leg <newleg>` invocation is refused.
+
+What ships is the **working-tree invariant arm only**: the finished tree declares all three legs, carries no second copy of the leg list, and `groupsCoveringLeg` returns a non-empty set for the new leg. That arm is falsifiable on every run and catches the end state.
+
+A second arm — a git-history walk over the branch — was written and then **deleted rather than shipped**, on two independent grounds:
+
+1. **Permanently vacuous post-merge.** Its range was `merge-base(HEAD, main)..HEAD`. On main that collapses to `HEAD..HEAD`, so the walk passes over an empty set forever. M121 exists to eliminate assertions that cannot fail; shipping one as part of its own implementation would be self-refuting.
+2. **Identifier proxy, defeatable by a rename-first split.** The predicate required the old alias to be textually present. A split that first renames the alias while keeping the enum two-member, then widens in a later commit, leaves a broken intermediate the walk cannot see.
+
+A vacuous test is worse than no test — no test is an honest absence, a vacuous one is a false presence that reads as coverage.
+
+**Proposed scope for whoever picks this up**, both halves needed:
+
+- **Walk the milestone's commit set, not a collapsing range.** Derive the revisions from the shas touching `specs/plan/M121.md`, or from a recorded kickoff..ship range in the plan frontmatter — something that does not evaluate to empty once the branch merges into the ref it compares against.
+- **Key the predicate on roster coverage, not on an identifier.** For each revision, assert every leg declared by that revision's enum is rostered by at least one group in that same revision. That is what the AC actually means by "the rosters ceasing to read the hardcoded literal", and it is immune to a rename.
+
+Worth checking whether this generalizes: any invariant of the form "these two edits must be in one commit" has the same shape, and a reusable milestone-scoped history walker would serve them all.
+
 ## From the M121 design session (2026-08-07)
 
 ### 1. The runtime leg registry — deferred from M121
