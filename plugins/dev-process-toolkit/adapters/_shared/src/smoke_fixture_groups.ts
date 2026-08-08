@@ -96,6 +96,21 @@ export type SmokeLeg = (typeof SMOKE_LEGS)[number];
  * existed, every roster was either the full alias or a subset of
  * `{linear, jira}`, so nothing distinguished a genuinely N-way `legs` field
  * from a two-state flag wearing a list's clothing.
+ *
+ * STE-451 adds group 10 on the same leg and it is NOT a second instance of
+ * group 9's reason. Group 9 is exempt from the tracker legs by INVERSION —
+ * probes #13 and #73 demand the opposite there. Group 10 is exempt because the
+ * ARTIFACT it observes does not exist on a tracker leg at all: `claimLock`
+ * writes `.dpt/locks/<id>` only under `mode: none`, and under a tracker the
+ * same claim writes to the ticket instead. So this is vacuity with a NAMED
+ * SUBSTITUTE — the evidence a tracker leg carries for the same property is the
+ * ticket's `In Progress`/`Done` transition, asserted by Phase 4's ticket row —
+ * rather than group 2's vacuity, where nothing carries it anywhere. Recorded
+ * as its own reason rather than counted alongside the others, because "how
+ * many exemptions are there" has never been the useful question; "what is each
+ * one's reason, and can it ever be retired" is. This one is permanent for the
+ * same structural reason group 2's is: a tracker leg has no lock file to look
+ * at, however well it runs.
  */
 const ALL_LEGS: readonly SmokeLeg[] = SMOKE_LEGS;
 
@@ -176,6 +191,13 @@ export const CANONICAL_FIXTURE_GROUPS: readonly FixtureGroupSpec[] = [
     legs: ["none"],
     rationale:
       "probes #13 and #73 INVERT under a tracker mode — there they demand a tracker block and forbid the minted id — so their tracker-less enforcing arms are unreachable from any leg that configures a tracker",
+  },
+  {
+    group: 10,
+    sut: "STE-382",
+    legs: ["none"],
+    rationale:
+      "`.dpt/locks/<id>` is written only by LocalProvider.claimLock, which runs only under mode: none — a tracker leg's claim writes to the ticket, so there is no lock file there to observe at any point in the run",
   },
 ];
 

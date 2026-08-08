@@ -413,6 +413,8 @@ Skills to run, in order:
 2. `/dev-process-toolkit:spec-write` — feature stub (default `greet`): "Add a pure function greet(name?: string) returning 'Hello, <name>!' (defaulting 'world' for undefined / empty / whitespace-only). File src/greet.ts; test src/greet.test.ts; 4 ACs."
 3. `/dev-process-toolkit:implement <feature-id>` — full TDD + tracker writes (claim → release after archive). Pre-authorize the Phase 4 step 15 commit upfront. Do NOT push.
 
+   **Tracker-less leg only — sample the lock while this step is still running (STE-451).** `/implement` claims at § 0.c and releases at Phase 4 Close step (b), both **inside** this step, so the lock file exists only for the duration of this spawn and is gone before Phase 2.X runs. Run § Fixture group 10's sampler once per poll call for this PID; it is a one-shot `test -e` that appends only on a hit, so it composes with the bounded poll fence without altering it. Skipping it does not fail this step — it fails sub-fixture 10a, which is the point: an unsampled window and an unwritten lock must not report the same way.
+
    **Post-step advisory (STE-181).** After step 3 returns, log: *"single-FR run complete — FR remains `status: active`, milestone remains `status: active`. Run `/spec-archive M<N>` to archive when ready."* The smoke driver intentionally uses the `<feature-id>` form (per `skills/implement/SKILL.md` § Invocation forms — single-FR is the canonical "ship one FR" path), which silent-skips Phase 5. The end state is correct, not drift; gate-check probe #14 emits the STE-180 advisory if the plan is fully checked. Documentation prose only — no behavioral change to the smoke driver.
 4. `/dev-process-toolkit:gate-check` — read-only verification.
 5. `/dev-process-toolkit:spec-review <feature-id>` — read-only spec-vs-code audit.
@@ -1052,7 +1054,7 @@ Head line shape: `Fixture groups: <PASS|FAIL> — <n> passed, <n> failed, <n> no
 
 The two M56 lines above aggregate groups 1–3 because their three SUTs (STE-213 / STE-214 / STE-215) shipped together in M55 and roll up under one milestone-level result. Groups 4–7 (M64 cohort) intentionally do NOT roll up to a single `M64 runtime checks:` line — each of the four SUTs (STE-227 / STE-228 / STE-230 / STE-225) ships its own per-FR runtime-check line so a regression in one is operator-visible without scrolling into the per-fixture diagnostics. The runtime-check line each new group contributes is named in the group's footer paragraph below.
 
-Phase 2.X is **shared infrastructure** for runtime regression coverage. Groups 1–3 (M56 cohort, STE-220 / STE-221 / STE-222) pin the M55 SKILL.md-prose fixes (STE-213 / STE-214 / STE-215). Groups 4–7 (M64 cohort, STE-231) pin the M58 / M60 / M61 / M63 runtime contracts (STE-227 / STE-228 / STE-230 / STE-225). Group 8 (M94 cohort) pins the STE-350 nested-spawn allow-list fix. Group 9 (M121 cohort, STE-450) pins the identity surfaces that only exist under `mode: none` — probe #13's and probe #73's enforcing arms, plus the probe-#26 skip-reason leak check. Future SKILL.md-prose fixes (any FR shipping a behavior change via instructional text in `skills/<X>/SKILL.md`) should add their own fixtures here following the `STE-<sut> runtime regression: <fixture-name>` diagnostic shape — naming the system-under-test, not the test FR.
+Phase 2.X is **shared infrastructure** for runtime regression coverage. Groups 1–3 (M56 cohort, STE-220 / STE-221 / STE-222) pin the M55 SKILL.md-prose fixes (STE-213 / STE-214 / STE-215). Groups 4–7 (M64 cohort, STE-231) pin the M58 / M60 / M61 / M63 runtime contracts (STE-227 / STE-228 / STE-230 / STE-225). Group 8 (M94 cohort) pins the STE-350 nested-spawn allow-list fix. Group 9 (M121 cohort, STE-450) pins the identity surfaces that only exist under `mode: none` — probe #13's and probe #73's enforcing arms, plus the probe-#26 skip-reason leak check. Group 10 (M121 cohort) pins the tracker-less lock lifecycle — that `.dpt/locks/<id>` is genuinely written when work is claimed, which the end-of-run absence row cannot establish on its own. Future SKILL.md-prose fixes (any FR shipping a behavior change via instructional text in `skills/<X>/SKILL.md`) should add their own fixtures here following the `STE-<sut> runtime regression: <fixture-name>` diagnostic shape — naming the system-under-test, not the test FR.
 
 #### Fixture group 4 — STE-227 `--no-tech` end-to-end (Linear + Jira)
 
@@ -1308,6 +1310,97 @@ STE-238 runtime regression: 9c-skip-reason-leak
 ```
 
 If all three sub-fixtures pass, append `STE-321 runtime check: PASS` to the run summary line; any sub-fixture failure appends `STE-321 runtime check: FAIL`, and a group that never executed appends `STE-321 runtime check: NOT-REACHED` rather than nothing at all. On a tracker leg the group is n/a by design — its probes' enforcing arms do not exist there — and appends `STE-321 runtime check: N/A`, which is not a gap; § Phase 2.X summary line keeps the two apart.
+
+#### Fixture group 10 — STE-382 tracker-less lock lifecycle (tracker-less-only)
+
+Three sub-fixtures. This group is the EXISTENCE half of a lock assertion whose absence half already ships as § Phase 4's tracker-less release-proof row (STE-448), and neither half means anything alone: an end-of-run check that `.dpt/locks/<ID>` is gone is satisfied exactly as well by a claim step that silently never wrote one.
+
+**Do not write this group's token into that row, and do not name the row by its AC token here.** The row carries a phrasing tripwire scoped to a 2400-character window taken from the *first* occurrence of its own AC token in this document, so a mention of that token anywhere above § Phase 4 silently relocates the guard off the row and onto whatever text follows the new first occurrence. Measured while writing this block: naming it here moved the anchor from the row to this paragraph and the whole 448 suite stayed green at 42/0. Recorded at `specs/notes/follow-ups.md` § 0i. A tracker leg proves the same property by watching a ticket leave the backlog; this leg has no ticket, so the lock file being created is the only evidence that work was ever claimed.
+
+It is tracker-less-only for a reason distinct from group 9's, and reading it as the same reason will mislead the next editor. Group 9's probes **invert** under a tracker. Group 10's subject simply **does not exist** there — `LocalProvider.claimLock` writes `.dpt/locks/<ID>` only under `mode: none`; a tracker-mode claim writes to the ticket instead, so there is no lock file on a tracker leg at any instant of the run. The evidence a tracker leg carries for the same property is the ticket-state row in § Phase 4, which is why this is vacuity with a **named substitute** rather than group 2's vacuity, where nothing carries the property anywhere.
+
+**MEASURED, and it corrects the attachment point this fixture was designed around.** The lock does **not** survive to this phase. `plugins/dev-process-toolkit/docs/implement-reference.md` § Phase 4 Close step (b) — the long form `skills/implement/SKILL.md` delegates to — states, for `mode: none`, *"deletes `.dpt/locks/<id>` (runbook does not apply)"* and *"No exit path through Phase 4 skips this step"*. (Cited to the reference doc deliberately: the SKILL's own step (b) carries the shorter *"No exit path skips this step"* and neither `mode: none` clause, so a reader grepping the SKILL for these words finds nothing.) So the lock is released when step 3's own commit lands, **not** at an archive commit. The smoke chain's step 3 uses the single-FR form, which never archives at all, so a reader expecting the archive to be the release point will look for a lock that was already deleted one skill earlier. By the time Phase 2.X runs, after step 6, the lock is gone on a correct run. **A sub-fixture that simply listed `.dpt/locks/` here would therefore be RED on every healthy run.** That is why 10a samples during step 3 and 10b reads git rather than the filesystem.
+
+##### The shared identity resolver — used by 10a and 10b, and it must be UNAMBIGUOUS
+
+Both fences below need "the FR under construction", and resolving that carelessly is a live cross-group coupling rather than a theoretical one. **Fixture group 9's sub-fixture 9a deliberately stages an extra FR carrying a freshly minted `id:` into this same `specs/frs/` tree**, and removes it in a cleanup step that a 9a failure may not reach. A resolver that took the first id it found could therefore pick up group 9's decoy, find no claim commit for it, and redden group 10 **for group 9's reason** — one group's failure producing the other's, which is exactly what this group's own independence requirement forbids.
+
+So the resolver refuses ambiguity instead of guessing. It excludes `archive/`, deduplicates, and **fails loudly when the count is not exactly one** rather than silently picking a winner.
+
+```bash
+# Shared by 10a and 10b. Exactly one minted FR must be resolvable, or refuse.
+TP=../dpt-test-project-none
+FR_IDS="$(grep -hs -r --include='*.md' --exclude-dir=archive '^id: fr_' \
+          "${TP}/specs/frs/" | sed 's/^id: *//; s/[[:space:]]*$//' | sort -u)"
+FR_COUNT="$(printf '%s' "${FR_IDS}" | grep -c . || true)"
+if [ "${FR_COUNT}" != "1" ]; then
+  echo "STE-382 runtime regression: 10-identity-ambiguous (found ${FR_COUNT} minted FR ids under ${TP}/specs/frs/; expected exactly 1 — a group 9 fixture FR may not have been cleaned up)" >&2
+else
+  FR_ID="${FR_IDS}"
+fi
+```
+
+##### Sub-fixture 10a — the in-flight observation
+
+The literal mid-run read, and the only assertion here that observes the file while it exists. Run the sampler below **once per step-3 poll call**, alongside the bounded poll fence rather than inside it (§ Grandchild spawn lifecycle is shared by every leg and is not modified for this group).
+
+```bash
+# Group 10 sampler — run ONCE PER step-3 poll call, after the resolver above.
+if [ -n "${FR_ID:-}" ] && [ -e "${TP}/.dpt/locks/${FR_ID}" ]; then
+  echo "lock-present ${FR_ID}" >> /tmp/dpt-smoke-<tracker>-ste451-lock-samples.log
+fi
+```
+
+The log is a **latch** — the sampler appends only on a hit, so one line anywhere in it is the observation.
+
+**10a is sampling-dependent, and its empty case is NOT automatically a group failure. Read this before treating a blank log as a red.** Each poll call covers up to 18 checks × 30 s, and the sampler runs once per *call*, not once per check. If `/implement` happens to complete inside a single poll call the sampler may fire once — possibly before § 0.c has claimed — and find nothing on a perfectly healthy run. So the outcome rule is:
+
+- Empty log **and** 10b found no claim commit ⇒ the claim genuinely never wrote. **10a FAIL.**
+- Empty log **but** 10b found the claim commit ⇒ the lock demonstrably existed and the sampler missed its window. **Report a `10a-sampling-gap` finding; do NOT fail the group on this alone** — a false RED on a healthy run is the other half of the vacuity this milestone hunts, and 10b is the authority precisely because it cannot miss.
+- At least one `lock-present` line ⇒ **10a PASS**, and the id on it must equal the resolver's `FR_ID`.
+
+That asymmetry is deliberate and it is the honest statement of what a sampled observation can prove: it can confirm presence, it cannot prove absence.
+
+##### Sub-fixture 10b — the claim-commit witness
+
+10a alone is a race: a sampler that never happened to run inside the window reports the same empty log as a claim that never wrote anything, and those are opposite findings. 10b removes the race, because `claimLock` does not merely write the lock — it `git add`s and commits it. The mid-run state is therefore **durable**, and can be read back after the release has deleted the file.
+
+```bash
+# After step 3 exits — the durable record of a state that no longer exists.
+# Uses ${TP} and ${FR_ID} from the shared resolver above.
+SHA="$(git -C "${TP}" log --format=%H -1 --grep="^chore(locks): claim lock for ${FR_ID} ")"
+[ -n "${SHA}" ] && git -C "${TP}" show "${SHA}:.dpt/locks/${FR_ID}"
+```
+
+- Assert `SHA` is non-empty — the claim commit exists.
+- Assert the retrieved blob carries `ulid: <FR_ID>` and a non-empty `branch:` line. An empty or content-free lock is a claim that recorded nothing, and it breaks the `already-ours` resume path that the lock exists to serve.
+
+##### Sub-fixture 10c — the identity is resolved from the recorded id, never from the filename stem
+
+The trap this closes is specific and it is the same shape § Phase 4's AC-STE-448.8 row warns about from the plan side. The FR's **filename** is six characters of a twenty-nine-character identity (`id.slice(23, 29)`), while the **lock** is keyed on the whole value. A check that reasons from the filename stem looks for `.dpt/locks/<TAIL>`, which nothing ever writes, and a check that merely asks whether `.dpt/locks/` is non-empty is satisfied by any file at all.
+
+**Two assertions, and an earlier draft of this block had four. The other two are deleted rather than kept as reassurance, because they could not fail:** "the basename equals the recorded `id:`" compares a value with itself — both fences *construct* the path as `${FR_ID}`, which *is* the frontmatter value — and "the basename is not the six-character stem" compares a 29-character string with its own slice, which is unequal for every possible mint. A sub-fixture in the FR that exists to delete unfalsifiable assertions must not ship two of them.
+
+- **The recorded identity is a whole minted id.** `${FR_ID}` matches `^fr_[0-9A-HJKMNP-TV-Z]{26}$`. Falsifiable: an FR whose frontmatter records a truncated or filename-derived `id:` fails here, which is the actual regression — a stem-derived identity does not produce a *differently named* lock, it produces a *malformed recorded id*.
+- **Nothing under the stem-derived path is accepted as evidence.** Let `<TAIL>` be the FR file's basename without `.md` — the six-character stem. Assert `[ ! -e "${TP}/.dpt/locks/<TAIL>" ]`. Falsifiable: a stray stem-keyed lock fails here while 10a and 10b stay green, which is the row that keeps this sub-fixture from being a restatement of 10a. **This is the discriminating half** — without it, "the lock is correctly named" is satisfied by any lock at all.
+
+**Diagnostic on failure:**
+
+```
+STE-382 runtime regression: <10a-in-flight | 10b-claim-commit | 10c-identity-resolution>
+  expected: <a lock-present sample during step 3 | a claim commit whose blob carries ulid: <ID> | the lock basename byte-equals the FR's recorded id:>
+  actual:   <observed>
+  stdout excerpt (last 20 lines):
+    <tail -20 of the relevant log>
+```
+
+The three sub-fixtures fail independently and each names which half of the lifecycle broke: 10a says the lock was never on disk when someone looked, 10b says no claim was ever committed, 10c says something was locked under the wrong name. A run where 10a is empty but 10b finds the commit is a sampling gap, not a claim failure, and the two diagnostics keep those apart — see 10a's outcome rule above, which is what stops that case from rendering a false FAIL.
+
+**What the group's `sut` token claims, and what it does not.** The runtime-check line carries `STE-382` — the FR that made `.dpt/locks/<id>` the canonical lock path and stated that `LocalProvider.claimLock` commits each claim, which is the invariant every sub-fixture here reads and the one the group's RED-producing input breaks. Note what the token does **not** claim: the Provider lock interface itself belongs to STE-20, the release-side idempotency 10b's sibling row depends on to STE-84, and the commit-per-claim semantics predate STE-382, which inherited them rather than authoring them. A group spanning several systems under test cannot name them all in one line, so — following group 9's precedent — it names the one its own falsifiability rests on.
+
+If all three pass, append `STE-382 runtime check: PASS` to the run summary line; any sub-fixture failure appends `STE-382 runtime check: FAIL`, and a group that never executed appends `STE-382 runtime check: NOT-REACHED` rather than nothing at all. On a tracker leg the group is n/a by design — there is no lock file to observe — and appends `STE-382 runtime check: N/A`, which is not a gap; § Phase 2.X summary line keeps the two apart.
+
+**The one carve-out, stated here because a blanket "any sub-fixture failure" reading would make it invisible: the `10a-sampling-gap` outcome is NOT a sub-fixture failure and MUST NOT render `FAIL`.** 10a's outcome rule above defines three cases, and only two of them are 10a failing. An empty sample log **with** 10b's claim commit present means the lock demonstrably existed and the sampler's cadence missed it — the group still renders `PASS`, and the gap is surfaced as its own finding in the Phase 3 findings file. This carve-out exists because the sampler fires once per bounded poll *call* (up to ~9 minutes), not once per check, so a step-3 grandchild that completes inside a single call can legitimately produce zero samples. **Rendering that as `FAIL` would be a false red on a healthy run — the same defect as the one four paragraphs above, arriving through sampling cadence instead of through phase ordering.**
 
 ### Phase 2.Y — End-of-run chain-integrity assertion (STE-355)
 

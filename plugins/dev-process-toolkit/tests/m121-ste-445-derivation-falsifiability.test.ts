@@ -347,11 +347,12 @@ describe("AC-STE-445.3 — a registered leg no group rosters is loud, not all-N/
     // audit then took group 4 OFF the tracker-less leg: its two sub-fixtures are
     // 4a-Linear and 4b-Jira, and step 4 of each asserts a tracker ticket reaches
     // Done — there is no tracker-less instance to run. STE-450 then added group
-    // 9, which rosters the tracker-less leg ALONE, so the leg is covered by
-    // SEVEN groups — level with the Jira leg, and one of the seven is a group
-    // no tracker leg can reach. Restated by hand rather than derived:
-    // computing it from the roster would compare the roster with itself.
-    expect([...coveringLeg!("none")]).toEqual([1, 3, 5, 6, 7, 8, 9]);
+    // 9, and STE-451 group 10 — both rostering the tracker-less leg ALONE — so
+    // the leg is covered by EIGHT groups, one MORE than the Jira leg, and two
+    // of the eight are groups no tracker leg can reach. Restated by hand rather
+    // than derived: computing it from the roster would compare the roster with
+    // itself.
+    expect([...coveringLeg!("none")]).toEqual([1, 3, 5, 6, 7, 8, 9, 10]);
     expect([...coveringLeg!("zzsynthetic")]).toEqual([]);
   });
 
@@ -401,7 +402,7 @@ describe("AC-STE-445.3 — a registered leg no group rosters is loud, not all-N/
     // the leg. So every group must roster the whole registered set, except the
     // ones documented by design below. Re-pointing any group's `legs` at a
     // partial literal fails here.
-    // THREE exemptions, and they are exempt for DIFFERENT reasons — which is why
+    // FOUR exemptions, and they are exempt for DIFFERENT reasons — which is why
     // this map declares them one by one instead of counting them. An exemption
     // that appears here without a reason beside it is the drift this arm exists
     // to catch; an un-updated copy of the leg list would show up as a group
@@ -429,6 +430,15 @@ describe("AC-STE-445.3 — a registered leg no group rosters is loud, not all-N/
       // no tracker leg can ever be added back without the probes changing
       // meaning.
       9: ["none"],
+      // Group 10 (STE-451). Same leg as group 9 and a FOURTH reason class, which
+      // is why it is listed separately rather than folded into that entry. Not
+      // inversion: `.dpt/locks/<id>` is written only by LocalProvider.claimLock,
+      // which runs only under `mode: none` — a tracker-mode claim writes to the
+      // ticket, so a tracker leg has no lock file to observe at any instant.
+      // Vacuity WITH A NAMED SUBSTITUTE (the tracker legs carry the same
+      // property through the ticket-state row), unlike group 2's vacuity where
+      // nothing carries it anywhere. Permanent for the same structural reason.
+      10: ["none"],
     };
     const full = [...(SMOKE_LEGS as readonly string[])].sort();
     const offenders = groups!
