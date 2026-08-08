@@ -373,3 +373,34 @@ export function smokeTrackerFlagLegs(
 ): readonly string[] {
   return dedupe(smokeTrackerAlternationSites(smokeTestDoc).flat());
 }
+
+/** The run-level `**legs:**` header of the aggregated-report template. */
+const REPORT_LEGS_HEADER_RE = /^\*\*legs:\*\*[ \t]*\[([^\]\n]*)\]/m;
+
+/**
+ * The aggregated report's run-level `legs:` list, as one set (STE-453 AC.4).
+ *
+ * DELIBERATELY NOT REGISTERED IN `LEG_PROSE_SURFACES` ABOVE, for exactly the
+ * reason `smokeTrackerFlagLegs` gives: AC-STE-446.2 pins that registry at five
+ * entries and a seventh surface is not one of STE-446's Requirement bullets.
+ *
+ * What this replaces is why it needs a binding at all. The template previously
+ * carried `**Tracker coverage:** linear + jira` — a hand-written two-leg
+ * string that no assertion in the suite reached, measured: rewriting the whole
+ * 34-line template reddened nothing. A rename alone would have moved an
+ * unbacked claim rather than removing one, so the new field is bound to the
+ * enum and widening `SMOKE_LEGS` turns it RED.
+ *
+ * Takes document TEXT, never a path — AC-STE-445.4 bars this module from
+ * reading a skill file to compute an expectation.
+ */
+export function reportShapeLegs(loopDoc: string): readonly string[] {
+  const header = REPORT_LEGS_HEADER_RE.exec(loopDoc);
+  if (header === null) return [];
+  return dedupe(
+    header[1]!
+      .split(",")
+      .map((leg) => leg.trim())
+      .filter((leg) => leg.length > 0),
+  );
+}

@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 # /conformance-loop
 
-Automate the manual two-terminal `/smoke-test` workflow with cross-tracker dedup, capture-only-by-default, and an opt-in `--auto-fix` mode that dispatches `/dev-process-toolkit:spec-write` + `/dev-process-toolkit:implement` per finding under explicit safety rails. **Project-local skill** — lives in `.claude/skills/conformance-loop/SKILL.md` of the dev-process-toolkit repo, not in the plugin itself. Downstream users never see it.
+Automate the manual two-terminal `/smoke-test` workflow with cross-leg dedup, capture-only-by-default, and an opt-in `--auto-fix` mode that dispatches `/dev-process-toolkit:spec-write` + `/dev-process-toolkit:implement` per finding under explicit safety rails. **Project-local skill** — lives in `.claude/skills/conformance-loop/SKILL.md` of the dev-process-toolkit repo, not in the plugin itself. Downstream users never see it.
 
 This skill is the formally-sanctioned exception to `/smoke-test`'s "Capture, don't fix" + "One run per release cycle" rules. Capture-only mode preserves those rules unchanged for raw `/smoke-test` invocations; `--auto-fix` mode is the operator's explicit opt-in to the automated loop with `--max-iterations` + no-progress safety rails (no budget cap — operator controls cost via iteration count).
 
@@ -26,7 +26,7 @@ Parse `$ARGUMENTS` once, before any pre-flight runs:
 - `--legs <comma-separated>` — the leg selector, **default: every leg registered in `SMOKE_LEGS`**. Restricts the set Phase A spawns to the named legs, as the documented opt-out for a token-tight run (a leg costs tokens, not wall-clock — see § When to use). Omitting the flag selects everything; it is not the same as passing an empty value, which selects nothing and is refused. Resolution and both of its refusals are pre-flight (0) below, which runs before pre-flight (a).
 - `--linear-team STE` — pass-through to the Linear `/smoke-test` child via `--linear-team`. Default `STE` (matches `/smoke-test`'s default).
 - `--jira-project KEY` — **required only when `jira` is in the selected leg set.** Pass-through to the Jira `/smoke-test` child via `--jira-project`. The Jira child's pre-flight #8 enforces visibility of the Space; `/conformance-loop`'s pre-flight (d) verifies presence of the flag before any side effects — and skips that verification entirely when the selection does not include `jira`, because a flag the run will never use is not a precondition for it. `--legs linear,none` without `--jira-project` therefore does not refuse.
-- `--dry-run` — boolean, default OFF. Mocks the subprocess spawn and returns canned per-tracker findings files (used by `conformance-loop-dry-run.test.ts` to cover parallelism mechanics + aggregation + termination without invoking real `claude -p` children). Wires the same Phase A → termination path as a real run; only the subprocess call is replaced by reading from a fixture directory.
+- `--dry-run` — boolean, default OFF. **Accepted and parsed, and then nothing in this document reads it.** No branch, fence or conditional below tests the flag; there is no subprocess substitution, no canned per-leg findings, and **no fixture directory** — the one this bullet used to describe never existed anywhere in the repository. The flag is retained because `AC-STE-224.2` names it in a shipped acceptance criterion, not because it does anything. The coverage it used to claim is real but lives elsewhere and is narrower: `tests/m121-ste-452-termination-harness.test.ts` extracts this document's `green`, RC-collection and `no-progress` fences and EXECUTES them under `bash -c` against synthetic per-leg artifacts. That is the termination surfaces only — aggregation, the cross-leg dedup and the report shape are model judgment and no test executes them (see § Rules).
 
 Unknown flags refuse with NFR-10 canonical refusal naming the unknown flag and the supported set:
 
@@ -147,7 +147,7 @@ echo "legs_selected=${SELECTED_LEGS}"
 - The **leg-completeness check** verifies the grandchild log set of each selected leg.
 - **Aggregation** reads one per-leg findings file per selected leg.
 
-> **SUPERSEDED — corrected by STE-452.** Through STE-447 and STE-448 this section read: *"Four downstream surfaces are NOT adapted to a partial selection, and a reduced run currently dies at the first of them."* That was true and measured when written. A reduced run aborted at rc collection with `Phase A subprocess failed (linear=0, jira=1, none=1). Aborting.` — a diagnostic naming a subprocess failure for legs that were never spawned — **before** aggregation and **before** the capture-only short-circuit, so it produced no report and no verdict in either mode. Under `--auto-fix` that path could never reach `green` and terminated as `exhausted`, whose operator-facing prose is false for a reduced run that converged. All four surfaces now take the selection, and `tests/m121-ste-452-termination-harness.test.ts` executes the fences to prove it: the retired behaviour is preserved here as history, not as an operative statement.
+> **SUPERSEDED — corrected by STE-452.** Through STE-447 and STE-448 this section read: *"Four downstream surfaces are NOT adapted to a partial selection, and a reduced run currently dies at the first of them."* That was true and measured when written. A reduced run aborted at rc collection with `Phase A subprocess failed (linear=0, jira=1, none=1). Aborting.` — a diagnostic naming a subprocess failure for legs that were never spawned — **before** aggregation and **before** the capture-only short-circuit, so it produced no report and no verdict in either mode. Under `--auto-fix` that path could never reach `green` and terminated as `exhausted`, whose operator-facing prose is false for a reduced run that converged. All four surfaces now take the selection, and the retired behaviour is preserved here as history, not as an operative statement. **The proof is uneven and STE-453 states the split rather than letting one clause cover both halves:** rc collection and the `green` probe are bash, and `tests/m121-ste-452-termination-harness.test.ts` EXECUTES them; the leg-completeness check and aggregation are model judgment with no runnable form, so they are asserted textually and nothing proves a model obeys them.
 
 **So the honest statement, restated:** the guard is sound and the selector's happy path now works. `--legs` with a proper subset parses, refuses emptiness, spawns only its selection, and reaches a reported verdict. What it may **not** do is reach that verdict by ignoring absent artifacts — a selected leg with no findings file still aborts, because the rule this loop is built on is that no findings and no evidence must never reconcile to the same answer.
 
@@ -253,8 +253,8 @@ Print the contract to the operator and prompt for `y` to proceed. The prompt MUS
      iteration — one --tracker <leg> child for each leg in <SELECTED_LEGS>
      (real Linear writes on the linear leg, real Jira writes on the jira leg;
      the none leg is tracker-less and writes to no tracker at all).
-  2. Aggregate per-tracker findings into /tmp/dpt-conformance-loop-<date>-iter-<N>.md
-     with cross-tracker dedup.
+  2. Aggregate per-leg findings into /tmp/dpt-conformance-loop-<date>-iter-<N>.md
+     with cross-leg dedup.
   3. <auto-fix-line>
 
 Configuration:
@@ -285,20 +285,23 @@ Each iteration's Phase A spawns one `claude -p /smoke-test ...` subprocess call 
 
 **The leg set is `SMOKE_LEGS`, and only `SMOKE_LEGS` (STE-446).** Every per-leg enumeration in this skill restates the leg set declared by `adapters/_shared/src/smoke_fixture_groups.ts`. Do not add a leg to one surface only.
 
-**Exactly which enumerations are MACHINE-ENFORCED, and which are not.** `adapters/_shared/src/leg_prose_surfaces.ts` binds five surfaces to the enum, so adding or dropping a leg there turns this document's prose RED until it catches up:
+**Exactly which enumerations are MACHINE-ENFORCED, and which are not.** `adapters/_shared/src/leg_prose_surfaces.ts` binds **five surfaces via its `LEG_PROSE_SURFACES` registry, plus two more exported beside it**, so adding or dropping a leg turns this document's prose RED until it catches up. (The registry count is pinned at five by AC-STE-446.2; later surfaces therefore live next to it rather than in it, which is a spec constraint and not an inconsistency.)
 
 | Enumeration | Bound? |
 |---|---|
-| the spawn fence's brace groups | **yes** |
-| the poll-loop word list | **yes** |
-| the pidfile globs (`.pid` paths only) | **yes** |
-| the `green` probe's findings-file list | **yes** |
-| the closing-summary table's columns | **yes** |
+| the spawn fence's brace groups | **yes** — registry |
+| the poll-loop word list | **yes** — registry |
+| the pidfile globs (`.pid` paths only) | **yes** — registry |
+| the `green` probe's findings-file list | **yes** — registry |
+| the closing-summary table's columns | **yes** — registry |
+| the `/smoke-test` `--tracker` alternation | **yes** — `smokeTrackerFlagLegs`, beside the registry (STE-448) |
+| the aggregated report's run-level `**legs:**` header | **yes** — `reportShapeLegs`, beside the registry (STE-453) |
+| the § Aggregation per-leg findings-file bullet list | **no** — hand-maintained, and it sits directly beside a list that IS bound |
 | the per-leg **log** paths (`.log`) | **no** — the pidfile matcher is `.pid`-only |
 | the `RC_FILE_*` / `RC_*` family | **no** by prose; covered behaviourally by `driver-gate-fail-open-guards.test.ts`, which drives the rc gate over `SMOKE_LEGS` |
 | the Phase 0 operator-contract fence's `--tracker …` list | **no** |
 
-The three unbound rows are stated because an earlier revision of this paragraph claimed the log paths were bound and they are not — measured: stripping every per-leg `.log` reference reds zero surfaces. A reader must be able to tell which enumerations a widened enum will catch and which need updating by hand.
+The unbound rows are stated because an earlier revision of this paragraph claimed the log paths were bound and they are not — measured: stripping every per-leg `.log` reference reds zero surfaces. A reader must be able to tell which enumerations a widened enum will catch and which need updating by hand. **The § Aggregation row is the one to watch**: STE-453 bound the report template's source-file list and left the sibling bullet list beside it unbound, so those two neighbouring enumerations now have different failure behaviour — exactly the "do not add a leg to one surface only" hazard this section opens with, and it is recorded at `specs/notes/follow-ups.md` § 0k rather than left for a reader to discover.
 
 #### Per-leg abort teardown — the shared recipe every abort path runs (STE-448)
 
@@ -631,24 +634,27 @@ An adopted grandchild that completes contributes its capture to the leg-complete
 - `/tmp/dpt-smoke-findings-${DATE}-jira.md` — Jira-side findings. Read only when `jira` is in `SELECTED_LEGS`.
 - `/tmp/dpt-smoke-findings-${DATE}-none.md` — tracker-less-leg findings. Read only when `none` is in `SELECTED_LEGS`.
 
-Parse each into a list of finding records (each finding is delimited by `### F<N> — <one-line summary>` per `/smoke-test` Phase 3's findings template). Apply the cross-tracker dedup heuristic (see § Cross-tracker dedup below) and emit the unified report at `/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}.md`.
+Parse each into a list of finding records (each finding is delimited by `### F<N> — <one-line summary>` per `/smoke-test` Phase 3's findings template). Apply the cross-leg dedup heuristic (see § Cross-leg dedup below) and emit the unified report at `/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}.md`.
 
-Aggregated report shape (per iteration):
+> **This aggregation pass is MODEL JUDGMENT, not an algorithm (STE-453).** There is no shell fence here and no callable module: a model reads the per-leg findings files and writes the unified report. Nothing executes it, so its coverage is prose assertions over the paragraphs above — which can confirm the instruction is worded correctly and can never detect a model that read it and did something else. That is a ceiling, not an omission, and it is the reason § Rules names this surface explicitly. Compare the termination probes below, which are real bash and are executed against synthetic inputs by `tests/m121-ste-452-termination-harness.test.ts`.
+
+Aggregated report shape (per iteration) — **also model judgment: the block below is a template a model fills in, not a formatter's output, and no test executes its production:**
 
 ```
 # /conformance-loop iteration <ITER> — <DATE>
 
-**Tracker coverage:** linear + jira
+**legs:** [linear, jira, none]
 **Source files:**
 - /tmp/dpt-smoke-findings-<DATE>-linear.md
 - /tmp/dpt-smoke-findings-<DATE>-jira.md
+- /tmp/dpt-smoke-findings-<DATE>-none.md
 
 ## Findings
 
 ### F1 — <one-line summary>
 
 **Severity:** high
-**tracker-coverage:** [linear, jira]   <!-- both trackers surfaced this -->
+**legs:** [linear, jira]   <!-- every leg that surfaced this finding, registry order -->
 **Dedup:** exact-match (STE-<N> runtime regression: <fixture>)
 
 <body>
@@ -656,28 +662,32 @@ Aggregated report shape (per iteration):
 ### F2 — <one-line summary>
 
 **Severity:** high
-**tracker-coverage:** [linear]
-**Dedup:** single-tracker (no Jira surface)
+**legs:** [linear]
+**Dedup:** single-leg (no counterpart on jira or none)
 
 <body>
 
 ### F3 — <one-line summary>
 
 **Severity:** medium
-**tracker-coverage:** [linear, jira]
+**legs:** [jira, none]
 **Dedup:** ~probable-dup (≥80% normalized-body overlap; operator review recommended)
 
 <body>
 ```
 
-#### Cross-tracker dedup
+The run-level `**legs:**` header enumerates every leg the run was **selected** for and the `**Source files:**` list carries one entry per selected leg; both are shown here at the full registered set. A per-finding `**legs:**` list names every leg that surfaced *that* finding, so it is a subset — one element for a single-leg finding, up to the full selection for one every leg saw. **The field replaces the pairwise `tracker-coverage:` of `AC-STE-224.10`, whose two-element `[linear, jira]` shape was structurally incapable of expressing a tracker-less-leg finding at all.** That AC's operative clauses — exactly one entry per unique regression, exact-match before fuzzy, the ≥ 80% threshold, the `~probable-dup` flag — are unchanged and still enforced; only the field's spelling and arity are superseded, and the supersession is recorded in `specs/plan/M121.md`.
 
-Two-pass heuristic:
+#### Cross-leg dedup
 
-1. **Exact-match pass.** Walk every Linear finding; for each, scan Jira findings for an identical `STE-<N> runtime regression: <fixture>` diagnostic line (matches the convention from `/smoke-test` Phase 2.X fixtures). On hit ⇒ emit one entry with `tracker-coverage: [linear, jira]` and `Dedup: exact-match`; skip the Jira-side counterpart in the second pass.
-2. **Fuzzy-overlap pass.** For every still-unmatched Linear finding, normalize body (lowercase, strip whitespace + markdown noise) and compute substring overlap against every still-unmatched Jira finding. ≥ 80% ⇒ dedup with `tracker-coverage: [linear, jira]` + `Dedup: ~probable-dup` flag (flag because fuzzy matches deserve operator review). < 80% ⇒ both findings emit independently with their own single-tracker `tracker-coverage`.
+> **This dedup is MODEL JUDGMENT, not an algorithm (STE-453).** No module implements it, no fence runs it, and nothing in the test suite executes it — the two passes below are instructions a model follows while writing the aggregated report. The ≥ 80% threshold in particular is a judgment call rendered as a number, not a computed ratio. Extracting it into callable code is its own milestone if it is worth doing at all, and until then a green gate says nothing whatsoever about whether the dedup behaved. § Rules names this surface for that reason.
 
-Single-tracker findings (no counterpart on the other side) carry `tracker-coverage: [linear]` or `tracker-coverage: [jira]` with `Dedup: single-tracker`. The aggregated entry is never duplicated — exactly one entry per unique regression across both trackers.
+Two-pass heuristic. **Both passes walk the legs in `SMOKE_LEGS` registry order and, for each leg, scan only the legs that come AFTER it** — so a finding is compared once per pair rather than twice, and a leg is never hardcoded as "the" side of a comparison. With N legs registered the walk is over every ordered pair, not over one named tracker against another; adding a leg extends it without editing this paragraph.
+
+1. **Exact-match pass.** For each leg in registry order, walk its still-unmatched findings; for each, scan every LATER leg's findings for an identical `STE-<N> runtime regression: <fixture>` diagnostic line (matches the convention from `/smoke-test` Phase 2.X fixtures). On hit ⇒ emit one entry whose `legs:` list names the earlier leg and every later leg that matched, with `Dedup: exact-match`; mark those later-leg counterparts matched so they are skipped for the rest of the walk and by the second pass.
+2. **Fuzzy-overlap pass.** For every still-unmatched finding, in the same registry-order walk over later legs, normalize body (lowercase, strip whitespace + markdown noise) and compute substring overlap. ≥ 80% ⇒ dedup into one entry carrying the `legs:` list of every leg that matched + `Dedup: ~probable-dup` flag (flag because fuzzy matches deserve operator review). < 80% ⇒ each finding emits independently with its own `legs:` list.
+
+A finding no other leg surfaced carries a single-element list — `legs: [linear]`, `legs: [jira]` or `legs: [none]` — with `Dedup: single-leg`. The aggregated entry is never duplicated — exactly one entry per unique regression across every selected leg, whatever the leg count.
 
 #### Transient-failure retry for leg spawns (STE-430)
 
@@ -872,7 +882,14 @@ An unselected leg keeps its `HIGH_*` default of `0` and therefore contributes no
 
 (b) **`max-iterations`** — counter ≥ `--max-iterations`:
 
+**An unusable cap is not a permissive one (STE-453 AC.6).** `--max-iterations` is this loop's only spending control. Before this guard, an absent, empty or non-numeric value reached the comparison below as a `test(1)` usage error whose non-zero status merely **skipped** the branch: `rc 0`, `STATUS` unset, and the loop ran on. Measured: `MAX_ITERATIONS=""` with `ITER=3` printed `[: : integer expression expected` and continued. Under `--auto-fix` that is an **unbounded loop whose every iteration spawns `/spec-write` + `/implement` children that commit to this repository and write to real trackers**, so the fail-open costs more here than at the two gates already carrying this guard. Same shape as the rc gate's `RC_*` normalization and the `green` probe's `HIGH_*` check — anything that is not a plain integer is a FAILURE, and this one refuses rather than normalizing, because there is no safe value to substitute for a cap the operator meant to set.
+
 ```bash
+case "${MAX_ITERATIONS:-}" in ''|*[!0-9]*)
+  echo "/conformance-loop: --max-iterations is '${MAX_ITERATIONS:-<unset>}' — not a plain integer, so the loop's only spending control is unusable and it refuses to iterate rather than run uncapped. Aborting."
+  exit 1
+  ;;
+esac
 if [ "${ITER}" -ge "${MAX_ITERATIONS}" ]; then
   STATUS=max-iterations
   break
@@ -938,7 +955,7 @@ The closing summary's open-questions block renders capability gaps as **plain pr
 
 | Capability key                              | Rendered prose |
 |---------------------------------------------|----------------|
-| `conformance_loop_terminated_green`         | `loop converged on iteration <N> — both per-tracker findings files report zero **Severity:** high lines; safe to ship` |
+| `conformance_loop_terminated_green`         | `loop converged on iteration <N> — every selected leg's findings file reports zero **Severity:** high lines; safe to ship` |
 | `conformance_loop_terminated_exhausted`     | `loop hit --max-iterations cap (<N>) before convergence — high-severity findings remain in iter-<N>; operator should triage manually before re-running` |
 | `conformance_loop_terminated_no_progress`   | `loop detected no-progress (byte-identical aggregated findings across iter-<N-1> and iter-<N>, or zero git HEAD advance after Phase B) — fixers cannot resolve the remaining findings; operator should triage manually` |
 
@@ -965,8 +982,9 @@ End-of-run console summary: per-iteration table, termination reason, links to al
 - **Sequential per-finding fixer dispatch.** Each `/spec-write` + `/implement` pair commits to the toolkit repo; parallel fixers would race on the working tree. Per-finding sequential, per-iteration parallel (only the two per-tracker `/smoke-test` children run in parallel).
 - **Fail-fast on Phase A subprocess error.** If either `/smoke-test` child returns non-zero, the iteration aborts immediately — no aggregation, no Phase B dispatch, no re-iteration. Forensics live in the per-iteration log files.
 - **No agent-team primitive.** Bash subprocess parallelism is the only sanctioned mechanism — agent teams have no `fork: true` flag and aren't recommended for serial orchestration per the Claude Code docs.
-- **Operator owns iteration count.** No budget cap; `--max-iterations` is the only spending control. Default 3 means a worst-case ~60-min wall-clock for a fully-iterating run.
-- **--dry-run is for tests, not operators.** Operators always run live; `--dry-run` exists so the integration test (`conformance-loop-dry-run.test.ts`) can cover the parallelism + aggregation + termination paths without invoking real `claude -p` children.
+- **Operator owns iteration count.** No budget cap; `--max-iterations` is the only spending control. Default 3 means a worst-case ~30-min wall-clock for a fully-iterating run — iterations × ~10 min, with **no leg-count multiplier**, because the legs are detached concurrent brace groups sharing one bounded poll. The `~60-min` this line used to carry was the retired per-tracker multiplier that § When to use already corrects; this was the third estimate surface and the only one AC-STE-447.7's pin did not slice.
+- **--dry-run is inert.** Operators always run live — and so does everyone else, because no branch in this document reads the flag. It substitutes no subprocess, reads no fixture directory, and covers no path. It survives only because `AC-STE-224.2` names it. Do not cite it as coverage for anything.
+- **Aggregation, the cross-leg dedup and the report shape are MODEL JUDGMENT, not algorithms.** They are instructions a model executes; they have no shell form, and after M121 ships **no test executes them** — their pins assert what this document *says*, which is strictly weaker and cannot detect a model reading a correct instruction and doing something else. The termination probes (`green`, RC collection, `no-progress`) are the only surfaces of this driver covered by execution, in `tests/m121-ste-452-termination-harness.test.ts`. Extracting the other three into callable code is a real architectural change, deliberately out of M121's scope and recorded in `specs/notes/follow-ups.md`; until someone takes it, read those three as unverified by construction.
 
 ## Threat model
 

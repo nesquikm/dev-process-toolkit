@@ -919,9 +919,23 @@ describeIfLoop("AC-STE-447.7 — the wall-clock estimate does not multiply by le
     // surface an operator reads as CURRENT. A historical quotation inside a
     // sentence labelled "the previous form … was already wrong" is not that.
     // `× ~10 min` is fine; `× 2`, `× 3`, `× N` are the shape being banned.
+    // EXTENDED by STE-453, and the extension is the point. This pin sliced two
+    // surfaces and there were three: the `## Rules` "Operator owns iteration
+    // count" bullet presents the same estimate and carried `~60-min` — the
+    // retired two-tracker product — for the whole of M121 with nothing red.
+    // Widening the slice set STRENGTHENS this shipped AC rather than relaxing
+    // it, which is the only direction a successor may move a predecessor's
+    // enforcement.
+    const rules = (() => {
+      const at = loop!.indexOf("\n## Rules");
+      const tail = loop!.slice(at + 1);
+      const next = tail.search(/\n## \S/);
+      return next === -1 ? tail : tail.slice(0, next);
+    })();
     const surfaces: ReadonlyArray<[string, string]> = [
       ["When-to-use bullet", whenToUseEstimate()],
       ["Phase 0 contract", phase0Contract()],
+      ["Rules iteration-count bullet", rules],
     ];
     for (const [name, surface] of surfaces) {
       expect(surface.length, `${name} slice resolved`).toBeGreaterThan(50);
