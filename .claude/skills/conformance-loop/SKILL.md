@@ -139,15 +139,17 @@ fi
 echo "legs_selected=${SELECTED_LEGS}"
 ```
 
-`SELECTED_LEGS` is the leg set for the rest of the invocation: pre-flights (c), (d), (e) and (h) below iterate it, Phase A spawns one leg per member of it, and Phase 0's contract reports it. The bounded poll loop and the `green` probe keep iterating the **registered** set rather than the selection, and each handles an unselected leg differently:
+`SELECTED_LEGS` is the leg set for the rest of the invocation: pre-flights (c), (d), (e) and (h) below iterate it, Phase A spawns one leg per member of it, Phase 0's contract reports it, and — since STE-452 — **every downstream surface that counts legs counts the SELECTED set rather than the registered one.** The rule each of them applies is the same, and the two halves are not separable: an absent artifact for a **selected** leg is an abort, an absent artifact for an **unselected** leg is a no-op. Those two cases sit on identical disk state, which is exactly why a surface that cannot see the selection cannot tell them apart.
 
-- The poll loop is safe by construction — an unselected leg writes no pidfile, its `[ -f "${PIDFILE}" ]` test fails, and it is skipped.
-- **Four downstream surfaces are NOT adapted to a partial selection, and a reduced run currently dies at the first of them.** Measured, not inferred:
-  - **The rc-collection gate** aborts first (§ RC collection, below). It reads every registered leg's rc-file; an unselected leg wrote none, the `case '' -> RC=1` normalization treats an unreadable rc as a failure, and the gate exits 1 with `Phase A subprocess failed (linear=0, jira=1, none=1). Aborting.` — a diagnostic that names a subprocess failure when no subprocess was ever spawned for those legs. This fires **before** aggregation and **before** the capture-only short-circuit, so a reduced run yields no report and no verdict in either mode.
-  - **The `green` probe** would likewise `grep -c` an absent findings file, whose empty result makes `[ "" -eq 0 ]` a `test(1)` usage error, so the green branch is not taken. Unreachable today because RC collection aborts first.
-  - **The leg-completeness check** and **aggregation** count legs off the registered set for the same reason.
+- The **bounded poll loop** is safe by construction and is deliberately left iterating the registered set — an unselected leg writes no pidfile, its `[ -f "${PIDFILE}" ]` test fails, and it is skipped.
+- The **rc-collection gate** (§ RC collection) reads one rc-file per selected leg inside a membership arm, and refuses outright on an empty selection.
+- The **`green` termination probe** (§ Termination) counts one findings file per selected leg, aborts on a selected leg whose file is absent, and refuses outright on an empty selection.
+- The **leg-completeness check** verifies the grandchild log set of each selected leg.
+- **Aggregation** reads one per-leg findings file per selected leg.
 
-**So the honest statement: the guard is sound and the selector's happy path is not.** `--legs` with a proper subset parses correctly, refuses emptiness correctly, and is then refused by a downstream gate with a misleading explanation. That is a fail-CLOSED outcome — no vacuous green is reachable through it — but it is not a working reduced run. Adapting all four surfaces to `SELECTED_LEGS` is STE-452's scope and is recorded in `specs/notes/follow-ups.md` § 0a with the measured evidence.
+> **SUPERSEDED — corrected by STE-452.** Through STE-447 and STE-448 this section read: *"Four downstream surfaces are NOT adapted to a partial selection, and a reduced run currently dies at the first of them."* That was true and measured when written. A reduced run aborted at rc collection with `Phase A subprocess failed (linear=0, jira=1, none=1). Aborting.` — a diagnostic naming a subprocess failure for legs that were never spawned — **before** aggregation and **before** the capture-only short-circuit, so it produced no report and no verdict in either mode. Under `--auto-fix` that path could never reach `green` and terminated as `exhausted`, whose operator-facing prose is false for a reduced run that converged. All four surfaces now take the selection, and `tests/m121-ste-452-termination-harness.test.ts` executes the fences to prove it: the retired behaviour is preserved here as history, not as an operative statement.
+
+**So the honest statement, restated:** the guard is sound and the selector's happy path now works. `--legs` with a proper subset parses, refuses emptiness, spawns only its selection, and reaches a reported verdict. What it may **not** do is reach that verdict by ignoring absent artifacts — a selected leg with no findings file still aborts, because the rule this loop is built on is that no findings and no evidence must never reconcile to the same answer.
 
 What pre-flight (0) guarantees is narrower, and is the guarantee that matters here: the loop never proceeds past argument parsing with an empty selection at all. That is why the guard above, not any probe below, is where emptiness is caught.
 
@@ -522,22 +524,62 @@ if [ -n "${LIVE}" ]; then echo "still running:${LIVE} — poll again"; else echo
 **RC collection (after the poll loop reports every leg exited).** Read each leg's rc-file — written by its brace group as the leg exited, carrying the *verdict-reconciled* status rather than the raw `claude -p` one (STE-420) — and abort on any non-zero. A missing rc-file after exit is treated as a failure, and so is an unreadable one: what the gate compares must be a plain integer, validated after the read rather than assumed by it. `cat` **succeeds** on a file that exists but is empty, so a `|| echo 1` fallback fires only on a missing file and leaves the variable empty for every other bad shape — and `[ "" -ne 0 ]` is a `test(1)` usage error whose non-zero status *skips* the abort branch, so the gate fails open on exactly the input it exists to catch. That input is reachable: the rc-file is created by the shell redirect **before** `bun` runs, so any invocation producing no stdout — bun missing, a module throw, a bad flag — leaves 0 bytes behind, and a partial or diagnostic write leaves something that is not a number. The integer check below folds all three into a failure with one predicate:
 
 ```bash
-RC_LINEAR=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.rc" 2>/dev/null)
-RC_JIRA=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.rc" 2>/dev/null)
-RC_NONE=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-none.rc" 2>/dev/null)
+# STE-452: an empty selection is never "no legs to check, therefore fine".
+# Pre-flight (0) guarantees a non-empty selection, so reaching this gate with
+# an empty one means the fence is running outside the sanctioned path — and a
+# gate that passes because it examined nothing is the vacuous green this loop
+# exists to close. Fresh shell per Bash call: re-derive SELECTED_LEGS first.
+if [ -z "${SELECTED_LEGS:-}" ]; then
+  echo "/conformance-loop: RC collection reached with an empty leg selection — refusing rather than reporting a clean gate. Aborting."
+  exit 1
+fi
+
+# STE-452: read one rc-file per SELECTED leg, not per registered leg. An
+# unselected leg never spawned and never wrote an rc-file, so its absence is a
+# no-op; a SELECTED leg's unreadable rc is still a failure. Those two cases sit
+# on identical disk state and were indistinguishable until the selection
+# reached this gate, which is why a reduced run used to abort here naming a
+# subprocess failure for legs that were never spawned.
+RC_LINEAR=0
+RC_JIRA=0
+RC_NONE=0
+EXAMINED_LEGS=0
 
 # Anything that is not a plain integer — absent, empty, truncated, a stray
 # diagnostic — is a FAILED READ, never a zero. Both bad shapes reach `[ … -ne
-# 0 ]` as a usage error, whose non-zero status skips the branch below.
+# 0 ]` as a usage error, whose non-zero status skips the branch below. The
+# normalization stays INSIDE each membership arm so it grades only legs this
+# run actually selected.
+case " ${SELECTED_LEGS} " in *" linear "*)
+EXAMINED_LEGS=$((EXAMINED_LEGS + 1))
+RC_LINEAR=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.rc" 2>/dev/null)
 case "${RC_LINEAR}" in ''|*[!0-9]*) RC_LINEAR=1 ;; esac
+;; esac
+case " ${SELECTED_LEGS} " in *" jira "*)
+EXAMINED_LEGS=$((EXAMINED_LEGS + 1))
+RC_JIRA=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.rc" 2>/dev/null)
 case "${RC_JIRA}"   in ''|*[!0-9]*) RC_JIRA=1 ;; esac
+;; esac
+case " ${SELECTED_LEGS} " in *" none "*)
+EXAMINED_LEGS=$((EXAMINED_LEGS + 1))
+RC_NONE=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-none.rc" 2>/dev/null)
 case "${RC_NONE}"   in ''|*[!0-9]*) RC_NONE=1 ;; esac
+;; esac
+
+# Same accounting guard as the green probe: every RC_* pre-defaults to 0, so an
+# arm that never fires reads as a clean leg. A selected token that matched no
+# arm is an unexamined leg, and an unexamined leg may not pass this gate.
+SELECTED_COUNT=$(set -- ${SELECTED_LEGS}; echo $#)
+if [ "${EXAMINED_LEGS}" -ne "${SELECTED_COUNT}" ]; then
+  echo "/conformance-loop: RC collection examined ${EXAMINED_LEGS} of ${SELECTED_COUNT} selected leg(s) [${SELECTED_LEGS}] — an unrecognized or mis-delimited leg cannot be graded. Aborting."
+  exit 1
+fi
 
 # STE-359: before acting on any failure here, run the orphan-adoption scan
 # below — a dead driver can leave live grandchildren whose completed
 # captures are recoverable.
 if [ "${RC_LINEAR}" -ne 0 ] || [ "${RC_JIRA}" -ne 0 ] || [ "${RC_NONE}" -ne 0 ]; then
-  echo "/conformance-loop: Phase A subprocess failed (linear=${RC_LINEAR}, jira=${RC_JIRA}, none=${RC_NONE}). Aborting."
+  echo "/conformance-loop: Phase A subprocess failed for a selected leg (selected=[${SELECTED_LEGS}]; linear=${RC_LINEAR}, jira=${RC_JIRA}, none=${RC_NONE}). Aborting."
   exit 1
 fi
 ```
@@ -577,17 +619,17 @@ An adopted grandchild that completes contributes its capture to the leg-complete
 
 **Residual risk — orphan-vs-killed nondeterminism (STE-359; iter-2 F3).** When a leg's driver dies with live grandchildren, whether a grandchild dies with its driver or survives as an orphan is environment-nondeterministic — process-group inheritance varies with spawn nesting, and iter-2 observed both outcomes in one run (the Linear `/setup` grandchild was killed with its parent while the Jira one survived and completed healthily). Process-group discipline (`setsid` / PGID-wide kill) was considered and rejected as the primary mechanism: it is OS/shell-dependent and unverifiable from SKILL.md prose. The adoption block above is the deterministic recovery — deterministic-by-construction at the layer this parent controls, it recovers a surviving orphan's capture regardless of which way the environment broke.
 
-**Leg-completeness check (STE-355 mirror).** RC 0 alone is not proof a leg ran its chain — the 2026-07-02 run had both children fire grandchild spawns in the background and exit RC 0 "waiting for its completion notification". So after every leg's child has returned, and before aggregation, Phase A verifies each leg's expected grandchild log set is complete and result-bearing: every log in `/tmp/dpt-smoke-<tracker>-{setup,spec-write,implement,gate-check,spec-review,simplify}.log` (with `<tracker>` = that leg's own token, one per registered leg) must exist, be fresh (mtime not before run-start — see the freshness gate below), be non-empty, and carry a stream-json `result` event. A leg whose log set is incomplete — or whose final message matches the fire-and-exit shape (grandchild spawned in the background, child exits awaiting a completion notification it can never receive) — is treated as a failed leg **regardless of RC 0**, and the iteration aborts via the same fail-fast path as a non-zero RC: no aggregation, no Phase B dispatch, no re-iteration; forensics live in the per-iteration and per-skill log files.
+**Leg-completeness check (STE-355 mirror).** RC 0 alone is not proof a leg ran its chain — the 2026-07-02 run had both children fire grandchild spawns in the background and exit RC 0 "waiting for its completion notification". So after every leg's child has returned, and before aggregation, Phase A verifies each leg's expected grandchild log set is complete and result-bearing: every log in `/tmp/dpt-smoke-<tracker>-{setup,spec-write,implement,gate-check,spec-review,simplify}.log` (with `<tracker>` = that leg's own token, **one per SELECTED leg** — STE-452; an unselected leg spawned no child and so owes no log set, while a selected leg's missing log set is a failed leg exactly as before) must exist, be fresh (mtime not before run-start — see the freshness gate below), be non-empty, and carry a stream-json `result` event. A leg whose log set is incomplete — or whose final message matches the fire-and-exit shape (grandchild spawned in the background, child exits awaiting a completion notification it can never receive) — is treated as a failed leg **regardless of RC 0**, and the iteration aborts via the same fail-fast path as a non-zero RC: no aggregation, no Phase B dispatch, no re-iteration; forensics live in the per-iteration and per-skill log files.
 
 **Freshness gate (STE-358; iter-2 F2).** The leg-completeness check is freshness-gated on the **run-start timestamp** captured at Phase 0 acceptance (the epoch-ms moment this invocation's pre-approval was logged): pass it as the `runStart` argument to `assertChainIntegrity` (`adapters/_shared/src/smoke_child_capture.ts`), so a log whose mtime predates run-start is the pinned `capture stale (pre-run)` finding — stale, never healthy, and it can never satisfy the completeness check regardless of its content. Result-bearing alone is not enough: the iter-2 (2026-07-02) run's surviving morning log carried a `result` event and would have false-passed an ungated check. The gate is strictly `mtime < run-start`; a log written exactly at run-start is fresh.
 
 **Path-safety guard delegated to children.** Per-tool-call enforcement now lives in the tracked `permissions.allow` allow-list (`.claude/settings.json`, STE-252) — every `claude -p` child runs in default permission mode and is constrained to the union of patterns enumerated there (Bash command-pattern entries + `Edit`/`Write`/`Read`/`Grep`/`Glob` + `mcp__linear__*` / `mcp__atlassian__*`). Each `/smoke-test` child still runs its own pre-flight #6 (the `realpath`-based allow-list check that pins the resolved test-project path to the closed `dpt-test-project-<leg>` allow-list — one entry per leg `SMOKE_LEGS` registers, asserted against that enum rather than restated here — under a `workspace/` ancestor, not a symlink, not the toolkit repo itself), but that guard is now a **cwd guard** — it bounds the **spawn working directory** each child starts in, not where the writes it issues from there land, while the tracked `permissions.allow` block bounds *what* they can call. `/conformance-loop` does not duplicate the realpath cwd guard at the parent — pre-flight (a) verifies the parent cwd is the toolkit repo, the Phase 0 `permissions.allow` pre-flight (refusal (f)) verifies the policy artifact is populated, and the child's #6 fires before any side effects. The realpath check no longer carries the "bypass-justification" load-bearing role it had pre-STE-252; it remains for cwd hygiene only.
 
-**Aggregation.** After both children return, read the per-tracker findings files at the existing canonical paths (no `/smoke-test` changes):
+**Aggregation.** After every SELECTED leg's child has returned, read that leg's findings file at the existing canonical path (no `/smoke-test` changes). One file per **selected** leg — an unselected leg wrote none, and its absence is a no-op here rather than a gap, the same rule the rc-collection gate and the `green` probe apply (STE-452):
 
-- `/tmp/dpt-smoke-findings-${DATE}-linear.md` — Linear-side findings.
-- `/tmp/dpt-smoke-findings-${DATE}-jira.md` — Jira-side findings.
-- `/tmp/dpt-smoke-findings-${DATE}-none.md` — tracker-less-leg findings.
+- `/tmp/dpt-smoke-findings-${DATE}-linear.md` — Linear-side findings. Read only when `linear` is in `SELECTED_LEGS`.
+- `/tmp/dpt-smoke-findings-${DATE}-jira.md` — Jira-side findings. Read only when `jira` is in `SELECTED_LEGS`.
+- `/tmp/dpt-smoke-findings-${DATE}-none.md` — tracker-less-leg findings. Read only when `none` is in `SELECTED_LEGS`.
 
 Parse each into a list of finding records (each finding is delimited by `### F<N> — <one-line summary>` per `/smoke-test` Phase 3's findings template). Apply the cross-tracker dedup heuristic (see § Cross-tracker dedup below) and emit the unified report at `/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}.md`.
 
@@ -754,17 +796,79 @@ done
 
 After each iteration (Phase A + optional Phase B), the loop checks three exit conditions in order. The first to trip wins:
 
-(a) **`green`** — **every** per-leg findings file has zero `**Severity:** high` lines. The file list below is the registered leg set (`SMOKE_LEGS`); a leg missing from it is a leg whose high-severity findings can never bar green:
+(a) **`green`** — **every SELECTED** leg's findings file has zero `**Severity:** high` lines. One counting site per registered leg (`SMOKE_LEGS`), each guarded by a membership test against the selection: a leg missing from the registry is a leg whose high-severity findings can never bar green, and a leg missing from the *selection* was never run, so it has no findings to weigh either way.
+
+**The absent-file semantic is written into the fence, not inherited from the shell.** Before STE-452 a missing findings file made `grep -c` print nothing, so `[ "" -eq 0 ]` was a `test(1)` usage error whose non-zero status happened to skip the green branch. The run did not report green — but only by accident, nothing expressed the intent, and any refactor could have inverted it silently. A selected leg that produced no findings file **did not run**, and no findings must never reconcile with no evidence, so absence is now an explicit, explained abort:
 
 ```bash
+# Runs INSIDE the per-iteration loop (that is what makes the `break` legal), so
+# DATE/ITER/SELECTED_LEGS are already in scope from Phase 0 and Phase A.
+if [ -z "${SELECTED_LEGS:-}" ]; then
+  echo "/conformance-loop: green probe reached with an empty leg selection — no evidence is never green. Aborting."
+  exit 1
+fi
+
+MISSING_FINDINGS=""
+UNCOUNTABLE_FINDINGS=""
+EXAMINED_LEGS=0
+HIGH_LINEAR=0
+HIGH_JIRA=0
+HIGH_NONE=0
+
+case " ${SELECTED_LEGS} " in *" linear "*)
+EXAMINED_LEGS=$((EXAMINED_LEGS + 1))
+if [ ! -f "/tmp/dpt-smoke-findings-${DATE}-linear.md" ]; then MISSING_FINDINGS="${MISSING_FINDINGS} linear"; else
 HIGH_LINEAR=$(grep -c '^\*\*Severity:\*\* high' /tmp/dpt-smoke-findings-${DATE}-linear.md)
+case "${HIGH_LINEAR}" in ''|*[!0-9]*) UNCOUNTABLE_FINDINGS="${UNCOUNTABLE_FINDINGS} linear" ;; esac
+fi
+;; esac
+case " ${SELECTED_LEGS} " in *" jira "*)
+EXAMINED_LEGS=$((EXAMINED_LEGS + 1))
+if [ ! -f "/tmp/dpt-smoke-findings-${DATE}-jira.md" ]; then MISSING_FINDINGS="${MISSING_FINDINGS} jira"; else
 HIGH_JIRA=$(grep -c '^\*\*Severity:\*\* high' /tmp/dpt-smoke-findings-${DATE}-jira.md)
+case "${HIGH_JIRA}" in ''|*[!0-9]*) UNCOUNTABLE_FINDINGS="${UNCOUNTABLE_FINDINGS} jira" ;; esac
+fi
+;; esac
+case " ${SELECTED_LEGS} " in *" none "*)
+EXAMINED_LEGS=$((EXAMINED_LEGS + 1))
+if [ ! -f "/tmp/dpt-smoke-findings-${DATE}-none.md" ]; then MISSING_FINDINGS="${MISSING_FINDINGS} none"; else
 HIGH_NONE=$(grep -c '^\*\*Severity:\*\* high' /tmp/dpt-smoke-findings-${DATE}-none.md)
+case "${HIGH_NONE}" in ''|*[!0-9]*) UNCOUNTABLE_FINDINGS="${UNCOUNTABLE_FINDINGS} none" ;; esac
+fi
+;; esac
+
+# Every counter above pre-defaults to the PASSING value, so an arm that never
+# fires is indistinguishable from a leg with zero findings. That makes the
+# membership test itself load-bearing, and `*" leg "*` only matches
+# single-space-delimited members — a tab, a comma or a doubled space would miss
+# every arm and report green having counted nothing. So the arms are made to
+# account for themselves: one increment per arm, compared against the selection
+# word count. Any selected token that matched no arm is an unexamined leg.
+SELECTED_COUNT=$(set -- ${SELECTED_LEGS}; echo $#)
+if [ "${EXAMINED_LEGS}" -ne "${SELECTED_COUNT}" ]; then
+  echo "/conformance-loop: green probe examined ${EXAMINED_LEGS} of ${SELECTED_COUNT} selected leg(s) [${SELECTED_LEGS}] — an unrecognized or mis-delimited leg cannot be graded and is never green. Aborting."
+  exit 1
+fi
+if [ -n "${MISSING_FINDINGS}" ]; then
+  echo "/conformance-loop: no findings file for selected leg(s):${MISSING_FINDINGS} — a leg that produced no findings file did not run, and no findings must never reconcile with no evidence. Aborting."
+  exit 1
+fi
+# A file that EXISTS but cannot be counted — unreadable, truncated, a grep
+# diagnostic — leaves the counter empty, and `[ "" -eq 0 ]` is a test(1) usage
+# error whose non-zero status merely SKIPS the green branch. That is the same
+# accidental fail-closed shape the existence check above replaced, one layer in,
+# and the RC gate already normalizes its analogue. Symmetry is the point.
+if [ -n "${UNCOUNTABLE_FINDINGS}" ]; then
+  echo "/conformance-loop: findings file present but not countable for selected leg(s):${UNCOUNTABLE_FINDINGS} — unreadable or malformed evidence is not zero findings. Aborting."
+  exit 1
+fi
 if [ "${HIGH_LINEAR}" -eq 0 ] && [ "${HIGH_JIRA}" -eq 0 ] && [ "${HIGH_NONE}" -eq 0 ]; then
   STATUS=green
   break
 fi
 ```
+
+An unselected leg keeps its `HIGH_*` default of `0` and therefore contributes nothing to the fold — which is correct, and is also why the empty-selection refusal at the top of the fence is load-bearing rather than defensive: with every leg defaulted to zero, an empty selection would otherwise satisfy the conjunction and report `green` having counted nothing at all.
 
 (b) **`max-iterations`** — counter ≥ `--max-iterations`:
 
@@ -823,6 +927,10 @@ Open questions / risks / inconsistencies:
 ```
 
 One `high (<leg>)` column per registered leg (`SMOKE_LEGS`), and the `medium` column names every one of them — a leg without a column is a leg whose findings the operator never reads off this table.
+
+**The columns stay keyed on the REGISTERED set even under `--legs`, and that is a constraint rather than an oversight (STE-452).** This table is the fifth leg-counting surface, and unlike the four the termination work adapted it may not be narrowed to the selection: `closing-summary-columns` in `adapters/_shared/src/leg_prose_surfaces.ts` is a shipped STE-446 derivation surface asserting these column headers enumerate `SMOKE_LEGS` exactly, so dropping an unselected leg's column turns AC-STE-446.2 red. Relaxing a predecessor's acceptance criterion to flatter a successor's is what this milestone forbids, so the column set is left alone and the CONTENT carries the distinction instead: **an unselected leg's cells render `—` (not run), never `0`.** A zero would say the leg was examined and found clean, which is precisely the no-evidence-reconciled-with-no-findings confusion the termination probes now refuse — it must not be reintroduced one layer up in the operator's own summary table.
+
+**`--legs` is reported alongside, so the table is never read without its selection.** The Phase 0 contract already echoes `--legs: <SELECTED_LEGS>`; the closing summary repeats it, because a reader meeting three columns and two `—` cells needs to know whether a leg was skipped or died.
 
 #### Capability-key map (for closing summary's open-questions block)
 

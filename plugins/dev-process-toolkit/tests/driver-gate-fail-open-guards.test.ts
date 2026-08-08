@@ -109,7 +109,27 @@ describeIfLoop("(A) RC collection: an rc-file it cannot read is never a pass", (
   type RcOverrides = Readonly<Record<string, string | undefined>>;
 
   let seq = 0;
-  function runRcGate(overrides: RcOverrides): { status: number; stdout: string } {
+  /**
+   * `selected` defaults to every registered leg — the flag-omitted default the
+   * driver itself applies.
+   *
+   * STE-452 made the fence read one rc-file per SELECTED leg, so the harness
+   * must supply the selection the driver's pre-flight (0) would have resolved.
+   * Leaving it unset is NOT a neutral omission: `${SELECTED_LEGS}` expands
+   * empty and the fence's own empty-selection refusal fires, so every test here
+   * would abort for a reason unrelated to the rc-file under test — the
+   * discriminator included. (An earlier draft of this comment claimed the gate
+   * would instead exit 0 and leave the discriminator falsely green. That was
+   * written before the empty-selection refusal shipped in the same FR and was
+   * simply wrong; corrected here rather than deleted, because a justification
+   * that misstates the mechanism is how a harness quietly stops measuring what
+   * it claims.) The parameter is threaded through rather than defaulted inside
+   * the fence so the selection stays the caller's explicit input.
+   */
+  function runRcGate(
+    overrides: RcOverrides,
+    selected: readonly string[] = SMOKE_LEGS,
+  ): { status: number; stdout: string } {
     const token = `guardtest-${process.pid}-${seq++}`;
     const paths = SMOKE_LEGS.map((leg) => ({
       leg,
@@ -120,7 +140,12 @@ describeIfLoop("(A) RC collection: an rc-file it cannot read is never a pass", (
         const value = leg in overrides ? overrides[leg] : "0";
         if (value !== undefined) writeFileSync(path, value);
       }
-      const script = [`DATE=${token}`, "ITER=1", rcFence()].join("\n");
+      const script = [
+        `DATE=${token}`,
+        "ITER=1",
+        `SELECTED_LEGS="${selected.join(" ")}"`,
+        rcFence(),
+      ].join("\n");
       const proc = Bun.spawnSync(["bash", "-c", script]);
       return {
         status: proc.exitCode,
@@ -170,8 +195,11 @@ describeIfLoop("(A) RC collection: an rc-file it cannot read is never a pass", (
     // redirect captures something that is not the reconciled number.
     for (const junk of ["error: bun not found", "warn\n0", "0 ", "-1", "nan"]) {
       const r = runRcGate({ linear: junk });
-      expect({ junk, status: r.status }).toEqual({ junk, status: r.status });
-      expect(r.status).not.toBe(0);
+      // Was `toEqual({ junk, status: r.status })` — a value compared to
+      // itself, which no program state can falsify. Removed rather than left
+      // beside the real assertion: a tautology in a file about gates that
+      // cannot fail is the wrong thing to ship, even harmlessly.
+      expect({ junk, aborted: r.status !== 0 }).toEqual({ junk, aborted: true });
     }
   });
 
@@ -189,6 +217,45 @@ describeIfLoop("(A) RC collection: an rc-file it cannot read is never a pass", (
     const r = runRcGate({ linear: "4" });
     expect(r.status).not.toBe(0);
     expect(r.stdout).toContain("linear=4");
+  });
+
+  // --- STE-452: the gate now grades the SELECTED legs -----------------------
+
+  test("STE-452: an UNSELECTED leg's absent rc-file does not abort the gate", () => {
+    // The reduced run the `--legs` selector exists to make possible. Before
+    // STE-452 this exited 1 with `Phase A subprocess failed (linear=0, jira=1,
+    // none=1)` — a subprocess failure named for two legs that never spawned.
+    for (const leg of SMOKE_LEGS) {
+      const onlyThisLeg = Object.fromEntries(
+        SMOKE_LEGS.filter((l) => l !== leg).map((l) => [l, undefined]),
+      );
+      const r = runRcGate(onlyThisLeg, [leg]);
+      expect({ leg, status: r.status, stdout: r.stdout }).toEqual({
+        leg,
+        status: 0,
+        stdout: "",
+      });
+    }
+  });
+
+  test("STE-452: a SELECTED leg's absent rc-file still aborts under a reduced selection", () => {
+    // The other half, on identical disk state. If these two ever agree, the
+    // gate has stopped reading the selection and one of them is passing for
+    // the wrong reason.
+    for (const leg of SMOKE_LEGS) {
+      const allAbsent = Object.fromEntries(SMOKE_LEGS.map((l) => [l, undefined]));
+      const r = runRcGate(allAbsent, [leg]);
+      expect({ leg, aborted: r.status !== 0 }).toEqual({ leg, aborted: true });
+    }
+  });
+
+  test("STE-452: an EMPTY selection refuses — it never reports a clean gate", () => {
+    // Every leg's rc-file is present and clean; the only thing wrong is that
+    // nothing was selected. A gate that passes here passes because it examined
+    // nothing, which is the vacuous green the whole file exists to prevent.
+    const r = runRcGate({}, []);
+    expect(r.status).not.toBe(0);
+    expect(r.stdout).toContain("Aborting");
   });
 
   test("the documented prose says an unreadable rc is a failure, not just a missing one", () => {

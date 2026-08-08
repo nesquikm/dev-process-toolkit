@@ -47,7 +47,17 @@ This milestone's method is "mutate, observe RED, restore". Two ways that goes wr
 
 **`bun test -t "<name>"` treats its argument as a REGEX.** Filtering on a test whose name contains parentheses — `-t "direction (i)"` — matches zero tests and reports `matched 0 tests`, which reads like a passing filter rather than a failed one. Use a distinctive literal substring without regex metacharacters.
 
-### 0a. A reduced `--legs` run reports a WRONG verdict under `--auto-fix` — STE-452 scope
+### 0a. — CLOSED by STE-452. A reduced `--legs` run reports a WRONG verdict under `--auto-fix`
+
+**CLOSED by STE-452 — kept rather than deleted, because the convention's delete-on-ship rule assumes the entry's value was the reminder, and here it is the measurement.** The "before" figures below are the only executed record of what the defect actually did, and STE-452's implementation notes quote them; deleting them would leave that FR citing evidence nobody can find. Everything from here to the scope list is **history**, not a live defect.
+
+**What shipped:** all four surfaces named at the foot of this entry now count `SELECTED_LEGS`. `--legs linear` with the other legs' artifacts absent falls through rc collection at rc 0 and the `green` probe reports `STATUS=[green]`; a SELECTED leg with a missing artifact still aborts, now with an explicit message instead of a `test(1)` usage error. Covered by `tests/m121-ste-452-termination-harness.test.ts`, which executes the fences rather than grepping them, and by three tests added to `tests/driver-gate-fail-open-guards.test.ts`. Eleven mutations were run against the shipped fences and prose; eleven RED, every restore md5-verified. The full table, including the control run that decided how the `green`-probe derivation surface was repaired, is in that FR's `## Implementation notes` § Mutation results.
+
+**One caveat that outlives the fix, because it is a coverage ceiling rather than a bug.** Two of the four surfaces — the leg-completeness check and aggregation — are prose executed by a model, not shell. They are adapted and positively pinned, but they are not *executed* by any test and cannot be. Do not read "all four adapted" as "all four covered to the same standard".
+
+---
+
+**The original entry follows, unchanged.**
 
 **This is a usability defect, not a scoping note, and it is written here rather than only in skill prose because STE-452 rewrites the `green` probe and must meet it.** STE-447 shipped the `--legs` selector; it did not adapt the termination probe, which is out of its ACs.
 
@@ -103,6 +113,8 @@ All three were found while implementing STE-447, are covered by none of its nine
 **(b) — CLOSED by STE-448.** All three abort/teardown clauses tore down a two-leg brace expansion (`rm -rf ../dpt-test-project-{linear,jira}`) and so leaked the tracker-less leg's directory on every abort path. Closed exactly as this entry prescribed: the three clauses now route to a shared § Per-leg abort teardown recipe that iterates the **SPAWNED** set — recovered from disk, since a leg's brace group opens its per-iteration log as its first act, so the log's existence is the durable record that the group ran. Selected-but-never-spawned legs are therefore not `rm -rf`'d, and no new hand-maintained leg list was introduced (the loop walks `SELECTED_LEGS`, which pre-flight (0) resolved from `SMOKE_LEGS`). Covered by `tests/m121-ste-448-mode-none-leg.test.ts` § AC-STE-448.2, which asserts three per-leg removals and permits the superseded expansion only on a line labelled superseded.
 
 **(c) The extract-and-execute-a-fence pattern now has three independent implementations.** `tests/driver-gate-fail-open-guards.test.ts:82`, `tests/m117-ste-428-report-issue-renderable.test.ts:362` and `tests/m121-ste-447-legs-selector.test.ts` each define their own fence extractor, and they do not agree: two use a `/```bash\n([\s\S]*?)```/g` regex and one uses a line scanner over `/^\s*```/`. They agree on the drivers' current formatting and would diverge on an indented fence. Three copies is the threshold § 4 of the M117 section sets for extracting a shared module ("extract when a third wants it"), so this is that trigger firing. Worth pairing with the same file's `parseSpawnFenceGroups`, which is a fourth brace-group parser.
+
+**UPDATED by STE-452 — there are now FOUR, and the fourth was added knowingly.** `tests/m121-ste-452-termination-harness.test.ts` defines its own `bashFences` too. Extracting the shared module was considered and declined inside that FR: it would have touched three test files this milestone's ACs do not name, on a branch already carrying a recorded conflict about which shipped test files may be modified, and the FR's own scope line says the harness is deliberately narrower than the flag it attaches to. Recording the count honestly is the alternative to pretending the threshold was not crossed again. The trigger is now firing at 4/3.
 
 ### 0e. Three things STE-448 measured — one blocked, two hazards for the next editor
 

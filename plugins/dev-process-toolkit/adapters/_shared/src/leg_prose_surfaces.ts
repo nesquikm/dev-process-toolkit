@@ -293,6 +293,20 @@ export const LEG_PROSE_SURFACES: readonly LegProseSurface[] = [
         block.includes(GREEN_PROBE_MARKER),
       );
       if (fence === undefined) return [];
+      // Deliberately scans the WHOLE fence body, including STE-452's per-leg
+      // existence-check lines. Narrowing this to the `grep -c` lines was tried
+      // and reverted: it would have closed one hole and opened another, because
+      // a phantom or stale leg named only in an existence check is exactly the
+      // drift AC-STE-446.5 direction (i) exists to catch, and the narrowed form
+      // stopped seeing it. A predecessor's surface does not get quietly traded
+      // sideways.
+      //
+      // The hole the narrowing was aiming at is real — since STE-452 each leg's
+      // path appears twice, so this surface alone can no longer tell a COUNTED
+      // leg from a merely MENTIONED one — and it is closed additively instead,
+      // by an assertion in `tests/m121-ste-452-termination-harness.test.ts`
+      // that the counting lines' leg set equals `SMOKE_LEGS`. Two assertions,
+      // two properties, neither weakened.
       return dedupe(captures(fence, FINDINGS_FILE_RE));
     },
   },
