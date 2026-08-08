@@ -295,14 +295,42 @@ describeIfSkills("AC-STE-450.1 — group 9 is registered, and the SKILL agrees",
     expect([...spec!.legs]).toEqual([TRACKERLESS_LEG]);
   });
 
-  test("group 9 is the ONLY group rostering the tracker-less leg alone", () => {
-    // The mirror of the shipped "group 2 is the only Linear-only group" pin,
-    // and the reason the roster's `legs` field is now demonstrably N-way: a
-    // two-state linear/both flag cannot express this row at all.
+  test("the tracker-less-only roster is exactly the declared set, in roster order", () => {
+    // WHAT THIS ASSERTED BEFORE STE-451, AND WHY THE CHANGE IS NOT A WEAKENING.
+    //
+    // It read `expect(noneOnly).toEqual([GROUP])` under the title "group 9 is
+    // the ONLY group rostering the tracker-less leg alone" — the mirror of the
+    // shipped "group 2 is the only Linear-only group" pin. STE-451 registers
+    // group 10 on the same leg alone, which its AC.1 requires, so the literal
+    // `[9]` could not survive.
+    //
+    // The property this test exists to guard is NOT the number one. It is that
+    // the roster's `legs` field is genuinely N-way data — a two-state
+    // linear/both flag cannot express a tracker-less-only row at all — and a
+    // second such row is more evidence for that, not less. So the pin keeps its
+    // exact-set shape (never relaxed to `toContain`, which would let a group
+    // silently join or leave this set) and simply names both members.
+    //
+    // NOT "strictly stronger" — an earlier draft of this comment said that and
+    // it was false. Both forms are exact-array deep-equals: each accepts one
+    // roster configuration and rejects every other, so neither implies the
+    // other, and the one-element form already failed in both directions. What
+    // changed is the EXPECTED VALUE, not the predicate's strength; the
+    // uniqueness claim in the old title is retired because AC-STE-451.1 forces
+    // a second row to exist.
+    //
+    // Hand-restated on purpose. Deriving the expectation from
+    // CANONICAL_FIXTURE_GROUPS would compare the roster with itself and pass
+    // for any content whatsoever.
     const noneOnly = CANONICAL_FIXTURE_GROUPS.filter(
       (s) => s.legs.length === 1 && s.legs[0] === TRACKERLESS_LEG,
     ).map((s) => s.group);
-    expect(noneOnly).toEqual([GROUP]);
+    expect(noneOnly).toEqual([9, 10]);
+    // A `toContain(GROUP)` arm was here and is DELETED: after an exact-array
+    // deep-equal, `toContain(9)` cannot fail — any value that would fail it has
+    // already thrown one line above. Adding an assertion with zero
+    // discriminating power to a milestone about unfalsifiable assertions is the
+    // defect, not a belt-and-braces.
   });
 
   test("EXECUTED: the tracker-less leg's coverage set gains group 9", () => {

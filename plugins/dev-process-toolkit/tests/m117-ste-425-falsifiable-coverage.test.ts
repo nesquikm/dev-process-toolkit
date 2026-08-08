@@ -598,7 +598,7 @@ function mod(): FixtureGroupsModule {
 
 /** Every canonical group, observed as PASSED, minus the ones named. */
 function allPassedExcept(...skip: number[]): ObservedGroup[] {
-  return [1, 2, 3, 4, 5, 6, 7, 8, 9]
+  return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     .filter((g) => !skip.includes(g))
     .map((group) => ({ group, outcome: "passed" }));
 }
@@ -627,10 +627,10 @@ describe("AC-STE-425.2 — the outcome vocabulary", () => {
     expect(new Set(m.FIXTURE_GROUP_OUTCOMES).size).toBe(4);
   });
 
-  test("the canonical roster covers all nine groups, in order", () => {
+  test("the canonical roster covers every registered group, in order", () => {
     const m = mod();
     expect(m.CANONICAL_FIXTURE_GROUPS.map((s) => s.group)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
     ]);
   });
 
@@ -666,6 +666,13 @@ describe("AC-STE-425.2 — the outcome vocabulary", () => {
       // from the tracker legs rather than from the tracker-less one, because
       // probes #13 and #73 invert under a tracker rather than going vacuous.
       9: ["none"],
+      // Group 10 (STE-451) shares group 9's leg and NOT its reason. Group 9 is
+      // exempt from the tracker legs because its probes invert there; group 10
+      // because the artifact it observes — `.dpt/locks/<id>` — is never written
+      // there at all, the tracker claim going to the ticket instead. Same row,
+      // different justification, and the roster is the only place that records
+      // which.
+      10: ["none"],
     };
     const actual = Object.fromEntries(
       m.CANONICAL_FIXTURE_GROUPS.map((s) => [s.group, [...s.legs].sort()]),
@@ -677,7 +684,7 @@ describe("AC-STE-425.2 — the outcome vocabulary", () => {
   // FR existed to end, so emptiness is the failure — not merely a missing field.
   test("every group carries a non-empty, non-placeholder rationale", () => {
     const m = mod();
-    expect(m.CANONICAL_FIXTURE_GROUPS).toHaveLength(9);
+    expect(m.CANONICAL_FIXTURE_GROUPS).toHaveLength(10);
     for (const spec of m.CANONICAL_FIXTURE_GROUPS) {
       const why = (spec as { rationale?: unknown }).rationale;
       expect({ group: spec.group, isString: typeof why === "string" }).toEqual({
@@ -691,13 +698,15 @@ describe("AC-STE-425.2 — the outcome vocabulary", () => {
         words: String(why).trim().split(/\s+/).length >= 6,
       }).toEqual({ group: spec.group, words: true });
     }
-    // Distinctness: nine copies of one sentence would clear every check above.
+    // Distinctness: one sentence copied onto every group would clear every
+    // check above. The count is hand-restated on purpose — deriving it from
+    // the roster would compare the roster with itself and could not fail.
     const unique = new Set(
       m.CANONICAL_FIXTURE_GROUPS.map((s) =>
         String((s as { rationale?: unknown }).rationale).trim(),
       ),
     );
-    expect(unique.size).toBe(9);
+    expect(unique.size).toBe(10);
   });
 });
 
@@ -706,7 +715,7 @@ D("AC-STE-425.2 — the roster agrees with the SKILL it models", () => {
   test("every roster entry's `sut` is the token that group's runtime-check line uses", () => {
     const m = mod();
     const slices = fixtureGroupSlices(SKILL!);
-    expect(slices.size).toBe(9);
+    expect(slices.size).toBe(10);
     for (const spec of m.CANONICAL_FIXTURE_GROUPS) {
       const slice = slices.get(spec.group) ?? "";
       expect(slice.length).toBeGreaterThan(0);
@@ -731,7 +740,7 @@ D("AC-STE-425.2 — the roster agrees with the SKILL it models", () => {
   test("every group heading enumerates exactly its own roster", () => {
     const m = mod();
     const slices = fixtureGroupSlices(SKILL!);
-    expect(slices.size).toBe(9); // non-vacuity: the parse found every block
+    expect(slices.size).toBe(10); // non-vacuity: the parse found every block
 
     // Operator-facing label per registered leg. A leg added to `SMOKE_LEGS`
     // without a label lands here as `undefined` and fails loudly rather than
@@ -834,7 +843,7 @@ describe("AC-STE-425.2 — a group that did not execute is never rendered as a p
   test("the 2026-07-27 Linear leg: group 2 is NOT-REACHED, not absorbed", () => {
     const m = mod();
     const records = m.reconcileFixtureGroups(allPassedExcept(2), "linear");
-    expect(records).toHaveLength(9);
+    expect(records).toHaveLength(10);
     const g2 = recordFor(records, 2);
     expect(g2.outcome).toBe("not-reached");
     expect(g2.outcome).not.toBe("passed");
@@ -869,13 +878,15 @@ describe("AC-STE-425.2 — a group that did not execute is never rendered as a p
   test("observing nothing yields one record per group and zero passes", () => {
     const m = mod();
     const records = m.reconcileFixtureGroups([], "linear");
-    expect(records).toHaveLength(9);
+    expect(records).toHaveLength(10);
     expect(records.filter((r) => r.outcome === "passed")).toEqual([]);
-    // EIGHT, not nine, and the gap is the point: on the `linear` leg group 9
-    // is `not-applicable` by roster before silence is ever consulted, so it is
-    // not part of the gap an empty observation opens. Moving this to 9 with
-    // the length above would red for the opposite reason to the one that
-    // looks obvious (STE-450).
+    // EIGHT, and the gap is the point: on the `linear` leg groups 9 and 10 are
+    // both `not-applicable` by roster before silence is ever consulted, so
+    // neither is part of the gap an empty observation opens. This number does
+    // NOT track the roster size — it tracked 8 when the roster held 9 groups
+    // and still tracks 8 at 10, because every group added since has been
+    // tracker-less-only. Bumping it to match the length above would red for the
+    // opposite reason to the one that looks obvious (STE-450, STE-451).
     expect(records.filter((r) => r.outcome === "not-reached")).toHaveLength(8);
   });
 });
@@ -924,7 +935,10 @@ describe("AC-STE-425.2 — rendering", () => {
     expect(head).toMatch(/\b7 passed\b/);
     expect(head).toMatch(/\b0 failed\b/);
     expect(head).toMatch(/\b1 not-reached\b/);
-    expect(head).toMatch(/\b1 n\/a\b/);
+    // TWO n/a on the linear leg: groups 9 and 10 are both tracker-less-only.
+    // Counted by hand, not read off the roster length — the n/a tally tracks
+    // the leg's exemptions, which is a different number from the group count.
+    expect(head).toMatch(/\b2 n\/a\b/);
   });
 
   test("n/a-by-design groups do not spend the run's pass budget", () => {
@@ -935,7 +949,10 @@ describe("AC-STE-425.2 — rendering", () => {
     expect(head).toMatch(/^Fixture groups: PASS\b/);
     expect(head).toMatch(/\b7 passed\b/);
     expect(head).toMatch(/\b0 not-reached\b/);
-    expect(head).toMatch(/\b2 n\/a\b/);
+    // THREE on the jira leg — group 2 by capability, plus the two
+    // tracker-less-only groups. One more than the linear leg, and the asymmetry
+    // is the roster working, not a miscount.
+    expect(head).toMatch(/\b3 n\/a\b/);
   });
 });
 
@@ -1068,7 +1085,7 @@ D("AC-STE-425.2 — the SKILL renders the three outcomes", () => {
     // Groups 1, 2 and 3 state ONLY a PASS branch today — the mechanism by
     // which an unreached group is absorbed.
     const slices = fixtureGroupSlices(SKILL!);
-    expect(slices.size).toBe(9);
+    expect(slices.size).toBe(10);
     const missing: string[] = [];
     for (const [group, slice] of slices) {
       const sut = slice.match(/(STE-\d+) runtime check:/)?.[1];

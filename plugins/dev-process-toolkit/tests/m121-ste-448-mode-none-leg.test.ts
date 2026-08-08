@@ -724,9 +724,28 @@ describeIfSkills("AC-STE-448.9 — the lock file is absent after the archive com
     // takes the green row as evidence the release path works, which is the
     // vacuous-pass class this milestone exists to close — reintroduced one
     // layer up, inside the FR hunting it.
-    expect(smokeDoc!).toMatch(/deliberately only HALF of the lock assertion/);
-    expect(smokeDoc!).toMatch(/satisfied \*vacuously\* by a lock that was never created/);
-    expect(smokeDoc!).toMatch(/STE-451/);
+    //
+    // SCOPED TO THE ROW BY STE-451, WHICH DISARMED THE THIRD ARM. These were
+    // three document-wide `toMatch`es. The first two carry phrases unique to
+    // the row, so they were genuine pins by luck. `/STE-451/` was a pin for a
+    // different reason — the token had exactly ONE satisfier in the whole
+    // document, the row's own "it is STE-451's fixture group 10". STE-451 then
+    // wrote that literal a second time, in a Phase 2 step-3 paragraph, and the
+    // arm stopped being able to see its subject: MEASURED, stripping the token
+    // from the row alone left this test 42/0 green.
+    //
+    // This is § 0i's class through a different mechanism — not a slice anchor
+    // relocating, but a whole-document token acquiring a second satisfier — so
+    // § 0i's remedy would not have caught it. The repair is the same one the
+    // house rule always prescribes: scope the pin, never weaken it. All three
+    // now read the row, and the slice asserts it holds its subject first.
+    const start = smokeDoc!.indexOf("AC-STE-448.9");
+    expect(start).toBeGreaterThan(0);
+    const row = smokeDoc!.slice(start, start + 2400);
+    expect(row).toContain("the release proof");
+    expect(row).toMatch(/deliberately only HALF of the lock assertion/);
+    expect(row).toMatch(/satisfied \*vacuously\* by a lock that was never created/);
+    expect(row).toMatch(/STE-451/);
   });
 
   test("a named-phrasing tripwire for the row growing a presence claim", () => {
@@ -746,6 +765,15 @@ describeIfSkills("AC-STE-448.9 — the lock file is absent after the archive com
     const start = smokeDoc!.indexOf("AC-STE-448.9");
     expect(start).toBeGreaterThan(0);
     const row = smokeDoc!.slice(start, start + 2400);
+    // NON-VACUITY ON THE ANCHOR ITSELF (added by STE-451, which tripped it).
+    // `indexOf` takes the FIRST occurrence, and the token is not unique — any
+    // prose above § Phase 4 that names it silently moves this window off the
+    // row and onto unrelated text. MEASURED: one cross-reference in a Phase 2.X
+    // block moved the anchor from line 1429 to 1316, the window stopped
+    // containing the row entirely, and all 42 tests here stayed GREEN. A guard
+    // that has been relocated looks exactly like a guard that is satisfied, so
+    // the slice must prove it still holds its subject before banning anything.
+    expect(row).toContain("the release proof");
     expect(row).not.toMatch(
       /\b(?:assert|verify|check|confirm|pin)\b[^\n]{0,70}\block\w*[^\n]{0,40}\b(?:exists?|existed|is present|was created)\b/i,
     );
