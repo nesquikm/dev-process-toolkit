@@ -86,11 +86,28 @@ describeIfPresent("STE-224 AC-STE-224.2 — argument parsing flags", () => {
     expect(body).toMatch(/--jira-project[\s\S]{0,200}required/i);
   });
 
-  test("--dry-run is documented as test-only (mocks subprocess spawn)", () => {
+  test("--dry-run is documented as INERT — no mechanism is claimed for it", () => {
+    // REPLACED BY STE-453, and the replacement is forced rather than chosen.
+    //
+    // This assertion used to be `/--dry-run[\s\S]{0,400}mock/i`, enforcing
+    // AC-STE-224.2's clause "`--dry-run` (mocks subprocess for unit tests)".
+    // No mock was ever built: no branch, fence or conditional in the driver
+    // reads the flag, and the "fixture directory" the prose named has never
+    // existed in this repository. AC-STE-453.1 requires the prose to describe
+    // only what ships, so the clause had to go.
+    //
+    // The trap this walks around is why the old regex could not simply be
+    // kept: honest prose saying "there is no mock, no canned findings and no
+    // fixture directory" SATISFIES it. Keeping the pin would have produced a
+    // green assertion whose subject had been deleted — the exact defect M121
+    // exists to eliminate — so it is replaced by a positive pin on the honest
+    // statement, which a return of the vaporware claim turns RED.
+    //
+    // AC-STE-224.2 and AC-STE-453.1 cannot both hold. Neither is amended; the
+    // pair is recorded in `specs/plan/M121.md`.
     const body = skill!;
-    // Must mention mocking the subprocess spawn so the integration test
-    // covers the parallelism path without invoking real claude -p children.
-    expect(body).toMatch(/--dry-run[\s\S]{0,400}mock/i);
+    expect(body).toMatch(/--dry-run[\s\S]{0,400}nothing in this document reads it/i);
+    expect(body).not.toMatch(/--dry-run[^\n]*(?<!no )(?<!there is no )mocks the subprocess/i);
   });
 });
 

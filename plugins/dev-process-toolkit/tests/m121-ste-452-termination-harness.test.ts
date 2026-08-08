@@ -23,6 +23,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 import { SMOKE_LEGS } from "../adapters/_shared/src/smoke_fixture_groups";
+import { anyFences, bashFences, fenceContaining, mutate } from "./_fence";
 
 const pluginRoot = join(import.meta.dir, "..");
 const repoRoot = join(pluginRoot, "..", "..");
@@ -43,45 +44,15 @@ function readIfPresent(path: string): string | null {
 const loop = readIfPresent(LOOP_SKILL);
 const describeIfLoop = loop ? describe : describe.skip;
 
-/** Every ```bash fence body in the document, in document order. */
-function bashFences(body: string): string[] {
-  return [...body.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1]!);
-}
-
-/**
- * Locate a fence by a marker in its body.
- *
- * Markers are the STATUS the fence assigns or the variable it owns — never a
- * leg name. Slicing on a leg would reinstate exactly the technique STE-446
- * retired and would stop finding the fence the day a leg is renamed.
- */
-function fenceContaining(marker: string): string {
-  return bashFences(loop!).find((f) => f.includes(marker)) ?? "";
-}
-
-const greenFence = () => fenceContaining("STATUS=green");
-const rcFence = () => fenceContaining("RC_LINEAR=");
-const noProgressFence = () => fenceContaining("STATUS=no-progress");
-
-/**
- * Apply a textual mutation to an extracted fence and THROW if it did not apply.
- *
- * `specs/notes/follow-ups.md` § 0b: a mutation that silently no-ops is
- * indistinguishable from a fix that does nothing, and the natural reading of
- * "both runs printed the same thing" is *my change made no difference* rather
- * than *my mutation missed*. Every witness below goes through here, so a
- * regex that stops matching is a loud error instead of a green test asserting
- * that a guard it never removed still works.
- */
-function mutate(fence: string, pattern: RegExp | string, replacement: string): string {
-  const out = fence.replace(pattern as RegExp, replacement);
-  if (out === fence) {
-    throw new Error(
-      `mutation did not apply: ${String(pattern)} matched nothing in the extracted fence`,
-    );
-  }
-  return out;
-}
+// Fence extraction and the throwing `mutate` used to live here. STE-453 needed
+// a SIXTH private copy of them and lifted these four verbatim into
+// `tests/_fence.ts` instead — `specs/notes/follow-ups.md` § 0c(c) had already
+// recorded the pattern past its own "extract when a third wants it" threshold.
+// Behaviour is unchanged by construction: the module holds this file's
+// definitions, byte-for-byte, and this suite is the equivalence proof.
+const greenFence = () => fenceContaining(loop!, "STATUS=green");
+const rcFence = () => fenceContaining(loop!, "RC_LINEAR=");
+const noProgressFence = () => fenceContaining(loop!, "STATUS=no-progress");
 
 /** A per-invocation token, unique without relying on PID non-reuse (§ 0e(c)). */
 function freshToken(prefix: string): { token: string; dispose: () => void } {
@@ -206,7 +177,7 @@ describeIfLoop("AC-STE-452.2 — slice sanity: the extractions resolve and keep 
     // its language tag. A decoy in a plain or ```text fence would have
     // re-pointed the surface while this guard reported all-clear, which is a
     // guard that watches a different door than the one it names.
-    const anyFence = [...loop!.matchAll(/^```[^\n]*\n([\s\S]*?)^```/gm)].map((m) => m[1]!);
+    const anyFence = anyFences(loop!);
     expect(anyFence.filter((f) => f.includes("STATUS=green"))).toHaveLength(1);
     // Non-vacuity: the grammar finds substantially more fences than the
     // bash-only one, so a zero-carrier result would be a parsing failure.
