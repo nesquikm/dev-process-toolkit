@@ -41,6 +41,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { bashFences } from "./_fence";
+import { claimFenceIndices } from "./_claim-fence-negatives";
 import {
   CANONICAL_FIXTURE_GROUPS,
   SMOKE_LEGS,
@@ -198,6 +200,53 @@ function recordedIdOf(root: string): string | null {
 }
 
 /**
+ * 10b's `--grep` pattern, LIFTED OUT OF THE SHIPPED FENCE rather than restated.
+ *
+ * This was a private copy of the pattern, and it was space-terminated — so when
+ * STE-461 dropped ` on <branch>` from the subject and re-anchored the shipped
+ * fence with `$`, this harness went on greping for a subject nothing writes and
+ * every 10b predicate below evaluated `false` for a reason that had nothing to
+ * do with the property it names. Re-hardcoding it to the new form would ship the
+ * fifth instance of the producer/consumer asymmetry this milestone has already
+ * retired four times, so the pattern is READ from the driver's own fence.
+ *
+ * Both shipped claim fences must agree once the id is filled in; a disagreement
+ * throws rather than letting one of them win silently.
+ */
+function shippedClaimGrep(recorded: string): string {
+  const fences = bashFences(group10Slice());
+  const patterns = claimFenceIndices(fences).map((i) => {
+    const m = /--grep="([^"]*)"/.exec(fences[i]!);
+    if (m === null) {
+      throw new Error(
+        `shippedClaimGrep: fence ${i} carries the claim subject but no --grep="…" to read`,
+      );
+    }
+    const filled = m[1]!
+      .replace("${FR_ID:-__unresolved__}", recorded)
+      .replace("${FR_ID}", recorded);
+    // A substitution that silently missed leaves `${FR_ID}` in the pattern,
+    // which matches nothing — the witness would read `false` on a healthy tree
+    // and every 10b arm would pass or fail for the wrong reason.
+    if (filled.includes("${FR_ID")) {
+      throw new Error(
+        `shippedClaimGrep: the id placeholder did not substitute in ${JSON.stringify(m[1])}`,
+      );
+    }
+    return filled;
+  });
+  const distinct = [...new Set(patterns)];
+  if (distinct.length !== 1) {
+    throw new Error(
+      `shippedClaimGrep: the shipped claim fences disagree on their pattern once ` +
+        `the id is filled in: ${JSON.stringify(distinct)}. Decide which one 10b is, ` +
+        `do not let this harness pick one.`,
+    );
+  }
+  return distinct[0]!;
+}
+
+/**
  * The three sub-fixtures' predicates, computed from real disk and real git.
  *
  * They are deliberately INDEPENDENT of one another: `c` does not ask whether
@@ -221,12 +270,16 @@ async function evaluate(f: Group10Fixture): Promise<{
   // 10b — the durable claim-commit witness. `claimLock` git-adds and commits
   // the lock, so the mid-run state outlives the release that deletes the file.
   let b = false;
+  // `--basic-regexp` mirrors the shipped fence, where the flag is load-bearing:
+  // under an operator's ERE/PCRE `grep.patternType` the literal `(locks)`
+  // becomes a capture group and the pattern can never match.
   const sha = gitSoft(
     f.root,
     "log",
     "--format=%H",
     "-1",
-    `--grep=^chore(locks): claim lock for ${recorded} `,
+    "--basic-regexp",
+    `--grep=${shippedClaimGrep(recorded)}`,
   );
   if (sha) {
     const blob = gitSoft(f.root, "show", `${sha}:.dpt/locks/${recorded}`);
@@ -468,18 +521,19 @@ describeIfSkills("AC-STE-451.3 — suppressing the claim-time lock write turns g
     // nothing — the `already-ours` resume path reads `branch:` out of this
     // body, so an empty one is a silent claim failure rather than a cosmetic
     // one. 10b's body assertion is what separates the two.
+    //
+    // THE SUBJECT HERE IS THE FIXTURE'S WHOLE POINT, and until STE-461 it was
+    // the retired branch-bearing form — which the shipped pattern does not
+    // match, so `b` scored `false` because the WITNESS was unfindable rather
+    // than because the BODY was empty. The arm passed for exactly the wrong
+    // reason. It must be the healthy subject, so the only thing wrong with this
+    // commit is the thing under test.
     const f = buildFixture();
     try {
       mkdirSync(locksDir(f.root), { recursive: true });
       writeFileSync(join(locksDir(f.root), f.frId), "");
       git(f.root, "add", "-A");
-      git(
-        f.root,
-        "commit",
-        "--quiet",
-        "-m",
-        `chore(locks): claim lock for ${f.frId} on ${f.branch}`,
-      );
+      git(f.root, "commit", "--quiet", "-m", `chore(locks): claim lock for ${f.frId}`);
       const r = await evaluate(f);
       expect({ a: r.a, b: r.b }).toEqual({ a: true, b: false });
     } finally {

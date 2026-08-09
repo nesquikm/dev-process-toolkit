@@ -8,8 +8,11 @@
 // STE-461 is about to perform.
 //
 // The repair is not a stronger assertion; it is a discriminating INPUT. A
-// subject that only an anchored pattern rejects, and a subject that only a
-// space-terminated pattern rejects. Each is then shown to FLIP when its
+// subject that only a start-anchored pattern rejects, and a subject that only
+// an end-anchored pattern rejects. (The second arm shipped against a
+// space-terminated pattern; STE-461 replaced that terminator with `$` and the
+// arm was re-aimed at the same byte position in the same commit — see
+// `_claim-fence-negatives.ts` § `end-anchor-drop`.) Each is then shown to FLIP when its
 // widening is applied, because a rejection on its own proves nothing: a subject
 // that matches nothing ever is rejected by a healthy pattern and by a widened
 // one alike, which is precisely how the one-byte rewording stayed green.
@@ -223,11 +226,19 @@ function witnessFound(f: Fixture, idx: number, fence: string): boolean {
 
 // ═════════════════════ AC-STE-460.1 / .2 — the two widenings ═════════════════
 
-describeIfSkills("AC-STE-460.1 / .2 — the fence negative sees the anchor and the space", () => {
+describeIfSkills("AC-STE-460.1 / .2 — the fence negative sees both of the pattern's anchors", () => {
   test("the negative table names both widenings and its labels identify", () => {
     const labels = CLAIM_FENCE_NEGATIVES.map((n) => n.label);
     expect(labels).toContain("anchor-drop");
-    expect(labels).toContain("trailing-space-drop");
+    // RE-AIMED BY STE-461, not relabelled to follow a rename. The arm this
+    // replaces was `trailing-space-drop`, and what it guarded was never "the
+    // pattern ends in a space" — it was "the negative can detect a WIDENING of
+    // the shipped pattern's terminator". STE-461 replaced that terminator with
+    // `$`, so the property survives and the byte it is about moved. Carrying the
+    // old label over an `$`-dropping widening would have scored green in every
+    // behavioural arm while naming a byte the pattern no longer carries — which
+    // is exactly what the next test exists to catch.
+    expect(labels).toContain("end-anchor-drop");
     // Additive to what shipped — the one-byte rewording is not traded away for
     // the two new arms.
     expect(labels.length).toBeGreaterThanOrEqual(3);
@@ -236,22 +247,28 @@ describeIfSkills("AC-STE-460.1 / .2 — the fence negative sees the anchor and t
 
   test("each widening is EXACTLY the widening its label names, on the shipped pattern", () => {
     // The labels are a contract, so they are checked against the bytes rather
-    // than trusted. A "trailing-space-drop" that in fact dropped the anchor
+    // than trusted. An "end-anchor-drop" that in fact dropped the leading anchor
     // would score identically in every behavioural arm below, and the FR would
     // ship with one of its two criteria unguarded.
     const fences = group10Fences();
     const anchorDrop = CLAIM_FENCE_NEGATIVES.find((n) => n.label === "anchor-drop")!;
-    const spaceDrop = CLAIM_FENCE_NEGATIVES.find((n) => n.label === "trailing-space-drop")!;
+    const endAnchorDrop = CLAIM_FENCE_NEGATIVES.find((n) => n.label === "end-anchor-drop")!;
     for (const idx of claimFenceIndices(group10Fences())) {
       const fence = fences[idx]!;
       const shipped = grepPattern(fence);
       expect({ idx, anchored: shipped.startsWith("^") }).toEqual({ idx, anchored: true });
-      expect({ idx, spaceTerminated: shipped.endsWith(" ") }).toEqual({
+      // WAS `endsWith(" ")`, AND THE INVERSION IS THE POINT. STE-460 encoded
+      // "the shipped pattern is space-terminated" as an invariant of the world;
+      // STE-461's AC.12 changes that fact, so the two are unsatisfiable
+      // together and one of them has to be the one that was really a fact about
+      // this FR's subject. It is this one: the terminator is now `$`, and the
+      // assertion below is the same assertion about the same byte position.
+      expect({ idx, endAnchored: shipped.endsWith("$") }).toEqual({
         idx,
-        spaceTerminated: true,
+        endAnchored: true,
       });
       expect(grepPattern(anchorDrop.widen(fence))).toBe(shipped.slice(1));
-      expect(grepPattern(spaceDrop.widen(fence))).toBe(shipped.slice(0, -1));
+      expect(grepPattern(endAnchorDrop.widen(fence))).toBe(shipped.slice(0, -1));
     }
   });
 
@@ -318,8 +335,11 @@ describeIfSkills("AC-STE-460.3 — no strengthened negative turns a healthy run 
     const f = buildFixture();
     try {
       await claim(f);
+      // The healthy subject is BRANCH-FREE as of STE-461, and it is still a
+      // byte-exact `toBe` against what the real `claimLock` wrote — this arm's
+      // whole value is that the subject is observed rather than described.
       expect(git(f.root, "log", "--format=%s", "-1")).toBe(
-        `chore(locks): claim lock for ${f.frId} on ${f.branch}`,
+        `chore(locks): claim lock for ${f.frId}`,
       );
       for (const idx of claimFenceIndices(group10Fences())) {
         expect({ fence: idx, found: witnessFound(f, idx, group10Fences()[idx]!) }).toEqual({
