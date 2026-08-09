@@ -50,11 +50,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { bashFences } from "./_fence";
+import { CLAIM_FENCE_NEGATIVES } from "./_claim-fence-negatives";
 import {
   AC9_DISCLAIMER_PINS,
+  AC9_TITLE_PIN,
+  AC9_TITLE_WINDOW,
   AC9_WINDOW,
+  AC9_WINDOW_HEADROOM,
   PRESENCE_CLAIM_TRIPWIRE,
   PRESENCE_CLAIM_TRIPWIRE_PRE_456,
+  ac9BudgetFailures,
+  ac9Budgets,
   ac9Row,
   ac9Window,
   assertAnchorUnique,
@@ -564,10 +570,12 @@ describeIfSkills("AC-STE-456.4 — the release proof requires the witness", () =
     // Pinned as a SLICE of the row rather than as a document-wide token,
     // because the predecessor half of the title ("the release proof") is the
     // anchor guard's own subject and must stay exactly where it is.
+    // The literal and the cap are both IMPORTED, not restated here: STE-460
+    // makes this same title the sole pin of the tighter budgeted window, and two
+    // independently-typed copies of one subject is how a guard stops guarding
+    // the thing it names.
     const row = ac9Window(smokeDoc!);
-    expect(row.slice(0, 200)).toContain(
-      "the release proof: the durable claim witness AND the absence.",
-    );
+    expect(row.slice(0, AC9_TITLE_WINDOW)).toContain(AC9_TITLE_PIN);
     // …and the retired phrasing is gone from the whole document, so it cannot
     // come back somewhere the slice does not look.
     expect(smokeDoc!).not.toContain("the release proof, and exactly half of it");
@@ -766,7 +774,7 @@ describeIfSkills("AC-STE-456.5 — the tripwire narrowing, measured in both dire
   });
 
   test("the row's shipped text is silent under the tripwire — over the WHOLE row", () => {
-    // The 2400-character window no longer reaches the row's end (see AC.6), so
+    // The `AC9_WINDOW` slice no longer reaches the row's end (see AC.6), so
     // a ban scoped to it would stop covering the row's own tail. This scans the
     // row, which is strictly larger. The shipped window-scoped assertions in
     // the AC-STE-448.9 suite are left byte-unchanged beside it.
@@ -785,26 +793,51 @@ describeIfSkills("AC-STE-456.5 — the tripwire narrowing, measured in both dire
 // ═════════════════════════════ AC-STE-456.6 ══════════════════════════════════
 
 /**
- * The budget predicate itself — ONE definition, used by the live assertion and
- * by its own mutation witness.
+ * The pin-presence half of the budget, READ OFF the shipped predicate rather
+ * than re-scanned here.
  *
- * A pin can leave the window two ways and they look different in the output:
- * it can fall out entirely (`indexOf` → -1) or it can START inside and END
- * outside, which is the silent one — `indexOf` finds it, the guard then reads a
- * truncated subject, and nothing anywhere reports that it happened.
+ * IT HAS EXACTLY ONE ARM, and the second one was DELETED rather than kept "for
+ * safety". This once also filtered on an end-past-the-cap disjunct, on the
+ * belief that a pin could START inside the window and END outside it silently.
+ * It cannot: the window is already sliced to `AC9_WINDOW`, so `indexOf` can only
+ * return the offset of a COMPLETE in-window match. A pin that grows past the
+ * cap is not "found late" — it is not found at all, `at` is -1, and the arm
+ * below is the one that fires. `m121-ste-460-guard-hygiene.test.ts` proves that
+ * by execution over synthetic windows and the shipped one, rather than by
+ * asserting it in prose here.
+ *
+ * The end-past-the-cap arm was therefore an assertion that could never fail,
+ * and a filter clause that can never select is a guard a reader trusts for
+ * nothing. What actually carries the overrun case is `ac9BudgetFailures`, whose
+ * headroom equality bites at the boundary this filter cannot see.
+ *
+ * IT NO LONGER SCANS. STE-460 built `ac9Budgets` for the two-window budget, and
+ * this function then held a SECOND scan of the same pins over the same window —
+ * the same `indexOf` map, written twice. That is correction #40's shape inside
+ * the file that cites it: the shipped predicate's pin logic could drift and this
+ * lookalike would stay green, so the mutation witness below would go on
+ * certifying a scan nothing else runs. It now selects the wide window out of
+ * `ac9Budgets` and filters, which is what it always meant.
+ *
+ * The invariant the deleted scan carried implicitly, re-asserted because it was
+ * free before and is not now: the wide window must actually be among the
+ * budgets. Selected BY ITS CAP and thrown on rather than indexed, so a reordered
+ * or renamed budget list cannot silently hand this the tighter window's pins —
+ * whose only member is the title, which is absent from the disclaimer set and
+ * would report a violation that means nothing.
  */
 function budgetViolations(
   doc: string,
 ): Array<{ phrase: string; at: number; endsAt: number }> {
-  const win = ac9Window(doc);
-  return AC9_DISCLAIMER_PINS.map((phrase) => {
-    const at = win.indexOf(phrase);
-    return { phrase, at, endsAt: at === -1 ? -1 : at + phrase.length };
-  }).filter((r) => r.at === -1 || r.endsAt > AC9_WINDOW);
+  const wide = ac9Budgets(doc).find((b) => b.window === AC9_WINDOW);
+  if (wide === undefined) {
+    throw new Error("budgetViolations: no budget is scoped to the wide window");
+  }
+  return wide.pins.filter((p) => p.at === -1);
 }
 
 describeIfSkills("AC-STE-456.6 — the guarded-window budget", () => {
-  test("every disclaimer pin sits inside the 2400-character slice", () => {
+  test("every disclaimer pin sits inside the AC9_WINDOW-character slice", () => {
     expect(budgetViolations(smokeDoc!)).toEqual([]);
   });
 
@@ -823,12 +856,32 @@ describeIfSkills("AC-STE-456.6 — the guarded-window budget", () => {
     // it reported 33 characters of headroom that did not exist. Corrected after
     // the audit; the stems are now the full subjects.
     //
-    // The assertion is not the number — it is that the number is POSITIVE, and
-    // that growing the row past it goes RED instead of silently un-guarding a
-    // pin. The row itself is already ~1.4k characters longer than the window,
-    // which is why the tripwire is additionally scanned over the WHOLE row.
-    expect({ headroomIsPositive: headroom > 0 }).toEqual({ headroomIsPositive: true });
-    expect(furthest).toBeLessThanOrEqual(AC9_WINDOW);
+    // THE ASSERTION IS THE NUMBER — retired from positivity by STE-460 AC.4.
+    //
+    // As shipped this asserted only that the headroom was GREATER THAN ZERO,
+    // and that form is satisfied by a headroom of 1 exactly as well as by the true
+    // figure. The number every editor reads lived in the comment above; the
+    // assertion beside it required only that the figure be positive, so the
+    // recorded figure could rot to nothing with the gate clean. Compared as an
+    // equality against the figure of record, which is a constant blind to the
+    // document — `m121-ste-460-window-budget.test.ts` proves that blindness by
+    // mutating the document and watching the recorded side stay put.
+    //
+    // The row itself is already ~1.4k characters longer than the window, which
+    // is why the tripwire is additionally scanned over the WHOLE row.
+    expect(headroom).toBe(AC9_WINDOW_HEADROOM);
+    // …and the same figure through the shared predicate, over BOTH guarded
+    // windows, so this test cannot pass while the tighter one has drifted.
+    expect(ac9BudgetFailures(smokeDoc!)).toEqual([]);
+    //
+    // A THIRD ASSERTION USED TO SIT HERE AND IT IS GONE, not weakened: it
+    // required `furthest` to be no greater than the cap. `furthest` is a
+    // `Math.max` over offsets read out of a slice OF THAT CAP, so it could not
+    // exceed it for any document — an overrun makes the trailing pin vanish and
+    // `furthest` DECREASE. It was green on every possible input, including the
+    // ones it was meant to catch. Removed by STE-460 AC.7 rather than repaired,
+    // because the case it pretended to cover is covered for real by the
+    // equality above and by `ac9BudgetFailures` over both windows.
   });
 
   test("the budget BITES — prose grown before the last pin turns it RED", () => {
@@ -897,13 +950,30 @@ describeIfSkills("AC-STE-456.7 — the commit-witness fence, executed for real",
     // `(` is literal and the parentheses are fine — but that is a claim about
     // the pattern, and a pattern that matched everything would satisfy the
     // positive above just as well.
+    //
+    // The reworded subject is SOURCED FROM the shared negative table rather
+    // than restated here as a second inline mutation. STE-451's correction #40,
+    // applied to this pair: two independently-worded copies of one guard mean
+    // editing one leaves the other green — and STE-460 is the FR that widens
+    // that table. The three assertions below re-derive, against this fixture's
+    // real subject, everything the old inline `original.replace(…)` used to
+    // guarantee by construction: the arm differs from the healthy subject, it
+    // differs by EXACTLY one byte, and the amend landed.
     const f = buildFixture();
     try {
       await claim(f);
       const original = git(f.root, "log", "--format=%s", "-1");
-      const reworded = original.replace("claim lock", "claim Lock"); // one byte
+      const oneByte = CLAIM_FENCE_NEGATIVES.find((n) => n.label === "one-byte-rewording");
+      expect({ armPresent: oneByte !== undefined }).toEqual({ armPresent: true });
+      const reworded = oneByte!.subject(f.frId, f.branch);
       expect(reworded).not.toBe(original);
       expect(reworded.length).toBe(original.length);
+      // Still ONE byte, as the test's own title claims. The old derivation made
+      // this true by construction; sourced from the table it has to be measured,
+      // or a wholesale rewrite could quietly inherit this test's name.
+      expect(
+        [...reworded].filter((c, i) => c !== original[i]).length,
+      ).toBe(1);
       git(f.root, "commit", "--quiet", "--amend", "-m", reworded);
       expect(git(f.root, "log", "--format=%s", "-1")).toBe(reworded); // applied
 

@@ -34,13 +34,29 @@ export const AC9_WINDOW = 2400;
 /**
  * Every phrase the row's disclaimer pins read, in document order.
  *
- * The first four are STE-448's and STE-451's and are unchanged. The fifth is
- * STE-456's witness requirement, added because AC-STE-456.4 makes it the
+ * WHY THIS LIST IS LOAD-BEARING, stated here because it is the only place it is
+ * stated. The presence-claim tripwire below is a regex over unbounded English
+ * and was never going to be exhaustive; these pins are what actually guards the
+ * row. A row that grew a presence claim while keeping them contradicts itself on
+ * its face, and one that drops them to make room turns every pin RED. The same
+ * list is AC-STE-456.6's budget subject, so it is the thing the recorded
+ * headroom is measured against as well as the drift guard.
+ *
+ * ORDER IS THE DOCUMENT'S, NOT THE LIST'S OWN HISTORY — reordered by STE-460
+ * AC.9. Two comment blocks headed this array and both claimed document order,
+ * while the array was in the order it had been APPENDED IN: STE-448's and
+ * STE-451's phrases, then STE-456's two witness clauses. Measured against the
+ * shipped document, those two youngest entries sit near the TOP of the window,
+ * so the claim ran backwards over its last two elements. Reordered rather than
+ * disclaimed, because document order is the property a reader needs: it makes
+ * the trailing entry really the trailing one, which is the entry the recorded
+ * headroom is measured against and the one every "the last pin" note beside
+ * this module means. Provenance is annotated per entry instead of implied by
+ * position.
+ *
+ * STE-456's witness clauses are here because AC-STE-456.4 makes the witness the
  * clause that stops this row's green from being producible by a claim that
  * never fired.
- */
-/**
- * Every phrase the row's disclaimer pins read, in document order.
  *
  * THESE ARE THE FULL SUBJECTS, NOT STEMS — corrected after the audit, which is
  * the only reason the budget below means anything. The list first carried
@@ -58,12 +74,12 @@ export const AC9_WINDOW = 2400;
  * for a different document.
  */
 export const AC9_DISCLAIMER_PINS: readonly string[] = [
-  "the release proof",
-  "STE-451",
-  "deliberately only HALF of the lock assertion",
-  "satisfied *vacuously* by a lock that was never created",
-  "The durable claim witness is REQUIRED here",
-  "`claim-commit none`, or no such line at all, is a **FAIL even with the lock absent**",
+  "the release proof", // STE-448
+  "The durable claim witness is REQUIRED here", // STE-456
+  "`claim-commit none`, or no such line at all, is a **FAIL even with the lock absent**", // STE-456
+  "STE-451", // STE-451
+  "deliberately only HALF of the lock assertion", // STE-448
+  "satisfied *vacuously* by a lock that was never created", // STE-448 — trailing pin
 ];
 
 const VERB = [
@@ -107,7 +123,7 @@ const gap = (n: number) => `(?:(?!commit)[^\\n]){0,${n}}`;
  * it in a subordinate clause while making a filesystem-presence claim
  * (drift, should fire). Closing it needs a parser, not a regex, and a textual
  * ban over unbounded English was never going to be exhaustive — which is why
- * the REAL guard is the five disclaimer pins above, not this tripwire.
+ * the REAL guard is the six disclaimer pins above, not this tripwire.
  * `m121-ste-456-two-sided-lock-evidence.test.ts` asserts the hole is exactly
  * where this comment says it is, so a future narrowing that closes it is
  * forced to update this note rather than leave it stale.
@@ -145,7 +161,7 @@ export function assertAnchorUnique(doc: string): void {
   }
 }
 
-/** The historical 2400-character slice, unchanged. */
+/** The historical `AC9_WINDOW`-character slice, unchanged. */
 export function ac9Window(doc: string): string {
   assertAnchorUnique(doc);
   const start = doc.indexOf(AC9_ANCHOR);
@@ -155,12 +171,12 @@ export function ac9Window(doc: string): string {
 /**
  * The WHOLE row — anchor through the next `#### ` heading.
  *
- * STRICTLY LARGER than the 2400 window whenever the row exceeds it, which it
- * now does: STE-456's witness paragraph and supersession annotation put the
- * row at ~3.7k characters, so ~1.3k of it — including the annotation — falls
- * outside the historical slice. A ban that scanned only the window would stop
- * seeing the row's own tail, which is § 3.1's failure mode exactly: the guard
- * keeps passing and stops covering.
+ * STRICTLY LARGER than the `AC9_WINDOW` slice whenever the row exceeds it,
+ * which it now does: STE-456's witness paragraph and supersession annotation
+ * put the row at ~3.7k characters, so ~1.3k of it — including the annotation
+ * — falls outside the historical slice. A ban that scanned only the window
+ * would stop seeing the row's own tail, which is § 3.1's failure mode exactly:
+ * the guard keeps passing and stops covering.
  *
  * The row-bounded ban is therefore additive, not a replacement. The shipped
  * window-scoped assertions are left byte-unchanged.
@@ -173,4 +189,173 @@ export function ac9Row(doc: string): string {
     throw new Error("ac9Row: no `#### ` heading follows the AC-STE-448.9 row");
   }
   return doc.slice(start, end);
+}
+
+// ═══════════════════════════════ the budgets ═════════════════════════════════
+//
+// TWO GUARDED WINDOWS, ONE PREDICATE.
+//
+// The row is guarded at two scales. The wide window carries the disclaimer pins.
+// A second, much tighter window carries the row's TITLE, and until STE-460 it
+// was asserted and not budgeted at all — so prose growth past its headroom was
+// silent by construction, which is the same hole the wide budget exists to close
+// one scale up.
+//
+// WHAT CHANGED, AND WHY IT IS A CHANGE OF KIND RATHER THAN OF DEGREE. The wide
+// budget previously asserted `headroom > 0`. Positivity is satisfied by a
+// headroom of 1 exactly as well as by the true figure, so the number every
+// editor reads — which lived in a COMMENT — could rot to nothing while the
+// assertion beside it stayed green. The headroom is now RECORDED as data and
+// compared as a NUMBER, and both windows are budgeted by this one mechanism.
+//
+// THE RECORDED FIGURES ARE BLIND TO THE DOCUMENT, deliberately. If they were
+// re-derived from `doc` the comparison would hold for every possible input and
+// could not fail — the circularity this milestone has shipped four times. They
+// are constants, and the suite proves they are constants by mutating the
+// document and asserting they do not move.
+
+/**
+ * The row's TITLE, which is also the tighter window's only pin.
+ *
+ * One definition, read by the shipped title assertion and by the budget below.
+ * A pin list that is not the guard list is a budget for a different document —
+ * the stems-versus-subjects error recorded above, which over-stated the wide
+ * window's headroom by 33 characters.
+ */
+export const AC9_TITLE_PIN =
+  "the release proof: the durable claim witness AND the absence.";
+
+/**
+ * The tighter window: the leading slice of the row inside which the title is
+ * asserted. Sole definition site — consumers import it rather than restating
+ * the digits, so the cap resolves from exactly one place.
+ */
+export const AC9_TITLE_WINDOW = 200;
+
+/**
+ * RECORDED headroom for the wide window. Measured by execution: the furthest
+ * guarded pin ends at 2306.
+ */
+export const AC9_WINDOW_HEADROOM = 94;
+
+/**
+ * RECORDED headroom for the title window. Measured by execution: the 61-char
+ * title sits at offset 15.
+ */
+export const AC9_TITLE_HEADROOM = 124;
+
+export interface Ac9Pin {
+  phrase: string;
+  /** Offset within the window, or -1 when the window no longer holds it. */
+  at: number;
+  /** `at + phrase.length`, or -1. */
+  endsAt: number;
+}
+
+export interface Ac9Budget {
+  name: string;
+  window: number;
+  pins: Ac9Pin[];
+  /** Phrases the window no longer holds, in pin order. */
+  missing: string[];
+  /** The furthest guarded end inside the window; 0 when nothing is left. */
+  furthest: number;
+  /** `window - furthest`, MEASURED from the document passed in. */
+  headroom: number;
+  /** The figure of record. A constant — never derived from the document. */
+  recordedHeadroom: number;
+}
+
+function scanBudget(
+  name: string,
+  text: string,
+  window: number,
+  phrases: readonly string[],
+  recordedHeadroom: number,
+): Ac9Budget {
+  // `text` is already sliced to `window`, so `indexOf` can only return matches
+  // that lie WHOLLY inside it. A pin that overruns the cap is therefore not
+  // "found late" — it is not found at all, and `furthest` DECREASES rather than
+  // exceeding the cap. That is why an `endsAt > window` arm would be dead code,
+  // and why the headroom equality, not a `<=` comparison, is what bites.
+  const pins: Ac9Pin[] = phrases.map((phrase) => {
+    const at = text.indexOf(phrase);
+    return { phrase, at, endsAt: at === -1 ? -1 : at + phrase.length };
+  });
+  const found = pins.filter((p) => p.at !== -1);
+  const furthest = found.length === 0 ? 0 : Math.max(...found.map((p) => p.endsAt));
+  return {
+    name,
+    window,
+    pins,
+    missing: pins.filter((p) => p.at === -1).map((p) => p.phrase),
+    furthest,
+    headroom: window - furthest,
+    recordedHeadroom,
+  };
+}
+
+/** Both guarded windows, measured against `doc`. */
+export function ac9Budgets(doc: string): Ac9Budget[] {
+  const win = ac9Window(doc);
+  return [
+    scanBudget(
+      "AC-STE-448.9 disclaimer window",
+      win,
+      AC9_WINDOW,
+      AC9_DISCLAIMER_PINS,
+      AC9_WINDOW_HEADROOM,
+    ),
+    scanBudget(
+      "AC-STE-448.9 row title",
+      win.slice(0, AC9_TITLE_WINDOW),
+      AC9_TITLE_WINDOW,
+      [AC9_TITLE_PIN],
+      AC9_TITLE_HEADROOM,
+    ),
+  ];
+}
+
+export interface Ac9BudgetFailure {
+  name: string;
+  window: number;
+  kind: "pin-missing" | "headroom-drift";
+  detail: string;
+}
+
+/**
+ * The whole budget as one predicate: `[]` iff every guarded window still holds
+ * every pin AND its measured headroom equals the figure of record.
+ *
+ * The headroom arm and the pin-presence arm bite in DISJOINT regimes — at
+ * exactly the headroom no pin has left, so only the equality fires; one
+ * character further the trailing pin leaves entirely, `furthest` falls back to
+ * an earlier pin and positivity would go green again. Either arm alone leaves a
+ * band of growth that passes. Both together close it, which is why they are one
+ * function rather than two assertions in two tests.
+ */
+export function ac9BudgetFailures(doc: string): Ac9BudgetFailure[] {
+  const failures: Ac9BudgetFailure[] = [];
+  for (const b of ac9Budgets(doc)) {
+    if (b.missing.length > 0) {
+      failures.push({
+        name: b.name,
+        window: b.window,
+        kind: "pin-missing",
+        detail: `the window no longer holds: ${b.missing.join(" | ")}`,
+      });
+    }
+    if (b.headroom !== b.recordedHeadroom) {
+      failures.push({
+        name: b.name,
+        window: b.window,
+        kind: "headroom-drift",
+        detail:
+          `measured headroom ${b.headroom}, recorded ${b.recordedHeadroom}. ` +
+          `Re-measure the window and update the recorded figure in the same edit ` +
+          `— a recorded figure that drifts silently is the defect this budget retires.`,
+      });
+    }
+  }
+  return failures;
 }
