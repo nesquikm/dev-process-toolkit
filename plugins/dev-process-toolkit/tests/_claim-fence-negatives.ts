@@ -22,7 +22,13 @@
 // sense — the healthy `LocalProvider.claimLock` subject still matches after it —
 // so a flip is attributable to the pattern byte the label names and to nothing
 // else. A "widening" that rejected the healthy subject would be a rewrite, and
-// the flip would say nothing about `^` or the trailing space.
+// the flip would say nothing about `^` or the end anchor.
+//
+// THE TABLE MOVED WITH STE-461, in that FR's own commit. The shipped pattern was
+// space-terminated when this table was written and is `$`-anchored now, and the
+// producer's subject lost its ` on <branch>` tail in the same change. Both
+// halves of every arm are re-aimed below; the arms are still three, still
+// additive, and each still flips.
 
 /** The single `--grep="…"` occurrence carried by each claim fence. */
 const GREP_RE = /--grep="([^"]*)"/;
@@ -58,8 +64,27 @@ export interface ClaimFenceNegative {
   widen(fence: string): string;
 }
 
-/** The healthy subject `LocalProvider.claimLock` writes. Never a negative. */
-function healthy(frId: string, branch: string): string {
+/**
+ * The healthy subject `LocalProvider.claimLock` writes. Never a negative.
+ *
+ * RE-AIMED BY STE-461, and the re-aim is the whole reason that FR's AC.12 could
+ * not land on its own. Until STE-461 the producer wrote
+ * `… claim lock for <id> on <branch>` and the shipped `--grep` pattern was
+ * terminated by a SPACE, so the branch-free subject was a legitimate negative.
+ * The producer now writes the branch-free subject, so that string is the HEALTHY
+ * one — and a table still calling it a negative would make the reject arm assert
+ * that a healthy run is unwitnessed: a false RED wearing a green label.
+ */
+function healthy(frId: string): string {
+  return `chore(locks): claim lock for ${frId}`;
+}
+
+/**
+ * The subject the producer wrote BEFORE STE-461, kept as data rather than
+ * prose — it is now a negative in its own right, because the `$`-anchored
+ * pattern must reject a subject that carries the retired ` on <branch>` tail.
+ */
+function retired(frId: string, branch: string): string {
   return `chore(locks): claim lock for ${frId} on ${branch}`;
 }
 
@@ -69,7 +94,7 @@ export const CLAIM_FENCE_NEGATIVES: ClaimFenceNegative[] = [
     // two new arms are ADDITIVE, not a trade. It still proves the pattern is
     // not `.*`, which neither arm below does.
     label: "one-byte-rewording",
-    subject: (frId, branch) => `chore(locks): claim Lock for ${frId} on ${branch}`,
+    subject: (frId) => healthy(frId).replace("claim lock", "claim Lock"),
     widen: (fence) =>
       rewriteGrep(fence, (p) => p.replace("claim lock", "claim [lL]ock"), "one-byte-rewording"),
   },
@@ -77,7 +102,7 @@ export const CLAIM_FENCE_NEGATIVES: ClaimFenceNegative[] = [
     // The anchor. A subject that CONTAINS the claim line but does not START
     // with it: rejected while `^` is present, matched the moment it is gone.
     label: "anchor-drop",
-    subject: (frId, branch) => `wip: squashed ${healthy(frId, branch)}`,
+    subject: (frId) => `wip: squashed ${healthy(frId)}`,
     widen: (fence) =>
       rewriteGrep(
         fence,
@@ -91,22 +116,39 @@ export const CLAIM_FENCE_NEGATIVES: ClaimFenceNegative[] = [
       ),
   },
   {
-    // The trailing space. A subject that ENDS at the id — the `on <branch>`
-    // tail dropped — so the pattern's terminating space has nothing to match.
-    // This is the exact shape STE-461's repair produces, which is why it is
-    // guarded before that FR lands rather than after.
-    label: "trailing-space-drop",
-    subject: (frId) => `chore(locks): claim lock for ${frId}`,
+    // The END ANCHOR — this arm's predecessor, and the reason it had to move.
+    //
+    // It shipped as `trailing-space-drop`: the pattern used to be terminated by
+    // a SPACE, and the discriminating subject was one that ENDS at the id, so
+    // the terminating space had nothing to match. STE-461 deleted that space and
+    // replaced it with `$`, which turns the arm inside out — the subject that
+    // used to be the negative is now the healthy one, and the byte whose work
+    // needs proving is the anchor, not a space.
+    //
+    // RENAMED RATHER THAN REPURPOSED, deliberately. Keeping the old label over
+    // an `$`-dropping widening would have scored green in every behavioural arm
+    // — `$` is also the pattern's last character, so `slice(0, -1)` is
+    // byte-identical either way — while the label named a byte the pattern no
+    // longer carries. That is exactly the mislabelled-widening failure the
+    // sibling suite's "each widening is EXACTLY the widening its label names"
+    // arm exists to catch, and it would have been produced BY the fix.
+    //
+    // The negative is now the RETIRED subject itself: it starts with the claim
+    // line, so `^` cannot reject it, and it is rejected only because `$` forbids
+    // the ` on <branch>` tail. That makes the flip attributable to the anchor
+    // and to nothing else.
+    label: "end-anchor-drop",
+    subject: (frId, branch) => retired(frId, branch),
     widen: (fence) =>
       rewriteGrep(
         fence,
         (p) => {
-          if (!p.endsWith(" ")) {
-            throw new Error(`trailing-space-drop: pattern is not space-terminated: ${JSON.stringify(p)}`);
+          if (!p.endsWith("$")) {
+            throw new Error(`end-anchor-drop: pattern is not end-anchored: ${JSON.stringify(p)}`);
           }
           return p.slice(0, -1);
         },
-        "trailing-space-drop",
+        "end-anchor-drop",
       ),
   },
 ];

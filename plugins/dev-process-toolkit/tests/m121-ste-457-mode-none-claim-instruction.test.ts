@@ -168,7 +168,14 @@ describe("AC-STE-457.1 — § 0.c's tracker-less half names a module path AND a 
   test("the half names the artifact AND the durable witness the claim produces", () => {
     const half = claimBulletModeNoneHalf();
     expect(half).toContain(".dpt/locks/<id>");
-    expect(half).toContain("chore(locks): claim lock for <id> on <branch>");
+    // RE-POINTED BY STE-461, at full strength. The subject lost its
+    // ` on <branch>` tail, so a pin on the retired string would fail for the
+    // right reason once and then be deleted for the wrong one. What the retired
+    // literal asserted was that the half names BOTH halves of what the claim
+    // writes — the subject and the branch — so both are still pinned, on the
+    // two artifacts that now carry them.
+    expect(half).toContain("chore(locks): claim lock for <id>");
+    expect(half).toContain("branch: <branch>` body line");
   });
 
   test("the half closes with a documentation pointer, like its siblings", () => {
@@ -250,8 +257,17 @@ describe("AC-STE-457.2 — § 0.d gains a tracker-less arm; the tracker arm is b
     //     ANOTHER branch satisfied both conjuncts. The tracker arm it mirrors
     //     asserts state AND ownership (`assignee == currentUser`); this one
     //     asserted existence twice.
+    //
+    // OWNERSHIP WAS RE-HOMED, NOT DROPPED (STE-461). The branch-bearing subject
+    // this line used to pin is uncommittable past the hook's 72-character cap,
+    // so the subject is branch-free and ownership moved to the lock file's own
+    // `branch:` line. The title's fourth property is therefore still asserted —
+    // by the SECOND expectation below, on the artifact that now carries it.
+    // Re-pointing the witness pin without it would have deleted the property
+    // while leaving the title claiming it.
     const bullet = verifyBullet();
-    expect(bullet).toContain('git log --format=%s | grep -Fxq "chore(locks): claim lock for <id> on <currentBranch>"');
+    expect(bullet).toContain('git log --format=%s | grep -Fxq "chore(locks): claim lock for <id>"');
+    expect(bullet).toContain('grep -Fxq "branch: <currentBranch>" .dpt/locks/<id>');
     expect(bullet).toMatch(/subject-only/i);
     expect(bullet).toMatch(/anchors\s+`\^`\s+at every line/i);
     expect(bullet).toMatch(/taken-elsewhere/);
@@ -359,25 +375,68 @@ describe("AC-STE-457.3 — proof-of-release is the durable witness PLUS the abse
     );
   });
 
-  test("`LocalProvider.releaseLock` is UNCHANGED in code — prose-only correction", () => {
+  test("`LocalProvider.releaseLock` keeps its signature, idempotence and subject", () => {
     // AC-STE-65.3's implementation stays satisfied by construction. Asserted
     // against the module source, not against prose about the module.
+    //
+    // RE-AIMED BY STE-461, AND THE TITLE CORRECTED — it read "is UNCHANGED in
+    // code", which was true of STE-457 (a prose-only FR) and became FALSE the
+    // moment STE-461 AC.8 gave `releaseLock` a pre-write cap assertion and a
+    // rollback. The test nevertheless stayed GREEN through that change, because
+    // its four assertions only ever required four substrings to survive — so
+    // the TITLE claimed an invariant the assertions did not enforce, and a
+    // reader scanning names would have been told the opposite of the truth.
+    //
+    // What it actually guards, and still should: the signature, the
+    // already-released idempotence, the release subject, and that the removal
+    // still goes through `git rm`. Those are the properties AC-STE-65.3 needs;
+    // "no line of this method ever changes" was never one of them.
     const src = read(LOCAL_PROVIDER);
     expect(src).not.toBeNull();
     expect(src!).toContain('async releaseLock(id: string): Promise<"transitioned" | "already-released">');
-    expect(src!).toContain('if (!existsSync(lockPath)) return "already-released";');
-    expect(src!).toContain("git rm -q ${lockPath}");
-    expect(src!).toContain("chore(locks): release lock for ${id}");
+
+    // SCOPED TO THE METHOD, because the whole-file form had a DONOR. Measured:
+    // changing `git rm` to `git reset` INSIDE releaseLock left the old
+    // `toContain("git rm -q ${lockPath}")` green — `cleanupStaleLocks` carries a
+    // byte-identical invocation, so the pin was satisfied by a different method
+    // than the one it names. That donor predates this FR; it is repaired here
+    // because it was found here.
+    const start = src!.indexOf("  async releaseLock(id: string)");
+    expect(start).toBeGreaterThan(-1);
+    const end = src!.indexOf("\n  /**", start);
+    expect(end).toBeGreaterThan(start);
+    const method = src!.slice(start, end);
+
+    expect(method).toContain('if (!existsSync(lockPath)) return "already-released";');
+    // The `--` end-of-options separator is part of the invocation now; pinning
+    // the flags-and-path shape rather than one spelling of it.
+    expect(method).toMatch(/git rm -q (?:-- )?\$\{lockPath\}/);
+    expect(method).toContain("chore(locks): release lock for ${id}");
   });
 
   test("`LocalProvider.claimLock`'s shipped commit subject is what § 0.c and § 0.d name", () => {
     // The two prose surfaces and the code must agree about the witness; pinning
     // both and asserting they agree is follow-ups § 0m(c)'s prescription.
+    //
+    // RE-POINTED BY STE-461, AND DERIVED RATHER THAN RE-HARDCODED. Three private
+    // copies of one string is the producer/consumer asymmetry this milestone has
+    // now hit five times; the third copy is the one that goes stale. The
+    // producer's subject is read OUT OF THE ASSIGNMENT — not out of the file,
+    // because a bare `toContain` on the source is equally satisfied by the
+    // module's own rationale comment, which cites the retired form four lines
+    // above the live one — and the doc form is computed from it.
     const src = read(LOCAL_PROVIDER);
     expect(src).not.toBeNull();
-    expect(src!).toContain("chore(locks): claim lock for ${id} on ${branch}");
-    expect(claimBulletModeNoneHalf()).toContain("chore(locks): claim lock for <id> on <branch>");
-    expect(verifyBullet()).toContain("chore(locks): claim lock for <id> ");
+    const m = /const subject = `(chore\(locks\): claim lock for \$\{id\})`/.exec(src!);
+    expect(m).not.toBeNull();
+    const docForm = m![1]!.replace("${id}", "<id>");
+    expect(docForm).toBe("chore(locks): claim lock for <id>");
+    expect(claimBulletModeNoneHalf()).toContain(docForm);
+    // Quote-terminated, which is what the retired pin's TRAILING SPACE was
+    // doing: proving nothing follows the id in the documented fence. The space
+    // used to be the ` on <branch>` separator; the closing quote is now the
+    // end of the subject, so the discrimination survives the rename.
+    expect(verifyBullet()).toContain(`grep -Fxq "${docForm}"`);
   });
 });
 

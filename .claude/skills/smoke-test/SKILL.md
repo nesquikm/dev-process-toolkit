@@ -1365,7 +1365,7 @@ fi
 # `chorelocks` and can NEVER match. Measured. Without the flag a healthy run
 # reports `claim-commit none` and — now that the witness is required — fails.
 CLAIM_SHA="$(git -C "${TP}" log --format=%H -1 --basic-regexp \
-  --grep="^chore(locks): claim lock for ${FR_ID:-__unresolved__} " 2>/dev/null || true)"
+  --grep="^chore(locks): claim lock for ${FR_ID:-__unresolved__}$" 2>/dev/null || true)"
 echo "claim-commit ${CLAIM_SHA:-none}" >> "${LOG}"
 ```
 
@@ -1390,7 +1390,7 @@ That asymmetry is deliberate and it is the honest statement of what a sampled ob
 ```bash
 # After step 3 exits — the durable record of a state that no longer exists.
 # Uses ${TP} and ${FR_ID} from the shared resolver above.
-SHA="$(git -C "${TP}" log --format=%H -1 --basic-regexp --grep="^chore(locks): claim lock for ${FR_ID} ")"
+SHA="$(git -C "${TP}" log --format=%H -1 --basic-regexp --grep="^chore(locks): claim lock for ${FR_ID}$")"
 [ -n "${SHA}" ] && git -C "${TP}" show "${SHA}:.dpt/locks/${FR_ID}"
 ```
 

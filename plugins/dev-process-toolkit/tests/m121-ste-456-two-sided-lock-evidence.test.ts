@@ -929,14 +929,20 @@ describeIfSkills("AC-STE-456.6 — the guarded-window budget", () => {
 describeIfSkills("AC-STE-456.7 — the commit-witness fence, executed for real", () => {
   test("EXECUTED: the fence matches a subject written by the real claimLock", async () => {
     // NOTHING IN THIS REPOSITORY HAD EVER RUN THIS PATTERN AGAINST A REAL
-    // CLAIM COMMIT. The fence greps `^chore(locks): claim lock for <id> ` with
-    // a TRAILING SPACE; the real subject is `… for <id> on <branch>`. By
-    // inspection it matches. Inspection is what this test replaces.
+    // CLAIM COMMIT. The fence greps `^chore(locks): claim lock for <id>$`; the
+    // real subject is `chore(locks): claim lock for <id>`. By inspection it
+    // matches. Inspection is what this test replaces.
+    //
+    // RE-POINTED BY STE-461, AT THE SAME STRENGTH. The fence's terminator was a
+    // trailing space and the subject carried ` on <branch>`; both moved in that
+    // FR's commit. This stays a byte-exact `toBe` against the whole subject the
+    // real `claimLock` wrote — the one assertion in this pair that would catch
+    // a producer change the fence was widened to tolerate.
     const f = buildFixture();
     try {
       await claim(f);
       const subject = git(f.root, "log", "--format=%s", "-1");
-      expect(subject).toBe(`chore(locks): claim lock for ${f.frId} on ${f.branch}`);
+      expect(subject).toBe(`chore(locks): claim lock for ${f.frId}`);
       const fences = group10Fences();
       const r = runBash(`${aim(fences[0]!, f)}\n${fences[2]!}`);
       expect(r.out).toContain(`ulid: ${f.frId}`);
