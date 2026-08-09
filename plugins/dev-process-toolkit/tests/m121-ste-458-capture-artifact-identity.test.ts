@@ -252,6 +252,11 @@ function commitsTouching(path: string): { sha: string; subject: string }[] {
   });
 }
 
+/** True when `earlier` is an ancestor of `later` (strictly or equal). */
+function isAncestor(earlier: string, later: string): boolean {
+  return git(["merge-base", "--is-ancestor", earlier, later]).ok;
+}
+
 const FR_COMMITS = commitsTouching(FR_REPO_REL);
 // A shallow clone, a non-git checkout, or an FR that has since been archived
 // out of specs/frs/ leaves nothing to order — say so in the name rather than
@@ -261,11 +266,47 @@ const AUTHORIZATION_UNCHECKABLE =
 
 describe("AC-STE-458.1 — the correction is authorized by its own docs(specs) commit", () => {
   test.skipIf(AUTHORIZATION_UNCHECKABLE)(
-    `every commit that wrote ${FR_REPO_REL} is a docs(specs) commit` +
+    `every commit that wrote ${FR_REPO_REL} BEFORE the code is a docs(specs) commit` +
       (AUTHORIZATION_UNCHECKABLE ? " [SKIPPED — FR absent from specs/frs/ or history unreachable]" : ""),
     () => {
+      // NARROWED, and the narrowing is a correction rather than a relaxation.
+      //
+      // The first form required EVERY commit touching the FR to be
+      // docs(specs)-typed. That is a proxy, and it over-constrains its own AC:
+      // the property AC.1 states is ORDERING — "authorized by its own
+      // docs(specs) commit landing BEFORE the code edit" — not "this file may
+      // only ever be touched by a docs commit". The proxy also forbids the
+      // house practice of carrying an FR's `## Implementation notes` in the
+      // implementation commit, which is documentation of work already
+      // authorized, not a second authorization.
+      //
+      // It caught the difference the hard way: the implementation commit
+      // carried this FR's notes, the suite was green when that commit was
+      // proposed, and it went red the moment it landed — because this test's
+      // subject IS git history, so the commit under test changes the test's own
+      // input. A gate run before such a commit cannot speak for the tree after
+      // it.
+      //
+      // What is asserted now: every FR commit that PRECEDES the first code
+      // commit must be docs(specs). What is deliberately no longer asserted: a
+      // commit that touches BOTH the FR and the implementation may carry any
+      // type. The ordering half below is what keeps that from being a hole.
       expect(FR_COMMITS.length).toBeGreaterThan(0);
-      for (const { sha, subject } of FR_COMMITS) {
+
+      const codeShas = [MODULE_REPO_REL, THIS_TEST_REPO_REL]
+        .map((path) => commitsTouching(path).map((c) => c.sha))
+        .flat();
+      const authorizing = FR_COMMITS.filter(
+        ({ sha }) =>
+          !codeShas.includes(sha) &&
+          codeShas.some((code) => isAncestor(sha, code)),
+      );
+
+      // Non-vacuity: there must BE an authorizing commit to check. A filter
+      // that silently emptied would satisfy a for-loop over nothing, which is
+      // the shape this file exists to remove.
+      expect(authorizing.length).toBeGreaterThan(0);
+      for (const { sha, subject } of authorizing) {
         expect(`${sha.slice(0, 7)} ${subject}`).toMatch(
           /^[0-9a-f]{7} docs\(specs\)!?: /,
         );
