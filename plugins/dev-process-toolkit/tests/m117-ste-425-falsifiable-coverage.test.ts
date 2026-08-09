@@ -132,6 +132,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { legErrorMatchesCanonicalSet } from "../adapters/_shared/src/leg_derivation_mutation";
 import { checkChildSpawnCapture } from "../adapters/_shared/src/smoke_child_capture";
 import { parseStreamJsonEvents } from "../adapters/_shared/src/stream_json_events";
 
@@ -563,6 +564,10 @@ interface ObservedGroup {
 }
 interface FixtureGroupsModule {
   FIXTURE_GROUP_OUTCOMES: readonly string[];
+  // Declared because the heading-annotation test reads it. It was being used
+  // off an interface that did not list it — `bun test` does not typecheck, so
+  // the gate stayed green on a property TypeScript believed absent.
+  SMOKE_LEGS: readonly string[];
   CANONICAL_FIXTURE_GROUPS: readonly GroupSpec[];
   reconcileFixtureGroups(
     observed: readonly ObservedGroup[],
@@ -591,9 +596,9 @@ function mod(): FixtureGroupsModule {
   return fixtureGroups;
 }
 
-/** The eight groups, observed as PASSED, minus the ones named. */
+/** Every canonical group, observed as PASSED, minus the ones named. */
 function allPassedExcept(...skip: number[]): ObservedGroup[] {
-  return [1, 2, 3, 4, 5, 6, 7, 8]
+  return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     .filter((g) => !skip.includes(g))
     .map((group) => ({ group, outcome: "passed" }));
 }
@@ -622,10 +627,10 @@ describe("AC-STE-425.2 — the outcome vocabulary", () => {
     expect(new Set(m.FIXTURE_GROUP_OUTCOMES).size).toBe(4);
   });
 
-  test("the canonical roster covers all eight groups, in order", () => {
+  test("the canonical roster covers every registered group, in order", () => {
     const m = mod();
     expect(m.CANONICAL_FIXTURE_GROUPS.map((s) => s.group)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
     ]);
   });
 
@@ -635,9 +640,73 @@ describe("AC-STE-425.2 — the outcome vocabulary", () => {
       (s) => s.legs.length === 1 && s.legs[0] === "linear",
     ).map((s) => s.group);
     expect(linearOnly).toEqual([2]);
+  });
+
+  // STE-449 replaced a two-bucket check ("group 2, and all the rest") with the
+  // full per-group table. The old shape could not distinguish a group that had
+  // been AUDITED onto every leg from one that had merely inherited the alias,
+  // and it went RED the moment a second exemption existed for a different
+  // reason — which is what the audit found. Every roster is RE-STATED BY HAND:
+  // deriving it from `SMOKE_LEGS` would compare the enum against the enum and
+  // could never fail. Widening the leg set is meant to land here.
+  test("every group's roster matches the audited table, row by row", () => {
+    const m = mod();
+    const EXPECTED: Readonly<Record<number, readonly string[]>> = {
+      1: ["jira", "linear", "none"],
+      2: ["linear"],
+      3: ["jira", "linear", "none"],
+      // Group 4 is two tracker-parameterized sub-fixtures (4a/4b) whose step 4
+      // asserts a tracker ticket reaching Done — no tracker-less instance.
+      4: ["jira", "linear"],
+      5: ["jira", "linear", "none"],
+      6: ["jira", "linear", "none"],
+      7: ["jira", "linear", "none"],
+      8: ["jira", "linear", "none"],
+      // Group 9 (STE-450) is the first roster pointing the OTHER way — exempt
+      // from the tracker legs rather than from the tracker-less one, because
+      // probes #13 and #73 invert under a tracker rather than going vacuous.
+      9: ["none"],
+      // Group 10 (STE-451) shares group 9's leg and NOT its reason. Group 9 is
+      // exempt from the tracker legs because its probes invert there; group 10
+      // because the artifact it observes — `.dpt/locks/<id>` — is never written
+      // there at all, the tracker claim going to the ticket instead. Same row,
+      // different justification, and the roster is the only place that records
+      // which.
+      10: ["none"],
+    };
+    const actual = Object.fromEntries(
+      m.CANONICAL_FIXTURE_GROUPS.map((s) => [s.group, [...s.legs].sort()]),
+    );
+    expect(actual).toEqual(EXPECTED as unknown as typeof actual);
+  });
+
+  // AC-STE-449.1's own pin. A roster without a stated reason is the state this
+  // FR existed to end, so emptiness is the failure — not merely a missing field.
+  test("every group carries a non-empty, non-placeholder rationale", () => {
+    const m = mod();
+    expect(m.CANONICAL_FIXTURE_GROUPS).toHaveLength(10);
     for (const spec of m.CANONICAL_FIXTURE_GROUPS) {
-      if (spec.group !== 2) expect([...spec.legs].sort()).toEqual(["jira", "linear"]);
+      const why = (spec as { rationale?: unknown }).rationale;
+      expect({ group: spec.group, isString: typeof why === "string" }).toEqual({
+        group: spec.group,
+        isString: true,
+      });
+      // A one-word or whitespace rationale satisfies "non-empty" while saying
+      // nothing, so the floor is a real clause rather than a truthiness check.
+      expect({
+        group: spec.group,
+        words: String(why).trim().split(/\s+/).length >= 6,
+      }).toEqual({ group: spec.group, words: true });
     }
+    // Distinctness: one sentence copied onto every group would clear every
+    // check above. The count is hand-restated on purpose — deriving it from
+    // the roster would compare the roster with itself and could not fail.
+    const unique = new Set(
+      m.CANONICAL_FIXTURE_GROUPS.map((s) =>
+        String((s as { rationale?: unknown }).rationale).trim(),
+      ),
+    );
+    expect(unique.size).toBe(10);
   });
 });
 
@@ -646,7 +715,7 @@ D("AC-STE-425.2 — the roster agrees with the SKILL it models", () => {
   test("every roster entry's `sut` is the token that group's runtime-check line uses", () => {
     const m = mod();
     const slices = fixtureGroupSlices(SKILL!);
-    expect(slices.size).toBe(8);
+    expect(slices.size).toBe(10);
     for (const spec of m.CANONICAL_FIXTURE_GROUPS) {
       const slice = slices.get(spec.group) ?? "";
       expect(slice.length).toBeGreaterThan(0);
@@ -656,14 +725,116 @@ D("AC-STE-425.2 — the roster agrees with the SKILL it models", () => {
     }
   });
 
-  test("every roster entry's `legs` agrees with the group heading's annotation", () => {
+  // STE-449 REWROTE THIS TEST, and the reason is the finding that produced it.
+  //
+  // It used to assert `heading matches /Linear \+ Jira/` for every non-Linear-
+  // only group. That is satisfied by the substring, so it stayed green while
+  // STE-446 widened all seven of those rosters to three legs and left every
+  // heading still announcing two — the headings were stale for an entire
+  // milestone and the assertion pinning them could not notice. It was scanning
+  // for a shape the content no longer took.
+  //
+  // The repair is to DERIVE the expected annotation from the roster instead of
+  // matching a fragment of it: a group that gains or loses a leg without its
+  // heading being updated is now RED, in both directions.
+  test("every group heading enumerates exactly its own roster", () => {
     const m = mod();
     const slices = fixtureGroupSlices(SKILL!);
-    for (const spec of m.CANONICAL_FIXTURE_GROUPS) {
+    expect(slices.size).toBe(10); // non-vacuity: the parse found every block
+
+    // Operator-facing label per registered leg. A leg added to `SMOKE_LEGS`
+    // without a label lands here as `undefined` and fails loudly rather than
+    // rendering a heading nobody can read.
+    const LABELS: Readonly<Record<string, string>> = {
+      linear: "Linear",
+      jira: "Jira",
+      none: "tracker-less",
+    };
+    expect(
+      (m.SMOKE_LEGS as readonly string[]).filter((leg) => !LABELS[leg]),
+    ).toEqual([]);
+
+    const annotationFor = (legs: readonly string[]): string => {
+      // Registry order, never roster order — so two groups with the same set
+      // cannot disagree on how they spell it.
+      const ordered = (m.SMOKE_LEGS as readonly string[]).filter((leg) =>
+        legs.includes(leg),
+      );
+      const labels = ordered.map((leg) => LABELS[leg]!);
+      return labels.length === 1 ? `${labels[0]}-only` : labels.join(" + ");
+    };
+
+    const mismatches = m.CANONICAL_FIXTURE_GROUPS.map((spec) => {
       const heading = (slices.get(spec.group) ?? "").split("\n")[0] ?? "";
-      const linearOnly = /Linear-only/i.test(heading);
-      expect(spec.legs.length === 1).toBe(linearOnly);
-      if (!linearOnly) expect(heading).toMatch(/Linear \+ Jira/);
+      const want = `(${annotationFor(spec.legs as readonly string[])})`;
+      return heading.includes(want)
+        ? null
+        : { group: spec.group, want, heading };
+    }).filter((entry) => entry !== null);
+    expect(mismatches).toEqual([]);
+  });
+
+  // THE HEADING REPAIR ALONE WAS NOT ENOUGH, and that is worth its own test.
+  // STE-449 corrected the eight heading annotations — and the body prose
+  // immediately beneath FOUR of them went on asserting the retired two-leg
+  // roster, pinned by nothing. Group 5, the group this FR was written about,
+  // even carried the arithmetic: "4 fixture instances per smoke run", when two
+  // sub-fixtures over three legs is six. The assertion above reads only
+  // `split("\n")[0]`, so it could not see any of it. Same stale-after-widening
+  // defect, one line further down. This one reads the BODY.
+  // A ROSTER CLAIM, NOT THE WORDS "both legs". The first draft banned the
+  // bare phrase and flagged two bodies that are correct: group 8's dated
+  // "MEASURED on both legs of 2026-07-27" (a record of a run that really did
+  // have two legs — history, not a roster claim) and group 1's STE-294
+  // cross-tracker symmetry assertion. Both are legitimate; the second is a
+  // known gap recorded at follow-ups § 0f(d) and is the FR author's call, not
+  // a phrasing fix. So this matches the operative shape — a present-tense
+  // statement of which legs the group RUNS ON — per docs/patterns.md § 31.
+  const STALE_ROSTER_CLAIMS: readonly (readonly [RegExp, string])[] = [
+    [/\bruns? on both legs\b/i, "runs on both legs"],
+    [/\bBoth legs run\b/i, "Both legs run"],
+    [/\bon each of Linear \+ Jira\b/i, "on each of Linear + Jira"],
+    // `Linear + Jira` NOT continuing into a third leg — the heading form
+    // `Linear + Jira + tracker-less` is legitimate and must not match.
+    [/Linear \+ Jira(?! \+)/, "Linear + Jira"],
+  ];
+
+  test("no group BODY still states the two-leg roster its heading retired", () => {
+    const m = mod();
+    const slices = fixtureGroupSlices(SKILL!);
+    const offenders = m.CANONICAL_FIXTURE_GROUPS.flatMap((spec) => {
+      const body = (slices.get(spec.group) ?? "").split("\n").slice(1).join("\n");
+      expect(body.length).toBeGreaterThan(0); // non-vacuity: the slice has text
+      return STALE_ROSTER_CLAIMS.filter(([re]) => re.test(body)).map(
+        ([, label]) => `group ${spec.group}: "${label}"`,
+      );
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  // Narrowing an assertion and blinding it are the same edit, so the matcher
+  // is checked against the four strings it was built to catch — the ACTUAL
+  // pre-repair text of groups 3, 5, 6 and 7. Without this, deleting a pattern
+  // would leave the test above green and silent.
+  test("the stale-roster matcher still bites the text it was built for", () => {
+    const PRE_REPAIR = [
+      "Three sub-fixtures. Both legs run — `/implement`'s Phase 4b' hook is adapter-agnostic.",
+      "Both sub-fixtures run on each of Linear + Jira (4 fixture instances per smoke run).",
+      "Single sub-fixture (Linear + Jira, runs on both legs).",
+    ];
+    for (const text of PRE_REPAIR) {
+      const matched = STALE_ROSTER_CLAIMS.some(([re]) => re.test(text));
+      expect({ text, matched }).toEqual({ text, matched: true });
+    }
+    // And the two legitimate forms must NOT match, or the test above is a
+    // tripwire that fires on correct prose.
+    for (const ok of [
+      "MEASURED on both legs of 2026-07-27, with `Bash(claude:*)` absent.",
+      "runs on every rostered leg",
+      "(Linear + Jira + tracker-less)",
+    ]) {
+      const matched = STALE_ROSTER_CLAIMS.some(([re]) => re.test(ok));
+      expect({ ok, matched }).toEqual({ ok, matched: false });
     }
   });
 });
@@ -672,7 +843,7 @@ describe("AC-STE-425.2 — a group that did not execute is never rendered as a p
   test("the 2026-07-27 Linear leg: group 2 is NOT-REACHED, not absorbed", () => {
     const m = mod();
     const records = m.reconcileFixtureGroups(allPassedExcept(2), "linear");
-    expect(records).toHaveLength(8);
+    expect(records).toHaveLength(10);
     const g2 = recordFor(records, 2);
     expect(g2.outcome).toBe("not-reached");
     expect(g2.outcome).not.toBe("passed");
@@ -704,11 +875,18 @@ describe("AC-STE-425.2 — a group that did not execute is never rendered as a p
     expect(records.filter((r) => r.outcome === "passed")).toHaveLength(7);
   });
 
-  test("observing nothing yields eight records and zero passes", () => {
+  test("observing nothing yields one record per group and zero passes", () => {
     const m = mod();
     const records = m.reconcileFixtureGroups([], "linear");
-    expect(records).toHaveLength(8);
+    expect(records).toHaveLength(10);
     expect(records.filter((r) => r.outcome === "passed")).toEqual([]);
+    // EIGHT, and the gap is the point: on the `linear` leg groups 9 and 10 are
+    // both `not-applicable` by roster before silence is ever consulted, so
+    // neither is part of the gap an empty observation opens. This number does
+    // NOT track the roster size — it tracked 8 when the roster held 9 groups
+    // and still tracks 8 at 10, because every group added since has been
+    // tracker-less-only. Bumping it to match the length above would red for the
+    // opposite reason to the one that looks obvious (STE-450, STE-451).
     expect(records.filter((r) => r.outcome === "not-reached")).toHaveLength(8);
   });
 });
@@ -748,7 +926,7 @@ describe("AC-STE-425.2 — rendering", () => {
     expect(g2Line).not.toContain("PASS");
   });
 
-  test("the summary head counts all three outcomes separately", () => {
+  test("the summary head counts every outcome separately", () => {
     const m = mod();
     const head = m
       .renderFixtureGroupSummary(m.reconcileFixtureGroups(allPassedExcept(2), "linear"))
@@ -757,10 +935,13 @@ describe("AC-STE-425.2 — rendering", () => {
     expect(head).toMatch(/\b7 passed\b/);
     expect(head).toMatch(/\b0 failed\b/);
     expect(head).toMatch(/\b1 not-reached\b/);
-    expect(head).toMatch(/\b0 n\/a\b/);
+    // TWO n/a on the linear leg: groups 9 and 10 are both tracker-less-only.
+    // Counted by hand, not read off the roster length — the n/a tally tracks
+    // the leg's exemptions, which is a different number from the group count.
+    expect(head).toMatch(/\b2 n\/a\b/);
   });
 
-  test("an n/a-by-design group does not spend the run's pass budget", () => {
+  test("n/a-by-design groups do not spend the run's pass budget", () => {
     const m = mod();
     const head = m
       .renderFixtureGroupSummary(m.reconcileFixtureGroups(allPassedExcept(2), "jira"))
@@ -768,7 +949,10 @@ describe("AC-STE-425.2 — rendering", () => {
     expect(head).toMatch(/^Fixture groups: PASS\b/);
     expect(head).toMatch(/\b7 passed\b/);
     expect(head).toMatch(/\b0 not-reached\b/);
-    expect(head).toMatch(/\b1 n\/a\b/);
+    // THREE on the jira leg — group 2 by capability, plus the two
+    // tracker-less-only groups. One more than the linear leg, and the asymmetry
+    // is the roster working, not a miscount.
+    expect(head).toMatch(/\b3 n\/a\b/);
   });
 });
 
@@ -864,7 +1048,15 @@ describe("AC-STE-425.2 — the CLI carries the aggregate in its exit status", ()
     ]) {
       const r = runGroupsCli(args);
       expect(r.exitCode).toBe(2);
-      expect(r.stderr).toMatch(/--leg must be one of linear \| jira/);
+      // STE-445: exact-set, anchored, and hardcoded in one shared place. An
+      // unanchored substring is satisfied by a WIDENED enum (`linear | jira |
+      // zzsynthetic` still contains `linear | jira`), and an expectation
+      // derived from SMOKE_LEGS moves with the actual and can never fail.
+      // On failure, report the line that was actually printed.
+      const firstStderrLine = r.stderr.split("\n")[0] ?? "";
+      expect(
+        legErrorMatchesCanonicalSet(r.stderr) ? "<canonical leg set>" : firstStderrLine,
+      ).toBe("<canonical leg set>");
       expect(r.stdout).not.toContain("Fixture groups:");
     }
   });
@@ -878,7 +1070,7 @@ describe("AC-STE-425.2 — the CLI carries the aggregate in its exit status", ()
       "1 3 4 5 6 7 8 99",
     ]);
     expect(r.stderr).toMatch(/outside the canonical roster: 99/);
-    expect(r.exitCode).toBe(0); // the eight canonical records still decide rc
+    expect(r.exitCode).toBe(0); // the canonical records still decide rc
   });
 
   test("an unknown subcommand exits 2 with the usage line", () => {
@@ -893,7 +1085,7 @@ D("AC-STE-425.2 — the SKILL renders the three outcomes", () => {
     // Groups 1, 2 and 3 state ONLY a PASS branch today — the mechanism by
     // which an unreached group is absorbed.
     const slices = fixtureGroupSlices(SKILL!);
-    expect(slices.size).toBe(8);
+    expect(slices.size).toBe(10);
     const missing: string[] = [];
     for (const [group, slice] of slices) {
       const sut = slice.match(/(STE-\d+) runtime check:/)?.[1];
@@ -1296,7 +1488,8 @@ D("hazard pins — cross-file invariants", () => {
 // comments assert but no test reached. The last one is the sharpest: the
 // roster-completeness guard in `fixtureGroupsAggregate` was unreachable from
 // every existing test, because they all funnel through
-// `reconcileFixtureGroups`, which returns eight records by construction. So a
+// `reconcileFixtureGroups`, which returns one record per canonical group by
+// construction. So a
 // can't-fail branch was sitting inside the FR whose stated purpose is killing
 // can't-fail checks. Each test below calls the exported function DIRECTLY with
 // the input its branch exists for, and each was confirmed to fail when its
@@ -1349,7 +1542,7 @@ describe("Phase 3 hardening — conservative branches are reachable", () => {
 
   test("the aggregate requires the FULL roster — a short record set cannot pass", () => {
     // The branch no prior test could reach: called directly, not through
-    // reconcileFixtureGroups (which always returns all eight).
+    // reconcileFixtureGroups (which always returns one record per group).
     const full = mod().reconcileFixtureGroups([], "linear").map((r) => ({
       ...r,
       outcome: "passed" as const,

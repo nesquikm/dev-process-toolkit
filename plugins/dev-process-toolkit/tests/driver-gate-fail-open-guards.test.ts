@@ -52,6 +52,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { SMOKE_LEGS } from "../adapters/_shared/src/smoke_fixture_groups";
+
 const pluginRoot = join(import.meta.dir, "..");
 const repoRoot = join(pluginRoot, "..", "..");
 
@@ -91,36 +93,66 @@ describeIfLoop("(A) RC collection: an rc-file it cannot read is never a pass", (
 
   /**
    * Run the documented RC-collection snippet against materialized rc-files.
-   * `undefined` means the file is absent. Returns the snippet's exit status and
-   * stdout — the abort branch is the one that exits non-zero.
+   *
+   * The leg set comes from `SMOKE_LEGS` (STE-446), not from a literal pair: the
+   * gate aborts when ANY leg's rc-file is unreadable, so a fixture that
+   * materializes only two of them would make every "aborts" assertion below
+   * pass for the wrong reason and would leave the discriminator permanently
+   * red. Legs `overrides` does not name get a clean `"0"`; a named leg whose
+   * value is `undefined` is deliberately ABSENT from disk.
    *
    * The snippet hard-codes `/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-…`,
    * so DATE carries a per-invocation token instead of a date: the real path
    * shape is what is under test, and two concurrent runs of this suite must not
    * meet in /tmp.
    */
+  type RcOverrides = Readonly<Record<string, string | undefined>>;
+
   let seq = 0;
+  /**
+   * `selected` defaults to every registered leg — the flag-omitted default the
+   * driver itself applies.
+   *
+   * STE-452 made the fence read one rc-file per SELECTED leg, so the harness
+   * must supply the selection the driver's pre-flight (0) would have resolved.
+   * Leaving it unset is NOT a neutral omission: `${SELECTED_LEGS}` expands
+   * empty and the fence's own empty-selection refusal fires, so every test here
+   * would abort for a reason unrelated to the rc-file under test — the
+   * discriminator included. (An earlier draft of this comment claimed the gate
+   * would instead exit 0 and leave the discriminator falsely green. That was
+   * written before the empty-selection refusal shipped in the same FR and was
+   * simply wrong; corrected here rather than deleted, because a justification
+   * that misstates the mechanism is how a harness quietly stops measuring what
+   * it claims.) The parameter is threaded through rather than defaulted inside
+   * the fence so the selection stays the caller's explicit input.
+   */
   function runRcGate(
-    linear: string | undefined,
-    jira: string | undefined,
+    overrides: RcOverrides,
+    selected: readonly string[] = SMOKE_LEGS,
   ): { status: number; stdout: string } {
     const token = `guardtest-${process.pid}-${seq++}`;
-    const paths = {
-      linear: `/tmp/dpt-conformance-loop-${token}-iter-1-linear.rc`,
-      jira: `/tmp/dpt-conformance-loop-${token}-iter-1-jira.rc`,
-    };
+    const paths = SMOKE_LEGS.map((leg) => ({
+      leg,
+      path: `/tmp/dpt-conformance-loop-${token}-iter-1-${leg}.rc`,
+    }));
     try {
-      if (linear !== undefined) writeFileSync(paths.linear, linear);
-      if (jira !== undefined) writeFileSync(paths.jira, jira);
-      const script = [`DATE=${token}`, "ITER=1", rcFence()].join("\n");
+      for (const { leg, path } of paths) {
+        const value = leg in overrides ? overrides[leg] : "0";
+        if (value !== undefined) writeFileSync(path, value);
+      }
+      const script = [
+        `DATE=${token}`,
+        "ITER=1",
+        `SELECTED_LEGS="${selected.join(" ")}"`,
+        rcFence(),
+      ].join("\n");
       const proc = Bun.spawnSync(["bash", "-c", script]);
       return {
         status: proc.exitCode,
         stdout: new TextDecoder().decode(proc.stdout).trim(),
       };
     } finally {
-      rmSync(paths.linear, { force: true });
-      rmSync(paths.jira, { force: true });
+      for (const { path } of paths) rmSync(path, { force: true });
     }
   }
 
@@ -132,56 +164,98 @@ describeIfLoop("(A) RC collection: an rc-file it cannot read is never a pass", (
     expect(fence).toContain("exit 1");
   });
 
-  test("DISCRIMINATOR: two clean legs still pass (the gate is not stuck closed)", () => {
-    const r = runRcGate("0", "0");
+  test("DISCRIMINATOR: every leg clean still passes (the gate is not stuck closed)", () => {
+    const r = runRcGate({});
     expect(r.status).toBe(0);
     expect(r.stdout).toBe("");
   });
 
   // --- the regression this file exists for --------------------------------
 
-  test("REGRESSION: an EMPTY linear rc-file aborts instead of falling through", () => {
+  test("REGRESSION: an EMPTY rc-file aborts instead of falling through — on EVERY leg", () => {
     // `cat` exits 0 on an existing empty file, so the old `|| echo 1` never
     // fired and `[ "" -ne 0 ]` skipped the abort. Verified failing open in
-    // bash, zsh and sh before the fix.
-    const r = runRcGate("", "0");
-    expect(r.status).not.toBe(0);
-    expect(r.stdout).toContain("Aborting");
+    // bash, zsh and sh before the fix. Driven per leg (STE-446) because the
+    // original pair of tests existed to prove the fix reached the SECOND leg
+    // too — that argument does not stop at two.
+    for (const leg of SMOKE_LEGS) {
+      const r = runRcGate({ [leg]: "" });
+      expect({ leg, aborted: r.status !== 0 }).toEqual({ leg, aborted: true });
+      expect(r.stdout).toContain("Aborting");
+    }
   });
 
-  test("REGRESSION: an EMPTY jira rc-file aborts too (both legs, not just the first)", () => {
-    const r = runRcGate("0", "");
-    expect(r.status).not.toBe(0);
-    expect(r.stdout).toContain("Aborting");
-  });
-
-  test("REGRESSION: both rc-files empty aborts", () => {
-    const r = runRcGate("", "");
-    expect(r.status).not.toBe(0);
+  test("REGRESSION: every rc-file empty aborts", () => {
+    const all = Object.fromEntries(SMOKE_LEGS.map((leg) => [leg, ""]));
+    expect(runRcGate(all).status).not.toBe(0);
   });
 
   test("a NON-INTEGER rc-file aborts — a diagnostic on stdout is not a zero", () => {
     // Same test(1) usage error as the empty case, reached whenever the
     // redirect captures something that is not the reconciled number.
     for (const junk of ["error: bun not found", "warn\n0", "0 ", "-1", "nan"]) {
-      const r = runRcGate(junk, "0");
-      expect({ junk, status: r.status }).toEqual({ junk, status: r.status });
-      expect(r.status).not.toBe(0);
+      const r = runRcGate({ linear: junk });
+      // Was `toEqual({ junk, status: r.status })` — a value compared to
+      // itself, which no program state can falsify. Removed rather than left
+      // beside the real assertion: a tautology in a file about gates that
+      // cannot fail is the wrong thing to ship, even harmlessly.
+      expect({ junk, aborted: r.status !== 0 }).toEqual({ junk, aborted: true });
     }
   });
 
   test("a MISSING rc-file still aborts (the behaviour the old `|| echo 1` bought)", () => {
-    expect(runRcGate(undefined, "0").status).not.toBe(0);
-    expect(runRcGate("0", undefined).status).not.toBe(0);
+    for (const leg of SMOKE_LEGS) {
+      const r = runRcGate({ [leg]: undefined });
+      expect({ leg, aborted: r.status !== 0 }).toEqual({ leg, aborted: true });
+    }
   });
 
   test("a real non-zero rc is preserved, not flattened to 1", () => {
     // `reconcile` maps missing / malformed / stale / non-pass artifacts to
     // DISTINCT non-zero codes, and the SKILL prose promises each "maps to its
     // own". A validator that rewrote every failure to 1 would erase that.
-    const r = runRcGate("4", "0");
+    const r = runRcGate({ linear: "4" });
     expect(r.status).not.toBe(0);
     expect(r.stdout).toContain("linear=4");
+  });
+
+  // --- STE-452: the gate now grades the SELECTED legs -----------------------
+
+  test("STE-452: an UNSELECTED leg's absent rc-file does not abort the gate", () => {
+    // The reduced run the `--legs` selector exists to make possible. Before
+    // STE-452 this exited 1 with `Phase A subprocess failed (linear=0, jira=1,
+    // none=1)` — a subprocess failure named for two legs that never spawned.
+    for (const leg of SMOKE_LEGS) {
+      const onlyThisLeg = Object.fromEntries(
+        SMOKE_LEGS.filter((l) => l !== leg).map((l) => [l, undefined]),
+      );
+      const r = runRcGate(onlyThisLeg, [leg]);
+      expect({ leg, status: r.status, stdout: r.stdout }).toEqual({
+        leg,
+        status: 0,
+        stdout: "",
+      });
+    }
+  });
+
+  test("STE-452: a SELECTED leg's absent rc-file still aborts under a reduced selection", () => {
+    // The other half, on identical disk state. If these two ever agree, the
+    // gate has stopped reading the selection and one of them is passing for
+    // the wrong reason.
+    for (const leg of SMOKE_LEGS) {
+      const allAbsent = Object.fromEntries(SMOKE_LEGS.map((l) => [l, undefined]));
+      const r = runRcGate(allAbsent, [leg]);
+      expect({ leg, aborted: r.status !== 0 }).toEqual({ leg, aborted: true });
+    }
+  });
+
+  test("STE-452: an EMPTY selection refuses — it never reports a clean gate", () => {
+    // Every leg's rc-file is present and clean; the only thing wrong is that
+    // nothing was selected. A gate that passes here passes because it examined
+    // nothing, which is the vacuous green the whole file exists to prevent.
+    const r = runRcGate({}, []);
+    expect(r.status).not.toBe(0);
+    expect(r.stdout).toContain("Aborting");
   });
 
   test("the documented prose says an unreadable rc is a failure, not just a missing one", () => {

@@ -179,7 +179,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.60.0 — "Ledger"** (M120, Jira milestone identity: probe #73 gains a jira-keyed provenance arm, so a sequential `M<N>` plan created in a Jira project after this release fails the gate instead of passing silently — everything committed before it is grandfathered. `mode: linear` is deliberately untouched, since sequential numbering is correct there. The contradictory prose about Jira milestone binding is corrected across every surface that carried it.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.61.0 — "Conformant"** (M121, tracker-less conformance coverage: `mode: none` becomes an always-on third leg, and the claim commit it produces now fits the 72-character subject cap the toolkit's own hook enforces — the branch leaves the subject, so subject length is constant at 58 and branch length stops mattering. A rejected lock commit rolls the tree back and still throws.)
 
 ## Core Philosophy
 
