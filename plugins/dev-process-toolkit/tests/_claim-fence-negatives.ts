@@ -110,3 +110,56 @@ export const CLAIM_FENCE_NEGATIVES: ClaimFenceNegative[] = [
       ),
   },
 ];
+
+/**
+ * The claim-subject grep, and any grep at all. TWO INDEPENDENT PREDICATES.
+ *
+ * They are matched against the same fence text but they are not the same
+ * expression and neither is computed from the other: `CLAIM_GREP_RE` requires
+ * the claim subject, `ANY_GREP_RE` requires only that a `--grep` exists. A
+ * fence carrying `--grep="^chore(locks): release lock for …"` satisfies the
+ * second and not the first — that constructible disagreement is what makes the
+ * divergence throw below able to fire, and a derivation whose two sides cannot
+ * disagree is one expression wearing two names.
+ */
+export const CLAIM_GREP_RE = /--grep="\^?chore\(locks\): claim lock for /;
+export const ANY_GREP_RE = /--grep="/;
+
+/**
+ * The fences carrying the claim-subject grep, DERIVED rather than listed.
+ *
+ * This replaced `const CLAIM_FENCE_INDICES = [1, 2]`, which was complete when
+ * measured and asserted by nothing: a fourth claim fence would have been
+ * silently unguarded, which is the exact failure the rest of this FR repairs.
+ *
+ * NEITHER PREDICATE IS USED ALONE, and the reason is measured rather than
+ * cautious. Broad alone over-matches: an unrelated `--grep` fence added to this
+ * group later would join the set, the claim negatives would run against it, and
+ * a healthy run would go RED. Precise alone under-matches silently: if a later
+ * FR renames the claim subject, this returns fewer indices and the coverage
+ * shrinks without a word — the very defect being repaired here, one level up
+ * and better disguised. Divergence between the two is the signal that the world
+ * moved, and a throw naming both sets lets a human decide which kind of fence
+ * arrived rather than having one predicate quietly win.
+ */
+export function claimFenceIndices(fences: string[]): number[] {
+  const claim = fences.flatMap((f, i) => (CLAIM_GREP_RE.test(f) ? [i] : []));
+  const anyGrep = fences.flatMap((f, i) => (ANY_GREP_RE.test(f) ? [i] : []));
+  if (claim.length === 0) {
+    throw new Error(
+      "claimFenceIndices: no fence in fixture group 10 carries the claim-subject " +
+        "grep. Either the group lost its witness fences or the subject was renamed " +
+        "without updating CLAIM_GREP_RE — both are unguarded coverage, not zero work.",
+    );
+  }
+  if (claim.length !== anyGrep.length) {
+    throw new Error(
+      `claimFenceIndices: the two predicates disagree — claim=[${claim}] ` +
+        `anyGrep=[${anyGrep}]. A fence in this group carries a --grep that is not ` +
+        `the claim subject. Decide whether it is a claim fence and widen ` +
+        `CLAIM_GREP_RE, or scope it out deliberately; do not let either predicate ` +
+        `win silently.`,
+    );
+  }
+  return claim;
+}
