@@ -54,7 +54,7 @@ import {
 } from "../adapters/_shared/src/leg_prose_surfaces";
 import { milestoneIdFromUlid } from "../adapters/_shared/src/milestone_token";
 import { mintId } from "../adapters/_shared/src/ulid";
-import { PRESENCE_CLAIM_TRIPWIRE } from "./_ac9-row-guard";
+import { ac9Window, PRESENCE_CLAIM_TRIPWIRE } from "./_ac9-row-guard";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
@@ -767,9 +767,7 @@ describeIfSkills("AC-STE-448.9 — the release proof: the durable claim witness 
     // § 0i's remedy would not have caught it. The repair is the same one the
     // house rule always prescribes: scope the pin, never weaken it. All three
     // now read the row, and the slice asserts it holds its subject first.
-    const start = smokeDoc!.indexOf("AC-STE-448.9");
-    expect(start).toBeGreaterThan(0);
-    const row = smokeDoc!.slice(start, start + 2400);
+    const row = ac9Window(smokeDoc!);
     expect(row).toContain("the release proof");
     expect(row).toMatch(/deliberately only HALF of the lock assertion/);
     expect(row).toMatch(/satisfied \*vacuously\* by a lock that was never created/);
@@ -787,12 +785,14 @@ describeIfSkills("AC-STE-448.9 — the release proof: the durable claim witness 
     // A textual ban over unbounded English cannot be made exhaustive, so this
     // no longer claims to be. It is a tripwire over the phrasings actually
     // reached for, widened to the verb set rather than one sentence, and the
-    // REAL guard is the three disclaimer pins above: a presence claim that
-    // kept the disclaimer would be self-contradicting on its face, and one that
-    // removed it turns those three RED.
-    const start = smokeDoc!.indexOf("AC-STE-448.9");
-    expect(start).toBeGreaterThan(0);
-    const row = smokeDoc!.slice(start, start + 2400);
+    // REAL guard is the six disclaimer pins of `AC9_DISCLAIMER_PINS` — the four
+    // asserted in the test above plus STE-456's two witness clauses, all of them
+    // carried by the shared guard module. A presence claim that kept the
+    // disclaimer would be self-contradicting on its face, and one that removed
+    // it turns those pins RED. (Counted wrong here until STE-460 AC.9: the
+    // comment said three while the test above asserted four and the shared list
+    // held six.)
+    const row = ac9Window(smokeDoc!);
     // NON-VACUITY ON THE ANCHOR ITSELF (added by STE-451, which tripped it).
     // `indexOf` takes the FIRST occurrence, and the token is not unique — any
     // prose above § Phase 4 that names it silently moves this window off the
@@ -801,6 +801,14 @@ describeIfSkills("AC-STE-448.9 — the release proof: the durable claim witness 
     // containing the row entirely, and all 42 tests here stayed GREEN. A guard
     // that has been relocated looks exactly like a guard that is satisfied, so
     // the slice must prove it still holds its subject before banning anything.
+    //
+    // STE-460 AC.6 — THAT CHECK IS NOW STRONGER, NOT ABSENT. The inline
+    // `indexOf` + `expect(start).toBeGreaterThan(0)` pair this test used to
+    // carry has been replaced by `ac9Window`, which calls `assertAnchorUnique`
+    // and THROWS on a second occurrence. The old inline form only proved the
+    // anchor was found somewhere; the accessor proves it is unique, which is
+    // the event that relocates the window. Said here because a reader who
+    // remembers the inline check would otherwise read its absence as a loss.
     expect(row).toContain("the release proof");
     // NARROWED BY STE-456, AND HOISTED TO ONE DEFINITION. This test and the
     // not-blind anchor below held INDEPENDENT copies of the same literal —

@@ -35,6 +35,8 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { proseSurfaceCount, tableSurfaceRows } from "./_m121-blast-radius";
+
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
 
@@ -522,13 +524,20 @@ describe("AC-STE-457.6 / .7 — the supersession is recorded and the migration v
     // rather than taken on faith, so the pin now names the set.
     const plan = read(PLAN_M121);
     expect(plan).not.toBeNull();
-    const start = plan!.indexOf("| Shipped surface | Touched by | Nature of change |");
-    expect(start).toBeGreaterThan(-1);
-    const end = plan!.indexOf("\n\n", plan!.indexOf("\n|---|", start));
-    const rows = plan!
-      .slice(start, end)
-      .split("\n")
-      .filter((l) => l.startsWith("| `") || l.startsWith("| plugins"));
+    // ONE reader of the table, not two. This test used to slice the table
+    // inline — same header literal, same `\n|---|` separator, same row filter —
+    // and then call `tableSurfaceRows` four lines further down for the count
+    // comparison. Two implementations of "the rows of this table" inside one
+    // test function is STE-451's correction #40 in miniature: editing one
+    // leaves the other green, so the coverage pin below could go on reading a
+    // table the count pin had stopped agreeing with.
+    //
+    // The inline copy's own guard is not lost, it is strengthened. It asserted
+    // `start > -1` — the table exists. `tableSurfaceRows` THROWS with the
+    // header it looked for when the table is absent, when the separator row is
+    // missing, and it falls back to end-of-document rather than the `-1` an
+    // unfound `\n\n` would have silently fed to `slice`.
+    const rows = tableSurfaceRows(plan!);
     // Every shipped (consumer-facing) file STE-457 modified must appear.
     for (const surface of [
       "skills/implement/SKILL.md",
@@ -538,8 +547,18 @@ describe("AC-STE-457.6 / .7 — the supersession is recorded and the migration v
       expect(rows.some((r) => r.includes(surface) && r.includes("STE-457"))).toBe(true);
     }
     // …and the prose count must agree with the table rather than lag it.
-    expect(plan!).toContain(`receives the seven surfaces above`);
-    expect(rows.length).toBe(7);
+    //
+    // DERIVED, NOT RESTATED (AC-STE-460.10). This was a pair of hardcoded
+    // constants — the count sentence spelled out as a string literal, beside
+    // the same number written again as a row-count — which went stale four
+    // times, once per milestone growth. Correcting them a fifth time would
+    // reproduce the mechanism; deriving retires it. Both sides are now read
+    // from the plan itself, from DIFFERENT expressions that are
+    // blind to each other: `proseSurfaceCount` parses only the sentence,
+    // `tableSurfaceRows` parses only the table. That blindness is measured in
+    // tests/m121-ste-460-blast-radius.test.ts; collapsing the two readers into
+    // one would make this line incapable of failing.
+    expect(proseSurfaceCount(plan!)).toBe(tableSurfaceRows(plan!).length);
   });
 
   test("`migration: none` is RE-ARGUED against the widened set, not inherited", () => {
