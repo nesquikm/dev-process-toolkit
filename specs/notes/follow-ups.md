@@ -391,6 +391,22 @@ Measured, not theorised. STE-458's `AC-STE-458.1` asserted that every commit tou
 
 **Generalisation.** This is the third distinct mechanism in M121 by which an assertion stops being about its subject while the suite reports green — after § 0i's anchor relocation (`indexOf` returning a valid index into the wrong text) and § 0i's once-occurring-token dilution. Those two were caught by mutation *inside* the milestone. This one was caught only by performing the archive, and **no mutation battery would have found it**, because every mutation in this milestone was measured against a live tree. The class to watch: **any state transition that no gate run precedes.** § 0l names the other member (history-asserting tests, verified one commit late).
 
+### 0t. `specs/plan/archive/M121.md` was edited after archival, under an operator-authorized exception — **NOT a general licence**
+
+**Sibling to § 10 of the M116 section** (`specs/frs/archive/STE-417.md`, edited under a spec-authorized exception). Recorded for the same reason: a future reader who finds an archived file with a post-archival edit should get the reason rather than a mystery.
+
+**The rule this departs from**, stated in two places in the shipped skill — `skills/spec-archive/SKILL.md:78` and its § Rules bullet at `:183`: *"No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` except the frontmatter flip (`status` / `archived_at`, plus `ship_state` under `--parked`) at move time."* That rule is unchanged, and this entry does not amend it.
+
+**What was edited and why.** One number, in the § Migration blast-radius paragraph: *"Seven of this milestone's **thirteen** FRs"* → *"**fourteen**"*. STE-459 was authored at archive time (§ 0s), which made the denominator false the moment it landed. The operator authorized the edit explicitly, on the ground that the plan is the first thing anyone reads and a knowingly-false count at the top of it is worse than a bounded exception to a freeze rule. The numerator was left at seven and the reason written into the same sentence, because a reader seeing only the denominator move would reasonably infer the blast radius had grown — it had not; STE-459 is test-only.
+
+**The three conditions that made it an exception rather than a precedent**, named so the next reader can check whether they hold before reaching for this entry:
+
+1. **The plan had not shipped.** `shipped_in` was still `null`, so no release stamp and no CHANGELOG entry referenced the text being corrected, and probe #63 `plan_ship_coherence` had nothing to contradict.
+2. **The correction was a fact already false on disk**, not a rewording, an improvement, or a late scope change. The alternative was not "leave it tidy" but "leave it wrong".
+3. **Nothing pinned the sentence.** `grep` over `tests/` and `adapters/` for the phrase returned zero, so the edit could not launder a green assertion — checked before the edit, not after.
+
+**What this is NOT licence for.** Editing an archived FR or plan to improve its prose, to backfill a finding, to soften a recorded conflict, or to update a count that went stale because a LATER milestone changed something. The last case is the tempting one and it is the boundary: this number went stale because of an FR inside the same unshipped milestone. A number that goes stale because M122 exists belongs in M122's own record, not retro-edited into M121's.
+
 ### 1. Cross-commit atomicity is NOT enforced — AC-STE-446.7 ships with one arm
 
 **This is a known, deliberate absence. Do not read the green suite as covering it.**
