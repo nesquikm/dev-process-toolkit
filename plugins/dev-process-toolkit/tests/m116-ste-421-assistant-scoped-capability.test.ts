@@ -33,7 +33,8 @@
 //     pin the positive direction (AC-STE-421.5).
 //
 // FIXTURE POLICY. The 2026-07-27 source captures (`/tmp/dpt-smoke-*.log`,
-// 200 KB – 470 KB) are run artifacts and are deliberately NOT committed. What is
+// tens of KB to over a MB — the eighteen captures of the 2026-08-08 run measured
+// 46,057 B to 1,252,763 B) are run artifacts and are deliberately NOT committed. What is
 // committed under `tests/fixtures/capability-rows/` is a minimal DERIVED
 // reproducer per capture: only events carrying a scored token survive, and every
 // string body over 200 chars is reduced to ±120-char windows around the tokens,
@@ -59,6 +60,13 @@ import {
   type CapabilityScore,
 } from "../adapters/_shared/src/capability_row_assert";
 import { runCrossCuttingSpecStaleFileRefsProbe } from "../adapters/_shared/src/cross_cutting_spec_stale_file_refs";
+import {
+  DERIVED_FIXTURE_BYTE_CEILING,
+  selectUniqueByCapture,
+  qualifyCaptureArtifact,
+  runRecordedByFixture,
+  type CaptureQualification,
+} from "../adapters/_shared/src/capture_artifact_identity";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
@@ -95,6 +103,15 @@ function findCapture(basename: string): string | null {
   }
   return null;
 }
+
+/**
+ * The run the operator declares the artifacts in `CAPTURE_DIRS` came from. The
+ * basename a capture carries is run-agnostic — every conformance run writes the
+ * same path — so presence alone can never establish which run wrote it, and
+ * this declaration is the only thing that can. Absent by default: an
+ * undeclared artifact is refused, not assumed.
+ */
+const DECLARED_CAPTURE_RUN = process.env.DPT_CAPTURE_RUN ?? null;
 
 // ===========================================================================
 // The capability-key universe.
@@ -739,26 +756,104 @@ describe("derived fixtures stay small enough to belong in git", () => {
     test(`${file} is a reproducer, not a copy`, () => {
       const bytes = readFileSync(join(FIXTURE_DIR, file)).length;
       expect(bytes).toBeGreaterThan(0);
-      // The untracked sources run 200 KB – 470 KB. Past 32 KB it has stopped
-      // being derived.
-      expect(bytes).toBeLessThan(32 * 1024);
+      // The untracked sources start at 46,057 B. Past this ceiling a fixture
+      // has stopped being derived — and the SAME constant is the floor a
+      // candidate capture must clear in `capture_artifact_identity`, so the two
+      // bounds cannot drift apart.
+      expect(bytes).toBeLessThan(DERIVED_FIXTURE_BYTE_CEILING);
     });
   }
 });
 
+/**
+ * Decide whether the artifact sitting at `capture`'s path really is the one
+ * `file` was derived from. Locating it by basename alone is precisely the
+ * defect this guard replaces: the name is run-agnostic, so any later run's
+ * capture used to be accepted as the 2026-07-27 artifact, and the equivalence
+ * assertion then compared two unrelated runs — reporting GREEN whenever their
+ * scores happened to agree.
+ */
+function qualifyCapture(entry: {
+  file: string;
+  capture: string;
+}): CaptureQualification {
+  const path = findCapture(entry.capture);
+  return qualifyCaptureArtifact({
+    candidate: path === null ? null : { path, bytes: readFileSync(path) },
+    derivedBytes: readFileSync(join(FIXTURE_DIR, entry.file)),
+    declaredRun: DECLARED_CAPTURE_RUN,
+    expectedRun: runRecordedByFixture(entry.file) ?? "",
+  });
+}
+
+/** One `DERIVED` row paired with the verdict on the artifact it maps to. */
+interface QualifiedEntry {
+  entry: (typeof DERIVED)[number];
+  verdict: CaptureQualification;
+}
+
+/**
+ * The qualification verdicts, computed ONCE at module load — both the
+ * `test.skipIf` guards and the skip labels baked into the test names need them
+ * before any test body runs.
+ */
+const QUALIFICATIONS: QualifiedEntry[] = DERIVED.map((entry) => ({
+  entry,
+  verdict: qualifyCapture(entry),
+}));
+
+/**
+ * Resolve one row by the CAPTURE BASENAME it maps to — never by array position.
+ *
+ * `DERIVED[0]` identifies its subject by a property that is not unique to it:
+ * reordering the table would silently re-point a caller at a different leg
+ * while every assertion stayed green. That is the same
+ * identity-by-a-non-unique-property defect the qualification guard above exists
+ * to remove, and it must not be reintroduced one level down. Zero matches (or
+ * several) is a broken table rather than a skippable condition, so it THROWS —
+ * taking this file down by name instead of quietly testing the wrong leg.
+ */
+function qualificationFor(capture: string): QualifiedEntry {
+  // The selection itself lives in the shared module, as a pure function over an
+  // explicit table, so BOTH of its branches are reachable at unit granularity —
+  // a closure over this file's `const` table could only ever be tested for the
+  // zero-match case, which is how "correct by construction" quietly replaces
+  // "measured".
+  return selectUniqueByCapture(
+    QUALIFICATIONS.map((row) => ({ ...row, capture: row.entry.capture })),
+    capture,
+  );
+}
+
+describe("equivalence subject resolution — by basename, never by position", () => {
+  test("a known basename resolves to the entry that declares it", () => {
+    for (const { file, capture } of DERIVED) {
+      expect(qualificationFor(capture).entry.file).toBe(file);
+    }
+  });
+
+  test("an unknown basename throws instead of resolving to a neighbour", () => {
+    // Non-vacuity for the throw above: a silent fallback would hand back some
+    // other leg's verdict and the caller would never know.
+    expect(() => qualificationFor("dpt-smoke-no-such-capture.log")).toThrow(
+      /expected exactly one entry for capture/,
+    );
+  });
+});
+
 describe("fixture equivalence — derived vs. the untracked full capture", () => {
-  // Enforced forever, not just at authoring time: whenever a 2026-07-27 run
-  // artifact is present on disk, the committed reproducer must score identically
-  // for every key. The captures are deliberately never committed, so these skip
-  // in a clean checkout — the test name says so out loud rather than passing
-  // silently.
-  for (const { file, capture, keys } of DERIVED) {
-    const path = findCapture(capture);
-    test.skipIf(path === null)(
-      `${file}: score-equivalent to ${capture}` +
-        (path === null ? " [SKIPPED — untracked capture absent]" : ""),
+  // Enforced forever, not just at authoring time: whenever a QUALIFYING
+  // 2026-07-27 run artifact is present on disk, the committed reproducer must
+  // score identically for every key. The captures are deliberately never
+  // committed, so these skip in a clean checkout — and the test name carries
+  // the machine-readable reason, so "nothing on disk" never reads the same as
+  // "something on disk that we refused".
+  for (const { entry, verdict } of QUALIFICATIONS) {
+    const { file, capture, keys } = entry;
+    test.skipIf(!verdict.qualified)(
+      `${file}: score-equivalent to ${capture}` + verdict.skipLabel,
       () => {
-        const full = readFileSync(path!, "utf-8");
+        const full = readFileSync(verdict.path!, "utf-8");
         const derived = fixture(file);
         for (const key of keys) {
           const a = scoreCapabilityKey(full, key);
@@ -769,14 +864,14 @@ describe("fixture equivalence — derived vs. the untracked full capture", () =>
     );
   }
 
-  const linear = findCapture("dpt-smoke-linear-spec-write.log");
-  test.skipIf(linear === null)(
-    "the raw method really does score all five present on the full capture" +
-      (linear === null ? " [SKIPPED — untracked capture absent]" : ""),
+  const linear = qualificationFor("dpt-smoke-linear-spec-write.log");
+  test.skipIf(!linear.verdict.qualified)(
+    `the raw method really does score all five present on ${linear.entry.capture}` +
+      linear.verdict.skipLabel,
     () => {
       // The finding, restated against the un-derived bytes: this is what the
       // pre-fix `grep -F` was doing on a run that emitted nothing.
-      const full = readFileSync(linear!, "utf-8");
+      const full = readFileSync(linear.verdict.path!, "utf-8");
       for (const key of FR_TABLE_KEYS) {
         const score = scoreCapabilityKey(full, key);
         expect(score.rawHits).toBe(MEASURED_RAW_HITS[key]);
