@@ -1053,39 +1053,56 @@ describeIfSkills("AC-STE-456.8 — RED against the live defect, before the fix",
     }
   });
 
-  test("the ordering arrow is intact — STE-457's fix has NOT landed", () => {
-    // AC.8's precondition, asserted rather than assumed. The live defect is
-    // this FR's non-renewable test input: `/implement` step 0.c's mode-none
-    // half still names no module path and no call form, so a tracker-less run
-    // still has nothing followable to follow and still writes no lock.
+  test("the ordering arrow has TURNED — STE-457's fix HAS landed, and this input is spent", () => {
+    // RETIRED AND INVERTED BY STE-457, on this test's own written instruction.
+    // As shipped it read "the ordering arrow is intact — STE-457's fix has NOT
+    // landed" and asserted the module path was ABSENT from § 0.c. Its comment
+    // said: "WHEN THIS GOES RED IT IS NOT A REGRESSION. It means STE-457 has
+    // landed, and the correct response is to retire this assertion and record
+    // that every subsequent proof of this detector is against a reconstruction."
+    // That is what happened, and it is recorded here rather than in a commit
+    // message a future reader will not be holding.
     //
-    // WHEN THIS GOES RED IT IS NOT A REGRESSION. It means STE-457 has landed,
-    // and the correct response is to retire this assertion and record that
-    // every subsequent proof of this detector is against a reconstruction.
-    // RESOLVED BY NAME, NOT BY POSITION — corrected after the audit, and the
-    // first draft was the defect this branch's own commit `6fd67ca` corrected
-    // one FR earlier ("resolve by name, not position").
+    // MEASURED, both sides, one file, checksum-verified restore:
+    //   * pre-fix bytes (`git show HEAD:…/skills/implement/SKILL.md`)  → 1 pass
+    //   * post-fix bytes                                              → 1 fail
+    // and the failure landed on the module-path conjunct at the old line 1089
+    // with the two preceding assertions green — so it resolved the RIGHT bullet
+    // and failed for the RIGHT reason, rather than by losing its subject.
     //
-    // It selected the bullet with `.find(l => l.includes("claimLock") &&
-    // l.includes("mode: none"))`. TWO lines match: § 0.b Provider resolution
-    // (which names `LocalProvider` and `mode: none` in its resolution rule) and
-    // § 0.c Claim, the actual subject. `find` returns 0.b. MUTATION-PROVED in
-    // both directions: applying the real STE-457 fix to 0.c left the suite
-    // GREEN, and adding the same module path to 0.b turned it RED.
+    // WHAT THE RETIREMENT COSTS, stated so nobody re-derives it as news. Every
+    // proof of this detector from here on is against a RECONSTRUCTION: the
+    // sibling cases above stage their own disks, so they keep working, but the
+    // disk they stage is now built by this file rather than observed in the
+    // wild. The one run that exercised the genuine defect was 2026-08-08, and
+    // it cannot be re-run.
     //
-    // So the one assertion whose documented job is to announce "STE-457 has
-    // landed, this detector is no longer proved against a live defect" could
-    // not fire on that event. AC-STE-457.1 confirms the aim: the fix lands on
-    // § 0.c precisely.
+    // RESOLVED BY NAME, NOT BY POSITION — kept from the original, because it is
+    // the property that let the flip land where it was aimed. TWO lines of the
+    // skill mention `claimLock` and `mode: none`: § 0.b Provider resolution and
+    // § 0.c Claim. A `.find` over those two tokens returns 0.b; the first draft
+    // did exactly that and could not have fired on this event at all.
+    //
+    // The assertion is POSITIVE, not a deleted ban: a ban is also satisfied by
+    // deleting the subject, so this asserts the shipped shape is present rather
+    // than that the old shape is gone (docs/patterns.md Pattern 31 rider 1).
     const implement = read(join(PLUGIN_ROOT, "skills/implement/SKILL.md"));
     expect(implement).not.toBeNull();
     const lines = implement!.split("\n");
     const matches = lines.filter((l) => l.includes("**0.c Claim**"));
     expect(matches).toHaveLength(1); // the selector is unambiguous
     const bullet = matches[0]!;
-    // The bullet is the one the FR names, proved by its own content.
+    // The bullet is the one the FR names, proved by its own content. Unchanged
+    // from the shipped form — the fix ADDED the instruction, it did not replace
+    // the sentence that identifies the subject.
     expect(bullet).toContain("`LocalProvider.claimLock` writes `.dpt/locks/<id>`");
-    // …and it still names no module path — the defect is still live.
-    expect(bullet).not.toContain("adapters/_shared/src/local_provider");
+    // …and it now names the module path, which is the whole event.
+    expect(bullet).toContain("adapters/_shared/src/local_provider.ts");
+    // The aim is still § 0.c and not § 0.b — the bullet the first draft would
+    // have selected must stay free of the path, or a future fix applied to the
+    // wrong bullet reads as this one.
+    const provider = lines.filter((l) => l.includes("**0.b Provider resolution**"));
+    expect(provider).toHaveLength(1);
+    expect(provider[0]!).not.toContain("adapters/_shared/src/local_provider");
   });
 });

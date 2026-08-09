@@ -180,7 +180,15 @@ describe("AC-STE-101.5 — Phase 1-exit self-check step (claim verification)", (
     expect(verify.toLowerCase()).toMatch(/refus|hard-?refus/);
   });
 
-  test("self-check is mode-gated: `mode: none` skips it (LocalProvider sentinel makes it vacuous)", () => {
+  // TITLE CORRECTED BY STE-457, ASSERTION BYTE-UNCHANGED. As shipped this read
+  // "self-check is mode-gated: `mode: none` skips it (LocalProvider sentinel
+  // makes it vacuous)". The sentinel half of that rationale is still true and
+  // the skip half is not: `mode: none` now takes a tracker-less ARM that reads
+  // the lock file and its claim commit, because those are artifacts rather than
+  // sentinels. See `specs/plan/M121.md` § Recorded supersession — AC-STE-101.5.
+  // The regex below is untouched — AC-STE-101.5's guard is not weakened to
+  // flatter a successor's phrasing; only the sentence advertising it is.
+  test("self-check is mode-aware: the `mode: none` path is named, not left implicit", () => {
     const body = read(skillPath);
     const verify = step0dVerifySection(body);
     expect(verify.toLowerCase()).toMatch(/mode:\s*none|mode none|local-no-tracker/);
