@@ -8,11 +8,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-M121 — Tracker-less Conformance Coverage (in progress).
+## [2.61.0] — 2026-08-10 — "Conformant"
+
+**What the conformance run found, which is the reason this release exists.** The 2026-08-08 run was the first to exercise `mode: none` — the default configuration of every project this toolkit bootstraps — as a real leg rather than a bench fixture. It produced **five high-severity findings. Two are fixed here.** The other three are unfixed and no FR claims them.
+
+**Five is a floor, not a count.** Two of the three legs were killed by a weekly usage limit after their canonical chains completed and lost their findings files entirely; only one leg wrote its findings incrementally. The run's own report says it "kept 6 findings and lost an unknown number", so any statement of the form "the run found N" describes what survived the kill, not what the run observed.
+
+**The `/implement` claim defect is PRE-EXISTING and this milestone is why it became visible.** `LocalProvider.claimLock` built a commit subject whose fixed overhead is 62 characters, while the `commit-msg` hook `/setup` installs into every bootstrapped project caps subjects at 72 — so the branch could be at most ten characters, against a house convention that routinely produces thirty-five. Measured: `main` (4) accepted at 66; a 35-character branch refused at 97; a 68-character branch refused at 130. It had never been seen because the claim had no production caller and the autonomous legs never install the hook. Making the tracker-less claim a hard entry gate is what turned a latent defect into a blocking one, so the fix ships in the same release as the gate rather than after it.
+
+**The honest boundary.** No offline test can prove a `claude -p` child actually follows corrected prose. Every prose surface here is pinned, executed where it is executable, and mutation-verified — but the instruction's effect on a real autonomous run is demonstrable only by the next conformance run. That is a limit of the method, not an omission.
+
+**This release is not tidier than the work.** Several acceptance criteria are Partial by construction — the commitlint conformance arm cannot resolve upstream config inside a fixture and says so rather than fabricating a pass; one diagnostic branch is unit-asserted with no end-to-end fixture. Cross-commit atomicity between the leg enum and the fixture rosters is **unenforced by design** and documented as a known absence rather than covered by the green suite. `specs/notes/follow-ups.md` records gaps that remain deliberately open, including three high findings this milestone did not fix.
+
+### Added
+
+- **`mode: none` is now an always-on third leg** of the project-local `/conformance-loop` and `/smoke-test` skills, end to end, with a `--legs` selector carrying a fail-closed zero-legs guard (STE-447, STE-448)
+- **Two new fixture groups** covering the tracker-less path: group 9 for identity surfaces, group 10 for the lock lifecycle (STE-450, STE-451)
+- **A falsifiability harness and one-way derivation binding for `SMOKE_LEGS`**, plus an N-leg termination harness whose bash fences are lifted out of the document and executed rather than read (STE-445, STE-452)
+- **A lock-provider fixture harness that installs a real shipped `commit-msg` hook.** Nothing in the suite had ever done this, so the toolkit's own producer and the toolkit's own gate had never met — which is why a full green gate sat over a shipped defect. It proves the hook live per fixture and carries a hook-free control, so a refusal can never be attributed to the fixture's own setup (STE-461)
 
 ### Changed
 
+- **`SMOKE_LEGS` is the sole leg-set authority**, with five derivation surfaces, and every fixture group's roster was audited against it — resolving a contradiction `/setup` step 7c had carried (STE-446, STE-449)
 - **A leg registered in `SMOKE_LEGS` but rostered by no fixture group is now refused instead of rendering a vacuous pass.** `smoke_fixture_groups.ts` gains `groupsCoveringLeg` and a second CLI boundary guard: such a leg exits 2 with a diagnostic naming the fault, where it previously exited 0 after rendering all eight groups `not-applicable` — indistinguishable, to any reader or downstream aggregator, from a clean run. The everything-applies fallback for genuinely *unrecognized* legs is untouched and deliberate: a typo'd leg still reports `not-reached` rather than acquiring a by-design exemption, so its gap stays visible. This is a behavior change to a surface that ships to every plugin consumer, not a test-only edit. It is **unreachable in production until M121's next FR widens the leg enum** — while the enum is `["linear","jira"]` every registered leg is rostered, so no input reaches the new path; it is exercised today only through the mutation harness, which reaches it by widening the enum in a temporary copy. The refusal is **CLI-boundary-only**: the library render and reconcile functions still resolve such a leg to eight `not-applicable` records, which matters only once a library caller exists or the enum widens (STE-445)
+
+### Fixed
+
+- **`LocalProvider` lock commits now conform to the hook this toolkit installs.** The branch leaves the commit subject and moves to a message body line, so subject length is **constant at 58 characters** and maximum branch length is unbounded rather than merely larger. Verified by execution against the real shipped hook on 4-, 35- and 68-character branches: three byte-identical subjects, three landed commits (STE-461)
+- **A rejected lock commit no longer corrupts the tree, and still fails loudly.** All three lock operations assert their subject fits before touching anything, and on any rejection roll the tree back and **rethrow** with a diagnostic naming the subject, its length, the cap and the underlying hook stderr. A downstream project's own hook, a signing failure or a stale index lock now take the same path — none can leave a lock present with no witness commit. A failed rollback appends to the original error, never replaces it; a rollback that returned normally would make a project where every claim silently fails indistinguishable from one where they succeed (STE-461)
+- **A rejected release no longer reads as a completed one.** It previously left the lock deleted with the deletion staged, which every check reading absence as proof-of-release reported as success — defeating the two-sided predicate two FRs were spent establishing (STE-461)
+- **Step 0.d names which conjunct failed** instead of refusing opaquely, and its ownership check is re-homed onto the predicate `LocalProvider` already uses internally, so producer and verifier stop being independently-worded restatements of one rule (STE-461)
+- **The tracker-less lock evidence is two-sided** — the durable claim witness plus the absence — and is captured before the phases a usage limit forfeits (STE-456)
+- **The tracker-less claim step gained an instruction shaped like its siblings**, naming a module path and a call form where it previously named neither, and the artifact it produces is now verified (STE-457)
+- **An acceptance criterion that no healthy run could satisfy was corrected** — it demanded a plan id byte-identical to an FR's, which a two-FR milestone cannot produce (STE-455)
+- **A capture-equivalence guard compared a fixture against itself** across runs via basename identification; it is now bound to its own run (STE-458)
+- **Milestone-scoped test files survive their own archival.** Archiving this milestone the first time took the gate from green to fourteen failures **and three silent skips** — the quiet half being the dangerous one, since a green pass count at an inflated skip count reads as success (STE-459)
+- **Two lock-evidence guards could not detect the change that followed them.** The fence negative stayed green when the pattern lost its leading anchor or its trailing space — the two widenings a subject repair performs — and the window budget asserted only that headroom was positive, so its recorded figure could rot unnoticed. Repaired before the change they had to catch (STE-460)
+- **`--dry-run` prose narrowed to what actually ships**, and the report shape generalized to N legs (STE-453)
+
+Total test count at release: 7184 tests, 0 failures, 0 errors.
 
 ## [2.60.0] — 2026-08-05 — "Ledger"
 
