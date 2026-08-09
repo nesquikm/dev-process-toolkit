@@ -1,13 +1,13 @@
 ---
 name: conformance-loop
 description: Drive `/smoke-test` against both trackers in parallel and aggregate the per-tracker findings files into one deduplicated report. Default `capture-only` mode honors `/smoke-test`'s "Capture, don't fix" rule unchanged. Opt-in `--auto-fix` mode walks the deduplicated high-severity findings list and dispatches `/dev-process-toolkit:spec-write` + `/dev-process-toolkit:implement` per finding, then re-iterates until termination. Project-local skill, not plugin.
-argument-hint: '[--auto-fix] [--max-iterations N] [--linear-team STE] [--jira-project KEY] [--dry-run]'
+argument-hint: '[--auto-fix] [--max-iterations N] [--legs linear,jira,none] [--linear-team STE] [--jira-project KEY] [--dry-run]'
 disable-model-invocation: true
 ---
 
 # /conformance-loop
 
-Automate the manual two-terminal `/smoke-test` workflow with cross-tracker dedup, capture-only-by-default, and an opt-in `--auto-fix` mode that dispatches `/dev-process-toolkit:spec-write` + `/dev-process-toolkit:implement` per finding under explicit safety rails. **Project-local skill** — lives in `.claude/skills/conformance-loop/SKILL.md` of the dev-process-toolkit repo, not in the plugin itself. Downstream users never see it.
+Automate the manual two-terminal `/smoke-test` workflow with cross-leg dedup, capture-only-by-default, and an opt-in `--auto-fix` mode that dispatches `/dev-process-toolkit:spec-write` + `/dev-process-toolkit:implement` per finding under explicit safety rails. **Project-local skill** — lives in `.claude/skills/conformance-loop/SKILL.md` of the dev-process-toolkit repo, not in the plugin itself. Downstream users never see it.
 
 This skill is the formally-sanctioned exception to `/smoke-test`'s "Capture, don't fix" + "One run per release cycle" rules. Capture-only mode preserves those rules unchanged for raw `/smoke-test` invocations; `--auto-fix` mode is the operator's explicit opt-in to the automated loop with `--max-iterations` + no-progress safety rails (no budget cap — operator controls cost via iteration count).
 
@@ -15,7 +15,7 @@ This skill is the formally-sanctioned exception to `/smoke-test`'s "Capture, don
 
 - Pre-release sanity check before `/ship-milestone M<N>` runs, when both Linear and Jira surfaces need to be exercised in one shot.
 - After landing any FR that touches `skills/setup/SKILL.md`, `skills/spec-write/SKILL.md`, `skills/implement/SKILL.md`, `skills/gate-check/SKILL.md`, `skills/spec-archive/SKILL.md`, or any of the `templates/` files.
-- **Not** for every commit, not in CI — this is expensive (real LLM tokens, real Linear + Jira writes) and slow (`max-iterations × ~10 min × 2`-tracker wall-clock per run).
+- **Not** for every commit, not in CI — this is expensive (real LLM tokens, real Linear + Jira writes) and slow (`max-iterations × ~10 min` wall-clock per run). Leg count does not enter that product: the legs are detached concurrent brace groups sharing one bounded poll, so a run's wall-clock is set by its SLOWEST leg, not by their sum. A third leg costs tokens, not minutes.
 
 ## Argument parsing
 
@@ -23,21 +23,135 @@ Parse `$ARGUMENTS` once, before any pre-flight runs:
 
 - `--auto-fix` — boolean, **default OFF**. When OFF (capture-only mode, the default), the loop exits after Phase A of iteration 1 with the aggregated findings report and dispatches no fixers — this honors `/smoke-test`'s "Capture, don't fix" rule unchanged. When ON, Phase B fires per high-severity finding (sequential `/dev-process-toolkit:spec-write` → `/dev-process-toolkit:implement` per finding), and the loop re-iterates until one of the three termination conditions trips.
 - `--max-iterations N` — integer, **default 3**. Hard cap on iteration count (counts both capture-only and auto-fix iterations). The loop exits with `status: max-iterations` once the counter reaches `N`. Operator owns this number — there is no budget cap; cost is controlled by iteration count.
+- `--legs <comma-separated>` — the leg selector, **default: every leg registered in `SMOKE_LEGS`**. Restricts the set Phase A spawns to the named legs, as the documented opt-out for a token-tight run (a leg costs tokens, not wall-clock — see § When to use). Omitting the flag selects everything; it is not the same as passing an empty value, which selects nothing and is refused. Resolution and both of its refusals are pre-flight (0) below, which runs before pre-flight (a).
 - `--linear-team STE` — pass-through to the Linear `/smoke-test` child via `--linear-team`. Default `STE` (matches `/smoke-test`'s default).
-- `--jira-project KEY` — **required** when the Jira child fires. Pass-through to the Jira `/smoke-test` child via `--jira-project`. The Jira child's pre-flight #8 enforces visibility of the Space; `/conformance-loop`'s pre-flight (d) verifies presence of the flag before any side effects.
-- `--dry-run` — boolean, default OFF. Mocks the subprocess spawn and returns canned per-tracker findings files (used by `conformance-loop-dry-run.test.ts` to cover parallelism mechanics + aggregation + termination without invoking real `claude -p` children). Wires the same Phase A → termination path as a real run; only the subprocess call is replaced by reading from a fixture directory.
+- `--jira-project KEY` — **required only when `jira` is in the selected leg set.** Pass-through to the Jira `/smoke-test` child via `--jira-project`. The Jira child's pre-flight #8 enforces visibility of the Space; `/conformance-loop`'s pre-flight (d) verifies presence of the flag before any side effects — and skips that verification entirely when the selection does not include `jira`, because a flag the run will never use is not a precondition for it. `--legs linear,none` without `--jira-project` therefore does not refuse.
+- `--dry-run` — boolean, default OFF. **Accepted and parsed, and then nothing in this document reads it.** No branch, fence or conditional below tests the flag; there is no subprocess substitution, no canned per-leg findings, and **no fixture directory** — the one this bullet used to describe never existed anywhere in the repository. The flag is retained because `AC-STE-224.2` names it in a shipped acceptance criterion, not because it does anything. The coverage it used to claim is real but lives elsewhere and is narrower: `tests/m121-ste-452-termination-harness.test.ts` extracts this document's `green`, RC-collection and `no-progress` fences and EXECUTES them under `bash -c` against synthetic per-leg artifacts. That is the termination surfaces only — aggregation, the cross-leg dedup and the report shape are model judgment and no test executes them (see § Rules).
 
 Unknown flags refuse with NFR-10 canonical refusal naming the unknown flag and the supported set:
 
 ```
 Unknown flag '<flag>' passed to /conformance-loop.
-Remedy: pick from the supported set: --auto-fix, --max-iterations N, --linear-team STE, --jira-project KEY, --dry-run.
+Remedy: pick from the supported set: --auto-fix, --max-iterations N, --linear-team STE, --jira-project KEY, --dry-run, --legs linear,jira,none.
 Context: skill=conformance-loop, flag=<flag>
 ```
 
 ## Pre-flight refusals
 
-Each fires before any side effects, exits non-zero with an NFR-10-shape message. Eight refusals (a)–(h) total; refusals (c)–(e) **delegate** to `/smoke-test`'s pre-flights of the same probe (so the canonical message and probe shape stay defined in one place). Refusal (f) is the Phase 0 `permissions.allow` pre-flight introduced by STE-252 — it runs before any `claude -p` spawn and asserts the tracked allow-list artifact is present and populated. Refusal (g) is the STE-351 subscription-billing guard — it runs before any spawn and asserts no API-billing env var is set. Refusal (h) is the STE-367 workspace-trust precondition — it runs before any spawn and asserts both test-project paths are trusted.
+Each fires before any side effects, exits non-zero with an NFR-10-shape message. **Nine refusals total — (0) plus (a)–(h)**, emitting eleven distinct canonical messages between them; refusals (c)–(e) **delegate** to `/smoke-test`'s pre-flights of the same probe (so the canonical message and probe shape stay defined in one place).
+
+**(0) is deliberately not a letter, and that is a compatibility decision rather than a stylistic one.** It is ORDERED FIRST — it runs before pre-flight (a)'s cwd probe — but the lettered refusals keep the letters they have always had. Re-lettering to insert it as a new `(a)` would silently re-point every by-letter cross-reference in this file, in `/smoke-test`, and in the test suite at a different refusal than the one its author meant. Refusal (f) is the Phase 0 `permissions.allow` pre-flight introduced by STE-252 — it runs before any `claude -p` spawn and asserts the tracked allow-list artifact is present and populated. Refusal (g) is the STE-351 subscription-billing guard — it runs before any spawn and asserts no API-billing env var is set. Refusal (h) is the STE-367 workspace-trust precondition — it runs before any spawn and asserts every SELECTED leg's test-project path is trusted.
+
+(0) **Leg selection resolves to a non-empty subset of `SMOKE_LEGS` (STE-447).** Runs immediately after argument parsing and **before pre-flight (a)**, because a refusal that fires later has already had the opportunity to touch the filesystem. Resolving `--legs` is what introduces the possibility of an empty run, and an empty run is not a cheap run — it is a **vacuously green** one. A run that spawns nothing writes no per-leg findings file; a findings file that does not exist contributes no `**Severity:** high` lines; and the `green` termination probe reads zero high lines as convergence. The loop would report `green` having tested nothing. That is the milestone's own "no findings and no evidence must never reconcile to the same verdict" rule one level up from a missing findings file, so the selector that creates the hazard is the thing that must close it — fail-closed, before any spawn.
+
+An **omitted** `--legs` selects every registered leg. An **empty** `--legs ""` is a different input: the operator named a selection and the selection was empty. The two are distinguished by set-vs-unset, never by emptiness, and only the first is a default.
+
+Unrecognized value(s) → NFR-10 canonical refusal, in the same shape as the unknown-flag refusal above (it names the offending value and the supported set):
+
+```
+Unknown --legs value(s) '<values>' passed to /conformance-loop.
+Remedy: pick from the registered leg set: <registered>.
+Context: skill=conformance-loop, pre-flight=legs_unknown_value, unknown=[<values>]
+```
+
+Resolved selection of zero legs → NFR-10 canonical refusal:
+
+```
+--legs resolved to zero legs — /conformance-loop refuses to run.
+Remedy: pass --legs with at least one registered leg (<registered>), or omit --legs to select every registered leg.
+Context: skill=conformance-loop, pre-flight=legs_zero_selection, resolved=[]
+```
+
+An unreadable authority module → NFR-10 canonical refusal. **A registry that cannot be read is its own refusal, never an empty set** — reading it as empty would route a broken module straight into the vacuous-green path this gate exists to close:
+
+```
+Registered leg set unreadable — /conformance-loop cannot resolve SMOKE_LEGS.
+Remedy: re-run from the toolkit repo root so <plugin dir> resolves, then verify the authority module prints its legs.
+Context: skill=conformance-loop, pre-flight=legs_registry_unreadable
+```
+
+Probe shape. The registered set is read from the authority module rather than restated here, so this gate cannot drift from `SMOKE_LEGS` (STE-446):
+
+```bash
+# Pre-flight (0) — leg selection. Runs after argument parsing and BEFORE
+# pre-flight (a): before the cwd probe, before any pidfile is written, before
+# any log is opened. Nothing above this point touches the filesystem.
+#
+# LEGS_ARG is the raw `--legs` value. UNSET means the flag was omitted (select
+# everything); SET-BUT-EMPTY means an empty selection was named (refuse).
+PLUGIN_DIR="${PLUGIN_DIR:-$(pwd)/plugins/dev-process-toolkit}"
+REGISTERED_LEGS="$(bun "${PLUGIN_DIR}/adapters/_shared/src/smoke_fixture_groups.ts" legs 2>/dev/null)"
+if [ -z "${REGISTERED_LEGS}" ]; then
+  echo "Registered leg set unreadable — /conformance-loop cannot resolve SMOKE_LEGS." >&2
+  echo "Remedy: re-run from the toolkit repo root so ${PLUGIN_DIR} resolves, then verify the authority module prints its legs." >&2
+  echo "Context: skill=conformance-loop, pre-flight=legs_registry_unreadable" >&2
+  exit 2
+fi
+
+if [ -z "${LEGS_ARG+isset}" ]; then
+  SELECTED_LEGS="${REGISTERED_LEGS}"          # flag omitted ⇒ every registered leg
+else
+  SELECTED_LEGS=""; UNKNOWN_LEGS=""
+  # `set -f` (noglob) is LOAD-BEARING, not hygiene. The `for` list below is an
+  # UNQUOTED command substitution, so without it the shell runs pathname
+  # expansion on the operator's value BEFORE the loop body sees it — and the
+  # metacharacter guard inside the loop would then be inspecting FILENAMES the
+  # glob already matched, never the glob. Measured: with globbing on, in a
+  # directory containing a file named `linear`, `--legs 'li?ear'` resolved to
+  # `legs_selected=linear` — an unregistered value silently admitted by the one
+  # gate that may not fail open. The guard was not merely weak there, it was
+  # unreachable for every glob that matched anything.
+  #
+  # Compounding it: pre-flight (0) deliberately runs before (a)'s cwd probe, so
+  # the directory those filenames would come from is not yet verified.
+  set -f
+  for CANDIDATE in $(printf '%s' "${LEGS_ARG}" | tr ',' ' '); do
+    # With globbing off, a candidate carrying a metacharacter now reaches this
+    # guard as the literal the operator typed, and is rejected before the
+    # membership `case` below.
+    case "${CANDIDATE}" in *[!A-Za-z0-9_-]*)
+      UNKNOWN_LEGS="${UNKNOWN_LEGS}${UNKNOWN_LEGS:+ }${CANDIDATE}"; continue ;;
+    esac
+    case " ${REGISTERED_LEGS} " in
+      *" ${CANDIDATE} "*)
+        case " ${SELECTED_LEGS} " in
+          *" ${CANDIDATE} "*) ;;                                            # already selected
+          *) SELECTED_LEGS="${SELECTED_LEGS}${SELECTED_LEGS:+ }${CANDIDATE}" ;;
+        esac ;;
+      *) UNKNOWN_LEGS="${UNKNOWN_LEGS}${UNKNOWN_LEGS:+ }${CANDIDATE}" ;;
+    esac
+  done
+  set +f
+  if [ -n "${UNKNOWN_LEGS}" ]; then
+    echo "Unknown --legs value(s) '${UNKNOWN_LEGS}' passed to /conformance-loop." >&2
+    echo "Remedy: pick from the registered leg set: ${REGISTERED_LEGS}." >&2
+    echo "Context: skill=conformance-loop, pre-flight=legs_unknown_value, unknown=[${UNKNOWN_LEGS}]" >&2
+    exit 2
+  fi
+fi
+
+if [ -z "${SELECTED_LEGS}" ]; then
+  echo "--legs resolved to zero legs — /conformance-loop refuses to run." >&2
+  echo "Remedy: pass --legs with at least one registered leg (${REGISTERED_LEGS}), or omit --legs to select every registered leg." >&2
+  echo "Context: skill=conformance-loop, pre-flight=legs_zero_selection, resolved=[]" >&2
+  exit 2
+fi
+echo "legs_selected=${SELECTED_LEGS}"
+```
+
+`SELECTED_LEGS` is the leg set for the rest of the invocation: pre-flights (c), (d), (e) and (h) below iterate it, Phase A spawns one leg per member of it, Phase 0's contract reports it, and — since STE-452 — **every downstream surface that counts legs counts the SELECTED set rather than the registered one.** The rule each of them applies is the same, and the two halves are not separable: an absent artifact for a **selected** leg is an abort, an absent artifact for an **unselected** leg is a no-op. Those two cases sit on identical disk state, which is exactly why a surface that cannot see the selection cannot tell them apart.
+
+- The **bounded poll loop** is safe by construction and is deliberately left iterating the registered set — an unselected leg writes no pidfile, its `[ -f "${PIDFILE}" ]` test fails, and it is skipped.
+- The **rc-collection gate** (§ RC collection) reads one rc-file per selected leg inside a membership arm, and refuses outright on an empty selection.
+- The **`green` termination probe** (§ Termination) counts one findings file per selected leg, aborts on a selected leg whose file is absent, and refuses outright on an empty selection.
+- The **leg-completeness check** verifies the grandchild log set of each selected leg.
+- **Aggregation** reads one per-leg findings file per selected leg.
+
+> **SUPERSEDED — corrected by STE-452.** Through STE-447 and STE-448 this section read: *"Four downstream surfaces are NOT adapted to a partial selection, and a reduced run currently dies at the first of them."* That was true and measured when written. A reduced run aborted at rc collection with `Phase A subprocess failed (linear=0, jira=1, none=1). Aborting.` — a diagnostic naming a subprocess failure for legs that were never spawned — **before** aggregation and **before** the capture-only short-circuit, so it produced no report and no verdict in either mode. Under `--auto-fix` that path could never reach `green` and terminated as `exhausted`, whose operator-facing prose is false for a reduced run that converged. All four surfaces now take the selection, and the retired behaviour is preserved here as history, not as an operative statement. **The proof is uneven and STE-453 states the split rather than letting one clause cover both halves:** rc collection and the `green` probe are bash, and `tests/m121-ste-452-termination-harness.test.ts` EXECUTES them; the leg-completeness check and aggregation are model judgment with no runnable form, so they are asserted textually and nothing proves a model obeys them.
+
+**So the honest statement, restated:** the guard is sound and the selector's happy path now works. `--legs` with a proper subset parses, refuses emptiness, spawns only its selection, and reaches a reported verdict. What it may **not** do is reach that verdict by ignoring absent artifacts — a selected leg with no findings file still aborts, because the rule this loop is built on is that no findings and no evidence must never reconcile to the same answer.
+
+What pre-flight (0) guarantees is narrower, and is the guarantee that matters here: the loop never proceeds past argument parsing with an empty selection at all. That is why the guard above, not any probe below, is where emptiness is caught.
 
 (a) **Toolkit-repo cwd.** `pwd` must end in `/dev-process-toolkit`. The skill spawns child `/smoke-test` invocations whose own pre-flight #1 expects toolkit-repo cwd; running `/conformance-loop` from elsewhere creates the test projects in the wrong place. NFR-10 canonical refusal:
 
@@ -55,7 +169,7 @@ Remedy: restore the project-local /smoke-test skill (it is the dependency this s
 Context: skill=conformance-loop, probe=dependency, missing=.claude/skills/smoke-test/SKILL.md
 ```
 
-(c) **Linear MCP loadable + STE team visible.** Delegates to `/smoke-test` pre-flights #3 (Linear MCP available in `~/.claude-st/`) + #5 (Linear team key resolvable). The probe runs once at this top-level rather than letting the Linear child fail mid-spawn — fast-fail saves ~10 min of wall-clock per failed run. NFR-10 canonical refusal (carries the `/smoke-test` probe name verbatim):
+(c) **Linear MCP loadable + STE team visible.** **Scoped to the selection (STE-447): this probe runs only when `linear` is in `SELECTED_LEGS`, and is skipped entirely otherwise.** Delegates to `/smoke-test` pre-flights #3 (Linear MCP available in `~/.claude-st/`) + #5 (Linear team key resolvable). The probe runs once at this top-level rather than letting the Linear child fail mid-spawn — fast-fail saves ~10 min of wall-clock per failed run. NFR-10 canonical refusal (carries the `/smoke-test` probe name verbatim):
 
 ```
 Linear MCP not loaded or team '<key>' not visible.
@@ -63,7 +177,7 @@ Remedy: register the Linear MCP in ~/.claude-st/, verify the team key resolves v
 Context: skill=conformance-loop, probe=delegated-smoke-test-3+5, tracker=linear, team=<key>
 ```
 
-(d) **Atlassian MCP loadable + Jira project visible + `--jira-project` passed.** Delegates to `/smoke-test` pre-flights #7 (Atlassian MCP loadable + OAuth-bound) + #8 (Jira project visible / `--jira-project` flag present). The flag-missing variant fires here, not in the Jira child, so the operator sees the refusal before any subprocess spawn. NFR-10 canonical refusal:
+(d) **Atlassian MCP loadable + Jira project visible + `--jira-project` passed.** **Scoped to the selection (STE-447 AC.5): this probe — including its `--jira-project`-missing arm — runs only when `jira` is in `SELECTED_LEGS`.** A run that will never spawn the Jira leg has no use for a Jira project key, so requiring one would refuse a perfectly well-formed reduced run; `--legs linear,none` without `--jira-project` must proceed, and does. Delegates to `/smoke-test` pre-flights #7 (Atlassian MCP loadable + OAuth-bound) + #8 (Jira project visible / `--jira-project` flag present). The flag-missing variant fires here, not in the Jira child, so the operator sees the refusal before any subprocess spawn. NFR-10 canonical refusal:
 
 ```
 Atlassian MCP not loaded or Jira project '<key>' not visible (or --jira-project missing).
@@ -71,12 +185,12 @@ Remedy: register the Atlassian Rovo MCP in ~/.claude-st/, complete OAuth via mcp
 Context: skill=conformance-loop, probe=delegated-smoke-test-7+8, tracker=jira, project=<key>
 ```
 
-(e) **Both `../dpt-test-project-{linear,jira}` paths free OR `--keep` was passed.** Delegates to `/smoke-test` pre-flight #2 (existing-test-project refusal) — fired twice, once per tracker. The two paths are operator-driven-parallelism-safe (different basenames, different MCP configs), but `/conformance-loop` runs both serially per iteration's Phase A and so MUST verify both up front. NFR-10 canonical refusal:
+(e) **Every SELECTED leg's `../dpt-test-project-<leg>` path free OR `--keep` was passed.** **Scoped to the selection (STE-447): the probe iterates `SELECTED_LEGS`, one check per selected leg, rather than the former hardcoded `{linear,jira}` pair.** Delegates to `/smoke-test` pre-flight #2 (existing-test-project refusal) — fired once per selected leg. The per-leg paths are operator-driven-parallelism-safe (different basenames, different MCP configs), but `/conformance-loop` fans out across all of them in one iteration's Phase A and so MUST verify every selected one up front. An unselected leg's directory is deliberately NOT checked: this run will not write into it, and refusing over a directory the run never touches would make `--legs` unusable on any machine with a leftover tree. NFR-10 canonical refusal:
 
 ```
-Test-project paths exist: '../dpt-test-project-linear' and/or '../dpt-test-project-jira' is non-empty.
-Remedy: rm -rf ../dpt-test-project-linear ../dpt-test-project-jira (or pass --keep at the prior /smoke-test invocation), then re-run /conformance-loop.
-Context: skill=conformance-loop, probe=delegated-smoke-test-2, paths=[<list-of-non-empty>]
+Test-project path(s) exist and are non-empty for selected leg(s): <non-empty selected paths>.
+Remedy: rm -rf the listed ../dpt-test-project-<leg> directories (or pass --keep at the prior /smoke-test invocation), then re-run /conformance-loop. Only SELECTED legs are checked — narrow the run with --legs to skip a leg whose tree you want to keep.
+Context: skill=conformance-loop, probe=delegated-smoke-test-2, selected=[<SELECTED_LEGS>], paths=[<list-of-non-empty>]
 ```
 
 (f) **`permissions.allow` populated in tracked `.claude/settings.json` AND contains the child-spawn pattern** (Phase 0 pre-flight, STE-252 AC-STE-252.3, strengthened by STE-351 AC-STE-351.1). Read `.claude/settings.json` from the toolkit-repo root, JSON-parse it, and assert that `.permissions.allow` is a non-empty array (`length > 0`) **and** that the array contains the canonical child-spawn pattern literal `Bash(claude:*)`. The tracked allow-list is the audit-able policy artifact that constrains every `claude -p` child the skill spawns; an empty or missing array means the loop would fall back to interactive permission prompts mid-run and stall the hands-off contract, and a populated array that *lacks the spawn pattern* is the M94 false-green the probe was built against — nested `claude` spawns denied headless, grandchildren dying as 0-byte transcripts. A `length > 0` assertion alone does NOT catch that; the probe MUST be a contains-check on the pattern literal. **Narrowed 2026-07-27 (STE-425), and this applies to both drivers:** wherever `permissions.defaultMode` is `auto` — as in the operator's own global `~/.claude-st/settings.json`, measured on both legs — the harness classifier, not the tracked allow-list, is what admits or denies a nested spawn, so an absent pattern does not by itself produce that denial and a present one guarantees nothing at runtime. This refusal is kept regardless, on the two merits that survive the measurement: it holds the scaffold and the tracked list in sync (`/gate-check` probe #62 enforces the same literal at severity ERROR, fail-closed), and the allow-list **is** the operative gate in any checkout whose default permission mode is not `auto`. See `/smoke-test` pre-flight #10 § Why this probe survives for the full re-derivation; the two drivers keep the same decision on the same literal. Probe shape: `jq -e '.permissions.allow | index("Bash(claude:*)")' .claude/settings.json` (index/contains on the spawn-pattern literal), layered on the STE-252 `jq -e '.permissions.allow | length > 0' .claude/settings.json` non-empty check. Empty-or-missing array → NFR-10 canonical refusal:
@@ -107,20 +221,21 @@ Context: skill=conformance-loop, pre-flight=anthropic_key_guard, set=[<which-var
 
 **Interactive-override path:** an operator who *wants* API billing (e.g., a dedicated key funded for exactly this run) either unsets nothing and re-runs `/conformance-loop` in an interactive session — where the guard downgrades from hard refusal to a `y/N` cost-acknowledgment prompt (`proceed billing this API key? [y/N]`) — or exports `DPT_CONFORMANCE_ALLOW_API_BILLING=1` as the explicit override for that one invocation. Headless runs get no override prompt: non-interactive sessions cannot acknowledge cost, so the guard always refuses there unless the override variable is set. Aligns with the STE-191 KEY-surfacing pre-flight.
 
-(h) **Both test-project paths workspace-trusted (STE-367).** Before any `claude -p` spawn, assert that BOTH `../dpt-test-project-{linear,jira}` resolved paths carry `hasTrustDialogAccepted == true` in the operator's live `$CLAUDE_CONFIG_DIR/.claude.json`. STE-367 moved workspace-trust seeding out of the autonomous path — the harness auto-mode self-modification classifier denies the programmatic trust write under `claude -p` (2026-07-04 conformance finding F1), so the operator seeds trust **once, up front**, and this pre-flight enforces the precondition before the loop fans out (rather than each `/smoke-test` child hitting the same refusal mid-run, one Phase A leg at a time). Probe shape: `jq -e --arg p "<abs path>" '.projects[$p].hasTrustDialogAccepted == true' "$CFG"` for each resolved path. Either path untrusted → NFR-10 canonical refusal naming the untrusted path(s):
+(h) **Every SELECTED leg's test-project path workspace-trusted (STE-367).** **Scoped to the selection (STE-447): the probe iterates `SELECTED_LEGS` rather than a hardcoded pair** — with the full default selection that is `../dpt-test-project-linear`, `../dpt-test-project-jira` and `../dpt-test-project-none`; with `--legs linear` it is that one path alone. Before any `claude -p` spawn, assert that EVERY selected leg's `../dpt-test-project-<leg>` resolved path carries `hasTrustDialogAccepted == true` in the operator's live `$CLAUDE_CONFIG_DIR/.claude.json`. STE-367 moved workspace-trust seeding out of the autonomous path — the harness auto-mode self-modification classifier denies the programmatic trust write under `claude -p` (2026-07-04 conformance finding F1), so the operator seeds trust **once, up front**, and this pre-flight enforces the precondition before the loop fans out (rather than each `/smoke-test` child hitting the same refusal mid-run, one Phase A leg at a time). Probe shape: `jq -e --arg p "<abs path>" '.projects[$p].hasTrustDialogAccepted == true' "$CFG"` for each resolved path. Either path untrusted → NFR-10 canonical refusal naming the untrusted path(s):
 
 ```
 Workspace trust missing for <untrusted path(s)> in $CLAUDE_CONFIG_DIR/.claude.json — the scaffolded allow-list would be inert at the child/grandchild layer (2026-07-02 F4), and the /smoke-test child would refuse mid-run.
 Remedy: seed workspace trust ONCE for each untrusted path (the driver cannot — the harness self-modification classifier denies the write under claude -p):
   CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude-st}/.claude.json"
-  for P in "$(cd ../dpt-test-project-linear && pwd)" "$(cd ../dpt-test-project-jira && pwd)"; do
+  for SEL in ${SELECTED_LEGS}; do
+    P="$(cd "../dpt-test-project-${SEL}" && pwd)" || continue
     jq --arg p "$P" '.projects[$p] |= (. // {} + {hasTrustDialogAccepted: true})' "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
   done
 Then re-run /conformance-loop. The entries persist across runs (operator-owned; /smoke-test teardown no longer removes them).
 Context: skill=conformance-loop, pre-flight=workspace_trust_check, paths=[<untrusted>]
 ```
 
-Each refusal above carries the literal phrase **NFR-10 canonical refusal** in the surrounding prose (ten `NFR-10 canonical refusal` markers across this section: one introductory mention plus the nine refusal anchors — (a)–(e), (g), and (h) carry one each, and the STE-351-strengthened (f) carries two, allow-list-empty and spawn-pattern-missing — satisfying the verify line `grep -c 'NFR-10 canonical refusal' >= 6`).
+Each refusal above carries the literal phrase **NFR-10 canonical refusal** in the surrounding prose. There are **12 refusal anchors** in this section: (a)–(e), (g) and (h) carry one each; (0) carries THREE (unknown value, zero selection, unreadable registry) and the STE-351-strengthened (f) carries two (allow-list-empty, spawn-pattern-missing). This restated total is machine-checked against the section rather than hand-maintained — `tests/m121-ste-447-legs-selector.test.ts` recomputes the anchor count and fails if the two disagree, which is why the number above can be trusted. (A whole-section `grep -o 'NFR-10 canonical refusal' | wc -l` reports 14, not 11: this sentence mentions the phrase three more times. The count that means something is the anchor count, and the previous revision of this sentence — which claimed "ten markers … nine refusal anchors" while the section carried nine anchors and thirteen mentions — is why the number is now derived instead of asserted.)
 
 ## Flow
 
@@ -128,26 +243,34 @@ The flow is a loop of one or more iterations. Each iteration runs Phase A (paral
 
 ### Phase 0 — Pre-approval gate
 
-Print the contract to the operator and prompt for `y` to proceed. The prompt MUST include: both trackers active, real Linear + Jira writes, max wall-clock estimate (`max-iterations × ~10 min × 2`), max-iterations cap, auto-fix on/off (resolved value, not the literal flag).
+Print the contract to the operator and prompt for `y` to proceed. The prompt MUST include: the resolved leg selection, which tracker writes that selection implies, the max wall-clock estimate, the max-iterations cap, and auto-fix on/off (resolved value, not the literal flag).
+
+**The wall-clock estimate does not multiply by leg count (STE-447 AC.7).** It is `max-iterations × ~10 min`, full stop. The previous form — `max-iterations × ~10 min × 2 trackers` — was already wrong when it was written and would have become a factor-of-three overstatement under a third leg. The legs are detached concurrent brace groups awaited by one shared bounded poll (§ Leg spawn + bounded poll), so an iteration ends when its SLOWEST leg ends, not when the sum of its legs ends. Adding or removing a leg with `--legs` changes the token cost of a run and does not change its duration; presenting leg count as a time multiplier told the operator that dropping a leg would buy back wall-clock it never spent.
 
 ```
 /conformance-loop will:
-  1. Spawn parallel /smoke-test --tracker linear and /smoke-test --tracker jira
-     subprocess sessions per iteration (real Linear + Jira writes).
-  2. Aggregate per-tracker findings into /tmp/dpt-conformance-loop-<date>-iter-<N>.md
-     with cross-tracker dedup.
+  1. Spawn one parallel /smoke-test subprocess session per SELECTED leg per
+     iteration — one --tracker <leg> child for each leg in <SELECTED_LEGS>
+     (real Linear writes on the linear leg, real Jira writes on the jira leg;
+     the none leg is tracker-less and writes to no tracker at all).
+  2. Aggregate per-leg findings into /tmp/dpt-conformance-loop-<date>-iter-<N>.md
+     with cross-leg dedup.
   3. <auto-fix-line>
 
 Configuration:
   --auto-fix:        <ON|OFF (capture-only)>
   --max-iterations:  <N>
-  --linear-team:     <STE>
-  --jira-project:    <KEY>
-  Estimated max wall-clock: <max-iterations × ~10 min × 2 trackers>
+  --legs:            <SELECTED_LEGS>  (default: every registered leg)
+  --linear-team:     <STE>            (omitted when linear is not selected)
+  --jira-project:    <KEY>            (omitted when jira is not selected)
+  Estimated max wall-clock: <max-iterations × ~10 min>
+  (leg count does not enter this product — the legs run concurrently)
 
+Tracker-write lines are printed ONLY for the legs actually selected:
 Real Linear writes will occur (test project + ~6 issues per iteration).
 Real Jira writes will occur in Space <jira-project> (~6 work items per iteration,
 all carrying the dpt-smoke label so /smoke-test Phase 5 teardown can transition them).
+The none leg performs no tracker writes of any kind.
 
 Proceed? [y/n]
 ```
@@ -158,7 +281,61 @@ When `--auto-fix` is ON, substitute `<auto-fix-line>` with `In Phase B, sequenti
 
 ### Phase A — Parallel /smoke-test fan-out + aggregation
 
-Each iteration's Phase A spawns two `claude -p /smoke-test ...` subprocess calls in parallel — both detached from a single Bash call, each PID captured to a per-iteration pidfile at `/tmp/dpt-conformance-loop-<date>-iter-<N>-{linear,jira}.pid` — then awaits both via the bounded poll-until-exit discipline below before reading the per-tracker findings files. Subprocess output is captured to per-iteration log files at `/tmp/dpt-conformance-loop-<date>-iter-<N>-{linear,jira}.log` for forensics.
+Each iteration's Phase A spawns one `claude -p /smoke-test ...` subprocess call **per SELECTED leg** — the set pre-flight (0) resolved from `--legs`, which with the flag omitted is every registered leg — in parallel — all detached from a single Bash call, each PID captured to a per-iteration pidfile at `/tmp/dpt-conformance-loop-<date>-iter-<N>-{linear,jira,none}.pid` — then awaits them all via the bounded poll-until-exit discipline below before reading the per-leg findings files. Subprocess output is captured to per-iteration log files at `/tmp/dpt-conformance-loop-<date>-iter-<N>-{linear,jira,none}.log` for forensics.
+
+**The leg set is `SMOKE_LEGS`, and only `SMOKE_LEGS` (STE-446).** Every per-leg enumeration in this skill restates the leg set declared by `adapters/_shared/src/smoke_fixture_groups.ts`. Do not add a leg to one surface only.
+
+**Exactly which enumerations are MACHINE-ENFORCED, and which are not.** `adapters/_shared/src/leg_prose_surfaces.ts` binds **five surfaces via its `LEG_PROSE_SURFACES` registry, plus two more exported beside it**, so adding or dropping a leg turns this document's prose RED until it catches up. (The registry count is pinned at five by AC-STE-446.2; later surfaces therefore live next to it rather than in it, which is a spec constraint and not an inconsistency.)
+
+| Enumeration | Bound? |
+|---|---|
+| the spawn fence's brace groups | **yes** — registry |
+| the poll-loop word list | **yes** — registry |
+| the pidfile globs (`.pid` paths only) | **yes** — registry |
+| the `green` probe's findings-file list | **yes** — registry |
+| the closing-summary table's columns | **yes** — registry |
+| the `/smoke-test` `--tracker` alternation | **yes** — `smokeTrackerFlagLegs`, beside the registry (STE-448) |
+| the aggregated report's run-level `**legs:**` header | **yes** — `reportShapeLegs`, beside the registry (STE-453) |
+| the § Aggregation per-leg findings-file bullet list | **no** — hand-maintained, and it sits directly beside a list that IS bound |
+| the per-leg **log** paths (`.log`) | **no** — the pidfile matcher is `.pid`-only |
+| the `RC_FILE_*` / `RC_*` family | **no** by prose; covered behaviourally by `driver-gate-fail-open-guards.test.ts`, which drives the rc gate over `SMOKE_LEGS` |
+| the Phase 0 operator-contract fence's `--tracker …` list | **no** |
+
+The unbound rows are stated because an earlier revision of this paragraph claimed the log paths were bound and they are not — measured: stripping every per-leg `.log` reference reds zero surfaces. A reader must be able to tell which enumerations a widened enum will catch and which need updating by hand. **The § Aggregation row is the one to watch**: STE-453 bound the report template's source-file list and left the sibling bullet list beside it unbound, so those two neighbouring enumerations now have different failure behaviour — exactly the "do not add a leg to one surface only" hazard this section opens with, and it is recorded at `specs/notes/follow-ups.md` § 0k rather than left for a reader to discover.
+
+#### Per-leg abort teardown — the shared recipe every abort path runs (STE-448)
+
+Three clauses below order a teardown on an abort path — the headless-gate violation, the discretionary-halt Branch 2, and the final-message self-check. All three mean the **same** procedure, and it is written out once here so they cannot drift apart. Each of them ran `rm -rf ../dpt-test-project-{linear,jira}` before M121: a two-leg brace expansion that, once a third leg existed, left `../dpt-test-project-none` on disk after every abort — which then trips pre-flight (e) on the next run and reads as operator error rather than driver error.
+
+**Iterate the SPAWNED set, not the registered set and not the selection.** A leg that was selected but refused before its group ran has no directory to remove and no tracker state to reclaim, so removing by selection would `rm -rf` a path this run never created (harmless today, wrong in principle, and indistinguishable from a leak the run did cause). The spawned set is recoverable from disk rather than tracked in a variable: a leg's brace group opens its per-iteration log with a `>` redirect as its first act, so the log's existence is the durable record that the group ran. Deriving it that way also means no new hand-maintained leg list — the loop below walks `SELECTED_LEGS`, which pre-flight (0) resolved from `SMOKE_LEGS`.
+
+```bash
+# Run BEFORE anything destructive, and AFTER the reap the calling clause
+# mandates. Fresh shell per Bash call: re-derive DATE/ITER/SELECTED_LEGS first.
+# The loop variable is `SEL`, NOT `LEG`, and that is load-bearing rather than
+# style. `leg_prose_surfaces.ts` locates the poll loop's word list with a
+# NON-GLOBAL `for[ \t]+LEG[ \t]+in[ \t]+(…)` match, so the FIRST such fence in
+# this document wins — a `for LEG in …` here, which sits above the poll loop,
+# silently re-points that surface at this fence instead. Measured while writing
+# this block: the pidfile surface reported `${SELECTED_LEGS}` as a leg token.
+# Pre-flight (h)'s remedy already uses `SEL` for the same reason.
+SPAWNED_LEGS=""
+for SEL in ${SELECTED_LEGS}; do
+  if [ -e "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-${SEL}.log" ]; then
+    SPAWNED_LEGS="${SPAWNED_LEGS}${SPAWNED_LEGS:+ }${SEL}"
+  fi
+done
+echo "teardown_spawned_legs=${SPAWNED_LEGS}"
+for SEL in ${SPAWNED_LEGS}; do
+  # Tracker-side teardown is the LEG'S OWN — /smoke-test § Phase 5 branches on
+  # its tracker, and the tracker-less leg's branch makes zero tracker calls
+  # because it created no remote state (STE-448 AC.6). Do not issue a tracker
+  # call here on a leg's behalf; run that leg's own Phase 5 tracker half.
+  rm -rf "../dpt-test-project-${SEL}"
+done
+```
+
+The tracker-side half is deliberately prose rather than shell: archiving a Linear project and transitioning Jira work items are MCP calls, not commands, so the fence covers only the part that is a command. What the fence guarantees is the part that leaked — every spawned leg's directory is removed, including a tracker-less leg's, and no unspawned leg's path is touched.
 
 **Parallelism mechanism.** Bash subprocess parallelism, **NOT the agent-team primitive** — agent teams have no `fork: true` flag and aren't recommended for serial orchestration per the Claude Code docs (`https://code.claude.com/docs/en/agent-teams`). Each subprocess is a top-level `claude -p` session, which can invoke skills via the literal-first-line pattern (sub-agents cannot, per docs).
 
@@ -179,15 +356,15 @@ fi
 
 **The forbidden rationalization is byte-pinned.** The driver MUST NOT self-narrate itself as an **"interactive parent"** — the verbatim 2026-07-24 Jira-leg wording — while stdin is non-tty. That self-narration is forbidden, carries no authority to override the banner, and does NOT re-open any background-wait or turn-yield path: under a headless banner every leg wait MUST use the bounded `kill -0` poll-until-exit loop below — never `run_in_background`, never the `Monitor` tool, never ending the turn to await a completion notification (F3). Advisory prose was the escape hatch that let STE-355 → STE-357 → STE-365 each get narrated past; there is no discretion left here to exercise.
 
-**Headless-gate violation ⇒ abort with full teardown.** If the driver finds it has violated this hard gate — acted on an "interactive" self-classification under a headless banner, spawned a leg via `run_in_background`, reached for `Monitor`, or yielded the turn awaiting a leg — the iteration is void. It MUST abort immediately and run the per-leg teardown for every leg it spawned (the `/smoke-test` `### Phase 5 — Teardown` actions: archive/close the tracker project that leg created and `rm -rf ../dpt-test-project-{linear,jira}`) before exiting, so a violated run never leaves orphaned tracker data or test directories behind (the 2026-07-24 failure mode on both legs). Reap first: before those teardowns run, `kill` every PID recorded in a still-answering pidfile (identity-checked exactly as the `Final-message self-check` clause's reap-first rule requires) and `rm -f /tmp/dpt-conformance-loop-*.pid`, because `rm -rf`-ing a directory a live leg is still writing into races it.
+**Headless-gate violation ⇒ abort with full teardown.** If the driver finds it has violated this hard gate — acted on an "interactive" self-classification under a headless banner, spawned a leg via `run_in_background`, reached for `Monitor`, or yielded the turn awaiting a leg — the iteration is void. It MUST abort immediately and run the per-leg teardown for every leg it spawned (the `/smoke-test` `### Phase 5 — Teardown` actions, once per spawned leg: archive/close the tracker project that leg created — vacuous on a tracker-less leg, which created none — and `rm -rf ../dpt-test-project-<spawned leg>` for each, per § Per-leg abort teardown) before exiting, so a violated run never leaves orphaned tracker data or test directories behind (the 2026-07-24 failure mode on both legs). Reap first: before those teardowns run, `kill` every PID recorded in a still-answering pidfile (identity-checked exactly as the `Final-message self-check` clause's reap-first rule requires) and `rm -f /tmp/dpt-conformance-loop-*.pid`, because `rm -rf`-ing a directory a live leg is still writing into races it.
 
 #### Discretionary-halt guard — mid-run judgment calls (STE-414)
 
 **Scope.** Under a `LOOP-CTX: headless` classification, ANY mid-run judgment call the driver would otherwise resolve by asking the operator falls under this guard: a rate-limit / seven-day-usage warning, a cost pause, a reduced-run choice ("spawn one leg instead of two?"), and any new decision of the same shape that the auto-approve marker could not pre-authorize by name. There is no operator on the other end of a headless loop, so every such call MUST resolve deterministically off a single byte-checkable input — the presence of the auto-approve marker literal `<dpt:auto-approve>v1</dpt:auto-approve>` in the invoking prompt body. Two branches, no third.
 
-**Branch 1 — marker present ⇒ proceed.** If the marker `<dpt:auto-approve>v1</dpt:auto-approve>` is present in the invoking prompt body, the judgment call is already pre-authorized: the driver MUST proceed with the FULL iteration — both legs spawned, each leg's whole canonical chain, no self-imposed reduction — and log the decision in passing rather than pausing on it.
+**Branch 1 — marker present ⇒ proceed.** If the marker `<dpt:auto-approve>v1</dpt:auto-approve>` is present in the invoking prompt body, the judgment call is already pre-authorized: the driver MUST proceed with the FULL iteration — every SELECTED leg spawned, each leg's whole canonical chain, no self-imposed reduction — and log the decision in passing rather than pausing on it.
 
-**Branch 2 — marker absent ⇒ abort with full teardown.** If the marker is absent, the loop holds no authority to decide for the operator and MUST abort immediately: run the per-leg teardown for every leg it spawned (the `/smoke-test` `### Phase 5 — Teardown` actions — archive/close each leg's tracker project, `rm -rf ../dpt-test-project-{linear,jira}`), then exit non-zero. Abort-with-teardown is the ONLY sanctioned no-marker resolution; parking the iteration mid-run is not one, because it strands exactly the tracker data and test directories that teardown exists to remove. Reap first: before those teardowns run, `kill` every PID recorded in a still-answering pidfile (identity-checked exactly as the `Final-message self-check` clause's reap-first rule requires) and `rm -f /tmp/dpt-conformance-loop-*.pid`, because `rm -rf`-ing a directory a live leg is still writing into races it.
+**Branch 2 — marker absent ⇒ abort with full teardown.** If the marker is absent, the loop holds no authority to decide for the operator and MUST abort immediately: run the per-leg teardown for every leg it spawned (the `/smoke-test` `### Phase 5 — Teardown` actions, once per spawned leg — archive/close each spawned leg's tracker project, vacuous on a tracker-less leg, and `rm -rf ../dpt-test-project-<spawned leg>` for each, per § Per-leg abort teardown), then exit non-zero. Abort-with-teardown is the ONLY sanctioned no-marker resolution; parking the iteration mid-run is not one, because it strands exactly the tracker data and test directories that teardown exists to remove. Reap first: before those teardowns run, `kill` every PID recorded in a still-answering pidfile (identity-checked exactly as the `Final-message self-check` clause's reap-first rule requires) and `rm -f /tmp/dpt-conformance-loop-*.pid`, because `rm -rf`-ing a directory a live leg is still writing into races it.
 
 **There is NO prose-ask-then-end-turn path under non-tty.** Stating the question in prose and ending the turn is not a pause under a headless banner — it is a silent no-op: the driver exits rc=0, the legs' canonical chains never run, and the tracker projects are left orphaned. That is the verbatim 2026-07-24 Linear-leg failure: the leg asked the operator a 3-option rate-limit question, ended its turn, and left the Linear project behind with the chain unrun. So under non-tty there is no prose-ask, no end-the-turn-and-await-an-answer, and nothing between Branch 1 and Branch 2 to exercise discretion over.
 
@@ -202,10 +379,13 @@ ITER=<N>
 DATE=$(date +%Y-%m-%d)
 LOG_LINEAR=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.log
 LOG_JIRA=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.log
+LOG_NONE=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-none.log
 PID_FILE_LINEAR=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.pid
 PID_FILE_JIRA=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.pid
+PID_FILE_NONE=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-none.pid
 RC_FILE_LINEAR=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.rc
 RC_FILE_JIRA=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.rc
+RC_FILE_NONE=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-none.rc
 # STE-420: run-start in epoch ms (the Phase 0 acceptance moment). It is the
 # freshness gate for the per-leg verdict artifacts reconciled below — an
 # artifact older than this is a previous run's leftover, never this run's
@@ -214,6 +394,21 @@ RUN_START_MS=$(($(date +%s) * 1000))
 PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"   # cwd is the toolkit repo (verified by pre-flight (a))
 export CLAUDE_CONFIG_DIR=~/.claude-st             # STE-350: exported once per spawning block so every spawn line begins bare with `claude` and the tracked `Bash(claude:*)` allow entry matches.
 
+# STE-447: one brace group per REGISTERED leg is written out below, each
+# wrapped in a MEMBERSHIP TEST against ${SELECTED_LEGS}. The wrapper is real
+# shell, not an instruction: an unselected leg's group never runs, so it opens
+# no log, writes no pidfile and reconciles no rc. The first revision of this
+# expressed the restriction as a COMMENT asking the driver to skip excluded
+# groups, which made `--legs linear` a three-leg run for any reader that took
+# the fence literally — a selector whose own title promises restriction has to
+# restrict in the code, not in a request.
+#
+# The groups stay written out per registered leg rather than collapsed into a
+# loop because the enum-derived assertions in leg_prose_surfaces.ts read this
+# fence's per-leg groups; the case wrapper keeps each `{` / `} &` at column 0
+# so that parser still finds all three. The runtime leg registry that would
+# retire the repetition is deferred scope in specs/notes/follow-ups.md.
+#
 # Each /smoke-test child opens its own Phase 0 pre-approval gate; inject
 # the canonical marker into the heredoc body so the child auto-approves
 # and proceeds into Phase 1 without halting at the prompt (STE-226). The
@@ -224,6 +419,7 @@ export CLAUDE_CONFIG_DIR=~/.claude-st             # STE-350: exported once per s
 # `echo $? > rc-file` inside each group persists the leg's exit code for
 # post-exit collection — this spawn call detaches both legs and returns
 # immediately (STE-355 backfill: no same-call foreground wait).
+case " ${SELECTED_LEGS} " in *" linear "*)
 {
   claude -p "/smoke-test --tracker linear --linear-team ${LINEAR_TEAM:-STE}" \
     --plugin-dir "${PLUGIN_DIR}" \
@@ -243,7 +439,9 @@ PROMPT_EOF
     --run-start "${RUN_START_MS}" > "${RC_FILE_LINEAR}"
 } &
 PID_LINEAR=$!; echo $! > "${PID_FILE_LINEAR}"
+;; esac
 
+case " ${SELECTED_LEGS} " in *" jira "*)
 {
   claude -p "/smoke-test --tracker jira --jira-project ${JIRA_PROJECT}" \
     --plugin-dir "${PLUGIN_DIR}" \
@@ -259,21 +457,60 @@ PROMPT_EOF
     --run-start "${RUN_START_MS}" > "${RC_FILE_JIRA}"
 } &
 PID_JIRA=$!; echo $! > "${PID_FILE_JIRA}"
+;; esac
 
-echo "detached: linear=${PID_LINEAR} jira=${PID_JIRA} — poll until both exit"
+case " ${SELECTED_LEGS} " in *" none "*)
+{
+  claude -p "/smoke-test --tracker none" \
+    --plugin-dir "${PLUGIN_DIR}" \
+    > "${LOG_NONE}" 2>&1 <<'PROMPT_EOF'
+<dpt:auto-approve>v1</dpt:auto-approve>
+PROMPT_EOF
+  RC_RAW_NONE=$?
+  # STE-420 + STE-446: same reconciliation on the tracker-less leg — its own
+  # artifact, never another leg's, so no two legs' verdicts can cross
+  # (STE-423 scoping, stated for N legs).
+  bun "${PLUGIN_DIR}/adapters/_shared/src/smoke_verdict.ts" reconcile \
+    --rc "${RC_RAW_NONE}" \
+    --artifact /tmp/dpt-smoke-verdict-none.json \
+    --run-start "${RUN_START_MS}" > "${RC_FILE_NONE}"
+} &
+PID_NONE=$!; echo $! > "${PID_FILE_NONE}"
+;; esac
+
+# STE-448: the summary line names the SELECTED set and reads each leg's PID
+# back from the pidfile the group just wrote, instead of referencing one
+# variable per REGISTERED leg.
+#
+# The previous form was `linear=${PID_LINEAR} jira=${PID_JIRA} none=${PID_NONE}`,
+# and an unselected leg's group never runs, so it never assigns its PID
+# variable. Under `set -u` that makes this line — the LAST line of the spawn
+# fence — abort a reduced run outright, before anything waits on the legs it
+# DID spawn. Measured 2026-08-07 with `bash -c` and `SELECTED_LEGS="linear"`:
+# `PID_JIRA: unbound variable`, rc 1, detached groups left orphaned. That is a
+# fifth reduced-run surface beyond the four recorded in
+# `specs/notes/follow-ups.md` § 0a, and unlike those it fires inside Phase A's
+# own fence. Loop variable is `SEL`, not `LEG`, for the reason § Per-leg abort
+# teardown records.
+DETACHED=""
+for SEL in ${SELECTED_LEGS}; do
+  DETACHED="${DETACHED}${DETACHED:+ }${SEL}=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-${SEL}.pid" 2>/dev/null)"
+done
+echo "detached: ${DETACHED} — poll until all exit"
 ```
 
 > ⛔ **FORBIDDEN at this spawn site.** Do NOT await either leg with the Bash tool's `run_in_background` parameter, the `Monitor` tool, or by ending the turn "waiting for the completion notification" — under `claude -p` the notification never arrives (F3, 2026-07-04 conformance run: both legs fire-and-exited at this exact `{ claude -p ... } &` spawn). Nor does self-narrating as an "interactive parent" re-open any of those paths — the Phase-A-entry `[ -t 0 ]` LOOP-CTX result is the sole determinant, a headless classification binds this spawn site for the rest of the run, and no self-classification, however phrased, overrides it. The ONLY sanctioned wait is the bounded `kill -0` poll-until-exit loop below, run in the foreground.
 
-**Bounded poll-until-exit (repeated bounded Bash calls).** After the spawn call returns, poll until both PIDs exit — the same STE-355 discipline the smoke driver's Phase 2 uses for its grandchildren (`/smoke-test` § Grandchild spawn lifecycle). Each poll call is a **bounded multi-iteration loop** iterating both legs' pidfiles inside the same loop — up to 18 checks 30 s apart, ≈ ≤540 s (≈ 9 min) per call, safely under the harness's 600 s (10-minute) per-call ceiling. That is one Bash call per ~9 min instead of ~80 single-check calls across a 40-minute leg; the old single-check-then-end-call shape is **not** sanctioned. Never fold the whole wait into one unbounded call:
+**Bounded poll-until-exit (repeated bounded Bash calls).** After the spawn call returns, poll until EVERY spawned leg's PID has exited — the same STE-355 discipline the smoke driver's Phase 2 uses for its grandchildren (`/smoke-test` § Grandchild spawn lifecycle). Each poll call is a **bounded multi-iteration loop** iterating every registered leg's pidfile inside the same loop (an unselected leg wrote none, so its `[ -f ]` test fails and it is skipped) — up to 18 checks 30 s apart, ≈ ≤540 s (≈ 9 min) per call, safely under the harness's 600 s (10-minute) per-call ceiling. That is one Bash call per ~9 min instead of ~80 single-check calls across a 40-minute leg; the old single-check-then-end-call shape is **not** sanctioned. Never fold the whole wait into one unbounded call:
 
 ```bash
 # One bounded poll call — up to 18 checks × 30 s ≈ 9 min (≤540 s), under the
-# harness's 600 s per-call ceiling. Repeat until it reports both legs exited.
+# harness's 600 s per-call ceiling. Repeat until it reports every leg exited.
 # (Fresh shell per Bash call: re-derive DATE/ITER first.)
+# The word list below IS the registered leg set (SMOKE_LEGS) — keep it in step.
 for i in $(seq 1 18); do
   LIVE=""
-  for LEG in linear jira; do
+  for LEG in linear jira none; do
     PIDFILE=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-${LEG}.pid
     if [ -f "${PIDFILE}" ] && kill -0 "$(cat "${PIDFILE}")" 2>/dev/null; then
       LIVE="${LIVE} ${LEG}"
@@ -284,26 +521,68 @@ for i in $(seq 1 18); do
   [ -z "${LIVE}" ] && break
   sleep 30
 done
-if [ -n "${LIVE}" ]; then echo "still running:${LIVE} — poll again"; else echo "both legs exited — collect RCs"; fi
+if [ -n "${LIVE}" ]; then echo "still running:${LIVE} — poll again"; else echo "every leg exited — collect RCs"; fi
 ```
 
-**RC collection (after the poll loop reports both legs exited).** Read each leg's rc-file — written by its brace group as the leg exited, carrying the *verdict-reconciled* status rather than the raw `claude -p` one (STE-420) — and abort on any non-zero. A missing rc-file after exit is treated as a failure, and so is an unreadable one: what the gate compares must be a plain integer, validated after the read rather than assumed by it. `cat` **succeeds** on a file that exists but is empty, so a `|| echo 1` fallback fires only on a missing file and leaves the variable empty for every other bad shape — and `[ "" -ne 0 ]` is a `test(1)` usage error whose non-zero status *skips* the abort branch, so the gate fails open on exactly the input it exists to catch. That input is reachable: the rc-file is created by the shell redirect **before** `bun` runs, so any invocation producing no stdout — bun missing, a module throw, a bad flag — leaves 0 bytes behind, and a partial or diagnostic write leaves something that is not a number. The integer check below folds all three into a failure with one predicate:
+**RC collection (after the poll loop reports every leg exited).** Read each leg's rc-file — written by its brace group as the leg exited, carrying the *verdict-reconciled* status rather than the raw `claude -p` one (STE-420) — and abort on any non-zero. A missing rc-file after exit is treated as a failure, and so is an unreadable one: what the gate compares must be a plain integer, validated after the read rather than assumed by it. `cat` **succeeds** on a file that exists but is empty, so a `|| echo 1` fallback fires only on a missing file and leaves the variable empty for every other bad shape — and `[ "" -ne 0 ]` is a `test(1)` usage error whose non-zero status *skips* the abort branch, so the gate fails open on exactly the input it exists to catch. That input is reachable: the rc-file is created by the shell redirect **before** `bun` runs, so any invocation producing no stdout — bun missing, a module throw, a bad flag — leaves 0 bytes behind, and a partial or diagnostic write leaves something that is not a number. The integer check below folds all three into a failure with one predicate:
 
 ```bash
-RC_LINEAR=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.rc" 2>/dev/null)
-RC_JIRA=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.rc" 2>/dev/null)
+# STE-452: an empty selection is never "no legs to check, therefore fine".
+# Pre-flight (0) guarantees a non-empty selection, so reaching this gate with
+# an empty one means the fence is running outside the sanctioned path — and a
+# gate that passes because it examined nothing is the vacuous green this loop
+# exists to close. Fresh shell per Bash call: re-derive SELECTED_LEGS first.
+if [ -z "${SELECTED_LEGS:-}" ]; then
+  echo "/conformance-loop: RC collection reached with an empty leg selection — refusing rather than reporting a clean gate. Aborting."
+  exit 1
+fi
+
+# STE-452: read one rc-file per SELECTED leg, not per registered leg. An
+# unselected leg never spawned and never wrote an rc-file, so its absence is a
+# no-op; a SELECTED leg's unreadable rc is still a failure. Those two cases sit
+# on identical disk state and were indistinguishable until the selection
+# reached this gate, which is why a reduced run used to abort here naming a
+# subprocess failure for legs that were never spawned.
+RC_LINEAR=0
+RC_JIRA=0
+RC_NONE=0
+EXAMINED_LEGS=0
 
 # Anything that is not a plain integer — absent, empty, truncated, a stray
 # diagnostic — is a FAILED READ, never a zero. Both bad shapes reach `[ … -ne
-# 0 ]` as a usage error, whose non-zero status skips the branch below.
+# 0 ]` as a usage error, whose non-zero status skips the branch below. The
+# normalization stays INSIDE each membership arm so it grades only legs this
+# run actually selected.
+case " ${SELECTED_LEGS} " in *" linear "*)
+EXAMINED_LEGS=$((EXAMINED_LEGS + 1))
+RC_LINEAR=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-linear.rc" 2>/dev/null)
 case "${RC_LINEAR}" in ''|*[!0-9]*) RC_LINEAR=1 ;; esac
+;; esac
+case " ${SELECTED_LEGS} " in *" jira "*)
+EXAMINED_LEGS=$((EXAMINED_LEGS + 1))
+RC_JIRA=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-jira.rc" 2>/dev/null)
 case "${RC_JIRA}"   in ''|*[!0-9]*) RC_JIRA=1 ;; esac
+;; esac
+case " ${SELECTED_LEGS} " in *" none "*)
+EXAMINED_LEGS=$((EXAMINED_LEGS + 1))
+RC_NONE=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-none.rc" 2>/dev/null)
+case "${RC_NONE}"   in ''|*[!0-9]*) RC_NONE=1 ;; esac
+;; esac
+
+# Same accounting guard as the green probe: every RC_* pre-defaults to 0, so an
+# arm that never fires reads as a clean leg. A selected token that matched no
+# arm is an unexamined leg, and an unexamined leg may not pass this gate.
+SELECTED_COUNT=$(set -- ${SELECTED_LEGS}; echo $#)
+if [ "${EXAMINED_LEGS}" -ne "${SELECTED_COUNT}" ]; then
+  echo "/conformance-loop: RC collection examined ${EXAMINED_LEGS} of ${SELECTED_COUNT} selected leg(s) [${SELECTED_LEGS}] — an unrecognized or mis-delimited leg cannot be graded. Aborting."
+  exit 1
+fi
 
 # STE-359: before acting on any failure here, run the orphan-adoption scan
 # below — a dead driver can leave live grandchildren whose completed
 # captures are recoverable.
-if [ "${RC_LINEAR}" -ne 0 ] || [ "${RC_JIRA}" -ne 0 ]; then
-  echo "/conformance-loop: Phase A subprocess failed (linear=${RC_LINEAR}, jira=${RC_JIRA}). Aborting."
+if [ "${RC_LINEAR}" -ne 0 ] || [ "${RC_JIRA}" -ne 0 ] || [ "${RC_NONE}" -ne 0 ]; then
+  echo "/conformance-loop: Phase A subprocess failed for a selected leg (selected=[${SELECTED_LEGS}]; linear=${RC_LINEAR}, jira=${RC_JIRA}, none=${RC_NONE}). Aborting."
   exit 1
 fi
 ```
@@ -318,11 +597,11 @@ Each value read here was already reconciled against that leg's verdict artifact 
 
 **Red flag — the harness's foreground-sleep block hint is NOT license to background the wait.** If a poll call leads with `sleep`, the harness blocks it with an error hint that reads roughly "Foreground `sleep` is blocked. To wait for a condition, use `run_in_background` or the Monitor tool." Do **not** follow that hint here: handing the wait to `run_in_background`/Monitor and then ending the turn IS the F3 fire-and-exit failure — a `-p` driver session never receives the completion notification, so the rest of the iteration silently never executes. The bounded poll loop above already avoids the block by gating each iteration on `kill -0` *before* its `sleep 30`; keep waiting with that loop, in the foreground, until both legs' pidfiles die.
 
-**Final-message self-check (STE-357, hardened by STE-414).** Before emitting **any** final message — success or failure — run the pidfile-liveness fence below over the run's pidfile glob (`/tmp/dpt-conformance-loop-*.pid`). Two triggers arm this check: (1) an *incomplete leg chain* — a spawned leg did not run its canonical chain to completion; (2) *any live pidfile* — a spawned leg is still running. On either trigger the driver MUST loudly abort — emit an explicit `LOOP-ABORT: <trigger>` line as the first line of the final message. The abort MUST exit non-zero — a loud `LOOP-ABORT:` banner is not sufficient, because rc is one of several corroborating signals the operator reads — the per-skill log set the leg-completeness check verifies is another — and a false green must never be reported in the exit code. Signal only what this run spawned: for each PID recorded in a still-answering pidfile, confirm its identity with `ps -p <pid> -o comm=` and reap it only when that reports a `claude` process, because a PID recycled since the `kill -0` probe would otherwise take a real signal aimed at an unrelated process on the operator's machine. The abort MUST reap FIRST, before anything destructive runs: `kill` every PID recorded in a still-answering pidfile, then `rm -f /tmp/dpt-conformance-loop-*.pid`, so the invariant closing this paragraph holds on the abort branch instead of being aspirational. Only once that reap is done may the driver run the per-leg teardown in full (the `/smoke-test` `### Phase 5 — Teardown` actions: archive/close each leg's tracker project, `rm -rf ../dpt-test-project-{linear,jira}`) before the turn ends — quiesce both legs first, then destroy the state they were writing into, because tearing down around a live leg races it: the leg can still be writing into the directory being removed and still posting to the project being archived. A live pidfile must **never end the turn** quietly: if the leg is still pollable, resume the bounded poll loop above and finish it; if it is not, take the abort-with-teardown path. The two branches are ordered, not discretionary — *resume* is available only while the legs can still be polled to completion **in this same turn**, and taking it means no final message is emitted at all; the moment finishing is off the table (the session is ending, a leg is unpollable, or the remaining work would be picked up in a later turn) the abort-with-teardown path above is the only move left. There is no third branch in which the turn ends while a leg's pidfile still answers `kill -0`.
+**Final-message self-check (STE-357, hardened by STE-414).** Before emitting **any** final message — success or failure — run the pidfile-liveness fence below over the run's pidfile glob (`/tmp/dpt-conformance-loop-*.pid`). Two triggers arm this check: (1) an *incomplete leg chain* — a spawned leg did not run its canonical chain to completion; (2) *any live pidfile* — a spawned leg is still running. On either trigger the driver MUST loudly abort — emit an explicit `LOOP-ABORT: <trigger>` line as the first line of the final message. The abort MUST exit non-zero — a loud `LOOP-ABORT:` banner is not sufficient, because rc is one of several corroborating signals the operator reads — the per-skill log set the leg-completeness check verifies is another — and a false green must never be reported in the exit code. Signal only what this run spawned: for each PID recorded in a still-answering pidfile, confirm its identity with `ps -p <pid> -o comm=` and reap it only when that reports a `claude` process, because a PID recycled since the `kill -0` probe would otherwise take a real signal aimed at an unrelated process on the operator's machine. The abort MUST reap FIRST, before anything destructive runs: `kill` every PID recorded in a still-answering pidfile, then `rm -f /tmp/dpt-conformance-loop-*.pid`, so the invariant closing this paragraph holds on the abort branch instead of being aspirational. Only once that reap is done may the driver run the per-leg teardown in full (the `/smoke-test` `### Phase 5 — Teardown` actions, once per spawned leg: archive/close each spawned leg's tracker project, vacuous on a tracker-less leg, and `rm -rf ../dpt-test-project-<spawned leg>` for each, per § Per-leg abort teardown) before the turn ends — quiesce both legs first, then destroy the state they were writing into, because tearing down around a live leg races it: the leg can still be writing into the directory being removed and still posting to the project being archived. A live pidfile must **never end the turn** quietly: if the leg is still pollable, resume the bounded poll loop above and finish it; if it is not, take the abort-with-teardown path. The two branches are ordered, not discretionary — *resume* is available only while the legs can still be polled to completion **in this same turn**, and taking it means no final message is emitted at all; the moment finishing is off the table (the session is ending, a leg is unpollable, or the remaining work would be picked up in a later turn) the abort-with-teardown path above is the only move left. There is no third branch in which the turn ends while a leg's pidfile still answers `kill -0`.
 
-Exiting rc=0 is not proof the legs ran their chains. This driver must NEVER exit rc=0 silently with an unfinished leg chain or a live leg — a silent rc=0 exit under either trigger IS the failure mode this clause exists to stop (2026-07-24: both conformance legs exited rc=0 in ~8 min without running the chain and left orphaned tracker data behind). A silent success exit is legal only when both legs' canonical chains completed AND zero pidfiles still answer `kill -0`. Stated unqualified, with no adverb left to argue over: the driver must never exit rc=0 on the abort branch, under either trigger, loud or not.
+Exiting rc=0 is not proof the legs ran their chains. This driver must NEVER exit rc=0 silently with an unfinished leg chain or a live leg — a silent rc=0 exit under either trigger IS the failure mode this clause exists to stop (2026-07-24: both conformance legs exited rc=0 in ~8 min without running the chain and left orphaned tracker data behind). A silent success exit is legal only when EVERY spawned leg's canonical chain completed AND zero pidfiles still answer `kill -0`. Stated unqualified, with no adverb left to argue over: the driver must never exit rc=0 on the abort branch, under either trigger, loud or not.
 
-The same runtime limit applies here, one layer up. A `claude -p` session cannot set its own exit status — the harness returns 0 for any session that finishes — so neither a leg's rc nor this driver's own can carry a verdict by itself (2026-07-27: both legs declared failure in prose, the Jira one leading with `SMOKE-ABORT: incomplete grandchild chain`, while both rc-files held `0`). Each leg's verdict artifact at `/tmp/dpt-smoke-verdict-<tracker>.json` — `linear` and `jira`, written by that leg's `/smoke-test` final-message self-check — is therefore the authoritative record of its outcome, and the Phase A spawn wrapper above reconciles it into the rc-file the RC-collection gate reads (`adapters/_shared/src/smoke_verdict.ts`, STE-420). This driver's own abort is bound by the same rule: emit the `LOOP-ABORT:` banner, and grade the iteration off the reconciled rc-files and the artifacts behind them rather than off a status the process is not the one setting.
+The same runtime limit applies here, one layer up. A `claude -p` session cannot set its own exit status — the harness returns 0 for any session that finishes — so neither a leg's rc nor this driver's own can carry a verdict by itself (2026-07-27: both legs declared failure in prose, the Jira one leading with `SMOKE-ABORT: incomplete grandchild chain`, while both rc-files held `0`). Each leg's verdict artifact at `/tmp/dpt-smoke-verdict-<tracker>.json` — one per registered leg, written by that leg's `/smoke-test` final-message self-check — is therefore the authoritative record of its outcome, and the Phase A spawn wrapper above reconciles it into the rc-file the RC-collection gate reads (`adapters/_shared/src/smoke_verdict.ts`, STE-420). This driver's own abort is bound by the same rule: emit the `LOOP-ABORT:` banner, and grade the iteration off the reconciled rc-files and the artifacts behind them rather than off a status the process is not the one setting.
 
 ```bash
 # Final-message self-check — run before ANY final message (success or failure).
@@ -332,46 +611,50 @@ for PIDFILE in /tmp/dpt-conformance-loop-*.pid; do
   [ -e "${PIDFILE}" ] || continue
   kill -0 "$(cat "${PIDFILE}")" 2>/dev/null && LIVE="${LIVE} ${PIDFILE}"
 done
-if [ -n "${LIVE}" ]; then echo "LIVE:${LIVE} — finish the bounded poll loop, or abort loudly, confirm each recorded PID is still a claude process before signalling it, reap these pidfiles, THEN run the per-leg teardown, and exit non-zero; never exit rc=0"; else echo "no live pidfiles — final message may be emitted (only if both legs' canonical chains completed)"; fi
+if [ -n "${LIVE}" ]; then echo "LIVE:${LIVE} — finish the bounded poll loop, or abort loudly, confirm each recorded PID is still a claude process before signalling it, reap these pidfiles, THEN run the per-leg teardown, and exit non-zero; never exit rc=0"; else echo "no live pidfiles — final message may be emitted (only if every spawned leg's canonical chain completed)"; fi
 ```
 
 **Fail-fast on subprocess error.** If either leg's rc-file reports non-zero (or is missing after exit), the iteration aborts — no aggregation, no Phase B dispatch, no re-iteration — once the orphan-adoption scan below has run (STE-359: any surviving grandchildren are adopted and polled to exit first, so their completed captures are preserved as evidence before the abort). Forensics live in the per-iteration log files. The operator decides whether to re-run after fixing the underlying cause.
 
-**Orphan adoption (STE-359; iter-2 F3).** A leg's driver can die while its grandchildren live on. Post-exit — before declaring the leg failed via the fail-fast above or the completeness check below — scan that leg's per-skill pidfiles at `/tmp/dpt-smoke-<tracker>-{setup,spec-write,implement,gate-check,spec-review,simplify}.pid` (with `<tracker>` = `linear` / `jira` per leg); any pidfile whose PID still answers `kill -0` is an orphaned grandchild the parent **adopts**: poll it to exit with the same STE-357 bounded multi-iteration discipline as the leg poll above (up to 18 `kill -0` checks 30 s apart per Bash call, repeated calls until every adopted PID exits) before the leg-completeness check runs.
+**Orphan adoption (STE-359; iter-2 F3).** A leg's driver can die while its grandchildren live on. Post-exit — before declaring the leg failed via the fail-fast above or the completeness check below — scan that leg's per-skill pidfiles at `/tmp/dpt-smoke-<tracker>-{setup,spec-write,implement,gate-check,spec-review,simplify}.pid` (with `<tracker>` = that leg's own token, one per registered leg — the tracker-less leg's per-skill artifacts carry the `none` segment exactly as the tracker legs carry theirs); any pidfile whose PID still answers `kill -0` is an orphaned grandchild the parent **adopts**: poll it to exit with the same STE-357 bounded multi-iteration discipline as the leg poll above (up to 18 `kill -0` checks 30 s apart per Bash call, repeated calls until every adopted PID exits) before the leg-completeness check runs.
 
 An adopted grandchild that completes contributes its capture to the leg-completeness check — the leg may still fail on its other missing captures; adoption recovers **evidence, not the chain**. Iter-2 precedent: the orphaned Jira `/setup` grandchild completed healthily on its own after its driver died — adoption turns that manual save into procedure.
 
 **Residual risk — orphan-vs-killed nondeterminism (STE-359; iter-2 F3).** When a leg's driver dies with live grandchildren, whether a grandchild dies with its driver or survives as an orphan is environment-nondeterministic — process-group inheritance varies with spawn nesting, and iter-2 observed both outcomes in one run (the Linear `/setup` grandchild was killed with its parent while the Jira one survived and completed healthily). Process-group discipline (`setsid` / PGID-wide kill) was considered and rejected as the primary mechanism: it is OS/shell-dependent and unverifiable from SKILL.md prose. The adoption block above is the deterministic recovery — deterministic-by-construction at the layer this parent controls, it recovers a surviving orphan's capture regardless of which way the environment broke.
 
-**Leg-completeness check (STE-355 mirror).** RC 0 alone is not proof a leg ran its chain — the 2026-07-02 run had both children fire grandchild spawns in the background and exit RC 0 "waiting for its completion notification". So after both children return, and before aggregation, Phase A verifies each leg's expected grandchild log set is complete and result-bearing: every log in `/tmp/dpt-smoke-<tracker>-{setup,spec-write,implement,gate-check,spec-review,simplify}.log` (with `<tracker>` = `linear` / `jira` per leg) must exist, be fresh (mtime not before run-start — see the freshness gate below), be non-empty, and carry a stream-json `result` event. A leg whose log set is incomplete — or whose final message matches the fire-and-exit shape (grandchild spawned in the background, child exits awaiting a completion notification it can never receive) — is treated as a failed leg **regardless of RC 0**, and the iteration aborts via the same fail-fast path as a non-zero RC: no aggregation, no Phase B dispatch, no re-iteration; forensics live in the per-iteration and per-skill log files.
+**Leg-completeness check (STE-355 mirror).** RC 0 alone is not proof a leg ran its chain — the 2026-07-02 run had both children fire grandchild spawns in the background and exit RC 0 "waiting for its completion notification". So after every leg's child has returned, and before aggregation, Phase A verifies each leg's expected grandchild log set is complete and result-bearing: every log in `/tmp/dpt-smoke-<tracker>-{setup,spec-write,implement,gate-check,spec-review,simplify}.log` (with `<tracker>` = that leg's own token, **one per SELECTED leg** — STE-452; an unselected leg spawned no child and so owes no log set, while a selected leg's missing log set is a failed leg exactly as before) must exist, be fresh (mtime not before run-start — see the freshness gate below), be non-empty, and carry a stream-json `result` event. A leg whose log set is incomplete — or whose final message matches the fire-and-exit shape (grandchild spawned in the background, child exits awaiting a completion notification it can never receive) — is treated as a failed leg **regardless of RC 0**, and the iteration aborts via the same fail-fast path as a non-zero RC: no aggregation, no Phase B dispatch, no re-iteration; forensics live in the per-iteration and per-skill log files.
 
 **Freshness gate (STE-358; iter-2 F2).** The leg-completeness check is freshness-gated on the **run-start timestamp** captured at Phase 0 acceptance (the epoch-ms moment this invocation's pre-approval was logged): pass it as the `runStart` argument to `assertChainIntegrity` (`adapters/_shared/src/smoke_child_capture.ts`), so a log whose mtime predates run-start is the pinned `capture stale (pre-run)` finding — stale, never healthy, and it can never satisfy the completeness check regardless of its content. Result-bearing alone is not enough: the iter-2 (2026-07-02) run's surviving morning log carried a `result` event and would have false-passed an ungated check. The gate is strictly `mtime < run-start`; a log written exactly at run-start is fresh.
 
-**Path-safety guard delegated to children.** Per-tool-call enforcement now lives in the tracked `permissions.allow` allow-list (`.claude/settings.json`, STE-252) — every `claude -p` child runs in default permission mode and is constrained to the union of patterns enumerated there (Bash command-pattern entries + `Edit`/`Write`/`Read`/`Grep`/`Glob` + `mcp__linear__*` / `mcp__atlassian__*`). Each `/smoke-test` child still runs its own pre-flight #6 (the `realpath`-based allow-list check that pins the resolved test-project path to one of `{dpt-test-project-linear, dpt-test-project-jira}` under a `workspace/` ancestor, not a symlink, not the toolkit repo itself), but that guard is now a **cwd guard** — it bounds the **spawn working directory** each child starts in, not where the writes it issues from there land, while the tracked `permissions.allow` block bounds *what* they can call. `/conformance-loop` does not duplicate the realpath cwd guard at the parent — pre-flight (a) verifies the parent cwd is the toolkit repo, the Phase 0 `permissions.allow` pre-flight (refusal (f)) verifies the policy artifact is populated, and the child's #6 fires before any side effects. The realpath check no longer carries the "bypass-justification" load-bearing role it had pre-STE-252; it remains for cwd hygiene only.
+**Path-safety guard delegated to children.** Per-tool-call enforcement now lives in the tracked `permissions.allow` allow-list (`.claude/settings.json`, STE-252) — every `claude -p` child runs in default permission mode and is constrained to the union of patterns enumerated there (Bash command-pattern entries + `Edit`/`Write`/`Read`/`Grep`/`Glob` + `mcp__linear__*` / `mcp__atlassian__*`). Each `/smoke-test` child still runs its own pre-flight #6 (the `realpath`-based allow-list check that pins the resolved test-project path to the closed `dpt-test-project-<leg>` allow-list — one entry per leg `SMOKE_LEGS` registers, asserted against that enum rather than restated here — under a `workspace/` ancestor, not a symlink, not the toolkit repo itself), but that guard is now a **cwd guard** — it bounds the **spawn working directory** each child starts in, not where the writes it issues from there land, while the tracked `permissions.allow` block bounds *what* they can call. `/conformance-loop` does not duplicate the realpath cwd guard at the parent — pre-flight (a) verifies the parent cwd is the toolkit repo, the Phase 0 `permissions.allow` pre-flight (refusal (f)) verifies the policy artifact is populated, and the child's #6 fires before any side effects. The realpath check no longer carries the "bypass-justification" load-bearing role it had pre-STE-252; it remains for cwd hygiene only.
 
-**Aggregation.** After both children return, read the per-tracker findings files at the existing canonical paths (no `/smoke-test` changes):
+**Aggregation.** After every SELECTED leg's child has returned, read that leg's findings file at the existing canonical path (no `/smoke-test` changes). One file per **selected** leg — an unselected leg wrote none, and its absence is a no-op here rather than a gap, the same rule the rc-collection gate and the `green` probe apply (STE-452):
 
-- `/tmp/dpt-smoke-findings-${DATE}-linear.md` — Linear-side findings.
-- `/tmp/dpt-smoke-findings-${DATE}-jira.md` — Jira-side findings.
+- `/tmp/dpt-smoke-findings-${DATE}-linear.md` — Linear-side findings. Read only when `linear` is in `SELECTED_LEGS`.
+- `/tmp/dpt-smoke-findings-${DATE}-jira.md` — Jira-side findings. Read only when `jira` is in `SELECTED_LEGS`.
+- `/tmp/dpt-smoke-findings-${DATE}-none.md` — tracker-less-leg findings. Read only when `none` is in `SELECTED_LEGS`.
 
-Parse each into a list of finding records (each finding is delimited by `### F<N> — <one-line summary>` per `/smoke-test` Phase 3's findings template). Apply the cross-tracker dedup heuristic (see § Cross-tracker dedup below) and emit the unified report at `/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}.md`.
+Parse each into a list of finding records (each finding is delimited by `### F<N> — <one-line summary>` per `/smoke-test` Phase 3's findings template). Apply the cross-leg dedup heuristic (see § Cross-leg dedup below) and emit the unified report at `/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}.md`.
 
-Aggregated report shape (per iteration):
+> **This aggregation pass is MODEL JUDGMENT, not an algorithm (STE-453).** There is no shell fence here and no callable module: a model reads the per-leg findings files and writes the unified report. Nothing executes it, so its coverage is prose assertions over the paragraphs above — which can confirm the instruction is worded correctly and can never detect a model that read it and did something else. That is a ceiling, not an omission, and it is the reason § Rules names this surface explicitly. Compare the termination probes below, which are real bash and are executed against synthetic inputs by `tests/m121-ste-452-termination-harness.test.ts`.
+
+Aggregated report shape (per iteration) — **also model judgment: the block below is a template a model fills in, not a formatter's output, and no test executes its production:**
 
 ```
 # /conformance-loop iteration <ITER> — <DATE>
 
-**Tracker coverage:** linear + jira
+**legs:** [linear, jira, none]
 **Source files:**
 - /tmp/dpt-smoke-findings-<DATE>-linear.md
 - /tmp/dpt-smoke-findings-<DATE>-jira.md
+- /tmp/dpt-smoke-findings-<DATE>-none.md
 
 ## Findings
 
 ### F1 — <one-line summary>
 
 **Severity:** high
-**tracker-coverage:** [linear, jira]   <!-- both trackers surfaced this -->
+**legs:** [linear, jira]   <!-- every leg that surfaced this finding, registry order -->
 **Dedup:** exact-match (STE-<N> runtime regression: <fixture>)
 
 <body>
@@ -379,28 +662,32 @@ Aggregated report shape (per iteration):
 ### F2 — <one-line summary>
 
 **Severity:** high
-**tracker-coverage:** [linear]
-**Dedup:** single-tracker (no Jira surface)
+**legs:** [linear]
+**Dedup:** single-leg (no counterpart on jira or none)
 
 <body>
 
 ### F3 — <one-line summary>
 
 **Severity:** medium
-**tracker-coverage:** [linear, jira]
+**legs:** [jira, none]
 **Dedup:** ~probable-dup (≥80% normalized-body overlap; operator review recommended)
 
 <body>
 ```
 
-#### Cross-tracker dedup
+The run-level `**legs:**` header enumerates every leg the run was **selected** for and the `**Source files:**` list carries one entry per selected leg; both are shown here at the full registered set. A per-finding `**legs:**` list names every leg that surfaced *that* finding, so it is a subset — one element for a single-leg finding, up to the full selection for one every leg saw. **The field replaces the pairwise `tracker-coverage:` of `AC-STE-224.10`, whose two-element `[linear, jira]` shape was structurally incapable of expressing a tracker-less-leg finding at all.** That AC's operative clauses — exactly one entry per unique regression, exact-match before fuzzy, the ≥ 80% threshold, the `~probable-dup` flag — are unchanged and still enforced; only the field's spelling and arity are superseded, and the supersession is recorded in `specs/plan/M121.md`.
 
-Two-pass heuristic:
+#### Cross-leg dedup
 
-1. **Exact-match pass.** Walk every Linear finding; for each, scan Jira findings for an identical `STE-<N> runtime regression: <fixture>` diagnostic line (matches the convention from `/smoke-test` Phase 2.X fixtures). On hit ⇒ emit one entry with `tracker-coverage: [linear, jira]` and `Dedup: exact-match`; skip the Jira-side counterpart in the second pass.
-2. **Fuzzy-overlap pass.** For every still-unmatched Linear finding, normalize body (lowercase, strip whitespace + markdown noise) and compute substring overlap against every still-unmatched Jira finding. ≥ 80% ⇒ dedup with `tracker-coverage: [linear, jira]` + `Dedup: ~probable-dup` flag (flag because fuzzy matches deserve operator review). < 80% ⇒ both findings emit independently with their own single-tracker `tracker-coverage`.
+> **This dedup is MODEL JUDGMENT, not an algorithm (STE-453).** No module implements it, no fence runs it, and nothing in the test suite executes it — the two passes below are instructions a model follows while writing the aggregated report. The ≥ 80% threshold in particular is a judgment call rendered as a number, not a computed ratio. Extracting it into callable code is its own milestone if it is worth doing at all, and until then a green gate says nothing whatsoever about whether the dedup behaved. § Rules names this surface for that reason.
 
-Single-tracker findings (no counterpart on the other side) carry `tracker-coverage: [linear]` or `tracker-coverage: [jira]` with `Dedup: single-tracker`. The aggregated entry is never duplicated — exactly one entry per unique regression across both trackers.
+Two-pass heuristic. **Both passes walk the legs in `SMOKE_LEGS` registry order and, for each leg, scan only the legs that come AFTER it** — so a finding is compared once per pair rather than twice, and a leg is never hardcoded as "the" side of a comparison. With N legs registered the walk is over every ordered pair, not over one named tracker against another; adding a leg extends it without editing this paragraph.
+
+1. **Exact-match pass.** For each leg in registry order, walk its still-unmatched findings; for each, scan every LATER leg's findings for an identical `STE-<N> runtime regression: <fixture>` diagnostic line (matches the convention from `/smoke-test` Phase 2.X fixtures). On hit ⇒ emit one entry whose `legs:` list names the earlier leg and every later leg that matched, with `Dedup: exact-match`; mark those later-leg counterparts matched so they are skipped for the rest of the walk and by the second pass.
+2. **Fuzzy-overlap pass.** For every still-unmatched finding, in the same registry-order walk over later legs, normalize body (lowercase, strip whitespace + markdown noise) and compute substring overlap. ≥ 80% ⇒ dedup into one entry carrying the `legs:` list of every leg that matched + `Dedup: ~probable-dup` flag (flag because fuzzy matches deserve operator review). < 80% ⇒ each finding emits independently with its own `legs:` list.
+
+A finding no other leg surfaced carries a single-element list — `legs: [linear]`, `legs: [jira]` or `legs: [none]` — with `Dedup: single-leg`. The aggregated entry is never duplicated — exactly one entry per unique regression across every selected leg, whatever the leg count.
 
 #### Transient-failure retry for leg spawns (STE-430)
 
@@ -408,7 +695,7 @@ The Phase A legs are prompt-bearing `claude -p` children, so they carry the same
 
 **Detection.** After the bounded poll reports a leg exited, and before the RC-collection gate above grades it, scan that leg's log (`/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-${LEG}.log`) for either signature with `grep -qE 'API Error: (Stream idle timeout|Connection closed mid-response)'`. Match is substring, so wording drift in the trailing detail still trips it. A hit makes the leg *eligible* for one retry; it does not by itself authorize one.
 
-**Clean-tree gate (the precondition that authorizes a retry).** After the failed leg exits and BEFORE any rollback or re-spawn, read `git status --porcelain` inside that leg's own test project (`../dpt-test-project-linear` / `../dpt-test-project-jira`) — NEVER inside the dpt repo cwd, whose in-flight conformance edits are always dirty and would suppress every retry. Empty output ⇒ the failed leg left nothing behind, the rollback is provably a no-op, and the leg re-spawns once. Non-empty output ⇒ dirty tree, no auto-retry: grade the leg failed through the ordinary fail-fast path and quote the porcelain lines in the iteration's report, because a rollback whose blast radius is unknown is not a rollback the driver may run unattended.
+**Clean-tree gate (the precondition that authorizes a retry).** After the failed leg exits and BEFORE any rollback or re-spawn, read `git status --porcelain` inside that leg's own test project (`../dpt-test-project-${LEG}`, one per registered leg) — NEVER inside the dpt repo cwd, whose in-flight conformance edits are always dirty and would suppress every retry. Empty output ⇒ the failed leg left nothing behind, the rollback is provably a no-op, and the leg re-spawns once. Non-empty output ⇒ dirty tree, no auto-retry: grade the leg failed through the ordinary fail-fast path and quote the porcelain lines in the iteration's report, because a rollback whose blast radius is unknown is not a rollback the driver may run unattended.
 
 The probe MUST exclude the `.phase8/` pathspec, and on a leg the exclusion is load-bearing rather than cosmetic. A leg spans the whole smoke run, so it can die on a transient during Phase 8 or Phase 9 — by which point `/smoke-test` has prepared its per-skill Socratic workspaces at `.phase8/<skill>/` inside that same test-project git repo. An unfiltered probe reads that scratch as a dirty tree and forfeits the leg's one retry over work the failed leg did nothing to cause. The gate's question is whether the failed attempt left work behind; the driver's own scratch is not an answer to it.
 
@@ -519,20 +806,90 @@ done
 
 After each iteration (Phase A + optional Phase B), the loop checks three exit conditions in order. The first to trip wins:
 
-(a) **`green`** — both per-tracker findings files have zero `**Severity:** high` lines:
+(a) **`green`** — **every SELECTED** leg's findings file has zero `**Severity:** high` lines. One counting site per registered leg (`SMOKE_LEGS`), each guarded by a membership test against the selection: a leg missing from the registry is a leg whose high-severity findings can never bar green, and a leg missing from the *selection* was never run, so it has no findings to weigh either way.
+
+**The absent-file semantic is written into the fence, not inherited from the shell.** Before STE-452 a missing findings file made `grep -c` print nothing, so `[ "" -eq 0 ]` was a `test(1)` usage error whose non-zero status happened to skip the green branch. The run did not report green — but only by accident, nothing expressed the intent, and any refactor could have inverted it silently. A selected leg that produced no findings file **did not run**, and no findings must never reconcile with no evidence, so absence is now an explicit, explained abort:
 
 ```bash
+# Runs INSIDE the per-iteration loop (that is what makes the `break` legal), so
+# DATE/ITER/SELECTED_LEGS are already in scope from Phase 0 and Phase A.
+if [ -z "${SELECTED_LEGS:-}" ]; then
+  echo "/conformance-loop: green probe reached with an empty leg selection — no evidence is never green. Aborting."
+  exit 1
+fi
+
+MISSING_FINDINGS=""
+UNCOUNTABLE_FINDINGS=""
+EXAMINED_LEGS=0
+HIGH_LINEAR=0
+HIGH_JIRA=0
+HIGH_NONE=0
+
+case " ${SELECTED_LEGS} " in *" linear "*)
+EXAMINED_LEGS=$((EXAMINED_LEGS + 1))
+if [ ! -f "/tmp/dpt-smoke-findings-${DATE}-linear.md" ]; then MISSING_FINDINGS="${MISSING_FINDINGS} linear"; else
 HIGH_LINEAR=$(grep -c '^\*\*Severity:\*\* high' /tmp/dpt-smoke-findings-${DATE}-linear.md)
+case "${HIGH_LINEAR}" in ''|*[!0-9]*) UNCOUNTABLE_FINDINGS="${UNCOUNTABLE_FINDINGS} linear" ;; esac
+fi
+;; esac
+case " ${SELECTED_LEGS} " in *" jira "*)
+EXAMINED_LEGS=$((EXAMINED_LEGS + 1))
+if [ ! -f "/tmp/dpt-smoke-findings-${DATE}-jira.md" ]; then MISSING_FINDINGS="${MISSING_FINDINGS} jira"; else
 HIGH_JIRA=$(grep -c '^\*\*Severity:\*\* high' /tmp/dpt-smoke-findings-${DATE}-jira.md)
-if [ "${HIGH_LINEAR}" -eq 0 ] && [ "${HIGH_JIRA}" -eq 0 ]; then
+case "${HIGH_JIRA}" in ''|*[!0-9]*) UNCOUNTABLE_FINDINGS="${UNCOUNTABLE_FINDINGS} jira" ;; esac
+fi
+;; esac
+case " ${SELECTED_LEGS} " in *" none "*)
+EXAMINED_LEGS=$((EXAMINED_LEGS + 1))
+if [ ! -f "/tmp/dpt-smoke-findings-${DATE}-none.md" ]; then MISSING_FINDINGS="${MISSING_FINDINGS} none"; else
+HIGH_NONE=$(grep -c '^\*\*Severity:\*\* high' /tmp/dpt-smoke-findings-${DATE}-none.md)
+case "${HIGH_NONE}" in ''|*[!0-9]*) UNCOUNTABLE_FINDINGS="${UNCOUNTABLE_FINDINGS} none" ;; esac
+fi
+;; esac
+
+# Every counter above pre-defaults to the PASSING value, so an arm that never
+# fires is indistinguishable from a leg with zero findings. That makes the
+# membership test itself load-bearing, and `*" leg "*` only matches
+# single-space-delimited members — a tab, a comma or a doubled space would miss
+# every arm and report green having counted nothing. So the arms are made to
+# account for themselves: one increment per arm, compared against the selection
+# word count. Any selected token that matched no arm is an unexamined leg.
+SELECTED_COUNT=$(set -- ${SELECTED_LEGS}; echo $#)
+if [ "${EXAMINED_LEGS}" -ne "${SELECTED_COUNT}" ]; then
+  echo "/conformance-loop: green probe examined ${EXAMINED_LEGS} of ${SELECTED_COUNT} selected leg(s) [${SELECTED_LEGS}] — an unrecognized or mis-delimited leg cannot be graded and is never green. Aborting."
+  exit 1
+fi
+if [ -n "${MISSING_FINDINGS}" ]; then
+  echo "/conformance-loop: no findings file for selected leg(s):${MISSING_FINDINGS} — a leg that produced no findings file did not run, and no findings must never reconcile with no evidence. Aborting."
+  exit 1
+fi
+# A file that EXISTS but cannot be counted — unreadable, truncated, a grep
+# diagnostic — leaves the counter empty, and `[ "" -eq 0 ]` is a test(1) usage
+# error whose non-zero status merely SKIPS the green branch. That is the same
+# accidental fail-closed shape the existence check above replaced, one layer in,
+# and the RC gate already normalizes its analogue. Symmetry is the point.
+if [ -n "${UNCOUNTABLE_FINDINGS}" ]; then
+  echo "/conformance-loop: findings file present but not countable for selected leg(s):${UNCOUNTABLE_FINDINGS} — unreadable or malformed evidence is not zero findings. Aborting."
+  exit 1
+fi
+if [ "${HIGH_LINEAR}" -eq 0 ] && [ "${HIGH_JIRA}" -eq 0 ] && [ "${HIGH_NONE}" -eq 0 ]; then
   STATUS=green
   break
 fi
 ```
 
+An unselected leg keeps its `HIGH_*` default of `0` and therefore contributes nothing to the fold — which is correct, and is also why the empty-selection refusal at the top of the fence is load-bearing rather than defensive: with every leg defaulted to zero, an empty selection would otherwise satisfy the conjunction and report `green` having counted nothing at all.
+
 (b) **`max-iterations`** — counter ≥ `--max-iterations`:
 
+**An unusable cap is not a permissive one (STE-453 AC.6).** `--max-iterations` is this loop's only spending control. Before this guard, an absent, empty or non-numeric value reached the comparison below as a `test(1)` usage error whose non-zero status merely **skipped** the branch: `rc 0`, `STATUS` unset, and the loop ran on. Measured: `MAX_ITERATIONS=""` with `ITER=3` printed `[: : integer expression expected` and continued. Under `--auto-fix` that is an **unbounded loop whose every iteration spawns `/spec-write` + `/implement` children that commit to this repository and write to real trackers**, so the fail-open costs more here than at the two gates already carrying this guard. Same shape as the rc gate's `RC_*` normalization and the `green` probe's `HIGH_*` check — anything that is not a plain integer is a FAILURE, and this one refuses rather than normalizing, because there is no safe value to substitute for a cap the operator meant to set.
+
 ```bash
+case "${MAX_ITERATIONS:-}" in ''|*[!0-9]*)
+  echo "/conformance-loop: --max-iterations is '${MAX_ITERATIONS:-<unset>}' — not a plain integer, so the loop's only spending control is unusable and it refuses to iterate rather than run uncapped. Aborting."
+  exit 1
+  ;;
+esac
 if [ "${ITER}" -ge "${MAX_ITERATIONS}" ]; then
   STATUS=max-iterations
   break
@@ -565,13 +922,13 @@ Emit a unified per-iteration table to stdout, plus the termination reason and li
 ```
 ## /conformance-loop summary
 
-| iter | status   | high (linear) | high (jira) | medium (linear+jira) | fixer-changes | wall-clock |
-|------|----------|---------------|-------------|----------------------|---------------|-----------|
-|    1 | running  |             3 |           2 |                    4 |             2 | 11m 14s   |
-|    2 | running  |             1 |           1 |                    3 |             2 | 10m 47s   |
-|    3 | green    |             0 |           0 |                    2 |             — | 10m 02s   |
+| iter | status   | high (linear) | high (jira) | high (none) | medium (linear+jira+none) | fixer-changes | wall-clock |
+|------|----------|---------------|-------------|-------------|---------------------------|---------------|-----------|
+|    1 | running  |             3 |           2 |           1 |                         4 |             2 | 11m 14s   |
+|    2 | running  |             1 |           1 |           0 |                         3 |             2 | 10m 47s   |
+|    3 | green    |             0 |           0 |           0 |                         2 |             — | 10m 02s   |
 
-Termination reason: green (zero **Severity:** high lines in both per-tracker files)
+Termination reason: green (zero **Severity:** high lines in every per-leg findings file)
 
 Artifacts:
 - iter-1: /tmp/dpt-conformance-loop-<date>-iter-1.md
@@ -579,11 +936,18 @@ Artifacts:
 - iter-3: /tmp/dpt-conformance-loop-<date>-iter-3.md
 - linear logs: /tmp/dpt-conformance-loop-<date>-iter-*-linear.log
 - jira logs:   /tmp/dpt-conformance-loop-<date>-iter-*-jira.log
+- none logs:   /tmp/dpt-conformance-loop-<date>-iter-*-none.log
 - approval:    /tmp/dpt-conformance-loop-<date>-approval.txt
 
 Open questions / risks / inconsistencies:
 - (rendered from capability-key map; see § Capability-key map)
 ```
+
+One `high (<leg>)` column per registered leg (`SMOKE_LEGS`), and the `medium` column names every one of them — a leg without a column is a leg whose findings the operator never reads off this table.
+
+**The columns stay keyed on the REGISTERED set even under `--legs`, and that is a constraint rather than an oversight (STE-452).** This table is the fifth leg-counting surface, and unlike the four the termination work adapted it may not be narrowed to the selection: `closing-summary-columns` in `adapters/_shared/src/leg_prose_surfaces.ts` is a shipped STE-446 derivation surface asserting these column headers enumerate `SMOKE_LEGS` exactly, so dropping an unselected leg's column turns AC-STE-446.2 red. Relaxing a predecessor's acceptance criterion to flatter a successor's is what this milestone forbids, so the column set is left alone and the CONTENT carries the distinction instead: **an unselected leg's cells render `—` (not run), never `0`.** A zero would say the leg was examined and found clean, which is precisely the no-evidence-reconciled-with-no-findings confusion the termination probes now refuse — it must not be reintroduced one layer up in the operator's own summary table.
+
+**`--legs` is reported alongside, so the table is never read without its selection.** The Phase 0 contract already echoes `--legs: <SELECTED_LEGS>`; the closing summary repeats it, because a reader meeting three columns and two `—` cells needs to know whether a leg was skipped or died.
 
 #### Capability-key map (for closing summary's open-questions block)
 
@@ -591,7 +955,7 @@ The closing summary's open-questions block renders capability gaps as **plain pr
 
 | Capability key                              | Rendered prose |
 |---------------------------------------------|----------------|
-| `conformance_loop_terminated_green`         | `loop converged on iteration <N> — both per-tracker findings files report zero **Severity:** high lines; safe to ship` |
+| `conformance_loop_terminated_green`         | `loop converged on iteration <N> — every selected leg's findings file reports zero **Severity:** high lines; safe to ship` |
 | `conformance_loop_terminated_exhausted`     | `loop hit --max-iterations cap (<N>) before convergence — high-severity findings remain in iter-<N>; operator should triage manually before re-running` |
 | `conformance_loop_terminated_no_progress`   | `loop detected no-progress (byte-identical aggregated findings across iter-<N-1> and iter-<N>, or zero git HEAD advance after Phase B) — fixers cannot resolve the remaining findings; operator should triage manually` |
 
@@ -604,7 +968,7 @@ The `STATUS` value from the termination check maps directly to one of the three 
 All output paths carry the per-iteration `<ITER>` suffix so a subsequent iteration cannot overwrite the prior iteration's artifacts:
 
 - `/tmp/dpt-conformance-loop-<DATE>-iter-<N>.md` — aggregated report (the deliverable per iteration).
-- `/tmp/dpt-conformance-loop-<DATE>-iter-<N>-{linear,jira}.log` — per-iteration child stdout/stderr.
+- `/tmp/dpt-conformance-loop-<DATE>-iter-<N>-{linear,jira,none}.log` — per-iteration child stdout/stderr.
 - `/tmp/dpt-conformance-loop-<DATE>-iter-<N>-fix-<IDX>-{spec-write,implement}.log` — per-fix-step child stdout/stderr (Phase B only).
 - `/tmp/dpt-conformance-loop-<DATE>-approval.txt` — operator approval record from Phase 0 (one per invocation, not per iteration).
 
@@ -618,8 +982,9 @@ End-of-run console summary: per-iteration table, termination reason, links to al
 - **Sequential per-finding fixer dispatch.** Each `/spec-write` + `/implement` pair commits to the toolkit repo; parallel fixers would race on the working tree. Per-finding sequential, per-iteration parallel (only the two per-tracker `/smoke-test` children run in parallel).
 - **Fail-fast on Phase A subprocess error.** If either `/smoke-test` child returns non-zero, the iteration aborts immediately — no aggregation, no Phase B dispatch, no re-iteration. Forensics live in the per-iteration log files.
 - **No agent-team primitive.** Bash subprocess parallelism is the only sanctioned mechanism — agent teams have no `fork: true` flag and aren't recommended for serial orchestration per the Claude Code docs.
-- **Operator owns iteration count.** No budget cap; `--max-iterations` is the only spending control. Default 3 means a worst-case ~60-min wall-clock for a fully-iterating run.
-- **--dry-run is for tests, not operators.** Operators always run live; `--dry-run` exists so the integration test (`conformance-loop-dry-run.test.ts`) can cover the parallelism + aggregation + termination paths without invoking real `claude -p` children.
+- **Operator owns iteration count.** No budget cap; `--max-iterations` is the only spending control. Default 3 means a worst-case ~30-min wall-clock for a fully-iterating run — iterations × ~10 min, with **no leg-count multiplier**, because the legs are detached concurrent brace groups sharing one bounded poll. The `~60-min` this line used to carry was the retired per-tracker multiplier that § When to use already corrects; this was the third estimate surface and the only one AC-STE-447.7's pin did not slice.
+- **--dry-run is inert.** Operators always run live — and so does everyone else, because no branch in this document reads the flag. It substitutes no subprocess, reads no fixture directory, and covers no path. It survives only because `AC-STE-224.2` names it. Do not cite it as coverage for anything.
+- **Aggregation, the cross-leg dedup and the report shape are MODEL JUDGMENT, not algorithms.** They are instructions a model executes; they have no shell form, and after M121 ships **no test executes them** — their pins assert what this document *says*, which is strictly weaker and cannot detect a model reading a correct instruction and doing something else. The termination probes (`green`, RC collection, `no-progress`) are the only surfaces of this driver covered by execution, in `tests/m121-ste-452-termination-harness.test.ts`. Extracting the other three into callable code is a real architectural change, deliberately out of M121's scope and recorded in `specs/notes/follow-ups.md`; until someone takes it, read those three as unverified by construction.
 
 ## Threat model
 
@@ -643,7 +1008,7 @@ End-of-run console summary: per-iteration table, termination reason, links to al
 
 ### Inherited precondition — workspace trust (STE-356; STE-367)
 
-The tracked `permissions.allow` allow-list that `/smoke-test`'s threat model leans on as its load-bearing rail is enforcement-effective only when the spawn cwd's workspace is trusted — in an untrusted workspace the harness ignores the scaffolded `.claude/settings.json` entries wholesale and the policy artifact goes inert. Workspace trust is an operator precondition (STE-367 supersedes STE-356's self-seed): the operator seeds `hasTrustDialogAccepted: true` for each test-project path into `$CLAUDE_CONFIG_DIR/.claude.json` once — the driver cannot, since the harness self-modification classifier denies the write under `claude -p` (2026-07-04 F1) — and pre-flight (h) above asserts both paths are trusted before the loop fans out, with each `/smoke-test` child's spawn gate re-asserting. The counterexample is the 2026-07-02 conformance run's F4 capture: grandchild logs opened with `Ignoring 10 permissions.allow entries from .claude/settings.json: this workspace has not been trusted`, so the canonical chain ran on auto-mode classifier goodwill instead of the reviewed policy. Every leg this loop fans out inherits that precondition; the `checkAllowlistInert` post-return detector in `/smoke-test` surfaces any recurrence as a high-severity `STE-356 regression: allow-list inert — <child> (workspace untrusted)` finding, which bars the leg from green.
+The tracked `permissions.allow` allow-list that `/smoke-test`'s threat model leans on as its load-bearing rail is enforcement-effective only when the spawn cwd's workspace is trusted — in an untrusted workspace the harness ignores the scaffolded `.claude/settings.json` entries wholesale and the policy artifact goes inert. Workspace trust is an operator precondition (STE-367 supersedes STE-356's self-seed): the operator seeds `hasTrustDialogAccepted: true` for each test-project path into `$CLAUDE_CONFIG_DIR/.claude.json` once — the driver cannot, since the harness self-modification classifier denies the write under `claude -p` (2026-07-04 F1) — and pre-flight (h) above asserts every selected leg's path is trusted before the loop fans out, with each `/smoke-test` child's spawn gate re-asserting. The counterexample is the 2026-07-02 conformance run's F4 capture: grandchild logs opened with `Ignoring 10 permissions.allow entries from .claude/settings.json: this workspace has not been trusted`, so the canonical chain ran on auto-mode classifier goodwill instead of the reviewed policy. Every leg this loop fans out inherits that precondition; the `checkAllowlistInert` post-return detector in `/smoke-test` surfaces any recurrence as a high-severity `STE-356 regression: allow-list inert — <child> (workspace untrusted)` finding, which bars the leg from green.
 
 ### Residual risks (not protected against)
 
