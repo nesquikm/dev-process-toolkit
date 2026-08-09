@@ -413,7 +413,7 @@ Skills to run, in order:
 2. `/dev-process-toolkit:spec-write` — feature stub (default `greet`): "Add a pure function greet(name?: string) returning 'Hello, <name>!' (defaulting 'world' for undefined / empty / whitespace-only). File src/greet.ts; test src/greet.test.ts; 4 ACs."
 3. `/dev-process-toolkit:implement <feature-id>` — full TDD + tracker writes (claim → release after archive). Pre-authorize the Phase 4 step 15 commit upfront. Do NOT push.
 
-   **Tracker-less leg only — sample the lock while this step is still running (STE-451).** `/implement` claims at § 0.c and releases at Phase 4 Close step (b), both **inside** this step, so the lock file exists only for the duration of this spawn and is gone before Phase 2.X runs. Run § Fixture group 10's sampler once per poll call for this PID; it is a one-shot `test -e` that appends only on a hit, so it composes with the bounded poll fence without altering it. Skipping it does not fail this step — it fails sub-fixture 10a, which is the point: an unsampled window and an unwritten lock must not report the same way.
+   **Tracker-less leg only — sample the lock while this step is still running (STE-451).** `/implement` claims at § 0.c and releases at Phase 4 Close step (b), both **inside** this step, so the lock file exists only for the duration of this spawn and is gone before Phase 2.X runs. Run § Fixture group 10's sampler once per poll call for this PID; it is a one-shot `test -e` plus a `git log --grep`, so it composes with the bounded poll fence without altering it. It is **two-sided** — it writes a line whether or not the lock is there — and it also snapshots the claim commit into the same log, so **both halves of the evidence are on disk before this step exits (STE-456)**. That matters because everything that renders a verdict about this lock runs after the chain: a leg killed post-chain forfeits the rendering, and this is what keeps it from forfeiting the evidence too. Skipping it does not fail this step — it fails sub-fixture 10a, which is the point: an unsampled window and an unwritten lock must not report the same way.
 
    **Post-step advisory (STE-181).** After step 3 returns, log: *"single-FR run complete — FR remains `status: active`, milestone remains `status: active`. Run `/spec-archive M<N>` to archive when ready."* The smoke driver intentionally uses the `<feature-id>` form (per `skills/implement/SKILL.md` § Invocation forms — single-FR is the canonical "ship one FR" path), which silent-skips Phase 5. The end state is correct, not drift; gate-check probe #14 emits the STE-180 advisory if the plan is fully checked. Documentation prose only — no behavioral change to the smoke driver.
 4. `/dev-process-toolkit:gate-check` — read-only verification.
@@ -1346,12 +1346,30 @@ The literal mid-run read, and the only assertion here that observes the file whi
 
 ```bash
 # Group 10 sampler — run ONCE PER step-3 poll call, after the resolver above.
+# TWO-SIDED (STE-456): a line goes down on EVERY sample, hit or miss. The
+# append-on-hit form left byte-identical disk whether the sampler ran and found
+# nothing or never ran at all, so an absent log could not be read.
+LOG=/tmp/dpt-smoke-<tracker>-ste451-lock-samples.log
 if [ -n "${FR_ID:-}" ] && [ -e "${TP}/.dpt/locks/${FR_ID}" ]; then
-  echo "lock-present ${FR_ID}" >> /tmp/dpt-smoke-<tracker>-ste451-lock-samples.log
+  echo "lock-present ${FR_ID}" >> "${LOG}"
+else
+  echo "lock-absent ${FR_ID:-<unresolved>}" >> "${LOG}"
 fi
+# 10b's witness, captured HERE rather than read for the first time at Phase 2.X
+# (STE-456). A leg killed after the chain forfeits the fixture phase and every
+# verdict with it; this line puts the durable evidence on disk while the chain
+# is still alive. Rendering does NOT move — Phase 2.X still decides.
+# --basic-regexp is LOAD-BEARING, not decoration: `git log --grep` honours the
+# operator's `grep.patternType` / `grep.extendedRegexp` config, and under ERE or
+# PCRE the literal `(locks)` becomes a capture group, so the pattern means
+# `chorelocks` and can NEVER match. Measured. Without the flag a healthy run
+# reports `claim-commit none` and — now that the witness is required — fails.
+CLAIM_SHA="$(git -C "${TP}" log --format=%H -1 --basic-regexp \
+  --grep="^chore(locks): claim lock for ${FR_ID:-__unresolved__} " 2>/dev/null || true)"
+echo "claim-commit ${CLAIM_SHA:-none}" >> "${LOG}"
 ```
 
-The log is a **latch** — the sampler appends only on a hit, so one line anywhere in it is the observation.
+The log is no longer a one-sided latch. One `lock-present` line anywhere in it is still the observation; what the `lock-absent` lines buy is that the log's **absence** now carries information, because a sampler that ran writes whether or not it saw anything.
 
 **10a is sampling-dependent, and its empty case is NOT automatically a group failure. Read this before treating a blank log as a red.** Each poll call covers up to 18 checks × 30 s, and the sampler runs once per *call*, not once per check. If `/implement` happens to complete inside a single poll call the sampler may fire once — possibly before § 0.c has claimed — and find nothing on a perfectly healthy run. So the outcome rule is:
 
@@ -1361,6 +1379,10 @@ The log is a **latch** — the sampler appends only on a hit, so one line anywhe
 
 That asymmetry is deliberate and it is the honest statement of what a sampled observation can prove: it can confirm presence, it cannot prove absence.
 
+**A FOURTH STATE, and the three cases above are unchanged (STE-456).** Read "empty log" in the rule above as **a log that exists and carries no `lock-present` line** — which is what a two-sided sampler produces when it runs and finds nothing. The state the rule could not previously express is **a log that does not exist at all**, and it now means one thing only: **the sampler never ran.** Report it as `10a-sampler-absent` and **FAIL 10a** — a driver that skipped the sampler is a driver defect, not a claim defect, and § Phase 2 step 3 already says skipping it fails this sub-fixture. The four states are then: no log (the sampler never ran), `lock-absent` lines only (it ran and missed), at least one `lock-present` line (it saw the lock), and — orthogonal to all three — the `claim-commit` line, which is what the rule above consults to tell a missed window from an unwritten lock.
+
+**This does not narrow the carve-out, and the distinction is worth stating precisely because narrowing it would be the wrong repair.** The carve-out tolerates an empty log when the claim commit is present, and it exists so that a step-3 grandchild finishing inside one poll call does not produce a false RED. On any run where the sampler ran, the log now exists — so every healthy run the carve-out could previously reach, it still reaches, and no run that a short window could produce lands in the new state. What the new state removes from the carve-out's reach is only the case where the observation was never attempted, which is not a healthy run and was never what the tolerance was for. **The reading depends entirely on the sampler being unconditional:** if the `else` arm is ever deleted, an absent log silently becomes ambiguous again and this fourth state must be retired in the same edit rather than left as a rule reading evidence that no longer exists.
+
 ##### Sub-fixture 10b — the claim-commit witness
 
 10a alone is a race: a sampler that never happened to run inside the window reports the same empty log as a claim that never wrote anything, and those are opposite findings. 10b removes the race, because `claimLock` does not merely write the lock — it `git add`s and commits it. The mid-run state is therefore **durable**, and can be read back after the release has deleted the file.
@@ -1368,7 +1390,7 @@ That asymmetry is deliberate and it is the honest statement of what a sampled ob
 ```bash
 # After step 3 exits — the durable record of a state that no longer exists.
 # Uses ${TP} and ${FR_ID} from the shared resolver above.
-SHA="$(git -C "${TP}" log --format=%H -1 --grep="^chore(locks): claim lock for ${FR_ID} ")"
+SHA="$(git -C "${TP}" log --format=%H -1 --basic-regexp --grep="^chore(locks): claim lock for ${FR_ID} ")"
 [ -n "${SHA}" ] && git -C "${TP}" show "${SHA}:.dpt/locks/${FR_ID}"
 ```
 
@@ -1455,11 +1477,15 @@ These are **not** substitutes for the tracker rows above, and they are not inter
 - **AC-STE-448.5 — the canonical absence.** `../dpt-test-project-none/CLAUDE.md` exists, carries `## Docs`, and has **NO `## Task Tracking` section** — `grep -c '^## Task Tracking' <file>` is `0`. Absence is the canonical form for `mode: none`, so this is the positive result, not a missing check: a CLAUDE.md that *did* carry the section declaring `mode: none` would be a FAIL here and a gate-check probe #21 finding downstream. Asserting a count of zero rather than skipping the row is the whole difference between evidence and silence.
 - **AC-STE-448.7 — the FR's minted identity.** The FR lands at `../dpt-test-project-none/specs/frs/<TAIL>.md` (or `specs/frs/archive/<TAIL>.md` after archival), where `<TAIL>` is the filename stem. It carries a frontmatter `id:` whose value is `fr_` followed by **exactly 26 ULID characters** (`^id: fr_[0-9A-HJKMNP-TV-Z]{26}$` — Crockford base32, no `I`/`L`/`O`/`U`), and `<TAIL>` equals `id.slice(23, 29)` of that value — the FR names itself from its own id rather than from a counter. **The `tracker:` block is ABSENT**, not empty and not `tracker: {}`: in `mode: none` the minted `id:` IS the identity, and a present-but-empty tracker block would be the shape gate-check probe #13 (`identity_mode_conditional`) reads as a half-migrated tracker project. Assert the absence positively — `grep -c '^tracker:' <file>` is `0` — rather than inferring it from the `id:` row's presence, which would pass on a file carrying both.
 - **AC-STE-448.8 — the plan's minted identity, and its self-derived filename.** The plan lands at `../dpt-test-project-none/specs/plan/M_<PLAN-TAIL>.md` (or `specs/plan/archive/M_<PLAN-TAIL>.md`) carrying a minted `id:` of its own, and its own filename stem equals `M_` + `id.slice(23, 29)`. **`<PLAN-TAIL>` is that slice of the PLAN's own id, and it is NOT the `<TAIL>` bound in the row above** — the plan mints independently and is **not** required to match any FR's, because one plan id cannot equal the ids of two FRs in the same milestone. **Expect the two to differ, and do not read a difference as a failure:** on the run that corrected this row the FR was `3Y2FQW` and the plan `M_3Y2FQV`, two consecutive mints one character apart. Reusing the FR's tail here — as this row did until STE-455 — sends the operator to a filename a healthy run never produces. **That self-derivation is the load-bearing check here**, and is why this row is not a duplicate of the row above: both rows check the same property, but on **different artifacts**, and this is the only place the plan's own stem is recomputed from the plan's own id. Six characters of a twenty-nine-character identity name the file, so a plan could carry a correct `id:` under a filename derived from something else entirely (a counter, another mint, a stale rename) and every id-only check would still pass. Recompute the stem from the id read out of the file and compare; do not read the stem and check the id contains it.
-- **AC-STE-448.9 — the release proof, and exactly half of it.** At this phase `../dpt-test-project-none/.dpt/locks/<id>` is **ABSENT** — `<id>` being the full `fr_`-prefixed value read from the FR's frontmatter, never the 6-char tail, because `LocalProvider.claimLock` keys the lock on the full minted id. On a tracker leg the equivalent evidence is the ticket reaching `Done`; here it is the lock file being gone.
+- **AC-STE-448.9 — the release proof: the durable claim witness AND the absence.** At this phase `../dpt-test-project-none/.dpt/locks/<id>` is **ABSENT** — `<id>` being the full `fr_`-prefixed value read from the FR's frontmatter, never the 6-char tail, because `LocalProvider.claimLock` keys the lock on the full minted id. On a tracker leg the equivalent evidence is the ticket reaching `Done`; here it is the lock file being gone.
+
+  **The durable claim witness is REQUIRED here, not merely welcome (STE-456).** Read the `claim-commit <sha|none>` line from `/tmp/dpt-smoke-<tracker>-ste451-lock-samples.log`, captured by § Phase 2 step 3 during the chain, and confirm the claim commit that created the lock exists in the test project's history. This row is green only when that line names a real sha **and** the lock file is gone; `claim-commit none`, or no such line at all, is a **FAIL even with the lock absent** — a claim that never fired leaves exactly the disk a completed release leaves, so absence alone cannot separate them.
 
   **The reason this row passes is NOT the one it used to state, and the correction matters more than the wording.** It read *"After the archive commit…"* through STE-448. **There is no archive commit on this leg.** Phase 2 step 3 invokes `/implement <feature-id>`, the single-FR form, which § Milestone Archival says *"intentionally leave[s] `status: active`"* — so archival never runs. What actually deletes the lock is `/implement` **Phase 4 Close step (b)**, which `plugins/dev-process-toolkit/docs/implement-reference.md` specifies for `mode: none` as *"deletes `.dpt/locks/<id>` (runbook does not apply)"* under *"No exit path through Phase 4 skips this step"* — inside step 3, before this phase is reached. Measured by STE-451. A row that passes for a different reason than it states is the documentation twin of a test that passes for the wrong reason, and it is exactly what this milestone exists to remove: the old clause would have sent the next reader looking for a commit that is never made, and it made the row read as evidence about archival when archival plays no part.
 
   **This row is deliberately only HALF of the lock assertion, and the other half is not in this FR.** An end-state absence check is satisfied *vacuously* by a lock that was never created — a claim step that silently no-opped leaves exactly the same disk as a release that worked. So a green result here does **not** establish that the release path works; it establishes only that no lock survived. Proving the lock EXISTED mid-run needs an observation between the claim step and the archive commit, which Phase 4 structurally cannot make (it runs after both), and it is STE-451's fixture group 10. Do not read this row as covering it, and do not widen it here — an absence check that quietly grows a presence claim is how the vacuous-pass class this milestone hunts gets reintroduced one layer up.
+
+  > **SUPERSEDED IN PART BY STE-456, and retained verbatim rather than rewritten.** The paragraph above diagnoses this row correctly and is the reason the row was built the way it was; only its *remedy* has moved. The missing half is now required in this row, in the witness paragraph above, instead of being deferred to a phase that a post-chain kill forfeits — which is exactly what happened on 2026-08-08, when all three legs died before Phase 2.X and this row scored green against a lock that had never been created. Read the paragraph as the record of a hole, not as a live statement of this row's scope. Its warning against *quietly* growing a presence claim still stands: the growth here is neither quiet nor an absence check pretending to be more — it is a second, independently-sourced requirement, and the row fails when it is missing.
 
 #### M54 follow-up probes (lifted per-FR fixtures)
 

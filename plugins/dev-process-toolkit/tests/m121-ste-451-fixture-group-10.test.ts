@@ -706,7 +706,22 @@ describeIfSkills("AC-STE-451.2 — the SKILL's resolver fence, executed under ba
     }
   });
 
-  test("EXECUTED: the 10a sampler latches a hit and stays silent on a miss", () => {
+  test("EXECUTED: the 10a sampler latches a hit and now RECORDS a miss", () => {
+    // SUPERSEDED BY AC-STE-456.1, and rewritten rather than relaxed.
+    //
+    // This test used to assert `expect(existsSync(log)).toBe(false)` after a
+    // miss — it PINNED the one-sided latch, which was never anything STE-451's
+    // ACs required, only how the sampler happened to be written. That
+    // one-sidedness is the defect STE-456 removes: a sampler that ran and found
+    // nothing and a sampler that never ran left BYTE-IDENTICAL disk, so the
+    // log's absence carried no information and the outcome rule could not tell
+    // a short window from a claim that never fired.
+    //
+    // The replacement is strictly stronger, not merely different: it asserts
+    // the exact contents on BOTH sides, so a sampler that wrote nothing, or
+    // wrote unconditionally, or wrote the wrong id, all fail here. The
+    // discriminating pair (never-ran vs ran-and-missed) is measured in
+    // `m121-ste-456-two-sided-lock-evidence.test.ts` § AC-STE-456.1.
     const f = buildFixture();
     const log = join(f.root, "samples.log");
     try {
@@ -718,15 +733,24 @@ describeIfSkills("AC-STE-451.2 — the SKILL's resolver fence, executed under ba
       expect(sampler).not.toBe(fences[1]!); // the substitution applied
       const script = (s: string) => `${aimFenceAt(fences[0]!, f.root)}\n${s}`;
 
-      // No lock yet — the sampler must write nothing at all.
+      // No lock yet — the sampler RECORDS the miss, and snapshots the (absent)
+      // claim witness alongside it.
       runBash(script(sampler));
-      expect(existsSync(log)).toBe(false);
+      expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([
+        `lock-absent ${f.frId}`,
+        "claim-commit none",
+      ]);
 
-      // Lock present — one latched line naming the resolved id.
+      // Lock present — the latched line naming the resolved id, appended.
       mkdirSync(locksDir(f.root), { recursive: true });
       writeFileSync(join(locksDir(f.root), f.frId), `ulid: ${f.frId}\n`);
       runBash(script(sampler));
-      expect(readFileSync(log, "utf8").trim()).toBe(`lock-present ${f.frId}`);
+      expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([
+        `lock-absent ${f.frId}`,
+        "claim-commit none",
+        `lock-present ${f.frId}`,
+        "claim-commit none", // written by hand above, so there is no commit
+      ]);
     } finally {
       cleanup(f);
     }
