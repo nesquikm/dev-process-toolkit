@@ -200,7 +200,7 @@ flowchart TD
 | Pre-flight branch isolation | /implement pre-flight | worktree vs current branch | partial-failure → cherry-pick/continue/discard |
 | Tracker-availability pre-flight | /implement 0.a | zero tracker MCP tools | NFR-10 refuse OR `--code-only` degraded |
 | needs_technical_review refusal | /implement 0.b' | per FR / whole milestone | hard NFR-10 refuse, zero side effects |
-| Claim verification 0.d | /implement (tracker) | re-fetch in_progress AND assignee==me | mismatch → refuse Phase 2 (mode:none skips) |
+| Claim verification 0.d | /implement (both modes) | tracker: re-fetch in_progress AND assignee==me; mode:none: lock file AND claim commit | mismatch/missing → refuse Phase 2, go back and run 0.c |
 | Baseline health gate | /implement Phase 1 step 4 | run gate before any code | broken → fix first |
 | Phase 2 gate / kill switch | /implement step 11 | typecheck+lint+tests | fail → /debug; overrides all judgment |
 | Spec-deviation classify (audit) | /implement step 9 | per deviation; always backfill spec+test | accumulates toward Spec Breakout |

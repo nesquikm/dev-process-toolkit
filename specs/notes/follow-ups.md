@@ -222,19 +222,67 @@ So the general shape is broader than "slice anchors need a non-vacuity assertion
 
 Both live instances are closed. What is unfixed is the class: neither sweep has been run repo-wide.
 
-### 0j. `LocalProvider.claimLock` has NO production caller — what fixture group 10 can and cannot claim
+### 0j. `LocalProvider.claimLock` has NO production caller — **CLOSED by STE-457**
 
-**Verified independently during STE-451, not inherited: `grep` over `plugins/dev-process-toolkit/**/*.ts` excluding `*.test.ts` returns zero imports of `local_provider` and zero `.claimLock(` call sites.**
+**Retained in reduced form rather than deleted, because the measurement is the only executed record of the "before" and STE-457's whole case rests on it** (§ 0a and § 0k(a) precedent).
 
-The entire wire from `/implement` to the lock write is one sentence — `skills/implement/SKILL.md:46`, step 0.c: *"`mode: none`: `LocalProvider.claimLock` writes `.dpt/locks/<id>`."*
+The measurement, verified independently during STE-451 and still true after the fix: `grep` over `plugins/dev-process-toolkit/**/*.ts` excluding `*.test.ts` returns **zero** imports of `local_provider` and **zero** `.claimLock(` call sites. STE-457 added prose, not a caller, so that number did not move and was never the defect. **Prose-directive-as-wire is the toolkit's normal architecture** — this entry was never filed as "no production caller is a bug", and it must not be re-opened as one.
 
-**This is NOT the § 0g shape and must not be filed alongside it.** `renderProbeSkipReason` is structurally unreachable — probe #26 emits no text for it to render, so no amount of model compliance could satisfy the AC that named it. `claimLock` is fully implemented, unit-tested, and reachable; a model that follows the directive produces exactly the artifact group 10 observes. Prose-directive-as-wire is also the toolkit's normal architecture, so "no production caller" is not by itself a defect here.
+What it *did* record was an asymmetry inside one bullet: siblings 0.b′ and 0.b″ each name a module path and a call form, 0.c's tracker half points at a runbook, and 0.c's tracker-less half named neither. **Closed by STE-457**, which gave that half the sibling shape and added the Phase 1-exit arm that reads the artifact back. The 2026-08-08 conformance run is the "before" the entry asked for (*"made only alongside a run that can measure the before/after"*); the "after" is not yet measured and cannot be offline — see § 0n.
 
-**What IS worth recording is an asymmetry inside that one bullet.** Its sibling steps name an invocation form — 0.b′ *"Call `buildResolverConfig(...)` from `adapters/_shared/src/resolver_config.ts`"*, 0.b″ *"call `isCurrentBranchAcceptable(...)` from `adapters/_shared/src/branch_proposal.ts`"*. Step 0.c's tracker half points at a runbook document. Its `mode: none` half names **no file path and no call form** — it states a fact about what a class does rather than instructing anyone to run it. Whether a `claude -p` child improvises the right invocation from that sentence is an empirical question, and **nothing in the repository measures it today.**
+### 0n. A doc-level symmetry PREFERENCE left standing by STE-457 — nothing broken, only uneven
 
-**That is precisely why fixture group 10 is a test and not a restatement**, and it is the honest reading of a group-10 RED at runtime: the first hypothesis is not "the lock code broke" but "step 0.c's mode-none half was never actionable enough to be followed". Both are real findings; they have different remedies.
+**This is not a deferred fix and it must not be read as one.** It is filed as a *preference* with an *unmeasured* cost, which is a different class from every other entry in this file, and it declares that class here so a later reader neither schedules it as a gap nor deletes it as speculative.
 
-**Scope when someone picks it up.** Give 0.c's mode-none half the same shape as its siblings — name the module path and the call — so the directive is followable rather than merely true. That is a one-sentence change to a shipped skill, which no AC of STE-451 authorizes, and it should be made only alongside a run that can measure the before/after.
+**The unevenness.** After STE-457, step 0.c's two halves are symmetric at the *instruction* level — both name a call form, both name where the thing lives, both close with a pointer. They are still asymmetric at the *document* level: the tracker half points at a dedicated runbook (`docs/implement-tracker-mode.md` § Claim runbook) and the tracker-less half points at a section of a shared reference (`docs/implement-reference.md` § Phase 4 Close). A `docs/implement-mode-none.md` runbook would make the two halves match shape for shape.
+
+**Why STE-457 did not write it, argued rather than asserted.** The instruction-level asymmetry was *functional* — one leg had something followable and the other did not, measured on a live run. The document-level asymmetry is *cosmetic*: a reader following either half reaches an executable instruction either way, and no measurement anywhere shows a tracker-less run failing for want of a runbook file. Adding one would buy symmetry and spend a new documentation surface.
+
+**The cost is UNMEASURED, and that is the honest state.** `/gate-check` probe #37 (`cross-cutting-spec-stale-file-refs`) scans path tokens inside directory-tree fences in `specs/technical-spec.md` and `specs/testing-spec.md`. Those fences today list `docs/` as a directory and never per-file, so a new `docs/implement-mode-none.md` would *appear* to cost zero probe-#37 rows — **but that is an inference from the current fence contents, not a measurement**, and the fences are exactly the kind of thing a later milestone tightens. Trading a measured functional fix for an unmeasured drift exposure was the reason to stop; if someone picks this up, measure the exposure first rather than inheriting the inference above.
+
+### 0o. `specs/technical-spec.md` still states a 351-line SKILL cap that the gate enforces at 358
+
+Measured while pinning STE-457's line budget. `tests/skill-nfr-1-length.test.ts:18` carries `SKILL_LINE_CAP = 358` and five other suites duplicate that number, while `specs/technical-spec.md:89` still says *"Every SKILL.md ≤ 351 lines"* and `:556` repeats *"NFR-1 351-line cap"*. Two shipped SKILL files (`setup`, `spec-write`) sit at 358 — i.e. seven lines past what the spec claims is the ceiling — so the spec is not merely stale, it describes a cap the repository is already knowingly over.
+
+Out of scope for STE-457, whose AC pins the *enforced* number and says so. Worth closing as a one-line spec correction rather than a code change: the gate is the authority, and the doc should follow it.
+
+### 0p. TOOLKIT DEFECT — `LocalProvider.claimLock` cannot commit in any project carrying the toolkit's own `commit-msg` hook
+
+**Measured by execution during STE-457, against the real module and the real shipped hook. This is a defect in the SHIPPED PLUGIN, not in M121, and it belongs to `adapters/_shared/src/local_provider.ts` + `templates/git-hooks/commit-msg.sh`.**
+
+The claim commit subject is built at `local_provider.ts:183` as `chore(locks): claim lock for ${id} on ${branch}`. With a real minted id (29 chars) and an ordinary branch name that is **97 characters**. `templates/git-hooks/commit-msg.sh:49-53` rejects any subject over **72**. Executed in a throwaway repo with the shipped hook installed:
+
+```
+subject length: 97 | hook cap: 72
+claimLock THREW: ShellError: Failed with exit code 1
+lock file: PRESENT          # written and `git add`-ed at :181-182
+claim commits found: (none) # the commit at :184 was rejected
+git status:  A  .dpt/locks/fr_01KZ…
+```
+
+`claimLock` writes the lock, stages it, *then* commits — so the failure leaves the lock on disk **staged and uncommitted**, and the exception propagates out of the claim.
+
+**Why it has never been seen.** `claimLock` has zero production callers (§ 0j), and `/setup` step 6b's hook install is explicitly *best-effort* — the model-layer block on `.git/hooks/` writes is **expected** under `bypassPermissions`, which is how every `claude -p` smoke and conformance leg runs. So the autonomous legs carry no hook and the collision never fires there. **Interactive downstream projects do install it**, and that is where this bites.
+
+**What STE-457 changed about it, stated plainly because it is the reason this is filed now.** Before STE-457, step 0.d skipped `mode: none` entirely, so a thrown claim left a dirty tree and the run continued. After STE-457, 0.d is a hard entry gate — so on a hook-carrying project the two conjuncts split (lock present, witness absent) and `/implement` refuses at Phase 1 exit. STE-457 therefore made a latent defect **reachable and blocking**. Its 0.d prose was written to distinguish that exact state and to *not* prescribe re-running 0.c for it, because re-running repeats the rejection — but naming a failure is not repairing it.
+
+**Scope when someone picks it up.** The repair is a code change to the commit subject (e.g. key it on the 6-char tail that already names the FR file) plus the two prose surfaces in `/implement` and the two executed fences in `.claude/skills/smoke-test/SKILL.md` that pin the current subject byte-for-byte — one of them shipped by AC-STE-456.7 specifically to prove the fence matches a subject written by the real `claimLock`. **No AC of STE-457 authorizes any of that**, and changing a commit-message format that three shipped surfaces pin is not a fix to smuggle into a prose FR. It needs its own authorizing commit, on the AC-STE-446.6 mechanism this milestone has now used three times.
+
+### 0q. Four surfaces still state the retired half-only proof-of-release, and one quotes a sentence that no longer exists
+
+Measured during STE-457's review; none is covered by its ACs, which name `docs/implement-reference.md` only.
+
+- `.claude/skills/smoke-test/SKILL.md:14` and `:172` — *"release is proved by the deletion of a lock file rather than by a ticket transition"*. `:172` is the **operator contract printed before every run**, so it is the most visible of the four. The same document's own Phase 4 row was already corrected to the two-sided form by STE-456, so the file now disagrees with itself.
+- `specs/frs/STE-448.md:18` — the same sentence in that FR's § Summary.
+- `specs/frs/STE-451.md:73` — quotes *"the deterministic `.dpt/locks/<id>` deletion in step (b) is the proof-of-release for `mode: none`"* byte-exactly, under the heading *"Measured from the artifacts, not inferred"*. STE-457 deleted that sentence from the document being cited, so an ACTIVE FR now quotes prose that exists nowhere. `grep -rn` for the phrase returns exactly this one hit.
+
+Not swept in STE-457 because two of the four are shipped predecessor FRs and the other two are in the smoke driver, whose AC-STE-448.9 guarded window carries only **94 characters** of headroom (AC-STE-456.6) — editing that file is cheap to get wrong and its budget is asserted. The honest sequencing is one `docs(specs)` commit for the two FRs and a separate, budget-re-measured edit for the driver.
+
+### 0r. `--code-only`'s "behaviour identical to `mode: none`" clause is now false about 0.d as well as 0.c
+
+`skills/implement/SKILL.md:40` says both *"skips 0.c/0.d/0.e"* and *"Behavior identical to `mode: none` for the duration of the run"*, while `:41` resolves `LocalProvider` for `--code-only` too — so the lock machinery is live on that path but the claim and its verification are skipped. Before STE-457 the two clauses collided on 0.c alone (0.d was skipped in both modes and so agreed); after it, `mode: none` runs 0.d as a hard gate while `--code-only` — declared behaviourally identical — does not.
+
+`tests/m84-ste-322-skill-prose-hygiene.test.ts:74-80` pins the literal token list `skips 0.c/0.d/0.e`, which is unchanged and correct; nothing relates 0.a's equivalence claim to what the steps now do per mode. The one-line repair is to narrow the clause to what it means (tracker *side effects* are identical; the tracker-less claim/verify pair is skipped as listed). Widening the skip list instead would be a shipped-contract change no AC authorizes.
 
 ### 0k. Findings from the STE-453 coverage sweep — none of them that FR's doing
 
