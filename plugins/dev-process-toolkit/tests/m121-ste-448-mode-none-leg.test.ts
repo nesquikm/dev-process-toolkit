@@ -659,19 +659,33 @@ describeIfSkills("AC-STE-448.7 — the FR's minted identity, with no tracker blo
 });
 
 describeIfSkills("AC-STE-448.8 — the plan's minted identity and self-derived filename", () => {
-  test("PROSE: the row names the plan path and the verbatim-id requirement", () => {
-    // The second pin was `toMatch(/verbatim/)` — a bare DOCUMENT-WIDE word
-    // match, and `verbatim` occurs nine times in this driver, the first ~1240
-    // lines above the AC.8 row (`skip every Jira-only step verbatim`). MEASURED
-    // by the end-of-FR audit and re-measured here: deleting `**verbatim** —
-    // byte-identical to the FR's` from the row left all 41 tests GREEN. It was
-    // vacuous, in the FR whose own report calls that class out.
+  test("PROSE: the row names the plan path and the self-derivation rule", () => {
+    // ANCHOR HISTORY, kept because each move was forced by a measurement.
     //
-    // Now anchored on the distinguishing phrase, which appears once and only in
-    // this row. The plan path is likewise unique to the row.
+    // (1) The original pin was `toMatch(/verbatim/)` — a bare DOCUMENT-WIDE
+    //     word match, and `verbatim` occurs nine times in this driver, the
+    //     first ~1240 lines above the AC.8 row (`skip every Jira-only step
+    //     verbatim`). MEASURED by the end-of-FR audit: deleting the id-equality
+    //     clause from the row left all 41 tests GREEN. It was vacuous, in the
+    //     FR whose own report calls that class out.
+    // (2) It was then narrowed onto the equality clause, which was unique to
+    //     this row — a correctly anchored, mutation-verified pin guarding a
+    //     requirement no healthy run could meet. STE-455 established the clause
+    //     is unsatisfiable in general (one plan id cannot equal the ids of two
+    //     FRs in the same milestone) and removed it from the row, so that
+    //     anchor now names a string the driver can never contain.
+    // (3) RE-ANCHORED, not deleted, onto the SURVIVING half of the row: the
+    //     self-derivation sentence. Occurrence-count form is retained on
+    //     purpose — a containment check cannot see a second satisfier landing
+    //     elsewhere in the document, which is failure mode (1) exactly. The
+    //     phrase was measured to occur once, and only in this row; the sibling
+    //     suite for STE-455 re-measures both facts against the live document
+    //     and proves the narrowing bit via a mutation that reddens this pin
+    //     while leaving the old one green.
     expect(smokeDoc!).toMatch(/specs\/plan\/M_<TAIL>\.md/);
-    const byteIdentical = smokeDoc!.split("byte-identical to the FR's").length - 1;
-    expect(byteIdentical).toBe(1);
+    const selfDerivation =
+      smokeDoc!.split("its own filename stem equals `M_` + `id.slice(23, 29)`").length - 1;
+    expect(selfDerivation).toBe(1);
   });
 
   test("EXECUTED: the derivation rule the row states is the toolkit's real one", () => {
