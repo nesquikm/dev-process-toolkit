@@ -54,6 +54,7 @@ import {
 } from "../adapters/_shared/src/leg_prose_surfaces";
 import { milestoneIdFromUlid } from "../adapters/_shared/src/milestone_token";
 import { mintId } from "../adapters/_shared/src/ulid";
+import { PRESENCE_CLAIM_TRIPWIRE } from "./_ac9-row-guard";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
@@ -724,7 +725,20 @@ describeIfSkills("AC-STE-448.8 — the plan's minted identity and self-derived f
   });
 });
 
-describeIfSkills("AC-STE-448.9 — the lock file is absent after the archive commit", () => {
+// TITLE CORRECTED TWICE OVER, and both corrections are the same class.
+//
+// It read "the lock file is absent after the archive commit". There is no
+// archive commit on this leg — the smoke chain's single-FR form never archives,
+// and the driver row itself has said so in bold since STE-451 measured it. The
+// title went on stating the retired reason while its own subject contradicted
+// it, which is `specs/notes/follow-ups.md` § 0i's family: a guard that keeps
+// running and stops describing what it holds.
+//
+// STE-456 then changed the row's CONTRACT: it now requires the durable claim
+// witness AND the absence, because absence alone is satisfied by a claim that
+// never fired — which is exactly what the 2026-08-08 tracker-less leg produced.
+// The authorizing amendment to `specs/frs/STE-448.md` lands ahead of this file.
+describeIfSkills("AC-STE-448.9 — the release proof: the durable claim witness AND the absence", () => {
   test("PROSE: the row names the lock path and keys it on the FULL id", () => {
     expect(smokeDoc!).toMatch(/`\.\.\/dpt-test-project-none\/\.dpt\/locks\/<id>` is \*\*ABSENT\*\*/);
     expect(smokeDoc!).toMatch(/never the 6-char tail/);
@@ -788,17 +802,24 @@ describeIfSkills("AC-STE-448.9 — the lock file is absent after the archive com
     // that has been relocated looks exactly like a guard that is satisfied, so
     // the slice must prove it still holds its subject before banning anything.
     expect(row).toContain("the release proof");
-    expect(row).not.toMatch(
-      /\b(?:assert|verify|check|confirm|pin)\b[^\n]{0,70}\block\w*[^\n]{0,40}\b(?:exists?|existed|is present|was created)\b/i,
-    );
+    // NARROWED BY STE-456, AND HOISTED TO ONE DEFINITION. This test and the
+    // not-blind anchor below held INDEPENDENT copies of the same literal —
+    // STE-451's correction #40 exactly: editing one leaves the other green, so
+    // the anchor stops protecting the ban at the moment it would matter. Both
+    // now read `tests/_ac9-row-guard.ts`.
+    //
+    // The narrowing itself is measured in both directions (widened for verb
+    // inflections, narrowed to permit a git-history witness) in
+    // `m121-ste-456-two-sided-lock-evidence.test.ts` § AC-STE-456.5, against a
+    // labelled corpus and against the form being replaced.
+    expect(row).not.toMatch(PRESENCE_CLAIM_TRIPWIRE);
   });
 
   test("the tripwire is not blind — it catches the strengthenings actually reached for", () => {
     // Non-vacuity, and the lesson from § 5 applied: every absence assertion
     // gets a paired POSITIVE input at the moment of writing. Without this, the
     // widened regex is just a second unexamined claim replacing the first.
-    const re =
-      /\b(?:assert|verify|check|confirm|pin)\b[^\n]{0,70}\block\w*[^\n]{0,40}\b(?:exists?|existed|is present|was created)\b/i;
+    const re = PRESENCE_CLAIM_TRIPWIRE;
     for (const drift of [
       "assert the lock exists before the archive commit",
       "also verify the lock file was created mid-run",
