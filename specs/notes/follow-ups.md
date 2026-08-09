@@ -366,6 +366,31 @@ Measured, not theorised. STE-458's `AC-STE-458.1` asserted that every commit tou
 
 **The general shape, which is worth more than the instance.** Falsifiability discipline proves an assertion CAN fail. It does not prove the assertion is ABOUT THE RIGHT THING, and it does not prove the assertion is CHECKABLE AT THE MOMENT YOU RELY ON IT. Those are three separate properties and this repository has now been bitten by all three.
 
+### 0s. THE LIVE-THEN-ARCHIVE FALLBACK IS A CONVENTION DISCOVERABLE ONLY BY READING OTHER TESTS — **CLOSED for M121 by STE-459, OPEN as a class**
+
+**Found by performing M121's archive, not by any test that asked the question.** Recorded here rather than only in the FR because the FR will be archived by the very operation it describes, and because the general shape outlives this milestone.
+
+**The measurement.** Archiving M121's thirteen FRs and its plan took the gate from `7047 pass / 15 skip / 0 fail` to `7030 pass / 18 skip / 14 fail`. Six of this milestone's own test files bind a milestone-scoped spec artifact at the live path with no `archive/` fallback:
+
+| file | binds | on archival |
+|---|---|---|
+| `tests/m121-ste-445-derivation-falsifiability.test.ts` | `specs/plan/M121.md` | 3 hard failures |
+| `tests/m121-ste-446-leg-set-authority.test.ts` | `specs/frs/STE-446.md` | 3 hard failures |
+| `tests/m121-ste-452-termination-harness.test.ts` | `specs/frs/STE-452.md` | 1 hard failure |
+| `tests/m121-ste-457-mode-none-claim-instruction.test.ts` | `specs/frs/STE-457.md` + the plan | 7 hard failures |
+| `tests/m121-ste-455-plan-id-equality-correction.test.ts` | `specs/frs/STE-448.md` | 1 SILENT skip, unlabelled |
+| `tests/m121-ste-458-capture-artifact-identity.test.ts` | `specs/frs/STE-458.md` | 2 labelled skips |
+
+**The idiom already existed and nothing required its use.** `existsSync(active) ? active : archived` ships verbatim at `tests/m108-ste-393-docs-pins.test.ts:99` (`const planPath = existsSync(active) ? active : archived;`) and `tests/m114-ste-416-linear-checkbox-doc-accuracy.test.ts:203` (`const frPath = existsSync(activePath) ? activePath : archivePath;`) — M108 and M114, thirteen and seven milestones ahead of M121. **A convention whose only documentation is its own prior call sites is not discoverable by anyone who does not already know to look**, and the next person writing a milestone-scoped test file will make the same mistake for the same reason. STE-459 therefore ships a meta-test over `tests/m121-*.test.ts` alongside the six edits; **that meta-test is milestone-scoped, so the class is closed for M121 and OPEN for M122+.** Widening it to all `tests/*.ts` was not attempted here and is the obvious next step.
+
+**Why the quiet half is the worse half, stated once so it is not re-litigated.** The fourteen failures stop a release and get read. The three skips leave a GREEN gate at a higher skip number, and nothing in the report says which three assertions stopped guarding anything. The guards were written to tolerate a plugin-only checkout that ships no `specs/` — a real and correct concern — and archival is byte-indistinguishable from that case at the only signal the guard consults (`existsSync`). **A guard cannot distinguish "this consumer never had the artifact" from "this repository just moved it" without being told which question it is asking.**
+
+**The labelling asymmetry, worth more than the instance.** `m121-ste-458` renders `[SKIPPED — FR absent from specs/frs/ or history unreachable]` into the test name; `m121-ste-455` is a bare `describe.skip`. The first is legible to a reader scrolling a 7000-test report; the second is indistinguishable from a test someone disabled on purpose. **Rule worth carrying: a guard that can fire during a routine repository operation must name its reason in the test title.** Neither should skip on archival at all — both now read the archived path — but the labelling rule is what makes the residual cases safe.
+
+**A single-path fallback is NOT always the fix, and `m121-ste-458` is the counter-example.** Its path constant feeds `commitsTouching`, i.e. `git log --diff-filter=AM -- <path>`. `git log` without `--follow` does not cross a rename, and the live path's post-archive `D` is excluded by the `AM` filter — so the archived path's history is exactly one commit, the archive commit itself. Falling back to it alone empties `authorizing` and turns the deliberate non-vacuity assertion into a hard failure: **the naive fix converts a silent skip into a red test and looks, from the failure message, like the archive broke something.** The repair is the union of both paths, concatenated **archive-first** so newest-first ordering survives and `FR_COMMITS[length - 1]` still resolves to the authorizing commit. `--follow` is explicitly not the answer here for the same reason probe #73 rejected it: similarity matching launders one template-shaped artifact into another.
+
+**Generalisation.** This is the third distinct mechanism in M121 by which an assertion stops being about its subject while the suite reports green — after § 0i's anchor relocation (`indexOf` returning a valid index into the wrong text) and § 0i's once-occurring-token dilution. Those two were caught by mutation *inside* the milestone. This one was caught only by performing the archive, and **no mutation battery would have found it**, because every mutation in this milestone was measured against a live tree. The class to watch: **any state transition that no gate run precedes.** § 0l names the other member (history-asserting tests, verified one commit late).
+
 ### 1. Cross-commit atomicity is NOT enforced — AC-STE-446.7 ships with one arm
 
 **This is a known, deliberate absence. Do not read the green suite as covering it.**
