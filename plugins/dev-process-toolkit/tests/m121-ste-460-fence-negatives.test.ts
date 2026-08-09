@@ -26,7 +26,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { bashFences } from "./_fence";
-import { CLAIM_FENCE_NEGATIVES } from "./_claim-fence-negatives";
+import { CLAIM_FENCE_NEGATIVES, claimFenceIndices } from "./_claim-fence-negatives";
 import { LocalProvider } from "../adapters/_shared/src/local_provider";
 import { mintId } from "../adapters/_shared/src/ulid";
 
@@ -59,12 +59,10 @@ describe("STE-460 fence negatives — the driver under test was actually found",
 const GROUP10_RE = /#### Fixture group 10 — [\s\S]*?(?=\n#### |\n### |$)/;
 const SAMPLE_LOG_LITERAL = "/tmp/dpt-smoke-<tracker>-ste451-lock-samples.log";
 
-/** The two shipped fences that carry the claim-subject `--grep` pattern. */
-const CLAIM_FENCE_INDICES = [1, 2] as const;
-
 function group10Fences(): string[] {
   return bashFences(GROUP10_RE.exec(smokeDoc ?? "")?.[0] ?? "");
 }
+
 
 interface Fixture {
   root: string;
@@ -244,7 +242,7 @@ describeIfSkills("AC-STE-460.1 / .2 — the fence negative sees the anchor and t
     const fences = group10Fences();
     const anchorDrop = CLAIM_FENCE_NEGATIVES.find((n) => n.label === "anchor-drop")!;
     const spaceDrop = CLAIM_FENCE_NEGATIVES.find((n) => n.label === "trailing-space-drop")!;
-    for (const idx of CLAIM_FENCE_INDICES) {
+    for (const idx of claimFenceIndices(group10Fences())) {
       const fence = fences[idx]!;
       const shipped = grepPattern(fence);
       expect({ idx, anchored: shipped.startsWith("^") }).toEqual({ idx, anchored: true });
@@ -268,7 +266,7 @@ describeIfSkills("AC-STE-460.1 / .2 — the fence negative sees the anchor and t
         git(f.root, "commit", "--quiet", "--amend", "-m", subject);
         expect(git(f.root, "log", "--format=%s", "-1")).toBe(subject); // applied
         const fences = group10Fences();
-        for (const idx of CLAIM_FENCE_INDICES) {
+        for (const idx of claimFenceIndices(group10Fences())) {
           expect({
             label: negative.label,
             fence: idx,
@@ -293,7 +291,7 @@ describeIfSkills("AC-STE-460.1 / .2 — the fence negative sees the anchor and t
         const subject = negative.subject(f.frId, f.branch);
         git(f.root, "commit", "--quiet", "--amend", "-m", subject);
         const fences = group10Fences();
-        for (const idx of CLAIM_FENCE_INDICES) {
+        for (const idx of claimFenceIndices(group10Fences())) {
           const widened = negative.widen(fences[idx]!);
           expect({ label: negative.label, fence: idx, applied: widened !== fences[idx]! }).toEqual({
             label: negative.label,
@@ -323,7 +321,7 @@ describeIfSkills("AC-STE-460.3 — no strengthened negative turns a healthy run 
       expect(git(f.root, "log", "--format=%s", "-1")).toBe(
         `chore(locks): claim lock for ${f.frId} on ${f.branch}`,
       );
-      for (const idx of CLAIM_FENCE_INDICES) {
+      for (const idx of claimFenceIndices(group10Fences())) {
         expect({ fence: idx, found: witnessFound(f, idx, group10Fences()[idx]!) }).toEqual({
           fence: idx,
           found: true,
@@ -362,7 +360,7 @@ describeIfSkills("AC-STE-460.3 — no strengthened negative turns a healthy run 
       await claim(f);
       const fences = group10Fences();
       for (const negative of CLAIM_FENCE_NEGATIVES) {
-        for (const idx of CLAIM_FENCE_INDICES) {
+        for (const idx of claimFenceIndices(group10Fences())) {
           expect({
             label: negative.label,
             fence: idx,
@@ -389,5 +387,49 @@ describeIfSkills("AC-STE-460.3 — no strengthened negative turns a healthy run 
     expect(suite!).toContain("./_claim-fence-negatives");
     expect(suite!).toContain("CLAIM_FENCE_NEGATIVES");
     expect(suite!).not.toContain('original.replace("claim lock", "claim Lock")');
+  });
+});
+
+// ══════════ AC-STE-460.11 — the claim-fence set is DERIVED, not listed ═══════
+
+describeIfSkills("AC-STE-460.11 — a fourth claim fence is covered, not silently missed", () => {
+  // Synthetic fence bodies. The derivation's INPUT is the fence list, so feeding
+  // it a constructed list tests the real predicate against the real question
+  // without mutating a shipped document.
+  const RESOLVER = 'TP=../dpt-test-project-none\nFR_ID="$(cat "${TP}/id")"\n';
+  const SAMPLER = 'LOG=/tmp/x.log\nCLAIM_SHA="$(git -C "${TP}" log --basic-regexp \\\n  --grep="^chore(locks): claim lock for ${FR_ID} ")"\n';
+  const TENB = 'SHA="$(git -C "${TP}" log --basic-regexp --grep="^chore(locks): claim lock for ${FR_ID} ")"\n';
+  const FOURTH_CLAIM = 'X="$(git -C "${TP}" log --basic-regexp --grep="^chore(locks): claim lock for ${FR_ID}$")"\n';
+  const RELEASE_GREP = 'R="$(git -C "${TP}" log --basic-regexp --grep="^chore(locks): release lock for ${FR_ID}")"\n';
+
+  test("the derivation reproduces the shipped set on the shipped document", () => {
+    expect(claimFenceIndices(group10Fences())).toEqual([1, 2]);
+  });
+
+  test("EXECUTED: a FOURTH claim fence is covered by the derived form, and NOT by [1, 2]", () => {
+    const withFourth = [RESOLVER, SAMPLER, TENB, FOURTH_CLAIM];
+    const derived = claimFenceIndices(withFourth);
+    // The derived form reaches it…
+    expect(derived).toEqual([1, 2, 3]);
+    // …and the literal this AC retired does not. Stated as the measurement it
+    // is, not as a comment: the retired form would have left index 3 unguarded.
+    const RETIRED_HARDCODED = [1, 2];
+    expect(RETIRED_HARDCODED).not.toContain(3);
+    expect(derived.filter((i) => !RETIRED_HARDCODED.includes(i))).toEqual([3]);
+  });
+
+  test("EXECUTED: the divergence throw FIRES — the two predicates are independent", () => {
+    // A fence the BROAD predicate sees and the PRECISE one does not. If no such
+    // fence could be constructed, the two sides could never disagree, the throw
+    // could never fire, and the derivation would be one expression wearing two
+    // names — which is the circularity this milestone keeps catching.
+    const withRelease = [RESOLVER, SAMPLER, TENB, RELEASE_GREP];
+    expect(() => claimFenceIndices(withRelease)).toThrow(/predicates disagree/);
+    // …and the message names BOTH sets, so a human can see which fence arrived.
+    expect(() => claimFenceIndices(withRelease)).toThrow(/claim=\[1,2\] anyGrep=\[1,2,3\]/);
+  });
+
+  test("EXECUTED: an empty claim set throws rather than reporting zero work", () => {
+    expect(() => claimFenceIndices([RESOLVER])).toThrow(/no fence in fixture group 10/);
   });
 });
