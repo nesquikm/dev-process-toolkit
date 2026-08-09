@@ -74,8 +74,11 @@ const MODULE_PATH = join(
 );
 const MODULE_REL = "adapters/_shared/src/capture_artifact_identity.ts";
 
-// Repo-relative, for the git-order assertions.
+// Repo-relative, for the git-order assertions. The archived twin is named
+// alongside it because after milestone archival the FR lives at exactly one of
+// the two and its HISTORY spans both — see AC-STE-459.5 at the FR_COMMITS site.
 const FR_REPO_REL = "specs/frs/STE-458.md";
+const FR_REPO_REL_ARCHIVED = "specs/frs/archive/STE-458.md";
 const MODULE_REPO_REL = `plugins/dev-process-toolkit/${MODULE_REL}`;
 const THIS_TEST_REPO_REL =
   "plugins/dev-process-toolkit/tests/m121-ste-458-capture-artifact-identity.test.ts";
@@ -257,12 +260,42 @@ function isAncestor(earlier: string, later: string): boolean {
   return git(["merge-base", "--is-ancestor", earlier, later]).ok;
 }
 
-const FR_COMMITS = commitsTouching(FR_REPO_REL);
-// A shallow clone, a non-git checkout, or an FR that has since been archived
-// out of specs/frs/ leaves nothing to order — say so in the name rather than
-// passing silently.
+// AC-STE-459.5 — the union of both paths, and the ORDER is load-bearing.
+//
+// A plain live-then-archive fallback on the PATH is the right fix for the five
+// sibling suites and the WRONG one here, measured rather than reasoned:
+// `commitsTouching` runs `git log --diff-filter=AM`, `git log` without
+// `--follow` does not cross a rename, and the live path's post-archive `D` is
+// excluded by the `AM` filter. So the archived path's history is exactly ONE
+// commit — the archive commit itself, an `A`. Resolving to it alone leaves
+// `authorizing` empty and turns the deliberate non-vacuity assertion below
+// into a hard failure, i.e. the naive fix converts a silent skip into a red
+// test whose message blames the archive.
+//
+// Archive-FIRST because `FR_COMMITS[length - 1]` is read as the OLDEST commit,
+// the one that authorized the work, and the second test asserts it is an
+// ancestor of every code commit. Post-archive the archive commit is the
+// newest, so archive-first preserves newest-first across the union; live-first
+// would put the archive commit last and assert that the archive authorized the
+// code. Pre-archive the archived path contributes an empty list, so this
+// degenerates to the previous value by construction, not by coincidence.
+//
+// `--follow` is deliberately NOT used: content-similarity matching launders one
+// template-shaped artifact into another, the same hazard probe #73 rejected it
+// for. A union of two explicit paths carries no similarity heuristic.
+const FR_COMMITS = [
+  ...commitsTouching(FR_REPO_REL_ARCHIVED),
+  ...commitsTouching(FR_REPO_REL),
+];
+// A shallow clone or a non-git checkout leaves nothing to order — say so in the
+// name rather than passing silently. Archival no longer reaches this: the FR is
+// resolved live-then-archive, the house conditional already shipped at
+// `m108-ste-393-docs-pins.test.ts:99` and `m114-ste-416-…:203`.
+const FR_RESOLVED_REL = existsSync(join(REPO_ROOT, FR_REPO_REL))
+  ? FR_REPO_REL
+  : FR_REPO_REL_ARCHIVED;
 const AUTHORIZATION_UNCHECKABLE =
-  !existsSync(join(REPO_ROOT, FR_REPO_REL)) || FR_COMMITS.length === 0;
+  !existsSync(join(REPO_ROOT, FR_RESOLVED_REL)) || FR_COMMITS.length === 0;
 
 describe("AC-STE-458.1 — the correction is authorized by its own docs(specs) commit", () => {
   test.skipIf(AUTHORIZATION_UNCHECKABLE)(

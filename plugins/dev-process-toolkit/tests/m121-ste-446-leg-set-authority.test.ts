@@ -126,7 +126,11 @@ const SCOPING_TEST_REL =
   "plugins/dev-process-toolkit/tests/m116-ste-423-tracker-scoped-artifacts.test.ts";
 const SCOPING_TEST_SRC = join(REPO_ROOT, SCOPING_TEST_REL);
 
-const FR_PATH = join(REPO_ROOT, "specs/frs/STE-446.md");
+// AC-STE-459.2 — live-then-archive, the house conditional already shipped at
+// `m108-ste-393-docs-pins.test.ts:99` and `m114-ste-416-…:203`.
+const FR_ACTIVE = join(REPO_ROOT, "specs/frs/STE-446.md");
+const FR_ARCHIVED = join(REPO_ROOT, "specs/frs/archive/STE-446.md");
+const FR_PATH = existsSync(FR_ACTIVE) ? FR_ACTIVE : FR_ARCHIVED;
 
 const LOOP_SKILL = join(REPO_ROOT, ".claude/skills/conformance-loop/SKILL.md");
 const SMOKE_SKILL = join(REPO_ROOT, ".claude/skills/smoke-test/SKILL.md");

@@ -49,7 +49,15 @@ import { mintId } from "../adapters/_shared/src/ulid";
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
 const SMOKE_SKILL = join(REPO_ROOT, ".claude/skills/smoke-test/SKILL.md");
-const FR_448 = join(REPO_ROOT, "specs/frs/STE-448.md");
+// AC-STE-459.2 / .4 — live-then-archive, the house conditional already shipped
+// at `m108-ste-393-docs-pins.test.ts:99` and `m114-ste-416-…:203`. Before
+// STE-459 this constant was live-only, so archiving the milestone made
+// `describeIfSpecs` fire and the AC-STE-455.5 block skipped SILENTLY — a bare
+// `describe.skip` with no reason in the title, indistinguishable from a test
+// somebody disabled on purpose, while the suite went on reporting green.
+const FR_448_ACTIVE = join(REPO_ROOT, "specs/frs/STE-448.md");
+const FR_448_ARCHIVED = join(REPO_ROOT, "specs/frs/archive/STE-448.md");
+const FR_448 = existsSync(FR_448_ACTIVE) ? FR_448_ACTIVE : FR_448_ARCHIVED;
 /** The file that carries the pin under correction. Read as TEXT, never imported. */
 const PIN_FILE = join(import.meta.dir, "m121-ste-448-mode-none-leg.test.ts");
 
