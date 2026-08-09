@@ -43,8 +43,15 @@ const IMPLEMENT_REFERENCE = join(PLUGIN_ROOT, "docs/implement-reference.md");
 const LOCAL_PROVIDER = join(PLUGIN_ROOT, "adapters/_shared/src/local_provider.ts");
 const DETECTOR_SUITE = join(import.meta.dir, "m121-ste-456-two-sided-lock-evidence.test.ts");
 
-const FR_457 = join(REPO_ROOT, "specs/frs/STE-457.md");
-const PLAN_M121 = join(REPO_ROOT, "specs/plan/M121.md");
+// AC-STE-459.2 — live-then-archive, the house conditional already shipped at
+// `m108-ste-393-docs-pins.test.ts:99` and `m114-ste-416-…:203`. Seven of this
+// suite's assertions went red on archival before STE-459.
+const FR_457_ACTIVE = join(REPO_ROOT, "specs/frs/STE-457.md");
+const FR_457_ARCHIVED = join(REPO_ROOT, "specs/frs/archive/STE-457.md");
+const FR_457 = existsSync(FR_457_ACTIVE) ? FR_457_ACTIVE : FR_457_ARCHIVED;
+const PLAN_ACTIVE = join(REPO_ROOT, "specs/plan/M121.md");
+const PLAN_ARCHIVED = join(REPO_ROOT, "specs/plan/archive/M121.md");
+const PLAN_M121 = existsSync(PLAN_ACTIVE) ? PLAN_ACTIVE : PLAN_ARCHIVED;
 const FOLLOW_UPS = join(REPO_ROOT, "specs/notes/follow-ups.md");
 
 function read(path: string): string | null {

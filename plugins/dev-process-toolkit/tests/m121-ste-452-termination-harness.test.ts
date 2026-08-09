@@ -29,7 +29,11 @@ const pluginRoot = join(import.meta.dir, "..");
 const repoRoot = join(pluginRoot, "..", "..");
 
 const LOOP_SKILL = join(repoRoot, ".claude", "skills", "conformance-loop", "SKILL.md");
-const FR_PATH = join(repoRoot, "specs", "frs", "STE-452.md");
+// AC-STE-459.2 — live-then-archive, the house conditional already shipped at
+// `m108-ste-393-docs-pins.test.ts:99` and `m114-ste-416-…:203`.
+const FR_ACTIVE = join(repoRoot, "specs", "frs", "STE-452.md");
+const FR_ARCHIVED = join(repoRoot, "specs", "frs", "archive", "STE-452.md");
+const FR_PATH = existsSync(FR_ACTIVE) ? FR_ACTIVE : FR_ARCHIVED;
 
 /**
  * The loop driver is a repo-local dogfood skill, not a shipped plugin skill, so

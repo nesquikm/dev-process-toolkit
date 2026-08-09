@@ -94,7 +94,13 @@ const STE425_TEST_PATH = join(
   "tests",
   "m117-ste-425-falsifiable-coverage.test.ts",
 );
-const PLAN_PATH = join(REPO_ROOT, "specs", "plan", "M121.md");
+// AC-STE-459.2 — live-then-archive, the house conditional already shipped at
+// `m108-ste-393-docs-pins.test.ts:99` and `m114-ste-416-…:203`. Archiving the
+// milestone must not change what this suite checks; before STE-459 it took
+// three of these assertions red.
+const PLAN_ACTIVE = join(REPO_ROOT, "specs", "plan", "M121.md");
+const PLAN_ARCHIVED = join(REPO_ROOT, "specs", "plan", "archive", "M121.md");
+const PLAN_PATH = existsSync(PLAN_ACTIVE) ? PLAN_ACTIVE : PLAN_ARCHIVED;
 
 // ──────────────────────── the module under construction ────────────────────
 //
