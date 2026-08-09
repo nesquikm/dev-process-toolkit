@@ -246,6 +246,20 @@ Measured while pinning STE-457's line budget. `tests/skill-nfr-1-length.test.ts:
 
 Out of scope for STE-457, whose AC pins the *enforced* number and says so. Worth closing as a one-line spec correction rather than a code change: the gate is the authority, and the doc should follow it.
 
+### 0v. STRUCTURAL — an FR's blast-radius enumeration is a HYPOTHESIS, and it has been wrong eight times across two milestones
+
+**Not a defect in any one FR. A property of how FRs are written in this repository, which the next author should meet before it bites them.**
+
+**The count.** M116 recorded three FRs that undercounted their own defect (5 glob literals not 4, 9 grep sites not 8, 1 trigger not 2). M121 has now added five: STE-457's blast-radius table named one shipped surface where the change touched three; STE-460 AC.6 said the cap sat in "three places" where raw counting found six; STE-460 AC.9's pin set was counted three different ways across three surfaces; STE-461 AC.13 enumerated `:376/377/378` and missed `:171` and `:254`; and STE-461's own § Technical Design named three changing surfaces where the diff carried twelve. **Eight instances is not a run of bad luck.**
+
+**The mechanism, which is the part worth carrying.** An enumeration written at spec time is produced by *reading* — greps, recall, a scan of the obvious sites. The implementation is produced by *executing*. Those two methods disagree systematically, and they disagree in one direction: reading undercounts, because a site you did not think to search for is indistinguishable from a site that does not exist. STE-460 measured this directly — a comment/string tokenizer for the cap scan was written and discarded because **every mis-parse undercounts**, i.e. every failure mode of the smarter method produces a false GREEN on the exact question being asked.
+
+**The rule.** Treat a spec-time site list as a hypothesis to be re-measured, never as an inventory to build on. `specs/plan/archive/M121.md`'s blast-radius table already says *"Derive it from the diff"* about itself; that instruction generalises to every enumeration in every FR, and the failure to generalise it is what produced five of the eight. Concretely: after the producer-side change lands and before the sweep begins, run the gate and read the failure set — that is the real site list, and it costs one run.
+
+**A sharper variant, recorded because the evidence LOOKS sound.** STE-461 AC.13 did not merely undercount; it asserted that two specific pins *could not* redden, on the strength of a real executed measurement. The measurement was correct — taken under a **rewording** mutation, where both truncation-tolerant pins legitimately stayed green. The FR performs a **deletion**, which removes the trailing space those pins depend on, and both redden. **A correct measurement of the wrong mutation is more insidious than an unfalsifiable assertion**, because the evidence exists, re-runs, and confirms — while bearing on a question nobody asked. What transfers between a mutation and a change is the *technique*; what does not transfer is the *applicability*, and nothing in the measurement announces the gap. The three known falsifiability failures are now: an assertion that cannot fail; a perfect pin on the wrong subject; and sound evidence for the wrong mutation.
+
+**And under-claiming is not the safe direction.** A spec that says "these cannot redden" while they redden is contradicted by execution the first time a reviewer checks it, and one contradicted clause costs the reader their trust in every other clause of that FR.
+
 ### 0p. TOOLKIT DEFECT — `LocalProvider.claimLock` cannot commit in any project carrying the toolkit's own `commit-msg` hook
 
 **Measured by execution during STE-457, against the real module and the real shipped hook. This is a defect in the SHIPPED PLUGIN, not in M121, and it belongs to `adapters/_shared/src/local_provider.ts` + `templates/git-hooks/commit-msg.sh`.**
