@@ -280,6 +280,28 @@ Executed, not inferred: `ITER=3 MAX_ITERATIONS=""` → `bash: [: : integer expre
 
 **Method note, because it is the reusable part.** Every entry above was produced by re-implementing the assertions as predicates over the document text and applying named mutations, rather than by reading them and judging. Four of the findings were invisible to reading — they look like ordinary pins — and **four were in assertions STE-453 itself had just written**: two caught by the mutation battery (a borrowed-window label pin, a section-wide `toContain` donated by a sibling bullet) and two more by the AUDIT stage afterwards (a ban whose exemption was line-wide rather than clause-wide, and an inverse check that iterated an empty list for two of its three regions). **The battery did not catch the audit's two, and the audit did not catch the battery's two.** They are not substitutes, and this FR is the fourth consecutive measurement of that in M121.
 
+### 0l. STRUCTURAL — a history-asserting test is verified one commit LATE, by construction
+
+**Not a defect in any FR. A property of this repository's test suite that the next person to write such a test should meet before it bites them, as it bit STE-458.**
+
+A test whose subject is git history — "the authorizing commit precedes the code", "this file's commits are all `docs(specs)`", "the archive commit carries a flipped frontmatter" — **cannot be verified by a gate run that precedes the commit under test.** Its input is the history, and the commit being judged is the thing that changes the history. So:
+
+- The gate is green at the moment the commit is proposed.
+- The commit lands.
+- The test's input is now different, and the answer may be different too.
+- **The green reported at that gate was true of a tree that no longer existed the instant the commit landed.**
+
+Measured, not theorised. STE-458's `AC-STE-458.1` asserted that every commit touching `specs/frs/STE-458.md` is `docs(specs)`-typed. The suite was green when the implementation commit was proposed. That commit carried the FR's `## Implementation notes`, so a `fix(tests):` commit touched the FR — and the assertion went RED **after** landing. It was found only because an unrelated edit prompted a re-run; nothing in the flow would otherwise have looked again.
+
+**Consequences, and they are not fixable by trying harder.**
+
+1. **The first honest run of a history-asserting test is the NEXT gate, never the one that approves its commit.** This is the one class in this repository where "verify by execution before deciding" is structurally impossible — the execution cannot happen before the decision, because the decision creates the input.
+2. **A gate report that predates the commit cannot vouch for these tests.** It can vouch for everything else in the same run. Report them as unverified-at-this-gate rather than folding them into a single green number that implies otherwise.
+3. **Re-run the gate immediately AFTER any commit that touches a path a history test watches** — the FR file itself, the module, the test file. Cheap, and it converts a latent red into an immediate one.
+4. Prefer asserting the ORDERING property (authorized-before-code) over a proxy for it (every commit is a given type). The proxy over-constrains, and over-constraint is what turns a legitimate commit shape into a false red. STE-458's assertion was narrowed for exactly this reason and its narrowing was mutation-verified in both directions.
+
+**The general shape, which is worth more than the instance.** Falsifiability discipline proves an assertion CAN fail. It does not prove the assertion is ABOUT THE RIGHT THING, and it does not prove the assertion is CHECKABLE AT THE MOMENT YOU RELY ON IT. Those are three separate properties and this repository has now been bitten by all three.
+
 ### 1. Cross-commit atomicity is NOT enforced — AC-STE-446.7 ships with one arm
 
 **This is a known, deliberate absence. Do not read the green suite as covering it.**
