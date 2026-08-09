@@ -391,6 +391,22 @@ Measured, not theorised. STE-458's `AC-STE-458.1` asserted that every commit tou
 
 **Generalisation.** This is the third distinct mechanism in M121 by which an assertion stops being about its subject while the suite reports green — after § 0i's anchor relocation (`indexOf` returning a valid index into the wrong text) and § 0i's once-occurring-token dilution. Those two were caught by mutation *inside* the milestone. This one was caught only by performing the archive, and **no mutation battery would have found it**, because every mutation in this milestone was measured against a live tree. The class to watch: **any state transition that no gate run precedes.** § 0l names the other member (history-asserting tests, verified one commit late).
 
+### 0u. CORRECTION TO THE RECORD — the 2026-08-08 run produced **five** high-severity findings, not three, and 13 is a FLOOR
+
+**Recorded here because the number was repeated several times in narration and once, in narrower form, in the archived plan.** `follow-ups.md` is live and takes the correction; the archived plan is frozen and is not re-edited for it (see § 0t for the one edit that was authorized, and why this one was not folded into it).
+
+**The measured figures**, from `scratchpad/conformance-findings.md` (the run report; a session artifact, not a repo one — [[feedback_gate_report_not_an_artifact]]):
+
+- **Thirteen findings recorded.** Seven at the loop layer (`F1`–`F7`) and six relayed verbatim from the jira leg's own surviving findings file (`J1`–`J6`).
+- **Five are high.** `F1`, `F2`, `F3` at the loop layer; `J1` and `J6` relayed. `J4` is medium-high. Verified against the severity lines at `:62`, `:111`, `:145`, `:246`, `:261`.
+- **The milestone fixed TWO of the five** — `F1` (STE-456 detection, then STE-457 fix) and `F2` (STE-455). `F3`, `J1` and `J6` are unfixed and no FR claims them.
+
+**`F3` is not a defect the milestone declined to fix — it is not a code defect at all.** The report tags it *"high (operational, not a code defect)"*: all three legs killed simultaneously by a weekly usage limit ~50–60 minutes in, after the six canonical skills and before the post-chain phases. Counting it among "defects found" overstates what the run surfaced about the code.
+
+**THIRTEEN IS A LOWER BOUND ON AN UNKNOWN, NOT A COUNT.** `F4` records that two of the three legs lost every finding they had — only the jira leg wrote its findings file incrementally — in the report's own words, *"The run kept 6 findings and lost an unknown number."* So the true figure is unknowable from this run, and any statement of the form "the run found N" is a statement about what survived the kill, not about what the run observed. **This is the part most likely to be dropped when the number is repeated**, and dropping it converts a floor into an apparent total.
+
+**Where the narrower phrasing survives.** `specs/plan/archive/M121.md` § FR list reads *"They close the two high findings that run produced"*. That sentence is accurate about what the follow-up wave CLOSED and inaccurate about what the run PRODUCED. It is left as written because the plan is archived and the § 0t exception was authorized for the blast-radius count alone; a reader reaching that line should read it as "the two the wave closed" and come here for the run's actual tally.
+
 ### 0t. `specs/plan/archive/M121.md` was edited after archival, under an operator-authorized exception — **NOT a general licence**
 
 **Sibling to § 10 of the M116 section** (`specs/frs/archive/STE-417.md`, edited under a spec-authorized exception). Recorded for the same reason: a future reader who finds an archived file with a post-archival edit should get the reason rather than a mystery.
