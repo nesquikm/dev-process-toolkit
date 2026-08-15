@@ -461,10 +461,10 @@ describe("AC-STE-464.10 — canonical roster gains group 11; SMOKE_LEGS is untou
     );
   });
 
-  test("the roster is 11 groups, 1..11 in order", () => {
-    expect(CANONICAL_FIXTURE_GROUPS).toHaveLength(11);
+  test("the roster is 12 groups, 1..12 in order (widened by M124's group 12)", () => {
+    expect(CANONICAL_FIXTURE_GROUPS).toHaveLength(12);
     expect(CANONICAL_FIXTURE_GROUPS.map((s) => s.group)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
     ]);
   });
 
@@ -485,14 +485,14 @@ describe("AC-STE-464.10 — canonical roster gains group 11; SMOKE_LEGS is untou
 // (m117-ste-425-falsifiable-coverage.test.ts:632 group list, :687 length pin,
 // and the STE-449 row-by-row table). Whitespace-normalized substrings, so the
 // pin survives prettier's line wrapping of the widened array.
-describe("AC-STE-464.10 — m117-ste-425-falsifiable-coverage.test.ts re-keys to 11 groups", () => {
+describe("AC-STE-464.10 — m117-ste-425-falsifiable-coverage.test.ts re-keys with the roster (12 groups post-M124)", () => {
   const src = (): string =>
     mustRead(join(import.meta.dir, "m117-ste-425-falsifiable-coverage.test.ts"));
 
-  test("the group-list toEqual and the toHaveLength pin both count 11", () => {
+  test("the group-list toEqual and the toHaveLength pin both count 12", () => {
     const norm = src().replace(/\s+/g, "");
-    expect(norm).toMatch(/1,2,3,4,5,6,7,8,9,10,11,?\]/);
-    expect(src()).toContain("toHaveLength(11)");
+    expect(norm).toMatch(/1,2,3,4,5,6,7,8,9,10,11,12,?\]/);
+    expect(src()).toContain("toHaveLength(12)");
   });
 
   test("the audited roster table carries group 11's row", () => {

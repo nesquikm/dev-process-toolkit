@@ -118,6 +118,12 @@ export const CANONICAL_CAPABILITY_KEYS = [
   // refusal token — the gist publish now routes through the three-branch
   // marker/refusal contract; this fires when the gate refuses (no gh gist create).
   "report_issue_publish_refused",
+  // M124 STE-467: the /implement Phase 3 best-practices lens disposition pair.
+  // Exactly one emits per /implement run (XOR — never both, never neither, no
+  // silent skip): `_applied` when `specs/best-practices.yaml` carried ≥ 1 entry
+  // and the lens ran, `_skipped_no_manifest` when the manifest was absent/empty.
+  "best_practices_lens_applied",
+  "best_practices_lens_skipped_no_manifest",
 ] as const;
 
 export type CapabilityKey = (typeof CANONICAL_CAPABILITY_KEYS)[number];
@@ -189,6 +195,11 @@ const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   // carries the MUST-emit directive (canonical owner surface), report-issue
   // wires the emission on the marker-absent + non-tty refusal path.
   report_issue_publish_refused: "spec-write",
+  // M124 STE-467: the best-practices lens disposition pair. The § 7 static map
+  // is the canonical owner surface for both MUST-emit directives; /implement
+  // wires the emission at the Phase 3 lens site.
+  best_practices_lens_applied: "spec-write",
+  best_practices_lens_skipped_no_manifest: "spec-write",
 };
 
 /**

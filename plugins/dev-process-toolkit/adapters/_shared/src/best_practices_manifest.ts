@@ -354,3 +354,146 @@ export function findEntry(
 ): BestPracticesEntry | undefined {
   return manifest.best_practices.find((e) => e.name === name);
 }
+
+// ---------------------------------------------------------------------------
+// Scope-glob selection (M124) — the deterministic half of the /implement
+// Phase 3 best-practices conformance lens.
+// ---------------------------------------------------------------------------
+
+/**
+ * Compile one `scope` glob to an anchored RegExp. Supported surface:
+ *   `**` — any number of path segments (crosses `/`);
+ *          `**` followed by `/` collapses to zero-or-more WHOLE segments,
+ *          so `src/**` + `/*.ts` matches both `src/a.ts` and `src/a/b.ts`
+ *   `*`  — within one segment only (never crosses `/`),
+ *          so `*.md` matches `README.md` but not `docs/a.md`
+ *   `?`  — exactly one non-separator character
+ * Everything else is literal. Matching is against repo-relative paths,
+ * full-string anchored — never a substring/`includes` shortcut.
+ */
+function globToRegExp(glob: string): RegExp {
+  let out = "";
+  let i = 0;
+  while (i < glob.length) {
+    const c = glob[i]!;
+    if (c === "*") {
+      if (glob[i + 1] === "*") {
+        if (glob[i + 2] === "/") {
+          out += "(?:[^/]+/)*";
+          i += 3;
+        } else {
+          out += ".*";
+          i += 2;
+        }
+      } else {
+        out += "[^/]*";
+        i += 1;
+      }
+    } else if (c === "?") {
+      out += "[^/]";
+      i += 1;
+    } else {
+      out += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+      i += 1;
+    }
+  }
+  return new RegExp(`^${out}$`);
+}
+
+/**
+ * Select the manifest entries the Phase 3 lens must read for a given
+ * changed-file list. Deterministic and pure: manifest order preserved,
+ * one row per entry regardless of how many files match, same input ⇒
+ * same output. Entries without `scope` always apply (including for an
+ * empty changed-file list); a scoped entry applies iff at least one
+ * changed file matches at least one of its globs.
+ */
+export function selectEntriesForChangedFiles(
+  manifest: BestPracticesManifest,
+  changedFiles: readonly string[],
+): BestPracticesEntry[] {
+  return manifest.best_practices.filter((entry) => {
+    if (entry.scope === undefined) return true;
+    const patterns = entry.scope.map(globToRegExp);
+    return changedFiles.some((file) => patterns.some((re) => re.test(file)));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// CLI — thin `import.meta.main` wrapper (mirrors smoke_fixture_groups.ts /
+// active_plan_ship_ready.ts): one bun-runnable `select` leg so the
+// /implement lens resolves its entry set by EXECUTING this module, never by
+// re-deriving the glob semantics in prose.
+//
+// Usage:
+//   bun best_practices_manifest.ts select --specs <dir> --files "<paths>"
+//
+// Prints one `name<TAB>path` line per selected entry, in manifest order,
+// exit 0. An absent/empty manifest prints a `no-manifest` disposition line
+// (exit 0) — never a silent empty pass, which would be indistinguishable
+// from "entries exist, none matched". Bad input exits 2 (the house usage
+// code, never a verdict).
+// ---------------------------------------------------------------------------
+
+const CLI_USAGE =
+  'usage: bun best_practices_manifest.ts select --specs <dir> --files "<changed files, whitespace-separated>"';
+
+function parseCliFlags(argv: readonly string[]): Record<string, string> {
+  const flags: Record<string, string> = {};
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i]!;
+    if (!token.startsWith("--")) continue;
+    flags[token.slice(2)] =
+      argv[i + 1] !== undefined && !argv[i + 1]!.startsWith("--")
+        ? argv[++i]!
+        : "";
+  }
+  return flags;
+}
+
+if (import.meta.main) {
+  const [command, ...rest] = process.argv.slice(2);
+  if (command !== "select") {
+    console.error(
+      `best_practices_manifest: unknown command ${JSON.stringify(command ?? "")}\n${CLI_USAGE}`,
+    );
+    process.exit(2);
+  }
+  const flags = parseCliFlags(rest);
+  const filesRaw = flags["files"];
+  if (filesRaw === undefined || filesRaw.trim().length === 0) {
+    console.error(
+      `best_practices_manifest: select requires --files with at least one changed path\n${CLI_USAGE}`,
+    );
+    process.exit(2);
+  }
+  const specsDir = flags["specs"] ?? "specs";
+  let manifest: BestPracticesManifest;
+  try {
+    manifest = readManifest(specsDir);
+  } catch (err) {
+    // Malformed manifest is a usage-shaped refusal, never a verdict — the
+    // NFR-10 canonical refusal text surfaces verbatim.
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(2);
+  }
+  if (manifest.best_practices.length === 0) {
+    console.log(
+      `no-manifest: best-practices.yaml absent or empty in ${specsDir} — lens skipped`,
+    );
+    process.exit(0);
+  }
+  const changed = filesRaw.split(/\s+/).filter(Boolean);
+  const selected = selectEntriesForChangedFiles(manifest, changed);
+  if (selected.length === 0) {
+    // Distinct from the no-manifest disposition above: entries exist, none
+    // scoped to these files. Never silent — an empty stdout would collapse
+    // the two cases.
+    console.log("no-match: entries exist but none scoped to the changed files");
+    process.exit(0);
+  }
+  for (const entry of selected) {
+    console.log(`${entry.name}\t${entry.path}`);
+  }
+  process.exit(0);
+}
