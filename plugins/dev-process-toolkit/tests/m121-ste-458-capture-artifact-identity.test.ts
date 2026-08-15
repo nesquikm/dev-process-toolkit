@@ -337,10 +337,17 @@ describe("AC-STE-458.1 — the correction is authorized by its own docs(specs) c
       const codeShas = [MODULE_REPO_REL, THIS_TEST_REPO_REL]
         .map((path) => commitsTouching(path).map((c) => c.sha))
         .flat();
+      // `every`, not `some`: the asserted property is "precedes the FIRST
+      // code commit", so an FR commit qualifies as authorizing only when it
+      // precedes the ENTIRE code history. With `some`, any later edit to the
+      // module or this test file (bb014dc was one) retroactively promoted the
+      // M121 archive commit — an FR-touching `chore(specs)` that post-dates
+      // the original code — into the authorizing set and reddened the guard
+      // one commit late.
       const authorizing = FR_COMMITS.filter(
         ({ sha }) =>
           !codeShas.includes(sha) &&
-          codeShas.some((code) => isAncestor(sha, code)),
+          codeShas.every((code) => isAncestor(sha, code)),
       );
 
       // Non-vacuity: there must BE an authorizing commit to check. A filter
