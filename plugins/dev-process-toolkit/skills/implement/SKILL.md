@@ -119,6 +119,13 @@ Phase 3 review runs against the code Phase 2 produced via the `/dev-process-tool
 
 The byte-checkable tokens are the structural signals `/gate-check`'s `closing_summary_capability_keys` probe greps for; narrative prose like "spec audit was clean" is insufficient. Plain-language rendered prose lives in the `skills/spec-write/SKILL.md` § 7 static map under the same keys; do not paraphrase at runtime.
 
+**Best-practices conformance lens (M124).** Applies when `specs/best-practices.yaml` has at least one entry; absent or empty manifest ⇒ skip the lens. Selection is deterministic and module-run — never re-derive the scope-glob semantics in prose:
+
+- Derive the FR's changed-file list (`git diff --name-only <base-ref>`), then RUN the select leg from the repo root: `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/best_practices_manifest.ts select --specs specs --files "<changed files>"`. It prints the selected entries (name + doc path) in manifest order: entries whose `scope` globs match a changed file, plus entries without `scope`, which always apply.
+- Read each selected entry's curated doc directly with the Read tool — never a research fork (standing operator ruling).
+- File each violation of a curated doc as a review concern riding this phase's existing bounded 2-round resolve-or-escalate review loop — never a new blocking gate, never an auto-fix outside the loop.
+- Disposition (Phase 4 step 14 closing summary): exactly one of the pair emits per run — never both, never neither; a silent skip is forbidden (XOR). Lens ran (manifest had at least one entry) ⇒ **MUST emit `best_practices_lens_applied`** (literal token, backticked); manifest absent or empty ⇒ **MUST emit `best_practices_lens_skipped_no_manifest`** (literal token, backticked). Rendered prose lives in the `skills/spec-write/SKILL.md` § 7 static map under the same keys; `/gate-check`'s `closing_summary_capability_keys` probe greps the literals — narrative paraphrase is insufficient.
+
 **Proportional review:** Scale review depth to change size. Trivial changes (single function, <20 lines, no new modules) need only AC + gate check. Reserve deep review for changes touching multiple modules or new patterns.
 
 Each round has three sequential stages. **Complete each stage before starting the next.** If a stage finds issues, fix them and re-run the gate before proceeding.

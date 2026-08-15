@@ -1449,6 +1449,31 @@ STE-464 runtime regression: 11a-headless-refusal
 
 If sub-fixture 11a passes on a leg, append `STE-464 runtime check: PASS` to the run summary line; any failure appends `STE-464 runtime check: FAIL`, and a group that never executed appends `STE-464 runtime check: NOT-REACHED` rather than nothing at all. Tracker-independent by construction — the refusal fires before any tracker surface could be consulted, so the group is never N/A on any registered leg.
 
+#### Fixture group 12 — STE-467 best-practices lens disposition (Linear + Jira + tracker-less)
+
+One sub-fixture (12a); runs on every rostered leg. Like group 7, the driver spawns nothing new — the assertion runs against the existing `/tmp/dpt-smoke-<tracker>-implement.log` from Phase 2 step 3. The failure mode this group exists to catch is the **silent skip**: an `/implement` closing summary that neither claims the best-practices lens ran nor declares why it did not, which is indistinguishable from a lens nobody wired. The disposition contract is XOR by construction — exactly one of the token pair per run, never both, never neither.
+
+##### Sub-fixture 12a — exactly one disposition token in assistant text
+
+**Source:** `/tmp/dpt-smoke-<tracker>-implement.log` (already captured during Phase 2 step 3 — `/implement`'s closing summary carries the lens disposition).
+
+**Assertions:**
+
+- Extract the assistant-authored text via `extractAssistantText` (`adapters/_shared/src/smoke_child_capture.ts`) — never a raw-NDJSON grep, which is vacuous when the child merely reads the SKILL prose (which spells both tokens) into a `tool_result`.
+- Assert **exactly one** of the two literal disposition tokens appears in that extracted text: `best_practices_lens_applied` (the manifest had at least one entry and the lens ran) XOR `best_practices_lens_skipped_no_manifest` (manifest absent or empty). The test project ships no best-practices manifest, so the token a clean run emits is the skipped one — but the assertion is the XOR, not the branch: both tokens present is a FAIL, and zero tokens present is a FAIL, because zero IS the silent skip.
+
+**Diagnostic on failure:**
+
+```
+STE-467 runtime regression: 12a-lens-disposition
+  expected: exactly one disposition token in assistant-authored text of the /implement capture
+  actual:   <both | neither | token present only in raw NDJSON tool_results>
+  stdout excerpt (last 20 lines):
+    <tail -20 /tmp/dpt-smoke-<tracker>-implement.log>
+```
+
+If sub-fixture 12a passes on a leg, append `STE-467 runtime check: PASS` to the run summary line; any failure appends `STE-467 runtime check: FAIL`, and a group that never executed appends `STE-467 runtime check: NOT-REACHED` rather than nothing at all. Tracker-independent by construction — the disposition is decided by the manifest's presence on disk, never by a tracker surface, so the group is never N/A on any registered leg.
+
 ### Phase 2.Y — End-of-run chain-integrity assertion (STE-355)
 
 Before any Phase 3 capture work, assert the canonical chain actually completed. Run `assertChainIntegrity` (`adapters/_shared/src/smoke_child_capture.ts`, built on the `stream_json_events` NDJSON reader) against every expected per-skill capture, in chain order, passing the **run-start timestamp** captured at Phase 0 acceptance (the epoch-ms moment the approval was logged) as the `runStart` argument:
