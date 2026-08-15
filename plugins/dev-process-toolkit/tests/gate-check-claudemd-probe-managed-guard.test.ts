@@ -369,15 +369,15 @@ describe("AC-STE-434.5 — vacuous without the shared adapter layer", () => {
 // AC-STE-434.6 — documented probe counts.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("AC-STE-434.6 — README documents 74 probes", () => {
-  test("the Features bullet documents 74 numbered /gate-check probes (README.md:14)", () => {
+describe("AC-STE-434.6 — README documents 75 probes", () => {
+  test("the Features bullet documents 75 numbered /gate-check probes (README.md:14)", () => {
     const readme = readFileSync(join(repoRoot, "README.md"), "utf-8");
-    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b74\b.*numbered/);
+    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b75\b.*numbered/);
   });
 
-  test("the /implement-invokes-/tdd aside documents 74 probes (README.md:109)", () => {
+  test("the /implement-invokes-/tdd aside documents 75 probes (README.md:109)", () => {
     const readme = readFileSync(join(repoRoot, "README.md"), "utf-8");
-    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b74\b\s+probes/);
+    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b75\b\s+probes/);
   });
 
   test("runPublicSurfaceCountDriftProbe returns zero violations on this repo", async () => {

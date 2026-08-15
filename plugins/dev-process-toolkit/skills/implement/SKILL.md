@@ -284,6 +284,10 @@ For reopens, cross-cutting ACs, or anything this auto-path can't reach, `/dev-pr
 
     **Abort boundary — do NOT call `releaseLock` or `getTicketStatus`** on gate-check failure, Spec Breakout, user rejection at step 15, or any Phase 1–3 early exit. The lock stays so a follow-up run can resume through the `already-ours` path. Full Close text + abort cases: `docs/implement-reference.md` § Phase 4 Close.
 
+    ### Ship-ready close offer (FR-form only) (M122)
+
+    After (b)+(c) settle on an **FR-form** (single-FR) run, check whether the archived FR's milestone is ship-ready by RUNNING the shared `shipReadyMilestones` predicate — never re-derive the classification in prose: `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/active_plan_ship_ready.ts <projectRoot>` (read-only CLI; prints one ship-ready milestone per line, empty stdout = none). **Milestone-scope** (`/implement M<N>`) runs silently skip this block — Phase 5 owns that path, so no double offer ever fires. If `M<N>` is in the predicate's output, offer exactly: `Milestone M<N> is ship-ready — run the close ceremony now? [y/N]`. On `y`, run `/spec-archive M<N>` then `/ship-milestone M<N>`, each ceremony's own approval gates intact. On decline or non-interactive stdin, print `Run: /spec-archive M<N> then /ship-milestone M<N>` and leave all prior behavior unchanged.
+
 ## Phase 5: Milestone close prompt
 
 Fires only on a **milestone-scope** invocation (`/implement M<N>`) that shipped every FR cleanly. Opt-in chain into `/ship-milestone M<N>` — a prompt, not a silent chain. Phase 5 is the last thing `/implement` does before process exit.
