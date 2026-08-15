@@ -180,7 +180,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.62.0 — "Nudge"** (M122, ship-ready milestone nudge: probe #75 names every active milestone whose FRs are all archived but whose plan was never closed and shipped — warning-only, one NOTES row carrying the exact ceremony commands — and `/implement`'s single-FR runs now offer the close ceremony through the same shared predicate, so the gate's and the skill's definitions of "ship-ready" cannot drift.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.63.0 — "Conductor"** (M123, deliver pipeline orchestrator: a single `/deliver` command keeps the Socratic design phases inline with the human and runs each milestone’s `/implement` → `/ship-milestone` → `/pr` chain in a fresh visible spawned worker — strictly serial per-milestone topology, every approval gate relayed to the operator, and a closed-schema `## Orchestration` config block deciding worker effort and `merge_policy`-routed PR closure.)
 
 ## Core Philosophy
 
