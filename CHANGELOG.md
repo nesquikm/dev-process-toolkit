@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.63.0] — 2026-08-15 — "Conductor"
+
+M123 — Deliver Pipeline Orchestrator. The M122 cycle proved the full delivery pipeline works when a supervisor drives it by hand — one fresh worker per milestone, every approval gate relayed. This release automates that topology behind a single command, with an operator-controlled orchestration config deciding how hard spawned workers think and what happens to a finished pull request.
+
+### Added
+
+- **Closed-schema `## Orchestration` CLAUDE.md block + `readOrchestrationConfig(projectRoot)` reader.** Two operator knobs: `default_effort` (`low|medium|high|xhigh|max|ultracode`, default `ultracode`) and `merge_policy` (`offer|auto|never`, default `offer`). Absence ≡ defaults — no migration; invalid values and unknown top-level keys refuse in the NFR-10 canonical shape naming the offending line and the legal set; reads are CRLF/BOM-normalized; the template gains a commented stub documenting both keys. `auto` is never inferred — only the literal `merge_policy: auto` line enables it, an operator decision recorded in the FR. (STE-463)
+- **`/deliver` pipeline orchestrator — the 17th user-invocable skill.** Inline `/brainstorm` + `/spec-write` with their Socratic contracts untouched (never proxied, never batched), then one fresh visible agent-toolkit worker per milestone running `/implement M<N>` → `/ship-milestone M<N>` → `/pr` strictly serially — parallel milestones collide on probe-count pins and release files, so serial is the invariant. Fenced `deliver-stage-result` hand-offs (fixed section order, line cap, `- (none found)` fallback) with one scoped retry then a deterministic halt naming the stage; every worker approval gate relayed to the operator via AskUserQuestion with the answer forwarded by keystroke — the auto-approve marker is never injected and no approval is ever fabricated; post-PR closure routes on `merge_policy`; a hard headless refusal carries the machine-readable refused marker with no carve-out; pre-flight halts with verbatim install instructions when the spawn-agent skill is missing rather than degrading to invisible subagents. Narrative lives in `docs/deliver-reference.md` (the SKILL stays at 92 lines under the NFR-1 cap); smoke fixture group 11 asserts the refusal end-to-end and is mutation-verified. Skill counts move 16→17 user-invocable / 24→25 total across every pinned surface. (STE-464)
+
+Total test count at release: 7292 tests, 0 failures, 0 errors.
+
 ## [2.62.0] — 2026-08-15 — "Nudge"
 
 M122 — Ship-Ready Milestone Nudge. Probe #63 turns the gate red only after a milestone's plan reaches the archive, and the `/implement` ship offer fired only on milestone-scoped runs — so a milestone whose feature work was all done but whose plan was never closed could linger unshipped behind a green gate indefinitely. This release closes the pre-archive gap with one shared predicate consumed by both surfaces, so the gate's definition of "ship-ready" and `/implement`'s can never drift apart.

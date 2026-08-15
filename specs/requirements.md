@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.62.0 ("Nudge")**.
+**Latest shipped release:** **v2.63.0 ("Conductor")**.
 
 ### Shipped milestones
 
@@ -437,4 +437,6 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-443.1..10 | plugins/dev-process-toolkit/adapters/_shared/src/plan_identity_mode_conditional.ts, plugins/dev-process-toolkit/skills/gate-check/SKILL.md, plugins/dev-process-toolkit/templates/spec-templates/plan.md.template, specs/technical-spec.md | plugins/dev-process-toolkit/tests/m120-ste-443-jira-plan-provenance.test.ts, plugins/dev-process-toolkit/tests/m119-ste-441-plan-provenance.test.ts, plugins/dev-process-toolkit/tests/gate-check-plan-identity-mode-conditional.test.ts |
 | AC-STE-444.1..6 | plugins/dev-process-toolkit/skills/spec-write/SKILL.md, plugins/dev-process-toolkit/skills/gate-check/SKILL.md, plugins/dev-process-toolkit/skills/implement/SKILL.md, plugins/dev-process-toolkit/skills/spec-archive/SKILL.md, plugins/dev-process-toolkit/docs/tracker-adapters.md, plugins/dev-process-toolkit/adapters/_shared/src/tracker_project_milestone_attached.ts | plugins/dev-process-toolkit/tests/m120-ste-444-jira-binding-prose.test.ts, plugins/dev-process-toolkit/tests/ste-329-skill-and-docs-conformance.test.ts |
 | AC-STE-462.1..9 | plugins/dev-process-toolkit/adapters/_shared/src/active_plan_ship_ready.ts, plugins/dev-process-toolkit/skills/gate-check/SKILL.md, plugins/dev-process-toolkit/skills/implement/SKILL.md, README.md | plugins/dev-process-toolkit/tests/gate-check-active-plan-ship-ready.test.ts |
+| AC-STE-463.1..7 | plugins/dev-process-toolkit/adapters/_shared/src/orchestration_config.ts, plugins/dev-process-toolkit/templates/CLAUDE.md.template, plugins/dev-process-toolkit/adapters/_shared/src/claudemd_probe_managed_guard.ts | plugins/dev-process-toolkit/adapters/_shared/src/orchestration_config.test.ts |
+| AC-STE-464.1..10 | plugins/dev-process-toolkit/skills/deliver/SKILL.md, plugins/dev-process-toolkit/docs/deliver-reference.md, plugins/dev-process-toolkit/adapters/_shared/src/smoke_fixture_groups.ts, .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/m123-ste-464-deliver-skill.test.ts |
 

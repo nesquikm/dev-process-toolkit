@@ -252,6 +252,32 @@ Keys:
 
 <!--
 ===============================================================================
+Optional: Orchestration section. Absent section ≡ defaults — existing
+projects need not add it and no migration is required. The key set is
+closed — exactly the two keys shown; any other key inside the section is
+a config error.
+
+Example (indented so the heading stays commented; paste at column 0 to
+opt in):
+
+  ## Orchestration
+
+  default_effort: ultracode
+  merge_policy: offer
+
+Keys:
+  - default_effort: low | medium | high | xhigh | max | ultracode.
+                    Absent key ⇒ default `ultracode`.
+  - merge_policy:   offer | auto | never. Absent key ⇒ default `offer`
+                    (`auto` is never inferred — it must be the literal
+                    lowercase line).
+
+Values are lowercase literals — no quoting, no case variants.
+===============================================================================
+-->
+
+<!--
+===============================================================================
 Docs section. `/setup` step 7d sets the flags; the
 section is always emitted, even when all three default to `false`, so
 `/docs` and the `claudemd-docs-section-present` probe (gate-check #18)

@@ -199,6 +199,13 @@ export const CANONICAL_FIXTURE_GROUPS: readonly FixtureGroupSpec[] = [
     rationale:
       "`.dpt/locks/<id>` is written only by LocalProvider.claimLock, which runs only under mode: none — a tracker leg's claim writes to the ticket, so there is no lock file there to observe at any point in the run",
   },
+  {
+    group: 11,
+    sut: "STE-464",
+    legs: ALL_LEGS,
+    rationale:
+      "the /deliver refusal fence reads stdin tty-ness only — no tracker surface is consulted, so every leg exercises the headless refusal identically",
+  },
 ];
 
 // --- records ---------------------------------------------------------------
