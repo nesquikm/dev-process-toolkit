@@ -41,8 +41,10 @@ export interface BestPracticesManifest {
   best_practices: BestPracticesEntry[];
 }
 
-const KNOWN_KEYS: readonly string[] = ["name", "path", "scope", "topics", "notes"];
-const LIST_KEYS: readonly string[] = ["scope", "topics"];
+/** Closed-enum entry-key consts (M124) — the /best-practices add/edit field
+ * prompts validate against these; exporting changes no behavior. */
+export const KNOWN_KEYS: readonly string[] = ["name", "path", "scope", "topics", "notes"];
+export const LIST_KEYS: readonly string[] = ["scope", "topics"];
 
 /**
  * Thrown when the manifest file or an entry violates the schema. The
