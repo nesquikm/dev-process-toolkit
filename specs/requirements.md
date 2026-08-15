@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.64.0 ("Playbook")**.
+**Latest shipped release:** **v2.65.0 ("Blueprint")**.
 
 ### Shipped milestones
 
@@ -442,4 +442,6 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-465.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/best_practices_manifest.ts, plugins/dev-process-toolkit/adapters/_shared/src/best_practices_manifest_hygiene.ts, plugins/dev-process-toolkit/skills/gate-check/SKILL.md | plugins/dev-process-toolkit/tests/best-practices-manifest.test.ts, plugins/dev-process-toolkit/tests/gate-check-best-practices-manifest-hygiene.test.ts |
 | AC-STE-466.1..4 | plugins/dev-process-toolkit/skills/best-practices/SKILL.md, plugins/dev-process-toolkit/skills/setup/SKILL.md | plugins/dev-process-toolkit/tests/m124-ste-466-best-practices-skill.test.ts |
 | AC-STE-467.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/best_practices_manifest.ts, plugins/dev-process-toolkit/adapters/_shared/src/closing_summary_capability_keys.ts, plugins/dev-process-toolkit/adapters/_shared/src/smoke_fixture_groups.ts, plugins/dev-process-toolkit/skills/implement/SKILL.md, plugins/dev-process-toolkit/skills/spec-write/SKILL.md, .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/m124-ste-467-implement-lens.test.ts |
+| AC-STE-468.1..4 | plugins/dev-process-toolkit/adapters/_shared/src/template_source_analyzer.ts | plugins/dev-process-toolkit/adapters/_shared/src/template_source_analyzer.test.ts |
+| AC-STE-469.1..6 | plugins/dev-process-toolkit/skills/setup/SKILL.md, plugins/dev-process-toolkit/skills/setup-template/SKILL.md, plugins/dev-process-toolkit/adapters/_shared/src/smoke_fixture_groups.ts, plugins/dev-process-toolkit/docs/setup-template-reference.md, .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/m125-ste-469-setup-template.test.ts |
 

@@ -101,12 +101,14 @@ describe("AC-STE-391.8 — docs/upgrade-reference.md documents the registry cont
 // the 17th user-invocable skill, then left the slash menu. M123 AC-STE-464.1
 // (`/deliver`) then moved the split forward again — 17 user-invocable / 8
 // non-user-invocable, total 25 — and M124 (`/best-practices`) moved it once
-// more to 18 user-invocable / 8 non-user-invocable, total 26, so the pins
+// more to 18 user-invocable / 8 non-user-invocable, total 26. M125
+// (`setup-template`, the second forkless dispatch child) moved the dispatch
+// side — 18 user-invocable / 9 non-user-invocable, total 27 — so the pins
 // below advance in lockstep: the previous required token becomes the
 // forbidden stale one, and the new count becomes the required one.
 // ---------------------------------------------------------------------------
 
-describe("AC-STE-391.8 — README count pins (M124: forward to 18 + 8)", () => {
+describe("AC-STE-391.8 — README count pins (M125: forward to 18 + 9)", () => {
   const readme = (): string => readFileSync(join(REPO_ROOT, "README.md"), "utf-8");
 
   test("no stale 17-user-invocable token survives", () => {
@@ -117,8 +119,8 @@ describe("AC-STE-391.8 — README count pins (M124: forward to 18 + 8)", () => {
     expect(readme()).toMatch(/18 user-invo/);
   });
 
-  test("the structure block counts 26 (18 + 8)", () => {
-    expect(readme()).toMatch(/26\s*\(18\s*\+\s*8\)/);
+  test("the structure block counts 27 (18 + 9)", () => {
+    expect(readme()).toMatch(/27\s*\(18\s*\+\s*9\)/);
   });
 
   test("the skills table no longer carries a /upgrade row", () => {
@@ -126,11 +128,11 @@ describe("AC-STE-391.8 — README count pins (M124: forward to 18 + 8)", () => {
   });
 });
 
-describe("AC-STE-391.8 — CLAUDE.md structure block (M124: forward to 18 + 8)", () => {
+describe("AC-STE-391.8 — CLAUDE.md structure block (M125: forward to 18 + 9)", () => {
   const claudeMd = (): string => readFileSync(join(REPO_ROOT, "CLAUDE.md"), "utf-8");
 
-  test("the skills line counts 26 slash commands (18 user-invocable + 8 dispatch)", () => {
-    expect(claudeMd()).toMatch(/26\s+slash commands\s+\(18\s+user-invocable\s+\+\s+8\s+dispatch/);
+  test("the skills line counts 27 slash commands (18 user-invocable + 9 dispatch)", () => {
+    expect(claudeMd()).toMatch(/27\s+slash commands\s+\(18\s+user-invocable\s+\+\s+9\s+dispatch/);
   });
 
   test("no stale 17-user-invocable token survives", () => {
@@ -156,13 +158,13 @@ const declaresNonUserInvocable = (body: string): boolean => {
   return /^user-invocable:[ \t]*false[ \t]*$/m.test(frontmatter);
 };
 
-describe("AC-STE-391.9 — skills/ ground truth: 26 dirs, 18 user-invocable", () => {
+describe("AC-STE-391.9 — skills/ ground truth: 27 dirs, 18 user-invocable", () => {
   const skillDirs = (): string[] =>
     readdirSync(SKILLS_DIR).filter((name) => statSync(join(SKILLS_DIR, name)).isDirectory());
 
-  test("26 skill directories, upgrade among them", () => {
+  test("27 skill directories, upgrade among them", () => {
     const dirs = skillDirs();
-    expect(dirs.length).toBe(26);
+    expect(dirs.length).toBe(27);
     expect(dirs).toContain("upgrade");
   });
 

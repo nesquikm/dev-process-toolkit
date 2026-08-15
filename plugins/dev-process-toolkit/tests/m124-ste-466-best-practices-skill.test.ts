@@ -168,21 +168,21 @@ describe("AC-STE-466.1 — /deps idiom mirror: router + four subcommand sections
   });
 });
 
-describe("AC-STE-466.1 — on-disk ground truth: 26 skill dirs, 18 user-invocable", () => {
-  test("26 skill directories, best-practices among them", () => {
+describe("AC-STE-466.1 — on-disk ground truth: 27 skill dirs, 18 user-invocable", () => {
+  test("27 skill directories, best-practices among them", () => {
     const dirs = skillDirs();
-    expect(dirs.length).toBe(26);
+    expect(dirs.length).toBe(27);
     expect(dirs).toContain("best-practices");
   });
 
-  test("exactly 18 skills are user-invocable, best-practices among them; the fork/dispatch set stays 8", () => {
+  test("exactly 18 skills are user-invocable, best-practices among them; the fork/dispatch set is 9 (M125)", () => {
     const dirs = skillDirs();
     const userInvocable = dirs.filter(
       (dir) => !declaresNonUserInvocable(readFileSync(join(SKILLS_DIR, dir, "SKILL.md"), "utf-8")),
     );
     expect(userInvocable.length).toBe(18);
     expect(userInvocable).toContain("best-practices");
-    expect(dirs.length - userInvocable.length).toBe(8);
+    expect(dirs.length - userInvocable.length).toBe(9);
   });
 });
 
@@ -200,25 +200,25 @@ describe("AC-STE-466.1 — README count surfaces (probe #57's exact lines)", () 
     );
   });
 
-  test("the repo-tree skills row reads `26 (18 + 8)` with `(18 user-invocable + 8 internal forks)`", () => {
+  test("the repo-tree skills row reads `27 (18 + 9)` with `(18 user-invocable + 9 internal forks)`", () => {
     const rows = readmeLines().filter((l) => l.includes("── skills/"));
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
-    expect(row).toMatch(/26\s+\(18\s*\+\s*8\)/);
-    expect(row).toMatch(/\(18 user-invocable \+ 8 internal forks\)/);
+    expect(row).toMatch(/27\s+\(18\s*\+\s*9\)/);
+    expect(row).toMatch(/\(18 user-invocable \+ 9 internal forks\)/);
   });
 
-  test("`Eight additional skills` survives — the dispatch count did not move", () => {
-    expect(mustRead(README)).toMatch(/Eight additional skills/);
+  test("`Nine additional skills` — the dispatch count moved with setup-template (M125)", () => {
+    expect(mustRead(README)).toMatch(/Nine additional skills/);
   });
 });
 
 describe("AC-STE-466.1 — CLAUDE.md count surfaces (probe #57 reads line 15 verbatim)", () => {
-  test("line 15 skills row: 26 slash commands (18 user-invocable + 8 dispatch …)", () => {
+  test("line 15 skills row: 27 slash commands (18 user-invocable + 9 dispatch …)", () => {
     const line15 = mustRead(CLAUDE_MD).split("\n")[14] ?? "";
     expect(line15).toMatch(/^├── skills\//);
-    expect(line15).toMatch(/26\s+slash commands?/);
-    expect(line15).toMatch(/\(18\s+user-invocable\s*\+\s*8\s+dispatch/);
+    expect(line15).toMatch(/27\s+slash commands?/);
+    expect(line15).toMatch(/\(18\s+user-invocable\s*\+\s*9\s+dispatch/);
   });
 
   test("the agents row is untouched: 8 subagent templates", () => {
@@ -231,23 +231,23 @@ describe("AC-STE-466.1 — remaining count surfaces", () => {
     expect(mustRead(TECH_SPEC)).toMatch(/18 user-invocable SKILL\.md files/);
   });
 
-  test("specs/testing-spec.md v2-minimal row: all 26 skills", () => {
-    expect(mustRead(TESTING_SPEC)).toMatch(/all 26 skills/);
+  test("specs/testing-spec.md v2-minimal row: all 27 skills", () => {
+    expect(mustRead(TESTING_SPEC)).toMatch(/all 27 skills/);
   });
 
-  test("docs/skill-anatomy.md canonical-example line: the other 25 skills", () => {
+  test("docs/skill-anatomy.md canonical-example line: the other 26 skills", () => {
     const lines = mustRead(SKILL_ANATOMY)
       .split("\n")
       .filter((l) => l.includes("canonical read-only example"));
     expect(lines).toHaveLength(1);
-    expect(lines[0]!).toMatch(/the other 25 skills/);
+    expect(lines[0]!).toMatch(/the other 26 skills/);
   });
 });
 
 // Meta-meta pins — house M108→M109→M123 pattern: the shipped count-pin
 // suites must be RE-KEYED to the new 18 / 26 forms, not deleted and not left
 // green on stale numbers. Substring pins sidestep regex double-escaping.
-describe("AC-STE-466.1 — shipped count-pin suites re-key to the 18 / 26 forms", () => {
+describe("AC-STE-466.1 — shipped count-pin suites re-key to the 18 / 27 forms (M125)", () => {
   const testSrc = (name: string): string => mustRead(join(import.meta.dir, name));
 
   for (const suite of [
@@ -258,8 +258,8 @@ describe("AC-STE-466.1 — shipped count-pin suites re-key to the 18 / 26 forms"
     test(`${suite} carries the new live-tree literals`, () => {
       const src = testSrc(suite);
       expect(src).toContain("18 commands");
-      expect(src).toContain("all 26 skills");
-      expect(src).toContain("the other 25 skills");
+      expect(src).toContain("all 27 skills");
+      expect(src).toContain("the other 26 skills");
     });
   }
 });
