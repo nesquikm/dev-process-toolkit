@@ -1424,6 +1424,31 @@ If all three pass, append `STE-382 runtime check: PASS` to the run summary line;
 
 **The one carve-out, stated here because a blanket "any sub-fixture failure" reading would make it invisible: the `10a-sampling-gap` outcome is NOT a sub-fixture failure and MUST NOT render `FAIL`.** 10a's outcome rule above defines three cases, and only two of them are 10a failing. An empty sample log **with** 10b's claim commit present means the lock demonstrably existed and the sampler's cadence missed it — the group still renders `PASS`, and the gap is surfaced as its own finding in the Phase 3 findings file. This carve-out exists because the sampler fires once per bounded poll *call* (up to ~9 minutes), not once per check, so a step-3 grandchild that completes inside a single call can legitimately produce zero samples. **Rendering that as `FAIL` would be a false red on a healthy run — the same defect as the one four paragraphs above, arriving through sampling cadence instead of through phase ordering.**
 
+#### Fixture group 11 — STE-464 headless `/deliver` refusal (Linear + Jira + tracker-less)
+
+One sub-fixture (11a). `/deliver` is interactive by design — its Socratic phases, worker approval gates, and merge-policy prompts all require a live operator — so under non-interactive stdin it must refuse immediately via `requireOrRefuse` (`adapters/_shared/src/requires_input.ts`) rather than proceed. The failure mode this group exists to catch is **silent scaffolding**: a headless child that, instead of refusing, starts writing pipeline files with nobody at the wheel. The prose-only sibling defect is covered too — a refusal stated in words but missing the machine marker parses as `vacuous`, indistinguishable from doing nothing. The refusal fence reads stdin tty-ness only and consults no tracker surface, so the group runs identically on every registered leg.
+
+##### Sub-fixture 11a — the refusal marker present, and no writes before it
+
+The driver fires a minimal child spawn constructed at smoke-driver runtime and described here in prose only (same rationale as sub-fixtures 1b and 8a: no authored heredoc snippet for the `auto_approve_marker_in_canonical_spawns` probe to pick up — and doubly deliberate for `/deliver`, whose contract has **no marker carve-out**, so no fence exists for the marker to belong in). The child is a `claude -p` invocation of `/dev-process-toolkit:deliver` run from inside the test project — stdin non-tty by construction under `-p`. Capture to `/tmp/dpt-smoke-<tracker>-ste464-deliver.log` (stream-json NDJSON, like every Phase 2 spawn).
+
+**Assertions:**
+
+- Assert the capture carries the literal refusal marker `<dpt:requires-input-refused>v1</dpt:requires-input-refused>` in **assistant-authored text** — extract it via `extractAssistantText` (`adapters/_shared/src/smoke_child_capture.ts`), never a raw-NDJSON grep, which is vacuous when the child merely reads the SKILL prose into a `tool_result`.
+- Assert no silent scaffolding: the capture contains **zero `Write` or `Edit` `tool_use` events before the refusal marker appears**. A child that scaffolds first and refuses second has already done the damage the refusal exists to prevent, and a marker-only check would score it green.
+
+**Diagnostic on failure:**
+
+```
+STE-464 runtime regression: 11a-headless-refusal
+  expected: refusal marker in assistant text, with zero Write/Edit tool_use events preceding it
+  actual:   <observed state>
+  stdout excerpt (last 20 lines):
+    <tail -20 /tmp/dpt-smoke-<tracker>-ste464-deliver.log>
+```
+
+If sub-fixture 11a passes on a leg, append `STE-464 runtime check: PASS` to the run summary line; any failure appends `STE-464 runtime check: FAIL`, and a group that never executed appends `STE-464 runtime check: NOT-REACHED` rather than nothing at all. Tracker-independent by construction — the refusal fires before any tracker surface could be consulted, so the group is never N/A on any registered leg.
+
 ### Phase 2.Y — End-of-run chain-integrity assertion (STE-355)
 
 Before any Phase 3 capture work, assert the canonical chain actually completed. Run `assertChainIntegrity` (`adapters/_shared/src/smoke_child_capture.ts`, built on the `stream_json_events` NDJSON reader) against every expected per-skill capture, in chain order, passing the **run-start timestamp** captured at Phase 0 acceptance (the epoch-ms moment the approval was logged) as the `runStart` argument:

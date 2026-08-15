@@ -98,24 +98,25 @@ describe("AC-STE-391.8 — docs/upgrade-reference.md documents the registry cont
 //
 // M109 AC-STE-395.2 re-keyed these back to 16 user-invocable / 8
 // non-user-invocable (total unchanged at 24): `/upgrade` shipped under M108 as
-// the 17th user-invocable skill, then left the slash menu. The 16 ↔ 17 pins
-// below therefore INVERT — the token that used to be forbidden is now the
-// required one, and vice versa. The total-skill pins never moved.
+// the 17th user-invocable skill, then left the slash menu. M123 AC-STE-464.1
+// (`/deliver`) then moved the split forward again — 17 user-invocable / 8
+// non-user-invocable, total 25 — so the 16 ↔ 17 pins below INVERT once more:
+// the token that used to be forbidden is now the required one, and vice versa.
 // ---------------------------------------------------------------------------
 
-describe("AC-STE-391.8 — README count pins (M109 AC-STE-395.2: back to 16 + 8)", () => {
+describe("AC-STE-391.8 — README count pins (M123 AC-STE-464.1: forward to 17 + 8)", () => {
   const readme = (): string => readFileSync(join(REPO_ROOT, "README.md"), "utf-8");
 
-  test("no stale 17-user-invocable token survives", () => {
-    expect(readme()).not.toMatch(/17 user-invo/);
+  test("no stale 16-user-invocable token survives", () => {
+    expect(readme()).not.toMatch(/16 user-invo/);
   });
 
-  test("the lifecycle prose counts 16 user-invoked skills", () => {
-    expect(readme()).toMatch(/16 user-invo/);
+  test("the lifecycle prose counts 17 user-invoked skills", () => {
+    expect(readme()).toMatch(/17 user-invo/);
   });
 
-  test("the structure block counts 24 (16 + 8)", () => {
-    expect(readme()).toMatch(/24\s*\(16\s*\+\s*8\)/);
+  test("the structure block counts 25 (17 + 8)", () => {
+    expect(readme()).toMatch(/25\s*\(17\s*\+\s*8\)/);
   });
 
   test("the skills table no longer carries a /upgrade row", () => {
@@ -123,15 +124,15 @@ describe("AC-STE-391.8 — README count pins (M109 AC-STE-395.2: back to 16 + 8)
   });
 });
 
-describe("AC-STE-391.8 — CLAUDE.md structure block (M109 AC-STE-395.2: back to 16 + 8)", () => {
+describe("AC-STE-391.8 — CLAUDE.md structure block (M123 AC-STE-464.1: forward to 17 + 8)", () => {
   const claudeMd = (): string => readFileSync(join(REPO_ROOT, "CLAUDE.md"), "utf-8");
 
-  test("the skills line counts 24 slash commands (16 user-invocable + 8 dispatch)", () => {
-    expect(claudeMd()).toMatch(/24\s+slash commands\s+\(16\s+user-invocable\s+\+\s+8\s+dispatch/);
+  test("the skills line counts 25 slash commands (17 user-invocable + 8 dispatch)", () => {
+    expect(claudeMd()).toMatch(/25\s+slash commands\s+\(17\s+user-invocable\s+\+\s+8\s+dispatch/);
   });
 
-  test("no stale 17-user-invocable token survives", () => {
-    expect(claudeMd()).not.toMatch(/17\s+user-invocable/);
+  test("no stale 16-user-invocable token survives", () => {
+    expect(claudeMd()).not.toMatch(/16\s+user-invocable/);
   });
 });
 
@@ -153,21 +154,21 @@ const declaresNonUserInvocable = (body: string): boolean => {
   return /^user-invocable:[ \t]*false[ \t]*$/m.test(frontmatter);
 };
 
-describe("AC-STE-391.9 — skills/ ground truth: 24 dirs, 16 user-invocable", () => {
+describe("AC-STE-391.9 — skills/ ground truth: 25 dirs, 17 user-invocable", () => {
   const skillDirs = (): string[] =>
     readdirSync(SKILLS_DIR).filter((name) => statSync(join(SKILLS_DIR, name)).isDirectory());
 
-  test("24 skill directories, upgrade among them", () => {
+  test("25 skill directories, upgrade among them", () => {
     const dirs = skillDirs();
-    expect(dirs.length).toBe(24);
+    expect(dirs.length).toBe(25);
     expect(dirs).toContain("upgrade");
   });
 
-  test("exactly 16 skills are user-invocable (no `user-invocable: false`), upgrade NOT among them", () => {
+  test("exactly 17 skills are user-invocable (no `user-invocable: false`), upgrade NOT among them", () => {
     const userInvocable = skillDirs().filter(
       (dir) => !declaresNonUserInvocable(readFileSync(join(SKILLS_DIR, dir, "SKILL.md"), "utf-8")),
     );
-    expect(userInvocable.length).toBe(16);
+    expect(userInvocable.length).toBe(17);
     expect(userInvocable).not.toContain("upgrade");
   });
 });
