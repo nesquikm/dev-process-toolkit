@@ -181,7 +181,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.64.0 — "Playbook"** (M124, best-practice sources: a curated `specs/best-practices.yaml` catalog of house best-practice docs with a day-one hygiene probe, a Socratic `/best-practices` management skill plus opt-in `/setup` seeding, and an `/implement` Phase 3 conformance lens that reads scope-matched docs directly and files violations as ordinary review concerns — with a loud disposition token when the lens legally skips.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.65.0 — "Blueprint"** (M125, template-source bootstrap: `/setup --template <path>` bootstraps a new project from an existing one — a read-only analyzer inventories the template into reuse categories (process config, curated manifests, scaffolding, source patterns, whole-project), and a Socratic `setup-template` dispatch child walks per-category selection, adapts project-identifying names, previews one unified diff, and lands everything in the normal single bootstrap commit — refusing cleanly when no operator is present.)
 
 ## Core Philosophy
 
