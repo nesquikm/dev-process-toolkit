@@ -240,9 +240,17 @@ function git(args: string[]): { ok: boolean; out: string } {
 }
 
 /** Commits that ADDED or MODIFIED `path`, newest first. `%s` is the subject. */
+// `--full-history` is load-bearing: without it, `git log -- <path>` applies
+// merge simplification and follows only a TREESAME parent, so after this
+// branch merged to main the live FR path's entire history — the authorizing
+// docs(specs) write included — vanished from the walk and both ordering
+// guards went red on a history whose ordering property actually holds. It
+// disables simplification only; it carries none of `--follow`'s
+// content-similarity hazard the FR_COMMITS comment rejects.
 function commitsTouching(path: string): { sha: string; subject: string }[] {
   const log = git([
     "log",
+    "--full-history",
     "--format=%H%x1f%s",
     "--diff-filter=AM",
     "--",
@@ -329,10 +337,17 @@ describe("AC-STE-458.1 — the correction is authorized by its own docs(specs) c
       const codeShas = [MODULE_REPO_REL, THIS_TEST_REPO_REL]
         .map((path) => commitsTouching(path).map((c) => c.sha))
         .flat();
+      // `every`, not `some`: the asserted property is "precedes the FIRST
+      // code commit", so an FR commit qualifies as authorizing only when it
+      // precedes the ENTIRE code history. With `some`, any later edit to the
+      // module or this test file (bb014dc was one) retroactively promoted the
+      // M121 archive commit — an FR-touching `chore(specs)` that post-dates
+      // the original code — into the authorizing set and reddened the guard
+      // one commit late.
       const authorizing = FR_COMMITS.filter(
         ({ sha }) =>
           !codeShas.includes(sha) &&
-          codeShas.some((code) => isAncestor(sha, code)),
+          codeShas.every((code) => isAncestor(sha, code)),
       );
 
       // Non-vacuity: there must BE an authorizing commit to check. A filter

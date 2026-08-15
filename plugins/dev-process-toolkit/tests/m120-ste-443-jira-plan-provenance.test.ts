@@ -25,7 +25,8 @@
 //   AC-STE-443.6  — exemption reuses `EXEMPT_PLAN_KINDS`, CRLF/BOM included.
 //   AC-STE-443.7  — the reported incident, as a REAL temporary git repository.
 //   AC-STE-443.8  — cross-mode invariance against RECORDED pre-change lists.
-//   AC-STE-443.10 — no new probe is registered; the documented count stays 74.
+//   AC-STE-443.10 — no new probe is registered BY M120; the guard tracks the
+//                   live documented count (74 at M120 ship, 75 since M122).
 //
 // (AC-STE-443.9 — mutation verification — is a process AC owned by the
 // orchestrator, not a test. Tests below that CANNOT fail against the pre-change
@@ -1088,7 +1089,7 @@ describe("AC-STE-443.8 — linear and none are byte-identical before and after",
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// AC-STE-443.10 — no new probe; the documented count stays 74
+// AC-STE-443.10 — no new probe FROM M120; guard tracks the live count (now 75)
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("AC-STE-443.10 — the arm ships inside probe #73, not as a probe #75", () => {
@@ -1121,20 +1122,20 @@ describe("AC-STE-443.10 — the arm ships inside probe #73, not as a probe #75",
     expect(row73()).not.toMatch(/\bSTE-\d+/);
   });
 
-  test("GUARD — the highest numbered probe is still 74, with no gap", () => {
+  test("GUARD — the highest numbered probe is still 75, with no gap", () => {
     const numbers = probeNumbers();
-    expect(Math.max(...numbers)).toBe(74);
-    expect(numbers.length).toBe(74);
+    expect(Math.max(...numbers)).toBe(75);
+    expect(numbers.length).toBe(75);
   });
 
-  test("GUARD — README's two probe-count pins still read 74", () => {
+  test("GUARD — README's two probe-count pins still read 75", () => {
     const body = read(README);
     const featureLine = body.split("\n").filter((l) => /numbered `\/gate-check` probes/.test(l));
     expect(featureLine.length).toBe(1);
-    expect(featureLine[0]!).toMatch(/\b74\b.*numbered/);
+    expect(featureLine[0]!).toMatch(/\b75\b.*numbered/);
     const asideLine = body.split("\n").filter((l) => /which layers \d+ probes on top/.test(l));
     expect(asideLine.length).toBe(1);
-    expect(asideLine[0]!).toMatch(/\b74\b\s+probes/);
+    expect(asideLine[0]!).toMatch(/\b75\b\s+probes/);
   });
 
   test("GUARD — the module still exports exactly one probe runner", () => {
