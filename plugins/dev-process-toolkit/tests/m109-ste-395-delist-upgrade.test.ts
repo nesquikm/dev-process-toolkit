@@ -140,24 +140,24 @@ describe("AC-STE-395.1 — skills/upgrade/SKILL.md declares `user-invocable: fal
   });
 });
 
-describe("AC-STE-395.1 — on-disk ground truth: 25 skills, 17 user-invocable", () => {
+describe("AC-STE-395.1 — on-disk ground truth: 26 skills, 18 user-invocable", () => {
   const skillDirs = (): string[] =>
     readdirSync(SKILLS_DIR).filter((n) => statSync(join(SKILLS_DIR, n)).isDirectory());
 
   const declaresNonUserInvocable = (body: string): boolean =>
     /^user-invocable:[ \t]*false[ \t]*$/m.test(frontmatterOf(body));
 
-  test("the on-disk total is 25 (M123/STE-464 added /deliver) — nothing was deleted", () => {
+  test("the on-disk total is 26 (M124 added /best-practices) — nothing was deleted", () => {
     const dirs = skillDirs();
-    expect(dirs.length).toBe(25);
+    expect(dirs.length).toBe(26);
     expect(dirs).toContain("upgrade");
   });
 
-  test("exactly 17 skills are user-invocable, and `upgrade` is NOT among them", () => {
+  test("exactly 18 skills are user-invocable, and `upgrade` is NOT among them", () => {
     const userInvocable = skillDirs().filter(
       (d) => !declaresNonUserInvocable(read(join(SKILLS_DIR, d, "SKILL.md"))),
     );
-    expect(userInvocable.length).toBe(17);
+    expect(userInvocable.length).toBe(18);
     expect(userInvocable).not.toContain("upgrade");
   });
 
@@ -185,22 +185,22 @@ describe("AC-STE-395.1 — on-disk ground truth: 25 skills, 17 user-invocable", 
 describe("AC-STE-395.2 — README count tokens", () => {
   const readme = (): string => read(readmePath);
 
-  test("the pitch under the H1 counts 17 commands (agents unchanged at 8)", () => {
+  test("the pitch under the H1 counts 18 commands (agents unchanged at 8)", () => {
     expect(onlyLine(readme(), /^A Claude Code plugin that adds/)).toMatch(
-      /17 commands?,\s+8 agents?/,
+      /18 commands?,\s+8 agents?/,
     );
   });
 
-  test("the lifecycle prose counts 17 user-invoked skills", () => {
-    expect(onlyLine(readme(), /^The toolkit groups its/)).toMatch(/\b17 user-invoked skills\b/);
+  test("the lifecycle prose counts 18 user-invoked skills", () => {
+    expect(onlyLine(readme(), /^The toolkit groups its/)).toMatch(/\b18 user-invoked skills\b/);
   });
 
   test("the repo-tree skills/ row re-keys BOTH token forms on the one line", () => {
     // A half-done edit ships green: probe #57 reads these positionally and
     // never looks at the second form. Both are pinned here on purpose.
     const row = onlyLine(readme(), /^│\s+├── skills\//);
-    expect(row).toMatch(/25\s*\(17\s*\+\s*8\)/);
-    expect(row).toMatch(/\(17 user-invocable \+ 8 internal forks\)/);
+    expect(row).toMatch(/26\s*\(18\s*\+\s*8\)/);
+    expect(row).toMatch(/\(18 user-invocable \+ 8 internal forks\)/);
   });
 
   test("no stale 16-user-invocable token survives on any pinned README line", () => {
@@ -214,9 +214,9 @@ describe("AC-STE-395.2 — README count tokens", () => {
 });
 
 describe("AC-STE-395.2 — CLAUDE.md + specs/technical-spec.md count tokens", () => {
-  test("CLAUDE.md's skills row counts 25 slash commands (17 user-invocable + 8 dispatch)", () => {
+  test("CLAUDE.md's skills row counts 26 slash commands (18 user-invocable + 8 dispatch)", () => {
     expect(onlyLine(read(claudeMdPath), /^├── skills\//)).toMatch(
-      /25\s+slash commands\s+\(17\s+user-invocable\s+\+\s+8\s+dispatch/,
+      /26\s+slash commands\s+\(18\s+user-invocable\s+\+\s+8\s+dispatch/,
     );
   });
 
@@ -226,10 +226,10 @@ describe("AC-STE-395.2 — CLAUDE.md + specs/technical-spec.md count tokens", ()
     expect(row).not.toMatch(/\+\s*7\s+dispatch/);
   });
 
-  test("specs/technical-spec.md's skills row counts 17 user-invocable SKILL.md files", () => {
+  test("specs/technical-spec.md's skills row counts 18 user-invocable SKILL.md files", () => {
     const row = onlyLine(read(technicalSpecPath), /├── skills\/.*user-invocable SKILL\.md/);
-    expect(row).toMatch(/17 user-invocable SKILL\.md files/);
-    expect(row).not.toMatch(/16 user-invocable/);
+    expect(row).toMatch(/18 user-invocable SKILL\.md files/);
+    expect(row).not.toMatch(/17 user-invocable/);
   });
 });
 
@@ -402,10 +402,10 @@ describe("AC-STE-395.4 — CLAUDE.md:15 keeps a literal the probe's splitMatch c
     expect(SPLIT_RE.test(line15!)).toBe(true);
   });
 
-  test("the parsed split is (17 user-invocable, 8 dispatch)", () => {
+  test("the parsed split is (18 user-invocable, 8 dispatch)", () => {
     const m = SPLIT_RE.exec(read(claudeMdPath).split("\n")[14]!);
     expect(m).not.toBeNull();
-    expect(Number(m![1])).toBe(17);
+    expect(Number(m![1])).toBe(18);
     expect(Number(m![2])).toBe(8);
   });
 
@@ -415,10 +415,9 @@ describe("AC-STE-395.4 — CLAUDE.md:15 keeps a literal the probe's splitMatch c
     // public_surface_count_drift.ts:323-327 is then skipped and the probe
     // reports ZERO violations while looking perfectly green. This test is the
     // tripwire on that silent disable — and it also pins WHICH number the
-    // surviving literal declares, which is why it is RED against today's code
-    // (today it names 17).
+    // surviving literal declares (18 post-M124).
     const fx = makeFixture({
-      skillsCount: 25,
+      skillsCount: 26,
       agentsCount: 8,
       maxProbeNumber: PROBE_MAX,
       readmeContent: readmeClaiming(99),
@@ -430,7 +429,7 @@ describe("AC-STE-395.4 — CLAUDE.md:15 keeps a literal the probe's splitMatch c
         (v) => v.file === "README.md" && /commands count/i.test(v.reason),
       );
       expect(hit).toBeDefined();
-      expect(hit!.reason).toContain("user-invocable count (17)");
+      expect(hit!.reason).toContain("user-invocable count (18)");
       expect(hit!.message).toContain("Refusing:");
     } finally {
       fx.cleanup();
@@ -439,10 +438,10 @@ describe("AC-STE-395.4 — CLAUDE.md:15 keeps a literal the probe's splitMatch c
 
   test("agreeing README + REAL CLAUDE.md ⇒ no commands-count violation", async () => {
     const fx = makeFixture({
-      skillsCount: 25,
+      skillsCount: 26,
       agentsCount: 8,
       maxProbeNumber: PROBE_MAX,
-      readmeContent: readmeClaiming(17),
+      readmeContent: readmeClaiming(18),
       claudeMdContent: read(claudeMdPath),
     });
     try {
@@ -582,8 +581,9 @@ describe("AC-STE-395.6 — README command table + mermaid", () => {
     const rows = readme()
       .split("\n")
       .filter((l) => /^\|\s*`\//.test(l));
-    // 16 post-STE-395; M123/STE-464 added the `/deliver` row → 17.
-    expect(rows.length).toBe(17);
+    // 16 post-STE-395; M123/STE-464 added the `/deliver` row → 17; M124
+    // added the `/best-practices` row → 18.
+    expect(rows.length).toBe(18);
     expect(rows.some((r) => /`\/setup`/.test(r))).toBe(true);
     expect(rows.some((r) => /`\/upgrade`/.test(r))).toBe(false);
   });
@@ -649,14 +649,14 @@ describe("AC-STE-395.8 — pre-de-listing assertions are inverted, not deleted",
     expect(src).toContain('expect(COMMIT_PRODUCING_SKILLS).toContain("upgrade")');
   });
 
-  test("m108-ste-391-docs-pins.test.ts re-keys to the 17 / 25 (17 + 8) forms", () => {
+  test("m108-ste-391-docs-pins.test.ts re-keys to the 18 / 26 (18 + 8) forms", () => {
     const src = testSrc("m108-ste-391-docs-pins.test.ts");
-    // M123/STE-464 (`/deliver`) inverted the pair again: 17 is now the
-    // required token and 16 the forbidden one.
-    expect(src).toContain("toMatch(/17 user-invo/)");
-    expect(src).toContain("not.toMatch(/16 user-invo/)");
-    expect(src).toContain("/25\\s*\\(17\\s*\\+\\s*8\\)/");
-    expect(src).toContain("expect(userInvocable.length).toBe(17)");
+    // M124 (`/best-practices`) advanced the pair again: 18 is now the
+    // required token and 17 the forbidden one.
+    expect(src).toContain("toMatch(/18 user-invo/)");
+    expect(src).toContain("not.toMatch(/17 user-invo/)");
+    expect(src).toContain("/26\\s*\\(18\\s*\\+\\s*8\\)/");
+    expect(src).toContain("expect(userInvocable.length).toBe(18)");
     // The predicate rename — the old name asserted fork-dispatch, which
     // `/upgrade` is not. (The retired identifier may still be NAMED in a
     // traceability comment; what must be gone is the call site.)
@@ -666,18 +666,18 @@ describe("AC-STE-395.8 — pre-de-listing assertions are inverted, not deleted",
 
   test("gate-check-public-surface-count-drift.test.ts re-keys its four live-tree pins", () => {
     const src = testSrc("gate-check-public-surface-count-drift.test.ts");
-    expect(src).toContain("/17 commands?,\\s+8 agents?/");
+    expect(src).toContain("/18 commands?,\\s+8 agents?/");
     expect(src).toContain("/Eight additional skills/");
-    expect(src).toContain("/25\\s+\\(17\\s*\\+\\s*8\\)/");
+    expect(src).toContain("/26\\s+\\(18\\s*\\+\\s*8\\)/");
     expect(src).toContain(
-      "/25\\s+slash commands\\s+\\(17\\s+user-invocable\\s+\\+\\s+8\\s+dispatch/",
+      "/26\\s+slash commands\\s+\\(18\\s+user-invocable\\s+\\+\\s+8\\s+dispatch/",
     );
   });
 
-  test("the on-disk-total pins re-key with /deliver — 25 / 24 (M123/STE-464)", () => {
+  test("the on-disk-total pins re-key with /best-practices — 26 / 25 (M124)", () => {
     const src = testSrc("gate-check-public-surface-count-drift.test.ts");
-    expect(src).toContain("/the other 24 skills/");
-    expect(src).toContain("/all 25 skills/");
+    expect(src).toContain("/the other 25 skills/");
+    expect(src).toContain("/all 26 skills/");
     // Synthetic-fixture cases keep their own calibration.
     expect(src).toContain("skillsCount: 23");
   });

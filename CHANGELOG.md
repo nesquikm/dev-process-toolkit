@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.64.0] — 2026-08-15 — "Playbook"
+
+M124 — Best-Practice Sources. House rules live in scattered documents nobody checks at review time. This release gives projects a curated, gate-checked catalog of best-practice docs — a parallel twin of the deps stack — and makes `/implement`'s review actually consult it: scope-matched docs are read directly during Phase 3 and violations ride the existing bounded review loop, with a loud literal token when the lens legally skips.
+
+### Added
+
+- **`specs/best-practices.yaml` manifest module + day-one hygiene probe #76.** New `best_practices_manifest.ts` (read/write/add/remove/find) cloned verbatim from the deps-manifest idiom with two deliberate divergences: a closed entry schema (`{name, path, scope?, topics?, notes?}` — unknown keys refuse) and repo-relative path enforcement (POSIX absolute, Windows drive-letter, UNC, and `..`-traversal forms all refuse). Malformed manifests throw `BestPracticesManifestShapeError` in the NFR-10 canonical shape at read time — never a silent skip or partial parse; absent file ≡ empty manifest. Gate probe `best_practices_manifest_hygiene` (severity error, vacuous when the manifest is absent) validates shape and that every entry's `path` resolves on disk, registered day-one per the twin-parity lesson — probe-count pins move 75→76 across every surface. Review hardening: adjacent `**` glob segments collapse before regex compilation, and single-line field values are enforced against newline injection; 25 guard mutations killed. (STE-465)
+- **`/best-practices` management skill + `/setup` seeding — the 18th user-invocable skill.** Add/edit/delete/list on the manifest, mirroring the `/deps` idiom; add/edit flows are Socratic (AskUserQuestion per step) and every write routes through the manifest module — shape errors refuse, invalid entries are never written. `/setup` gains an opt-in re-entrant seeding step: existing manifest as baseline, fresh proposal as a unified diff behind an approval gate, cancel keeps the file untouched. Skill counts move 17→18 user-invocable / 25→26 total across every pinned surface. (STE-466)
+- **`/implement` Phase 3 best-practices conformance lens.** When the catalog has entries, deterministic scope-glob preselection (`selectEntriesForChangedFiles` + an executable `select` CLI leg) picks the docs whose globs match the FR's changed files — entries without `scope` always apply — the curated docs are read directly (no research fork), and violations are filed as ordinary review concerns inside the bounded 2-round resolve-or-escalate loop: never a new blocking gate, never an auto-fix outside the loop. MUST-emit disposition pair `best_practices_lens_applied` XOR `best_practices_lens_skipped_no_manifest` registered in the canonical capability map and probe #44 sites; smoke fixture group 12 asserts the disposition surface end-to-end with `SMOKE_LEGS` untouched. (STE-467)
+
+Total test count at release: 7429 tests, 0 failures, 0 errors.
+
 ## [2.63.0] — 2026-08-15 — "Conductor"
 
 M123 — Deliver Pipeline Orchestrator. The M122 cycle proved the full delivery pipeline works when a supervisor drives it by hand — one fresh worker per milestone, every approval gate relayed. This release automates that topology behind a single command, with an operator-controlled orchestration config deciding how hard spawned workers think and what happens to a finished pull request.
