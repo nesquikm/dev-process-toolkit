@@ -303,6 +303,38 @@ describe("analyzeTemplateSource — malformed manifests (AC-STE-468.3)", () => {
   });
 });
 
+describe("analyzeTemplateSource — CLI shim (the boundary the setup-template child invokes)", () => {
+  const MODULE = join(import.meta.dir, "template_source_analyzer.ts");
+
+  test("success: JSON inventory on stdout, exit 0, silent stderr", () => {
+    const root = makeFullFixture(join(work, "cli-ok"));
+    const res = Bun.spawnSync(["bun", "run", MODULE, root]);
+    expect(res.exitCode).toBe(0);
+    const inv = JSON.parse(res.stdout.toString());
+    expect(inv.processConfig.files).toContain("CLAUDE.md");
+    expect(inv.wholeProjectCandidate).toBe(true);
+    expect(res.stderr.toString()).toBe("");
+  });
+
+  test("missing argument: NFR-10 refusal on stderr, exit 2, no stdout", () => {
+    const res = Bun.spawnSync(["bun", "run", MODULE]);
+    expect(res.exitCode).toBe(2);
+    const err = res.stderr.toString();
+    expect(err).toContain("Refusing: missing <source-root> argument");
+    expect(err).toContain("Remedy:");
+    expect(res.stdout.toString()).toBe("");
+  });
+
+  test("non-directory root: refusal verbatim on stderr, exit 2, no stdout", () => {
+    const file = join(work, "not-a-dir.txt");
+    writeFileSync(file, "flat\n");
+    const res = Bun.spawnSync(["bun", "run", MODULE, file]);
+    expect(res.exitCode).toBe(2);
+    expect(res.stderr.toString()).toContain("Refusing:");
+    expect(res.stdout.toString()).toBe("");
+  });
+});
+
 describe("analyzeTemplateSource — hardening: dangling symlinks in a foreign tree", () => {
   test("dangling symlinks at top level and inside a classified dir do not crash; healthy entries survive", () => {
     const root = makeFullFixture(join(work, "symlinked"));
