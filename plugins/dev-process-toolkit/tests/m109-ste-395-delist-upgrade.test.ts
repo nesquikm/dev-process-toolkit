@@ -140,16 +140,16 @@ describe("AC-STE-395.1 — skills/upgrade/SKILL.md declares `user-invocable: fal
   });
 });
 
-describe("AC-STE-395.1 — on-disk ground truth: 26 skills, 18 user-invocable", () => {
+describe("AC-STE-395.1 — on-disk ground truth: 27 skills, 18 user-invocable", () => {
   const skillDirs = (): string[] =>
     readdirSync(SKILLS_DIR).filter((n) => statSync(join(SKILLS_DIR, n)).isDirectory());
 
   const declaresNonUserInvocable = (body: string): boolean =>
     /^user-invocable:[ \t]*false[ \t]*$/m.test(frontmatterOf(body));
 
-  test("the on-disk total is 26 (M124 added /best-practices) — nothing was deleted", () => {
+  test("the on-disk total is 27 (M125 added setup-template) — nothing was deleted", () => {
     const dirs = skillDirs();
-    expect(dirs.length).toBe(26);
+    expect(dirs.length).toBe(27);
     expect(dirs).toContain("upgrade");
   });
 
@@ -161,20 +161,20 @@ describe("AC-STE-395.1 — on-disk ground truth: 26 skills, 18 user-invocable", 
     expect(userInvocable).not.toContain("upgrade");
   });
 
-  test("exactly 8 skills are non-user-invocable, and `upgrade` IS among them", () => {
+  test("exactly 9 skills are non-user-invocable, and `upgrade` IS among them", () => {
     const nonUserInvocable = skillDirs().filter((d) =>
       declaresNonUserInvocable(read(join(SKILLS_DIR, d, "SKILL.md"))),
     );
-    expect(nonUserInvocable.length).toBe(8);
+    expect(nonUserInvocable.length).toBe(9);
     expect(nonUserInvocable).toContain("upgrade");
   });
 
-  test("/upgrade is the FIRST non-user-invocable skill that is not a fork child", () => {
+  test("the non-user-invocable skills that are not fork children are setup-template + upgrade", () => {
     const forkless = skillDirs().filter((d) => {
       const fm = frontmatterOf(read(join(SKILLS_DIR, d, "SKILL.md")));
       return /^user-invocable:[ \t]*false[ \t]*$/m.test(fm) && !/^context:\s*fork\s*$/m.test(fm);
     });
-    expect(forkless).toEqual(["upgrade"]);
+    expect(forkless.sort()).toEqual(["setup-template", "upgrade"]);
   });
 });
 
@@ -199,8 +199,8 @@ describe("AC-STE-395.2 — README count tokens", () => {
     // A half-done edit ships green: probe #57 reads these positionally and
     // never looks at the second form. Both are pinned here on purpose.
     const row = onlyLine(readme(), /^│\s+├── skills\//);
-    expect(row).toMatch(/26\s*\(18\s*\+\s*8\)/);
-    expect(row).toMatch(/\(18 user-invocable \+ 8 internal forks\)/);
+    expect(row).toMatch(/27\s*\(18\s*\+\s*9\)/);
+    expect(row).toMatch(/\(18 user-invocable \+ 9 internal forks\)/);
   });
 
   test("no stale 16-user-invocable token survives on any pinned README line", () => {
@@ -209,21 +209,21 @@ describe("AC-STE-395.2 — README count tokens", () => {
     expect(onlyLine(body, /^The toolkit groups its/)).not.toMatch(/\b16\b/);
     const row = onlyLine(body, /^│\s+├── skills\//);
     expect(row).not.toMatch(/\b16\b/);
-    expect(row).not.toMatch(/\+\s*7\b/);
+    expect(row).not.toMatch(/\+\s*8\b/);
   });
 });
 
 describe("AC-STE-395.2 — CLAUDE.md + specs/technical-spec.md count tokens", () => {
-  test("CLAUDE.md's skills row counts 26 slash commands (18 user-invocable + 8 dispatch)", () => {
+  test("CLAUDE.md's skills row counts 27 slash commands (18 user-invocable + 9 dispatch)", () => {
     expect(onlyLine(read(claudeMdPath), /^├── skills\//)).toMatch(
-      /26\s+slash commands\s+\(18\s+user-invocable\s+\+\s+8\s+dispatch/,
+      /27\s+slash commands\s+\(18\s+user-invocable\s+\+\s+9\s+dispatch/,
     );
   });
 
-  test("no stale `16 user-invocable` / `+ 7 dispatch` token survives in CLAUDE.md", () => {
+  test("no stale `16 user-invocable` / `+ 8 dispatch` token survives in CLAUDE.md", () => {
     const row = onlyLine(read(claudeMdPath), /^├── skills\//);
     expect(row).not.toMatch(/16\s+user-invocable/);
-    expect(row).not.toMatch(/\+\s*7\s+dispatch/);
+    expect(row).not.toMatch(/\+\s*8\s+dispatch/);
   });
 
   test("specs/technical-spec.md's skills row counts 18 user-invocable SKILL.md files", () => {
@@ -241,6 +241,7 @@ describe("AC-STE-395.2 — probe #57 holds no count literals, so its source does
       "17 user-invocable",
       "7 dispatch",
       "8 dispatch",
+      "9 dispatch",
     ]) {
       expect(src).not.toContain(literal);
     }
@@ -260,17 +261,17 @@ describe("AC-STE-395.2 — probe #57 holds no count literals, so its source does
 describe("AC-STE-395.3 — README's `additional skills` paragraph", () => {
   const para = (): string => paragraphWith(read(readmePath), /additional skills \(`spec-research`/);
 
-  test("the count literal is byte-strict `Eight additional skills`", () => {
+  test("the count literal is byte-strict `Nine additional skills`", () => {
     expect(onlyLine(read(readmePath), /additional skills \(`spec-research`/)).toMatch(
-      /Eight additional skills/,
+      /Nine additional skills/,
     );
   });
 
-  test("no `Seven additional skills` literal survives", () => {
-    expect(read(readmePath)).not.toContain("Seven additional skills");
+  test("no `Eight additional skills` literal survives", () => {
+    expect(read(readmePath)).not.toContain("Eight additional skills");
   });
 
-  test("the paragraph enumerates all EIGHT members, `upgrade` among them", () => {
+  test("the paragraph enumerates all NINE members, `upgrade` among them", () => {
     const body = para();
     for (const name of [
       "spec-research",
@@ -281,21 +282,22 @@ describe("AC-STE-395.3 — README's `additional skills` paragraph", () => {
       "tdd-spec-review",
       "deps-research",
       "upgrade",
+      "setup-template",
     ]) {
       expect(body).toContain(name);
     }
   });
 
-  test("the `context: fork` claim is no longer universally quantified over the eight", () => {
+  test("the `context: fork` claim is no longer universally quantified over the nine", () => {
     // The old sentence — "Eight additional skills (…) are not user-invocable —
     // they run only as `context: fork` children" — is FALSE the moment /upgrade
-    // joins the set with no fork pairing.
+    // (and now `setup-template`) joins the set with no fork pairing.
     expect(para()).not.toMatch(
-      /Eight additional skills[^.]*they run only as `context: fork` children/,
+      /Nine additional skills[^.]*they run only as `context: fork` children/,
     );
   });
 
-  test("the fork claim survives for the seven that really are fork children", () => {
+  test("the fork claim survives for the seven that really are fork children (exceptions: upgrade + setup-template)", () => {
     expect(para()).toContain("context: fork");
   });
 
@@ -402,11 +404,11 @@ describe("AC-STE-395.4 — CLAUDE.md:15 keeps a literal the probe's splitMatch c
     expect(SPLIT_RE.test(line15!)).toBe(true);
   });
 
-  test("the parsed split is (18 user-invocable, 8 dispatch)", () => {
+  test("the parsed split is (18 user-invocable, 9 dispatch)", () => {
     const m = SPLIT_RE.exec(read(claudeMdPath).split("\n")[14]!);
     expect(m).not.toBeNull();
     expect(Number(m![1])).toBe(18);
-    expect(Number(m![2])).toBe(8);
+    expect(Number(m![2])).toBe(9);
   });
 
   test("REAL CLAUDE.md bytes + a disagreeing README split ⇒ the guard FIRES", async () => {
@@ -417,7 +419,7 @@ describe("AC-STE-395.4 — CLAUDE.md:15 keeps a literal the probe's splitMatch c
     // tripwire on that silent disable — and it also pins WHICH number the
     // surviving literal declares (18 post-M124).
     const fx = makeFixture({
-      skillsCount: 26,
+      skillsCount: 27,
       agentsCount: 8,
       maxProbeNumber: PROBE_MAX,
       readmeContent: readmeClaiming(99),
@@ -438,7 +440,7 @@ describe("AC-STE-395.4 — CLAUDE.md:15 keeps a literal the probe's splitMatch c
 
   test("agreeing README + REAL CLAUDE.md ⇒ no commands-count violation", async () => {
     const fx = makeFixture({
-      skillsCount: 26,
+      skillsCount: 27,
       agentsCount: 8,
       maxProbeNumber: PROBE_MAX,
       readmeContent: readmeClaiming(18),
@@ -649,13 +651,13 @@ describe("AC-STE-395.8 — pre-de-listing assertions are inverted, not deleted",
     expect(src).toContain('expect(COMMIT_PRODUCING_SKILLS).toContain("upgrade")');
   });
 
-  test("m108-ste-391-docs-pins.test.ts re-keys to the 18 / 26 (18 + 8) forms", () => {
+  test("m108-ste-391-docs-pins.test.ts re-keys to the 18 / 27 (18 + 9) forms", () => {
     const src = testSrc("m108-ste-391-docs-pins.test.ts");
     // M124 (`/best-practices`) advanced the pair again: 18 is now the
     // required token and 17 the forbidden one.
     expect(src).toContain("toMatch(/18 user-invo/)");
     expect(src).toContain("not.toMatch(/17 user-invo/)");
-    expect(src).toContain("/26\\s*\\(18\\s*\\+\\s*8\\)/");
+    expect(src).toContain("/27\\s*\\(18\\s*\\+\\s*9\\)/");
     expect(src).toContain("expect(userInvocable.length).toBe(18)");
     // The predicate rename — the old name asserted fork-dispatch, which
     // `/upgrade` is not. (The retired identifier may still be NAMED in a
@@ -667,17 +669,17 @@ describe("AC-STE-395.8 — pre-de-listing assertions are inverted, not deleted",
   test("gate-check-public-surface-count-drift.test.ts re-keys its four live-tree pins", () => {
     const src = testSrc("gate-check-public-surface-count-drift.test.ts");
     expect(src).toContain("/18 commands?,\\s+8 agents?/");
-    expect(src).toContain("/Eight additional skills/");
-    expect(src).toContain("/26\\s+\\(18\\s*\\+\\s*8\\)/");
+    expect(src).toContain("/Nine additional skills/");
+    expect(src).toContain("/27\\s+\\(18\\s*\\+\\s*9\\)/");
     expect(src).toContain(
-      "/26\\s+slash commands\\s+\\(18\\s+user-invocable\\s+\\+\\s+8\\s+dispatch/",
+      "/27\\s+slash commands\\s+\\(18\\s+user-invocable\\s+\\+\\s+9\\s+dispatch/",
     );
   });
 
-  test("the on-disk-total pins re-key with /best-practices — 26 / 25 (M124)", () => {
+  test("the on-disk-total pins re-key with setup-template — 27 / 26 (M125)", () => {
     const src = testSrc("gate-check-public-surface-count-drift.test.ts");
-    expect(src).toContain("/the other 25 skills/");
-    expect(src).toContain("/all 26 skills/");
+    expect(src).toContain("/the other 26 skills/");
+    expect(src).toContain("/all 27 skills/");
     // Synthetic-fixture cases keep their own calibration.
     expect(src).toContain("skillsCount: 23");
   });

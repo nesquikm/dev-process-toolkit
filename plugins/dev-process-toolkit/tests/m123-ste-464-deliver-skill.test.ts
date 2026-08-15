@@ -105,21 +105,21 @@ describe("AC-STE-464.1 — skills/deliver/SKILL.md exists and is user-invocable"
   });
 });
 
-describe("AC-STE-464.1 — on-disk ground truth: 26 skill dirs, 18 user-invocable", () => {
-  test("26 skill directories, deliver among them", () => {
+describe("AC-STE-464.1 — on-disk ground truth: 27 skill dirs, 18 user-invocable", () => {
+  test("27 skill directories, deliver among them", () => {
     const dirs = skillDirs();
-    expect(dirs.length).toBe(26);
+    expect(dirs.length).toBe(27);
     expect(dirs).toContain("deliver");
   });
 
-  test("exactly 18 skills are user-invocable, deliver among them; the fork/dispatch set stays 8", () => {
+  test("exactly 18 skills are user-invocable, deliver among them; the fork/dispatch set is 9 (M125)", () => {
     const dirs = skillDirs();
     const userInvocable = dirs.filter(
       (dir) => !declaresNonUserInvocable(readFileSync(join(SKILLS_DIR, dir, "SKILL.md"), "utf-8")),
     );
     expect(userInvocable.length).toBe(18);
     expect(userInvocable).toContain("deliver");
-    expect(dirs.length - userInvocable.length).toBe(8);
+    expect(dirs.length - userInvocable.length).toBe(9);
   });
 });
 
@@ -133,26 +133,26 @@ describe("AC-STE-464.1 — README count surfaces (probe #57's exact lines)", () 
     expect(line3).toMatch(/18\s+commands?,\s+8\s+agents?/);
   });
 
-  test("the repo-tree skills row reads `26 (18 + 8)` with `(18 user-invocable + 8 internal forks)`", () => {
+  test("the repo-tree skills row reads `27 (18 + 9)` with `(18 user-invocable + 9 internal forks)`", () => {
     const rows = readmeLines().filter((l) => l.includes("── skills/"));
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
-    expect(row).toMatch(/26\s+\(18\s*\+\s*8\)/);
-    expect(row).toMatch(/\(18 user-invocable \+ 8 internal forks\)/);
+    expect(row).toMatch(/27\s+\(18\s*\+\s*9\)/);
+    expect(row).toMatch(/\(18 user-invocable \+ 9 internal forks\)/);
   });
 
-  test("`Eight additional skills` survives — the dispatch count did not move", () => {
-    expect(mustRead(README)).toMatch(/Eight additional skills/);
+  test("`Nine additional skills` — the dispatch count moved with setup-template (M125)", () => {
+    expect(mustRead(README)).toMatch(/Nine additional skills/);
   });
 });
 
 describe("AC-STE-464.1 — CLAUDE.md count surfaces (probe #57 reads line 15 verbatim)", () => {
-  test("line 15 skills row: 26 slash commands (18 user-invocable + 8 dispatch …)", () => {
+  test("line 15 skills row: 27 slash commands (18 user-invocable + 9 dispatch …)", () => {
     const line15 = mustRead(CLAUDE_MD).split("\n")[14] ?? "";
     expect(line15).toMatch(/^├── skills\//);
     // The probe's own totalMatch and splitMatch regexes, instantiated:
-    expect(line15).toMatch(/26\s+slash commands?/);
-    expect(line15).toMatch(/\(18\s+user-invocable\s*\+\s*8\s+dispatch/);
+    expect(line15).toMatch(/27\s+slash commands?/);
+    expect(line15).toMatch(/\(18\s+user-invocable\s*\+\s*9\s+dispatch/);
   });
 
   test("the agents row is untouched: 8 subagent templates", () => {
@@ -165,16 +165,16 @@ describe("AC-STE-464.1 — remaining count surfaces", () => {
     expect(mustRead(TECH_SPEC)).toMatch(/18 user-invocable SKILL\.md files/);
   });
 
-  test("specs/testing-spec.md v2-minimal row: all 26 skills", () => {
-    expect(mustRead(TESTING_SPEC)).toMatch(/all 26 skills/);
+  test("specs/testing-spec.md v2-minimal row: all 27 skills", () => {
+    expect(mustRead(TESTING_SPEC)).toMatch(/all 27 skills/);
   });
 
-  test("docs/skill-anatomy.md canonical-example line: the other 25 skills", () => {
+  test("docs/skill-anatomy.md canonical-example line: the other 26 skills", () => {
     const lines = mustRead(SKILL_ANATOMY)
       .split("\n")
       .filter((l) => l.includes("canonical read-only example"));
     expect(lines).toHaveLength(1);
-    expect(lines[0]!).toMatch(/the other 25 skills/);
+    expect(lines[0]!).toMatch(/the other 26 skills/);
   });
 });
 
@@ -182,21 +182,21 @@ describe("AC-STE-464.1 — remaining count surfaces", () => {
 // .test.ts:651-679): the shipped count-pin suites must be RE-KEYED to the new
 // 17 / 25 forms, not deleted and not left green on stale numbers. Substring
 // pins deliberately sidestep the double-escaping of pinning a pin of a regex.
-describe("AC-STE-464.1 — shipped count-pin suites re-key to the 18 / 26 forms (M124)", () => {
+describe("AC-STE-464.1 — shipped count-pin suites re-key to the 18 / 27 forms (M125)", () => {
   const testSrc = (name: string): string => mustRead(join(import.meta.dir, name));
 
   test("gate-check-public-surface-count-drift.test.ts carries the new live-tree literals", () => {
     const src = testSrc("gate-check-public-surface-count-drift.test.ts");
     expect(src).toContain("18 commands");
-    expect(src).toContain("all 26 skills");
-    expect(src).toContain("the other 25 skills");
+    expect(src).toContain("all 27 skills");
+    expect(src).toContain("the other 26 skills");
   });
 
   test("m109-ste-395-delist-upgrade.test.ts meta-meta pins follow the same re-key", () => {
     const src = testSrc("m109-ste-395-delist-upgrade.test.ts");
     expect(src).toContain("18 commands");
-    expect(src).toContain("all 26 skills");
-    expect(src).toContain("the other 25 skills");
+    expect(src).toContain("all 27 skills");
+    expect(src).toContain("the other 26 skills");
   });
 });
 
@@ -461,10 +461,10 @@ describe("AC-STE-464.10 — canonical roster gains group 11; SMOKE_LEGS is untou
     );
   });
 
-  test("the roster is 12 groups, 1..12 in order (widened by M124's group 12)", () => {
-    expect(CANONICAL_FIXTURE_GROUPS).toHaveLength(12);
+  test("the roster is 13 groups, 1..13 in order (widened by M125's group 13)", () => {
+    expect(CANONICAL_FIXTURE_GROUPS).toHaveLength(13);
     expect(CANONICAL_FIXTURE_GROUPS.map((s) => s.group)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
     ]);
   });
 
@@ -485,14 +485,14 @@ describe("AC-STE-464.10 — canonical roster gains group 11; SMOKE_LEGS is untou
 // (m117-ste-425-falsifiable-coverage.test.ts:632 group list, :687 length pin,
 // and the STE-449 row-by-row table). Whitespace-normalized substrings, so the
 // pin survives prettier's line wrapping of the widened array.
-describe("AC-STE-464.10 — m117-ste-425-falsifiable-coverage.test.ts re-keys with the roster (12 groups post-M124)", () => {
+describe("AC-STE-464.10 — m117-ste-425-falsifiable-coverage.test.ts re-keys with the roster (13 groups post-M125)", () => {
   const src = (): string =>
     mustRead(join(import.meta.dir, "m117-ste-425-falsifiable-coverage.test.ts"));
 
-  test("the group-list toEqual and the toHaveLength pin both count 12", () => {
+  test("the group-list toEqual and the toHaveLength pin both count 13", () => {
     const norm = src().replace(/\s+/g, "");
-    expect(norm).toMatch(/1,2,3,4,5,6,7,8,9,10,11,12,?\]/);
-    expect(src()).toContain("toHaveLength(12)");
+    expect(norm).toMatch(/1,2,3,4,5,6,7,8,9,10,11,12,13,?\]/);
+    expect(src()).toContain("toHaveLength(13)");
   });
 
   test("the audited roster table carries group 11's row", () => {

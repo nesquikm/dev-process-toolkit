@@ -1474,6 +1474,33 @@ STE-467 runtime regression: 12a-lens-disposition
 
 If sub-fixture 12a passes on a leg, append `STE-467 runtime check: PASS` to the run summary line; any failure appends `STE-467 runtime check: FAIL`, and a group that never executed appends `STE-467 runtime check: NOT-REACHED` rather than nothing at all. Tracker-independent by construction — the disposition is decided by the manifest's presence on disk, never by a tracker surface, so the group is never N/A on any registered leg.
 
+#### Fixture group 13 — STE-469 setup-template headless refusal (Linear + Jira + tracker-less)
+
+One sub-fixture (13a). The `setup-template` dispatch child (`skills/setup-template/SKILL.md`, reached via `/setup --template <path>`) is interactive by design — reuse selection has no safe default, so nothing may be copied without an explicit answer. Under non-interactive stdin the child must therefore refuse via `requireOrRefuse` (`adapters/_shared/src/requires_input.ts`) **before** any template file lands in the working tree. The failure mode this group exists to catch is the same silent-scaffolding shape as group 11's, one skill over: a headless child that copies template config first and refuses second — or refuses only in prose, without the machine marker, which is byte-indistinguishable from doing nothing. The refusal is decided by stdin tty-ness alone and consults no tracker surface, so the group runs identically on every registered leg.
+
+##### Sub-fixture 13a — the refusal marker present, and no template file copied before it
+
+The driver fires a minimal child spawn constructed at smoke-driver runtime and described here in prose only (same rationale as sub-fixture 11a: no authored heredoc snippet for the `auto_approve_marker_in_canonical_spawns` probe to pick up — and the reuse-selection gate has **no marker carve-out**, so no fence exists for the marker to belong in). The child is a `claude -p` invocation of `/dev-process-toolkit:setup --template <template-path>` run from inside the test project, pointed at any existing sibling directory as the template — stdin non-tty by construction under `-p`. Capture to `/tmp/dpt-smoke-<tracker>-ste469-setup-template.log` (stream-json NDJSON, like every Phase 2 spawn).
+
+**Source:** `/tmp/dpt-smoke-<tracker>-ste469-setup-template.log` (captured by this sub-fixture's own spawn above — no earlier phase produces it).
+
+**Assertions:**
+
+- Assert the child `skills/setup-template/SKILL.md` **refuses under non-tty stdin**: the capture carries the literal refusal marker `<dpt:requires-input-refused>v1</dpt:requires-input-refused>` in **assistant-authored text** — extract it via `extractAssistantText` (`adapters/_shared/src/smoke_child_capture.ts`), never a raw-NDJSON grep, which is vacuous when the child merely reads the SKILL prose into a `tool_result`.
+- Assert **no template file is copied before the refusal**: the capture contains **zero `Write` or `Edit` `tool_use` events preceding the refusal marker**. A child that lands template config first and refuses second has already done the damage the refusal exists to prevent, and a marker-only check would score it green.
+
+**Diagnostic on failure:**
+
+```
+STE-469 runtime regression: 13a-headless-refusal
+  expected: refusal marker in assistant text, with zero Write/Edit tool_use events preceding it
+  actual:   <observed state>
+  stdout excerpt (last 20 lines):
+    <tail -20 /tmp/dpt-smoke-<tracker>-ste469-setup-template.log>
+```
+
+If sub-fixture 13a passes on a leg, append `STE-469 runtime check: PASS` to the run summary line; any failure appends `STE-469 runtime check: FAIL`, and a group that never executed appends `STE-469 runtime check: NOT-REACHED` rather than nothing at all. Tracker-independent by construction — the refusal fires before any tracker surface could be consulted, so the group is never N/A on any registered leg.
+
 ### Phase 2.Y — End-of-run chain-integrity assertion (STE-355)
 
 Before any Phase 3 capture work, assert the canonical chain actually completed. Run `assertChainIntegrity` (`adapters/_shared/src/smoke_child_capture.ts`, built on the `stream_json_events` NDJSON reader) against every expected per-skill capture, in chain order, passing the **run-start timestamp** captured at Phase 0 acceptance (the epoch-ms moment the approval was logged) as the `runStart` argument:
