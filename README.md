@@ -179,7 +179,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.61.0 — "Conformant"** (M121, tracker-less conformance coverage: `mode: none` becomes an always-on third leg, and the claim commit it produces now fits the 72-character subject cap the toolkit's own hook enforces — the branch leaves the subject, so subject length is constant at 58 and branch length stops mattering. A rejected lock commit rolls the tree back and still throws.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.62.0 — "Nudge"** (M122, ship-ready milestone nudge: probe #75 names every active milestone whose FRs are all archived but whose plan was never closed and shipped — warning-only, one NOTES row carrying the exact ceremony commands — and `/implement`'s single-FR runs now offer the close ceremony through the same shared predicate, so the gate's and the skill's definitions of "ship-ready" cannot drift.)
 
 ## Core Philosophy
 
