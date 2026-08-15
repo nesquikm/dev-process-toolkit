@@ -206,6 +206,13 @@ export const CANONICAL_FIXTURE_GROUPS: readonly FixtureGroupSpec[] = [
     rationale:
       "the /deliver refusal fence reads stdin tty-ness only — no tracker surface is consulted, so every leg exercises the headless refusal identically",
   },
+  {
+    group: 12,
+    sut: "STE-467",
+    legs: ALL_LEGS,
+    rationale:
+      "the best-practices lens disposition is decided by the manifest's presence on disk and emitted in /implement's closing summary; no assertion reads a tracker surface, so every leg exercises the XOR identically",
+  },
 ];
 
 // --- records ---------------------------------------------------------------

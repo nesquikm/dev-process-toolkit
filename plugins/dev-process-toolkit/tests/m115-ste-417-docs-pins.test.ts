@@ -240,22 +240,23 @@ describe("AC-STE-417.3 — gate-check SKILL.md registers probe #73", () => {
     expect(block![0]).not.toMatch(/\bSTE-\d+/);
   });
 
-  test("the highest numbered probe is now 75, with no gap in the sequence", () => {
+  test("the highest numbered probe is now 76, with no gap in the sequence", () => {
+    // Recalibrated 75 → 76: M124 added #76 best_practices_manifest_hygiene.
     const numbers = [...skill().matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
-    expect(Math.max(...numbers)).toBe(75);
-    expect(numbers.length).toBe(75);
+    expect(Math.max(...numbers)).toBe(76);
+    expect(numbers.length).toBe(76);
   });
 });
 
 describe("AC-STE-417.3 — README probe-count pins move 72 → 73", () => {
   const readme = (): string => read(readmePath);
 
-  test("the Features bullet counts 75 numbered probes", () => {
-    expect(readme()).toMatch(/\b75\b\s+numbered `\/gate-check` probes/);
+  test("the Features bullet counts 76 numbered probes", () => {
+    expect(readme()).toMatch(/\b76\b\s+numbered `\/gate-check` probes/);
   });
 
-  test("the /implement-invokes-/tdd aside counts 75 probes", () => {
-    expect(readme()).toMatch(/layers 75 probes/);
+  test("the /implement-invokes-/tdd aside counts 76 probes", () => {
+    expect(readme()).toMatch(/layers 76 probes/);
   });
 
   test("no stale `72 numbered` / `layers 72 probes` token survives in README", () => {

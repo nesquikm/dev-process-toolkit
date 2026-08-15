@@ -1,6 +1,6 @@
 # Dev Process Toolkit
 
-A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 17 commands, 8 agents, spec templates, and documentation.
+A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 18 commands, 8 agents, spec templates, and documentation.
 
 <p align="center">
   <img src="assets/dev-process-toolkit.jpg" alt="Dev Process Toolkit - spec-driven development and TDD workflows" width="600">
@@ -11,7 +11,7 @@ A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** wor
 - **Spec-Driven Development (SDD)** — requirements, technical, testing, and plan files as the source of truth
 - **Multi-agent TDD orchestrator** — `/tdd` runs RED → GREEN → REFACTOR → AUDIT via four forked subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`, `tdd-spec-reviewer`) with context isolation, a strict `tdd-result` YAML hand-off, and bounded retries; `/implement` invokes it inline per FR
 - **Bounded three-stage self-review** — Stage A spec compliance → Stage B two-pass `code-reviewer` agent (Pass 1 spec compliance, Pass 2 code quality, fail-fast) → Stage C hardening, capped before human escalation
-- **Deterministic quality gates** — 75 numbered `/gate-check` probes (typecheck + lint + test + spec/plan/frontmatter/branch hygiene) override LLM judgment
+- **Deterministic quality gates** — 76 numbered `/gate-check` probes (typecheck + lint + test + spec/plan/frontmatter/branch hygiene) override LLM judgment
 - **Universal pre-commit branch gate** — every commit-producing skill calls `requireCommittableBranch`; trunk-OK narrows to `ci` only, so `chore`/`docs`/`feat` cannot land on `main` accidentally
 - **Non-technical drafting (`--no-tech`)** — `/brainstorm` and `/spec-write` skip the technical-design + testing interviews; FR ships with `needs_technical_review: true` and `/implement` refuses until a reviewer fills it in
 - **Topic-aware spec retrieval** — `spec-researcher` Read-only Haiku subagent (invoked by `/brainstorm` and `/spec-write` via the `spec-research` fork) returns related FRs from active + archived specs as a fixed-shape ≤ 25-line block, no parent-context pollution
@@ -57,7 +57,7 @@ bun --version
 
 ## Workflow
 
-The toolkit groups its 17 user-invoked skills into a four-phase lifecycle. Read left-to-right for the full path, or jump to whichever phase matches what you're doing now.
+The toolkit groups its 18 user-invoked skills into a four-phase lifecycle. Read left-to-right for the full path, or jump to whichever phase matches what you're doing now.
 
 ```mermaid
 flowchart LR
@@ -106,7 +106,7 @@ flowchart LR
     Build --> Ship
 ```
 
-Under the hood, `/implement` invokes the `/tdd` orchestrator inline per FR — `/tdd` forks four subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`, `tdd-spec-reviewer`) into isolated contexts and parses their `tdd-result` YAML hand-off. It runs gate commands inline (e.g., `bun test`) rather than invoking the `/gate-check` skill (which layers 75 probes on top of those commands), and invokes `/docs --quick` once per FR for the Phase 4b doc fragment. `/brainstorm` and `/spec-write` similarly fork the read-only `spec-research` skill (paired with the `spec-researcher` Haiku subagent) for topic-aware retrieval of related active + archived FRs. After self-review and human approval, `/implement` commits and stops — you open the PR via `/pr` separately. `/ship-milestone` invokes `/docs --commit --full` to fold staged fragments into the canonical docs tree before cutting the release commit.
+Under the hood, `/implement` invokes the `/tdd` orchestrator inline per FR — `/tdd` forks four subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`, `tdd-spec-reviewer`) into isolated contexts and parses their `tdd-result` YAML hand-off. It runs gate commands inline (e.g., `bun test`) rather than invoking the `/gate-check` skill (which layers 76 probes on top of those commands), and invokes `/docs --quick` once per FR for the Phase 4b doc fragment. `/brainstorm` and `/spec-write` similarly fork the read-only `spec-research` skill (paired with the `spec-researcher` Haiku subagent) for topic-aware retrieval of related active + archived FRs. After self-review and human approval, `/implement` commits and stops — you open the PR via `/pr` separately. `/ship-milestone` invokes `/docs --commit --full` to fold staged fragments into the canonical docs tree before cutting the release commit.
 
 Spine skills (bold, stadium-shaped) are the recommended invoke path; secondary skills (muted rectangles) are auxiliary tools and auto-invoked helpers. `/deliver` wraps the whole Plan → Build → Ship path into one supervised pipeline: it runs `/brainstorm` and `/spec-write` inline with you, then drives each milestone's `/implement` → `/ship-milestone` → `/pr` chain in a fresh visible spawned worker, relaying every approval gate back to you (like `/deps`, it is table-only above — it is the pipeline around the phases, not a fifth phase).
 
@@ -141,6 +141,7 @@ Commands are invoked with the `/dev-process-toolkit:` plugin-namespace prefix in
 | `/report-issue`   | Capture a structured bug report (narrative + redacted curated context, optional session transcript), preview, and publish to a secret GitHub gist for triage or self-debug via `/brainstorm <gist-url>`                                                            | `[--full] [--dry-run]`                                                     |
 | `/ship-milestone` | Bundle the Release Checklist + `/docs --commit --full` into one atomic, human-approved release commit                                                                                                                                                              | `[M<N>] [--version X.Y.Z] [--codename "<name>"] [--summary "<text>"]`      |
 | `/deps`           | Manage a git-tracked `specs/deps.yaml` manifest of sibling packages — Socratic `add` / `edit` / `delete` / `list` / `sync` subcommands; underpins the `deps-research` retrieval fork that feeds `/brainstorm` and `/spec-write`                                    | `<subcommand> [args...]`                                                   |
+| `/best-practices` | Manage a git-tracked `specs/best-practices.yaml` manifest of house best-practices docs — Socratic `add` / `edit` / `delete` / `list` subcommands over repo-relative document paths with scope globs and topics                                                     | `<subcommand> [args...]`                                                   |
 
 Eight additional skills (`spec-research`, `spec-review-audit`, `tdd-write-test`, `tdd-implement`, `tdd-refactor`, `tdd-spec-review`, `deps-research`, `upgrade`) are not user-invocable. The first seven are dispatch-only — they run only as `context: fork` children of `/brainstorm`, `/spec-write`, `/spec-review`, and `/tdd`. `/upgrade` is the exception: it is not a fork child and has no paired subagent — Claude still invokes it directly to migrate a bootstrapped project, and its discovery path is `/gate-check` probe #69 (`upgrade_staleness`) rather than a slot on the slash menu.
 
@@ -166,7 +167,7 @@ dev-process-toolkit/
 │   └── dev-process-toolkit/         # The plugin
 │       ├── .claude-plugin/
 │       │   └── plugin.json          # Plugin manifest
-│       ├── skills/                  # 25 (17 + 8) skills (17 user-invocable + 8 internal forks)
+│       ├── skills/                  # 26 (18 + 8) skills (18 user-invocable + 8 internal forks)
 │       ├── agents/                  # 8 specialist agents (code-reviewer, spec-researcher, spec-reviewer, deps-researcher, tdd-{test-writer,implementer,refactorer,spec-reviewer})
 │       ├── adapters/                # 3 tracker adapters (linear, jira, _template) + _shared helpers
 │       ├── templates/               # CLAUDE.md and spec templates
@@ -180,7 +181,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.63.0 — "Conductor"** (M123, deliver pipeline orchestrator: a single `/deliver` command keeps the Socratic design phases inline with the human and runs each milestone’s `/implement` → `/ship-milestone` → `/pr` chain in a fresh visible spawned worker — strictly serial per-milestone topology, every approval gate relayed to the operator, and a closed-schema `## Orchestration` config block deciding worker effort and `merge_policy`-routed PR closure.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.64.0 — "Playbook"** (M124, best-practice sources: a curated `specs/best-practices.yaml` catalog of house best-practice docs with a day-one hygiene probe, a Socratic `/best-practices` management skill plus opt-in `/setup` seeding, and an `/implement` Phase 3 conformance lens that reads scope-matched docs directly and files violations as ordinary review concerns — with a loud disposition token when the lens legally skips.)
 
 ## Core Philosophy
 

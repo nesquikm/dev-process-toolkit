@@ -123,6 +123,14 @@ const EXPECTED_SET_A: ReadonlySet<string> = new Set([
   // /spec-write SKILL.md § 7's bundled milestone static-map row, keeping
   // Set A = discovered directives.
   "milestone_epic_unsupported",
+  // Post-M84 expansion (M124 STE-467): the /implement Phase 3 best-practices
+  // lens disposition pair. The pin moves consciously 34 → 36 — both keys carry
+  // literal `MUST emit \`<key>\`` directives in /spec-write SKILL.md § 7's
+  // static-map row (the emission-site directives also live in /implement's
+  // Phase 3 lens block, pinned by the STE-467 meta-tests), keeping Set A =
+  // discovered directives.
+  "best_practices_lens_applied",
+  "best_practices_lens_skipped_no_manifest",
 ]);
 
 // Keys explicitly excluded from registration — they appear only as table-
@@ -229,9 +237,10 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
   // Conscious bump: 24 → 26 (M100/STE-373 deps-research skip-disposition pair)
   // → 30 (M100/STE-374 report-issue evidence-gate keys: session matched/fallback
   // + severity capped/evidence verified) → 31 (M102/STE-379 token_stats_disabled,
-  // the disabled leg of the token-stats opt-in 2-token XOR).
+  // the disabled leg of the token-stats opt-in 2-token XOR) → 36 (M124/STE-467
+  // best-practices lens disposition pair, the /implement Phase 3 lens XOR).
   test("CANONICAL_CAPABILITY_KEYS length is exactly 31", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(34);
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(36);
   });
 
   test("CANONICAL_CAPABILITY_KEYS contains every key in Set A", () => {
@@ -271,7 +280,7 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
     while ((match = re.exec(body)) !== null) {
       discovered.add(match[1]!);
     }
-    expect(discovered.size).toBe(34);
+    expect(discovered.size).toBe(36);
     for (const key of EXPECTED_SET_A) {
       expect(discovered.has(key)).toBe(true);
     }
