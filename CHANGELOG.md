@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.62.0] — 2026-08-15 — "Nudge"
+
+M122 — Ship-Ready Milestone Nudge. Probe #63 turns the gate red only after a milestone's plan reaches the archive, and the `/implement` ship offer fired only on milestone-scoped runs — so a milestone whose feature work was all done but whose plan was never closed could linger unshipped behind a green gate indefinitely. This release closes the pre-archive gap with one shared predicate consumed by both surfaces, so the gate's definition of "ship-ready" and `/implement`'s can never drift apart.
+
+### Added
+
+- **Probe #75 `active_plan_ship_ready` names every ship-ready active milestone.** A plan is ship-ready ⇔ zero active FRs and ≥ 1 archived FR bind its milestone token — frontmatter reads only, `M<N>` and `M_<epic-key>` plans alike, no git and no network. Severity is warning by construction (the report's violations array cannot hold a member): one GATE PASSED WITH NOTES row names the milestones and the exact ceremony commands. `ship_state: parked` plans surface through the existing parked-note idiom instead of the nudge, the `shipped_in: null` template sentinel reads as unshipped rather than malformed, a plan with a real stamp is never nudged, and zero-FR or plan-less trees are vacuous. `/implement`'s single-FR runs consume the same `shipReadyMilestones` export through a read-only `bun run` CLI after Phase 4 close and offer the ceremony on the spot — `/spec-archive` then `/ship-milestone`, each behind its own approval gate; milestone-scope runs silently skip the offer because Phase 5 already owns that path, so no run ever double-offers. The FR's audit caught the offer's original command pinned in prose but unable to execute from a consumer project; the shipped plugin-rooted form is byte-pinned in a meta-test and exercised end-to-end by spawning the CLI against a fixture tree (STE-462)
+
+Total test count at release: 7209 tests, 0 failures, 0 errors.
+
 ## [2.61.0] — 2026-08-10 — "Conformant"
 
 **What the conformance run found, which is the reason this release exists.** The 2026-08-08 run was the first to exercise `mode: none` — the default configuration of every project this toolkit bootstraps — as a real leg rather than a bench fixture. It produced **five high-severity findings. Two are fixed here.** The other three are unfixed and no FR claims them.
