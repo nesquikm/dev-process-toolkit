@@ -1,6 +1,6 @@
 # Dev Process Toolkit
 
-A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 16 commands, 8 agents, spec templates, and documentation.
+A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 17 commands, 8 agents, spec templates, and documentation.
 
 <p align="center">
   <img src="assets/dev-process-toolkit.jpg" alt="Dev Process Toolkit - spec-driven development and TDD workflows" width="600">
@@ -57,7 +57,7 @@ bun --version
 
 ## Workflow
 
-The toolkit groups its 16 user-invoked skills into a four-phase lifecycle. Read left-to-right for the full path, or jump to whichever phase matches what you're doing now.
+The toolkit groups its 17 user-invoked skills into a four-phase lifecycle. Read left-to-right for the full path, or jump to whichever phase matches what you're doing now.
 
 ```mermaid
 flowchart LR
@@ -108,7 +108,7 @@ flowchart LR
 
 Under the hood, `/implement` invokes the `/tdd` orchestrator inline per FR — `/tdd` forks four subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`, `tdd-spec-reviewer`) into isolated contexts and parses their `tdd-result` YAML hand-off. It runs gate commands inline (e.g., `bun test`) rather than invoking the `/gate-check` skill (which layers 75 probes on top of those commands), and invokes `/docs --quick` once per FR for the Phase 4b doc fragment. `/brainstorm` and `/spec-write` similarly fork the read-only `spec-research` skill (paired with the `spec-researcher` Haiku subagent) for topic-aware retrieval of related active + archived FRs. After self-review and human approval, `/implement` commits and stops — you open the PR via `/pr` separately. `/ship-milestone` invokes `/docs --commit --full` to fold staged fragments into the canonical docs tree before cutting the release commit.
 
-Spine skills (bold, stadium-shaped) are the recommended invoke path; secondary skills (muted rectangles) are auxiliary tools and auto-invoked helpers.
+Spine skills (bold, stadium-shaped) are the recommended invoke path; secondary skills (muted rectangles) are auxiliary tools and auto-invoked helpers. `/deliver` wraps the whole Plan → Build → Ship path into one supervised pipeline: it runs `/brainstorm` and `/spec-write` inline with you, then drives each milestone's `/implement` → `/ship-milestone` → `/pr` chain in a fresh visible spawned worker, relaying every approval gate back to you (like `/deps`, it is table-only above — it is the pipeline around the phases, not a fifth phase).
 
 Tracker integration (Linear, Jira, or `mode: none`) threads through Plan → Build → Ship: `/spec-write` files the FR, `/implement` claims it on entry and releases on success, and `/ship-milestone` archives the milestone group.
 
@@ -127,6 +127,7 @@ Commands are invoked with the `/dev-process-toolkit:` plugin-namespace prefix in
 | `/setup`          | Set up SDD/TDD process for your project                                                                                                                                                                                                                            | `[new or existing]`                                                        |
 | `/brainstorm`     | Socratic design session before writing specs (for open-ended features)                                                                                                                                                                                             | `[--no-tech] [<feature or problem description> \| <gist-url>]`             |
 | `/spec-write`     | Guide through writing spec files (requirements, technical, testing, plan)                                                                                                                                                                                          | `[--no-tech] [requirements \| technical \| testing \| plan \| all]`        |
+| `/deliver`        | Full delivery pipeline orchestrator — inline `/brainstorm` + `/spec-write`, then one fresh visible spawned worker per milestone running `/implement` → `/ship-milestone` → `/pr` serially, with relayed approval gates and `merge_policy`-routed PR closure       | `[feature request or idea]`                                                |
 | `/implement`      | End-to-end feature implementation with TDD and bounded three-stage self-review (Stage A spec compliance → Stage B two-pass delegated review: Pass 1 spec compliance, Pass 2 code quality, fail-fast → Stage C hardening)                                           | `<milestone, task description, issue number, "next", or "all">`            |
 | `/tdd`            | RED → GREEN → REFACTOR → AUDIT cycle                                                                                                                                                                                                                                         | `<FR-id>`                                                                  |
 | `/gate-check`     | Deterministic quality gates (typecheck + lint + test)                                                                                                                                                                                                              | `[--fix to auto-fix lint issues]`                                          |
@@ -165,7 +166,7 @@ dev-process-toolkit/
 │   └── dev-process-toolkit/         # The plugin
 │       ├── .claude-plugin/
 │       │   └── plugin.json          # Plugin manifest
-│       ├── skills/                  # 24 (16 + 8) skills (16 user-invocable + 8 internal forks)
+│       ├── skills/                  # 25 (17 + 8) skills (17 user-invocable + 8 internal forks)
 │       ├── agents/                  # 8 specialist agents (code-reviewer, spec-researcher, spec-reviewer, deps-researcher, tdd-{test-writer,implementer,refactorer,spec-reviewer})
 │       ├── adapters/                # 3 tracker adapters (linear, jira, _template) + _shared helpers
 │       ├── templates/               # CLAUDE.md and spec templates
@@ -179,7 +180,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.62.0 — "Nudge"** (M122, ship-ready milestone nudge: probe #75 names every active milestone whose FRs are all archived but whose plan was never closed and shipped — warning-only, one NOTES row carrying the exact ceremony commands — and `/implement`'s single-FR runs now offer the close ceremony through the same shared predicate, so the gate's and the skill's definitions of "ship-ready" cannot drift.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.63.0 — "Conductor"** (M123, deliver pipeline orchestrator: a single `/deliver` command keeps the Socratic design phases inline with the human and runs each milestone’s `/implement` → `/ship-milestone` → `/pr` chain in a fresh visible spawned worker — strictly serial per-milestone topology, every approval gate relayed to the operator, and a closed-schema `## Orchestration` config block deciding worker effort and `merge_policy`-routed PR closure.)
 
 ## Core Philosophy
 

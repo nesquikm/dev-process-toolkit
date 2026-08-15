@@ -54,6 +54,8 @@ export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
     "validates the `docs/README.md` nav contract; CLAUDE.md is read for the Schema-D docs mode flags, not managed-ness.",
   identity_mode_conditional:
     "applicability derives from the declared tracker `mode:`, read via `readTaskTrackingSection`.",
+  orchestration_config:
+    "applicability derives from the presence of the `## Orchestration` section it parses; absent section or file returns defaults even in unmanaged trees.",
   plan_identity_mode_conditional:
     "applicability derives from the declared tracker `mode:`, read via `readTaskTrackingSection`.",
   public_surface_count_drift:
