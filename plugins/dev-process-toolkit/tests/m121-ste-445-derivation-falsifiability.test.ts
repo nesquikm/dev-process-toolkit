@@ -347,18 +347,20 @@ describe("AC-STE-445.3 — a registered leg no group rosters is loud, not all-N/
     const coveringLeg = fixtureGroupsExtras.groupsCoveringLeg;
     expect(typeof coveringLeg).toBe("function");
     // Group 2 is Linear-only by design (probe #26 is vacuous on Jira).
-    expect([...coveringLeg!("linear")]).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
-    expect([...coveringLeg!("jira")]).toEqual([1, 3, 4, 5, 6, 7, 8]);
+    expect([...coveringLeg!("linear")]).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 11]);
+    expect([...coveringLeg!("jira")]).toEqual([1, 3, 4, 5, 6, 7, 8, 11]);
     // STE-446 widened the enum and the rosters now DERIVE from it. STE-449's
     // audit then took group 4 OFF the tracker-less leg: its two sub-fixtures are
     // 4a-Linear and 4b-Jira, and step 4 of each asserts a tracker ticket reaches
     // Done — there is no tracker-less instance to run. STE-450 then added group
     // 9, and STE-451 group 10 — both rostering the tracker-less leg ALONE — so
-    // the leg is covered by EIGHT groups, one MORE than the Jira leg, and two
-    // of the eight are groups no tracker leg can reach. Restated by hand rather
+    // the leg is covered by one group MORE than the Jira leg, and two of its
+    // groups are ones no tracker leg can reach. Restated by hand rather
     // than derived: computing it from the roster would compare the roster with
     // itself.
-    expect([...coveringLeg!("none")]).toEqual([1, 3, 5, 6, 7, 8, 9, 10]);
+    // STE-464 then added group 11 on the full alias (the /deliver headless
+    // refusal reads stdin tty-ness only), widening all three legs by one.
+    expect([...coveringLeg!("none")]).toEqual([1, 3, 5, 6, 7, 8, 9, 10, 11]);
     expect([...coveringLeg!("zzsynthetic")]).toEqual([]);
   });
 
@@ -468,7 +470,7 @@ describe("AC-STE-445.3 — a registered leg no group rosters is loud, not all-N/
       "--leg",
       "jira",
       "--passed",
-      "1 3 4 5 6 7 8",
+      "1 3 4 5 6 7 8 11",
     ]);
     expect(jira.exitCode).toBe(0);
     expect(jira.stdout).toContain("STE-214 runtime check: N/A");
@@ -478,7 +480,7 @@ describe("AC-STE-445.3 — a registered leg no group rosters is loud, not all-N/
       "--leg",
       "linear",
       "--passed",
-      "1 2 3 4 5 6 7 8",
+      "1 2 3 4 5 6 7 8 11",
     ]);
     expect(linear.exitCode).toBe(0);
     expect(linear.stdout.split("\n")[0]).toMatch(/^Fixture groups: PASS\b/);
