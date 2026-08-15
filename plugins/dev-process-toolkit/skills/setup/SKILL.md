@@ -53,9 +53,7 @@ Detailed tracker-mode switching procedures live in `docs/setup-tracker-mode.md`.
 
 Check for project files (`package.json`, `pubspec.yaml`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `build.gradle.kts` / `settings.gradle.kts` for Kotlin/Gradle, etc.) and source directories.
 
-If **no project files are found** (empty directory or only basic files), this is a new project — go to step 2.
-
-If project files exist, skip to step 3.
+If **no project files are found** (empty directory or only basic files), this is a new project — go to step 2. If project files exist, skip to step 3.
 
 ### 1b. Doctor Validation
 
@@ -309,15 +307,17 @@ On accept, call `scaffoldCheckSkill({ projectRoot, stack, slug })` from `adapter
 
 Full procedure: `docs/setup-reference.md` § Step 8c — Seed a project check skill.
 
+### 8d. Seed the best-practices manifest (opt-in)
+
+`default: skip` — optional; a no-op on decline or skip (M124), mirroring the step-7f re-entrant pattern. Read any existing `specs/best-practices.yaml` via `readManifest` from `adapters/_shared/src/best_practices_manifest.ts` as the baseline (absent file ⇒ empty baseline), compose a fresh proposal from the detected project layout, render a baseline → proposal unified diff, then prompt approve / cancel via `AskUserQuestion`. On approve, write through `writeManifest` — never hand-author the YAML. On cancel, no write fires — the file stays untouched.
+
 ### 9. Verify
 
 Run gate check commands to verify they all pass. If any fail, fix immediately — don't report a broken setup.
 
 ### 10. Offer to fill specs
 
-If spec files were created, ask the user:
-
-> "Spec templates are ready. Want me to help you fill them in now? I can walk you through defining requirements, technical decisions, and the implementation plan. (Run `/dev-process-toolkit:spec-write`)"
+If spec files were created, ask the user: "Spec templates are ready. Want me to help you fill them in now? I can walk you through defining requirements, technical decisions, and the implementation plan. (Run `/dev-process-toolkit:spec-write`)"
 
 ## After /setup
 
