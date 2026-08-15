@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.65.0] — 2026-08-15 — "Blueprint"
+
+M125 — Template-Source Bootstrap. Starting a new project next to an existing one means re-deriving process config that already exists one directory over. This release lets `/setup` bootstrap from a template project: a read-only analyzer inventories what the template offers, and a Socratic child skill walks reuse selection, adapts names, previews one diff, and lands everything in the normal single bootstrap commit.
+
+### Added
+
+- **Template-source analyzer module.** New `template_source_analyzer.ts`: `analyzeTemplateSource(sourceRoot)` inventories a template tree into four reuse categories — process config (CLAUDE.md, settings, MCP, git-hook templates), curated manifests (per-entry rows delegated to the canonical deps/best-practices manifest modules — never re-parsed), scaffolding configs by name detection, and top-level source trees — plus `wholeProjectCandidate` and `isGitRepo` flags. Pure synchronous reads, zero mutation; missing or non-directory roots refuse in the NFR-10 canonical shape; malformed manifests surface as category-level warnings, never hard failures; dangling symlinks in a foreign tree are skipped, not crashes. Ships with an `import.meta.main` CLI leg (JSON on stdout, refusal on stderr, exit 2) so consumers invoke it executably. (STE-468)
+- **`/setup --template <path>` flow via the `setup-template` dispatch child — the 27th skill, 9th dispatch child.** The flag lands as a net-zero-line change to the cap-bound setup SKILL and dispatches to a new non-fork child (`user-invocable: false`, model-invocable — the menu-exile precedent): analyzer run via bun → categorized inventory table → Socratic per-category selection (per-entry filtering for manifest rows; nothing copied without an explicit selection) → copy/adapt with project-identifying name rewrites → ONE unified diff behind an approval gate → files ride the normal single bootstrap commit with the porcelain pre-flight accounting for the copied set. Whole-project mode full-tree-copies (minus `.git` and deselections) with a collision-safe timestamped backup before any transform. Headless runs refuse with the machine-readable requires-input marker — reuse selection has no safe default, no auto-approve carve-out. Counts move 26→27 skills / 8→9 dispatch across every pinned surface; smoke fixture group 13 asserts the refusal with `SMOKE_LEGS` untouched; `docs/setup-template-reference.md` carries the narrative. (STE-469)
+
+Total test count at release: 7489 tests, 0 failures, 0 errors.
+
 ## [2.64.0] — 2026-08-15 — "Playbook"
 
 M124 — Best-Practice Sources. House rules live in scattered documents nobody checks at review time. This release gives projects a curated, gate-checked catalog of best-practice docs — a parallel twin of the deps stack — and makes `/implement`'s review actually consult it: scope-matched docs are read directly during Phase 3 and violations ride the existing bounded review loop, with a loud literal token when the lens legally skips.
