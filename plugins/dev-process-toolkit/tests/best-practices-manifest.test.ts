@@ -534,3 +534,96 @@ describe("AC-STE-465.1 — writeManifest round-trip via readManifest", () => {
     }
   });
 });
+
+// -----------------------------------------------------------------------------
+// Phase 3 review hardening (M124 round-1 concerns) — glob `**` collapse,
+// control-character injection refusal, Windows-absolute path refusal.
+// -----------------------------------------------------------------------------
+
+describe("review hardening — adjacent `**` segments collapse (no backtracking blowup)", () => {
+  test("src/**/**/*.ts selects exactly like src/**/*.ts", async () => {
+    const { selectEntriesForChangedFiles } = await import(
+      "../adapters/_shared/src/best_practices_manifest"
+    );
+    const manifest: BestPracticesManifest = {
+      best_practices: [{ name: "style", path: "docs/style.md", scope: ["src/**/**/*.ts"] }],
+    };
+    expect(selectEntriesForChangedFiles(manifest, ["src/a/b/c.ts"]).length).toBe(1);
+    expect(selectEntriesForChangedFiles(manifest, ["src/a.ts"]).length).toBe(1);
+    expect(selectEntriesForChangedFiles(manifest, ["lib/a.ts"]).length).toBe(0);
+  });
+
+  test("pathological stacked-`**` glob completes fast on a long non-matching path", async () => {
+    const { selectEntriesForChangedFiles } = await import(
+      "../adapters/_shared/src/best_practices_manifest"
+    );
+    const evil = "a/" + Array(16).fill("**").join("/") + "/z.md";
+    const longMiss = "a/" + Array(56).fill("seg").join("/") + "/z.txt";
+    const manifest: BestPracticesManifest = {
+      best_practices: [{ name: "evil", path: "docs/x.md", scope: [evil] }],
+    };
+    const starRun: BestPracticesManifest = {
+      best_practices: [{ name: "stars", path: "docs/y.md", scope: ["****"] }],
+    };
+    const t0 = performance.now();
+    expect(selectEntriesForChangedFiles(manifest, [longMiss]).length).toBe(0);
+    expect(selectEntriesForChangedFiles(manifest, ["a/x/z.md"]).length).toBe(1);
+    // A star-run collapses to `**` (match-anything), not a malformed pattern.
+    expect(selectEntriesForChangedFiles(starRun, [longMiss]).length).toBe(1);
+    // Collapsed: sub-millisecond. Un-collapsed stacked (?:[^/]+/)* groups
+    // cost ~500ms on this fixture — the bound separates the two by >3x
+    // while sitting ~750x above the healthy path.
+    expect(performance.now() - t0).toBeLessThan(150);
+  });
+});
+
+describe("review hardening — control characters in single-line fields refuse", () => {
+  test("addEntry refuses a name containing a newline", () => {
+    const manifest: BestPracticesManifest = { best_practices: [] };
+    expect(() =>
+      addEntry(manifest, { name: "evil\n  - name: injected", path: "docs/x.md" }),
+    ).toThrow(BestPracticesManifestShapeError);
+  });
+
+  test("writeManifest refuses notes containing a newline (no spliced lines on disk)", () => {
+    const { specsDir, cleanup } = makeSpecsDir();
+    try {
+      const manifest: BestPracticesManifest = {
+        best_practices: [
+          { name: "n", path: "docs/x.md", notes: "line one\n    path: evil.md" },
+        ],
+      };
+      expect(() => writeManifest(specsDir, manifest)).toThrow(
+        BestPracticesManifestShapeError,
+      );
+      expect(readManifest(specsDir).best_practices).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("review hardening — Windows-style absolute paths refuse", () => {
+  test.each(["C:/Users/x/doc.md", "C:\\Users\\x\\doc.md", "\\\\server\\share\\doc.md"])(
+    "addEntry refuses %s",
+    (path) => {
+      const manifest: BestPracticesManifest = { best_practices: [] };
+      expect(() => addEntry(manifest, { name: "win", path })).toThrow(
+        BestPracticesManifestShapeError,
+      );
+    },
+  );
+
+  test("readManifest refuses a drive-letter absolute path", () => {
+    const { specsDir, cleanup } = makeSpecsDir();
+    try {
+      writeRawManifest(
+        specsDir,
+        "best_practices:\n  - name: win\n    path: C:/Users/x/doc.md\n",
+      );
+      expect(() => readManifest(specsDir)).toThrow(BestPracticesManifestShapeError);
+    } finally {
+      cleanup();
+    }
+  });
+});

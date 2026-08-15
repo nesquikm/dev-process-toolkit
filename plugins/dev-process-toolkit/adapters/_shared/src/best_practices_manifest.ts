@@ -169,7 +169,7 @@ function parseFlowList(name: string, key: string, value: string, lineNo: number)
  * twin's sibling-only `../` constraint.
  */
 function assertRepoRelativePath(name: string, path: string, where: string): void {
-  if (path.startsWith("/")) {
+  if (path.startsWith("/") || /^[A-Za-z]:/.test(path) || path.startsWith("\\")) {
     throw new BestPracticesManifestShapeError(
       `${where}: entry \`${name}\` has absolute path \`${path}\` — path must be repo-relative`,
     );
@@ -270,6 +270,7 @@ export function writeManifest(specsDir: string, manifest: BestPracticesManifest)
   }
   const lines: string[] = ["best_practices:"];
   for (const entry of manifest.best_practices) {
+    assertEntryShape(entry);
     lines.push(`  - name: ${entry.name}`);
     lines.push(`    path: ${entry.path}`);
     if (entry.scope !== undefined) lines.push(`    scope: ${formatFlowList(entry.scope)}`);
@@ -302,6 +303,19 @@ function assertEntryShape(entry: BestPracticesEntry): void {
     );
   }
   assertRepoRelativePath(entry.name, entry.path, "entry");
+  for (const [field, value] of [
+    ["name", entry.name],
+    ["path", entry.path],
+    ["notes", entry.notes],
+  ] as const) {
+    // Serialized raw as one manifest line each — a control character (esp. a
+    // newline) would splice extra lines into the YAML and break round-trip.
+    if (value !== undefined && /[\x00-\x1f\x7f]/.test(value)) {
+      throw new BestPracticesManifestShapeError(
+        `entry \`${entry.name}\` field \`${field}\` contains a control character — single-line values only`,
+      );
+    }
+  }
 }
 
 /**
@@ -372,13 +386,17 @@ export function findEntry(
  * full-string anchored — never a substring/`includes` shortcut.
  */
 function globToRegExp(glob: string): RegExp {
+  // Collapse redundant `**` runs (`****`, `**/**`, `**/**/**`, …) to a single
+  // `**` so adjacent (?:[^/]+/)* groups never stack — the stacked form is the
+  // classic catastrophic-backtracking shape on long non-matching paths.
+  const normalized = glob.replace(/\*{3,}/g, "**").replace(/\*\*(?:\/\*\*)+/g, "**");
   let out = "";
   let i = 0;
-  while (i < glob.length) {
-    const c = glob[i]!;
+  while (i < normalized.length) {
+    const c = normalized[i]!;
     if (c === "*") {
-      if (glob[i + 1] === "*") {
-        if (glob[i + 2] === "/") {
+      if (normalized[i + 1] === "*") {
+        if (normalized[i + 2] === "/") {
           out += "(?:[^/]+/)*";
           i += 3;
         } else {
