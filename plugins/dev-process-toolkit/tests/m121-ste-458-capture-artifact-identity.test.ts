@@ -240,9 +240,17 @@ function git(args: string[]): { ok: boolean; out: string } {
 }
 
 /** Commits that ADDED or MODIFIED `path`, newest first. `%s` is the subject. */
+// `--full-history` is load-bearing: without it, `git log -- <path>` applies
+// merge simplification and follows only a TREESAME parent, so after this
+// branch merged to main the live FR path's entire history — the authorizing
+// docs(specs) write included — vanished from the walk and both ordering
+// guards went red on a history whose ordering property actually holds. It
+// disables simplification only; it carries none of `--follow`'s
+// content-similarity hazard the FR_COMMITS comment rejects.
 function commitsTouching(path: string): { sha: string; subject: string }[] {
   const log = git([
     "log",
+    "--full-history",
     "--format=%H%x1f%s",
     "--diff-filter=AM",
     "--",
