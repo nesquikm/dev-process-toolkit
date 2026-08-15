@@ -143,7 +143,7 @@ Commands are invoked with the `/dev-process-toolkit:` plugin-namespace prefix in
 | `/deps`           | Manage a git-tracked `specs/deps.yaml` manifest of sibling packages — Socratic `add` / `edit` / `delete` / `list` / `sync` subcommands; underpins the `deps-research` retrieval fork that feeds `/brainstorm` and `/spec-write`                                    | `<subcommand> [args...]`                                                   |
 | `/best-practices` | Manage a git-tracked `specs/best-practices.yaml` manifest of house best-practices docs — Socratic `add` / `edit` / `delete` / `list` subcommands over repo-relative document paths with scope globs and topics                                                     | `<subcommand> [args...]`                                                   |
 
-Eight additional skills (`spec-research`, `spec-review-audit`, `tdd-write-test`, `tdd-implement`, `tdd-refactor`, `tdd-spec-review`, `deps-research`, `upgrade`) are not user-invocable. The first seven are dispatch-only — they run only as `context: fork` children of `/brainstorm`, `/spec-write`, `/spec-review`, and `/tdd`. `/upgrade` is the exception: it is not a fork child and has no paired subagent — Claude still invokes it directly to migrate a bootstrapped project, and its discovery path is `/gate-check` probe #69 (`upgrade_staleness`) rather than a slot on the slash menu.
+Nine additional skills (`spec-research`, `spec-review-audit`, `tdd-write-test`, `tdd-implement`, `tdd-refactor`, `tdd-spec-review`, `deps-research`, `upgrade`, `setup-template`) are not user-invocable. The first seven are dispatch-only — they run only as `context: fork` children of `/brainstorm`, `/spec-write`, `/spec-review`, and `/tdd`. `/upgrade` and `setup-template` are the two non-fork exceptions: `/upgrade` is not a fork child and has no paired subagent — Claude still invokes it directly to migrate a bootstrapped project, and its discovery path is `/gate-check` probe #69 (`upgrade_staleness`) rather than a slot on the slash menu — while `setup-template` is likewise forkless and is dispatched exclusively by `/setup --template`.
 
 ### Agents
 
@@ -167,7 +167,7 @@ dev-process-toolkit/
 │   └── dev-process-toolkit/         # The plugin
 │       ├── .claude-plugin/
 │       │   └── plugin.json          # Plugin manifest
-│       ├── skills/                  # 26 (18 + 8) skills (18 user-invocable + 8 internal forks)
+│       ├── skills/                  # 27 (18 + 9) skills (18 user-invocable + 9 internal forks)
 │       ├── agents/                  # 8 specialist agents (code-reviewer, spec-researcher, spec-reviewer, deps-researcher, tdd-{test-writer,implementer,refactorer,spec-reviewer})
 │       ├── adapters/                # 3 tracker adapters (linear, jira, _template) + _shared helpers
 │       ├── templates/               # CLAUDE.md and spec templates

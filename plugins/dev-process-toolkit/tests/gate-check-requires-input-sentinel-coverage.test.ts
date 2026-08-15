@@ -410,7 +410,7 @@ describe("dogfood — this repo", () => {
   const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
   const skillBody = (rel: string): string => readFileSync(join(REPO_ROOT, rel), "utf-8");
 
-  test("the in-scope set is exactly the two skills that really own a gate", () => {
+  test("the in-scope set is exactly the three skills that really own a gate", () => {
     const found: string[] = [];
     for (const base of [
       join(REPO_ROOT, "plugins", "dev-process-toolkit", "skills"),
@@ -429,6 +429,7 @@ describe("dogfood — this repo", () => {
     // shape — a SILENT de-scope this pin converts into a red test.
     expect(found.sort()).toEqual([
       join(".claude", "skills", "smoke-test", "SKILL.md"),
+      join("plugins", "dev-process-toolkit", "skills", "setup-template", "SKILL.md"),
       join("plugins", "dev-process-toolkit", "skills", "setup", "SKILL.md"),
     ]);
   });

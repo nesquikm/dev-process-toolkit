@@ -347,8 +347,8 @@ describe("AC-STE-445.3 — a registered leg no group rosters is loud, not all-N/
     const coveringLeg = fixtureGroupsExtras.groupsCoveringLeg;
     expect(typeof coveringLeg).toBe("function");
     // Group 2 is Linear-only by design (probe #26 is vacuous on Jira).
-    expect([...coveringLeg!("linear")]).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 11, 12]);
-    expect([...coveringLeg!("jira")]).toEqual([1, 3, 4, 5, 6, 7, 8, 11, 12]);
+    expect([...coveringLeg!("linear")]).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13]);
+    expect([...coveringLeg!("jira")]).toEqual([1, 3, 4, 5, 6, 7, 8, 11, 12, 13]);
     // STE-446 widened the enum and the rosters now DERIVE from it. STE-449's
     // audit then took group 4 OFF the tracker-less leg: its two sub-fixtures are
     // 4a-Linear and 4b-Jira, and step 4 of each asserts a tracker ticket reaches
@@ -361,8 +361,10 @@ describe("AC-STE-445.3 — a registered leg no group rosters is loud, not all-N/
     // STE-464 then added group 11 on the full alias (the /deliver headless
     // refusal reads stdin tty-ness only), widening all three legs by one.
     // M124's group 12 (the best-practices lens disposition, manifest-on-disk
-    // only) rides the full alias too, widening all three legs again.
-    expect([...coveringLeg!("none")]).toEqual([1, 3, 5, 6, 7, 8, 9, 10, 11, 12]);
+    // only) rides the full alias too, widening all three legs again — as does
+    // M125's group 13 (the setup-template headless refusal, stdin tty-ness
+    // only).
+    expect([...coveringLeg!("none")]).toEqual([1, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
     expect([...coveringLeg!("zzsynthetic")]).toEqual([]);
   });
 
@@ -472,7 +474,7 @@ describe("AC-STE-445.3 — a registered leg no group rosters is loud, not all-N/
       "--leg",
       "jira",
       "--passed",
-      "1 3 4 5 6 7 8 11 12",
+      "1 3 4 5 6 7 8 11 12 13",
     ]);
     expect(jira.exitCode).toBe(0);
     expect(jira.stdout).toContain("STE-214 runtime check: N/A");
@@ -482,7 +484,7 @@ describe("AC-STE-445.3 — a registered leg no group rosters is loud, not all-N/
       "--leg",
       "linear",
       "--passed",
-      "1 2 3 4 5 6 7 8 11 12",
+      "1 2 3 4 5 6 7 8 11 12 13",
     ]);
     expect(linear.exitCode).toBe(0);
     expect(linear.stdout.split("\n")[0]).toMatch(/^Fixture groups: PASS\b/);

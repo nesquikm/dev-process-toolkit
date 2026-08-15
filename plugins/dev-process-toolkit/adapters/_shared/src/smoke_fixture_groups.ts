@@ -213,6 +213,13 @@ export const CANONICAL_FIXTURE_GROUPS: readonly FixtureGroupSpec[] = [
     rationale:
       "the best-practices lens disposition is decided by the manifest's presence on disk and emitted in /implement's closing summary; no assertion reads a tracker surface, so every leg exercises the XOR identically",
   },
+  {
+    group: 13,
+    sut: "STE-469",
+    legs: ALL_LEGS,
+    rationale:
+      "the setup-template headless refusal is decided by stdin tty-ness alone — no tracker surface is read before the refusal fires, so every leg exercises it identically",
+  },
 ];
 
 // --- records ---------------------------------------------------------------
