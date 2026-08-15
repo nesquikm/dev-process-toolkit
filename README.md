@@ -181,7 +181,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.63.0 — "Conductor"** (M123, deliver pipeline orchestrator: a single `/deliver` command keeps the Socratic design phases inline with the human and runs each milestone’s `/implement` → `/ship-milestone` → `/pr` chain in a fresh visible spawned worker — strictly serial per-milestone topology, every approval gate relayed to the operator, and a closed-schema `## Orchestration` config block deciding worker effort and `merge_policy`-routed PR closure.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.64.0 — "Playbook"** (M124, best-practice sources: a curated `specs/best-practices.yaml` catalog of house best-practice docs with a day-one hygiene probe, a Socratic `/best-practices` management skill plus opt-in `/setup` seeding, and an `/implement` Phase 3 conformance lens that reads scope-matched docs directly and files violations as ordinary review concerns — with a loud disposition token when the lens legally skips.)
 
 ## Core Philosophy
 
