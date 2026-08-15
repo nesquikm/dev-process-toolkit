@@ -2,7 +2,7 @@
 name: setup
 description: Set up SDD/TDD development process for the current project. Creates CLAUDE.md, configures settings, and optionally creates spec files. Use when starting a new project or adding process to an existing one.
 disable-model-invocation: true
-argument-hint: '[new or existing]'
+argument-hint: '[new or existing] [--template <path>]'
 ---
 
 # Project Setup
@@ -34,7 +34,7 @@ This marker lets gate-check probes (`setup-audit-section-presence`, `toolkit-boo
 
 ### 0. Tracker mode probe (existing projects)
 
-Before any detection or setup, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` already exists and contains a `## Task Tracking` section, this is an existing tracker-mode project — `/setup --migrate` is the right entry point for changing modes. If `CLAUDE.md` is absent, empty of `## Task Tracking`, or `$ARGUMENTS` contains `new` — and `$ARGUMENTS` does **not** contain `--migrate` or `--migrate-dry-run` — run the normal fresh-setup flow below. When `--migrate` is present, section 0b overrides this routing regardless of `## Task Tracking` presence.
+Before any detection or setup, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` already exists and contains a `## Task Tracking` section, this is an existing tracker-mode project — `/setup --migrate` is the right entry point for changing modes. If `CLAUDE.md` is absent, empty of `## Task Tracking`, or `$ARGUMENTS` contains `new` — and `$ARGUMENTS` does **not** contain `--migrate` or `--migrate-dry-run` — run the normal fresh-setup flow below. When `--migrate` is present, section 0b overrides this routing regardless of `## Task Tracking` presence. When `$ARGUMENTS` contains `--template <path>`, dispatch to the `setup-template` child skill at `skills/setup-template/SKILL.md` (template-source reuse flow) before the normal fresh-setup steps.
 
 ### 0b. Mode-switch invocation (`/setup --migrate` / `--migrate-dry-run`)
 

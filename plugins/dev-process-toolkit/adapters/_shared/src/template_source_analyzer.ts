@@ -255,3 +255,38 @@ export function analyzeTemplateSource(sourceRoot: string): TemplateSourceInvento
     isGitRepo: existsSync(join(sourceRoot, ".git")),
   };
 }
+
+// ---------------------------------------------------------------------------
+// CLI shim
+// ---------------------------------------------------------------------------
+//
+// `bun run template_source_analyzer.ts <source-root>` prints the JSON
+// inventory on stdout (exit 0). A refusal (missing argument, missing or
+// non-directory source root) prints the NFR-10 canonical message verbatim
+// on stderr and exits 2. The entry guard keeps imports (tests, sibling
+// modules) side-effect free — sibling-module convention, see
+// check_marker_runtime.ts / upgrade_staleness.ts.
+if (import.meta.main) {
+  const sourceRoot = process.argv[2];
+  if (sourceRoot === undefined || sourceRoot === "") {
+    process.stderr.write(
+      new TemplateSourceRefusalError(
+        "missing <source-root> argument",
+        "invoke as: bun run template_source_analyzer.ts <source-root>",
+        "mode=template-source-analyzer, sourceRoot=(absent)",
+      ).message + "\n",
+    );
+    process.exit(2);
+  }
+  try {
+    process.stdout.write(
+      JSON.stringify(analyzeTemplateSource(sourceRoot), null, 2) + "\n",
+    );
+  } catch (err) {
+    if (err instanceof TemplateSourceRefusalError) {
+      process.stderr.write(err.message + "\n");
+      process.exit(2);
+    }
+    throw err;
+  }
+}
