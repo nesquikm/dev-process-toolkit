@@ -121,6 +121,11 @@ user_facing_mode: false
 packages_mode: false
 changelog_ci_owned: false
 
+## Orchestration
+
+default_effort: ultracode
+merge_policy: auto
+
 ## Token Stats
 
 enabled: true
