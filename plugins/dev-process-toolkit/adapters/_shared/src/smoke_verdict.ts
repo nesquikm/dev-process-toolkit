@@ -282,9 +282,11 @@ function clampNonZero(code: number): number {
 /**
  * Reconcile a leg's collected exit code against its verdict artifact.
  *
- * This is the move that makes every EXISTING rc-file consumer truthful without
- * changing the documented Phase A gate: the wrapper writes THIS value to the
- * rc-file, and "abort on any non-zero" keeps its exact shape.
+ * This is the move that makes every EXISTING rc-file consumer truthful: the
+ * wrapper writes THIS value to the rc-file. It does NOT leave the documented
+ * Phase A gate untouched — folding "declared findings" and "armed abort" onto
+ * the same `RC_VERDICT_NON_PASS` collided with that gate's abort-on-any-non-
+ * zero shape, which is why `classifyLegRc` below exists (STE-490).
  *
  * - A non-zero process rc is never downgraded — a real harness failure wins.
  * - A missing / non-numeric rc-file is itself a failure.
@@ -315,6 +317,130 @@ export function reconcileLegRc(
   }
 }
 
+// --- the RC-collection decision rule (STE-490) -----------------------------
+//
+// THE COLLISION. `reconcileLegRc` above folds two very different legs onto the
+// SAME integer: `RC_VERDICT_NON_PASS` (64) is what a leg that merely DECLARED
+// findings reconciles to — the normal outcome of a capture-only run that found
+// anything — and it is ALSO what a leg whose grandchild chain never completed
+// reconciles to, because an armed abort is a non-`pass` outcome too. The
+// documented `/conformance-loop` § RC collection gate aborts the whole
+// iteration on any non-zero, so the loop could not reach aggregation on
+// exactly the runs it exists to produce.
+//
+// THE RULE. At 64 — and ONLY at 64 — the artifact, not the code, decides. A
+// `{"outcome":"fail","trigger":"declared"}` verdict (optionally carrying
+// operator context appended by `emit --trigger`, i.e. `declared + …`) is a leg
+// reporting findings, and findings are the deliverable. Everything else stays
+// a failure: any other non-zero code, any unparseable rc-file, an ARMED
+// trigger, a declared `abort`, a contradicting `pass`, a trigger-less `fail`,
+// and a missing / stale / malformed / unreadable artifact. The narrowing is a
+// carve-out, not an amnesty.
+
+/** What the RC-collection gate should do with one leg. */
+export type LegRcDisposition =
+  | { disposition: "pass" }
+  | { disposition: "declared-findings" }
+  | { disposition: "failure"; reason: string };
+
+/** The bare trigger `buildSmokeVerdict` writes for a driver-declared outcome. */
+const DECLARED_TRIGGER = "declared";
+
+/**
+ * `declared`, or `declared + <operator context>`.
+ *
+ * A PREFIX match, deliberately not a substring one: `emit --trigger` appends
+ * operator prose to the computed diagnosis on the same flat string, so an
+ * incomplete chain annotated "declared by the operator" would satisfy any
+ * `includes("declared")` test while still being an incomplete chain.
+ */
+function isDeclaredTrigger(trigger: string | undefined): boolean {
+  if (typeof trigger !== "string") return false;
+  return trigger === DECLARED_TRIGGER || trigger.startsWith(`${DECLARED_TRIGGER} + `);
+}
+
+/** A short phrase naming what the artifact read as, for the failure reason. */
+function describeRead(verdict: SmokeVerdictRead): string {
+  if (verdict.status !== "ok") return `a ${verdict.status} artifact`;
+  const { outcome, trigger } = verdict.verdict;
+  return trigger === undefined
+    ? `an artifact declaring "${outcome}" with no trigger`
+    : `an artifact declaring "${outcome}" (trigger: ${trigger})`;
+}
+
+/**
+ * Classify one leg's collected rc-file against its verdict artifact.
+ *
+ * Fail-closed everywhere the evidence is absent or contradictory; the single
+ * proceed-anyway path is rc 64 beside a fresh, well-formed, declared-findings
+ * artifact.
+ */
+export function classifyLegRc(
+  rcFileValue: string | number | null | undefined,
+  verdict: SmokeVerdictRead,
+): LegRcDisposition {
+  const rc = parseRcFileValue(rcFileValue);
+  if (rc === undefined) {
+    return {
+      disposition: "failure",
+      reason:
+        `unreadable rc-file (${JSON.stringify(rcFileValue ?? null)} is not a plain integer) — ` +
+        "a failed read is never a zero, and it never reaches the verdict carve-out",
+    };
+  }
+
+  if (rc === 0) {
+    if (verdict.status === "ok" && verdict.verdict.outcome === "pass") {
+      return { disposition: "pass" };
+    }
+    return {
+      disposition: "failure",
+      reason:
+        `rc 0 beside ${describeRead(verdict)} — the rc-file and the artifact disagree, ` +
+        "and disagreement is not consent",
+    };
+  }
+
+  if (rc !== RC_VERDICT_NON_PASS) {
+    return {
+      disposition: "failure",
+      reason:
+        `rc ${rc} is self-describing — only ${RC_VERDICT_NON_PASS} ` +
+        "(RC_VERDICT_NON_PASS) defers to the verdict artifact",
+    };
+  }
+
+  if (verdict.status !== "ok") {
+    return {
+      disposition: "failure",
+      reason:
+        `rc ${RC_VERDICT_NON_PASS} with ${describeRead(verdict)} — at 64 the artifact is the ` +
+        "only evidence, so no readable artifact is no grounds to proceed",
+    };
+  }
+
+  const { outcome, trigger } = verdict.verdict;
+  if (outcome !== "fail") {
+    return {
+      disposition: "failure",
+      reason:
+        `rc ${RC_VERDICT_NON_PASS} with ${describeRead(verdict)} — only a declared "fail" ` +
+        'proceeds; "abort" is the driver saying the run did not complete, and "pass" ' +
+        "contradicts the code",
+    };
+  }
+  if (!isDeclaredTrigger(trigger)) {
+    return {
+      disposition: "failure",
+      reason:
+        `rc ${RC_VERDICT_NON_PASS} with ${describeRead(verdict)} — the trigger must be ` +
+        '`declared` or `declared + <context>`; an armed trigger (incomplete grandchild ' +
+        "chain, live pidfile) and a trigger-less fail both abort",
+    };
+  }
+  return { disposition: "declared-findings" };
+}
+
 // --- CLI shim --------------------------------------------------------------
 //
 // Mirrors socratic_first_turn_assert.ts: a thin `import.meta.main` wrapper over
@@ -326,10 +452,14 @@ export function reconcileLegRc(
 //                            [--live "<pidfile> …"] [--chain-finding "<diag>"]…
 //                            [--trigger "<operator context>"]
 //   bun smoke_verdict.ts reconcile --rc <n> --artifact <p> [--run-start <epoch-ms>]
+//   bun smoke_verdict.ts classify  --rc <n> --artifact <p> [--run-start <epoch-ms>]
 //
 // `emit` writes the artifact and prints its path. `reconcile` prints the
 // reconciled exit code on stdout (so the caller can redirect it straight into
-// the rc-file) and exits with it.
+// the rc-file) and exits with it. `classify` (STE-490) is the RC-collection
+// gate's decision: it exits 0 for a leg the loop may keep grading — a clean
+// `pass`, or an rc-64 leg whose artifact says it merely DECLARED findings —
+// and non-zero for every failure, printing the disposition on stdout.
 //
 // `--trigger` is ADDITIVE. The computed trigger — the string naming the armed
 // pidfiles and chain findings — is the artifact's only actionable content, so
@@ -353,6 +483,36 @@ function parseArgs(argv: readonly string[]): Record<string, string[]> {
 
 function first(flags: Record<string, string[]>, key: string): string | undefined {
   return flags[key]?.[0];
+}
+
+/**
+ * Resolve the `--artifact` / `--run-start` pair both `reconcile` and `classify`
+ * take, or exit 2 with that subcommand's usage line.
+ *
+ * Shared rather than written twice because the two subcommands must agree on
+ * the freshness gate: a `--run-start` honoured by one and dropped by the other
+ * would let the same leftover artifact read `stale` at reconcile time and `ok`
+ * at classify time, and the carve-out below is only sound while both read the
+ * same artifact the same way. `--run-start` is accepted only as bare digits;
+ * anything else leaves the gate off, exactly as an omitted flag does.
+ */
+function readVerdictForSubcommand(
+  subcommand: string,
+  flags: Record<string, string[]>,
+): SmokeVerdictRead {
+  const artifact = first(flags, "artifact");
+  if (!artifact) {
+    console.error(
+      `usage: bun smoke_verdict.ts ${subcommand} --rc <n> --artifact <p> [--run-start <ms>]`,
+    );
+    process.exit(2);
+  }
+  const runStartRaw = first(flags, "run-start");
+  const runStart =
+    runStartRaw && /^\d+$/.test(runStartRaw)
+      ? Number.parseInt(runStartRaw, 10)
+      : undefined;
+  return readSmokeVerdict(artifact, runStart === undefined ? undefined : { runStart });
 }
 
 if (import.meta.main) {
@@ -431,22 +591,27 @@ if (import.meta.main) {
   }
 
   if (command === "reconcile") {
-    const artifact = first(flags, "artifact");
-    if (!artifact) {
-      console.error("usage: bun smoke_verdict.ts reconcile --rc <n> --artifact <p> [--run-start <ms>]");
-      process.exit(2);
-    }
-    const runStartRaw = first(flags, "run-start");
-    const runStart =
-      runStartRaw && /^\d+$/.test(runStartRaw)
-        ? Number.parseInt(runStartRaw, 10)
-        : undefined;
-    const read = readSmokeVerdict(artifact, runStart === undefined ? undefined : { runStart });
+    const read = readVerdictForSubcommand("reconcile", flags);
     const rc = reconcileLegRc(first(flags, "rc"), read);
     console.log(String(rc));
     process.exit(rc);
   }
 
-  console.error("usage: bun smoke_verdict.ts <emit|reconcile> [flags]");
+  if (command === "classify") {
+    const read = readVerdictForSubcommand("classify", flags);
+    const rcValue = first(flags, "rc");
+    const decision = classifyLegRc(rcValue, read);
+    if (decision.disposition === "failure") {
+      // Scored on EXIT STATUS by every caller, so the reason is context, not
+      // the answer. The status reuses `reconcileLegRc`'s self-describing codes
+      // rather than a flat 1, floored at 1 so a failure can never exit 0.
+      console.log(`failure: ${decision.reason}`);
+      process.exit(reconcileLegRc(rcValue, read) || 1);
+    }
+    console.log(decision.disposition);
+    process.exit(0);
+  }
+
+  console.error("usage: bun smoke_verdict.ts <emit|reconcile|classify> [flags]");
   process.exit(2);
 }

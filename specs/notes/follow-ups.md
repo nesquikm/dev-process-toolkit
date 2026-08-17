@@ -862,3 +862,106 @@ heading, or on a token that exists nowhere else, rather than on a conjunction of
 common words.
 
 Surfaced while implementing STE-489, 2026-08-17.
+
+---
+
+## A pinned line that outlived its subject — `conformance-loop-aggregator.test.ts:71`
+
+`tests/conformance-loop-aggregator.test.ts:71` pins `/RC_LINEAR.*-ne\s*0[\s\S]{0,80}RC_JIRA.*-ne\s*0/`
+against the § RC collection fence, under the name "Phase A fails fast if either
+subprocess returns non-zero". After STE-490 the line it matches is the only
+thing it can match, and that line is semantically dead: replacing the outer
+three-way guard with `if true` changes zero of four fence outcomes, because the
+per-leg loop below it already skips clean legs. The pin therefore holds a
+redundant line in place, and — the part that matters — it would stay GREEN if
+the entire classification loop were deleted, so long as the inert `if` line
+remained. A perfect pin on a subject that has moved.
+
+Two other suites were believed to require the same line and do not:
+`driver-gate-fail-open-guards.test.ts:163` and
+`m121-ste-452-termination-harness.test.ts:158` assert only `/-ne 0/` against the
+whole fence, which the loop's own `[ "${LEG_RC}" -ne 0 ]` satisfies. So the
+aggregator's proximity pin is the sole constraint.
+
+The honest repair is to re-point the pin at what now decides — the `classify`
+call and the `RC_FAILED` accumulation — and drop the dead guard. That is a
+shipped-test change and wants an FR, not a refactor.
+
+Surfaced while implementing STE-490, 2026-08-17.
+
+---
+
+## The README release-file entry bumps the number and leaves the sentence lying
+
+`CLAUDE.md` § Release Files declares the README row as `kind: regex` with
+`pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+) — '`. The capture group covers
+the **version only**, so a mechanical `/ship-milestone` apply rewrites the digits
+and leaves the codename and the entire descriptive sentence describing the
+*previous* release. It reads as a correct bump until somebody actually reads the
+sentence — the failure is invisible to the mechanism that caused it, which is
+the shape this repo treats as worse than a loud break.
+
+This is a defect in the release mechanism, not in any one release: every
+milestone that ships through it inherits the same stale-sentence risk and has to
+remember to hand-edit the line. Found during M127 and hand-corrected again in
+M128 rather than fixed.
+
+Candidate repair: extend the row so the codename and summary clause are part of
+the replace template (a `kind: regex` pattern capturing the whole line, or a
+dedicated `kind` that knows the README headline's shape), so the apply either
+rewrites all of it or refuses. Wants an FR.
+
+Surfaced while shipping M128, 2026-08-17.
+
+---
+
+## `runtime check:` is still spelled inline in all thirteen fixture-group footers
+
+STE-491 stated the roster-line spelling once, normatively, in
+`.claude/skills/smoke-test/SKILL.md` § Phase 3 — Capture, and reconciled fixture
+group 12's footer to cite it. Group 12 was chosen because two shipped suites read
+its literals — not because it was the only duplicate.
+
+Counts, with the tree each was measured on named, because an earlier draft of
+this note reported the post-change numbers under a pre-change framing:
+
+| | pre-change (`ff87a97`) | post-change |
+|---|---|---|
+| `grep -c 'runtime check:'` | 14 | 14 |
+| footers restating NOT-REACHED / N/A | 8 | 7 |
+| footers using "rather than nothing at all" | 6 | 5 |
+
+The total is unchanged at fourteen because group 12 gave up the semantic
+restatement, not its own `STE-467 runtime check:` token — it keeps that
+deliberately, since `m124-ste-467-implement-lens.test.ts` and
+`m117-ste-425-falsifiable-coverage.test.ts` both read it. The pre-change
+fourteen is the general statement plus thirteen footers; the post-change
+fourteen is the new § Phase 3 statement plus the same thirteen. So **all
+thirteen** footers still spell the token inline — this is a semantic
+deduplication, not a token one.
+
+Two hazards make this more than tidying:
+
+1. **AC-STE-491.1's "stated once" predicate is a three-literal co-occurrence
+   test** (`runtime check:` ∧ all four outcome labels ∧ `smoke_fixture_groups.ts`),
+   not a normativity test. Six sections sit one token away from flipping it:
+   sub-fixtures 2c, 9c, 10c, 11a and 13a already satisfy two of three conjuncts
+   (token + labels, no module basename), and § Phase 2.X summary line satisfies
+   the other two (labels + module, no token) since this FR removed the token from
+   its bullet. Verified by mutation: prepending a bare "Rendered by
+   smoke_fixture_groups.ts." to group 13a's footer FALSE-REDs "exactly ONE
+   section states it" without that footer restating anything. The converse also
+   holds — a genuine second full statement that writes "the fixture-group
+   renderer" instead of the filename scores 2/3 and passes the guard.
+2. So the footer rewrite **cannot** mention the module by name without also
+   revisiting the predicate. Sequencing matters: tighten the predicate to test
+   normativity first, then reconcile the footers.
+
+Also still duplicated: the `smoke_fixture_groups.ts render --leg …` invocation
+appears in § Phase 2.X's fence and again in § Phase 3's new paragraph. Only the
+Phase 3 copy is pinned, so the Phase 2.X copy can drift silently. Deduplicating
+means deleting a runnable command from the runbook step where the operator
+actually runs it, which is a behaviour-affecting change to a section no AC
+covers.
+
+Surfaced while implementing STE-491, 2026-08-17.

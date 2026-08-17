@@ -524,7 +524,7 @@ done
 if [ -n "${LIVE}" ]; then echo "still running:${LIVE} — poll again"; else echo "every leg exited — collect RCs"; fi
 ```
 
-**RC collection (after the poll loop reports every leg exited).** Read each leg's rc-file — written by its brace group as the leg exited, carrying the *verdict-reconciled* status rather than the raw `claude -p` one (STE-420) — and abort on any non-zero. A missing rc-file after exit is treated as a failure, and so is an unreadable one: what the gate compares must be a plain integer, validated after the read rather than assumed by it. `cat` **succeeds** on a file that exists but is empty, so a `|| echo 1` fallback fires only on a missing file and leaves the variable empty for every other bad shape — and `[ "" -ne 0 ]` is a `test(1)` usage error whose non-zero status *skips* the abort branch, so the gate fails open on exactly the input it exists to catch. That input is reachable: the rc-file is created by the shell redirect **before** `bun` runs, so any invocation producing no stdout — bun missing, a module throw, a bad flag — leaves 0 bytes behind, and a partial or diagnostic write leaves something that is not a number. The integer check below folds all three into a failure with one predicate:
+**RC collection (after the poll loop reports every leg exited).** Read each leg's rc-file — written by its brace group as the leg exited, carrying the *verdict-reconciled* status rather than the raw `claude -p` one (STE-420) — and abort on any non-zero *except* the one collected code that is not self-describing: at rc 64 (`RC_VERDICT_NON_PASS`) the fence classifies the leg against its verdict artifact, and a leg that merely **declared** findings proceeds to aggregation while an armed abort at the same 64 still aborts (STE-490). A missing rc-file after exit is treated as a failure, and so is an unreadable one: what the gate compares must be a plain integer, validated after the read rather than assumed by it. `cat` **succeeds** on a file that exists but is empty, so a `|| echo 1` fallback fires only on a missing file and leaves the variable empty for every other bad shape — and `[ "" -ne 0 ]` is a `test(1)` usage error whose non-zero status *skips* the abort branch, so the gate fails open on exactly the input it exists to catch. That input is reachable: the rc-file is created by the shell redirect **before** `bun` runs, so any invocation producing no stdout — bun missing, a module throw, a bad flag — leaves 0 bytes behind, and a partial or diagnostic write leaves something that is not a number. The integer check below folds all three into a failure with one predicate:
 
 ```bash
 # STE-452: an empty selection is never "no legs to check, therefore fine".
@@ -581,13 +581,49 @@ fi
 # STE-359: before acting on any failure here, run the orphan-adoption scan
 # below — a dead driver can leave live grandchildren whose completed
 # captures are recoverable.
+#
+# STE-490: rc 64 is `RC_VERDICT_NON_PASS`, the one collected code that is NOT
+# self-describing. `reconcileLegRc` returns it for a leg that merely DECLARED
+# findings — the normal outcome of a capture-only run that found anything —
+# AND for a leg whose grandchild chain never completed, so the integer alone
+# cannot separate "we found things" from "the run never happened". At 64, and
+# only at 64, the leg's verdict artifact decides. Every other non-zero code,
+# and every unreadable rc-file, aborts exactly as before.
+# Fresh shell per Bash call: re-derive PLUGIN_DIR.
+PLUGIN_DIR="${PLUGIN_DIR:-$(pwd)/plugins/dev-process-toolkit}"
+RC_FAILED=""
 if [ "${RC_LINEAR}" -ne 0 ] || [ "${RC_JIRA}" -ne 0 ] || [ "${RC_NONE}" -ne 0 ]; then
-  echo "/conformance-loop: Phase A subprocess failed for a selected leg (selected=[${SELECTED_LEGS}]; linear=${RC_LINEAR}, jira=${RC_JIRA}, none=${RC_NONE}). Aborting."
+  for LEG in linear jira none; do
+    case " ${SELECTED_LEGS} " in *" ${LEG} "*) ;; *) continue ;; esac
+    case "${LEG}" in
+      linear) LEG_RC="${RC_LINEAR}" ;;
+      jira)   LEG_RC="${RC_JIRA}" ;;
+      none)   LEG_RC="${RC_NONE}" ;;
+    esac
+    [ "${LEG_RC}" -ne 0 ] || continue
+    # `classify` (adapters/_shared/src/smoke_verdict.ts) IS the decision rule,
+    # and it exits 0 for exactly one reading: rc 64 beside a fresh, well-formed
+    # declared-findings artifact. Every other reading exits non-zero and lands
+    # in RC_FAILED below — the paragraph after this fence enumerates them once,
+    # deliberately in one place only, so the list here cannot drift away from
+    # the list the classifier implements. The `&&` extends that to a `bun` that
+    # cannot run at all: no answer is not a yes. Fail-closed.
+    if [ "${LEG_RC}" -eq 64 ] && bun "${PLUGIN_DIR}/adapters/_shared/src/smoke_verdict.ts" classify --rc "${LEG_RC}" --artifact "/tmp/dpt-smoke-verdict-${LEG}.json" >/dev/null 2>&1; then
+      echo "/conformance-loop: leg ${LEG} exited 64 with a declared-findings verdict artifact (/tmp/dpt-smoke-verdict-${LEG}.json) — findings are this loop's deliverable, so aggregation proceeds."
+      continue
+    fi
+    RC_FAILED="${RC_FAILED} ${LEG}=${LEG_RC}"
+  done
+fi
+if [ -n "${RC_FAILED}" ]; then
+  echo "/conformance-loop: Phase A subprocess failed for a selected leg (selected=[${SELECTED_LEGS}]; failed=[${RC_FAILED# }]; linear=${RC_LINEAR}, jira=${RC_JIRA}, none=${RC_NONE}). Aborting."
   exit 1
 fi
 ```
 
-Each value read here was already reconciled against that leg's verdict artifact at `/tmp/dpt-smoke-verdict-<tracker>.json` by the spawn wrapper above (`adapters/_shared/src/smoke_verdict.ts`, STE-420). A non-`pass` outcome, an absent artifact (the leg died before writing one), a malformed one, and a stale one whose mtime predates run-start — fresh means an mtime at or after `RUN_START_MS` — each map to their own non-zero code, and a genuinely non-zero process status is never downgraded to 0. That is why this gate can keep its documented shape: it still just aborts on any non-zero, but the number it reads is now the leg's real verdict instead of the 0 `claude -p` returns for every session that finishes (2026-07-27: both legs declared failure in prose and both rc-files held `0`, so this gate was dead code).
+Each value read here was already reconciled against that leg's verdict artifact at `/tmp/dpt-smoke-verdict-<tracker>.json` by the spawn wrapper above (`adapters/_shared/src/smoke_verdict.ts`, STE-420). A non-`pass` outcome, an absent artifact (the leg died before writing one), a malformed one, and a stale one whose mtime predates run-start — fresh means an mtime at or after `RUN_START_MS` — each map to their own non-zero code, and a genuinely non-zero process status is never downgraded to 0. The number this gate reads is therefore the leg's real verdict, not the 0 `claude -p` returns for every session that finishes (2026-07-27: both legs declared failure in prose and both rc-files held `0`, so this gate was dead code).
+
+**That truthful rc then collided with this gate, and the collision is what STE-490 resolves.** STE-420 made the rc *carry the verdict*; § RC collection, written earlier, aborted the whole iteration on any non-zero. Two decisions, each correct when it was made, and together a loop that could not reach aggregation on the runs that matter most — because rc 64 (`RC_VERDICT_NON_PASS`) is the NORMAL outcome of a capture-only leg that **declared** findings, not a crash. It is also not self-describing: a leg whose grandchild chain never completed, or whose smoke pidfile was still answering `kill -0`, is an *armed* abort that reconciles to the SAME 64, so the integer alone cannot separate "we found things" from "the run never happened". Only the verdict artifact can, which is why the fence above reads it per non-zero leg independently of what the code says. At 64 — and only at 64 — a fresh `{"outcome":"fail","trigger":"declared"}` artifact (operator context appended by `emit --trigger` still reads `declared + …`) lets that leg through. An armed trigger, a declared `abort`, a contradicting `pass`, a trigger-less `fail`, and a missing, malformed, stale or unreadable artifact behind a 64 are each still a failure, as is every other non-zero code. The narrowing is a carve-out, not an amnesty — and it was a design collision to resolve, not a typo to fix (2026-08-01, then again on 2026-08-16: both runs hit it, the first went unfixed).
 
 **Why detached + poll, not a same-call wait (STE-355 backfill).** A single foreground Bash call caps at the harness's **600 s (10-minute) per-call ceiling** — the same ceiling that SIGTERM'd the 2026-07-02 `/implement` grandchild (F2). With the smoke driver's STE-355 poll wrapper in place, each `/smoke-test` child genuinely awaits its grandchildren (~10+ minutes per leg), so the old spawn shape — foreground-`wait`ing both PIDs inside the spawn call (`wait "${PID_LINEAR}"; wait "${PID_JIRA}"`) — is guaranteed to hit that ceiling and truncate both legs. The spawn call detaches and returns immediately; the bounded poll above is how Phase A waits.
 
