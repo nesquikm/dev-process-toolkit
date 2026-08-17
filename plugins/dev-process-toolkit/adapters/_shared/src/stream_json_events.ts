@@ -35,13 +35,17 @@ export function parseStreamJsonEvents(ndjson: string): StreamJsonEvent[] {
 }
 
 /**
- * The content blocks of an assistant event's message, in stream order.
- * Returns [] for non-assistant events and malformed / block-less messages.
+ * The content blocks of an event's message, in stream order, for events of
+ * `type`. Returns [] for any other event type and for malformed / block-less
+ * messages. The two projections that matter read opposite halves of the same
+ * stream — `assistant` for model-authored text, `user` for the tool_result
+ * payloads a forked child hands back — so the walk lives here once.
  */
-export function assistantContentBlocks(
+export function messageContentBlocks(
   event: StreamJsonEvent,
+  type: string,
 ): StreamJsonEvent[] {
-  if (event.type !== "assistant") return [];
+  if (event.type !== type) return [];
   const message = event.message;
   if (!message || typeof message !== "object") return [];
   const content = (message as StreamJsonEvent).content;
@@ -52,4 +56,14 @@ export function assistantContentBlocks(
     blocks.push(block as StreamJsonEvent);
   }
   return blocks;
+}
+
+/**
+ * The content blocks of an assistant event's message, in stream order.
+ * Returns [] for non-assistant events and malformed / block-less messages.
+ */
+export function assistantContentBlocks(
+  event: StreamJsonEvent,
+): StreamJsonEvent[] {
+  return messageContentBlocks(event, "assistant");
 }

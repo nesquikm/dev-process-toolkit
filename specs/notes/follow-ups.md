@@ -734,3 +734,131 @@ AC-STE-424.5 required editing an already-archived FR, which the archive-frozen
 convention normally forbids. The AC named the file and line explicitly, so it was
 treated as authorized. Recorded so a future reader who finds an archived file
 with a post-archival edit has the reason rather than a mystery.
+
+## Carried forward from M127 — Fixture Falsifiability (2026-08-17)
+
+### 11. `PLUGIN_DIR` is a hardcoded maintainer-absolute path in the Phase 2.X preamble
+
+`.claude/skills/smoke-test/SKILL.md` § Capability-row evidence sets
+`PLUGIN_DIR=/Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit`
+by a plain, non-exported assignment inside a bash fence. Every `${CAP_ASSERT}`
+fixture in Phase 2.X and Phase 9 already depends on it, and STE-484's repaired
+group-7 assertion now does too.
+
+Two consequences, both measured rather than theorised. A driver that runs one of
+these spans in a shell which never sourced that fence gets `bun "/adapters/…"`,
+module-not-found, and a non-zero exit on **every** leg — a false RED with exactly
+the silhouette M127 exists to remove. And the value is one machine's path, so no
+span depending on it is runnable from a fresh checkout.
+
+Deriving `PLUGIN_DIR` in the preamble — from the SKILL's own location, the way the
+teardown fence already derives `TOOLKIT_REPO` from it — would close both for every
+consumer in one edit. It was **not** done in M127: the preamble is shared surface
+and no M127 FR authorizes editing it, and widening a fixture-falsifiability
+milestone into a shared-preamble change is the kind of quiet scope growth this
+repo has been bitten by before. STE-484 states the caveat at the group-7 span
+instead. Closing this properly wants its own FR.
+
+Surfaced by the STE-484 spec-review audit, 2026-08-17.
+
+### 12. Four residuals from M127's STE-486 audit, none blocking
+
+Recorded because each is a real observation the audit made and none was worth
+widening STE-486's scope to close.
+
+1. **`carveOutCitations()` is dead.** `adapters/_shared/src/shared_carve_out.ts`
+   exports it, the STE-486 test's design block specifies it, and nothing calls
+   it — zero importers repo-wide, zero assertions, and its dedupe arm is
+   unexercised. The one function whose job is to ENUMERATE citing sites ships
+   unverified. This is the STE-445 silhouette (exported authority imported by
+   nothing) inside the very module built to stop drift. Wire it into the
+   uniqueness check or delete it.
+
+2. **`git -C "" ` leaves the CWD unchanged.** In the § Tracker-less rows span an
+   unset `${TP}` therefore does not fail — it silently searches the DRIVER's own
+   repository for the claim commit, while the lock test degrades to `/.dpt/…`
+   and reports lock-absent. It fails safe today only because a minted ULID
+   `FR_ID` cannot match a commit in the toolkit repo. Nothing asserts `TP` and
+   `FR_ID` are actually set.
+
+3. **`claim_witness_assert.ts` treats an omitted third argument as
+   `lock-absent`** (`lockState !== "lock-present"`) — the permissive direction
+   for a safety-critical input. Unreachable from the shipped span, which always
+   emits one of the two tokens; `exit 2` would be the fail-closed choice.
+
+4. **`AC9_DISCLAIMER_PINS[2]` is read by INDEX** at
+   `tests/m121-ste-456-two-sided-lock-evidence.test.ts`. That list's own doc
+   block stresses its order is the DOCUMENT's, and STE-460 reordered it once
+   already. A future reorder silently re-points the assertion onto a different
+   subject while staying green.
+
+Also from the same milestone: `HEADING_RE` / `FENCE_RE` are byte-identical in
+`falsifiability_harness.ts` and `shared_carve_out.ts`. Deliberately not hoisted —
+the two modules handle fences by genuinely different strategies (mask-to-blanks
+to preserve byte offsets vs skip-while-collecting) and their heading matchers
+disagree on subject, so only the two regex literals are honestly shared and
+buying that costs an edit to a heavily-pinned module.
+
+Surfaced by the STE-486 spec-review audit, 2026-08-17.
+
+### 13. Two enumerator blind spots M127/STE-487 leaves open, both named
+
+STE-487's AC.3 claims a check enumerates "every per-run artifact path in both
+harness SKILLs". After closing the `VAR=<path>` gap (assignment prefixes were
+dropped before the scoped test, exempting 25 sites — scanned went 194 → 219,
+still `unscoped=0`, so nothing live was hiding there), two classes remain
+outside the enforcement. Neither hides a live offender today. Both are recorded
+because "every" is measurably not yet true.
+
+1. **`${VAR}`-rooted paths are not resolved.** The scan is textual, so
+   `MANIFEST="${P9}/artifact-manifest-<date>.log"` is not recognised as living
+   under `/tmp` — the root is behind a variable. Phase 9's own new fence writes
+   through exactly this shape. Coverage survives only because the same two
+   classes are ALSO spelled fully-qualified elsewhere in the section, which
+   means an edit that drops the redundant spelling retires the enforcement
+   **silently, with no test going red**. That is the vacuity shape this
+   milestone exists to remove, one level up, and it is the more dangerous of
+   the two. Closing it wants a one-pass shell-variable resolution over the
+   fence before enumeration.
+
+2. **The glob / reap half of STE-423's claim is out of scope.** STE-423 said
+   every path a leg "writes, globs, or reaps" carries the segment; the check
+   covers writes only, and `isGlob()` drops 26 refs. Four of those are
+   genuinely UNSCOPED cross-leg reaps: `/tmp/dpt-smoke-prompt-*.txt`,
+   `/tmp/dpt-smoke-findings-*.md`, `/tmp/dpt-conformance-loop-*.pid`. A teardown
+   reaping the last of those while a sibling leg is still running destroys that
+   leg's evidence — precisely the failure class STE-487 was opened for, and the
+   documented-safe parallel mode is what makes it reachable.
+
+Also noted, low severity: AC.2's "outside the repo, or covered by an ignore
+rule" test executes zero assertions under the shipped design (every resolved
+path is `/tmp`, so its loop `continue`s every iteration). It is a correct
+conditional contract with no teeth today; the AC's real coverage is the
+adjacent test that writes all 15 artifacts at their resolved paths and diffs
+`git status --porcelain -uall`.
+
+Surfaced by the STE-487 spec-review audit, 2026-08-17.
+
+### 14. `m117-ste-425`'s closing-check slicer anchors on a stealable regex
+
+`tests/m117-ste-425-falsifiable-coverage.test.ts` locates § Closing artifact
+accounting by scanning for the FIRST line matching `/untracked/i` AND
+`/artifact|fixture|capture|transcript/i`. Any prose added ANYWHERE earlier in
+`.claude/skills/smoke-test/SKILL.md` that happens to use both words silently
+relocates the anchor, and the slice then contains no bash fence — six tests go
+red pointing at a section nobody touched.
+
+Hit for real in M127: STE-489's staging paragraph (fixture group 2, ~850 lines
+above the real section) described a spec file "left untracked in the working
+tree" while also saying "sub-fixtures" and "capture". Six `AC-STE-425.4` /
+`Phase 3 round-2 hardening` tests went red. The repair was a single word —
+"untracked" → "uncommitted" — which is the tell that the anchor, not the prose,
+is the defect.
+
+This is the same relocation class as the AC-STE-448.9 row guard, whose window is
+taken from the FIRST occurrence of its own AC token and which a mention anywhere
+above § Phase 4 silently moves (recorded at § 0i). Both want anchoring on a
+heading, or on a token that exists nowhere else, rather than on a conjunction of
+common words.
+
+Surfaced while implementing STE-489, 2026-08-17.
