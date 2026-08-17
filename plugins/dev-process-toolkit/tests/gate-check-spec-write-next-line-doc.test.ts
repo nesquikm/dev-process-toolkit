@@ -378,13 +378,13 @@ describe("AC-STE-380.5 — probe #66 registered in gate-check SKILL.md", () => {
     expect(block).toContain("#47");
   });
 
-  test("README probe count is current (76 after M124 added #76)", () => {
-    // Recalibrated 75 → 76: M124 added #76 best_practices_manifest_hygiene on
-    // top of M122's #75 active_plan_ship_ready.
+  test("README probe count is current (77 after M126 added #77)", () => {
+    // Recalibrated 76 → 77: M126 added #77 first_turn_refusal_marker on
+    // top of M124's #76 best_practices_manifest_hygiene.
     const readme = readFileSync(readmePath, "utf-8");
-    expect(readme).toContain("76 numbered");
+    expect(readme).toContain("77 numbered");
     expect(readme).not.toContain("68 numbered");
-    expect(readme).toMatch(/layers 76 probes/);
+    expect(readme).toMatch(/layers 77 probes/);
     expect(readme).not.toMatch(/layers 68 probes/);
   });
 });
@@ -394,18 +394,18 @@ describe("AC-STE-380.5 — probe #66 registered in gate-check SKILL.md", () => {
 // ---------------------------------------------------------------------------
 
 describe("AC-STE-380.7 — probe-count calibration stays coherent across surfaces", () => {
-  test("highest numbered gate-check probe is 76 and README agrees", () => {
-    // Recalibrated 75 → 76: M124 added #76 best_practices_manifest_hygiene.
+  test("highest numbered gate-check probe is 77 and README agrees", () => {
+    // Recalibrated 76 → 77: M126 added #77 first_turn_refusal_marker.
     const b = readFileSync(gateCheckSkill, "utf-8");
     const numbers = [...b.matchAll(/^(\d+)\. \*\*/gm)].map((m) =>
       Number(m[1]),
     );
     expect(numbers.length).toBeGreaterThan(0);
-    expect(Math.max(...numbers)).toBe(76);
+    expect(Math.max(...numbers)).toBe(77);
 
     const readme = readFileSync(readmePath, "utf-8");
     const counted = readme.match(/(\d+) numbered `\/gate-check` probes/);
     expect(counted).not.toBeNull();
-    expect(Number(counted![1])).toBe(76);
+    expect(Number(counted![1])).toBe(77);
   });
 });

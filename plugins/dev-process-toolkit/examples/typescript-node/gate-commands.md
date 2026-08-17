@@ -42,7 +42,7 @@ npm run build        # vite build / tsc / esbuild
     "allow": [
       "Bash(git status)",
       "Bash(git diff)",
-      "Bash(git log)",
+      "Bash(git log:*)",
       "Bash(git show)",
       "Bash(git rev-parse)",
       "Bash(git ls-files)",
@@ -56,6 +56,7 @@ npm run build        # vite build / tsc / esbuild
       "Bash(gh api)",
       "Bash(ls)",
       "Bash(mkdir)",
+      "Bash(echo:*)",
       "Bash(npm install)",
       "Bash(npm test)",
       "Bash(npm run)",

@@ -306,6 +306,41 @@ No log line is ever printed when Phase 4b is gated off (both modes false or sect
 - **Retry on failure.** No automatic retry. A single failure appends the skipped row and lets the user decide.
 - **`--skip-docs` flag.** None. The contract forbids a new `/implement` flag; temporary opt-out is done by flipping Schema L docs keys.
 
+## Phase 4b′ Cross-Cutting Spec Propagation
+
+The skill body carries the condensed flow; this section is the full edit policy and the commit-message contract.
+
+### When it runs
+
+Between the Phase 4b doc-fragment hook and Phase 4c (report + approval). Deleted paths are derived from `git diff --name-status <baseline>..HEAD --diff-filter=D` — never recalled from session memory — and each one is passed to `scanCrossCuttingSpecRefs(removedPath, specsDir)` from `adapters/_shared/src/scan_cross_cutting_spec_refs.ts`. The helper is detection-only: it returns per-file lists of `{line, snippet, kind}` hits and edits nothing.
+
+### Edit policy
+
+- **`treeLeaf` hits are deleted.** The hit sits inside a fenced directory tree in `specs/technical-spec.md` / `specs/testing-spec.md`; drop the whole line with the Edit tool and never rewrite the surrounding text.
+- **`proseMention` hits are left untouched.** A sentence that names the removed file usually needs restructuring rather than a line delete, which is a judgment call the operator makes. Phase 4b′ records the hit instead of guessing.
+- **Zero hits across both specs ⇒ silent no-op** — no commit, no row, no log line.
+- **≥1 hit ⇒ exactly one follow-up commit**, placed between the implementation commit and any archival commit.
+
+The `cross_cutting_spec_stale_file_refs` `/gate-check` probe is the read-side safety net for removals that bypass this hook entirely.
+
+### Commit subject — fixed by construction
+
+Render the message with `buildPropagationCommitMessage(removedPaths, proseMentions)` from `adapters/_shared/src/propagation_commit_message.ts`, never by hand. The subject it emits is one fixed literal, byte-identical for every removal:
+
+```
+chore(specs): propagate file removal to cross-cutting specs
+```
+
+**Why it carries no path.** The `commit-msg` hook `/setup` installs (`templates/git-hooks/commit-msg.sh`, `-gt 72`, restated by `commitlint.config.js` as `header-max-length`) rejects any subject longer than 72 characters. The earlier wording interpolated the removed path between a `chore(specs): propagate` prefix and a `removal…` tail — fixed wording costing 55 characters, leaving at most seventeen for the path. `src/.placeholder.test.ts` rendered 79 and a plugin-relative adapter path rendered 110, so the prescribed subject was unsatisfiable for nearly every realistic input. A subject no caller input can reach is a subject whose length no caller input can change; the fixed literal measures 59 and clears the cap unconditionally.
+
+**Where the path went.** Nothing is lost — every removed path, and every prose-mention `file:line` plus its snippet, is written into the commit **body**, which the hook does not read. That is what makes the follow-up amend possible: the operator recovers which propagation this was, and which sentences still need restructuring, from the body of the commit itself.
+
+**The bound is enforced before anything is written.** `buildPropagationCommitMessage(removedPaths, proseMentions, {mode, ticket})` forwards its third argument to `assertPropagationSubjectWithinCap`, which runs inside the builder and throws in the NFR-10 refusal shape (verdict, `Remedy:`, `Context:`) rather than letting a rejected subject reach the hook. Bypassing the hook is never an acceptable response on any path: deterministic gates override LLM judgment, so the commit conforms to the gate rather than the gate bending to the commit.
+
+### Coupled surface — do not repair here
+
+`.claude/skills/smoke-test/SKILL.md` lines 998 and 1006 grep for the *old*, path-embedding subject and therefore look stale against the shipped literal above. Repairing those two greps is STE-488's job in M127; leave them alone when editing this hook so the two milestones stay separable.
+
 ## Commit message format
 
 Phase 4 commits use [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/). The `commit-msg` hook installed by `/setup` is the deterministic gate; this section is the cooperative specification the agent follows when proposing the message at the step 14 approval gate.

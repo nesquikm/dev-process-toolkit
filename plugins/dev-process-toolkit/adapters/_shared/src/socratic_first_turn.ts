@@ -62,10 +62,18 @@ export interface TranscriptEntry {
   path?: string;
 }
 
-// STE-399 AC-STE-399.1: `vacuous` is the transcript that never asks, never
-// refuses, and never scaffolds — the first-turn contract is un-violated but
-// the loop was never entered. It is NOT a pass; the consuming CLI exits
-// non-zero on it (a skill that did nothing must not read as compliant).
+// STE-399 AC-STE-399.1 as narrowed by STE-479 AC-STE-479.5: `vacuous` is the
+// INCONCLUSIVE capture — nothing was recorded (empty transcript), or the only
+// scaffold seen was scoped away by `projectRoot` so the capture cannot speak
+// to what the skill did inside the project. It is NOT a pass; the consuming
+// CLI exits non-zero on it.
+//
+// A non-empty transcript that carries no scaffold entry at all and still never
+// asks and never refuses is NOT inconclusive — it is a measured breach of the
+// first-turn contract (the model worked, then ended the turn without entering
+// the Socratic loop; the 2026-08-16 linear + jira `/brainstorm` legs). That
+// scores `violation`, so the breach names itself instead of hiding behind an
+// inconclusive verdict.
 export type FirstTurnOutcome =
   | "ok-asked"
   | "ok-refused"
@@ -154,6 +162,10 @@ export function assertFirstTurnShape(
   opts?: FirstTurnOptions,
 ): FirstTurnShape {
   const projectRoot = opts?.projectRoot;
+  // STE-479 AC-STE-479.5: set when a scaffold write was observed but scoped
+  // away by `projectRoot`. Such a capture stays INCONCLUSIVE (`vacuous`) —
+  // the skill did write, just not somewhere this root can adjudicate.
+  let sawScopedAwayScaffold = false;
   for (let i = 0; i < transcript.length; i++) {
     const entry = transcript[i]!;
     if (entry.type === "refusal") {
@@ -176,6 +188,7 @@ export function assertFirstTurnShape(
           entry.path !== undefined &&
           !isPathInside(projectRoot, entry.path)
         ) {
+          sawScopedAwayScaffold = true;
           continue;
         }
         throw new SocraticFirstTurnViolationError(entry.name, i);
@@ -188,9 +201,18 @@ export function assertFirstTurnShape(
       }
     }
   }
-  // STE-399 AC-STE-399.1: no ask, no refusal, no in-scope scaffold — the
-  // first-turn contract is un-violated but the loop was never entered. This
-  // is `vacuous`, NOT a pass; the consuming CLI exits non-zero on it so a
-  // skill that did nothing cannot read as compliant.
-  return { outcome: "vacuous" };
+  // No ask, no refusal, no in-scope scaffold. Two different things can look
+  // like this, and STE-479 AC-STE-479.5 separates them:
+  //
+  //   * NOTHING WAS CAPTURED (empty transcript), or the only scaffold seen was
+  //     scoped away by `projectRoot` — genuinely inconclusive ⇒ `vacuous`
+  //     (STE-399 AC-STE-399.1 / AC-STE-399.4, preserved verbatim).
+  //   * SOMETHING WAS CAPTURED and it contained no scaffold at all — the skill
+  //     ran, ended its turn, and never entered the Socratic loop. That is a
+  //     measured contract breach ⇒ `violation`, with no `askIndex` (there is
+  //     no offending tool to name, only the absence of the ask).
+  if (transcript.length === 0 || sawScopedAwayScaffold) {
+    return { outcome: "vacuous" };
+  }
+  return { outcome: "violation" };
 }

@@ -98,10 +98,41 @@
 // mode-independent: a duplicate token is a defect whether or not the project
 // runs a tracker, and it is keyed on the FILENAME so legacy sequential plans
 // (which carry no `id:` to derive from) are covered too.
+//
+// UNCONSUMED-SCAFFOLD PASS — the NARROWING of the `kind: scaffolding`
+// exemption, and the second cross-file pass. `kind: scaffolding` is what
+// `/setup` step 8 stamps on the bootstrap plan it emits unconditionally, so the
+// exemption is NOT retired: a freshly bootstrapped project must never hard-fail
+// on its own `/setup` output, and a LONE scaffolding plan therefore stays
+// silent exactly as before. What the blanket exemption ALSO did, and must stop
+// doing, is paper over a DUPLICATE: `/spec-write`'s tracker-less minted branch
+// used to write `M_<short-ULID>.md` beside the scaffold instead of consuming
+// it, leaving two ACTIVE plans under two naming schemes with nothing red —
+// because the one plan that could have flagged the pair was the exempt one.
+// So the carve-out is narrowed by CO-PRESENCE rather than removed: under
+// `mode: none`, an ACTIVE `kind: scaffolding` plan sitting beside an ACTIVE
+// minted `M_<6-char>` plan is an unconsumed scaffold and an error-severity
+// violation naming the scaffold's path. `/spec-write` is supposed to have
+// consumed it (`consumeScaffoldPlan`, `consume_scaffold_plan.ts`), so the row's
+// remedy is to consume or archive, never to delete.
+//
+// Three scope limits are load-bearing, each with its own regression:
+//   - ACTIVE only. `specs/plan/archive/` is where a consumed-and-shipped
+//     scaffold legitimately ends up, so an archived scaffold beside a live
+//     minted plan is the CORRECT steady state and says nothing.
+//   - `mode: none` only. The jira and linear arms never mint `M_<6-char>`
+//     plans from a ULID, so the co-presence this pass keys on cannot arise
+//     there and policing it would only invent failures on trees the tracker
+//     modes shape differently.
+//   - `kind: legacy` is UNNARROWED. It is the operator's permanent, manual
+//     declaration about a plan git cannot date — a different promise from
+//     `scaffolding`'s producer-written one, and nothing about a co-present
+//     minted plan makes an operator's declaration less true.
 
 import { execFileSync } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
-import { basename, join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
+import { SCAFFOLD_PLAN_KIND } from "./consume_scaffold_plan";
 import { normalizeFrontmatterSource, parseFrontmatter } from "./frontmatter";
 import { PLAN_FILENAME_RE, milestoneIdFromUlid, parseMilestoneToken } from "./milestone_token";
 import { readTaskTrackingSection } from "./resolver_config";
@@ -131,6 +162,7 @@ export interface PlanIdentityModeViolation {
     | "an id: the filename derives from"
     | "exactly one id: line"
     | "one plan file per milestone token"
+    | "no active kind: scaffolding plan beside an active minted plan"
     | "a minted M_<6-char Crockford> plan"
     | "an Epic-keyed M_<KEY> plan"
     | "a discoverable introducing commit";
@@ -315,8 +347,43 @@ export type PlanProvenanceClass = "fresh" | "legacy" | "undecidable" | "exempt";
  * `plan_only_archival.ts` and, through it, `tracker_local_reconciliation_drift`);
  * `legacy` is the operator's permanent way to clear an `undecidable` advisory.
  * A two-value allow-list on purpose — carrying *a* `kind:` key exempts nothing.
+ *
+ * This is the PROVENANCE exemption specifically, and it stays as it was for
+ * both values: neither kind is ever dated against an epoch. The narrowing lives
+ * one level up, in the co-presence pass at the end of the walk — see the
+ * UNCONSUMED-SCAFFOLD PASS note in the module header. Narrowing HERE instead
+ * would have coupled the two, so a scaffold beside a minted plan would have
+ * been re-dated and reported as a `fresh` mis-named sequential plan: the wrong
+ * verdict (its name is exactly what `/setup` intended), the wrong remedy
+ * (re-mint, rather than consume the scaffold), and silence in the one case that
+ * matters most — a scaffold committed BEFORE `MINT_EPOCH`, which would classify
+ * `legacy` and say nothing at all however many minted plans sat beside it.
+ *
+ * WRITTEN AS LITERALS ON PURPOSE, and not as `[SCAFFOLD_PLAN_KIND, "legacy"]`.
+ * The M120 guard `exactly one exemption allow-list exists, still scaffolding +
+ * legacy` pins this list by SOURCE TEXT, so that it can see a second exemption
+ * key being smuggled in — a check no runtime assertion can make. Substituting
+ * the imported constant here reads as a tidy-up and turns that guard red.
  */
 const EXEMPT_PLAN_KINDS: readonly string[] = ["scaffolding", "legacy"];
+
+/**
+ * A plan's declared `kind:`, or `""` when it declares none.
+ *
+ * THE ONE READER for this module — both the provenance exemption above and the
+ * co-presence pass at the end of the walk go through it, so "what counts as a
+ * declared kind" cannot fork into two parsers that happen to agree today.
+ *
+ * Read through `parseFrontmatter`, which normalises via
+ * `normalizeFrontmatterSource`. A CRLF- or BOM-prefixed scaffold is the
+ * recurring blind spot here: read naively, it declares no `kind:` at all, which
+ * would silently drop it out of the narrowing pass and restore the very hole
+ * that pass exists to close.
+ */
+function planKind(rawPlanSource: string): string {
+  const kind = parseFrontmatter(rawPlanSource, { lenient: true })["kind"];
+  return typeof kind === "string" ? kind.trim() : "";
+}
 
 /**
  * Run a git query in `projectRoot`, returning `null` when git refuses.
@@ -398,10 +465,9 @@ export function classifyPlanProvenance(
   rawPlanSource: string,
   epoch: string = MINT_EPOCH,
 ): PlanProvenanceClass {
-  // `parseFrontmatter` normalises through `normalizeFrontmatterSource`, so
-  // CRLF- and BOM-prefixed plans resolve their `kind:` like any other.
-  const kind = parseFrontmatter(rawPlanSource, { lenient: true })["kind"];
-  if (typeof kind === "string" && EXEMPT_PLAN_KINDS.includes(kind.trim())) return "exempt";
+  // Through `planKind`, so CRLF- and BOM-prefixed plans resolve their `kind:`
+  // like any other, and by the SAME read the narrowing pass uses.
+  if (EXEMPT_PLAN_KINDS.includes(planKind(rawPlanSource))) return "exempt";
 
   // Ask git whether this is a working tree, rather than testing for a `.git`
   // ENTRY at the project root. A package inside a monorepo has no `.git` of
@@ -595,12 +661,18 @@ export async function runPlanIdentityModeConditionalProbe(
 ): Promise<PlanIdentityModeConditionalReport> {
   const mode = resolveMode(projectRoot);
   const isTracker = mode !== "none";
-  const files = await listPlanFiles(join(projectRoot, "specs", "plan"));
+  const planDir = join(projectRoot, "specs", "plan");
+  const files = await listPlanFiles(planDir);
   const violations: PlanIdentityModeViolation[] = [];
   // basename (= milestone token) → every plan file claiming it, across
   // `specs/plan/` and `specs/plan/archive/` together. `listPlanFiles` already
   // recurses into `archive/` and sorts, so insertion order is deterministic.
   const claimsByToken = new Map<string, PlanTokenClaim[]>();
+  // The unconsumed-scaffold pass's two accumulators. ACTIVE plans only —
+  // membership is decided by the file's own directory, so `archive/` is
+  // structurally excluded rather than filtered out later and forgotten.
+  const activeScaffolds: { file: string; rel: string }[] = [];
+  const activeMintedPlans: string[] = [];
 
   for (const file of files) {
     let content: string;
@@ -625,6 +697,18 @@ export async function runPlanIdentityModeConditionalProbe(
     const claims = claimsByToken.get(token);
     if (claims === undefined) claimsByToken.set(token, [claim]);
     else claims.push(claim);
+
+    // Unconsumed-scaffold accumulation — like the claim index above, it runs
+    // BEFORE any grandfathering `continue`, because the scaffold's whole
+    // problem is that every per-file branch below lets it through: the
+    // provenance arm exempts it on its `kind:` and the minted arm never looks
+    // at it. Gathered only under `mode: none`, and only for plans sitting
+    // directly in `specs/plan/` — an archived scaffold is the correct resting
+    // place for a consumed one, not a defect.
+    if (!isTracker && dirname(file) === planDir) {
+      if (isMintedPlanId(basename(file))) activeMintedPlans.push(basename(file));
+      else if (planKind(content) === SCAFFOLD_PLAN_KIND) activeScaffolds.push({ file, rel });
+    }
 
     if (isTracker) {
       // Tracker mode: `id:` must be absent — shape-independent, EVERY tracker.
@@ -865,6 +949,36 @@ export async function runPlanIdentityModeConditionalProbe(
         { mode, token, files: relCtx, ids: idCtx },
       ),
     });
+  }
+
+  // Unconsumed-scaffold pass — the narrowed `kind: scaffolding` carve-out.
+  // Appended last, after both the per-file walk and the duplicate pass, so no
+  // existing row's position moves. A scaffold and a minted plan carry DIFFERENT
+  // tokens, so the duplicate pass above cannot see this pair: the two files are
+  // each individually self-consistent and each individually exempt, which is
+  // precisely why the double-write went unreported for as long as it did.
+  //
+  // One row per scaffold rather than one row for the tree: each scaffold is a
+  // separate file the operator must act on, and the note must name a path.
+  if (!isTracker && activeMintedPlans.length > 0) {
+    const mintedProse = activeMintedPlans.join(", ");
+    for (const scaffold of activeScaffolds) {
+      const expected = "no active kind: scaffolding plan beside an active minted plan" as const;
+      const actual = `${basename(scaffold.file)} still declares kind: ${SCAFFOLD_PLAN_KIND} beside active minted ${mintedProse}`;
+      violations.push({
+        file: scaffold.file,
+        line: 1,
+        expected,
+        actual,
+        severity: "error",
+        note: buildNote(scaffold.file, 1, `expected ${expected}, actual ${actual}`, projectRoot),
+        message: buildMessage(
+          `tracker-less project carries an UNCONSUMED scaffold — ${scaffold.rel} still declares kind: ${SCAFFOLD_PLAN_KIND} while ${mintedProse} is an active minted plan, so specs/plan/ holds two active plans under two naming schemes and every reader that resolves "the current milestone" picks between them`,
+          `consume the scaffold instead of leaving it: /spec-write's tracker-less minted branch calls consumeScaffoldPlan() (adapters/_shared/src/consume_scaffold_plan.ts), which renames ${scaffold.rel} onto the minted filename and rewrites its frontmatter, preserving the body /setup seeded. If this milestone is already finished, archive the scaffold into specs/plan/archive/ instead — an archived scaffold beside a live minted plan is the correct steady state and this row does not fire on it. Do NOT simply delete it: the seeded tasks and the <scaffolding> FR row recording the pre-toolkit foundation are read downstream by plan-only archival`,
+          { mode, scaffold: scaffold.rel, minted: activeMintedPlans.join(" | ") },
+        ),
+      });
+    }
   }
 
   return {

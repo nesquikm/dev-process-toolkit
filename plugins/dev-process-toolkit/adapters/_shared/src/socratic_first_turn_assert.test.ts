@@ -22,7 +22,13 @@ describe("STE-399 — verdictFor exit-code + verdict mapping", () => {
   });
 
   test("AC-STE-399.2: vacuous ⇒ non-zero, distinct verdict line", () => {
-    const t: TranscriptEntry[] = [{ type: "tool_use", name: "Read" }];
+    // Input changed, expectation deliberately NOT changed. This test is about
+    // `vacuous` rendering as a non-zero verdict DISTINCT from `violation`, and
+    // it still asserts exactly that. Its old input — a read-only transcript
+    // with no ask and no refusal — is no longer inconclusive: that shape is
+    // the headline breach and now scores `violation`. An empty transcript is
+    // the genuinely-inconclusive case, so the property survives its own fix.
+    const t: TranscriptEntry[] = [];
     const v = verdictFor("setup", t);
     expect(v.exitCode).not.toBe(0);
     expect(v.exitCode).not.toBe(1); // distinct from violation
