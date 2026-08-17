@@ -131,6 +131,20 @@ const EXPECTED_SET_A: ReadonlySet<string> = new Set([
   // discovered directives.
   "best_practices_lens_applied",
   "best_practices_lens_skipped_no_manifest",
+  // Post-M84 expansion (M126 STE-479): the /brainstorm Socratic first-turn
+  // refusal disposition. The pin moves consciously 36 → 37 — the key carries a
+  // literal `MUST emit \`brainstorm_socratic_refused\`` directive in
+  // /spec-write SKILL.md § 7's refusal static-map row (the emission-site
+  // directive also lives in /brainstorm's own body, pinned by the STE-479
+  // meta-tests), keeping Set A = discovered directives.
+  "brainstorm_socratic_refused",
+  // Post-M84 expansion (M126 STE-482): the /setup allow-list merge report. The
+  // pin moves consciously 37 → 38 — the key carries a literal
+  // `MUST emit \`setup_allowlist_entries_added\`` directive in /spec-write
+  // SKILL.md § 7's /setup-owned static-map row (the emission-site directive
+  // also lives in /setup's step-6 merge bullet, pinned by the STE-482
+  // meta-tests), keeping Set A = discovered directives.
+  "setup_allowlist_entries_added",
 ]);
 
 // Keys explicitly excluded from registration — they appear only as table-
@@ -238,9 +252,12 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
   // → 30 (M100/STE-374 report-issue evidence-gate keys: session matched/fallback
   // + severity capped/evidence verified) → 31 (M102/STE-379 token_stats_disabled,
   // the disabled leg of the token-stats opt-in 2-token XOR) → 36 (M124/STE-467
-  // best-practices lens disposition pair, the /implement Phase 3 lens XOR).
-  test("CANONICAL_CAPABILITY_KEYS length is exactly 31", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(36);
+  // best-practices lens disposition pair, the /implement Phase 3 lens XOR)
+  // → 37 (M126/STE-479 brainstorm_socratic_refused, the /brainstorm Socratic
+  // first-turn refusal disposition) → 38 (M126/STE-482
+  // setup_allowlist_entries_added, the /setup allow-list merge report).
+  test("CANONICAL_CAPABILITY_KEYS length is exactly 38", () => {
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(38);
   });
 
   test("CANONICAL_CAPABILITY_KEYS contains every key in Set A", () => {
@@ -280,7 +297,7 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
     while ((match = re.exec(body)) !== null) {
       discovered.add(match[1]!);
     }
-    expect(discovered.size).toBe(36);
+    expect(discovered.size).toBe(38);
     for (const key of EXPECTED_SET_A) {
       expect(discovered.has(key)).toBe(true);
     }

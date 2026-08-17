@@ -153,7 +153,7 @@ describe("AC-STE-215.5 — stale-file-ref detection", () => {
     }
   });
 
-  test("prose mentions outside fences are NOT flagged", async () => {
+  test("prose mentions outside fences ARE flagged, as `proseMention`", async () => {
     const fx = makeFixture({
       technicalSpec: [
         "# Technical Spec",
@@ -164,9 +164,17 @@ describe("AC-STE-215.5 — stale-file-ref detection", () => {
     });
     try {
       const r = await runCrossCuttingSpecStaleFileRefsProbe(fx.root);
-      // Prose mentions are operator judgment surface — the probe must
-      // not flag them. Only directory-tree leaves (inside fences) count.
-      expect(r.violations).toEqual([]);
+      // INVERTED BY STE-480. This test used to assert `[]` here, on the
+      // reading that prose is operator judgment surface and so must not be
+      // scanned at all. That silence WAS the defect: a stale prose path is
+      // still stale, and staying quiet about it is what let real drift ship.
+      // Prose is now scanned and reported — advisory (`warning`) and tagged
+      // `proseMention` so consumers can still tell it from a tree leaf, which
+      // is the distinction the old expectation was really reaching for.
+      expect(r.violations).toHaveLength(1);
+      expect(r.violations[0]!.kind).toBe("proseMention");
+      expect(r.violations[0]!.severity).toBe("warning");
+      expect(r.violations[0]!.note).toContain("src/old-helper.ts");
     } finally {
       fx.cleanup();
     }
@@ -433,10 +441,16 @@ describe("AC-STE-433 — fence scan gated on the info string", () => {
   // LOAD-BEARING. A line-filtering implementation (skip tagged fence lines
   // instead of tracking the open fence) desynchronizes the toggle: the `dart`
   // fence's CLOSING marker is then read as an OPENING one, so the prose below
-  // it lands inside scan scope and the real tree fence falls outside it. Such
-  // an implementation also reports exactly one violation — the wrong one —
-  // which is why this test asserts WHICH path was flagged.
-  test("AC-STE-433.7 — a tagged fence still closes: dart fence + prose + bare tree ⇒ one violation", async () => {
+  // it lands inside the fence and the real tree fence falls outside one.
+  //
+  // RE-EXPRESSED BY STE-480, intent intact. Now that prose is in scope, the
+  // desync no longer changes the violation COUNT — both lines fire either way
+  // — so a count assertion alone would have gone blind to it. What the desync
+  // does change is which KIND each line is tagged with: under a desynchronized
+  // toggle the prose line reads as `treeLeaf` and the tree leaf as
+  // `proseMention`, exactly swapped. Asserting one of each AND which path
+  // carries which kind is what keeps this test's teeth.
+  test("AC-STE-433.7 — a tagged fence still closes: dart fence + prose + bare tree ⇒ one treeLeaf + one proseMention", async () => {
     const fx = makeFixture({
       technicalSpec: [
         "# Technical Spec",
@@ -456,14 +470,17 @@ describe("AC-STE-433 — fence scan gated on the info string", () => {
     });
     try {
       const r = await runCrossCuttingSpecStaleFileRefsProbe(fx.root);
-      expect(r.violations).toHaveLength(1);
-      // The one violation must be the bare-fence tree leaf...
-      expect(r.violations[0]!.note).toContain("lib/widgets/ghost_button.dart");
-      // ...not the prose mention leaked in by a desynchronized fence toggle...
-      expect(
-        r.violations.filter((v) => v.note.includes("removed_helper.dart")),
-      ).toEqual([]);
-      // ...and not the dart import either.
+      expect(r.violations).toHaveLength(2);
+      const tree = r.violations.filter((v) => v.kind === "treeLeaf");
+      const prose = r.violations.filter((v) => v.kind === "proseMention");
+      // The bare-fence leaf is a tree leaf...
+      expect(tree).toHaveLength(1);
+      expect(tree[0]!.note).toContain("lib/widgets/ghost_button.dart");
+      // ...the sentence between the fences is prose, not a leaf leaked in by a
+      // desynchronized fence toggle...
+      expect(prose).toHaveLength(1);
+      expect(prose[0]!.note).toContain("lib/legacy/removed_helper.dart");
+      // ...and the dart import is scanned under neither kind.
       expect(
         r.violations.filter((v) => v.note.includes("my_app/models/user.dart")),
       ).toEqual([]);

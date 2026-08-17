@@ -268,3 +268,44 @@ describe("AC-STE-317.5 — setup-permissions-shape probe finds zero glob rules o
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// M126 / STE-482 — the `_common` projection guard, widened.
+//
+// `_common` is hand-copied into FIVE shipped example documents plus
+// templates/permissions.json. Only `bun-typescript.md` was pinned to the full
+// list; the other three in FOUR_EXAMPLES assert a two-rule sample, and
+// `kotlin/gate-commands.md` was not in FOUR_EXAMPLES at all — its allow-list
+// coverage checked only the `stacks.kotlin` tail.
+//
+// The gap was measured, not supposed: when STE-482 added `Bash(git log:*)` and
+// `Bash(echo:*)` to `_common`, all five files were updated correctly, but four
+// of the five would have stayed green had either entry been silently dropped.
+// A six-way hand-kept duplication guarded in one place is the producer/consumer
+// asymmetry this repo keeps re-meeting. Single-source rendering is not
+// available here — each example is a prose document whose fence is a whole
+// settings.json with stack-specific tail and surrounding narrative — so the
+// honest fix is to make the guard symmetric.
+// ---------------------------------------------------------------------------
+
+const ALL_EXAMPLES_PROJECTING_COMMON = [
+  ...FOUR_EXAMPLES,
+  join("kotlin", "gate-commands.md"),
+] as const;
+
+describe("STE-482 — every example projecting `_common` carries the WHOLE list, not a sample", () => {
+  for (const rel of ALL_EXAMPLES_PROJECTING_COMMON) {
+    test(`examples/${rel} projects every _common rule verbatim`, () => {
+      const body = readExample(rel);
+      const common = readPermissions()._common;
+      // Non-vacuity: the canonical list is non-trivial and really does carry
+      // the two entries whose silent loss this guard exists to catch.
+      expect(common.length).toBeGreaterThan(5);
+      expect(common).toContain("Bash(git log:*)");
+      expect(common).toContain("Bash(echo:*)");
+
+      const missing = common.filter((rule) => !body.includes(rule));
+      expect(missing).toEqual([]);
+    });
+  }
+});

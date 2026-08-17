@@ -77,9 +77,9 @@ Module coverage (all behaviors, 100% branch coverage per NFR-21):
 - **`docs_nav_contract.ts`** — four-anchor validation, missing-anchor and broken-link failure shapes.
 - **`impact_set.ts`** — Schema Y extractor; per-category fixtures (added public function, modified signature, added CLI command, package.json key, enum value); determinism probe (same diff → same struct).
 - **`signature_extractor.ts`** — Schema Z extractor across three strategies (typedoc mocked subprocess, ts-morph real parser, regex fallback); post-generation validator (reject LLM output with invented signatures; single-retry bound).
-- **`setup/audit_log.ts`** (STE-108) — `appendAuditEntry` create-section / append-entry / idempotent-append behaviors; file-missing failure mode; preserved trailing-newline shape.
-- **`setup/merge_settings.ts`** (STE-106) — `canonicalAllowList` per-stack lookup + dedup + unknown-stack throw; `mergeAllowList` preserves user additions, dedups canonical, handles missing `permissions`/`allow` keys, preserves `deny` and other root keys.
-- **`spec_archive/rewrite_links.ts`** (STE-111) — Markdown link forms (`](frs/X.md)`, `](./frs/X.md)`, bare path) covered; CHANGELOG scoping (above first dated `## [X.Y.Z]` only); orphan-FR no-op; archive-already-references no-op.
+- **`adapters/_shared/src/setup/audit_log.ts`** (STE-108) — `appendAuditEntry` create-section / append-entry / idempotent-append behaviors; file-missing failure mode; preserved trailing-newline shape.
+- **`adapters/_shared/src/setup/merge_settings.ts`** (STE-106) — `canonicalAllowList` per-stack lookup + dedup + unknown-stack throw; `mergeAllowList` preserves user additions, dedups canonical, handles missing `permissions`/`allow` keys, preserves `deny` and other root keys.
+- **`adapters/_shared/src/spec_archive/rewrite_links.ts`** (STE-111) — Markdown link forms (`](frs/<id>.md)`, `](./frs/<id>.md)`, bare path) covered; CHANGELOG scoping (above first dated `## [X.Y.Z]` only); orphan-FR no-op; archive-already-references no-op.
 - **`scripts/migrate-task-tracking-canonical.ts`** (STE-114) — `computeMigrationDiff` clean-input idempotence; drifted-input rewrite emitting `### <Tracker>` subsection; existing-subsection append (no duplicate heading); LCS-based unified-diff stability.
 
 `/setup` hardening probes (Tier 4 integration tests; STE-82 contract):
@@ -89,7 +89,7 @@ Module coverage (all behaviors, 100% branch coverage per NFR-21):
 - `tests/gate-check-setup-audit-section-presence.test.ts` (STE-108 probe #19)
 - `tests/gate-check-bun-zero-match-placeholder.test.ts` (STE-113 probe #20)
 - `tests/gate-check-task-tracking-canonical-keys.test.ts` (STE-114 probe #21)
-- `tests/gate-check-setup-bootstrap-committed.test.ts` (STE-109 probe #22)
+- `tests/gate-check-toolkit-bootstrap-committed.test.ts` (STE-109 probe #22)
 - `tests/gate-check-traceability-link-validity.test.ts` (STE-111 probe #23)
 - `tests/gate-check-identity-mode-conditional.test.ts` extended for STE-110 severity flip (warn → error).
 
@@ -162,7 +162,7 @@ Determinism helpers: `DPT_TEST_ULID_SEED` (deterministic ULID sequence for migra
 
 **Diff fixtures** at `tests/fixtures/diffs/`: `added_public_fn.patch`, `modified_signature.patch`, `internal_helper.patch`, `cli_command.patch`, `package_json_script.patch`, `enum_value.patch`, `empty.patch` — one per `ImpactSet` extraction category + the empty-set boundary.
 
-**Signature-extraction fixtures** at `tests/fixtures/signature_extraction/`: self-contained TypeScript project (`tsconfig.json` + `src/simple_function.ts`, `src/generic_class.ts`, `src/type_alias.ts`, `src/overloads.ts`, `src/internal_helper.ts`). Exercises ts-morph AST extraction against known exports. Per-strategy tests mock out typedoc or force regex fallback.
+**Signature-extraction fixtures** at `tests/fixtures/signature_extraction/`: self-contained TypeScript project (`tsconfig.json` plus the `src/` modules `simple_function.ts`, `generic_class.ts`, `type_alias.ts`, `overloads.ts`, `internal_helper.ts`). Exercises ts-morph AST extraction against known exports. Per-strategy tests mock out typedoc or force regex fallback.
 
 **Baselines** at `tests/fixtures/baselines/`: snapshot output of every skill in `mode: none` for byte-comparison regression (Pattern 9 backward-compatibility invariant).
 

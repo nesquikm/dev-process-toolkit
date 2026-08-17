@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.65.0 ("Blueprint")**.
+**Latest shipped release:** **v2.66.0 ("Aloud")**.
 
 ### Shipped milestones
 
@@ -444,4 +444,10 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-467.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/best_practices_manifest.ts, plugins/dev-process-toolkit/adapters/_shared/src/closing_summary_capability_keys.ts, plugins/dev-process-toolkit/adapters/_shared/src/smoke_fixture_groups.ts, plugins/dev-process-toolkit/skills/implement/SKILL.md, plugins/dev-process-toolkit/skills/spec-write/SKILL.md, .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/m124-ste-467-implement-lens.test.ts |
 | AC-STE-468.1..4 | plugins/dev-process-toolkit/adapters/_shared/src/template_source_analyzer.ts | plugins/dev-process-toolkit/adapters/_shared/src/template_source_analyzer.test.ts |
 | AC-STE-469.1..6 | plugins/dev-process-toolkit/skills/setup/SKILL.md, plugins/dev-process-toolkit/skills/setup-template/SKILL.md, plugins/dev-process-toolkit/adapters/_shared/src/smoke_fixture_groups.ts, plugins/dev-process-toolkit/docs/setup-template-reference.md, .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/m125-ste-469-setup-template.test.ts |
+| AC-STE-477.1..6 | plugins/dev-process-toolkit/adapters/_shared/src/propagation_commit_message.ts, plugins/dev-process-toolkit/skills/implement/SKILL.md, plugins/dev-process-toolkit/docs/implement-reference.md | plugins/dev-process-toolkit/tests/m126-ste-477-propagation-subject-length.test.ts |
+| AC-STE-478.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/spec_write_trunk_invocation_path.ts, plugins/dev-process-toolkit/skills/spec-write/SKILL.md | plugins/dev-process-toolkit/tests/m126-ste-478-trunk-invocation-commit.test.ts |
+| AC-STE-479.1..6 | plugins/dev-process-toolkit/adapters/_shared/src/first_turn_refusal_marker.ts, plugins/dev-process-toolkit/adapters/_shared/src/socratic_first_turn.ts, plugins/dev-process-toolkit/adapters/_shared/src/socratic_first_turn_assert.ts, plugins/dev-process-toolkit/skills/brainstorm/SKILL.md, plugins/dev-process-toolkit/skills/gate-check/SKILL.md | plugins/dev-process-toolkit/tests/m126-ste-479-brainstorm-refusal-marker.test.ts |
+| AC-STE-480.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/cross_cutting_spec_stale_file_refs.ts, plugins/dev-process-toolkit/skills/gate-check/SKILL.md | plugins/dev-process-toolkit/tests/m126-ste-480-probe-37-prose-scope.test.ts |
+| AC-STE-481.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/consume_scaffold_plan.ts, plugins/dev-process-toolkit/adapters/_shared/src/plan_identity_mode_conditional.ts | plugins/dev-process-toolkit/tests/m126-ste-481-single-active-plan.test.ts |
+| AC-STE-482.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/setup/merge_settings.ts, plugins/dev-process-toolkit/templates/permissions.json | plugins/dev-process-toolkit/tests/m126-ste-482-allowlist-loud-merge.test.ts |
 

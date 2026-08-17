@@ -22,9 +22,12 @@ migration: none  # literal `none` (no consumer migration), or a migration-regist
   milestones are Epic-keyed, so a sequential `M<N>` plan introduced on or after that date reads as
   mis-named there too. Everything committed before it is grandfathered, so no existing plan needs
   rewriting. `mode: linear` is deliberately exempt — sequential numbering is correct there and no
-  provenance check runs. Declare a genuinely old plan (or a throwaway one) with
-  `kind: legacy` — or `kind: scaffolding` — in the frontmatter above and the probe goes silent for
-  it permanently. Like `id:`, `kind:` is documented here and never scaffolded: shipping it as a
+  provenance check runs. Declare a genuinely old plan (or a throwaway one) with `kind: legacy` in
+  the frontmatter above and the probe goes silent for it permanently. `kind: scaffolding` is
+  narrower and NOT permanent: it exempts `/setup`'s lone bootstrap plan only until a milestone is
+  minted, at which point `/spec-write`'s tracker-less branch CONSUMES that scaffold into the minted
+  plan file. A scaffold left unconsumed beside an active minted plan is an error-severity probe #73
+  violation. Like `id:`, `kind:` is documented here and never scaffolded: shipping it as a
   live key would exempt every plan this template creates.
 -->
 

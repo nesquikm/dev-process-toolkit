@@ -14,7 +14,9 @@
 //
 // AC-STE-295.4 — `plugins/dev-process-toolkit/skills/gate-check/SKILL.md`
 //   MUST contain the literal one-line sentence documenting probe #37's
-//   fenced-block-only scope. Substring assertion.
+//   scope. Substring assertion. (The scope itself widened from fenced-block-
+//   only to fenced-block + prose; the sentence pinned here followed it, and a
+//   companion assertion pins that the retired fence-only claim is absent.)
 //
 // AC-STE-295.5 — `.claude/skills/smoke-test/SKILL.md` MUST emit the
 //   canonical `**Severity:** <level>` form (colon ends bold) and the
@@ -44,8 +46,20 @@ const GATE_CHECK_SKILL = join(
 
 // AC-STE-295.4 canonical sentence (must appear verbatim in the gate-check
 // SKILL.md probe #37 anchor body or § What's checked section).
+// The scope sentence was rewritten when probe #37 widened to prose. The old
+// literal asserted a fence-ONLY scope ("bare-prose path mentions … never
+// flagged") — that scope no longer exists, so pinning it would pin the defect.
+// What AC-STE-295.4 is actually for survives unchanged: the SKILL must state
+// probe #37's scope in one literal sentence a reader can find. This is that
+// sentence, now naming BOTH kinds.
 const PROBE_37_SCOPE_SENTENCE =
-  "Probe #37 (cross-cutting-spec-stale-file-refs) only fires on path tokens inside fenced directory-tree blocks in technical-spec.md / testing-spec.md; bare-prose path mentions outside fences are operator judgment surface and never flagged.";
+  "Walks `specs/technical-spec.md` and `specs/testing-spec.md` for path-references whose tokens contain `/` (full paths), in two shapes tagged on each row as `kind`: directory-tree leaves inside triple-backtick fences (`treeLeaf`) and prose mentions outside any fence (`proseMention`).";
+
+// The resolution rule the marketplace-layout widening added. Pinned separately
+// so a regression that silently drops sub-root resolution — turning ~20 valid
+// plugin-relative spec paths back into false positives — reddens here.
+const PROBE_37_RESOLUTION_SENTENCE =
+  "A token resolves if it exists under the project root OR under any `plugins/<name>/` sub-root carrying a `.claude-plugin/plugin.json` manifest";
 
 describe("AC-STE-295.3 — smoke-test SKILL.md Phase 9 master-merge step", () => {
   test("SKILL.md contains the branch_gate_default_applied capability token", () => {
@@ -80,10 +94,24 @@ describe("AC-STE-295.3 — smoke-test SKILL.md Phase 9 master-merge step", () =>
   });
 });
 
-describe("AC-STE-295.4 — gate-check SKILL.md probe #37 fence-only scope doc line", () => {
+describe("AC-STE-295.4 — gate-check SKILL.md probe #37 scope doc line", () => {
   test("gate-check SKILL.md contains the literal one-line probe-#37 scope sentence", () => {
     const content = readFileSync(GATE_CHECK_SKILL, "utf-8");
     expect(content).toContain(PROBE_37_SCOPE_SENTENCE);
+  });
+
+  test("the retired fence-only claim is gone — the doc cannot still say prose is never flagged", () => {
+    // Falsifiable in the direction that matters: the widening is only real if
+    // the sentence it replaced is actually absent, not merely joined by a
+    // newer one further down the entry.
+    const content = readFileSync(GATE_CHECK_SKILL, "utf-8");
+    expect(content).not.toContain("never flagged");
+    expect(content).not.toContain("only fires on path tokens inside fenced");
+  });
+
+  test("gate-check SKILL.md documents the marketplace sub-root resolution rule", () => {
+    const content = readFileSync(GATE_CHECK_SKILL, "utf-8");
+    expect(content).toContain(PROBE_37_RESOLUTION_SENTENCE);
   });
 });
 

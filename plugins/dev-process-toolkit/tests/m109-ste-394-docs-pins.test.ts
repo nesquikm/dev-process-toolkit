@@ -124,12 +124,13 @@ describe("AC-STE-394.6 — the re-creation concession is PRESERVED, not deleted 
 describe("AC-STE-394.7 — README probe-count pins move 68 → 69", () => {
   const readme = (): string => read(readmePath);
 
-  test("the Features bullet counts 76 numbered probes", () => {
-    expect(readme()).toMatch(/\b76\b\s+numbered `\/gate-check` probes/);
+  test("the Features bullet counts 77 numbered probes", () => {
+    // Recalibrated 76 → 77: M126 added #77 first_turn_refusal_marker.
+    expect(readme()).toMatch(/\b77\b\s+numbered `\/gate-check` probes/);
   });
 
-  test("the /implement-invokes-/tdd aside counts 76 probes", () => {
-    expect(readme()).toMatch(/layers 76 probes/);
+  test("the /implement-invokes-/tdd aside counts 77 probes", () => {
+    expect(readme()).toMatch(/layers 77 probes/);
   });
 
   test("no stale `68 numbered` / `layers 68 probes` token survives in README", () => {
@@ -149,10 +150,10 @@ describe("AC-STE-394.7 — README probe-count pins move 68 → 69", () => {
 describe("AC-STE-394.7 — gate-check SKILL.md gains the #69 entry", () => {
   const skill = (): string => read(gateCheckSkillPath);
 
-  test("the highest numbered probe is now 76", () => {
+  test("the highest numbered probe is now 77", () => {
     const numbers = [...skill().matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
     expect(numbers.length).toBeGreaterThan(0);
-    expect(Math.max(...numbers)).toBe(76);
+    expect(Math.max(...numbers)).toBe(77);
   });
 
   test("#69 is `upgrade_staleness` and sits directly after #68 `migration_coverage`", () => {
@@ -185,25 +186,25 @@ describe("AC-STE-394.7 — gate-check SKILL.md gains the #69 entry", () => {
   });
 });
 
-describe("AC-STE-394.7 — the three pinned test files carry the 76-form pin", () => {
+describe("AC-STE-394.7 — the three pinned test files carry the 77-form pin", () => {
   const testFile = (name: string): string => read(join(PLUGIN_ROOT, "tests", name));
 
-  test("tests/gate-check-spec-write-next-line-doc.test.ts pins 76", () => {
+  test("tests/gate-check-spec-write-next-line-doc.test.ts pins 77", () => {
     const body = testFile("gate-check-spec-write-next-line-doc.test.ts");
-    expect(body).toContain('"76 numbered"');
-    expect(body).toContain("layers 76 probes");
-    expect(body).toContain("toBe(76)");
+    expect(body).toContain('"77 numbered"');
+    expect(body).toContain("layers 77 probes");
+    expect(body).toContain("toBe(77)");
   });
 
-  test("tests/gate-check-public-surface-count-drift.test.ts pins 76", () => {
+  test("tests/gate-check-public-surface-count-drift.test.ts pins 77", () => {
     const body = testFile("gate-check-public-surface-count-drift.test.ts");
-    expect(body).toContain("\\b76\\b.*numbered");
-    expect(body).toContain("\\b76\\b\\s+probes");
+    expect(body).toContain("\\b77\\b.*numbered");
+    expect(body).toContain("\\b77\\b\\s+probes");
   });
 
-  test("tests/m108-ste-393-docs-pins.test.ts pins 76", () => {
+  test("tests/m108-ste-393-docs-pins.test.ts pins 77", () => {
     const body = testFile("m108-ste-393-docs-pins.test.ts");
-    expect(body).toContain("\\b76\\b\\s+numbered");
-    expect(body).toContain("layers 76 probes");
+    expect(body).toContain("\\b77\\b\\s+numbered");
+    expect(body).toContain("layers 77 probes");
   });
 });

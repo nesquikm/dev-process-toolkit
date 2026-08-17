@@ -525,7 +525,7 @@ describe("AC-STE-419.1 — a /setup refusal must read `ok-refused`, never `vacuo
     ).toBe("ok-refused");
   });
 
-  test("NON-VACUITY: the same prose with the marker stripped reads `vacuous`", () => {
+  test("NON-VACUITY: the same prose with the marker stripped is a non-pass", () => {
     let message = "";
     try {
       evaluateGateMarkerRefusal({
@@ -539,9 +539,13 @@ describe("AC-STE-419.1 — a /setup refusal must read `ok-refused`, never `vacuo
     const stripped = message.split(REQUIRES_INPUT_REFUSED_MARKER).join("");
     expect(stripped).not.toContain(REQUIRES_INPUT_REFUSED_MARKER);
     const transcript = parseStreamJsonTranscript(assistantTextCapture(stripped));
-    expect(
-      assertFirstTurnShape(transcript, { projectRoot: REPO_ROOT }).outcome,
-    ).toBe("vacuous");
+    // The non-pass label sharpened from `vacuous` to `violation`: a run that
+    // wrote no scaffold and emitted neither an ask nor a recognisable refusal
+    // is a breach that can name itself, not an inconclusive result. What this
+    // leg asserts — that stripping the marker loses `ok-refused` — is unchanged.
+    const outcome = assertFirstTurnShape(transcript, { projectRoot: REPO_ROOT }).outcome;
+    expect(outcome).toBe("violation");
+    expect(outcome).not.toBe("ok-refused");
   });
 });
 
