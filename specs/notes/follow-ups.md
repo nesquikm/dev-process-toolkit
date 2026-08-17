@@ -915,16 +915,30 @@ Surfaced while shipping M128, 2026-08-17.
 
 ---
 
-## `runtime check:` is still spelled inline in twelve fixture-group footers
+## `runtime check:` is still spelled inline in all thirteen fixture-group footers
 
 STE-491 stated the roster-line spelling once, normatively, in
 `.claude/skills/smoke-test/SKILL.md` § Phase 3 — Capture, and reconciled fixture
 group 12's footer to cite it. Group 12 was chosen because two shipped suites read
-its literals — not because it was the only duplicate. Measured on the shipped
-file, `grep -c 'runtime check:'` returns fourteen: the general statement plus all
-thirteen footers. Seven footers also restate the general rule's NOT-REACHED / N/A
-semantics, five of them in the operative wording "rather than nothing at all";
-six of those seven survive.
+its literals — not because it was the only duplicate.
+
+Counts, with the tree each was measured on named, because an earlier draft of
+this note reported the post-change numbers under a pre-change framing:
+
+| | pre-change (`ff87a97`) | post-change |
+|---|---|---|
+| `grep -c 'runtime check:'` | 14 | 14 |
+| footers restating NOT-REACHED / N/A | 8 | 7 |
+| footers using "rather than nothing at all" | 6 | 5 |
+
+The total is unchanged at fourteen because group 12 gave up the semantic
+restatement, not its own `STE-467 runtime check:` token — it keeps that
+deliberately, since `m124-ste-467-implement-lens.test.ts` and
+`m117-ste-425-falsifiable-coverage.test.ts` both read it. The pre-change
+fourteen is the general statement plus thirteen footers; the post-change
+fourteen is the new § Phase 3 statement plus the same thirteen. So **all
+thirteen** footers still spell the token inline — this is a semantic
+deduplication, not a token one.
 
 Two hazards make this more than tidying:
 
