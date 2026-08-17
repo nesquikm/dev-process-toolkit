@@ -389,7 +389,7 @@ Spawn one `claude-st -p` child per skill, sequentially. Each child:
 - Passes `--mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json` (built in Phase 1 step 5; `linear` entry on the Linear path, `atlassian` entry on the Jira path). `--plugin-dir` (used to load the in-tree plugin under test) shadows plugin-loaded MCPs, so the active tracker MCP must be passed via `--mcp-config` from a per-tracker wrapper file written to `/tmp/`. The per-tracker filename keeps a concurrent run against another leg from clobbering this run's config (operator-driven parallelism). **On the tracker-less path the flag is OMITTED, not emptied (STE-448 AC.4):** Phase 1 step 5 constructed no config, so every `--mcp-config …` occurrence in the reference snippets below is dropped from the spawn line on that leg rather than pointed at a file that does not exist. A `--mcp-config` naming a missing path is a startup error, and one naming an empty envelope is a false claim; omission is the only shape that is both true and runnable.
 - Passes `--plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit` to load the in-tree plugin under test (not the cached version under `~/.claude-st/plugins/cache/`).
 - Receives a fully-pre-baked prompt where the slash command is the **literal first line of the user message**, not wrapped in natural language. Plugin skills carry `disable-model-invocation: true`, so the child's model cannot call them via the Skill tool — only user-typed slash commands trigger; the prompt-pre-bake puts the slash command as the literal first line of the user message. Pre-baked answers go on the lines after.
-- Has its stdout/stderr captured to `/tmp/dpt-smoke-<tracker>-<skill>.log` (e.g., `/tmp/dpt-smoke-jira-implement.log`) as **stream-json NDJSON** — every spawn passes `--output-format stream-json --verbose` (STE-352; `--verbose` is required by `claude -p` for stream-json output). Default text mode emitted only the child's final result message, so mid-stream assistant tokens — per-probe capability rows, forked `tdd-result` fences — never reached the log (smoke F2, the blind spot that let the STE-350 0-byte-grandchild false-green survive). To read a capture, lift the assistant text via `extractAssistantText` (`adapters/_shared/src/smoke_child_capture.ts`; blocks are joined line-anchored so fences stay greppable), or project `text`/`tool_use` entries via the existing `parseStreamJsonTranscript` (`adapters/_shared/src/socratic_first_turn_stream.ts`) — the same parser Phase 8 already uses. Phase 2.X's substring greps keep working unchanged: literal tokens survive JSON string encoding.
+- Has its stdout/stderr captured to `/tmp/dpt-smoke-<tracker>-<skill>.log` (e.g., `/tmp/dpt-smoke-jira-implement.log`) as **stream-json NDJSON** — every spawn passes `--output-format stream-json --verbose` (STE-352; `--verbose` is required by `claude -p` for stream-json output). Default text mode emitted only the child's final result message, so mid-stream assistant tokens — per-probe capability rows, forked `tdd-result` fences — never reached the log (smoke F2, the blind spot that let the STE-350 0-byte-grandchild false-green survive). To read a capture, pick the projection by **who emitted the text**. For genuinely assistant-authored output, lift it via `extractAssistantText` (`adapters/_shared/src/smoke_child_capture.ts`; blocks are joined line-anchored so fences stay greppable), or project `text`/`tool_use` entries via the existing `parseStreamJsonTranscript` (`adapters/_shared/src/socratic_first_turn_stream.ts`) — the same parser Phase 8 already uses. **Correction (STE-484): `extractAssistantText` is the wrong projection for fork-emitted `tdd-result` fences, and earlier prose here naming it as the repair was wrong** — it excludes `user`/`tool_result` events by design, while the `/tdd` orchestrator's children run `context: fork`, so their hand-off blocks arrive in precisely those excluded `tool_result` events; routing through it returns **0** fences on all three real 2026-08-16 captures. Read fork-emitted blocks with `countForkTddResults`/`scoreForkTddResults` (`adapters/_shared/src/fork_tdd_result_assert.ts`) instead — that is a projection choice for fork-emitted blocks, not a blanket condemnation of the helper. Phase 2.X's substring greps keep working unchanged: literal tokens survive JSON string encoding.
 - Is spawned **detached** (`&` with its PID captured to `/tmp/dpt-smoke-<tracker>-<skill>.pid`) and awaited via the bounded poll-until-exit loop — never as a single foreground Bash call, which caps the grandchild at the harness's 10-minute per-call ceiling (STE-355; § Grandchild spawn lifecycle below).
 
 Skills to run, in order:
@@ -954,33 +954,98 @@ If both sub-fixtures pass, append `STE-226 runtime check: PASS` to the run summa
 
 Three sub-fixtures, each writing a temporary FR file under `specs/frs/`, invoking `claude -p /dev-process-toolkit:gate-check`, capturing stdout, then cleaning up. Linear leg only — probe #26 needs an adapter declaring Schema M `project_milestone: true`; Jira declares `false` and a tracker-less project has no adapter at all.
 
+**Why every assertion in this group is assistant-scoped, and why the retired form was wrong in BOTH directions on ONE run (STE-489, M127).** The three sub-fixtures used to `grep -E` a regex over the RAW capture bytes, joining `ADVISORY` and the probe number with wildcards. In raw NDJSON a newline inside an assistant message is the two ordinary characters `\` and `n`, and `.` matches both — so the pattern walked straight through encoded newlines and spanned unrelated paragraphs. Measured on the three real 2026-08-16 Linear captures, before a byte was edited: 2a MATCHED TWICE while the word `probe` followed by the number occurs nowhere in that file at all, and 2c MATCHED NOTHING even though its probe behaved correctly and reported the deprecated alias four times. One spurious pass and one false failure, same assertion, same run, opposite directions — which is what makes this a fault of the METHOD and not of the subject. Every clause below therefore runs through `capability_row_assert`, which parses the NDJSON and decides on the assistant-text projection, where an encoded newline IS a newline and a pattern structurally CANNOT span one. The reduced captures preserving every count quoted here ship as `gate-check-ste221-{positive,control,alias}-linear.ndjson` in the repo's `m127-falsifiability` fixture directory; the pins live in `tests/m127-ste-489-group2-ndjson-and-staging.test.ts`.
+
+```text
+                                        2a positive   2b control   2c alias
+--------------------------------------------------------------------------
+retired raw regex (grep -Ec, LINES)          2             0            0
+`#26` (raw / assistant OCCURRENCES)        2 / 1         2 / 1        2 / 1
+`ADVISORY` (raw / assistant)               2 / 1         0 / 0        0 / 0
+milestone_attach_skipped_adapter_limit     6 / 2         0 / 0        0 / 0
+milestone_attach_unavailable               0 / 0         0 / 0        4 / 1
+`toolkit-bootstrap-committed` HYPHENATED   2 / -         2 / -        2 / -
+`toolkit_bootstrap_committed` underscored  0 / 0        18 / 0        0 / 0
+```
+
+**Read the units, because two rows above are counted differently and mixing them is how the table lies.** Row 1 is a `grep -Ec` LINE count; every other row is a `grep -o` OCCURRENCE count. On NDJSON those diverge hard — `GATE FAILED` is 2 lines and 12–14 occurrences in these same captures — so a reader re-deriving an occurrence figure with `grep -Ec` gets a different number and concludes the shipped fixtures are unfaithful. They are faithful; the command differs.
+
+**The last two rows are the same id in two spellings, and the pair is here because the underscored row ALONE says something false.** Read on its own, `0 / 18 / 0` reports that the retired staging tripped probe #22 in the control run only. Measured, the HYPHENATED spelling is `2 / 2 / 2` and the assistant text of **all three** captures renders a failing #22 row — so the retired staging tripped #22 in **every** sub-fixture, and the two zeros are an underscore-only grep missing the rendering. That is fixture 3c's id-spelling drift (STE-485) reappearing inside the evidence table of the FR that cites it, which is why both spellings are now shown rather than the "right" one substituted. Note also that the underscored 18 lives entirely in `tool_result` / `tool_use` events — assistant-scoped it is 0 in all three — so it is a count of the module being READ, not of a probe being rendered, and § Capability-row evidence above declares exactly that surface unsound.
+
+**Two clauses per sub-fixture, and the identifier clause is deliberately NOT the discriminator.** Probe #26 fires in all three sub-fixtures, so its row is present in all three captures; the identifier clause only proves the row surfaced. It is the SUBJECT clause that has to discriminate, and each one is verified to exit 0 on its own capture and NON-ZERO on both siblings. **The identifier clause is an `any-of` over two row shapes because ONE run rendered probe #26 three ways** — `- **#26 …` in 2a, `**#26 … — GATE FAILED**` in 2b, `- **Probe #26 … (capability-gap downgrade)**` in 2c. Either arm alone misses at least one sub-fixture, and that is fixture 3c's drift lesson arriving from a SAME-RUN inversion rather than a cross-run one. The arms carry the leading `**` row marker rather than the bare number, per the STE-488 lesson that an undelimited key is substring-satisfiable by a sibling row; the delimiter cannot be the backtick the runtime renders, because these spans are EXECUTED and a backtick is command substitution in bash — an arm that must carry the rendered backticks is single-quoted instead. `#26` is the identifier the runtime actually writes: the word `probe` followed by the number occurs zero times in all three captures.
+
+**The staged FR is COMMITTED and canonical-shaped, so the group's verdict is attributable to its own subject (STE-489, M127).** All three sub-fixtures used to stage a minimal UNCOMMITTED FR carrying only a `## Notes` body. That staging tripped two probes that have nothing whatever to do with probe #26, each on its own account: `toolkit_bootstrap_committed` (#22), because a toolkit-managed spec file left uncommitted in the working tree is by definition an incomplete bootstrap, and `needs_technical_review_consistency` (#40), because an FR carrying no `## Technical Design` and no `## Testing` heading is off the canonical five-section shape. Both fired in **all three** sub-fixtures, not just the control — see the two-spelling rows in the table above, and do not cite the underscored `18` for this: it counts the probe module being READ in `tool_result` events, which is the raw surface § Capability-row evidence declares unsound, and it is assistant-scoped 0 everywhere. Either way 2b's retired aggregate assertion was red on its own account and could not attribute the failure to its own subject. **Both halves of the repair are load-bearing and neither alone is the repair:** committed but shape-incomplete still trips #40, canonical-shaped but uncommitted still trips #22. So the fixture FR is written from the canonical template below AND committed before `claude -p` is invoked.
+
+Every sub-fixture stages this exact body, substituting only its own `<KEY>` — 2a the canonical capability key, 2b nothing at all (the control carries no milestone-attach key), 2c the deprecated alias — so the three differ in subject and in nothing else:
+
+```markdown
+---
+id: STE-FIX-A
+status: active
+---
+
+# Smoke fixture — Notes-section capability scanner
+
+## Requirement
+
+Fixture FR staged by the conformance smoke run so the STE-221 capability
+scanner has a file to read. Carries no product behaviour and is removed again
+at the end of the group.
+
+## Acceptance Criteria
+
+- AC.1 — The `## Notes` section below carries this sub-fixture's capability
+  token, and the gate-check run reads it back.
+
+## Technical Design
+
+No implementation. The file exists only as probe input: the scanner reads the
+`## Notes` section and nothing else, and the surrounding sections exist so the
+staging itself stays off #22's and #40's radar — those two ONLY, and the narrower claim is the true one. The staged FR still trips probe #14 (ticket-state drift) and probe #49 (tracker_local_reconciliation_drift) in all three captures, because it is bound to a tracker ticket that does not exist, and no committed or canonical shape can change that. Attributability does not come from a clean aggregate — it comes from AC-STE-489.4's row-scoping, which reads probe #26's OWN row instead of the run's closing verdict.
+
+## Testing
+
+Verified by the enclosing smoke fixture group, which asserts probe #26's own
+rendered row in the captured `/dev-process-toolkit:gate-check` output rather
+than any aggregate verdict.
+
+## Notes
+
+<KEY>
+```
+
+Stage it with `git add specs/frs/<TKR>-FIX-A.md`, then `git commit -q -m "chore(specs): stage smoke fixture FR"`, and at cleanup remove the file and commit the removal so the tree is left exactly as the group found it.
+
 ##### Sub-fixture 2a — positive (canonical capability key)
 
-- Stage: write `specs/frs/<TKR>-FIX-A.md` with `## Notes` body containing the literal token `milestone_attach_skipped_adapter_limit`.
+- Stage: write `specs/frs/<TKR>-FIX-A.md` from the canonical template above with `<KEY>` = the literal token `milestone_attach_skipped_adapter_limit`, then commit it.
 - Invoke + capture: `claude -p /dev-process-toolkit:gate-check` → `/tmp/dpt-smoke-<tracker>-ste221-positive.log`.
-- Assert: `grep -E 'ADVISORY.*probe.*26|probe.*26.*ADVISORY' /tmp/dpt-smoke-<tracker>-ste221-positive.log` exit 0.
-- Cleanup: remove the temporary FR file.
+- Assert (probe identifier): ``bun "${CAP_ASSERT}" any-of /tmp/dpt-smoke-<tracker>-ste221-positive.log "**#26 " "**Probe #26 "`` exit 0 — probe #26's own ROW surfaced, under one of the two shapes these runs render.
+- Assert (subject): ``bun "${CAP_ASSERT}" present /tmp/dpt-smoke-<tracker>-ste221-positive.log milestone_attach_skipped_adapter_limit`` exit 0 — the canonical capability key the FR staged is the one the probe read back, and it is assistant-0 in BOTH sibling captures.
+- Cleanup: remove the temporary FR file and commit the removal, so probe #22 sees a clean tree for the next sub-fixture.
 
 ##### Sub-fixture 2b — control (no key)
 
-- Stage: same FR but `## Notes` body has no milestone-attach capability key.
+- Stage: same committed template but `<KEY>` is empty — the `## Notes` body carries no milestone-attach capability key.
 - Invoke + capture as above → `/tmp/dpt-smoke-<tracker>-ste221-control.log`.
-- Assert: probe #26 surfaces `GATE FAILED` (proves the scanner is the difference, not unrelated probe behavior).
+- Assert (probe identifier): ``bun "${CAP_ASSERT}" any-of /tmp/dpt-smoke-<tracker>-ste221-control.log "**#26 " "**Probe #26 "`` exit 0.
+- Assert (subject): ``bun "${CAP_ASSERT}" any-of /tmp/dpt-smoke-<tracker>-ste221-control.log '**#26 `tracker-project-milestone-attached` — GATE FAILED' '**Probe #26 `tracker-project-milestone-attached`** — **GATE FAILED'`` exit 0 — probe #26's OWN row carries the failure. **The bare aggregate `GATE FAILED` is retired and must not be restored (AC-STE-489.4):** it is present in ALL THREE captures (12 / 14 / 12 raw occurrences), including the two in which probe #26 did not fail, so it could not have gone red for this sub-fixture's subject however well or badly probe #26 behaved. It passed only because probe #26's row happened to be independently readable — which is not a thing it checks. Two arms for the same reason the identifier clause has two: the second is the shape this group's alias run rendered for every OTHER failing probe (`**Probe #22 …** — **GATE FAILED**`), and neither arm is satisfied by a sibling capture.
 - Cleanup.
 
 ##### Sub-fixture 2c — deprecated-alias (`milestone_attach_unavailable`)
 
-- Stage: same FR but `## Notes` body has `milestone_attach_unavailable` (the STE-198 deprecated alias).
+- Stage: same committed template but `<KEY>` = `milestone_attach_unavailable` (the STE-198 deprecated alias).
 - Invoke + capture as above → `/tmp/dpt-smoke-<tracker>-ste221-alias.log`.
-- Assert: probe #26 surfaces ADVISORY (deprecation window honored per STE-214 AC.5). When STE-198's rollover note flips, this fixture flips to expecting GATE FAILED.
+- Assert (probe identifier): ``bun "${CAP_ASSERT}" any-of /tmp/dpt-smoke-<tracker>-ste221-alias.log "**#26 " "**Probe #26 "`` exit 0 — this is the capture that renders the `**Probe #26 ` shape and never the bare one, so the second arm is load-bearing rather than defensive.
+- Assert (subject): ``bun "${CAP_ASSERT}" present /tmp/dpt-smoke-<tracker>-ste221-alias.log milestone_attach_unavailable`` exit 0 — the deprecated alias was read and the missing binding downgraded (deprecation window honored per STE-214 AC.5). **Keying this on the literal `ADVISORY` is NOT the repair:** this capture carries zero `ADVISORY`, assistant AND raw — its downgrade renders as `(capability-gap downgrade)` plus the alias key — so swapping the broken regex for that literal would leave 2c red for a second, different wrong reason. When STE-198's rollover note flips, this sub-fixture re-keys onto probe #26's own failing row, the shape 2b asserts, and never onto the bare aggregate.
 - Cleanup.
 
 **Diagnostic on any sub-fixture failure:**
 
 ```
 STE-214 runtime regression: <sub-fixture-name>
-  expected: <ADVISORY | GATE FAILED>
-  actual:   <observed>
+  expected: <probe #26's row present> + <2a canonical key | 2b probe #26's own failing row | 2c deprecated alias>
+  actual:   <the failing clause's own verdict line, which quotes the assistant-vs-raw split>
   stdout excerpt (last 20 lines):
     <tail -20 of the relevant log>
 ```
@@ -991,11 +1056,13 @@ If all three pass, append `STE-214 runtime check: PASS` to the run summary line;
 
 Three sub-fixtures. Every rostered leg runs — `/implement`'s Phase 4b' propagation hook is adapter-agnostic.
 
+**Why 3a's and 3b's asserts name the propagation subject in full — and why the loose form must not be "restored" (STE-488, M127).** Both asserts used to read `propagate.*removal to cross-cutting specs`. That wildcard was not sloppiness: the pre-STE-477 subject interpolated the removed path (`chore(specs): propagate <removed-path> removal to cross-cutting specs`), so a path-agnostic pattern was the only form that could match at all. STE-477 (M126) replaced that template with the fixed literal `chore(specs): propagate file removal to cross-cutting specs`, and AC-STE-488.5 was filed on the belief that the old literal was therefore gone, the greps now matched nothing, and group 3a had been silently broken. **That premise was measured before a byte was edited, and it is false.** `.*` absorbs `" file "` exactly as happily as it absorbed a path, so the loose form still matched the shipped subject; 3a was not broken and never had been. What ships here is the satisfiable and strictly stronger reading instead: now that the subject is a fixed literal, a wildcard that only ever needed to be loose for a variable part is needlessly loose, and it also accepts unrelated near-misses such as `docs(specs): propagate a stale removal to cross-cutting specs by hand` — a commit these fixtures must not count. Both directions are pinned by execution against a real git repository in `tests/m127-ste-488-contradictory-assertions.test.ts` § AC-STE-488.5: the tightened form still matches the real subject, and it does not match that near-miss. The subject text itself is owned by `PROPAGATION_COMMIT_SUBJECT` in `adapters/_shared/src/propagation_commit_message.ts`; if it ever changes, change it there and let that test fail here rather than loosening these patterns back.
+
 ##### Sub-fixture 3a — positive (deletion ⇒ propagation commit)
 
 - Stage: pre-create `src/.placeholder.test.ts` (committed); add stale references to that path in `specs/technical-spec.md` + `specs/testing-spec.md` directory-tree blocks; pre-create an FR whose implementation deletes the file.
 - Invoke + capture: `claude -p /dev-process-toolkit:implement <FR>` → `/tmp/dpt-smoke-<tracker>-ste222-positive.log`.
-- Assert: `git log --grep 'propagate.*removal to cross-cutting specs' --since '<run-start>' | wc -l` ≥ 1 (propagation commit landed).
+- Assert: `git log --grep 'chore(specs): propagate file removal to cross-cutting specs' --fixed-strings --since '<run-start>' | wc -l` ≥ 1 (propagation commit landed).
 - Assert: directory-tree blocks in both cross-cutting specs no longer reference `src/.placeholder.test.ts`.
 - Cleanup: revert the test project's run-window commits.
 
@@ -1003,17 +1070,40 @@ Three sub-fixtures. Every rostered leg runs — `/implement`'s Phase 4b' propaga
 
 - Stage: identical setup but FR's implementation does NOT delete any tracked file.
 - Invoke + capture as above → `/tmp/dpt-smoke-<tracker>-ste222-control.log`.
-- Assert: `git log --grep 'propagate.*removal to cross-cutting specs' --since '<run-start>' | wc -l` == 0 (silent no-op per STE-215 AC.4).
+- Assert: `git log --grep 'chore(specs): propagate file removal to cross-cutting specs' --fixed-strings --since '<run-start>' | wc -l` == 0 (silent no-op per STE-215 AC.4).
 - Cleanup.
 
-##### Sub-fixture 3c — probe-side (stale ref on disk ⇒ ADVISORY)
+##### Sub-fixture 3c — probe-side (stale ref on disk ⇒ probe #37 notes row)
 
 System-under-test is `/gate-check` **probe #37** (`cross-cutting-spec-stale-file-refs`). The runtime emits this as probe #37 in the verdict block; pre-STE-238 smoke prose paraphrased it as "#26" (doc-drift caught by `/conformance-loop` iteration 1, F8). Reference the probe by **name AND number** in any future fixture commentary so the doc-drift cannot recur.
 
 - Stage: pre-create a stale leaf in `specs/technical-spec.md` referencing a path that doesn't exist on disk (no `/implement` run). The leaf token MUST contain a `/` to qualify as a path-shaped reference (the probe filters bare-basename tokens by design — see F8 follow-up: a path like `src/staleref-fixture-3c.ts` qualifies; a bare `staleref-fixture-3c.ts` does not). **The leaf MUST sit inside a directory-tree fence — one opened bare (` ``` `), ` ```text `, or ` ```tree `.** Since M118/STE-433 the probe reads the fence info string and scans only those three; a leaf staged inside a language-tagged fence (` ```dart `, ` ```sh `, ` ```yaml `, …) yields zero violations and scores a correct probe as broken — the same failure shape as the STE-421 AC.4 spelling mismatch recorded in the assert below.
 - Invoke + capture: `claude -p /dev-process-toolkit:gate-check` → `/tmp/dpt-smoke-<tracker>-ste222-probe.log`.
-- Assert: `bun "${CAP_ASSERT}" present /tmp/dpt-smoke-<tracker>-ste222-probe.log cross_cutting_spec_stale_file_refs` exit 0, with ADVISORY context (NOT `GATE FAILED` — STE-215 AC.5 specifies ADVISORY). The probe surfaces as `probe #37` in the verdict block. **The asserted token is the UNDERSCORED one** — that is what the probe's violation message actually emits at runtime. The hyphenated spelling is the probe *id* used in prose (above and in `/gate-check`'s own SKILL body); asserting it here scored a correct probe run as broken (STE-421 AC.4).
+- Assert (probe identifier): `bun "${CAP_ASSERT}" any-of /tmp/dpt-smoke-<tracker>-ste222-probe.log cross-cutting-spec-stale-file-refs cross_cutting_spec_stale_file_refs` exit 0 — probe #37 surfaced under one of the two spellings the runtime is measured to render.
+- Assert (verdict): `bun "${CAP_ASSERT}" any-of /tmp/dpt-smoke-<tracker>-ste222-probe.log "GATE PASSED WITH NOTES" NOTES` exit 0 — the #37 row carried a notes-severity verdict, under one of the two wordings measured below.
 - Cleanup.
+
+**Both clauses are `any-of` by contract, not as a hedge (STE-485).** `/gate-check` renders its verdict block as prose it composes per run, so the SPELLING of a probe id and the WORDING of a notes verdict are both leg-dependent. Measured assistant-scoped on the three 2026-08-16 conformance captures in which probe #37 genuinely fired against the planted leaf — shipped as reduced slices named `gate-check-probe37-<leg>.ndjson`, in the repo's `m127-falsifiability` fixture directory (committed inputs, not run outputs — the Phase 3 closing check never persists them):
+
+```text
+token / phrase                       linear   jira   none
+---------------------------------------------------------
+cross-cutting-spec-stale-file-refs      1       1      0
+cross_cutting_spec_stale_file_refs      0       0      2
+GATE PASSED WITH NOTES                  0       1      0
+ADVISORY                                1       0      0
+NOTES                                   1       1      1
+GATE FAILED                             3       3      2
+#37                                     4       4      2
+```
+
+Neither spelling is universal and neither verdict phrase is universal, so any SINGLE LITERAL scores a healthy probe run as broken on at least one leg in three. That has already happened twice on this one fixture, in opposite directions: the original clause pinned the hyphenated spelling, and STE-421 AC.4 replaced it with the underscored one — each time taking ONE LEG's rendering of an LLM-rendered surface as the runtime's contract. Writing down a third single literal would be the third drift here, so the clauses assert the measured set while still naming the spelling and the phrase the correction was about.
+
+**The underscored spelling is a real emission, at both layers.** `adapters/_shared/src/cross_cutting_spec_stale_file_refs.ts`'s `buildMessage` emits it as message TEXT twice per violation — the `cross_cutting_spec_stale_file_refs: ${reason}` head line and the `probe=…, severity=warning` context line — and the tracker-less leg's capture carries it assistant-scoped twice, in the rendered `#37` row and again in that leg's verdict summary. The hyphenated spelling is what the runtime rendered on the Linear and Jira legs. Both are emissions the runtime produces; neither is an artifact of the module's filename.
+
+**As this fixture STAGES the leaf, every genuine capture ends `GATE FAILED`.** The stale leaf is planted uncommitted, so it also trips probe #22 (`toolkit-bootstrap-committed`, error severity) and the run's closing verdict is a failure while probe #37's own row stays notes-severity. The verdict clause therefore scores #37's ROW, never the run's closing line — an earlier parenthetical asserted the opposite for the run as a whole, and all three captures refute it. **`ADVISORY` was inside this any-of and has been removed, because it was an off-subject arm — and catching that is worth more than the arm was.** The reasoning that put it there was "the Linear leg rendered exactly that word for its notes rows". Measured, it did not: the Linear capture's **only** `ADVISORY` belongs to a different probe entirely — `**⚠ Probe #14 \`ticket-state drift — active side\` — PASS + ADVISORY**` — while probe #37's own Linear row reads `**⚠ Probe #37 \`cross-cutting-spec-stale-file-refs\` — NOTES**`. Keeping the arm therefore admitted a capture in which **#37 never fired at all**: strip every #37 trace from the Linear capture, leave #14's row standing as a faithful non-firing would, and the three-arm clause still exited 0. That is a false green, and it arrived by attributing one probe's rendering to another — the same wrong-subject error this fixture has now made three times, arriving a fourth way. `NOTES` alone covers every leg (assistant-scoped 1 / 1 / 1) and is strictly stronger, so the two-arm clause both passes every genuine firing and fails the stripped one.
+
+Falsifiability: both clauses are registered in `adapters/_shared/src/falsifiability_harness.ts` (`M127_REPAIRS`, id `STE-485`) and scored by exit code against the `none` capture — a `capability_row_assert` invocation prints a verdict line rather than a count, so count-scoring it is vacuous.
 
 **Diagnostic on any sub-fixture failure:**
 
@@ -1063,7 +1153,9 @@ Two sub-fixtures (4a Linear + 4b Jira) each drive the 4-step `--no-tech` pass ag
 1. **`/spec-write --no-tech <stub>`** — creates a flagged FR (frontmatter `needs_technical_review: true`, placeholder `## Technical Design` + `## Testing` sections per the STE-227 `--no-tech` contract).
 2. **`/implement <id>`** — must refuse with the canonical NFR-10 shape and emit a `implement_refused_needs_technical_review` capability row in the closing summary; no commit lands; no tracker write past the get-issue read.
 3. **`/spec-write <id>`** (no flag) — clears the `needs_technical_review` flag (frontmatter flips to `false` or the field is removed entirely) and replaces the placeholder Technical Design + Testing sections with real content.
-4. **`/implement <id>`** — proceeds end-to-end → gate-check passes → implementation commit lands → FR archives to `specs/frs/archive/<id>.md` (`status: archived`) → tracker ticket reaches `Done`.
+4. **`/implement <id>`** — proceeds end-to-end → gate-check passes → implementation commit lands → tracker ticket reaches `Done` → the FR is left **unarchived**, at `status: active`. The absence of an archive file is the expected end state on this step, not a gap; the paragraph below is the single account of why, and step 4's assertion asserts that absence.
+
+**Why step 4 does not archive (STE-181), and why this is the only account of it in the document.** Step 4 invokes the single-FR `<feature-id>` form of `/implement`. § Phase 2 step 3's STE-181 post-step advisory records that the smoke driver uses that form *intentionally*, that it silent-skips `/implement` Phase 5 — where milestone archival lives — and that the resulting `status: active` "is correct, not drift". § Phase 4's tracker-less row says the same thing from the other side: **there is no archive commit on this leg**. So on a healthy step 4 the FR file stays put under `specs/frs/`, keeps `status: active`, and nothing is ever written to `specs/frs/archive/<id>.md`; the child instead recommends a follow-up `/spec-archive`. The 2026-08-16 conformance run measured exactly this on **both** legs — implementation commit landed, `/gate-check` green, ticket `Done`, no archive file — and the step-4 captures carry the `status: active` / `single-FR` / `/spec-archive` trio to prove it. Through STE-488 this fixture asserted the *opposite*: step 4's clause demanded the archive file EXIST, and its prose claimed the FR archived. That assertion was the error, and it was unfalsifiable in the worst direction — it could only have gone green on a run that had done something wrong. STE-488 corrects it rather than annotating it: the clause is inverted to assert the file's **absence**, the prose above no longer claims archival, and this paragraph is the one place the reader has to look. If a future leg genuinely should archive, the change starts with the invocation form in § Phase 2 step 3, not with restoring a positive-existence check here.
 
 Each step is a fresh `claude -p` spawn using the existing heredoc-on-stdin pattern (§ STE-185), with the `<dpt:auto-approve>v1</dpt:auto-approve>` marker as the first body line. The slash command goes on the second body line, followed by the per-step prompt body. Stdout per step is captured to `/tmp/dpt-smoke-<tracker>-no-tech-step-<N>.log`. The smoke driver constructs each spawn at runtime; these 4 step spawns are NOT inlined as fenced reference snippets here (the canonical `/spec-write` and `/implement` heredoc shapes are already documented under § STE-185, and re-inlining them here would multiply the surface area scanned by the `auto_approve_marker_in_canonical_spawns` probe without adding behavior coverage).
 
@@ -1076,7 +1168,7 @@ Each step is a fresh `claude -p` spawn using the existing heredoc-on-stdin patte
 - Step 1: FR file exists at `../dpt-test-project-linear/specs/frs/<id>.md` with `grep -F 'needs_technical_review: true' ../dpt-test-project-linear/specs/frs/<id>.md` exit 0 (frontmatter flag set).
 - Step 2: `bun "${CAP_ASSERT}" present /tmp/dpt-smoke-linear-no-tech-step-2.log implement_refused_needs_technical_review` exit 0 (capability row emitted in the child's assistant text); `git -C ../dpt-test-project-linear log --oneline --since '<step-2-start>'` returns no rows (no commit landed during step 2).
 - Step 3: `grep -F 'needs_technical_review: true' ../dpt-test-project-linear/specs/frs/<id>.md` exit 1 (flag cleared after re-invoke without `--no-tech`).
-- Step 4: `git -C ../dpt-test-project-linear log --oneline --since '<step-4-start>'` returns ≥ 1 row (implementation commit landed); `test -f ../dpt-test-project-linear/specs/frs/archive/<id>.md` exit 0 (archive landed); `mcp__linear__get_issue STE-<id>` returns `status: "Done"`.
+- Step 4: `git -C ../dpt-test-project-linear log --oneline --since '<step-4-start>'` returns ≥ 1 row (implementation commit landed); `test ! -f ../dpt-test-project-linear/specs/frs/archive/<id>.md` must exit 0 — the single-FR form silent-skips Phase 5, so the FR stays at `status: active` and no archive file is written (see the group-4 archival note above; a non-zero exit here means step 4 archived something it must not have); `mcp__linear__get_issue STE-<id>` returns `status: "Done"`.
 
 **Diagnostic on any step failure:**
 
@@ -1187,9 +1279,18 @@ Single sub-fixture; runs on every rostered leg. The smoke driver does not spawn 
 
 **Assertion:**
 
-- ``grep -c '^```tdd-result$' /tmp/dpt-smoke-<tracker>-implement.log`` ≥ 3 (one fenced block per orchestrator phase: test-writer → implementer → refactorer, in that order). Double-backtick code span deliberate — the literal grep contains a triple-backtick token (the fence-tag prefix the orchestrator emits per STE-225), which a single-backtick code span would mis-render; the double-backtick form keeps the fence-tag inside the inline code without colliding with surrounding markdown fences.
+- `bun "${PLUGIN_DIR}/adapters/_shared/src/fork_tdd_result_assert.ts" /tmp/dpt-smoke-<tracker>-implement.log 3` exit 0 — at least 3 forked-child hand-off fences in the capture. The runner counts the fence tag inside the `tool_result` content of **non-synthetic `user` events** and nothing else; it prints the bare integer count on stdout (diagnostics on stderr) and exits 0 when the count is ≥ the `min` argument, 1 when it is below, 2 on a usage error. **`${PLUGIN_DIR}` must be in scope before this span runs, and the honest statement of that is a caveat rather than a reassurance.** It is set by the § Phase 2.X capability-row preamble fence (§ Capability-row evidence), by a plain assignment that is **not** exported — so a driver that runs group 7 in a shell which never sourced that fence gets `bun "/adapters/…"`, module-not-found, and a non-zero exit on **every** leg. That is a false RED with the same silhouette as the two forms retired below, and it is a failure mode the retired plain-`grep` forms structurally could not have: naming a module buys a real projection and costs a resolution dependency. The dependency is not new to this group — every `${CAP_ASSERT}` fixture in this phase already carries it — but group 7 is newly exposed to it, so it is stated here rather than assumed. The preamble's value is additionally a hardcoded maintainer-absolute path, so "runnable from any checkout" is **not** true of this span today; deriving `PLUGIN_DIR` in the preamble instead of hardcoding one machine's path would fix it for every consumer at once and is recorded as a follow-up rather than done here, because the preamble is shared surface that no M127 FR authorizes editing.
 
-The greet-stub feature ships with one AC, so the orchestrator emits exactly 3 `tdd-result` blocks on a clean run. Bounded retry on a transient failure adds blocks (a retry re-emits the role's block) — never removes them — so the ≥ 3 lower bound is robust to retries. Multi-AC features would emit `3 × N_ACs` blocks; the test project's single-AC `greet` fixture pins the count to exactly 3 on the happy path and ≥ 3 with retries.
+The projection is structural — event type plus block type — never textual: the `/tdd` orchestrator's children run `context: fork`, so their hand-off blocks come back to the parent as tool results, and the tracker-less leg's hand-offs carry no `(forked execution)` banner at all. Keying on any banner or role word would score the `none` leg 0 while two legs out of three still looked healthy. The reader lives in `fork_tdd_result_assert` (`adapters/_shared/src/`); `extractAssistantText` is **not** a substitute for it — that projection keeps `assistant` text blocks only and drops `user`/`tool_result` events by design (STE-421), which is exactly where every forked hand-off lands.
+
+**Retired assertion forms (STE-484).** Both prior forms were vacuous, in opposite directions, and both are recorded here rather than deleted so the mistake cannot be made a third time.
+
+- Retired form 1, line-anchored — ``grep -c '^```tdd-result$' /tmp/dpt-smoke-<tracker>-implement.log`` — returned 0 unconditionally, on healthy and dead runs alike: STE-352 made `--output-format stream-json --verbose` mandatory, so the capture is NDJSON and every payload newline is the two characters `\` `n` inside a JSON string. There is no line start for `^` to anchor to. Vacuous in the failing direction — never able to go green.
+- Retired form 2, bare unanchored — ``grep -c '```tdd-result' /tmp/dpt-smoke-<tracker>-implement.log`` — is vacuous the other way, and this is the half worth remembering: `claude -p` injects the invoked skill's SKILL.md body as a **synthetic** `user` event and that body spells the fence tag, while the raw bytes additionally carry every tool result MIRRORED under the event's `tool_use_result` key. On the archived 2026-08-16 slices the raw count is linear 18 / jira 14 / none 14 where the real fork hand-offs number 8 / 6 / 6. Strip every fork event out of a capture and the bare form STILL returns a non-zero count off the injected prompt alone — it matched the injected SKILL.md body, never the run. Vacuous in the passing direction.
+
+Double-backtick code spans above are deliberate — each retired literal contains a triple-backtick token (the fence-tag prefix the orchestrator emits per STE-225), which a single-backtick span would mis-render; the double-backtick form keeps the fence tag inside the inline code without colliding with surrounding markdown fences. The live assertion needs no such escaping because it names a module instead of a pattern.
+
+The greet-stub feature ships with one AC, so the orchestrator emits exactly 3 `tdd-result` blocks on a clean run. Bounded retry on a transient failure adds blocks (a retry re-emits the role's block) — never removes them — so the ≥ 3 lower bound is robust to retries. Multi-AC features would emit `3 × N_ACs` blocks; the test project's single-AC `greet` fixture pins the count to exactly 3 on the happy path and ≥ 3 with retries. The archived conformance captures, whose `/implement` legs ran multi-AC FRs, score 8 / 6 / 6 through the repaired projection — comfortably clear of the bound.
 
 **Diagnostic on failure:**
 
@@ -1257,14 +1358,40 @@ Registering it is also the only evidence the roster's `legs` field is genuinely 
 Both directions, because either alone is satisfiable by a probe that never fires at all.
 
 - **Control.** Leave the test project's own FR untouched (minted `id:`, no `tracker:` block — the artifact AC-STE-448.7 already verifies on this leg). Invoke `claude -p /dev-process-toolkit:gate-check` in `../dpt-test-project-none`, capture stdout to `/tmp/dpt-smoke-<tracker>-ste450-control.log`, and assert no `identity_mode_conditional` violation is reported.
-- **Violation.** Stage one extra FR at `../dpt-test-project-none/specs/frs/<TAIL2>.md` carrying (i) a **freshly minted** `id:` — never a copy of an id already on disk, which would trip probe #13's cross-file duplicate-tail pass instead and score this assertion red for the wrong reason, (ii) the mode-invariant frontmatter keys `title` / `milestone` / `status` / `archived_at` / `created_at`, and (iii) a populated `tracker:` block. Invoke and capture to `/tmp/dpt-smoke-<tracker>-ste450-tracker-block.log`. Assert the run reaches `GATE FAILED` **and** the capture carries the probe's own message `mode-none FR carries a tracker: block that should be absent`.
+- **Violation.** Stage one extra FR at `../dpt-test-project-none/specs/frs/<TAIL2>.md` carrying (i) a **freshly minted** `id:` — never a copy of an id already on disk, which would trip probe #13's cross-file duplicate-tail pass instead and score this assertion red for the wrong reason, (ii) the mode-invariant frontmatter keys `title` / `milestone` / `status` / `archived_at` / `created_at`, and (iii) a populated `tracker:` block. Invoke and capture to `/tmp/dpt-smoke-<tracker>-ste450-tracker-block.log`. The staged FR must drive the run to `GATE FAILED`; the two clauses below are how that outcome is scored.
+- Assert (probe identifier): `bun "${CAP_ASSERT}" any-of /tmp/dpt-smoke-<tracker>-ste450-tracker-block.log "**#13 " "**✗ Probe #13 "` exit 0 — probe #13's own ROW surfaced, under one of the two row shapes this run rendered.
+
+  **Why the arm names the ROW and not the bare probe key, measured rather than reasoned.** The obvious arm is `identity_mode_conditional`, and it is a **false green**: that key is a SUBSTRING of `plan_identity_mode_conditional`, which is sub-fixture 9b's probe. Measured — the bare arm exits **0 against 9b's own capture**, where probe #13's enforcing arm never fired at all (it PASSED there; the hit belongs to probe #73's row). A run in which #13 never fired would satisfy 9a purely because #73 did. Only a LEADING delimiter fixes a substring relation — a trailing one does not, since `plan_identity_mode_conditional:` also ends in `identity_mode_conditional:` — and the delimiter cannot be the backtick the runtime actually renders, because these spans are EXECUTED and a backtick is command substitution in bash. The row prefix is the leading delimiter that survives both constraints.
+
+  **Two arms, not one, and this is fixture 3c's lesson applied before it bites rather than after.** `/gate-check` is LLM-rendered, and this single run rendered the two probe rows in two different shapes: `**#13 \`identity_mode_conditional\`**` for the one that fired here and `**✗ Probe #73 \`plan_identity_mode_conditional\`**` in the sibling capture. Pinning whichever shape today's run produced is exactly how 3c drifted three times. Both shapes are named; neither is satisfied by the other probe's row. Verified in both directions: the pair exits 0 on the tracker-block capture and 1 on the plan-stem capture, and 9b's mirror pair does the reverse.
+
+  **The residual, stated rather than glossed.** These arms prove probe #13's row is PRESENT, not that it FAILED — a hypothetical run rendering a passing `**#13 ` row would satisfy this clause. That is why it is paired with the verdict clause below rather than standing alone, and it is the same reason a bare `#13` is rejected as an arm: on its own it is satisfiable by a run in which nothing fired.
+- Assert (verdict): `bun "${CAP_ASSERT}" any-of /tmp/dpt-smoke-<tracker>-ste450-tracker-block.log "GATE FAILED" error-severity` exit 0 — the staged FR drove an error-severity failure, under one of the two wordings measured below.
 - Cleanup: remove the staged FR.
+
+**Neither clause asks a capture to quote the probe's own sentence, and that is the whole repair (STE-488, and STE-485's layer lesson before it).** The canonical wording lives in exactly one place — `plugins/dev-process-toolkit/adapters/_shared/src/identity_mode_conditional.ts`, in the `buildMessage` call on probe #13's tracker-block arm, which emits `mode-none FR carries a tracker: block that should be absent (observed <actual>)`. A reader who wants that wording verbatim reads it THERE, at its one address, rather than interrogating a log for it. `/gate-check` does not pass the string through: it composes its verdict block as prose per run, so the probe's sentence is an input to the model's answer, not a substring of it. Measured on the real 2026-08-16 tracker-less capture, shipped reduced as `gate-check-ste450-tracker-block-none.ndjson` in the repo's `m127-falsifiability` fixture directory:
+
+```text
+token / phrase                                assistant   raw
+-------------------------------------------------------------
+identity_mode_conditional                          1       18
+identity-mode-conditional                          0        0
+GATE FAILED                                        2        4
+error-severity                                     1        1
+the module's own tracker-block sentence            0        2
+```
+
+The retired clause demanded that last row be non-zero. It is **0 on the assistant surface of a capture in which probe #13 genuinely fired and genuinely reddened the gate** — the run staged the violation, the probe reported it, the gate failed, and the assertion still could not pass. Its two raw hits are the module layer showing through the transcript (a tool call reading source), never the rendered answer, which is precisely the confusion `capability_row_assert` exists to remove. An assertion that cannot pass on a correct run is not a strict check; it is a check of the wrong layer.
+
+**Both surviving clauses are `any-of` by contract, not as a hedge.** Sub-fixture 3c has now drifted three times on exactly this point — the SAME Jira leg rendered probe #37's id underscored 17 / hyphenated 0 on 2026-07-27 and underscored 0 / hyphenated 2 on 2026-08-16, a complete inversion — so re-keying onto a single NEW capture literal would only move the defect to a fresh address. `#13` is deliberately NOT an arm: `/gate-check` renders a numbered row for a probe that PASSES too, so an arm on the number alone would be satisfied by a run in which nothing fired.
+
+Falsifiability: both clauses are registered in `adapters/_shared/src/falsifiability_harness.ts` (`M127_REPAIRS`, id `STE-488`) and scored by exit code — a `capability_row_assert` invocation prints a one-line verdict rather than a count, so count-scoring it is vacuous by construction.
 
 **Diagnostic on failure:**
 
 ```
 STE-321 runtime regression: <9a-control | 9a-tracker-block>
-  expected: <no identity_mode_conditional violation | GATE FAILED naming the staged FR's tracker: block>
+  expected: <no identity_mode_conditional violation | error-severity GATE FAILED naming the staged FR's tracker: block>
   actual:   <observed>
   stdout excerpt (last 20 lines):
     <tail -20 of the relevant log>
@@ -1275,16 +1402,36 @@ STE-321 runtime regression: <9a-control | 9a-tracker-block>
 The plan-side twin, and the half that an id-only check cannot reach: the filename stem is six of the recorded id's twenty-nine characters, so a plan can carry a perfectly valid `id:` under a stem derived from something else entirely and every id-shape check still passes.
 
 - **Control.** The run's own plan at `../dpt-test-project-none/specs/plan/M_<TAIL>.md` (or its `archive/` path) is left as-is; the control capture from 9a is reused rather than re-spawned. Assert no `plan_identity_mode_conditional` violation is reported.
-- **Violation.** Stage one extra plan file whose stem is a **valid but different** minted key from the one its own frontmatter `id:` derives — mint a second id, name the file from the first, record the second. Invoke and capture to `/tmp/dpt-smoke-<tracker>-ste450-plan-stem.log`. Assert `GATE FAILED` **and** the probe's message `mode-none minted plan's id: does not derive its own filename`.
+- **Violation.** Stage one extra plan file whose stem is a **valid but different** minted key from the one its own frontmatter `id:` derives — mint a second id, name the file from the first, record the second. Invoke and capture to `/tmp/dpt-smoke-<tracker>-ste450-plan-stem.log`. The staged plan must drive the run to `GATE FAILED`; the two clauses below are how that outcome is scored.
+- Assert (probe identifier): `bun "${CAP_ASSERT}" any-of /tmp/dpt-smoke-<tracker>-ste450-plan-stem.log "**#73 " "**✗ Probe #73 "` exit 0 — probe #73's own ROW surfaced, under one of the two row shapes this run rendered.
+
+  Row-keyed and two-armed for the same reasons as 9a, and deliberately symmetric even though this arm is not itself substring-satisfiable — nothing in the runtime's vocabulary contains `plan_identity_mode_conditional` as a proper superstring, and the bare form was measured to exit 1 against 9a's capture, correctly. Keeping the shape uniform is the point: the next probe id added here does not have to be re-checked for the substring hazard by whoever adds it, and per-instance vigilance is exactly what failed three times on fixture 3c. Verified both directions — this pair exits 0 on the plan-stem capture and 1 on the tracker-block one.
+- Assert (verdict): `bun "${CAP_ASSERT}" any-of /tmp/dpt-smoke-<tracker>-ste450-plan-stem.log "GATE FAILED" error-severity` exit 0 — the staged plan drove an error-severity failure, under one of the two wordings measured below.
 - Cleanup: remove the staged plan.
 
 Do NOT stage this violation by renaming a sequential `M<N>.md` into place: a sequential tracker-less plan introduced today is classified `fresh` by probe #73's git-provenance arm and fails for that reason instead, which is a different row with a different remedy and would score this assertion green-for-the-wrong-reason in reverse.
+
+**9b is re-keyed for 9a's reason, and its evidence is stronger still.** The canonical sentence lives in exactly one place — `plugins/dev-process-toolkit/adapters/_shared/src/plan_identity_mode_conditional.ts`, in the `buildMessage` call on probe #73's minted-stem arm, which emits `mode-none minted plan's id: does not derive its own filename (<id> derives <stem>, file is <basename>)`. That one address is where a reader who wants the wording verbatim goes. Measured on the real 2026-08-16 tracker-less capture, shipped reduced as `gate-check-ste450-plan-stem-none.ndjson` beside 9a's:
+
+```text
+token / phrase                                assistant   raw
+-------------------------------------------------------------
+plan_identity_mode_conditional                     1        2
+plan-identity-mode-conditional                     0        0
+GATE FAILED                                        2        4
+error-severity                                     1        1
+the module's own non-deriving-stem sentence        0        0
+```
+
+That last row is **zero even raw** — on the very capture where this probe fired, reddened the gate and named the staged plan file. 9a's retired clause was at least visible at the module layer; this one was not present anywhere in the transcript at all. No amount of a well-run leg could have satisfied it.
+
+**Each sub-fixture binds its OWN capture, and they are not interchangeable.** `plan_identity_mode_conditional` scores assistant=0 against 9a's tracker-block capture, so folding the four clauses onto one log would send 9b's half vacuous while leaving the group green. The falsifiability row for `STE-488` therefore carries a per-clause capture override rather than one capture for the repair.
 
 **Diagnostic on failure:**
 
 ```
 STE-321 runtime regression: <9b-control | 9b-plan-stem>
-  expected: <no plan_identity_mode_conditional violation | GATE FAILED naming the staged plan's non-deriving id>
+  expected: <no plan_identity_mode_conditional violation | error-severity GATE FAILED naming the staged plan's non-deriving id>
   actual:   <observed>
   stdout excerpt (last 20 lines):
     <tail -20 of the relevant log>
@@ -1551,18 +1698,38 @@ For each major output the skills claim to produce, verify it actually landed on 
 
 These are **not** substitutes for the tracker rows above, and they are not interchangeable with them. A tracker leg proves identity by reading the remote it allocated from; this leg has no remote, so each row below reads a local artifact and asserts a property that only holds when identity was minted rather than fetched. They run **only** on `--tracker none`.
 
+```bash
+# STE-486 — the claim-witness runner the release-proof row below invokes,
+# declared here the way § Capability-row evidence declares ${CAP_ASSERT}.
+# The row's own token is NOT repeated here: its guard slices the document at
+# the first plain-substring occurrence, so a second one silently relocates the
+# window (follow-ups.md § 0i, and tests/_ac9-row-guard.ts turns it RED).
+CLAIM_WITNESS=${PLUGIN_DIR}/adapters/_shared/src/claim_witness_assert.ts
+# usage: bun "${CLAIM_WITNESS}" <log> <confirmed-sha> [lock-absent|lock-present]
+#   exit 0 = pass OR sampling-gap    1 = fail    2 = usage error
+# Same ${PLUGIN_DIR} caveat as fixture group 7: it is a plain, unexported
+# assignment in the § Phase 2.X preamble fence, so a shell that never sourced
+# that fence gets module-not-found on every leg.
+```
+
 - **AC-STE-448.5 — the canonical absence.** `../dpt-test-project-none/CLAUDE.md` exists, carries `## Docs`, and has **NO `## Task Tracking` section** — `grep -c '^## Task Tracking' <file>` is `0`. Absence is the canonical form for `mode: none`, so this is the positive result, not a missing check: a CLAUDE.md that *did* carry the section declaring `mode: none` would be a FAIL here and a gate-check probe #21 finding downstream. Asserting a count of zero rather than skipping the row is the whole difference between evidence and silence.
 - **AC-STE-448.7 — the FR's minted identity.** The FR lands at `../dpt-test-project-none/specs/frs/<TAIL>.md` (or `specs/frs/archive/<TAIL>.md` after archival), where `<TAIL>` is the filename stem. It carries a frontmatter `id:` whose value is `fr_` followed by **exactly 26 ULID characters** (`^id: fr_[0-9A-HJKMNP-TV-Z]{26}$` — Crockford base32, no `I`/`L`/`O`/`U`), and `<TAIL>` equals `id.slice(23, 29)` of that value — the FR names itself from its own id rather than from a counter. **The `tracker:` block is ABSENT**, not empty and not `tracker: {}`: in `mode: none` the minted `id:` IS the identity, and a present-but-empty tracker block would be the shape gate-check probe #13 (`identity_mode_conditional`) reads as a half-migrated tracker project. Assert the absence positively — `grep -c '^tracker:' <file>` is `0` — rather than inferring it from the `id:` row's presence, which would pass on a file carrying both.
 - **AC-STE-448.8 — the plan's minted identity, and its self-derived filename.** The plan lands at `../dpt-test-project-none/specs/plan/M_<PLAN-TAIL>.md` (or `specs/plan/archive/M_<PLAN-TAIL>.md`) carrying a minted `id:` of its own, and its own filename stem equals `M_` + `id.slice(23, 29)`. **`<PLAN-TAIL>` is that slice of the PLAN's own id, and it is NOT the `<TAIL>` bound in the row above** — the plan mints independently and is **not** required to match any FR's, because one plan id cannot equal the ids of two FRs in the same milestone. **Expect the two to differ, and do not read a difference as a failure:** on the run that corrected this row the FR was `3Y2FQW` and the plan `M_3Y2FQV`, two consecutive mints one character apart. Reusing the FR's tail here — as this row did until STE-455 — sends the operator to a filename a healthy run never produces. **That self-derivation is the load-bearing check here**, and is why this row is not a duplicate of the row above: both rows check the same property, but on **different artifacts**, and this is the only place the plan's own stem is recomputed from the plan's own id. Six characters of a twenty-nine-character identity name the file, so a plan could carry a correct `id:` under a filename derived from something else entirely (a counter, another mint, a stale rename) and every id-only check would still pass. Recompute the stem from the id read out of the file and compare; do not read the stem and check the id contains it.
 - **AC-STE-448.9 — the release proof: the durable claim witness AND the absence.** At this phase `../dpt-test-project-none/.dpt/locks/<id>` is **ABSENT** — `<id>` being the full `fr_`-prefixed value read from the FR's frontmatter, never the 6-char tail, because `LocalProvider.claimLock` keys the lock on the full minted id. On a tracker leg the equivalent evidence is the ticket reaching `Done`; here it is the lock file being gone.
 
-  **The durable claim witness is REQUIRED here, not merely welcome (STE-456).** Read the `claim-commit <sha|none>` line from `/tmp/dpt-smoke-<tracker>-ste451-lock-samples.log`, captured by § Phase 2 step 3 during the chain, and confirm the claim commit that created the lock exists in the test project's history. This row is green only when that line names a real sha **and** the lock file is gone; `claim-commit none`, or no such line at all, is a **FAIL even with the lock absent** — a claim that never fired leaves exactly the disk a completed release leaves, so absence alone cannot separate them.
+  **The durable claim witness is REQUIRED here, not merely welcome (STE-456).** Read the `claim-commit <sha|none>` line from `/tmp/dpt-smoke-<tracker>-ste451-lock-samples.log`, captured by § Phase 2 step 3 during the chain, and confirm the claim commit that created the lock exists in the test project's history. This row is green only when that line names a real sha **and** the lock file is gone; a missing sha is decided by the runner below, and **with no claim commit in history it is a FAIL even with the lock absent** — a claim that never fired leaves exactly the disk a completed release leaves, so absence alone cannot separate them.
 
   **The reason this row passes is NOT the one it used to state, and the correction matters more than the wording.** It read *"After the archive commit…"* through STE-448. **There is no archive commit on this leg.** Phase 2 step 3 invokes `/implement <feature-id>`, the single-FR form, which § Milestone Archival says *"intentionally leave[s] `status: active`"* — so archival never runs. What actually deletes the lock is `/implement` **Phase 4 Close step (b)**, which `plugins/dev-process-toolkit/docs/implement-reference.md` specifies for `mode: none` as *"deletes `.dpt/locks/<id>` (runbook does not apply)"* under *"No exit path through Phase 4 skips this step"* — inside step 3, before this phase is reached. Measured by STE-451. A row that passes for a different reason than it states is the documentation twin of a test that passes for the wrong reason, and it is exactly what this milestone exists to remove: the old clause would have sent the next reader looking for a commit that is never made, and it made the row read as evidence about archival when archival plays no part.
 
   **This row is deliberately only HALF of the lock assertion, and the other half is not in this FR.** An end-state absence check is satisfied *vacuously* by a lock that was never created — a claim step that silently no-opped leaves exactly the same disk as a release that worked. So a green result here does **not** establish that the release path works; it establishes only that no lock survived. Proving the lock EXISTED mid-run needs an observation between the claim step and the archive commit, which Phase 4 structurally cannot make (it runs after both), and it is STE-451's fixture group 10. Do not read this row as covering it, and do not widen it here — an absence check that quietly grows a presence claim is how the vacuous-pass class this milestone hunts gets reintroduced one layer up.
 
   > **SUPERSEDED IN PART BY STE-456, and retained verbatim rather than rewritten.** The paragraph above diagnoses this row correctly and is the reason the row was built the way it was; only its *remedy* has moved. The missing half is now required in this row, in the witness paragraph above, instead of being deferred to a phase that a post-chain kill forfeits — which is exactly what happened on 2026-08-08, when all three legs died before Phase 2.X and this row scored green against a lock that had never been created. Read the paragraph as the record of a hole, not as a live statement of this row's scope. Its warning against *quietly* growing a presence claim still stands: the growth here is neither quiet nor an absence check pretending to be more — it is a second, independently-sourced requirement, and the row fails when it is missing.
+
+  **RUN THE RULE, DO NOT RE-READ IT (STE-486).** This paragraph is placed after the annotations above rather than beside the witness clause on purpose: the row's guarded window carries pins the block above owns, and prose grown between them relocates guards that are still doing their job. The measured defect: on the 2026-08-16 tracker-less leg the sampler fired once, 38 s *before* `/implement` claimed, and wrote `claim-commit none` on a run whose claim commit was in history and whose lock had been correctly released. Read literally, the pre-STE-486 clause called that healthy disk a failure. What governs that case is the `10a-sampling-gap` carve-out defined in § Sub-fixture 10a — **cited here, never restated**, because the drift this FR closes was two authored statements of one rule, and a third copy would recreate it later, quietly, with the same excuse. So the outcome is decided by a runner, not by a reading:
+
+  `bun "${CLAIM_WITNESS:-${PLUGIN_DIR}/adapters/_shared/src/claim_witness_assert.ts}" /tmp/dpt-smoke-<tracker>-ste451-lock-samples.log "$(git -C "${TP}" log --format=%H -1 --basic-regexp --grep="^chore(locks): claim lock for ${FR_ID}$" 2>/dev/null || true)" "$([ -e "${TP}/.dpt/locks/${FR_ID}" ] && echo lock-present || echo lock-absent)"`
+
+  Exit 0 on `pass` **and** on `sampling-gap`, 1 on `fail`, 2 on a usage error. The verdict line always carries its finding token, so a reported gap reaches the Phase 3 findings file instead of being swallowed — a green row that says nothing is the other failure mode, and the operator still has to learn that the sampler never caught the lock. A log that does not exist at all is `10a-sampler-absent` and fails regardless; a lock still on disk fails whatever the log names. The span **names the module it runs** rather than hiding it behind the variable alone: `${CLAIM_WITNESS}` is honoured when the fence at the top of this section was sourced, and a reader — or a registry row selecting this site — can still see which runner decides the assertion without resolving anything. `${TP}` and `${FR_ID}` come from the environment (§ Fixture group 10's shared resolver), never from a hard-coded path, and `--basic-regexp` is exactly as load-bearing here as in 10a's sampler: under ERE or PCRE the literal `(locks)` becomes a capture group, the pattern means `chorelocks`, and it can never match. Unit coverage: `tests/m127-ste-486-phase4-sampling-gap-carveout.test.ts`.
 
 #### M54 follow-up probes (lifted per-FR fixtures)
 
@@ -1669,13 +1836,18 @@ Enumerate the run's OWN artifact paths. Never infer the answer from a bare `git 
 PLUGIN_DIR=/Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit
 TOOLKIT_REPO=${PLUGIN_DIR%/plugins/dev-process-toolkit}
 # One pathspec per artifact class this run writes into the toolkit repo: the
-# Phase 8 transcript captures, the Phase 9 capability-row logs, and the Phase
-# 2.X group-8a nested-spawn capture (§ Fixture group 8 persists it
-# unconditionally, and unlike the Phase 8 captures it is NOT git-ignored — so
-# omitting it here is exactly how an artifact class first surfaces as the next
-# run's pre-flight #4 refusal). Add a pathspec whenever a phase gains a new
-# persist target; this list is the check's whole coverage. Single-quoted, so
-# the shell never expands them and zsh's nomatch can never abort the call.
+# Phase 8 transcript captures, and the Phase 2.X group-8a nested-spawn capture
+# (§ Fixture group 8 persists it unconditionally, and unlike the Phase 8
+# captures it is NOT git-ignored — so omitting it here is exactly how an
+# artifact class first surfaces as the next run's pre-flight #4 refusal). Add a
+# pathspec whenever a phase gains a new persist target; this list is the
+# check's whole coverage. The capability-rows pathspec stays even though
+# STE-487 moved Phase 9's captures out to
+# /tmp/dpt-smoke-<tracker>-phase9/: that directory now holds only six
+# COMMITTED reproducers, so the pathspec is a tripwire for anything that starts
+# writing there again rather than a class this run expects to fill. Single-
+# quoted, so the shell never expands them and zsh's nomatch can never abort the
+# call.
 git -C "${TOOLKIT_REPO}" status --porcelain --ignored=matching -uall -- \
   'plugins/dev-process-toolkit/tests/fixtures/socratic-first-turn/' \
   'plugins/dev-process-toolkit/tests/fixtures/capability-rows/' \
@@ -1937,16 +2109,32 @@ Three lenient-assertion fixtures, each spawning `claude -p /spec-write` with a h
 
 ```bash
 CAP_ASSERT=${PLUGIN_DIR}/adapters/_shared/src/capability_row_assert.ts
+TRACKER="${TRACKER:?--tracker must resolve to linear|jira|none before Phase 9}"
+DATE=$(date +%Y-%m-%d)
 P9=/tmp/dpt-smoke-${TRACKER}-phase9
+mkdir -p "${P9}"
 
-bun "${CAP_ASSERT}" any-of "${P9}-draft-commit.log" spec_write_draft_default_applied spec_write_commit_default_applied
-bun "${CAP_ASSERT}" any-of "${P9}-branch-on-main.log" branch_gate_default_applied
-bun "${CAP_ASSERT}" any-of "${P9}-branch-off-trunk.log" branch_gate_skipped_already_non_main
-bun "${CAP_ASSERT}" any-of "${P9}-research-seeded.log" spec_research_invoked
-bun "${CAP_ASSERT}" any-of "${P9}-research-fresh.log" spec_research_no_matches
+bun "${CAP_ASSERT}" any-of "/tmp/dpt-smoke-${TRACKER}-phase9/draft-commit-${DATE}.log" spec_write_draft_default_applied spec_write_commit_default_applied
+bun "${CAP_ASSERT}" any-of "/tmp/dpt-smoke-${TRACKER}-phase9/branch-on-main-${DATE}.log" branch_gate_default_applied
+bun "${CAP_ASSERT}" any-of "/tmp/dpt-smoke-${TRACKER}-phase9/branch-off-trunk-${DATE}.log" branch_gate_skipped_already_non_main
+bun "${CAP_ASSERT}" any-of "/tmp/dpt-smoke-${TRACKER}-phase9/research-seeded-${DATE}.log" spec_research_invoked
+bun "${CAP_ASSERT}" any-of "/tmp/dpt-smoke-${TRACKER}-phase9/research-fresh-${DATE}.log" spec_research_no_matches
+
+# The manifest of what this leg persisted, one resolved path per line, followed
+# by the enumerating check over it (§ Manifest self-check below).
+MANIFEST="${P9}/artifact-manifest-${DATE}.log"
+: > "${MANIFEST}"
+for FIXTURE in draft-commit branch-on-main branch-off-trunk research-seeded research-fresh; do
+  echo "${P9}/${FIXTURE}-${DATE}.log" >> "${MANIFEST}"
+done
+bun "${PLUGIN_DIR:-$(git rev-parse --show-toplevel)/plugins/dev-process-toolkit}/adapters/_shared/src/harness_artifact_paths.ts" "${MANIFEST}"
 ```
 
-A non-zero exit → hard-fail the smoke run with the canonical diagnostic `STE-238 runtime regression: <fixture-name> — expected token "<key>" not emitted`, quoting the runner's verdict line (its `assistant=N … raw=N` split is the evidence that the token was documented but never emitted). Capture fixture artifacts under `tests/fixtures/capability-rows/<fixture-name>-<YYYY-MM-DD>.log` for replay.
+A non-zero exit → hard-fail the smoke run with the canonical diagnostic `STE-238 runtime regression: <fixture-name> — expected token "<key>" not emitted`, quoting the runner's verdict line (its `assistant=N … raw=N` split is the evidence that the token was documented but never emitted).
+
+**Persist path (STE-487).** Capture fixture artifacts under `/tmp/dpt-smoke-<tracker>-phase9/<fixture-name>-<YYYY-MM-DD>.log` for replay — the leg is a DIRECTORY segment, which separates two concurrent legs exactly as strongly as a filename segment would while keeping the literal readable to STE-423's `dpt-smoke-`-prefix scan (that scan reads up to the next `/`). The `<tracker>` segment is not decoration and the choice is not a judgement call — the 2026-08-16 three-leg run is an A/B control taken inside one run. Group 8a's `tests/fixtures/nested-spawn/8a-<tracker>-<YYYY-MM-DD>.log` kept all three legs' captures at three distinct mtimes; this phase's then-current date-only shape under `tests/fixtures/capability-rows/` — fixture name plus calendar day, no leg — kept exactly five files, all stamped 22:21 — one leg's set, with two legs' evidence overwritten by whichever leg finished last. The only difference between the surviving three and the destroyed two was the segment. The `/tmp` root is the second half: the old shape wrote into the **toolkit repo**, leaving ~2 MB of untracked, un-ignored files that would trip the next run's own pre-flight #4 (*Uncommitted changes in the toolkit repo*). Writing outside the repo settles that without an ignore rule, and an ignore rule is the worse instrument here anyway — it would have to be narrow enough to spare the six committed capability-row fixtures sharing that directory (the STE-425 lesson: a `*` that crosses a `/` takes the committed evidence with it). `tests/fixtures/capability-rows/` keeps only those six committed reproducers; Phase 9 no longer writes there at all. Enforcement is `adapters/_shared/src/harness_artifact_paths.ts`, which enumerates every per-run artifact path literal in BOTH harness SKILLs and exits non-zero on any that omits the segment.
+
+**Manifest self-check (STE-487).** A persist convention is a claim about paths, and STE-423 is the standing proof that a path claim goes unenforced until something reads it — its scan asserted the segment on every path a leg writes and could not see this phase's class at all. So the leg records the paths it actually persisted, one resolved path per line, and runs the enumerating check over that record: `bun "${PLUGIN_DIR:-$(git rev-parse --show-toplevel)/plugins/dev-process-toolkit}/adapters/_shared/src/harness_artifact_paths.ts" /tmp/dpt-smoke-<tracker>-phase9/artifact-manifest-<YYYY-MM-DD>.log` exit 0 — every path this leg wrote carries its resolved leg, checked against what the run did rather than against what this section says. A non-zero exit → hard-fail with `STE-487 artifact-path regression: <path> carries no <tracker> segment`, quoting the offender lines the check writes to stderr. **Score it by exit code, never by a stdout count** (the STE-485 lesson): the check prints exactly one verdict line on both branches — `artifact-paths: ok scanned=<N> unscoped=0` or `artifact-paths: FAIL scanned=<N> unscoped=<M>` — so a count reads 1 whether the segment was there or not and the pair is vacuous by construction. Falsifiability: registered in `adapters/_shared/src/falsifiability_harness.ts` (`M127_REPAIRS`, id `STE-487`), scored `exit-code` against the shipped `linear` manifest capture, whose leg segment is the mutated subject.
 
 **Phase 9 fires after Phase 8** — both new phases run before tracker-agnostic teardown. The two phases are independent: a Phase 8 failure does not skip Phase 9, and vice versa, so the operator gets the full picture of both regression surfaces in one run.
 
