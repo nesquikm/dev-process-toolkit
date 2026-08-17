@@ -61,7 +61,7 @@ The canonical Bun-stack `Bash()` permissions live in `templates/permissions.json
     "allow": [
       "Bash(git status)",
       "Bash(git diff)",
-      "Bash(git log)",
+      "Bash(git log:*)",
       "Bash(git show)",
       "Bash(git rev-parse)",
       "Bash(git ls-files)",
@@ -75,6 +75,7 @@ The canonical Bun-stack `Bash()` permissions live in `templates/permissions.json
       "Bash(gh api)",
       "Bash(ls)",
       "Bash(mkdir)",
+      "Bash(echo:*)",
       "Bash(bun install)",
       "Bash(bun test)",
       "Bash(bun run)",

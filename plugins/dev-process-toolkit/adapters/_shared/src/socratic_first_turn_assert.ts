@@ -13,9 +13,13 @@
 //   <skill>: ok-refused askIndex=<i>
 //   <skill>: vacuous askIndex=-1
 //   <skill>: violation tool=<X> index=<i>
+//   <skill>: violation askIndex=-1
 // Exit codes: ok-* ⇒ 0, violation ⇒ 1, vacuous ⇒ 3 (STE-399 AC-STE-399.2 —
 // vacuous is a non-pass, distinct from violation so the smoke driver can
-// tell "did nothing" from "scaffolded early").
+// tell "nothing was captured" from "scaffolded early"). STE-479 AC-STE-479.5
+// added the fourth line: a capture that ran but never asked, never refused
+// and never scaffolded is a breach with no tool to name, so it prints
+// `violation askIndex=-1` and exits 1.
 
 import { parseStreamJsonTranscript } from "./socratic_first_turn_stream";
 import {
@@ -44,6 +48,13 @@ export function verdictFor(
     const r = assertFirstTurnShape(transcript, opts);
     if (r.outcome === "vacuous") {
       return { line: `${skill}: vacuous askIndex=-1`, exitCode: 3 };
+    }
+    // STE-479 AC-STE-479.5: a RETURNED violation (ran, never asked, never
+    // refused, never scaffolded) has no offending tool to name — hence no
+    // `tool=/index=` detail — but it is a breach, so it exits 1 like the
+    // thrown scaffold violation below, never 0 and never the vacuous 3.
+    if (r.outcome === "violation") {
+      return { line: `${skill}: violation askIndex=-1`, exitCode: 1 };
     }
     return {
       line: `${skill}: ${r.outcome} askIndex=${r.askIndex ?? -1}`,

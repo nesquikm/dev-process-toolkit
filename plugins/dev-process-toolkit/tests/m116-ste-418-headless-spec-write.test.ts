@@ -326,16 +326,20 @@ describe("AC-STE-418.2 — unmarked + non-tty still refuses, and the refusal is 
     expect(shape.askIndex).toBe(0);
   });
 
-  test("non-vacuity: the SAME refusal prose with the marker stripped reads `vacuous`", () => {
+  test("non-vacuity: the SAME refusal prose with the marker stripped is a non-pass", () => {
     // Proves the previous assertion is carried by the marker, not by any
-    // other byte of the NFR-10 message.
+    // other byte of the NFR-10 message. The non-pass label sharpened from
+    // `vacuous` to `violation`: a run that wrote no scaffold and emitted
+    // neither an ask nor a recognisable refusal is a breach that can name
+    // itself, not an inconclusive result. What this leg asserts — that
+    // stripping the marker loses `ok-refused` — is unchanged.
     const err = captureRefusal(UNMARKED_NON_TTY_BODY);
     const stripped = err.message.split(REQUIRES_INPUT_REFUSED_MARKER).join("");
     expect(stripped).not.toContain(REQUIRES_INPUT_REFUSED_MARKER);
     const transcript = parseStreamJsonTranscript(assistantTextCapture(stripped));
-    expect(
-      assertFirstTurnShape(transcript, { projectRoot: repoRoot }).outcome,
-    ).toBe("vacuous");
+    const outcome = assertFirstTurnShape(transcript, { projectRoot: repoRoot }).outcome;
+    expect(outcome).toBe("violation");
+    expect(outcome).not.toBe("ok-refused");
   });
 
   test("assistant text is the scope: the marker must reach extractAssistantText", () => {
