@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.67.1] — 2026-08-17 — "Verdict"
+
+The two driver-level findings from the 2026-08-16 `/conformance-loop` run. Both surfaces are the maintainer's own harness — the loop driver and the smoke driver — so nothing in this release changes anything a downstream project touches.
+
+The first is a design collision rather than a defect in either half. An earlier release made each leg's exit code carry its verdict; the collection gate, written before that, aborted the whole iteration on any non-zero code. Both decisions were correct when they were made, and together they meant the loop could not emit its own report on the runs that matter most — because a capture-only leg that finds anything is exactly the case that reconciles to a non-zero code.
+
+### Fixed
+
+- The RC-collection gate classifies a non-zero leg against its verdict artifact instead of reading the bare code (STE-490). `RC_VERDICT_NON_PASS` (64) is the normal outcome of a capture-only leg that **declared** findings, so treating it as a crashed subprocess stopped the iteration before aggregation every time the legs found something. It is also not self-describing: a leg whose grandchild chain never completed reconciles to the *same* 64, so the integer alone cannot separate "we found things" from "the run never happened" — only the artifact can. At 64, and only at 64, the gate now reads it: a declared `fail` proceeds, while an armed trigger, a declared abort, a contradicting pass, and a missing, malformed, stale or unreadable artifact each still abort, as does every other non-zero code. The existing fail-closed hardening for the missing, empty and non-integer rc-file shapes is preserved byte-for-byte, verified by byte comparison rather than by substring. The gate's own bash fences are extracted and executed against both artifact classes, and four independent mutations confirm the decision path can fail: removing the artifact consult lets an armed *and* an artifact-less leg both proceed. The same lesson was recorded on 2026-08-01 and went unfixed; that recurrence is on the record rather than smoothed over.
+- The fixture-roster line spelling is stated once, at the point a leg reads before writing its findings file (STE-491). One leg compacted its whole roster onto a single line, so a search for the documented `runtime check:` spelling returned zero matches there — byte-indistinguishable from a leg that skipped the roster entirely, which is the silent-skip shape this project treats as worse than a loud failure. The rule now names the authority module as the producer and refuses the compacted hand-tally outright, and fixture group 12's contract cites it instead of restating it. Preventive rather than corrective: no automated consumer depended on the spelling at the time of the fix, and the renderer itself was already emitting the canonical form on every leg.
+
+Total test count at release: 8020 tests, 0 failures, 0 errors.
+
 ## [2.67.0] — 2026-08-17 — "Refutable"
 
 Seven findings from the 2026-08-16 `/conformance-loop` run. The canonical chain ran 6/6 green on all three legs — every item below is an assertion defect in the maintainer's own harness (`.claude/skills/smoke-test/SKILL.md`), not a regression in a system under test. Nothing in this release changes a surface a downstream project touches.
