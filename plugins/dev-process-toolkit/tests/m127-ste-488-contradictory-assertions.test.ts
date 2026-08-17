@@ -152,7 +152,13 @@ const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
 const SMOKE_SKILL_PATH = join(REPO_ROOT, SMOKE_SKILL_RELATIVE_PATH);
 const M126_TEST = join(PLUGIN_ROOT, "tests", "m126-ste-477-propagation-subject-length.test.ts");
-const M127_PLAN = join(REPO_ROOT, "specs", "plan", "M127.md");
+// AC-STE-459.2's live-then-archive conditional — this suite must survive the
+// milestone's OWN archival, which happens in the same run that writes it. A
+// bare live path reddens the moment Phase 4 archives, and the failure reads as
+// a defect in the assertion rather than as a moved file.
+const M127_PLAN = existsSync(join(REPO_ROOT, "specs", "plan", "M127.md"))
+  ? join(REPO_ROOT, "specs", "plan", "M127.md")
+  : join(REPO_ROOT, "specs", "plan", "archive", "M127.md");
 const CAP_ASSERT = join(PLUGIN_ROOT, "adapters", "_shared", "src", "capability_row_assert.ts");
 
 /** The two probe modules AC-STE-488.4 forbids this FR from touching. */

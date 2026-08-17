@@ -125,7 +125,7 @@
 // be cited freely there and here.
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -151,7 +151,13 @@ import { DERIVED_FIXTURE_BYTE_CEILING } from "../adapters/_shared/src/capture_ar
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
 const SMOKE_SKILL = join(REPO_ROOT, ".claude", "skills", "smoke-test", "SKILL.md");
-const M127_PLAN = join(REPO_ROOT, "specs", "plan", "M127.md");
+// AC-STE-459.2's live-then-archive conditional — this suite must survive the
+// milestone's OWN archival, which happens in the same run that writes it. A
+// bare live path reddens the moment Phase 4 archives, and the failure reads as
+// a defect in the assertion rather than as a moved file.
+const M127_PLAN = existsSync(join(REPO_ROOT, "specs", "plan", "M127.md"))
+  ? join(REPO_ROOT, "specs", "plan", "M127.md")
+  : join(REPO_ROOT, "specs", "plan", "archive", "M127.md");
 
 const SKILL_BODY = readFileSync(SMOKE_SKILL, "utf8");
 const PLAN_BODY = readFileSync(M127_PLAN, "utf8");
