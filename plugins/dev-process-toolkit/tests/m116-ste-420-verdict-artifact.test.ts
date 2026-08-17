@@ -532,9 +532,20 @@ describe("AC-STE-420.4 — a leg that dies before writing an artifact cannot rea
 // ===========================================================================
 
 /**
- * The Phase A gate exactly as the SKILL documents it, once reconciliation is
- * in place: read the rc-file, reconcile it against the verdict artifact, abort
- * the iteration on any non-zero.
+ * RECONCILIATION's own verdict: read the rc-file, reconcile it against the
+ * verdict artifact, and report whether that reconciles to a non-zero code.
+ *
+ * NOT a model of the shipped Phase A gate, and must not be read as one.
+ * Through STE-489 the two were the same predicate, and this helper was
+ * documented as "the Phase A gate exactly as the SKILL documents it ... abort
+ * the iteration on any non-zero". STE-490 narrowed the gate: a leg reconciling
+ * to `RC_VERDICT_NON_PASS` (64) beside a verdict artifact recording a DECLARED
+ * `fail` no longer aborts the iteration, because 64 is what a capture-only leg
+ * returns whenever it declares findings. `classifyLegRc` is the gate's decision
+ * rule now; this helper still describes `reconcileLegRc` truthfully, which is
+ * all STE-420's ACs ever needed from it. Every call site below reconciles
+ * through an ARMED trigger or a malformed/absent artifact, none through
+ * `declared`, so each still aborts under both rules.
  */
 function phaseAIterationAborts(
   rcFileValue: string | undefined,
