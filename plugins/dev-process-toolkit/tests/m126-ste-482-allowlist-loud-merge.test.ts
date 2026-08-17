@@ -70,7 +70,7 @@
 // numbers drift from the registry or if the exact-equality shape is relaxed.
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -94,7 +94,14 @@ const SPEC_WRITE_SKILL = join(PLUGIN_ROOT, "skills", "spec-write", "SKILL.md");
 const PERMISSIONS_TEMPLATE_PATH = join(PLUGIN_ROOT, "templates", "permissions.json");
 const SETTINGS_TEMPLATE_PATH = join(PLUGIN_ROOT, "templates", "settings.json");
 const M84_TEST = join(PLUGIN_ROOT, "tests", "m84-ste-320-code-reviewer-scope-registry.test.ts");
-const FR_482 = join(REPO_ROOT, "specs", "frs", "STE-482.md");
+// Live-then-archive, the house shape. An FR file moves to `specs/frs/archive/`
+// the moment its milestone closes, and archival is the one transition no gate
+// run precedes — a hard-coded active path turns green into red at the exact
+// commit that finishes the work. Four assertions in this suite went red that
+// way; the sibling STE-477/478/481 suites already carried this conditional.
+const FR_482 = existsSync(join(REPO_ROOT, "specs", "frs", "STE-482.md"))
+  ? join(REPO_ROOT, "specs", "frs", "STE-482.md")
+  : join(REPO_ROOT, "specs", "frs", "archive", "STE-482.md");
 
 const SKILL_LINE_CAP = 358;
 const SKILLS_STE_TOKEN_CEILING = 246;
