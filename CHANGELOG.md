@@ -8,6 +8,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.67.0] — 2026-08-17 — "Refutable"
+
+Seven findings from the 2026-08-16 `/conformance-loop` run. The canonical chain ran 6/6 green on all three legs — every item below is an assertion defect in the maintainer's own harness (`.claude/skills/smoke-test/SKILL.md`), not a regression in a system under test. Nothing in this release changes a surface a downstream project touches.
+
+Six of the findings were false REDs against healthy subjects; two were false GREENs, which is the more dangerous half and the reason the harness below checks non-vacuity in both directions.
+
+### Added
+
+- Falsifiability harness for repaired fixture assertions, with halt-on-vacuous (STE-483). A registry row names a SITE in the SKILL rather than carrying a shell, so the bytes executed are the bytes shipped; the mutation must remove an assertion's actual subject, and a rewording is refused rather than scored; every comparison is over counts, so a mutation that silently never applied cannot read as a pass. The halt token resolved to `harness-fails` against three archived captures, and all twelve registered clauses are falsifiable with a non-zero removal count.
+
+### Fixed
+
+- Fixture group 7's `tdd-result` count reads forked-child `tool_result` content (STE-484). The retired form anchored to line starts a streaming capture does not have and returned 0 on every run, healthy or dead; the documented repair returned 0 as well, because it projects assistant text and the orchestrator's children are forked. Correctly scoped: linear 8, jira 6, none 6. Both retired forms are recorded with their opposite vacuity reasons.
+- Fixture 3c asserts the probe id and verdict as an `any-of` over measured renderings (STE-485). `/gate-check` composes its verdict block per run, so both were run-dependent: the same leg rendered probe #37's id underscored 17 / hyphenated 0 on one date and underscored 0 / hyphenated 2 on another. A token-vs-source check now resolves an asserted token against the source that emits it at the asserted layer, so a fixture cannot assert a token no shipped code emits.
+- Phase 4's claim witness inherits fixture 10a's sampling-gap carve-out (STE-486). A run that claimed and finished inside one poll call was failed for evidence its own sampler never had a chance to record. The carve-out is single-sourced rather than restated, and 10a itself is byte-unchanged.
+- Phase 9 artifacts carry the tracker segment and are written outside the repository (STE-487). Three concurrent legs previously wrote identical filenames and overwrote one another, leaving roughly two megabytes of untracked debris in the toolkit tree. An enumerator over both harness SKILLs turns the per-run-path rule into an enforced gate rather than a restated claim.
+- Assertions contradicting documented runtime behaviour are retired (STE-488). Group 4 demanded an archive file after an invocation form the same document twice states does not archive; groups 9a and 9b demanded verbatim probe messages a reformatting renderer never emits. The propagation-commit greps are tightened onto the fixed subject, and M126's byte-unchanged scope guard is retired at the moment it named as authorised — it compared the working tree to `HEAD`, so it went green the instant its own milestone committed.
+- Fixture group 2 matches safely on streaming captures and stages its subject in isolation (STE-489). One wildcard matched twice where the word it sought occurs zero times and matched nothing where the probe behaved correctly — opposite errors, same regex, same run. Staging is now committed and canonical-shaped so the group's verdict is attributable, and sub-fixture 2b reads probe #26's own row instead of the run's aggregate verdict.
+
+Total test count at release: 7950 tests, 0 failures, 0 errors.
+
 ## [2.66.0] — 2026-08-17 — "Aloud"
 
 M126 — Shipped-Surface Conformance Fixes. Six findings from the 2026-08-16 conformance run, every one of them on a surface a downstream project actually touches. The through-line is things that were happening silently: a commit subject that could not fit the hook the same toolkit installs, a run that created tracker state and then dropped its commit, a refusal only a human could recognise, a probe that read directory listings but not sentences, a second plan file nobody counted, and a permission merge that never said what it had done.
