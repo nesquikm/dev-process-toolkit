@@ -76,7 +76,17 @@ export const AC9_WINDOW = 2400;
 export const AC9_DISCLAIMER_PINS: readonly string[] = [
   "the release proof", // STE-448
   "The durable claim witness is REQUIRED here", // STE-456
-  "`claim-commit none`, or no such line at all, is a **FAIL even with the lock absent**", // STE-456
+  // STE-456, NARROWED BY STE-486 — and the narrowing is why the pin moved
+  // rather than being deleted. STE-456's unqualified form (``claim-commit
+  // none`, or no such line at all, is a **FAIL even with the lock absent**`)
+  // false-REDDED a healthy run: the sampler fires once per poll call, so a
+  // grandchild that claims and finishes inside one call records only pre-claim
+  // state. § Sub-fixture 10a's carve-out already said so, and STE-486 makes
+  // this row consult it. What the row must still state — and what this pin
+  // guards — is that the failure SURVIVES the carve-out when nothing confirms
+  // the claim. A row that dropped this clause would be back to an absence check
+  // a never-fired claim satisfies, which is the whole subject of the window.
+  "**with no claim commit in history it is a FAIL even with the lock absent**", // STE-456 / STE-486
   "STE-451", // STE-451
   "deliberately only HALF of the lock assertion", // STE-448
   "satisfied *vacuously* by a lock that was never created", // STE-448 — trailing pin
@@ -234,9 +244,17 @@ export const AC9_TITLE_WINDOW = 200;
 
 /**
  * RECORDED headroom for the wide window. Measured by execution: the furthest
- * guarded pin ends at 2306.
+ * guarded pin ends at 2346.
+ *
+ * RE-MEASURED BY STE-486, in the same edit that moved the row — which is the
+ * discipline this constant exists to force. The witness clause grew by exactly
+ * 40 characters (the unqualified FAIL sentence became the narrowed one above),
+ * so 2306 became 2346 and the headroom fell 94 → 54. STE-486's own executable
+ * span is deliberately placed AFTER the row's supersession annotation, outside
+ * this window, precisely so a paragraph of new prose did not spend a budget
+ * that guards pins still doing their job.
  */
-export const AC9_WINDOW_HEADROOM = 94;
+export const AC9_WINDOW_HEADROOM = 54;
 
 /**
  * RECORDED headroom for the title window. Measured by execution: the 61-char
