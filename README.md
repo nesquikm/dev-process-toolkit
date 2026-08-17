@@ -181,7 +181,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.65.0 — "Blueprint"** (M125, template-source bootstrap: `/setup --template <path>` bootstraps a new project from an existing one — a read-only analyzer inventories the template into reuse categories (process config, curated manifests, scaffolding, source patterns, whole-project), and a Socratic `setup-template` dispatch child walks per-category selection, adapts project-identifying names, previews one unified diff, and lands everything in the normal single bootstrap commit — refusing cleanly when no operator is present.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.66.0 — "Aloud"** (M126, shipped-surface conformance fixes: six findings from the 2026-08-16 run, all on surfaces downstream projects touch — a propagation-commit subject that now fits the 72-char hook the toolkit itself installs, `/spec-write`'s trunk-invocation path reaching its commit and disclosing tracker state it leaves behind, `/brainstorm` raising the machine-readable refusal marker with gate probe #77 behind it, gate probe #37 reading prose as well as directory-tree leaves under marketplace-aware path resolution, one active plan file per tracker-less project, and `/setup` reporting how many allow-list entries its merge added.)
 
 ## Core Philosophy
 
