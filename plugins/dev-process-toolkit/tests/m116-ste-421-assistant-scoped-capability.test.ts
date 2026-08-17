@@ -119,8 +119,14 @@ const DECLARED_CAPTURE_RUN = process.env.DPT_CAPTURE_RUN ?? null;
 
 /**
  * Every token the smoke SKILL asserts as evidence that a skill EMITTED a
- * capability row. Deliberately includes the hyphenated stale-file-refs spelling
- * — that misspelling is the AC-STE-421.4 defect and must be swept out too.
+ * capability row. Deliberately includes the hyphenated stale-file-refs spelling.
+ *
+ * AMENDED BY STE-485 (M127): this comment used to call the hyphenated form "that
+ * misspelling" which "must be swept out". It is not a misspelling — `/gate-check`
+ * is LLM-rendered and renders EITHER spelling depending on the run (same jira leg:
+ * underscored 17 / hyphenated 0 on 2026-07-27, underscored 0 / hyphenated 2 on
+ * 2026-08-16). Both spellings are real renderings, so both belong in this universe
+ * and neither can be swept out. See the re-scoped hyphen-form test below.
  */
 const CAPABILITY_TOKENS = [
   "spec_write_draft_default_applied",
@@ -138,7 +144,13 @@ const CAPABILITY_TOKENS = [
 /**
  * The keys that MUST each be reachable through the runner after the fix — the
  * union of the nine Phase 2.X raw-grep sites and the Phase 9 fixture tokens.
- * The hyphen form is excluded on purpose: AC-STE-421.4 removes it.
+ *
+ * The hyphen form is excluded from THIS list on purpose, and STE-485 (M127) leaves
+ * that exclusion standing while narrowing what it means. It is not "the hyphen form
+ * is wrong" — it is that this list drives a per-key routing sweep, and the two
+ * spellings name ONE probe whose rendering varies per run, so requiring each to be
+ * independently routable would demand a fixture asserting a spelling no given run
+ * emits. The union is asserted instead, by the hyphen-form test below.
  */
 const ROUTED_KEYS = CAPABILITY_TOKENS.filter(
   (t) => t !== "cross-cutting-spec-stale-file-refs",
@@ -559,7 +571,27 @@ describe("AC-STE-421.4 — the assertion token is the token the runtime emits", 
     expect(invocations.some((line) => line.includes(emitted!))).toBe(true);
   });
 
-  test("no assertion line in the smoke SKILL uses the hyphen form", () => {
+  // SUPERSEDED BY STE-485 (M127) — re-scoped, not deleted, because the original
+  // rule was right about its evidence and wrong about its universality.
+  //
+  // This test used to forbid the hyphen form on any assertion line, on the
+  // strength of the 2026-07-27 jira probe capture: underscored 17, hyphenated 0.
+  // That measurement was real. What it could not see is that `/gate-check` is
+  // LLM-RENDERED, so the spelling it puts in the verdict block is RUN-DEPENDENT.
+  // The same leg, the same fixture, nineteen days later:
+  //
+  //     2026-07-27 jira  underscored 17  hyphenated  0   <- STE-421 AC.4's evidence
+  //     2026-08-16 jira  underscored  0  hyphenated  2   <- STE-485's evidence
+  //
+  // A complete inversion. That is why fixture 3c has drifted three times: each
+  // correction pinned ONE run's rendering as the contract, and the next run
+  // rendered the other spelling. Forbidding one literal and requiring the other
+  // are the same mistake facing opposite directions.
+  //
+  // The rule that survives the evidence is therefore not "which spelling" but
+  // "never a single spelling": an assertion line naming this probe's token must
+  // accept BOTH forms, so no rendering can red a healthy probe.
+  test("assertion lines naming probe #37 accept BOTH spellings, never one literal", () => {
     // Scoped to ASSERTION lines (grep / runner invocations) on purpose. Prose
     // that names /gate-check probe #37 by its documented hyphenated *probe id*
     // is correct and out of scope — as is
@@ -569,10 +601,22 @@ describe("AC-STE-421.4 — the assertion token is the token the runtime emits", 
       ...rawLogCapabilityGreps(SMOKE_SKILL_BODY),
       ...runnerInvocations(SMOKE_SKILL_BODY),
     ];
-    const offenders = assertionLines.filter((l) =>
-      l.includes("cross-cutting-spec-stale-file-refs"),
+    const naming = assertionLines.filter((l) =>
+      /cross[_-]cutting[_-]spec[_-]stale[_-]file[_-]refs/.test(l),
     );
-    expect(offenders).toEqual([]);
+    // The clause must exist at all — a fixture that stopped asserting the token
+    // would pass a "no single literal" rule vacuously.
+    expect(naming.length).toBeGreaterThan(0);
+
+    // Every line that names the token must name it in BOTH spellings.
+    const singleSpelling = naming.filter(
+      (l) =>
+        !(
+          l.includes("cross_cutting_spec_stale_file_refs") &&
+          l.includes("cross-cutting-spec-stale-file-refs")
+        ),
+    );
+    expect(singleSpelling).toEqual([]);
   });
 
   test("the 2026-07-27 probe capture confirms which form was really emitted", () => {

@@ -47,6 +47,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { evaluateClaimWitness } from "../adapters/_shared/src/claim_witness_assert";
 import { join } from "node:path";
 
 import { bashFences } from "./_fence";
@@ -528,20 +529,62 @@ type RowVerdict = { pass: boolean; reason: string };
  * predicate over the artifacts the extracted fences leave behind.
  */
 function releaseProofRow(f: Fixture): RowVerdict {
+  // NARROWED BY STE-486 (M127), and the delegation is the point.
+  //
+  // This analogue used to re-implement the row's outcome rule inline, and it
+  // returned FAIL on `claim-commit none` UNCONDITIONALLY — the pre-STE-486
+  // rule. It stayed green only because no fixture in this file constructs the
+  // one state STE-486 moved: no sha in the log, lock gone, claim commit
+  // confirmed in history. That is a third executable statement of a rule the
+  // SKILL now states once and cites once, which is precisely the drift
+  // AC-STE-486.4 exists to retire — arriving in code, where AC.4's
+  // prose-uniqueness mechanism cannot see it.
+  //
+  // So the analogue no longer states the rule at all: it delegates to
+  // `evaluateClaimWitness`, the same module the SKILL's own span executes.
+  // A future change to the outcome rule now cannot leave this file behind.
   const absent = !existsSync(join(locksDir(f.root), f.frId));
-  const lines = logLines(f);
-  if (lines === null) {
-    return { pass: false, reason: "no sample log — the sampler never ran" };
+  const logText = existsSync(f.log) ? readFileSync(f.log, "utf8") : null;
+
+  // The confirmation arm, rendered exactly as the SKILL's span renders it:
+  // `--basic-regexp` is load-bearing (under ERE/PCRE the literal `(locks)`
+  // becomes a capture group and the pattern can never match).
+  let confirmedSha: string | null = null;
+  try {
+    const found = git(
+      f.root,
+      "log",
+      "--format=%H",
+      "-1",
+      "--basic-regexp",
+      `--grep=^chore(locks): claim lock for ${f.frId}$`,
+    ).trim();
+    confirmedSha = found === "" ? null : found;
+  } catch {
+    confirmedSha = null;
   }
-  const witnesses = lines
-    .filter((l) => l.startsWith("claim-commit "))
-    .map((l) => l.slice("claim-commit ".length))
-    .filter((s) => s !== "none");
-  if (witnesses.length === 0) {
-    return { pass: false, reason: "claim-commit none — no claim was ever made" };
+
+  const verdict = evaluateClaimWitness({ logText, confirmedSha, lockAbsent: absent });
+
+  // The DECISION comes from the module; the reason strings stay local. That
+  // split is deliberate: the thing that must never drift is the outcome rule,
+  // and these strings are this file's own labels for the states it constructs,
+  // not a second statement of the rule. `sampling-gap` REPORTS and does not
+  // fail — 10a's carve-out, now inherited rather than re-derived.
+  const pass = verdict.outcome !== "fail";
+  let reason: string;
+  if (verdict.outcome === "sampling-gap") {
+    reason = "sampling gap — history confirms the claim the sampler missed";
+  } else if (logText === null) {
+    reason = "no sample log — the sampler never ran";
+  } else if (!absent) {
+    reason = "the lock survived the run";
+  } else if (pass) {
+    reason = "witness present and the lock is gone";
+  } else {
+    reason = "claim-commit none — no claim was ever made";
   }
-  if (!absent) return { pass: false, reason: "the lock survived the run" };
-  return { pass: true, reason: "witness present and the lock is gone" };
+  return { pass, reason };
 }
 
 /** The PRE-456 row: absence alone. Kept so the change can be measured. */
@@ -557,7 +600,15 @@ describeIfSkills("AC-STE-456.4 — the release proof requires the witness", () =
   test("PROSE: the row demands the durable witness AND the absence", () => {
     const row = ac9Window(smokeDoc!);
     expect(row).toContain("The durable claim witness is REQUIRED here");
-    expect(row).toContain("`claim-commit none`, or no such line at all, is a **FAIL even with the lock absent**");
+    // NARROWED BY STE-486, not weakened. The unqualified form this line used to
+    // pin ("`claim-commit none`, or no such line at all, is a **FAIL even with
+    // the lock absent**") false-REDDED a healthy tracker-less run, because the
+    // sampler fires once per poll call and can record only pre-claim state. The
+    // demand AC-STE-456.4 actually makes — that a claim which never fired can no
+    // longer produce this row's green — is carried by the surviving clause, and
+    // it is read from the shared pin list rather than restated here so the guard
+    // and its budget cannot hold two different subjects.
+    expect(row).toContain(AC9_DISCLAIMER_PINS[2]!);
   });
 
   test("PROSE: the row's TITLE says so too — it cannot revert to half-only", () => {

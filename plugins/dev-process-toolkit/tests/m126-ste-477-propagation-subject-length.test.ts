@@ -35,10 +35,21 @@
 //
 // WHAT THIS FILE DELIBERATELY DOES NOT ASSERT — and the reason is scope, not
 // oversight. `.claude/skills/smoke-test/SKILL.md` lines 998 and 1006 grep for
-// the propagation subject and are repaired under STE-488 in M127. Nothing here
-// requires those greps to change; there is instead a guard asserting that file
-// is BYTE-UNCHANGED, so a well-meaning in-scope edit to it fails loudly rather
-// than silently annexing another milestone's work.
+// the propagation subject. Nothing here requires those greps to change.
+//
+// UPDATED IN M127 BY STE-488. This paragraph used to end "there is instead a
+// guard asserting that file is BYTE-UNCHANGED". That guard has been retired at
+// the moment it named as authorised — see § AC-STE-477.6 below for the full
+// reason. In short: it compared the WORKING TREE to `git show HEAD:`, so it
+// could only ever be red between an edit and its commit, and went green
+// permanently the instant M126 itself committed. It was a mid-flight tripwire
+// for one milestone, not a durable assertion, and keeping it past its moment
+// would have shipped something that reads as protection while checking nothing.
+// The live condition it stood for — the propagation greps exist and match the
+// shipped subject — now lives in
+// `tests/m127-ste-488-contradictory-assertions.test.ts`, where it is EXECUTED
+// against throwaway git repositories in both directions rather than pinned by
+// line index.
 
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
@@ -564,21 +575,31 @@ describe("AC-STE-477.6 — the STE-488 / M127 coupling is recorded, not discover
     expect(read(IMPLEMENT_REFERENCE)).toContain("STE-488");
   });
 
-  test("SCOPE GUARD: .claude/skills/smoke-test/SKILL.md is byte-unchanged", () => {
-    // Repairing those greps is STE-488's job in M127. This assertion is what
-    // keeps a well-meaning in-scope edit from silently annexing it — and it is
-    // also what makes the AC.6 record meaningful rather than a note about work
-    // that quietly already happened.
-    const head = headBytes(SMOKE_SKILL_REL);
-    expect(head).not.toBeNull();
-    expect(read(join(REPO_ROOT, SMOKE_SKILL_REL))).toBe(head!);
-  });
-
-  test("the coupled greps are still THERE — the record describes a live condition", () => {
-    // If the greps had already moved, the note would be describing nothing and
-    // the guard above would be pinning a coincidence.
-    const lines = read(join(REPO_ROOT, SMOKE_SKILL_REL)).split("\n");
-    expect(lines[997]).toContain("removal to cross-cutting specs");
-    expect(lines[1005]).toContain("removal to cross-cutting specs");
-  });
+  // ── RETIRED IN M127 BY STE-488 — this is the authorised moment ────────────
+  //
+  // Two assertions stood here and both are gone deliberately, not by drift:
+  //
+  //   · One held the smoke driver byte-for-byte against `git show HEAD:`,
+  //     reserving the two propagation greps for STE-488. It compared the
+  //     WORKING TREE against HEAD, so it went green the instant M127 committed
+  //     and thereafter asserted nothing whatever changed — vacuous by
+  //     construction, not by accident. Left in place it would have been a
+  //     permanently-passing row in the gate.
+  //   · The other pinned the two grep lines by FIXED INDEX (the 998/1006 pair
+  //     the Notes above still name). STE-488 tightened both greps onto
+  //     `PROPAGATION_COMMIT_SUBJECT` and added a paragraph of rationale above
+  //     them, which moves every index in that region. An index pin cannot
+  //     survive the edit it exists to authorise.
+  //
+  // Retiring coverage and retiring an assertion are different acts, so the
+  // property both stood for did NOT disappear with them: "the propagation
+  // greps are live and match the shipped subject" is now owned by
+  // `tests/m127-ste-488-contradictory-assertions.test.ts` § AC-STE-488.5,
+  // which asserts it by EXECUTING both greps against a throwaway git
+  // repository — in both directions, matching the real subject and refusing a
+  // near-miss the loose form accepted. That is strictly stronger than either
+  // row removed here, neither of which ever ran a grep.
+  //
+  // The surviving two tests in this block are unaffected: the cross-milestone
+  // record in the FR Notes and in the reference doc is still asserted above.
 });

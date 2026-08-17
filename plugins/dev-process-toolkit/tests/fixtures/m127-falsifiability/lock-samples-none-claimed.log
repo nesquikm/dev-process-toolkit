@@ -1,0 +1,11 @@
+# SYNTHETIC — hand-built for STE-486, and it says so in its own bytes.
+# No preserved capture of a leg whose sampler CAUGHT the claim exists: the
+# 2026-08-16 tracker-less leg is the 60-byte lock-samples-none.log next to this
+# file, which is the sampling-gap case. This is the log the same sampler would
+# leave on a leg where /implement claimed BEFORE the second poll call — the
+# harness's present-subject half, and a fixture that posed as a real capture
+# would be the defect class M127 removes.
+lock-absent fr_01M05MY4CE5DCWW8E26WJQMS6D
+claim-commit none
+lock-present fr_01M05MY4CE5DCWW8E26WJQMS6D
+claim-commit 4f1d9c8b7a6e5d4c3b2a1908f7e6d5c4b3a29180
