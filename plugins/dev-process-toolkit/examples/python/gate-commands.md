@@ -35,7 +35,7 @@ pytest               # Run all tests
     "allow": [
       "Bash(git status)",
       "Bash(git diff)",
-      "Bash(git log)",
+      "Bash(git log:*)",
       "Bash(git show)",
       "Bash(git rev-parse)",
       "Bash(git ls-files)",
@@ -49,6 +49,7 @@ pytest               # Run all tests
       "Bash(gh api)",
       "Bash(ls)",
       "Bash(mkdir)",
+      "Bash(echo:*)",
       "Bash(uv sync)",
       "Bash(uv run)",
       "Bash(uv --version)",

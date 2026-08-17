@@ -124,6 +124,22 @@ export const CANONICAL_CAPABILITY_KEYS = [
   // and the lens ran, `_skipped_no_manifest` when the manifest was absent/empty.
   "best_practices_lens_applied",
   "best_practices_lens_skipped_no_manifest",
+  // M126 STE-479: the /brainstorm Socratic first-turn refusal token — fires
+  // when the non-tty first-turn gate refuses (AskUserQuestion unavailable, no
+  // marker) instead of scaffolding. Pairs the machine-readable
+  // `<dpt:requires-input-refused>` marker with a reportable capability row so a
+  // refused run names itself in the closing summary rather than reading as
+  // `vacuous`. Same "refusal ships as a set" shape as
+  // `report_issue_publish_refused`.
+  "brainstorm_socratic_refused",
+  // M126 STE-482: the /setup allow-list merge report — names how many allow
+  // entries step 6 added BEYOND the caller-supplied list. The merge itself is
+  // intended and unchanged; what was missing is the signal, which is why the
+  // same measurement kept being re-filed as a defect. Emits on every path,
+  // including the two quiet ones (no caller list ⇒ the full scaffolded count;
+  // zero added ⇒ a row saying so), because a silent skip and a broken report
+  // read identically.
+  "setup_allowlist_entries_added",
 ] as const;
 
 export type CapabilityKey = (typeof CANONICAL_CAPABILITY_KEYS)[number];
@@ -200,6 +216,21 @@ const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   // wires the emission at the Phase 3 lens site.
   best_practices_lens_applied: "spec-write",
   best_practices_lens_skipped_no_manifest: "spec-write",
+  // M126 STE-479: the /brainstorm Socratic-refusal token. Routes to spec-write
+  // for the SAME reason as the archival-assertion pair above — the § 7 static
+  // map is the canonical owner surface this probe enforces, and the probe's
+  // fixture legs write only a fixture spec-write SKILL.md and expect one
+  // violation per canonical key. /brainstorm carries the emission-site
+  // MUST-emit directive in its own body (pinned by the STE-479 meta-tests),
+  // exactly as /brainstorm already does for the deps-research skip pair.
+  brainstorm_socratic_refused: "spec-write",
+  // M126 STE-482: the /setup allow-list merge report. Routes to spec-write for
+  // the SAME reason as the archival-assertion pair and the Socratic-refusal
+  // token above — the § 7 static map is the canonical owner surface this probe
+  // enforces, and the probe's fixture legs write only a fixture spec-write
+  // SKILL.md and expect one violation per canonical key. /setup carries the
+  // emission-site MUST-emit directive in its own step-6 merge bullet.
+  setup_allowlist_entries_added: "spec-write",
 };
 
 /**

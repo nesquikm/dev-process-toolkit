@@ -1190,20 +1190,20 @@ describe("AC-STE-424.2 — gate-check SKILL.md stops claiming probe #13 excludes
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("STE-424 — the probe count tracks the live total", () => {
-  test("gate-check SKILL.md enumerates exactly 76 probes, contiguous", () => {
+  test("gate-check SKILL.md enumerates exactly 77 probes, contiguous", () => {
     // STE-424 deliberately spent no probe number: a new probe ripples to ~26
     // pinned count sites across README.md, skills/gate-check/SKILL.md and five
     // test files, and both of this FR's checks belong to probes #13 and #73,
     // which already walk the trees they need.
     //
     // The number below is therefore NOT an M116 freeze — it is the live total,
-    // which M124 moved 75 → 76 when it added #76 `best_practices_manifest_hygiene`.
+    // which M126 moved 76 → 77 when it added #77 `first_turn_refusal_marker`.
     // A later milestone that spends a probe number bumps this literal along
     // with the other pinned sites; that is the intended cost, not a regression.
     const numbers = [...read(gateCheckSkillPath).matchAll(/^(\d+)\. \*\*/gm)].map((m) =>
       Number(m[1]),
     );
-    expect(numbers.length).toBe(76);
-    expect(Math.max(...numbers)).toBe(76);
+    expect(numbers.length).toBe(77);
+    expect(Math.max(...numbers)).toBe(77);
   });
 });

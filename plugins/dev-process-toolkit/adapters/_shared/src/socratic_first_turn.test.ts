@@ -123,13 +123,20 @@ describe("AC-STE-237.5 — assertFirstTurnShape six-case matrix", () => {
     expect(result.askIndex).toBeUndefined();
   });
 
-  test("AC-STE-399.1: read-only-only transcript (no ask, no scaffold) ⇒ vacuous", () => {
+  // STE-479 AC-STE-479.5 narrowed this case. It originally scored `vacuous`,
+  // which WAS the defect: a read-only-only transcript is not an inconclusive
+  // capture — something was captured, and what it shows is a skill that ran,
+  // ended its turn, and never entered the Socratic loop. `vacuous` is now
+  // reserved for the genuinely inconclusive (empty transcript, or a scaffold
+  // scoped away by projectRoot — both pinned in this file), so this shape now
+  // scores `violation` and the breach names itself.
+  test("AC-STE-479.5: read-only-only transcript (no ask, no scaffold) ⇒ violation", () => {
     const transcript: TranscriptEntry[] = [
       { type: "tool_use", name: "Read" },
       { type: "text" },
     ];
     const result = assertFirstTurnShape(transcript);
-    expect(result.outcome).toBe("vacuous");
+    expect(result.outcome).toBe("violation");
     expect(result.askIndex).toBeUndefined();
   });
 });

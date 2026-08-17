@@ -35,7 +35,7 @@
     "allow": [
       "Bash(git status)",
       "Bash(git diff)",
-      "Bash(git log)",
+      "Bash(git log:*)",
       "Bash(git show)",
       "Bash(git rev-parse)",
       "Bash(git ls-files)",
@@ -49,6 +49,7 @@
       "Bash(gh api)",
       "Bash(ls)",
       "Bash(mkdir)",
+      "Bash(echo:*)",
       "Bash(./gradlew compileKotlin)",
       "Bash(./gradlew detekt)",
       "Bash(./gradlew test)",

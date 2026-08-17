@@ -851,16 +851,31 @@ D("AC-STE-429.3 — the documented exit-code mapping distinguishes vacuous", () 
 });
 
 describe("AC-STE-429.3 — the rendering case: a real vacuous verdict", () => {
-  /** A transcript that never asks, never refuses, never scaffolds. */
+  /**
+   * A genuinely INCONCLUSIVE transcript: the skill did scaffold, but outside
+   * the project root, so this capture cannot adjudicate what it did inside.
+   * That is the same shape as the recorded `/report-issue` 2026-07-27 leg
+   * replayed further down, which is why it is the right input here.
+   *
+   * It deliberately replaced an earlier `[text, Skill, Bash, text]` transcript.
+   * Under STE-479 AC-STE-479.5 that shape scores `violation`, not `vacuous`
+   * (something WAS captured and it shows a skill that never entered the loop).
+   * This describe block is about RENDERING a vacuous verdict as inconclusive,
+   * so the input was swapped for one that is still genuinely vacuous rather
+   * than the expectation being flipped.
+   */
+  const VACUOUS_ROOT = "/Users/ns/workspace/dpt-test-project";
   const VACUOUS: TranscriptEntry[] = [
     { type: "text" },
     { type: "tool_use", name: "Skill" },
     { type: "tool_use", name: "Bash" },
+    { type: "tool_use", name: "Write", path: "/Users/ns/english/inbox/x.md" },
     { type: "text" },
   ];
+  const VACUOUS_OPTS = { projectRoot: VACUOUS_ROOT };
 
   test("the runner already distinguishes vacuous with its own exit code", () => {
-    const verdict = verdictFor("setup", VACUOUS);
+    const verdict = verdictFor("setup", VACUOUS, VACUOUS_OPTS);
     expect(verdict.exitCode).toBe(3);
     expect(verdict.line).toBe("setup: vacuous askIndex=-1");
     // Distinct from both neighbours — the information is there to be rendered.
@@ -870,7 +885,9 @@ describe("AC-STE-429.3 — the rendering case: a real vacuous verdict", () => {
 
   test("the verdict line names the skill, which the rendering must carry through", () => {
     for (const s of IN_SCOPE_SKILLS) {
-      expect(verdictFor(s, VACUOUS).line.startsWith(`${s}: `)).toBe(true);
+      expect(
+        verdictFor(s, VACUOUS, VACUOUS_OPTS).line.startsWith(`${s}: `),
+      ).toBe(true);
     }
   });
 
@@ -881,7 +898,7 @@ describe("AC-STE-429.3 — the rendering case: a real vacuous verdict", () => {
       // exactly as m116-ste-422 replays fixtures through the SKILL's documented
       // invocation. Today the prose maps every non-zero exit to `violation`, so
       // this fails on the real runner output the driver will actually see.
-      const verdict = verdictFor("setup", VACUOUS);
+      const verdict = verdictFor("setup", VACUOUS, VACUOUS_OPTS);
       expect(documentedDispositions(verdict.exitCode)).toEqual(["inconclusive"]);
     },
   );

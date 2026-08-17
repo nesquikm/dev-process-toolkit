@@ -79,3 +79,69 @@ export function mergeAllowList(existing: SettingsJson, canonical: string[]): Set
     },
   };
 }
+
+/**
+ * The capability key `/setup` emits for the allow-list merge. Registered in
+ * `CANONICAL_CAPABILITY_KEYS` (closing_summary_capability_keys.ts) and rendered
+ * in /spec-write § 7's static plain-language map.
+ */
+export const ALLOWLIST_MERGE_CAPABILITY_KEY = "setup_allowlist_entries_added" as const;
+
+/** The reporting shape returned by `mergeAllowListReport`. */
+export interface AllowListMergeReport {
+  /** The merged settings object — byte-identical to `mergeAllowList`'s. */
+  settings: SettingsJson;
+  /** Distinct entries the CALLER supplied (0 on the scaffold-from-nothing path). */
+  callerCount: number;
+  /** Entries the merge ADDED beyond the caller's list. */
+  addedCount: number;
+  /** Size of the resulting entry set. */
+  mergedCount: number;
+  /**
+   * The literal registered capability key. Typed as the literal (not `string`)
+   * so the single-sourcing is carried by the type, matching the house idiom in
+   * `tolerance_probe_routing.ts` — a caller cannot substitute an arbitrary
+   * token for the registered one.
+   */
+  capabilityKey: typeof ALLOWLIST_MERGE_CAPABILITY_KEY;
+  /** The rendered capability row. ALWAYS non-empty — never a silent skip. */
+  row: string;
+}
+
+/**
+ * Reporting wrapper around `mergeAllowList` — the LOUD half.
+ *
+ * The merge itself is intended, load-bearing behaviour and is left byte-
+ * unchanged: this delegates to `mergeAllowList` and returns its result
+ * untouched. What it adds is the SIGNAL that was missing — the allow-list a
+ * reviewer reads in a PR diff is the opening posture, never the effective
+ * policy, and nothing in a `/setup` run said so. Every disposition reports,
+ * including the quiet ones: a caller who supplied no list gets the full
+ * scaffolded count, and a caller who already listed everything gets a row
+ * saying `0` were added. A skipped row is indistinguishable from a broken
+ * one, so `row` is never empty.
+ */
+export function mergeAllowListReport(
+  existing: SettingsJson,
+  canonical: string[],
+): AllowListMergeReport {
+  const settings = mergeAllowList(existing, canonical);
+  const callerCount = new Set(existing.permissions?.allow ?? []).size;
+  const mergedCount = settings.permissions?.allow?.length ?? 0;
+  const addedCount = mergedCount - callerCount;
+  const row =
+    `${ALLOWLIST_MERGE_CAPABILITY_KEY}: /setup merged the canonical allow-list into ` +
+    `.claude/settings.json — the caller supplied ${callerCount} entries, the merge added ` +
+    `${addedCount} beyond that list, and ${mergedCount} entries are in effect. ` +
+    `The caller's list is merged, never replaced; when no list was supplied the added ` +
+    `count IS the full scaffolded count, and a zero added count means the caller ` +
+    `already listed everything.`;
+  return {
+    settings,
+    callerCount,
+    addedCount,
+    mergedCount,
+    capabilityKey: ALLOWLIST_MERGE_CAPABILITY_KEY,
+    row,
+  };
+}
