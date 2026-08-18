@@ -63,20 +63,52 @@ async function listMarkdownFiles(dir: string): Promise<string[]> {
   }
 }
 
-/** Collect the multiset of `milestone:` frontmatter tokens across FR files. */
-async function readFrMilestones(files: string[]): Promise<Set<string>> {
-  const tokens = new Set<string>();
-  for (const file of files) {
+/** One FR file: its id (filename stem) and the `milestone:` token it binds to. */
+interface FrBindingRow {
+  id: string;
+  /** The trimmed `milestone:` value, or null when the key is absent. */
+  milestone: string | null;
+}
+
+/**
+ * The ONE walk of an FR directory in this module. Both readings of the binding
+ * — the token multiset the ship-ready predicate needs and the per-milestone id
+ * lists `milestoneFrBinding` returns — are derived from these rows, so the
+ * directory is scanned by one loop with one frontmatter reader rather than two
+ * that could drift apart.
+ */
+async function readFrDir(dir: string): Promise<FrBindingRow[]> {
+  const rows: FrBindingRow[] = [];
+  for (const file of await listMarkdownFiles(dir)) {
     let content: string;
     try {
       content = await readFile(file, "utf-8");
     } catch {
       continue;
     }
-    const milestone = scanFrontmatterField(content, "milestone");
-    if (milestone) tokens.add(milestone);
+    rows.push({
+      id: basename(file, ".md"),
+      milestone: scanFrontmatterField(content, "milestone"),
+    });
+  }
+  return rows;
+}
+
+/** The multiset of `milestone:` tokens these rows bind to (blanks dropped). */
+function boundTokens(rows: readonly FrBindingRow[]): Set<string> {
+  const tokens = new Set<string>();
+  for (const row of rows) {
+    if (row.milestone) tokens.add(row.milestone);
   }
   return tokens;
+}
+
+/** Ids among `rows` whose frontmatter binds them to `milestone`, sorted. */
+function idsBoundTo(rows: readonly FrBindingRow[], milestone: string): string[] {
+  return rows
+    .filter((row) => row.milestone === milestone)
+    .map((row) => row.id)
+    .sort();
 }
 
 interface Classification {
@@ -94,10 +126,8 @@ async function classifyActivePlans(projectRoot: string): Promise<Classification>
   if (planFiles.length === 0) return out;
 
   const frsDir = join(projectRoot, "specs", "frs");
-  const activeFrTokens = await readFrMilestones(await listMarkdownFiles(frsDir));
-  const archivedFrTokens = await readFrMilestones(
-    await listMarkdownFiles(join(frsDir, "archive")),
-  );
+  const activeFrTokens = boundTokens(await readFrDir(frsDir));
+  const archivedFrTokens = boundTokens(await readFrDir(join(frsDir, "archive")));
 
   for (const file of planFiles) {
     let content: string;
@@ -138,6 +168,35 @@ async function classifyActivePlans(projectRoot: string): Promise<Classification>
  */
 export async function shipReadyMilestones(projectRoot: string): Promise<string[]> {
   return (await classifyActivePlans(projectRoot)).shipReady;
+}
+
+/** FR ids bound to one milestone, split by archive status. */
+export interface MilestoneFrBinding {
+  /** Ids of FRs under `specs/frs/` carrying this milestone token. */
+  activeFrIds: string[];
+  /** Ids of FRs under `specs/frs/archive/` carrying this milestone token. */
+  archivedFrIds: string[];
+}
+
+/**
+ * ADDITIVE (STE-498): the milestone-scoped view of the SAME active/archived FR
+ * binding this module's ship-ready predicate is derived from.
+ *
+ * `shipReadyMilestones` answers a yes/no; a consumer that also needs to tell
+ * "nothing built yet" from "some FRs already landed and archived" would
+ * otherwise walk the FR directories itself and become a second source of truth
+ * for the binding. It calls this instead. Pure reads; the probe and the
+ * ship-ready predicate are untouched.
+ */
+export async function milestoneFrBinding(
+  projectRoot: string,
+  milestone: string,
+): Promise<MilestoneFrBinding> {
+  const frsDir = join(projectRoot, "specs", "frs");
+  return {
+    activeFrIds: idsBoundTo(await readFrDir(frsDir), milestone),
+    archivedFrIds: idsBoundTo(await readFrDir(join(frsDir, "archive")), milestone),
+  };
 }
 
 /**

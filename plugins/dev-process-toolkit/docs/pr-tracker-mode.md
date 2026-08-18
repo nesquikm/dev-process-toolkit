@@ -11,6 +11,38 @@ In `mode: none`, this document is unused — the `mode: none` branch runs unchan
 2. Ticket-binding pre-flight per `docs/ticket-binding.md`. Decline
    exits cleanly with zero side effects.
 
+## Draft pull requests on this path
+
+Draft support is not a tracker-mode feature and not a tracker-less one — it is
+a property of the `gh pr create` invocation, so it behaves identically here.
+The draft state is decided **before** the PR is created: the invocation is
+parsed for an explicit request (the `--draft` flag or plain English such as
+"open it as a draft"), the host is checked for draft capability, and the
+resulting `gh pr create …` argv either carries `--draft` or does not. Tracker
+mode changes none of that — the same builder produces the same argv in
+`mode: none`, `mode: linear`, and `mode: jira`.
+
+Consequently the post-create steps below are **orthogonal to the draft
+choice**: both run unchanged whether the PR was opened as a draft or ready for
+review, and neither is skipped, reordered, or duplicated because of it.
+
+**A draft still transitions the ticket to `in_review`.** This is deliberate and
+stated here rather than left to the reader: a draft is "built, not yet claimed
+ready", so an argument exists for holding the ticket back. The shipped
+behaviour does not do that, for two reasons. First, the transition marks that
+work has left the author's hands and is visible for review on the host — the
+draft flag communicates readiness on the PR itself, which is where a reviewer
+looks. Second, splitting the transition on draft state would make the
+post-create sequence conditional and put the call budget below at the mercy of
+an invocation flag. If the ticket should stay put, move it back in the tracker
+after the fact; `/pr` does not infer that.
+
+The refusal path is likewise shared: when the host cannot hold drafts and a
+draft was explicitly asked for, `/pr` refuses with the canonical
+`Refusing:` / `Remedy:` / `Context:` shape **before** anything is created — so
+no PR is opened and no tracker call is made. A silent downgrade to a normal PR
+never happens on either path.
+
 ## Post-create (after `gh pr create` returns)
 
 After the PR URL is known:

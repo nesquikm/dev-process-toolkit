@@ -48,6 +48,8 @@ interface ParsedFrontmatter {
   needsTechnicalReview: boolean;
   needsTechnicalReviewLine: number;
   status: string | null;
+  /** The `milestone:` token this FR is bound to, or null when unbound. */
+  milestone: string | null;
   endLine: number; // 1-indexed line number of the closing `---` (or 0 if no frontmatter)
 }
 
@@ -60,12 +62,14 @@ function parseFrontmatter(rawContent: string): ParsedFrontmatter {
       needsTechnicalReview: false,
       needsTechnicalReviewLine: 1,
       status: null,
+      milestone: null,
       endLine: 0,
     };
   }
   let needsTechnicalReview = false;
   let needsTechnicalReviewLine = 1;
   let status: string | null = null;
+  let milestone: string | null = null;
   let endLine = 0;
   for (let i = 1; i < lines.length; i++) {
     if (lines[i] === "---") {
@@ -79,9 +83,18 @@ function parseFrontmatter(rawContent: string): ParsedFrontmatter {
       needsTechnicalReviewLine = i + 1;
     } else if (m[1] === "status") {
       status = m[2]!.trim();
+    } else if (m[1] === "milestone") {
+      const raw = m[2]!.trim();
+      milestone = raw === "" || raw === "null" ? null : raw;
     }
   }
-  return { needsTechnicalReview, needsTechnicalReviewLine, status, endLine };
+  return {
+    needsTechnicalReview,
+    needsTechnicalReviewLine,
+    status,
+    milestone,
+    endLine,
+  };
 }
 
 interface SectionExtract {
@@ -133,6 +146,60 @@ function buildMessage(reason: string, file: string, kind: ViolationKind): string
     `Remedy: ${remedy}`,
     `Context: file=${file}, probe=needs_technical_review_consistency`,
   ].join("\n");
+}
+
+/** One active FR whose specs still carry the technical-review flag. */
+export interface FrAwaitingTechnicalReview {
+  /** The FR id — the filename stem, e.g. `STE-498`. */
+  id: string;
+  /** The `milestone:` token the FR is bound to, or null when unbound. */
+  milestone: string | null;
+  /** Absolute path to the FR file. */
+  file: string;
+}
+
+/**
+ * ADDITIVE (STE-498): the ONE enumerator of "which active FRs still await
+ * technical review".
+ *
+ * The flag already has a home — this module owns both the frontmatter key and
+ * the placeholder anchor for probe #40. Consumers that need the LIST (the
+ * `/deliver` resume classifier) call this instead of re-scanning frontmatter,
+ * so the flag never grows a second reader that can drift from the probe.
+ *
+ * Scope mirrors the probe exactly: top-level `specs/frs/*.md` only, archived
+ * FRs vacuous. Pure reads — no writes, no side effects. Probe semantics and
+ * severity are untouched.
+ */
+export async function frsAwaitingTechnicalReview(
+  projectRoot: string,
+): Promise<FrAwaitingTechnicalReview[]> {
+  const frsDir = join(projectRoot, "specs", "frs");
+  if (!existsSync(frsDir)) return [];
+
+  const out: FrAwaitingTechnicalReview[] = [];
+  for (const entry of readdirSync(frsDir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    if (!entry.name.endsWith(".md")) continue;
+    const fullPath = join(frsDir, entry.name);
+    let fm: ParsedFrontmatter;
+    try {
+      fm = parseFrontmatter(readFileSync(fullPath, "utf-8"));
+    } catch {
+      continue;
+    }
+    // Same guard as the probe: an archived FR that somehow sits at the top
+    // level is vacuous here too.
+    if (fm.status === "archived") continue;
+    if (!fm.needsTechnicalReview) continue;
+    out.push({
+      id: entry.name.slice(0, -".md".length),
+      milestone: fm.milestone,
+      file: fullPath,
+    });
+  }
+  out.sort((a, b) => a.id.localeCompare(b.id));
+  return out;
 }
 
 export async function runNeedsTechnicalReviewConsistencyProbe(

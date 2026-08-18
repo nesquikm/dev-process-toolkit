@@ -66,9 +66,35 @@ function titleBullet(): string {
   return sliceBetween(read(PR_SKILL), "**Title**", "Body format");
 }
 
-describe("AC-STE-389.1 — argument-hint removed from /pr frontmatter", () => {
-  test("frontmatter has no argument-hint key", () => {
-    expect(/^argument-hint\s*:/m.test(frontmatter(read(PR_SKILL)))).toBe(false);
+// AC-STE-389.1's absence pin is SUPERSEDED (M129 / STE-496), and the reason is
+// recorded here rather than in a commit message so the next reader sees it at
+// the site.
+//
+// STE-389 removed `argument-hint` because `/pr` took NO arguments: free text
+// after `/pr` was never a title, so a hint advertised a surface that did not
+// exist. STE-496 changes that premise — `/pr` now accepts `--draft`, a real
+// flag with real behaviour (`buildPrCreateArgv` emits `--draft`; the default
+// path still emits none).
+//
+// The supersession is not a judgement call: AC-STE-389.6, shipped by the SAME
+// FR, amended the cross-cutting testing-spec row to read "argument-hint WHERE
+// THE SKILL TAKES ARGUMENTS". That rule is conditional, and it now points the
+// other way — a `/pr` that takes `--draft` and advertises no hint violates
+// STE-389's own amended row. Absence was never the invariant; matching the
+// argument surface was.
+//
+// What is NOT superseded, and is asserted below unchanged: the `$ARGUMENTS`
+// literal stays gone (AC-STE-389.2), titles stay derived from the commit
+// subject with no user-supplied override, and free text after `/pr` is still
+// never used as a title. STE-496 reintroduces a FLAG, not a title surface.
+describe("AC-STE-389.1 — argument-hint matches /pr's argument surface", () => {
+  test("frontmatter carries the argument-hint /pr's flag surface now requires", () => {
+    const fm = frontmatter(read(PR_SKILL));
+    const m = fm.match(/^argument-hint:\s*(['"])(.+?)\1\s*$/m);
+    expect(m, "argument-hint missing or not single-line-quoted").not.toBeNull();
+    // It advertises the flag surface, not a title surface.
+    expect(m![2]).toContain("--draft");
+    expect(m![2]).not.toMatch(/title/i);
   });
 
   test("frontmatter still carries name + description", () => {
@@ -116,14 +142,28 @@ describe("AC-STE-389.4 — explicit redirect rule in Notes", () => {
 });
 
 describe("AC-STE-389.5 — README /pr row + Args-column note", () => {
-  test("the /pr row's Args cell renders —", () => {
+  // SUPERSEDED alongside AC-STE-389.1, and for the same reason — see the note
+  // on that describe above. README's Args column "mirrors each skill's
+  // argument-hint frontmatter", and `—` is defined there as "takes no
+  // arguments". Once /pr gained `--draft`, the `—` cell asserted something
+  // false, and this pin certified it. The invariant was never "/pr renders —";
+  // it is "the Args cell mirrors the frontmatter", which is what is asserted
+  // now — the byte-for-byte agreement archived AC-STE-314.1 asks for, with the
+  // hint's surrounding quotes stripped.
+  test("the /pr row's Args cell mirrors the skill's argument-hint", () => {
     const row = read(README)
       .split("\n")
       .find((line) => line.startsWith("| `/pr`"));
     expect(row).toBeDefined();
     const cells = (row as string).split("|").map((cell) => cell.trim());
     // cells: ["", "`/pr`", "<purpose>", "<args>", ""]
-    expect(cells[3]).toBe("—");
+    const hint = frontmatter(read(PR_SKILL)).match(
+      /^argument-hint:\s*(['"])(.+?)\1\s*$/m,
+    );
+    expect(hint, "no argument-hint to mirror").not.toBeNull();
+    expect(cells[3]).toBe(`\`${hint![2]}\``);
+    // And it is no longer the takes-no-arguments marker.
+    expect(cells[3]).not.toBe("—");
   });
 
   test("the [PR title] literal is absent from README.md", () => {

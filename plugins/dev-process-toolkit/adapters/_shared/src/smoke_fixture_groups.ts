@@ -220,6 +220,13 @@ export const CANONICAL_FIXTURE_GROUPS: readonly FixtureGroupSpec[] = [
     rationale:
       "the setup-template headless refusal is decided by stdin tty-ness alone — no tracker surface is read before the refusal fires, so every leg exercises it identically",
   },
+  {
+    group: 14,
+    sut: "STE-492",
+    legs: ALL_LEGS,
+    rationale:
+      "verifyDeliverStageCapture reads a captured worker stage report off disk and grades it against the deliver-stage-result contract; the fence shape is tracker-independent and no assertion consults a tracker surface, so every leg exercises it identically",
+  },
 ];
 
 // --- records ---------------------------------------------------------------

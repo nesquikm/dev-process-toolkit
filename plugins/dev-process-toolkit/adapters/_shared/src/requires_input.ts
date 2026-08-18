@@ -138,8 +138,14 @@ export class RequiresInputRefusedError extends Error {
  * boolean `false` (the documented non-tty signal under `claude -p`). Bun /
  * Node leave the property `undefined` on tty-ish streams, which we treat as
  * "not non-tty" — interactive sessions never trip the non-tty branch.
+ *
+ * EXPORTED so callers that gate on tty-ness can DERIVE it rather than defaulting
+ * a boolean. A module whose `stdinIsTty` parameter defaults to `true` is
+ * fail-OPEN: a caller that forgets the flag gets full interactive resolution
+ * under `claude -p`, which is the exact shape the refusal exists to stop. With
+ * this exported, the safe value is the one you get by saying nothing.
  */
-function isStdinNonTty(): boolean {
+export function isStdinNonTty(): boolean {
   // STE-408 (F3): `isTTY` is `true` only for a genuine interactive terminal;
   // a heredoc / subshell / pipe stdin (the `claude -p` shape) leaves it
   // `undefined`, and an explicit non-tty leaves it `false`. Treat anything
