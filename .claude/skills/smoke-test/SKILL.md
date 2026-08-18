@@ -1648,6 +1648,37 @@ STE-469 runtime regression: 13a-headless-refusal
 
 If sub-fixture 13a passes on a leg, append `STE-469 runtime check: PASS` to the run summary line; any failure appends `STE-469 runtime check: FAIL`, and a group that never executed appends `STE-469 runtime check: NOT-REACHED` rather than nothing at all. Tracker-independent by construction — the refusal fires before any tracker surface could be consulted, so the group is never N/A on any registered leg.
 
+#### Fixture group 14 — STE-492 `deliver-stage-result` capture conformance (Linear + Jira + tracker-less)
+
+One sub-fixture (14a). Every acceptance criterion shipped for the `deliver-stage-result` hand-off contract before STE-492 was a prose-grep of `/deliver`'s own `skills/deliver/SKILL.md`, so a contract with **no producer anywhere in the toolkit** passed all of them: the only thing ever read was the orchestrator describing the contract to itself. The failure mode this group exists to catch is therefore the **producerless contract** — a ceremony stage that stops emitting the fence while every SKILL-grep stays green. Its subject is consequently a captured worker stage report — the artifact a worker actually produced at runtime — never the orchestrator's prose.
+
+**Provenance, stated because the committed fixtures are not yet harvests.** At runtime this group grades the capture named under 14a. The three fixtures under `plugins/dev-process-toolkit/tests/fixtures/deliver-stage-capture/` that pin the predicate in unit tests are, by contrast, **hand-authored models** of that emission — see the `README.md` beside them. `specs/plan/M129.md` books that gap as an accepted HIGH risk and forbids closing AC-STE-492.4 on the models alone. Note also that the deferred half cannot be closed by a `/conformance-loop` run: this harness drives children through `claude -p`, `/deliver` refuses non-tty unconditionally, and fixture group 11 exists to assert exactly that refusal — so no `/deliver` worker can ever run inside it. Only an **interactive** `/deliver` run can produce the harvest.
+
+**The wrong-subject exclusion, stated so nobody re-points this group at the easier target.** `skills/deliver/SKILL.md` itself carries a well-formed ```` ```deliver-stage-result ```` EXAMPLE — one fence, all six sections, in the canonical order — so a group aimed at the SKILL text would report green forever without any worker ever emitting anything. This group reads a worker CAPTURE and **never** `/deliver`'s own SKILL.md; the predicate it calls rejects that template outright, because `milestone: M<N>` is a placeholder and its scalars carry `#`-annotated alternation where a real report carries facts.
+
+##### Sub-fixture 14a — the captured stage report satisfies the fence contract
+
+**Source:** `/tmp/dpt-smoke-<tracker>-ste492-stage-report.txt` — the worker stage report captured when the driver's `/deliver`-shaped ceremony stage hands off. Where the test project runs a reduced chain and no toolkit ceremony stage executed, the driver writes the capture from the stage report text it did receive; a leg that produced no stage report at all renders NOT-REACHED, never PASS.
+
+**Assertions:**
+
+- Assert `verifyDeliverStageCapture` (`adapters/_shared/src/deliver_stage_capture.ts`) returns `ok: true` with an empty `reasons` array for the capture. The predicate demands report prose, then **exactly one** ```` ```deliver-stage-result ```` fence, all six sections (`stage`, `milestone`, `status`, `summary`, `gate`, `follow_ups`) in the fixed order, within the 20-line cap, with concrete scalars.
+- Assert the **negative half**, which is what makes the group falsifiable: a capture with **no fence** FAILS this group. Re-run the predicate against a copy of the capture with the fence stripped (the literal token `deliver-stage-result` left in prose, so a token-grep cannot pass it) and assert `ok: false` with a reason naming the fence. A group that only ever confirms the healthy case cannot tell a producing worker from a silent one.
+- Assert the wrong-subject exclusion holds: the same predicate run against `skills/deliver/SKILL.md` returns `ok: false`. If it ever returns `ok: true`, this group is measuring the SKILL template and its PASS means nothing.
+
+**Diagnostic on failure:**
+
+```
+STE-492 runtime regression: 14a-stage-capture
+  expected: verifyDeliverStageCapture ok:true reasons:[] on the captured stage report,
+            ok:false naming the fence on the fence-stripped copy
+  actual:   <verdict + reasons>
+  stdout excerpt (last 20 lines):
+    <tail -20 /tmp/dpt-smoke-<tracker>-ste492-stage-report.txt>
+```
+
+If sub-fixture 14a passes on a leg, append `STE-492 runtime check: PASS` to the run summary line; any failure appends `STE-492 runtime check: FAIL`, and a group that never executed appends `STE-492 runtime check: NOT-REACHED` rather than nothing at all. Tracker-independent by construction — the capture is read from disk and no assertion consults a tracker surface, so the group is never N/A on any registered leg.
+
 ### Phase 2.Y — End-of-run chain-integrity assertion (STE-355)
 
 Before any Phase 3 capture work, assert the canonical chain actually completed. Run `assertChainIntegrity` (`adapters/_shared/src/smoke_child_capture.ts`, built on the `stream_json_events` NDJSON reader) against every expected per-skill capture, in chain order, passing the **run-start timestamp** captured at Phase 0 acceptance (the epoch-ms moment the approval was logged) as the `runStart` argument:

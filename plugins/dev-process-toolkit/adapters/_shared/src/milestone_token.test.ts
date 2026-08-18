@@ -122,6 +122,15 @@ describe("AC-STE-376.1 — consumers reference the shared matcher (STE-335 AC-7 
     join(sharedSrc, "reconcile_tracker_local.ts"),
     join(sharedSrc, "root_hygiene.ts"),
     join(sharedSrc, "plan_lock.ts"),
+    // M129 closure. Both of these route milestone recognition through the
+    // shared union grammar, and BOTH shipped a private `M\\d+` first: the
+    // capture predicate would have graded a genuine Jira- or tracker-less-leg
+    // capture ok:false, and the argument grammar would have misrouted two of
+    // the three minted forms. Registered here so the audit that exists to stop
+    // a private copy returning actually covers them — until now it did not,
+    // and a module comment claimed otherwise.
+    join(sharedSrc, "deliver_stage_capture.ts"),
+    join(sharedSrc, "deliver_argument.ts"),
   ];
 
   for (const file of CONSUMERS) {

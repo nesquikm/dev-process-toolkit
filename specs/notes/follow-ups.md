@@ -965,3 +965,112 @@ actually runs it, which is a behaviour-affecting change to a section no AC
 covers.
 
 Surfaced while implementing STE-491, 2026-08-17.
+
+---
+
+## `/tdd` implementer forks must not run `git stash` operations
+
+**Needs an FR before it can land** — `agents/tdd-implementer.md` is a shipped
+file and no M129 AC authorises editing it, so this is recorded rather than fixed.
+
+**The incident (M129, 2026-08-17).** A `tdd-implementer` fork, trying to measure
+a pre-change baseline, ran `git stash push -- <paths>` followed by an
+unconditional `git stash pop`. The push failed — the target module was untracked,
+so the pathspec matched nothing — but the pop then ran anyway and popped an
+unrelated pre-existing entry (`stash@{0}`, a WIP from the `feat/m109-…` branch)
+into the working tree, leaving `adapters/_shared/src/token_stats_render.ts` in a
+conflicted `UU` state.
+
+**It recovered, and disclosed.** The fork verified the conflict's "ours" blob was
+byte-identical to `HEAD`, restored with `git checkout HEAD -- <path>`, and
+reported the whole sequence in its hand-off rather than quietly fixing it.
+Independently verified afterwards by both the worker and the supervising session:
+all three stash entries still present with the M109 WIP at `stash@{0}`, zero
+unmerged paths, no conflict markers anywhere under `plugins/` or `specs/`.
+
+**Why it still needs closing.** Nothing was lost *this time*, and that is the
+point — the same sequence against a stash entry that did apply cleanly would
+have silently mixed another branch's WIP into a milestone commit, and the fork
+had no way to know it had done so. A subagent has no business mutating the stash:
+it does not own the tree it runs in, cannot see what else is stacked there, and
+its "restore" path assumes its own push succeeded.
+
+**Proposed fix.** Add an explicit prohibition to `agents/tdd-implementer.md`
+(and its siblings `tdd-test-writer` / `tdd-refactorer`, which have the same
+tree access): no `git stash` in any form. A baseline measurement wants
+`git diff` / `git show HEAD:<path>` / a scratchpad copy, none of which mutate
+shared state. Consider a `/gate-check` probe over `agents/*.md` asserting the
+prohibition is present, since prose alone is what failed here.
+
+**Interim mitigation, already in force:** the M129 worker passed an explicit
+"do NOT run any `git stash` command" constraint in every subsequent implementer
+prompt. That is a runtime instruction, not a shipped change, and it held for the
+rest of the milestone — but it protects only runs whose orchestrator remembers
+to say it.
+
+Surfaced while implementing M129 / STE-493, 2026-08-17.
+
+---
+
+## PROPOSED for `docs/patterns.md`: the proximity-pin escape hatch
+
+**Proposal only — `docs/patterns.md` is a shipped file and no M129 AC authorises editing it.** Recorded here so it can be filed as its own FR.
+
+**The rule.** A two-anchor proximity assertion — "these two strings occur within N characters of each other" — guarantees only that the **anchor** is new. The second needle is unconstrained and may match anything inside the window, including text that predates the change entirely. When a new section is inserted **adjacent to topically similar shipped prose**, the needle half will match that shipped prose and the pin passes without the new text saying anything.
+
+**Measured instance (M129 / STE-495).** Four prose pins used `nearby(target_repo, <needle>, 900)`. `target_repo` appeared nowhere in either `/deliver` surface at HEAD, so the pins read as new-text-only. The new `## Target repo` section was inserted directly under `docs/deliver-reference.md`'s pre-existing Phase table, whose rows already contained *"Inline, invoking session"* and *"One fresh spawned visible worker per milestone"*. Stubbing the entire new section — keeping the anchor token, deleting every claim — left **two of the four pins green**.
+
+**The fix that works.** Slice the assertion's subject to the sections that actually mention the anchor, and run the pin against that slice. Do **not** shrink the window as the remedy: window size is a proxy for "same thought" and tuning it trades one arbitrary failure for another. After slicing, the same stub mutation killed six tests instead of two.
+
+**The secondary lesson, worth its own line.** The test file's header asserted the property the author intended ("every prose pin is anchored on a token that does not exist today") rather than the one achieved. That claim was true of the anchor and false of the pin, and it actively discouraged checking. A falsifiability claim in a header is itself an assertion and should be as falsifiable as the pins it describes.
+
+**Why it belongs in patterns.md.** This repo pins prose across many shipped surfaces and routinely appends new sections beneath existing tables, so the precondition recurs structurally. It is the fourth wrong-subject-pin instance recorded in M129 and the first with this shape; the other three were all "the pin reads the wrong subject", while this one is "the pin reads the right subject and the wrong text".
+
+Surfaced while implementing M129 / STE-495, 2026-08-17.
+
+---
+
+## The NFR-1 skill line cap has three values and no single source of truth
+
+**Needs its own FR — no M129 AC authorises changing a cap, and the fix touches shipped docs and tests repo-wide.**
+
+Surfaced by the STE-497 refactor pass, which noticed `docs/deliver-reference.md:3` citing a "351-line cap" while the FR's own tripwire pinned 358. Measured across the tree:
+
+| Surface | Value | Count |
+|---|---|---|
+| `plugins/dev-process-toolkit/docs/*.md` prose | **351** | 6 files (`deliver-`, `layout-`, `implement-`, `resolver-entry`, `setup-`, `ship-milestone-` reference) |
+| `tests/*.ts` — `SKILL_LINE_CAP` | **358** | 14 files |
+| `tests/*.ts` — `SKILL_LINE_CAP` | **351** | 1 file |
+
+So the number is restated in at least 21 places under three different spellings of the same rule, and the docs disagree with the majority of the tests. Nothing derives it from anything; every site is a hand-typed literal.
+
+**Why this is more than cosmetic.** The cap exists to keep a skill readable by the agent that executes it, and every reference doc opens by explaining that its own existence is a consequence of that cap ("extracted from `skills/<name>/SKILL.md` to keep the skill file under the NFR-1 351-line cap"). An author trimming a skill to satisfy the documented 351 does strictly more work than the gate requires; an author trusting the 358 pin writes prose the docs describe as over-cap. Neither is caught, because no probe compares the two.
+
+**Proposed fix.** Export the cap once from `adapters/_shared/src/` (alongside the other shared numeric authorities such as `MAX_CONCURRENT_WORKERS`), have every test import it instead of declaring `SKILL_LINE_CAP` locally, and either derive the docs' sentence from it or add a `/gate-check` probe asserting the documented number matches the exported one — the same shape as probe #57 `public_surface_count_drift`, which exists precisely because hand-typed counts drift. The 1-vs-14 test split should be resolved to whichever value the gate actually enforces before the constant is minted, so the hoist does not silently ratify the minority spelling.
+
+Deliberately NOT fixed in M129: reconciling it means editing six shipped reference docs and fifteen shipped test files for a rule this milestone does not touch.
+
+Surfaced while implementing M129 / STE-497, 2026-08-17.
+
+---
+
+## PROPOSED probe: README's Args column must mirror each skill's `argument-hint`
+
+**Needs its own FR — a new `/gate-check` probe moves the pinned probe count across ~12 files, and no M129 AC authorises that.**
+
+`README.md` states the rule itself: *"The `Args` column mirrors each skill's `argument-hint:` frontmatter"*, and `—` is defined there as *"a skill that takes no arguments"*. Nothing enforces either half.
+
+**M129 staled it twice, in one milestone:**
+
+| Row | Was | Should have been | Pinned green by |
+|---|---|---|---|
+| `/pr` | `—` | `` `[--draft]` `` | `m106-ste-389…:152` asserting `cells[3] === "—"` |
+| `/deliver` | `` `[feature request or idea]` `` | `` `[feature request or idea, or a milestone or FR identity]` `` | nothing — it simply drifted |
+
+The `/pr` case is the instructive one: a shipped test asserted the literal `—` and therefore **certified a false statement** once the skill gained a flag. The rule was never "renders `—`"; it was "mirrors the hint". A pin on the literal rather than on the relationship inverts from protection into obstruction the moment the thing it describes changes.
+
+**Proposed fix.** A probe over every `| \`/<skill>\` |` row in `README.md`: read that skill's `argument-hint` frontmatter (absent ⇒ the cell must be `—`; present ⇒ the cell must be the value backticked, quotes stripped). This is the contract archived `AC-STE-314.1` already asks for and which no test has ever enforced. Shape it on probe #57 `public_surface_count_drift`, which exists for exactly this class of hand-typed documentation drift, and make it vacuous when `README.md` is absent so consumer projects never fail on it.
+
+**Interim, already landed:** `tests/m129-ste-497-deliver-identity.test.ts` pins the mirroring for the two skills M129 changed (`/deliver`, `/pr`), including a not-the-`—`-marker leg and a non-vacuity control. That covers the two rows this milestone touched and nothing else.
+
+Surfaced while implementing M129 / STE-496 and STE-497, 2026-08-17.

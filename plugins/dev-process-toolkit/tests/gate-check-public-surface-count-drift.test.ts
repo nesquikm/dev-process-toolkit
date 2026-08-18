@@ -394,11 +394,11 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     expect(onlyLine(readme, /^A Claude Code plugin that adds/)).toMatch(
       /18 commands?,\s+8 agents?/,
     );
-    // 77 numbered probes (M126 added #77 first_turn_refusal_marker on
+    // 79 numbered probes (M129 added #78 and #79 in one sweep;
     // top of M124's #76 best_practices_manifest_hygiene) — the Features bullet.
-    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b77\b.*numbered/);
-    // "77 probes" — the /implement-invokes-/tdd paragraph's aside.
-    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b77\b\s+probes/);
+    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b79\b.*numbered/);
+    // "79 probes" — the /implement-invokes-/tdd paragraph's aside.
+    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b79\b\s+probes/);
     // "Nine additional skills" — M125: `setup-template` joined `/upgrade` as
     // the second non-user-invocable non-fork member, eight → nine.
     // Neither is a fork child, which is why the paragraph's `context: fork`

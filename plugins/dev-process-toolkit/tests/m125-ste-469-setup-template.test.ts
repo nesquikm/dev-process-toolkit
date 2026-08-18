@@ -371,10 +371,10 @@ describe("AC-STE-469.6 — NFR-1 cap + zero-headroom STE-token ceiling", () => {
 });
 
 describe("AC-STE-469.6 — smoke fixture group 13 in the canonical roster", () => {
-  test("CANONICAL_FIXTURE_GROUPS has 13 entries numbered 1..13", () => {
-    expect(CANONICAL_FIXTURE_GROUPS.length).toBe(13);
+  test("CANONICAL_FIXTURE_GROUPS has 14 entries numbered 1..14", () => {
+    expect(CANONICAL_FIXTURE_GROUPS.length).toBe(14);
     expect(CANONICAL_FIXTURE_GROUPS.map((spec) => spec.group)).toEqual(
-      Array.from({ length: 13 }, (_, i) => i + 1),
+      Array.from({ length: 14 }, (_, i) => i + 1),
     );
   });
 

@@ -526,9 +526,9 @@ describe("AC-STE-467.5 — canonical roster gains group 12; SMOKE_LEGS byte-iden
   });
 
   test("the roster is 13 groups, 1..13 in order", () => {
-    expect(CANONICAL_FIXTURE_GROUPS).toHaveLength(13);
+    expect(CANONICAL_FIXTURE_GROUPS).toHaveLength(14);
     expect(CANONICAL_FIXTURE_GROUPS.map((s) => s.group)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
     ]);
   });
 
@@ -600,21 +600,21 @@ describe("AC-STE-467.5 — mutation-verified: three-way token parity, region-sit
 // Meta-meta pins — house pattern: shipped roster suites RE-KEY to the widened
 // roster, never deleted, never left green on stale numbers. Registering group
 // 12 flips the group-list and length pins in both shipped suites below.
-describe("AC-STE-467.5 — shipped roster suites re-key to 13 groups", () => {
+describe("AC-STE-467.5 — shipped roster suites re-key to 14 groups", () => {
   const src = (name: string): string => mustRead(join(import.meta.dir, name));
 
-  test("m117-ste-425-falsifiable-coverage.test.ts counts 13 (group list, length pin, roster row)", () => {
+  test("m117-ste-425-falsifiable-coverage.test.ts counts 14 (group list, length pin, roster row)", () => {
     const norm = src("m117-ste-425-falsifiable-coverage.test.ts").replace(/\s+/g, "");
-    expect(norm).toMatch(/1,2,3,4,5,6,7,8,9,10,11,12,13,?\]/);
+    expect(norm).toMatch(/1,2,3,4,5,6,7,8,9,10,11,12,13,14,?\]/);
     expect(src("m117-ste-425-falsifiable-coverage.test.ts")).toContain(
-      "toHaveLength(13)",
+      "toHaveLength(14)",
     );
     expect(norm).toContain('12:["jira","linear","none"]');
   });
 
-  test("m123-ste-464-deliver-skill.test.ts re-keys its roster pins to 13", () => {
+  test("m123-ste-464-deliver-skill.test.ts re-keys its roster pins to 14", () => {
     const norm = src("m123-ste-464-deliver-skill.test.ts").replace(/\s+/g, "");
-    expect(norm).toMatch(/1,2,3,4,5,6,7,8,9,10,11,12,13,?\]/);
-    expect(src("m123-ste-464-deliver-skill.test.ts")).toContain("toHaveLength(13)");
+    expect(norm).toMatch(/1,2,3,4,5,6,7,8,9,10,11,12,13,14,?\]/);
+    expect(src("m123-ste-464-deliver-skill.test.ts")).toContain("toHaveLength(14)");
   });
 });

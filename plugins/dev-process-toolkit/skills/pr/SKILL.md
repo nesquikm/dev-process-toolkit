@@ -1,6 +1,7 @@
 ---
 name: pr
 description: Create a pull request with conventional format. Use when asked to create a PR, open a pull request, or push changes for review.
+argument-hint: '[--draft]'
 ---
 
 Create a pull request for the current branch.
@@ -41,6 +42,8 @@ This pre-flight is soft: it never auto-blocks, and every choice is the operator'
 3. If there are uncommitted changes, confirm with the user before staging and committing
 4. Push the branch with `-u` flag
 5. Create the PR using `gh pr create`:
+   - **Draft**: when the invocation explicitly asks for one — the `--draft` flag, or plain English such as "open it as a draft" — pass `--draft` to `gh pr create`. The default is non-draft: an invocation that never asks for a draft is left exactly as it is today, with no `--draft` flag and no extra prompt.
+   - **Unsupported draft**: when the host or the installed CLI cannot open a draft — the host does not support draft pull requests, the repository or fork disallows them, or the `gh` on this machine has no `--draft` flag — **refuse and say so**. Never silently open a normal pull request instead: a downgrade nobody was told about is exactly the misrepresentation this rule exists to prevent, and a silent skip is worse than a loud failure. Refuse in the canonical shape — `Refusing: cannot open a draft pull request — <reasons>.` / `Remedy: re-run /pr without the draft request to open a normal pull request, or open the draft manually on the host.` / `Context: host=<host> guards=<ids>` — and stop with zero side effects. Render it by calling `assertDraftSupported` in `adapters/_shared/src/pr_draft.ts` rather than retyping the wording here: that module is the single source of this refusal's text, and the shape above is quoted from it so the two cannot drift. The Remedy names the *request*, not the flag, because a draft can also be asked for in plain English; the Context names no PR URL, because the refusal lands before anything is created and there is no URL to name.
    - **Title**: always derived from the dominant commit's [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) subject — `<type>(<scope>): <title>`, ≤ 72 characters — with no user-supplied override path. Use `!` for breaking changes (`feat(api)!: drop legacy endpoint`). When the branch carries multiple commits, the dominant commit is the merge commit or release commit on a release branch, otherwise the primary feature commit. The PR title and the squash-merge subject must both validate against the commit-msg hook.
    - Body format:
 
@@ -52,7 +55,7 @@ This pre-flight is soft: it never auto-blocks, and every choice is the operator'
 - [ ] Testing steps or verification notes
 ```
 
-6. Report the PR URL to the user
+6. Report the PR URL to the user, and name the state it was opened in — `draft` or `ready for review`. Both states are stated outright: silence is not a statement, so a run that opened a normal pull request says `ready for review` rather than merely omitting the word `draft`. The reader can tell which state was opened from the report alone, without opening the host.
 
 ## Notes
 

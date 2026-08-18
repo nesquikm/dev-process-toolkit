@@ -1039,7 +1039,7 @@ describeIfSkills("AC-STE-451.4 — groups 9 and 10 produce independent outcomes"
       // expected count from the roster this assertion is checking compares the
       // roster with itself, which is the shape three sibling test files
       // explicitly forbid.
-      expect(records).toHaveLength(13);
+      expect(records).toHaveLength(14);
       const other = failing === 9 ? GROUP : 9;
       expect(records.find((r) => r.group === other)).toBeDefined();
       expect(records.find((r) => r.group === failing)!.outcome).toBe("failed");

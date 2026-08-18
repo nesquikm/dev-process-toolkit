@@ -1,7 +1,7 @@
 ---
 name: deliver
 description: Full delivery pipeline orchestrator — takes a feature request from idea through specs to shipped, merged milestones by chaining the toolkit's phase skills end-to-end.
-argument-hint: '[feature request or idea]'
+argument-hint: '[feature request or idea, or a milestone or FR identity]'
 ---
 
 # Deliver
@@ -29,9 +29,65 @@ Context: mode=deliver, phase=pre-flight, skill=deliver
 
 **Never substitute the built-in Agent/Task tool** for the missing skill. A subagent is invisible — the operator cannot watch it, click into it, or take it over — and a **visible session** is this pipeline's contract. When the skill is missing, the halt above is the only correct behavior.
 
+## Argument — classify it before Phase 1 runs
+
+`$ARGUMENTS` is one of exactly three kinds, and the kind decides everything downstream. Classify it with `classifyDeliverArgument(...)` / `resolveDeliverArgument(...)` from `adapters/_shared/src/deliver_argument.ts` **before Phase 1**, never by eye:
+
+- **A feature request or idea** — ordinary prose. Proceed to Phase 1 exactly as always. This is the shipped path and it is unchanged.
+- **A milestone identity** (`M<N>`, `M_<epic-key>`, or a minted `M_<short-ULID>` — the shared union grammar, never a private `M\d+`) **or an FR identity**, which resolves through its `milestone:` frontmatter to the same routing.
+
+An identity is **not** a feature idea, and treating it as one is the failure this step exists to prevent: the operator names work whose design and specs already exist — often already merged — and the first visible symptom is a Socratic question about something that shipped last week.
+
+If the identity names **no plan file on disk**, **refuse** in the NFR-10 canonical shape and **do not enter the design phase**. The refusal names *both* plausible intents, because an operator who genuinely meant to start new work whose name resembles an identity must not be stranded: say that no plan by that name exists, and say how to start new work instead. Refusing and then brainstorming anyway is the same defect wearing a refusal.
+
+An FR identity carries two further refusal triggers on exactly the same terms — the identity names no FR file on disk, or the FR it names declares no well-formed `milestone:` in its frontmatter — because in both cases there is no plan to route to. Each refuses in the same canonical shape and, like the one above, never enters the design phase.
+
+None of this widens the headless surface. The unconditional non-tty refusal above still fires first, for every argument kind — identity recognition earns no carve-out.
+
+## Resume — entering a milestone that is already under way
+
+An identity that *does* name a plan on disk is almost always **resumed**, not started. Where the pipeline enters is decided by the milestone's state on disk, and that state is classified by `classifyResume(...)` in `adapters/_shared/src/resume_classifier.ts` — never judged by eye.
+
+Six states change the entry point:
+
+| State | What is on disk | Where `/deliver` enters |
+| --- | --- | --- |
+| `needs_technical_review` | FRs bound to the milestone still await technical review | one `/spec-write` pass per flagged FR, inline, then the full chain |
+| `ready_to_implement` | specs complete, nothing built yet | `/implement` → `/ship-milestone` → `/pr` |
+| `partly_implemented` | some plan tasks ticked, or some bound FRs archived while others stay active | `/implement` → `/ship-milestone` → `/pr` |
+| `ship_ready` | zero active FRs bound, at least one archived FR bound, no `shipped_in:` stamp | `/ship-milestone` → `/pr` |
+| `shipped` | a real `shipped_in:` stamp | refuse |
+| `parked` | the plan declares itself parked | refuse |
+
+**Classification is read-only.** It reads what is on disk and mutates nothing — no spec write, no tracker write, no commit. Classifying a milestone and then walking away leaves the tree byte-identical.
+
+**It assembles the shipped helpers rather than re-deriving them.** Plan task counts come from `plan_task_state`, ship-readiness from `active_plan_ship_ready`, stamp-versus-CHANGELOG coherence from `plan_ship_coherence`, and the review-flag enumeration from `needs_technical_review_consistency` — whose violations the classification carries rather than swallowing. The classifier keeps no private copy of any of those predicates: a second answer to a question that already has one home is the defect this reuse exists to prevent.
+
+**The spec-writing passes follow the target repo.** When FRs still await technical review, run one `/spec-write` pass per flagged FR, in FR order, before any ceremony worker exists. Placement follows the milestone's route: **inline in the invoking session** when the milestone targets the invoking repo, and **inside the target repo's own worker** when it declares a `target_repo:` at another toolkit repo — that is the only place its tracker and specs bind correctly, and the operator answers there, in the visible session.
+
+What is preserved identically on both branches is the Socratic guarantee, and it is about **who answers**, not where the skill runs: `/deliver` never answers on the operator's behalf, never paraphrases, never pre-fills, and never batches the questions. A visible worker the operator types into directly inserts no relay hop, so it proxies nothing — which is why placement can follow the repo without weakening the contract. A **reduced** target (no toolkit) has no `/implement` or `/ship-milestone` stage to resume into at all: its chain is do the work, open a PR.
+
+**A ship-ready milestone enters at `/ship-milestone`**, skipping `/implement` entirely. Its work is already built and archived, so re-entering at `/implement` would re-run finished work.
+
+**A shipped or parked milestone refuses** in the NFR-10 canonical shape and goes no further. A shipped refusal names the milestone and its `shipped_in:` stamp; a parked refusal surfaces the recorded park reason when one is on the record, and stays clean — no empty placeholder — when none is.
+
+**The operator confirms before anything happens.** Render the classified state *and* the exact chain intended — every step, in order, with its placement — then ask the operator to confirm it, edit it, or abort. That gate is presented **before any worker is spawned** and **before any tracker claim is made**, so the operator is deciding rather than ratifying. On `edit`, the operator's chain is what runs, not the proposed one.
+
+**Aborting at that gate has no side effects** — nothing is spawned, nothing is claimed on the tracker, no inline pass runs, and not one byte of the tree changes.
+
+**One milestone per invocation.** A resume resolves a single milestone, never a sweep, and spawns exactly one worker for that milestone's whole chain. Phase 3's serial one-worker-at-a-time topology below is unchanged: resume enters that topology further along, it does not widen it.
+
 ## Phases 1–2 — design and spec-writing, inline
 
 Phases 1–2 run **inline in the invoking session**: invoke `/dev-process-toolkit:brainstorm` (Phase 1), and after its design is approved, `/dev-process-toolkit:spec-write` (Phase 2), directly in this session — not in a spawned worker, not in a fork.
+
+**Which repo a milestone targets decides that**, so resolve it before Phase 2 runs. A milestone plan may declare an optional `target_repo:` frontmatter key; route each milestone with `routeMilestone(...)` from `adapters/_shared/src/target_repo.ts` rather than judging it in prose. Three routes, and the first is the shipped one:
+
+- **No `target_repo:` — or the `null` sentinel — means the invoking repo.** Every plan on disk says this by saying nothing, and it behaves exactly as it always has: both phases inline here, then the three-stage chain in one worker. The undeclared path never goes looking for another tree.
+- **Another repo that has the toolkit** — spec-writing moves *into that milestone's worker*, as the first step of its chain, so the tracker and specs bind to the target repo rather than to this session's.
+- **A repo with no toolkit** — a reduced chain: do the work, open a PR, with no `/implement` or `/ship-milestone` stage, because those ceremonies do not exist there. Toolkit presence is decided by the shipped on-disk managed-tree predicate, never guessed.
+
+A declared repo that cannot be located **refuses** in the NFR-10 canonical shape naming the declaration; it never silently falls back to the invoking repo, because that would land a milestone's work in the wrong tree — the exact failure the declaration exists to prevent.
 
 Both phase skills are Socratic by contract: they ask the operator clarifying questions one at a time and wait for real answers. `/deliver` leaves those Socratic contracts untouched — it **never proxies** their questions (answering on the operator's behalf, paraphrasing, or pre-filling answers is forbidden) and never batches them into a single combined prompt. Each question reaches the operator exactly as the phase skill asks it, in order, one at a time.
 
@@ -42,7 +98,14 @@ Once Phase 2 has produced the milestone plan(s), run the ceremony **strictly ser
 For each milestone `M<N>`, in plan order:
 
 1. **Spawn** one fresh, visible worker session via the `agent-toolkit:spawn-agent` skill. All spawn mechanics — surface/pane placement, session wiring, lifecycle — are that skill's contract; `/deliver` only hands it the kickoff task text and the milestone identity. Fresh means a brand-new session per milestone: never reuse the previous milestone's worker, and never run milestone work in this orchestrating session.
-2. **Kickoff task text.** Read `readOrchestrationConfig().defaultEffort` (from `adapters/_shared/src/orchestration_config.ts`) and carry that effort keyword (e.g. `ultracode`) in the kickoff task text, so the worker session runs at the operator-configured effort level.
+2. **Kickoff task text.** Read `readOrchestrationConfig().defaultEffort` (from `adapters/_shared/src/orchestration_config.ts`) and carry that effort keyword (e.g. `ultracode`) in the kickoff task text, so the worker session runs at the operator-configured effort level. The same text also states the whole `deliver-stage-result` hand-off contract, spelled out here rather than pointed at — the worker must be told the shape it is graded on before it starts:
+
+   - **Banner** — each ceremony stage ends its report with **exactly one** fenced `deliver-stage-result` block, as the last thing in that report.
+   - **Six sections, fixed order** — `stage`, `milestone`, `status`, `summary`, `gate`, `follow_ups`. Never reordered, never omitted.
+   - **Line cap** — at most **20** lines total inside the fence.
+   - **Empty-section fallback** — a section with nothing to report keeps its heading and carries the literal `- (none found)` rather than being dropped.
+
+   The same kickoff text also names the milestone under work (`M<N>`) and the ceremony chain the worker runs in-session, and it **never** carries the auto-approve marker (`<dpt:auto-approve>v1</dpt:auto-approve>`) — workers are interactive and their approval gates must stay live for the operator relay below.
 3. **The worker's chain**, run in-session, in order, inside that one worker:
 
    `/implement M<N>` → `/ship-milestone M<N>` → `/pr`
@@ -54,10 +117,20 @@ For each milestone `M<N>`, in plan order:
 
 Ceremony stages pause at real approval gates: the `/implement` commit approval, the `/ship-milestone` release approval, the `/pr` push/PR confirmation, and any tracker-write prompts. When a worker raises one of these gates, `/deliver` **relays it to the operator via AskUserQuestion** — quoting the worker's prompt faithfully — and then **forwards the operator's answer to the worker by keystroke** (typing the reply into the visible worker session). The operator is the only approver in this pipeline.
 
+Gates are not interchangeable, and each class names who decides it (the taxonomy is code, in `adapters/_shared/src/gate_class.ts`): **content** gates shape what gets built, so the operator decides them gate by gate; **mechanical** gates have exactly one correct answer already determined upstream — the next milestone number, the branch name the convention fixes, a tracker field write — so the worker may decide them while a standing authorization is in effect; **irreversible** or outward-facing gates — merge a pull request, push to trunk, deploy to an environment, publish a package or release, send an outward-facing message — the operator decides, per action, and no standing authorization ever reaches them. Decide whether a given gate still relays by calling `relayRequired(gate, delegation)` from that module rather than judging it in prose — it is the fail-closed default (with no delegation on the record it is `true` for every gate, which is the shipped behaviour), and `classifyGate` overrides any gate that *declares* itself mechanical while naming an irreversible action.
+
+The exclusion has an escape hatch, and it is deliberately narrow: an irreversible action is authorized only by a **fresh instruction naming that action** — `freshInstructionAuthorizes(instruction, gate)` — never by a standing authorization however emphatic. "Drive it yourself" does not reach a merge; "merge this PR" does, and only that one. A fresh instruction authorizes the action once and mints no standing scope, so the next irreversible gate asks again.
+
+A standing authorization is **restated back to the operator once, before it takes effect** — quoting their own words, naming the mechanical class it covers, listing every action it does not reach, and stating that it holds for the rest of this run. Until that restatement is on the record the authorization covers nothing at all, not even a mechanical gate: an authorization nobody has read back has no scope. The operator restates once; `/deliver` never re-asks it gate by gate afterwards.
+
+Once on the record, that authorization reaches later milestones through **one channel only: the kickoff task text of the next worker spawned**, carried there as the restatement the operator agreed to (`carryDelegation` in the gate-class module appends it, leaving the rest of the kickoff text untouched). Never deliver it as a mid-run message to an already-running worker — a worker finishes under the scope it was spawned with, and widening that scope mid-run leaves its own transcript recording terms it is no longer operating under.
+
 Two hard prohibitions:
 
 - `/deliver` never injects the auto-approve marker (`<dpt:auto-approve>v1</dpt:auto-approve>`, the canonical line minted for headless `claude -p` heredoc fences and enforced by `adapters/_shared/src/auto_approve_marker.ts`) into worker prompts or kickoff task text. Workers run interactively and their gates must stay live.
 - `/deliver` never fabricates an approval — no answering `y` on the operator's behalf, no pre-filling consent, no "the operator would obviously approve" shortcuts. If the operator declines or does not answer, the gate stays closed and the worker stays paused.
+
+The standing authorization is a **distinct** mechanism from the auto-approve marker, not a second name for it, and `/deliver` still never injects that marker into any worker prompt or kickoff text. The marker is the byte-checkable channel minted for headless `claude -p` fences, where no operator is present to be asked; the delegation above exists only inside an interactive session, in words a live operator typed and had restated back to them. Different channels for different domains — which is exactly why adding the delegation does not widen, weaken, or stand in for the marker's contract.
 
 ## Stage hand-offs — the `deliver-stage-result` fence
 
@@ -77,16 +150,26 @@ follow_ups:
 
 **Required sections, in fixed section order:** `stage`, `milestone`, `status`, `summary`, `gate`, `follow_ups`. `status: ok` means the stage completed cleanly; `status: failed` means it could not — the orchestrator halts the milestone and reports to the operator rather than improvising a recovery.
 
+**Reduced chains — a milestone targeting a repo with no toolkit ceremony.** When a milestone's work lands in a tree that has no toolkit installed, the worker does the work and opens a PR with no `/implement` or `/ship-milestone` stage. The one section that omits real content there is `gate`: that tree has no project gate command to report pass and skip counts from. Omitting content is never dropping a section — `gate` keeps its heading and carries the literal `- (none found)` fallback. Every other section is filled exactly as on a full chain, `milestone` included: the milestone identity is the orchestrating repo's plan and is known to the worker, and `stage`, `status`, `summary` and `follow_ups` all describe work that did happen. So a reduced chain emits the same six sections in the same fixed order as a full one, which is exactly why it cannot violate a contract written for the full chain.
+
+`milestone` is a scalar, so the `- (none found)` fallback — a list-item form — is not even expressible there; that fallback belongs to the list sections `summary`, `gate` and `follow_ups` alone.
+
 ### Shape violations — bounded retry, then halt
 
 A stage report that violates the contract — no fence, multiple fences, sections missing or out of order, or the line cap blown — gets **one scoped retry**: re-prompt the same worker with only the fence contract restated ("re-emit your stage result as a single `deliver-stage-result` fence"), never a re-run of the stage's actual work. A second violation from the same stage is a **deterministic halt naming the stage** (e.g. `Halting: stage /ship-milestone for M<N> violated the deliver-stage-result contract twice`) — the same bounded-retry budget the `/tdd` orchestrator applies to its `tdd-result` fences. Never paper over a malformed hand-off by guessing what the stage meant.
 
 ## Post-PR — merge-policy routing
 
-After a milestone's worker reports its `/pr` stage `ok` (an open PR exists), route on `readOrchestrationConfig().mergePolicy` (the same `orchestration_config` module the kickoff step reads; config key `merge_policy`). Exactly three policies, exactly three behaviors:
+After a milestone's worker reports its `/pr` stage `ok` (an open PR exists), route on the run's **effective** merge policy — `runMergePolicy(...)` from `adapters/_shared/src/merge_policy_ratchet.ts`, which is `readOrchestrationConfig().mergePolicy` (config key `merge_policy`) unless a conversational override is in effect, in which case it is the tightened value. Never route on the configured value directly: an operator who tightened mid-run said so precisely to change this decision, and reading the config here would silently ignore them. Exactly three policies, exactly three behaviors:
 
 - **`offer`** (the default) — ask the operator, via AskUserQuestion, whether to merge the open PR now, leave it for later, or stop the pipeline. The operator's answer decides; `/deliver` never assumes.
 - **`auto`** — merge the PR **only after** it is **mergeable** and its **checks pass** (green CI, no conflicts, no blocked reviews). Never merge early, never bypass a red check. After the merge, **re-run the project gate on merged main** — and only when that gate is green does the next milestone's worker get spawned. A red gate on merged main halts the pipeline with a report to the operator.
 - **`never`** — **stop at the open PR**. `/deliver` reports the PR URL and moves on to the next milestone (or ends the run) without merging; merging is entirely the operator's affair.
 
 `auto` is **strictly opt-in**: the shipped default is `offer`, and no inference path may enable `auto` — not repo history, not CI shape, not "the operator merged the last three by hand". The only way `auto` turns on is the operator writing `merge_policy: auto` into the orchestration config themselves, an operator decision recorded in the FR Notes.
+
+### Tightening mid-run — the merge-policy override
+
+The operator can restrict merging by saying so — "don't merge anything", "ask me before every merge" — with no config edit. Resolve the statement with `overrideFromStatement(...)` from `adapters/_shared/src/merge_policy_ratchet.ts`, restate it back **once, before it takes effect**, via `confirmOverride(...)` — an unconfirmed override changes nothing — then apply it with `applyOverride(...)` and route each milestone's post-PR decision through `postPrAction(...)`. From then on it holds for the rest of this run: the routing above reads the run's *effective* policy, so every remaining milestone routes on the override rather than on the configured value. It is a run fact only — it is **not written to CLAUDE.md**, and persisting it stays a separate and explicit operator request.
+
+The ratchet only ever tightens. `auto` → `offer`, `auto` → `never` and `offer` → `never` are accepted; `offer` → `auto`, `never` → `offer` and `never` → `auto` are refused, as is any statement reaching for `auto` at all — the only enabling act stays the operator writing `merge_policy: auto` into the orchestration config themselves, which is why no spoken instruction can become the inference path this section forbids.

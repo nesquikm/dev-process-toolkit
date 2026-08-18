@@ -1,0 +1,24 @@
+/implement M129 — worker stage report
+
+Chain stage 1 of 3 (implement → ship-milestone → pr), milestone M129, effort
+ultracode. Spawned as a fresh visible worker by /deliver; kickoff task text
+carried the effort keyword, the milestone, the chain, and the stage hand-off
+contract.
+
+Landed the M129 FR set on `feat/m129-deliver-contract-repair`. Operator approved
+the commit at the Phase 4 gate; nothing was pushed from this stage.
+
+Full gate re-run from `plugins/dev-process-toolkit`: green, no skips.
+
+```deliver-stage-result
+stage: implement
+milestone: M129
+status: ok
+summary:
+  - STE-492 kickoff task text now carries the deliver-stage-result contract
+  - fixture group 14 registered on the canonical roster
+gate:
+  - 8067 pass, 16 skip, 0 fail
+follow_ups:
+  - (none found)
+```
