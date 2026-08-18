@@ -8,6 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.68.0] — 2026-08-18 — "Compact"
+
+Deliver pipeline contract repair and resume. Two field reports from a live three-repo run, plus the two entry shapes the pipeline lacked.
+
+### Added
+
+- Approval gates carry a class — content, mechanical, irreversible — each naming its decider. An operator can delegate the mechanical class for the rest of a run by saying so; it is restated once before taking effect and reaches later workers only through kickoff text. No statement, however general, ever delegates merge, push to trunk, deploy, publish, or an outward-facing message: that exclusion is a shared module plus `/gate-check` probe #78, with every guard drop-one mutation-verified. Relay-everything remains the shipped default — a run where the operator says nothing behaves exactly as before. (STE-493)
+- Merge policy can be tightened conversationally and never loosened, enforced by a restriction-only ratchet and `/gate-check` probe #79. The legal transitions are exactly `offer → never`, `auto → offer` and `auto → never`; none targets `auto`, so the shipped "never inferred" and "strictly opt-in" guarantees hold by construction rather than by a runtime check that could drift. The override never persists to CLAUDE.md. (STE-494)
+- A milestone plan can declare the repo it targets. Declaring none means the invoking session's repo, so every existing plan behaves exactly as it did. A cross-repo toolkit target runs its spec-writing inside that milestone's worker so tracker and specs bind correctly; a target with no toolkit runs a reduced chain — do the work, open a PR — and a target that cannot be located refuses rather than silently falling back to the invoking repo. (STE-495)
+- `/pr` can open a pull request as a draft, on the tracker-mode path as well as the tracker-less one, with the state named in its closing report. The default remains non-draft. When the host or CLI cannot open a draft it says so rather than silently opening a normal pull request. (STE-496)
+- `/deliver` can resume a milestone already under way, classifying it read-only from what is on disk into the states that change the entry point and rendering both the state and the intended chain before anything is spawned or claimed. Built as assembly over four existing helpers rather than new machinery. (STE-498)
+
+### Fixed
+
+- The `deliver-stage-result` hand-off contract now reaches the stage that must satisfy it. Every shipped check for this contract read `/deliver`'s own prose, which is exactly why a contract with no producer anywhere in the toolkit passed all of them — and why a live run produced three fully successful chains the contract, followed literally, would have halted. The contract now travels in the kickoff task text on the operative surface, and a new smoke fixture group grades a captured worker stage report; its predicate rejects the orchestrator's own well-formed example, which any token-grep would have accepted. (STE-492)
+- `/deliver` recognises a milestone or FR identity instead of accepting it as a fresh feature idea. Naming one used to enter the design phase and begin brainstorming work whose specs already existed and were often already merged, with no signal until a Socratic question arrived about something that shipped last week. Recognition rides the shared milestone-token grammar, so all three minted forms are understood; an identity naming no plan file refuses and names both plausible intents. (STE-497)
+
+Total test count at release: 8565 tests, 0 failures, 0 errors.
+
 ## [2.67.1] — 2026-08-17 — "Verdict"
 
 The two driver-level findings from the 2026-08-16 `/conformance-loop` run. Both surfaces are the maintainer's own harness — the loop driver and the smoke driver — so nothing in this release changes anything a downstream project touches.
