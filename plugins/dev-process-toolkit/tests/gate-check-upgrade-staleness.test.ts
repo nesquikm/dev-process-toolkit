@@ -1052,7 +1052,7 @@ describe("AC-STE-410.6 — gate-check SKILL #69 documents the carve-out; M111 sp
     // added #77 `first_turn_refusal_marker`), not an M111 freeze.
     const numbers = [...body.matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
     expect(numbers.length).toBeGreaterThan(0);
-    expect(Math.max(...numbers)).toBe(77);
-    expect(numbers.length).toBe(77);
+    expect(Math.max(...numbers)).toBe(79);
+    expect(numbers.length).toBe(79);
   });
 });

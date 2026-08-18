@@ -14,6 +14,32 @@ This reference is **not required reading** on every run — the skill itself has
 | Phase 3 | `/implement M<N>` → `/ship-milestone M<N>` → `/pr`, per milestone | One fresh spawned visible worker per milestone, strictly serial | Every approval gate relayed via AskUserQuestion |
 | Post-PR | Merge-policy routing per milestone | Invoking session | Depends on `merge_policy` |
 
+## The argument — three kinds, one of which is not new work
+
+`/deliver` accepts three kinds of argument, decided by `classifyDeliverArgument(...)` in `adapters/_shared/src/deliver_argument.ts` and never by prose judgement at the call site:
+
+- **A milestone identity** — a token under the shared union grammar (`adapters/_shared/src/milestone_token.ts`), which covers all three mint paths: the Linear sequential form, the Jira Epic-keyed form, and the tracker-less short-tail form. Recognition rides that module, never a private numeric copy — a private copy recognizes the sequential form and silently misroutes the other two.
+- **An FR identity** — a tracker ref or a minted id. It routes through the `milestone:` key in its own frontmatter, read with the shared frontmatter reader, and then follows the milestone path above.
+- **A feature request** — prose, which is what `/deliver` has always taken and what the design phase exists for. Recognition is anchored on the *whole* argument, so prose that merely mentions a milestone token mid-sentence stays prose, and a malformed identity-ish token (`M`, `M_`, `M5-extra`) is prose too: handing the operator the pipeline they have always had is the safe reading.
+
+**An identity that names no plan file on disk is REFUSED, and the design phase is never entered for it.** Both halves matter. `/deliver` halts in the NFR-10 canonical shape (`Refusing:` / `Remedy:` / `Context:`), quoting the identity and — for an FR — the milestone it resolved to. It does **not** then fall through to Phase 1, because a milestone identity is a perfectly well-formed "idea": brainstorming it would run a Socratic design session over work whose specs are already written and often already merged, which is the failure this refusal exists to prevent. Falling through is the dangerous outcome, not the polite one.
+
+The refusal names both intents an operator could have had, because the identity alone cannot distinguish them. If they meant an **existing milestone**, the remedy is to check the identity — plans live in `specs/plan/` and, once shipped, in `specs/plan/archive/`, and the probe reads both. If they meant to **start new work**, the remedy is to describe it in their own words as a feature request, which is exactly the argument the design phase takes. A refusal that named only the first intent would strand the second reader with no way forward.
+
+Identity recognition earns no relaxation of the non-interactive gate: the FIRST ACTION refusal in the skill file applies to every argument form alike, identities included, and it fires before the plan probe or the design phase is touched.
+
+## Target repo — which tree a milestone's work lands in
+
+A milestone plan may declare the repo it targets with an optional `target_repo:` frontmatter key. The declaration is additive and the default is the status quo:
+
+- **No `target_repo:` key — or the `null` sentinel — means the invoking session's repo.** This is what every existing plan says by saying nothing, and it behaves exactly as it always has: design and spec-writing inline in the invoking session, then the shipped three-stage chain in one worker. `/deliver` does not go looking for another tree for an undeclared milestone; there is nothing to look for.
+- **A declared value is read verbatim** and resolved against the invoking repo when relative. Declaring the invoking repo itself is a no-op, not a second code path.
+- **A `target_repo` naming another toolkit-managed tree moves spec-writing into that milestone's worker.** Phase 1 still runs inline; Phase 2 does not. The specs have to bind to the target tree's tracker and its `specs/` directory rather than the invoking session's, and only a worker sitting in that tree can do that — so the worker's chain is `/dev-process-toolkit:spec-write` first, then the shipped ceremony unchanged: `/implement` → `/ship-milestone` → `/pr`. It is still one fresh worker for the milestone, and workers are still taken strictly one at a time.
+- **A `target_repo` tree with no toolkit installed runs a reduced chain:** the worker does the work and opens a PR, and that is the whole chain — no `/implement` and no `/ship-milestone` stage, because those ceremonies do not exist in that tree. Toolkit presence is decided by the shipped on-disk managed-tree predicate against the resolved target repo, never guessed from the repo's name or asserted in the declaration. The reduction is a matter of which *stages* run; what the worker emits is unchanged — see "Reduced chains" under the hand-off contract below, where the same six sections still appear in the same fixed order.
+- **A declared `target_repo` that cannot be located on disk is REFUSED, not worked around.** `/deliver` halts in the NFR-10 canonical shape (`Refusing:` / `Remedy:` / `Context:`), quoting the declared value and naming the `target_repo` key that carried it, and it never silently falls back to the invoking repo. The fallback is the dangerous outcome, not the safe one: a milestone whose plan names another tree would land its branch, its commits, and its PR in the invoking repo — the exact mix-up the declaration exists to prevent — and a silent skip is worse than a loud failure. Only the operator can decide whether the right answer is fixing the path, cloning the tree, or dropping the declaration, so the pipeline stops and asks.
+
+The key is read out of the plan's frontmatter through the shared frontmatter reader, so a CRLF- or BOM-authored plan is understood the same as an LF one.
+
 ## Pre-flight — spawn-agent probe detail
 
 Phase 3 rides entirely on the `agent-toolkit:spawn-agent` skill; without it there is no visible-worker topology and the pipeline cannot honor its supervision contract. The probe:
@@ -57,6 +83,23 @@ Ceremony stages pause at real gates: the `/implement` commit approval, the `/shi
 3. The operator answers.
 4. `/deliver` forwards the answer to the worker **by keystroke** — typing the reply into the visible worker session.
 
+### Gate classes and the standing authorization
+
+Every relayed gate carries one of three classes. The taxonomy is code — `adapters/_shared/src/gate_class.ts` — not prose, and `relayRequired(gate, delegation)` is the decision function:
+
+| Class | Examples | Who decides | Can a standing authorization cover it? |
+|-------|----------|-------------|----------------------------------------|
+| `content` | the `/implement` commit approval, the release approval | operator, gate by gate | No |
+| `mechanical` | the next milestone number, the branch name the convention fixes, a tracker field write | operator by default; the worker once a standing authorization is on the record | **Yes** — this is the only class it covers |
+| `irreversible` | merge a pull request, push to trunk, deploy to an environment, publish a package or release, send an outward-facing message | operator, **per action, always** | **Never** |
+
+- **Relay-everything is the shipped default.** With no delegation on the record, `relayRequired` is `true` for every gate in every class — a run where the operator says nothing behaves exactly as it always has.
+- **Restate once.** A delegation covers nothing until it has been read back to the operator; an authorization nobody has confirmed has no scope.
+- **Kickoff-only carry.** It reaches later milestones through the next spawned worker's kickoff text and never as a mid-run message to a running worker.
+- **The irreversible exclusion is enforced, not documented.** Guards live in `IRREVERSIBLE_GUARDS` and each is drop-one mutation-verified; `/gate-check` probe #78 fails any surface that describes the authorization without naming every action it cannot reach. A gate that *declares* itself mechanical while naming an irreversible action is still classified irreversible — the guard hit wins.
+- **The escape hatch is per-action.** `freshInstructionAuthorizes` admits an irreversible action only when the operator's fresh instruction names that action; it mints no standing scope, so the next one asks again.
+- **Distinct from the auto-approve marker.** The `<dpt:auto-approve>v1</dpt:auto-approve>` marker is the byte-checkable channel for headless `claude -p` fences. The standing authorization exists only in an interactive session where a live operator typed the words. Different channels, different domains — which is why adding one does not weaken the other, and why `/deliver` still never injects the marker anywhere.
+
 The operator is the only approver. Two hard prohibitions, restated because both have historical incident shapes:
 
 - **No auto-approve injection.** The `<dpt:auto-approve>v1</dpt:auto-approve>` marker exists for headless `claude -p` heredoc fences; `/deliver`'s workers are interactive and their gates must stay live.
@@ -65,6 +108,10 @@ The operator is the only approver. Two hard prohibitions, restated because both 
 ## The `deliver-stage-result` contract, expanded
 
 Each ceremony stage ends its report with **exactly one** fenced `deliver-stage-result` block, last thing in the report.
+
+**Reduced chains — a milestone targeting a repo with no toolkit ceremony.** When the work lands in a tree with no toolkit installed, the chain is reduced: the worker does the work and opens a PR, with no `/implement` or `/ship-milestone` stage. The one section that omits real content there is `gate` — that tree has no project gate command to report pass and skip counts from. Omitting content is never dropping a section: `gate` keeps its heading and carries the literal `- (none found)` fallback. Every other section is filled exactly as on a full chain, `milestone` included, so the `milestone` row's "never empty" in the table below holds without exception; the milestone identity is the orchestrating repo's plan and is known to the worker. A reduced chain therefore emits the same six sections in the same fixed order as a full one — which is exactly why it cannot violate a contract written for the full chain.
+
+Note the shape constraint that makes this the only coherent reading: `stage`, `milestone` and `status` are **scalars**, while `summary`, `gate` and `follow_ups` are **lists**. The `- (none found)` fallback is a list-item form, so it is expressible only in the three list sections. A scalar section can never be "empty-with-fallback"; it is always filled.
 
 ### Field reference
 
@@ -117,6 +164,24 @@ After a milestone's `/pr` stage reports `ok`, route on `readOrchestrationConfig(
 - **Never bypass a red check.** A flaky-looking failure is still a failure; the pipeline waits or halts, it does not admin-merge.
 - **Gate on merged main is mandatory.** A PR that was green on its branch can still land red on main (concurrent merges, base drift). The post-merge gate run is what authorizes the next milestone's worker.
 - **Strictly opt-in.** The shipped default is `offer`, and no inference path may enable `auto` — not repo history, not CI shape, not "the operator merged the last three by hand". The only enabling act is the operator writing `merge_policy: auto` into the orchestration config themselves.
+
+### Tightening mid-run — the conversational merge-policy override
+
+The routing table above reads the run's **effective** merge policy, not the configured one. They differ when the operator has tightened mid-run by saying so — "don't merge anything", "ask me before every merge" — which takes effect with no CLAUDE.md edit. Resolve with `overrideFromStatement(...)`, restate **once** before it takes effect with `confirmOverride(...)` (an unconfirmed override covers nothing), apply with `applyOverride(...)`, and route each post-PR decision through `postPrAction(...)` — all from `adapters/_shared/src/merge_policy_ratchet.ts`.
+
+The ratchet is **restriction-only**, and that is what keeps it compatible with the `auto` guarantees above rather than a contradiction of them:
+
+| Transition | Verdict |
+|---|---|
+| `offer` → `never` | accepted (tightening) |
+| `auto` → `offer` | accepted (tightening) |
+| `auto` → `never` | accepted (tightening) |
+| `offer` → `auto` | **refused** (loosening) |
+| `never` → `offer` | **refused** (loosening) |
+| `never` → `auto` | **refused** (loosening) |
+| identity (`x` → `x`) | refused as a no-op |
+
+No tightening transition has `auto` as its target, so the set of values a spoken statement can produce is `{offer, never}` — `auto` is not in it. The refusal of an `auto` target is enforced **unconditionally and ahead of the guard list**, so it holds even if every loosening guard were dropped. The override is also **non-persistent**: it is a run fact, never written to CLAUDE.md, so the config file stays the sole surface on which `auto` can ever be enabled. Persisting an override is a separate, explicit operator request.
 
 ### `offer` prompt shape
 

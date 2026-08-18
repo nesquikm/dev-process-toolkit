@@ -14,6 +14,13 @@
 //   - parsing a body of scoped YAML (top-level scalars, inline empty
 //     list, block list, block-literal scalar)
 // Both callers retain their own field-validation pipelines verbatim.
+//
+// STE-492 refactor pass: the fence walk itself now comes from
+// `markdown_fences.findFences` (the one scanner shared with the ```bash
+// probes and the `deliver-stage-result` capture predicate). What stays here
+// is the *policy* — exactly one terminated fence, else a format violation.
+
+import { findFences } from "./markdown_fences";
 
 export type ExtractResult =
   | { ok: true; body: string }
@@ -23,8 +30,6 @@ export interface YamlFields {
   [key: string]: unknown;
 }
 
-const FENCE_CLOSE = /^```\s*$/;
-
 /**
  * Locate the unique fenced block whose opening line matches `fenceOpen`
  * (e.g., /^```tdd-result\s*$/ or /^```tdd-spec-review-result\s*$/).
@@ -32,33 +37,17 @@ const FENCE_CLOSE = /^```\s*$/;
  *
  * Exactly one fence is required: zero or multiple ⇒ format violation
  * with a reason string naming the offending fence tag (`fenceTag`).
+ * An unterminated fence (EOF before the closing marker) is not a block —
+ * it counts as zero, the same as the pre-STE-492 hand-rolled walk.
  */
 export function extractFencedBlock(
   text: string,
   fenceOpen: RegExp,
   fenceTag: string,
 ): ExtractResult {
-  const lines = text.split("\n");
-  const fences: { startLine: number; body: string }[] = [];
-  let inFence = false;
-  let buf: string[] = [];
-  let bufStart = -1;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (!inFence && fenceOpen.test(line)) {
-      inFence = true;
-      bufStart = i + 1;
-      buf = [];
-      continue;
-    }
-    if (inFence && FENCE_CLOSE.test(line)) {
-      fences.push({ startLine: bufStart, body: buf.join("\n") });
-      inFence = false;
-      buf = [];
-      continue;
-    }
-    if (inFence) buf.push(line);
-  }
+  const fences = findFences(text, fenceOpen).filter(
+    (fence) => fence.endLine > 0,
+  );
   if (fences.length === 0) {
     return {
       ok: false,
