@@ -72,6 +72,10 @@ Fires at Phase 1 entry, **between resolver (0.b′) and `claimLock` (0.c)** — 
    - `e` ⇒ present the rendered name on an editable input line; re-prompt `Y/e/n` on the edited string. No cap on edit iterations, but the user must ultimately press `Y` or `n`.
    - `n` ⇒ exit cleanly with `aborted: branch not created` and **zero side effects** (no `claimLock`, no ticket writes, no file changes).
 
+### Skip baseline capture
+
+6.b On a successful `git checkout -b`, and only there, call `captureSkipBaseline(projectRoot, <rendered branch>, <current gate skip count>)` from `adapters/_shared/src/skip_baseline.ts`. Branch creation is the one moment the pre-work skip count is still the truth; a baseline written later records the branch's own skips as if they had always been there. The write is once-per-branch — an existing baseline is left exactly as it was — and without it every later `gate:` row renders `baseline unmeasured`, which `renderImplementReportEvidence` treats as a refusal ground, so an unwritten baseline makes a clean run uncertifiable rather than merely unmeasured. Editing (`e`) re-renders the name; the baseline binds to whatever branch was actually created. Aborting (`n`) writes nothing.
+
 ### Failure handling
 
 7. `git checkout -b` fails (branch already exists with different upstream, uncommitted changes conflict, permissions, etc.): surface the git error via NFR-10 canonical shape and exit non-zero. Never silently proceed on the old branch after a failed checkout.
@@ -211,6 +215,40 @@ The skill carries the condensed entry; this section is the operational mirror.
 **Failure semantics.** If `rewriteArchiveLinks` or `cleanupPlanVerifyLines` throws (e.g., a plan file is read-only, an I/O error fires), `/implement` **aborts archival cleanly — do not commit the archive move, do not call `Provider.releaseLock`**. Surface an NFR-10 canonical refusal naming the offending plan `file:line:column` and the link or verify line that would have been rewritten, then exit Phase 4 non-zero. The FR file remains in its pre-archive location so a follow-up run can resume through the `already-ours` claim path. Same rule applies to a partial rewrite (any helper invocation in the milestone-group batch fails) — the entire commit is aborted, never partial.
 
 Then call `Provider.releaseLock(id)` for each released FR.
+
+## Step 14 Verification Evidence
+
+`/implement`'s step-14 report carries the same machine-derived evidence rows the `deliver-stage-result` fence carries, so a standalone run — a single-FR run, or an `/implement M<N>` an operator types by hand — evidences its work exactly as an orchestrated one does. Before this contract those counts existed only when a stage ran underneath the `/deliver` orchestrator: the guarantee was a property of one invocation path rather than of the work.
+
+**Obligation.** Step 14 MUST render the section headed `## Verification evidence` through `renderImplementReportEvidence` from `adapters/_shared/src/implement_report_evidence.ts`. That function takes exactly one argument — the captured runs — and no stage, milestone or fence context; a second parameter would make the guarantee conditional on the orchestrated path all over again.
+
+**Rows (fixed order, never omitted).**
+
+1. `gate:` — the gate-check run, carrying its skip count and the baseline skip delta.
+2. `drive:` — the project-drive run.
+3. `e2e:` — the end-to-end run.
+
+**Delegation, not a second renderer.** `implement_report_evidence` derives nothing of its own — no count parsing, no baseline lookup, no row shape. It calls the shared stage-evidence renderer and re-labels the result, so its rows are byte-identical to the fence's, being the same bytes. A second formatter that merely agreed with the fence today would let the two invocation paths drift into disagreeing about whether the same work was green.
+
+**Fail-closed, for the sections the project has DECLARED it has.** A missing capture is a refusal, not a silent omission: `ok` goes false, `reasons` names each offending section by name, and the `gate:` / `drive:` / `e2e:` rows are emitted anyway. A confident nothing is the failure mode this guards against.
+
+**Vacuity is declared, never assumed.** Which sections are required comes from `requiredEvidenceSections` in `adapters/_shared/src/evidence_required_sections.ts`, reading the project's own `## Verification` block: `gate` is unconditional, `drive` is required only when `run_cmd` names a real command, and `e2e` only when `e2e_cmd` does — both asked through `isRunCmdAnswered` / `isRunCmdNone`, so `run_cmd: none` (an answer: "this project cannot be run") and a bare `run_cmd:` (an omission wearing an answer's hat) stay distinct. A project that declared the command away is not refused for producing no output from a command it told us does not exist; a project that declared one and captured nothing still is. An explicit `required` from the caller overrides the derivation, and `/deliver`'s own fence renderer keeps its fail-closed all-three default — it grades a fence it did not author.
+
+## Phase 4 End-to-End Authoring Hook
+
+Runs in Phase 4, before the step-14 report — the same placement as the other Phase 4 hooks, so the decision is made before the work is declared green.
+
+**Why it exists.** Nothing else in the loop ever ADDS an end-to-end test. `/tdd` writes tests per AC through a test-writer that is deliberately blind to the running system, which is correct for unit tests and exactly wrong for end-to-end ones. The end-to-end suite therefore drifts away from the product one change at a time, while the evidence rows keep faithfully reporting green counts for a suite that stopped covering anything.
+
+**Obligation.** When the `## Verification` block declares an `e2e_cmd` that is a real command, the change adds or edits an end-to-end test covering it, the suite is run, and the outcome is resolved through `resolveE2eAuthoring` from `adapters/_shared/src/e2e_authoring.ts`. A declared project whose change authored nothing and recorded nothing REFUSES: the green declaration is not available to it.
+
+**The quiet half.** A change with no end-to-end observable surface records that explicitly, with a reason. Silence is not an answer — a silent skip and a considered decision produce identical trees (no new file either way, no diff either way, nothing to grep for either way), so the module distinguishes them by demanding the record and reading the reason back out. Only the recorded decision emits `end_to_end_none_needed`; a silent skip emits nothing and refuses. A blank reason is silence wearing a hat and lands on exactly the same refusal as saying nothing at all, and a none-needed record alongside a freshly authored test is a contradiction rather than a preference.
+
+**Three states, never two.** An absent `e2e_cmd` is vacuous — byte-identical to today's behaviour for projects that never opted in. The literal `none` is an ANSWER ("there is no end-to-end suite"), so it needs no authored test and no suite run. The module asks `isRunCmdNone` / `isRunCmdAnswered` from `adapters/_shared/src/verification_config.ts` rather than comparing those four bytes itself, which is what keeps the absent key from folding into the `none` answer.
+
+**Delegation, not a second renderer.** `e2e_authoring` derives no counts of its own: the `e2e:` rows and every number in them come from the shared stage-evidence renderer, called by bare name so an override is genuinely wired through.
+
+**One block, not two — the hook's capture is threaded into step 14.** `e2e_authoring`'s captured end-to-end run is **fed into** the single step-14 `renderImplementReportEvidence` call, so one evidence block carries `gate:`, `drive:` and `e2e:` each from its real capture. Read on its own the hook's `evidenceRows` still carry `- (none found)` for `gate:` and `drive:` — captures this module was never given and cannot speak for — which is exactly why they are threaded through the step-14 renderer rather than rendered beside it: a second block would re-split the source of truth the one-renderer contract above exists to consolidate.
 
 ## Advisory Notes
 

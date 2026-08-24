@@ -181,7 +181,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.70.0 — "Ignition"** (M131, runnability contract: a project that declares how it can be run is now actually driven — the `## Verification` block gains `run_cmd`/`e2e_cmd` with `none` as a real answer, a gate probe fails any repo that documents how to run itself yet declares no run command and names the source that fired, the drive becomes mandatory and blocking-by-default for exactly those projects whose author wrote a command, and `/setup` and `/upgrade` seed the keys so no existing project meets the contract by hand-editing a config block.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.71.0 — "Receipt"** (M132, evidence ledger: a stage can no longer report success in prose and be believed — the hand-off fence gains `drive:` and `e2e:` sections whose every count is read from captured command output rather than authored by the reporting agent, skipped tests are counted and ratcheted against a branch-point baseline so newly introduced skips are red while pre-existing ones ride free, `/implement` carries the same evidence in its own report from the same renderer, and a change with end-to-end observable behaviour arrives with its end-to-end tests updated or records explicitly that none were needed.)
 
 ## Core Philosophy
 

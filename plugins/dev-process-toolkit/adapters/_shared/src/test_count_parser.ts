@@ -10,10 +10,15 @@
 // stacks should land via a new FR updating AC-STE-73.12 — adding them
 // here without AC coverage is undocumented scope creep.
 
+// STE-508: `skipped` is the fourth counter. It is reported ALONGSIDE the
+// legacy three, never folded into `total` — the /ship-milestone CHANGELOG
+// closing line reads exactly `total`/`failures`/`errors` and must render
+// byte-identically for a skip-bearing run.
 export interface TestCount {
   total: number;
   failures: number;
   errors: number;
+  skipped: number;
 }
 
 export type TestCountParseResult =
@@ -33,6 +38,31 @@ function lastCountedMatch(output: string, regex: RegExp): number | undefined {
   return Number(matches[matches.length - 1][1]);
 }
 
+// STE-508: skip counters must be last-match anchored on every stack — per-file
+// `N skip` blocks precede bun's summary, a gate command running pytest twice
+// lands two summary lines, and flutter prints a cumulative `~N` progress line
+// per test — so an earlier counter would otherwise shadow the run total. Each
+// stack's pattern lives here as a module-level `/g` constant handed to the
+// hoisted `lastCountedMatch` helper: grouping the three side by side is what
+// makes the per-runner spellings (`N skip` / `N skipped` / `~N`) comparable,
+// and it is also required for pytest and flutter, whose function bodies
+// STE-323 AC-323.5 audits for the absence of `matchAll` and inline `/g`
+// literals. `matchAll` never mutates the shared `lastIndex`, so these
+// constants are safe to reuse across calls.
+const BUN_SKIPPED_RE = /(\d+)\s+skip\b/g;
+const PYTEST_SKIPPED_RE = /(\d+)\s+skipped/g;
+// M132: last-match alone is only half the guard for flutter. Gate commands run
+// `flutter test 2>&1`, so a buffered stderr failure block flushes AFTER the
+// final stdout progress line — and flutter's expanded reporter prints tildes
+// inside expected/actual values and colon-laden stack frames. A bare `~(\d+)`
+// sweep therefore lets a LATER non-counter shadow the real total, the mirror of
+// the earlier-counter shadowing AC-STE-508.3 closed. Anchor on the counter's
+// own shape instead: `~N` is a counter only inside a `+P ~S[ -F]:` progress
+// line, i.e. immediately preceded by the pass counter and followed by the
+// optional fail counter and the line's colon. Both flutter progress shapes
+// (with and without `-N`) still match; prose tildes no longer can.
+const FLUTTER_SKIPPED_RE = /\+\d+\s+~(\d+)(?=\s*(?:-\d+)?\s*:)/g;
+
 function parseBun(output: string): TestCountParseResult {
   // STE-323: anchor on Bun's trailing summary line, not the first match.
   // Bun emits per-file `N pass` / `N fail` counters before the summary in
@@ -41,18 +71,21 @@ function parseBun(output: string): TestCountParseResult {
   // counters, and prefer the canonical `Ran N tests across M files` line
   // for the total.
   const failures = lastCountedMatch(output, /(\d+)\s+fail\b/g) ?? 0;
+  // STE-508: same last-match anchoring as `fail` — per-file `N skip` counters
+  // precede the summary block in multi-file runs.
+  const skipped = lastCountedMatch(output, BUN_SKIPPED_RE) ?? 0;
   // Bun does not emit a distinct "error" line; errors are folded into fail.
   const errors = 0;
 
   // Primary anchor: Bun's "Ran N tests across M files" summary line.
   const summaryMatch = /Ran (\d+) tests across \d+ files/.exec(output);
   if (summaryMatch) {
-    return { ok: true, count: { total: Number(summaryMatch[1]), failures, errors } };
+    return { ok: true, count: { total: Number(summaryMatch[1]), failures, errors, skipped } };
   }
   // Fallback: last `N pass` line (older Bun versions or truncated output).
   const lastPass = lastCountedMatch(output, /(\d+)\s+pass\b/g);
   if (lastPass !== undefined) {
-    return { ok: true, count: { total: lastPass, failures, errors } };
+    return { ok: true, count: { total: lastPass, failures, errors, skipped } };
   }
   return {
     ok: false,
@@ -70,7 +103,8 @@ function parsePytest(output: string): TestCountParseResult {
   const passed = passedMatch ? Number(passedMatch[1]) : 0;
   const failed = failedMatch ? Number(failedMatch[1]) : 0;
   const errors = errorsMatch ? Number(errorsMatch[1]) : 0;
-  return { ok: true, count: { total: passed + failed + errors, failures: failed, errors } };
+  const skipped = lastCountedMatch(output, PYTEST_SKIPPED_RE) ?? 0;
+  return { ok: true, count: { total: passed + failed + errors, failures: failed, errors, skipped } };
 }
 
 function parseFlutter(output: string): TestCountParseResult {
@@ -81,7 +115,8 @@ function parseFlutter(output: string): TestCountParseResult {
   }
   const pass = passMatch ? Number(passMatch[1]) : 0;
   const fail = failMatch ? Number(failMatch[1]) : 0;
-  return { ok: true, count: { total: pass + fail, failures: fail, errors: 0 } };
+  const skipped = lastCountedMatch(output, FLUTTER_SKIPPED_RE) ?? 0;
+  return { ok: true, count: { total: pass + fail, failures: fail, errors: 0, skipped } };
 }
 
 export function parseTestOutput(output: string, stack: Stack): TestCountParseResult {

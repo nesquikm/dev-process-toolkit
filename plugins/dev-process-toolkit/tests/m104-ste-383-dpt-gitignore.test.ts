@@ -137,11 +137,14 @@ const paragraphs = (body: string): string[] => body.split(/\n\s*\n/);
 // ---------------------------------------------------------------------------
 
 describe("AC-STE-383.1 — the canonical `.dpt/.gitignore` body", () => {
-  test("the body is exactly `ledger/` + `scratch/`", () => {
+  test("the body is exactly `ledger/` + `scratch/` + `skip-baseline.json`", () => {
+    // STE-509 extended the closed set with the skip baseline — a LOCAL
+    // measurement of one working tree, never committable. The set stays
+    // closed: anything else appearing here goes RED.
     const rules = DPT_GITIGNORE_BODY.split("\n")
       .map((l) => l.trim())
       .filter((l) => l.length > 0 && !l.startsWith("#"));
-    expect(rules).toEqual(["ledger/", "scratch/"]);
+    expect(rules).toEqual(["ledger/", "scratch/", "skip-baseline.json"]);
   });
 
   test("the body is deliberately RELATIVE, not rooted — it names no `.dpt` prefix and no leading `/`", () => {
