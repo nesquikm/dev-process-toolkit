@@ -6,6 +6,11 @@
 // already on disk. This module is the one home for deciding WHAT an operator
 // just handed `/deliver`, and what that argument routes to.
 //
+// STE-499 added the second half of that answer: a routing carries a SCOPE as
+// well as a kind. An FR identity resolves its milestone and carries it, but
+// the FR stays the unit of work — collapsing the two into one milestone-scoped
+// run is the defect `scope` / `fr` exist to make visible.
+//
 // Three kinds, and only three:
 //
 //   * `milestone_identity` — a milestone token under the SHARED union grammar
@@ -126,6 +131,40 @@ export interface ResolveDeliverArgumentInput {
   readonly stdinIsTty?: boolean;
 }
 
+/**
+ * WHAT UNIT OF WORK a `/deliver` run delivers.
+ *
+ * `kind` answers what the operator TYPED; `scope` answers what the chain then
+ * has to deliver, and the two are not the same question. Before STE-499 an FR
+ * identity was read only far enough to find its milestone and was then dropped:
+ * `/deliver STE-500` and `/deliver M130` produced the same routing modulo
+ * `kind`, so every downstream stage delivered the whole milestone. The
+ * discriminator is what lets an FR-scoped run stay FR-scoped.
+ */
+export type DeliverScope = "fr" | "milestone" | "design";
+
+/** The scope each argument kind delivers. Total over `DeliverArgumentKind`. */
+const SCOPE_BY_KIND: Readonly<Record<DeliverArgumentKind, DeliverScope>> = {
+  milestone_identity: "milestone",
+  fr_identity: "fr",
+  feature_request: "design",
+} as const;
+
+/**
+ * The scope vocabulary — one entry per argument kind, no more.
+ *
+ * DERIVED from `SCOPE_BY_KIND` rather than written out a second time, because
+ * `SCOPE_BY_KIND` is `Record<DeliverArgumentKind, …>` and therefore already
+ * total: the compiler will not let a kind go unmapped. A hand-kept literal
+ * beside it would be a second runtime copy of the same vocabulary with nothing
+ * enforcing that the two agree — the kind that stays right until someone adds
+ * a fourth kind and updates only the map. Walking `DELIVER_ARGUMENT_KINDS`
+ * (rather than `Object.values`) also pins the order to routing precedence
+ * instead of to object-literal key order.
+ */
+export const DELIVER_SCOPES: readonly DeliverScope[] =
+  DELIVER_ARGUMENT_KINDS.map((kind) => SCOPE_BY_KIND[kind]);
+
 /** Where one `/deliver` argument routes. */
 export interface DeliverRouting {
   readonly kind: DeliverArgumentKind;
@@ -136,6 +175,14 @@ export interface DeliverRouting {
   readonly planPath: string | null;
   /** True only for the feature-request path. */
   readonly entersDesignPhase: boolean;
+  /** Which unit of work this run delivers. */
+  readonly scope: DeliverScope;
+  /**
+   * The resolved FR identity, or `null` off the FR path. Carried so an
+   * FR-scoped run can name its own unit of work rather than inferring it back
+   * out of `identity` + `kind` at every downstream stage.
+   */
+  readonly fr: string | null;
 }
 
 /**
@@ -296,6 +343,8 @@ export function resolveDeliverArgument(
       milestone: null,
       planPath: null,
       entersDesignPhase: true,
+      scope: SCOPE_BY_KIND.feature_request,
+      fr: null,
     };
   }
 
@@ -342,5 +391,10 @@ export function resolveDeliverArgument(
     milestone,
     planPath,
     entersDesignPhase: false,
+    scope: SCOPE_BY_KIND[classification.kind],
+    // The FR identity survives the routing only on the FR path; a milestone
+    // identity names no FR, and echoing `identity` into it there would make
+    // the field indistinguishable from `identity` itself.
+    fr: classification.kind === "fr_identity" ? identity : null,
   };
 }

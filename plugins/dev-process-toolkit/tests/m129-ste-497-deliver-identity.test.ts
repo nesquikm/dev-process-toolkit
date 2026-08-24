@@ -917,11 +917,15 @@ describe("AC-STE-497.4 — an operator who meant new work is not stranded", () =
 });
 
 // ===========================================================================
-// AC-STE-497.5 — an FR identity resolves through its `milestone:` frontmatter
-// and then follows the SAME routing.
+// AC-STE-497.5 — an FR identity resolves through its `milestone:` frontmatter.
+//
+// It no longer follows the SAME routing: STE-499 (M130) gave the routing a
+// scope, so an FR resolves to FR scope while carrying that milestone. What
+// these legs assert is REFUSAL PARITY — the FR path refuses on the same terms
+// the milestone path does — which STE-499 AC.4 re-asserts and depends on.
 // ===========================================================================
 
-describe("AC-STE-497.5 — an FR identity routes through its milestone", () => {
+describe("AC-STE-497.5 — an FR identity resolves its milestone", () => {
   test("an FR bound to a milestone WITH a plan resolves, no design phase", async () => {
     const { resolveDeliverArgument } = await deliverArgument();
     const sink = recordingSink();
@@ -943,7 +947,7 @@ describe("AC-STE-497.5 — an FR identity routes through its milestone", () => {
     expect(sink.calls).toEqual([]);
   });
 
-  test("SAME ROUTING: an FR bound to a milestone with NO plan refuses identically", async () => {
+  test("REFUSAL PARITY: an FR bound to a milestone with NO plan refuses identically", async () => {
     const { resolveDeliverArgument } = await deliverArgument();
     const msg = expectRefusal(
       () =>
