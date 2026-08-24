@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.69.0] — 2026-08-24 — "Pinpoint"
+
+FR-scoped delivery. `/deliver` given the entry shape it advertised but did not have: naming one task now delivers that task.
+
+### Added
+
+- `/deliver` classifies a resumed FR at FR scope, in its own two-state vocabulary rather than the milestone's six, and reports whether building it would leave its milestone with nothing active left. Assembled from the shipped binding and review-flag helpers rather than a second scan, so the count that decides whether a release happens has one home. An FR bound to no such milestone, or already archived, refuses in the canonical shape and says which of the two it is. (STE-500)
+- An FR-scoped chain stops at the pull request while siblings remain, and auto-extends through `/spec-archive` and `/ship-milestone` only when the FR is the last active one — with `/spec-archive` explicit and strictly before the ship step, because a single-FR `/implement` run leaves the FR at `status: active` and archives nothing. The confirm gate renders the remaining-FR count and which branch that count selected, so a miscount is visible before anything runs rather than after a release. (STE-501)
+
+### Fixed
+
+- Naming a single FR no longer delivers its whole milestone. `/deliver` read the FR's `milestone:` frontmatter, discarded the FR, and built, version-bumped and released every task in that milestone with nothing in the run saying the scope had widened. The routing now carries a scope discriminator alongside the resolved FR, and the milestone-identity path is asserted byte-identical rather than assumed so. (STE-499)
+- The FR-scoped rule is stated on the surface a live run reads. The previous milestone repaired a defect caused by a contract living only in a reference the skill marks "not required reading", then reproduced it four requirements later; this one writes the rule — and the call shape that reaches it — onto the skill itself, asserts the two surfaces agree rather than checking each alone, and pins the placement with a mutation that moves the rule back into the reference and requires it to go red. (STE-502)
+
+Total test count at release: 8688 tests, 0 failures, 0 errors.
+
 ## [2.68.0] — 2026-08-18 — "Compact"
 
 Deliver pipeline contract repair and resume. Two field reports from a live three-repo run, plus the two entry shapes the pipeline lacked.
