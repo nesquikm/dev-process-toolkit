@@ -50,6 +50,8 @@ export const PROBE_ID = "claudemd_probe_managed_guard";
 export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
   bun_zero_match_placeholder:
     "applicability is `bun.lock`; CLAUDE.md is read only for the `## Testing Conventions` layout policy, not for managed-ness.",
+  detect_runnability:
+    "CLAUDE.md is an INPUT DOCUMENT whose headings are scanned for a run block; applicability is the presence of run instructions, not managed-ness.",
   docs_nav_contract:
     "validates the `docs/README.md` nav contract; CLAUDE.md is read for the Schema-D docs mode flags, not managed-ness.",
   identity_mode_conditional:

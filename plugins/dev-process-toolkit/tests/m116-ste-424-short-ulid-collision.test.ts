@@ -1190,7 +1190,7 @@ describe("AC-STE-424.2 — gate-check SKILL.md stops claiming probe #13 excludes
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("STE-424 — the probe count tracks the live total", () => {
-  test("gate-check SKILL.md enumerates exactly 79 probes, contiguous", () => {
+  test("gate-check SKILL.md enumerates exactly 80 probes, contiguous", () => {
     // STE-424 deliberately spent no probe number: a new probe ripples to ~26
     // pinned count sites across README.md, skills/gate-check/SKILL.md and five
     // test files, and both of this FR's checks belong to probes #13 and #73,
@@ -1203,7 +1203,7 @@ describe("STE-424 — the probe count tracks the live total", () => {
     const numbers = [...read(gateCheckSkillPath).matchAll(/^(\d+)\. \*\*/gm)].map((m) =>
       Number(m[1]),
     );
-    expect(numbers.length).toBe(79);
-    expect(Math.max(...numbers)).toBe(79);
+    expect(numbers.length).toBe(80);
+    expect(Math.max(...numbers)).toBe(80);
   });
 });
