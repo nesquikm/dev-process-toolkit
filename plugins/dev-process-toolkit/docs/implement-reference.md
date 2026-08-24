@@ -1,6 +1,6 @@
 # `/implement` Reference
 
-Extended reference material for `/dev-process-toolkit:implement` that was extracted from `skills/implement/SKILL.md` to keep the skill file under the NFR-1 351-line cap. The skill file contains a one-line pointer to this file at the Stage C section.
+Extended reference material for `/dev-process-toolkit:implement` that was extracted from `skills/implement/SKILL.md` to keep the skill file under the NFR-1 line cap. The skill file contains a one-line pointer to this file at the Stage C section.
 
 This reference is **not required reading** on every run — the skill itself has enough guidance to operate. Consult this file when Stage C (Hardening) is run on round 1 of the self-review loop, or when a hardening pass needs concrete examples.
 
@@ -211,6 +211,22 @@ The skill carries the condensed entry; this section is the operational mirror.
 **Failure semantics.** If `rewriteArchiveLinks` or `cleanupPlanVerifyLines` throws (e.g., a plan file is read-only, an I/O error fires), `/implement` **aborts archival cleanly — do not commit the archive move, do not call `Provider.releaseLock`**. Surface an NFR-10 canonical refusal naming the offending plan `file:line:column` and the link or verify line that would have been rewritten, then exit Phase 4 non-zero. The FR file remains in its pre-archive location so a follow-up run can resume through the `already-ours` claim path. Same rule applies to a partial rewrite (any helper invocation in the milestone-group batch fails) — the entire commit is aborted, never partial.
 
 Then call `Provider.releaseLock(id)` for each released FR.
+
+## Step 14 Verification Evidence
+
+`/implement`'s step-14 report carries the same machine-derived evidence rows the `deliver-stage-result` fence carries, so a standalone run — a single-FR run, or an `/implement M<N>` an operator types by hand — evidences its work exactly as an orchestrated one does. Before this contract those counts existed only when a stage ran underneath the `/deliver` orchestrator: the guarantee was a property of one invocation path rather than of the work.
+
+**Obligation.** Step 14 MUST render the section headed `## Verification evidence` through `renderImplementReportEvidence` from `adapters/_shared/src/implement_report_evidence.ts`. That function takes exactly one argument — the captured runs — and no stage, milestone or fence context; a second parameter would make the guarantee conditional on the orchestrated path all over again.
+
+**Rows (fixed order, never omitted).**
+
+1. `gate:` — the gate-check run, carrying its skip count and the baseline skip delta.
+2. `drive:` — the project-drive run.
+3. `e2e:` — the end-to-end run.
+
+**Delegation, not a second renderer.** `implement_report_evidence` derives nothing of its own — no count parsing, no baseline lookup, no row shape. It calls the shared stage-evidence renderer and re-labels the result, so its rows are byte-identical to the fence's, being the same bytes. A second formatter that merely agreed with the fence today would let the two invocation paths drift into disagreeing about whether the same work was green.
+
+**Fail-closed.** A missing capture is a refusal, not a silent omission: `ok` goes false, `reasons` names each offending section by name, and the `gate:` / `drive:` / `e2e:` rows are emitted anyway. A confident nothing is the failure mode this guards against.
 
 ## Advisory Notes
 
