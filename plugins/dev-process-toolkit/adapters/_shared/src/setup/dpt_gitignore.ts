@@ -32,11 +32,13 @@ import { join } from "node:path";
 import { dptRoot } from "../dpt_paths";
 
 /**
- * The canonical body: the two subtrees that are machine-generated and
- * disposable. Locks are absent on purpose — they are a coordination signal and
- * must stay tracked.
+ * The canonical body: the machine-generated, disposable subtrees plus the skip
+ * baseline (STE-509), which is a LOCAL measurement of one working tree at its
+ * branch point — a committed copy from another machine or branch would silently
+ * change the ratchet's verdict. Locks are absent on purpose — they are a
+ * coordination signal and must stay tracked.
  */
-export const DPT_GITIGNORE_BODY = "ledger/\nscratch/\n";
+export const DPT_GITIGNORE_BODY = "ledger/\nscratch/\nskip-baseline.json\n";
 
 export type DptGitignoreOutcome = "written" | "unchanged";
 
