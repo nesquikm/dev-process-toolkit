@@ -51,6 +51,7 @@
 import { readFileSync } from "node:fs";
 
 import {
+  EVIDENCE_ITEM_RE,
   EVIDENCE_SECTIONS,
   parseEvidenceLines,
   renderStageEvidence,
@@ -326,8 +327,18 @@ const REQUIRED_GATE_COUNTS = ["baseline", "delta"] as const;
 /** The legal empty-section fallback, in any list section. */
 const EMPTY_ITEM_RE = /^[ \t]*-[ \t]*\(none found\)[ \t]*$/;
 
-/** A list item under a section — `  - ...`, at any indentation. */
-const LIST_ITEM_RE = /^[ \t]+-[ \t]/;
+/**
+ * A list item under a section — `- ...`, at ANY indentation INCLUDING NONE.
+ *
+ * `EVIDENCE_ITEM_RE` is imported rather than respelled: this clause and
+ * `parseEvidenceLines` must agree about what an item IS, and when they did not
+ * — this side demanding leading whitespace, that side demanding none, and
+ * `EMPTY_ITEM_RE` right here already lenient — a counts line at column 0 was
+ * read back as a claim by one half and graded by neither
+ * `checkEvidenceCounts` nor `checkEvidenceCardinality`. Two spellings of one
+ * question is the hole; one exported predicate is the fix.
+ */
+const LIST_ITEM_RE = EVIDENCE_ITEM_RE;
 
 /** The list items belonging to one top-level section, in order. */
 function sectionItems(lines: readonly string[], key: string): string[] {

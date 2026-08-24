@@ -54,6 +54,8 @@ export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
     "CLAUDE.md is an INPUT DOCUMENT whose headings are scanned for a run block; applicability is the presence of run instructions, not managed-ness.",
   docs_nav_contract:
     "validates the `docs/README.md` nav contract; CLAUDE.md is read for the Schema-D docs mode flags, not managed-ness.",
+  evidence_required_sections:
+    "applicability derives from the declared `## Verification` block (`run_cmd` / `e2e_cmd`), read via `readVerificationConfig`; an absent block declares nothing and yields the unconditional gate section in managed and unmanaged trees alike.",
   identity_mode_conditional:
     "applicability derives from the declared tracker `mode:`, read via `readTaskTrackingSection`.",
   orchestration_config:

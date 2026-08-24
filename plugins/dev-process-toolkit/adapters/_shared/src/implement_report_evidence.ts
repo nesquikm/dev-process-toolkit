@@ -17,10 +17,12 @@
 
 import {
   renderStageEvidence,
+  EVIDENCE_SECTIONS,
   type EvidenceCounts,
   type EvidenceSection,
   type StageEvidenceInput,
 } from "./deliver_stage_evidence";
+import { requiredEvidenceSectionsForProject } from "./evidence_required_sections";
 
 /** The step-14 section heading these rows live under. */
 export const IMPLEMENT_EVIDENCE_HEADING = "## Verification evidence";
@@ -38,6 +40,24 @@ export interface ImplementReportEvidence {
 }
 
 /**
+ * WHICH sections this run must evidence.
+ *
+ * DECLARATION-AWARE, because `/implement` runs INSIDE the project and can ask
+ * it. An explicit `required` from the caller still WINS — derivation fills the
+ * gap when nobody answered, it does not overrule someone who did, and the
+ * reduced-chain caller keeps its override. With no `projectRoot` there is
+ * nothing to ask, so the fail-closed all-three default stands.
+ *
+ * The narrowing lives HERE and not in `renderStageEvidence`: /deliver grades a
+ * fence it did not author and must keep refusing an unevidenced section.
+ */
+function resolveRequired(input: StageEvidenceInput): readonly EvidenceSection[] {
+  if (input.required !== undefined) return input.required;
+  if (input.projectRoot === undefined) return EVIDENCE_SECTIONS;
+  return requiredEvidenceSectionsForProject(input.projectRoot);
+}
+
+/**
  * Render the step-14 evidence section from the captures behind it.
  *
  * ONE ARGUMENT, and captures are all of it: a second parameter carrying a
@@ -47,7 +67,7 @@ export interface ImplementReportEvidence {
 export function renderImplementReportEvidence(
   input: StageEvidenceInput,
 ): ImplementReportEvidence {
-  const rendered = renderStageEvidence(input);
+  const rendered = renderStageEvidence({ ...input, required: resolveRequired(input) });
   return {
     ok: rendered.ok,
     rows: rendered.lines,
