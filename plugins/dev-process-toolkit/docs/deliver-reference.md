@@ -19,7 +19,7 @@ This reference is **not required reading** on every run — the skill itself has
 `/deliver` accepts three kinds of argument, decided by `classifyDeliverArgument(...)` in `adapters/_shared/src/deliver_argument.ts` and never by prose judgement at the call site:
 
 - **A milestone identity** — a token under the shared union grammar (`adapters/_shared/src/milestone_token.ts`), which covers all three mint paths: the Linear sequential form, the Jira Epic-keyed form, and the tracker-less short-tail form. Recognition rides that module, never a private numeric copy — a private copy recognizes the sequential form and silently misroutes the other two.
-- **An FR identity** — a tracker ref or a minted id. It routes through the `milestone:` key in its own frontmatter, read with the shared frontmatter reader, and then follows the milestone path above.
+- **An FR identity** — a tracker ref or a minted id, naming one FR. Its milestone is resolved from the `milestone:` key in its own frontmatter, read with the shared frontmatter reader, and carried through the run so every milestone-scoped step has it. What gets delivered is still the FR itself, on the FR-scoped chain below — the milestone is carried, not substituted for it.
 - **A feature request** — prose, which is what `/deliver` has always taken and what the design phase exists for. Recognition is anchored on the *whole* argument, so prose that merely mentions a milestone token mid-sentence stays prose, and a malformed identity-ish token (`M`, `M_`, `M5-extra`) is prose too: handing the operator the pipeline they have always had is the safe reading.
 
 **An identity that names no plan file on disk is REFUSED, and the design phase is never entered for it.** Both halves matter. `/deliver` halts in the NFR-10 canonical shape (`Refusing:` / `Remedy:` / `Context:`), quoting the identity and — for an FR — the milestone it resolved to. It does **not** then fall through to Phase 1, because a milestone identity is a perfectly well-formed "idea": brainstorming it would run a Socratic design session over work whose specs are already written and often already merged, which is the failure this refusal exists to prevent. Falling through is the dangerous outcome, not the polite one.
@@ -27,6 +27,29 @@ This reference is **not required reading** on every run — the skill itself has
 The refusal names both intents an operator could have had, because the identity alone cannot distinguish them. If they meant an **existing milestone**, the remedy is to check the identity — plans live in `specs/plan/` and, once shipped, in `specs/plan/archive/`, and the probe reads both. If they meant to **start new work**, the remedy is to describe it in their own words as a feature request, which is exactly the argument the design phase takes. A refusal that named only the first intent would strand the second reader with no way forward.
 
 Identity recognition earns no relaxation of the non-interactive gate: the FIRST ACTION refusal in the skill file applies to every argument form alike, identities included, and it fires before the plan probe or the design phase is touched.
+
+## An FR identity — the FR is the unit of work
+
+The rule an FR resume runs on lives in the skill file, which is the operative surface. This section is the debugging view of the same rule: which chain a given FR should have produced, and how to read a run that produced the other one. Both surfaces are written against the shipped classifier, so if they ever disagree, `classifyResume(...)` / `resumeChain(...)` in `adapters/_shared/src/resume_classifier.ts` settles it — never prose judgement at the call site.
+
+An FR identity delivers **that one FR**. The milestone off the FR's `milestone:` frontmatter is carried so every milestone-scoped step knows which milestone it is acting on, but it is **not the unit of work** and an FR argument is never widened into a sweep of its siblings. One classifier field decides the whole chain — but only if the classifier was asked the FR question in the first place:
+
+```
+classifyResume(projectRoot, { scope: "fr", fr: "<FR-id>", milestone: "M<N>" })
+runResume({ ..., milestone: "M<N>", fr: "<FR-id>" })    // `fr` present ⇒ FR scope
+```
+
+The positional `classifyResume(root, "M<N>")` answers the *milestone's* question and returns the six milestone states, so a run that reached for it with an FR argument was already back at milestone scope before this table could apply — check that first when a chain came out milestone-shaped.
+
+| `lastActiveFr` | Chain built | Why it ends where it does |
+|---|---|---|
+| `false` — other active FRs are still bound to the milestone | `/implement <FR-id>` → `/pr` | It stops at the PR. The milestone is not finished, so running the ship ceremony now would release it early; the ceremony belongs to the run that closes the milestone. |
+| `true` — this FR is the last active FR bound to its milestone | `/implement <FR-id>` → `/spec-archive M<N>` → `/ship-milestone M<N>` → `/pr` | `/spec-archive` is an explicit step and runs strictly before `/ship-milestone`: a single-FR `/implement` run leaves the FR at `status: active` and archives nothing, and shipping a milestone whose FRs are still active is exactly what that ordering prevents. |
+
+Reading a run that came out wrong starts at that field, because the confirm gate had already rendered its arithmetic before anything was spawned — how many active FRs would remain bound once this FR lands (`0 active FRs would remain` on the last-active branch), which chain that count selected, and why:
+
+- **It shipped a milestone you did not expect to ship** ⇒ the classification saw no other FR bound to that milestone with `status: active`. Check for a sibling archived earlier in the same session, or bound to the milestone by a `milestone:` key that does not match.
+- **It stopped at a PR you expected to ship** ⇒ the mirror case: a sibling was still active when the tree was read. Classification is read-only and one-shot, so archiving that sibling afterwards does not retro-extend the chain — the remedy is a fresh `/deliver M<N>` resume — which enters at `ship_ready` only once every bound FR is archived, and at `partly_implemented` while any is still active.
 
 ## Target repo — which tree a milestone's work lands in
 

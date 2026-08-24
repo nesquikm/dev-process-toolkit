@@ -176,6 +176,48 @@ flowchart TD
     pr -->|"transition in_review + PR url"| trk
 ```
 
+## 6. Deliver — pipeline orchestration (detail)
+
+`/deliver` chains the four phases above end-to-end: Phases 1–2 run **inline** in the invoking session, then one spawned worker per milestone carries Build and Ship serially. Its argument is classified first (`classifyDeliverArgument(...)`), because the kind decides the unit of work — a feature request starts at `/brainstorm`, a **milestone identity** delivers that milestone, and an **FR identity** delivers **that one FR**. An identity that already names a plan on disk is *resumed*: `classifyResume(...)` reads the state off disk and picks the entry point, never the eye.
+
+**An FR identity is FR-scoped.** Its milestone is resolved from the FR's `milestone:` frontmatter and carried through the run, so every milestone-scoped step still knows which milestone it is acting on — but the milestone is **not the unit of work**, and an FR argument is never widened into a sweep of its siblings. `resumeChain(...)` builds the chain and `lastActiveFr` picks the branch:
+
+- **Other active FRs are still bound to the milestone** ⇒ the chain is `/implement <FR-id>` then `/pr`. It stops at the PR: the milestone is not finished, so the ship ceremony belongs to the run that closes it.
+- **This FR is the last active FR bound to its milestone** ⇒ the chain auto-extends to `/implement <FR-id>` → `/spec-archive M<N>` → `/ship-milestone M<N>` → `/pr`. `/spec-archive` is an explicit step and runs strictly before `/ship-milestone`, because a single-FR `/implement` run leaves the FR at `status: active` and archives nothing.
+
+Either chain is rendered in full at the confirm gate — before any worker is spawned and before any tracker claim — so aborting there changes nothing on disk or on the tracker.
+
+```mermaid
+flowchart TD
+    classDef skill fill:#e1f5e1,stroke:#2e7d32,stroke-width:2px,color:#000
+    classDef gate fill:#fff8e1,stroke:#f9a825,stroke-width:2px,color:#000
+    classDef fork fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000
+    classDef halt fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000
+
+    deliver["/deliver — pipeline orchestrator"]:::skill
+    gArg{"classifyDeliverArgument — request | milestone id | FR id"}:::gate
+    inline["Phases 1-2 inline: /brainstorm → /spec-write"]:::skill
+    gResume{"classifyResume — state on disk"}:::gate
+    gLast{"lastActiveFr — is this the last active FR?"}:::gate
+    chainStop["/implement (FR-id) → /pr<br/>stops at the PR"]:::skill
+    chainExt["/implement (FR-id) → /spec-archive M(N)<br/>→ /ship-milestone M(N) → /pr"]:::skill
+    gConfirm{"confirm / edit / abort<br/>chain rendered before any spawn or claim"}:::gate
+    worker["spawned worker — one milestone, whole chain"]:::fork
+    refuse["NFR-10 refusal — shipped / parked / no plan on disk"]:::halt
+
+    deliver --> gArg
+    gArg -->|"feature request"| inline --> gConfirm
+    gArg -->|"milestone identity"| gResume
+    gArg -->|"FR identity"| gResume
+    gResume -->|"milestone-scoped state"| gConfirm
+    gResume -->|"FR-scoped resume"| gLast
+    gResume -.->|"shipped · parked · unknown"| refuse
+    gLast -->|"other active FRs remain"| chainStop --> gConfirm
+    gLast -->|"last active FR"| chainExt --> gConfirm
+    gConfirm -->|"confirm / edit"| worker
+    gConfirm -.->|"abort — zero side effects"| deliver
+```
+
 ## Loops & evals reference
 
 | Loop / Eval | Where | Bound | On-fail |
@@ -240,6 +282,8 @@ flowchart TD
 | /setup Socratic prompt loop | /setup 7b-7e | one Q/turn, 4 fixed sites | requires-input → RequiresInputRefusedError |
 | bun prereq / MCP live test / 8a audit | /setup | bun>=1.2 · live call · audit | NFR-10 hard-stop / stay mode:none |
 | Provider no-op guard | claimLock/releaseLock | one post-write re-fetch | updatedAt not advanced → TrackerWriteNoOpError |
+| /deliver argument + resume classify | /deliver pre-Phase-1 | one classifier call each; six resume states | no plan on disk / shipped / parked → NFR-10 refuse |
+| /deliver chain confirm gate | /deliver before any spawn or claim | one confirm / edit / abort | abort → zero side effects |
 | Blocking hooks (gate-check / spec-review / tdd) | harness PreToolUse (exit 2) | required Skill tool_use in transcript | absent → exit2 block |
 
 ## Artifact write-points reference

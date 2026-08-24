@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.68.0 ("Compact")**.
+**Latest shipped release:** **v2.69.0 ("Pinpoint")**.
 
 ### Shipped milestones
 
@@ -466,4 +466,8 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-496.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/active_plan_ship_ready.ts, plugins/dev-process-toolkit/adapters/_shared/src/carrier_phrase_probe.ts, plugins/dev-process-toolkit/adapters/_shared/src/delegation_irreversible_exclusion.ts | plugins/dev-process-toolkit/tests/m129-ste-496-pr-draft.test.ts |
 | AC-STE-497.1..7 | plugins/dev-process-toolkit/adapters/_shared/src/active_plan_ship_ready.ts, plugins/dev-process-toolkit/adapters/_shared/src/carrier_phrase_probe.ts, plugins/dev-process-toolkit/adapters/_shared/src/delegation_irreversible_exclusion.ts | plugins/dev-process-toolkit/tests/m129-ste-497-deliver-identity.test.ts |
 | AC-STE-498.1..9 | plugins/dev-process-toolkit/adapters/_shared/src/active_plan_ship_ready.ts, plugins/dev-process-toolkit/adapters/_shared/src/carrier_phrase_probe.ts, plugins/dev-process-toolkit/adapters/_shared/src/delegation_irreversible_exclusion.ts | plugins/dev-process-toolkit/tests/m129-ste-498-resume-classifier.test.ts |
+| AC-STE-499.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/deliver_argument.ts | plugins/dev-process-toolkit/tests/m130-ste-499-deliver-fr-scope.test.ts |
+| AC-STE-500.1..6 | plugins/dev-process-toolkit/adapters/_shared/src/resume_classifier.ts | plugins/dev-process-toolkit/tests/m130-ste-500-fr-resume-classifier.test.ts |
+| AC-STE-501.1..7 | plugins/dev-process-toolkit/adapters/_shared/src/resume_classifier.ts | plugins/dev-process-toolkit/tests/m130-ste-501-fr-chain.test.ts |
+| AC-STE-502.1..5 | plugins/dev-process-toolkit/skills/deliver/SKILL.md, plugins/dev-process-toolkit/docs/deliver-reference.md, plugins/dev-process-toolkit/docs/workflow-overview.md | plugins/dev-process-toolkit/tests/m130-ste-502-fr-scope-surfaces.test.ts |
 
