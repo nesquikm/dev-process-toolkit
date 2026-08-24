@@ -46,6 +46,7 @@ import {
   CANONICAL_FIXTURE_GROUPS,
   SMOKE_LEGS,
 } from "../adapters/_shared/src/smoke_fixture_groups";
+import { FENCE_LINE_CAP } from "../adapters/_shared/src/deliver_stage_capture";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
@@ -71,16 +72,24 @@ const CAPTURE_GENUINE = join(FIXTURE_DIR, "worker-stage-report.txt");
 const CAPTURE_NO_FENCE = join(FIXTURE_DIR, "worker-stage-report-no-fence.txt");
 const CAPTURE_REORDERED = join(FIXTURE_DIR, "worker-stage-report-reordered.txt");
 
-// The six sections, in the ONE canonical order, restated byte-for-byte. Not
+// The eight sections, in the ONE canonical order, restated byte-for-byte. Not
 // imported from the module under test on purpose: deriving them from the SUT
 // would compare the source against itself and could never catch a rename that
 // stranded the SKILL's and the reference's copies.
+//
+// STE-510 inserted `drive` and `e2e` between `gate` and `follow_ups`. Restating
+// them here is what keeps the kickoff-enumeration check below a FULL check: while
+// this list held the retired six, that assertion had silently degraded to a
+// subsequence test that could not notice the two new sections vanishing from the
+// kickoff bullet.
 const STAGE_SECTIONS = [
   "stage",
   "milestone",
   "status",
   "summary",
   "gate",
+  "drive",
+  "e2e",
   "follow_ups",
 ] as const;
 
@@ -203,7 +212,7 @@ describe("AC-STE-492.1 — skills/deliver/SKILL.md kickoff step carries the whol
     expect(kickoffStep()).toContain("deliver-stage-result");
   });
 
-  test("the kickoff step enumerates the six sections in fixed order", () => {
+  test("the kickoff step enumerates the eight sections in fixed order", () => {
     const step = kickoffStep();
     const indices = sectionOrderIndices(step);
     const missing = STAGE_SECTIONS.filter((_, i) => indices[i]! < 0);
@@ -213,10 +222,17 @@ describe("AC-STE-492.1 — skills/deliver/SKILL.md kickoff step carries the whol
     );
   });
 
-  test("the kickoff step states the 20-line cap", () => {
+  test("the kickoff step states the line cap, and states the SHIPPED number", () => {
+    // STE-510 raised the cap to fit `drive:` and `e2e:`. Pinning the literal
+    // `20` made this test a hostage of the constant it was describing, so it
+    // now reads the shipped export: the clause stays exactly as strong (the
+    // kickoff must still NAME the real cap) while becoming immune to the next
+    // raise. Deriving the expectation from the SUT is safe here precisely
+    // because the claim is "these two surfaces agree", not "the cap is N".
     const step = kickoffStep();
-    expect(step).toMatch(/line cap|20-line/i);
-    expect(step).toMatch(/\b20\b/);
+    expect(step).toMatch(/line cap|-line/i);
+    // Word-anchored: a bare toContain would let "126" satisfy a cap of 26.
+    expect(step).toMatch(new RegExp(`\\b${FENCE_LINE_CAP}\\b`));
   });
 
   test("the kickoff step states the `- (none found)` empty-section fallback", () => {
@@ -353,7 +369,7 @@ describe("AC-STE-492.4 — capture fixtures exist and are genuine worker-report 
     expect(body).toContain("deliver-stage-result");
   });
 
-  test("the reordered mutation keeps all six sections but breaks the order", () => {
+  test("the reordered mutation keeps all eight sections but breaks the order", () => {
     const genuine = mustRead(CAPTURE_GENUINE);
     const reordered = mustRead(CAPTURE_REORDERED);
     expect(reordered).toContain(FENCE_BANNER);
@@ -366,10 +382,14 @@ describe("AC-STE-492.4 — capture fixtures exist and are genuine worker-report 
     }
     // … different order. Both halves matter: without the first, "reordered"
     // could be satisfied by a fixture that simply dropped a section.
+    // The alternation is DERIVED from the restated list above, never spelled
+    // out again. A hardcoded copy was a third home for the section names and
+    // silently went stale: it matched only the retired six, so `order()` could
+    // never see `drive`/`e2e` and the multiset assertion below compared a
+    // six-name reading against an eight-name expectation.
+    const SECTION_HEADING_RE = new RegExp(`^(${STAGE_SECTIONS.join("|")}):`, "gm");
     const order = (body: string): string[] =>
-      (body.match(/^(stage|milestone|status|summary|gate|follow_ups):/gm) ?? []).map((m) =>
-        m.replace(":", ""),
-      );
+      (body.match(SECTION_HEADING_RE) ?? []).map((m) => m.replace(":", ""));
     expect(order(genuine)).toEqual([...STAGE_SECTIONS]);
     expect(order(reordered)).not.toEqual([...STAGE_SECTIONS]);
     expect([...order(reordered)].sort()).toEqual([...STAGE_SECTIONS].sort());
@@ -472,7 +492,7 @@ describe("AC-STE-492.5 — the clause is mutation-verified", () => {
 
   test("WRONG-SUBJECT vacuity: /deliver's own SKILL.md does NOT satisfy the clause", async () => {
     // skills/deliver/SKILL.md carries a well-formed ```deliver-stage-result
-    // EXAMPLE with the six sections in the right order — a naive banner/order
+    // EXAMPLE with the eight sections in the right order — a naive banner/order
     // predicate scores it as a passing worker report. It is a template, not a
     // capture: `milestone: M<N>` is a placeholder and the scalar lines carry
     // `#` alternation comments.
@@ -579,6 +599,13 @@ describe("AC-STE-492.5 — milestone recognition rides milestone_token, not a pr
       "summary:",
       "  - did the work",
       "gate:",
+      "  - (none found)",
+      // STE-510 inserted `drive` and `e2e` between `gate` and `follow_ups`.
+      // A capture omitting them is now genuinely malformed, so this builder
+      // moves with the contract rather than pinning the retired shape.
+      "drive:",
+      "  - (none found)",
+      "e2e:",
       "  - (none found)",
       "follow_ups:",
       "  - (none found)",
