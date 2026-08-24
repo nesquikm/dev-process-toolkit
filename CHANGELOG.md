@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.70.0] — 2026-08-24 — "Ignition"
+
+Runnability contract. The check skill was opt-in, its failure was advisory by default, and under non-interactive stdin both the adopt offer and the scaffold offer declined themselves — three paths that each ended with the pipeline reporting done about an app nobody started.
+
+### Added
+
+- The `## Verification` block declares how the project is run. The closed key set widens from two keys to four (`run_cmd`, `e2e_cmd`), and `run_cmd: none` is an answer — this project cannot be run — distinct from an absent key, which is no answer at all. A block declaring only the original two keys parses byte-identically to before, asserted against the shipped output rather than restated as a paraphrase of the implementation. (STE-503)
+- A repo that documents how to run itself has to say so. `detectRunnability` reads a closed, named four-source set — a `dev` or `start` script, a Makefile `run` target, a README run heading, a run block in CLAUDE.md — and `/gate-check` probe #80 fails a repo where detection fires and no `run_cmd` is declared, naming the source that fired so `none` is a considered answer rather than a reflex. The failure this is designed against is an over-eager detector, not a missed one, so every source is mutation-verified in both directions: `build` is not `dev`, `run-tests` is not `run`, and "Running the test suite" is not "Running". (STE-504)
+- The toolkit declares its own `## Verification` block, so the contract covers the repository that ships it. The slug heuristic is deliberately NOT widened to reach this repo's two drivers — a wider net would make discovery guess, and discovery never guesses — and the frontmatter arm that makes the narrow net workable is now asserted end-to-end against the real scanner rather than assumed from its prose. The FR records the cost of the block it did declare: the dogfooding is discharged for the declaration half and not the drive half. (STE-506)
+- `/setup` seeds the new keys at bootstrap on both paths, so neither the runnable nor the not-runnable path leaves the key absent, and `/upgrade` carries a `verification-run-keys` migration entry that SPLICES `run_cmd: none` into an existing block rather than re-rendering it — a whole-block rewrite would stamp `verify_mode: advisory` onto every migrated project and silently defeat the new default. The entry declines the runnable half rather than inventing a run command it cannot verify, and `/upgrade` now points that operator at the gate probe instead of saying "Nothing to do." (STE-507)
+
+### Changed
+
+- A project that declares it can be run is now driven. When `run_cmd` names a real command the resolved check skill runs rather than being offered, `verify_mode` defaults to `blocking`, and a headless run that cannot drive FAILS instead of declining itself — the shipped no-stall guarantee is preserved, because failing and stalling are different outcomes and only stalling was forbidden. The reach is exactly the projects whose author wrote a run command: declaring `none`, declaring nothing, or writing `verify_mode` explicitly all behave as before, asserted against the shipped outputs rather than assumed. This supersedes a deliberate, well-argued default; the argument for why its precondition changed is recorded in the FR, not in the commit log. (STE-505)
+
+### Fixed
+
+- A CRLF- or BOM-authored CLAUDE.md made the whole `## Verification` section invisible: the parser split on `\n` and matched the heading by exact equality, so a Windows-authored block returned defaults and the project's declared `verify_skill` was silently ignored. Worse, the closed-key-set check that exists to stop a typo disabling verification was itself disabled — an out-of-set key on such a file never threw. Shipped since the block was introduced; the parser now folds through the same shared normalizer thirty-three sibling readers already use. (STE-503)
+
+Total test count at release: 9054 tests, 0 failures, 0 errors.
+
 ## [Unreleased]
 
 ## [2.69.0] — 2026-08-24 — "Pinpoint"
