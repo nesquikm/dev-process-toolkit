@@ -249,8 +249,15 @@ describe("AC-STE-442.1 — the registry gains the mode-none sequential-milestone
     expect(MIGRATIONS.map((e) => e.id)).toContain(ENTRY_ID);
   });
 
-  test("it is APPENDED — the last entry in the version-ordered list", () => {
-    expect(MIGRATIONS[MIGRATIONS.length - 1]!.id).toBe(ENTRY_ID);
+  // Was `MIGRATIONS[last].id === ENTRY_ID` until M131 appended a 2.70.0 entry
+  // after this one. The claim that mattered was never "nothing may follow it" —
+  // it was that this entry sorts AFTER the 2.46.0 entry that preceded it, i.e.
+  // that it was appended rather than spliced into the middle. Pinned positionally
+  // so it still fails on a mis-ordered insert, which is what `validateRegistry`
+  // rejects at module load.
+  test("it is APPENDED — ordered after the entry that preceded it", () => {
+    const ids = MIGRATIONS.map((e) => e.id);
+    expect(ids.indexOf(ENTRY_ID)).toBeGreaterThan(ids.indexOf("m104-legacy-state"));
   });
 
   test("kind is `script` and it carries an apply (scripted repair, not operator prose)", () => {

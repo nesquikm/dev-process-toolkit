@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.69.0 ("Pinpoint")**.
+**Latest shipped release:** **v2.70.0 ("Ignition")**.
 
 ### Shipped milestones
 
@@ -470,4 +470,9 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-500.1..6 | plugins/dev-process-toolkit/adapters/_shared/src/resume_classifier.ts | plugins/dev-process-toolkit/tests/m130-ste-500-fr-resume-classifier.test.ts |
 | AC-STE-501.1..7 | plugins/dev-process-toolkit/adapters/_shared/src/resume_classifier.ts | plugins/dev-process-toolkit/tests/m130-ste-501-fr-chain.test.ts |
 | AC-STE-502.1..5 | plugins/dev-process-toolkit/skills/deliver/SKILL.md, plugins/dev-process-toolkit/docs/deliver-reference.md, plugins/dev-process-toolkit/docs/workflow-overview.md | plugins/dev-process-toolkit/tests/m130-ste-502-fr-scope-surfaces.test.ts |
+| AC-STE-503.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/verification_config.ts | plugins/dev-process-toolkit/tests/m131-ste-503-verification-keys.test.ts, plugins/dev-process-toolkit/tests/m131-ste-503-key-set-prose.test.ts |
+| AC-STE-504.1..6 | plugins/dev-process-toolkit/adapters/_shared/src/detect_runnability.ts, plugins/dev-process-toolkit/adapters/_shared/src/runnability_declared.ts | plugins/dev-process-toolkit/tests/m131-ste-504-runnability.test.ts, plugins/dev-process-toolkit/tests/gate-check-runnability-declared.test.ts |
+| AC-STE-505.1..7 | plugins/dev-process-toolkit/adapters/_shared/src/verification_config.ts, plugins/dev-process-toolkit/skills/implement/SKILL.md | plugins/dev-process-toolkit/tests/m131-ste-505-mandatory-drive.test.ts |
+| AC-STE-506.1..4 | plugins/dev-process-toolkit/adapters/_shared/src/scan_candidate_check_skills.ts, CLAUDE.md | plugins/dev-process-toolkit/tests/m131-ste-506-self-declared-verification.test.ts |
+| AC-STE-507.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/migrations/entries/verification_run_keys.ts, plugins/dev-process-toolkit/adapters/_shared/src/migrations/index.ts | plugins/dev-process-toolkit/tests/m131-ste-507-runnability-seed.test.ts |
 

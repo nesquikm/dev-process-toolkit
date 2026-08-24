@@ -84,6 +84,8 @@ When the detected set is empty the tree is already current. Print the literal li
 Nothing to do.
 ```
 
+That line means every registry entry declined — not that every gate will pass. The registry's `verification-run-keys` entry seeds `run_cmd: none` only into a project that is NOT runnable; a runnable tree keeps its absent `run_cmd`, because a migration must never invent a run command it cannot verify, so `/gate-check` probe #80 (`runnability_declared`) is the surface that fails that tree and asks the operator for the real command.
+
 Otherwise present the detected set before asking for anything, in registry order, so the operator sees the whole scope at once:
 
 | id | introduced_in | kind | title | evidence |

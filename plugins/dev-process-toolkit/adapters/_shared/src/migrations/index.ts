@@ -14,6 +14,7 @@ import { modeNoneSequentialMilestone } from "./entries/mode_none_sequential_mile
 import { permissionShapes } from "./entries/permission_shapes";
 import { staleHookEntries } from "./entries/stale_hook_entries";
 import { v1Orphans } from "./entries/v1_orphans";
+import { verificationRunKeys } from "./entries/verification_run_keys";
 import { monolithSplit } from "./monolith_split";
 
 /** What a detector reports: does the legacy state exist, and where. */
@@ -104,6 +105,7 @@ export const MIGRATIONS: MigrationEntry[] = [
   staleHookEntries, // 2.22.2
   m104LegacyState, // 2.46.0
   modeNoneSequentialMilestone, // 2.59.0
+  verificationRunKeys, // 2.70.0
 ];
 
 validateRegistry(MIGRATIONS);
