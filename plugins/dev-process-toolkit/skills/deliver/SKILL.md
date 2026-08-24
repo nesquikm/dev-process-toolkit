@@ -34,7 +34,8 @@ Context: mode=deliver, phase=pre-flight, skill=deliver
 `$ARGUMENTS` is one of exactly three kinds, and the kind decides everything downstream. Classify it with `classifyDeliverArgument(...)` / `resolveDeliverArgument(...)` from `adapters/_shared/src/deliver_argument.ts` **before Phase 1**, never by eye:
 
 - **A feature request or idea** — ordinary prose. Proceed to Phase 1 exactly as always. This is the shipped path and it is unchanged.
-- **A milestone identity** (`M<N>`, `M_<epic-key>`, or a minted `M_<short-ULID>` — the shared union grammar, never a private `M\d+`) **or an FR identity**, which resolves through its `milestone:` frontmatter to the same routing.
+- **A milestone identity** — `M<N>`, `M_<epic-key>`, or a minted `M_<short-ULID>`: the shared union grammar, never a private `M\d+`. It names the milestone as the work.
+- **An FR identity** — it names one FR, and the FR is what gets delivered. Its milestone is resolved here, from the `milestone:` key in the FR's own frontmatter and through the shared frontmatter reader; what the run then does with that milestone is the FR-scoped chain below.
 
 An identity is **not** a feature idea, and treating it as one is the failure this step exists to prevent: the operator names work whose design and specs already exist — often already merged — and the first visible symptom is a Socratic question about something that shipped last week.
 
@@ -48,7 +49,7 @@ None of this widens the headless surface. The unconditional non-tty refusal abov
 
 An identity that *does* name a plan on disk is almost always **resumed**, not started. Where the pipeline enters is decided by the milestone's state on disk, and that state is classified by `classifyResume(...)` in `adapters/_shared/src/resume_classifier.ts` — never judged by eye.
 
-Six states change the entry point:
+Six states change the entry point. They are the **milestone's** state, so this table is what a *milestone* identity runs. An FR identity is **not** classified by these six — it is classified at FR scope, in its own two-state vocabulary (`needs_technical_review` / `ready_to_implement`, exported as `FR_RESUME_STATES`), and takes the narrower chain in "An FR identity" below. The other four states answer a question about a milestone's plan, which one FR cannot answer.
 
 | State | What is on disk | Where `/deliver` enters |
 | --- | --- | --- |
@@ -76,6 +77,27 @@ What is preserved identically on both branches is the Socratic guarantee, and it
 **Aborting at that gate has no side effects** — nothing is spawned, nothing is claimed on the tracker, no inline pass runs, and not one byte of the tree changes.
 
 **One milestone per invocation.** A resume resolves a single milestone, never a sweep, and spawns exactly one worker for that milestone's whole chain. Phase 3's serial one-worker-at-a-time topology below is unchanged: resume enters that topology further along, it does not widen it.
+
+### An FR identity — the FR is the unit of work
+
+An FR identity resumes **that one FR**. Its milestone is resolved from the FR's `milestone:` frontmatter and carried through the run, so every milestone-scoped step (`/spec-archive`, `/ship-milestone`, `/pr`) still knows which milestone it is acting on — but the milestone is **not the unit of work**, and an FR argument is never widened into a sweep of its siblings. Build the chain from the same classifier, never by eye — and **ask it the FR question**, which is a different call from the milestone one:
+
+```
+classifyResume(projectRoot, { scope: "fr", fr: "<FR-id>", milestone: "M<N>" })   // NOT classifyResume(root, "M<N>")
+runResume({ ..., milestone: "M<N>", fr: "<FR-id>" })                             // `fr` present ⇒ FR scope
+```
+
+The positional form above (`classifyResume(root, "M<N>")`) answers the *milestone's* question and returns the six milestone states — passing an FR argument to it silently widens the run back to milestone scope, which is the whole defect this section exists to close. `resolveDeliverArgument(...)` already hands you both halves: `.scope === "fr"` and `.fr`. `lastActiveFr` on the returned classification then picks the branch:
+
+- **Other active FRs are still bound to the milestone** ⇒ the chain is `/implement <FR-id>` then `/pr`. It stops at the PR: the milestone is not finished, and running the ship ceremony now would release it early. The ceremony belongs to the run that closes the milestone.
+- **This FR is the last active FR bound to its milestone** ⇒ the chain auto-extends to `/implement <FR-id>` → `/spec-archive M<N>` → `/ship-milestone M<N>` → `/pr`. `/spec-archive` is an explicit step and runs strictly before `/ship-milestone`, because a single-FR `/implement` run leaves the FR at `status: active` and archives nothing — shipping a milestone whose FRs are still active is exactly what that ordering prevents.
+
+Two conditions modify both branches, and neither is optional:
+
+- **The FR itself awaits technical review** ⇒ one `/spec-write <FR-id>` pass heads its chain, on either branch. Scope is that one FR — never the milestone-wide sweep the six-state table's `needs_technical_review` row describes. Placement follows the shipped rule: inside the target repo's worker for a `cross_repo_toolkit` route, inline otherwise.
+- **The milestone targets a repo with no toolkit** (the `reduced` route) ⇒ the chain is `/work` then `/pr` and **does not auto-extend**, even when the FR is the last active one. `/spec-archive` and `/ship-milestone` are ceremonies that do not exist in that tree.
+
+The confirm gate above states the branch and its arithmetic, not just the verdict: how many active FRs would remain bound to the milestone once this FR lands (`0 active FRs would remain` on the last-active branch), which of the two chains that count selected, and why. The operator confirms, edits, or aborts that chain exactly as for a milestone resume.
 
 ## Phases 1–2 — design and spec-writing, inline
 
