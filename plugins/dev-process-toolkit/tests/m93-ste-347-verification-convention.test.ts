@@ -228,7 +228,7 @@ describe("AC-STE-347.6 — spec-write § 7 static capability map", () => {
 });
 
 describe("AC-STE-347.1 — templates/CLAUDE.md.template documents ## Verification", () => {
-  test("template carries a ## Verification block with both keys and the advisory default", () => {
+  test("template carries a ## Verification block with both keys and the resolved default", () => {
     const start = templateBody.indexOf("## Verification");
     expect(start).toBeGreaterThan(-1);
     const next = templateBody.indexOf("\n## ", start + 1);
@@ -238,6 +238,24 @@ describe("AC-STE-347.1 — templates/CLAUDE.md.template documents ## Verificatio
     expect(region).toContain("verify_mode");
     expect(region).toContain("advisory");
     expect(region).toMatch(/default/i);
+    // STRENGTHENED (M131): {advisory, /default/i} alone was satisfied by the
+    // retired unconditional claim "Absent key ⇒ default `advisory`", which the
+    // run_cmd-keyed default made false — a green test resting on wrong text.
+    // The default is now RESOLVED, so the verify_mode entry ITSELF (not the
+    // block around it, where the neighbouring run_cmd bullet would vouch for
+    // it) must name the key the resolution turns on and both of its outcomes.
+    const keyStart = region.indexOf("- verify_mode:");
+    expect(keyStart).toBeGreaterThan(-1);
+    const rest = region.slice(keyStart + 1);
+    const keyEnd = rest.search(/\n\s*- [a-z0-9_]+:/);
+    const entry = (keyEnd === -1 ? rest : rest.slice(0, keyEnd)).replace(
+      /\s+/g,
+      " ",
+    );
+    expect(entry).toContain("run_cmd");
+    expect(entry).toContain("blocking");
+    expect(entry).toContain("advisory");
+    expect(entry).not.toMatch(/Absent key ⇒ default `?advisory/i);
   });
 });
 

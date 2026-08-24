@@ -230,7 +230,7 @@ jira_ac_field, branch_template}. Absent line ⇒ `false`.
 ===============================================================================
 Optional: Verification section (project-authored verification skill).
 Declares a check that `/implement` runs after gate checks pass. Absent
-section ⇒ no check is declared. The key set is closed — exactly the two
+section ⇒ no check is declared. The key set is closed — exactly the four
 keys shown; any other key inside the section is a config error.
 
 Example (indented so the heading stays commented; paste at column 0 to
@@ -240,13 +240,28 @@ opt in):
 
   verify_skill: visual-check
   verify_mode: advisory
+  run_cmd: bun run dev
+  e2e_cmd: bun run test:e2e
 
 Keys:
   - verify_skill: slug of a project-local `.claude/skills/<name>` skill,
                   or the literal `visual-check` (the toolkit's built-in
                   web-UI check).
-  - verify_mode:  advisory | blocking | manual. Absent key ⇒ default
-                  `advisory` (report the outcome, never block the commit).
+  - verify_mode:  advisory | blocking | manual. A written value always
+                  wins. Absent key ⇒ the effective mode is resolved from
+                  `run_cmd`: `blocking` when `run_cmd` declares a real
+                  command (a failing check blocks the commit), `advisory`
+                  when `run_cmd` is `none`, empty, or absent (report the
+                  outcome, never block the commit).
+  - run_cmd:      declares how this project is run. Write `run_cmd: none`
+                  to declare that it cannot be run — `none` is an answer,
+                  distinct from an absent key, which is no answer at all.
+  - e2e_cmd:      declares how this project's end-to-end suite is invoked,
+                  under the same convention — `e2e_cmd: none` answers "no
+                  e2e suite", an absent key answers nothing.
+
+A section declaring only verify_skill and verify_mode keeps exactly its
+previous behaviour; the newer keys are simply undeclared.
 ===============================================================================
 -->
 

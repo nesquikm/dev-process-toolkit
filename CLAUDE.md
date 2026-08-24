@@ -115,6 +115,12 @@ jira_ac_field:
 team: STE
 project: DPT — Dev Process Toolkit
 
+## Verification
+
+verify_skill: smoke-test
+verify_mode: manual
+run_cmd: none
+
 ## Docs
 
 user_facing_mode: false

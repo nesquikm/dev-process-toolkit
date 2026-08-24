@@ -67,10 +67,14 @@ The tracked-vs-ignored split is governed by `.dpt/.gitignore`, a toolkit-owned f
 
 ## Verification
 
-Projects may opt in to a post-gate verification pass by declaring an optional `## Verification` section in CLAUDE.md. The section's top-level key set is **closed** — exactly `{verify_skill, verify_mode}`; any other key inside the section is a config error surfaced to the operator, never silently ignored.
+Projects may opt in to a post-gate verification pass by declaring an optional `## Verification` section in CLAUDE.md. The section's top-level key set is **closed** at exactly four keys — `{verify_skill, verify_mode, run_cmd, e2e_cmd}`; any other key inside the section is a config error surfaced to the operator, never silently ignored.
 
 - `verify_skill` — the slug of a project-local skill (a `.claude/skills/<name>` directory name) or the literal `visual-check` (the toolkit's built-in web-UI verification skill).
-- `verify_mode` — one of `advisory | blocking | manual`, defaulting to `advisory` when the section or the key is absent. `advisory` reports the check outcome without blocking; `blocking` gates commit approval on a passing check (or an explicit operator override); `manual` never auto-runs — the operator gets a one-line reminder naming the skill instead.
+- `verify_mode` — one of `advisory | blocking | manual`. A written value always wins; when the section or the key is absent the default is resolved from `run_cmd` — `blocking` when `run_cmd` declares a command that is neither empty nor the literal `none`, `advisory` otherwise. `advisory` reports the check outcome without blocking; `blocking` gates commit approval on a passing check (or an explicit operator override); `manual` never auto-runs — the operator gets a one-line reminder naming the skill instead.
+- `run_cmd` — declares how the project is run (e.g. `bun run dev`). The literal `run_cmd: none` is an answer — "this project cannot be run" — and is distinct from an absent key, which is no answer at all; an absent key parses to `null`.
+- `e2e_cmd` — declares how the project's end-to-end suite is invoked (e.g. `bun run test:e2e`), under the same convention: `e2e_cmd: none` answers "there is no e2e suite", while an absent key answers nothing and parses to `null`.
+
+A section that declares only `verify_skill` and `verify_mode` keeps exactly its previous behaviour: the newer keys are absent, so they parse to `null`, and no re-authoring is required.
 
 The read-side parser is `readVerificationConfig` in `adapters/_shared/src/verification_config.ts`. It follows the same Schema-L conventions as `## Docs`: the section terminates at the next heading line, flat `key: value` pairs only. An out-of-set key or an out-of-set `verify_mode` value throws `MalformedVerificationConfigError` carrying the offending key and value.
 

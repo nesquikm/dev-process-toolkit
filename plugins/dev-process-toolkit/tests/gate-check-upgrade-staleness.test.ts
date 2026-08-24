@@ -211,6 +211,24 @@ function plantMonolith(root: string): void {
  * `kind:` exemption — is the whole legacy state. No other entry reads
  * `specs/plan/`, so this plants exactly one row.
  */
+/**
+ * A managed tree whose `## Verification` block declares no `run_cmd` — the
+ * state `verification-run-keys` heals by splicing `run_cmd: none` in.
+ *
+ * The tree must stay NOT-runnable for the entry to fire: `makeTree`'s roots
+ * carry no `package.json` scripts, no Makefile and no Running / Getting
+ * Started / Development heading, so detection is cold and the honest answer
+ * is knowable. A runnable tree is deliberately left to gate probe #80.
+ */
+function plantVerificationBlockWithoutRunCmd(root: string): void {
+  const path = join(root, "CLAUDE.md");
+  writeFileSync(
+    path,
+    `${readFileSync(path, "utf-8")}\n## Verification\n\nverify_skill: demo-drive\n`,
+    "utf-8",
+  );
+}
+
 function plantModeNoneSequentialPlan(root: string): void {
   const path = join(root, "specs", "plan", "M5.md");
   mkdirSync(dirname(path), { recursive: true });
@@ -585,10 +603,11 @@ describe("AC-STE-394.9 — each live legacy state renders exactly its own row", 
     ["permission-shapes", plantLegacyPermissionShape],
     ["monolith-split", plantMonolith],
     ["mode-none-sequential-milestone", plantModeNoneSequentialPlan],
+    ["verification-run-keys", plantVerificationBlockWithoutRunCmd],
   ];
 
   // Completeness guard. Without it the table above is a hand-maintained list
-  // that a SIXTH registry entry would silently slip past — leaving "each legacy
+  // that a further registry entry would silently slip past — leaving "each legacy
   // state" coincidental rather than enforced, which is the same silent-disable
   // class AC-STE-394.8 exists to repair. Adding a registry entry now reds here
   // until its fixture lands.
@@ -1052,7 +1071,7 @@ describe("AC-STE-410.6 — gate-check SKILL #69 documents the carve-out; M111 sp
     // added #77 `first_turn_refusal_marker`), not an M111 freeze.
     const numbers = [...body.matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
     expect(numbers.length).toBeGreaterThan(0);
-    expect(Math.max(...numbers)).toBe(79);
-    expect(numbers.length).toBe(79);
+    expect(Math.max(...numbers)).toBe(80);
+    expect(numbers.length).toBe(80);
   });
 });
