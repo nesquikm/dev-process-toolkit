@@ -181,7 +181,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.69.0 — "Pinpoint"** (M130, FR-scoped delivery: naming a single FR now delivers that FR instead of building, version-bumping and releasing every task in its milestone with no signal that the scope widened — the routing carries a scope discriminator alongside the resolved FR, a resumed FR is classified at FR scope and told whether it is the last active one bound to its milestone, and its chain stops at the pull request unless it closes the milestone, in which case it auto-extends through `/spec-archive` and `/ship-milestone` with the remaining-FR count and the chosen branch rendered at the confirm gate.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.70.0 — "Ignition"** (M131, runnability contract: a project that declares how it can be run is now actually driven — the `## Verification` block gains `run_cmd`/`e2e_cmd` with `none` as a real answer, a gate probe fails any repo that documents how to run itself yet declares no run command and names the source that fired, the drive becomes mandatory and blocking-by-default for exactly those projects whose author wrote a command, and `/setup` and `/upgrade` seed the keys so no existing project meets the contract by hand-editing a config block.)
 
 ## Core Philosophy
 
