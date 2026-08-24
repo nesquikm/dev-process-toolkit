@@ -58,7 +58,7 @@ A milestone plan may declare the repo it targets with an optional `target_repo:`
 - **No `target_repo:` key — or the `null` sentinel — means the invoking session's repo.** This is what every existing plan says by saying nothing, and it behaves exactly as it always has: design and spec-writing inline in the invoking session, then the shipped three-stage chain in one worker. `/deliver` does not go looking for another tree for an undeclared milestone; there is nothing to look for.
 - **A declared value is read verbatim** and resolved against the invoking repo when relative. Declaring the invoking repo itself is a no-op, not a second code path.
 - **A `target_repo` naming another toolkit-managed tree moves spec-writing into that milestone's worker.** Phase 1 still runs inline; Phase 2 does not. The specs have to bind to the target tree's tracker and its `specs/` directory rather than the invoking session's, and only a worker sitting in that tree can do that — so the worker's chain is `/dev-process-toolkit:spec-write` first, then the shipped ceremony unchanged: `/implement` → `/ship-milestone` → `/pr`. It is still one fresh worker for the milestone, and workers are still taken strictly one at a time.
-- **A `target_repo` tree with no toolkit installed runs a reduced chain:** the worker does the work and opens a PR, and that is the whole chain — no `/implement` and no `/ship-milestone` stage, because those ceremonies do not exist in that tree. Toolkit presence is decided by the shipped on-disk managed-tree predicate against the resolved target repo, never guessed from the repo's name or asserted in the declaration. The reduction is a matter of which *stages* run; what the worker emits is unchanged — see "Reduced chains" under the hand-off contract below, where the same six sections still appear in the same fixed order.
+- **A `target_repo` tree with no toolkit installed runs a reduced chain:** the worker does the work and opens a PR, and that is the whole chain — no `/implement` and no `/ship-milestone` stage, because those ceremonies do not exist in that tree. Toolkit presence is decided by the shipped on-disk managed-tree predicate against the resolved target repo, never guessed from the repo's name or asserted in the declaration. The reduction is a matter of which *stages* run; what the worker emits is unchanged — see "Reduced chains" under the hand-off contract below, where the same eight sections still appear in the same fixed order.
 - **A declared `target_repo` that cannot be located on disk is REFUSED, not worked around.** `/deliver` halts in the NFR-10 canonical shape (`Refusing:` / `Remedy:` / `Context:`), quoting the declared value and naming the `target_repo` key that carried it, and it never silently falls back to the invoking repo. The fallback is the dangerous outcome, not the safe one: a milestone whose plan names another tree would land its branch, its commits, and its PR in the invoking repo — the exact mix-up the declaration exists to prevent — and a silent skip is worse than a loud failure. Only the operator can decide whether the right answer is fixing the path, cloning the tree, or dropping the declaration, so the pipeline stops and asks.
 
 The key is read out of the plan's frontmatter through the shared frontmatter reader, so a CRLF- or BOM-authored plan is understood the same as an LF one.
@@ -132,9 +132,9 @@ The operator is the only approver. Two hard prohibitions, restated because both 
 
 Each ceremony stage ends its report with **exactly one** fenced `deliver-stage-result` block, last thing in the report.
 
-**Reduced chains — a milestone targeting a repo with no toolkit ceremony.** When the work lands in a tree with no toolkit installed, the chain is reduced: the worker does the work and opens a PR, with no `/implement` or `/ship-milestone` stage. The one section that omits real content there is `gate` — that tree has no project gate command to report pass and skip counts from. Omitting content is never dropping a section: `gate` keeps its heading and carries the literal `- (none found)` fallback. Every other section is filled exactly as on a full chain, `milestone` included, so the `milestone` row's "never empty" in the table below holds without exception; the milestone identity is the orchestrating repo's plan and is known to the worker. A reduced chain therefore emits the same six sections in the same fixed order as a full one — which is exactly why it cannot violate a contract written for the full chain.
+**Reduced chains — a milestone targeting a repo with no toolkit ceremony.** When the work lands in a tree with no toolkit installed, the chain is reduced: the worker does the work and opens a PR, with no `/implement` or `/ship-milestone` stage. The one section that omits real content there is `gate` — and STE-510's `drive` and `e2e` sit in exactly the same position, because that tree has no project gate, drive or end-to-end command to report counts from. Omitting content is never dropping a section: `gate` keeps its heading and carries the literal `- (none found)` fallback, and so do `drive` and `e2e`. Every other section is filled exactly as on a full chain, `milestone` included, so the `milestone` row's "never empty" in the table below holds without exception; the milestone identity is the orchestrating repo's plan and is known to the worker. A reduced chain therefore emits the same eight sections in the same fixed order as a full one — which is exactly why it cannot violate a contract written for the full chain.
 
-Note the shape constraint that makes this the only coherent reading: `stage`, `milestone` and `status` are **scalars**, while `summary`, `gate` and `follow_ups` are **lists**. The `- (none found)` fallback is a list-item form, so it is expressible only in the three list sections. A scalar section can never be "empty-with-fallback"; it is always filled.
+Note the shape constraint that makes this the only coherent reading: `stage`, `milestone` and `status` are **scalars**, while `summary`, `gate`, `drive`, `e2e` and `follow_ups` are **lists**. The `- (none found)` fallback is a list-item form, so it is expressible only in the five list sections. A scalar section can never be "empty-with-fallback"; it is always filled.
 
 ### Field reference
 
@@ -144,18 +144,20 @@ Note the shape constraint that makes this the only coherent reading: `stage`, `m
 | `milestone` | 2 | `M<N>` | never empty |
 | `status` | 3 | `ok` \| `failed` | never empty |
 | `summary` | 4 | one line per FR shipped / version bumped / PR opened | `- (none found)` |
-| `gate` | 5 | final gate numbers — pass **and** skip counts, both | `- (none found)` |
-| `follow_ups` | 6 | deferred items, advisories, opened issues | `- (none found)` |
+| `gate` | 5 | final gate numbers — pass, fail **and** skip counts, all three, derived from its captured output, plus the STE-509 skip `baseline` and the `delta` it implies | `- (none found)` |
+| `drive` | 6 | the run/drive command's counts — pass, fail and skip, derived from its captured output | `- (none found)` |
+| `e2e` | 7 | the end-to-end suite's counts — pass, fail and skip, derived from its captured output | `- (none found)` |
+| `follow_ups` | 8 | deferred items, advisories, opened issues | `- (none found)` |
 
 Rules:
 
-- **Fixed section order** — the six sections above, in that order, never reordered, never omitted. An empty section keeps its heading and carries the literal `- (none found)` fallback line; dropping the heading is a shape violation.
-- **Line cap: 20 lines** inside the fence. The fence is a hand-off summary, not a transcript — detail lives in the worker's visible session, which the operator can always open.
+- **Fixed section order** — the eight sections above, in that order, never reordered, never omitted. An empty section keeps its heading and carries the literal `- (none found)` fallback line; dropping the heading is a shape violation.
+- **Line cap: 26 lines** inside the fence, raised from the previously shipped budget to fit `drive` and `e2e`. The evidence stays *in* the block rather than moving to a companion artifact: one fence, one read, one truth — a second artifact would have the orchestrator read `status:` from one place and the numbers backing it from another. The cap still binds, because the fence is a hand-off summary, not a transcript — detail lives in the worker's visible session, which the operator can always open.
 - `status: failed` means the stage could not complete. The orchestrator halts the milestone and reports; it never improvises a recovery on the worker's behalf.
 
-### Why both gate numbers
+### Why every gate number
 
-`gate` reports pass **and** skip counts because a silent skip is worse than a loud failure — a gate line that only says "N passing" cannot distinguish a healthy run from one where half the suite quietly skipped.
+`gate` reports pass, fail **and** skip counts, plus the skip `baseline` and the `delta` against it, because a silent skip is worse than a loud failure — a gate line that only says "N passing" cannot distinguish a healthy run from one where half the suite quietly skipped. `skip` is the count a silent-skip run omits, so a `gate:` line carrying only pass and fail is refused rather than read as clean. And a raw skip count alone still cannot say whether those skips are the tree's long-standing ones or newly introduced by this stage; the `baseline` and its `delta` are what answer that, and an unmeasured baseline renders `baseline unmeasured` and refuses rather than reporting a silent zero delta.
 
 ## Halt taxonomy
 
@@ -170,6 +172,8 @@ Every halt path is deterministic and names its cause. The full set:
 | Post-merge gate red | `merge_policy: auto` merged, then the gate on merged main is red | Halt before spawning the next milestone's worker; report the red gate | Operator fixes main before the pipeline continues |
 
 The bounded-retry budget for shape violations is **one scoped retry** — re-prompt the same worker with only the fence contract restated ("re-emit your stage result as a single `deliver-stage-result` fence"), never a re-run of the stage's actual work. This mirrors the `/tdd` orchestrator's `tdd-result` budget (STE-225/STE-296): retries repair *reporting*, never *work*, and a second violation is a halt, not a third prompt.
+
+That budget covers **counts that disagree with the captures behind them** too. `verifyDeliverStageCapture(capturePath, evidence)` returns the same `{ ok: false, reasons }` verdict for an invented number as for a missing section or a blown cap, so a disagreement routes into the retry-then-halt path above with no second failure mode, no second budget, and no separate halt row in the table.
 
 ## Merge-policy routing detail
 

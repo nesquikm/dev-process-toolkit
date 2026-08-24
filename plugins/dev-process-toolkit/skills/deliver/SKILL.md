@@ -123,9 +123,10 @@ For each milestone `M<N>`, in plan order:
 2. **Kickoff task text.** Read `readOrchestrationConfig().defaultEffort` (from `adapters/_shared/src/orchestration_config.ts`) and carry that effort keyword (e.g. `ultracode`) in the kickoff task text, so the worker session runs at the operator-configured effort level. The same text also states the whole `deliver-stage-result` hand-off contract, spelled out here rather than pointed at — the worker must be told the shape it is graded on before it starts:
 
    - **Banner** — each ceremony stage ends its report with **exactly one** fenced `deliver-stage-result` block, as the last thing in that report.
-   - **Six sections, fixed order** — `stage`, `milestone`, `status`, `summary`, `gate`, `follow_ups`. Never reordered, never omitted.
-   - **Line cap** — at most **20** lines total inside the fence.
+   - **Eight sections, fixed order** — `stage`, `milestone`, `status`, `summary`, `gate`, `drive`, `e2e`, `follow_ups`. Never reordered, never omitted. `drive` and `e2e` sit contiguously after `gate`: the three evidence sections are read as one block.
+   - **Line cap** — at most **26** lines total inside the fence. Raised from the previously shipped budget to fit `drive` and `e2e`; the evidence stays in the block rather than moving to a companion artifact, so `status:` and the numbers behind it are read from one place.
    - **Empty-section fallback** — a section with nothing to report keeps its heading and carries the literal `- (none found)` rather than being dropped.
+   - **Counts are derived, never authored** — every number in `gate`, `drive` and `e2e` is **derived from the captured output** of the command that produced it, read back out of those bytes. A count the worker authored — typed from memory, carried over from an earlier run, or invented because it looked plausible — is **not acceptable**, and is graded exactly like a missing section. One counts line per section: a section states one run's numbers, or the `- (none found)` fallback.
 
    The same kickoff text also names the milestone under work (`M<N>`) and the ceremony chain the worker runs in-session, and it **never** carries the auto-approve marker (`<dpt:auto-approve>v1</dpt:auto-approve>`) — workers are interactive and their approval gates must stay live for the operator relay below.
 3. **The worker's chain**, run in-session, in order, inside that one worker:
@@ -156,7 +157,7 @@ The standing authorization is a **distinct** mechanism from the auto-approve mar
 
 ## Stage hand-offs — the `deliver-stage-result` fence
 
-Each ceremony stage (`/implement`, `/ship-milestone`, `/pr`) ends its hand-off back to the orchestrator with **exactly one** fenced `deliver-stage-result` block as the last thing in the stage's report. The block has a **fixed section order** — the sections below, in this order, never reordered, never omitted — and a **line cap** of 20 lines total inside the fence. Any section with nothing to report keeps its heading and carries the literal fallback line `- (none found)` instead of being dropped.
+Each ceremony stage (`/implement`, `/ship-milestone`, `/pr`) ends its hand-off back to the orchestrator with **exactly one** fenced `deliver-stage-result` block as the last thing in the stage's report. The block has a **fixed section order** — the sections below, in this order, never reordered, never omitted — and a **line cap** of 26 lines total inside the fence. Any section with nothing to report keeps its heading and carries the literal fallback line `- (none found)` instead of being dropped.
 
 ```deliver-stage-result
 stage: implement            # implement | ship-milestone | pr
@@ -165,20 +166,28 @@ status: ok                  # ok | failed
 summary:
   - one line per FR shipped / version bumped / PR opened
 gate:
-  - final gate numbers, pass AND skip counts
+  - pass 8123, fail 0, skip 16, baseline 16, delta 0
+drive:
+  - pass 12, fail 0, skip 0
+e2e:
+  - pass 3, fail 0, skip 0
 follow_ups:
   - (none found)
 ```
 
-**Required sections, in fixed section order:** `stage`, `milestone`, `status`, `summary`, `gate`, `follow_ups`. `status: ok` means the stage completed cleanly; `status: failed` means it could not — the orchestrator halts the milestone and reports to the operator rather than improvising a recovery.
+**Required sections, in fixed section order:** `stage`, `milestone`, `status`, `summary`, `gate`, `drive`, `e2e`, `follow_ups`. `status: ok` means the stage completed cleanly; `status: failed` means it could not — the orchestrator halts the milestone and reports to the operator rather than improvising a recovery.
 
-**Reduced chains — a milestone targeting a repo with no toolkit ceremony.** When a milestone's work lands in a tree that has no toolkit installed, the worker does the work and opens a PR with no `/implement` or `/ship-milestone` stage. The one section that omits real content there is `gate`: that tree has no project gate command to report pass and skip counts from. Omitting content is never dropping a section — `gate` keeps its heading and carries the literal `- (none found)` fallback. Every other section is filled exactly as on a full chain, `milestone` included: the milestone identity is the orchestrating repo's plan and is known to the worker, and `stage`, `status`, `summary` and `follow_ups` all describe work that did happen. So a reduced chain emits the same six sections in the same fixed order as a full one, which is exactly why it cannot violate a contract written for the full chain.
+**Reduced chains — a milestone targeting a repo with no toolkit ceremony.** When a milestone's work lands in a tree that has no toolkit installed, the worker does the work and opens a PR with no `/implement` or `/ship-milestone` stage. The one section that omits real content there is `gate` — and the new `drive` and `e2e` sections sit in exactly the same position: that tree has no project gate, drive or end-to-end command to report counts from. Omitting content is never dropping a section — `gate` keeps its heading and carries the literal `- (none found)` fallback, and so do `drive` and `e2e`. Every other section is filled exactly as on a full chain, `milestone` included: the milestone identity is the orchestrating repo's plan and is known to the worker, and `stage`, `status`, `summary` and `follow_ups` all describe work that did happen. So a reduced chain emits the same eight sections in the same fixed order as a full one, which is exactly why it cannot violate a contract written for the full chain.
 
-`milestone` is a scalar, so the `- (none found)` fallback — a list-item form — is not even expressible there; that fallback belongs to the list sections `summary`, `gate` and `follow_ups` alone.
+`milestone` is a scalar, so the `- (none found)` fallback — a list-item form — is not even expressible there; that fallback belongs to the list sections `summary`, `gate`, `drive`, `e2e` and `follow_ups` alone.
 
 ### Shape violations — bounded retry, then halt
 
-A stage report that violates the contract — no fence, multiple fences, sections missing or out of order, or the line cap blown — gets **one scoped retry**: re-prompt the same worker with only the fence contract restated ("re-emit your stage result as a single `deliver-stage-result` fence"), never a re-run of the stage's actual work. A second violation from the same stage is a **deterministic halt naming the stage** (e.g. `Halting: stage /ship-milestone for M<N> violated the deliver-stage-result contract twice`) — the same bounded-retry budget the `/tdd` orchestrator applies to its `tdd-result` fences. Never paper over a malformed hand-off by guessing what the stage meant.
+A stage report that violates the contract — no fence, multiple fences, sections missing or out of order, the line cap blown, or a **count that disagrees with the captured command output behind it** (including a number claimed with no capture behind it at all) — gets **one scoped retry**: re-prompt the same worker with only the fence contract restated ("re-emit your stage result as a single `deliver-stage-result` fence"), never a re-run of the stage's actual work. A second violation from the same stage is a **deterministic halt naming the stage** (e.g. `Halting: stage /ship-milestone for M<N> violated the deliver-stage-result contract twice`) — the same bounded-retry budget the `/tdd` orchestrator applies to its `tdd-result` fences. Never paper over a malformed hand-off by guessing what the stage meant.
+
+**Grade a full-ceremony stage's fence WITH its captures.** A full-ceremony stage runs every command the project DECLARED it has — a repo whose `## Verification` block says `run_cmd: none`, this one included, has no drive to capture and reports `- (none found)` honestly — and every number it does print has captured output behind it, so its fence is verified with that evidence supplied — `verifyDeliverStageCapture(capturePath, evidence)`, second argument present — and the verdict comes back `graded: "evidence-backed"`. Called with the fence alone the same function grades **shape-only** and says so in the verdict; that mode exists for a caller holding no captures, and a **shape-only** grade is **not a substitute** for evidence — it certifies form and nothing about the numbers, so a `status: ok` graded that way rests on the worker's word alone. A full-ceremony stage graded shape-only has not been evidenced, and its `ok` must not be relayed as though it had.
+
+A counts disagreement is **not a second failure mode**. `verifyDeliverStageCapture(capturePath, evidence)` grades it into the same `{ ok: false, reasons }` verdict a missing section or a blown cap produces, so it takes the bounded-retry-then-halt path above unchanged — one scoped retry re-stating the contract, then a deterministic halt. Giving invented numbers their own recovery would mean a second budget, a second halt clause, and a worker that learns which violation is cheaper to commit.
 
 ## Post-PR — merge-policy routing
 

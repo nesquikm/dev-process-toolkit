@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.71.0] — 2026-08-24 — "Receipt"
+
+Evidence ledger. A stage could report success in prose and be believed: the hand-off block described a gate section carrying pass and skip counts, and nothing anywhere checked that it did. Every count a stage reports is now read from the captured output of the commands that actually ran.
+
+### Added
+
+- The test-count parser reports skipped tests. `TestCount` gains a fourth counter extracted per stack — bun's `N skip`, pytest's `N skipped`, flutter's `~N` — all three routed through the hoisted last-match helper against module-level constants, so a per-file counter cannot shadow the summary total. That anchoring clause is not defensive over-engineering: the module already carries a fix for exactly this bug on the counters it had, and a new counter written the naive way reproduces it. The audit stage found the same defect class displaced one layer out, where an unanchored flutter pattern let a `~<digits>` fragment in trailing stderr win over the real counter. `total` deliberately never folds skips in on any stack, because it feeds the release line below. (STE-508)
+- Newly introduced skips are red; pre-existing skips are not. A zero-skip rule would have failed this repository on the day it shipped, so the rule is a ratchet against one number remembered at the branch point, stored under `.dpt/` through the shared path module and written once per branch — a baseline that refreshes mid-run always reports a zero delta, which is a guard that cannot fail. An absent baseline gets its own `unmeasured` outcome rather than collapsing into a boolean: read as zero it makes every pre-existing skip look new, read as equal to current it makes every new skip invisible, and both wrong answers are killed by their own test. (STE-509)
+- `/implement` carries the same evidence in its own report. The hand-off fence exists only under the orchestrator, so the guarantee had been a property of one invocation path rather than of the work. Both paths now render from one renderer that the report module delegates to without re-deriving anything. The audit showed why the obvious guard was insufficient — a copy-paste second renderer leaves most legs green, and a partial impostor that delegates one row and hand-builds the rest passed every one — so the mutation leg counts marker-carrying rows instead of joining them. (STE-511)
+- `/implement` adds or edits the end-to-end tests its change needs, giving the `e2e_cmd` key declared last release its first consumer. Unit tests are written per criterion by an agent that never sees the running system, which is correct for unit tests and exactly wrong for end-to-end ones, so the suite drifted from the product one change at a time. A change with no end-to-end observable surface now records that decision rather than silently adding nothing — the quiet half, and the one most likely to be under-delivered, because "none needed" is right often enough to become reflexive. (STE-512)
+
+### Changed
+
+- A stage cannot report `ok` without machine-read evidence. The `deliver-stage-result` fence gains `drive:` and `e2e:` sections in fixed order after `gate:`, which now carries pass, fail, skip and the baseline delta; the line cap moves with the section change in one sweep so the pinned value moves once. Counts disagreeing with the capture take the existing bounded-retry-then-halt path rather than a second failure mode, and `status: ok` is refused on both grounds separately — a required count absent, and a count indicating failure. Verification rather than review found four defects in the guards themselves, including one branch that could be silenced with every shipped test staying green. (STE-510)
+
+### Fixed
+
+- Three seams between the five FRs above, each confirmed by execution before being fixed. Nothing ever captured a skip baseline, and an unmeasured baseline is a refusal ground — so the ratchet was permanently unmeasured and every real branch refused `status: ok`; the milestone's headline feature could not have fired once. One item pattern demanded leading whitespace while its sibling did not, so a counts line at column zero was invisible to both the counts check and the cardinality check, and a stage reporting `fail 3` graded green by dedenting. And the required-section set defaulted to all three regardless of what a project declared, so a repository declaring `run_cmd: none` and no `e2e_cmd` — this one included — refused on every standalone report for commands it had said it does not have. All five per-FR audits reported no missing criteria; the milestone-level review found all three. (STE-509, STE-510, STE-511, STE-512)
+
+Total test count at release: 9355 tests, 0 failures, 0 errors.
+
 ## [2.70.0] — 2026-08-24 — "Ignition"
 
 Runnability contract. The check skill was opt-in, its failure was advisory by default, and under non-interactive stdin both the adopt offer and the scaffold offer declined themselves — three paths that each ended with the pipeline reporting done about an app nobody started.
