@@ -215,7 +215,13 @@ small:
 
    verify_skill: <your-slug>
    verify_mode: advisory
+   run_cmd: <command that brings the project up, or none>
    ```
+
+   Declare `run_cmd` here even if the answer is `none`. A block that omits it
+   is silent about a question the gate will ask the moment the repo grows a
+   run heading or a `dev` script, and `none` is a real answer — it says the
+   project cannot be brought up, which is different from never having said.
 
 5. **Choose the mode deliberately.** Start with `advisory` while you build
    confidence in the check; promote to `blocking` once it is stable and the

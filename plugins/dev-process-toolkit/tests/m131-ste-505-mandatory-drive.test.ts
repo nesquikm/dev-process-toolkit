@@ -1035,3 +1035,102 @@ describe("AC-STE-505.7 — the FR records the manual + run_cmd decision", () => 
     );
   });
 });
+
+// ===========================================================================
+// THIRD RED PASS — pre-PR spec-review finding (HIGH 2), AC-STE-505.4.
+//
+// The mandatory-drive paragraph carries the `manual` carve-out ("a project
+// that has written `manual` keeps the no-auto-run reminder path below"), and
+// so does the guide. The NON-TTY paragraph does not: it keys purely on
+// `run_cmd` and then says, unconditionally, that the run **never** emits
+// `verify_skill_none_declared` and **MUST emit** `verify_drive_unavailable`.
+//
+// Those two rules contradict each other on a real, reachable configuration:
+// a headless run on a project with `run_cmd: bun run dev` AND a written
+// `verify_mode: manual`. `resolveVerifyMode` returns `manual` there — an
+// explicitly written mode always beats the run_cmd-keyed default, which is
+// STE-505's own `### Recorded decision` — so nothing was ever supposed to be
+// driven, and there is no drive to be "unavailable". Following the non-tty
+// paragraph, that run reports a FAILURE carrying the wrong outcome token.
+// Following the mandatory-drive paragraph, it reports the manual reminder.
+// A skill that states both is a skill whose contract depends on which
+// paragraph the reader reaches first.
+//
+// `verify_skill_manual_reminder` is the correct token: `manual` never
+// auto-runs, so a non-tty run under it is not a run that could not drive —
+// it is a run that was never going to.
+//
+// SCOPE. The needles below are asserted on the non-tty line ALONE, which is
+// unique in Phase 4b″ (`run_cmd` + a non-interactive marker on one line). The
+// mandatory-drive paragraph already carries `manual` and the token table
+// already carries `verify_skill_manual_reminder`, so a whole-file or
+// whole-section conjunction would pass on the contradictory bytes.
+// ===========================================================================
+
+/** A non-interactive / headless marker. */
+const NON_TTY = /non-interactive|non-TTY|headless|autonomous/i;
+
+/**
+ * The lines of Phase 4b″ onward that state the NON-TTY rule for a declared
+ * `run_cmd` — the paragraph that currently omits the `manual` carve-out.
+ * Asserted non-empty so a rewrite that dissolves the rule cannot pass by
+ * leaving nothing to check.
+ */
+function nonTtyRunCmdLines(): string[] {
+  const hits = phase4bOnward()
+    .split("\n")
+    .filter((line) => line.includes("run_cmd") && NON_TTY.test(line));
+  expect(hits.length).toBeGreaterThan(0);
+  return hits;
+}
+
+describe("AC-STE-505.4 — the non-tty rule carries the same `manual` carve-out", () => {
+  test("the non-tty rule names `manual` at all", () => {
+    const hits = nonTtyRunCmdLines().filter((l) => l.includes("manual"));
+    if (hits.length === 0) {
+      throw new Error(
+        "the non-tty declared-runnable rule keys purely on `run_cmd` and never mentions `verify_mode: manual` — " +
+          "so it contradicts the mandatory-drive paragraph's carve-out on a headless run with `manual` + a real `run_cmd`",
+      );
+    }
+    expect(hits.length).toBeGreaterThan(0);
+  });
+
+  test("the non-tty rule states `manual` as an EXCEPTION, not merely a mention", () => {
+    const hits = nonTtyRunCmdLines().filter(
+      (l) =>
+        l.includes("manual") &&
+        /except|unless|carve-out|carve out|does not apply|still wins|written|explicit/i.test(l),
+    );
+    expect(hits.length).toBeGreaterThan(0);
+  });
+
+  test("under `manual` the non-tty run emits `verify_skill_manual_reminder`", () => {
+    const hits = nonTtyRunCmdLines().filter(
+      (l) => l.includes("manual") && l.includes("verify_skill_manual_reminder"),
+    );
+    if (hits.length === 0) {
+      throw new Error(
+        "the non-tty rule must name `verify_skill_manual_reminder` as the token a headless `manual` + declared-`run_cmd` run emits — " +
+          "`manual` never auto-runs, so that run is not one that could not drive",
+      );
+    }
+    expect(hits.length).toBeGreaterThan(0);
+  });
+
+  test("`verify_drive_unavailable` is explicitly EXCLUDED under `manual`", () => {
+    const hits = nonTtyRunCmdLines().filter(
+      (l) =>
+        l.includes(DRIVE_UNAVAILABLE) &&
+        l.includes("manual") &&
+        /not|never|instead of|rather than|no longer|except|unless/i.test(l),
+    );
+    if (hits.length === 0) {
+      throw new Error(
+        `the non-tty rule states \`${DRIVE_UNAVAILABLE}\` as an unconditional MUST — it must be scoped away from the written-\`manual\` path, ` +
+          "or a headless run on a project that deliberately opted out of auto-running reads as a failure with the wrong token",
+      );
+    }
+    expect(hits.length).toBeGreaterThan(0);
+  });
+});

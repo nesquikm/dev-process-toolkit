@@ -218,20 +218,59 @@ export function readVerificationConfig(
 }
 
 /**
+ * Is `value` the `none` ANSWER — "this project cannot be run"?
+ *
+ * THE ONE PLACE the sentinel is recognised. Two layers read `run_cmd` with two
+ * different consequences — `resolveVerifyMode` below decides whether a drive is
+ * MANDATED, and `/gate-check` probe #80 (`runnability_declared`) decides
+ * whether the declaration is owed — and both call this predicate, so they
+ * cannot drift apart about the same four bytes. A second, hand-inlined
+ * comparison is the defect this exists to make impossible: with the resolver
+ * matching the lowercase literal while the probe merely asked "non-empty?",
+ * `run_cmd: None` silenced the probe as an answer AND resolved to `blocking`,
+ * mandating a drive of a command literally named "None" on a project whose
+ * author was declaring it cannot be run at all.
+ *
+ * CASE-INSENSITIVE, and deliberately NOT a throw. A project that works today
+ * must not start failing its gate on a casing nit, and the whole point of this
+ * key is that silencing the probe stays cheap for a project that genuinely
+ * cannot be run. (`verify_mode` rejects a non-lowercase value loudly; that is a
+ * closed enum whose values name distinct behaviours, while this is one
+ * sentinel with one meaning.) Surrounding whitespace folds too, though the
+ * section parser has already trimmed it by the time a parsed record gets here.
+ */
+export function isRunCmdNone(value: string | null | undefined): boolean {
+  return value !== null && value !== undefined && value.trim().toLowerCase() === "none";
+}
+
+/**
+ * Is `value` an ANSWER to "how is this project run?" — a real command, or the
+ * `none` sentinel above?
+ *
+ * A bare or whitespace-only `run_cmd:` is NOT: it is an omission that merely
+ * looks like an answer, and both layers treat it as the absent key.
+ */
+export function isRunCmdAnswered(value: string | null | undefined): boolean {
+  return isRunCmdNone(value) || (value !== null && value !== undefined && value.trim() !== "");
+}
+
+/**
  * The EFFECTIVE `verify_mode` — what `/implement` Phase 4b″ actually gates on
  * (STE-505):
  *
  *   1. a written `verify_mode` ⇒ that value, always. An explicit `advisory`
  *      still wins, so the guide's promote-when-stable workflow survives; only
  *      the end a declared-runnable project STARTS at changes.
- *   2. else `run_cmd` declared, non-empty, and not the literal `none`
- *      ⇒ `blocking`. A project that says how to run itself gets driven, and a
- *      failing drive gates the commit.
+ *   2. else `run_cmd` answered and not the `none` sentinel ⇒ `blocking`. A
+ *      project that says how to run itself gets driven, and a failing drive
+ *      gates the commit.
  *   3. else ⇒ `advisory`, byte-for-byte today's behaviour.
  *
- * Rule 2's "non-empty" clause matches `/gate-check` probe #80's
- * `hasRunCmdAnswer`: a bare `run_cmd:` is an omission that merely looks like
- * an answer, and the two layers must not disagree about it.
+ * Rule 2 asks both questions through `isRunCmdAnswered` / `isRunCmdNone`, the
+ * same predicates `/gate-check` probe #80 answers "is this declaration owed?"
+ * with — so the two layers agree about a bare `run_cmd:` (an omission that
+ * merely looks like an answer) and about every casing of `none` BY
+ * CONSTRUCTION, rather than by two comparisons that happen to match today.
  *
  * @throws MalformedVerificationConfigError — a malformed section is surfaced,
  * never silently defaulted.
@@ -239,8 +278,10 @@ export function readVerificationConfig(
 export function resolveVerifyMode(claudeMdPath: string): VerifyMode {
   const { config, declaredKeys } = parseVerificationSection(claudeMdPath);
   if (declaredKeys.has("verify_mode")) return config.verifyMode;
-  const runCmd = config.runCmd?.trim() ?? "";
-  return runCmd !== "" && runCmd !== "none" ? "blocking" : config.verifyMode;
+  const { runCmd } = config;
+  return isRunCmdAnswered(runCmd) && !isRunCmdNone(runCmd)
+    ? "blocking"
+    : config.verifyMode;
 }
 
 /**
