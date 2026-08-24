@@ -145,6 +145,16 @@ const EXPECTED_SET_A: ReadonlySet<string> = new Set([
   // also lives in /setup's step-6 merge bullet, pinned by the STE-482
   // meta-tests), keeping Set A = discovered directives.
   "setup_allowlist_entries_added",
+  // Post-M84 expansion (M132 STE-512): the /implement Phase 4 end-to-end
+  // authoring dispositions. The pin moves consciously 38 → 42 — all four keys
+  // carry literal `MUST emit \`<key>\`` directives in /spec-write SKILL.md
+  // § 7's /implement-owned static-map row (the emission-site directives also
+  // live on /implement's Phase 4 end-to-end authoring hook line, pinned by the
+  // STE-512 meta-tests), keeping Set A = discovered directives.
+  "end_to_end_tests_authored",
+  "end_to_end_tests_edited",
+  "end_to_end_none_needed",
+  "end_to_end_suite_red",
 ]);
 
 // Keys explicitly excluded from registration — they appear only as table-
@@ -255,9 +265,11 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
   // best-practices lens disposition pair, the /implement Phase 3 lens XOR)
   // → 37 (M126/STE-479 brainstorm_socratic_refused, the /brainstorm Socratic
   // first-turn refusal disposition) → 38 (M126/STE-482
-  // setup_allowlist_entries_added, the /setup allow-list merge report).
-  test("CANONICAL_CAPABILITY_KEYS length is exactly 38", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(38);
+  // setup_allowlist_entries_added, the /setup allow-list merge report)
+  // → 42 (M132/STE-512 the four /implement Phase 4 end-to-end authoring
+  // dispositions: tests_authored / tests_edited / none_needed / suite_red).
+  test("CANONICAL_CAPABILITY_KEYS length is exactly 42", () => {
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(42);
   });
 
   test("CANONICAL_CAPABILITY_KEYS contains every key in Set A", () => {
@@ -297,7 +309,7 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
     while ((match = re.exec(body)) !== null) {
       discovered.add(match[1]!);
     }
-    expect(discovered.size).toBe(38);
+    expect(discovered.size).toBe(42);
     for (const key of EXPECTED_SET_A) {
       expect(discovered.has(key)).toBe(true);
     }

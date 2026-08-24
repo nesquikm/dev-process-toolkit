@@ -228,6 +228,22 @@ Then call `Provider.releaseLock(id)` for each released FR.
 
 **Fail-closed.** A missing capture is a refusal, not a silent omission: `ok` goes false, `reasons` names each offending section by name, and the `gate:` / `drive:` / `e2e:` rows are emitted anyway. A confident nothing is the failure mode this guards against.
 
+## Phase 4 End-to-End Authoring Hook
+
+Runs in Phase 4, before the step-14 report — the same placement as the other Phase 4 hooks, so the decision is made before the work is declared green.
+
+**Why it exists.** Nothing else in the loop ever ADDS an end-to-end test. `/tdd` writes tests per AC through a test-writer that is deliberately blind to the running system, which is correct for unit tests and exactly wrong for end-to-end ones. The end-to-end suite therefore drifts away from the product one change at a time, while the evidence rows keep faithfully reporting green counts for a suite that stopped covering anything.
+
+**Obligation.** When the `## Verification` block declares an `e2e_cmd` that is a real command, the change adds or edits an end-to-end test covering it, the suite is run, and the outcome is resolved through `resolveE2eAuthoring` from `adapters/_shared/src/e2e_authoring.ts`. A declared project whose change authored nothing and recorded nothing REFUSES: the green declaration is not available to it.
+
+**The quiet half.** A change with no end-to-end observable surface records that explicitly, with a reason. Silence is not an answer — a silent skip and a considered decision produce identical trees (no new file either way, no diff either way, nothing to grep for either way), so the module distinguishes them by demanding the record and reading the reason back out. Only the recorded decision emits `end_to_end_none_needed`; a silent skip emits nothing and refuses. A blank reason is silence wearing a hat and lands on exactly the same refusal as saying nothing at all, and a none-needed record alongside a freshly authored test is a contradiction rather than a preference.
+
+**Three states, never two.** An absent `e2e_cmd` is vacuous — byte-identical to today's behaviour for projects that never opted in. The literal `none` is an ANSWER ("there is no end-to-end suite"), so it needs no authored test and no suite run. The module asks `isRunCmdNone` / `isRunCmdAnswered` from `adapters/_shared/src/verification_config.ts` rather than comparing those four bytes itself, which is what keeps the absent key from folding into the `none` answer.
+
+**Delegation, not a second renderer.** `e2e_authoring` derives no counts of its own: the `e2e:` rows and every number in them come from the shared stage-evidence renderer, called by bare name so an override is genuinely wired through.
+
+**One block, not two — the hook's capture is threaded into step 14.** `e2e_authoring`'s captured end-to-end run is **fed into** the single step-14 `renderImplementReportEvidence` call, so one evidence block carries `gate:`, `drive:` and `e2e:` each from its real capture. Read on its own the hook's `evidenceRows` still carry `- (none found)` for `gate:` and `drive:` — captures this module was never given and cannot speak for — which is exactly why they are threaded through the step-14 renderer rather than rendered beside it: a second block would re-split the source of truth the one-renderer contract above exists to consolidate.
+
 ## Advisory Notes
 
 Phase 3 Stage B routes any Pass 2 CONCERNS that round-2 escalation classifies as **advisory** (not gate-blocking) into a structured `advisoryNote[]` array. Capture happens before Stage B exits — without it, advisory concerns disappear from non-interactive (`claude -p`) runs after Stage B returns, leaving the operator with no audit trail and no chance to override (smoke-test 2026-04-28 finding F2).
