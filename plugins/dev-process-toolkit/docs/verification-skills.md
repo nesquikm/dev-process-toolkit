@@ -69,7 +69,7 @@ section is a config error.
 | `verify_skill` | Slug of a project-local `.claude/skills/<name>` skill, **or** the literal `visual-check` (the toolkit's built-in web-UI check). This is the skill `/implement` runs. |
 | `verify_mode` | One of `advisory` \| `blocking` \| `manual`. Absent key ⇒ the default is computed from `run_cmd`: `blocking` when `run_cmd` declares a real command, `advisory` when `run_cmd` is `none`, empty, or absent. |
 | `run_cmd` | Declares how this project is run (e.g. `bun run dev`). Write `run_cmd: none` to declare that the project **cannot** be run — `none` is an answer, and it is distinct from an absent key, which is no answer at all and parses to `null`. |
-| `e2e_cmd` | Declares how this project's end-to-end suite is invoked (e.g. `bun run test:e2e`). Same convention: `e2e_cmd: none` answers "there is no e2e suite"; an absent key answers nothing and parses to `null`. |
+| `e2e_cmd` | Declares how this project's end-to-end suite is invoked (e.g. `bun run test:e2e`). Same convention: `e2e_cmd: none` answers "there is no e2e suite"; an absent key answers nothing and parses to `null`. A real command is a declaration with teeth: `/implement` then owes an added or edited end-to-end test, or a recorded none-needed reason — see *The obligation a declared `e2e_cmd` creates* below. |
 
 A section that declares only `verify_skill` and `verify_mode` — the shape that
 shipped before `run_cmd` and `e2e_cmd` existed — keeps exactly today's
@@ -137,6 +137,23 @@ carve-out: an explicitly written `verify_mode` still wins over the
 `run_cmd`-keyed default, so a project that has written `verify_mode: manual`
 keeps the no-auto-run reminder path even here — the mandatory-drive rule
 decides only what an *absent* mode resolves to.
+
+### The obligation a declared `e2e_cmd` creates
+
+`e2e_cmd` is the other declaration with teeth, and its consequences land on
+`/implement` rather than on the check skill. When the `## Verification` block
+declares an `e2e_cmd` that is neither empty nor `none`, the change owes
+end-to-end coverage: Phase 4 adds or edits an end-to-end test covering it, runs
+the suite, and resolves the outcome through `resolveE2eAuthoring` in
+`adapters/_shared/src/e2e_authoring.ts` — the shipped mechanism, so a rename has
+somewhere to land. A change with no end-to-end observable surface records that
+none-needed decision explicitly, with a non-blank reason that is read back out
+in the step-14 report and emits `end_to_end_none_needed`; silence is not a
+decision, and a declared project whose change authored nothing and recorded
+nothing is **refused** the green declaration. The literal `e2e_cmd: none` is the
+sentinel exception: a project with no suite owes no test and no rationale, so it
+emits `end_to_end_none_needed` with a null reason. None of this is a fifth key —
+it is a consequence of the four already in the table above.
 
 ## The `.claude/skills/<name>` + `disable-model-invocation` convention
 

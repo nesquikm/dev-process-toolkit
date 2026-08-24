@@ -140,6 +140,24 @@ export const CANONICAL_CAPABILITY_KEYS = [
   // zero added ⇒ a row saying so), because a silent skip and a broken report
   // read identically.
   "setup_allowlist_entries_added",
+  // M132 STE-512: the /implement Phase 4 end-to-end authoring dispositions.
+  // Exactly one of the four emits per run that reaches the hook with a real
+  // `e2e_cmd`: `_authored` when the change added an end-to-end test,
+  // `_edited` when it edited an existing one, `end_to_end_none_needed` when
+  // the change RECORDED a non-blank reason that no end-to-end surface was
+  // observable (the considered decision — silence is not a decision and does
+  // not emit it), and `end_to_end_suite_red` when the suite came back red,
+  // which outranks all three. One sentinel exception to the recorded-reason
+  // clause: the literal `none` (there is no suite) also emits
+  // `end_to_end_none_needed`, with no reason at all — a null reason, because a
+  // project with no suite has nothing to explain away.
+  // Spelled `end_to_end_` rather than `e2e_` so the
+  // probe's reverse orphan scan (`MUST emit \`([a-z_]+)\``, digit-free) can
+  // see them and the bidirectional const<->directive invariant stays two-way.
+  "end_to_end_tests_authored",
+  "end_to_end_tests_edited",
+  "end_to_end_none_needed",
+  "end_to_end_suite_red",
 ] as const;
 
 export type CapabilityKey = (typeof CANONICAL_CAPABILITY_KEYS)[number];
@@ -231,6 +249,17 @@ const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   // SKILL.md and expect one violation per canonical key. /setup carries the
   // emission-site MUST-emit directive in its own step-6 merge bullet.
   setup_allowlist_entries_added: "spec-write",
+  // M132 STE-512: the end-to-end authoring dispositions. Route to spec-write
+  // for the SAME reason as the archival-assertion pair, the Socratic-refusal
+  // token and the allow-list merge report above — the § 7 static map is the
+  // canonical owner surface this probe enforces, and the probe's fixture legs
+  // write only a fixture spec-write SKILL.md and expect one violation per
+  // canonical key. /implement carries the emission-site MUST-emit directives
+  // on its own Phase 4 end-to-end authoring hook line.
+  end_to_end_tests_authored: "spec-write",
+  end_to_end_tests_edited: "spec-write",
+  end_to_end_none_needed: "spec-write",
+  end_to_end_suite_red: "spec-write",
 };
 
 /**
