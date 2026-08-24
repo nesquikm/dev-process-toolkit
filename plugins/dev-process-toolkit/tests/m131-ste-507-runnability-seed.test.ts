@@ -916,3 +916,63 @@ describe("audit leg 5 — AC-STE-507.5 holds on a mixed-EOL file", () => {
     expect(after).toBe(before);
   });
 });
+
+// ===========================================================================
+// THIRD RED PASS — pre-PR spec-review finding (HIGH 1), AC-STE-507.2.
+//
+// AC.2 says `/setup` writes `run_cmd: none` "when DETECTION reports the
+// project is not runnable". Neither `/setup` surface names the detector: both
+// route the `none` branch off the § 8c STACK detection instead ("when the
+// stack declares no way to run the project"). The `/upgrade` migration entry
+// on the same contract calls `detectRunnability` for real, so the two writers
+// of `run_cmd` disagree about what "not runnable" means.
+//
+// The gap is not cosmetic. Stack detection and `detectRunnability` answer
+// different questions, and they part company on exactly the tree AC.2 is
+// about: an `other`/`unknown`-stack repo that carries a `## Running` README
+// heading is NOT-RUNNABLE by stack and RUNNABLE by detection. Under the
+// shipped prose that repo is handed `run_cmd: none` at bootstrap — a FALSE
+// declaration, written by the surface that was supposed to answer the
+// question, that permanently silences probe #80 on a tree the probe exists to
+// catch. That is the reflex-silence failure STE-504's whole closed-source-set
+// design is built against, arriving through the front door.
+//
+// So the pins below demand the DISCRIMINATING LITERAL (`detectRunnability`)
+// on both surfaces, in a statement that also carries the `none` write — a
+// bare mention of `run_cmd` cannot satisfy them — and they FORBID the `none`
+// branch being keyed on the stack instead.
+// ===========================================================================
+
+/** The detector by name — the discriminating literal, not a paraphrase. */
+const DETECTOR_NAME = /\bdetectRunnability\b/;
+/** The `none` branch keyed on the STACK rather than on detection. */
+const STACK_KEYED = /the stack (?:declares|implies|offers|knows|has) no|stack declares no way|other ?\/ ?unknown/i;
+
+for (const [rel, region] of [
+  ["skills/setup/SKILL.md § 8c", setup8c],
+  ["docs/setup-reference.md § Step 8c", reference8c],
+] as const) {
+  describe(`AC-STE-507.2 — ${rel} routes the not-runnable decision through the detector`, () => {
+    test("it names `detectRunnability`", () => {
+      expect(region.length).toBeGreaterThan(0);
+      expect(region).toMatch(DETECTOR_NAME);
+    });
+
+    test("ONE statement keys the `run_cmd: none` write on DETECTION reporting not-runnable", () => {
+      const hits = statements(region).filter(
+        (s) => RUN_CMD_NONE.test(s) && DETECTOR_NAME.test(s) && NOT_RUNNABLE.test(s),
+      );
+      expect(hits.length).toBeGreaterThan(0);
+    });
+
+    test("NO statement keys the `run_cmd: none` write on the stack instead", () => {
+      // The failure this forbids is silent: a stack-keyed `none` reads exactly
+      // like a correct run, and only an other/unknown-stack repo carrying run
+      // instructions ever shows the difference.
+      const stackKeyed = statements(region).filter(
+        (s) => RUN_CMD_NONE.test(s) && STACK_KEYED.test(s) && !DETECTOR_NAME.test(s),
+      );
+      expect(stackKeyed).toEqual([]);
+    });
+  });
+}

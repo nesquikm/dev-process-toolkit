@@ -61,6 +61,7 @@ import { detectRunnability } from "./detect_runnability";
 import { isToolkitManaged } from "./toolkit_managed";
 import {
   VERIFICATION_HEADING,
+  isRunCmdAnswered,
   readVerificationConfig,
   verificationSectionLine,
 } from "./verification_config";
@@ -101,15 +102,19 @@ export interface RunnabilityDeclaredReport {
  * A malformed `## Verification` block (out-of-set key, bad `verify_mode`) reads
  * as UNDECLARED rather than propagating: the operator gets this probe's verdict
  * plus the malformed-config probe's, never a crashed gate run.
+ *
+ * The verdict itself is `isRunCmdAnswered` from the section's own module — the
+ * SAME predicate `resolveVerifyMode` decides a mandatory drive with. This probe
+ * owns only what an unanswered key MEANS here (a violation), never what counts
+ * as an answer: a second opinion on that is how `run_cmd: None` came to silence
+ * this probe while mandating a drive of a command named "None".
  */
 function hasRunCmdAnswer(claudeMdPath: string): boolean {
-  let runCmd: string | null;
   try {
-    runCmd = readVerificationConfig(claudeMdPath).runCmd;
+    return isRunCmdAnswered(readVerificationConfig(claudeMdPath).runCmd);
   } catch {
     return false;
   }
-  return runCmd !== null && runCmd.trim() !== "";
 }
 
 /**

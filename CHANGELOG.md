@@ -23,7 +23,7 @@ Runnability contract. The check skill was opt-in, its failure was advisory by de
 
 ### Fixed
 
-- A CRLF- or BOM-authored CLAUDE.md made the whole `## Verification` section invisible: the parser split on `\n` and matched the heading by exact equality, so a Windows-authored block returned defaults and the project's declared `verify_skill` was silently ignored. Worse, the closed-key-set check that exists to stop a typo disabling verification was itself disabled — an out-of-set key on such a file never threw. Shipped since the block was introduced; the parser now folds through the same shared normalizer thirty-three sibling readers already use. (STE-503)
+- A CRLF- or BOM-authored CLAUDE.md made the whole `## Verification` section invisible: the parser split on `\n` and matched the heading by exact equality, so a Windows-authored block returned defaults and the project's declared `verify_skill` was silently ignored. Worse, the closed-key-set check that exists to stop a typo disabling verification was itself disabled — an out-of-set key on such a file never threw. Shipped since the block was introduced; the parser now folds through the same shared CRLF/BOM normalizer its sibling readers in the shared adapter layer already route through. (STE-503)
 
 Total test count at release: 9054 tests, 0 failures, 0 errors.
 

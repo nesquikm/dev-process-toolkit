@@ -1093,3 +1093,181 @@ describe("tripwire — no shipped root copy-out is classified runnable", () => {
     });
   }
 });
+
+// ---------------------------------------------------------------------------
+// THIRD RED PASS — pre-PR spec-review finding (MEDIUM 3).
+//
+// `run_cmd` is read by TWO layers with two different notions of the `none`
+// sentinel:
+//
+//   * `resolveVerifyMode` (adapters/_shared/src/verification_config.ts)
+//     compares against the LITERAL lowercase `"none"`;
+//   * `hasRunCmdAnswer` inside probe #80 (runnability_declared.ts) only asks
+//     whether the trimmed value is non-empty.
+//
+// MEASURED, on a managed fixture whose README carries a `## Running` heading
+// so detection fires, with `verify_mode` absent:
+//
+//     run_cmd            resolveVerifyMode   probe #80
+//     -----------------  -----------------   -----------
+//     none               advisory            silent
+//     None               BLOCKING            silent
+//     NONE               BLOCKING            silent
+//     "  none  "         advisory            silent
+//     bun run dev        blocking            silent
+//
+// So `run_cmd: None` silences the probe as an ANSWER *and* resolves to
+// `blocking` — mandating a drive of a command literally named "None", on a
+// project whose author was declaring it cannot be run. The two layers disagree
+// about the same four bytes. It is the quiet direction that makes this worth a
+// gate: nothing errors, the probe goes green, and Phase 4b" then blocks the
+// step-15 commit on a drive that can never pass.
+//
+// The inconsistency is also internal to the section's own grammar:
+// `verify_mode` REJECTS a non-lowercase value loudly
+// (`MalformedVerificationConfigError`), so two keys in the same closed set
+// treat casing in opposite ways.
+//
+// BINDING DECISION (operator): both layers treat `none` CASE-INSENSITIVELY, so
+// they agree by construction. Deliberately NOT a throw — a project that works
+// today must not start failing its gate on a casing nit, and the whole point
+// of this FR family is that silencing the probe must stay cheap for a project
+// that genuinely cannot be run.
+//
+// The last two describes are ORACLE comparisons rather than two restatements
+// of the same rule: one asserts that inputs equal after trim+lowercase are
+// indistinguishable to BOTH layers, the other ties the two layers' verdicts
+// together on every input at once.
+// ---------------------------------------------------------------------------
+
+import { runRunnabilityDeclaredProbe } from "../adapters/_shared/src/runnability_declared";
+import { resolveVerifyMode } from "../adapters/_shared/src/verification_config";
+
+/**
+ * A toolkit-managed project whose README documents how to run it (so probe #80
+ * is live), carrying `run_cmd` exactly as `written` — or omitting the key
+ * entirely when `written` is `null`. `verify_mode` is deliberately ABSENT, so
+ * `resolveVerifyMode` answers from `run_cmd` alone.
+ *
+ * The `## Running` heading lives in README.md, never in this CLAUDE.md, so the
+ * managed-ness signal and the detection signal stay independent.
+ */
+async function withRunCmd<T>(
+  written: string | null,
+  fn: (ctx: { root: string; claudeMd: string }) => Promise<T> | T,
+): Promise<T> {
+  const root = mkdtempSync(join(tmpdir(), "ste504-runcmd-case-"));
+  try {
+    const runCmdLine = written === null ? "" : `run_cmd: ${written}\n`;
+    writeFileSync(
+      join(root, "CLAUDE.md"),
+      `# Fixture\n\n## Task Tracking\n\nmode: none\n\n## Verification\n\nverify_skill: fixture-drive\n${runCmdLine}`,
+      "utf-8",
+    );
+    writeFileSync(join(root, "README.md"), "# Fixture\n\n## Running\n\n`node server.js`\n", "utf-8");
+    return await fn({ root, claudeMd: join(root, "CLAUDE.md") });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+/** `true` when probe #80 accepted the value as an ANSWER (no violation raised). */
+async function probeAnswered(written: string | null): Promise<boolean> {
+  return withRunCmd(written, async ({ root }) => {
+    const report = await runRunnabilityDeclaredProbe(root);
+    // Guard the fixture itself: a vacuous run would make every verdict below
+    // "silent" for the wrong reason, and an empty source list would make the
+    // probe silent whatever `run_cmd` said.
+    expect(report.vacuous).toBe(false);
+    expect(detectRunnability(root).runnable).toBe(true);
+    return report.violations.length === 0;
+  });
+}
+
+/** `true` when the resolved effective mode is `blocking` — i.e. a drive is mandated. */
+async function resolverBlocking(written: string | null): Promise<boolean> {
+  return withRunCmd(written, ({ claudeMd }) => resolveVerifyMode(claudeMd) === "blocking");
+}
+
+/** Every spelling of the `none` ANSWER that the closed set must treat alike. */
+const NONE_SPELLINGS = ["none", "None", "NONE", "NoNe", "  none  ", "\tNONE  "] as const;
+
+describe("MEDIUM 3 — `resolveVerifyMode` reads the `none` answer case-insensitively", () => {
+  for (const written of NONE_SPELLINGS) {
+    test(`run_cmd: ${JSON.stringify(written)} resolves to advisory, exactly as lowercase \`none\` does`, async () => {
+      expect(await resolverBlocking(written)).toBe(false);
+    });
+  }
+
+  test("a real command is untouched — the fold applies to the sentinel, not to the mode", async () => {
+    expect(await resolverBlocking("bun run dev")).toBe(true);
+    expect(await resolverBlocking("NODE_ENV=dev node server.js")).toBe(true);
+  });
+});
+
+describe("MEDIUM 3 — probe #80 reads the `none` answer case-insensitively", () => {
+  for (const written of NONE_SPELLINGS) {
+    test(`run_cmd: ${JSON.stringify(written)} silences the probe, exactly as lowercase \`none\` does`, async () => {
+      expect(await probeAnswered(written)).toBe(true);
+    });
+  }
+
+  test("the probe is still LIVE on this fixture — an absent or empty value fires", async () => {
+    expect(await probeAnswered(null)).toBe(false);
+    expect(await probeAnswered("")).toBe(false);
+    expect(await probeAnswered("   ")).toBe(false);
+  });
+});
+
+/** Every input the two layers are compared on, absent key included. */
+const RUN_CMD_INPUTS: readonly (string | null)[] = [
+  null,
+  "",
+  "   ",
+  ...NONE_SPELLINGS,
+  "bun run dev",
+  "  bun run dev  ",
+  "Bun Run Dev",
+];
+
+/** The canonical form both layers must be blind to the difference from. */
+const canonical = (written: string | null): string | null =>
+  written === null ? null : written.trim().toLowerCase();
+
+describe("MEDIUM 3 — oracle: inputs equal after trim+lowercase are indistinguishable to BOTH layers", () => {
+  // No restatement of either implementation: the invariant is that neither
+  // layer partitions the input space more finely than canonicalization does.
+  const groups = new Map<string, (string | null)[]>();
+  for (const written of RUN_CMD_INPUTS) {
+    const key = canonical(written) ?? " absent";
+    groups.set(key, [...(groups.get(key) ?? []), written]);
+  }
+
+  for (const [key, members] of groups) {
+    if (members.length < 2) continue;
+    test(`the ${JSON.stringify(key)} class is one class to the resolver and to the probe`, async () => {
+      const modes = new Set<boolean>();
+      const answers = new Set<boolean>();
+      for (const written of members) {
+        modes.add(await resolverBlocking(written));
+        answers.add(await probeAnswered(written));
+      }
+      expect([...modes]).toHaveLength(1);
+      expect([...answers]).toHaveLength(1);
+    });
+  }
+});
+
+describe("MEDIUM 3 — oracle: the two layers agree on every input", () => {
+  // The joint invariant. A drive is mandated exactly when the probe saw an
+  // ANSWER *and* that answer, in canonical form, is not the `none` sentinel.
+  // Today `None` breaks it in the dangerous direction: the probe answered,
+  // canonical `none` resolves advisory, yet the resolver returns blocking.
+  for (const written of RUN_CMD_INPUTS) {
+    test(`run_cmd: ${JSON.stringify(written)} — probe verdict and resolver verdict cannot disagree`, async () => {
+      const answered = await probeAnswered(written);
+      const expected = answered && (await resolverBlocking(canonical(written)));
+      expect(await resolverBlocking(written)).toBe(expected);
+    });
+  }
+});
