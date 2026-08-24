@@ -8,7 +8,7 @@ them as evidence for AC-STE-492.4.
 |---|---|
 | `worker-stage-report.txt` | a well-formed capture — the predicate must ACCEPT it |
 | `worker-stage-report-no-fence.txt` | mutation 1: the fence removed, the literal token deliberately kept in prose so a token-grep predicate cannot pass it |
-| `worker-stage-report-reordered.txt` | mutation 2: all six sections present, order broken |
+| `worker-stage-report-reordered.txt` | mutation 2: all eight sections present, order broken |
 
 ## Why the label is load-bearing
 
@@ -46,6 +46,9 @@ stage, and replace `worker-stage-report.txt` with the worker's verbatim emission
 ## Keeping the model honest
 
 The `gate:` line carries this tree's real numbers at authoring time
-(8067 pass / 16 skip / 0 fail). If it ever drifts far from the current gate, that
-is a signal the model is stale — not that the predicate is wrong. The predicate
-never reads list-section content; see `adapters/_shared/src/deliver_stage_capture.ts`.
+(8067 pass / 0 fail / 16 skip, against a 16-skip baseline, so delta 0). If it ever
+drifts far from the current gate, that is a signal the model is stale — not that
+the predicate is wrong. Since STE-510 the predicate does read the three evidence
+sections' list content: a counts line must carry `pass`, `fail` and `skip` (plus
+`baseline` and `delta` in `gate`), while `- (none found)` stays legal everywhere.
+See `adapters/_shared/src/deliver_stage_capture.ts`.

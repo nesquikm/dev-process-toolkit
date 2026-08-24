@@ -323,7 +323,7 @@ export function missingRequiredStages(
 
 /**
  * The fence contract is route-independent: every chain, reduced included, emits
- * the same six sections in the same fixed order.
+ * the same eight sections in the same fixed order.
  */
 export function fenceSectionsFor(_route: MilestoneRoute): readonly string[] {
   return DELIVER_STAGE_SECTIONS;

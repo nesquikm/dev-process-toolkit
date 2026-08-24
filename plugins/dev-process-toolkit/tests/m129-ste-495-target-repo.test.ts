@@ -51,7 +51,7 @@
 //     rather than grow a second copy (the STE-485 retyped-literal lesson).
 //   * AC.5 IS CONSISTENT WITH THE SHIPPED STE-492 CLAUSE, NOT A CONTRADICTION
 //     OF IT. Both `/deliver` surfaces already state that a reduced chain emits
-//     the SAME six sections in the SAME fixed order, `gate` carrying the literal
+//     the SAME eight sections in the SAME fixed order, `gate` carrying the literal
 //     `- (none found)`. So AC.5 is tested as a STAGE-EXISTENCE exemption, not a
 //     fence exemption: `fenceSectionsFor` must return exactly
 //     `DELIVER_STAGE_SECTIONS` (imported statically from the shipped module, not
@@ -412,7 +412,7 @@ function withTempRepo(claudeMd: string | null, fn: (root: string) => void): void
 
 // The reduced-chain clause STE-492 already shipped, on BOTH surfaces. AC.5 must
 // AGREE with it, so the implementer must not "exempt" the reduced chain by
-// deleting the paragraph that says it emits the same six sections.
+// deleting the paragraph that says it emits the same eight sections.
 const SHIPPED_REDUCED_CHAIN_CLAUSES = [
   "**Reduced chains — a milestone targeting a repo with no toolkit ceremony.**",
   "The one section that omits real content there is `gate`",
@@ -951,7 +951,7 @@ describe("AC-STE-495.4 — a repo with no toolkit gets do-the-work-then-PR", () 
 //
 // Scope note, and it is the whole point of this block: the shipped STE-492
 // clause on BOTH `/deliver` surfaces already says a reduced chain emits the
-// SAME six sections in the SAME fixed order, `gate` carrying `- (none found)`.
+// SAME eight sections in the SAME fixed order, `gate` carrying `- (none found)`.
 // AC.5 is therefore a STAGE-EXISTENCE exemption, not a fence exemption, and
 // this file asserts exactly that — the fence stays, the missing STAGES stop
 // being a halt.
@@ -1025,7 +1025,7 @@ describe("AC-STE-495.5 — the reduced chain is exempt from stages it never runs
     expect([...missingRequiredStages("reduced", ["work"])]).toEqual(["pr"]);
   });
 
-  test("the FENCE contract is unchanged for every route — the six sections, in order", async () => {
+  test("the FENCE contract is unchanged for every route — the eight sections, in order", async () => {
     // Consistency with the shipped STE-492 clause, sourced from that module
     // rather than retyped: a second copy of the section list is how producer
     // and consumer drift apart.
@@ -1046,7 +1046,7 @@ describe("AC-STE-495.5 — the reduced chain is exempt from stages it never runs
 
   test("the shipped reduced-chain clause survives on BOTH surfaces, verbatim", () => {
     // AC.5 must not be "achieved" by deleting the paragraph that says a reduced
-    // chain emits the same six sections.
+    // chain emits the same eight sections.
     for (const [label, body] of [
       ["skills/deliver/SKILL.md", DELIVER_SKILL()],
       ["docs/deliver-reference.md", DELIVER_REFERENCE()],
@@ -1058,8 +1058,8 @@ describe("AC-STE-495.5 — the reduced chain is exempt from stages it never runs
       }
       expect(
         body,
-        `${label}: the same-six-sections guarantee was dropped`,
-      ).toContain("same six sections in the same fixed order");
+        `${label}: the same-N-sections guarantee was dropped`,
+      ).toContain("same eight sections in the same fixed order");
     }
   });
 
@@ -1332,6 +1332,12 @@ describe("AC-STE-495.5 — the fence predicate accepts every route's own stages"
       "summary:",
       "  - did the work",
       "gate:",
+      "  - (none found)",
+      // STE-510 inserted `drive` and `e2e` between `gate` and `follow_ups`;
+      // on a reduced chain all three legitimately carry the fallback.
+      "drive:",
+      "  - (none found)",
+      "e2e:",
       "  - (none found)",
       "follow_ups:",
       "  - (none found)",

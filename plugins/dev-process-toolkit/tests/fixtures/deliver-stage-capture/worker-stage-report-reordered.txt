@@ -15,10 +15,14 @@ milestone: M129
 stage: implement
 status: ok
 gate:
-  - 8067 pass, 16 skip, 0 fail
+  - pass 8067, fail 0, skip 16, baseline 16, delta 0
 summary:
   - STE-492 kickoff task text now carries the deliver-stage-result contract
   - fixture group 14 registered on the canonical roster
 follow_ups:
+  - (none found)
+drive:
+  - pass 12, fail 0, skip 0
+e2e:
   - (none found)
 ```
