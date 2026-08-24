@@ -1,6 +1,6 @@
 # `/implement` Reference
 
-Extended reference material for `/dev-process-toolkit:implement` that was extracted from `skills/implement/SKILL.md` to keep the skill file under the NFR-1 line cap. The skill file contains a one-line pointer to this file at the Stage C section.
+Extended reference material for `/dev-process-toolkit:implement` that was extracted from `skills/implement/SKILL.md` to keep the skill file under the NFR-1 351-line cap. The skill file contains a one-line pointer to this file at the Stage C section.
 
 This reference is **not required reading** on every run — the skill itself has enough guidance to operate. Consult this file when Stage C (Hardening) is run on round 1 of the self-review loop, or when a hardening pass needs concrete examples.
 
@@ -71,6 +71,10 @@ Fires at Phase 1 entry, **between resolver (0.b′) and `claimLock` (0.c)** — 
    - `Y` or `enter` ⇒ `git checkout -b <rendered>`, continue Phase 1 at step 0.c.
    - `e` ⇒ present the rendered name on an editable input line; re-prompt `Y/e/n` on the edited string. No cap on edit iterations, but the user must ultimately press `Y` or `n`.
    - `n` ⇒ exit cleanly with `aborted: branch not created` and **zero side effects** (no `claimLock`, no ticket writes, no file changes).
+
+### Skip baseline capture
+
+6.b On a successful `git checkout -b`, and only there, call `captureSkipBaseline(projectRoot, <rendered branch>, <current gate skip count>)` from `adapters/_shared/src/skip_baseline.ts`. Branch creation is the one moment the pre-work skip count is still the truth; a baseline written later records the branch's own skips as if they had always been there. The write is once-per-branch — an existing baseline is left exactly as it was — and without it every later `gate:` row renders `baseline unmeasured`, which `renderImplementReportEvidence` treats as a refusal ground, so an unwritten baseline makes a clean run uncertifiable rather than merely unmeasured. Editing (`e`) re-renders the name; the baseline binds to whatever branch was actually created. Aborting (`n`) writes nothing.
 
 ### Failure handling
 
@@ -226,7 +230,9 @@ Then call `Provider.releaseLock(id)` for each released FR.
 
 **Delegation, not a second renderer.** `implement_report_evidence` derives nothing of its own — no count parsing, no baseline lookup, no row shape. It calls the shared stage-evidence renderer and re-labels the result, so its rows are byte-identical to the fence's, being the same bytes. A second formatter that merely agreed with the fence today would let the two invocation paths drift into disagreeing about whether the same work was green.
 
-**Fail-closed.** A missing capture is a refusal, not a silent omission: `ok` goes false, `reasons` names each offending section by name, and the `gate:` / `drive:` / `e2e:` rows are emitted anyway. A confident nothing is the failure mode this guards against.
+**Fail-closed, for the sections the project has DECLARED it has.** A missing capture is a refusal, not a silent omission: `ok` goes false, `reasons` names each offending section by name, and the `gate:` / `drive:` / `e2e:` rows are emitted anyway. A confident nothing is the failure mode this guards against.
+
+**Vacuity is declared, never assumed.** Which sections are required comes from `requiredEvidenceSections` in `adapters/_shared/src/evidence_required_sections.ts`, reading the project's own `## Verification` block: `gate` is unconditional, `drive` is required only when `run_cmd` names a real command, and `e2e` only when `e2e_cmd` does — both asked through `isRunCmdAnswered` / `isRunCmdNone`, so `run_cmd: none` (an answer: "this project cannot be run") and a bare `run_cmd:` (an omission wearing an answer's hat) stay distinct. A project that declared the command away is not refused for producing no output from a command it told us does not exist; a project that declared one and captured nothing still is. An explicit `required` from the caller overrides the derivation, and `/deliver`'s own fence renderer keeps its fail-closed all-three default — it grades a fence it did not author.
 
 ## Phase 4 End-to-End Authoring Hook
 

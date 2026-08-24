@@ -201,6 +201,27 @@ export function renderStageEvidence(input: StageEvidenceInput): RenderedStageEvi
 /** `gate:` / `drive:` / `e2e:` — a section heading and nothing else. */
 const HEADING_RE = /^([A-Za-z_][A-Za-z0-9_]*):[ \t]*$/;
 
+/**
+ * A list ITEM under a section — the ONE predicate both halves of the contract
+ * ask, INDENTATION-TOLERANT by design.
+ *
+ * THE HOLE IT CLOSES. This module's reader and `deliver_stage_capture`'s
+ * `sectionItems` were two spellings of the same question, and they disagreed
+ * about exactly one character class: the capture side demanded LEADING
+ * WHITESPACE (`^[ \t]+-[ \t]`) while this side demanded nothing and the sibling
+ * empty-item fallback was already lenient. A counts line at COLUMN 0 was
+ * therefore read back as a claim and simultaneously invisible to
+ * `checkEvidenceCounts` and `checkEvidenceCardinality` — a partial counts line
+ * graded clean, and a failing run buried under a clean one graded green. Every
+ * shipped fixture indents, which is precisely why nothing was red.
+ *
+ * Spelled ONCE and exported, so the two sides cannot drift apart again. Leading
+ * whitespace is OPTIONAL, never required: deleting two spaces is not a semantic
+ * difference, and legitimately indented content stays exactly as legal as it
+ * has always been.
+ */
+export const EVIDENCE_ITEM_RE = /^[ \t]*-[ \t]/;
+
 const PASS_RE = /\bpass\s+(\d+)\b/;
 const FAIL_RE = /\bfail\s+(\d+)\b/;
 const SKIP_RE = /\bskip\s+(\d+)\b/;
@@ -237,6 +258,9 @@ export function parseEvidenceLines(
       continue;
     }
     if (current === null) continue;
+    // Same predicate the capture verifier grades items with — a line that is
+    // not an item is not a claim, at any indentation.
+    if (!EVIDENCE_ITEM_RE.test(line)) continue;
 
     const pass = numberFrom(line, PASS_RE);
     const fail = numberFrom(line, FAIL_RE);

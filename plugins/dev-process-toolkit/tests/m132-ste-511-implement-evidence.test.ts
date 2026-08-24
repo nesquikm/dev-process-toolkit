@@ -710,11 +710,23 @@ describe("AC-STE-511.3 — a standalone run, no orchestrator and no fence, still
 
   test("FAIL-CLOSED: a standalone run missing a capture refuses, naming the section", async () => {
     const mod = await loadReport();
+    // The required set is DECLARATION-derived (M132 HIGH 3): demanding a drive
+    // capture from a project that never said it can be driven false-REDs a
+    // healthy run. So the project here DECLARES both commands — which is
+    // exactly when a missing capture is a real refusal, and the property this
+    // leg has always been about. A project declaring `run_cmd: none` is a
+    // different case, pinned in `m132-cross-fr-hardening.test.ts`.
+    const root = rootWithBaseline("ac3-failclosed", 16);
+    writeFileSync(
+      join(root, "CLAUDE.md"),
+      "# Temp Project\n\n## Verification\n\nrun_cmd: bun run drive\ne2e_cmd: bun run e2e\n",
+      "utf-8",
+    );
     const rendered = mod.renderImplementReportEvidence({
       gate: capturedRun("gate-ac3-failclosed", "bun test", GATE_CLEAN),
       drive: null,
       e2e: null,
-      projectRoot: rootWithBaseline("ac3-failclosed", 16),
+      projectRoot: root,
       branch: BRANCH,
     });
 
