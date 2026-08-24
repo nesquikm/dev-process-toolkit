@@ -54,3 +54,14 @@ export function scratchRoot(projectRoot: string): string {
 export function scratchDir(projectRoot: string, ulid: string): string {
   return join(scratchRoot(projectRoot), ulid);
 }
+
+/**
+ * Skip baseline: `<projectRoot>/.dpt/skip-baseline.json` (STE-509).
+ *
+ * One branch-keyed store of the skip count observed at each branch point.
+ * Composed here rather than in `skip_baseline.ts` so that module carries no
+ * `.dpt` literal of its own (AC-STE-382.1).
+ */
+export function skipBaselinePath(projectRoot: string): string {
+  return join(dptRoot(projectRoot), "skip-baseline.json");
+}
