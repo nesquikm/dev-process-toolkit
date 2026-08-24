@@ -57,22 +57,45 @@ The section is optional; when it is absent, no check is declared and
 
 verify_skill: visual-check
 verify_mode: advisory
+run_cmd: bun run dev
+e2e_cmd: bun run test:e2e
 ```
 
-The key set is **closed** — exactly these two keys. Any other key inside the
+The key set is **closed** — exactly these four keys. Any other key inside the
 section is a config error.
 
 | Key | Meaning |
 |-----|---------|
 | `verify_skill` | Slug of a project-local `.claude/skills/<name>` skill, **or** the literal `visual-check` (the toolkit's built-in web-UI check). This is the skill `/implement` runs. |
-| `verify_mode` | One of `advisory` \| `blocking` \| `manual`. Absent key ⇒ default `advisory`. |
+| `verify_mode` | One of `advisory` \| `blocking` \| `manual`. Absent key ⇒ the default is computed from `run_cmd`: `blocking` when `run_cmd` declares a real command, `advisory` when `run_cmd` is `none`, empty, or absent. |
+| `run_cmd` | Declares how this project is run (e.g. `bun run dev`). Write `run_cmd: none` to declare that the project **cannot** be run — `none` is an answer, and it is distinct from an absent key, which is no answer at all and parses to `null`. |
+| `e2e_cmd` | Declares how this project's end-to-end suite is invoked (e.g. `bun run test:e2e`). Same convention: `e2e_cmd: none` answers "there is no e2e suite"; an absent key answers nothing and parses to `null`. |
+
+A section that declares only `verify_skill` and `verify_mode` — the shape that
+shipped before `run_cmd` and `e2e_cmd` existed — keeps exactly today's
+behaviour: both new keys are absent, so both parse to `null`, and nothing about
+`/implement`'s check changes.
 
 ### `verify_mode` semantics
 
-- **`advisory`** (the default) — the check runs and its pass/fail outcome is
+The effective mode is computed, not simply read. A written `verify_mode` always
+wins; only when the key is absent does `run_cmd` decide the default. `/implement`
+resolves it through `resolveVerifyMode` in
+`adapters/_shared/src/verification_config.ts`; the declared record returned by
+`readVerificationConfig` is unchanged, and it still reads an absent key back as
+`advisory`. The two computed defaults:
+
+- Absent `verify_mode` + a `run_cmd` declaring a real command ⇒ the default is `blocking`. A project that has told the toolkit how to run itself has said the runtime journey is checkable, so a failing check gates its commit unless the project says otherwise.
+- Absent `verify_mode` + a `run_cmd` that is `none`, empty, or absent ⇒ the default stays `advisory`, exactly as it always was — a project that cannot be run has nothing to drive.
+
+However the mode is arrived at, the three modes themselves mean what they always
+have:
+
+- **`advisory`** — the check runs and its pass/fail outcome is
   reported, but a failing check **never blocks** the commit. The human decides
-  whether to proceed. This is the safe default: verification informs, it does
-  not gate.
+  whether to proceed. Verification informs, it does not gate. This is the
+  default for a project whose `run_cmd` is `none` or absent, and it stays
+  available to every project as an explicit setting.
 - **`blocking`** — a failing check **gates** the commit-approval step. The
   commit is not offered until the check passes or the operator explicitly types
   an override. Use this when the runtime journey is load-bearing enough that a
@@ -102,6 +125,18 @@ a fixed discovery precedence:
 
 Unless the mode is `manual`, the resolved skill runs in Phase 4b″ and its
 outcome becomes a row in the step-14 report.
+
+When your `## Verification` block declares a `run_cmd` that is neither empty nor
+`none`, that precedence stops ending in an offer: the drive is mandatory, a
+resolution that yields nothing runnable is a failure rather than a "no
+verification configured" note, and a headless run that cannot drive fails
+instead of quietly declining itself — on that declared-runnable path it emits
+`verify_drive_unavailable` **in place of** `verify_skill_none_declared`, so the
+step-14 report still carries exactly one outcome token, a different one. One
+carve-out: an explicitly written `verify_mode` still wins over the
+`run_cmd`-keyed default, so a project that has written `verify_mode: manual`
+keeps the no-auto-run reminder path even here — the mandatory-drive rule
+decides only what an *absent* mode resolves to.
 
 ## The `.claude/skills/<name>` + `disable-model-invocation` convention
 
@@ -180,12 +215,20 @@ small:
 
    verify_skill: <your-slug>
    verify_mode: advisory
+   run_cmd: <command that brings the project up, or none>
    ```
+
+   Declare `run_cmd` here even if the answer is `none`. A block that omits it
+   is silent about a question the gate will ask the moment the repo grows a
+   run heading or a `dev` script, and `none` is a real answer — it says the
+   project cannot be brought up, which is different from never having said.
 
 5. **Choose the mode deliberately.** Start with `advisory` while you build
    confidence in the check; promote to `blocking` once it is stable and the
    journey is critical; use `manual` if the check needs a human, a device, or
-   credentials that an autonomous run cannot provide.
+   credentials that an autonomous run cannot provide. On a project that
+   declares a real `run_cmd`, write `verify_mode: advisory` explicitly to start
+   there — leaving the key out now resolves to `blocking`.
 
 That is the whole contract. Keep the check focused on one real journey, make
 every assertion observable, and let the deterministic gates keep owning the

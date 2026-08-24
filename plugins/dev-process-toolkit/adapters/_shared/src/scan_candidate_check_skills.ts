@@ -27,7 +27,21 @@ export interface CandidateCheckSkill {
   path: string;
 }
 
-const SLUG_PATTERNS = ["drive", "check", "verify"];
+/**
+ * The slug substrings that make a project-local skill dir a candidate without
+ * an explicit frontmatter marker.
+ *
+ * Exported for two assertions that would otherwise re-declare this list and
+ * drift from it:
+ *   - AC-STE-506.1's fixture guard, proving the frontmatter arm's fixture slug
+ *     is genuinely unmatched here, so those tests cannot pass for the wrong
+ *     reason;
+ *   - AC-STE-506.2's exact-value pin in
+ *     `tests/m131-ste-506-self-declared-verification.test.ts`, which fails on
+ *     any widening. Per that AC, widening the list to catch conformance and
+ *     smoke shapes would make discovery guess.
+ */
+export const SLUG_PATTERNS = ["drive", "check", "verify"];
 
 /**
  * True iff the leading `---` frontmatter block carries `verify: true`.

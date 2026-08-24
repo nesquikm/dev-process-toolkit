@@ -11,7 +11,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { scanCandidateCheckSkills } from "./scan_candidate_check_skills";
+import {
+  SLUG_PATTERNS,
+  scanCandidateCheckSkills,
+} from "./scan_candidate_check_skills";
 
 let projectRoot: string;
 
@@ -144,6 +147,145 @@ describe("scanCandidateCheckSkills — ambiguity + determinism (AC-STE-347.2)", 
       "aa-check",
       "mm-verify",
       "zz-drive",
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STE-506 (M131) — the frontmatter arm and the list-and-ask path, asserted
+// end-to-end against the real scanner rather than assumed from the prose.
+// ---------------------------------------------------------------------------
+
+/** A slug that matches NO pattern — the whole point of the AC.1 fixtures. */
+const UNMATCHED_SLUG = "orbital-launcher";
+
+describe("scanCandidateCheckSkills — frontmatter arm, end-to-end (AC-STE-506.1)", () => {
+  test("the fixture slug is genuinely unmatched by the heuristic", () => {
+    // Guards the fixture itself: if `orbital-launcher` ever started matching a
+    // (widened) pattern, the three tests below would pass for the wrong reason.
+    expect(SLUG_PATTERNS.some((p) => UNMATCHED_SLUG.includes(p))).toBe(false);
+  });
+
+  test("`verify: true` in frontmatter makes an unmatched slug a candidate", () => {
+    addSkill(UNMATCHED_SLUG, VERIFY_MARKED_SKILL_MD);
+    const result = scanCandidateCheckSkills(projectRoot);
+    expect(result.map((c) => c.slug)).toEqual([UNMATCHED_SLUG]);
+    expect(result[0]!.path).toContain(
+      `.claude/skills/${UNMATCHED_SLUG}/SKILL.md`,
+    );
+  });
+
+  test("negative twin — the same slug with `verify: false` is NOT a candidate", () => {
+    addSkill(
+      UNMATCHED_SLUG,
+      `---\nname: ${UNMATCHED_SLUG}\nverify: false\n---\n\n# Skill body\n`,
+    );
+    expect(scanCandidateCheckSkills(projectRoot)).toEqual([]);
+  });
+
+  test("negative twin — the same slug with `verify: true` only in the BODY is NOT a candidate", () => {
+    addSkill(
+      UNMATCHED_SLUG,
+      `---\nname: ${UNMATCHED_SLUG}\n---\n\n# Skill body\n\nDeclare verify: true to opt in.\n`,
+    );
+    expect(scanCandidateCheckSkills(projectRoot)).toEqual([]);
+  });
+});
+
+describe("scanCandidateCheckSkills — conformance/smoke shapes stay unmatched (AC-STE-506.2)", () => {
+  test("conformance- and smoke-shaped slugs without a marker yield NO candidates", () => {
+    for (const slug of [
+      "conformance-loop",
+      "smoke-test",
+      "conformance-report",
+      "smoke-test-fixtures",
+    ]) {
+      addSkill(slug);
+    }
+    expect(scanCandidateCheckSkills(projectRoot)).toEqual([]);
+  });
+});
+
+describe("scanCandidateCheckSkills — multiple candidates list, never guess (AC-STE-506.4)", () => {
+  test("three candidates across BOTH arms are ALL returned, slug-sorted", () => {
+    addSkill("zeta-drive"); // slug arm
+    addSkill("mid-check"); // slug arm
+    addSkill(UNMATCHED_SLUG, VERIFY_MARKED_SKILL_MD); // marker arm
+    addSkill("deploy"); // neither — excluded
+    const result = scanCandidateCheckSkills(projectRoot);
+    // Count first: a scanner that returned only the first candidate would
+    // satisfy a bare "returns candidates" assertion.
+    expect(result.length).toBe(3);
+    expect(result.map((c) => c.slug)).toEqual([
+      "mid-check",
+      UNMATCHED_SLUG,
+      "zeta-drive",
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STE-506 (M131) — the documented-but-unexercised arm, one level down from
+// AC-STE-506.1.
+//
+// `hasVerifyMarker` documents (scan_candidate_check_skills.ts, the doc comment
+// above the function) that its literal `content.startsWith("---\n")` gate
+// exists BECAUSE `parseFrontmatter`'s FRONTMATTER_RE is
+// `/^---\n([\s\S]*?)\n---/m` — the `/m` flag makes `^` match at every line
+// start, so a `---`-delimited block ANYWHERE in the file parses as if it were
+// frontmatter. Until now no test built that shape: the existing body-marker
+// tests all use a file that DOES open with real frontmatter, so they are
+// caught by the parse, never by the gate.
+//
+// Falsifiability, confirmed by inspection against the shipped module: the leg
+// below protects exactly ONE deletion — the `content.startsWith("---\n")` line
+// in `hasVerifyMarker`. With that line removed, `parseFrontmatter(content,
+// { lenient: true }).verify` returns `true` for the fixture, the fixture skill
+// becomes a candidate, and this leg goes red.
+// ---------------------------------------------------------------------------
+
+/**
+ * No leading frontmatter at all — but a `---`-delimited block further down
+ * carrying `verify: true`. The `/m`-flagged frontmatter regex matches it; the
+ * literal leading-`---\n` gate is the only thing that rejects it.
+ */
+const MID_FILE_DELIMITED_BLOCK_SKILL_MD = `# ${UNMATCHED_SLUG}
+
+Prose comes first: this file has NO frontmatter on line 0.
+
+---
+name: ${UNMATCHED_SLUG}
+verify: true
+---
+
+Trailing prose after the block.
+`;
+
+describe("scanCandidateCheckSkills — a `---` block that does not open the file (AC-STE-506.1)", () => {
+  test("the fixture really has no leading frontmatter, and really carries a mid-file block", () => {
+    // Guards the fixture: if it ever grew a leading `---`, the leg below would
+    // pass for the ordinary frontmatter reason instead of the gate.
+    expect(MID_FILE_DELIMITED_BLOCK_SKILL_MD.startsWith("---\n")).toBe(false);
+    expect(MID_FILE_DELIMITED_BLOCK_SKILL_MD).toMatch(
+      /\n---\nname: [^\n]+\nverify: true\n---\n/,
+    );
+  });
+
+  test("`verify: true` inside a mid-file `---` block is NOT a candidate", () => {
+    addSkill(UNMATCHED_SLUG, MID_FILE_DELIMITED_BLOCK_SKILL_MD);
+    expect(scanCandidateCheckSkills(projectRoot)).toEqual([]);
+  });
+
+  test("positive twin — hoisting the SAME block to line 0 DOES make it a candidate", () => {
+    // Isolation: proves the leg above is about POSITION, not about the block's
+    // contents being unparseable. Same keys, same values, only the offset
+    // differs — and the verdict flips.
+    addSkill(
+      UNMATCHED_SLUG,
+      `---\nname: ${UNMATCHED_SLUG}\nverify: true\n---\n\n# Body\n`,
+    );
+    expect(scanCandidateCheckSkills(projectRoot).map((c) => c.slug)).toEqual([
+      UNMATCHED_SLUG,
     ]);
   });
 });
