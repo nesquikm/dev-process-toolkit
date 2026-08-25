@@ -124,6 +124,14 @@ For each milestone `M<N>`, in plan order:
 
    - **Banner** — each ceremony stage ends its report with **exactly one** fenced `deliver-stage-result` block, as the last thing in that report.
    - **Eight sections, fixed order** — `stage`, `milestone`, `status`, `summary`, `gate`, `drive`, `e2e`, `follow_ups`. Never reordered, never omitted. `drive` and `e2e` sit contiguously after `gate`: the three evidence sections are read as one block.
+   - **Spawn receipt** — when the chain the worker ran carried a `(worker)`-placement step, `summary` also carries **one** receipt item, `- spawn: handle=<handle> ledger=<ledger-path> owned=0`, in that fixed field order. **Never type that line.** Run
+
+     ```bash
+     bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/spawn_receipt.ts <handle> <ledger> <name> <host>
+     ```
+
+     with the four values the spawning tool **reported** (an empty `<host>` when it reported none) and paste the one line it prints on stdout. The command resolves the handle through the tool's own ownership check and prints a receipt only on a clean resolve — every other outcome refuses on stderr with an empty stdout, so a handle the reporting stage composed can never reach the fence. `owned` is that check's exit code, and only `0` is emittable. The receipt is an indented `summary` item, not a ninth section, and costs exactly one line against the cap.
+   - **No terminal host** — the spawning tool installed with no terminal host to spawn into (no cmux surface, no herdr pane) is the named `no-terminal-host` halt, never a quiet inline fallback: pre-flight probes the tool's availability, never the host's, so this is the one configuration only the halt itself can report.
    - **Line cap** — at most **26** lines total inside the fence. Raised from the previously shipped budget to fit `drive` and `e2e`; the evidence stays in the block rather than moving to a companion artifact, so `status:` and the numbers behind it are read from one place.
    - **Empty-section fallback** — a section with nothing to report keeps its heading and carries the literal `- (none found)` rather than being dropped.
    - **Counts are derived, never authored** — every number in `gate`, `drive` and `e2e` is **derived from the captured output** of the command that produced it, read back out of those bytes. A count the worker authored — typed from memory, carried over from an earlier run, or invented because it looked plausible — is **not acceptable**, and is graded exactly like a missing section. One counts line per section: a section states one run's numbers, or the `- (none found)` fallback.
@@ -165,6 +173,7 @@ milestone: M<N>
 status: ok                  # ok | failed
 summary:
   - one line per FR shipped / version bumped / PR opened
+  - spawn: handle=<handle> ledger=<ledger-path> owned=0   # only when the chain carried a (worker)-placement step
 gate:
   - pass 8123, fail 0, skip 16, baseline 16, delta 0
 drive:
@@ -185,9 +194,9 @@ follow_ups:
 
 A stage report that violates the contract — no fence, multiple fences, sections missing or out of order, the line cap blown, or a **count that disagrees with the captured command output behind it** (including a number claimed with no capture behind it at all) — gets **one scoped retry**: re-prompt the same worker with only the fence contract restated ("re-emit your stage result as a single `deliver-stage-result` fence"), never a re-run of the stage's actual work. A second violation from the same stage is a **deterministic halt naming the stage** (e.g. `Halting: stage /ship-milestone for M<N> violated the deliver-stage-result contract twice`) — the same bounded-retry budget the `/tdd` orchestrator applies to its `tdd-result` fences. Never paper over a malformed hand-off by guessing what the stage meant.
 
-**Grade a full-ceremony stage's fence WITH its captures.** A full-ceremony stage runs every command the project DECLARED it has — a repo whose `## Verification` block says `run_cmd: none`, this one included, has no drive to capture and reports `- (none found)` honestly — and every number it does print has captured output behind it, so its fence is verified with that evidence supplied — `verifyDeliverStageCapture(capturePath, evidence)`, second argument present — and the verdict comes back `graded: "evidence-backed"`. Called with the fence alone the same function grades **shape-only** and says so in the verdict; that mode exists for a caller holding no captures, and a **shape-only** grade is **not a substitute** for evidence — it certifies form and nothing about the numbers, so a `status: ok` graded that way rests on the worker's word alone. A full-ceremony stage graded shape-only has not been evidenced, and its `ok` must not be relayed as though it had.
+**Grade a full-ceremony stage's fence WITH its captures.** A full-ceremony stage runs every command the project DECLARED it has — a repo whose `## Verification` block says `run_cmd: none`, this one included, has no drive to capture and reports `- (none found)` honestly — and every number it does print has captured output behind it, so its fence is verified with that evidence supplied — `verifyDeliverStageCapture(capturePath, evidence, spawn)`, second and third arguments present — and the verdict comes back `graded: "evidence-backed"`. Called with the fence alone the same function grades **shape-only** and says so in the verdict; that mode exists for a caller holding no captures, and a **shape-only** grade is **not a substitute** for evidence — it certifies form and nothing about the numbers, so a `status: ok` graded that way rests on the worker's word alone. A full-ceremony stage graded shape-only has not been evidenced, and its `ok` must not be relayed as though it had.
 
-A counts disagreement is **not a second failure mode**. `verifyDeliverStageCapture(capturePath, evidence)` grades it into the same `{ ok: false, reasons }` verdict a missing section or a blown cap produces, so it takes the bounded-retry-then-halt path above unchanged — one scoped retry re-stating the contract, then a deterministic halt. Giving invented numbers their own recovery would mean a second budget, a second halt clause, and a worker that learns which violation is cheaper to commit.
+A counts disagreement is **not a second failure mode**. `verifyDeliverStageCapture(capturePath, evidence, spawn)` grades it into the same `{ ok: false, reasons }` verdict a missing section or a blown cap produces, so it takes the bounded-retry-then-halt path above unchanged — one scoped retry re-stating the contract, then a deterministic halt. Giving invented numbers their own recovery would mean a second budget, a second halt clause, and a worker that learns which violation is cheaper to commit.
 
 ## Post-PR — merge-policy routing
 

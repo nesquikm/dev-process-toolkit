@@ -143,7 +143,7 @@ Note the shape constraint that makes this the only coherent reading: `stage`, `m
 | `stage` | 1 | `implement` \| `ship-milestone` \| `pr` | never empty |
 | `milestone` | 2 | `M<N>` | never empty |
 | `status` | 3 | `ok` \| `failed` | never empty |
-| `summary` | 4 | one line per FR shipped / version bumped / PR opened | `- (none found)` |
+| `summary` | 4 | one line per FR shipped / version bumped / PR opened, plus the spawn receipt when the chain spawned a worker | `- (none found)` |
 | `gate` | 5 | final gate numbers — pass, fail **and** skip counts, all three, derived from its captured output, plus the STE-509 skip `baseline` and the `delta` it implies | `- (none found)` |
 | `drive` | 6 | the run/drive command's counts — pass, fail and skip, derived from its captured output | `- (none found)` |
 | `e2e` | 7 | the end-to-end suite's counts — pass, fail and skip, derived from its captured output | `- (none found)` |
@@ -152,6 +152,8 @@ Note the shape constraint that makes this the only coherent reading: `stage`, `m
 Rules:
 
 - **Fixed section order** — the eight sections above, in that order, never reordered, never omitted. An empty section keeps its heading and carries the literal `- (none found)` fallback line; dropping the heading is a shape violation.
+- **Spawn receipt (STE-516)** — a chain carrying a `(worker)`-placement step owes one receipt item under `summary`, in fixed field order: `- spawn: handle=<handle> ledger=<ledger-path> owned=0`. `handle` is what the spawning tool's ownership check **resolved** — a handle the reporting stage composed is refused even though it is well-formed, because the discriminator is agreement with the check, not shape. `ledger` is the ledger path the tool reported (never one re-derived here), and `owned` is the check's exit code, of which only `0` may be emitted: every other outcome is a named halt with its own remedy. The receipt is an **indented `summary` item, not a ninth section** — section detection is anchored at column 0, so the fixed eight-section order is untouched — and it costs exactly one line against the cap. A chain with no worker step owes nothing and is graded exactly as before.
+- **No terminal host (STE-516)** — the spawning tool installed with no terminal host to spawn into (no cmux surface, no herdr pane) is the named `no-terminal-host` halt, never a quiet inline fallback: pre-flight probes the tool's availability, never the host's, so this is the one configuration only the halt itself can report.
 - **Line cap: 26 lines** inside the fence, raised from the previously shipped budget to fit `drive` and `e2e`. The evidence stays *in* the block rather than moving to a companion artifact: one fence, one read, one truth — a second artifact would have the orchestrator read `status:` from one place and the numbers backing it from another. The cap still binds, because the fence is a hand-off summary, not a transcript — detail lives in the worker's visible session, which the operator can always open.
 - `status: failed` means the stage could not complete. The orchestrator halts the milestone and reports; it never improvises a recovery on the worker's behalf.
 
@@ -173,7 +175,7 @@ Every halt path is deterministic and names its cause. The full set:
 
 The bounded-retry budget for shape violations is **one scoped retry** — re-prompt the same worker with only the fence contract restated ("re-emit your stage result as a single `deliver-stage-result` fence"), never a re-run of the stage's actual work. This mirrors the `/tdd` orchestrator's `tdd-result` budget (STE-225/STE-296): retries repair *reporting*, never *work*, and a second violation is a halt, not a third prompt.
 
-That budget covers **counts that disagree with the captures behind them** too. `verifyDeliverStageCapture(capturePath, evidence)` returns the same `{ ok: false, reasons }` verdict for an invented number as for a missing section or a blown cap, so a disagreement routes into the retry-then-halt path above with no second failure mode, no second budget, and no separate halt row in the table.
+That budget covers **counts that disagree with the captures behind them** too. `verifyDeliverStageCapture(capturePath, evidence, spawn)` returns the same `{ ok: false, reasons }` verdict for an invented number as for a missing section or a blown cap, so a disagreement routes into the retry-then-halt path above with no second failure mode, no second budget, and no separate halt row in the table.
 
 ## Merge-policy routing detail
 
