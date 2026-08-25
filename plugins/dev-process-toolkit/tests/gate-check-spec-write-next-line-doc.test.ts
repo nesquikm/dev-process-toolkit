@@ -378,13 +378,13 @@ describe("AC-STE-380.5 — probe #66 registered in gate-check SKILL.md", () => {
     expect(block).toContain("#47");
   });
 
-  test("README probe count is current (80 after M131 added #80)", () => {
-    // Recalibrated 79 → 80: M131 added #80 runnability_declared on top of
-    // M129's #78 delegation_irreversible_exclusion and #79 merge_policy_override_ratchet.
+  test("README probe count is current (81 after M133 added #81)", () => {
+    // Recalibrated 80 → 81: M133 added #81 module_reachability on top of
+    // M131's #80 runnability_declared.
     const readme = readFileSync(readmePath, "utf-8");
-    expect(readme).toContain("80 numbered");
+    expect(readme).toContain("81 numbered");
     expect(readme).not.toContain("68 numbered");
-    expect(readme).toMatch(/layers 80 probes/);
+    expect(readme).toMatch(/layers 81 probes/);
     expect(readme).not.toMatch(/layers 68 probes/);
   });
 });
@@ -394,18 +394,18 @@ describe("AC-STE-380.5 — probe #66 registered in gate-check SKILL.md", () => {
 // ---------------------------------------------------------------------------
 
 describe("AC-STE-380.7 — probe-count calibration stays coherent across surfaces", () => {
-  test("highest numbered gate-check probe is 80 and README agrees", () => {
-    // Recalibrated 76 → 77: M126 added #77 first_turn_refusal_marker.
+  test("highest numbered gate-check probe is 81 and README agrees", () => {
+    // Recalibrated 80 → 81: M133 added #81 module_reachability.
     const b = readFileSync(gateCheckSkill, "utf-8");
     const numbers = [...b.matchAll(/^(\d+)\. \*\*/gm)].map((m) =>
       Number(m[1]),
     );
     expect(numbers.length).toBeGreaterThan(0);
-    expect(Math.max(...numbers)).toBe(80);
+    expect(Math.max(...numbers)).toBe(81);
 
     const readme = readFileSync(readmePath, "utf-8");
     const counted = readme.match(/(\d+) numbered `\/gate-check` probes/);
     expect(counted).not.toBeNull();
-    expect(Number(counted![1])).toBe(80);
+    expect(Number(counted![1])).toBe(81);
   });
 });
