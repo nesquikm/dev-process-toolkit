@@ -1124,10 +1124,14 @@ describe("AC-STE-513.7 — each delegate is mutation-verified", () => {
 // and AC.6's stayed green because "yes" belongs to no closed vocabulary. So
 // `relayRequired`'s consultation was pinned by NOTHING.
 //
-// That is harmless only by accident: `CONFIRM_GATE` is not registered in
-// `GATE_REGISTRY` today, so `relayRequired` returns a constant. STE-515
-// registers that gate, at which point the field becomes informative while its
-// delegation stays unmeasured.
+// That was harmless because `relayRequired` returns a constant here — and it
+// stays constant. STE-515 registered this gate in `GATE_REGISTRY`, which made
+// `gate_class` resolve through the registry; it did NOT make `gate_relays`
+// informative. Measured: this call site passes no delegation, and
+// `relayRequired(gate, null)` is `true` for EVERY gate, registered or not,
+// content, mechanical or irreversible alike. An earlier version of this comment
+// predicted the field would become informative once 515 landed. It did not, and
+// the prediction is corrected here rather than left to read as fact.
 //
 // `resume_classifier` has the same shape — `classifyResume` feeds BOTH
 // `resume_state` and (through `resumeChain`) the `chain` block — so it gets

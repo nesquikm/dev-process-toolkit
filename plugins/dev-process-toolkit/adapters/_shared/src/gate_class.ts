@@ -199,6 +199,28 @@ export const GATE_REGISTRY: readonly GateDescriptor[] = [
     "content",
     "approve the implementation diff before it is committed",
   ),
+  // The pre-spawn chain-confirm gate `deliver_decision` names as CONFIRM_GATE.
+  // Registered so its `gate_class` field resolves THROUGH the registry rather
+  // than through `classifyGateWith`'s unknown-gate fallback, which answers
+  // `content` for every input and would carry this gate along the day that
+  // fallback changes. Content, not mechanical: the operator decides what chain
+  // runs, and no standing authorization reaches it. The summary deliberately
+  // names no guarded action — a guard hit would OVERRIDE the declared class and
+  // silently make this gate irreversible.
+  //
+  // What registration does NOT change, stated because an earlier draft of this
+  // comment claimed otherwise: `deliver_decision`'s `gate_relays` field. That
+  // call site passes no delegation, and `relayRequired(gate, null)` is `true`
+  // for EVERY gate — registered or not, content, mechanical or irreversible —
+  // so the field read `yes` before this registration and reads `yes` after it.
+  // For THIS gate that is also its permanent answer: a content gate relays
+  // whatever delegation is on the record. The field is correct and invariant,
+  // not informative, and registration pins `gate_class` alone.
+  gate(
+    "deliver_chain_confirm",
+    "content",
+    "confirm the delivery chain before the first worker is spawned",
+  ),
 
   // MECHANICAL — exactly the gates the 2026-08-17 field report named as
   // wasted operator attention: each has one correct answer, already
