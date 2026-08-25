@@ -42,7 +42,7 @@
 //     `ok` the day the capture went missing. Blank capture ⇒ `ok: false` with
 //     `GATE_RENDER_NO_CAPTURE`.
 //   * ON FAILURE THE TWO MODES ARE NAMED APART (AC.5). `GATE_RENDER_PARAPHRASED`
-//     when the rendering REFERENCES the record — it carries one of the seven
+//     when the rendering REFERENCES the record — it carries one of the eight
 //     `DECISION_FIELDS` labels in canonical (`resume_state`) or spaced
 //     (`resume state`) form, case-insensitive, OR a captured field value token
 //     of 8+ characters verbatim. `GATE_RENDER_ABSENT` otherwise. The two are
@@ -164,6 +164,10 @@ const CAPTURE = renderDecisionRecord({
   merge_policy: "offer -> offer",
   gate_class: "content",
   gate_relays: "yes",
+  // M134 STE-519 appended an eighth field; a seven-field record now refuses,
+  // and this fixture is evaluated at module load, so omitting it would abort
+  // the whole file rather than fail one leg.
+  remote_control: "dev-process-toolkit-m900",
 });
 
 /** A gate that shows the bytes, wrapped in its own prompt text. */
@@ -328,7 +332,7 @@ describe("AC-STE-514.1 — the operative surface carries ONE runnable command li
     expect(line ?? "").toMatch(/^bun run \S*adapters\/_shared\/src\/deliver_decision\.ts\b/);
   });
 
-  test("copied and executed, it prints the seven-field record and exits 0", () => {
+  test("copied and executed, it prints the eight-field record and exits 0", () => {
     const [line] = commandLines(read(DELIVER_SKILL));
     expect(line ?? "").toContain("deliver_decision.ts");
     const fixture = newFixture();
@@ -960,7 +964,7 @@ describe("AC-STE-514.11 — deleting from either surface alone turns AC.10 red",
 //     `verifyResumeGateRender(REAL_PARAPHRASE, REAL_PARAPHRASE)` returned
 //     `{ok:true, reasons:[]}`: the exact emission AC.4 exists to reject,
 //     greened by handing it in as its own capture. A non-blank capture that
-//     does not carry all seven `DECISION_FIELDS` as labelled lines is not a
+//     does not carry all eight `DECISION_FIELDS` as labelled lines is not a
 //     decision record and cannot grade one — `ok: false` with
 //     `GATE_RENDER_CAPTURE_NOT_A_RECORD`, a code distinct from ABSENT,
 //     PARAPHRASED and NO_CAPTURE because the remedy is distinct (run the
@@ -1182,7 +1186,7 @@ describe("ITEM 1 — the capture is validated as a decision record before it gra
     }
   });
 
-  test("every one of the seven fields is load-bearing in that check", async () => {
+  test("every one of the eight fields is load-bearing in that check", async () => {
     // Per-field, never collective: a check that only looked for `resume_state:`
     // would pass the truncated probe the moment someone added a second line.
     // Each leg hands in a rendering that DOES carry the mutilated capture's
@@ -1797,7 +1801,7 @@ describe("ITEM 6 — a BOM does not turn a faithful render into a retelling", ()
 //     affirmative verdict then claims "AS PRINTED" when nothing was printed —
 //     a false claim in the tool's own output. Two fixes, both pinned here:
 //
-//     A1 — A LABEL WITHOUT A VALUE IS NOT A FIELD. Each of the seven labels
+//     A1 — A LABEL WITHOUT A VALUE IS NOT A FIELD. Each of the eight labels
 //     must carry a non-empty value: on its own line after the colon, or — for
 //     `chain`, the one multi-line field, which `renderDecisionRecord` prints as
 //     a BARE `chain:` followed by its step lines — on at least one non-blank
@@ -1867,10 +1871,10 @@ describe("ITEM 6 — a BOM does not turn a faithful render into a retelling", ()
 // ITEM A1 — a label without a value is not a field.
 // ---------------------------------------------------------------------------
 
-/** The auditor's probe (i), verbatim: seven bare labels, no values. */
+/** The auditor's probe (i): bare labels, no values — one per DECISION_FIELDS entry. */
 const BARE_LABEL_RECORD = DECISION_FIELDS.map((field) => `${field}:`).join("\n");
 
-/** True when `line` opens one of the seven fields. */
+/** True when `line` opens one of the eight fields. */
 function isFieldLabel(line: string): boolean {
   return DECISION_FIELDS.some((field) => line.startsWith(`${field}:`));
 }
@@ -1914,9 +1918,9 @@ function assertRefusesValuelessLabels(
 ): void {
   // The auditor's probe (i), verbatim: the same bytes as both files.
   expect({
-    probe: "seven-bare-labels-as-both-files",
+    probe: "bare-labels-as-both-files",
     ok: predicate(BARE_LABEL_RECORD, BARE_LABEL_RECORD).ok,
-  }).toEqual({ probe: "seven-bare-labels-as-both-files", ok: false });
+  }).toEqual({ probe: "bare-labels-as-both-files", ok: false });
 
   // Per field, never collective — including `chain`, whose value lives on the
   // lines BELOW its label and which a same-line-only check would get wrong in
@@ -2044,6 +2048,9 @@ const HAND_TYPED_RECORD = renderDecisionRecord({
   merge_policy: "auto -> auto",
   gate_class: "content",
   gate_relays: "no",
+  // M134 STE-519's eighth field. Evaluated at module load like the fixture
+  // above, so an omission aborts the file instead of failing one leg.
+  remote_control: "dev-process-toolkit-m900",
 });
 
 /** The auditor's probe (iii): a real capture with ONE value doctored. */
@@ -2079,9 +2086,9 @@ describe("ITEM A2 — the capture is an execution, not an argument", () => {
     const fixture = newFixture();
     const printed = realCapture(fixture);
     const doctored = doctorOneValue(printed);
-    expect({ applied: doctored !== printed, stillSevenLabels: DECISION_FIELDS.every((f) => doctored.includes(`${f}:`)) }).toEqual({
+    expect({ applied: doctored !== printed, stillAllLabels: DECISION_FIELDS.every((f) => doctored.includes(`${f}:`)) }).toEqual({
       applied: true,
-      stillSevenLabels: true,
+      stillAllLabels: true,
     });
     const result = runGateCli(gateWrapping(doctored), { projectRoot: fixture });
     expect({
@@ -2091,7 +2098,7 @@ describe("ITEM A2 — the capture is an execution, not an argument", () => {
     }).toEqual({ nonZero: true, namesCode: true, stdout: "" });
   });
 
-  test("probe (i) as a RENDERING — seven bare labels — is refused", () => {
+  test("probe (i) as a RENDERING — bare labels — is refused", () => {
     const result = runGateCli(gateWrapping(BARE_LABEL_RECORD));
     expect({ nonZero: result.code !== 0, stdout: result.stdout }).toEqual({
       nonZero: true,
@@ -2398,7 +2405,9 @@ describe("ITEM B — a faithful gate passes with or without the capture's traili
     const truncated = lines.slice(0, -1).join("\n");
     expect({ applied: truncated !== CAPTURE, lastLine: lines.at(-1) }).toEqual({
       applied: true,
-      lastLine: `gate_relays: yes`,
+      // M134 STE-519 appended remote_control, so IT is now the tail line a
+      // truncated paste loses — which is exactly what this leg measures.
+      lastLine: `remote_control: dev-process-toolkit-m900`,
     });
     expect({
       ok: mod.verifyResumeGateRender(`Gate:\n\n${truncated}`, CAPTURE + "\n").ok,

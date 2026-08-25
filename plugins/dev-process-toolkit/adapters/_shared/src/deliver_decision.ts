@@ -1,15 +1,16 @@
 // deliver_decision — M133 STE-513: ONE runnable front door for every delivery
 // decision `/deliver` makes before it spawns anything.
 //
-// The six questions a `/deliver` run has to answer — what did the operator
+// The seven questions a `/deliver` run has to answer — what did the operator
 // type, which repo does the milestone land in, where is the milestone being
-// resumed from, what chain does that imply, what merge policy is in force, and
-// does the pre-spawn confirm gate relay — already have exactly one owner each.
+// resumed from, what chain does that imply, what merge policy is in force,
+// does the pre-spawn confirm gate relay, and under what name will the spawned
+// worker be reachable — already have exactly one owner each.
 // What did NOT exist was a way to ASK them all in one command: the skill prose
 // re-derived the answers in narration, which is how a shipped answer and a
 // narrated one drift apart without anything going red.
 //
-// This module decides NOTHING. It imports the six owners, asks each its own
+// This module decides NOTHING. It imports the seven owners, asks each its own
 // question, and prints the answers as one labelled record. It carries no branch
 // of its own over any of the five closed vocabularies (argument kinds, routes,
 // resume states, merge policies, gate classes) — every such value arrives from
@@ -36,13 +37,17 @@ import { classifyResume, resumeChain, stepLines } from "./resume_classifier";
 import { readOrchestrationConfig } from "./orchestration_config";
 import { runMergePolicy } from "./merge_policy_ratchet";
 import { classifyGate, relayRequired } from "./gate_class";
+import {
+  workerIdentitySegment,
+  workerRemoteControlName,
+} from "./deliver_worker_name";
 
 // ---------------------------------------------------------------------------
 // The record.
 // ---------------------------------------------------------------------------
 
 /**
- * The seven labelled fields, in the fixed order the record prints them.
+ * The eight labelled fields, in the fixed order the record prints them.
  *
  * Exported because the order IS the contract: a consumer that wants to check a
  * record is complete, or to render one itself, reads this list rather than
@@ -56,6 +61,7 @@ export const DECISION_FIELDS = [
   "merge_policy",
   "gate_class",
   "gate_relays",
+  "remote_control",
 ] as const;
 
 export type DecisionField = (typeof DECISION_FIELDS)[number];
@@ -148,7 +154,7 @@ function envelopeFor(
 /**
  * Render one decision record, or refuse.
  *
- * COMPLETENESS IS A REFUSAL, not a shorter record. A record with six of seven
+ * COMPLETENESS IS A REFUSAL, not a shorter record. A record with seven of eight
  * fields is the failure mode this exists to prevent: it reads as an answer, and
  * the field it dropped is exactly the one nobody then checks. So an absent or
  * blank field refuses, naming the field, and prints nothing at all.
@@ -218,7 +224,13 @@ export interface DeliverDecisionInput {
 }
 
 /**
- * Ask all six owners their own question and render the answers as one record.
+ * Ask every owner its own question and render the answers as one record.
+ *
+ * There are FEWER owners than there are fields, and that is not a miscount:
+ * `resume_classifier` answers two of the questions — the resume state and the
+ * chain that state implies — so one owner covers two fields. Said here because
+ * a reader who assumes the two totals must match will "fix" whichever one they
+ * happen to read second.
  *
  * `orchestration_config` is consulted DIRECTLY for the configured policy rather
  * than only through `merge_policy_ratchet` — the ratchet reaches the config
@@ -296,6 +308,16 @@ export async function decideDelivery(
     merge_policy: `${configured} -> ${effective}`,
     gate_class: classifyGate(CONFIRM_GATE),
     gate_relays: relayRequired(CONFIRM_GATE, null) ? "yes" : "no",
+    // The name the spawned worker will be reachable under, ASSEMBLED from the
+    // module that owns the derivation rather than composed here — and reached
+    // through the routing this run already resolved, never re-parsed off the
+    // raw argument. Two spellings of one milestone resolve to one routing, so
+    // taking the identity from the routing is what keeps the printed name the
+    // same name the spawn will use.
+    remote_control: workerRemoteControlName({
+      repoRoot: projectRoot,
+      identity: workerIdentitySegment(routing),
+    }),
   });
 }
 

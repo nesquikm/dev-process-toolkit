@@ -20,11 +20,11 @@
 //         two outputs must be byte-identical. A module that ignored argv[3] and
 //         always used cwd would pass a source grep and die here.
 //
-//   AC.4  Two subjects, one parser. The seven labels are located in the REAL
+//   AC.4  Two subjects, one parser. The eight labels are located in the REAL
 //         command's stdout and in `renderDecisionRecord`'s return value with
 //         the same `labelLines` reader, and the completeness rule ("a record
 //         missing any field is a refusal, not a shorter record") is driven
-//         seven times — omit each field in turn, expect a canonical refusal.
+//         eight times — omit each field in turn, expect a canonical refusal.
 //         Order is asserted as strictly increasing line indices AND each label
 //         exactly once, so a second copy of a label cannot satisfy the order.
 //
@@ -43,7 +43,7 @@
 //         and each step line's placement must equal that step's own. No single
 //         literal satisfies it.
 //
-//   AC.6  Source-level, and deliberately narrow: the module must import all six
+//   AC.6  Source-level, and deliberately narrow: the module must import all seven
 //         delegates AND carry no quoted literal from any of the five closed
 //         vocabularies (argument kinds, routes, resume states, merge policies,
 //         gate classes) in code — comments stripped first. The vocabularies are
@@ -69,7 +69,7 @@
 //         "The output moved" is only an answer once the stubbed run PRODUCED an
 //         answer: a stub that crashes moves the bytes too, and would score this
 //         leg green while proving nothing about delegation. So each stubbed run
-//         is first required to exit 0 and print a whole seven-field record, and
+//         is first required to exit 0 and print a whole eight-field record, and
 //         only then is the move counted.
 //
 //   AC.8  Read-only is measured by hashing the fixture tree before and after,
@@ -110,7 +110,7 @@
 // CONTRACT NOTES FOR THE IMPLEMENTER — the legs above depend on these shapes.
 // ---------------------------------------------------------------------------
 //
-//   * The module exports `DECISION_FIELDS` (the seven labels, in order) and
+//   * The module exports `DECISION_FIELDS` (the eight labels, in order) and
 //     `renderDecisionRecord(fields)`, which returns the record text and THROWS
 //     a canonical NFR-10 refusal naming the offending label when a field is
 //     absent/blank or when a chain step line carries no `(inline|worker)`
@@ -211,7 +211,13 @@ const RESUME_CLASSIFIER_FILE = join(SHARED_SRC, "resume_classifier.ts");
 /** The shipped command-line guard, verbatim. AC.1's anchor. */
 const MAIN_GUARD = "if (import.meta.main) {";
 
-/** The six delegates AC.6 names, in the AC's own order. */
+/**
+ * The delegates AC.6 names, in the AC's own order.
+ *
+ * M134 STE-519 appended a seventh: `remote_control` is answered by
+ * `deliver_worker_name`, and a field with no delegate would arrive unmeasured —
+ * exactly what AC.7's claim leg below exists to refuse.
+ */
 const DELEGATES = [
   "deliver_argument",
   "target_repo",
@@ -219,11 +225,12 @@ const DELEGATES = [
   "orchestration_config",
   "merge_policy_ratchet",
   "gate_class",
+  "deliver_worker_name",
 ] as const;
 type Delegate = (typeof DELEGATES)[number];
 
 /**
- * The seven labelled fields, in the fixed order AC.4 states.
+ * The eight labelled fields, in the fixed order AC.4 states.
  *
  * The AC fixes the ORDER and the SUBJECTS; the spellings are this file's, and
  * `DECISION_FIELDS` in the module is asserted equal to them so the printer and
@@ -237,6 +244,9 @@ const FIELDS = [
   "merge_policy",
   "gate_class",
   "gate_relays",
+  // Appended by M134 STE-519. The first seven are unmoved and byte-identical;
+  // AC-STE-519.1 pins that prefix, so this entry can only ever be eighth.
+  "remote_control",
 ] as const;
 
 /** The gate the record reports on: /deliver's pre-spawn chain-confirm gate. */
@@ -567,6 +577,13 @@ function stubBody(delegate: Delegate): string {
         `  const r = __real.resolveDeliverArgument(input);\n` +
         `  return { ...r, kind: flip(r.kind) };\n}\n`
       );
+    case "deliver_worker_name":
+      return (
+        head +
+        `export function workerRemoteControlName(input: any): any {\n` +
+        `  const r = __real.workerRemoteControlName(input);\n` +
+        `  return r === "stub-alt-name-one" ? "stub-alt-name-two" : "stub-alt-name-one";\n}\n`
+      );
     case "target_repo":
       return (
         head +
@@ -745,11 +762,11 @@ describe("AC-STE-513.3 — runs as a command; projectRoot defaults to cwd", () =
 });
 
 // ===========================================================================
-// AC.4 — seven labelled fields, fixed order, completeness is a refusal.
+// AC.4 — eight labelled fields, fixed order, completeness is a refusal.
 // ===========================================================================
 
-describe("AC-STE-513.4 — the seven fields, in order", () => {
-  test("DECISION_FIELDS is the seven labels in the fixed order", async () => {
+describe("AC-STE-513.4 — the eight fields, in order", () => {
+  test("DECISION_FIELDS is the eight labels in the fixed order", async () => {
     const mod: any = await import(MODULE_FILE);
     expect(mod.DECISION_FIELDS).toEqual([...FIELDS]);
   });
@@ -798,6 +815,7 @@ describe("AC-STE-513.4 — the seven fields, in order", () => {
       merge_policy: "offer -> offer",
       gate_class: "content",
       gate_relays: "yes",
+      remote_control: "dev-process-toolkit-m900",
     };
     // Control: the complete map renders, and renders in order.
     const rendered: string = mod.renderDecisionRecord(full);
@@ -891,6 +909,7 @@ describe("AC-STE-513.5 — every chain step carries its placement", () => {
       merge_policy: "offer -> offer",
       gate_class: "content",
       gate_relays: "yes",
+      remote_control: "dev-process-toolkit-m900",
     };
     let message = "";
     expect(() => {
@@ -1028,7 +1047,7 @@ describe("AC-STE-513.5 — the step line has one renderer, not two", () => {
 });
 
 // ===========================================================================
-// AC.6 — assembly only: six delegates, no branch of its own.
+// AC.6 — assembly only: seven delegates, no branch of its own.
 // ===========================================================================
 
 /** Source with block and line comments removed. */
@@ -1036,8 +1055,8 @@ function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 }
 
-describe("AC-STE-513.6 — delegates to all six, decides nothing itself", () => {
-  test("all six delegates are imported", () => {
+describe("AC-STE-513.6 — delegates to all seven, decides nothing itself", () => {
+  test("all seven delegates are imported", () => {
     const source = stripComments(read(MODULE_FILE));
     for (const delegate of DELEGATES) {
       const imported = new RegExp(`["']\\./${delegate}["']`).test(source);
@@ -1084,7 +1103,7 @@ describe("AC-STE-513.7 — each delegate is mutation-verified", () => {
       // CRASHES also moves the bytes — different stderr, different exit code —
       // and `moved: true` cannot tell that apart from a delegate answering
       // differently. So the stubbed run must first BE an answer: exit 0, with a
-      // whole seven-field record. Only a run that got all the way to a complete
+      // whole eight-field record. Only a run that got all the way to a complete
       // record can testify that the delegate was consulted at all.
       expect({ delegate, baselineCode: baseline.code, stubbedCode: stubbed.code }).toEqual(
         { delegate, baselineCode: 0, stubbedCode: 0 },
@@ -1159,6 +1178,7 @@ const FIELDS_FED: Record<Delegate, readonly (typeof FIELDS)[number][]> = {
   orchestration_config: ["merge_policy"],
   merge_policy_ratchet: ["merge_policy"],
   gate_class: ["gate_class", "gate_relays"],
+  deliver_worker_name: ["remote_control"],
 };
 
 /** One field's rendered text: the value line, or the whole chain block. */
