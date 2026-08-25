@@ -181,7 +181,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.71.0 — "Receipt"** (M132, evidence ledger: a stage can no longer report success in prose and be believed — the hand-off fence gains `drive:` and `e2e:` sections whose every count is read from captured command output rather than authored by the reporting agent, skipped tests are counted and ratcheted against a branch-point baseline so newly introduced skips are red while pre-existing ones ride free, `/implement` carries the same evidence in its own report from the same renderer, and a change with end-to-end observable behaviour arrives with its end-to-end tests updated or records explicitly that none were needed.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.72.0 — "Imperative"** (M133, executable delivery decisions: every module `/deliver` ordered "never by eye" was unreachable at runtime, so the order was prose and a reader who could not execute it narrated instead — the pre-spawn decision record now comes from one runnable command whose bytes the confirm gate shows verbatim rather than retelling, a stage cannot report a spawn it did not perform, the resume confirm gate is registered rather than reaching its class through a fallback, and a new gate check generates the inventory of orders that name a module nothing can run.)
 
 ## Core Philosophy
 
