@@ -16,19 +16,19 @@ This reference is **not required reading** on every run — the skill itself has
 
 ## The pre-spawn decision record — one command, not a narration
 
-Everything `/deliver` decides before it spawns anything — what the operator typed, which repo the milestone routes to, the resume state on disk, the chain that state implies with each step carrying its own placement, the merge policy in force, and whether the pre-spawn confirm gate relays — is produced by one command rather than re-derived in prose:
+Everything `/deliver` decides before it spawns anything — what the operator typed, which repo the milestone routes to, the resume state on disk, the chain that state implies with each step carrying its own placement, the merge policy in force, what class the pre-spawn confirm gate is and whether it relays, and the name the spawned worker will be reachable under — is produced by one command rather than re-derived in prose:
 
 ```bash
 bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/deliver_decision.ts <argument> [projectRoot]
 ```
 
-The skill file is the operative surface for this rule; this section is the debugging view of the same rule, and the two are written from the same command. It prints seven labelled fields on stdout and decides nothing itself — each answer comes from the module that owns that question, so the record and the run cannot disagree. `[projectRoot]` defaults to the invoking repo. A refusal goes to stderr in the NFR-10 canonical shape with an empty stdout, so a caller reading stdout gets a whole record or nothing, never a partial one.
+The skill file is the operative surface for this rule; this section is the debugging view of the same rule, and the two are written from the same command. It prints eight labelled fields on stdout and decides nothing itself — each answer comes from the module that owns that question, so the record and the run cannot disagree. `[projectRoot]` defaults to the invoking repo. A refusal goes to stderr in the NFR-10 canonical shape with an empty stdout, so a caller reading stdout gets a whole record or nothing, never a partial one.
 
 Rendering that record is also when the `agent-toolkit:spawn-agent` pre-flight probe fires on a **resume**, since a resumed run never reaches the before-Phase-1 trigger — see the Pre-flight section below. So a resume that produced no probe result before its gate ran the gate unguarded, whatever the record said.
 
 The confirm gate shows those bytes verbatim, wrapped in whatever prompt text it likes. When a run's gate is under suspicion, re-run the command against the same tree and compare: a gate that showed a retelling instead of the bytes is the failure mode this command exists to end, and the shown-versus-captured comparison is what grades it.
 
-**Grade the rendering against the capture before showing it.** `verifyResumeGateRender(rendered, capturedStdout)` in `adapters/_shared/src/resume_gate_render.ts` returns `{ ok: false, reasons }` when the gate text is a retelling rather than the record's own bytes, when what was handed in as the capture is not a whole seven-field record, and when no record was put in front of the operator at all.
+**Grade the rendering against the capture before showing it.** `verifyResumeGateRender(rendered, capturedStdout)` in `adapters/_shared/src/resume_gate_render.ts` returns `{ ok: false, reasons }` when the gate text is a retelling rather than the record's own bytes, when what was handed in as the capture is not a whole eight-field record, and when no record was put in front of the operator at all.
 Run it as `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/resume_gate_render.ts <argument> [projectRoot] <renderedPath>` — it re-runs the decision command itself and grades the rendering against the bytes that run just printed, so a capture nobody executed cannot be handed in; it prints its verdict on stdout and exits 0, or refuses on stderr with the NFR-10 envelope. Show the gate only on a clean verdict.
 
 **An edit at the gate may reorder or drop steps, and may never change a step's placement.** The operator decides *what* runs; *where* each step runs is derived from the milestone's route and is not negotiable at the gate — hand-re-placing a step is exactly how a chain whose steps said `(worker)` once got run inline.

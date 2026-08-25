@@ -5,13 +5,13 @@
 //
 //     export const CONFIRM_GATE = "deliver_chain_confirm";
 //
-// and prints two of its seven record fields from it — `gate_class` from
+// and prints two of its eight record fields from it — `gate_class` from
 // `classifyGate(CONFIRM_GATE)` and `gate_relays` from
 // `relayRequired(CONFIRM_GATE, null)`. That id appears NOWHERE in
 // `GATE_REGISTRY` (`grep -c deliver_chain_confirm adapters/_shared/src/gate_class.ts`
 // ⇒ 0), so both fields resolve through `classifyGateWith`'s third branch — the
 // fallback for gates nobody has thought about — and are the constants
-// `content` / `yes` for EVERY input. Two of seven fields carry no information.
+// `content` / `yes` for EVERY input. Two of eight fields carry no information.
 //
 // Right answer, no pin. The day the fallback changes, this gate changes class
 // with it and nothing goes red.
