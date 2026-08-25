@@ -636,8 +636,15 @@ function milestoneResumeChain(
   return steps;
 }
 
-/** The numbered step list, in one place so both scopes render the same shape. */
-function stepLines(chain: readonly ResumeChainStep[]): string[] {
+/**
+ * The numbered step list, in one place so both scopes render the same shape.
+ *
+ * Exported because it is the ONE renderer of a step line: `deliver_decision`
+ * prints the same chain into its decision record, and a byte-identical copy
+ * there would let the record and the plan the operator confirms drift apart the
+ * day either shape moves.
+ */
+export function stepLines(chain: readonly ResumeChainStep[]): string[] {
   return chain.map(
     (step, i) => `  ${i + 1}. ${step.skill} ${step.target} (${step.placement})`,
   );

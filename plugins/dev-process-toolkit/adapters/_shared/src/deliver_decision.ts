@@ -1,0 +1,324 @@
+// deliver_decision — M133 STE-513: ONE runnable front door for every delivery
+// decision `/deliver` makes before it spawns anything.
+//
+// The six questions a `/deliver` run has to answer — what did the operator
+// type, which repo does the milestone land in, where is the milestone being
+// resumed from, what chain does that imply, what merge policy is in force, and
+// does the pre-spawn confirm gate relay — already have exactly one owner each.
+// What did NOT exist was a way to ASK them all in one command: the skill prose
+// re-derived the answers in narration, which is how a shipped answer and a
+// narrated one drift apart without anything going red.
+//
+// This module decides NOTHING. It imports the six owners, asks each its own
+// question, and prints the answers as one labelled record. It carries no branch
+// of its own over any of the five closed vocabularies (argument kinds, routes,
+// resume states, merge policies, gate classes) — every such value arrives from
+// the module that owns it, so a new member of any vocabulary is covered the day
+// it ships rather than the day someone remembers this file.
+//
+// Read-only by construction: it spawns nothing, claims nothing, writes nothing
+// and takes no lock. That is also why it passes `stdinIsTty: true` explicitly —
+// `resolveDeliverArgument` refuses non-tty stdin because the INTERACTIVE
+// pipeline needs a live operator for its Socratic phases and approval gates,
+// and none of those exist here. A printer that inherited that gate could never
+// be run by a test, a driver or a headless capture, which is the whole set of
+// callers this command exists to serve.
+
+import { readFileSync } from "node:fs";
+
+import {
+  defaultIdentityProbe,
+  resolveDeliverArgument,
+} from "./deliver_argument";
+import { routeMilestone } from "./target_repo";
+import type { ResumeChainStep } from "./resume_classifier";
+import { classifyResume, resumeChain, stepLines } from "./resume_classifier";
+import { readOrchestrationConfig } from "./orchestration_config";
+import { runMergePolicy } from "./merge_policy_ratchet";
+import { classifyGate, relayRequired } from "./gate_class";
+
+// ---------------------------------------------------------------------------
+// The record.
+// ---------------------------------------------------------------------------
+
+/**
+ * The seven labelled fields, in the fixed order the record prints them.
+ *
+ * Exported because the order IS the contract: a consumer that wants to check a
+ * record is complete, or to render one itself, reads this list rather than
+ * retyping it and drifting.
+ */
+export const DECISION_FIELDS = [
+  "argument_kind",
+  "target_repo_route",
+  "resume_state",
+  "chain",
+  "merge_policy",
+  "gate_class",
+  "gate_relays",
+] as const;
+
+export type DecisionField = (typeof DECISION_FIELDS)[number];
+
+/** The one multi-line field: `chain:` on its own line, then the step lines. */
+const CHAIN_FIELD: DecisionField = "chain";
+
+/**
+ * The gate this record reports on: `/deliver`'s pre-spawn chain-confirm gate,
+ * the one the operator answers before any worker exists.
+ */
+export const CONFIRM_GATE = "deliver_chain_confirm";
+
+/**
+ * A step line carries its OWN placement — `  1. /implement M900 (worker)` —
+ * the shape `resume_classifier` already renders resume plans in. Reused rather
+ * than reinvented so the record and the plan an operator confirms read alike.
+ */
+const STEP_PLACEMENT_RE = /\((inline|worker)\)\s*$/;
+
+/**
+ * The NFR-10 refusal this command raises. Named so a caller can tell a decision
+ * refusal apart from a routing refusal that crossed the same boundary — both
+ * render the same three-line envelope, and only the name distinguishes them.
+ */
+export class DeliverDecisionError extends Error {
+  override readonly name = "DeliverDecisionError";
+}
+
+/** The three line prefixes a canonical NFR-10 envelope always carries. */
+const ENVELOPE_PREFIXES = ["Refusing: ", "Remedy: ", "Context: "] as const;
+
+/** The canonical NFR-10 envelope: Refusing / Remedy / Context, in that order. */
+function refuse(parts: {
+  verdict: string;
+  remedy: string;
+  context: string;
+}): DeliverDecisionError {
+  return new DeliverDecisionError(
+    [
+      `${ENVELOPE_PREFIXES[0]}${parts.verdict}`,
+      `${ENVELOPE_PREFIXES[1]}${parts.remedy}`,
+      `${ENVELOPE_PREFIXES[2]}${parts.context}`,
+    ].join("\n"),
+  );
+}
+
+/** Does `message` already carry all three envelope lines? */
+function carriesEnvelope(message: string): boolean {
+  const lines = message.split("\n");
+  return ENVELOPE_PREFIXES.every((prefix) =>
+    lines.some((line) => line.startsWith(prefix)),
+  );
+}
+
+/**
+ * The envelope EVERY refusal this command prints must carry — including the
+ * ones it did not raise itself.
+ *
+ * A refusal raised here or by a delegate arrives already enveloped and is
+ * passed through untouched. A raw runtime failure does not: an argument that
+ * resolves to a plan path which cannot be read (a directory where a file was
+ * expected, a file the caller has no permission to open) reaches this boundary
+ * as a bare `EACCES: ...`. That exits non-zero, which is half the promise, but
+ * it is not the shape a caller can parse and not the shape the refusal contract
+ * states — so it is wrapped rather than printed as it stands. The original text
+ * is carried inside the verdict, so wrapping loses nothing.
+ */
+function envelopeFor(
+  error: unknown,
+  where: { argument: string | undefined; projectRoot: string },
+): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  if (carriesEnvelope(raw)) return raw;
+  return refuse({
+    verdict:
+      `the delivery decision record could not be assembled, and the failure ` +
+      `arrived without a refusal of its own: ${raw}`,
+    remedy:
+      "check that the identity's specs are readable files in the project tree " +
+      "you named, then re-run; if they are, this is a defect in the module " +
+      "that failed and the text above is what to report.",
+    context:
+      `mode=deliver, phase=decision-record, argument=${JSON.stringify(
+        where.argument ?? null,
+      )}, projectRoot=${where.projectRoot}, refusal=unenveloped`,
+  }).message;
+}
+
+/**
+ * Render one decision record, or refuse.
+ *
+ * COMPLETENESS IS A REFUSAL, not a shorter record. A record with six of seven
+ * fields is the failure mode this exists to prevent: it reads as an answer, and
+ * the field it dropped is exactly the one nobody then checks. So an absent or
+ * blank field refuses, naming the field, and prints nothing at all.
+ *
+ * The chain field carries the same rule one level down: every step line must
+ * name its own placement. A chain whose steps do not say where they run is a
+ * chain an operator cannot confirm, so it is refused rather than printed.
+ */
+export function renderDecisionRecord(
+  fields: Readonly<Record<string, string>>,
+): string {
+  const lines: string[] = [];
+  for (const field of DECISION_FIELDS) {
+    const value = fields?.[field];
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw refuse({
+        verdict:
+          `the delivery decision record carries no \`${field}\` field, and a ` +
+          "record missing a field is a refusal, not a shorter record — a " +
+          "partial record reads as an answer and hides the one question " +
+          "nobody then asks.",
+        remedy:
+          `supply \`${field}\` from the module that owns that question, or ` +
+          "do not render a record at all.",
+        context: `mode=deliver, phase=decision-record, field=${field}, value=absent`,
+      });
+    }
+    if (field !== CHAIN_FIELD) {
+      lines.push(`${field}: ${value.trim()}`);
+      continue;
+    }
+    const steps = value.split("\n").filter((line) => line.trim().length > 0);
+    if (steps.length === 0) {
+      throw refuse({
+        verdict: `the \`${field}\` field carries no step lines, so the record states a chain nobody can run.`,
+        remedy: `render \`${field}\` from the step list its owning module returns.`,
+        context: `mode=deliver, phase=decision-record, field=${field}, steps=0`,
+      });
+    }
+    for (const step of steps) {
+      if (STEP_PLACEMENT_RE.test(step)) continue;
+      throw refuse({
+        verdict:
+          `a \`${field}\` step line names no placement, so the record cannot ` +
+          "say where that step runs — and a step whose placement is implied " +
+          "is a step the operator confirms without seeing.",
+        remedy:
+          "render every step line with its own trailing placement, the shape " +
+          "`  1. /skill TARGET (placement)` that resume plans already use.",
+        context: `mode=deliver, phase=decision-record, field=${field}, step=${JSON.stringify(step)}`,
+      });
+    }
+    lines.push(`${field}:`, ...steps);
+  }
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// The decision.
+// ---------------------------------------------------------------------------
+
+export interface DeliverDecisionInput {
+  /** The argument as the operator typed it. */
+  readonly argument: string | undefined;
+  /** The project tree every question is asked about. */
+  readonly projectRoot: string;
+}
+
+/**
+ * Ask all six owners their own question and render the answers as one record.
+ *
+ * `orchestration_config` is consulted DIRECTLY for the configured policy rather
+ * than only through `merge_policy_ratchet` — the ratchet reaches the config
+ * module internally, so a record that read the policy only through it could not
+ * show the two apart. Printing `configured -> effective` states both, which is
+ * the pair an operator actually needs when an override is in play.
+ */
+export async function decideDelivery(
+  input: DeliverDecisionInput,
+): Promise<string> {
+  const { argument, projectRoot } = input;
+  if (typeof argument !== "string" || argument.trim().length === 0) {
+    throw refuse({
+      verdict:
+        "no argument was given, so there is no delivery for this command to " +
+        "decide anything about.",
+      remedy:
+        "re-run with the milestone or FR identity you want the decision " +
+        "record for, e.g. `bun run deliver_decision.ts M133 [projectRoot]`.",
+      context: `mode=deliver, phase=decision-record, argument=absent, projectRoot=${projectRoot}`,
+    });
+  }
+
+  const routing = resolveDeliverArgument({
+    raw: argument,
+    probe: defaultIdentityProbe(projectRoot),
+    // Explicit, and the reason is in the module header: this command spawns
+    // nothing and claims nothing, so the interactive gate protects nothing
+    // here while making the command unrunnable by every caller it has.
+    stdinIsTty: true,
+  });
+
+  if (routing.planPath === null || routing.milestone === null) {
+    throw refuse({
+      verdict:
+        `\`${argument.trim()}\` resolves to no milestone plan, so there is no ` +
+        "chain, no route and no gate for a decision record to report on.",
+      remedy:
+        "hand this command an identity that already has specs on disk; new " +
+        "work has no decision record until its plan exists.",
+      context: `mode=deliver, phase=decision-record, kind=${routing.kind}, plan=not-found`,
+    });
+  }
+
+  const planBody = readFileSync(routing.planPath, "utf-8");
+  const routed = routeMilestone({ planBody, invokingRepo: projectRoot });
+
+  let state: string;
+  let chain: readonly ResumeChainStep[];
+  if (routing.fr === null) {
+    const classification = await classifyResume(projectRoot, {
+      scope: "milestone",
+      milestone: routing.milestone,
+    });
+    state = classification.state;
+    chain = resumeChain(classification, routed.route);
+  } else {
+    const classification = await classifyResume(projectRoot, {
+      scope: "fr",
+      fr: routing.fr,
+      milestone: routing.milestone,
+    });
+    state = classification.state;
+    chain = resumeChain(classification, routed.route);
+  }
+
+  const configured = readOrchestrationConfig(projectRoot).mergePolicy;
+  const effective = runMergePolicy(projectRoot).effective;
+
+  return renderDecisionRecord({
+    argument_kind: routing.kind,
+    target_repo_route: routed.route,
+    resume_state: state,
+    chain: stepLines(chain).join("\n"),
+    merge_policy: `${configured} -> ${effective}`,
+    gate_class: classifyGate(CONFIRM_GATE),
+    gate_relays: relayRequired(CONFIRM_GATE, null) ? "yes" : "no",
+  });
+}
+
+// Read-only CLI mirroring `active_plan_ship_ready.ts`: the delivery decision is
+// asked through this one entrypoint instead of being re-derived in skill prose.
+// Imported by tests and by any consumer that wants `renderDecisionRecord`,
+// `import.meta.main` is false and this block never runs — keeping the module
+// free of side effects at import. Usage:
+//
+//   bun run deliver_decision.ts <argument> [projectRoot]
+//
+// `projectRoot` defaults to `process.cwd()`, the same `?? process.cwd()` shape
+// the shipped idiom uses for its own positional. A refusal prints the canonical
+// envelope on stderr, exits non-zero, and prints no partial record.
+if (import.meta.main) {
+  const argument = process.argv[2];
+  const projectRoot = process.argv[3] ?? process.cwd();
+  try {
+    console.log(await decideDelivery({ argument, projectRoot }));
+  } catch (error) {
+    // stderr, never stdout: the record channel stays empty on a refusal, so a
+    // caller reading stdout gets a whole record or nothing — never a partial.
+    console.error(envelopeFor(error, { argument, projectRoot }));
+    process.exitCode = 1;
+  }
+}

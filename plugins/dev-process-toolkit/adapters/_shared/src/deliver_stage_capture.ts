@@ -60,6 +60,14 @@ import {
 } from "./deliver_stage_evidence";
 import { findFences } from "./markdown_fences";
 import { MILESTONE_TOKEN_SOURCE } from "./milestone_token";
+import {
+  chainRequiresSpawnReceipt,
+  findSpawnReceiptLine,
+  parseSpawnReceipt,
+  SPAWN_RECEIPT_FIELDS,
+  SPAWN_RECEIPT_PREFIX,
+  type ChainStep,
+} from "./spawn_receipt";
 
 /**
  * A concrete milestone identity, anchored on the SHARED union grammar rather
@@ -200,6 +208,24 @@ const GRADE_SHAPE_ONLY: DeliverStageGrade = "shape-only";
 
 /** Grading cross-checked every stated count against the capture behind it. */
 const GRADE_EVIDENCE_BACKED: DeliverStageGrade = "evidence-backed";
+
+/**
+ * What the ORCHESTRATOR knows about the spawn behind this stage, supplied so
+ * the verifier can grade `summary`'s receipt against it (STE-516).
+ *
+ * `chain` carries the placements the chain itself rendered, so "does this
+ * stage owe a receipt?" is answered from the chain rather than re-decided in
+ * prose at each call site. `handle` is the handle the SPAWNING TOOL returned
+ * and the ownership check resolved — never one this verifier or the reporting
+ * stage composed. That is the whole discriminator: a receipt whose handle is
+ * well-formed but was composed by the reporter parses perfectly and is
+ * refused anyway, because it is not the handle the check resolved.
+ */
+export interface StageSpawnExpectation {
+  readonly chain: readonly ChainStep[];
+  /** The handle the ownership check resolved, when one was spawned. */
+  readonly handle?: string;
+}
 
 export interface DeliverStageCaptureVerdict {
   /** True only when every clause below holds. */
@@ -575,6 +601,126 @@ function crossCheckEvidence(
 }
 
 /**
+ * Grade the `summary` section for the receipt — the FIRST content this
+ * verifier has ever demanded of `summary`, and demanded only of a chain that
+ * actually carried a step that ran outside this session (the caller gates on
+ * `chainRequiresSpawnReceipt`, so the inline path is untouched).
+ *
+ * Four distinct failures, never merged into one:
+ *
+ *   * ABSENT — the chain spawned, and `summary` carries no receipt at all.
+ *     This is the shape STE-516 exists to close: on the run that prompted the
+ *     FR every step ran in the orchestrating session and the fence still
+ *     graded clean, because `summary` was ungraded. The reason names the
+ *     section and the literal prefix the missing line must start with, so the
+ *     operator is told what to add rather than only that something is wrong.
+ *     A `- (none found)` fallback is not a receipt: it does not parse, and it
+ *     does not carry the prefix either, so it lands here exactly like an empty
+ *     summary.
+ *
+ *   * MALFORMED — a line CLAIMS the receipt prefix and does not parse: the
+ *     fields transposed, a field missing, a value empty. Split out from ABSENT
+ *     deliberately. A transposed line does not parse, so a grader that only
+ *     asked `parseSpawnReceipt` would answer it with the absent sentence and
+ *     send an operator who mis-ordered two fields off to add a line that is
+ *     already there. The two situations have different remedies, so they get
+ *     different refusals — and a reader can see from the texts alone that both
+ *     guards exist rather than one guard firing twice.
+ *
+ *   * UNOWNED — a receipt parses and carries a non-zero `owned`, i.e. the
+ *     stage transcribed an ownership check that FAILED and reported it as
+ *     evidence anyway. Graded here rather than trusted: `owned` was parsed and
+ *     never read, so a hand-composed fence stating a failed check graded clean
+ *     — the same fail-open shape the absent branch closes, one field over. The
+ *     OBSERVED code is quoted (the AC.5 idiom): "owned must be 0" tells an
+ *     operator nothing about WHICH ownership outcome was reported, and exit 2
+ *     (no ledger row) and exit 3 (a live session holds the name) have nothing
+ *     in common as remedies. Checked before the handle comparison and returning
+ *     immediately, because a check that did not resolve resolved no handle to
+ *     compare against.
+ *
+ *   * MISMATCHED — a receipt is present but names a handle the ownership
+ *     check did not resolve. The comparison — not the line's SHAPE — is the
+ *     discriminator. A handle the reporting stage composed is well-formed by
+ *     construction, so a shape-only guard would wave it through; what refuses
+ *     it is that it disagrees with what the check resolved. Both handles are
+ *     named so the operator sees WHICH two disagreed.
+ *
+ * The absent check does NOT depend on `spawn.handle`: a chain that spawned
+ * owes a receipt whether or not the caller can say which handle to expect.
+ * Gating absence on a known handle would reopen the fail-open hole for every
+ * caller that omits it.
+ */
+function checkSpawnReceipt(
+  reasons: string[],
+  fenceLines: readonly string[],
+  spawn: StageSpawnExpectation,
+): void {
+  const receipt = parseSpawnReceipt(fenceLines);
+  if (receipt === null) {
+    const claimed = findSpawnReceiptLine(fenceLines);
+    if (claimed !== null) {
+      reasons.push(
+        `the summary section carries a ${JSON.stringify(SPAWN_RECEIPT_PREFIX)} ` +
+          `item that is not a receipt: ${JSON.stringify(claimed.trim())} — the ` +
+          `fields are fixed in the order ` +
+          `${SPAWN_RECEIPT_FIELDS.join(", ")}, each with a non-empty value, so ` +
+          "a transposed, incomplete or empty-valued line is receipt-shaped " +
+          "prose rather than a receipt",
+      );
+      return;
+    }
+    reasons.push(
+      `the chain carried a step that did not run inline, but the summary ` +
+        `section carries no spawn receipt — a stage that spawned a worker reports one ` +
+        `${JSON.stringify(SPAWN_RECEIPT_PREFIX)} item under \`summary:\`, and a ` +
+        "stage cannot report a spawn it did not perform",
+    );
+    return;
+  }
+  if (receipt.owned !== 0) {
+    reasons.push(
+      `the spawn receipt reports ownership exit code ${receipt.owned} — only ` +
+        "`owned=0` is an ownership check that resolved, so a receipt carrying " +
+        `\`owned=${receipt.owned}\` reports a spawn whose ownership was never ` +
+        "established, and a stage cannot report a spawn it did not perform",
+    );
+    return;
+  }
+  const expected = spawn.handle;
+  if (expected === undefined) {
+    // AUDIT-4 ITEM 1. This branch used to `return` — a clean grade — which made
+    // the comparison CALLER-OPTIONAL: a worker chain whose fence carried a
+    // wholly fabricated handle graded clean whenever the caller supplied the
+    // chain but not the handle. `handle` stays optional on the shape so that
+    // ABSENCE of the receipt never depends on the caller, but a chain that OWES
+    // a receipt and has nothing to corroborate it against is refused, because a
+    // receipt nothing corroborates is exactly the narrated evidence this
+    // contract exists to eliminate.
+    //
+    // ORDER IS LOAD-BEARING: this sits AFTER the absent/malformed branches and
+    // AFTER the `owned !== 0` branch, so the observed exit code — the more
+    // actionable fact — stays the reason whenever there is one.
+    reasons.push(
+      "the chain carried a step that did not run inline and the summary " +
+        "section carries a spawn receipt, but the grader was given no resolved " +
+        "handle to corroborate it against — pass the handle the ownership " +
+        "check resolved as the `handle` of the spawn expectation, so the " +
+        "receipt is checked against what was resolved rather than taken on the " +
+        "reporting stage's word",
+    );
+    return;
+  }
+  if (receipt.handle !== expected) {
+    reasons.push(
+      `the spawn receipt names handle ${JSON.stringify(receipt.handle)}, but ` +
+        `the ownership check resolved ${JSON.stringify(expected)} — a stage ` +
+        "reports the handle the check resolved, never one it composed",
+    );
+  }
+}
+
+/**
  * Verify one captured stage report against the `deliver-stage-result` contract.
  *
  * Returns `{ ok: true, reasons: [] }` only for a capture that a ceremony stage
@@ -586,6 +732,7 @@ function crossCheckEvidence(
 export function verifyDeliverStageCapture(
   capturePath: string,
   evidence?: StageEvidenceInput | null,
+  spawn?: StageSpawnExpectation | null,
 ): DeliverStageCaptureVerdict {
   let raw: string;
   try {
@@ -710,6 +857,17 @@ export function verifyDeliverStageCapture(
   const crossChecked = evidence !== undefined && evidence !== null;
   if (crossChecked) {
     crossCheckEvidence(reasons, fenceLines, evidence);
+  }
+
+  // Third argument absent ⇒ the spawn is not graded at all, and a chain that
+  // spawned nothing owes no receipt: the inline path is graded exactly as it
+  // was before this argument existed.
+  if (
+    spawn !== undefined &&
+    spawn !== null &&
+    chainRequiresSpawnReceipt(spawn.chain)
+  ) {
+    checkSpawnReceipt(reasons, fenceLines, spawn);
   }
 
   return {

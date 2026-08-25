@@ -13,4 +13,7 @@ Full gate re-run from `plugins/dev-process-toolkit`: green, no skips.
 Stage result (deliver-stage-result, prose form): implement, M129, ok. Summary —
 STE-492 kickoff task text now carries the deliver-stage-result contract, and
 fixture group 14 is registered on the canonical roster. Gate — 8067 pass, 16 skip,
-0 fail, 0 skip. Follow-ups — none found.
+0 fail, 0 skip. Follow-ups — none found. Spawn receipt, prose form, verbatim
+bytes and all:
+
+  - spawn: handle=m133-implement@01K5X7QW2M8ZC4 ledger=/Users/ns/.agent-toolkit/spawn/ledger.json owned=0

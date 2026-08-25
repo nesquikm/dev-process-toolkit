@@ -43,6 +43,45 @@ means: run `/deliver` interactively, let a spawned worker complete a ceremony
 stage, and replace `worker-stage-report.txt` with the worker's verbatim emission
 (re-deriving both mutations from it). Delete this section when that lands.
 
+**M133/STE-516 narrows that target; it does not hit it.** The deferred half is
+still open — no `/deliver`-spawned worker has emitted any of these files. What
+changed is what the eventual genuine capture has to carry: a stage whose chain
+held a `(worker)`-placement step now owes a spawn receipt, so the verbatim
+emission that replaces `worker-stage-report.txt` must carry one too, or it is
+not a valid capture of a spawned stage.
+
+## The spawn receipt (M133 / STE-516)
+
+All three files carry the receipt line
+
+```
+  - spawn: handle=m133-implement@01K5X7QW2M8ZC4 ledger=/Users/ns/.agent-toolkit/spawn/ledger.json owned=0
+```
+
+verbatim — the same bytes the M133 suite renders, so the fixtures and the
+generated captures agree on one shape rather than two. It is an **indented
+`summary:` item, never a ninth section**: `topLevelKeys` is anchored at column 0,
+so section detection cannot see it and the fixed eight-section order the
+reordered mutation exists to test is not reopened. `handle`/`ledger` name a
+`m133-implement` worker rather than an `m129-` one because the receipt is
+STE-516's artifact, not STE-492's; the handle is an opaque token
+(`adapters/_shared/src/spawn_receipt.ts` imposes no shape on it) and the value
+is shared with the suite deliberately, so that grading a mutation against the
+resolved handle produces no handle-mismatch reason of its own.
+
+That last point is the discriminating-power invariant, and it is checked, not
+assumed: adding the receipt left every fixture's reason set **byte-identical**.
+The genuine file still verifies with `reasons: []`; mutation 1 still fails with
+exactly one reason, the missing fence; mutation 2 still fails with exactly one
+reason, the broken order. A mutation that had started failing for a new reason
+would have lost the thing it was built to test.
+
+In mutation 1 the receipt lives in **prose**, for the same reason the
+`deliver-stage-result` token does: a receipt predicate that grepped lines
+instead of walking the fence would be passed by that file, so it cannot be
+written that way. `verifyDeliverStageCapture` returns on the missing fence
+before any receipt is looked for, which is why the reason set is unchanged.
+
 ## Keeping the model honest
 
 The `gate:` line carries this tree's real numbers at authoring time

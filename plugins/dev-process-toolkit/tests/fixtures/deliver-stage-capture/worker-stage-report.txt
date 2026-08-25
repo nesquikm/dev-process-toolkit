@@ -17,6 +17,7 @@ status: ok
 summary:
   - STE-492 kickoff task text now carries the deliver-stage-result contract
   - fixture group 14 registered on the canonical roster
+  - spawn: handle=m133-implement@01K5X7QW2M8ZC4 ledger=/Users/ns/.agent-toolkit/spawn/ledger.json owned=0
 gate:
   - pass 8067, fail 0, skip 16, baseline 16, delta 0
 drive:

@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.72.0] — 2026-08-25 — "Imperative"
+
+Executable delivery decisions. Every module `/deliver` ordered "never by eye" was unreachable at runtime — none carried a command-line entry point — so the order was prose, and a reader who could not execute it rendered the classification in its own words instead. That is what happened on M130.
+
+### Added
+
+- One runnable front door for the delivery decision: a single command prints the whole pre-spawn record — argument kind, route, resume state, the chain with each step's placement, effective merge policy, gate class and whether that gate relays — assembled from the modules that already own each answer and mutation-verified per delegate, so a second answer cannot hide inside it. (STE-513)
+- A gate check that generates the inventory of unrunnable orders rather than carrying a written one: every module reference on the shipped surfaces is classified ordered, descriptive or harness, reachability is decided mechanically, and the count of orders that are both given and unrunnable is pinned so the next one reddens the run that introduces it. (STE-517)
+
+### Changed
+
+- The confirm gate shows the command's bytes rather than a retelling, falsified against the one-line prose a worker actually produced and self-approved; the six unexecutable orders are retired, the undefined phrase that run leaned on is deleted rather than defined, placement stops being editable, `/deliver` is stated to be the top of a pipeline and never a step inside one, and the spawn pre-flight probe gains the resume trigger it never had. (STE-514)
+- The resume confirm gate is a registered entry rather than one reaching its class through the fallback meant for gates nobody has thought about. (STE-515)
+- A stage cannot report a spawn it did not perform: the hand-off carries a receipt whose handle the stage did not compose, resolved through the spawning tool's own ownership check, fail-closed on every non-zero outcome with a named halt each. (STE-516)
+
+Total test count at release: 9704 tests, 0 failures, 0 errors.
+
 ## [2.71.0] — 2026-08-24 — "Receipt"
 
 Evidence ledger. A stage could report success in prose and be believed: the hand-off block described a gate section carrying pass and skip counts, and nothing anywhere checked that it did. Every count a stage reports is now read from the captured output of the commands that actually ran.
