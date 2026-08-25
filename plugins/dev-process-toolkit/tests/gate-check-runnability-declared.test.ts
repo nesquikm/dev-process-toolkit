@@ -28,7 +28,7 @@
 // through `readVerificationConfig` and never re-parsed privately; the module
 // routes managed-ness through `./toolkit_managed` and is vacuous on a tree the
 // toolkit does not own; and the gate-check SKILL.md registration is itself
-// falsifiable (contiguous 1..80).
+// falsifiable (contiguous 1..81).
 
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -480,14 +480,14 @@ describe("gate-check SKILL.md registers probe #80 runnability_declared", () => {
 
   // The registration sweep is itself falsifiable: a probe added to the prose
   // without renumbering, or renumbered without being added, fails here.
-  test("the numbered probe list is contiguous 1..80", () => {
-    // Recalibrated 79 → 80: M131 adds #80 runnability_declared.
+  test("the numbered probe list is contiguous 1..81", () => {
+    // Recalibrated 80 → 81: M133 adds #81 module_reachability.
     const numbers = [...gateCheckSkill().matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
-    expect(numbers.length).toBe(80);
+    expect(numbers.length).toBe(81);
     expect([...numbers].sort((a, b) => a - b)).toEqual(
-      Array.from({ length: 80 }, (_, i) => i + 1),
+      Array.from({ length: 81 }, (_, i) => i + 1),
     );
-    expect(Math.max(...numbers)).toBe(80);
+    expect(Math.max(...numbers)).toBe(81);
   });
 });
 
