@@ -44,12 +44,46 @@ export const WORKER_NAME_MAX_LENGTH = 32;
 export const WORKER_NAME_GRAMMAR = /^[a-z][a-z0-9_-]{0,31}$/;
 
 /**
+ * WHICH RULE a refusal broke, as a machine-readable token.
+ *
+ * The envelope's prose is for the operator; this is for the caller that has to
+ * say something different per cause. Two of the four refusals — a basename
+ * whose first character is outside the grammar, and one that sanitizes away
+ * entirely — share a single composed-name sentence, so the message alone cannot
+ * tell them apart. A caller reading the message to guess would be re-deriving
+ * the branch this module already took.
+ */
+export type WorkerNameRule =
+  /** The routing named neither an FR nor a milestone. */
+  | "no_identity"
+  /** The identity leaves no room for a repository segment under the cap. */
+  | "over_cap"
+  /** The composed name does not begin with a lowercase letter. */
+  | "leading_character"
+  /** Sanitizing left no repository segment at all. */
+  | "nothing_left";
+
+/**
  * The NFR-10 refusal this module raises. Named so a caller can tell a worker-name
  * refusal apart from a routing or decision refusal that crossed the same
  * boundary — all three render the same three-line envelope.
+ *
+ * `rule` is the discriminator above. It is OPTIONAL and defaults to `null`, so
+ * a caller constructing one by hand — a test injecting a refusal, a future
+ * module raising this type from somewhere else — still gets a well-formed
+ * error; a reader of `rule` must therefore handle `null` rather than assume one
+ * of the four.
  */
 export class WorkerNameRefusedError extends Error {
   override readonly name = "WorkerNameRefusedError";
+
+  /** Which rule the refused name broke, or `null` when the raiser said nothing. */
+  readonly rule: WorkerNameRule | null;
+
+  constructor(message: string, rule: WorkerNameRule | null = null) {
+    super(message);
+    this.rule = rule;
+  }
 }
 
 /** The three line prefixes a canonical NFR-10 envelope always carries. */
@@ -60,6 +94,8 @@ function refuse(parts: {
   verdict: string;
   remedy: string;
   context: string;
+  /** Which rule was broken — carried on the error, not only in the prose. */
+  rule: WorkerNameRule;
 }): WorkerNameRefusedError {
   return new WorkerNameRefusedError(
     [
@@ -67,6 +103,7 @@ function refuse(parts: {
       `${ENVELOPE_PREFIXES[1]}${parts.remedy}`,
       `${ENVELOPE_PREFIXES[2]}${parts.context}`,
     ].join("\n"),
+    parts.rule,
   );
 }
 
@@ -89,6 +126,7 @@ export function workerIdentitySegment(routing: DeliverRouting): string {
       remedy:
         "Deliver an FR or a milestone — resolve the feature request into a spec first, then spawn the worker against the FR or milestone it produced.",
       context: `The routing is kind "${routing.kind}" (scope "${routing.scope}") with fr=null and milestone=null; a worker's remote-control name is <repository>-<identity> and there is no identity to render.`,
+      rule: "no_identity",
     });
   }
   return identity;
@@ -154,6 +192,7 @@ export function workerRemoteControlName(
       verdict: `to name a worker: the identity segment "${identity}" leaves no room for a repository segment.`,
       remedy: `Shorten the identity to at most ${WORKER_NAME_MAX_LENGTH - 2} characters — a name is <repository>-<identity> and the repository segment may not be dropped or the identity truncated.`,
       context: `Repository segment "${repo}" is ${repo.length} characters and identity segment "${identity}" is ${identity.length}; the shortest possible name is 1 + 1 + ${identity.length} = ${identity.length + 2} characters against a cap of ${WORKER_NAME_MAX_LENGTH}.`,
+      rule: "over_cap",
     });
   }
 
@@ -175,6 +214,14 @@ export function workerRemoteControlName(
       remedy:
         "Give the repository a name that starts with a lowercase letter, or spawn the worker from a repository root whose basename does — the name is derived, never patched.",
       context: `Repository segment "${head}" joined to identity segment "${identity}" yields "${name}", which does not match ${WORKER_NAME_GRAMMAR.source}; a name must begin with a lowercase letter and sanitizing cannot add one.`,
+      // The two ways this clause is reached wear ONE sentence, so the
+      // discriminator is taken from the segment rather than from the prose: an
+      // empty repository segment is a basename that sanitized away to nothing,
+      // and a non-empty one that still fails the grammar failed on its first
+      // character — nothing else in the composed name can break it, since the
+      // budget above already settled the length and sanitizing already settled
+      // the character set.
+      rule: head.length === 0 ? "nothing_left" : "leading_character",
     });
   }
 
