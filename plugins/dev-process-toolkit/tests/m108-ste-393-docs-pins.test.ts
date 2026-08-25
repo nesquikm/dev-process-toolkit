@@ -250,13 +250,13 @@ describe("AC-STE-393.6 — README probe-count pins move 68 → 69", () => {
     expect(body).not.toMatch(/layers 67 probes/);
   });
 
-  test("the Features bullet counts 80 numbered probes", () => {
-    // Recalibrated 76 → 77: M126 added #77 first_turn_refusal_marker.
-    expect(readme()).toMatch(/\b80\b\s+numbered `\/gate-check` probes/);
+  test("the Features bullet counts 81 numbered probes", () => {
+    // Recalibrated 80 → 81: M133 added #81 module_reachability.
+    expect(readme()).toMatch(/\b81\b\s+numbered `\/gate-check` probes/);
   });
 
-  test("the /implement-invokes-/tdd aside counts 80 probes", () => {
-    expect(readme()).toMatch(/layers 80 probes/);
+  test("the /implement-invokes-/tdd aside counts 81 probes", () => {
+    expect(readme()).toMatch(/layers 81 probes/);
   });
 });
 

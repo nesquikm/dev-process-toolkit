@@ -14,9 +14,28 @@ This reference is **not required reading** on every run — the skill itself has
 | Phase 3 | `/implement M<N>` → `/ship-milestone M<N>` → `/pr`, per milestone | One fresh spawned visible worker per milestone, strictly serial | Every approval gate relayed via AskUserQuestion |
 | Post-PR | Merge-policy routing per milestone | Invoking session | Depends on `merge_policy` |
 
+## The pre-spawn decision record — one command, not a narration
+
+Everything `/deliver` decides before it spawns anything — what the operator typed, which repo the milestone routes to, the resume state on disk, the chain that state implies with each step carrying its own placement, the merge policy in force, and whether the pre-spawn confirm gate relays — is produced by one command rather than re-derived in prose:
+
+```bash
+bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/deliver_decision.ts <argument> [projectRoot]
+```
+
+The skill file is the operative surface for this rule; this section is the debugging view of the same rule, and the two are written from the same command. It prints seven labelled fields on stdout and decides nothing itself — each answer comes from the module that owns that question, so the record and the run cannot disagree. `[projectRoot]` defaults to the invoking repo. A refusal goes to stderr in the NFR-10 canonical shape with an empty stdout, so a caller reading stdout gets a whole record or nothing, never a partial one.
+
+Rendering that record is also when the `agent-toolkit:spawn-agent` pre-flight probe fires on a **resume**, since a resumed run never reaches the before-Phase-1 trigger — see the Pre-flight section below. So a resume that produced no probe result before its gate ran the gate unguarded, whatever the record said.
+
+The confirm gate shows those bytes verbatim, wrapped in whatever prompt text it likes. When a run's gate is under suspicion, re-run the command against the same tree and compare: a gate that showed a retelling instead of the bytes is the failure mode this command exists to end, and the shown-versus-captured comparison is what grades it.
+
+**Grade the rendering against the capture before showing it.** `verifyResumeGateRender(rendered, capturedStdout)` in `adapters/_shared/src/resume_gate_render.ts` returns `{ ok: false, reasons }` when the gate text is a retelling rather than the record's own bytes, when what was handed in as the capture is not a whole seven-field record, and when no record was put in front of the operator at all.
+Run it as `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/resume_gate_render.ts <argument> [projectRoot] <renderedPath>` — it re-runs the decision command itself and grades the rendering against the bytes that run just printed, so a capture nobody executed cannot be handed in; it prints its verdict on stdout and exits 0, or refuses on stderr with the NFR-10 envelope. Show the gate only on a clean verdict.
+
+**An edit at the gate may reorder or drop steps, and may never change a step's placement.** The operator decides *what* runs; *where* each step runs is derived from the milestone's route and is not negotiable at the gate — hand-re-placing a step is exactly how a chain whose steps said `(worker)` once got run inline.
+
 ## The argument — three kinds, one of which is not new work
 
-`/deliver` accepts three kinds of argument, decided by `classifyDeliverArgument(...)` in `adapters/_shared/src/deliver_argument.ts` and never by prose judgement at the call site:
+`/deliver` accepts three kinds of argument, decided by `classifyDeliverArgument(...)` in `adapters/_shared/src/deliver_argument.ts`, which the decision command reports as `argument_kind`:
 
 - **A milestone identity** — a token under the shared union grammar (`adapters/_shared/src/milestone_token.ts`), which covers all three mint paths: the Linear sequential form, the Jira Epic-keyed form, and the tracker-less short-tail form. Recognition rides that module, never a private numeric copy — a private copy recognizes the sequential form and silently misroutes the other two.
 - **An FR identity** — a tracker ref or a minted id, naming one FR. Its milestone is resolved from the `milestone:` key in its own frontmatter, read with the shared frontmatter reader, and carried through the run so every milestone-scoped step has it. What gets delivered is still the FR itself, on the FR-scoped chain below — the milestone is carried, not substituted for it.
@@ -30,7 +49,7 @@ Identity recognition earns no relaxation of the non-interactive gate: the FIRST 
 
 ## An FR identity — the FR is the unit of work
 
-The rule an FR resume runs on lives in the skill file, which is the operative surface. This section is the debugging view of the same rule: which chain a given FR should have produced, and how to read a run that produced the other one. Both surfaces are written against the shipped classifier, so if they ever disagree, `classifyResume(...)` / `resumeChain(...)` in `adapters/_shared/src/resume_classifier.ts` settles it — never prose judgement at the call site.
+The rule an FR resume runs on lives in the skill file, which is the operative surface. This section is the debugging view of the same rule: which chain a given FR should have produced, and how to read a run that produced the other one. Both surfaces are written against the shipped classifier, so if they ever disagree, `classifyResume(...)` / `resumeChain(...)` in `adapters/_shared/src/resume_classifier.ts` settles it, through the decision command that reports its answer.
 
 An FR identity delivers **that one FR**. The milestone off the FR's `milestone:` frontmatter is carried so every milestone-scoped step knows which milestone it is acting on, but it is **not the unit of work** and an FR argument is never widened into a sweep of its siblings. One classifier field decides the whole chain — but only if the classifier was asked the FR question in the first place:
 
@@ -68,10 +87,12 @@ The key is read out of the plan's frontmatter through the shared frontmatter rea
 Phase 3 rides entirely on the `agent-toolkit:spawn-agent` skill; without it there is no visible-worker topology and the pipeline cannot honor its supervision contract. The probe:
 
 1. Check the plugin registry (the installed-plugins listing) for `agent-toolkit:spawn-agent`. Never probe by filesystem path — plugin install locations are the harness's business, and a path guess that happens to hit stale files would green-light a spawn that fails at runtime.
-2. Present ⇒ proceed to Phase 1.
+2. Present ⇒ proceed — to Phase 1 on a fresh run, to the resume gate on a resumed one, whichever of the two triggers this run is under.
 3. Absent ⇒ HALT with the NFR-10 canonical shape (Refusing / Remedy / Context), carrying the verbatim install instructions from the skill. Do not fall back to the built-in Agent/Task tool: a subagent is invisible — the operator cannot watch it, click into it, or take it over — and visibility is the entire reason the topology exists.
 
-The probe runs **before Phase 1**, not before Phase 3. Discovering the missing skill after two Socratic phases of operator time is the failure mode this ordering exists to prevent.
+The probe runs **before Phase 1** on a fresh run and **at the resume gate** on a resumed one — never as late as Phase 3. Discovering the missing skill after two Socratic phases of operator time is the failure mode this ordering exists to prevent.
+
+**The probe has two triggers, and they are mutually exclusive.** A run is either fresh or resumed, so exactly one of them applies to any given run and firing that one is mandatory — there is no run for which both apply and none for which neither does. On a fresh run the trigger is *before Phase 1 begins*; on the **resume** path it is the moment the resume classification is rendered for the confirm gate, before any worker is spawned and before any tracker claim. A resume never enters Phase 1, so a before-Phase-1 trigger alone never fires on it: the one path that reaches Phase 3 without passing through Phase 1 would be the one path the probe does not guard. Reading a run that reached Phase 3 with the skill missing: check which of the two should have fired. A resumed run whose transcript shows the classification record but no probe result took the resume path with the probe unarmed (measured on the M130 run, 2026-08-24).
 
 ## Phases 1–2 — inline Socratic phases
 
@@ -89,7 +110,8 @@ All spawn mechanics belong to the `agent-toolkit:spawn-agent` skill: surface/pan
 
 ### Serial one-worker-per-milestone invariant
 
-- **One fresh worker per milestone.** Fresh means a brand-new session: never reuse the previous milestone's worker (its context carries the previous milestone's release state), and never run milestone work in the orchestrating session (it must stay free to relay gates).
+- **One fresh worker per milestone.** Fresh means a brand-new session: never reuse the previous milestone's worker (its context carries the previous milestone's release state), and never run milestone work inline — every milestone's ceremony runs in a spawned worker, unconditionally, whatever kind of session is reading this (the reader must stay free to relay gates).
+- **`/deliver` is the top of a pipeline, never a step inside one.** Never key `/deliver` into a session that is itself a spawned worker — that collapses Phase 3's own spawn into the session doing the keying (the M130 run, 2026-08-24, where it went undetected for twenty minutes). Key `/implement M<N>` into the spawned worker instead.
 - **Strictly serial.** Wait for a worker's full chain to complete before spawning the next. Parallel milestone workers collide on probe-count pins and the release files — both are single-writer surfaces. This is the 2026-08-15 operator decision that fixed the topology; treat it as an invariant, not a tunable.
 - **The whole chain lives in one worker.** `/implement M<N>` → `/ship-milestone M<N>` → `/pr`, in-session, in order. The implement context is exactly what the ship and PR stages need; splitting stages across workers throws that context away and forces each stage to re-derive it.
 
@@ -143,7 +165,7 @@ Note the shape constraint that makes this the only coherent reading: `stage`, `m
 | `stage` | 1 | `implement` \| `ship-milestone` \| `pr` | never empty |
 | `milestone` | 2 | `M<N>` | never empty |
 | `status` | 3 | `ok` \| `failed` | never empty |
-| `summary` | 4 | one line per FR shipped / version bumped / PR opened | `- (none found)` |
+| `summary` | 4 | one line per FR shipped / version bumped / PR opened, plus the spawn receipt when the chain spawned a worker | `- (none found)` |
 | `gate` | 5 | final gate numbers — pass, fail **and** skip counts, all three, derived from its captured output, plus the STE-509 skip `baseline` and the `delta` it implies | `- (none found)` |
 | `drive` | 6 | the run/drive command's counts — pass, fail and skip, derived from its captured output | `- (none found)` |
 | `e2e` | 7 | the end-to-end suite's counts — pass, fail and skip, derived from its captured output | `- (none found)` |
@@ -152,6 +174,8 @@ Note the shape constraint that makes this the only coherent reading: `stage`, `m
 Rules:
 
 - **Fixed section order** — the eight sections above, in that order, never reordered, never omitted. An empty section keeps its heading and carries the literal `- (none found)` fallback line; dropping the heading is a shape violation.
+- **Spawn receipt (STE-516)** — a chain carrying a `(worker)`-placement step owes one receipt item under `summary`, in fixed field order: `- spawn: handle=<handle> ledger=<ledger-path> owned=0`. `handle` is what the spawning tool's ownership check **resolved** — a handle the reporting stage composed is refused even though it is well-formed, because the discriminator is agreement with the check, not shape. `ledger` is the ledger path the tool reported (never one re-derived here), and `owned` is the check's exit code, of which only `0` may be emitted: every other outcome is a named halt with its own remedy. The receipt is an **indented `summary` item, not a ninth section** — section detection is anchored at column 0, so the fixed eight-section order is untouched — and it costs exactly one line against the cap. A chain with no worker step owes nothing and is graded exactly as before.
+- **No terminal host (STE-516)** — the spawning tool installed with no terminal host to spawn into (no cmux surface, no herdr pane) is the named `no-terminal-host` halt, never a quiet inline fallback: pre-flight probes the tool's availability, never the host's, so this is the one configuration only the halt itself can report.
 - **Line cap: 26 lines** inside the fence, raised from the previously shipped budget to fit `drive` and `e2e`. The evidence stays *in* the block rather than moving to a companion artifact: one fence, one read, one truth — a second artifact would have the orchestrator read `status:` from one place and the numbers backing it from another. The cap still binds, because the fence is a hand-off summary, not a transcript — detail lives in the worker's visible session, which the operator can always open.
 - `status: failed` means the stage could not complete. The orchestrator halts the milestone and reports; it never improvises a recovery on the worker's behalf.
 
@@ -173,7 +197,7 @@ Every halt path is deterministic and names its cause. The full set:
 
 The bounded-retry budget for shape violations is **one scoped retry** — re-prompt the same worker with only the fence contract restated ("re-emit your stage result as a single `deliver-stage-result` fence"), never a re-run of the stage's actual work. This mirrors the `/tdd` orchestrator's `tdd-result` budget (STE-225/STE-296): retries repair *reporting*, never *work*, and a second violation is a halt, not a third prompt.
 
-That budget covers **counts that disagree with the captures behind them** too. `verifyDeliverStageCapture(capturePath, evidence)` returns the same `{ ok: false, reasons }` verdict for an invented number as for a missing section or a blown cap, so a disagreement routes into the retry-then-halt path above with no second failure mode, no second budget, and no separate halt row in the table.
+That budget covers **counts that disagree with the captures behind them** too. `verifyDeliverStageCapture(capturePath, evidence, spawn)` returns the same `{ ok: false, reasons }` verdict for an invented number as for a missing section or a blown cap, so a disagreement routes into the retry-then-halt path above with no second failure mode, no second budget, and no separate halt row in the table.
 
 ## Merge-policy routing detail
 
