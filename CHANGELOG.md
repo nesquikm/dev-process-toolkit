@@ -17,7 +17,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The confirm gate names the worker's bridge (STE-519)
 
-Total test count at release: 9871 tests, 0 failures, 0 errors.
+### Fixed
+
+- `remote_control: none` withheld the worker's NAME as well as its bridge, so an operator dropping the bridge lost the collision-preventing name the derivation exists to supply (STE-519, STE-520)
+- The fresh-idea path was ordered to run the name derivation in prose, with no command to run — the derivation now ships a command-line entry point and the clause names it (STE-518, STE-520)
+- The identity segment was never guarded against sanitizing away, so an identity of `###` composed a grammar-legal name carrying no discriminator at all (STE-518)
+
+Total test count at release: 9879 tests, 0 failures, 0 errors.
 
 ## [2.72.0] — 2026-08-25 — "Imperative"
 
