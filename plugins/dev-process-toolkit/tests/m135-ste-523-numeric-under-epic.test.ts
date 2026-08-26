@@ -31,6 +31,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   MilestoneAttachmentError,
+  MilestoneEpicUnmintedError,
   MilestoneTokenUnparseableError,
   milestoneBindingPresent,
   milestoneLabel,
@@ -642,16 +643,19 @@ describe("AC-STE-523.8 — a name carrying no token is not a malformed token", (
       const leadingWord = canonical.split(/\s/, 1)[0]!;
       expect(parseMilestoneToken(leadingWord)).toBeNull();
 
-      const d = makeEpicDouble({ epics: [], nextEpicKey: "GF-911" });
+      // STE-522 re-point: outcome 4 no longer MINTS on a miss (binding never
+      // creates — minting moved to mintMilestoneEpic, which needs no ticket).
+      // So the carve-out is pinned by BINDING against a seeded Epic, which is
+      // strictly stronger than the old create-on-miss assertion: it proves the
+      // name reached the by-NAME surface AND was matched there.
+      const d = makeEpicDouble({ epics: [{ key: "GF-911", name: canonical }] });
       const rec = sleepRecorder();
       const result = await attach(d.provider, PROJECT, canonical, TICKET, { sleep: rec.sleep });
 
-      // Outcome 4 — find-by-NAME, create on the miss, bind by parent. This is
-      // the surface STE-377's Epic-first allocation depends on.
+      // Outcome 4 — find-by-NAME, bind by parent. This is the surface
+      // STE-377's Epic-first allocation depends on.
       expect(d.listEpicsCalls).toBe(1);
-      expect(d.createEpicCalls).toBe(1);
-      expect(d.createdNames).toEqual([canonical]);
-      expect(result.createdName).toBe(canonical);
+      expect(d.createEpicCalls).toBe(0);
       expect(result.epicKey).toBe("GF-911");
       expect(d.setParentCalls).toBe(1);
       expect(d.parentWrites).toEqual(["GF-911"]);
@@ -694,14 +698,40 @@ describe("AC-STE-523.8 — a name carrying no token is not a malformed token", (
     expect(refusing.setParentCalls).toBe(0);
     expect(refusing.addLabelCalls).toBe(0);
 
-    // Side two: claims NO token — binds by name, no throw.
-    const binding = makeEpicDouble({ epics: [], nextEpicKey: "GF-913" });
+    // Side two: claims NO token — reaches the by-NAME surface and binds.
+    const binding = makeEpicDouble({ epics: [{ key: "GF-913", name: titled }] });
     const recB = sleepRecorder();
     const result = await attach(binding.provider, PROJECT, titled, TICKET, { sleep: recB.sleep });
-    expect(result.createdName).toBe(titled);
-    expect(binding.createEpicCalls).toBe(1);
+    expect(result.epicKey).toBe("GF-913");
+    expect(binding.listEpicsCalls).toBe(1);
+    expect(binding.createEpicCalls).toBe(0);
     expect(binding.setParentCalls).toBe(1);
     expect(binding.addLabelCalls).toBe(0);
+
+    // Side three — the sharpest form of the carve-out, and the one STE-522
+    // made available: on an EMPTY project both names refuse, but with
+    // DIFFERENT error classes. Same leading word, same empty project, same
+    // call: only the token-claim distinguishes them. A carve-out that
+    // collapsed would return one class for both.
+    const missA = makeEpicDouble({ epics: [] });
+    const missB = makeEpicDouble({ epics: [] });
+    let errA: unknown = null;
+    let errB: unknown = null;
+    try {
+      await attach(missA.provider, PROJECT, claiming, TICKET, { sleep: recA.sleep });
+    } catch (e) {
+      errA = e;
+    }
+    try {
+      await attach(missB.provider, PROJECT, titled, TICKET, { sleep: recB.sleep });
+    } catch (e) {
+      errB = e;
+    }
+    expect(errA).toBeInstanceOf(MilestoneTokenUnparseableError);
+    expect(errB).toBeInstanceOf(MilestoneEpicUnmintedError);
+    expect(errA).not.toBeInstanceOf(MilestoneEpicUnmintedError);
+    expect(missA.createEpicCalls).toBe(0);
+    expect(missB.createEpicCalls).toBe(0);
   });
 
   test("an EXISTING Epic named by the title is reused — no second Epic minted", async () => {
@@ -785,8 +815,12 @@ describe("AC-STE-523.9 — a token-less name reads as 'binding not present', nev
     // The two ACs meet here. AC.8 sends `Concurrent milestone A` to the
     // by-name surface; the very next thing a sweep does is read the binding
     // back. Today that read is where the sweep dies.
+    // STE-522 re-point: the Epic is SEEDED rather than minted by the attach
+    // (binding never creates any more). The end-to-end shape this test exists
+    // for is unchanged and is the point: the attach lands a parent, and the
+    // very next read must answer rather than throw.
     const canonical = "Concurrent milestone A";
-    const d = makeEpicDouble({ epics: [], nextEpicKey: "GF-915" });
+    const d = makeEpicDouble({ epics: [{ key: "GF-915", name: canonical }] });
     const rec = sleepRecorder();
     await attach(d.provider, PROJECT, canonical, TICKET, { sleep: rec.sleep });
 

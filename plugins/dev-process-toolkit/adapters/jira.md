@@ -385,7 +385,8 @@ Jira opts into project-milestone binding (`project_milestone: true` in the
 frontmatter). Jira has no per-issue "milestone" field on the standard MCP
 surface, but it does have a native container: the **Epic**. The primary
 binding (`milestone_binding: epic` in the frontmatter) realises each
-milestone as an Epic issue named with the canonical plan-heading name; the
+milestone as an Epic issue created under its human title, from whose
+tracker-assigned key the milestone id is derived; the
 FR Task binds by pointing its `parent` field at that Epic's key. When the
 bound project has no Epic type (or cannot set `parent`), the binding
 degrades to the legacy **label** path documented further down — never a
@@ -393,14 +394,42 @@ hard failure.
 
 ### Epic path (primary — `milestone_binding: epic`)
 
-**Find-or-create.** Enumerate the project's Epics via
+**Find.** Enumerate the project's Epics via
 `mcp__atlassian__searchJiraIssuesUsingJql` with
-`jql = "project = <projectKey> AND issuetype = Epic"` and match the
-canonical plan-heading milestone name by byte equality against each Epic's
-summary. On a miss, create the Epic via
-`mcp__atlassian__createJiraIssue(projectKey=<projectKey>,
-issueTypeName="Epic", summary=<canonical name>)` — the auto-create surfaces
-the `milestone_create_required` capability row, same as the other bindings.
+`jql = "project = <projectKey> AND issuetype = Epic"` and match the milestone's
+Epic by KEY when the plan heading carries an `M_<key>` token: sanitize each
+candidate's key forward (`GF-78` → `M_GF_78`) and compare. For an Epic-KEYED
+milestone, summary equality is not the join — the canonical name embeds the
+very key being looked for, while the Epic itself carries the human title typed
+at creation. A name that carries NO token — a pre-key human title, the state
+between minting the Epic and writing the plan file — has no key to compare, so
+that one arm still matches by NAME, byte-exactly. Both arms refuse on a miss:
+binding never creates.
+
+**Mint — create, read the key back, derive the id, then write the plan file.**
+A milestone Epic is minted in the only order whose values exist at the moment
+each is needed. `adapters/_shared/src/mint_milestone_epic.ts` performs steps
+1–3; its caller performs step 4. Step 1 is wrapped in a find-before-create
+retry on the canonical `1s + 2s + 4s` schedule: a create that lands in Jira and
+then times out is FOUND on the retry and reused, never created a second time.
+That protection is why a timeout does not mint a duplicate Epic.
+
+1. Create the Epic with the **human title alone** —
+   `mcp__atlassian__createJiraIssue(projectKey=<projectKey>,
+   issueTypeName="Epic", summary=<human title>)`. The canonical
+   `M_<key> — <Title>` name is not available here: it embeds the key Jira is
+   about to allocate for this very Epic, so ordering it would order a value
+   that does not yet exist.
+2. **read the key back** from the create response, verbatim (`GF-78`).
+3. **derive the id** from that key via `milestoneIdFromEpicKey` (`GF-78` →
+   `M_GF_78`); a key that will not sanitize into a well-formed id refuses
+   rather than yielding a malformed one.
+4. **write the plan file** under that id, with heading `## M_<key> — <Title>`.
+
+The mint surfaces NO capability row: it is a step of its own, not an attach
+outcome, and the attach that follows FINDS the Epic and returns `capability:
+null`. `milestone_create_required` belongs to the object binding's
+`save_milestone` auto-create, which this path never reaches.
 
 **Membership — `parent` set.** Bind the FR Task by writing the Epic's key to
 its `parent` field: `mcp__atlassian__editJiraIssue(issueIdOrKey=ticket_id,

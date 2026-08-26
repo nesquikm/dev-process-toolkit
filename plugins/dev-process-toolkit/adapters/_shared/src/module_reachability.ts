@@ -391,7 +391,7 @@ export function scanSurfaceForModuleReferences(
  * When this number moves, the run reds. Lowering it is the fix; raising it is
  * a decision to ship one more order nobody can carry out.
  */
-export const ORDERED_UNREACHABLE_PIN = 146;
+export const ORDERED_UNREACHABLE_PIN = 142;
 
 // ---------------------------------------------------------------------------
 // The probe
