@@ -955,12 +955,30 @@ describe("STE-362 AC-STE-362.1 — retry wrapper covers the label branch (Jira)"
 //      with `binding: "epic"` (never retried); transient create/parent-set
 //      failures retry the WHOLE round-trip on TRANSIENT_RETRY_SCHEDULE_MS.
 //
-// The epic branch NEVER scatters a `milestone-M<N>` label and never calls
-// the object-path ops (listMilestones / saveMilestone /
-// upsertTicketMetadata).
+// The epic branch never calls the object-path ops (listMilestones /
+// saveMilestone / upsertTicketMetadata). It scatters no
+// `milestone-M<N>` label on the EPIC-KEYED and pre-key-title legs; a
+// grandfathered NUMERIC token under this binding deliberately does take
+// the label surface (STE-523), because that is the surface the reader's
+// own grandfather clause checks for it.
 // ───────────────────────────────────────────────────────────────────────
 
-const EPIC_NAME = "M101 — Jira milestone-as-Epic identity"; // U+2014 em-dash
+// STE-523 re-key: this block covers the find-by-NAME + create-on-miss leg,
+// which after STE-523 is reached by a PRE-KEY HUMAN TITLE — the epic-first
+// allocation shape (STE-377), where the Epic must exist before there is a
+// key to derive a milestone id from. The old fixture named it
+// "M101 — …": a NUMERIC token, which STE-523 routes to the label surface
+// because that is where the reader's grandfather clause looks. Under the
+// old fixture these tests pinned a write the reader could never see.
+const EPIC_NAME = "Jira milestone-as-Epic identity"; // pre-key human title — claims no token
+
+// An EPIC-KEYED milestone name, for the legs that need a real token.
+const EPIC_KEYED_NAME = "M_DPT_500 — Jira milestone-as-Epic identity"; // U+2014 em-dash
+
+// A pre-key human title carrying the em-dash/hyphen-minus confusable pair, so
+// the byte-equality test still pins the pair STE-118's discipline exists for.
+const EM_DASH_TITLE = "Jira milestone — as-Epic identity"; // U+2014 em-dash
+const HYPHEN_TITLE = "Jira milestone - as-Epic identity"; // U+002D hyphen-minus
 
 type EpicAttachResult = { capability: string | null; createdName?: string };
 
@@ -1125,26 +1143,30 @@ describe("STE-375 AC-STE-375.1 — epic binding: find-or-create + parent set", (
     });
     expect(stub.calls.find((c) => c.startsWith("addLabel"))).toBeUndefined();
     expect(stub.labels).toEqual(["spec-driven"]);
-    expect(stub.labels).not.toContain("milestone-M101");
   });
 
   test("byte-equality name match: hyphen-minus name does NOT reuse the em-dash Epic", async () => {
     const stub = baseEpicStub({
-      epics: [{ key: "DPT-500", name: EPIC_NAME }], // em-dash
+      epics: [{ key: "DPT-500", name: EM_DASH_TITLE }], // U+2014 em-dash
       nextEpicKey: "DPT-502",
     });
     const rec = sleepRecorder();
-    // Caller passes hyphen-minus; the em-dash Epic must NOT match (STE-118
-    // byte-equality discipline), so a new Epic is created.
+    // Caller passes the hyphen-minus spelling; the seeded em-dash Epic must NOT
+    // match (STE-118 byte-equality discipline), so a new Epic is created.
+    // STE-523 re-key: the confusable pair now rides a pre-key HUMAN TITLE. The
+    // old fixture was "M101 — …" vs "M101 - …", a numeric token, which STE-523
+    // routes to the label surface — it would no longer reach the name match
+    // this test exists to exercise. The em-dash/hyphen discriminator is kept
+    // deliberately: it is the specific pair the discipline exists for.
     await attachEpic(
       makeEpicProvider(stub),
       "DPT",
-      "M101 - Jira milestone-as-Epic identity",
+      HYPHEN_TITLE,
       "STE-375",
       { sleep: rec.sleep },
     );
     expect(
-      stub.calls.find((c) => c.startsWith("createEpic(DPT,M101 - ")),
+      stub.calls.find((c) => c.startsWith(`createEpic(DPT,${HYPHEN_TITLE}`)),
     ).toBeDefined();
     expect(stub.parent).toBe("DPT-502");
   });
@@ -1196,13 +1218,23 @@ describe("STE-375 AC-STE-375.4 — Epic-absent fallback degrades to the label bi
       epicAvailable: false,
     });
     const rec = sleepRecorder();
-    const result = await attachEpic(makeEpicProvider(stub), "DPT", EPIC_NAME, "STE-375", {
+    // STE-523 re-key: the degrade path derives its label from the name, so this
+    // test needs a TOKEN-bearing one, and it is EPIC-KEYED deliberately.
+    // An earlier version of this comment claimed a numeric fixture "would pass
+    // without ever exercising the probe". That was measured and is FALSE: with
+    // a numeric name and the degrade branch neutered, the capability assertion
+    // below still fails. The real difference is narrower — under an Epic-keyed
+    // name EVERY assertion here is probe-dependent, because an Epic-keyed miss
+    // without the probe refuses outright; under a numeric one only the
+    // capability row depends on the probe, since the label assertions would
+    // hold via STE-523's kind routing regardless.
+    const result = await attachEpic(makeEpicProvider(stub), "DPT", EPIC_KEYED_NAME, "STE-375", {
       sleep: rec.sleep,
     });
     // Informational capability row — surfaced, not raised.
     expect(result.capability).toBe("milestone_epic_unsupported");
     // The FR still attached via the legacy label path (read-merge-write union).
-    expect(stub.labels).toContain("milestone-M101");
+    expect(stub.labels).toContain("milestone-M_DPT_500");
     expect(stub.labels).toContain("spec-driven");
     expect(stub.calls.find((c) => c.startsWith("addLabel"))).toBeDefined();
     // Label-path read-back verify still fires.

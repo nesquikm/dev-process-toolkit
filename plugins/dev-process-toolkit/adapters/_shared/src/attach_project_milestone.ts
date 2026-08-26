@@ -15,7 +15,9 @@
 //
 //   - Match-by-NAME — the `object` (Linear) and `label` (Jira legacy)
 //     bindings, plus a grandfathered numeric `M<N>` milestone under the
-//     `epic` binding. The local plan-file heading is the source of truth (no
+//     `epic` binding, which STE-523 routes onto that same label surface (the
+//     reader has always looked for it there). The local plan-file heading is
+//     the source of truth (no
 //     reverse dependency on tracker-assigned IDs). Trade-off: two milestones
 //     sharing a name attach to the first match — operator error boundary
 //     (deduped at plan-file heading authorship time).
@@ -101,6 +103,41 @@ export class MilestoneEpicNotFoundError extends Error {
 }
 
 /**
+ * STE-523 AC-STE-523.6 — the THIRD case at the `epic` binding's kind-routing
+ * decision. An `epic`-kind token binds by parent Epic and a `numeric`-kind
+ * token takes the label path; a leading token that parses to NEITHER has no
+ * surface it can correctly be written to. Before this refusal such a token
+ * fell through to the epic path, set a parent, and the reader's own `try`
+ * swallowed the derivation failure into a plain `false` — a malformed
+ * milestone id became a wrong write instead of an error.
+ *
+ * Raised OUTSIDE `retryTransient` (a plain `Error` inside the wrapper is
+ * classified possibly-transient and would pay the full 1s+2s+4s schedule
+ * before surfacing). A refusal is a decision, not a transient.
+ *
+ * NFR-10 canonical shape: verdict line + `Remedy:` + `Context:`. The message
+ * names the offending TOKEN — not merely the canonical name it was cut from —
+ * so the operator can see which few characters have to change.
+ */
+export class MilestoneTokenUnparseableError extends Error {
+  readonly token: string;
+  readonly milestoneName: string;
+  readonly project: string;
+
+  constructor(token: string, milestoneName: string, project: string) {
+    super(
+      `MilestoneTokenUnparseableError: refusing to attach — the leading milestone token "${token}" (cut from the canonical name "${milestoneName}") parses as neither a numeric \`M<N>\` milestone nor an Epic-keyed \`M_<epic-key>\` milestone, so the attach cannot decide which surface to bind it on: the parent Epic (Epic-keyed) or the milestone label (numeric).\n` +
+        `Remedy: fix the plan-file heading so it begins with a well-formed token — \`M<N>\` (e.g. \`M15\`) for a numeric milestone, or \`M_<epic-key>\` (e.g. \`M_GF_78\`) for an Epic-keyed one — then re-run the attach. Do not hand-bind the ticket: a parent set for an unparseable token is a write the reader never consults.\n` +
+        `Context: token="${token}", milestoneName="${milestoneName}", project="${project}", binding=epic, helper=attachProjectMilestone`,
+    );
+    this.name = "MilestoneTokenUnparseableError";
+    this.token = token;
+    this.milestoneName = milestoneName;
+    this.project = project;
+  }
+}
+
+/**
  * Read-back projection of a ticket consumed by the verify legs: the Linear
  * milestone object (`object` binding), the Jira milestone labels (`label`
  * binding), and — STE-375 — the ticket's current parent Epic key (`epic`
@@ -126,17 +163,43 @@ export interface MilestoneOps {
    * object — so it skips listMilestones / saveMilestone / upsertTicketMetadata.
    *
    * STE-375 AC-STE-375.1 — `"epic"` binds the milestone as an Epic issue:
-   * find-or-create the Epic matched by the canonical name, then set the FR
-   * Task's `parent` to the Epic's key. Never scatters a `milestone-M<N>`
-   * label and never calls the object-path ops.
+   * the FR Task's `parent` is set to the milestone Epic's key. It never calls
+   * the object-path ops. The branch is NOT single-outcome — it routes on the
+   * canonical name's leading milestone token (see `attachProjectMilestone`),
+   * and a provider implementing it must be ready for all FOUR outcomes:
+   *
+   *   1. Epic-KEYED token (`M_GF_78`, STE-521) — the Epic is matched by KEY
+   *      (each candidate's key sanitized forward through
+   *      `milestoneIdFromEpicKey`) and the parent set to it. A miss REFUSES
+   *      with `MilestoneEpicNotFoundError`; it never mints.
+   *   2. NUMERIC token (`M15`, STE-523) — grandfathered. Those milestones
+   *      predate Epics and are read off the LABEL surface, so the attach
+   *      writes `milestone-M<N>` through `addLabel` and sets NO parent. It is
+   *      the one epic-binding outcome that writes a label, and it is what
+   *      makes this writer agree with `milestoneBindingPresent`.
+   *   3. A name that CLAIMS a token (`<token> — <title>`) whose token parses
+   *      as NEITHER kind — REFUSES with `MilestoneTokenUnparseableError`,
+   *      writing nothing.
+   *   4. A name claiming NO token — a pre-key HUMAN TITLE (STE-377's
+   *      Epic-FIRST allocation: the Epic must exist before there is a key to
+   *      derive an id from). The Epic is matched by NAME and CREATED on a
+   *      miss, then parented. A real supported path, not a fallthrough.
+   *
+   * Ahead of all four sits the optional `epicBindingAvailable` probe:
+   * `false` degrades the whole binding to the `label` path and surfaces
+   * `milestone_epic_unsupported`.
    */
   milestoneBinding?: "object" | "label" | "epic";
   /**
    * STE-375 AC-STE-375.1 — epic-binding ops. Required only when
-   * `milestoneBinding === "epic"`. `listEpics` enumerates the project's
-   * Epics (key + name) for the byte-equality name match; `createEpic`
-   * creates the milestone Epic on a miss; `setParent` points the FR Task's
-   * parent at the Epic's key.
+   * `milestoneBinding === "epic"` AND the token routes to the parent surface
+   * (outcomes 1 and 4 above): a grandfathered numeric milestone needs only
+   * `addLabel`, and both refusals are raised before the ops guard.
+   * `listEpics` enumerates the project's Epics (key + name) for the match —
+   * by sanitized KEY for an Epic-keyed token, by byte-equal NAME for a
+   * pre-key human title; `createEpic` creates the milestone Epic on a miss,
+   * reachable from the by-NAME leg ALONE (an Epic-keyed miss refuses);
+   * `setParent` points the FR Task's parent at the Epic's key.
    */
   listEpics?: (project: string) => Promise<{ key: string; name: string }[]>;
   createEpic?: (project: string, opts: { name: string }) => Promise<{ key: string }>;
@@ -331,11 +394,27 @@ export async function attachProjectMilestone(
     return { capability: "milestone_attach_skipped_adapter_limit" };
   }
 
-  // STE-375 AC-STE-375.1 — `epic` binding (Jira milestone-as-Epic). Find or
-  // create the milestone Epic matched by the canonical plan-heading name
-  // (byte equality, STE-118 discipline), then set the FR Task's `parent` to
-  // the Epic's key. Never scatters a `milestone-M<N>` label and never calls
-  // the object-path ops (listMilestones / saveMilestone / upsertTicketMetadata).
+  // STE-375 AC-STE-375.1 — `epic` binding (Jira milestone-as-Epic). ONE
+  // routing decision with FOUR outcomes, taken on the leading milestone token
+  // of the canonical plan-heading name (STE-523 AC-STE-523.1). Each outcome
+  // arrived with a different FR; read them as one table, because none of them
+  // is a fallthrough:
+  //
+  //   token kind                    → surface                → Epic-miss verdict
+  //   ------------------------------------------------------------------------
+  //   1. Epic-KEYED `M_<key>`       → parent Epic, by KEY     → REFUSE (521)
+  //   2. numeric `M<N>` (grandf.)   → milestone LABEL         → no Epic lookup
+  //   3. claims a token, parses     → none — refuses (523)    → no Epic lookup
+  //      as neither kind
+  //   4. claims no token — pre-key  → parent Epic, by NAME    → CREATE (377)
+  //      HUMAN title
+  //
+  // Among the four, outcome 2 is the only one that writes a label; 1 and 4
+  // are the only ones that set a parent, and 4 is the only one that can reach
+  // `createEpic`. None calls the object-path ops (listMilestones /
+  // saveMilestone / upsertTicketMetadata). Ahead of all four sits the
+  // availability probe immediately below: `false` degrades the whole binding
+  // to the legacy label path before any token is even parsed.
   if (provider.milestoneBinding === "epic") {
     // STE-375 AC-STE-375.4 — Epic-absent fallback. The optional
     // `epicBindingAvailable` probe (injected seam over
@@ -354,6 +433,53 @@ export async function attachProjectMilestone(
         "milestone_epic_unsupported",
       );
     }
+    // STE-523 AC-STE-523.1 — route on the milestone token's KIND, not on the
+    // declared binding alone. The READER (`milestoneBindingPresent`, epic
+    // branch) already carries this clause: a grandfathered numeric `M<N>`
+    // milestone under the epic binding predates Epics and was bound via the
+    // LABEL surface, so the predicate stops looking at the parent and checks
+    // `milestoneLabel(canonical)` membership instead. Without the same clause
+    // here the writer set a parent the reader never consults — nothing threw,
+    // the attach reported success, and the predicate stayed false, so a
+    // backfill sweep reported the same tickets fixed on every pass forever.
+    // `attachViaMilestoneLabel` is REUSED rather than re-implemented: it
+    // writes `milestoneLabel(canonical)` and the reader checks
+    // `milestoneLabel(canonical)`, so one function decides the string on both
+    // sides and they cannot drift. Placed after the availability probe (a
+    // degraded provider keeps its `milestone_epic_unsupported` row) and before
+    // the epic-ops guard — a numeric token needs only `addLabel`. An
+    // unparseable token is NOT captured by this `if`; outcome 3, immediately
+    // below, decides it.
+    const milestoneToken = leadingMilestoneToken(milestoneName);
+    const parsedToken = parseMilestoneToken(milestoneToken);
+    // ── OUTCOME 2: numeric token → the milestone LABEL surface.
+    if (parsedToken?.kind === "numeric") {
+      return attachViaMilestoneLabel(provider, milestoneName, ticketId, sleep, null);
+    }
+    // ── OUTCOME 3: a name that CLAIMS a token parsing as neither kind.
+    // STE-523 AC-STE-523.6 — the third case. With the routing above, a token
+    // is either Epic-keyed (parent surface) or numeric (label surface); one
+    // that parses as neither is a malformed milestone id and must not be
+    // silently routed to either surface. Thrown here — before the epic-ops
+    // guard, before `listEpics`, and outside `retryTransient` — so nothing is
+    // written and the refusal does not pay the transient backoff schedule.
+    //
+    // Scoped to names that CLAIM a token. A canonical milestone name is
+    // `<token> — <title>` (`parsePlanHeading` normalizes every heading to
+    // exactly that em-dash shape), so a name in that shape asserts its first
+    // field is a milestone token and a field that will not parse is a
+    // refusal. A name NOT in that shape carries no token field at all —
+    // STE-377's Epic-FIRST allocation deliberately attaches a pre-key human
+    // title (`Concurrent milestone A`), because the Epic must exist before
+    // there is a key to derive an id from. `leadingMilestoneToken` would hand
+    // back that title's first word; refusing on it would break claim-on-create
+    // and would be naming a "token" the caller never wrote.
+    if (parsedToken === null && milestoneName.startsWith(`${milestoneToken} — `)) {
+      throw new MilestoneTokenUnparseableError(milestoneToken, milestoneName, project);
+    }
+    // ── OUTCOMES 1 and 4: the parent-Epic surface. Only these two reach the
+    // epic ops — outcome 2 needs `addLabel` alone, and outcome 3 wrote
+    // nothing at all.
     const { listEpics, createEpic, setParent } = provider;
     if (!listEpics || !createEpic || !setParent) {
       throw new Error(
@@ -369,10 +495,11 @@ export async function attachProjectMilestone(
     // Keys sanitize FORWARD to tokens (`GF-78` → `M_GF_78`) and a token cannot
     // be de-sanitized back into a key, so each candidate's key is sanitized
     // forward and compared to the token — the reader's own expression with the
-    // parent key swapped for the candidate's. A grandfathered numeric `M<N>`
-    // milestone under the epic binding keeps the legacy name match.
-    const milestoneToken = leadingMilestoneToken(milestoneName);
-    const parsedToken = parseMilestoneToken(milestoneToken);
+    // parent key swapped for the candidate's. The by-NAME arm below belongs
+    // to OUTCOME 4 — a pre-key human title, the only name shape still
+    // reaching it since STE-523 sent grandfathered numeric `M<N>` milestones
+    // to the label surface. (`milestoneToken` / `parsedToken` are recovered
+    // above, at the kind-routing decision — one extraction serves both.)
     // Non-null EXACTLY when the token is Epic-keyed: the key the match looks
     // for, and the key the refusal below names.
     const tokenEpicKey = parsedToken?.kind === "epic" ? parsedToken.key : null;
@@ -406,9 +533,15 @@ export async function attachProjectMilestone(
       }
       // STE-521 AC-STE-521.6 / AC-STE-521.7 — an Epic-KEYED miss NEVER mints.
       // Signalled out of the retry round-trip as a sentinel and thrown below,
-      // so the refusal does not pay the transient backoff schedule. The
-      // grandfathered numeric `M<N>` path keeps the legacy find-or-create.
+      // so the refusal does not pay the transient backoff schedule.
       if (isEpicKeyed) return { epicKey: null, alreadyBound: false };
+      // The create-on-miss leg. Since STE-523 this is OUTCOME 4's alone — a
+      // numeric token reaches the label surface and an unparseable one
+      // refuses, both before the ops guard — which makes it `createEpic`'s
+      // only remaining caller. Kept deliberately: STE-377's Epic-FIRST
+      // allocation attaches a pre-key human title and needs the Epic minted
+      // right here. Do not delete it on reachability grounds; STE-522 owns
+      // that decision and depends on this state.
       const created = await createEpic(project, { name: milestoneName });
       return { epicKey: created.key, createdName: milestoneName, alreadyBound: false };
     }, sleep);
@@ -532,13 +665,35 @@ export function resolveMilestoneBinding(provider: MilestoneOps): "object" | "lab
  * the label surface (those milestones predate Epics and were attached via
  * labels).
  */
+/**
+ * STE-523 AC-STE-523.9 — the read side of the label surface. A canonical name
+ * with no leading M-token has no label form at all, so no label for it can be
+ * present on the issue: the honest answer is `false`, not an exception. The
+ * `milestoneLabel` throw stays load-bearing for the WRITE path (an attach that
+ * cannot name its label must fail loudly rather than write nothing and report
+ * success); only this read predicate absorbs it — the same try/return-false
+ * idiom the epic branch already uses for `milestoneIdFromEpicKey`.
+ *
+ * Scoped deliberately to the label DERIVATION: a token-bearing name still
+ * reads its surface normally.
+ */
+function labelSurfacePresent(labels: string[], canonical: string): boolean {
+  let expected: string;
+  try {
+    expected = milestoneLabel(canonical);
+  } catch {
+    return false;
+  }
+  return labels.includes(expected);
+}
+
 export function milestoneBindingPresent(
   issue: { projectMilestone?: { name: string } | null; labels?: string[]; parent?: string | null },
   canonical: string,
   binding: "object" | "label" | "epic",
 ): boolean {
   if (binding === "label") {
-    return (issue.labels ?? []).includes(milestoneLabel(canonical));
+    return labelSurfacePresent(issue.labels ?? [], canonical);
   }
   if (binding === "epic") {
     const token = leadingMilestoneToken(canonical);
@@ -552,7 +707,7 @@ export function milestoneBindingPresent(
       }
     }
     // Grandfathered numeric milestone under the epic binding: label surface.
-    return (issue.labels ?? []).includes(milestoneLabel(canonical));
+    return labelSurfacePresent(issue.labels ?? [], canonical);
   }
   return (issue.projectMilestone?.name ?? null) === canonical;
 }
