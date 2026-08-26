@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.73.0] — 2026-08-26 — "Callsign"
+
+### Added
+
+- The worker's remote-control name is derived, never typed (STE-518)
+- Every spawned worker carries a name, on both paths (STE-520)
+
+### Changed
+
+- The confirm gate names the worker's bridge (STE-519)
+
+Total test count at release: 9871 tests, 0 failures, 0 errors.
+
 ## [2.72.0] — 2026-08-25 — "Imperative"
 
 Executable delivery decisions. Every module `/deliver` ordered "never by eye" was unreachable at runtime — none carried a command-line entry point — so the order was prose, and a reader who could not execute it rendered the classification in its own words instead. That is what happened on M130.

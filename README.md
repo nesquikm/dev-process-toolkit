@@ -181,7 +181,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.72.0 — "Imperative"** (M133, executable delivery decisions: every module `/deliver` ordered "never by eye" was unreachable at runtime, so the order was prose and a reader who could not execute it narrated instead — the pre-spawn decision record now comes from one runnable command whose bytes the confirm gate shows verbatim rather than retelling, a stage cannot report a spawn it did not perform, the resume confirm gate is registered rather than reaching its class through a fallback, and a new gate check generates the inventory of orders that name a module nothing can run.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.73.0 — "Callsign"** (M134, reachable workers: a spawned ceremony worker had no name at all, so on a machine where session names are global every worker looked alike and one blocked on a question could only be cleared at the keyboard — the pre-spawn confirm gate now names the bridge its worker will be reachable under and lets the operator confirm it, edit it or drop it, both delivery paths hand that name to the spawning skill rather than only the resumed one, and a name that cannot be derived degrades to an unbridged run whose advisory says which rule broke instead of refusing the record before the gate.)
 
 ## Core Philosophy
 
