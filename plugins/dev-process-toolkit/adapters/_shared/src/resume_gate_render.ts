@@ -53,9 +53,9 @@
 // itself, so plain containment grades it clean — measured, on this module, at
 // `verifyResumeGateRender(paraphrase, paraphrase)`. So the capture is checked
 // per field, against `DECISION_FIELDS`, BEFORE any grading happens with it —
-// and a LABEL IS NOT A FIELD: each of the seven has to carry a non-empty value,
+// and a LABEL IS NOT A FIELD: each of the eight has to carry a non-empty value,
 // on its own line after the colon or, for the one multi-line field, on a
-// continuation line before the next label. Seven bare labels were measured
+// continuation line before the next label. Bare labels alone were measured
 // grading clean through the shipped tool.
 //
 // AND THE CAPTURE IS AN EXECUTION, NOT AN ARGUMENT. The predicate below is a
@@ -123,18 +123,18 @@ function normalizeEol(text: string): string {
     .replaceAll("\r", "\n");
 }
 
-/** Does `line` open one of the seven fields? */
+/** Does `line` open one of the eight fields? */
 function isFieldLabel(line: string): boolean {
   return DECISION_FIELDS.some((field) => line.startsWith(`${field}:`));
 }
 
 /**
- * Which of the seven labelled fields the capture does not carry WITH A VALUE.
+ * Which of the eight labelled fields the capture does not carry WITH A VALUE.
  * Per field, never collective: a check that looked only for `resume_state:`
  * would pass a one-line truncation the moment a second line was added under it.
  *
  * A LABEL IS NOT A FIELD. `field:` with nothing after it is a shape, not a
- * record — seven bare labels handed in as a capture were measured grading a
+ * record — bare labels alone handed in as a capture were measured grading a
  * gate clean. The value may sit on the label's own line after the colon, or, as
  * `renderDecisionRecord` prints the one multi-line field (a bare `chain:` with
  * its step lines below), on at least one non-blank continuation line before the
@@ -313,7 +313,7 @@ function carriesEnvelope(message: string): boolean {
 //
 // THERE IS NO CAPTURE ARGUMENT, and that absence is the point. A capture handed
 // in as a file authenticates nothing: measured through the previous two-file
-// door, a hand-typed seven-field record and a real capture with one value
+// door, a hand-typed plausible record and a real capture with one value
 // doctored both graded `ok`. So this entry takes the IDENTITY instead and calls
 // `decideDelivery` itself — the bytes it grades against are the ones that call
 // just produced, in this process, now, and nobody handing in a rendering gets
