@@ -433,8 +433,12 @@ null`. `milestone_create_required` belongs to the object binding's
 
 **Membership — `parent` set.** Bind the FR Task by writing the Epic's key to
 its `parent` field: `mcp__atlassian__editJiraIssue(issueIdOrKey=ticket_id,
-additional_fields={ parent: { key: <epic-key> } })`. The epic path never
-scatters a `milestone-<M-token>` label and never touches milestone objects.
+additional_fields={ parent: { key: <epic-key> } })`. This path never touches
+milestone objects. It scatters no `milestone-<M-token>` label for an
+Epic-KEYED milestone — but a grandfathered NUMERIC `M<N>` milestone under
+this same binding deliberately DOES take the label surface, because that is
+where the reader's own grandfather clause looks for it; see the numeric note
+below.
 Idempotency pre-check: when the issue's `parent` already equals the Epic's
 key the attach is a no-op — the parent is not rewritten and no second Epic
 is created.
@@ -443,6 +447,17 @@ is created.
 `parent = <epic-key>`. A mismatch surfaces the canonical binding-mismatch
 error (never retried); transient failures retry the whole round-trip on the
 canonical `1s + 2s + 4s` schedule.
+
+**Grandfathered numeric milestones — the numeric note.** A project that adopts
+Epic-keyed milestones still has its old numeric `M<N>` ones. Under this same
+`milestone_binding: epic`, a numeric token does NOT bind by parent Epic: it
+takes the `milestone-M<N>` LABEL surface, through the same read-merge-write
+attach the legacy binding uses. That is not an inconsistency — it is the only
+arrangement that converges, because the reader's own grandfather clause looks
+for a numeric milestone on the label surface. Binding by parent while the
+reader checks labels is what made a backfill sweep report the same work done on
+every pass forever. There is nothing to configure: the routing is decided by
+the milestone TOKEN's kind, not by the adapter's declared binding.
 
 **Epic-absent fallback.** Probe the bound project's issue-type metadata via
 `mcp__atlassian__getJiraProjectIssueTypesMetadata`. When the Epic type is
