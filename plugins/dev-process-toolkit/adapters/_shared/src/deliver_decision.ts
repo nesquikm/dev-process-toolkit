@@ -1,15 +1,16 @@
 // deliver_decision — M133 STE-513: ONE runnable front door for every delivery
 // decision `/deliver` makes before it spawns anything.
 //
-// The six questions a `/deliver` run has to answer — what did the operator
+// The seven questions a `/deliver` run has to answer — what did the operator
 // type, which repo does the milestone land in, where is the milestone being
-// resumed from, what chain does that imply, what merge policy is in force, and
-// does the pre-spawn confirm gate relay — already have exactly one owner each.
+// resumed from, what chain does that imply, what merge policy is in force,
+// does the pre-spawn confirm gate relay, and under what name will the spawned
+// worker be reachable — already have exactly one owner each.
 // What did NOT exist was a way to ASK them all in one command: the skill prose
 // re-derived the answers in narration, which is how a shipped answer and a
 // narrated one drift apart without anything going red.
 //
-// This module decides NOTHING. It imports the six owners, asks each its own
+// This module decides NOTHING. It imports the seven owners, asks each its own
 // question, and prints the answers as one labelled record. It carries no branch
 // of its own over any of the five closed vocabularies (argument kinds, routes,
 // resume states, merge policies, gate classes) — every such value arrives from
@@ -26,6 +27,7 @@
 
 import { readFileSync } from "node:fs";
 
+import type { DeliverRouting } from "./deliver_argument";
 import {
   defaultIdentityProbe,
   resolveDeliverArgument,
@@ -36,13 +38,19 @@ import { classifyResume, resumeChain, stepLines } from "./resume_classifier";
 import { readOrchestrationConfig } from "./orchestration_config";
 import { runMergePolicy } from "./merge_policy_ratchet";
 import { classifyGate, relayRequired } from "./gate_class";
+import type { WorkerNameRule } from "./deliver_worker_name";
+import {
+  WorkerNameRefusedError,
+  workerIdentitySegment,
+  workerRemoteControlName,
+} from "./deliver_worker_name";
 
 // ---------------------------------------------------------------------------
 // The record.
 // ---------------------------------------------------------------------------
 
 /**
- * The seven labelled fields, in the fixed order the record prints them.
+ * The eight labelled fields, in the fixed order the record prints them.
  *
  * Exported because the order IS the contract: a consumer that wants to check a
  * record is complete, or to render one itself, reads this list rather than
@@ -56,6 +64,7 @@ export const DECISION_FIELDS = [
   "merge_policy",
   "gate_class",
   "gate_relays",
+  "remote_control",
 ] as const;
 
 export type DecisionField = (typeof DECISION_FIELDS)[number];
@@ -148,7 +157,7 @@ function envelopeFor(
 /**
  * Render one decision record, or refuse.
  *
- * COMPLETENESS IS A REFUSAL, not a shorter record. A record with six of seven
+ * COMPLETENESS IS A REFUSAL, not a shorter record. A record with seven of eight
  * fields is the failure mode this exists to prevent: it reads as an answer, and
  * the field it dropped is exactly the one nobody then checks. So an absent or
  * blank field refuses, naming the field, and prints nothing at all.
@@ -218,7 +227,133 @@ export interface DeliverDecisionInput {
 }
 
 /**
- * Ask all six owners their own question and render the answers as one record.
+ * The one line a degraded naming decision rides on, and the only line in the
+ * record that carries the word "advisory".
+ *
+ * It opens with `#` rather than `advisory:` on purpose: every other line of the
+ * record is `label: value`, and a ninth thing that parsed as a label would be
+ * read as a ninth field by anything walking the labels.
+ */
+const ADVISORY_PREFIX = "# advisory: ";
+
+/**
+ * WHICH RULE the name broke, in words the operator can act on — one sentence
+ * per rule, and no two of them interchangeable.
+ *
+ * "Could not derive a name" is not an answer to anybody: the fix differs by
+ * rule — shorten the identity for the cap, rename the repository for the other
+ * two — and nobody picks between them from the bare fact that no name was
+ * composed. The naming module reports the leading-character and nothing-left
+ * cases with a single composed-name sentence, so reading the refusal text back
+ * would collapse them; the rule token is the discriminator instead.
+ */
+const REMOTE_CONTROL_ADVISORIES: Record<WorkerNameRule, string> = {
+  over_cap:
+    "remote_control is `none` — this run's identity is too long for a worker " +
+    "name to carry a repository segment beside it under the 32-character " +
+    "worker-name cap, so no name was composed and the worker spawns without " +
+    "one. Rule broken: the length cap. Shorten the identity to get a named " +
+    "worker.",
+  leading_character:
+    "remote_control is `none` — the repository basename's first character is " +
+    "outside the worker-name grammar, which admits a lowercase letter as the " +
+    "leading character and no other, so no name was composed and the " +
+    "worker spawns without one. Rule broken: the leading-character rule. " +
+    "Rename the repository so its basename begins with a lowercase letter to " +
+    "get a named worker.",
+  nothing_left:
+    "remote_control is `none` — nothing is left of the repository basename " +
+    "once it is folded into the worker-name grammar, so there was no " +
+    "repository segment to build a name from and the worker spawns without " +
+    "one. Rule broken: a basename may not fold away to an empty segment. " +
+    "Rename the repository to a basename that survives folding to get a " +
+    "named worker.",
+  identity_nothing_left:
+    "remote_control is `none` — nothing is left of this run's identity once it " +
+    "is folded into the worker-name grammar, so the name would have carried no " +
+    "identity segment at all and the worker spawns without one. Rule broken: an " +
+    "identity may not fold away to an empty segment. Deliver an FR or a " +
+    "milestone whose identity survives folding to get a named worker.",
+  no_identity:
+    "remote_control is `none` — this run resolved no unit of work to name a " +
+    "worker after, so no name was composed and the worker spawns without " +
+    "one. Rule broken: a worker name needs an identity segment. Deliver an " +
+    "FR or a milestone to get a named worker.",
+};
+
+/**
+ * The advisory for a refusal that named no rule.
+ *
+ * DEFENSIVE, and no production path reaches it. Every refusal this module's own
+ * `refuse()` raises carries a rule, so `rule === null` requires an error built
+ * by hand through the public constructor — which a caller legitimately can do,
+ * and which the narrowness control in the M134 suite does. The branch stays
+ * because the constructor allows it; what does NOT stay is the earlier claim
+ * that it was "real rather than defensive", which was false for every path a
+ * delivery run can take.
+ *
+ * What it must never do is guess. An advisory naming the wrong rule sends the
+ * operator to rename a repository that was never the problem, so this says
+ * exactly what is known and no more.
+ */
+const UNATTRIBUTED_ADVISORY =
+  "remote_control is `none` — the worker name could not be derived and the " +
+  "derivation named no rule, so the worker spawns without one. Run " +
+  "`deliver_worker_name.ts` against this tree to see what it refused.";
+
+/**
+ * The `remote_control` value for this run — plus the advisory that rides with
+ * the record when no name could be built.
+ *
+ * A name the grammar will not admit is a legibility problem, not a safety
+ * one, so it must not take the whole record down before the operator ever sees
+ * the gate they would have used to drop the bridge themselves. Rendering `none`
+ * here keeps the field populated — a blank field is a refusal, an explicit
+ * `none` is an answer — and the run goes on unbridged.
+ *
+ * The degradation is REPORTED, never silent: a run that quietly drops the
+ * bridge leaves the operator wondering why their worker is unreachable, so the
+ * caller prints one advisory row with the record. It rides in the record's own
+ * bytes because those bytes are what the confirm gate shows — an advisory the
+ * operator never sees is not an advisory.
+ *
+ * The catch is by TYPE, never by call site: only the naming module's own
+ * refusal degrades. Anything else thrown from the same call — a bug, an
+ * unreadable tree — propagates untouched, because a catch wide enough to
+ * swallow those is the fail-open shape this guard exists to avoid.
+ */
+function deriveRemoteControl(
+  projectRoot: string,
+  routing: DeliverRouting,
+): { readonly value: string; readonly advisory: string | null } {
+  try {
+    return {
+      value: workerRemoteControlName({
+        repoRoot: projectRoot,
+        identity: workerIdentitySegment(routing),
+      }),
+      advisory: null,
+    };
+  } catch (error) {
+    if (error instanceof WorkerNameRefusedError) {
+      const said =
+        error.rule === null
+          ? UNATTRIBUTED_ADVISORY
+          : REMOTE_CONTROL_ADVISORIES[error.rule];
+      return { value: "none", advisory: `${ADVISORY_PREFIX}${said}` };
+    }
+    throw error;
+  }
+}
+
+/**
+ * Ask every owner its own question and render the answers as one record.
+ *
+ * There are FEWER owners than there are fields, and that is not a miscount:
+ * `resume_classifier` answers two of the questions — the resume state and the
+ * chain that state implies — so one owner covers two fields. Said here because
+ * a reader who assumes the two totals must match will "fix" whichever one they
+ * happen to read second.
  *
  * `orchestration_config` is consulted DIRECTLY for the configured policy rather
  * than only through `merge_policy_ratchet` — the ratchet reaches the config
@@ -288,7 +423,8 @@ export async function decideDelivery(
   const configured = readOrchestrationConfig(projectRoot).mergePolicy;
   const effective = runMergePolicy(projectRoot).effective;
 
-  return renderDecisionRecord({
+  const remote = deriveRemoteControl(projectRoot, routing);
+  const record = renderDecisionRecord({
     argument_kind: routing.kind,
     target_repo_route: routed.route,
     resume_state: state,
@@ -296,7 +432,21 @@ export async function decideDelivery(
     merge_policy: `${configured} -> ${effective}`,
     gate_class: classifyGate(CONFIRM_GATE),
     gate_relays: relayRequired(CONFIRM_GATE, null) ? "yes" : "no",
+    // The name the spawned worker will be reachable under, ASSEMBLED from the
+    // module that owns the derivation rather than composed here — and reached
+    // through the routing this run already resolved, never re-parsed off the
+    // raw argument. Two spellings of one milestone resolve to one routing, so
+    // taking the identity from the routing is what keeps the printed name the
+    // same name the spawn will use.
+    remote_control: remote.value,
   });
+
+  // The advisory rides AFTER the record and outside its labelled lines: the
+  // record's shape is the contract every consumer reads, and a degradation is
+  // not a ninth field. Appended rather than logged, because the bytes returned
+  // here are the bytes the confirm gate shows — an advisory printed anywhere
+  // else is one the operator approving the gate never sees.
+  return remote.advisory === null ? record : `${record}\n${remote.advisory}`;
 }
 
 // Read-only CLI mirroring `active_plan_ship_ready.ts`: the delivery decision is
