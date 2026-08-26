@@ -197,7 +197,13 @@ describe("hard fail: name mismatch", () => {
       expect(v.note).toMatch(/STE-117/);
       expect(v.note).toMatch(/M31 — Tracker Workflow Hardening/);
       expect(v.note).toMatch(/M31 — Old name/);
-      expect(v.message).toMatch(/--rename-milestone|rename/i);
+      // STE-525: this was `toMatch(/--rename-milestone|rename/i)` — a disjunction
+      // that a fix dropping the non-existent `/spec-write --rename-milestone` flag
+      // would still satisfy on the bare word "rename". The remedy must instead name
+      // the write call the Linear adapter actually documents, and the retired flag
+      // must never come back unnoticed.
+      expect(v.message).toMatch(/mcp__linear__save_issue\(id=<ticket>, milestone=/);
+      expect(v.message).not.toMatch(/--rename-milestone/);
     } finally {
       fx.cleanup();
     }
