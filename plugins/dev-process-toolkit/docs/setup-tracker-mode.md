@@ -225,7 +225,7 @@ prompt once:
 **Placeholders (substituted by `/implement` at prompt-time)**
 
 - `{type}` — derived deterministically via `branchTypeFor` from the FR's `changelog_category`: `--no-tech` FRs ⇒ `chore`; `Fixed`/`Security` ⇒ `fix`; everything else ⇒ `feat` (unknown values clamp to `feat`).
-- `{N}` — milestone number for milestone runs (e.g. `19` for `M19`).
+- `{N}` — the BRANCH token derived from the `milestone:` frontmatter for milestone runs: bare digits for a numeric milestone (`19` for `M19`), or the full `M_<epic-key>` token for an Epic-keyed one (`M_GF_78` ⇒ `m_gf_78`, never `m78`).
 - `{ticket-id}` — tracker ID in tracker mode (e.g. `<TKR>-NN`, lowercased); short-ULID tail (chars 23–29, lowercased) in `mode: none`.
 - `{slug}` — LLM-inferred 2–4 word kebab. `[a-z0-9-]` only after sanitization.
 
