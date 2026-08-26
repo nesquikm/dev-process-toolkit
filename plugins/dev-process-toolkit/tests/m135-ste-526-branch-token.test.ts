@@ -14,6 +14,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import {
   MILESTONE_BRANCH_TEMPLATE,
+  TICKET_BRANCH_TEMPLATE,
   buildBranchProposal,
   canonicalBranchTemplate,
   isCurrentBranchAcceptable,
@@ -446,5 +447,81 @@ describe("AC-STE-526.8 — word-boundary discipline holds for Epic-keyed branche
 
   test("a prefixed carrier is not accepted either (dm_gf_78)", () => {
     expect(isCurrentBranchAcceptable("feat/dm_gf_78-waiting-states", epicMilestoneScope)).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// AC-STE-526.9 and AC-STE-526.10 — added mid-flight, and initially shipped
+// with NO assertion at all. The milestone-level review's traceability map
+// marked both `status: missing`: the prose satisfied them, nothing pinned
+// them, and the exact wrong readings they forbid would have returned green.
+// An AC whose only witness is the prose it describes is not an AC.
+// ═══════════════════════════════════════════════════════════════════════
+
+/** The reading AC.9 exists to forbid, verbatim as it briefly shipped. */
+const FORBIDDEN_LEAD = "the whole `milestone:` frontmatter token";
+const FORBIDDEN_LEAD_SHORT = "the whole milestone token";
+
+describe("AC-STE-526.9 — the fix must not introduce a second wrong reading", () => {
+  for (const rel of Object.keys(ENUMERATED_SURFACES)) {
+    test(`${rel} does not lead with the frontmatter-token reading`, () => {
+      const src = readFileSync(join(PLUGIN_ROOT, rel), "utf-8");
+      // Measured, not asserted by taste: for a NUMERIC milestone the whole
+      // frontmatter token is `M135`, and that value selects the TICKET
+      // template, renders `mM135`, and is rejected as a scope. A reader
+      // keying on the leading noun phrase — which this FR says is a language
+      // model — would supply it and silently get a different template.
+      expect(src).not.toContain(FORBIDDEN_LEAD);
+      expect(src).not.toContain(FORBIDDEN_LEAD_SHORT);
+    });
+  }
+
+  test("the numeric trap the forbidden reading walks into is real, not asserted", () => {
+    // The pin above is only worth having because the value it forbids breaks.
+    // Asserting that here keeps the prohibition anchored to behaviour, so a
+    // future reader cannot dismiss it as a style preference.
+    expect(canonicalBranchTemplate({ milestone: "M135" })).toBe(TICKET_BRANCH_TEMPLATE);
+    expect(canonicalBranchTemplate({ milestone: "135" })).toBe(MILESTONE_BRANCH_TEMPLATE);
+    expect(isCurrentBranchAcceptable("feat/m135-x", { kind: "milestone", number: "M135" })).toBe(
+      false,
+    );
+    expect(isCurrentBranchAcceptable("feat/m135-x", { kind: "milestone", number: "135" })).toBe(
+      true,
+    );
+  });
+});
+
+describe("AC-STE-526.10 — the milestone-run half of the substitution is defined too", () => {
+  const REL = "docs/implement-reference.md";
+
+  function runScopeLine(): string {
+    const lines = readFileSync(join(PLUGIN_ROOT, REL), "utf-8").split("\n");
+    const hits = lines.filter((l) => /Milestone run \(`fallthrough`/.test(l));
+    expect(hits.length, "expected exactly one milestone-run RunScope line").toBe(1);
+    return hits[0]!;
+  }
+
+  test("it states both cases, not the numeric one alone", () => {
+    // This line defined `number` from an `M<N>` argument as `"<N>"` — the
+    // numeric-only reading, directly contradicting AC.4's own pin, which
+    // passes the FULL token as `number`. It sits one line above an enumerated
+    // surface and is invisible to AC.3's detector (KNOWN LIMIT 4), so nothing
+    // else in this suite can see it.
+    const line = runScopeLine();
+    expect(line).toMatch(/\bdigits\b/);
+    expect(line).toContain("M_<epic-key>");
+  });
+
+  test("AC.4's own scope shape is the one this line authorizes", () => {
+    // The contradiction was concrete, not stylistic: AC.4 pins
+    // `{kind:"milestone", number:"M_GF_78"}` as acceptable, which the old
+    // wording did not permit. Asserting the behaviour beside the prose keeps
+    // the two from drifting apart again.
+    expect(
+      isCurrentBranchAcceptable("fix/m_gf_78-waiting", {
+        kind: "milestone",
+        number: "M_GF_78",
+      }),
+    ).toBe(true);
   });
 });

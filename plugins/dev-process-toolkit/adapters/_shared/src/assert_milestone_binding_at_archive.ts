@@ -52,6 +52,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   attachProjectMilestone,
+  isMilestonePermanentRefusal,
   MilestoneAttachmentError,
   milestoneBindingPresent,
   milestoneLabel,
@@ -81,8 +82,8 @@ export interface AssertMilestoneBindingAtArchiveDeps {
 /**
  * Route → remedy registry (STE-524 AC-STE-524.11).
  *
- * The gate refuses on six distinct routes, and for a long while every one of
- * them emitted the SAME advice. Three of the six were misdirected by it, two
+ * The gate refuses on seven distinct routes, and for a long while every one of
+ * them emitted the SAME advice. Three of them were misdirected by it, two
  * of those dangerously: telling an operator to "attach it manually" when the
  * ticket could not even be FETCHED, or when the post-attach re-read failed,
  * invites a DUPLICATE WRITE onto a binding that may be perfectly fine — the
@@ -92,7 +93,7 @@ export interface AssertMilestoneBindingAtArchiveDeps {
  * to repeat the failure.
  *
  * So the advice is keyed by CAUSE, and it lives here rather than at the raise
- * sites. One table means a seventh route cannot quietly inherit a sixth
+ * sites. One table means an eighth route cannot quietly inherit a seventh
  * route's line: it either registers a remedy of its own or it has none at all.
  * `{placeholder}` segments are interpolated per refusal (see `remedyFor`).
  *
@@ -118,6 +119,9 @@ export const ARCHIVE_REFUSAL_REMEDIES = {
   /** Route 6 — the attach landed, yet the binding this gate reads is still absent. */
   attach_landed_binding_absent:
     "the write landed, but what landed is not the binding this assertion reads — on the Epic degrade the attach records a milestone label while the check reads the ticket's `parent`. Set the parent Epic on the ticket directly, then re-run the archival.",
+  /** Route 7 — the attach REFUSED on a condition that repeating cannot change. */
+  attach_refused_permanently:
+    "do what the refusal above says — it is a permanent condition, so re-running the archival unchanged will refuse identically no matter how long you wait. The refusal names the exact fault and carries its own Remedy line; follow that, then re-run the archival. Nothing was written, so there is nothing to undo.",
 } as const;
 
 /** The route ids the refusal detail stamps into its `Context:` line. */
@@ -340,6 +344,28 @@ export async function assertMilestoneBindingAtArchive(
       return refused(ticketId, expected, binding, "attach_binding_mismatch");
     }
     const msg = err instanceof Error ? err.message : String(err);
+    // A REFUSAL is not a failure to reach the tracker. The attach now declines
+    // to bind on conditions that are decisions about the state of the world —
+    // an Epic the token names that is not in the project, an Epic never
+    // minted, a token that parses as neither kind — and telling the operator
+    // to clear an outage and retry is advice that can never come true: the
+    // next run refuses identically. So the permanent classes take a route of
+    // their own, and the refusal's OWN instruction (already threaded into the
+    // headline below) is the one that actually applies.
+    //
+    // Classified through the attach module's single exported predicate, NOT an
+    // `instanceof` chain over the three known classes: a fourth permanent
+    // refusal added later would silently evade a list here, which is exactly
+    // the drift the route registry exists to stop.
+    if (isMilestonePermanentRefusal(err)) {
+      return refused(
+        ticketId,
+        expected,
+        binding,
+        "attach_refused_permanently",
+        `the attach REFUSED to bind, permanently (${err.name}) — retrying cannot change it:\n${msg}`,
+      );
+    }
     return refused(
       ticketId,
       expected,

@@ -70,6 +70,46 @@ export class MilestoneAttachmentError extends Error {
 }
 
 /**
+ * The attach's PERMANENT refusals — the ones no amount of retrying resolves.
+ *
+ * A refusal to attach is a decision about the state of the world (the Epic the
+ * token names is not there; the Epic was never minted; the token parses as
+ * neither kind), not a transient the tracker will recover from. Consumers must
+ * be able to tell those apart from a network exhaustion or an expired
+ * credential, because the operator's next move is opposite: one says "clear
+ * the outage and retry", the other says "retrying changes nothing — do what
+ * this refusal's own Remedy line says".
+ *
+ * Declared as ONE base class carrying ONE marker, read through ONE exported
+ * predicate (`isMilestonePermanentRefusal`), so a consumer never grows a
+ * widening `instanceof A || instanceof B || instanceof C` chain that a FOURTH
+ * refusal class silently evades. A new permanent refusal extends this and is
+ * classified everywhere by construction.
+ *
+ * The marker is a PROPERTY rather than the class identity alone so the
+ * predicate survives the error crossing a module boundary that resolved a
+ * second copy of this file — `instanceof` would quietly answer false there,
+ * which is the same silent-evasion failure in another costume.
+ */
+export abstract class MilestonePermanentRefusalError extends Error {
+  /** Marker read by `isMilestonePermanentRefusal`; never set anywhere else. */
+  readonly permanentRefusal: true = true;
+}
+
+/**
+ * True for an attach refusal that repeating the call cannot fix. See
+ * `MilestonePermanentRefusalError` for why this is a marker read, not an
+ * `instanceof` list.
+ */
+export function isMilestonePermanentRefusal(
+  err: unknown,
+): err is MilestonePermanentRefusalError {
+  return (
+    err instanceof Error && (err as { permanentRefusal?: unknown }).permanentRefusal === true
+  );
+}
+
+/**
  * STE-521 AC-STE-521.6 / AC-STE-521.7 — an Epic-KEYED milestone whose Epic is
  * not in the project is a REFUSAL, never a mint. The token was derived FROM an
  * Epic that already exists (`GF-78` → `M_GF_78`), so a newly minted Epic gets
@@ -84,7 +124,7 @@ export class MilestoneAttachmentError extends Error {
  * project it searched — the three facts every one of the operator's fixes
  * starts from.
  */
-export class MilestoneEpicNotFoundError extends Error {
+export class MilestoneEpicNotFoundError extends MilestonePermanentRefusalError {
   readonly token: string;
   readonly epicKey: string;
   readonly project: string;
@@ -122,7 +162,7 @@ export class MilestoneEpicNotFoundError extends Error {
  * the step the operator must run first — a refusal whose remedy is "mint it"
  * has to say what mints it.
  */
-export class MilestoneEpicUnmintedError extends Error {
+export class MilestoneEpicUnmintedError extends MilestonePermanentRefusalError {
   readonly milestoneName: string;
   readonly project: string;
 
@@ -155,7 +195,7 @@ export class MilestoneEpicUnmintedError extends Error {
  * names the offending TOKEN — not merely the canonical name it was cut from —
  * so the operator can see which few characters have to change.
  */
-export class MilestoneTokenUnparseableError extends Error {
+export class MilestoneTokenUnparseableError extends MilestonePermanentRefusalError {
   readonly token: string;
   readonly milestoneName: string;
   readonly project: string;

@@ -442,6 +442,23 @@ describe("AC-STE-524.2 — duplicate-Epic state (foreign parent, no Epic sanitiz
     // The parent was never rewritten to something that only LOOKS bound.
     expect(d.ticket.parent).toBe(FOREIGN_EPIC_KEY);
     expect(milestoneBindingPresent(d.snapshot(), EPIC_CANONICAL, "epic")).toBe(false);
+
+    // STE-524 AC-STE-524.12 — the ROUTE, not merely the outcome. As written
+    // this criterion asserted `outcome === "refused"` and stopped, which
+    // passes over a refusal that says the WRONG THING — the whole subject of
+    // AC.11. And it said the wrong thing here: this state reaches the gate as
+    // a `MilestoneEpicNotFoundError`, an ordinary `Error` that misses the
+    // `MilestoneAttachmentError` branch, so it fell to `attach_call_failed`
+    // and the operator was told to clear an outage and RETRY — for an Epic
+    // that does not exist and never will. The id is read back out of the
+    // module's own `Context:` line rather than named here; the vocabulary is
+    // the implementation's.
+    const route = routeOf("AC.2 duplicate-Epic", res.detail!);
+    expect(`AC.2 route: ${route}`).not.toBe("AC.2 route: attach_call_failed");
+    const remedy = remedyOf("AC.2 duplicate-Epic", res.detail!);
+    expect(`AC.2 remedy advises clearing a transient: ${TRANSIENT_CLEARING.test(remedy)}`).toBe(
+      "AC.2 remedy advises clearing a transient: false",
+    );
   });
 });
 
@@ -1221,7 +1238,15 @@ function routeOf(scenario: string, detail: string): string {
 }
 
 function remedyOf(scenario: string, detail: string): string {
-  const line = detail.split("\n").find((l) => l.startsWith("Remedy: "));
+  // The LAST `Remedy:` line, not the first. A refusal whose headline threads
+  // the attach's own message carries a NESTED NFR-10 block — the attach's
+  // errors are themselves verdict/`Remedy:`/`Context:` shaped — so the first
+  // match can be the INNER error's advice. The gate's own remedy is always
+  // the penultimate line of the detail it built. (Identical to the first
+  // match for every single-line cause, so this narrows nothing that was
+  // already pinned; it is what makes a threaded refusal readable at all.)
+  const lines = detail.split("\n").filter((l) => l.startsWith("Remedy: "));
+  const line = lines[lines.length - 1];
   expect(`${scenario}: ${line ? "has a Remedy line" : `NO Remedy line in\n${detail}`}`).toBe(
     `${scenario}: has a Remedy line`,
   );
@@ -1339,6 +1364,34 @@ const routeDrivers: { scenario: string; run: () => Promise<GateResult> }[] = [
       return res;
     },
   },
+  {
+    // STE-524 AC-STE-524.12 — the SEVENTH route, and the one that arrives
+    // from OUTSIDE this module: sibling FRs earlier in this milestone taught
+    // the attach to REFUSE permanently, and those refusals are ordinary
+    // `Error`s that miss the `MilestoneAttachmentError` branch. Driven as a
+    // STATE, not a stub: the milestone is Epic-KEYED and no Epic in the
+    // project sanitizes to its token, so `attachProjectMilestone` itself
+    // raises `MilestoneEpicNotFoundError`.
+    scenario: "7. the attach refused PERMANENTLY (the Epic the token names is absent)",
+    run: async () => {
+      const { root, frPath } = makeEpicRepo();
+      const d = makeDouble({
+        binding: "epic",
+        epics: [{ key: FOREIGN_EPIC_KEY, name: "Some other Epic" }],
+      });
+      const res = await assertMilestoneBindingAtArchive(d.provider, EPIC_PROJECT, frPath, {
+        projectRoot: root,
+        mode: "jira",
+        sleep: noSleep,
+      });
+      // The refusal really came from the attach's permanent class…
+      expect(res.detail).toContain("MilestoneEpicNotFoundError");
+      // …and nothing was written on the way to it.
+      expect(d.count("setParent")).toBe(0);
+      expect(d.ticket.parent).toBeNull();
+      return res;
+    },
+  },
 ];
 
 let routeCasesCache: RouteCase[] | null = null;
@@ -1373,10 +1426,10 @@ async function routeCase(n: number): Promise<RouteCase> {
 const ADVISES_MANUAL = /manual/i;
 const ADVISES_BACKFILL = /backfill/i;
 
-describe("AC-STE-524.11 — six routes, six remedies, enumerated from the module", () => {
-  test("all six routes refuse, each stamping a DISTINCT route id, in NFR-10 shape", async () => {
+describe("AC-STE-524.11 — every route carries its own remedy, enumerated from the module", () => {
+  test("every route refuses, each stamping a DISTINCT route id, in NFR-10 shape", async () => {
     const cases = await routeCases();
-    expect(cases).toHaveLength(6);
+    expect(cases).toHaveLength(routeDrivers.length);
     for (const c of cases) {
       expect(`${c.scenario}: ${c.detail.startsWith(`${MILESTONE_LABEL_ARCHIVE_REFUSED}:`)}`).toBe(
         `${c.scenario}: true`,
@@ -1386,7 +1439,7 @@ describe("AC-STE-524.11 — six routes, six remedies, enumerated from the module
     }
     const ids = cases.map((c) => c.route);
     expect(`${ids.join(",")} (${new Set(ids).size} distinct)`).toBe(
-      `${ids.join(",")} (6 distinct)`,
+      `${ids.join(",")} (${routeDrivers.length} distinct)`,
     );
   });
 
@@ -1403,10 +1456,12 @@ describe("AC-STE-524.11 — six routes, six remedies, enumerated from the module
     }
   });
 
-  test("no single line covers the set — all six remedies differ", async () => {
+  test("no single line covers the set — every remedy differs", async () => {
     const cases = await routeCases();
     const remedies = cases.map((c) => c.remedy);
-    expect(`${new Set(remedies).size} distinct remedies`).toBe("6 distinct remedies");
+    expect(`${new Set(remedies).size} distinct remedies`).toBe(
+      `${routeDrivers.length} distinct remedies`,
+    );
   });
 
   // ── the dangerous half: the two routes where a manual attach or a backfill
@@ -1997,5 +2052,309 @@ describe("AC-STE-524.11 (amended) — the exhaustiveness pin counts SITES", () =
         `${label} sites: ${Object.keys(registry).length}`,
       );
     }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// AC-STE-524.12 — a PERMANENT attach refusal does not inherit the TRANSIENT
+// remedy
+// ═══════════════════════════════════════════════════════════════════════
+//
+// This is the defeat AC.11's own rationale predicted, arriving from OUTSIDE
+// the module. Three sibling FRs earlier in this milestone taught
+// `attachProjectMilestone` to REFUSE rather than mint:
+//
+//   - `MilestoneEpicNotFoundError`   (STE-521) — the token names an Epic that
+//     is not in the project;
+//   - `MilestoneEpicUnmintedError`   (STE-522) — a pre-key human title whose
+//     Epic was never minted, and binding never creates;
+//   - `MilestoneTokenUnparseableError` (STE-523) — a leading token parsing as
+//     neither `M<N>` nor `M_<epic-key>`.
+//
+// NONE of the three extends `MilestoneAttachmentError`, so all three miss the
+// gate's `instanceof` branch and fall to `attach_call_failed`, whose registry
+// remedy reads "clear the failure the tracker reported above — outage,
+// expired credentials, rate limit — then retry the archival."
+//
+// Retrying fixes NONE of them. An Epic that does not exist, an Epic never
+// minted, and a token that does not parse are permanent conditions: the
+// operator is told to wait out a condition that will never change, at the one
+// boundary nothing downstream revisits. A new CAUSE with no new id literal —
+// invisible to a site count that only ever sees THIS file, which is precisely
+// the shape AC.11's amended rationale said an id-based pin could not catch.
+//
+// HOW THESE ARE DRIVEN, and the honest scope of it. Case 1 is provoked as a
+// STATE through the real attach (it is the same state AC.2 reproduces). Cases
+// 2 and 3 are MEASURED BELOW to be unreachable from this gate's own state —
+// AC.10's guard refuses a token-less canonical name before the fetch, and
+// both classes are raised only for names whose leading token parses to
+// neither kind — so they are driven through the one seam that exists: the
+// attach is swapped for the duration of a single call and made to raise the
+// real class, with everything else in the module (the error classes
+// themselves included, so `instanceof` still means what it means) untouched.
+// The gate under test is the REAL gate throughout.
+//
+// THE ANTI-VACUITY HALF IS NOT OPTIONAL. A fix that routed EVERY attach throw
+// away from `attach_call_failed` would satisfy all three cases and destroy
+// the route that route exists for, so an ordinary `Error("read ECONNRESET")`
+// is driven through the SAME seam and must still land on the transient
+// remedy, verbatim from the registry.
+
+/**
+ * The transient remedy's own vocabulary — the three things a PERMANENT
+ * refusal must not tell the operator to clear. Named after the registry's
+ * `attach_call_failed` text, which is what the three classes used to inherit.
+ */
+const TRANSIENT_CLEARING = /outage|expired credential|rate ?limit/i;
+
+/** Says, in some wording, that repeating the attempt will not help. */
+const SAYS_RETRY_WONT_HELP = /permanent|will not|won'?t|does not|doesn'?t|never|cannot|no amount/i;
+
+const {
+  MilestoneEpicNotFoundError,
+  MilestoneEpicUnmintedError,
+  MilestoneTokenUnparseableError,
+} = REAL_ATTACH_MODULE;
+
+/** Run `fn` with `attachProjectMilestone` forced to raise `err`. */
+async function withAttachThrowing<T>(err: unknown, fn: () => Promise<T>): Promise<T> {
+  mock.module(ATTACH_MODULE_SPECIFIER, () => ({
+    ...REAL_ATTACH_MODULE,
+    attachProjectMilestone: async () => {
+      throw err;
+    },
+  }));
+  try {
+    return await fn();
+  } finally {
+    mock.module(ATTACH_MODULE_SPECIFIER, () => REAL_ATTACH_MODULE);
+  }
+}
+
+/** The three permanent classes, constructed exactly as their raise sites do. */
+const PERMANENT_REFUSALS: { label: string; make: () => Error }[] = [
+  {
+    label: "MilestoneEpicNotFoundError — the Epic the token names is absent",
+    make: () => new MilestoneEpicNotFoundError(EPIC_MILESTONE, EPIC_KEY, EPIC_PROJECT),
+  },
+  {
+    label: "MilestoneEpicUnmintedError — a title-shaped name whose Epic was never minted",
+    make: () => new MilestoneEpicUnmintedError(TOKENLESS_CANONICAL, EPIC_PROJECT),
+  },
+  {
+    label: "MilestoneTokenUnparseableError — a leading token parsing as neither kind",
+    make: () =>
+      new MilestoneTokenUnparseableError("M_", `M_ — ${TOKENLESS_CANONICAL}`, EPIC_PROJECT),
+  },
+];
+
+interface DrivenRefusal {
+  detail: string;
+  route: string;
+  remedy: string;
+  double: Double;
+}
+
+/** Drive the REAL gate on a miss whose attach raises `err`. */
+async function driveAttachThrow(label: string, err: unknown): Promise<DrivenRefusal> {
+  const { root, frPath } = makeEpicRepo();
+  // The Epic EXISTS and matches the token: the ONLY reason this refuses is
+  // the error the attach raises, not the fixture's own shape.
+  const d = makeDouble({ binding: "epic", epics: [{ key: EPIC_KEY, name: "Waiting States II" }] });
+  const res = await withAttachThrowing(err, () =>
+    assertMilestoneBindingAtArchive(d.provider, EPIC_PROJECT, frPath, {
+      projectRoot: root,
+      mode: "jira",
+      sleep: noSleep,
+    }),
+  );
+  expect(`${label}: ${res.outcome}`).toBe(`${label}: refused`);
+  expect(res.token).toBe(MILESTONE_LABEL_ARCHIVE_REFUSED);
+  const detail = res.detail!;
+  return {
+    detail,
+    route: routeOf(label, detail),
+    remedy: remedyOf(label, detail),
+    double: d,
+  };
+}
+
+/** The inner error's OWN `Remedy:` line — what the gate must defer to. */
+function ownInstructionOf(err: Error): string {
+  const line = err.message.split("\n").find((l) => l.startsWith("Remedy: "));
+  expect(`${err.name} carries its own Remedy line: ${line !== undefined}`).toBe(
+    `${err.name} carries its own Remedy line: true`,
+  );
+  return line!;
+}
+
+describe("AC-STE-524.12 — permanent attach refusals are not routed to 'retry the outage'", () => {
+  test("the hazard is real: none of the three is a MilestoneAttachmentError", () => {
+    // Isolation half. If any of these ever started extending the mismatch
+    // class, it would take the OTHER branch and every assertion below would
+    // pass for a reason that has nothing to do with this AC.
+    for (const { label, make } of PERMANENT_REFUSALS) {
+      const err = make();
+      const isMismatch = err instanceof REAL_ATTACH_MODULE.MilestoneAttachmentError;
+      expect(`${label}: ${isMismatch ? "IS" : "is NOT"} a MilestoneAttachmentError`).toBe(
+        `${label}: is NOT a MilestoneAttachmentError`,
+      );
+      expect(err).toBeInstanceOf(Error);
+    }
+  });
+
+  test("the transient remedy really is the one they used to inherit", async () => {
+    // Read out of the module, never retyped: the line whose advice is wrong
+    // for a permanent condition is the one this AC routes them away from.
+    const registry = await remedyRegistry();
+    const transient = registry.attach_call_failed;
+    expect(`attach_call_failed registered: ${typeof transient === "string"}`).toBe(
+      "attach_call_failed registered: true",
+    );
+    expect(`transient remedy tells them to clear a transient: ${TRANSIENT_CLEARING.test(transient!)}`).toBe(
+      "transient remedy tells them to clear a transient: true",
+    );
+    expect(transient!).toMatch(/retry|re-?run|again/i);
+  });
+
+  for (const { label, make } of PERMANENT_REFUSALS) {
+    test(`${label} → NOT the transient route, NOT the transient remedy`, async () => {
+      const err = make();
+      const driven = await driveAttachThrow(label, err);
+      const registry = await remedyRegistry();
+
+      // 1. Not the transient route.
+      expect(`${label} route: ${driven.route}`).not.toBe(`${label} route: attach_call_failed`);
+      // 2. …and the route it DID take is registered, so it cannot be a bare
+      //    literal with no remedy of its own.
+      expect(`${label}: ${driven.route in registry ? "registered" : `UNREGISTERED (${driven.route})`}`).toBe(
+        `${label}: registered`,
+      );
+      // 3. The emitted remedy is that registry entry, not prose written at
+      //    the raise site.
+      expect(
+        `${label}: ${matchesTemplate(driven.remedy, registry[driven.route]!) ? "matches" : `"${driven.remedy}" ≠ "${registry[driven.route]}"`}`,
+      ).toBe(`${label}: matches`);
+      // 4. It is not the transient line, byte for byte, and it does not carry
+      //    the transient line's advice in other words.
+      expect(`${label} remedy === the transient remedy: ${driven.remedy === registry.attach_call_failed}`).toBe(
+        `${label} remedy === the transient remedy: false`,
+      );
+      expect(`${label} remedy advises clearing a transient: ${TRANSIENT_CLEARING.test(driven.remedy)}`).toBe(
+        `${label} remedy advises clearing a transient: false`,
+      );
+      // 5. It says, in some wording, that repeating the attempt will not fix
+      //    it — the operator must not be left waiting on a condition that
+      //    never changes.
+      expect(`${label} remedy: ${driven.remedy}`).toMatch(SAYS_RETRY_WONT_HELP);
+      // 6. …and it defers to the refusal's OWN instruction, which the gate
+      //    already threads into the headline. The operator can still SEE it:
+      //    the class that refused, and the remedy that class wrote.
+      expect(driven.detail).toContain(err.name);
+      expect(driven.detail).toContain(ownInstructionOf(err));
+      // Nothing was written on the way here (the attach never ran).
+      expect(attachSideCalls(driven.double)).toEqual([]);
+    });
+  }
+
+  test("ANTI-VACUITY: a genuinely transient throw still gets the transient remedy", async () => {
+    // A fix that routed EVERY attach throw away from `attach_call_failed`
+    // would satisfy all three cases above and destroy the route that route
+    // exists for. Same seam, same gate, ordinary Error.
+    const driven = await driveAttachThrow(
+      "transient",
+      new Error("read ECONNRESET"),
+    );
+    const registry = await remedyRegistry();
+    expect(`transient route: ${driven.route}`).toBe("transient route: attach_call_failed");
+    expect(`transient remedy: ${driven.remedy}`).toBe(
+      `transient remedy: ${registry.attach_call_failed}`,
+    );
+    expect(`transient remedy advises clearing a transient: ${TRANSIENT_CLEARING.test(driven.remedy)}`).toBe(
+      "transient remedy advises clearing a transient: true",
+    );
+    // And the operator still sees what the tracker actually said.
+    expect(driven.detail).toContain("read ECONNRESET");
+  });
+
+  test("the STATE reproduction agrees with the seam: a real absent Epic takes the same route", async () => {
+    // The mock proves the classification; this proves the classification is
+    // reached by a state a live tracker can actually be in. No module swap:
+    // the real attach raises MilestoneEpicNotFoundError because no Epic in
+    // the project sanitizes to the milestone token.
+    const { root, frPath } = makeEpicRepo();
+    const d = makeDouble({
+      binding: "epic",
+      epics: [{ key: FOREIGN_EPIC_KEY, name: "Some other Epic" }],
+    });
+    const res = await assertMilestoneBindingAtArchive(d.provider, EPIC_PROJECT, frPath, {
+      projectRoot: root,
+      mode: "jira",
+      sleep: noSleep,
+    });
+    expect(res.outcome).not.toBe("vacuous");
+    expect(res.outcome).toBe("refused");
+    expect(res.detail).toContain("MilestoneEpicNotFoundError");
+    const stateRoute = routeOf("state: absent Epic", res.detail!);
+    expect(`state route: ${stateRoute}`).not.toBe("state route: attach_call_failed");
+    const seam = await driveAttachThrow(
+      "seam: absent Epic",
+      new MilestoneEpicNotFoundError(EPIC_MILESTONE, EPIC_KEY, EPIC_PROJECT),
+    );
+    expect(`state route: ${stateRoute}`).toBe(`state route: ${seam.route}`);
+  });
+
+  test("MEASURED: two of the three cannot be provoked by STATE through this gate", async () => {
+    // Stated rather than glossed, in the same spirit as AC.10's honest-scope
+    // paragraph. Both `MilestoneEpicUnmintedError` and
+    // `MilestoneTokenUnparseableError` are raised only when the canonical
+    // name's leading token parses to NEITHER kind — and AC.10's guard refuses
+    // exactly that name BEFORE the fetch, under every binding but `object`.
+    // So today they reach this gate only from an adapter that raises them for
+    // some other reason; routing them is hardening at the contract boundary.
+    // Measured, because a prose claim of unreachability is how an unreachable
+    // branch gets shipped believing itself live.
+    expect(isMilestoneToken(TOKENLESS_CANONICAL.split(/\s/, 1)[0]!)).toBe(false);
+    expect(isMilestoneToken("M_")).toBe(false);
+    for (const canonical of [TOKENLESS_CANONICAL, `M_ — ${TOKENLESS_CANONICAL}`]) {
+      const { root, frPath } = makeEpicRepo();
+      const d = makeDouble({ binding: "epic", epics: [{ key: EPIC_KEY, name: "Waiting States II" }] });
+      const res = await withCanonical(canonical, () =>
+        assertMilestoneBindingAtArchive(d.provider, EPIC_PROJECT, frPath, {
+          projectRoot: root,
+          mode: "jira",
+          sleep: noSleep,
+        }),
+      );
+      expect(`${canonical}: ${res.outcome}`).toBe(`${canonical}: refused`);
+      expect(`${canonical} route: ${routeOf(canonical, res.detail!)}`).toBe(
+        `${canonical} route: unusable_milestone_name`,
+      );
+      // The attach is never reached, so neither class can be raised here.
+      expect(`${canonical} tracker calls: ${d.calls.join(",")}`).toBe(`${canonical} tracker calls: `);
+    }
+  });
+
+  test("the new route added a SITE as well as a registry entry (AC.11's invariant holds)", async () => {
+    // AC.11's exhaustiveness pin counts refusal SITES in the module against
+    // the registry's size. AC.12 adds a route; that invariant must survive it
+    // — a registry entry with no site (or a site with no entry) is the drift
+    // both ACs exist to stop. Re-asserted here so a reader tracing AC.12 sees
+    // the obligation at the point it was incurred.
+    const registry = await remedyRegistry();
+    const src = readFileSync(MODULE_PATH, "utf-8");
+    const scan = scanRefusalSites(src);
+    expect(scan.unclassified).toEqual([]);
+    expect(`${scan.refusalSites} refusal sites`).toBe(
+      `${Object.keys(registry).length} refusal sites`,
+    );
+    // The permanent route specifically: registered once, raised once.
+    const permanent = (await routeCases()).find((c) => c.scenario.startsWith("7."))!.route;
+    const occurrences = (
+      src.match(new RegExp(`(?<![A-Za-z0-9_])${permanent}(?![A-Za-z0-9_])`, "g")) ?? []
+    ).length;
+    expect(`${permanent} appears ${occurrences}× in the module`).toBe(
+      `${permanent} appears 2× in the module`,
+    );
   });
 });
