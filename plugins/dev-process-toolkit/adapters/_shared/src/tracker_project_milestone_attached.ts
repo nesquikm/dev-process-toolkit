@@ -28,9 +28,37 @@
 // found so the operator can grep the cap. Mismatched bindings still
 // hard-fail — the token only excuses absence, not divergence.
 //
-// Diagnostic format (AC-STE-118.6 / .7) shows both byte-rendered strings
-// so em-dash drift is visible. The remedy points at
-// `/spec-write --rename-milestone M<N>` for the rename-on-mismatch flow.
+// Diagnostic format (AC-STE-118.6; the sibling .7 escape-hatch AC it once
+// cited was retired by STE-525, whose flag never existed) shows both
+// byte-rendered strings so em-dash drift is visible. The mismatch remedy is
+// binding-aware and names only operations that exist: on the OBJECT binding,
+// rename the tracker milestone to the canonical heading via
+// `mcp__linear__save_issue`; or — when the tracker side is the correct one —
+// edit the `specs/plan/M<N>.md` heading to match.
+//
+// The mismatch kind reaches ONLY the object binding, and the remedy prose is
+// scoped to it deliberately. `mismatch` has a single call site, inside the
+// object branch's `attached !== heading`, and `attached` comes only from
+// `projectMilestone.name`. An earlier version of this paragraph offered
+// `mcp__atlassian__editJiraIssue` "on the label binding" — false twice over:
+// that arm is unreachable, and there is no tracker milestone to rename on the
+// label surface at all, since labels ARE Jira's milestone surface here. The
+// epic and label arms below are kept because deleting them would let a future
+// caller fall through to the `object` default and hand a Jira operator a
+// Linear call again — but they are dead today, and this comment says so
+// rather than advertising them as live behaviour.
+//
+// Under the `epic` binding a name mismatch is not a binding failure at all:
+// STE-521 made that leg resolve the milestone Epic by its KEY — sanitizing
+// each candidate key forward and comparing to the plan heading's token —
+// never by its summary. So the missing-binding remedy there names the absent
+// Epic key rather than ordering a reconciliation of names.
+// No rename flag has ever existed on `/spec-write`; the
+// remedy this replaced ordered one that never shipped. The Epic-keyed
+// `epic` binding is the exception (STE-521/STE-525): the Epic is resolved
+// by KEY and its summary is never read, so a name mismatch is not a
+// binding failure there — its remedy names the absent Epic key instead of
+// any rename.
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -158,24 +186,68 @@ export function parseFrFrontmatter(rawContent: string): FrFrontmatter {
 // `label` (Jira) branch — now reachable on canonical `## M<N> —` plans once
 // readPlanHeading delegates to the shared parser — would otherwise misdirect a
 // Jira operator to the Linear-only `save_issue` call. Mirrors the binding-aware
-// split already in MilestoneAttachmentError (STE-329). The `mismatch` kind only
-// fires on the object branch, so it stays Linear-specific.
+// split already in MilestoneAttachmentError (STE-329).
+//
+// STE-525 gave the `mismatch` half the same split, so no arm names a Linear call
+// on a Jira binding. Reachability is asymmetric and deliberate: `mismatch` is
+// passed from exactly ONE call site — the `object` branch's name comparison —
+// because the `epic` and `label` branches route every binding failure, divergent
+// or absent, through `missing`. Their `mismatch` arms are defensive, so a future
+// caller inherits a binding-correct remedy instead of the Linear-specific string
+// this replaced; do not delete them without first proving no caller can arrive.
 function buildMessage(
   reason: string,
   file: string,
   kind: "missing" | "mismatch",
   binding: "object" | "label" | "epic" = "object",
+  expectedToken?: string,
 ): string {
+  // STE-525: the Epic-keyed leg of the `epic` binding resolves the milestone
+  // Epic by KEY (STE-521) — every candidate Epic's key is sanitized forward
+  // (`GF-78` → `M_GF_78`) and compared to the plan heading's token. The Epic's
+  // summary is not consulted on that path at all, so a name mismatch cannot be
+  // why the binding failed, and a remedy ordering the operator to reconcile
+  // names would describe a mechanism this milestone removed. Exactly one thing
+  // can still be wrong: no Epic in the project carries the key the token
+  // encodes. Both kinds share this remedy because only `missing` can arise.
+  // Grandfathered numeric milestones (token not `M_`-prefixed) bind through the
+  // label fallback instead and keep the generic arms below.
+  if (binding === "epic" && (expectedToken ?? "").startsWith("M_")) {
+    const epicRemedy =
+      "The milestone Epic is resolved by its key, never by its summary — a name mismatch is not a binding failure " +
+      `on this binding. What is absent is an Epic whose key sanitizes to \`${expectedToken}\` (e.g. \`GF-78\` → ` +
+      "`M_GF_78`): create or locate that Epic in the project, then set this issue's `parent` to that Epic's key via " +
+      "mcp__atlassian__editJiraIssue additional_fields.parent (/implement Phase 1 calls attachProjectMilestone() " +
+      "idempotently and does the same). If the tracker side is correct — the Epic that exists is the intended one — " +
+      "re-key the milestone to it: an Epic-keyed milestone lives at `specs/plan/M_<epic-key>.md`, so the plan " +
+      "FILE, its `## M_<epic-key> — <Title>` heading and each bound FR's `milestone:` frontmatter all move " +
+      "together. Editing the heading alone leaves the id and the filename disagreeing, which turns probe #27 red.";
+    return [
+      `tracker_project_milestone_attached: ${reason}`,
+      `Remedy: ${epicRemedy}`,
+      `Context: file=${file}, probe=tracker_project_milestone_attached`,
+    ].join("\n");
+  }
   const manualAttach =
     binding === "epic"
       ? "Or attach manually via your tracker's edit-issue call (e.g. mcp__atlassian__editJiraIssue additional_fields.parent) setting the issue's `parent` to the milestone Epic's key."
       : binding === "label"
         ? "Or attach manually via your tracker's edit-issue call (e.g. mcp__atlassian__editJiraIssue) adding the `milestone-<M-token>` label to the issue's existing labels (read-merge-write — never clobber)."
         : "Or attach manually via mcp__linear__save_issue(id=<ticket>, milestone=<canonical name from plan heading>).";
+  // The mismatch half branches on binding exactly like the manual-attach half
+  // above: each arm names a write call the bound adapter actually documents
+  // (adapters/linear.md / adapters/jira.md), and every arm preserves the
+  // other direction — tracker side correct ⇒ edit the plan heading.
+  const mismatchRemedy =
+    binding === "epic"
+      ? "If the local plan-file heading is correct, re-point the issue's `parent` at the milestone Epic for that heading via mcp__atlassian__editJiraIssue additional_fields.parent. If the tracker side is correct, edit specs/plan/M<N>.md heading to match."
+      : binding === "label"
+        ? "If the local plan-file heading is correct, update the issue's milestone label to the `milestone-<M-token>` derived from that heading via mcp__atlassian__editJiraIssue (read-merge-write the existing labels — never clobber). If the tracker side is correct, edit specs/plan/M<N>.md heading to match."
+        : "If the local plan-file heading is correct, rename the tracker milestone to that exact string via mcp__linear__save_issue(id=<ticket>, milestone=<canonical name from plan heading>) — /implement Phase 1 performs the same attach idempotently. If the tracker side is correct, edit specs/plan/M<N>.md heading to match.";
   const remedy =
     kind === "missing"
       ? `Run /implement Phase 1 against this FR — Phase 1 entry calls attachProjectMilestone() idempotently. ${manualAttach}`
-      : "If the local plan-file heading is correct, run /spec-write --rename-milestone M<N> to rename the Linear milestone to match. If the tracker side is correct, edit specs/plan/M<N>.md heading to match.";
+      : mismatchRemedy;
   return [
     `tracker_project_milestone_attached: ${reason}`,
     `Remedy: ${remedy}`,
@@ -356,7 +428,7 @@ export async function runTrackerProjectMilestoneAttachedProbe(
         line: 1,
         reason,
         note: `${rel}:1 — ${trackerRef} epic milestone binding missing (expected ${expectedDesc})`,
-        message: buildMessage(reason, rel, "missing", "epic"),
+        message: buildMessage(reason, rel, "missing", "epic", token),
       });
       continue;
     }
