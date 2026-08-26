@@ -268,6 +268,12 @@ const REMOTE_CONTROL_ADVISORIES: Record<WorkerNameRule, string> = {
     "one. Rule broken: a basename may not fold away to an empty segment. " +
     "Rename the repository to a basename that survives folding to get a " +
     "named worker.",
+  identity_nothing_left:
+    "remote_control is `none` — nothing is left of this run's identity once it " +
+    "is folded into the worker-name grammar, so the name would have carried no " +
+    "identity segment at all and the worker spawns without one. Rule broken: an " +
+    "identity may not fold away to an empty segment. Deliver an FR or a " +
+    "milestone whose identity survives folding to get a named worker.",
   no_identity:
     "remote_control is `none` — this run resolved no unit of work to name a " +
     "worker after, so no name was composed and the worker spawns without " +
@@ -278,10 +284,17 @@ const REMOTE_CONTROL_ADVISORIES: Record<WorkerNameRule, string> = {
 /**
  * The advisory for a refusal that named no rule.
  *
- * `WorkerNameRefusedError.rule` is optional, so this branch is real rather than
- * defensive: it says exactly what is known and does not guess a rule it was not
- * told, because an advisory naming the wrong rule sends the operator to rename
- * a repository that was never the problem.
+ * DEFENSIVE, and no production path reaches it. Every refusal this module's own
+ * `refuse()` raises carries a rule, so `rule === null` requires an error built
+ * by hand through the public constructor — which a caller legitimately can do,
+ * and which the narrowness control in the M134 suite does. The branch stays
+ * because the constructor allows it; what does NOT stay is the earlier claim
+ * that it was "real rather than defensive", which was false for every path a
+ * delivery run can take.
+ *
+ * What it must never do is guess. An advisory naming the wrong rule sends the
+ * operator to rename a repository that was never the problem, so this says
+ * exactly what is known and no more.
  */
 const UNATTRIBUTED_ADVISORY =
   "remote_control is `none` — the worker name could not be derived and the " +

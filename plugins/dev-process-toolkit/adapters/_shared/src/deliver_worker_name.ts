@@ -61,7 +61,18 @@ export type WorkerNameRule =
   /** The composed name does not begin with a lowercase letter. */
   | "leading_character"
   /** Sanitizing left no repository segment at all. */
-  | "nothing_left";
+  | "nothing_left"
+  /**
+   * Sanitizing left no IDENTITY segment at all.
+   *
+   * The mirror of `nothing_left`, and it was missing. The repository half was
+   * guarded against folding away; the identity half was not, so an identity of
+   * `###` composed to `<repo>-` — grammar-legal, cap-legal, and carrying no
+   * discriminator at all, which is precisely the collision the name shape
+   * exists to prevent. Two such runs would take one name and the second spawn
+   * would be refused by the spawning skill.
+   */
+  | "identity_nothing_left";
 
 /**
  * The NFR-10 refusal this module raises. Named so a caller can tell a worker-name
@@ -177,6 +188,22 @@ export function workerRemoteControlName(
   const repo = repositorySegment(input.repoRoot);
   const identity = sanitizeSegment(input.identity);
 
+  // The identity is the half that may never be cut, so it is also the half that
+  // may never be ABSENT. An identity that folds away entirely composes to
+  // `<repo>-`, which the grammar and the cap both admit while it discriminates
+  // nothing — two runs would collide on one name and the spawning skill refuses
+  // the second. The repository segment has been guarded against this since the
+  // module shipped; this is its mirror.
+  if (identity.length === 0) {
+    throw refuse({
+      verdict: `to name a worker: nothing is left of the identity "${input.identity}" once it is folded into the worker-name grammar.`,
+      remedy:
+        "Deliver an FR or a milestone whose identity survives folding — a name is <repository>-<identity> and the identity segment may not be empty, because it is the half that tells two runs apart.",
+      context: `Identity "${input.identity}" sanitizes to the empty string; the composed name would be "${repo}-", which the grammar admits and which carries no identity segment at all.`,
+      rule: "identity_nothing_left",
+    });
+  }
+
   // Over the cap the REPOSITORY segment gives way, keeping its leading
   // characters and shortening by exactly as much as it must — never more. The
   // identity is the discriminator the whole name shape exists for, so it is
@@ -226,4 +253,41 @@ export function workerRemoteControlName(
   }
 
   return name;
+}
+
+// Read-only CLI, the same shape `deliver_decision.ts` and `resume_gate_render.ts`
+// ship. It exists because the FRESH-IDEA path had no way to run this.
+//
+// The resume path reaches this module through `decideDelivery`, so its name
+// comes from bytes a command printed. The fresh-idea path has no decision
+// record and was ordered, in prose, to "run the same derivation" — with nothing
+// to run. A reader who cannot execute an order narrates it instead, and a
+// narrated name and a derived one drift apart, which is the defect the decision
+// command was built to end. This is that command for this module.
+//
+//   bun run deliver_worker_name.ts <repoRoot> <identity>
+//
+// Prints the composed name on stdout and exits 0, or prints the NFR-10 envelope
+// on stderr and exits non-zero — the record channel stays empty on a refusal,
+// so a caller reading stdout gets a whole name or nothing, never a partial one.
+if (import.meta.main) {
+  const repoRoot = process.argv[2];
+  const identity = process.argv[3];
+  if (repoRoot === undefined || identity === undefined) {
+    console.error(
+      [
+        "Refusing: to name a worker without both a repository root and an identity.",
+        "Remedy: bun run deliver_worker_name.ts <repoRoot> <identity>",
+        "Context: mode=deliver, phase=worker-name, argv=incomplete",
+      ].join("\n"),
+    );
+    process.exitCode = 1;
+  } else {
+    try {
+      console.log(workerRemoteControlName({ repoRoot, identity }));
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    }
+  }
 }

@@ -941,3 +941,81 @@ describe("AC-STE-518.10 — nothing is imported from the branch-proposal module"
     expect(await derive(REAL_REPO, MILESTONE)).toBe(MILESTONE_NAME);
   });
 });
+
+// ===========================================================================
+// M134 post-review fixes (STE-518 half). Added after the milestone-level
+// /spec-review found what three clean per-FR audits structurally could not.
+// ===========================================================================
+
+describe("post-review — the IDENTITY segment may not fold away either", () => {
+  // MEASURED BEFORE THE FIX: workerRemoteControlName({repoRoot:"/x/dev-process-toolkit",
+  // identity:"###"}) returned "dev-process-toolkit-" — grammar-legal, cap-legal,
+  // and carrying NO discriminator, so two runs collide on one name and the
+  // spawning skill refuses the second. The repository half was guarded against
+  // folding away since the module shipped; this is the mirror that was missing.
+  for (const identity of ["###", "-", "   ", "!!!"]) {
+    test(`an identity of ${JSON.stringify(identity)} refuses instead of composing a nameless name`, async () => {
+      const mod = await loadModule();
+      let thrown: any = null;
+      try {
+        mod.workerRemoteControlName({ repoRoot: "/x/dev-process-toolkit", identity });
+      } catch (e) {
+        thrown = e;
+      }
+      expect({
+        threw: thrown !== null,
+        rule: thrown?.rule ?? null,
+        // the old return value must NOT be what comes back
+        namesNothing: thrown === null,
+      }).toEqual({ threw: true, rule: "identity_nothing_left", namesNothing: false });
+    });
+  }
+
+  test("the guard is NARROW — an identity that survives folding still renders", async () => {
+    // The other side of the pin. A guard that refused everything would satisfy
+    // every leg above and break the module.
+    const mod = await loadModule();
+    expect(
+      mod.workerRemoteControlName({ repoRoot: "/x/dev-process-toolkit", identity: "M134" }),
+    ).toEqual("dev-process-toolkit-m134");
+  });
+});
+
+describe("post-review — the derivation has a runnable front door", () => {
+  // The fresh-idea path was ORDERED to run this derivation and had no command
+  // to run: the module carried no `import.meta.main` while both sibling deliver
+  // modules carry one. A reader who cannot execute an order narrates it, and a
+  // narrated name and a derived one drift apart.
+  test("the module carries a command-line entry point", () => {
+    const src = readFileSync(NAME_MODULE, "utf-8");
+    expect(src.includes("import.meta.main")).toBe(true);
+  });
+
+  test("the command prints exactly what the function returns", async () => {
+    const mod = await loadModule();
+    const viaFunction = mod.workerRemoteControlName({
+      repoRoot: join(import.meta.dir, "..", "..", ".."),
+      identity: "M134",
+    });
+    const viaCommand = Bun.spawnSync([
+      "bun",
+      "run",
+      NAME_MODULE,
+      join(import.meta.dir, "..", "..", ".."),
+      "M134",
+    ]);
+    expect({
+      code: viaCommand.exitCode,
+      stdout: new TextDecoder().decode(viaCommand.stdout).trim(),
+    }).toEqual({ code: 0, stdout: viaFunction });
+  });
+
+  test("the command REFUSES on stderr with an empty stdout, never a partial name", () => {
+    const r = Bun.spawnSync(["bun", "run", NAME_MODULE, "/x/dev-process-toolkit", "###"]);
+    expect({
+      nonZero: r.exitCode !== 0,
+      stdoutEmpty: new TextDecoder().decode(r.stdout).trim() === "",
+      stderrRefuses: new TextDecoder().decode(r.stderr).includes("Refusing:"),
+    }).toEqual({ nonZero: true, stdoutEmpty: true, stderrRefuses: true });
+  });
+});
