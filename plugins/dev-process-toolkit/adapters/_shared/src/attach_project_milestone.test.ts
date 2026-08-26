@@ -939,21 +939,26 @@ describe("STE-362 AC-STE-362.1 — retry wrapper covers the label branch (Jira)"
 //      and surface `milestone_epic_unsupported` (informational capability
 //      row, never a throw). Absent ⇒ assume available (same posture as the
 //      optional `supports` probe).
-//   2. `listEpics(project): Promise<{ key: string; name: string }[]>` —
-//      find-BEFORE-create: match by byte-equal canonical plan-heading name
-//      (STE-118 discipline).
-//   3. `createEpic(project, { name }): Promise<{ key: string }>` — only on
-//      a find miss (`createJiraIssue issuetype=Epic` in jira.md prose);
-//      surfaces `milestone_create_required` + `createdName` like the
-//      object-branch auto-create.
+//   2. `listEpics(project): Promise<{ key: string; name: string }[]>` — the
+//      match. STE-521 made it by KEY for an Epic-KEYED token (sanitize each
+//      candidate key forward and compare); a pre-key human title, which
+//      carries no key, still matches by byte-equal name (STE-118 discipline).
+//   3. STE-522: this module NO LONGER CREATES Epics. Minting moved to
+//      `mint_milestone_epic.ts`, because `attachProjectMilestone` takes
+//      `ticketId` as a required positional and the Epic-first path has no
+//      ticket yet. A find miss REFUSES (MilestoneEpicNotFoundError for an
+//      Epic-keyed token, MilestoneEpicUnmintedError for a title) and names
+//      the mint step. `milestone_create_required` is an OBJECT-binding row
+//      now; nothing on the epic path emits it.
 //   4. Idempotency pre-check: `getIssue(ticketId)` now also exposes
 //      `parent?: string | null`; when it already equals the Epic key the
 //      attach is a NO-OP (no parent rewrite, no second Epic).
 //   5. `setParent(ticketId, epicKey): Promise<void>` — the
 //      `editJiraIssue additional_fields.parent` seam — then read-back
 //      verify `parent === epicKey`; mismatch ⇒ MilestoneAttachmentError
-//      with `binding: "epic"` (never retried); transient create/parent-set
-//      failures retry the WHOLE round-trip on TRANSIENT_RETRY_SCHEDULE_MS.
+//      with `binding: "epic"` (never retried); transient parent-set failures
+//      retry the WHOLE round-trip on TRANSIENT_RETRY_SCHEDULE_MS. The create
+//      retry legs moved with the create — see mint_milestone_epic's suite.
 //
 // The epic branch never calls the object-path ops (listMilestones /
 // saveMilestone / upsertTicketMetadata). It scatters no
@@ -1003,8 +1008,11 @@ interface EpicStub {
   forceVerifyParent?: string | null;
   labels: string[];
   calls: string[];
-  /** Key minted for the next createEpic call. */
+  /** Key minted for the next createEpic call. Retained for the OBJECT-branch
+   *  and degrade fixtures; inert on the epic branch since STE-522 removed
+   *  its create leg. */
   nextEpicKey: string;
+  /** Inert on the epic branch since STE-522 (no create there to fail). */
   createEpicErrors: Error[];
   setParentErrors: Error[];
   /** Landed-but-timed-out simulation: createEpic registers the Epic
@@ -1092,7 +1100,7 @@ function baseEpicStub(overrides: Partial<EpicStub> = {}): EpicStub {
   };
 }
 
-describe("STE-375 AC-STE-375.1 — epic binding: find-or-create + parent set", () => {
+describe("STE-375 AC-STE-375.1 — epic binding: find-or-REFUSE + parent set", () => {
   test("existing Epic matched by canonical name → parent set to its key, no create, no sleeps", async () => {
     const stub = baseEpicStub({ epics: [{ key: "DPT-500", name: EPIC_NAME }] });
     const rec = sleepRecorder();
@@ -1117,18 +1125,28 @@ describe("STE-375 AC-STE-375.1 — epic binding: find-or-create + parent set", (
     expect(stub.calls.find((c) => c.startsWith("upsertTicketMetadata"))).toBeUndefined();
   });
 
-  test("no Epic with the canonical name → create-on-miss, then parent set + capability row", async () => {
+  // STE-522 re-point: BINDING NEVER CREATES. The create-on-miss this test
+  // pinned moved into `mintMilestoneEpic`, because `attachProjectMilestone`
+  // takes `ticketId` as a required positional and minting inside it demanded a
+  // ticket the Epic-first path does not have yet. The miss is now a refusal
+  // that names the step to run first.
+  test("no Epic with the canonical name → refuses, names the mint step, creates nothing", async () => {
     const stub = baseEpicStub({ nextEpicKey: "DPT-501" });
     const rec = sleepRecorder();
-    const result = await attachEpic(makeEpicProvider(stub), "DPT", EPIC_NAME, "STE-375", {
-      sleep: rec.sleep,
-    });
-    expect(stub.calls).toContain(`createEpic(DPT,${EPIC_NAME})`);
-    expect(stub.epics).toEqual([{ key: "DPT-501", name: EPIC_NAME }]);
-    expect(stub.parent).toBe("DPT-501");
-    // Auto-create surfaces the same capability shape as the object branch.
-    expect(result.capability).toBe("milestone_create_required");
-    expect(result.createdName).toBe(EPIC_NAME);
+    let err: unknown = null;
+    try {
+      await attachEpic(makeEpicProvider(stub), "DPT", EPIC_NAME, "STE-375", { sleep: rec.sleep });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).not.toBeNull();
+    expect(String((err as Error).message)).toContain("mintMilestoneEpic");
+    // Nothing was created and nothing was bound — the refusal is not a
+    // create-then-complain.
+    expect(countCalls(stub.calls, "createEpic")).toBe(0);
+    expect(stub.epics).toEqual([]);
+    expect(stub.parent).toBeNull();
+    // A refusal must not pay the transient backoff.
     expect(rec.sleeps).toEqual([]);
   });
 
@@ -1158,17 +1176,22 @@ describe("STE-375 AC-STE-375.1 — epic binding: find-or-create + parent set", (
     // routes to the label surface — it would no longer reach the name match
     // this test exists to exercise. The em-dash/hyphen discriminator is kept
     // deliberately: it is the specific pair the discipline exists for.
-    await attachEpic(
-      makeEpicProvider(stub),
-      "DPT",
-      HYPHEN_TITLE,
-      "STE-375",
-      { sleep: rec.sleep },
-    );
-    expect(
-      stub.calls.find((c) => c.startsWith(`createEpic(DPT,${HYPHEN_TITLE}`)),
-    ).toBeDefined();
-    expect(stub.parent).toBe("DPT-502");
+    let err: unknown = null;
+    try {
+      await attachEpic(makeEpicProvider(stub), "DPT", HYPHEN_TITLE, "STE-375", {
+        sleep: rec.sleep,
+      });
+    } catch (e) {
+      err = e;
+    }
+    // STE-522 re-point: the miss is a refusal now, and asserting the refusal is
+    // a STRONGER byte-equality pin than asserting a create — it shows the
+    // em-dash Epic was not matched, with no dependence on a create path this
+    // module no longer has. A match would have bound to DPT-500 instead.
+    expect(err).not.toBeNull();
+    expect(countCalls(stub.calls, "createEpic")).toBe(0);
+    expect(stub.parent).toBeNull();
+    expect(stub.epics).toEqual([{ key: "DPT-500", name: EM_DASH_TITLE }]);
   });
 });
 
@@ -1192,15 +1215,18 @@ describe("STE-375 AC-STE-375.2 — idempotent attach", () => {
   });
 
   test("re-running a successful attach creates nothing and rewrites nothing", async () => {
-    const stub = baseEpicStub({ nextEpicKey: "DPT-503" });
+    // STE-522 re-point: the Epic is SEEDED rather than minted by run 1
+    // (binding never creates). The subject is unchanged and is the second run.
+    const stub = baseEpicStub({ epics: [{ key: "DPT-503", name: EPIC_NAME }] });
     const rec = sleepRecorder();
     const p = makeEpicProvider(stub);
-    // First run: create + parent-set.
+    // First run: find + parent-set.
     await attachEpic(p, "DPT", EPIC_NAME, "STE-375", { sleep: rec.sleep });
     expect(stub.parent).toBe("DPT-503");
     const createsAfterRun1 = countCalls(stub.calls, "createEpic");
     const parentSetsAfterRun1 = countCalls(stub.calls, "setParent");
-    expect(createsAfterRun1).toBe(1);
+    expect(createsAfterRun1).toBe(0);
+    expect(parentSetsAfterRun1).toBe(1);
     // Second run: full no-op — Epic reused (find-before-create), parent
     // untouched.
     const result = await attachEpic(p, "DPT", EPIC_NAME, "STE-375", { sleep: rec.sleep });
@@ -1340,39 +1366,16 @@ describe("STE-375 AC-STE-375.5 — read-back verify + epic error shape", () => {
     expect(rec.sleeps).toEqual([1000, 2000, 4000]);
   });
 
-  test("transient failure on createEpic → retried on the canonical schedule, single Epic", async () => {
-    const stub = baseEpicStub({
-      nextEpicKey: "DPT-504",
-      createEpicErrors: [new Error("read ECONNRESET")],
-    });
-    const rec = sleepRecorder();
-    await attachEpic(makeEpicProvider(stub), "DPT", EPIC_NAME, "STE-375", {
-      sleep: rec.sleep,
-    });
-    expect(rec.sleeps).toEqual([1000]);
-    expect(countCalls(stub.calls, "createEpic")).toBe(2);
-    expect(stub.epics.length).toBe(1);
-    expect(stub.parent).toBe("DPT-504");
-  });
-
-  test("landed-but-timed-out create: the retry re-runs find-before-create — no duplicate Epic", async () => {
-    // The createEpic call registers the Epic server-side, then times out.
-    // The retry must re-run the FIND leg first and reuse the landed Epic —
-    // a blind re-create would mint a duplicate.
-    const stub = baseEpicStub({
-      nextEpicKey: "DPT-505",
-      createEpicErrors: [new Error("504 Gateway Timeout")],
-      createLandsBeforeThrow: true,
-    });
-    const rec = sleepRecorder();
-    await attachEpic(makeEpicProvider(stub), "DPT", EPIC_NAME, "STE-375", {
-      sleep: rec.sleep,
-    });
-    expect(rec.sleeps).toEqual([1000]);
-    expect(countCalls(stub.calls, "createEpic")).toBe(1);
-    expect(stub.epics.length).toBe(1);
-    expect(stub.parent).toBe("DPT-505");
-  });
+  // STE-522 RELOCATED — the two createEpic retry legs that lived here moved to
+  // tests/m135-ste-522-mint-milestone-epic.test.ts (AC-STE-522.10), because
+  // this module no longer creates Epics at all: minting moved into
+  // `mintMilestoneEpic`, which takes no ticketId and can therefore serve the
+  // Epic-first path. The protection itself was NOT dropped in the move — the
+  // helper wraps find-before-create in the same exported `retryTransient`, and
+  // both legs (a plain transient failure, and a create that lands server-side
+  // then times out) are pinned there, plus a third leg asserting the success
+  // path still waits zero times. Removed here rather than left asserting a
+  // path this module does not have.
 });
 
 describe("STE-362 AC-STE-362.4 — vacuity: short-circuits keep the wrapper inert", () => {

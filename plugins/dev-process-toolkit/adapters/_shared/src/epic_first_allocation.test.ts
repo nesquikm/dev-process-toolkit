@@ -34,6 +34,7 @@ import {
   planFileHeadingToMilestoneName,
   type MilestoneOps,
 } from "./attach_project_milestone";
+import { mintMilestoneEpic } from "./mint_milestone_epic";
 import { runFrontmatterMilestoneNotArchivedProbe } from "./frontmatter_milestone_not_archived";
 import {
   isMilestoneToken,
@@ -170,17 +171,23 @@ describe("AC-STE-377.1 — milestoneIdFromEpicKey sanitizer", () => {
 describe("AC-STE-377.1 — epic-binding attach surfaces the Epic key for id derivation", () => {
   const EPIC_NAME = "Epic-first allocation fixture"; // pre-key title: the key does not exist yet
 
+  // STE-522 re-point: the CREATE path moved out of the attach into
+  // `mintMilestoneEpic`. That was structural, not cosmetic —
+  // `attachProjectMilestone` takes `ticketId` as a REQUIRED positional, so
+  // minting inside it demanded a ticket that, on the Epic-first path, does
+  // not exist yet. The helper takes no ticket. This test's subject is
+  // unchanged: the tracker-assigned key is surfaced for id derivation.
   test("create path: tracker-assigned key surfaced on the result", async () => {
     const stub = baseEpicStub({ nextEpicKey: "PROJ-500" });
-    const rec = sleepRecorder();
-    const result = await attachEpic(makeEpicProvider(stub), "PROJ", EPIC_NAME, "PROJ-501", {
-      sleep: rec.sleep,
-    });
-    expect(result.capability).toBe("milestone_create_required");
+    const result = await mintMilestoneEpic(makeEpicProvider(stub) as never, "PROJ", EPIC_NAME);
     expect(result.epicKey).toBe("PROJ-500");
     // /spec-write derives the milestone id from the surfaced key alone —
     // no scan, no plan file needed first.
-    expect(milestoneIdFromEpicKey(result.epicKey!)).toBe("M_PROJ_500");
+    expect(result.milestoneId).toBe("M_PROJ_500");
+    expect(milestoneIdFromEpicKey(result.epicKey)).toBe("M_PROJ_500");
+    // The summary sent is the TITLE ALONE — the canonical `M_<key> — <title>`
+    // name is not computable here, which is the whole reason this step exists.
+    expect(stub.calls).toContain(`createEpic(PROJ,${EPIC_NAME})`);
   });
 
   test("found path: existing Epic's key surfaced too", async () => {
@@ -218,17 +225,18 @@ describe("AC-STE-377.2 — two concurrent Jira allocations never collide", () =>
     const recA = sleepRecorder();
     const recB = sleepRecorder();
 
+    // STE-522 re-point: allocation is `mintMilestoneEpic` now (see AC-377.1).
     const [resultA, resultB] = await Promise.all([
-      attachEpic(makeEpicProvider(stubA), "PROJ", "Concurrent milestone A", "PROJ-510", {
-        sleep: recA.sleep,
-      }),
-      attachEpic(makeEpicProvider(stubB), "PROJ", "Concurrent milestone B", "PROJ-511", {
-        sleep: recB.sleep,
-      }),
+      mintMilestoneEpic(makeEpicProvider(stubA) as never, "PROJ", "Concurrent milestone A"),
+      mintMilestoneEpic(makeEpicProvider(stubB) as never, "PROJ", "Concurrent milestone B"),
     ]);
 
-    const idA = milestoneIdFromEpicKey(resultA.epicKey!);
-    const idB = milestoneIdFromEpicKey(resultB.epicKey!);
+    // Asserted through the helper's OWN derivation and re-derived independently,
+    // so a helper that returned a stale or shared id fails the first line.
+    expect(resultA.milestoneId).toBe("M_PROJ_500");
+    expect(resultB.milestoneId).toBe("M_PROJ_501");
+    const idA = milestoneIdFromEpicKey(resultA.epicKey);
+    const idB = milestoneIdFromEpicKey(resultB.epicKey);
     expect(idA).toBe("M_PROJ_500");
     expect(idB).toBe("M_PROJ_501");
     expect(idA).not.toBe(idB);

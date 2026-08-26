@@ -103,6 +103,42 @@ export class MilestoneEpicNotFoundError extends Error {
 }
 
 /**
+ * STE-522 AC-STE-522.8 — the miss verdict for OUTCOME 4, the pre-key HUMAN
+ * TITLE. Binding never creates. Minting a milestone Epic is now its own named,
+ * ordered step (`mintMilestoneEpic`, `adapters/_shared/src/mint_milestone_epic.ts`):
+ * create with the title alone, read the allocated key back, derive the
+ * milestone id from that key, then write the plan file under it. An attach
+ * that minted here would run that sequence backwards — the Epic would exist,
+ * but no plan heading would have been derived from its key, which is the same
+ * non-correspondence STE-521 refused on the Epic-KEYED leg. One rule now
+ * covers both: an attach that cannot find its Epic says so.
+ *
+ * Raised OUTSIDE `retryTransient` (a plain `Error` inside the wrapper is
+ * classified possibly-transient and would pay the full 1s+2s+4s schedule
+ * before surfacing). A refusal is a decision, not a transient.
+ *
+ * NFR-10 canonical shape: verdict line + `Remedy:` + `Context:`. The message
+ * names the milestone name searched for and the project searched, and it names
+ * the step the operator must run first — a refusal whose remedy is "mint it"
+ * has to say what mints it.
+ */
+export class MilestoneEpicUnmintedError extends Error {
+  readonly milestoneName: string;
+  readonly project: string;
+
+  constructor(milestoneName: string, project: string) {
+    super(
+      `MilestoneEpicUnmintedError: refusing to attach — no Epic in project "${project}" is named "${milestoneName}", and the attach never mints one. Minting a milestone Epic is a separate named step, because its correctness depends on an ORDER the attach cannot supply: the Epic is created with the human title alone, the tracker allocates a key, and the milestone id is derived from that key. An Epic minted here would carry a name no milestone id was ever derived from.\n` +
+        `Remedy: mint the Epic first with \`mintMilestoneEpic\` (\`adapters/_shared/src/mint_milestone_epic.ts\`) — it creates the Epic under the human title, returns the allocated key and the \`M_<epic-key>\` milestone id derived from it; write the plan file under that id, then re-run the attach against the canonical \`M_<epic-key> — <Title>\` name. If the Epic already exists, its name and the attached milestone name must byte-match — fix whichever is wrong rather than creating a second Epic.\n` +
+        `Context: milestoneName="${milestoneName}", project="${project}", binding=epic, outcome=pre-key-human-title, helper=attachProjectMilestone`,
+    );
+    this.name = "MilestoneEpicUnmintedError";
+    this.milestoneName = milestoneName;
+    this.project = project;
+  }
+}
+
+/**
  * STE-523 AC-STE-523.6 — the THIRD case at the `epic` binding's kind-routing
  * decision. An `epic`-kind token binds by parent Epic and a `numeric`-kind
  * token takes the label path; a leading token that parses to NEITHER has no
@@ -182,8 +218,9 @@ export interface MilestoneOps {
    *      writing nothing.
    *   4. A name claiming NO token — a pre-key HUMAN TITLE (STE-377's
    *      Epic-FIRST allocation: the Epic must exist before there is a key to
-   *      derive an id from). The Epic is matched by NAME and CREATED on a
-   *      miss, then parented. A real supported path, not a fallthrough.
+   *      derive an id from). The Epic is matched by NAME and parented. A miss
+   *      REFUSES with `MilestoneEpicUnmintedError` (STE-522); it never mints.
+   *      A real supported path, not a fallthrough.
    *
    * Ahead of all four sits the optional `epicBindingAvailable` probe:
    * `false` degrades the whole binding to the `label` path and surfaces
@@ -194,12 +231,14 @@ export interface MilestoneOps {
    * STE-375 AC-STE-375.1 — epic-binding ops. Required only when
    * `milestoneBinding === "epic"` AND the token routes to the parent surface
    * (outcomes 1 and 4 above): a grandfathered numeric milestone needs only
-   * `addLabel`, and both refusals are raised before the ops guard.
+   * `addLabel`, and both token refusals are raised before the ops guard.
    * `listEpics` enumerates the project's Epics (key + name) for the match —
    * by sanitized KEY for an Epic-keyed token, by byte-equal NAME for a
-   * pre-key human title; `createEpic` creates the milestone Epic on a miss,
-   * reachable from the by-NAME leg ALONE (an Epic-keyed miss refuses);
-   * `setParent` points the FR Task's parent at the Epic's key.
+   * pre-key human title; `setParent` points the FR Task's parent at the
+   * Epic's key. `createEpic` is NOT among them: since STE-522 the attach
+   * never mints, on either arm. The op stays declared here because
+   * `mintMilestoneEpic` — the one production caller — takes a provider
+   * carrying it.
    */
   listEpics?: (project: string) => Promise<{ key: string; name: string }[]>;
   createEpic?: (project: string, opts: { name: string }) => Promise<{ key: string }>;
@@ -258,8 +297,9 @@ export interface AttachProjectMilestoneResult {
   capability: AttachProjectMilestoneCapability;
   createdName?: string;
   /**
-   * STE-377 AC-STE-377.1 — the tracker-assigned Epic key (create, found,
-   * and already-bound legs of the `epic` binding all surface it) so
+   * STE-377 AC-STE-377.1 — the tracker-assigned Epic key (the found and
+   * already-bound legs of the `epic` binding both surface it; STE-522
+   * removed the create leg, so minting surfaces the key itself) so
    * /spec-write can derive the milestone id via `milestoneIdFromEpicKey`
    * with no scan and no plan file written first. Absent off the epic path.
    */
@@ -280,7 +320,15 @@ export interface AttachProjectMilestoneOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
-const defaultSleep = (ms: number): Promise<void> =>
+/**
+ * The real-time wait behind every optional `sleep` seam in the retry
+ * apparatus. Exported so `mintMilestoneEpic` — the other `retryTransient`
+ * caller — uses the SAME default rather than a second copy: the schedule
+ * (`TRANSIENT_RETRY_SCHEDULE_MS`), the loop (`retryTransient`) and the wait are
+ * one set of three, and a divergent third piece would let two call sites of one
+ * contract disagree about what "no injected sleep" means.
+ */
+export const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -298,7 +346,7 @@ const defaultSleep = (ms: number): Promise<void> =>
  * before a genuinely permanent non-mismatch error surfaces. The success path
  * adds no latency (sleep fires only after a caught error).
  */
-async function retryTransient<T>(
+export async function retryTransient<T>(
   roundTrip: () => Promise<T>,
   sleep: (ms: number) => Promise<void>,
 ): Promise<T> {
@@ -406,13 +454,15 @@ export async function attachProjectMilestone(
   //   2. numeric `M<N>` (grandf.)   → milestone LABEL         → no Epic lookup
   //   3. claims a token, parses     → none — refuses (523)    → no Epic lookup
   //      as neither kind
-  //   4. claims no token — pre-key  → parent Epic, by NAME    → CREATE (377)
+  //   4. claims no token — pre-key  → parent Epic, by NAME    → REFUSE (522)
   //      HUMAN title
   //
   // Among the four, outcome 2 is the only one that writes a label; 1 and 4
-  // are the only ones that set a parent, and 4 is the only one that can reach
-  // `createEpic`. None calls the object-path ops (listMilestones /
-  // saveMilestone / upsertTicketMetadata). Ahead of all four sits the
+  // are the only ones that set a parent, and NONE of them creates an Epic —
+  // since STE-522 minting is its own step (`mintMilestoneEpic`), so an Epic
+  // the attach cannot find is a refusal on both parent-surface arms. None
+  // calls the object-path ops (listMilestones / saveMilestone /
+  // upsertTicketMetadata). Ahead of all four sits the
   // availability probe immediately below: `false` degrades the whole binding
   // to the legacy label path before any token is even parsed.
   if (provider.milestoneBinding === "epic") {
@@ -480,10 +530,10 @@ export async function attachProjectMilestone(
     // ── OUTCOMES 1 and 4: the parent-Epic surface. Only these two reach the
     // epic ops — outcome 2 needs `addLabel` alone, and outcome 3 wrote
     // nothing at all.
-    const { listEpics, createEpic, setParent } = provider;
-    if (!listEpics || !createEpic || !setParent) {
+    const { listEpics, setParent } = provider;
+    if (!listEpics || !setParent) {
       throw new Error(
-        'attachProjectMilestone: milestoneBinding === "epic" requires listEpics/createEpic/setParent ops on the provider',
+        'attachProjectMilestone: milestoneBinding === "epic" requires listEpics/setParent ops on the provider',
       );
     }
     // STE-521 AC-STE-521.1 — for an Epic-KEYED milestone the join is by key,
@@ -498,8 +548,9 @@ export async function attachProjectMilestone(
     // parent key swapped for the candidate's. The by-NAME arm below belongs
     // to OUTCOME 4 — a pre-key human title, the only name shape still
     // reaching it since STE-523 sent grandfathered numeric `M<N>` milestones
-    // to the label surface. (`milestoneToken` / `parsedToken` are recovered
-    // above, at the kind-routing decision — one extraction serves both.)
+    // to the label surface. Since STE-522 that arm, too, only FINDS.
+    // (`milestoneToken` / `parsedToken` are recovered above, at the
+    // kind-routing decision — one extraction serves both.)
     // Non-null EXACTLY when the token is Epic-keyed: the key the match looks
     // for, and the key the refusal below names.
     const tokenEpicKey = parsedToken?.kind === "epic" ? parsedToken.key : null;
@@ -512,14 +563,14 @@ export async function attachProjectMilestone(
         return false;
       }
     };
-    // STE-375 AC-STE-375.5 — the find-or-create leg retries as ONE unit on
-    // transient failure (STE-362 canonical schedule). Each retry re-runs the
-    // FIND leg first: a createEpic that landed server-side but timed out on
-    // the response is found by name on the retry and reused — a blind
-    // re-create would mint a duplicate Epic.
-    const { epicKey, createdName, alreadyBound } = await retryTransient<{
+    // STE-375 AC-STE-375.5 — the find leg retries as ONE unit on transient
+    // failure (STE-362 canonical schedule). It was a find-OR-CREATE unit
+    // until STE-522 moved minting out; the retry shape is kept because the
+    // enumeration and the idempotency read-back still have to advance
+    // together, and a mint that landed server-side in a separate step is
+    // found by this leg on the next attach rather than duplicated.
+    const { epicKey, alreadyBound } = await retryTransient<{
       epicKey: string | null;
-      createdName?: string;
       alreadyBound: boolean;
     }>(async () => {
       const epics = await listEpics(project);
@@ -531,25 +582,25 @@ export async function attachProjectMilestone(
         const current = await provider.getIssue(ticketId);
         return { epicKey: found.key, alreadyBound: (current.parent ?? null) === found.key };
       }
-      // STE-521 AC-STE-521.6 / AC-STE-521.7 — an Epic-KEYED miss NEVER mints.
-      // Signalled out of the retry round-trip as a sentinel and thrown below,
-      // so the refusal does not pay the transient backoff schedule.
-      if (isEpicKeyed) return { epicKey: null, alreadyBound: false };
-      // The create-on-miss leg. Since STE-523 this is OUTCOME 4's alone — a
-      // numeric token reaches the label surface and an unparseable one
-      // refuses, both before the ops guard — which makes it `createEpic`'s
-      // only remaining caller. Kept deliberately: STE-377's Epic-FIRST
-      // allocation attaches a pre-key human title and needs the Epic minted
-      // right here. Do not delete it on reachability grounds; STE-522 owns
-      // that decision and depends on this state.
-      const created = await createEpic(project, { name: milestoneName });
-      return { epicKey: created.key, createdName: milestoneName, alreadyBound: false };
+      // A MISS on either arm, signalled out of the retry round-trip as a
+      // sentinel and thrown below, so neither refusal pays the transient
+      // backoff schedule. STE-521 AC-STE-521.6 / AC-STE-521.7 made the
+      // Epic-KEYED miss a refusal; STE-522 AC-STE-522.8 makes the by-NAME
+      // miss one too, and the branch is gone rather than narrowed: BINDING
+      // NEVER CREATES. Minting moved to `mintMilestoneEpic`
+      // (`adapters/_shared/src/mint_milestone_epic.ts`), which is the only
+      // place that can run the create in the order that makes the resulting
+      // key derivable into a milestone id. The two misses differ only in what
+      // the refusal can name, so they carry different errors below.
+      return { epicKey: null, alreadyBound: false };
     }, sleep);
-    // `epicKey: null` is the miss sentinel the round-trip above threads out.
-    // It is emitted on the `isEpicKeyed` branch ONLY, so `tokenEpicKey` — the
-    // key that branch matched against — is non-null wherever this fires.
+    // `epicKey: null` is the miss sentinel the round-trip above threads out —
+    // now emitted on BOTH arms, so the verdict routes on which match was run.
+    // An Epic-KEYED miss can name the key it looked for (`tokenEpicKey` is
+    // non-null exactly on that arm); a by-NAME miss can name only the name.
     if (epicKey === null) {
-      throw new MilestoneEpicNotFoundError(milestoneToken, tokenEpicKey!, project);
+      if (isEpicKeyed) throw new MilestoneEpicNotFoundError(milestoneToken, tokenEpicKey!, project);
+      throw new MilestoneEpicUnmintedError(milestoneName, project);
     }
     if (alreadyBound) {
       return { capability: null, epicKey };
@@ -562,9 +613,6 @@ export async function attachProjectMilestone(
       read: (fresh) => fresh.parent ?? null,
       binding: "epic",
     });
-    if (createdName !== undefined) {
-      return { capability: "milestone_create_required", createdName, epicKey };
-    }
     return { capability: null, epicKey };
   }
 
