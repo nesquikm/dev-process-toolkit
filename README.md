@@ -181,7 +181,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.73.0 — "Callsign"** (M134, reachable workers: a spawned ceremony worker had no name at all, so on a machine where session names are global every worker looked alike and one blocked on a question could only be cleared at the keyboard — the pre-spawn confirm gate now names the bridge its worker will be reachable under and lets the operator confirm it, edit it or drop it, both delivery paths hand that name to the spawning skill rather than only the resumed one, and a name that cannot be derived degrades to an unbridged run whose advisory says which rule broke instead of refusing the record before the gate.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.73.1 — "Concur"** (M135, epic binding convergence: the canonical milestone name embeds the key that Epic creation allocates, so the name could never be the join between writer and reader — every attach missed the real Epic, minted a second one under a fresh key, and the archival gate then returned `asserted` on the exact state its own predicate called false, at the one boundary nothing downstream revisits. Binding now resolves by key and never creates, minting has a home whose name is computable at creation time, a grandfathered numeric milestone writes to the surface its reader reads, and the gate re-reads and re-asks before it certifies anything.)
 
 ## Core Philosophy
 

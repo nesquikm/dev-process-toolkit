@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.73.1] — 2026-08-26 — "Concur"
+
+### Fixed
+
+- An Epic-keyed milestone now binds by KEY, and the attach never mints. The canonical name embeds the key Epic creation allocates, so the name could never be the join: every attach missed the real Epic, minted a second one under a fresh key, and left the ticket parented where the reader would never look. Name drift — en-dash, NBSP, a stray space, an ordinary retitle — can no longer cause a duplicate. (STE-521)
+- Minting a milestone Epic has a real home and a computable name. The adapter documentation ordered `createJiraIssue(summary=<canonical name>)`, a value that does not exist until after the call it is an argument to has returned; minting now creates with the human title, reads the allocated key back, derives the id, then the plan file is written. Binding no longer creates at all. (STE-522)
+- A grandfathered numeric milestone under the Epic binding writes to the surface its reader reads. The writer routed on the declared binding alone and set a parent while the reader's own grandfather clause looked at labels, so nothing converged and a backfill sweep reported the same work done on every pass forever. (STE-523)
+- The archival gate re-checks the predicate it opened with. It returned `asserted` after any non-throwing attach — not because it asked again, but because nothing threw — stamping an affirmative verdict on the exact state its own opening question called false, at the one boundary nothing downstream revisits. Each of its refusal routes now carries a remedy that fits its cause, replacing one shared line that invited a duplicate write on three of them. (STE-524)
+- The milestone-mismatch remedy names operations that exist. Three surfaces sent the operator to a `/spec-write --rename-milestone` flag that has never existed, and the same sentence named Linear while diagnosing a Jira Epic. (STE-525)
+- The branch substitution's prose states what the code requires: bare digits for a numeric milestone, the full `M_<epic-key>` token for an Epic-keyed one. Six statements across four files said "digits", which for an Epic-keyed milestone renders a branch the acceptance check then rejects — and collides with a future numeric milestone. (STE-526)
+
+Total test count at release: 10092 tests, 0 failures, 0 errors.
+
 ## [2.73.0] — 2026-08-26 — "Callsign"
 
 ### Added
