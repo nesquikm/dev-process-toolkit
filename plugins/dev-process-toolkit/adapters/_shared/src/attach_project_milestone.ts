@@ -11,10 +11,24 @@
 // no-op trap (FR-67 pattern: Linear MCP echoes success but the binding
 // silently dropped if param names drift).
 //
-// Match-by-name is intentional: the local plan-file heading is the source
-// of truth (no reverse dependency on tracker-assigned IDs). Trade-off: two
-// milestones sharing a name attach to the first match — operator error
-// boundary (deduped at plan-file heading authorship time).
+// The join is binding-shaped, and the two regimes are deliberate:
+//
+//   - Match-by-NAME — the `object` (Linear) and `label` (Jira legacy)
+//     bindings, plus a grandfathered numeric `M<N>` milestone under the
+//     `epic` binding. The local plan-file heading is the source of truth (no
+//     reverse dependency on tracker-assigned IDs). Trade-off: two milestones
+//     sharing a name attach to the first match — operator error boundary
+//     (deduped at plan-file heading authorship time).
+//   - Match-by-KEY (STE-521) — an Epic-KEYED milestone (`M_GF_78`) under the
+//     `epic` binding. Here the reverse dependency already exists INSIDE the
+//     id: the token was derived from the key the tracker allocated, while the
+//     Epic keeps whatever human title was typed, so the canonical name can
+//     never equal the Epic's summary. Each candidate Epic's key is sanitized
+//     forward (`milestoneIdFromEpicKey`) and compared to the token — the same
+//     expression `milestoneBindingPresent` applies to the ticket's parent, so
+//     writer and reader agree by construction instead of by matching strings.
+//     A token with no such Epic is a refusal, never a mint (minting would
+//     allocate a fresh key that can never sanitize back to the token).
 
 import { readFileSync } from "node:fs";
 import { isMilestoneToken, milestoneIdFromEpicKey, parseMilestoneToken } from "./milestone_token";
@@ -50,6 +64,39 @@ export class MilestoneAttachmentError extends Error {
     this.expected = expected;
     this.actual = actual;
     this.binding = binding;
+  }
+}
+
+/**
+ * STE-521 AC-STE-521.6 / AC-STE-521.7 — an Epic-KEYED milestone whose Epic is
+ * not in the project is a REFUSAL, never a mint. The token was derived FROM an
+ * Epic that already exists (`GF-78` → `M_GF_78`), so a newly minted Epic gets
+ * a fresh key that can never sanitize back to the token — the second Epic is
+ * exactly the state `milestoneBindingPresent` will never accept. Raised
+ * OUTSIDE `retryTransient` (a plain `Error` inside the wrapper is classified
+ * possibly-transient and would pay the full 1s+2s+4s schedule before
+ * surfacing).
+ *
+ * NFR-10 canonical shape: verdict line + `Remedy:` + `Context:`. The message
+ * names the milestone token, the Epic key the attach looked for, and the
+ * project it searched — the three facts every one of the operator's fixes
+ * starts from.
+ */
+export class MilestoneEpicNotFoundError extends Error {
+  readonly token: string;
+  readonly epicKey: string;
+  readonly project: string;
+
+  constructor(token: string, epicKey: string, project: string) {
+    super(
+      `MilestoneEpicNotFoundError: refusing to attach — no Epic in project "${project}" has a key that sanitizes to the milestone token "${token}" (the attach looked for the Epic key "${epicKey}"). The token was derived from an Epic that already exists, so creating one would mint a SECOND Epic under a key that can never match the token.\n` +
+        `Remedy: pick one — (a) confirm the Epic "${epicKey}" still exists and is visible in project "${project}" (restore it if it was archived/deleted, or fix the project the adapter is searching); (b) if the Epic lives in a different project, point the attach at that project; (c) if the Epic is gone for good, re-derive the milestone id from an Epic that does exist (mint the Epic yourself, then re-run /spec-write so the plan heading carries the new \`M_<epic-key>\` token). Never hand-edit the token to a key that has no Epic.\n` +
+        `Context: token="${token}", epicKey="${epicKey}", project="${project}", binding=epic, helper=attachProjectMilestone`,
+    );
+    this.name = "MilestoneEpicNotFoundError";
+    this.token = token;
+    this.epicKey = epicKey;
+    this.project = project;
   }
 }
 
@@ -313,18 +360,43 @@ export async function attachProjectMilestone(
         'attachProjectMilestone: milestoneBinding === "epic" requires listEpics/createEpic/setParent ops on the provider',
       );
     }
+    // STE-521 AC-STE-521.1 — for an Epic-KEYED milestone the join is by key,
+    // not by summary. The canonical name embeds the very key being looked for
+    // (`M_GF_78 — Waiting States II`) while the Epic that gave the milestone
+    // its id carries whatever human title was typed (`Waiting States II`), so
+    // name equality could never succeed — and minting on the miss produced a
+    // SECOND Epic under a key `milestoneBindingPresent` can never accept.
+    // Keys sanitize FORWARD to tokens (`GF-78` → `M_GF_78`) and a token cannot
+    // be de-sanitized back into a key, so each candidate's key is sanitized
+    // forward and compared to the token — the reader's own expression with the
+    // parent key swapped for the candidate's. A grandfathered numeric `M<N>`
+    // milestone under the epic binding keeps the legacy name match.
+    const milestoneToken = leadingMilestoneToken(milestoneName);
+    const parsedToken = parseMilestoneToken(milestoneToken);
+    // Non-null EXACTLY when the token is Epic-keyed: the key the match looks
+    // for, and the key the refusal below names.
+    const tokenEpicKey = parsedToken?.kind === "epic" ? parsedToken.key : null;
+    const isEpicKeyed = tokenEpicKey !== null;
+    const matchesMilestoneEpic = (e: { key: string; name: string }): boolean => {
+      if (!isEpicKeyed) return e.name === milestoneName;
+      try {
+        return milestoneIdFromEpicKey(e.key) === milestoneToken;
+      } catch {
+        return false;
+      }
+    };
     // STE-375 AC-STE-375.5 — the find-or-create leg retries as ONE unit on
     // transient failure (STE-362 canonical schedule). Each retry re-runs the
     // FIND leg first: a createEpic that landed server-side but timed out on
     // the response is found by name on the retry and reused — a blind
     // re-create would mint a duplicate Epic.
     const { epicKey, createdName, alreadyBound } = await retryTransient<{
-      epicKey: string;
+      epicKey: string | null;
       createdName?: string;
       alreadyBound: boolean;
     }>(async () => {
       const epics = await listEpics(project);
-      const found = epics.find((e) => e.name === milestoneName);
+      const found = epics.find(matchesMilestoneEpic);
       if (found) {
         // STE-375 AC-STE-375.2 — idempotency pre-check: when the ticket's
         // `parent` already equals the milestone Epic's key, the attach is a
@@ -332,9 +404,20 @@ export async function attachProjectMilestone(
         const current = await provider.getIssue(ticketId);
         return { epicKey: found.key, alreadyBound: (current.parent ?? null) === found.key };
       }
+      // STE-521 AC-STE-521.6 / AC-STE-521.7 — an Epic-KEYED miss NEVER mints.
+      // Signalled out of the retry round-trip as a sentinel and thrown below,
+      // so the refusal does not pay the transient backoff schedule. The
+      // grandfathered numeric `M<N>` path keeps the legacy find-or-create.
+      if (isEpicKeyed) return { epicKey: null, alreadyBound: false };
       const created = await createEpic(project, { name: milestoneName });
       return { epicKey: created.key, createdName: milestoneName, alreadyBound: false };
     }, sleep);
+    // `epicKey: null` is the miss sentinel the round-trip above threads out.
+    // It is emitted on the `isEpicKeyed` branch ONLY, so `tokenEpicKey` — the
+    // key that branch matched against — is non-null wherever this fires.
+    if (epicKey === null) {
+      throw new MilestoneEpicNotFoundError(milestoneToken, tokenEpicKey!, project);
+    }
     if (alreadyBound) {
       return { capability: null, epicKey };
     }
@@ -386,6 +469,22 @@ export async function attachProjectMilestone(
 }
 
 /**
+ * The leading whitespace-delimited token of a canonical milestone name
+ * (`M_GF_78 — Waiting States II` → `M_GF_78`, `M86 — Jira Support` → `M86`).
+ *
+ * ONE expression for the three sites in this module that recover a token from
+ * a name — the attach's Epic-key match, the Jira label derivation, and the
+ * `milestoneBindingPresent` read side. They must agree on what counts as the
+ * token, since STE-521 makes the writer's match and the reader's check the
+ * same function of the same field. Shape validation stays with the callers
+ * (`parseMilestoneToken` / `isMilestoneToken`); an empty name yields `""`,
+ * which no caller accepts as a token.
+ */
+function leadingMilestoneToken(canonicalName: string): string {
+  return canonicalName.split(/\s/, 1)[0] ?? "";
+}
+
+/**
  * STE-329 AC-STE-329.2 (+ STE-376 AC-STE-376.1) — derive the Jira milestone
  * label from a canonical milestone name. Returns `milestone-<M-token>` where
  * `<M-token>` is the leading milestone token of the canonical name under the
@@ -398,7 +497,7 @@ export async function attachProjectMilestone(
  * empty label).
  */
 export function milestoneLabel(canonicalName: string): string {
-  const token = canonicalName.split(/\s/, 1)[0] ?? "";
+  const token = leadingMilestoneToken(canonicalName);
   if (!isMilestoneToken(token)) {
     throw new Error(
       `milestoneLabel: "${canonicalName}" has no leading M-token (expected a canonical name beginning with \`M<N>\` or \`M_<epic-key>\`)`,
@@ -442,7 +541,7 @@ export function milestoneBindingPresent(
     return (issue.labels ?? []).includes(milestoneLabel(canonical));
   }
   if (binding === "epic") {
-    const token = canonical.split(/\s/, 1)[0] ?? "";
+    const token = leadingMilestoneToken(canonical);
     if (parseMilestoneToken(token)?.kind === "epic") {
       const parent = issue.parent ?? null;
       if (parent === null || parent === "") return false;
