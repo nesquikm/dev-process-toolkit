@@ -1309,6 +1309,10 @@ import {
 
 const GATE_CAPTURE_KEY = "adapters/_shared/src/gate_capture.ts";
 const SHARED_SRC_PREFIX = "adapters/_shared/src/";
+/** Plugin dir, repo-relative — git speaks repo paths, the graph speaks plugin paths. */
+const PLUGIN_REL = "plugins/dev-process-toolkit";
+/** The release M136 shipped on top of. Fixed history, not a moving ref. */
+const PREVIOUS_RELEASE = "v2.73.1";
 
 type Graph = ReturnType<typeof buildModuleGraph>;
 
@@ -1404,47 +1408,87 @@ function allOrderedGateCaptureCommands(): Array<{ surface: string; command: stri
 }
 
 /**
- * The merge-base this branch grew from — the tree M136's new modules are new
- * RELATIVE TO.
+ * The commit that shipped a given release, found by its `Release:` footer.
  *
- * Throws rather than degrading to "no base, so no new modules": an empty set
- * passes leg 4 vacuously, and a guard that certifies a set it could not build
- * is the shape being repaired here.
+ * Throws rather than returning empty: an anchor that cannot be resolved makes
+ * the derivation below produce a confident empty set, which is the exact shape
+ * this block exists to refuse.
  */
-function mergeBaseSha(): string {
-  for (const ref of ["origin/main", "main"]) {
-    const proc = Bun.spawnSync(["git", "-C", REPO_ROOT, "merge-base", "HEAD", ref], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    if (proc.exitCode !== 0) continue;
-    const sha = proc.stdout.toString().trim();
-    if (sha.length > 0) return sha;
+function releaseCommit(version: string): string {
+  const proc = Bun.spawnSync(
+    ["git", "-C", REPO_ROOT, "log", "--format=%H", `--grep=^Release: ${version} `, "-1"],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const sha = proc.exitCode === 0 ? proc.stdout.toString().trim() : "";
+  if (sha.length === 0) {
+    throw new Error(
+      `no commit carries a \`Release: ${version}\` footer, so "what M136 added" cannot be ` +
+        "anchored; an empty set would pass the leg below while measuring nothing",
+    );
   }
-  throw new Error(
-    "no merge base with `origin/main` or `main`: the set of modules M136 added cannot be " +
-      "derived, and an EMPTY set would pass this leg while measuring nothing",
+  return sha;
+}
+
+/** Every shared-src module path present in a commit's tree. */
+function sharedModulesAt(sha: string): Set<string> {
+  const proc = Bun.spawnSync(
+    ["git", "-C", REPO_ROOT, "ls-tree", "-r", "--name-only", sha, "--", `${PLUGIN_REL}/${SHARED_SRC_PREFIX}`],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  if (proc.exitCode !== 0) {
+    throw new Error(`git ls-tree failed at ${sha}: ${proc.stderr.toString().trim()}`);
+  }
+  return new Set(
+    proc.stdout
+      .toString()
+      .split("\n")
+      .filter((line) => line.endsWith(".ts"))
+      .map((line) => line.slice(`${PLUGIN_REL}/`.length)),
   );
 }
 
 /**
- * Shared modules that exist now and did not exist at the merge base — M136's
- * own additions, derived rather than written down.
+ * The shared modules M136 added — anchored at BOTH ENDS of the milestone.
  *
- * Keyed off the graph's module list, so a module the graph cannot see is a
- * module this leg cannot certify either.
+ * WHY NOT THE MERGE BASE, which is what this used to use. On the feature branch
+ * the merge base was pre-merge main, so M136's modules were correctly absent
+ * there and the set was right. The moment the branch MERGED, the merge base of
+ * HEAD and main became HEAD itself, every module existed at the base, and the
+ * set went empty — main went red on the anti-vacuity guard below. The guard was
+ * correct and the anchor was not: a derivation that only has meaning on a
+ * feature branch cannot be the basis of a leg that must be green on main. This
+ * repository has now been bitten three times by legs that assert over history
+ * and are verified one commit or one merge too early.
+ *
+ * WHY NOT `HEAD^1` EITHER: right for exactly one commit, then quietly wrong —
+ * it would derive some later change's modules while still reporting success,
+ * which trades a loud failure for a silent one.
+ *
+ * Both anchors here are FIXED historical commits, found by their own `Release:`
+ * footers: what existed when M136 shipped, minus what existed at the release
+ * before it. That difference cannot change as further commits or milestones
+ * land, which is the property the leg needs and the merge base never had.
  */
 function modulesAddedByThisMilestone(): string[] {
-  const base = mergeBaseSha();
-  return graph()
-    .modules.filter((key) => key.startsWith(SHARED_SRC_PREFIX))
-    .filter((key) => {
-      const proc = Bun.spawnSync(
-        ["git", "-C", REPO_ROOT, "cat-file", "-e", `${base}:plugins/dev-process-toolkit/${key}`],
-        { stdout: "pipe", stderr: "pipe" },
-      );
-      return proc.exitCode !== 0;
-    });
+  const shippedIn = readFileSync(
+    join(REPO_ROOT, "specs", "plan", "archive", "M136.md"),
+    "utf-8",
+  ).match(/^shipped_in:\s*(\S+)$/m);
+  expect(
+    shippedIn,
+    "M136's archived plan carries no `shipped_in:` stamp, so the milestone cannot name its " +
+      "own release and the anchors below would be guesswork",
+  ).not.toBeNull();
+
+  const after = sharedModulesAt(releaseCommit((shippedIn as RegExpMatchArray)[1] as string));
+  const before = sharedModulesAt(releaseCommit(PREVIOUS_RELEASE));
+  expect(
+    before.size,
+    `the tree at ${PREVIOUS_RELEASE} carries no shared modules at all — the anchor is wrong ` +
+      "and every module would read as newly added",
+  ).toBeGreaterThan(50);
+
+  return [...after].filter((key) => !before.has(key)).sort();
 }
 
 describe("carried gap (STE-531) — the read side of the ratchet has a front door that runs", () => {
