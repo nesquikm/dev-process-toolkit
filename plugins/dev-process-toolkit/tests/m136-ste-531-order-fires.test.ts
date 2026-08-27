@@ -157,7 +157,27 @@ const DOCS_DIR = join(PLUGIN_ROOT, "docs");
 const SHARED_SRC = join(PLUGIN_ROOT, "adapters", "_shared", "src");
 
 const REPO_CLAUDE_MD = join(REPO_ROOT, "CLAUDE.md");
-const FR_FILE = join(REPO_ROOT, "specs", "frs", "STE-531.md");
+/**
+ * The FR, at whichever of its two homes it currently occupies.
+ *
+ * ARCHIVE FALLBACK, and it is not optional. `/implement`'s Phase 4 archival
+ * `git mv`s the FR from `specs/frs/` to `specs/frs/archive/` in the same run
+ * that lands this test, so an active-only path reds the milestone's own gate at
+ * the one transition no gate run precedes — measured here, this leg failed with
+ * ENOENT the moment M136 archived itself. The resolution is asserted rather
+ * than assumed: a path that resolves to NEITHER home throws by name, so this
+ * cannot degrade into reading an empty string and passing.
+ */
+const FR_FILE = ((): string => {
+  const active = join(REPO_ROOT, "specs", "frs", "STE-531.md");
+  const archived = join(REPO_ROOT, "specs", "frs", "archive", "STE-531.md");
+  if (existsSync(active)) return active;
+  if (existsSync(archived)) return archived;
+  throw new Error(
+    `STE-531's FR is at neither ${active} nor ${archived} — the measurement legs ` +
+      "below cannot read the FR they grade, and must fail rather than skip",
+  );
+})();
 const REACHABILITY_MODULE = join(SHARED_SRC, "module_reachability.ts");
 const GATE_CHECK_SKILL = join(SKILLS_DIR, "gate-check", "SKILL.md");
 const EVIDENCE_KEY = "adapters/_shared/src/implement_report_evidence.ts";
