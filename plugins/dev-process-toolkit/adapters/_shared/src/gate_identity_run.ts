@@ -34,12 +34,13 @@
 // Callers map those three states into their own record shapes. What they do NOT
 // do is decide them a second time.
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
   extractSkipIdentities,
+  SKIP_IDENTITY_SEPARATOR,
   skipIdentityCommand,
   type SkipIdentities,
 } from "./skip_identities";
@@ -59,6 +60,112 @@ export interface GateRunObservation {
    * verdict, `named` or `unavailable`, forwarded without interpretation.
    */
   readonly identities: SkipIdentities | null;
+}
+
+// ---------------------------------------------------------------------------
+// The identity ANCHOR (AC-STE-529.2).
+// ---------------------------------------------------------------------------
+//
+// A runner names the file it ran RELATIVE TO ITS OWN CWD. That makes the raw
+// identity a function of where the gate happened to be invoked: a baseline
+// captured with the repo root as cwd calls a test
+// `pkg/tests/x.test.ts > parked`, and the very same test, captured from `pkg`,
+// is `tests/x.test.ts > parked`. The two sets are then DISJOINT, so a set
+// comparison of an untouched tree reports every skip as newly introduced — a
+// confident wrong answer, strictly worse than the count-only comparison the
+// set path replaces.
+//
+// So the cwd is divided out before the identity leaves this module: the scope is
+// resolved against the run's own root and re-expressed relative to the top of
+// the git working tree that holds it. Two runs of one tree from any two
+// directories inside it therefore produce the SAME identity space, while two
+// different files keep two identities — the anchor moves the whole path, it does
+// not shorten it to a name, and a normalisation that discarded the file would
+// merge every same-named test in the tree into one.
+//
+// PRE-EXISTING RECORDS. A baseline captured before this change holds names in
+// the raw, cwd-relative shape. Where that capture ran at the top of the working
+// tree — what `capture_skip_baseline` does, and the only shape its own trunk
+// resolution supports — the two shapes are byte-identical and the old record
+// keeps comparing correctly. A capture taken from a SUBDIRECTORY is the case
+// that moves, and it is visible rather than silent: its stored names are
+// relative to a directory that no longer appears in any name this build
+// produces, so a reader diffing a record against a fresh run sees two whole
+// disjoint sets rather than a plausible one-test difference.
+
+/** git working-tree top per directory. Asked once; a checkout does not move. */
+const ANCHOR_CACHE = new Map<string, string | null>();
+
+/** The realpath of `path`, or `path` itself when it cannot be resolved. */
+function realOrSelf(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+/**
+ * The top of the git working tree containing `directory`, or `null` when the
+ * directory is not in one.
+ *
+ * Asked of git rather than inferred from a `.git` entry: a worktree and a
+ * submodule both carry a `.git` FILE, not a directory, and a hand-rolled walk
+ * that stops at the first one it recognises anchors at the wrong place.
+ */
+function gitToplevel(directory: string): string | null {
+  const cached = ANCHOR_CACHE.get(directory);
+  if (cached !== undefined) return cached;
+
+  const proc = Bun.spawnSync(["git", "-C", directory, "rev-parse", "--show-toplevel"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const out = proc.exitCode === 0 ? proc.stdout.toString().trim() : "";
+  const anchor = out.length === 0 ? null : realOrSelf(out);
+  ANCHOR_CACHE.set(directory, anchor);
+  return anchor;
+}
+
+/**
+ * Re-express one identity's scope against a root-invariant anchor.
+ *
+ * The identity is returned UNCHANGED whenever its scope is not a file that
+ * exists: a producer whose scope is a `classname` rather than a path has
+ * nothing to re-anchor, and an identity carrying no scope at all has no
+ * boundary to split on. Only a real file is moved, and when no working tree
+ * claims it the absolute path is the fallback — still the same string from
+ * either cwd, which is the property that matters, and visibly not a repo-
+ * relative path, which is the honest way to say the anchor was unavailable.
+ */
+function anchorIdentity(identity: string, runRoot: string): string {
+  const cut = identity.indexOf(SKIP_IDENTITY_SEPARATOR);
+  if (cut === -1) return identity;
+
+  const scope = identity.slice(0, cut);
+  const rest = identity.slice(cut + SKIP_IDENTITY_SEPARATOR.length);
+  const absolute = isAbsolute(scope) ? scope : resolve(runRoot, scope);
+  if (!existsSync(absolute)) return identity;
+
+  const file = realOrSelf(absolute);
+  const anchor = gitToplevel(dirname(file));
+  const within = anchor === null ? "" : relative(anchor, file);
+  // An empty or escaping relative path means the anchor does not contain the
+  // file — fall back rather than emit `../..`, which is cwd-shaped again.
+  const scoped =
+    within.length === 0 || within === ".." || within.startsWith(`..${sep}`)
+      ? file
+      : within.split(sep).join("/");
+  return `${scoped}${SKIP_IDENTITY_SEPARATOR}${rest}`;
+}
+
+/** Every identity in `identities`, anchored — `unavailable` passes through. */
+function anchorIdentities(identities: SkipIdentities, runRoot: string): SkipIdentities {
+  if (identities.status !== "named") return identities;
+  return {
+    status: "named",
+    names: identities.names.map((name) => anchorIdentity(name, runRoot)),
+  };
 }
 
 /**
@@ -89,7 +196,11 @@ export function runGateNamingSkips(
     const output = `${proc.stdout.toString()}\n${proc.stderr.toString()}`;
 
     if (identityCommand === null) return { output, identities: null };
-    return { output, identities: extractSkipIdentities(reportPath) };
+    // Anchored HERE, at the one place both halves of the ratchet run their
+    // gate: the WRITE side and the READ side must divide out the same cwd or
+    // they are not comparing like with like, and a second anchoring in either
+    // caller is the drift this module exists to prevent.
+    return { output, identities: anchorIdentities(extractSkipIdentities(reportPath), projectRoot) };
   } finally {
     // The report directory is this module's alone, and it goes whether the run
     // succeeded, failed, or threw — a leaked temp tree per gate run is how a

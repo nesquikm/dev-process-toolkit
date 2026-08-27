@@ -1877,3 +1877,355 @@ describe("AC-STE-529.7 — a report truncated mid-write is unavailable, never a 
     ).toBeUndefined();
   }, 60_000);
 });
+
+// ===========================================================================
+// DOGFOOD DEFECT — the identity is PROJECT-ROOT-RELATIVE, so a baseline and a
+// run taken from two different roots have DISJOINT identity spaces (AC.2).
+//
+// MEASURED, both halves, on this repository:
+//
+//   baseline captured with projectRoot = <repo>
+//     -> "plugins/dev-process-toolkit/tests/tdd-live-smoke.test.ts > orchestrator …"
+//   current run captured with projectRoot = <repo>/plugins/dev-process-toolkit
+//     -> "tests/tdd-live-smoke.test.ts > orchestrator …"
+//
+// SAME TEST. Two identity strings. The runner writes its junit `file` attribute
+// relative to the directory it ran in, and `runGateNamingSkips` runs the gate in
+// whatever root its caller hands it — so `current \ baseline` is the WHOLE
+// current set and every skip in the tree is reported as newly introduced.
+// Measured end to end through the shipped `renderStageEvidence`:
+// `pass 10280, fail 0, skip 15, baseline 15, delta 0`, and a FAIL naming all
+// fifteen as newly skipping.
+//
+// That is strictly worse than the count-only weakness this FR was opened over:
+// a confident WRONG answer rather than a weak one. And it is invisible to every
+// leg above, because no leg above captures with two different roots.
+//
+// THE PROPERTY, NOT THE SPELLING. These legs assert that the identity is
+// ROOT-INVARIANT and assert nothing about what it looks like. A fix anchored on
+// the git toplevel and a fix anchored on the test file's own path both satisfy
+// them if they are genuinely stable; neither is prescribed. The two non-vacuity
+// legs are what stop "normalise everything to a constant" from being a fix — a
+// genuinely new skip is still caught after normalisation, and two same-named
+// tests in different files are still two set members.
+// ===========================================================================
+
+/** The nested package a repository's suite lives in, under the repo root. */
+const NESTED_PACKAGE = "pkg";
+
+interface GateCaptureModule {
+  /**
+   * The shipped READ front door: runs the gate in `projectRoot` and returns the
+   * capture `renderStageEvidence` takes, identities included. Typed loosely for
+   * the same reason `EvidenceModule` is — a hand-copied interface here would
+   * type-check against this file's belief about the shape.
+   */
+  captureGateRun(
+    projectRoot: string,
+    stack: string,
+    command: readonly string[],
+  ): Record<string, unknown> & {
+    readonly output: string;
+    readonly skipNames?: readonly string[] | null;
+  };
+}
+
+async function loadGateCapture(): Promise<GateCaptureModule> {
+  return (await import("../adapters/_shared/src/gate_capture")) as unknown as GateCaptureModule;
+}
+
+/** Write a runnable bun suite into an EXISTING tree, at the given paths. */
+function writeSuiteFiles(root: string, files: readonly SuiteFile[]): void {
+  for (const file of files) {
+    const target = join(root, file.path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(
+      target,
+      [
+        'import { expect, test } from "bun:test";',
+        "",
+        ...file.kept.map((name) => `test(${JSON.stringify(name)}, () => { expect(1 + 1).toBe(2); });`),
+        ...file.skipped.map(
+          (name) => `test.skip(${JSON.stringify(name)}, () => { expect(1).toBe(2); });`,
+        ),
+        "",
+      ].join("\n"),
+    );
+  }
+}
+
+/**
+ * A git project whose suite lives in a SUBDIRECTORY, so the same tree can be
+ * measured from two different roots — the repo root, and the package that holds
+ * the tests. Both roots discover exactly the same test files; only the runner's
+ * cwd differs, which is the whole variable under test.
+ */
+function makeNestedBunProject(
+  label: string,
+  files: readonly SuiteFile[],
+): { readonly root: string; readonly trunkSha: string } {
+  const repo = makeTrunkRepo(label);
+
+  writeFileSync(
+    join(repo.root, "package.json"),
+    `${JSON.stringify({ name: `ste529-${label}`, private: true }, null, 2)}\n`,
+  );
+  writeSuiteFiles(repo.root, files);
+
+  gitHere(repo.root, ["add", "-A"]);
+  gitHere(repo.root, ["commit", "-q", "-m", "chore: nested suite"]);
+
+  const proc = Bun.spawnSync(["git", "-C", repo.root, "rev-parse", "HEAD"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return { root: repo.root, trunkSha: proc.stdout.toString().trim() };
+}
+
+/** The identities a capture reported, asserted to BE identities first. */
+function namedSkips(
+  captured: { readonly skipNames?: readonly string[] | null; readonly output: string },
+  where: string,
+): readonly string[] {
+  expect(
+    Array.isArray(captured.skipNames),
+    `the run in ${where} named no skips at all, so anything compared below would ` +
+      `be vacuous: ${JSON.stringify(captured.skipNames)} / ${captured.output.slice(0, 300)}`,
+  ).toBe(true);
+  return captured.skipNames as readonly string[];
+}
+
+/** Run the shipped WRITE front door against `root`, refusing to proceed on a refusal. */
+function runCaptureCli(root: string): void {
+  const proc = Bun.spawnSync(["bun", "run", CAPTURE_CLI, root], {
+    cwd: root,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const noise = `${proc.stdout.toString()}\n${proc.stderr.toString()}`.trim().slice(0, 800);
+  expect(proc.exitCode, `the capture CLI refused in ${root}\n${noise}`).toBe(0);
+}
+
+/** The names the store really holds for `sha` — the baseline side of the pair. */
+async function recordedNames(root: string, sha: string): Promise<readonly string[]> {
+  const store = await storePath(root);
+  expect(existsSync(store), `no baseline store was written at ${store}`).toBe(true);
+  const parsed = JSON.parse(read(store)) as { baselines: Record<string, Record<string, unknown>> };
+  const record = parsed.baselines[sha];
+  expect(record, `the store holds no record for ${sha}`).toBeDefined();
+  const names = (record as Record<string, unknown>).names;
+  expect(
+    Array.isArray(names),
+    `the captured record carries no names, so the SET path is never reached: ` +
+      `${JSON.stringify(record)}`,
+  ).toBe(true);
+  return names as readonly string[];
+}
+
+describe("AC-STE-529.2 — a skip's identity is the same whichever root the capture ran in", () => {
+  test("the same skipped test yields the SAME identity from the repo root and from the package", async () => {
+    const capture = await loadGateCapture();
+
+    const project = makeNestedBunProject("root-invariant", [
+      {
+        path: `${NESTED_PACKAGE}/tests/wired.test.ts`,
+        kept: ["a test that really runs"],
+        skipped: ["alpha is parked", "beta is parked"],
+      },
+    ]);
+
+    // ONE tree, TWO roots. Both runs discover the same file and skip the same
+    // two tests; the only difference is the directory the runner ran in.
+    const fromRepo = capture.captureGateRun(project.root, "bun", ["bun", "test"]);
+    const fromPackage = capture.captureGateRun(join(project.root, NESTED_PACKAGE), "bun", [
+      "bun",
+      "test",
+    ]);
+
+    const repoNames = namedSkips(fromRepo, "the repo root");
+    const packageNames = namedSkips(fromPackage, "the nested package");
+
+    // NON-VACUITY, stated before the comparison: two distinct identities on each
+    // side. A normalisation that collapsed every name to one constant would make
+    // the set equality below true and meaningless.
+    const repoSet = new Set(repoNames);
+    const packageSet = new Set(packageNames);
+    expect(repoSet.size, `the repo-root run reported ${repoNames.join(" | ")}`).toBe(2);
+    expect(packageSet.size, `the package run reported ${packageNames.join(" | ")}`).toBe(2);
+
+    // The identities must still NAME the tests — a refusal a reader cannot act
+    // on is not the comparison AC.2 asks for.
+    for (const side of [repoNames, packageNames]) {
+      for (const skipped of ["alpha is parked", "beta is parked"]) {
+        expect(
+          side.some((name) => name.includes(skipped)),
+          `an identity set does not name ${JSON.stringify(skipped)}: ${side.join(" | ")}`,
+        ).toBe(true);
+      }
+    }
+
+    // THE PIN. Equal as SETS, not merely the same size: the identity spaces the
+    // two roots produce must be the same space.
+    expect(
+      [...packageSet].sort(),
+      `the same tree named its skips differently from two roots — the identity is ` +
+        `project-root-relative, so a baseline and a run taken from different roots ` +
+        `share no identity at all:\n  repo root: ${[...repoSet].sort().join(" | ")}\n` +
+        `  package:   ${[...packageSet].sort().join(" | ")}`,
+    ).toEqual([...repoSet].sort());
+  }, 60_000);
+
+  test("a baseline captured at the repo root, met by a run captured in the package, reports NOTHING newly skipping", async () => {
+    const capture = await loadGateCapture();
+    const evidence = await loadEvidence();
+
+    const project = makeNestedBunProject("cross-root-clean", [
+      {
+        path: `${NESTED_PACKAGE}/tests/wired.test.ts`,
+        kept: ["a test that really runs"],
+        skipped: ["alpha is parked", "beta is parked"],
+      },
+    ]);
+
+    // WRITE side — the shipped CLI, run against the REPO ROOT.
+    runCaptureCli(project.root);
+    const baselineNames = await recordedNames(project.root, project.trunkSha);
+    expect(baselineNames).toHaveLength(2);
+
+    // READ side — the SAME, UNCHANGED tree, observed from the PACKAGE. Nothing
+    // was edited between the two measurements: not a line, not a file.
+    const gate = capture.captureGateRun(join(project.root, NESTED_PACKAGE), "bun", [
+      "bun",
+      "test",
+    ]);
+    expect(namedSkips(gate, "the nested package")).toHaveLength(2);
+
+    const result = evidence.renderStageEvidence({
+      gate,
+      required: ["gate"],
+      projectRoot: project.root,
+    });
+
+    const reasons = result.reasons.join("\n");
+    expect(
+      reasons,
+      `an UNCHANGED tree was reported as newly skipping, because the baseline and ` +
+        `the run were measured from different roots:\n  baseline: ${baselineNames.join(" | ")}\n` +
+        `  run:      ${namedSkips(gate, "the nested package").join(" | ")}\n  reasons: ${reasons}`,
+    ).toBe("");
+    expect(result.ok, `reasons: ${reasons} / counts: ${JSON.stringify(result.counts.gate)}`).toBe(
+      true,
+    );
+
+    // And no skip is NAMED anywhere in the report: a pass that still listed the
+    // tests would mean the set difference merely happened to be tolerated.
+    expect(gateRow(result.lines) + reasons, "a skip was named on a clean run").not.toContain(
+      "is parked",
+    );
+
+    const counts = result.counts.gate as EvidenceCountsShape;
+    expect(counts.skip, `counts: ${JSON.stringify(counts)}`).toBe(2);
+    expect(counts.baseline, `counts: ${JSON.stringify(counts)}`).toBe(2);
+    expect(counts.delta, `counts: ${JSON.stringify(counts)}`).toBe(0);
+  }, 90_000);
+
+  test("NON-VACUITY: a genuinely new skip is STILL caught when the two roots differ", async () => {
+    const capture = await loadGateCapture();
+    const evidence = await loadEvidence();
+
+    const project = makeNestedBunProject("cross-root-new-skip", [
+      {
+        path: `${NESTED_PACKAGE}/tests/wired.test.ts`,
+        kept: ["a test that really runs"],
+        skipped: ["alpha is parked", "beta is parked"],
+      },
+    ]);
+
+    runCaptureCli(project.root);
+    expect(await recordedNames(project.root, project.trunkSha)).toHaveLength(2);
+
+    // THE AC.6 SWAP, across two roots. `alpha` stops skipping and `gamma`
+    // starts, so the COUNT is unmoved and only the set can tell. A leg that
+    // added a skip without removing one would go red on the arithmetic alone and
+    // would prove nothing about the identities.
+    writeSuiteFiles(project.root, [
+      {
+        path: `${NESTED_PACKAGE}/tests/wired.test.ts`,
+        kept: ["a test that really runs", "alpha is running now"],
+        skipped: ["beta is parked", "gamma is parked"],
+      },
+    ]);
+
+    const gate = capture.captureGateRun(join(project.root, NESTED_PACKAGE), "bun", [
+      "bun",
+      "test",
+    ]);
+    expect(namedSkips(gate, "the nested package")).toHaveLength(2);
+
+    const result = evidence.renderStageEvidence({
+      gate,
+      required: ["gate"],
+      projectRoot: project.root,
+    });
+
+    const reasons = result.reasons.join("\n");
+    expect(
+      result.ok,
+      `a newly skipping test survived normalisation unnoticed — the identity was ` +
+        `flattened to something that can no longer distinguish two tests: ` +
+        `${JSON.stringify(result.counts.gate)} / ${reasons}`,
+    ).toBe(false);
+    expect(reasons, `the refusal does not name the added skip: ${reasons}`).toContain(
+      "gamma is parked",
+    );
+
+    // ONLY the new one. A pre-existing skip named here means the identity spaces
+    // still disagree and the whole set was reported; a REMOVED skip named here
+    // means the difference is being taken the wrong way round.
+    expect(
+      reasons,
+      `a pre-existing skip was reported as newly introduced: ${reasons}`,
+    ).not.toContain("beta is parked");
+    expect(reasons, `a REMOVED skip was reported as newly introduced: ${reasons}`).not.toContain(
+      "alpha is parked",
+    );
+
+    // The verdict came from the SET and not the arithmetic: the counts agree.
+    const counts = result.counts.gate as EvidenceCountsShape;
+    expect(counts.skip, `counts: ${JSON.stringify(counts)}`).toBe(2);
+    expect(counts.delta, `counts: ${JSON.stringify(counts)}`).toBe(0);
+  }, 90_000);
+
+  test("NON-VACUITY: two same-named tests in different files stay TWO identities from either root", async () => {
+    const capture = await loadGateCapture();
+
+    // The same test name, skipped in two files. If normalisation reaches far
+    // enough to make the two roots agree by discarding the file, this pair
+    // collapses to one member and every cross-file comparison loses a skip.
+    const project = makeNestedBunProject("cross-root-collide", [
+      { path: `${NESTED_PACKAGE}/tests/one.test.ts`, kept: [], skipped: ["the shared name"] },
+      { path: `${NESTED_PACKAGE}/tests/two.test.ts`, kept: [], skipped: ["the shared name"] },
+    ]);
+
+    const fromRepo = namedSkips(capture.captureGateRun(project.root, "bun", ["bun", "test"]), "the repo root");
+    const fromPackage = namedSkips(
+      capture.captureGateRun(join(project.root, NESTED_PACKAGE), "bun", ["bun", "test"]),
+      "the nested package",
+    );
+
+    expect(
+      new Set(fromRepo).size,
+      `two same-named skips collapsed to one identity at the repo root: ${fromRepo.join(" | ")}`,
+    ).toBe(2);
+    expect(
+      new Set(fromPackage).size,
+      `two same-named skips collapsed to one identity in the package: ${fromPackage.join(" | ")}`,
+    ).toBe(2);
+
+    expect(
+      [...new Set(fromPackage)].sort(),
+      `the two roots disagree about a colliding pair:\n  repo root: ${[...new Set(fromRepo)].sort().join(" | ")}\n` +
+        `  package:   ${[...new Set(fromPackage)].sort().join(" | ")}`,
+    ).toEqual([...new Set(fromRepo)].sort());
+  }, 60_000);
+});
