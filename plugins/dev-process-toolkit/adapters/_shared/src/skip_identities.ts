@@ -82,9 +82,21 @@ function attributes(source: string): Record<string, string> {
  * appears twice, which is exactly when a ratchet is worth having.
  */
 function identity(scope: string | undefined, name: string): string {
-  const where = scope === undefined || scope.length === 0 ? "" : `${scope} > `;
+  const where =
+    scope === undefined || scope.length === 0 ? "" : `${scope}${SKIP_IDENTITY_SEPARATOR}`;
   return `${where}${name}`;
 }
+
+/**
+ * What separates the scope from the test name inside one identity.
+ *
+ * Exported because a caller that re-anchors the scope (see
+ * `gate_identity_run`) has to find the boundary, and a second copy of the
+ * literal is a thing that can drift from this one — silently, since a mismatched
+ * separator simply never splits and the identity is passed through unchanged,
+ * which looks exactly like "there was no scope to re-anchor".
+ */
+export const SKIP_IDENTITY_SEPARATOR = " > ";
 
 /**
  * Match every `<tag …>` element: group 1 is the attribute text, group 3 the
