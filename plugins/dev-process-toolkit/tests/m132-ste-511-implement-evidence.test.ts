@@ -90,6 +90,7 @@ import { join, relative } from "node:path";
 import { findFences } from "../adapters/_shared/src/markdown_fences";
 import { captureSkipBaseline } from "../adapters/_shared/src/skip_baseline";
 import { parseTestOutput } from "../adapters/_shared/src/test_count_parser";
+import { repoWithBaseline } from "./_skip_baseline_fixture";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const SHARED_SRC = join(PLUGIN_ROOT, "adapters", "_shared", "src");
@@ -337,11 +338,14 @@ function independentCounts(
   return { pass, fail, skip: skipped };
 }
 
-/** A temp project root carrying a captured STE-509 skip baseline. */
+/**
+ * A project root carrying a captured skip baseline.
+ *
+ * A real git repository since M136 / STE-527 re-keyed the store to the trunk
+ * commit and gave capture its HEAD + clean-tree preconditions.
+ */
 function rootWithBaseline(label: string, skipped: number, branch = BRANCH): string {
-  const root = tempDir(`root-${label}`);
-  captureSkipBaseline(root, branch, skipped);
-  return root;
+  return repoWithBaseline({ captureSkipBaseline }, `511-${label}`, skipped, branch).root;
 }
 
 /** The canonical healthy input: three real captures and a measured baseline. */
@@ -602,7 +606,15 @@ describe("AC-STE-511.2 — both paths render from one renderer, compared to each
     const callers = (needle: string): string[] =>
       sourcesContaining(needle).filter((file) => !homes.has(file));
 
+    // `parseTestOutput` gained a SECOND caller under M136 / AC-STE-528.5, which
+    // requires the capture entry point to derive its count from output it
+    // captured "through the shipped `parseTestOutput`" rather than from argv.
+    // That caller is a PRODUCER, not a second row shape — this leg's subject is
+    // that the report module re-derives nothing, and the leg below still pins
+    // that directly. `evaluateSkipDelta` stays at one caller: the entry point
+    // writes a baseline, it never evaluates one.
     expect(callers("parseTestOutput(")).toEqual([
+      "adapters/_shared/src/capture_skip_baseline.ts",
       "adapters/_shared/src/deliver_stage_evidence.ts",
     ]);
     expect(callers("evaluateSkipDelta(")).toEqual([

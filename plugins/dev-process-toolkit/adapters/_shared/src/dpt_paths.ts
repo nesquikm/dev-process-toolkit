@@ -58,10 +58,31 @@ export function scratchDir(projectRoot: string, ulid: string): string {
 /**
  * Skip baseline: `<projectRoot>/.dpt/skip-baseline.json` (STE-509).
  *
- * One branch-keyed store of the skip count observed at each branch point.
+ * One store of the pre-work skip count, keyed by TRUNK COMMIT (M136 /
+ * STE-527; it was branch-keyed under STE-509).
  * Composed here rather than in `skip_baseline.ts` so that module carries no
  * `.dpt` literal of its own (AC-STE-382.1).
  */
 export function skipBaselinePath(projectRoot: string): string {
   return join(dptRoot(projectRoot), "skip-baseline.json");
+}
+
+/**
+ * Checkout identity: `<projectRoot>/.dpt/ledger/checkout-id` (STE-527).
+ *
+ * One opaque id minted once per working tree, so a skip baseline can say which
+ * checkout measured it. Composed here for the same reason the store's path is
+ * (AC-STE-382.1): `skip_baseline.ts` carries no `.dpt` literal of its own.
+ *
+ * It sits UNDER `ledger/` rather than directly under `.dpt/` on purpose. The id
+ * must never be committed — a travelling id is exactly the thing AC-STE-527.7
+ * refuses — and `.dpt/.gitignore`'s rule set is deliberately CLOSED (STE-383
+ * AC-STE-383.1). Living inside the already-ignored, durable machine-local
+ * subtree makes the id untracked by layout instead of by a fourth rule, and
+ * keeps it out of the disposable `scratch/` tree, which is pruned per run and
+ * walked by the research probes. `ledger/` is a flat, ignored home for state
+ * that must outlive a run; `token-ledger.jsonl` is its other occupant.
+ */
+export function checkoutIdPath(projectRoot: string): string {
+  return join(dptRoot(projectRoot), "ledger", "checkout-id");
 }

@@ -40,9 +40,19 @@ These are illustrative — use the patterns in your project's CLAUDE.md as the a
 - **Go:** verify every returned `error` is checked; check that deferred `Close()` calls are paired with error handling; confirm context cancellation propagates through goroutines.
 - **Rust:** verify `Result` is not discarded with `let _ = ...`; check that `?` propagates errors to the right boundary; confirm `panic!` is only used for truly unreachable states.
 
+## Skip baseline capture
+
+0.a′ Before the Guard runs — on every `/implement` invocation, and independent of branch automation — RUN the `captureSkipBaseline` entry point, from the project root:
+
+```bash
+bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/capture_skip_baseline.ts" "<projectRoot>"
+```
+
+The order carries no precondition of its own: the run attempts the capture and reports whatever comes back. The capture declines unless HEAD is the sha being captured and the tree is clean, which a feature-branch run generally is not, so a refusal is an ordinary outcome and never something to swallow — surface it verbatim, naming the exact `git checkout <sha>` and re-run command it hands back. The write is once-per-TRUNK-COMMIT: an existing baseline is left exactly as it was. (It was once-per-branch under STE-509; STE-527 re-keyed it, and this sentence is the sibling of `skills/implement/SKILL.md`'s — they say the same thing or one of them is wrong.) Without a baseline every later `gate:` row renders `baseline unmeasured`, which `renderImplementReportEvidence` treats as a refusal ground, so an unwritten baseline makes a clean run uncertifiable rather than merely unmeasured.
+
 ## Branch Proposal
 
-Fires at Phase 1 entry, **between resolver (0.b′) and `claimLock` (0.c)** — the branch identity must settle before the lock binds to it.
+Fires at Phase 1 entry, **between resolver (0.b′) and `claimLock` (0.c)** — the branch identity must settle before the lock binds to it. The skip-baseline capture above is DELIBERATELY NOT part of this section any more: it used to live inside it, gated on this step's `branch_template:` key and on a successful `git checkout -b`, and that is precisely why it never fired (M136 / STE-528). It now stands on its own, before the Guard, independent of branch automation.
 
 ### Guard
 
@@ -71,10 +81,6 @@ Fires at Phase 1 entry, **between resolver (0.b′) and `claimLock` (0.c)** — 
    - `Y` or `enter` ⇒ `git checkout -b <rendered>`, continue Phase 1 at step 0.c.
    - `e` ⇒ present the rendered name on an editable input line; re-prompt `Y/e/n` on the edited string. No cap on edit iterations, but the user must ultimately press `Y` or `n`.
    - `n` ⇒ exit cleanly with `aborted: branch not created` and **zero side effects** (no `claimLock`, no ticket writes, no file changes).
-
-### Skip baseline capture
-
-6.b On a successful `git checkout -b`, and only there, call `captureSkipBaseline(projectRoot, <rendered branch>, <current gate skip count>)` from `adapters/_shared/src/skip_baseline.ts`. Branch creation is the one moment the pre-work skip count is still the truth; a baseline written later records the branch's own skips as if they had always been there. The write is once-per-branch — an existing baseline is left exactly as it was — and without it every later `gate:` row renders `baseline unmeasured`, which `renderImplementReportEvidence` treats as a refusal ground, so an unwritten baseline makes a clean run uncertifiable rather than merely unmeasured. Editing (`e`) re-renders the name; the baseline binds to whatever branch was actually created. Aborting (`n`) writes nothing.
 
 ### Failure handling
 
@@ -222,11 +228,27 @@ Then call `Provider.releaseLock(id)` for each released FR.
 
 **Obligation.** Step 14 MUST render the section headed `## Verification evidence` through `renderImplementReportEvidence` from `adapters/_shared/src/implement_report_evidence.ts`. That function takes exactly one argument — the captured runs — and no stage, milestone or fence context; a second parameter would make the guarantee conditional on the orchestrated path all over again.
 
+**Obtaining the skip identities — the copyable order.** The READ side of the ratchet is a runnable front door, not only a function name. Run it against the project being evidenced and it prints the identities of the skips THAT run reported, so a reader told the `gate:` capture must carry `skipNames` is also told how to obtain them:
+
+```sh
+bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_capture.ts <projectRoot>
+```
+
+The gate is detected from the project's own markers, never accepted as an argument — the same rule the WRITE side follows for its count. A stack whose runner writes no machine-readable report says so out loud rather than printing an empty list, because silence and "nothing was skipped" are different facts (see the three states below).
+
 **Rows (fixed order, never omitted).**
 
 1. `gate:` — the gate-check run, carrying its skip count and the baseline skip delta.
 2. `drive:` — the project-drive run.
 3. `e2e:` — the end-to-end run.
+
+**Where the `gate:` row's skip identities come from.** The `gate:` capture handed to the renderer MUST carry `skipNames`, and it is built by `captureGateRun` in `adapters/_shared/src/gate_capture.ts` — the READ side of the skip ratchet, the counterpart to the WRITE side that records the branch's baseline. That helper composes a report path outside the project tree (a report written inside it would dirty the tree the capture side refuses on), asks `skipIdentityCommand` in `adapters/_shared/src/skip_identities.ts` for the invocation that writes a machine-readable report while still printing the summary the count parser reads, runs the gate ONCE through it, and reads the identities back with `extractSkipIdentities`. One run, both signals: a second run to name the skips would be a second measurement, and the two could disagree about the very number being ratcheted.
+
+`skipNames` is declared on `CapturedRun` and forwarded verbatim to `evaluateSkipDelta`, which reads three states as three distinct facts, so what the caller supplies decides which comparison happens:
+
+- **omitted** — this caller says nothing about identities, and the lookup takes the count-only path byte for byte. That is the silently count-only comparison, and it is the reason a change that silences one test while un-silencing another can read as a clean pass. `captureGateRun` omits the field only for a stack whose runner writes no machine-readable report at all.
+- **`null`** — this run STATES it could not name its skips: the stack has a report source, but the report was missing, unreadable, or not a report. Never an empty array, which would report every skip in the tree as newly introduced.
+- **an array** — these are the skips, by name, file-qualified so two same-named tests in different files stay distinct.
 
 **Delegation, not a second renderer.** `implement_report_evidence` derives nothing of its own — no count parsing, no baseline lookup, no row shape. It calls the shared stage-evidence renderer and re-labels the result, so its rows are byte-identical to the fence's, being the same bytes. A second formatter that merely agreed with the fence today would let the two invocation paths drift into disagreeing about whether the same work was green.
 

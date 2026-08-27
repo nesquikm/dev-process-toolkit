@@ -57,6 +57,8 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { repoWithBaseline } from "./_skip_baseline_fixture";
+
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
 const SRC_DIR = join(PLUGIN_ROOT, "adapters", "_shared", "src");
@@ -142,7 +144,7 @@ async function loadReport(): Promise<{
 }
 
 async function loadSkipBaseline(): Promise<{
-  captureSkipBaseline(root: string, branch: string, skipped: number): { written: boolean };
+  captureSkipBaseline(root: string, sha: string, skipped: number): { written: boolean };
 }> {
   return (await import(SKIP_BASELINE_MODULE)) as never;
 }
@@ -258,11 +260,15 @@ function capturedRun(label: string, command: string, output: string): CapturedRu
 
 const BRANCH = "feat/m132-evidence-ledger";
 
-/** A temp project root carrying a captured STE-509 skip baseline. */
+/**
+ * A project root carrying a captured skip baseline.
+ *
+ * A real git repository since M136 / STE-527 re-keyed the store to the trunk
+ * commit and gave capture its HEAD + clean-tree preconditions.
+ */
 async function rootWithBaseline(label: string, skipped: number): Promise<string> {
-  const root = tempDir(`root-${label}`);
-  (await loadSkipBaseline()).captureSkipBaseline(root, BRANCH, skipped);
-  return root;
+  const mod = await loadSkipBaseline();
+  return repoWithBaseline(mod, `crossfr-${label}`, skipped, BRANCH).root;
 }
 
 /** A temp project root carrying a baseline AND a `## Verification` declaration. */
@@ -363,30 +369,55 @@ describe("HIGH 1 — an operative surface states when the skip baseline is captu
     expect(rendered.rows.join("\n")).toContain("baseline 15, delta 0");
   });
 
-  test("/implement's SKILL names captureSkipBaseline at BRANCH CREATION", () => {
+  test("/implement's SKILL names the capture AND says when", () => {
     const lines = read(IMPLEMENT_SKILL).split("\n");
-    const carriers = lines.filter((line) => line.includes("captureSkipBaseline"));
+    const carriers = lines.filter(
+      (line) => line.includes("captureSkipBaseline") || line.includes("capture_skip_baseline"),
+    );
 
     // The instruction has to exist at all...
     expect(carriers.length).toBeGreaterThan(0);
-    // ...and say WHEN. An instruction that names the function but not the
-    // moment is aspirational, not executable.
-    expect(carriers.some((line) => /branch/i.test(line))).toBe(true);
+    // ...and say WHEN. An instruction that names the capture but not the moment
+    // is aspirational, not executable — that is this leg's whole subject, and
+    // it is unchanged.
+    //
+    // The MOMENT changed under M136 / STE-527. This leg used to require the
+    // word "branch", because STE-509 captured at branch creation. That moment
+    // is now provably wrong: the baseline is keyed to the TRUNK COMMIT, and
+    // capture refuses unless HEAD stands on it with a clean tree — so a branch
+    // is the one place it cannot happen. Requiring "branch" here would force
+    // the shipped skill to keep saying something false, which is the opposite
+    // of what this leg exists to do.
+    expect(
+      carriers.some((line) => /trunk|clean tree|merge-base/i.test(line)),
+      "the capture order names no moment — say WHEN it is captured, not just what to call",
+    ).toBe(true);
     // ...and name the module, so a reader can reach the code that does it.
     expect(read(IMPLEMENT_SKILL)).toContain("skip_baseline");
   });
 
-  test("SIBLING SURFACE: the reference doc carries the same obligation, in Branch Proposal", () => {
+  test("SIBLING SURFACE: the reference doc carries the same obligation", () => {
     const body = read(IMPLEMENT_REFERENCE);
     expect(body).toContain("captureSkipBaseline");
 
-    // Same rule, same place. A rule that lands on one surface and not its
-    // sibling is the drift M131 recorded three times in a single milestone.
-    const start = body.indexOf("## Branch Proposal");
-    expect(start).toBeGreaterThan(-1);
+    // Same rule on both surfaces. A rule that lands on one and not its sibling
+    // is the drift M131 recorded three times in a single milestone — that is
+    // this leg's subject and it is unchanged.
+    //
+    // The SECTION changed under M136 / STE-528. This leg used to require the
+    // obligation to sit inside `## Branch Proposal`, which is exactly the
+    // conditioned scope AC-STE-528.1 and .2 move it OUT of. Pinning the old
+    // location would have made the decondition impossible while claiming to
+    // guard sibling parity. So the section is DISCOVERED — wherever the doc
+    // states the capture order, that section must carry both tokens.
+    const start = body.indexOf("Skip baseline capture");
+    expect(
+      start,
+      "the reference doc states no capture order at all — the sibling surface has gone silent",
+    ).toBeGreaterThan(-1);
     const nextHeading = body.indexOf("\n## ", start + 1);
     const section = body.slice(start, nextHeading === -1 ? body.length : nextHeading);
-    expect(section).toContain("captureSkipBaseline");
+    expect(section).toContain("capture_skip_baseline");
     expect(section).toContain("skip_baseline");
   });
 
