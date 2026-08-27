@@ -181,7 +181,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.73.1 — "Concur"** (M135, epic binding convergence: the canonical milestone name embeds the key that Epic creation allocates, so the name could never be the join between writer and reader — every attach missed the real Epic, minted a second one under a fresh key, and the archival gate then returned `asserted` on the exact state its own predicate called false, at the one boundary nothing downstream revisits. Binding now resolves by key and never creates, minting has a home whose name is computable at creation time, a grandfathered numeric milestone writes to the surface its reader reads, and the gate re-reads and re-asks before it certifies anything.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.74.0 — "Pawl"** (M136, the ratchet that never ran: M132 shipped a skip ratchet whose write side had never executed once — its only order sat behind an optional key this repo does not set and behind a branch creation an already-acceptable branch never performs, while the read side treated the missing number as grounds to refuse, so a clean run became uncertifiable and the baseline got filled in by hand. The baseline is now keyed to the trunk commit and captured in place on a clean trunk checkout, the comparison is over skipped-test identities so a swapped skip cannot hide behind an unchanged count, every refusal hands over a runnable command instead of prose, and the order is proven to fire by executing it rather than by reading it.)
 
 ## Core Philosophy
 
