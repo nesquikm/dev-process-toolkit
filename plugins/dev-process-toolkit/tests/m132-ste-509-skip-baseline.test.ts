@@ -45,6 +45,7 @@
 //     is asserted at source level below, not assumed.
 
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import {
   copyFileSync,
   existsSync,
@@ -61,6 +62,7 @@ import { dptRoot, ledgerPath, locksDir } from "../adapters/_shared/src/dpt_paths
 import { DPT_GITIGNORE_BODY } from "../adapters/_shared/src/setup/dpt_gitignore";
 import { parseTestOutput } from "../adapters/_shared/src/test_count_parser";
 import { mutateInRegion } from "./_sited-mutation";
+import { makeTrunkRepo } from "./_skip_baseline_fixture";
 
 // ===========================================================================
 // Paths + the module contract under test.
@@ -131,10 +133,24 @@ async function loadDptPaths(): Promise<DptPathsModule> {
 
 const TEMP_ROOTS: string[] = [];
 
+/**
+ * A throwaway project root — a real git repository standing on the trunk.
+ *
+ * M136 / STE-527 re-keyed this store from the branch name to the TRUNK COMMIT
+ * and made capture refuse unless HEAD stands on that sha with a clean tree. A
+ * bare `mkdtemp` directory is now a state the module is REQUIRED to refuse, so
+ * these fixtures build the repository the contract asks for. Every leg below
+ * keeps its original subject; only the key it is keyed by has changed.
+ */
 function tempProjectRoot(label: string): string {
-  const root = mkdtempSync(join(tmpdir(), `ste509-${label}-`));
+  const { root } = makeTrunkRepo(`ste509-${label}`);
   TEMP_ROOTS.push(root);
   return root;
+}
+
+/** The trunk sha a root is keyed by — what the branch name used to be. */
+function shaFor(root: string): string {
+  return execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf-8" }).trim();
 }
 
 function cleanupTempRoots(): void {
@@ -171,10 +187,12 @@ describe("AC-STE-509.1 — the baseline path is composed through dpt_paths.ts", 
     const paths = await loadDptPaths();
     const root = tempProjectRoot("write");
 
-    const result = mod.captureSkipBaseline(root, "feat/m132-evidence-ledger", 3);
+    const result = mod.captureSkipBaseline(root, shaFor(root), 3);
 
     expect(result.written).toBe(true);
-    expect(result.record.branch).toBe("feat/m132-evidence-ledger");
+    // The record names the TRUNK COMMIT it was measured at (M136 / STE-527);
+    // it used to name the branch.
+    expect(result.record.sha).toBe(shaFor(root));
     expect(result.record.skipped).toBe(3);
     expect(result.record.capturedAt.length).toBeGreaterThan(0);
 
@@ -202,20 +220,34 @@ describe("AC-STE-509.1 — the baseline path is composed through dpt_paths.ts", 
     expect(source).toContain("skipBaselinePath");
   });
 
-  test("a captured baseline reads back for its own branch and not for another", async () => {
+  test("a captured baseline reads back for its own trunk commit and not another's", async () => {
     const mod = await loadSkipBaseline();
-    const root = tempProjectRoot("branchkey");
+    const root = tempProjectRoot("shakey");
 
-    mod.captureSkipBaseline(root, "feat/branch-a", 7);
+    const capturedSha = shaFor(root);
+    mod.captureSkipBaseline(root, capturedSha, 7);
 
-    const same = mod.readSkipBaseline(root, "feat/branch-a");
-    expect(same).not.toBeNull();
-    expect(same?.skipped).toBe(7);
+    const same = mod.readSkipBaseline(root);
+    expect(same.status).toBe("ok");
+    expect(same.status === "ok" ? same.record.skipped : null).toBe(7);
 
-    // The record is keyed to the branch it was captured on. A different branch
-    // has no baseline yet — which is AC.3's territory, not a silent reuse of
-    // some other branch's number.
-    expect(mod.readSkipBaseline(root, "feat/branch-b")).toBeNull();
+    // The record is KEYED to the commit it was measured at — and this asserts a
+    // keyed LOOKUP, not merely that an empty store reads empty. The trunk
+    // advances inside the SAME store, so the store still holds exactly one
+    // record and the question is whether the reader matches it against the key
+    // it is standing on. A reader that ignored the sha entirely would pass a
+    // second-empty-root version of this leg; it cannot pass this one.
+    // (Under M136 / STE-527 the key is the trunk sha; it used to be the branch.)
+    writeFileSync(join(root, "advance.md"), "trunk advances\n");
+    execFileSync("git", ["add", "-A"], { cwd: root });
+    execFileSync("git", ["commit", "-q", "-m", "chore: trunk advances"], { cwd: root });
+    expect(shaFor(root)).not.toBe(capturedSha);
+
+    const elsewhere = mod.readSkipBaseline(root);
+    expect(
+      elsewhere.status,
+      "the store still holds the first record — a different key must not read it",
+    ).toBe("absent");
   });
 });
 
@@ -229,8 +261,8 @@ describe("AC-STE-509.2 — the delta verdict across positive, zero and negative"
     const mod = await loadSkipBaseline();
     const root = tempProjectRoot("delta-pos");
 
-    mod.captureSkipBaseline(root, "feat/x", 2);
-    const verdict = mod.evaluateSkipDelta(root, "feat/x", 5);
+    mod.captureSkipBaseline(root, shaFor(root), 2);
+    const verdict = mod.evaluateSkipDelta(root, 5);
 
     expect(verdict.outcome).toBe("fail");
     expect(verdict.baseline).toBe(2);
@@ -243,8 +275,8 @@ describe("AC-STE-509.2 — the delta verdict across positive, zero and negative"
     const mod = await loadSkipBaseline();
     const root = tempProjectRoot("delta-zero");
 
-    mod.captureSkipBaseline(root, "feat/x", 4);
-    const verdict = mod.evaluateSkipDelta(root, "feat/x", 4);
+    mod.captureSkipBaseline(root, shaFor(root), 4);
+    const verdict = mod.evaluateSkipDelta(root, 4);
 
     expect(verdict.outcome).toBe("pass");
     expect(verdict.delta).toBe(0);
@@ -255,8 +287,8 @@ describe("AC-STE-509.2 — the delta verdict across positive, zero and negative"
     const mod = await loadSkipBaseline();
     const root = tempProjectRoot("delta-neg");
 
-    mod.captureSkipBaseline(root, "feat/x", 6);
-    const verdict = mod.evaluateSkipDelta(root, "feat/x", 1);
+    mod.captureSkipBaseline(root, shaFor(root), 6);
+    const verdict = mod.evaluateSkipDelta(root, 1);
 
     expect(verdict.outcome).toBe("pass");
     expect(verdict.delta).toBe(-5);
@@ -300,8 +332,8 @@ describe("AC-STE-509.2 — the delta verdict across positive, zero and negative"
     expect(parsed.count.skipped).toBe(2);
     expect(parsed.count.total).toBe(14);
 
-    mod.captureSkipBaseline(root, "feat/x", 2);
-    const verdict = mod.evaluateSkipDelta(root, "feat/x", parsed.count.skipped);
+    mod.captureSkipBaseline(root, shaFor(root), 2);
+    const verdict = mod.evaluateSkipDelta(root, parsed.count.skipped);
 
     expect(verdict.outcome).toBe("pass");
     expect(verdict.current).toBe(2);
@@ -318,17 +350,25 @@ describe("AC-STE-509.3 — an absent baseline yields a distinct surfaced `unmeas
   test("`unmeasured` is a third value, not a boolean", async () => {
     const mod = await loadSkipBaseline();
 
-    expect([...mod.SKIP_OUTCOMES].sort()).toEqual(["fail", "pass", "unmeasured"]);
-    expect(new Set(mod.SKIP_OUTCOMES).size).toBe(3);
+    // The leg's subject is `unmeasured` being a value of its own rather than a
+    // boolean — it is not a census of the vocabulary. AC-STE-530.1 widened the
+    // list to four and pins the full census in its own file; this asserts only
+    // that the three STE-509 outcomes are all still distinct members.
+    for (const outcome of ["pass", "fail", "unmeasured"]) {
+      expect(mod.SKIP_OUTCOMES, `SKIP_OUTCOMES must still carry ${outcome}`).toContain(
+        outcome as SkipOutcome,
+      );
+    }
+    expect(new Set(mod.SKIP_OUTCOMES).size).toBe(mod.SKIP_OUTCOMES.length);
   });
 
   test("an absent baseline classifies as `unmeasured` with a null delta", async () => {
     const mod = await loadSkipBaseline();
     const root = tempProjectRoot("absent");
 
-    expect(mod.readSkipBaseline(root, "feat/x")).toBeNull();
+    expect(mod.readSkipBaseline(root).status).toBe("absent");
 
-    const verdict = mod.evaluateSkipDelta(root, "feat/x", 5);
+    const verdict = mod.evaluateSkipDelta(root, 5);
     expect(verdict.outcome).toBe("unmeasured");
     expect(verdict.baseline).toBeNull();
     expect(verdict.delta).toBeNull();
@@ -339,7 +379,7 @@ describe("AC-STE-509.3 — an absent baseline yields a distinct surfaced `unmeas
     const mod = await loadSkipBaseline();
     const root = tempProjectRoot("not-a-pass");
 
-    const unmeasured = mod.evaluateSkipDelta(root, "feat/x", 5);
+    const unmeasured = mod.evaluateSkipDelta(root, 5);
 
     // The half that matters, asserted on its own rather than inferred from the
     // outcome token.
@@ -350,8 +390,8 @@ describe("AC-STE-509.3 — an absent baseline yields a distinct surfaced `unmeas
     expect(rendered.toLowerCase()).not.toContain("pass");
 
     // And it is not merely the pass rendering with a different label.
-    mod.captureSkipBaseline(root, "feat/x", 5);
-    const clean = mod.evaluateSkipDelta(root, "feat/x", 5);
+    mod.captureSkipBaseline(root, shaFor(root), 5);
+    const clean = mod.evaluateSkipDelta(root, 5);
     expect(mod.isCleanPass(clean)).toBe(true);
     expect(rendered).not.toBe(mod.renderSkipVerdict(clean));
   });
@@ -362,7 +402,7 @@ describe("AC-STE-509.3 — an absent baseline yields a distinct surfaced `unmeas
 
     // Loud but wrong: an absent baseline read as 0 makes every pre-existing
     // skip look newly introduced, so it reports FAIL with a delta of 5.
-    const verdict = mod.evaluateSkipDelta(root, "feat/x", 5);
+    const verdict = mod.evaluateSkipDelta(root, 5);
     expect(verdict.outcome).not.toBe("fail");
     expect(verdict.baseline).not.toBe(0);
     expect(verdict.delta).not.toBe(5);
@@ -374,7 +414,7 @@ describe("AC-STE-509.3 — an absent baseline yields a distinct surfaced `unmeas
 
     // Quiet and much worse: an absent baseline read as equal to current makes
     // every new skip invisible, so it reports a clean PASS with delta 0.
-    const verdict = mod.evaluateSkipDelta(root, "feat/x", 5);
+    const verdict = mod.evaluateSkipDelta(root, 5);
     expect(verdict.outcome).not.toBe("pass");
     expect(mod.isCleanPass(verdict)).toBe(false);
     expect(verdict.delta).not.toBe(0);
@@ -392,50 +432,63 @@ describe("AC-STE-509.4 — the baseline does not move mid-run", () => {
     const root = tempProjectRoot("no-refresh");
     const file = paths.skipBaselinePath(root);
 
-    const first = mod.captureSkipBaseline(root, "feat/x", 2);
+    const first = mod.captureSkipBaseline(root, shaFor(root), 2);
     expect(first.written).toBe(true);
     const bytesAfterFirst = read(file);
 
     // Mid-run reads must not move it either.
-    expect(mod.evaluateSkipDelta(root, "feat/x", 9).outcome).toBe("fail");
+    expect(mod.evaluateSkipDelta(root, 9).outcome).toBe("fail");
 
     // A second capture with a DIFFERENT count — the mid-run refresh that would
     // make the guard permanently report a zero delta.
-    const second = mod.captureSkipBaseline(root, "feat/x", 9);
+    const second = mod.captureSkipBaseline(root, shaFor(root), 9);
     expect(second.written).toBe(false);
     expect(second.record.skipped).toBe(2);
 
     // Raw bytes, so a rewrite that happens to re-derive the same number is
     // still caught by the moved `capturedAt`.
     expect(read(file)).toBe(bytesAfterFirst);
-    expect(mod.readSkipBaseline(root, "feat/x")?.skipped).toBe(2);
+    const readBack = mod.readSkipBaseline(root);
+    expect(readBack.status).toBe("ok");
+    expect(readBack.status === "ok" ? readBack.record.skipped : null).toBe(2);
   });
 
   test("the delta after a repeated capture is still the real one, not zero", async () => {
     const mod = await loadSkipBaseline();
     const root = tempProjectRoot("still-fails");
 
-    mod.captureSkipBaseline(root, "feat/x", 2);
-    mod.captureSkipBaseline(root, "feat/x", 9);
+    mod.captureSkipBaseline(root, shaFor(root), 2);
+    mod.captureSkipBaseline(root, shaFor(root), 9);
 
     // A refreshing baseline reports delta 0 here — a guard that cannot fail.
-    const verdict = mod.evaluateSkipDelta(root, "feat/x", 9);
+    const verdict = mod.evaluateSkipDelta(root, 9);
     expect(verdict.outcome).toBe("fail");
     expect(verdict.baseline).toBe(2);
     expect(verdict.delta).toBe(7);
   });
 
-  test("branch creation is the write moment — a new branch seeds a new baseline", async () => {
+  test("a NEW trunk commit seeds a new baseline — write-once is per key, not forever", async () => {
+    // The leg's subject is unchanged: a fresh key is seeded rather than being
+    // refused by the write-once rule. What counts as "fresh" moved from the
+    // branch name to the trunk commit under M136 / STE-527, so the fixture
+    // advances the trunk instead of cutting a branch.
     const mod = await loadSkipBaseline();
-    const root = tempProjectRoot("new-branch");
+    const root = tempProjectRoot("new-key");
 
-    mod.captureSkipBaseline(root, "feat/old", 2);
+    const firstSha = shaFor(root);
+    mod.captureSkipBaseline(root, firstSha, 2);
 
-    const seeded = mod.captureSkipBaseline(root, "feat/new", 6);
+    writeFileSync(join(root, "later.md"), "trunk advances\n");
+    execFileSync("git", ["add", "-A"], { cwd: root });
+    execFileSync("git", ["commit", "-q", "-m", "chore: trunk advances"], { cwd: root });
+    const secondSha = shaFor(root);
+    expect(secondSha).not.toBe(firstSha);
+
+    const seeded = mod.captureSkipBaseline(root, secondSha, 6);
     expect(seeded.written).toBe(true);
-    expect(seeded.record.branch).toBe("feat/new");
+    expect(seeded.record.sha).toBe(secondSha);
     expect(seeded.record.skipped).toBe(6);
-    expect(mod.evaluateSkipDelta(root, "feat/new", 6).outcome).toBe("pass");
+    expect(mod.evaluateSkipDelta(root, 6).outcome).toBe("pass");
   });
 });
 
@@ -461,7 +514,15 @@ async function loadMutant(
   const dir = mkdtempSync(join(tmpdir(), `ste509-mutant-${label}-`));
   TEMP_ROOTS.push(dir);
 
-  copyFileSync(DPT_PATHS_FILE, join(dir, "dpt_paths.ts"));
+  // The WHOLE local dependency closure, not just dpt_paths. `skip_baseline.ts`
+  // gained `./branch_proposal` under M136 / STE-527, and a closure that is
+  // missing one module does not fail loudly — the import throws inside the leg
+  // and the leg goes red for a reason unrelated to its subject.
+  for (const dep of ["dpt_paths", "branch_proposal", "milestone_token", "ulid"]) {
+    const from = join(SHARED_SRC, `${dep}.ts`);
+    expect(existsSync(from), `mutant dependency closure names a missing module: ${from}`).toBe(true);
+    copyFileSync(from, join(dir, `${dep}.ts`));
+  }
 
   const original = read(SKIP_BASELINE_FILE);
   const renamed = mutateInRegion(
@@ -490,31 +551,30 @@ async function loadMutant(
  * it; each mutant must not.
  */
 function runSkipGuard(mod: SkipBaselineModule, label: string): void {
-  const root = mkdtempSync(join(tmpdir(), `ste509-guard-${label}-`));
+  const { root } = makeTrunkRepo(`ste509-guard-${label}`);
   TEMP_ROOTS.push(root);
-  mkdirSync(root, { recursive: true });
 
   const fail = (what: string, got: unknown, want: unknown): never => {
     throw new Error(`skip guard [${label}]: ${what} — got ${String(got)}, want ${String(want)}`);
   };
 
   // 1. Absent baseline is `unmeasured`, and is not a clean pass.
-  const absent = mod.evaluateSkipDelta(root, "feat/x", 4);
+  const absent = mod.evaluateSkipDelta(root, 4);
   if (absent.outcome !== "unmeasured") fail("absent baseline outcome", absent.outcome, "unmeasured");
   if (mod.isCleanPass(absent)) fail("absent baseline isCleanPass", true, false);
 
-  mod.captureSkipBaseline(root, "feat/x", 3);
+  mod.captureSkipBaseline(root, shaFor(root), 3);
 
   // 2. Pre-existing skips are not this change's doing → pass.
-  const unchanged = mod.evaluateSkipDelta(root, "feat/x", 3);
+  const unchanged = mod.evaluateSkipDelta(root, 3);
   if (unchanged.outcome !== "pass") fail("zero-delta outcome", unchanged.outcome, "pass");
 
   // 3. Newly introduced skips → fail.
-  const worse = mod.evaluateSkipDelta(root, "feat/x", 6);
+  const worse = mod.evaluateSkipDelta(root, 6);
   if (worse.outcome !== "fail") fail("positive-delta outcome", worse.outcome, "fail");
 
   // 4. Skips removed → pass.
-  const better = mod.evaluateSkipDelta(root, "feat/x", 1);
+  const better = mod.evaluateSkipDelta(root, 1);
   if (better.outcome !== "pass") fail("negative-delta outcome", better.outcome, "pass");
 }
 
@@ -529,9 +589,12 @@ describe("AC-STE-509.5 — the guards are mutation-verified", () => {
       "reader-zero",
       "export function readSkipBaseline",
       [
-        "export function readSkipBaseline(projectRoot: string, branch: string) {",
+        "export function readSkipBaseline(projectRoot: string) {",
         "  void projectRoot;",
-        '  return { branch, skipped: 0, capturedAt: "1970-01-01T00:00:00.000Z" };',
+        "  return {",
+        '    status: "ok" as const,',
+        '    record: { sha: "0".repeat(40), skipped: 0, capturedAt: "1970-01-01T00:00:00.000Z", checkoutId: "stub" },',
+        "  };",
         "}",
       ].join("\n"),
     );
@@ -542,7 +605,7 @@ describe("AC-STE-509.5 — the guards are mutation-verified", () => {
     // And it dies for the RIGHT reason: an absent baseline read as zero never
     // reaches `unmeasured` at all.
     const root = tempProjectRoot("mut-reader-zero");
-    const verdict = mutant.evaluateSkipDelta(root, "feat/x", 4);
+    const verdict = mutant.evaluateSkipDelta(root, 4);
     expect(verdict.outcome).not.toBe("unmeasured");
   });
 
@@ -658,9 +721,17 @@ describe("M132 hardening — the skip baseline is ignored, never committable", (
     const paths = await loadDptPaths();
     const root = tempGitRepoWithShippedIgnore("git-add");
 
-    skip.captureSkipBaseline(root, "feat/m132-hardening", 7);
+    skip.captureSkipBaseline(root, shaFor(root), 7);
     const rel = relative(root, paths.skipBaselinePath(root));
     expect(existsSync(paths.skipBaselinePath(root))).toBe(true);
+
+    // A sentinel the sweep MUST pick up. Under M136 / STE-527 the fixture
+    // commits `.dpt/.gitignore` before capture (capture refuses a dirty tree),
+    // so that file is no longer available as the "the sweep really ran" witness
+    // — it is already tracked and clean. This file is created AFTER capture, so
+    // it cannot make the tree dirty while capture is deciding.
+    const sentinel = "sweep-witness.md";
+    writeFileSync(join(root, sentinel), "witness\n");
 
     gitIn(root, ["add", "-A"]);
     const staged = gitIn(root, ["diff", "--cached", "--name-only"]).stdout
@@ -669,9 +740,8 @@ describe("M132 hardening — the skip baseline is ignored, never committable", (
       .filter((line) => line.length > 0);
 
     expect(staged).not.toContain(rel);
-    // The sweep really ran — the ignore file itself IS staged. Without this
-    // the leg would pass on a `git add` that silently did nothing at all.
-    expect(staged).toContain(relative(root, join(dptRoot(root), ".gitignore")));
+    // Without this the leg would pass on a `git add` that silently did nothing.
+    expect(staged).toContain(sentinel);
   });
 
   test("the cheap fix is refused — locks and the ignore file stay tracked", async () => {
