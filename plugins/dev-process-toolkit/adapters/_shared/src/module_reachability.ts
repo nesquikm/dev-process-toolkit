@@ -33,6 +33,36 @@
 //     evasion hole: move an order into `docs/` and it escapes the check, which
 //     is documenting a claim away rather than fixing it.
 //
+// WHAT A GREEN ROW CERTIFIES — and what it does not (STE-531, M136).
+//
+// `reachable: true` answers exactly one question: the module CAN BE RUN —
+// it is an entry point, or an entry point reaches it. It does not answer
+// whether the order that names it will ever be given. Both halves of that
+// gap were measured on this repo:
+//
+//  (a) At commit 9b420ec the probe classified BOTH skip-baseline orders as
+//      `ordered` + `reachable: true` (pin 142, 343 records) while NEITHER
+//      could fire in this project at all: one sits inside a paragraph
+//      conditioned on a `branch_template:` key this repo does not set, the
+//      other after a `git checkout -b` that an already-acceptable branch
+//      never performs. The certificate was accurate; the inference drawn
+//      from it — "so the order fires" — was not.
+//  (b) The sharper direction, found by audit: an UNREACHABLE module is
+//      hidden from this probe outright when every reference naming it
+//      scores `descriptive`. `implement_report_evidence.ts` — the module
+//      that renders EVERY `/implement` report's `## Verification evidence`
+//      section — carries no entry point and no non-test importer, so it is
+//      unreachable by the rule above; yet probe #81 never flags it, because
+//      `classifyReferenceLine` scores both of its references
+//      (`skills/implement/SKILL.md`, `docs/implement-reference.md`) as
+//      `descriptive`: the phrase "render … through … from" carries none of
+//      the ORDER_PHRASES. An unrunnable module a reader is expected to use
+//      is invisible to the guard built for exactly that class.
+//
+// A recorded LIMIT, not a rule change. Departure 1 stands, and widening
+// ORDER_PHRASES to swallow "from" is the re-tune departure 2 rejects: it
+// would classify the whole tree as ordered and measure nothing.
+//
 // The WALK is reused from `./carrier_phrase_probe` (`collectMarkdownFiles`
 // over `CARRIER_SCANNED_TREES`) rather than re-derived — a second markdown
 // walk is exactly where the two would drift apart. What is NOT reused is that
@@ -391,7 +421,7 @@ export function scanSurfaceForModuleReferences(
  * When this number moves, the run reds. Lowering it is the fix; raising it is
  * a decision to ship one more order nobody can carry out.
  */
-export const ORDERED_UNREACHABLE_PIN = 142;
+export const ORDERED_UNREACHABLE_PIN = 139;
 
 // ---------------------------------------------------------------------------
 // The probe

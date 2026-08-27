@@ -49,7 +49,7 @@ Design-reference images (mockups, screenshots, design-system artifacts) live und
 
 ## The `.dpt/` tree
 
-Toolkit-owned state lives in one folder at the project root. Every path under it is composed by `adapters/_shared/src/dpt_paths.ts` (`dptRoot`, `locksDir`, `ledgerPath`, `scratchRoot`, `scratchDir`, `skipBaselinePath`) — no other module composes a `.dpt` literal.
+Toolkit-owned state lives in one folder at the project root. Every path under it is composed by `adapters/_shared/src/dpt_paths.ts` (`dptRoot`, `locksDir`, `ledgerPath`, `scratchRoot`, `scratchDir`, `skipBaselinePath`, `checkoutIdPath`) — no other module composes a `.dpt` literal.
 
 ```
 .dpt/
@@ -57,7 +57,8 @@ Toolkit-owned state lives in one folder at the project root. Every path under it
 ├── locks/<id>          ← TRACKED — cross-branch coordination signal
 ├── ledger/…jsonl       ← ignored — token-ledger capture
 ├── scratch/<ulid>/     ← ignored — spec/deps research results
-└── skip-baseline.json  ← ignored — per-branch skip baseline (STE-509)
+├── ledger/checkout-id  ← ignored — this checkout's identity (STE-527)
+└── skip-baseline.json  ← ignored — per-trunk-commit skip baseline (STE-527)
 ```
 
 The tracked-vs-ignored split is governed by `.dpt/.gitignore`, a toolkit-owned file `/setup` writes on every run (idempotent by byte-compare; a drifted baseline is restored). It carries exactly three relative rules — `ledger/`, `scratch/` and `skip-baseline.json` — so `.dpt/ledger/token-ledger.jsonl`, `.dpt/scratch/<ulid>/` and `.dpt/skip-baseline.json` are **ignored** while `.dpt/locks/<id>` stays **tracked**. Locks are tracked because they are a cross-branch coordination signal: a lock git cannot see cannot coordinate anything. The rules are relative rather than rooted, so the file is position-independent — it resolves against its own directory and behaves identically when `.dpt/` sits in a subdirectory instead of the repo root. The consumer's root `.gitignore` needs no toolkit entry at all, and this repo's own root `.gitignore` deliberately carries no `.dpt` line.
