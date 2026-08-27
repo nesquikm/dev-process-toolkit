@@ -10,13 +10,13 @@ Run the project's gating checks and report a clear pass/fail for each.
 
 ## Layout + Tracker Mode Probes
 
-Before running any commands:
-
-- **Tracker Mode Probe** — Run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and tracker-mode hooks skip. If a tracker mode is active:
-  - Run the 2-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md`. Decline exits cleanly with zero side effects.
-  - Re-fetch the ticket's `updatedAt` and warn on mismatch against the value recorded at `/implement` start; do NOT run bidirectional AC sync resolution here.
-  - On gate pass, push the AC toggle via the active adapter's `push_ac_toggle` (capability permitting; missing capability degrades with a canonical-shape warning otherwise).
-  See `docs/gate-check-tracker-mode.md` for the full tracker-mode flow.
+- **Tracker Mode Probe** — Before running any commands, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and tracker-mode hooks skip. If a tracker mode is active:
+  - Run the 2-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md`. Decline exits cleanly with zero side effects. Re-fetch the ticket's `updatedAt` and warn on mismatch against the value recorded at `/implement` start; do NOT run bidirectional AC sync resolution here.
+  - On gate pass, push the AC toggle via the active adapter's `push_ac_toggle` (capability permitting; missing capability degrades with a canonical-shape warning otherwise). See `docs/gate-check-tracker-mode.md` for the full tracker-mode flow.
+- **Skip baseline capture** — On a clean tree standing on trunk (`main`), run the capture below: a clean trunk checkout under `/gate-check` is the only path that records a skip baseline with no operator step, and the capture measures the count by running the suite itself. Off trunk, or with a dirty tree, it declines and writes nothing — report the reason it names, verbatim; a skip that reports nothing is the defect this closes.
+  ```bash
+  bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/capture_skip_baseline.ts" "<projectRoot>"
+  ```
 
 ## Conformance Probes (NFR-15)
 
@@ -241,7 +241,7 @@ probe #75 (active-plan-ship-ready) by
 `tests/gate-check-active-plan-ship-ready.test.ts`.
 Contributors adding probe 60+ must ship the matching test file in the same commit.
 
-**Registering a probe now costs one line probe #81 counts.** A registration reads `call \`run…Probe(projectRoot)\` from `adapters/_shared/src/<module>.ts`` — an order naming a module. Probe #81 (`module_reachability`) classifies that line as ordered, and grades it unreachable unless the module carries a command-line entry point or something that does imports it. None of the registrations below satisfy that, so **registering probe #82 will turn probe #81 red**, and its pinned count is not the fix: raising a pin to admit a new unrunnable order is the drift the pin exists to catch. The two sanctioned resolutions are to give the new probe's module an `import.meta.main` entry, or to word its registration so it names the module without ordering the reader to run it by hand. Probe #81's own registration is itself one of the 142 records it pins — the probe is in the class it counts, which is disclosed rather than carved out.
+**Registering a probe now costs one line probe #81 counts.** A registration reads `call \`run…Probe(projectRoot)\` from `adapters/_shared/src/<module>.ts`` — an order naming a module. Probe #81 (`module_reachability`) classifies that line as ordered, and grades it unreachable unless the module carries a command-line entry point or something that does imports it. None of the registrations below satisfy that, so **registering probe #82 will turn probe #81 red**, and its pinned count is not the fix: raising a pin to admit a new unrunnable order is the drift the pin exists to catch. The two sanctioned resolutions are to give the new probe's module an `import.meta.main` entry, or to word its registration so it names the module without ordering the reader to run it by hand. Probe #81's own registration is itself one of the 139 records it pins — the probe is in the class it counts, which is disclosed rather than carved out.
 
 ## Commands
 

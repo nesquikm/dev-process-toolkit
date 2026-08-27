@@ -159,6 +159,7 @@ import { join } from "node:path";
 import { findFences } from "../adapters/_shared/src/markdown_fences";
 import { captureSkipBaseline } from "../adapters/_shared/src/skip_baseline";
 import { parseTestOutput } from "../adapters/_shared/src/test_count_parser";
+import { repoWithBaseline } from "./_skip_baseline_fixture";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 
@@ -467,11 +468,17 @@ function writeFenceCapture(label: string, options: FenceOptions = {}): string {
   return writeCapture(label, report(fenceBody(options)));
 }
 
-/** A temp project root carrying a captured STE-509 skip baseline. */
+/**
+ * A project root carrying a captured skip baseline.
+ *
+ * M136 / STE-527 re-keyed the store to the TRUNK COMMIT and made capture refuse
+ * unless HEAD stands on that sha with a clean tree, so this is a real git
+ * repository now rather than a bare temp directory. The `branch` argument is
+ * kept in the signature — callers name the branch they mean, and it is cut
+ * after the capture, which is the order the shipped flow uses.
+ */
 function rootWithBaseline(label: string, branch: string, skipped: number): string {
-  const root = tempDir(`root-${label}`);
-  captureSkipBaseline(root, branch, skipped);
-  return root;
+  return repoWithBaseline({ captureSkipBaseline }, `510-${label}`, skipped, branch).root;
 }
 
 /** The counts a renderer produced, read back out of its own rendered lines. */
@@ -755,8 +762,19 @@ describe("AC-STE-510.3 — counts are derived from the capture, never authored",
   test("PROVENANCE: the renderer derives through the SHIPPED parser and baseline modules", () => {
     const source = read(EVIDENCE_MODULE);
 
-    // Imported from the one home each, and CALLED by bare name so an override
-    // of either is genuinely wired through (the STE-509 house idiom).
+    // Imported from the one home each, so an override of either is genuinely
+    // wired through — which is what this leg is actually about.
+    //
+    // Deliberately NOT phrased as "called by bare name". That wording was here,
+    // became false when M136 forced a namespace import, was corrected to
+    // describe the namespace form, and became false AGAIN when named imports
+    // were restored. Three flips in one milestone, on a comment nothing can
+    // fail. The guarantee is stable under both shapes — a named import binds
+    // the live export, and an ES-module namespace member resolves at call time
+    // — so the comment now states the GUARANTEE and not the syntax that
+    // happened to carry it. The assertions below are qualifier-blind, so they
+    // stay green either way; that is exactly why the prose has to be the thing
+    // that is kept true.
     expect(source).toContain('from "./test_count_parser"');
     expect(source).toContain('from "./skip_baseline"');
     expect(source).toContain("parseTestOutput(");

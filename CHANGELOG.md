@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.74.0] — 2026-08-27 — "Pawl"
+
+### Added
+
+- **STE-529 — The skip ratchet compares named skips and says which comparison it made.** When both sides can name their skipped tests the verdict is computed from the SET, so a run that removes one skip and adds a different one is caught where the count reported delta 0. When neither side can, the scalar stands and the row says out loud that it is count-only. A named baseline met by a run that cannot name its skips refuses rather than approximating. (STE-529)
+- **STE-531 — The skip-baseline order is proven to fire, not merely reachable.** The shipped reachability probe classified both skip-baseline orders as `ordered` and `reachable: true` while neither could fire in this project at all — the certificate was accurate and the inference drawn from it was false. Whether the order fires is now decided by executing the ordering path against a project's own `CLAUDE.md`, and the limit of a green reachability row is recorded where the rule is documented. (STE-531)
+
+### Changed
+
+- **STE-527 — The skip baseline belongs to a trunk commit, measured in this checkout.** The store is re-keyed from branch name to the trunk commit a branch forked from, in a versioned envelope, writable only from a checkout standing on that commit with a clean tree and stamped with an identity no clone inherits. Measured: the same commit reports 15 skipped tests in the working tree and 27 in a detached worktree, because 12 tests guard on git-ignored fixtures — so a baseline is only comparable within the checkout that took it. The three v1 records on disk are dropped and named, never re-keyed: two were post-work counts and none could prove its checkout. (STE-527)
+
+### Fixed
+
+- **STE-528 — The skip-baseline capture has a caller that always fires.** The capture was ordered only inside a paragraph conditioned on an optional `branch_template:` key this project does not set, and only after a `git checkout -b` an already-acceptable branch never performs — so it had never run once. The order is now unconditional, names a runnable command rather than a function, and is carried by `/implement`, `/gate-check` and `/deliver` alike; `/gate-check` on a clean trunk is the path that captures with no operator step. (STE-528)
+- **STE-530 — An unmeasurable skip baseline names the command that measures it.** Every non-pass outcome now hands the reader a copy-pasteable command instead of prose, and `incomparable` is a fourth outcome with its own sentence and its own per-cause remedy rather than a relabelled pass. The previous wording named no command at all, which is how a wrong baseline came to be filled in by hand and shipped green. (STE-530)
+
+Total test count at release: 10299 tests, 0 failures, 0 errors.
+
 ## [2.73.1] — 2026-08-26 — "Concur"
 
 ### Fixed

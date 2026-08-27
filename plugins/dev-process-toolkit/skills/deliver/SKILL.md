@@ -223,6 +223,12 @@ follow_ups:
 
 **Required sections, in fixed section order:** `stage`, `milestone`, `status`, `summary`, `gate`, `drive`, `e2e`, `follow_ups`. `status: ok` means the stage completed cleanly; `status: failed` means it could not — the orchestrator halts the milestone and reports to the operator rather than improvising a recovery.
 
+**The `gate:` row's skips carry IDENTITIES, not just a count.** The capture behind a stage's `gate:` section MUST supply `skipNames` — built by `captureGateRun` in `adapters/_shared/src/gate_capture.ts`, the same READ side `/implement` step 14 orders — so `evaluateSkipDelta` names WHICH skips changed instead of comparing counts alone. Supplying no `skipNames` leaves that function on its scalar path: a silently count-only comparison, in which a run that silences one test while un-silencing another reads as a clean pass — on the surface where a whole milestone is graded. The read side is a front door a reader can copy, so this run's identities are obtainable and not merely required:
+
+```sh
+bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_capture.ts <projectRoot>
+```
+
 **Reduced chains — a milestone targeting a repo with no toolkit ceremony.** When a milestone's work lands in a tree that has no toolkit installed, the worker does the work and opens a PR with no `/implement` or `/ship-milestone` stage. The one section that omits real content there is `gate` — and the new `drive` and `e2e` sections sit in exactly the same position: that tree has no project gate, drive or end-to-end command to report counts from. Omitting content is never dropping a section — `gate` keeps its heading and carries the literal `- (none found)` fallback, and so do `drive` and `e2e`. Every other section is filled exactly as on a full chain, `milestone` included: the milestone identity is the orchestrating repo's plan and is known to the worker, and `stage`, `status`, `summary` and `follow_ups` all describe work that did happen. So a reduced chain emits the same eight sections in the same fixed order as a full one, which is exactly why it cannot violate a contract written for the full chain.
 
 `milestone` is a scalar, so the `- (none found)` fallback — a list-item form — is not even expressible there; that fallback belongs to the list sections `summary`, `gate`, `drive`, `e2e` and `follow_ups` alone.
