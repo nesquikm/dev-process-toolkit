@@ -71,6 +71,7 @@ import {
   EMPTY_SECTION_FALLBACK,
   LIST_STATUS_SECTIONS,
   SCALAR_STATUS_SECTIONS,
+  STAGE_BLOCK_FENCE_BANNER,
   STAGE_REPORT_LINE_CAP,
   STAGE_STATUS_SECTIONS,
   verifyStageStatusBlock,
@@ -87,9 +88,21 @@ const MODULE_PATH = join(
 
 const FIXTURE_DIR = join(import.meta.dir, "fixtures", "deliver-stage-capture");
 
-/** Trailing newline stripped so every line count in this file means one thing. */
+/**
+ * Trailing newline stripped so every line count in this file means one thing,
+ * and the fence REBANNERED onto the adopting stages' own opener.
+ *
+ * AC-STE-533.1a split one artifact into two contracts: `deliver-stage-result`
+ * stays /deliver's MACHINE hand-off (graded by `verifyDeliverStageCapture`),
+ * and `stage-status-block` is the HUMAN-facing closing summary this module
+ * grades. The shipped fixtures are /deliver's, so only the banner is swapped —
+ * every line count, section and count below still comes from the shipped model
+ * report rather than from a hand-typed one.
+ */
 const fixture = (name: string): string =>
-  readFileSync(join(FIXTURE_DIR, name), "utf-8").replace(/\n+$/, "");
+  readFileSync(join(FIXTURE_DIR, name), "utf-8")
+    .replace(/\n+$/, "")
+    .replace(DELIVER_STAGE_FENCE_BANNER, STAGE_BLOCK_FENCE_BANNER);
 
 /** The well-formed model capture — 29 lines, 12 of prose, a 17-line fence. */
 const CLEAN = fixture("worker-stage-report.txt");
@@ -99,7 +112,7 @@ const NO_FENCE = fixture("worker-stage-report-no-fence.txt");
 const REORDERED = fixture("worker-stage-report-reordered.txt");
 
 const FENCE_OPEN_RE = new RegExp(
-  `^[ \\t]*${DELIVER_STAGE_FENCE_BANNER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[ \\t]*$`,
+  `^[ \\t]*${STAGE_BLOCK_FENCE_BANNER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[ \\t]*$`,
 );
 const FENCE_CLOSE_RE = /^[ \t]*```[ \t]*$/;
 const TOP_LEVEL_KEY_RE = /^([A-Za-z_][A-Za-z0-9_]*):/;
@@ -271,7 +284,7 @@ describe("AC-STE-532.1 — a validator over a rendered report, verdict `{ ok, re
     // The PATH to that same file is not a report — it carries no fence at all,
     // so a validator that quietly read its argument off disk (the shipped
     // grader's contract) would agree with the line above instead of refusing.
-    expect(capturePath).not.toContain(DELIVER_STAGE_FENCE_BANNER);
+    expect(capturePath).not.toContain(STAGE_BLOCK_FENCE_BANNER);
     const byPath = verifyStageStatusBlock(capturePath);
     expect(byPath.ok).toBe(false);
     expect(byPath.reasons.some((reason) => /fence/i.test(reason))).toBe(true);
@@ -364,6 +377,17 @@ describe("AC-STE-532.2 — one fixed section order, stated in exactly ONE place"
 
 describe("AC-STE-532.3 — the cap spans the WHOLE report, prose lead-in included", () => {
   const LONG = insertNarration(CLEAN, 40);
+  /**
+   * The SAME report on /deliver's banner. AC-STE-533.1a split one artifact into
+   * two contracts, so the fence-only grader is measured on the copy it speaks
+   * for: `verifyDeliverStageCapture` owns `deliver-stage-result`, this module
+   * owns `stage-status-block`, and the banner is the only difference between
+   * these two strings.
+   */
+  const LONG_DELIVER = LONG.replace(
+    STAGE_BLOCK_FENCE_BANNER,
+    DELIVER_STAGE_FENCE_BANNER,
+  );
   const scratch = mkdtempSync(join(tmpdir(), "ste-532-"));
 
   test("a whole-report cap must exceed the fence-only cap to be one at all", () => {
@@ -378,12 +402,13 @@ describe("AC-STE-532.3 — the cap spans the WHOLE report, prose lead-in include
     // Half one: the fence inside this report is genuinely compliant.
     expect(fenceBody(LONG).length).toBeLessThanOrEqual(FENCE_LINE_CAP);
     const capturePath = join(scratch, "long-report.txt");
-    writeFileSync(capturePath, LONG);
+    writeFileSync(capturePath, LONG_DELIVER);
+    expect(LONG_DELIVER.replace(DELIVER_STAGE_FENCE_BANNER, STAGE_BLOCK_FENCE_BANNER)).toBe(LONG);
     const fenceOnlyVerdict = verifyDeliverStageCapture(capturePath);
     expect(fenceOnlyVerdict.reasons).toEqual([]);
     expect(fenceOnlyVerdict.ok).toBe(true);
 
-    // Half two: the same bytes, measured over the whole report, are refused.
+    // Half two: the same report, measured over its whole span, is refused.
     // A cap that measured only the fence would agree with the line above and
     // leave the surface it was written to shorten unconstrained.
     const verdict = verifyStageStatusBlock(LONG);

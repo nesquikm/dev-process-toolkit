@@ -58,9 +58,34 @@
 // AC map:
 //   AC-STE-533.1 — the closed ELEVEN, enumerated (never sampled), stated once,
 //                  and deliberately NOT the `/deliver` stage vocabulary
+//   AC-STE-533.1a— ONE BANNER, ONE OWNER, ONE VOCABULARY EACH. The adopting
+//                  eleven emit `STAGE_BLOCK_FENCE_BANNER`, graded against
+//                  `ADOPTING_STAGES`; `deliver-stage-result` stays /deliver's,
+//                  graded by `verifyDeliverStageCapture` against
+//                  `DELIVER_STAGE_IDS`. Each grader ACCEPTS its own banner and
+//                  REFUSES the other's. Operator decision 2026-08-31, on the
+//                  measurement that NINE of the eleven emit a `stage:` value
+//                  the shipped /deliver grader refuses outright, and that that
+//                  grader REQUIRES prose before its fence while this FR's whole
+//                  claim is that the block replaces the prose. Two contracts
+//                  that cannot both be satisfied by the same bytes are two
+//                  contracts. `DELIVER_STAGE_IDS` is NOT widened — that would
+//                  tell the worker-capture grader a brainstorm run is a valid
+//                  ceremony hand-off, which is false.
 //   AC-STE-533.2 — the block REPLACES narration: a stated prose cap, and the
 //                  discriminating case where STE-532 says ok and adoption does
-//                  not
+//                  not. The cap governs FREE-FORM NARRATION ALONE; the
+//                  structured sections earlier milestones mandate are exempt.
+//   AC-STE-533.2a— the exempt sections are a CLOSED, CITED list. An entry with
+//                  no RESOLVING citation FAILS, and exempt is not optional: a
+//                  listed section that stops being emitted FAILS too. BOTH
+//                  directions, because a carve-out checked one way is unguarded
+//                  the other way.
+//   AC-STE-533.8 — the adoption grader runs on a REAL /gate-check probe over
+//                  the eleven, registered as an ORDERED reference (graded with
+//                  the repo's own `classifyReferenceLine`), and grading the
+//                  adoption CONTRACT rather than fence PRESENCE — presence-only
+//                  grading is this FR's headline claim enforced by nothing.
 //   AC-STE-533.3 — capability tokens survive INSIDE the block, and the shipped
 //                  `closing_summary_capability_keys` probe is not weakened,
 //                  relaxed, or scoped away — tested per token FAMILY
@@ -92,15 +117,22 @@ import { dirname, join } from "node:path";
 
 import {
   ADOPTING_STAGES,
+  CAP_EXEMPT_SECTIONS,
+  PROBE_ID as ADOPTION_PROBE_ID,
   PROSE_LEAD_IN_LINE_CAP,
+  exemptSectionsFor,
   locateCapabilityTokens,
+  resolveExemptCitation,
+  runStageBlockAdoptionProbe,
   scanStageBlockAdoption,
   verifyStageReportAdoption,
+  type CapExemptSection,
 } from "../adapters/_shared/src/stage_block_adoption";
 import {
   EMPTY_SECTION_FALLBACK,
   LIST_STATUS_SECTIONS,
   SCALAR_STATUS_SECTIONS,
+  STAGE_BLOCK_FENCE_BANNER,
   STAGE_REPORT_LINE_CAP,
   STAGE_STATUS_SECTIONS,
   verifyStageStatusBlock,
@@ -109,15 +141,28 @@ import {
   DELIVER_STAGE_FENCE_BANNER,
   DELIVER_STAGE_IDS,
   FENCE_LINE_CAP,
+  verifyDeliverStageCapture,
 } from "../adapters/_shared/src/deliver_stage_capture";
 import {
   CANONICAL_CAPABILITY_KEYS,
   runClosingSummaryCapabilityKeysProbe,
 } from "../adapters/_shared/src/closing_summary_capability_keys";
+// The repository's OWN reference classifier — probe #81's. AC-STE-533.8 grades
+// this FR's probe registration with it rather than with a private rule, because
+// a guard that stays green by classifying its subject unreachable certifies the
+// opposite of what it claims. It is the same instrument that caught the STE-535
+// reachability regression.
+import { classifyReferenceLine } from "../adapters/_shared/src/module_reachability";
 // The reusable non-test-consumer guard, extracted out of
 // `tests/m137-ste-535-plan-narrative-cap.test.ts` under STE-533 so both suites
 // share ONE walk. Classifies by FILE PATH, never by line content.
-import { consumerFiles } from "./_module_consumers";
+import {
+  CONSUMER_SEARCH_ROOT,
+  consumerFiles,
+  nonTestConsumers,
+  isTestPath,
+  walkTextFiles,
+} from "./_module_consumers";
 
 // ----------------------------------------------------------------------- paths
 
@@ -139,20 +184,39 @@ const CAPABILITY_PROBE_SRC = join(
   "closing_summary_capability_keys.ts",
 );
 const FIXTURE_DIR = join(import.meta.dir, "fixtures", "deliver-stage-capture");
+const GATE_CHECK_SKILL = join(PLUGIN_ROOT, "skills", "gate-check", "SKILL.md");
+const STATUS_BLOCK_DOC = join(PLUGIN_ROOT, "docs", "stage-status-block.md");
+const README = join(REPO_ROOT, "README.md");
 
 const read = (path: string): string => readFileSync(path, "utf-8");
+
+const skillPath = (stage: string): string =>
+  join(PLUGIN_ROOT, "skills", stage, "SKILL.md");
 
 /** Trailing newline stripped so every line count in this file means one thing. */
 const fixture = (name: string): string =>
   read(join(FIXTURE_DIR, name)).replace(/\n+$/, "");
 
-/** The shipped model report — 12 prose lines, a 17-line fence, 29 total. */
-const CLEAN = fixture("worker-stage-report.txt");
+/**
+ * The shipped model report — 12 prose lines, a 17-line fence, 29 total —
+ * REBANNERED onto the adopting stages' own fence.
+ *
+ * AC-STE-533.1a (operator decision 2026-08-31) split one artifact into two: the
+ * `deliver-stage-result` fence is /deliver's MACHINE hand-off between ceremony
+ * stages, and the adopting eleven emit their OWN banner for a HUMAN-facing
+ * closing summary. The fixture is /deliver's; only its banner is swapped, so
+ * every line count, section and count in this suite still comes from the
+ * shipped model report rather than from a hand-typed one.
+ */
+const CLEAN = fixture("worker-stage-report.txt").replace(
+  DELIVER_STAGE_FENCE_BANNER,
+  STAGE_BLOCK_FENCE_BANNER,
+);
 
 // ------------------------------------------------------------- report surgery
 
 const FENCE_OPEN_RE = new RegExp(
-  `^[ \\t]*${DELIVER_STAGE_FENCE_BANNER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[ \\t]*$`,
+  `^[ \\t]*${STAGE_BLOCK_FENCE_BANNER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[ \\t]*$`,
 );
 const FENCE_CLOSE_RE = /^[ \t]*```[ \t]*$/;
 
@@ -607,7 +671,7 @@ function worstCaseReport(): string {
       ? `${name}: ${scalarValue[name] ?? "ok"}`
       : `${name}:\n  ${EMPTY_SECTION_FALLBACK}`,
   );
-  return [DELIVER_STAGE_FENCE_BANNER, ...body, "```"].join("\n");
+  return [STAGE_BLOCK_FENCE_BANNER, ...body, "```"].join("\n");
 }
 
 describe("AC-STE-533.4 — the hundred-byte floor clears on the compact block", () => {
@@ -683,7 +747,7 @@ function specWriteSection7(body: string): string {
  */
 function supersedingIsWrittenDown(section: string): boolean {
   const namesTheBlock =
-    section.includes(DELIVER_STAGE_FENCE_BANNER) ||
+    section.includes(STAGE_BLOCK_FENCE_BANNER) ||
     /status block/i.test(section);
   const namesTheOldShape =
     /two-table|collapse to a single line|two tables/i.test(section);
@@ -713,7 +777,7 @@ describe("AC-STE-533.5 — the old mandate is amended, not merely disobeyed", ()
   test("§ 7 names the status block", () => {
     const section = specWriteSection7(read(SPEC_WRITE_SKILL));
     expect(
-      section.includes(DELIVER_STAGE_FENCE_BANNER) ||
+      section.includes(STAGE_BLOCK_FENCE_BANNER) ||
         /status block/i.test(section),
     ).toBe(true);
   });
@@ -751,7 +815,7 @@ describe("AC-STE-533.6 — one block per report, and it comes last", () => {
   test("two blocks fails, and the refusal is DELEGATED to STE-532's wording", () => {
     const twice = duplicateBlock(CLEAN);
     // Mutation applied: there really are two fences now.
-    expect(twice.split(DELIVER_STAGE_FENCE_BANNER).length - 1).toBe(2);
+    expect(twice.split(STAGE_BLOCK_FENCE_BANNER).length - 1).toBe(2);
     const verdict = verifyStageReportAdoption(twice);
     expect(verdict.ok).toBe(false);
     expect(verdict.reasons.some(isFenceCountReason)).toBe(true);
@@ -783,7 +847,7 @@ describe("AC-STE-533.6 — one block per report, and it comes last", () => {
 
   test("a report with no block at all fails", () => {
     const proseOnly = CLEAN.split("\n").slice(0, fenceOpenIndex(CLEAN)).join("\n");
-    expect(proseOnly).not.toContain(DELIVER_STAGE_FENCE_BANNER);
+    expect(proseOnly).not.toContain(STAGE_BLOCK_FENCE_BANNER);
     expect(verifyStageReportAdoption(proseOnly).ok).toBe(false);
   });
 
@@ -793,7 +857,7 @@ describe("AC-STE-533.6 — one block per report, and it comes last", () => {
     expect(src).toContain("verifyStageStatusBlock");
     // The banner is IMPORTED, never restated: a second literal is the
     // two-renderers defect STE-532's own header calls out.
-    expect(src).toContain("DELIVER_STAGE_FENCE_BANNER");
+    expect(src).toContain("STAGE_BLOCK_FENCE_BANNER");
     expect(src.split("```deliver-stage-result").length - 1).toBe(0);
   });
 });
@@ -819,6 +883,29 @@ function tempProject(files: Record<string, string>): TempRoot {
 
 const skillRel = (stage: string): string =>
   `plugins/dev-process-toolkit/skills/${stage}/SKILL.md`;
+
+/**
+ * A synthetic SKILL.md that HAS adopted the contract: the stage's own banner,
+ * and every AC-STE-533.2a section listed for that stage.
+ *
+ * The exempt sections are part of the adopted shape, not decoration —
+ * AC-STE-533.2a's second direction is that a listed section which stops being
+ * emitted FAILS, so a fixture that omitted them would be a fixture the scanner
+ * is required to reject, and every "clean baseline" built on it would be
+ * measuring the wrong thing.
+ */
+function adoptedSkillBody(stage: string): string {
+  const exempt = exemptSectionsFor(stage as never).map((e) => e.heading);
+  return [
+    `# /${stage}`,
+    "",
+    STAGE_BLOCK_FENCE_BANNER,
+    `stage: ${stage}`,
+    "```",
+    "",
+    ...exempt.flatMap((heading) => [heading, "", "- row", ""]),
+  ].join("\n");
+}
 
 describe("AC-STE-533.7 — mutation testing, per stage", () => {
   test("MUTATION 1 — reinstating a stage's paragraphs turns AC.2's assertion red", () => {
@@ -894,9 +981,7 @@ describe("AC-STE-533.7 — mutation testing, per stage", () => {
       const adopted = Object.fromEntries(
         ADOPTING_STAGES.map((s) => [
           skillRel(s),
-          [`# /${s}`, "", DELIVER_STAGE_FENCE_BANNER, "stage: " + s, "```", ""].join(
-            "\n",
-          ),
+          adoptedSkillBody(s),
         ]),
       );
       const fx = tempProject(adopted);
@@ -917,7 +1002,7 @@ describe("AC-STE-533.7 — mutation testing, per stage", () => {
           stage,
           changed: true,
         });
-        expect(read(abs)).not.toContain(DELIVER_STAGE_FENCE_BANNER);
+        expect(read(abs)).not.toContain(STAGE_BLOCK_FENCE_BANNER);
 
         const violations = scanStageBlockAdoption(fx.root);
         expect(violations.map((v) => v.stage)).toEqual([stage]);
@@ -980,5 +1065,1040 @@ describe("STE-532's grader has a real production consumer after STE-533", () => 
       (rel) => !rel.startsWith("adapters/_shared/src/"),
     );
     expect(offIsland.length).toBeGreaterThan(0);
+  });
+});
+
+// ============================================================================
+// AC-STE-533.1a — ONE BANNER, ONE OWNER, ONE VOCABULARY EACH
+// ============================================================================
+//
+// THE ROOT CAUSE this section closes, in the operator's words: the milestone
+// reused ONE artifact for two genuinely different jobs — a MACHINE hand-off
+// between ceremony stages, and a HUMAN-facing closing summary for eleven
+// skills. Five separate findings were three faces of that one defect.
+//
+// The measurement that settles it: NINE of the eleven adopting stages emit a
+// `stage:` value `verifyDeliverStageCapture` refuses outright, and that grader
+// REQUIRES prose before its fence (a bare fence is "a snippet") while this FR's
+// whole claim is that the block REPLACES the prose. Two contracts that cannot
+// both be satisfied by the same bytes are two contracts.
+//
+// Widening `DELIVER_STAGE_IDS` was rejected: it would tell the worker-capture
+// grader that a `/brainstorm` run is a valid ceremony hand-off, which is false.
+// A fix that makes a false thing true is not a fix.
+
+/** A capture written to disk — `verifyDeliverStageCapture` reads paths, not text. */
+function withCaptureFile<T>(body: string, use: (path: string) => T): T {
+  const dir = mkdtempSync(join(tmpdir(), "ste-533-capture-"));
+  try {
+    const path = join(dir, "capture.txt");
+    writeFileSync(path, `${body}\n`, "utf-8");
+    return use(path);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** The SAME model report, on /deliver's banner — the fixture as shipped. */
+const CLEAN_DELIVER = fixture("worker-stage-report.txt");
+
+/** A fence-opener line for `banner`, anywhere in `body`, at any indent. */
+const emitsBanner = (body: string, banner: string): boolean =>
+  body
+    .split("\n")
+    .some((line) => new RegExp(`^[ \\t]*${banner.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[ \\t]*$`).test(line));
+
+describe("AC-STE-533.1a — the adopting stages own their banner", () => {
+  test("the two banners are DISTINCT literals, each a real fence opener", () => {
+    expect(STAGE_BLOCK_FENCE_BANNER).not.toBe(DELIVER_STAGE_FENCE_BANNER);
+    for (const banner of [STAGE_BLOCK_FENCE_BANNER, DELIVER_STAGE_FENCE_BANNER]) {
+      expect(banner.startsWith("```")).toBe(true);
+      expect(banner.length).toBeGreaterThan(3);
+    }
+    // Neither is a prefix of the other: a prefix would make one grader's fence
+    // opener match the other's line, which is the collision this AC undoes.
+    expect(STAGE_BLOCK_FENCE_BANNER.startsWith(DELIVER_STAGE_FENCE_BANNER)).toBe(false);
+    expect(DELIVER_STAGE_FENCE_BANNER.startsWith(STAGE_BLOCK_FENCE_BANNER)).toBe(false);
+  });
+
+  test("the adoption grader ACCEPTS its own banner and REFUSES /deliver's", () => {
+    expect(verifyStageReportAdoption(CLEAN)).toEqual({ ok: true, reasons: [] });
+    const verdict = verifyStageReportAdoption(CLEAN_DELIVER);
+    expect(verdict.ok).toBe(false);
+    // Not "some other complaint": the adoption grader sees NO fence at all.
+    expect(verdict.reasons.some((r) => /no closed|fence|block/i.test(r))).toBe(true);
+  });
+
+  test("the /deliver grader ACCEPTS its own banner and REFUSES the adopting one", () => {
+    // Half one: the shipped fixture, unchanged, is still a valid hand-off.
+    const accepted = withCaptureFile(CLEAN_DELIVER, (p) => verifyDeliverStageCapture(p));
+    expect(accepted.reasons).toEqual([]);
+    expect(accepted.ok).toBe(true);
+
+    // Half two: the SAME bytes on the adopting banner are not a hand-off.
+    const refused = withCaptureFile(CLEAN, (p) => verifyDeliverStageCapture(p));
+    expect(refused.ok).toBe(false);
+    expect(
+      refused.reasons.some((r) => r.includes("deliver-stage-result")),
+    ).toBe(true);
+  });
+
+  test("all ELEVEN adopting stages' blocks are accepted by the adoption grader", () => {
+    let checked = 0;
+    for (const stage of ADOPTING_STAGES) {
+      const verdict = verifyStageReportAdoption(reportForStage(stage));
+      expect({ stage, ok: verdict.ok, reasons: verdict.reasons }).toEqual({
+        stage,
+        ok: true,
+        reasons: [],
+      });
+      checked += 1;
+    }
+    expect(checked).toBe(11);
+  });
+
+  test("the adoption grader REFUSES a /deliver-only stage value", () => {
+    const deliverOnly = (DELIVER_STAGE_IDS as readonly string[]).filter(
+      (id) => !(ADOPTING_STAGES as readonly string[]).includes(id),
+    );
+    // The measurement, asserted rather than assumed: /deliver's vocabulary
+    // carries members the eleven do not.
+    expect(deliverOnly.length).toBeGreaterThan(0);
+    for (const id of deliverOnly) {
+      const verdict = verifyStageReportAdoption(reportForStage(id));
+      expect({ id, ok: verdict.ok }).toEqual({ id, ok: false });
+      expect({
+        id,
+        named: verdict.reasons.some((r) => r.includes(id)),
+      }).toEqual({ id, named: true });
+    }
+  });
+
+  test("THE MEASUREMENT that split the contracts: nine of eleven are outside /deliver's vocabulary", () => {
+    const outside = (ADOPTING_STAGES as readonly string[]).filter(
+      (s) => !(DELIVER_STAGE_IDS as readonly string[]).includes(s),
+    );
+    expect(outside.length).toBe(9);
+    // …and the two survivors are exactly the two /deliver already knows.
+    const inside = (ADOPTING_STAGES as readonly string[]).filter((s) =>
+      (DELIVER_STAGE_IDS as readonly string[]).includes(s),
+    );
+    expect(inside.sort()).toEqual(["implement", "spec-write"]);
+
+    // Every one of the nine is REFUSED by the /deliver grader on the /deliver
+    // banner — the proof that widening would have been a lie, not a fix.
+    for (const stage of outside) {
+      const capture = CLEAN_DELIVER.replace(/^(\s*stage:).*$/m, `$1 ${stage}`);
+      const verdict = withCaptureFile(capture, (p) => verifyDeliverStageCapture(p));
+      expect({ stage, ok: verdict.ok }).toEqual({ stage, ok: false });
+    }
+  });
+
+  test("DELIVER_STAGE_IDS is NOT widened — the false thing stays false", () => {
+    expect([...DELIVER_STAGE_IDS].sort()).toEqual(
+      ["implement", "pr", "ship-milestone", "spec-write", "work"].sort(),
+    );
+    expect(DELIVER_STAGE_IDS.length).toBe(5);
+    for (const stage of ADOPTING_STAGES) {
+      if (stage === "implement" || stage === "spec-write") continue;
+      expect([...DELIVER_STAGE_IDS]).not.toContain(stage);
+    }
+  });
+
+  test("no adopting SKILL.md still emits the `deliver-stage-result` banner", () => {
+    const offenders: string[] = [];
+    for (const stage of ADOPTING_STAGES) {
+      if (emitsBanner(read(skillPath(stage)), DELIVER_STAGE_FENCE_BANNER)) {
+        offenders.push(stage);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test("every adopting SKILL.md DOES emit the adopting banner — the other direction", () => {
+    const silent: string[] = [];
+    for (const stage of ADOPTING_STAGES) {
+      if (!emitsBanner(read(skillPath(stage)), STAGE_BLOCK_FENCE_BANNER)) {
+        silent.push(stage);
+      }
+    }
+    expect(silent).toEqual([]);
+  });
+
+  test("/deliver keeps its banner — the split moved the eleven, not everyone", () => {
+    // The one surface that must STILL speak `deliver-stage-result`. Without
+    // this leg the "no adopting skill emits it" assertion above is satisfiable
+    // by deleting the contract from the repository altogether.
+    const deliver = read(skillPath("deliver"));
+    expect(emitsBanner(deliver, DELIVER_STAGE_FENCE_BANNER)).toBe(true);
+    expect([...ADOPTING_STAGES]).not.toContain("deliver");
+  });
+
+  test("the doc shows the block on the adopting banner, not /deliver's", () => {
+    const doc = read(STATUS_BLOCK_DOC);
+    expect(emitsBanner(doc, STAGE_BLOCK_FENCE_BANNER)).toBe(true);
+    expect(emitsBanner(doc, DELIVER_STAGE_FENCE_BANNER)).toBe(false);
+  });
+});
+
+// ============================================================================
+// AC-STE-533.2a — the cap-exempt sections are a CLOSED, CITED list
+// ============================================================================
+//
+// The cap governs FREE-FORM NARRATION alone. The structured sections earlier
+// milestones mandate are EXEMPT — and still REQUIRED. AC-STE-533.2a gives that
+// carve-out the same discipline AC-STE-533.1's closed list got:
+//
+//   * closed, named in ONE place, read from there;
+//   * ADMISSIBLE only with a citation that RESOLVES — a shipped AC, a real pin,
+//     or the module that declares the heading. A citation pointing at nothing
+//     is the vacuity this exists to catch;
+//   * EXEMPT IS NOT OPTIONAL — a listed section that stops being emitted FAILS;
+//   * BOTH DIRECTIONS asserted, because a carve-out checked one way is
+//     unguarded the other way, and this repository has recorded that exact
+//     class going unguarded more than once.
+
+/**
+ * Citations MEASURED on 2026-08-31 that must NOT resolve. Two of them were the
+ * citations proposed for these very entries — and neither pins anything: both
+ * files name the heading ONLY inside a `//` comment. A comment is not a pin,
+ * and a list admitted on one would be the dumping ground AC-STE-533.2a exists
+ * to prevent.
+ */
+const UNRESOLVABLE_CITATIONS: readonly (readonly [string, string])[] = [
+  ["AC-STE-999999.1", "an acceptance criterion no FR carries"],
+  ["tests/does-not-exist.test.ts", "a test file that is not in the repository"],
+  [
+    "tests/m132-ste-512-e2e-authoring.test.ts",
+    "names `## Verification evidence` ONLY in a comment — measured, no pin",
+  ],
+  [
+    "tests/m136-ste-531-order-fires.test.ts",
+    "names `## Verification evidence` ONLY in a comment — measured, no pin",
+  ],
+] as const;
+
+describe("AC-STE-533.2a — the exempt list is closed, cited and load-bearing", () => {
+  test("CAP_EXEMPT_SECTIONS is non-empty and every entry is well formed", () => {
+    expect(CAP_EXEMPT_SECTIONS.length).toBeGreaterThan(0);
+    for (const entry of CAP_EXEMPT_SECTIONS) {
+      expect([...ADOPTING_STAGES]).toContain(entry.stage);
+      expect(entry.heading.startsWith("## ")).toBe(true);
+      expect(entry.requiredBy.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  test("the known members are present: /implement's two structured sections", () => {
+    const implementHeadings = CAP_EXEMPT_SECTIONS.filter(
+      (e) => e.stage === "implement",
+    ).map((e) => e.heading);
+    expect(implementHeadings).toContain("## Verification evidence");
+    expect(implementHeadings).toContain("## Advisory notes");
+  });
+
+  test("EVERY entry's citation RESOLVES — no entry rides on a dead reference", () => {
+    let checked = 0;
+    for (const entry of CAP_EXEMPT_SECTIONS) {
+      const resolution = resolveExemptCitation(entry, REPO_ROOT);
+      expect({
+        heading: entry.heading,
+        citation: entry.requiredBy,
+        resolved: resolution.resolved,
+      }).toEqual({
+        heading: entry.heading,
+        citation: entry.requiredBy,
+        resolved: true,
+      });
+      // A resolver that answered `true` with nothing to show would be the same
+      // vacuity one level up.
+      expect(resolution.evidence).not.toBeNull();
+      expect(String(resolution.evidence).length).toBeGreaterThan(0);
+      checked += 1;
+    }
+    expect(checked).toBe(CAP_EXEMPT_SECTIONS.length);
+  });
+
+  test("A CITATION POINTING AT NOTHING IS REFUSED — falsifiability, per shape", () => {
+    const subject = CAP_EXEMPT_SECTIONS.find(
+      (e) => e.heading === "## Verification evidence",
+    );
+    expect(subject).toBeDefined();
+    let checked = 0;
+    for (const [citation, why] of UNRESOLVABLE_CITATIONS) {
+      const mutant: CapExemptSection = { ...subject!, requiredBy: citation };
+      // THE MUTATION APPLIED: the citation really did change.
+      expect(mutant.requiredBy).not.toBe(subject!.requiredBy);
+      const resolution = resolveExemptCitation(mutant, REPO_ROOT);
+      expect({ citation, why, resolved: resolution.resolved }).toEqual({
+        citation,
+        why,
+        resolved: false,
+      });
+      checked += 1;
+    }
+    expect(checked).toBe(UNRESOLVABLE_CITATIONS.length);
+  });
+
+  test("the comment-only refusal is ABOUT COMMENTS — the isolating half", () => {
+    // The two refused citations above are refused for a REASON: their only
+    // mention of the heading is a `//` comment. A resolver that refused every
+    // test file would pass that leg while measuring nothing, so the same shape
+    // with a REAL pin must resolve.
+    const real: CapExemptSection = {
+      stage: "implement",
+      heading: "## Advisory notes",
+      requiredBy: "tests/implement-advisory-notes.test.ts",
+    };
+    expect(resolveExemptCitation(real, REPO_ROOT).resolved).toBe(true);
+    // …and the file cited as comment-only really does mention the heading,
+    // which is what makes "it mentions it" an insufficient test.
+    const commentOnly = read(
+      join(PLUGIN_ROOT, "tests", "m132-ste-512-e2e-authoring.test.ts"),
+    );
+    expect(commentOnly).toContain("## Verification evidence");
+  });
+
+  test("exemptSectionsFor reads the ONE list — and is empty for a stage with none", () => {
+    for (const stage of ADOPTING_STAGES) {
+      const fromHelper = exemptSectionsFor(stage).map((e) => e.heading).sort();
+      const fromList = CAP_EXEMPT_SECTIONS.filter((e) => e.stage === stage)
+        .map((e) => e.heading)
+        .sort();
+      expect({ stage, fromHelper }).toEqual({ stage, fromHelper: fromList });
+    }
+    // Not every stage carries one — a helper that answered non-empty for all
+    // eleven would make the carve-out universal and the cap meaningless.
+    const without = ADOPTING_STAGES.filter((s) => exemptSectionsFor(s).length === 0);
+    expect(without.length).toBeGreaterThan(0);
+  });
+
+  test("the list is STATED IN ONE PLACE — the headings are not re-listed", () => {
+    const src = read(ADOPTION_MODULE_SRC);
+    // `## Advisory notes` is the probe: it belongs to the const and nowhere
+    // else in the module. A second literal is the drift this AC forbids.
+    expect(src.split('"## Advisory notes"').length - 1).toBe(1);
+  });
+
+  test("DIRECTION ONE — an exempt section does NOT count against the prose cap", () => {
+    const heading = "## Verification evidence";
+    const body = ["", heading, "", "- gate: pass 1, fail 0", ""];
+    // The section is bolted ABOVE the block, taking the report past the cap in
+    // raw lines while carrying not one line of narration.
+    const withSection = [
+      ...Array.from({ length: PROSE_LEAD_IN_LINE_CAP }, (_, i) => `Prose ${i + 1}.`),
+      ...body,
+      blockOnly(reportForStage("implement")),
+    ].join("\n");
+    // The fence really is past the raw cap — otherwise the exemption is not
+    // what carried the verdict.
+    expect(fenceOpenIndex(withSection)).toBeGreaterThan(PROSE_LEAD_IN_LINE_CAP);
+    // `ok`, not merely "no prose reason": a grader that found no fence at all
+    // would also report no prose reason, and pass this leg while measuring
+    // nothing.
+    expect(verifyStageReportAdoption(withSection)).toEqual({ ok: true, reasons: [] });
+  });
+
+  test("DIRECTION ONE (discriminator) — a NON-exempt section DOES count", () => {
+    // Same shape, same line count, one word changed in the heading. Without
+    // this leg the exemption above is satisfiable by not counting anything.
+    const body = ["", "## Verification notes", "", "- gate: pass 1, fail 0", ""];
+    const withSection = [
+      ...Array.from({ length: PROSE_LEAD_IN_LINE_CAP }, (_, i) => `Prose ${i + 1}.`),
+      ...body,
+      blockOnly(reportForStage("implement")),
+    ].join("\n");
+    const verdict = verifyStageReportAdoption(withSection);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.reasons.some(isProseCapReason)).toBe(true);
+  });
+
+  test("DIRECTION ONE (owner) — another stage's exempt section is not exempt here", () => {
+    const foreign = CAP_EXEMPT_SECTIONS.find((e) => e.stage === "implement");
+    expect(foreign).toBeDefined();
+    // `/setup` carries no such carve-out, so the same heading is narration.
+    const withSection = [
+      ...Array.from({ length: PROSE_LEAD_IN_LINE_CAP }, (_, i) => `Prose ${i + 1}.`),
+      "",
+      foreign!.heading,
+      "",
+      "- row",
+      "",
+      blockOnly(reportForStage("setup")),
+    ].join("\n");
+    const verdict = verifyStageReportAdoption(withSection);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.reasons.some(isProseCapReason)).toBe(true);
+  });
+
+  test("DIRECTION TWO — EXEMPT IS NOT OPTIONAL: dropping a listed section FAILS", () => {
+    const adopted = Object.fromEntries(
+      ADOPTING_STAGES.map((s) => [skillRel(s), adoptedSkillBody(s)]),
+    );
+    const fx = tempProject(adopted);
+    try {
+      expect(scanStageBlockAdoption(fx.root)).toEqual([]);
+      let mutated = 0;
+      for (const entry of CAP_EXEMPT_SECTIONS) {
+        const abs = join(fx.root, ...skillRel(entry.stage).split("/"));
+        const before = read(abs);
+        expect(before).toContain(entry.heading);
+        writeFileSync(abs, before.split(entry.heading).join("## Something else"), "utf-8");
+        // THE MUTATION APPLIED.
+        expect(read(abs)).not.toContain(entry.heading);
+
+        const violations = scanStageBlockAdoption(fx.root);
+        expect({
+          heading: entry.heading,
+          caught: violations.some(
+            (v) => v.stage === entry.stage && v.reason.includes(entry.heading),
+          ),
+        }).toEqual({ heading: entry.heading, caught: true });
+
+        writeFileSync(abs, before, "utf-8");
+        expect(scanStageBlockAdoption(fx.root)).toEqual([]);
+        mutated += 1;
+      }
+      expect(mutated).toBe(CAP_EXEMPT_SECTIONS.length);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("DIRECTION TWO (dogfood) — this repository still emits every listed section", () => {
+    for (const entry of CAP_EXEMPT_SECTIONS) {
+      const body = read(skillPath(entry.stage));
+      expect({ stage: entry.stage, heading: entry.heading, emitted: body.includes(entry.heading) }).toEqual(
+        { stage: entry.stage, heading: entry.heading, emitted: true },
+      );
+    }
+  });
+});
+
+// ============================================================================
+// AC-STE-533.6 (REWRITTEN) — the block is last EXCEPT for AC-2a sections
+// ============================================================================
+
+describe("AC-STE-533.6 — the block comes last, except the exempt sections", () => {
+  test("an AC-2a exempt section MAY follow the block", () => {
+    const entry = CAP_EXEMPT_SECTIONS.find((e) => e.stage === "implement");
+    expect(entry).toBeDefined();
+    const trailing = appendAfterBlock(
+      reportForStage("implement"),
+      ["", entry!.heading, "", "- gate: pass 1, fail 0"].join("\n"),
+    );
+    // The mutation applied: there really is non-blank content after the block.
+    expect(trailing.split("\n").slice(fenceCloseIndex(trailing) + 1).join("").trim().length)
+      .toBeGreaterThan(0);
+    expect(verifyStageReportAdoption(trailing)).toEqual({ ok: true, reasons: [] });
+  });
+
+  test("a NON-exempt trailing paragraph still FAILS — the discriminator", () => {
+    const trailing = appendAfterBlock(
+      reportForStage("implement"),
+      "\nAnd finally, a closing thought the operator has to scroll past.",
+    );
+    const verdict = verifyStageReportAdoption(trailing);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.reasons.some(isBlockLastReason)).toBe(true);
+  });
+
+  test("prose UNDER an exempt trailing section is still refused", () => {
+    // The carve-out admits the SECTION, not everything after it. Without this
+    // leg a stage reinstates its whole narration by heading it correctly.
+    const entry = CAP_EXEMPT_SECTIONS.find((e) => e.stage === "implement");
+    const trailing = appendAfterBlock(
+      reportForStage("implement"),
+      [
+        "",
+        entry!.heading,
+        "",
+        "- gate: pass 1, fail 0",
+        "",
+        "And then four more paragraphs of the report this FR deleted, which is",
+        "the narration riding beneath the block with a compliant heading on it.",
+      ].join("\n"),
+    );
+    expect(verifyStageReportAdoption(trailing).ok).toBe(false);
+  });
+
+  test("the exempt section must belong to THIS stage to be admitted", () => {
+    const entry = CAP_EXEMPT_SECTIONS.find((e) => e.stage === "implement");
+    const trailing = appendAfterBlock(
+      reportForStage("setup"),
+      ["", entry!.heading, "", "- gate: pass 1, fail 0"].join("\n"),
+    );
+    const verdict = verifyStageReportAdoption(trailing);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.reasons.some(isBlockLastReason)).toBe(true);
+  });
+
+  test("the old 'LAST thing in it' wording is SUPERSEDED IN WRITING", () => {
+    // AC-STE-533.5's own requirement, applied to this FR's own text: a rule
+    // left standing while nothing satisfies it reads as a passing test over a
+    // dead rule. The exception is written down at the contract doc…
+    const doc = read(STATUS_BLOCK_DOC);
+    const lastRule = doc
+      .split("\n")
+      .filter((l) => /LAST thing|last thing/.test(l));
+    expect(lastRule.length).toBeGreaterThan(0);
+    expect(
+      lastRule.some((l) => /except|apart from|other than/i.test(l)),
+    ).toBe(true);
+
+    // …and on every stage that actually carries an exempt section, because a
+    // contract amended only in the shared doc leaves the surface lying.
+    const stagesWithExempt = [
+      ...new Set(CAP_EXEMPT_SECTIONS.map((e) => e.stage)),
+    ];
+    expect(stagesWithExempt.length).toBeGreaterThan(0);
+    for (const stage of stagesWithExempt) {
+      const claims = read(skillPath(stage))
+        .split("\n")
+        .filter((l) => /LAST thing|last thing/.test(l));
+      expect({ stage, claims: claims.length > 0 }).toEqual({ stage, claims: true });
+      expect({
+        stage,
+        amended: claims.every((l) => /except|apart from|other than/i.test(l)),
+      }).toEqual({ stage, amended: true });
+    }
+  });
+});
+
+// ============================================================================
+// AC-STE-533.8 — THE ADOPTION GRADER RUNS ON A REAL GATE PROBE
+// ============================================================================
+//
+// MEASURED before this AC existed: ZERO of the 15 non-test references to either
+// module were ORDERED — all classified `descriptive` under the repository's own
+// `classifyReferenceLine` — and nothing at runtime called
+// `verifyStageReportAdoption` or `scanStageBlockAdoption`. `scanStageBlockAdoption`
+// graded fence PRESENCE only, so all eleven could keep every paragraph, add a
+// fence, and score zero violations: this FR's headline claim enforced by nothing
+// that executes. It is the THIRD occurrence of that shape in this repository.
+//
+// Two things the probe must NOT be, both stated by the operator:
+//   * it must NOT grade fence presence alone — that is today's vacuity with a
+//     probe id on it;
+//   * its pin must NOT be satisfiable by a DESCRIPTIVE reference.
+
+/** The numbered `/gate-check` probe registrations, in order. */
+function probeRegistrationLines(): { number: number; line: string }[] {
+  return read(GATE_CHECK_SKILL)
+    .split("\n")
+    .flatMap((line) => {
+      // House idiom, shared verbatim with six sibling shipped suites
+      // (gate-check-active-plan-ship-ready, gate-check-best-practices-manifest-hygiene,
+      // gate-check-runnability-declared, m109-ste-394-docs-pins, m115-ste-417-docs-pins):
+      // a probe registration is `<N>. **`, never a bare numbered list item. The looser
+      // /^(\d+)\.\s/ swept ordinary numbered prose lists and would have counted them as
+      // probes — measure the subject, do not reshape the subject to fit the measurement.
+      const m = /^(\d+)\. \*\*/.exec(line);
+      return m === null ? [] : [{ number: Number(m[1]), line }];
+    });
+}
+
+/** The live numbered-probe count, read off the shipped registry. */
+const liveProbeCount = (): number => probeRegistrationLines().length;
+
+describe("AC-STE-533.8 — the adoption grader is registered on a runtime path", () => {
+  test("the module exports a PROBE_ID and a runnable probe", () => {
+    expect(ADOPTION_PROBE_ID).toBe("stage_block_adoption");
+    expect(typeof runStageBlockAdoptionProbe).toBe("function");
+  });
+
+  test("/gate-check registers it as probe #82, contiguous with the rest", () => {
+    const registrations = probeRegistrationLines();
+    const numbers = registrations.map((r) => r.number);
+    expect(numbers).toEqual(Array.from({ length: 82 }, (_, i) => i + 1));
+    const mine = registrations.filter((r) =>
+      r.line.includes(`\`${ADOPTION_PROBE_ID}\``),
+    );
+    expect(mine.length).toBe(1);
+    expect(mine[0]!.number).toBe(82);
+    // The registration shape every sibling carries.
+    expect(mine[0]!.line).toMatch(/\*\*Severity: (error|warning)\*\*/);
+    expect(mine[0]!.line).toContain("tests/m137-ste-533-stage-block-adoption.test.ts");
+    expect(mine[0]!.line).toContain(ADOPTION_MODULE_REL);
+  });
+
+  test("THE REGISTRATION IS AN ORDERED REFERENCE, not a descriptive mention", () => {
+    // Graded with the repository's OWN classifier — the instrument that caught
+    // the STE-535 reachability regression. A private rule here would let this
+    // guard certify the opposite of what it claims.
+    const mine = probeRegistrationLines().find((r) =>
+      r.line.includes(`\`${ADOPTION_PROBE_ID}\``),
+    );
+    expect(mine).toBeDefined();
+    expect(classifyReferenceLine(mine!.line)).toBe("ordered");
+
+    // The classifier really can say otherwise — the isolating half. A guard
+    // whose instrument answers "ordered" for everything measures nothing.
+    expect(
+      classifyReferenceLine(
+        `The adoption policy lives in \`${ADOPTION_MODULE_REL}\`.`,
+      ),
+    ).toBe("descriptive");
+  });
+
+  test("the module carries a command-line front door — probe #81 stays green", () => {
+    // `/gate-check`'s own note: "registering probe #82 will turn probe #81 red,
+    // and its pinned count is not the fix". The sanctioned resolution taken
+    // here is the first one — give the module an `import.meta.main` entry.
+    const src = read(ADOPTION_MODULE_SRC);
+    expect(/^\s*if\s*\(\s*import\.meta\.main\s*\)/m.test(src)).toBe(true);
+  });
+
+  test("THE PROBE IS NOT PRESENCE-ONLY — eleven fences with a broken contract still violate", async () => {
+    const adopted = Object.fromEntries(
+      ADOPTING_STAGES.map((s) => [skillRel(s), adoptedSkillBody(s)]),
+    );
+    const fx = tempProject(adopted);
+    try {
+      const clean = await runStageBlockAdoptionProbe(fx.root);
+      expect(clean.violations).toEqual([]);
+
+      // MUTATION: every stage keeps its fence — presence is untouched — but
+      // one drops a listed exempt section. Under presence-only grading this
+      // scores zero, which is precisely the vacuity AC-STE-533.8 refuses.
+      const entry = CAP_EXEMPT_SECTIONS[0]!;
+      const abs = join(fx.root, ...skillRel(entry.stage).split("/"));
+      const before = read(abs);
+      writeFileSync(abs, before.split(entry.heading).join("## Something else"), "utf-8");
+      // THE MUTATION APPLIED, and the fence SURVIVED it.
+      expect(read(abs)).not.toContain(entry.heading);
+      expect(emitsBanner(read(abs), STAGE_BLOCK_FENCE_BANNER)).toBe(true);
+
+      const after = await runStageBlockAdoptionProbe(fx.root);
+      expect(after.violations.length).toBeGreaterThan(0);
+      expect(after.violations.some((v) => v.note.includes(entry.stage))).toBe(true);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("the probe also catches a stage still emitting /deliver's banner", async () => {
+    const adopted = Object.fromEntries(
+      ADOPTING_STAGES.map((s) => [skillRel(s), adoptedSkillBody(s)]),
+    );
+    const fx = tempProject(adopted);
+    try {
+      expect((await runStageBlockAdoptionProbe(fx.root)).violations).toEqual([]);
+      const abs = join(fx.root, ...skillRel("brainstorm").split("/"));
+      const before = read(abs);
+      writeFileSync(
+        abs,
+        `${before}\n${DELIVER_STAGE_FENCE_BANNER}\nstage: brainstorm\n\`\`\`\n`,
+        "utf-8",
+      );
+      expect(emitsBanner(read(abs), DELIVER_STAGE_FENCE_BANNER)).toBe(true);
+      const after = await runStageBlockAdoptionProbe(fx.root);
+      expect(after.violations.length).toBeGreaterThan(0);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("violations carry the NFR-10 shape every sibling probe emits", async () => {
+    const fx = tempProject({ [skillRel("brainstorm")]: "# /brainstorm\n" });
+    try {
+      const report = await runStageBlockAdoptionProbe(fx.root);
+      expect(report.violations.length).toBeGreaterThan(0);
+      for (const v of report.violations) {
+        expect(v.note).toMatch(/^[^\s].*:\d+ — /);
+        expect(v.message).toContain("Remedy:");
+        expect(v.message).toContain("Context:");
+        expect(["error", "warning"]).toContain(v.severity);
+      }
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("the probe is VACUOUS on a tree carrying none of the eleven", async () => {
+    const fx = tempProject({ "README.md": "# not a toolkit project\n" });
+    try {
+      const report = await runStageBlockAdoptionProbe(fx.root);
+      expect(report.violations).toEqual([]);
+      expect(report.vacuous).toBe(true);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("the probe runs CLEAN over THIS repository — the dogfood leg", async () => {
+    const report = await runStageBlockAdoptionProbe(REPO_ROOT);
+    expect(report.violations.map((v) => v.note)).toEqual([]);
+    expect(report.vacuous).toBe(false);
+  });
+
+  test("at least one NON-TEST reference to the module is ORDERED", () => {
+    // The exit condition, restated at the reference level. MEASURED before this
+    // AC existed: ZERO of the fifteen non-test references to either module were
+    // ordered — every one classified `descriptive`, the hiding place probe #81
+    // records. A consumer list alone does not close that: `descriptive` mentions
+    // count as consumers and execute nothing.
+    const ordered = nonTestConsumers(ADOPTION_MODULE_REL).filter(
+      (ref) => classifyReferenceLine(ref.text) === "ordered",
+    );
+    expect(ordered.map((r) => r.file)).toContain("skills/gate-check/SKILL.md");
+    expect(ordered.length).toBeGreaterThan(0);
+  });
+});
+
+// ============================================================================
+// THE PUBLIC PROBE-COUNT CASCADE — moved TOGETHER, or not at all
+// ============================================================================
+//
+// Authorized by operator decision 2026-08-31 together with probe #82 itself.
+// A PARTIAL move is the cascade defect this milestone has spent the day
+// avoiding, so the scan below is mechanical and repository-wide rather than a
+// hand-kept list of files somebody remembered.
+
+/**
+ * EVERY site in this repository that PINS the numbered-probe count, MEASURED on
+ * 2026-08-31, with `{N}` standing in for the count itself.
+ *
+ * Enumerated rather than pattern-sniffed, and that is not fastidiousness. A
+ * regex scan over `(\d+) numbered` / `layers (\d+) probes` was tried first and
+ * is BOOBY-TRAPPED here: `gate-check-public-surface-count-drift.test.ts` carries
+ * deliberate stale fixtures ("42 numbered `/gate-check` probes", "the 3 numbered
+ * steps"), `gate-check-active-plan-ship-ready.test.ts` carries a RETIREMENT
+ * TRIPWIRE pinned at 74, and `m137-ste-534-fr-word-caps.test.ts` asserts a WORD
+ * count that happens to be 81. Every one of those must stay exactly where it is.
+ * A scan that moved them would be a perfect pin on the wrong subject — the shape
+ * this repository has recorded more than once.
+ *
+ * A PARTIAL move is the cascade defect this milestone has spent the day
+ * avoiding, so the whole table moves together or the leg is red.
+ */
+const PROBE_COUNT_PINS: readonly (readonly [string, string])[] = [
+  ["README.md", "{N} numbered `/gate-check` probes"],
+  ["README.md", String.raw`layers {N} probes`],
+
+  ["tests/gate-check-active-plan-ship-ready.test.ts", String.raw`contiguous 1..{N}`],
+  ["tests/gate-check-active-plan-ship-ready.test.ts", String.raw`expect(numbers.length).toBe({N});`],
+  ["tests/gate-check-active-plan-ship-ready.test.ts", String.raw`Array.from({ length: {N} }, (_, i) => i + 1)`],
+
+  ["tests/gate-check-best-practices-manifest-hygiene.test.ts", String.raw`contiguous 1..{N}`],
+  ["tests/gate-check-best-practices-manifest-hygiene.test.ts", String.raw`expect(numbers.length).toBe({N});`],
+  ["tests/gate-check-best-practices-manifest-hygiene.test.ts", String.raw`Array.from({ length: {N} }, (_, i) => i + 1)`],
+
+  ["tests/gate-check-claudemd-probe-managed-guard.test.ts", String.raw`README documents {N} probes`],
+  ["tests/gate-check-claudemd-probe-managed-guard.test.ts", String.raw`documents {N} numbered /gate-check probes`],
+  ["tests/gate-check-claudemd-probe-managed-guard.test.ts", String.raw`\b{N}\b.*numbered`],
+  ["tests/gate-check-claudemd-probe-managed-guard.test.ts", String.raw`\b{N}\b\s+probes`],
+
+  ["tests/gate-check-public-surface-count-drift.test.ts", String.raw`\b{N}\b.*numbered`],
+  ["tests/gate-check-public-surface-count-drift.test.ts", String.raw`\b{N}\b\s+probes`],
+
+  ["tests/gate-check-runnability-declared.test.ts", String.raw`contiguous 1..{N}`],
+  ["tests/gate-check-runnability-declared.test.ts", String.raw`expect(numbers.length).toBe({N});`],
+  ["tests/gate-check-runnability-declared.test.ts", String.raw`Array.from({ length: {N} }, (_, i) => i + 1)`],
+  ["tests/gate-check-runnability-declared.test.ts", String.raw`expect(Math.max(...numbers)).toBe({N});`],
+
+  ["tests/gate-check-spec-write-next-line-doc.test.ts", String.raw`"{N} numbered"`],
+  ["tests/gate-check-spec-write-next-line-doc.test.ts", String.raw`layers {N} probes`],
+  ["tests/gate-check-spec-write-next-line-doc.test.ts", String.raw`expect(Math.max(...numbers)).toBe({N});`],
+  ["tests/gate-check-spec-write-next-line-doc.test.ts", String.raw`expect(Number(counted![1])).toBe({N});`],
+
+  ["tests/gate-check-upgrade-staleness.test.ts", String.raw`expect(Math.max(...numbers)).toBe({N});`],
+  ["tests/gate-check-upgrade-staleness.test.ts", String.raw`expect(numbers.length).toBe({N});`],
+
+  ["tests/m108-ste-393-docs-pins.test.ts", String.raw`\b{N}\b\s+numbered`],
+  ["tests/m108-ste-393-docs-pins.test.ts", String.raw`layers {N} probes`],
+
+  ["tests/m109-ste-394-docs-pins.test.ts", String.raw`\b{N}\b\s+numbered`],
+  ["tests/m109-ste-394-docs-pins.test.ts", String.raw`layers {N} probes`],
+  ["tests/m109-ste-394-docs-pins.test.ts", String.raw`expect(Math.max(...numbers)).toBe({N});`],
+  ["tests/m109-ste-394-docs-pins.test.ts", String.raw`"{N} numbered"`],
+  ["tests/m109-ste-394-docs-pins.test.ts", String.raw`toBe({N})`],
+  ["tests/m109-ste-394-docs-pins.test.ts", String.raw`\\b{N}\\b\\s+probes`],
+
+  ["tests/m115-ste-417-docs-pins.test.ts", String.raw`\b{N}\b\s+numbered`],
+  ["tests/m115-ste-417-docs-pins.test.ts", String.raw`layers {N} probes`],
+  ["tests/m115-ste-417-docs-pins.test.ts", String.raw`expect(Math.max(...numbers)).toBe({N});`],
+  ["tests/m115-ste-417-docs-pins.test.ts", String.raw`expect(numbers.length).toBe({N});`],
+
+  ["tests/m116-ste-424-short-ulid-collision.test.ts", String.raw`exactly {N} probes`],
+  ["tests/m116-ste-424-short-ulid-collision.test.ts", String.raw`expect(numbers.length).toBe({N});`],
+  ["tests/m116-ste-424-short-ulid-collision.test.ts", String.raw`expect(Math.max(...numbers)).toBe({N});`],
+
+  ["tests/m120-ste-443-jira-plan-provenance.test.ts", String.raw`expect(Math.max(...numbers)).toBe({N});`],
+  ["tests/m120-ste-443-jira-plan-provenance.test.ts", String.raw`expect(numbers.length).toBe({N});`],
+  ["tests/m120-ste-443-jira-plan-provenance.test.ts", String.raw`\b{N}\b.*numbered`],
+  ["tests/m120-ste-443-jira-plan-provenance.test.ts", String.raw`\b{N}\b\s+probes`],
+
+  ["tests/m137-ste-534-fr-word-caps.test.ts", "{N} numbered `/gate-check` probes"],
+  ["tests/m137-ste-534-fr-word-caps.test.ts", String.raw`expect(Math.max(...numbers)).toBe({N});`],
+
+  ["tests/m137-ste-535-plan-narrative-cap.test.ts", "{N} numbered `/gate-check` probes"],
+  ["tests/m137-ste-535-plan-narrative-cap.test.ts", String.raw`expect(Math.max(...numbers)).toBe({N});`],
+] as const;
+
+/** The count these pins read BEFORE probe #82 — the number that must be gone. */
+const STALE_PROBE_COUNT = 81;
+
+const fill = (template: string, n: number): string =>
+  template.split("{N}").join(String(n));
+
+const surfaceBody = (rel: string): string =>
+  rel === "README.md"
+    ? read(README)
+    : read(join(PLUGIN_ROOT, ...rel.split("/")));
+
+describe("AC-STE-533.8 — the probe-count cascade moved as one", () => {
+  test("the live count is 82 and README advertises it in BOTH places", () => {
+    const live = liveProbeCount();
+    expect(live).toBe(82);
+    const readme = read(README);
+    expect(readme).toContain(`${live} numbered \`/gate-check\` probes`);
+    expect(readme).toMatch(new RegExp(`layers ${live} probes`));
+  });
+
+  test("EVERY enumerated pin reads the live count — none left behind", () => {
+    const live = liveProbeCount();
+    const missing: string[] = [];
+    const stale: string[] = [];
+    for (const [rel, template] of PROBE_COUNT_PINS) {
+      const body = surfaceBody(rel);
+      if (!body.includes(fill(template, live))) {
+        missing.push(`${rel} — ${fill(template, live)}`);
+      }
+      if (body.includes(fill(template, STALE_PROBE_COUNT))) {
+        stale.push(`${rel} — ${fill(template, STALE_PROBE_COUNT)}`);
+      }
+    }
+    // ANTI-VACUITY: an empty table would report a clean cascade by moving
+    // nothing at all.
+    expect(PROBE_COUNT_PINS.length).toBeGreaterThanOrEqual(40);
+    expect({ missing, stale }).toEqual({ missing: [], stale: [] });
+  });
+
+  test("every named surface EXISTS — a pin on a deleted file is not a pin", () => {
+    for (const [rel] of PROBE_COUNT_PINS) {
+      const abs =
+        rel === "README.md" ? README : join(PLUGIN_ROOT, ...rel.split("/"));
+      expect({ rel, exists: existsSync(abs) }).toEqual({ rel, exists: true });
+    }
+  });
+
+  test("THE ISOLATING HALF — the numbers that must NOT move are untouched", () => {
+    // Three deliberate non-probe-count numbers live inside the very files the
+    // cascade rewrites. If any of them moved, the cascade edited by digit
+    // rather than by subject.
+    const untouched: readonly (readonly [string, string])[] = [
+      // A retirement tripwire, frozen at the count it retired.
+      ["tests/gate-check-active-plan-ship-ready.test.ts", "`74 numbered` / `layers 74 probes`"],
+      ["tests/gate-check-active-plan-ship-ready.test.ts", "/layers 74 probes/"],
+      // Synthetic drift fixtures: a README that is SUPPOSED to disagree.
+      ["tests/gate-check-public-surface-count-drift.test.ts", "42 numbered `/gate-check` probes"],
+      ["tests/gate-check-public-surface-count-drift.test.ts", "Follow the 3 numbered steps below to get started."],
+      // A WORD count that happens to equal the old probe count, in a file the
+      // cascade really does rewrite two lines away.
+      ["tests/m137-ste-534-fr-word-caps.test.ts", 'expect(countWords(overBody.join("\\n"))).toBe(81);'],
+    ];
+    for (const [rel, literal] of untouched) {
+      expect({ rel, literal, present: surfaceBody(rel).includes(literal) }).toEqual({
+        rel,
+        literal,
+        present: true,
+      });
+    }
+  });
+
+  test("no surface still asserts the count did NOT move", () => {
+    // `m137-ste-535` shipped a leg titled "README still advertises 81 numbered
+    // probes, not 82" — an assertion this FR makes false. Leaving it standing
+    // is the dead-rule defect AC-STE-533.5 exists to prevent, pointed at a
+    // sibling suite instead of a skill.
+    for (const rel of [
+      "tests/m137-ste-535-plan-narrative-cap.test.ts",
+      "tests/m137-ste-534-fr-word-caps.test.ts",
+    ]) {
+      const body = surfaceBody(rel);
+      expect({ rel, denies: /not 82|unmoved at 81|still 81/i.test(body) }).toEqual({
+        rel,
+        denies: false,
+      });
+    }
+  });
+});
+
+// ============================================================================
+// AC-STE-533.5 (WIDENED) — the superseded mandate is amended on ALL ELEVEN
+// ============================================================================
+//
+// THE AUDIT LEFTOVER this closes: AC-STE-533.5's assertion was /spec-write-
+// scoped, which is precisely what let `skills/deps/SKILL.md` keep an
+// UNQUALIFIED copy of the exact rule AC-STE-533.5 names — "do not collapse to a
+// single line" — at the SAME line number as /spec-write's, one amended and one
+// not. `skills/report-issue/SKILL.md` carries it in different words. A rule
+// checked on one surface is unchecked on the other ten.
+
+/**
+ * The superseded closing-summary mandates, MEASURED across the eleven on
+ * 2026-08-31.
+ *
+ * Each carries its own `aboutTheSummary` scope, because two of these phrases
+ * appear on these same surfaces about something else entirely — `/deps`'s table
+ * columns and `/gate-check`'s probe #28 prose — and a scan that flagged those
+ * would be a perfect pin on the wrong subject.
+ */
+const SUPERSEDED_MANDATES: readonly {
+  label: string;
+  match: RegExp;
+  aboutTheSummary: (paragraph: string) => boolean;
+}[] = [
+  {
+    label: "do not collapse to a single line",
+    match: /do not collapse to a single line/i,
+    aboutTheSummary: () => true,
+  },
+  {
+    label: "Emit the full block, do not collapse",
+    match: /do not collapse\./i,
+    aboutTheSummary: () => true,
+  },
+  {
+    label: "the summary must include <the old shape>",
+    match: /must include/i,
+    aboutTheSummary: (p) => /summary/i.test(p),
+  },
+  {
+    label: "Report what happened, in this order",
+    match: /Report what happened, in this order/i,
+    aboutTheSummary: () => true,
+  },
+];
+
+/** An amending qualifier — the paragraph SAYS the rule no longer stands. */
+const isAmended = (paragraph: string): boolean =>
+  /(supersed\w*|replac\w*|no longer|formerly|instead of|in place of|status block)/i.test(
+    paragraph,
+  );
+
+/** Paragraphs of a markdown body, blank-line delimited. */
+const paragraphsOf = (body: string): string[] => body.split(/\n\s*\n/);
+
+describe("AC-STE-533.5 (widened) — every one of the eleven, not just /spec-write", () => {
+  test("no UNQUALIFIED superseded mandate survives on any of the eleven", () => {
+    const standing: string[] = [];
+    let scanned = 0;
+    for (const stage of ADOPTING_STAGES) {
+      const body = read(skillPath(stage));
+      for (const paragraph of paragraphsOf(body)) {
+        for (const mandate of SUPERSEDED_MANDATES) {
+          if (!mandate.match.test(paragraph)) continue;
+          if (!mandate.aboutTheSummary(paragraph)) continue;
+          scanned += 1;
+          if (!isAmended(paragraph)) {
+            standing.push(`${stage} — ${mandate.label}: ${paragraph.slice(0, 90)}`);
+          }
+        }
+      }
+    }
+    // ANTI-VACUITY: the mandates really are present on these surfaces, so an
+    // empty `standing` means "all amended", never "none found".
+    expect(scanned).toBeGreaterThan(0);
+    expect(standing).toEqual([]);
+  });
+
+  test("the scan is DRIVEN OFF ADOPTING_STAGES — enumerated, not sampled", () => {
+    let checked = 0;
+    for (const stage of ADOPTING_STAGES) {
+      expect(existsSync(skillPath(stage))).toBe(true);
+      checked += 1;
+    }
+    expect(checked).toBe(ADOPTING_STAGES.length);
+  });
+
+  test("THE ISOLATING HALF — the scope really does exclude the two sibling uses", () => {
+    // `/deps` line 151 forbids collapsing a TABLE's columns; `/gate-check`
+    // probe #28 requires a path token to include a slash. Neither is a closing
+    // summary, and a scan that flagged them would be measuring the wrong
+    // subject — the failure shape this repository has recorded twice.
+    const columnsRule =
+      "The table is the primary stdout payload — do not wrap it in prose, do not collapse columns, do not reorder them.";
+    const probe28 = "inspects `verify:` lines for path-shaped tokens (must include `/`)";
+    for (const foreign of [columnsRule, probe28]) {
+      const fired = SUPERSEDED_MANDATES.filter(
+        (m) => m.match.test(foreign) && m.aboutTheSummary(foreign),
+      );
+      expect({ foreign: foreign.slice(0, 40), fired: fired.length }).toEqual({
+        foreign: foreign.slice(0, 40),
+        fired: 0,
+      });
+    }
+    // …and the real subject still fires, so the scope is not simply off.
+    const real =
+      "The two-table-plus-prose shape clears the byte floor naturally; do not collapse to a single line.";
+    expect(
+      SUPERSEDED_MANDATES.some((m) => m.match.test(real) && m.aboutTheSummary(real)),
+    ).toBe(true);
+    expect(isAmended(real)).toBe(false);
+  });
+});
+
+// ============================================================================
+// AUDIT LEFTOVERS — the claim and the contract must agree
+// ============================================================================
+
+describe("M137 audit leftovers — no surface claims what its neighbour denies", () => {
+  test("a stage claiming the block REPLACED its contract has actually amended it", () => {
+    // Seven skills claim the block replaces a contract their surface
+    // "formerly" mandated, while that contract still reads in the present
+    // imperative a few lines above. A claim and its neighbour cannot both be
+    // true; the assertion is that they agree.
+    const disagreeing: string[] = [];
+    let claiming = 0;
+    for (const stage of ADOPTING_STAGES) {
+      const body = read(skillPath(stage));
+      const claims = paragraphsOf(body).some((p) =>
+        /formerly mandated|formerly required|the block \*\*replaces\*\*/i.test(p),
+      );
+      if (!claims) continue;
+      claiming += 1;
+      for (const paragraph of paragraphsOf(body)) {
+        for (const mandate of SUPERSEDED_MANDATES) {
+          if (!mandate.match.test(paragraph)) continue;
+          if (!mandate.aboutTheSummary(paragraph)) continue;
+          if (!isAmended(paragraph)) {
+            disagreeing.push(`${stage} — ${mandate.label}`);
+          }
+        }
+      }
+    }
+    expect(claiming).toBeGreaterThan(0);
+    expect(disagreeing).toEqual([]);
+  });
+
+  test("docs/stage-status-block.md makes no FALSE claim about its own readers", () => {
+    const doc = read(STATUS_BLOCK_DOC);
+
+    // THE MEASURED FACT the doc's claims deny: a test file re-lists all eleven
+    // names DELIBERATELY, as its independent statement of the operator's
+    // decision. A test that read the const and compared it to itself would
+    // pass on any list at all.
+    const relisters = walkTextFiles(CONSUMER_SEARCH_ROOT).filter((rel) => {
+      if (!isTestPath(rel)) return false;
+      const body = read(join(PLUGIN_ROOT, ...rel.split("/")));
+      return ADOPTING_STAGES.every((s) => body.includes(`"${s}"`));
+    });
+    expect(relisters.length).toBeGreaterThan(0);
+
+    // …so the doc must not claim its readers do not re-list it.
+    expect(/tests[^.]{0,120}rather than re-listing/i.test(doc)).toBe(false);
+    expect(/never re-list/i.test(doc)).toBe(false);
+
+    // The second false claim: the names appear "only here". They do not — this
+    // FR's own acceptance criteria spell all eleven out too.
+    const frBody = read(join(REPO_ROOT, "specs", "frs", "STE-533.md"));
+    expect(ADOPTING_STAGES.every((s) => frBody.includes(s))).toBe(true);
+    expect(/only here/i.test(doc)).toBe(false);
+
+    // What the doc must still say — dropping the claim is the fix, deleting
+    // the pointer is not.
+    expect(doc).toContain("ADOPTING_STAGES");
+    expect(doc).toContain(ADOPTION_MODULE_REL);
   });
 });

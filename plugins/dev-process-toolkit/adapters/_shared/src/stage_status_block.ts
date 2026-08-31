@@ -7,6 +7,11 @@
 // with a perfectly compliant fence and forty lines of narration bolted above
 // it grades clean under the fence-only cap. This module owns that second span.
 //
+// The two graders own two BANNERS (AC-STE-533.1a): `deliver-stage-result` is
+// /deliver's machine hand-off, `stage-status-block` is the adopting eleven's
+// human-facing closing summary. Each grader accepts its own and refuses the
+// other's.
+//
 // It is a POLICY over the shipped primitives, never a second parser: the fence
 // walk is delegated to `findFences` (STE-532.6) and the section order is
 // imported from `deliver_stage_capture.ts`, the one place the eight names are
@@ -16,10 +21,7 @@
 // Pure and read-only: it takes the report TEXT, not a path. Handing it a path
 // would grade the path.
 
-import {
-  DELIVER_STAGE_FENCE_BANNER,
-  DELIVER_STAGE_SECTIONS,
-} from "./deliver_stage_capture";
+import { DELIVER_STAGE_SECTIONS } from "./deliver_stage_capture";
 import {
   EVIDENCE_SECTIONS,
   parseEvidenceLines,
@@ -28,14 +30,46 @@ import {
 import { findFences } from "./markdown_fences";
 
 /**
+ * THE adopting stages' own fence banner (AC-STE-533.1a, operator decision
+ * 2026-08-31).
+ *
+ * ONE BANNER, ONE OWNER, ONE VOCABULARY EACH. `deliver-stage-result` stays
+ * `/deliver`'s MACHINE hand-off between ceremony stages, graded by
+ * `verifyDeliverStageCapture` against `DELIVER_STAGE_IDS`; the eleven adopting
+ * stages emit THIS banner for a HUMAN-facing closing summary, graded here and
+ * by `stage_block_adoption.ts` against `ADOPTING_STAGES`. Nine of the eleven
+ * emit a `stage:` value the /deliver grader refuses outright, and that grader
+ * REQUIRES prose above its fence while this contract's whole claim is that the
+ * block REPLACES the prose. Two contracts that cannot both be satisfied by the
+ * same bytes are two contracts — and widening `DELIVER_STAGE_IDS` instead would
+ * tell the worker-capture grader that a `/brainstorm` run is a valid ceremony
+ * hand-off, which is false. A fix that makes a false thing true is not a fix.
+ */
+export const STAGE_BLOCK_FENCE_BANNER = "```stage-status-block";
+
+/**
  * Opening / closing markers, built from the SHIPPED banner so the two cannot
  * drift, and indentation-tolerant for the same reason the capture grader is: a
  * report relayed through a nested list keeps the fence but not column 0.
  */
 const FENCE_OPEN = new RegExp(
-  "^[ \\t]*" + DELIVER_STAGE_FENCE_BANNER + "[ \\t]*$",
+  "^[ \\t]*" + STAGE_BLOCK_FENCE_BANNER + "[ \\t]*$",
 );
 const FENCE_CLOSE = /^[ \t]*```[ \t]*$/;
+
+/**
+ * THE closed status fences in a text, in the order found.
+ *
+ * Exported because `stage_block_adoption.ts` grades the SAME fences, and the
+ * banner's owner owns the walk over it. A private second copy of this
+ * expression is how two graders come to disagree about what a block IS — the
+ * shape AC-STE-533.1a's split makes possible for the first time, since there
+ * are now two banners a walk could be built from.
+ */
+export const closedStatusFences = (text: string) =>
+  findFences(text, FENCE_OPEN, FENCE_CLOSE).filter(
+    (fence) => fence.endLine > 0,
+  );
 
 /** A top-level section heading inside the fence body (`name:` at column 0). */
 const SECTION_HEADING_RE = /^([A-Za-z_][A-Za-z0-9_]*):/;
@@ -144,14 +178,12 @@ export function verifyStageStatusBlock(
     );
   }
 
-  const fences = findFences(report, FENCE_OPEN, FENCE_CLOSE).filter(
-    (fence) => fence.endLine > 0,
-  );
+  const fences = closedStatusFences(report);
   if (fences.length !== 1) {
     reasons.push(
       fences.length === 0
-        ? "no closed deliver-stage-result status fence found in the report"
-        : `${fences.length} deliver-stage-result status fences found; the report carries exactly one`,
+        ? "no closed stage-status-block fence found in the report"
+        : `${fences.length} stage-status-block fences found; the report carries exactly one`,
     );
     return { ok: false, reasons };
   }

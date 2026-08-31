@@ -60,7 +60,7 @@
 // distance.
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -71,6 +71,12 @@ import {
   CHECKBOX_ITEM_MAJORITY,
   PLAN_NARRATIVE_WORD_CAP,
 } from "../adapters/_shared/src/scan_plan_narrative_altitude";
+import {
+  ADOPTING_STAGES,
+  PROSE_LEAD_IN_LINE_CAP,
+} from "../adapters/_shared/src/stage_block_adoption";
+import { STAGE_REPORT_LINE_CAP } from "../adapters/_shared/src/stage_status_block";
+import { FENCE_LINE_CAP } from "../adapters/_shared/src/deliver_stage_capture";
 
 const pluginRoot = join(import.meta.dir, "..");
 const SELF = join(import.meta.dir, "m137-ste-536-budget-single-source.test.ts");
@@ -421,5 +427,342 @@ describe("AC-STE-536.6 — direction (ii): surface moves, scanner does not", () 
     );
     expect(mutatedText).not.toBe(text);
     expect(statesSharePct(mutatedText, STRUCTURAL_SHARE_PCT)).toBe(false);
+  });
+});
+
+// ===========================================================================
+// AC-STE-536.4 / AC-STE-536.6 — the DERIVED prose lead-in cap
+//
+// The three budgets above are TYPED in their scanners. `PROSE_LEAD_IN_LINE_CAP`
+// is not: it is computed as `STAGE_REPORT_LINE_CAP - FENCE_LINE_CAP - 2`, so it
+// moves whenever EITHER upstream budget moves — and it moves silently, because
+// nothing recomputes the prose. Twelve shipped surfaces restate its value as a
+// literal: the eleven `ADOPTING_STAGES` SKILL.md files and
+// `docs/stage-status-block.md`. Nothing bound those twelve copies to the
+// export, which is precisely the divergence AC-STE-536.4 forbids and precisely
+// the NFR-1 shape it cites — one number written several ways, drifting unseen.
+//
+// The nearest existing guard (`tests/m137-ste-533-...` — "the number is WRITTEN
+// DOWN at a shipped surface") is a `.some()`: ONE surface stating the number
+// satisfies it while the other eleven go stale. That is the hole closed here.
+//
+// Every number below is read back from an export. The surface list is derived
+// from `ADOPTING_STAGES` plus the doc, so a twelfth adopting stage is covered
+// the day it is added rather than the day someone remembers to edit this file.
+// ===========================================================================
+
+const ADOPTION_MODULE = join(
+  pluginRoot,
+  "adapters",
+  "_shared",
+  "src",
+  "stage_block_adoption.ts",
+);
+
+/**
+ * The fence's own opener and closer — the third term of the derivation, and
+ * the ONE number the shipped expression is allowed to carry. Not a budget: it
+ * is a property of a fenced block, which has exactly these two marker lines.
+ */
+const FENCE_MARKER_LINES = 2;
+
+interface Surface {
+  readonly label: string;
+  readonly path: string;
+}
+
+/** The twelve restating surfaces, derived — never listed by hand. */
+const LEAD_IN_SURFACES: readonly Surface[] = [
+  ...ADOPTING_STAGES.map((stage): Surface => ({
+    label: `skills/${stage}/SKILL.md`,
+    path: join(pluginRoot, "skills", stage, "SKILL.md"),
+  })),
+  {
+    label: "docs/stage-status-block.md",
+    path: join(pluginRoot, "docs", "stage-status-block.md"),
+  },
+];
+
+/**
+ * Number words indexed BY VALUE, so `NUMBER_WORDS[cap]` is the spelling of the
+ * shipped cap and no numeral is typed here at all. `docs/stage-status-block.md`
+ * states the cap twice on the same line — once in digits, once in words — and a
+ * word-blind check would certify a half-updated sentence.
+ */
+const NUMBER_WORDS: readonly string[] = [
+  "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+  "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+  "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
+];
+
+/** The lines of `text` that talk about the prose lead-in. */
+function leadInLines(text: string): readonly string[] {
+  return text.split("\n").filter((l) => /lead-in/i.test(l));
+}
+
+/** Matches a stated line budget of `cap`: "N lines", "N line", "N-line". */
+function lineBudgetRe(cap: number): RegExp {
+  return new RegExp(String.raw`\b${cap}([ -]lines?\b)`, "g");
+}
+
+/** Every line count stated in digits on a lead-in line, in order. */
+function statedLineCounts(text: string): readonly number[] {
+  const out: number[] = [];
+  for (const line of leadInLines(text)) {
+    for (const m of line.matchAll(/\b(\d+)[ -]lines?\b/g)) {
+      out.push(Number(m[1]));
+    }
+  }
+  return out;
+}
+
+/** Every line count SPELLED OUT on a lead-in line, lower-cased, in order. */
+function spelledLineCounts(text: string): readonly string[] {
+  const re = new RegExp(
+    String.raw`\b(${NUMBER_WORDS.join("|")})[ -]lines?\b`,
+    "gi",
+  );
+  const out: string[] = [];
+  for (const line of leadInLines(text)) {
+    for (const m of line.matchAll(re)) out.push(m[1].toLowerCase());
+  }
+  return out;
+}
+
+/** True iff `text` states a lead-in budget of `cap` on a lead-in line. */
+function statesLeadInCap(text: string, cap: number): boolean {
+  return leadInLines(text).some((l) => lineBudgetRe(cap).test(l));
+}
+
+/** Rewrite every stated `cap`-line lead-in budget in `text` to `to` lines. */
+function rewriteLeadInCap(text: string, cap: number, to: number): string {
+  return text
+    .split("\n")
+    .map((l) => (/lead-in/i.test(l) ? l.replace(lineBudgetRe(cap), `${to}$1`) : l))
+    .join("\n");
+}
+
+/**
+ * True iff `text` restates the DERIVATION itself — the cap's name alongside
+ * both upstream budgets, on one line. `docs/stage-status-block.md` does; a
+ * surface that spells the subtraction out in numerals is stating two MORE
+ * budgets it can drift from, so those two are bound here as well.
+ */
+function statesDerivation(text: string, report: number, fence: number): boolean {
+  return text
+    .split("\n")
+    .some(
+      (l) =>
+        l.includes("PROSE_LEAD_IN_LINE_CAP") &&
+        new RegExp(String.raw`(?<![\d.])${report}(?![\d])`).test(l) &&
+        new RegExp(String.raw`(?<![\d.])${fence}(?![\d])`).test(l),
+    );
+}
+
+/** Rewrite a standalone numeric literal on the derivation line(s) only. */
+function rewriteDerivationNumber(text: string, from: number, to: number): string {
+  const re = new RegExp(String.raw`(?<![\d.])${from}(?![\d])`, "g");
+  return text
+    .split("\n")
+    .map((l) => (l.includes("PROSE_LEAD_IN_LINE_CAP") ? l.replace(re, String(to)) : l))
+    .join("\n");
+}
+
+describe("AC-STE-536.4 — the derived lead-in cap has one definition", () => {
+  test("the surface list is non-empty and covers every adopting stage plus the doc", () => {
+    // Non-vacuity, first gate. A binding test that silently enumerates zero
+    // surfaces passes while proving nothing.
+    expect(LEAD_IN_SURFACES.length).toBeGreaterThan(0);
+    expect(LEAD_IN_SURFACES.length).toBe(ADOPTING_STAGES.length + 1);
+    for (const { label, path } of LEAD_IN_SURFACES) {
+      expect(existsSync(path), `${label} must exist`).toBe(true);
+    }
+  });
+
+  test("the cap is DERIVED from both upstream budgets, read from their owners", () => {
+    expect(PROSE_LEAD_IN_LINE_CAP).toBe(
+      STAGE_REPORT_LINE_CAP - FENCE_LINE_CAP - FENCE_MARKER_LINES,
+    );
+  });
+
+  test("the shipped expression is an expression, not a quietly-typed literal", () => {
+    // The equality above holds just as well if someone replaces the expression
+    // with the number it currently evaluates to — at which point the cap stops
+    // tracking its inputs and the twelve surfaces below become right by luck.
+    const src = read(ADOPTION_MODULE);
+    const m = /export const PROSE_LEAD_IN_LINE_CAP\s*=\s*([^;]+);/.exec(src);
+    expect(m).not.toBeNull();
+    const rhs = (m as RegExpExecArray)[1].replace(/\s+/g, "");
+    expect(rhs).toBe(
+      `STAGE_REPORT_LINE_CAP-FENCE_LINE_CAP-${FENCE_MARKER_LINES}`,
+    );
+  });
+
+  for (const { label, path } of LEAD_IN_SURFACES) {
+    test(`${label} — states the cap the export currently holds`, () => {
+      const text = read(path);
+      const stated = statedLineCounts(text);
+      // Non-vacuity, second gate: the phrase was actually FOUND here. A
+      // surface that stopped restating the cap must fail, not pass silently.
+      expect(stated.length, `${label} states no lead-in line budget`).toBeGreaterThan(0);
+      // And every number it states is the shipped one — no competing copy.
+      for (const n of stated) expect(n).toBe(PROSE_LEAD_IN_LINE_CAP);
+      expect(statesLeadInCap(text, PROSE_LEAD_IN_LINE_CAP)).toBe(true);
+    });
+  }
+
+  test("a spelled-out restatement matches the digits", () => {
+    const word = NUMBER_WORDS[PROSE_LEAD_IN_LINE_CAP];
+    expect(word, "the cap has moved outside the spelling table").toBeDefined();
+    let seen = 0;
+    for (const { label, path } of LEAD_IN_SURFACES) {
+      for (const w of spelledLineCounts(read(path))) {
+        seen += 1;
+        expect(w, `${label} spells a stale lead-in cap`).toBe(word as string);
+      }
+    }
+    // Non-vacuity: at least one surface really does spell it out, so this test
+    // is measuring shipped prose rather than an empty loop.
+    expect(seen).toBeGreaterThan(0);
+  });
+
+  test("the derivation restatement names both upstream budgets, as shipped", () => {
+    const stating = LEAD_IN_SURFACES.filter(({ path }) =>
+      statesDerivation(read(path), STAGE_REPORT_LINE_CAP, FENCE_LINE_CAP),
+    );
+    expect(stating.length).toBeGreaterThan(0);
+  });
+
+  test("no lead-in budget literal is hand-typed in this file", () => {
+    // Same rule as the block above, extended to the three numbers this section
+    // reasons about. A number typed here would be the copy that survives when
+    // the export moves.
+    const src = read(SELF);
+    expect(literalCount(src, PROSE_LEAD_IN_LINE_CAP)).toBe(0);
+    expect(literalCount(src, STAGE_REPORT_LINE_CAP)).toBe(0);
+    expect(literalCount(src, FENCE_LINE_CAP)).toBe(0);
+  });
+});
+
+describe("AC-STE-536.6 — lead-in cap, direction (i): export moves, prose does not", () => {
+  for (const { label, path } of LEAD_IN_SURFACES) {
+    test(`${label} — a changed cap no longer matches the prose`, () => {
+      const text = read(path);
+      expect(statesLeadInCap(text, PROSE_LEAD_IN_LINE_CAP)).toBe(true); // baseline
+      const mutated = PROSE_LEAD_IN_LINE_CAP + MUTATION_DELTA;
+      expect(mutated).not.toBe(PROSE_LEAD_IN_LINE_CAP); // mutation applied
+      expect(statesLeadInCap(text, mutated)).toBe(false); // flips
+    });
+  }
+
+  test("either upstream budget moving moves the derived cap", () => {
+    // The reason direction (i) is not hypothetical: the cap has no author. A
+    // change to EITHER input silently changes what the twelve surfaces owe.
+    const base = STAGE_REPORT_LINE_CAP - FENCE_LINE_CAP - FENCE_MARKER_LINES;
+    expect(base).toBe(PROSE_LEAD_IN_LINE_CAP); // baseline
+    const reportMoved =
+      STAGE_REPORT_LINE_CAP + MUTATION_DELTA - FENCE_LINE_CAP - FENCE_MARKER_LINES;
+    expect(reportMoved).not.toBe(PROSE_LEAD_IN_LINE_CAP);
+    const fenceMoved =
+      STAGE_REPORT_LINE_CAP - (FENCE_LINE_CAP + MUTATION_DELTA) - FENCE_MARKER_LINES;
+    expect(fenceMoved).not.toBe(PROSE_LEAD_IN_LINE_CAP);
+    // ...and the shipped prose tracks neither on its own.
+    const doc = read(LEAD_IN_SURFACES[LEAD_IN_SURFACES.length - 1].path);
+    expect(statesLeadInCap(doc, reportMoved)).toBe(false);
+    expect(statesLeadInCap(doc, fenceMoved)).toBe(false);
+  });
+
+  test("derivation restatement — a changed upstream budget no longer matches", () => {
+    const stating = LEAD_IN_SURFACES.filter(({ path }) =>
+      statesDerivation(read(path), STAGE_REPORT_LINE_CAP, FENCE_LINE_CAP),
+    );
+    expect(stating.length).toBeGreaterThan(0);
+    for (const { label, path } of stating) {
+      const text = read(path);
+      const report = STAGE_REPORT_LINE_CAP + MUTATION_DELTA;
+      const fence = FENCE_LINE_CAP + MUTATION_DELTA;
+      expect(report).not.toBe(STAGE_REPORT_LINE_CAP);
+      expect(fence).not.toBe(FENCE_LINE_CAP);
+      expect(
+        statesDerivation(text, report, FENCE_LINE_CAP),
+        `${label}: whole-report cap`,
+      ).toBe(false);
+      expect(
+        statesDerivation(text, STAGE_REPORT_LINE_CAP, fence),
+        `${label}: fence cap`,
+      ).toBe(false);
+    }
+  });
+});
+
+describe("AC-STE-536.6 — lead-in cap, direction (ii): prose moves, export does not", () => {
+  for (const { label, path } of LEAD_IN_SURFACES) {
+    test(`${label} — a changed prose number no longer matches the export`, () => {
+      const text = read(path);
+      expect(statesLeadInCap(text, PROSE_LEAD_IN_LINE_CAP)).toBe(true); // baseline
+      const mutatedText = rewriteLeadInCap(
+        text,
+        PROSE_LEAD_IN_LINE_CAP,
+        PROSE_LEAD_IN_LINE_CAP + MUTATION_DELTA,
+      );
+      expect(mutatedText, `${label}: mutation never applied`).not.toBe(text);
+      expect(statesLeadInCap(mutatedText, PROSE_LEAD_IN_LINE_CAP)).toBe(false); // flips
+      // ...and the same rewrite is what the per-surface check above catches.
+      expect(
+        statedLineCounts(mutatedText).every((n) => n === PROSE_LEAD_IN_LINE_CAP),
+      ).toBe(false);
+    });
+  }
+
+  test("a spelled-out restatement that drifts alone still fails", () => {
+    const word = NUMBER_WORDS[PROSE_LEAD_IN_LINE_CAP] as string;
+    const other = NUMBER_WORDS[PROSE_LEAD_IN_LINE_CAP + MUTATION_DELTA] as string;
+    expect(other).toBeDefined();
+    expect(other).not.toBe(word);
+    const stating = LEAD_IN_SURFACES.filter(
+      ({ path }) => spelledLineCounts(read(path)).length > 0,
+    );
+    expect(stating.length).toBeGreaterThan(0);
+    for (const { label, path } of stating) {
+      const text = read(path);
+      const mutatedText = text
+        .split("\n")
+        .map((l) =>
+          /lead-in/i.test(l)
+            ? l.replace(
+                new RegExp(String.raw`\b${word}([ -]lines?\b)`, "gi"),
+                `${other}$1`,
+              )
+            : l,
+        )
+        .join("\n");
+      expect(mutatedText, `${label}: mutation never applied`).not.toBe(text);
+      expect(
+        spelledLineCounts(mutatedText).every((w) => w === word),
+        `${label}: a drifted spelling was accepted`,
+      ).toBe(false);
+    }
+  });
+
+  test("derivation restatement — a changed prose number no longer matches", () => {
+    const stating = LEAD_IN_SURFACES.filter(({ path }) =>
+      statesDerivation(read(path), STAGE_REPORT_LINE_CAP, FENCE_LINE_CAP),
+    );
+    expect(stating.length).toBeGreaterThan(0);
+    for (const { label, path } of stating) {
+      const text = read(path);
+      for (const budget of [STAGE_REPORT_LINE_CAP, FENCE_LINE_CAP]) {
+        const mutatedText = rewriteDerivationNumber(
+          text,
+          budget,
+          budget + MUTATION_DELTA,
+        );
+        expect(mutatedText, `${label}: mutation never applied`).not.toBe(text);
+        expect(
+          statesDerivation(mutatedText, STAGE_REPORT_LINE_CAP, FENCE_LINE_CAP),
+          `${label}: a drifted derivation was accepted`,
+        ).toBe(false);
+      }
+    }
   });
 });
