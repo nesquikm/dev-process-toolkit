@@ -261,9 +261,7 @@ For each step:
 - If it passes, report ✓ with the actual output summary (e.g., "✓ Tests: 47 passed, 0 failed")
 - If it fails, report ✗ with the specific errors (include file:line references)
 
-**Cite actual output numbers** — do not report GATE PASSED from memory of a previous run. Run each command fresh and read the result.
-
-If a failure cause is unclear after reading the error output, use `/dev-process-toolkit:debug` for structured investigation.
+**Cite actual output numbers** — do not report GATE PASSED from memory of a previous run. Run each command fresh and read the result. If a failure cause is unclear after reading the error output, use `/dev-process-toolkit:debug` for structured investigation.
 
 ## Code Review
 
@@ -303,9 +301,7 @@ Combine command results + code review into a final verdict:
 
 - **GATE PASSED** — all commands pass AND no concerns in code review
 - **GATE PASSED WITH NOTES** — all commands pass but code review found non-critical concerns or drift check found spec-implementation gaps (list them). These are things the user should be aware of but that don't block merging.
-- **GATE FAILED** — any command failed OR code review found critical concerns (spec compliance or security issues)
-
-Always state what needs fixing if not a clean pass.
+- **GATE FAILED** — any command failed OR code review found critical concerns (spec compliance or security issues). Always state what needs fixing if not a clean pass.
 
 ## Structured Output
 
@@ -323,7 +319,11 @@ Optionally produce a JSON summary alongside the Markdown report so CI pipelines 
 }
 ````
 
-The `verdict` field uses one of: `GATE PASSED`, `GATE PASSED WITH NOTES`, `GATE FAILED`.
+The `verdict` field uses one of: `GATE PASSED`, `GATE PASSED WITH NOTES`, `GATE FAILED`. **Closing summary — the status block.** `/gate-check` closes with **exactly one** `deliver-stage-result` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
+
+```deliver-stage-result
+stage: gate-check   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md
+```
 
 ## Rules
 

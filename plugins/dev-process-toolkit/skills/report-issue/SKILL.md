@@ -167,6 +167,12 @@ Next:
 
 The `>=100 byte` floor is the regression signal that the summary fired at all (an earlier prose form silently skipped under `-p` mode and left stdout at 1 byte). Emit the full block, do not collapse.
 
+**Closing summary — the status block.** `/report-issue` closes with **exactly one** `deliver-stage-result` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
+
+```deliver-stage-result
+stage: report-issue   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md
+```
+
 ### 10. Cleanup
 
 `trap` (or the equivalent `finally` block) runs `rm -rf "$TMPDIR_VAR"` on every exit path. Verify no payload artifact persists on disk after the skill exits.

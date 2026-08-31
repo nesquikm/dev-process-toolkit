@@ -337,6 +337,12 @@ Next: Run `/dev-process-toolkit:deps list` to inspect the manifest, or `/dev-pro
 
 The two-table-plus-prose shape clears the byte floor naturally; do not collapse to a single line. The `Next:` line varies by subcommand — `list` recommends `add`/`sync`; `add`/`edit`/`delete` recommend `list`; `sync` recommends `list`.
 
+**Closing summary — the status block.** `/deps` closes with **exactly one** `deliver-stage-result` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
+
+```deliver-stage-result
+stage: deps   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md
+```
+
 ## Rules
 
 - Ask one clarifying question per turn via `AskUserQuestion`. Wait for the answer before asking the next. Bare-prose questions are forbidden.
