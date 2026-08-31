@@ -5,12 +5,10 @@
 //   skills/spec-write/SKILL.md            — the § 0b `## Summary` line (AC-STE-536.1)
 //   templates/spec-templates/plan.md.template — § Task Sizing (AC-STE-536.2)
 //
-// SCOPE. This file covers FOUR of the FR's six ACs — .1, .2, .4 and .6. It
-// deliberately does NOT test AC-STE-536.3 (the anti-decoration rule) or
-// AC-STE-536.5 (skill files under the NFR-1 line cap / the docs extraction).
-// Those land prose on eleven skill surfaces that are frozen pending an
-// operator decision on a sibling FR, and a test here would pin work this file
-// is not allowed to authorise.
+// SCOPE. This file covers ALL SIX of the FR's ACs. The earlier fence around
+// AC-STE-536.3 (the anti-decoration rule) and AC-STE-536.5 (skill files under
+// the NFR-1 line cap / the docs extraction) is lifted: the sibling FR those
+// two waited on has landed, so the eleven skill surfaces are no longer frozen.
 //
 // ---------------------------------------------------------------------------
 // WHY SINGLE-SOURCING IS THE POINT (AC-STE-536.4)
@@ -60,7 +58,7 @@
 // distance.
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -106,6 +104,14 @@ const read = (path: string): string => readFileSync(path, "utf-8");
 
 /** The delta every mutation applies. Not a budget value. */
 const MUTATION_DELTA = 7;
+
+/**
+ * The § 0b guidance line that already states the Summary altitude rule — the
+ * one line where FR prose is authored. AC-STE-536.1 binds the three word
+ * budgets to it; AC-STE-536.3 binds the anti-decoration rule to it as well.
+ * Module-scoped because two blocks now anchor to the same line.
+ */
+const SUMMARY_RULE_ANCHOR = "3–6 non-empty lines of plain prose";
 
 // --------------------------------------------------------------- the budgets
 //
@@ -202,10 +208,6 @@ function literalCount(src: string, value: number): number {
 // ===========================================================================
 
 describe("AC-STE-536.1 — spec-write states the three FR word budgets", () => {
-  // The § 0b guidance line already states the Summary altitude rule. This is
-  // the anchor the budgets must land beside: same line, not merely same file.
-  const SUMMARY_RULE_ANCHOR = "3–6 non-empty lines of plain prose";
-
   test("the shipped table actually carries three capped sections", () => {
     // Guards the whole block against vacuity: were the table to lose its caps,
     // every per-budget test below would pass over an empty list.
@@ -763,6 +765,379 @@ describe("AC-STE-536.6 — lead-in cap, direction (ii): prose moves, export does
           `${label}: a drifted derivation was accepted`,
         ).toBe(false);
       }
+    }
+  });
+});
+
+// ===========================================================================
+// AC-STE-536.3 — the anti-decoration rule is stated AT the authoring surfaces
+//
+// The AC has two halves and a placement clause, and all three are load-bearing:
+//
+//   half A   no aphorisms;
+//   half B   no restating a point in a second register;
+//   where    "stated where the prose is authored, NOT ONLY in a document about
+//            the rule".
+//
+// A check that merely greps the repository for the words would pass on a
+// docs/ page alone, which is the exact failure the AC names. So each half is
+// asserted at the two surfaces where prose is actually authored — the § 0b
+// authoring line in `skills/spec-write/SKILL.md` (FR prose) and the § Task
+// Sizing section of `templates/spec-templates/plan.md.template` (plan prose) —
+// the same two places the budgets themselves are stated.
+//
+// FALSIFIABILITY. Each half is stripped from an in-memory copy of the surface
+// and the matching predicate must flip true -> false, with the mutation
+// asserted to have APPLIED. Isolation is asserted in both directions too: with
+// half A stripped, half B must still hold, and vice versa. A single predicate
+// satisfied by either half would pass a surface that states only one of them,
+// and "removing either half reddens" is precisely what the AC needs.
+// ===========================================================================
+
+/** Half A of the anti-decoration rule: aphorisms are forbidden. */
+const NO_APHORISMS_RE =
+  /\b(no|not|never|avoid|without)\b[^.;]{0,90}\baphorisms?\b/i;
+
+/** Half B: a point may not be restated in a second register. */
+const NO_SECOND_REGISTER_RE =
+  /\b(no|not|never|avoid|without)\b[^.;]{0,90}\b(restat\w*|repeat\w*|again)\b[^.;]{0,90}\bregisters?\b/i;
+
+/** True iff `text` states BOTH halves of the anti-decoration rule. */
+function statesAntiDecoration(text: string): boolean {
+  return NO_APHORISMS_RE.test(text) && NO_SECOND_REGISTER_RE.test(text);
+}
+
+/** Strip half A's subject word, leaving half B untouched. */
+function stripAphorismHalf(text: string): string {
+  return text.replace(/aphorisms?/gi, "flourishes");
+}
+
+/** Strip half B's subject word, leaving half A untouched. */
+function stripRegisterHalf(text: string): string {
+  return text.replace(/\bregisters?\b/gi, "voice");
+}
+
+/** The single § 0b authoring line, or `undefined` if the anchor moved. */
+function specWriteAuthoringLine(): string | undefined {
+  return read(SPEC_WRITE)
+    .split("\n")
+    .find((l) => l.includes(SUMMARY_RULE_ANCHOR));
+}
+
+/** The body of the plan template's § Task Sizing subsection. */
+function planTaskSizingBody(): string {
+  const text = read(PLAN_TEMPLATE);
+  const heading = "### Task Sizing";
+  const at = text.indexOf(heading);
+  if (at < 0) return "";
+  const rest = text.slice(at + heading.length);
+  const endRel = rest.search(/^#{2,3}(?!#)\s+/m);
+  return endRel === -1 ? rest : rest.slice(0, endRel);
+}
+
+interface AuthoringSurface {
+  readonly label: string;
+  readonly text: () => string;
+}
+
+/**
+ * The two surfaces where prose is authored. Derived from the same anchors the
+ * budget blocks above use, so the rule and the budgets cannot drift apart onto
+ * different lines of the same file.
+ */
+const AUTHORING_SURFACES: readonly AuthoringSurface[] = [
+  {
+    label: "skills/spec-write/SKILL.md § 0b authoring line",
+    text: () => specWriteAuthoringLine() ?? "",
+  },
+  {
+    label: "templates/spec-templates/plan.md.template § Task Sizing",
+    text: planTaskSizingBody,
+  },
+];
+
+describe("AC-STE-536.3 — the anti-decoration rule, at the authoring surface", () => {
+  test("both authoring surfaces resolve to real, non-empty prose", () => {
+    // Non-vacuity gate. Were either anchor to move, every assertion below
+    // would run against an empty string and a missing rule would read GREEN.
+    expect(AUTHORING_SURFACES.length).toBeGreaterThan(0);
+    for (const { label, text } of AUTHORING_SURFACES) {
+      expect(text().length, `${label} resolved to nothing`).toBeGreaterThan(0);
+    }
+  });
+
+  test("the § 0b authoring line is the SAME line that states the budgets", () => {
+    // The placement clause. The rule belongs beside the budgets it explains,
+    // not merely elsewhere in the same file.
+    const line = specWriteAuthoringLine();
+    expect(line).toBeDefined();
+    const summary = FR_BUDGETS.find((b) => b.section === "Summary");
+    expect(summary).toBeDefined();
+    expect(statesWordBudget(line as string, (summary as Budget).cap)).toBe(true);
+  });
+
+  for (const { label, text } of AUTHORING_SURFACES) {
+    test(`${label} — states half A: no aphorisms`, () => {
+      expect(NO_APHORISMS_RE.test(text())).toBe(true);
+    });
+
+    test(`${label} — states half B: no restating in a second register`, () => {
+      expect(NO_SECOND_REGISTER_RE.test(text())).toBe(true);
+    });
+
+    test(`${label} — removing half A reddens, and leaves half B standing`, () => {
+      const original = text();
+      expect(statesAntiDecoration(original)).toBe(true); // baseline
+      const mutated = stripAphorismHalf(original);
+      expect(mutated, `${label}: mutation never applied`).not.toBe(original);
+      expect(NO_APHORISMS_RE.test(mutated)).toBe(false); // flips
+      expect(statesAntiDecoration(mutated)).toBe(false);
+      // Isolation: the OTHER half is untouched, so the flip above is half A's
+      // doing and not a predicate that collapses on any edit at all.
+      expect(NO_SECOND_REGISTER_RE.test(mutated)).toBe(true);
+    });
+
+    test(`${label} — removing half B reddens, and leaves half A standing`, () => {
+      const original = text();
+      expect(statesAntiDecoration(original)).toBe(true); // baseline
+      const mutated = stripRegisterHalf(original);
+      expect(mutated, `${label}: mutation never applied`).not.toBe(original);
+      expect(NO_SECOND_REGISTER_RE.test(mutated)).toBe(false); // flips
+      expect(statesAntiDecoration(mutated)).toBe(false);
+      expect(NO_APHORISMS_RE.test(mutated)).toBe(true);
+    });
+  }
+
+  test("a rule stated ONLY in a document about the rule does not satisfy this", () => {
+    // The AC's own escape clause, made executable: strip the rule from the
+    // authoring surfaces while leaving every docs/ page exactly as shipped.
+    // The surface predicate must go false anyway.
+    const docsCarrying = docsPagesStatingTheRule();
+    expect(
+      docsCarrying.length,
+      "no docs/ page states the rule, so this leg would prove nothing",
+    ).toBeGreaterThan(0);
+    for (const { label, text } of AUTHORING_SURFACES) {
+      const stripped = stripRegisterHalf(stripAphorismHalf(text()));
+      expect(stripped, `${label}: mutation never applied`).not.toBe(text());
+      expect(
+        statesAntiDecoration(stripped),
+        `${label}: a docs-only statement was accepted`,
+      ).toBe(false);
+    }
+    // ...while the docs pages, untouched, still state it. Both facts together
+    // are what "not ONLY in a document about the rule" means.
+    for (const name of docsCarrying) {
+      expect(statesAntiDecoration(read(join(DOCS_DIR, name)))).toBe(true);
+    }
+  });
+});
+
+// ===========================================================================
+// AC-STE-536.5 — every SKILL.md this FR touches stays under the NFR-1 cap
+//
+// Two properties, both taken from the AC's own wording.
+//
+//   (a) THE SET IS READ FROM THE DIFF. "The cap assertion runs over the actual
+//       files this FR edits, read from the diff rather than from a hand-
+//       maintained list." A typed list silently stops covering a file the FR
+//       later touches — it is right on the day it is written and wrong from
+//       the next edit on. So the set is derived by diffing the working tree
+//       against a FIXED historical anchor: the commit carrying the
+//       `Release: v2.74.0` footer, the release this milestone grew on top of.
+//
+//       WHY NOT `git merge-base main HEAD`, the obvious choice: it is correct
+//       on the feature branch and goes EMPTY the moment the branch merges, at
+//       which point the leg passes while measuring nothing. This repository has
+//       been bitten by exactly that (M136 / STE-531, which re-anchored its own
+//       added-module set to release commits for the same reason). Diffing
+//       against the working tree rather than HEAD also means an edit that has
+//       not been committed yet is still measured.
+//
+//   (b) THE CAP IS READ, NOT RETYPED. NFR-1's cap is the FR's own cautionary
+//       example — one number written three ways across a spec and two test
+//       files, drifted unnoticed. Retyping it here would add a fourth. The
+//       number is parsed out of `tests/skill-nfr-1-length.test.ts`, the file
+//       that enforces it, and a meta-leg asserts it appears nowhere in this
+//       file as a literal.
+//
+//   The counting method is `split("\n").length`, matching the shipped cap test
+//   byte for byte. `wc -l` counts newlines and reads one line low, which is
+//   enough to certify a file that is actually one line over.
+//
+// NON-VACUITY. An empty touched set is a FAILURE here, not a pass: the set is
+// asserted non-empty, asserted to contain the surface this FR must edit, and
+// every member is asserted to exist on disk. A separate leg proves the cap
+// assertion has bite by showing at least one touched file sits within a
+// mutation delta of the cap — so the comparison is not slack.
+// ===========================================================================
+
+const REPO_ROOT = join(pluginRoot, "..", "..");
+const PLUGIN_REL = "plugins/dev-process-toolkit";
+const DOCS_DIR = join(pluginRoot, "docs");
+const NFR1_TEST = join(pluginRoot, "tests", "skill-nfr-1-length.test.ts");
+
+/** The release M137 grew on top of. Fixed history, not a moving ref. */
+const PREVIOUS_RELEASE = "v2.74.0";
+
+/** The surface this FR must edit — named so an empty set cannot read as clean. */
+const REQUIRED_TOUCHED = `${PLUGIN_REL}/skills/spec-write/SKILL.md`;
+
+/** Every docs page that states BOTH halves of the anti-decoration rule. */
+function docsPagesStatingTheRule(): readonly string[] {
+  return readdirSync(DOCS_DIR)
+    .filter((n) => n.endsWith(".md"))
+    .filter((n) => statesAntiDecoration(read(join(DOCS_DIR, n))));
+}
+
+/**
+ * The cap the shipped NFR-1 test enforces, parsed from that test's source.
+ *
+ * Throws rather than defaulting: a cap that cannot be read would otherwise
+ * become a hand-picked number, which is the drift this AC's sibling forbids.
+ */
+function nfr1LineCap(): number {
+  const m = /const SKILL_LINE_CAP = (\d+);/.exec(read(NFR1_TEST));
+  if (m === null) {
+    throw new Error(
+      "tests/skill-nfr-1-length.test.ts no longer declares `const SKILL_LINE_CAP = <n>;`, " +
+        "so the cap cannot be read from its enforcer and any number used here would be a copy",
+    );
+  }
+  return Number(m[1]);
+}
+
+/** Lines, counted the way the shipped cap test counts them. */
+function skillLineCount(repoRelPath: string): number {
+  return read(join(REPO_ROOT, repoRelPath)).split("\n").length;
+}
+
+/** The commit that shipped a release, found by its `Release:` footer. */
+function releaseCommit(version: string): string {
+  const proc = Bun.spawnSync(
+    ["git", "-C", REPO_ROOT, "log", "--format=%H", `--grep=^Release: ${version} `, "-1"],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const sha = proc.exitCode === 0 ? proc.stdout.toString().trim() : "";
+  if (sha.length === 0) {
+    throw new Error(
+      `no commit carries a \`Release: ${version}\` footer, so the set of files this FR ` +
+        "touches cannot be anchored; an empty set would pass every leg below while " +
+        "measuring nothing",
+    );
+  }
+  return sha;
+}
+
+/**
+ * Every SKILL.md that differs between the anchor release and the WORKING TREE
+ * — derived, never listed. Uncommitted edits are included, so a file this FR
+ * is in the middle of editing is measured now rather than after the commit.
+ */
+function touchedSkillFiles(): readonly string[] {
+  const base = releaseCommit(PREVIOUS_RELEASE);
+  const proc = Bun.spawnSync(
+    ["git", "-C", REPO_ROOT, "diff", "--name-only", base, "--", `${PLUGIN_REL}/skills`],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  if (proc.exitCode !== 0) {
+    throw new Error(`git diff failed at ${base}: ${proc.stderr.toString().trim()}`);
+  }
+  return proc.stdout
+    .toString()
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.endsWith("/SKILL.md"));
+}
+
+describe("AC-STE-536.5 — touched skill files stay under the NFR-1 cap", () => {
+  test("the touched set is derived from the diff and is NOT empty", () => {
+    const touched = touchedSkillFiles();
+    expect(touched.length, "the diff yielded no SKILL.md at all").toBeGreaterThan(0);
+    // Named, so a set that silently shrank to something irrelevant still fails.
+    expect(touched, "the surface this FR edits is not in the diff").toContain(
+      REQUIRED_TOUCHED,
+    );
+    for (const path of touched) {
+      expect(existsSync(join(REPO_ROOT, path)), `${path} must exist`).toBe(true);
+    }
+  });
+
+  test("the cap is READ from its enforcer, never retyped here", () => {
+    const cap = nfr1LineCap();
+    expect(cap).toBeGreaterThan(0);
+    // The NFR-1 precedent, refused: a number typed here would be a fourth copy
+    // of a cap already written three ways.
+    expect(literalCount(read(SELF), cap), "the cap is hand-typed here").toBe(0);
+  });
+
+  test("the counting method is the shipped cap test's own", () => {
+    // `wc -l` counts newlines and reads one line LOW, which is enough to
+    // certify a file that is actually one line over the cap.
+    expect(read(NFR1_TEST)).toContain('split("\\n").length');
+  });
+
+  test("every touched SKILL.md is within the cap", () => {
+    const cap = nfr1LineCap();
+    const touched = touchedSkillFiles();
+    expect(touched.length).toBeGreaterThan(0);
+    for (const path of touched) {
+      const lines = skillLineCount(path);
+      expect(lines, `${path} is ${lines} lines, cap is ${cap}`).toBeLessThanOrEqual(cap);
+    }
+  });
+
+  test("the cap assertion has bite — a tightened cap would fail", () => {
+    // Proves the comparison is not slack. At least one touched file sits close
+    // enough to the cap that a mutation-sized tightening reddens the leg above.
+    const cap = nfr1LineCap();
+    const counts = touchedSkillFiles().map(skillLineCount);
+    expect(counts.length).toBeGreaterThan(0);
+    expect(
+      counts.some((n) => n > cap - MUTATION_DELTA),
+      "no touched skill file is near the cap, so the leg above cannot fail",
+    ).toBe(true);
+  });
+
+  test("this FR's prose lands as a docs/ extraction the skill points at", () => {
+    // The AC's remedy, not just its constraint: the surfaces at zero headroom
+    // cannot absorb the reference detail, so it moves to `docs/` on the shipped
+    // `docs/deliver-reference.md` precedent and the skill links to it.
+    const carrying = docsPagesStatingTheRule();
+    expect(
+      carrying.length,
+      "no docs/ page carries the anti-decoration reference detail",
+    ).toBeGreaterThan(0);
+    const specWrite = read(SPEC_WRITE);
+    const pointed = carrying.filter((n) => specWrite.includes(`docs/${n}`));
+    expect(
+      pointed.length,
+      `spec-write points at none of: ${carrying.join(", ")}`,
+    ).toBeGreaterThan(0);
+  });
+
+  test("the files at zero headroom did not grow to hold it", () => {
+    // The concrete shape of "rather than by growing a skill file": any touched
+    // file that was already AT the cap at the anchor is still at most the cap.
+    const cap = nfr1LineCap();
+    const base = releaseCommit(PREVIOUS_RELEASE);
+    const atCap: string[] = [];
+    for (const path of touchedSkillFiles()) {
+      const proc = Bun.spawnSync(["git", "-C", REPO_ROOT, "show", `${base}:${path}`], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      if (proc.exitCode !== 0) continue; // added after the anchor
+      const before = proc.stdout.toString().split("\n").length;
+      if (before >= cap) atCap.push(path);
+    }
+    expect(
+      atCap.length,
+      "no touched skill file was at the cap, so this leg measures nothing",
+    ).toBeGreaterThan(0);
+    for (const path of atCap) {
+      const now = skillLineCount(path);
+      expect(now, `${path} grew past the cap to ${now}`).toBeLessThanOrEqual(cap);
     }
   });
 });
