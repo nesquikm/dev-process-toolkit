@@ -1597,10 +1597,10 @@ describe("STE-535 wiring — the two scanners report through ONE violation type"
 
 // ============================== the pins this repair is FORBIDDEN to move
 
-describe("STE-535 wiring — probe id, severity, probe count and NFR-1 cap are UNMOVED", () => {
+describe("STE-535 wiring — probe id, severity and NFR-1 cap are UNMOVED", () => {
   test("probe #67 keeps its id and its error severity", () => {
-    // The plan rule joins probe #67 rather than minting an 82nd probe
-    // precisely so these do not move.
+    // The plan rule joins probe #67 rather than minting one of its own, so
+    // the id and severity do not move. (#82 is STE-533's, a different FR.)
     expect(PROBE_ID).toBe("fr_summary_altitude");
     const entry = probe67Entry();
     expect(entry).toContain("**Severity: error.**");
@@ -1608,17 +1608,17 @@ describe("STE-535 wiring — probe id, severity, probe count and NFR-1 cap are U
     expect(entry).toContain(FR_SCANNER_REL);
   });
 
-  test("no NEW probe id was minted — the numbered list still ends at 81", () => {
+  test("STE-535 minted no probe id of its own — the list ends where #82 left it", () => {
     const skill = readFileSync(GATE_CHECK_SKILL, "utf-8");
     const numbers = [...skill.matchAll(/^(\d+)\. \*\*`/gm)].map((m) => Number(m[1]));
     expect(numbers.length).toBeGreaterThan(0);
-    expect(Math.max(...numbers)).toBe(81);
+    expect(Math.max(...numbers)).toBe(82);
   });
 
-  test("README still advertises 81 numbered probes, not 82", () => {
+  test("README advertises the live count — 82 since STE-533 landed probe #82", () => {
     const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf-8");
-    expect(readme).toContain("81 numbered `/gate-check` probes");
-    expect(readme).not.toContain("82 numbered `/gate-check` probes");
+    expect(readme).toContain("82 numbered `/gate-check` probes");
+    expect(readme).not.toMatch(/\b81\b numbered `\/gate-check` probes/);
   });
 
   test("NFR-1 — gate-check/SKILL.md stays at or under the cap its own test enforces", () => {

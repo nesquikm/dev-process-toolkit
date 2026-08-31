@@ -306,7 +306,7 @@ Walk every manifest entry once and reconcile local checkout presence. `/deps syn
 
 ## Closing-summary contract
 
-Every successful `/deps` invocation MUST emit a closing summary on the quiet path — same firing rule as `/spec-write` § 7. The summary must be ≥ 100 bytes on stdout and must include:
+Every successful `/deps` invocation MUST emit a closing summary on the quiet path — same firing rule as `/spec-write` § 7. The status block below **supersedes** the shape this contract formerly mandated; the rows it names now ride inside the fence. For reference, that shape was ≥ 100 bytes on stdout and must include:
 
 1. A tabular status block reflecting the subcommand's effect:
    - `add` / `edit` / `delete` → before/after row for the affected manifest entry plus the resulting `specs/deps.yaml` change line.
@@ -335,11 +335,11 @@ Capability rows (literal tokens, backticked):
 Next: Run `/dev-process-toolkit:deps list` to inspect the manifest, or `/dev-process-toolkit:deps sync` to reconcile sibling checkouts.
 ```
 
-The two-table-plus-prose shape clears the byte floor naturally; do not collapse to a single line. The `Next:` line varies by subcommand — `list` recommends `add`/`sync`; `add`/`edit`/`delete` recommend `list`; `sync` recommends `list`.
+The status block **replaces** that reference shape, and with it the older instruction — the two-table-plus-prose shape cleared the byte floor naturally; do not collapse to a single line — which no longer stands. The `Next:` line varies by subcommand — `list` recommends `add`/`sync`; `add`/`edit`/`delete` recommend `list`; `sync` recommends `list`.
 
-**Closing summary — the status block.** `/deps` closes with **exactly one** `deliver-stage-result` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
+**Closing summary — the status block.** `/deps` closes with **exactly one** `stage-status-block` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
 
-```deliver-stage-result
+```stage-status-block
 stage: deps   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md
 ```
 

@@ -1089,7 +1089,7 @@ describe("AC-STE-443.8 — linear and none are byte-identical before and after",
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// AC-STE-443.10 — no new probe FROM M120; guard tracks the live count (now 81)
+// AC-STE-443.10 — no new probe FROM M120; guard tracks the live count (now 82)
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("AC-STE-443.10 — the arm ships inside probe #73, not as a probe #75", () => {
@@ -1122,21 +1122,21 @@ describe("AC-STE-443.10 — the arm ships inside probe #73, not as a probe #75",
     expect(row73()).not.toMatch(/\bSTE-\d+/);
   });
 
-  test("GUARD — the highest numbered probe is still 81, with no gap", () => {
-    // Recalibrated 80 → 81: M133 added #81 module_reachability.
+  test("GUARD — the highest numbered probe is still the live count, with no gap", () => {
+    // Recalibrated 81 → 82: M137 added #82 stage_block_adoption.
     const numbers = probeNumbers();
-    expect(Math.max(...numbers)).toBe(81);
-    expect(numbers.length).toBe(81);
+    expect(Math.max(...numbers)).toBe(82);
+    expect(numbers.length).toBe(82);
   });
 
-  test("GUARD — README's two probe-count pins still read 81", () => {
+  test("GUARD — README's two probe-count pins still read the live count", () => {
     const body = read(README);
     const featureLine = body.split("\n").filter((l) => /numbered `\/gate-check` probes/.test(l));
     expect(featureLine.length).toBe(1);
-    expect(featureLine[0]!).toMatch(/\b81\b.*numbered/);
+    expect(featureLine[0]!).toMatch(/\b82\b.*numbered/);
     const asideLine = body.split("\n").filter((l) => /which layers \d+ probes on top/.test(l));
     expect(asideLine.length).toBe(1);
-    expect(asideLine[0]!).toMatch(/\b81\b\s+probes/);
+    expect(asideLine[0]!).toMatch(/\b82\b\s+probes/);
   });
 
   test("GUARD — the module still exports exactly one probe runner", () => {

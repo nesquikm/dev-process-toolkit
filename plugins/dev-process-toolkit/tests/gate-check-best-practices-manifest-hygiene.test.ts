@@ -313,12 +313,12 @@ describe("AC-STE-465.4 — gate-check SKILL.md registers probe #76 best_practice
     expect(block).toContain("tests/gate-check-best-practices-manifest-hygiene.test.ts");
   });
 
-  test("the numbered probe list is contiguous 1..81", () => {
-    // Recalibrated 80 → 81: M133 added #81 module_reachability.
+  test("the numbered probe list is contiguous 1..82", () => {
+    // Recalibrated 81 → 82: M137 added #82 stage_block_adoption.
     const numbers = [...gateCheckSkill().matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
-    expect(numbers.length).toBe(81);
+    expect(numbers.length).toBe(82);
     expect([...numbers].sort((a, b) => a - b)).toEqual(
-      Array.from({ length: 81 }, (_, i) => i + 1),
+      Array.from({ length: 82 }, (_, i) => i + 1),
     );
   });
 });

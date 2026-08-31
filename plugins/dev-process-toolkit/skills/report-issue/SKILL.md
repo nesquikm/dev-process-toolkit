@@ -148,7 +148,7 @@ gh gist create -s -d "<title>" report.md metadata.json [transcript.jsonl]
 
 ### 9. Closing summary (≥100 bytes)
 
-On every successful run, emit a closing summary that satisfies the per-skill console-status contract (used by `/spec-write`, `/setup`, `/implement`, `/gate-check`, `/spec-review`, `/simplify`). The summary must include, on stdout:
+On every successful run, emit a closing summary that satisfies the per-skill console-status contract (used by `/spec-write`, `/setup`, `/implement`, `/gate-check`, `/spec-review`, `/simplify`). The status block below **supersedes** the shape this section formerly mandated; the rows it names now ride inside the fence. For reference, that summary must include, on stdout:
 
 - The rendered gist URL.
 - File list with byte sizes.
@@ -165,11 +165,11 @@ Next:
   - Or run /dev-process-toolkit:brainstorm <gist-url> to self-debug from the captured context.
 ```
 
-The `>=100 byte` floor is the regression signal that the summary fired at all (an earlier prose form silently skipped under `-p` mode and left stdout at 1 byte). Emit the full block, do not collapse.
+The `>=100 byte` floor is the regression signal that the summary fired at all (an earlier prose form silently skipped under `-p` mode and left stdout at 1 byte). The status block **replaces** the older instruction that read: emit the full block, do not collapse.
 
-**Closing summary — the status block.** `/report-issue` closes with **exactly one** `deliver-stage-result` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
+**Closing summary — the status block.** `/report-issue` closes with **exactly one** `stage-status-block` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
 
-```deliver-stage-result
+```stage-status-block
 stage: report-issue   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md
 ```
 

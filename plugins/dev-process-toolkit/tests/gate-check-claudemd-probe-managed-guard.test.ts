@@ -369,17 +369,17 @@ describe("AC-STE-434.5 — vacuous without the shared adapter layer", () => {
 // AC-STE-434.6 — documented probe counts.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("AC-STE-434.6 — README documents 81 probes", () => {
-  // Recalibrated 80 → 81: M133 added #81 module_reachability on top of
+describe("AC-STE-434.6 — README documents 82 probes", () => {
+  // Recalibrated 81 → 82: M137 added #82 stage_block_adoption on top of
   // M131's #80 runnability_declared.
-  test("the Features bullet documents 81 numbered /gate-check probes (README.md:14)", () => {
+  test("the Features bullet documents 82 numbered /gate-check probes (README.md:14)", () => {
     const readme = readFileSync(join(repoRoot, "README.md"), "utf-8");
-    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b81\b.*numbered/);
+    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b82\b.*numbered/);
   });
 
-  test("the /implement-invokes-/tdd aside documents 81 probes (README.md:109)", () => {
+  test("the /implement-invokes-/tdd aside documents 82 probes (README.md:109)", () => {
     const readme = readFileSync(join(repoRoot, "README.md"), "utf-8");
-    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b81\b\s+probes/);
+    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b82\b\s+probes/);
   });
 
   test("runPublicSurfaceCountDriftProbe returns zero violations on this repo", async () => {

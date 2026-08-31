@@ -107,9 +107,9 @@ Once the design is approved:
 
 **Placeholder convention.** Brainstorm drafts that preview AC text must use `<tracker-id>` placeholders (e.g., `AC-<tracker-id>.1`) rather than guessing the next sequential tracker number. See `/spec-write` § 0b for the full rule — the real ID is assigned by the tracker allocator only after `Provider.sync(spec)` returns.
 
-**Closing summary — the status block.** `/brainstorm` closes with **exactly one** `deliver-stage-result` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
+**Closing summary — the status block.** `/brainstorm` closes with **exactly one** `stage-status-block` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
 
-```deliver-stage-result
+```stage-status-block
 stage: brainstorm   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md
 ```
 

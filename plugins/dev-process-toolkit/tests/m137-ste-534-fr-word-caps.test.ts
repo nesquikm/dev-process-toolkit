@@ -568,11 +568,11 @@ describe("AC-STE-534.4 — Requirement, Acceptance Criteria and Testing are unca
 
 // ================================================================ AC-STE-534.5
 
-describe("AC-STE-534.5 — probe id, severity and the README's 81-probe count unmoved", () => {
+describe("AC-STE-534.5 — probe id, severity and the README's probe count agree", () => {
   test("the README count line and the probe id are asserted TOGETHER", () => {
     const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf-8");
-    expect(readme).toContain("81 numbered `/gate-check` probes");
-    expect(readme).not.toContain("82 numbered `/gate-check` probes");
+    expect(readme).toContain("82 numbered `/gate-check` probes");
+    expect(readme).not.toMatch(/\b81\b numbered `\/gate-check` probes/);
     expect(PROBE_ID).toBe("fr_summary_altitude");
   });
 
@@ -589,19 +589,19 @@ describe("AC-STE-534.5 — probe id, severity and the README's 81-probe count un
     expect(entry!).toContain("scanFrSummaryAltitude(projectRoot)");
   });
 
-  test("no NEW probe id was minted — the numbered list still ends at 81", () => {
+  test("STE-534 minted no probe id of its own — the list ends where #82 left it", () => {
     // The whole reason the word rule joined an existing probe rather than
-    // becoming a new one was to avoid moving these numbers.
+    // becoming one of its own was to spend no probe number of its own here.
     const skill = readFileSync(
       join(import.meta.dir, "..", "skills", "gate-check", "SKILL.md"),
       "utf-8",
     );
     const numbers = [...skill.matchAll(/^(\d+)\. \*\*`/gm)].map((m) => Number(m[1]));
-    expect(Math.max(...numbers)).toBe(81);
+    expect(Math.max(...numbers)).toBe(82);
   });
 
   test("word_cap violations are produced by the module that owns PROBE_ID", () => {
-    // Same module, same id: `word_cap` rides probe #67 rather than an 82nd probe.
+    // Same module, same id: `word_cap` rides probe #67 rather than a new probe.
     const content = frFile("STE-956", [["Summary", bodyOfWords(SUMMARY_WORD_CAP + 5, "s")]]);
     const fx = makeTree({ "specs/frs/STE-956.md": content });
     try {
@@ -1054,7 +1054,7 @@ describe("AC-STE-534.8 — mutation-verified, each mutation asserted to have APP
 // scanner.
 //
 // AC-STE-534.5 pinned three things on `skills/gate-check/SKILL.md`: the probe
-// id, its `**Severity: error.**`, and README's `81 numbered` count. All three
+// id, its `**Severity: error.**`, and README's numbered-probe count. All three
 // are still correct. What nothing pinned is the two things STE-534 actually
 // changed on that surface — the RULE SET and the SECTION SCOPE — which is
 // exactly why the entry still says the probe "enforces four altitude rules"
@@ -1293,8 +1293,8 @@ describe("AC-STE-534.5 — probe #67's registration prose matches the shipped sc
   test("AC-STE-534.5's original three pins are UNMOVED by the prose repair", () => {
     // The rule joined an existing probe precisely so these would not move.
     const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf-8");
-    expect(readme).toContain("81 numbered `/gate-check` probes");
-    expect(readme).not.toContain("82 numbered `/gate-check` probes");
+    expect(readme).toContain("82 numbered `/gate-check` probes");
+    expect(readme).not.toMatch(/\b81\b numbered `\/gate-check` probes/);
 
     const entry = probe67Entry();
     expect(PROBE_ID).toBe("fr_summary_altitude");
@@ -1306,7 +1306,7 @@ describe("AC-STE-534.5 — probe #67's registration prose matches the shipped sc
       "utf-8",
     );
     const numbers = [...skill.matchAll(/^(\d+)\. \*\*`/gm)].map((m) => Number(m[1]));
-    expect(Math.max(...numbers)).toBe(81);
+    expect(Math.max(...numbers)).toBe(82);
   });
 
   // ---- falsifiability: the checks above must be able to FAIL ---------------
