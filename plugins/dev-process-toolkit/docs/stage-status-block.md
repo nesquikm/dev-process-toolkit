@@ -5,7 +5,7 @@ The one closing-summary shape every user-facing stage emits **instead of** narra
 Grading lives in code, not in this file:
 
 - `adapters/_shared/src/stage_status_block.ts` — `verifyStageStatusBlock(report, evidence)` grades one **rendered** report: fence presence, the eight-section fixed order, the whole-report line cap (`STAGE_REPORT_LINE_CAP` = 40), the empty-section fallback, and counts claimed with no capture behind them.
-- `adapters/_shared/src/stage_block_adoption.ts` — `verifyStageReportAdoption(report, evidence)` layers the **adoption policy** on top of that grader, and `scanStageBlockAdoption(projectRoot)` reports which adopting skills still close with narration. It is a policy over the grader, never a second parser. `/gate-check` probe #82 (`stage_block_adoption`) runs the scanner on every gate run; the same module opens a front door for a reader:
+- `adapters/_shared/src/stage_block_adoption.ts` — `verifyStageReportAdoption(report, evidence)` layers the **adoption policy** on top of that grader, and `scanStageBlockAdoption(projectRoot)` reports which adopting skills' SKILL.md documents no closed status-block fence — plus which still emits `/deliver`'s banner, or has dropped a cap-exempt section. It is a policy over the grader, never a second parser. The scanner grades an AUTHORING SURFACE, so narration is not among its clauses: a SKILL.md is documentation and its prose is legitimate — narration is readable only from a rendered report, which the grader above owns. `/gate-check` probe #82 (`stage_block_adoption`) runs the scanner on every gate run; the same module opens a front door for a reader:
 
 ```sh
 bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/stage_block_adoption.ts <projectRoot>
@@ -39,16 +39,18 @@ follow_ups:
 bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_capture.ts <projectRoot>
 ```
 
-## The four adoption rules
+## The six adoption rules
+
+`verifyStageReportAdoption` layers these on top of `verifyStageStatusBlock`. When the list grows, this heading is the first thing that goes stale — see `docs/prose-altitude.md` § Counting a rule set.
 
 1. **The prose lead-in is capped at 12 lines.** At most twelve lines of narration may precede the fence opener — `PROSE_LEAD_IN_LINE_CAP`, derived as `STAGE_REPORT_LINE_CAP - FENCE_LINE_CAP - 2` (40 − 26 − 2) rather than typed, so the lead-in allowance and the two budgets it was carved out of cannot drift apart. Past that the block is riding beneath the narration instead of replacing it.
 2. **Narration beside the block is a refusal, not a style note.** A report that reinstates its former multi-paragraph summary above a compliant block fails adoption even though the block itself grades clean — that was the rejected alternative at design time.
 3. **Exactly one block per report.** The count rule has a single owner: the refusal is `verifyStageStatusBlock`'s, in its own words.
 4. **The block is the LAST thing in the report, other than the cap-exempt sections below.** Nothing non-blank follows the closing marker except a section named in `CAP_EXEMPT_SECTIONS` for that stage — its heading and its list rows, and nothing else: prose under a correctly-headed section is still narration.
+5. **The block names an ADOPTING stage.** `stage:` must be one of `ADOPTING_STAGES`; a missing value and a `/deliver` ceremony id are both refused, because that vocabulary rides the other banner.
+6. **Capability tokens ride INSIDE the block.** `locateCapabilityTokens(report)` splits the `spec_write_*` / `branch_gate_*` / `report_issue_*` family (registered in `/spec-write` § 7's static map) into `inBlock` and `outsideBlock`; a token left loose in the prose is a token the block does not carry, and is a reason of its own.
 
 **The cap-exempt sections (`CAP_EXEMPT_SECTIONS`).** The lead-in cap governs FREE-FORM NARRATION alone; the structured sections earlier milestones mandate are exempt from it. The list is closed, lives in `adapters/_shared/src/stage_block_adoption.ts`, and every entry carries a `requiredBy` citation that must RESOLVE — a real declarer or a real pin, checked by `resolveExemptCitation`; a citation that names a heading only inside a `//` comment is refused, because a comment is not a pin. **Exempt is not optional:** a listed section that stops being emitted is a violation in its own right, graded by `scanStageBlockAdoption` from the other direction, because a carve-out checked one way is unguarded the other way.
-
-Capability tokens (the `spec_write_*` / `branch_gate_*` / `report_issue_*` family registered in `/spec-write` § 7's static map) **survive the rewrite inside the block** — `locateCapabilityTokens(report)` splits them into `inBlock` and `outsideBlock`, and a token left loose in the prose is a token the block does not carry.
 
 ## The eleven adopting stages
 

@@ -14,9 +14,9 @@ Per-milestone plan files under `specs/plan/archive/`; archived FRs under `specs/
 
 ### NFR-1: Skill Size
 
-- No single skill file shall exceed 351 lines
-- **Overflow rule:** If a skill approaches 351 lines during implementation, extract detailed reference material (long example tables, multi-stack examples) into a companion file at `docs/<skill-name>-reference.md` and reference it from the skill with a one-line pointer: `See docs/<skill-name>-reference.md for full examples.`
-- **Bump rationale (STE-252, STE-305):** the cap raised from 300 → 350 in v2.19.0 to acknowledge spec-write's contract-locked prose pressure (~26 tests assert verbatim prose strings); STE-305 (v2.28.0) bumped to the canonical 351 to align with the actual `wc -l` headroom.
+- No single skill file shall exceed 358 lines
+- **Overflow rule:** If a skill approaches 358 lines during implementation, extract detailed reference material (long example tables, multi-stack examples) into a companion file at `docs/<skill-name>-reference.md` and reference it from the skill with a one-line pointer: `See docs/<skill-name>-reference.md for full examples.`
+- **Bump rationale (STE-252, STE-305):** the cap raised from 300 → 350 in v2.19.0 to acknowledge spec-write's contract-locked prose pressure (~26 tests assert verbatim prose strings); STE-305 (v2.28.0) bumped to the canonical 351 to align with the actual `wc -l` headroom; it was later raised 351 → 352 (STE-373) → 354 (STE-374) for spec-write's § 7 capability rows, and now stands at 358 — the number `tests/skill-nfr-1-length.test.ts` enforces. This line states the cap, that test enforces it, and the two had drifted apart until STE-536 re-aligned them.
 
 ### NFR-2: CLAUDE.md Schema Stability
 
@@ -63,8 +63,8 @@ Wherever one skill produces output that another skill reads or references, the f
 
 ### NFR-7: Adapter Code Size
 
-- Each adapter TypeScript source file (e.g., `adapters/linear/src/normalize.ts`): ≤500 lines (looser than NFR-1's 351-line skill cap, since adapters carry tracker-specific quirks like Linear's description normalization and Jira's field discovery)
-- Each adapter declarative `<tracker>.md`: ≤351 lines (per NFR-1)
+- Each adapter TypeScript source file (e.g., `adapters/linear/src/normalize.ts`): ≤500 lines (looser than NFR-1's 358-line skill cap, since adapters carry tracker-specific quirks like Linear's description normalization and Jira's field discovery)
+- Each adapter declarative `<tracker>.md`: ≤358 lines (per NFR-1)
 - If a source file exceeds 500 lines, extract per-operation modules under `adapters/<tracker>/src/` rather than letting a single file grow. No compiled binaries are shipped, so size limits apply to source only
 
 ### NFR-8: MCP Call Budget per Skill Invocation

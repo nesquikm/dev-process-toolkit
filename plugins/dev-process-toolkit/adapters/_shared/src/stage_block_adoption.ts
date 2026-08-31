@@ -24,11 +24,14 @@
 // and the whole-report cap are read from the modules that own them. Nothing in
 // this file re-parses a status block.
 //
-// It also carries the /gate-check probe (#82, AC-STE-533.8). The probe grades
-// the adoption CONTRACT, never fence PRESENCE alone: presence-only grading
-// would let all eleven stages keep every paragraph, add a fence, and score
-// zero — this FR's headline claim enforced by nothing that executes, which is
-// the third occurrence of that shape in this repository.
+// It also carries the /gate-check probe (#82, AC-STE-533.8). The probe runs
+// the SCANNER half, which grades an AUTHORING SURFACE — a documented closed
+// fence, banner ownership, and every cap-exempt section still emitted. It does
+// NOT grade narration, and cannot: a SKILL.md is documentation, so prose
+// around its fence is legitimate (measured: eleven SKILL.md carrying 60
+// narration paragraphs above and below a compliant fence score clean).
+// Narration is a property of a RENDERED REPORT and is graded below, by
+// `verifyStageReportAdoption`. Two halves, two subjects.
 //
 // Pure and read-only in the grading half (it takes report TEXT, not a path);
 // the scanner half reads SKILL.md bodies off disk and does nothing else — no
@@ -519,10 +522,12 @@ function lineOf(body: string, test: (line: string) => boolean, fallback: number)
  * consumer project carries `.claude/skills/…`, and a path that does not exist
  * is not a violation.
  *
- * THE GRADE IS NOT FENCE PRESENCE. Presence alone is the vacuity AC-STE-533.8
- * refuses: all eleven could keep every paragraph, bolt a fence on, and score
- * zero. Three things are graded, and a SKILL.md is an authoring surface so the
- * runtime report's section counts are deliberately not among them:
+ * THE SUBJECT IS AN AUTHORING SURFACE, so narration is not graded here and
+ * cannot be: a SKILL.md is documentation, and prose around its fence is
+ * legitimate — eleven SKILL.md carrying 60 narration paragraphs above and
+ * below a compliant fence score clean. Narration belongs to a RENDERED report,
+ * which `verifyStageReportAdoption` grades. Three things are graded here, and
+ * the runtime report's section counts are deliberately not among them:
  *
  *   1. a closed status block on the ADOPTING banner is documented at all;
  *   2. the surface no longer emits `/deliver`'s banner — one banner, one owner;
