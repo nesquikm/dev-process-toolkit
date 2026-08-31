@@ -86,7 +86,11 @@ describe("AC-STE-386.3 — probe #67 wiring in gate-check SKILL.md", () => {
     expect(block).toMatch(/tests\/gate-check-fr-summary-altitude\.test\.ts/);
   });
 
-  test("the four rule ids are named in the entry (closed set)", () => {
+  // The closed union has FIVE members since STE-534 (M137); the four named
+  // here are the Summary-scoped PROSE rules this suite owns. `word_cap`, the
+  // fifth, is pinned by `tests/m137-ste-534-fr-word-caps.test.ts`, which
+  // asserts the entry names every member of the shipped `RuleName` union.
+  test("the four Summary-scoped prose rule ids are named in the entry", () => {
     const block = probe67Block(readFileSync(skillMdPath, "utf-8"));
     for (const rule of ["line_cap", "backtick", "ac_id", "path_token"]) {
       expect(block).toContain(rule);
