@@ -223,6 +223,12 @@ Report what happened, in this order: entries applied (id + summary), entries dec
 
 Recommend `/gate-check` as the follow-up when anything was applied.
 
+**Closing summary — the status block.** `/upgrade` closes with **exactly one** `deliver-stage-result` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
+
+```deliver-stage-result
+stage: upgrade   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md
+```
+
 ## Rules
 
 - **Registry-driven, always.** Never hard-code a migration in this file. A new migration is a new registry entry with a detector and a fix.

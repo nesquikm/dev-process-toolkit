@@ -229,6 +229,12 @@ Every successful invocation MUST emit a closing summary on the quiet path. The s
 
 The `Next:` line varies by subcommand — `list` recommends `add`; `add` / `edit` / `delete` recommend `list`.
 
+**Closing summary — the status block.** `/best-practices` closes with **exactly one** `deliver-stage-result` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
+
+```deliver-stage-result
+stage: best-practices   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md
+```
+
 ## Rules
 
 - Ask one clarifying question per turn via `AskUserQuestion`. Wait for the answer before asking the next. Bare-prose questions are forbidden. See `docs/patterns.md § Pattern 26: Socratic Prompting {#pattern-socratic-prompting}` for the canonical rule and `docs/auto-mode-protocol.md § Socratic Loop Contract` for the full contract.

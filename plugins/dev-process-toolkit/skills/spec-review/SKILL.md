@@ -92,6 +92,12 @@ When `drift_count` is `0` or `1`, `formatDriftHint` returns `null` and the orche
 
 The threshold + literal-line shape live in `adapters/_shared/src/spec_review_drift_hint.ts` (`formatDriftHint(count)`) so the rule is integration-testable across `0` / `1` / `2` / `4` drift fixtures (`tests/spec-review-drift-hint.test.ts`). Per the migration split: the audit fork emits the count (so `drift_count >= 2` is the canonical threshold check), main emits the line — both halves of the rule remain testable, and bypassing the helper string and re-deriving the line inline is a contract violation caught by the doc-conformance test.
 
+**Closing summary — the status block.** `/spec-review` closes with **exactly one** `deliver-stage-result` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
+
+```deliver-stage-result
+stage: spec-review   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md
+```
+
 ## Rules
 
 - Do NOT bypass the hand-off contract — `spec-review-result` is the only return channel from the fork.

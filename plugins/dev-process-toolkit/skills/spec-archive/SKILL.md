@@ -173,6 +173,12 @@ If the drift report is non-empty, offer the user exactly three choices:
 
 The drift check **never blocks the archival operation itself**. The archive moves, frontmatter flips, and `releaseLock` calls are already committed to disk by the time this check runs; the user's choice only governs what happens to the drift report.
 
+**Closing summary — the status block.** `/spec-archive` closes with **exactly one** `deliver-stage-result` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
+
+```deliver-stage-result
+stage: spec-archive   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md
+```
+
 ## Rules
 
 - This skill operates ONLY on user-selected units (ULID, tracker ref, or `M<N>`). Never auto-scan live specs for "done" milestones, checked boxes, or completion heuristics.
