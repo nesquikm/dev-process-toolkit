@@ -66,6 +66,10 @@ Each task should be ≈ one commit's worth of work — small enough that the ver
 
 If you can't write the `verify:` line in one sentence, the task is too big. Split it.
 
+**Narrative budget.** Every `###` subsection of this plan that reads as prose is capped at 150 words, stated here from the `scan_plan_narrative_altitude` scanner's own cap and defined nowhere else. Over the cap, split the subsection or move the detail into the FR it belongs to.
+
+**When the cap does not apply.** A subsection is exempt only when its structural lines are the majority: checkbox items, markdown table rows and fenced code lines are counted TOGETHER as one combined share of the subsection's non-blank lines, and that combined share must exceed 60% for the body to count as structural. These are not three separate categorical exemptions — a 4-row markdown table under a 3-line prose caption is a 4-of-7 combined share, so it stays narrative and is measured against the 150-word cap like any other prose.
+
 A task may also be marked `[deferred]` (e.g., `- [deferred] multiply — moved to M<N+1>`) to signal that the work was intentionally moved out of this milestone. `/ship-milestone` treats `[deferred]` as ship-OK and `/gate-check` skips it from the task-FR coverage probe.
 
 **Anti-patterns — tasks too large to verify cleanly:**
