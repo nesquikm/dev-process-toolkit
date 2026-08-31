@@ -43,9 +43,19 @@
 // cap, widen a rule set, cap an uncapped section) and prove the shipped
 // numbers are measurements rather than stubs.
 //
-// Modelled on `scan_design_references.ts` (readFileSync + line walk).
+// Reading the file follows `scan_design_references.ts` (readFileSync + line
+// walk). Splitting it into sections does NOT live here: that is
+// `markdown_section_walk.ts`, which `scan_plan_narrative_altitude.ts` runs on
+// too, configured by this file's `FR_SECTION_WALK` row. What stays here is the
+// grading — the table, the rules and the caps.
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+
+import {
+  countWords,
+  walkSections,
+  type SectionWalkSpec,
+} from "./markdown_section_walk";
 
 export const PROBE_ID = "fr_summary_altitude";
 
@@ -109,6 +119,21 @@ const LINE_CAP = 6;
 // scan_design_references.ts: only a level-2 heading ends a section, so an h3
 // subheading inside the body cannot mask later violations.
 const HEADING_RE = /^##\s+(.*?)\s*$/;
+/**
+ * This scanner's row in the shared walk's config (`markdown_section_walk.ts`),
+ * which `scan_plan_narrative_altitude.ts` runs on too.
+ *
+ * `closes: null` — here one level-2 heading both ends the previous section and
+ * starts the next, so the opener is the only closer. `fenceAware: false` — this
+ * walk has never treated a `## ` inside a fence as sample text; that is stated
+ * as data rather than left as a silent omission, so a later FR that wants to
+ * flip it has one place to do it and one place to test.
+ */
+const FR_SECTION_WALK: SectionWalkSpec = {
+  opens: HEADING_RE,
+  closes: null,
+  fenceAware: false,
+};
 // AC-ID token of the AC-prefix shape, any flavor: tracker-mode with a numeric
 // ticket segment (AC-STE-386.2, AC-DST-45.1) or the mode-none short-ULID
 // prefix with no ticket segment (AC-VDTAF4.1, AC-4F61D7.2).
@@ -144,13 +169,6 @@ const LINE_PREDICATES: readonly (readonly [RuleName, (line: string) => boolean])
   ["path_token", (line) => line.split(/\s+/).some(isPathToken)],
 ];
 
-/** Whitespace-delimited token count of one line. */
-function countWords(line: string): number {
-  const trimmed = line.trim();
-  if (trimmed === "") return 0;
-  return trimmed.split(/\s+/).filter(Boolean).length;
-}
-
 /** Active FR files: `specs/frs/*.md`, non-recursive — `archive/` excluded. */
 function listActiveFrs(projectRoot: string): { abs: string; rel: string }[] {
   const frsDir = `${projectRoot}/specs/frs`;
@@ -172,14 +190,6 @@ interface FileScan {
   measured: MeasuredSection[];
 }
 
-interface OpenSection {
-  spec: SectionRuleSpec;
-  words: number;
-  nonEmpty: number;
-  lineCapFlagged: boolean;
-  wordCapFlagged: boolean;
-}
-
 function scanFile(
   abs: string,
   rel: string,
@@ -193,66 +203,57 @@ function scanFile(
   } catch {
     return { violations, measured };
   }
-  const lines = content.split("\n");
-  let open: OpenSection | null = null;
 
-  /** Record one violation. `index` is 0-indexed; the reported `line` is not. */
-  const flag = (index: number, rule: RuleName, section: string): void => {
-    violations.push({ file: rel, line: index + 1, rule, section });
+  /** Record one violation. `at` is the already-1-indexed file line. */
+  const flag = (at: number, rule: RuleName, section: string): void => {
+    violations.push({ file: rel, line: at, rule, section });
   };
 
-  const close = (): void => {
-    if (open === null) return;
-    if (open.spec.wordCap !== null) {
-      measured.push({ file: rel, section: open.spec.section, words: open.words });
-    }
-    open = null;
-  };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    const heading = HEADING_RE.exec(line);
-    if (heading !== null) {
-      close();
-      const spec = sectionRules.find((s) => s.section === heading[1]);
-      if (spec !== undefined) {
-        open = {
-          spec,
-          words: 0,
-          nonEmpty: 0,
-          lineCapFlagged: false,
-          wordCapFlagged: false,
-        };
-      }
-      continue;
-    }
-    if (open === null) continue;
+  // The shared walk yields every level-2 section in file order; the TABLE, and
+  // nothing else, decides which of them this scanner grades. A section absent
+  // from the table is skipped here rather than never opened — the same result,
+  // because sections are disjoint and a skipped one contributes nothing.
+  for (const entered of walkSections(content.split("\n"), FR_SECTION_WALK)) {
+    const spec = sectionRules.find((s) => s.section === entered.heading);
+    if (spec === undefined) continue;
 
     // Every applicability decision below reads `rules` / `wordCap` off the
     // section's own table row — never off the section NAME.
-    const { section, rules, wordCap } = open.spec;
+    const { section, rules, wordCap } = spec;
+    let words = 0;
+    let nonEmpty = 0;
+    let lineCapFlagged = false;
+    let wordCapFlagged = false;
 
-    if (line.trim() !== "") {
-      open.nonEmpty++;
-      if (rules.includes("line_cap") && open.nonEmpty > LINE_CAP && !open.lineCapFlagged) {
-        open.lineCapFlagged = true;
-        flag(i, "line_cap", section);
+    for (let i = 0; i < entered.body.length; i++) {
+      const line = entered.body[i]!;
+      const at = entered.bodyLines[i]!;
+
+      if (line.trim() !== "") {
+        nonEmpty++;
+        if (rules.includes("line_cap") && nonEmpty > LINE_CAP && !lineCapFlagged) {
+          lineCapFlagged = true;
+          flag(at, "line_cap", section);
+        }
+      }
+      for (const [rule, matches] of LINE_PREDICATES) {
+        if (rules.includes(rule) && matches(line)) flag(at, rule, section);
+      }
+
+      const n = countWords(line);
+      if (n > 0) {
+        words += n;
+        if (wordCap !== null && words > wordCap && !wordCapFlagged) {
+          wordCapFlagged = true;
+          flag(at, "word_cap", section);
+        }
       }
     }
-    for (const [rule, matches] of LINE_PREDICATES) {
-      if (rules.includes(rule) && matches(line)) flag(i, rule, section);
-    }
 
-    const words = countWords(line);
-    if (words > 0) {
-      open.words += words;
-      if (wordCap !== null && open.words > wordCap && !open.wordCapFlagged) {
-        open.wordCapFlagged = true;
-        flag(i, "word_cap", section);
-      }
+    if (wordCap !== null) {
+      measured.push({ file: rel, section, words });
     }
   }
-  close();
   return { violations, measured };
 }
 
