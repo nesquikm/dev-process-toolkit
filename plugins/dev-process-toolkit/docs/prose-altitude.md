@@ -24,6 +24,12 @@ Archive first — the gate only ever measures what is already in place.
 
 Two sentences, one fact. Keep the first, delete the second. This also covers a section that re-explains, in its own words, what the section above it already established. If a reader must be reminded, link the place that owns the claim rather than paraphrasing it into a second owner.
 
+## Counting a rule set
+
+A numbered claim about a rule set — "the four altitude rules", "three clauses per stage" — is true on the day it is written and wrong the moment the set grows, because nothing ties the numeral to the set. M137 corrected three of them: probe #67's "four altitude rules", the header of its colocated test, and `docs/stage-status-block.md`'s "The four adoption rules" (`verifyStageReportAdoption` grades six).
+
+State the count **from the set** wherever a reader is not the only consumer: read `RULES.length`, render the word from an index, or let a numbered list be its own count. Where prose genuinely needs the numeral — a heading, a sentence — name the binding beside it so a reader checking the claim knows which array to count, and expect to re-check it whenever that array changes.
+
 ## Why nothing enforces this
 
 No scanner can tell an aphorism from a load-bearing sentence, and one that tried would fire on the specifications it was written to improve. The word budgets are the deterministic half — they bound how much prose there is; this rule is the judgment half and bounds what the prose is made of. It is the part of the altitude contract most likely to drift, and it drifts quietly, so it is worth re-reading at review time rather than at gate time.

@@ -58,16 +58,33 @@
 // distance.
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 import {
   SECTION_RULES,
+  measureFrSections,
+  scanFrSummaryAltitude,
+  type FrSummaryAltitudeViolation,
+  type MeasuredSection,
   type SectionRuleSpec,
 } from "../adapters/_shared/src/scan_fr_summary_altitude";
 import {
   CHECKBOX_ITEM_MAJORITY,
   PLAN_NARRATIVE_WORD_CAP,
+  measurePlanSubsections,
+  scanPlanNarrativeAltitude,
+  type MeasuredSubsection,
+  type PlanNarrativeViolation,
 } from "../adapters/_shared/src/scan_plan_narrative_altitude";
 import {
   ADOPTING_STAGES,
@@ -1139,5 +1156,470 @@ describe("AC-STE-536.5 — touched skill files stay under the NFR-1 cap", () => 
       const now = skillLineCount(path);
       expect(now, `${path} grew past the cap to ${now}`).toBeLessThanOrEqual(cap);
     }
+  });
+});
+
+// ===========================================================================
+// AC-STE-536.2 / AC-STE-536.4 — A SURFACE THAT STATES A BUDGET MUST CLEAR IT
+//
+// THE BLIND SPOT. Everything above checks that the surfaces STATE the right
+// numbers. Nothing above checks that a surface OBEYS the number it states.
+// Those are different properties, and the gap between them is not theoretical:
+// `templates/spec-templates/plan.md.template` states the plan narrative budget
+// in its own § Task Sizing subsection, and that same subsection is prose well
+// past the cap the sentence announces. Staged as an active plan and run
+// through the shipped scanner it yields one `word_cap` violation, anchored on
+// the budget sentence itself.
+//
+// WHY NO EXISTING DOGFOOD SEES IT. The plan half of probe #67 walks
+// `specs/plan/*.md`. This repository's own plan is hand-written and clean, and
+// the TEMPLATE lives outside every scanned tree — `templates/`, not `specs/`.
+// So the scanner is green here and red in every project `/setup` scaffolds:
+// step 8 copies this template to `specs/plan/M1.md`, and the consumer's first
+// `/gate-check` fails on prose the consumer never wrote.
+//
+// THE GENERALISATION. Pinning one path would leave the same hole open for the
+// next plan template. The rule asserted instead is a property of the class:
+// every plan-shaped template this repo ships must satisfy the plan budget it
+// states. The file list is a glob over `templates/spec-templates/*.md.template`
+// filtered by SHAPE — a leading YAML frontmatter block carrying a `milestone:`
+// key, which is what makes a file one `/setup` lands in `specs/plan/` and one
+// the plan scanner walks. A second plan template added later is covered with
+// no edit here, and the filter is asserted to DISCRIMINATE (it must exclude at
+// least one shipped template) so "plan-shaped" cannot quietly become "every
+// file".
+//
+// NON-VACUITY. "Zero violations" is the same answer a scanner that read
+// nothing would give. So each template's audit also asserts the MEASUREMENT:
+// the subsections the scan classified, named, in file order, equal the `###`
+// headings actually present in the template source, and at least one of them
+// was classified narrative — a structural-only template would be exempt by
+// construction and would prove nothing.
+//
+// FALSIFIABILITY. Two mutations, both through the same helpers the real audit
+// uses: an over-cap plan-shaped template staged the same way must produce a
+// `word_cap` violation naming its own subsection, and a temp templates
+// directory holding one plan-shaped and one non-plan template must yield
+// exactly the plan-shaped one from discovery and redden on it.
+// ===========================================================================
+
+const SPEC_TEMPLATES_DIR = join(pluginRoot, "templates", "spec-templates");
+
+/** Where `/setup` step 8 lands the plan template in a consumer project. */
+const STAGED_PLAN_REL = "specs/plan/M1.md";
+
+interface StagedTree {
+  root: string;
+  cleanup: () => void;
+}
+
+/** Write `files` (repo-relative paths) into a fresh temp root. */
+function stageTree(files: Record<string, string>, prefix: string): StagedTree {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  for (const [rel, content] of Object.entries(files)) {
+    const abs = join(root, rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content, "utf-8");
+  }
+  return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+interface ShippedTemplate {
+  /** Basename, e.g. `plan.md.template`. */
+  name: string;
+  /** Full file text. */
+  text: string;
+}
+
+/** Every spec template this repo ships, in name order. */
+function shippedTemplates(dir: string = SPEC_TEMPLATES_DIR): ShippedTemplate[] {
+  return readdirSync(dir)
+    .filter((n) => n.endsWith(".md.template"))
+    .sort()
+    .map((n) => ({ name: n, text: read(join(dir, n)) }));
+}
+
+/** The leading YAML frontmatter block of a markdown file, or null. */
+function frontmatterOf(text: string): string | null {
+  const m = /^---\n([\s\S]*?)\n---/.exec(text);
+  return m === null ? null : (m[1] as string);
+}
+
+/**
+ * Plan-shaped = carries the frontmatter key that binds a file to a milestone.
+ * That key is what `/setup` fills when it copies a template into
+ * `specs/plan/`, and a file in `specs/plan/` is what the plan scanner walks.
+ * Deciding by SHAPE rather than by filename is what makes a second plan
+ * template covered without an edit here.
+ */
+function isPlanShaped(text: string): boolean {
+  const fm = frontmatterOf(text);
+  if (fm === null) return false;
+  return fm.split("\n").some((l) => /^milestone:\s*\S/.test(l));
+}
+
+function planShapedTemplates(dir?: string): ShippedTemplate[] {
+  return shippedTemplates(dir).filter((t) => isPlanShaped(t.text));
+}
+
+interface PlanTemplateAudit {
+  violations: PlanNarrativeViolation[];
+  measured: MeasuredSubsection[];
+}
+
+/**
+ * Stage one template exactly where `/setup` lands it and run the SHIPPED
+ * scanner over it. Both the violations and the measurements come back, so a
+ * caller can prove the scan happened before trusting that it was clean.
+ */
+function auditPlanTemplate(t: ShippedTemplate): PlanTemplateAudit {
+  const staged = stageTree({ [STAGED_PLAN_REL]: t.text }, "budget-surface-plan-");
+  try {
+    return {
+      violations: scanPlanNarrativeAltitude(staged.root),
+      measured: measurePlanSubsections(staged.root),
+    };
+  } finally {
+    staged.cleanup();
+  }
+}
+
+/** The level-3 headings of a template, in file order — the expected subject set. */
+function h3HeadingsOf(text: string): string[] {
+  const out: string[] = [];
+  for (const line of text.split("\n")) {
+    const m = /^###(?!#)\s+(.*?)\s*$/.exec(line);
+    if (m !== null) out.push(m[1] as string);
+  }
+  return out;
+}
+
+/** `n` whitespace-delimited words, carrying no digits of their own. */
+function prosePad(n: number): string {
+  return Array.from({ length: n }, () => "budget").join(" ");
+}
+
+/** The subsection heading the over-cap fixtures below breach under. */
+const PADDED_SECTION = "Padded Narrative";
+
+/**
+ * A plan-shaped template that STATES the budget and then breaches it — the
+ * exact shape of the shipped defect, built from the exported cap so no number
+ * is typed here.
+ */
+function overCapPlanTemplate(): string {
+  return [
+    "---",
+    "milestone: <milestone-id>",
+    "status: active",
+    "---",
+    "",
+    "# Implementation Plan",
+    "",
+    `Every prose subsection of this plan is capped at ${PLAN_NARRATIVE_WORD_CAP} words.`,
+    "",
+    "## Milestone Order",
+    "",
+    `### ${PADDED_SECTION}`,
+    "",
+    prosePad(PLAN_NARRATIVE_WORD_CAP + MUTATION_DELTA),
+    "",
+  ].join("\n");
+}
+
+/** A template with no frontmatter at all — never plan-shaped. */
+function nonPlanTemplate(): string {
+  return [
+    "# Technical Specification",
+    "",
+    "## 1. Architecture",
+    "",
+    `### ${PADDED_SECTION}`,
+    "",
+    prosePad(PLAN_NARRATIVE_WORD_CAP + MUTATION_DELTA),
+    "",
+  ].join("\n");
+}
+
+describe("budget-stating surfaces — plan-shaped templates clear the plan cap", () => {
+  test("discovery finds shipped templates and DISCRIMINATES plan-shaped ones", () => {
+    const all = shippedTemplates();
+    expect(all.length, "no spec templates were discovered at all").toBeGreaterThan(0);
+    const plans = planShapedTemplates();
+    expect(plans.length, "no shipped template is plan-shaped").toBeGreaterThan(0);
+    // The filter must actually reject something; a predicate that admits every
+    // template would make the audits below run over unrelated files and would
+    // read as broader coverage rather than as a broken filter.
+    expect(
+      plans.length,
+      "every shipped template reads as plan-shaped, so the filter decides nothing",
+    ).toBeLessThan(all.length);
+  });
+
+  test("every plan-shaped template STATES the budget it is about to be held to", () => {
+    // The antecedent of the rule, asserted rather than assumed: these are the
+    // surfaces that announce the cap, which is why they must clear it.
+    const plans = planShapedTemplates();
+    expect(plans.length).toBeGreaterThan(0);
+    for (const t of plans) {
+      expect(
+        statesWordBudget(t.text, PLAN_NARRATIVE_WORD_CAP),
+        `${t.name} does not state the plan narrative budget`,
+      ).toBe(true);
+    }
+  });
+
+  for (const t of planShapedTemplates()) {
+    test(`${t.name} — the scan CLASSIFIED its subsections, by name`, () => {
+      const audit = auditPlanTemplate(t);
+      const headings = h3HeadingsOf(t.text);
+      expect(headings.length, `${t.name} has no level-3 subsections`).toBeGreaterThan(0);
+      // Named and ordered: a scanner that read nothing returns an empty list,
+      // and one that read a different file returns different names.
+      expect(audit.measured.map((m) => m.section)).toEqual(headings);
+      expect(audit.measured.every((m) => m.words > 0)).toBe(true);
+      // A wholly structural template would be exempt by construction, so the
+      // zero-violation leg below would prove nothing about its prose.
+      expect(
+        audit.measured.some((m) => m.kind === "narrative"),
+        `${t.name} has no narrative subsection, so the cap is never applied`,
+      ).toBe(true);
+    });
+
+    test(`${t.name} — staged as a plan, the shipped scanner returns ZERO violations`, () => {
+      const audit = auditPlanTemplate(t);
+      // Rendered as strings so a failure names the offending subsection and
+      // rule rather than printing an opaque object count.
+      expect(
+        audit.violations.map((v) => `${v.section} — ${v.rule} (line ${v.line})`),
+      ).toEqual([]);
+    });
+  }
+
+  test("the audit BITES — an over-cap plan-shaped template reddens it", () => {
+    const fixture: ShippedTemplate = {
+      name: "over-cap.md.template",
+      text: overCapPlanTemplate(),
+    };
+    const audit = auditPlanTemplate(fixture);
+    // The mutation reached the scanner: it measured the padded subsection.
+    expect(audit.measured.map((m) => m.section)).toEqual([PADDED_SECTION]);
+    expect(audit.measured[0]?.kind).toBe("narrative");
+    expect(audit.violations.length).toBeGreaterThan(0);
+    expect(audit.violations.map((v) => v.section)).toContain(PADDED_SECTION);
+    expect(audit.violations.every((v) => v.rule === "word_cap")).toBe(true);
+  });
+
+  test("discovery BITES — a second plan-shaped template is picked up and audited", () => {
+    // The generalisation, demonstrated: drop a new plan-shaped template beside
+    // a non-plan one and it is found, filtered in, and measured — with no edit
+    // to the list above.
+    const staged = stageTree(
+      {
+        "aaa-not-a-plan.md.template": nonPlanTemplate(),
+        "zzz-second-plan.md.template": overCapPlanTemplate(),
+      },
+      "budget-surface-dir-",
+    );
+    try {
+      expect(shippedTemplates(staged.root).map((t) => t.name)).toEqual([
+        "aaa-not-a-plan.md.template",
+        "zzz-second-plan.md.template",
+      ]);
+      const plans = planShapedTemplates(staged.root);
+      expect(plans.map((t) => t.name)).toEqual(["zzz-second-plan.md.template"]);
+      const audit = auditPlanTemplate(plans[0] as ShippedTemplate);
+      expect(audit.violations.map((v) => v.section)).toContain(PADDED_SECTION);
+    } finally {
+      staged.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// AC-STE-536.1 / AC-STE-536.4 — the symmetric FR-side guard
+//
+// Same principle, other budget. The FR-authoring guidance surface states three
+// word budgets; nothing so far checks the FR bodies it governs against THE
+// NUMBERS IT STATES. The blocks above compare number to number — surface text
+// against scanner export — which catches a retyped constant but never asks
+// whether any FR actually clears what the guidance promises.
+//
+// So the caps used here are PARSED OUT OF THE GUIDANCE PROSE and handed to the
+// shipped scanner as its injectable section table. A budget the surface states
+// and the FRs breach fails here even when the scanner's own constant agrees
+// with the prose, and a surface tightened in prose alone fails here even
+// though direction (ii) above would call it drift rather than a breach.
+//
+// NON-VACUITY, twice over. All three budgets must PARSE (a table built from
+// `null` caps would measure nothing), and the scan must return measurements
+// over more than one FR file. The subject tree is the repository's own FRs
+// with the archive fallback this repo has been bitten without: archiving a
+// milestone empties `specs/frs/`, and an active-tree-only dogfood goes silently
+// vacuous at exactly that commit.
+//
+// FALSIFIABILITY: the same guidance text with every stated budget rewritten
+// down to a handful of words must redden the very same tree.
+// ===========================================================================
+
+/** Any stated word budget; group 1 is the number. */
+const ANY_WORD_BUDGET_RE = /\b(\d+)[ -]words?\b/;
+
+/**
+ * The budget the surface STATES for `section`: the first stated word budget
+ * whose nearest preceding capped section name is that section — the same
+ * ordinal binding `bindsBudgetToSection` uses, returning the number instead of
+ * a verdict.
+ */
+function statedBudgetFor(text: string, section: string): number | null {
+  const re = new RegExp(ANY_WORD_BUDGET_RE.source, "g");
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
+    const before = text.slice(0, m.index);
+    let nearest: string | null = null;
+    let nearestAt = -1;
+    for (const name of CAPPED_SECTION_NAMES) {
+      const at = before.lastIndexOf(name);
+      if (at > nearestAt) {
+        nearestAt = at;
+        nearest = name;
+      }
+    }
+    if (nearest === section) return Number(m[1]);
+  }
+  return null;
+}
+
+/**
+ * The scanner's section table rebuilt from what the guidance surface SAYS.
+ * Throws on a section whose budget cannot be parsed: a silent fallback to the
+ * exported cap would turn this guard back into the number-to-number comparison
+ * it exists to complement.
+ */
+function statedSectionRules(text: string): SectionRuleSpec[] {
+  return SECTION_RULES.map((r: SectionRuleSpec): SectionRuleSpec => {
+    if (r.wordCap === null) return r;
+    const stated = statedBudgetFor(text, r.section);
+    if (stated === null) {
+      throw new Error(
+        `the FR-authoring guidance surface states no word budget for \`${r.section}\`, ` +
+          "so the FRs it governs cannot be measured against what it promises",
+      );
+    }
+    return { section: r.section, wordCap: stated, rules: r.rules };
+  });
+}
+
+interface FrDogfood {
+  root: string;
+  source: "active" | "archive";
+  files: readonly string[];
+  cleanup: () => void;
+}
+
+/**
+ * A root whose `specs/frs/` the FR scanner can walk: this repository when its
+ * active tree carries FRs, otherwise a temp root seeded from `archive/`.
+ * Throws when neither exists — an empty subject is a failure, never a pass.
+ */
+function frDogfoodTree(repoRoot: string = REPO_ROOT): FrDogfood {
+  const noop = (): void => {};
+  const frsDir = join(repoRoot, "specs", "frs");
+  const mdIn = (dir: string): string[] =>
+    existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith(".md")).sort() : [];
+
+  const active = mdIn(frsDir);
+  if (active.length > 0) {
+    return { root: repoRoot, source: "active", files: active, cleanup: noop };
+  }
+  const archiveDir = join(frsDir, "archive");
+  const archived = mdIn(archiveDir);
+  if (archived.length === 0) {
+    throw new Error(
+      "this repository carries no FR files at all, active or archived, so the FR-side " +
+        "guard would report a clean tree while measuring nothing",
+    );
+  }
+  const files: Record<string, string> = {};
+  for (const n of archived) files[`specs/frs/${n}`] = read(join(archiveDir, n));
+  const staged = stageTree(files, "budget-surface-fr-");
+  return {
+    root: staged.root,
+    source: "archive",
+    files: archived,
+    cleanup: staged.cleanup,
+  };
+}
+
+interface FrAudit {
+  violations: FrSummaryAltitudeViolation[];
+  measured: MeasuredSection[];
+}
+
+/** Run the shipped FR scanner over the dogfood tree under a given table. */
+function auditFrTree(rules: readonly SectionRuleSpec[]): FrAudit {
+  const dog = frDogfoodTree();
+  try {
+    return {
+      violations: scanFrSummaryAltitude(dog.root, rules),
+      measured: measureFrSections(dog.root, rules),
+    };
+  } finally {
+    dog.cleanup();
+  }
+}
+
+describe("budget-stating surfaces — the FR guidance surface clears its own caps", () => {
+  test("all three budgets PARSE out of the guidance prose, and match the scanner", () => {
+    const text = read(SPEC_WRITE);
+    const rules = statedSectionRules(text);
+    const capped = rules.filter((r) => r.wordCap !== null);
+    expect(capped.length).toBe(FR_BUDGETS.length);
+    for (const { section, cap } of FR_BUDGETS) {
+      expect(statedBudgetFor(text, section), `${section} as stated`).toBe(cap);
+    }
+  });
+
+  test("the FR subject tree is real — measured sections over more than one file", () => {
+    const audit = auditFrTree(statedSectionRules(read(SPEC_WRITE)));
+    expect(audit.measured.length, "no FR section was measured at all").toBeGreaterThan(0);
+    expect(
+      new Set(audit.measured.map((m) => m.file)).size,
+      "a single-file subject proves little",
+    ).toBeGreaterThan(1);
+    // Every measured section is one the guidance actually budgets.
+    for (const m of audit.measured) {
+      expect(CAPPED_SECTION_NAMES).toContain(m.section);
+    }
+  });
+
+  test("the FRs clear the budgets the guidance surface STATES", () => {
+    const audit = auditFrTree(statedSectionRules(read(SPEC_WRITE)));
+    expect(
+      audit.violations.map((v) => `${v.file}:${v.line} — ${v.rule} — ${v.section}`),
+    ).toEqual([]);
+  });
+
+  test("the guard BITES — a guidance surface stating a smaller cap reddens the tree", () => {
+    const text = read(SPEC_WRITE);
+    // Baseline first: the shipped prose over the shipped tree is clean.
+    expect(auditFrTree(statedSectionRules(text)).violations.length).toBe(0);
+
+    // Now shrink every stated budget in an in-memory copy of the surface. The
+    // replacement value is the mutation delta, not a budget, and every real FR
+    // section is longer than a handful of words.
+    let shrunk = text;
+    for (const { cap } of FR_BUDGETS) {
+      shrunk = rewriteWordBudget(shrunk, cap, MUTATION_DELTA);
+    }
+    expect(shrunk, "the mutation never applied").not.toBe(text);
+    const mutatedRules = statedSectionRules(shrunk);
+    for (const r of mutatedRules) {
+      if (r.wordCap !== null) expect(r.wordCap).toBe(MUTATION_DELTA);
+    }
+
+    const audit = auditFrTree(mutatedRules);
+    expect(audit.violations.length).toBeGreaterThan(0);
+    expect(audit.violations.every((v) => v.rule === "word_cap")).toBe(true);
+    expect(new Set(audit.violations.map((v) => v.section)).size).toBeGreaterThan(0);
   });
 });
