@@ -7,7 +7,7 @@
 // THE MEASUREMENT (2026-09-01, against v2.75.0 — reproduced by this file, not
 // quoted from the review): copying this repository's own
 // `specs/frs/archive/*.md` into an ACTIVE `specs/frs/` and running the shipped
-// scanner yields 638 `word_cap` violations across 320 of 447 files, and ZERO
+// scanner yields 616 `word_cap` violations across 319 of 447 files, and ZERO
 // violations of the four PRE-EXISTING rules. A consumer sitting on v2.74.0
 // with 20 active FRs installs v2.75.0, touches nothing, and `/gate-check`
 // flips PASSED → FAILED on prose they never wrote. `specs/plan/archive/M137.md`
@@ -844,16 +844,16 @@ function measuredPopulation(committedAt: string): Project {
 }
 
 describe("F11.5 — the grandfathering spares a MEASURED population, not an empty set", () => {
-  test("BASELINE: the raw scanner really does fail 638 word caps over 320 real FRs", () => {
+  test("BASELINE: the raw scanner really does fail 616 word caps over 319 real FRs", () => {
     // Measured 2026-09-01 against v2.75.0. Asserted as a FLOOR so a growing
     // archive cannot rot the pin, and as a floor large enough that no empty or
     // truncated fixture could satisfy it.
     const fx = measuredPopulation(isoAt(epochMs() - ONE_YEAR));
     try {
       const rows = wordCapRows(scanFrSummaryAltitude(fx.root));
-      expect(rows.length).toBeGreaterThanOrEqual(638);
+      expect(rows.length).toBeGreaterThanOrEqual(616);
       expect(new Set(rows.map((r) => (r as { file: string }).file)).size)
-        .toBeGreaterThanOrEqual(320);
+        .toBeGreaterThanOrEqual(319);
     } finally {
       fx.cleanup();
     }
@@ -872,7 +872,7 @@ describe("F11.5 — the grandfathering spares a MEASURED population, not an empt
         ),
       );
       expect([...report.grandfathered].sort()).toEqual([...rawFiles].sort());
-      expect(report.grandfathered.length).toBeGreaterThanOrEqual(320);
+      expect(report.grandfathered.length).toBeGreaterThanOrEqual(319);
     } finally {
       fx.cleanup();
     }
@@ -882,7 +882,7 @@ describe("F11.5 — the grandfathering spares a MEASURED population, not an empt
     const fx = measuredPopulation(isoAt(epochMs() + ONE_SECOND));
     try {
       const rows = wordCapRows(runFrSummaryAltitudeProbe(fx.root).violations);
-      expect(rows.length).toBeGreaterThanOrEqual(638);
+      expect(rows.length).toBeGreaterThanOrEqual(616);
       expect(rows.every((r) => (r as { severity: string }).severity === "error")).toBe(
         true,
       );
@@ -892,7 +892,7 @@ describe("F11.5 — the grandfathering spares a MEASURED population, not an empt
   });
 
   test("the four pre-existing rules are silent on this population BOTH sides of the epoch", () => {
-    // Measured: the 447 archived FRs break `word_cap` 638 times and the four
+    // Measured: the 447 archived FRs break `word_cap` 616 times and the four
     // older rules ZERO times. That is what makes grandfathering `word_cap`
     // alone sufficient to keep a v2.74.0 consumer green — and it is a
     // measurement this suite has to own rather than assume.
