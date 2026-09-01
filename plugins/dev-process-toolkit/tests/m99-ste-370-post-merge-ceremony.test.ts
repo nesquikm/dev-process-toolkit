@@ -215,13 +215,18 @@ describe("STE-370 — NFR-1 pressure point stays green on the edited skills", ()
   // Redundant with skill-nfr-1-length.test.ts's all-skills loop, but pinned
   // here explicitly per FR § Testing: ship-milestone SKILL.md is the NFR-1
   // pressure point for this FR — detail overflows to
-  // docs/ship-milestone-reference.md, never past the 351-line cap.
-  const SKILL_LINE_CAP = 351;
+  // docs/ship-milestone-reference.md, never past the NFR-1 cap.
+  //
+  // M137: was 351, the cap on the day STE-370 shipped. This mirrors the global
+  // NFR-1 cap (it is not a tighter per-file budget), so it tracks that cap;
+  // `tests/skill-nfr-1-length.test.ts` moved 351 -> 352 -> 354 -> 358 while
+  // this copy stayed put, which is the drift AC-STE-536.4 cites.
+  const SKILL_LINE_CAP = 358;
 
   test.each([
     ["pr", prSkillPath],
     ["ship-milestone", shipSkillPath],
-  ])("%s/SKILL.md is ≤ 351 lines", (_name, path) => {
+  ])(`%s/SKILL.md is ≤ ${SKILL_LINE_CAP} lines`, (_name, path) => {
     expect(readFileSync(path as string, "utf8").split("\n").length).toBeLessThanOrEqual(
       SKILL_LINE_CAP,
     );

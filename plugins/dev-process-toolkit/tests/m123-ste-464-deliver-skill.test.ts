@@ -408,10 +408,15 @@ describe("AC-STE-464.9 — docs/deliver-reference.md carries the narrative; the 
     expect(deliver()).toContain("docs/deliver-reference.md");
   });
 
-  test("NFR-1: skills/deliver/SKILL.md is ≤ 351 lines (disk-derived)", () => {
+  // M137: this pin read 351 — the NFR-1 cap on the day STE-464 shipped, left
+  // behind when the enforcer moved 351 -> 352 -> 354 -> 358. It is a mirror of
+  // the global cap (the "NFR-1:" label says so), not a deliberate tighter
+  // budget for deliver, so it tracks the enforced number; the five M129
+  // suites already pin this same file at 358.
+  test("NFR-1: skills/deliver/SKILL.md is ≤ 358 lines (disk-derived)", () => {
     const lineCount = deliver().split("\n").length;
     expect(lineCount).toBeGreaterThan(0);
-    expect(lineCount).toBeLessThanOrEqual(351);
+    expect(lineCount).toBeLessThanOrEqual(358);
   });
 });
 

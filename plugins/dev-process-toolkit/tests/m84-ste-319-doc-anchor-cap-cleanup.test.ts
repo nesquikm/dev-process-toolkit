@@ -88,35 +88,61 @@ function collectMatches(body: string, regex: RegExp): string[] {
 
 const CAP_DRIFT_REGEX = /(300|350)[- ](line|line-)?(cap|budget|lines)/i;
 
-describe("AC-STE-319.1 — NFR-1 line cap citations updated to 351", () => {
-  test("specs/technical-spec.md:86 Design Invariants reads 351 (load-bearing source)", () => {
+// ---------------------------------------------------------------------------
+// WHY THESE ASSERTIONS NOW READ 358, NOT 351 (M137, closing the drift
+// AC-STE-536.4 cites)
+//
+// STE-319's purpose was never "the number is 351". It was: every NFR-1
+// citation on an active surface agrees with the cap the gate actually
+// enforces. 351 was simply what `tests/skill-nfr-1-length.test.ts` enforced
+// on the day this suite was written. That constant has since moved
+// 351 -> 352 (STE-373) -> 354 (STE-374) -> 358, and the citations did not
+// follow, so this suite was pinning the citations to a number no enforcement
+// reads. A pin holding a stale number protects nothing: it lets the real
+// drift widen while reporting CLEAN, which is exactly the failure STE-319
+// existed to prevent.
+//
+// Moving the alignment target WITH the cap therefore preserves STE-319's
+// intent rather than violating it. `tests/skill-nfr-1-length.test.ts`'s
+// `SKILL_LINE_CAP` remains the single source of truth; if it moves again,
+// these literals and the surfaces they guard must move together.
+//
+// The two mentions of 351 in this file's header banner and the AC-STE-319.1
+// section banner are deliberately left alone: they narrate the FR's own
+// history (the 300/350 -> 351 cleanup it performed) and are correct as
+// written.
+// ---------------------------------------------------------------------------
+
+describe("AC-STE-319.1 — NFR-1 line cap citations track the enforced cap (358)", () => {
+  test("specs/technical-spec.md Design Invariants reads 358 (load-bearing source)", () => {
     const body = readSpec("technical-spec.md");
     const lines = body.split("\n");
-    // The Design Invariants row keyed "Skill file cap" must cite 351.
+    // The Design Invariants row keyed "Skill file cap" must cite the
+    // enforced cap, 358 — see the WHY block above.
     const designInvariantsLine = lines.find((l) =>
       /Skill file cap/.test(l),
     );
     expect(designInvariantsLine).toBeDefined();
-    expect(designInvariantsLine!).toMatch(/351/);
+    expect(designInvariantsLine!).toMatch(/358/);
     expect(designInvariantsLine!).not.toMatch(/300 lines/);
   });
 
-  test("specs/technical-spec.md Risk-table cap citation reads 351 (no 300/350)", () => {
+  test("specs/technical-spec.md Risk-table cap citation reads 358 (no 300/350)", () => {
     const body = readSpec("technical-spec.md");
     const hits = collectMatches(body, CAP_DRIFT_REGEX);
     expect(hits).toEqual([]);
   });
 
-  test("specs/requirements.md L17/L18/L66/L67 cap citations read 351", () => {
+  test("specs/requirements.md L17/L18/L66/L67 cap citations read 358", () => {
     const body = readSpec("requirements.md");
     const hits = collectMatches(body, CAP_DRIFT_REGEX);
     expect(hits).toEqual([]);
     // Affirmative: the NFR-1 prose still mentions a numeric cap, and now
-    // that number must be 351.
-    expect(body).toMatch(/351/);
+    // that number must be 358 — the value the gate enforces.
+    expect(body).toMatch(/358/);
   });
 
-  test("specs/testing-spec.md L27 cap citation reads 351", () => {
+  test("specs/testing-spec.md L27 cap citation reads 358", () => {
     const body = readSpec("testing-spec.md");
     const hits = collectMatches(body, CAP_DRIFT_REGEX);
     expect(hits).toEqual([]);
@@ -372,5 +398,99 @@ describe("AC-STE-319.5 — Orphan {#schema-J} heading dropped (branch a)", () =>
       recurse(root);
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M137 anti-recurrence — every active NFR-1 cap citation states the ENFORCED
+// number, read from the enforcer rather than copied.
+//
+// STE-319 banned the two numbers that were stale in 2026-05 (300 and 350) and
+// stopped there. That is a ban-list, and a ban-list only knows the numbers it
+// was told about: when the cap moved 351 -> 352 -> 354 -> 358 the citations
+// stayed at 351 and every leg above still reported CLEAN. AC-STE-536.4 names
+// that outcome as the drift it exists to prevent.
+//
+// This leg inverts the shape — affirmative, not a ban-list. It parses
+// `SKILL_LINE_CAP` out of `tests/skill-nfr-1-length.test.ts` (the one place
+// enforcement happens) and requires every NFR-1 cap citation on an active
+// surface to state that same number. A future bump reddens here until the
+// prose follows, whatever the new number is.
+//
+// Scoped to citation SHAPES, not to any "3-digit number near NFR-1": the
+// bump-rationale line at `specs/requirements.md` and `specs/frs/STE-536.md`
+// legitimately name superseded caps while narrating the drift, and a
+// proximity rule would false-RED both.
+// ---------------------------------------------------------------------------
+
+const NFR1_ENFORCER = join(pluginRoot, "tests", "skill-nfr-1-length.test.ts");
+
+/** The shapes an NFR-1 cap citation actually takes on a shipped surface. */
+const CAP_CITATION_PATTERNS: readonly RegExp[] = [
+  /NFR-1(?:'s)?\s+(\d{3})-line/g, //            "NFR-1 358-line cap|budget", "NFR-1's 358-line skill cap"
+  /NFR-1\s*\(≤\s*(\d{3})\s*lines\)/g, //        "under NFR-1 (≤358 lines)" (may wrap a newline)
+  /≤\s*(\d{3})\s*lines?\s*\(per NFR-1\)/g, //   "≤358 lines (per NFR-1)"
+  /(?:SKILL\.md|skill)\s*≤\s*(\d{3})\s*lines/gi, // "Every SKILL.md ≤ 358 lines"
+  /skill file shall exceed (\d{3}) lines/gi, //  the NFR itself
+  /skill approaches (\d{3}) lines/gi, //         the overflow rule
+];
+
+/** The cap the gate enforces, parsed from its enforcer. Never a copy. */
+function enforcedSkillLineCap(): number {
+  const hit = /const SKILL_LINE_CAP = (\d+);/.exec(readFileSync(NFR1_ENFORCER, "utf8"));
+  if (hit === null) {
+    throw new Error(
+      "tests/skill-nfr-1-length.test.ts no longer declares `const SKILL_LINE_CAP = <n>;` — " +
+        "the cap cannot be read from its enforcer, so any number asserted here would be a copy",
+    );
+  }
+  return Number(hit[1]);
+}
+
+/** `file:line — matched text` for every cap citation on an active surface. */
+function activeCapCitations(): { where: string; value: number }[] {
+  const out: { where: string; value: number }[] = [];
+  for (const root of [docsDir, specsDir]) {
+    for (const path of walkActiveMd(root)) {
+      // The findings log narrates measured drift by definition — it records
+      // superseded numbers on purpose and is not a citation surface.
+      if (path.startsWith(join(specsDir, "notes"))) continue;
+      const body = readFileSync(path, "utf8");
+      const lineStarts = body.split("\n");
+      for (const pattern of CAP_CITATION_PATTERNS) {
+        for (const m of body.matchAll(pattern)) {
+          const before = body.slice(0, m.index ?? 0);
+          const lineNo = before.split("\n").length;
+          out.push({
+            where: `${path.slice(repoRoot.length + 1)}:${lineNo} — ${lineStarts[lineNo - 1]?.trim()}`,
+            value: Number(m[1]),
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+describe("M137 — active NFR-1 cap citations equal the enforced cap", () => {
+  test("the citation set is non-empty and covers docs/ and specs/ both", () => {
+    const hits = activeCapCitations();
+    // Falsifiability: if the shapes stop matching, this guard would pass
+    // vacuously while every surface drifted. Fail instead.
+    expect(hits.length, "no NFR-1 cap citation matched at all").toBeGreaterThanOrEqual(12);
+    expect(
+      hits.some((h) => h.where.startsWith("plugins/dev-process-toolkit/docs/")),
+      "no citation matched under docs/",
+    ).toBe(true);
+    expect(
+      hits.some((h) => h.where.startsWith("specs/")),
+      "no citation matched under specs/",
+    ).toBe(true);
+  });
+
+  test("every citation states the number tests/skill-nfr-1-length.test.ts enforces", () => {
+    const cap = enforcedSkillLineCap();
+    const stale = activeCapCitations().filter((h) => h.value !== cap);
+    expect(stale.map((h) => h.where)).toEqual([]);
   });
 });
