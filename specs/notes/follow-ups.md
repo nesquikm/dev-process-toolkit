@@ -1199,3 +1199,40 @@ item-length bound either introduces a second budget literal — which AC-STE-536
 refuses, one definition per budget — or picks a fraction of the existing cap,
 which is a new number wearing a derivation. The FR has to name the number and
 say where it lives.
+
+## The STE-488 probe digest is a FREEZE, not a pin (banked from M137 round 4)
+
+`tests/m127-ste-488-contradictory-assertions.test.ts` pins the sha256 of
+`identity_mode_conditional.ts` and `plan_identity_mode_conditional.ts` and
+asserts byte-equality against the WORKING TREE. **The file contradicts itself
+about what that is supposed to mean:**
+
+- `specs/frs/archive/STE-488.md:27` — "Both probes' own BEHAVIOUR is
+  byte-unchanged — nothing in **THIS FR** touches the systems under test."
+- the pin's own docstring — "sha256 of each probe module as it stands
+  **BEFORE THIS FR**, recorded here rather than derived from git."
+- the implementation — a live-tree digest, which scopes the claim to **all
+  future time**.
+
+Two of the three scope it to one FR. Only the implementation freezes the module
+permanently, so every later milestone that legitimately edits either probe trips
+a guard whose trip carries no information. M137 was the first to hit it (two
+`export` keywords) — the module had not changed since `824910b`, before the
+digest was recorded, so the pin had never once had to tell a legitimate change
+from a violation.
+
+**Do NOT "fix" this by re-scoping the digest to a commit range.** "The module at
+commit X hashed to D" is an assertion about frozen history: once true it can
+never fail. That trades an over-strict guard for a vacuous one, which is the
+class this milestone spent four rounds removing.
+
+**The durable repair is a BEHAVIOURAL pin over the two probes** — assert what
+they DO, which is what the AC actually claims, and which survives a refactor
+that changes bytes without changing verdicts. Larger than a follow-up line;
+it needs an FR that decides what behaviour to pin and how.
+
+**Interim practice, used in M137 and recorded in the pin itself:** re-recording
+a digest is legitimate when it is deliberate, reviewed, and carries evidence
+that behaviour is unchanged — here, both probes' suites run before and after,
+294 tests across 7 files, identical pass/fail/skip and identical `expect()`
+counts. A digest that may never be re-recorded is not a pin, it is a freeze.
