@@ -501,6 +501,19 @@ interface FrGitFacts {
   /** False when `projectRoot` is not inside a git working tree at all. */
   isGitTree: boolean;
   /**
+   * True when the object store is TRUNCATED — a shallow clone.
+   *
+   * MEASURED, and it is why this is a fact rather than an inference from an
+   * empty result. A shallow clone does not make the date query fail and does
+   * not return nothing: every path's first `--diff-filter=A` add is the GRAFT
+   * commit, so an FR genuinely introduced 2026-04-24 reports the clone date.
+   * Every legacy FR then reads `fresh`, loses its grandfathering, and hard
+   * fails at `error` — in CI, where `actions/checkout` defaults to
+   * `fetch-depth: 1`, on content that passes on the machine it was written on.
+   * Absence would have announced itself; a confident wrong date does not.
+   */
+  isShallow: boolean;
+  /**
    * Paths git knows, cwd-relative. `null` means git REFUSED to answer, which
    * is not the same as answering "nothing is tracked".
    */
@@ -533,7 +546,7 @@ function readFrGitFacts(projectRoot: string, scope: readonly string[]): FrGitFac
   // Asked of git, not inferred from a `.git` entry at the project root — a
   // monorepo package has none and is still fully datable.
   if (gitQuery(projectRoot, ["rev-parse", "--show-toplevel"]) === null) {
-    return { isGitTree: false, tracked: null, inHead: new Set() };
+    return { isGitTree: false, isShallow: false, tracked: null, inHead: new Set() };
   }
   const trackedOut = gitQuery(projectRoot, ["ls-files", "--", ...scope]);
   const headOut = gitQuery(projectRoot, [
@@ -544,8 +557,10 @@ function readFrGitFacts(projectRoot: string, scope: readonly string[]): FrGitFac
     "--",
     ...scope,
   ]);
+  const shallow = (gitQuery(projectRoot, ["rev-parse", "--is-shallow-repository"]) ?? "").trim();
   return {
     isGitTree: true,
+    isShallow: shallow === "true",
     tracked: trackedOut === null ? null : new Set(gitLines(trackedOut)),
     inHead: new Set(headOut === null ? [] : gitLines(headOut)),
   };
@@ -576,6 +591,12 @@ function classifyAgainstFacts(
   facts: FrGitFacts,
 ): FrProvenanceClass {
   if (!facts.isGitTree) return "legacy";
+  // ASKED BEFORE ANY DATE IS READ. A truncated store answers every date
+  // query plausibly and wrongly, so there is no later point at which the
+  // wrongness becomes detectable. `undecidable` (not `fresh`) because the
+  // operator cannot fix a severed object store by rewriting a summary — the
+  // probe downgrades it to `warning` rather than blocking.
+  if (facts.isShallow) return "undecidable";
   if (facts.tracked === null) return "undecidable";
   if (!facts.tracked.has(rel)) return "fresh";
   if (!facts.inHead.has(rel)) return "fresh";

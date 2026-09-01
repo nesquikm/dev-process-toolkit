@@ -1089,3 +1089,75 @@ describe("the probe reports the spared count in the SAME unit as the flagged cou
     expect(skill).toMatch(/grandfatheredRows/);
   });
 });
+
+// ===========================================================================
+// A TRUNCATED OBJECT STORE — the grandfathering layer cannot date anything
+// ===========================================================================
+//
+// WHY THIS IS NOT THE SAME CALL AS THE PLAN SCANNER'S. M120/STE-443 accepted
+// the identical shallow exposure in `plan_identity_mode_conditional` and pinned
+// it, because a plan carries a documented remedy — `kind: legacy` frontmatter,
+// which classifies `exempt` and works in a shallow clone. `FrProvenanceClass`
+// has no `exempt` member and an FR has no such hatch, so a consumer's legacy FR
+// hard-fails at `error` in CI with nothing to write to clear it. Same shape,
+// different verdict, because the remedy exists in one place and not the other.
+//
+// The failure is silent in the worst way: `actions/checkout` defaults to
+// `fetch-depth: 1`, so this fires where nobody can see it, on content that
+// passes on the machine it was written on.
+describe("a shallow clone cannot date an FR, and must not guess", () => {
+  function shallowClone(src: string): string {
+    const dst = mkdtempSync(join(tmpdir(), "fr-shallow-"));
+    rmSync(dst, { recursive: true, force: true });
+    execFileSync("git", ["clone", "--quiet", "--depth", "1", `file://${src}`, dst], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
+    });
+    return dst;
+  }
+
+  test("a pre-epoch FR is UNDECIDABLE at --depth 1, where full depth says legacy", () => {
+    const fx = makeProject({
+      frs: [{ name: "STE-900.md", body: overCapFr("STE-900"), committedAt: isoAt(epochMs() - ONE_YEAR) }],
+    });
+    let shallow: string | null = null;
+    try {
+      const full = classifyFrProvenance(fx.root, join(fx.root, "specs/frs/STE-900.md"));
+      expect(full, "at full depth the FR is genuinely pre-epoch").toBe("legacy");
+
+      shallow = shallowClone(fx.root);
+      const cut = classifyFrProvenance(shallow, join(shallow, "specs/frs/STE-900.md"));
+      // NOT `fresh`. The store cannot answer, and a guess that happens to be
+      // wrong is worse than an admission — `undecidable` is downgraded to
+      // `warning` by the probe rather than hard-failing a legacy consumer.
+      expect(cut, "a truncated store must admit it cannot date the file").toBe("undecidable");
+      expect(cut).not.toBe("fresh");
+    } finally {
+      if (shallow !== null) rmSync(shallow, { recursive: true, force: true });
+      fx.cleanup();
+    }
+  });
+
+  test("the shallow verdict is a WARNING, never a blocking error", () => {
+    // Severity is the whole point. A guard that hard-fails every shallow CI
+    // checkout is deleted by the first team that hits it, and then it guards
+    // nothing at all.
+    const fx = makeProject({
+      frs: [{ name: "STE-901.md", body: overCapFr("STE-901"), committedAt: isoAt(epochMs() - ONE_YEAR) }],
+    });
+    let shallow: string | null = null;
+    try {
+      shallow = shallowClone(fx.root);
+      const report = runFrSummaryAltitudeProbe(shallow);
+      const wordCap = report.violations.filter((v) => v.rule === "word_cap");
+      expect(wordCap.length, "the fixture must actually breach the cap").toBeGreaterThan(0);
+      for (const v of wordCap) {
+        expect(v.severity, "a store we cannot read must not hard-fail the branch").toBe("warning");
+      }
+    } finally {
+      if (shallow !== null) rmSync(shallow, { recursive: true, force: true });
+      fx.cleanup();
+    }
+  });
+});
