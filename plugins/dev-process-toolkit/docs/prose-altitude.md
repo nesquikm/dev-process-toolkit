@@ -40,6 +40,74 @@ This is the sixth recorded instance of *a fix reaches only the clause you name*,
 
 **Before writing a guard, enumerate the forms the defect takes, and prove the guard sees each one.** Write the enumeration down where the guard lives, and give every form its own falsifiability leg on a fixture built to break it — a leg that passes on one shape and is silent on the others is the shipped defect, one level up. Where two forms need two different verdicts — here the file form is a violation and the directory form is merely seen, because a vacuous walk is not an ENOENT — say which rule each takes, or conflating them becomes the next bug.
 
+## A dogfood answers "does this fire?", never "can this be avoided?"
+
+Point a scanner at real content and you learn it measures *something*. You never
+learn it measures *all of its subject*, because real material does not evade.
+
+Measured, M137: every rule in this repository that accumulates state across lines
+reset its accumulator on a repeated heading, so the same words under two headings
+scored clean while one heading flagged. `line_cap` had been evadable since M105 —
+32 releases. Five holes across three modules survived four adversarial review
+rounds, each of which asked "what is wrong with this code" and none of which asked
+"what does this code fail to see". No review can close that gap at any agent count:
+a review inspects what exists, and this is a property the suite has to contain.
+
+**The rule: every dogfood ships with an EVASION TWIN** — the same total,
+restructured, required to produce the same verdict. Where no twin can be built,
+say why in a comment; do not omit it silently.
+
+The taxonomy that tells you where to look: a rule carrying **state across lines**
+needs the property; a **per-line predicate** does not. Measured, not assumed —
+one heading with three dirty lines fires identically to three headings with one.
+
+## Name the command's actual subject, and run a control
+
+Three false clean zeroes in one session, from two agents, one shape each time:
+`grep -v '\.test\.ts'` deleted the very consumer it was hunting; `grep … | head ||
+echo NONE` could never reach its fallback because the pipe makes `head` the exit
+status; `grep -v test` was described in prose as "test files included". Every one
+produced a confident zero from a command whose subject was not what the sentence
+around it claimed.
+
+A control is what makes a zero evidence rather than an assertion: run the same
+search for something that MUST be found. "Control returns 8, target returns 0" is
+checkable; "no matches" is not.
+
+## Re-check the subject you changed yourself
+
+The same rule read from the other end, and the harder one. Verifying the per-name
+fix, I read "no Summary violation" and two `line_cap` rows for one section name —
+both looking like the fix had failed. Neither had: I had deleted a fixture two
+steps earlier and the two rows were one per file. Attributing every violation to
+its source file first is what caught it.
+
+A verification whose subject you have not re-checked is not a verification, and
+the subject most likely to have moved is the one you moved.
+
+## A pin can be load-bearing for the WRONG property
+
+The familiar failure is a pin that fails to CATCH a defect. This one CAUSED one.
+
+`m137-ste-533:1855` meant to assert that an exempt section may follow the block.
+It built its subject by appending the heading to a report that already carried it,
+so what it actually asserted was that a DUPLICATE heading must be accepted. A
+per-report budget reddened it, so the implementer weakened the budget to
+per-occurrence to keep a shipped test green — and said so, which is the only
+reason it was findable.
+
+Read a test's construction against its own title before trusting it. When a design
+bends to keep a test green, check that the test is asking for what it says.
+
+## Assert what is plausible only after measuring it
+
+Three times in one session I reached for a fact because it was plausible and
+asserted it without checking: a discriminator written for the shape I imagined
+rather than the shape the renderer emits; a release check that stopped at the
+version and could not see the codename beside it; "the tail is one file away",
+said of a formatter that did not exist. The plausible ones are the ones that bite,
+because nothing about them prompts a check.
+
 ## Why nothing enforces this
 
 No scanner can tell an aphorism from a load-bearing sentence, and one that tried would fire on the specifications it was written to improve. The word budgets are the deterministic half — they bound how much prose there is; this rule is the judgment half and bounds what the prose is made of. It is the part of the altitude contract most likely to drift, and it drifts quietly, so it is worth re-reading at review time rather than at gate time.
