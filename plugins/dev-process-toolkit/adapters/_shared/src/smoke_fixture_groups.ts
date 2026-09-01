@@ -227,6 +227,13 @@ export const CANONICAL_FIXTURE_GROUPS: readonly FixtureGroupSpec[] = [
     rationale:
       "verifyDeliverStageCapture reads a captured worker stage report off disk and grades it against the deliver-stage-result contract; the fence shape is tracker-independent and no assertion consults a tracker surface, so every leg exercises it identically",
   },
+  {
+    group: 15,
+    sut: "STE-533",
+    legs: ALL_LEGS,
+    rationale:
+      "verifyStageReportAdoption reads a captured adopting-stage report off disk and grades the report-level adoption rules against it; the prose lead-in cap, the one-fence rule and block-comes-last are all properties of the rendered text, so no assertion consults a tracker surface and every leg exercises it identically",
+  },
 ];
 
 // --- records ---------------------------------------------------------------

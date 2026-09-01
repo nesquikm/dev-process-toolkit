@@ -1,0 +1,37 @@
+/implement STE-533 — stage report
+
+Landed the STE-533 FR set on `feat/m137-say-less`. The operator approved the
+commit at the Phase 4 gate; nothing was pushed from this stage.
+
+Full gate re-run from `plugins/dev-process-toolkit`: green, no new skips.
+
+The run completed. Below is what it did, at the length these reports had
+drifted to before adoption: a paragraph for the setup, a paragraph for the
+work, a paragraph for the gate, and a closing paragraph nobody reads.
+
+Setup: the skill resolved its layout, probed the tracker mode, reconciled
+the local FR set against the tracker, and bound the milestone before it
+touched a single file on disk.
+
+Work: every section named in the request was rewritten, and the sections
+that were not named were left byte-identical so the diff stays readable.
+
+Gate: the full suite ran green from the plugin root, with the skip baseline
+unchanged, and nothing was pushed from this stage.
+
+```stage-status-block
+stage: implement
+milestone: M137
+status: ok
+summary:
+  - the adoption grader gained an executable front door
+  - best_practices_lens_applied
+gate:
+  - pass 9412, fail 0, skip 16, baseline 16, delta 0
+drive:
+  - pass 12, fail 0, skip 0
+e2e:
+  - (none found)
+follow_ups:
+  - (none found)
+```

@@ -11,6 +11,14 @@ Grading lives in code, not in this file:
 bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/stage_block_adoption.ts <projectRoot>
 ```
 
+The REPORT half has a front door of its own, and it is the one to point at a capture:
+
+```sh
+bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/stage_block_adoption.ts --report <captured-report>
+```
+
+Exit 0 is clean and names the file it graded, exit 1 prints every refusal in the house `Remedy:`/`Context:` shape, exit 2 is a usage error and prints no verdict at all. **Frequency, stated honestly.** Smoke fixture group 15 runs that front door over a captured stage report on every conformance leg, so the report-level rules are enforced at conformance frequency rather than probe frequency — lower, and real. Committed models of both a compliant and a narration-reinstated capture live at `plugins/dev-process-toolkit/tests/fixtures/stage-block-adoption/`, with their provenance stated beside them.
+
 **Two banners, two owners.** The eleven adopting stages emit ```` ```stage-status-block ````; `/deliver`'s worker hand-off keeps ```` ```deliver-stage-result ````, graded by `adapters/_shared/src/deliver_stage_capture.ts` against `DELIVER_STAGE_IDS`. Each grader accepts its own banner and refuses the other's. Nine of the eleven emit a `stage:` value the `/deliver` capture grader refuses outright, and that grader *requires* prose above its fence while this contract's whole claim is that the block replaces the prose — two contracts that cannot both be satisfied by the same bytes are two contracts. Widening `DELIVER_STAGE_IDS` was rejected: it would tell the worker-capture grader that a `/brainstorm` run is a valid ceremony hand-off, which is false.
 
 ## The block
