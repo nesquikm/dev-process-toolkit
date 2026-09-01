@@ -45,6 +45,7 @@
 // therefore BRE (git's default): no `-E`, no `--extended-regexp`, ever.
 
 import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 
 import { parseChangelogTop } from "./release_surface_agreement";
 import type { TestCount } from "./test_count_parser";
@@ -271,17 +272,124 @@ function commitsSinceCount(repo: string, sha: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+// ---------------------------------------------------------------------------
+// The ANCHOR — which commit wrote the number the guard is checking
+// ---------------------------------------------------------------------------
+
+/**
+ * The 1-indexed line of the topmost entry's closing count line, or `null`.
+ *
+ * DERIVED FROM THE SAME SLICE AND THE SAME REGEX `parseStatedTestCount` reads.
+ * The anchor and the number must never point at different lines, and the only
+ * way to guarantee that is to locate them with one implementation.
+ */
+export function findCountLineNumber(changelog: string): number | null {
+  const text = normalize(changelog);
+  const top = parseChangelogTop(text);
+  if (!top) return null;
+
+  const lines = text.split("\n");
+  const headings: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (VERSIONED_HEADING.test(lines[i]!)) headings.push(i);
+  }
+  const startAt = headings.findIndex(
+    (i) => lines[i]!.includes(`[${top.version}]`) || lines[i]!.includes(`[v${top.version}]`),
+  );
+  if (startAt === -1) return null;
+  const start = headings[startAt]!;
+  const end = headings[startAt + 1] ?? lines.length;
+
+  for (let i = start; i < end; i++) {
+    if (new RegExp(CLOSING_LINE_RE.source).test(lines[i]!)) return i + 1;
+  }
+  return null;
+}
+
+/**
+ * True when the repository's history is truncated.
+ *
+ * MEASURED, AND IT IS THE REASON THIS FUNCTION EXISTS. A shallow clone does
+ * NOT make the anchor query fail, and it does not return empty — it returns
+ * the TIP, confidently, because with one commit in history the tip is the only
+ * commit that can have introduced the line. `testFilesChangedSince(tip)` is
+ * then 0 and the verdict is a serene `stale: false`. The design both reviewers
+ * of this guard first reached for — "empty means cannot determine" — does not
+ * fire here at all. Shallowness has to be asked about directly.
+ */
+export function isShallowRepository(repo: string): boolean {
+  return (gitOut(repo, ["rev-parse", "--is-shallow-repository"]) ?? "").trim() === "true";
+}
+
+/**
+ * The commit that LAST TOUCHED the count line, or `null` when git cannot say.
+ *
+ * WHY THE ARTIFACT AND NOT THE SUBJECT. The guard answers one question: has
+ * the count gone stale since it was WRITTEN? The commit that answers it is the
+ * one that wrote the count, and git can name that directly. Anchoring on a
+ * `chore(release):` subject instead makes the guard depend on a commit-message
+ * convention, and that proxy is not merely fragile — it is already broken in
+ * this repository:
+ *
+ *   `git log --grep` anchors `^` at EVERY LINE of the message, and a GitHub
+ *   merge commit's body lists the merged subjects at column 0. Twenty-one
+ *   merge commits here therefore match `^chore(release):` — and match a
+ *   tightened `^chore(release): v` just as well. Each one is newer than the
+ *   release it merged, so it becomes the newest match and the guard reports
+ *   `stale: false` forever after. The guard would be retired by the very merge
+ *   that ships it, then re-retired by every release merge after that.
+ *
+ * A merge commit does not touch CHANGELOG.md, so it is never the last commit
+ * to touch the count line. That single sentence is the whole argument.
+ */
+export function findCountAnchorCommit(repo: string, changelog: string): ReleaseCommit | null {
+  const line = findCountLineNumber(changelog);
+  if (line === null) return null;
+  const out = gitOut(repo, [
+    "log",
+    "-L",
+    `${line},${line}:${CHANGELOG_REL}`,
+    "-n",
+    "1",
+    "-s",
+    `--format=%H${FS}%s`,
+  ]);
+  if (out === null) return null;
+  const first = out.split("\n")[0]?.trim() ?? "";
+  if (first === "") return null;
+  const [sha, subject] = first.split(FS);
+  if (!sha) return null;
+  return { sha, subject: subject ?? "" };
+}
+
+/** Where the CHANGELOG lives, relative to the repository root. */
+const CHANGELOG_REL = "CHANGELOG.md";
+
+/**
+ * Three states, never two. `indeterminate` is NOT `fresh`.
+ *
+ * Collapsing "I could not check" into "nothing changed" turns this guard into
+ * a quiet all-clear on exactly the repositories least able to notice — a
+ * shallow CI checkout, a fresh consumer, a subtree import. It is the
+ * absent-vs-null distinction `gate_capture` already draws for skip identities.
+ */
+export type MergeBoundaryVerdict = "fresh" | "stale" | "indeterminate";
+
 export interface MergeBoundaryResult {
-  /** Commits landed past the release commit AND at least one was a test file. */
+  verdict: MergeBoundaryVerdict;
+  /** `verdict === "stale"`. Kept because refusing callers read one boolean. */
   stale: boolean;
-  releaseCommit: ReleaseCommit | null;
+  /** The commit that last wrote the count line. `null` when indeterminate. */
+  anchor: ReleaseCommit | null;
+  /** Why no verdict was possible, or `null`. Never silent. */
+  indeterminateReason: string | null;
   commitsSince: number;
   testFilesChanged: string[];
-  /** `null` unless `stale` — a silent skip is worse than a loud failure, and a
-   * warning on a clean branch is worse than both: it trains the reader to
-   * ignore the warning. */
+  /** `null` only when `fresh` — a warning on a clean branch trains the reader
+   * to ignore the warning; silence on an unchecked one is worse than both. */
   message: string | null;
 }
+
 
 /**
  * The merge-boundary verdict for a repository, at `/pr` time.
@@ -296,28 +404,78 @@ export interface MergeBoundaryResult {
  * gate's wall time for every contributor forever.
  */
 export function checkMergeBoundary(repo: string): MergeBoundaryResult {
-  const releaseCommit = findLatestReleaseCommit(repo);
-  if (releaseCommit === null) {
-    return {
-      stale: false,
-      releaseCommit: null,
-      commitsSince: 0,
-      testFilesChanged: [],
-      message: null,
-    };
+  const indeterminate = (reason: string): MergeBoundaryResult => ({
+    verdict: "indeterminate",
+    stale: false,
+    anchor: null,
+    indeterminateReason: reason,
+    commitsSince: 0,
+    testFilesChanged: [],
+    message: renderIndeterminateNotice(reason),
+  });
+
+  // Asked FIRST and asked directly. A shallow clone answers every query below
+  // plausibly and wrongly: the anchor comes back as the tip and the verdict as
+  // `fresh`. Nothing downstream can detect it after the fact.
+  if (isShallowRepository(repo)) {
+    return indeterminate(
+      "the repository is a shallow clone, so the commit that wrote the count is not in history",
+    );
   }
 
-  const commitsSince = commitsSinceCount(repo, releaseCommit.sha);
-  const testFilesChanged = testFilesChangedSince(repo, releaseCommit.sha);
+  const changelogPath = `${repo}/${CHANGELOG_REL}`;
+  if (!existsSync(changelogPath)) {
+    return indeterminate(`there is no ${CHANGELOG_REL} at the repository root`);
+  }
+
+  let changelog: string;
+  try {
+    changelog = readFileSync(changelogPath, "utf-8");
+  } catch {
+    return indeterminate(`${CHANGELOG_REL} could not be read`);
+  }
+
+  if (findCountLineNumber(changelog) === null) {
+    return indeterminate(
+      `the topmost ${CHANGELOG_REL} entry states no test count, so there is nothing to go stale`,
+    );
+  }
+
+  const anchor = findCountAnchorCommit(repo, changelog);
+  if (anchor === null) {
+    return indeterminate(
+      `git could not name the commit that last wrote the count line in ${CHANGELOG_REL}`,
+    );
+  }
+
+  const commitsSince = commitsSinceCount(repo, anchor.sha);
+  const testFilesChanged = testFilesChangedSince(repo, anchor.sha);
   const stale = commitsSince > 0 && testFilesChanged.length > 0;
 
   return {
+    verdict: stale ? "stale" : "fresh",
     stale,
-    releaseCommit,
+    anchor,
+    indeterminateReason: null,
     commitsSince,
     testFilesChanged,
-    message: stale ? renderMergeBoundaryWarning(releaseCommit, commitsSince, testFilesChanged) : null,
+    message: stale ? renderMergeBoundaryWarning(anchor, commitsSince, testFilesChanged) : null,
   };
+}
+
+/**
+ * The notice for an unverifiable tree. LOUD BUT NOT BLOCKING, deliberately: a
+ * guard that hard-fails every shallow CI checkout would be the plan-cap
+ * consumer defect wearing a new module's clothes. It says what it could not do
+ * and why, and it never says "clean".
+ */
+export function renderIndeterminateNotice(reason: string): string {
+  return [
+    "Release test count: NOT CHECKED on this tree.",
+    `  reason: ${reason}`,
+    "  This is not a failure of the branch. The count may or may not be current;",
+    "  this check could not tell. Re-run in a full clone to get a verdict.",
+  ].join("\n");
 }
 
 /**
