@@ -53,6 +53,7 @@ import {
   STAGE_REPORT_LINE_CAP,
   verifyStageStatusBlock,
 } from "./stage_status_block";
+import { isToolkitManaged } from "./toolkit_managed";
 
 /** The probe id this module registers under at `/gate-check` (#82). */
 export const PROBE_ID = "stage_block_adoption";
@@ -603,33 +604,96 @@ export function verifyStageReportAdoption(
 // The source scanner
 // ---------------------------------------------------------------------------
 
-/** Both skill roots, in probe order — the `closing_summary_capability_keys` idiom. */
-const skillCandidates = (stage: string): string[][] => [
-  ["plugins", "dev-process-toolkit", "skills", stage, "SKILL.md"],
-  [".claude", "skills", stage, "SKILL.md"],
+interface SkillCandidate {
+  /** Path segments below the project root. */
+  readonly segments: readonly string[];
+  /**
+   * True when the surface is a CONSUMER PROJECT's own skills directory, so it
+   * may only be graded on a tree the toolkit actually owns.
+   */
+  readonly managedOnly: boolean;
+}
+
+/**
+ * Both skill roots, in probe order — the `closing_summary_capability_keys` idiom.
+ *
+ * THE ASYMMETRY IS THE WHOLE POINT (PR #76 finding F12).
+ *
+ * The first root is the TOOLKIT'S OWN AUTHORING TREE. A tree carrying
+ * `plugins/dev-process-toolkit/skills/…` IS the toolkit; it needs no separate
+ * proof of ownership, it deliberately carries no managed marker of its own, and
+ * gating it would silence the probe on the one tree it was written for.
+ *
+ * The second root is a CONSUMER PROJECT's `.claude/skills/`, and the eleven
+ * `ADOPTING_STAGES` names are ordinary English words — `setup`, `deps`,
+ * `implement`, `upgrade`. Measured on a project that never installed the
+ * toolkit: its own `.claude/skills/setup/SKILL.md` ("set up the local dev
+ * environment") and `.claude/skills/deps/SKILL.md` ("update dependencies")
+ * collected two error-severity GATE FAILED rows ordering them to close
+ * `/setup` with a status-block fence they have never heard of. So that root is
+ * graded only when the shared predicate says the toolkit owns the tree.
+ *
+ * WHY PROBE #74 COULD NOT CATCH THIS. `claudemd_probe_managed_guard` is the
+ * structural fuse STE-432 installed to force every managed-ness question
+ * through `./toolkit_managed`, and it would have caught the omission — except
+ * that it SELECTS only modules whose body resolves a path to the managed-tree
+ * config file, and this module resolved none. It asks the ownership question
+ * without ever naming the file that answers it, so the fuse's selector saw
+ * nothing to grade and the gap shipped unremarked. The class is "modules that
+ * decide applicability by ownership without touching that file", and this
+ * comment is where the next one gets found.
+ */
+const skillCandidates = (stage: string): readonly SkillCandidate[] => [
+  {
+    segments: ["plugins", "dev-process-toolkit", "skills", stage, "SKILL.md"],
+    managedOnly: false,
+  },
+  { segments: [".claude", "skills", stage, "SKILL.md"], managedOnly: true },
 ];
 
-/** Every adopting SKILL.md that EXISTS under `projectRoot`, with its body. */
-function adoptingSkillFiles(
-  projectRoot: string,
-): { stage: AdoptingStage; file: string; body: string }[] {
-  const found: { stage: AdoptingStage; file: string; body: string }[] = [];
+interface AdoptingSkillSurvey {
+  /** Surfaces in scope, with their bodies — the only ones ever graded. */
+  graded: { stage: AdoptingStage; file: string; body: string }[];
+  /**
+   * Repo-relative paths of surfaces that EXIST but went ungraded because the
+   * tree is not toolkit-managed, sorted.
+   *
+   * Reported rather than dropped: a silently count-only skip is the M136
+   * defect this repository has already paid for once — a surface silenced and
+   * a surface never present read identically to the operator.
+   */
+  skipped: string[];
+}
+
+/**
+ * Every adopting SKILL.md under `projectRoot`, split into the surfaces this
+ * probe may grade and the project-local ones it declines.
+ *
+ * The managed-ness answer comes from `isToolkitManaged` — the SHARED predicate,
+ * consulted here rather than re-derived. Four probes once open-coded that
+ * question and drifted apart, which is exactly why STE-432 made it one module.
+ */
+function surveyAdoptingSkills(projectRoot: string): AdoptingSkillSurvey {
+  const managed = isToolkitManaged(projectRoot);
+  const graded: { stage: AdoptingStage; file: string; body: string }[] = [];
+  const skipped: string[] = [];
   for (const stage of ADOPTING_STAGES) {
-    for (const segments of skillCandidates(stage)) {
-      const abs = join(projectRoot, ...segments);
+    for (const candidate of skillCandidates(stage)) {
+      const abs = join(projectRoot, ...candidate.segments);
       if (!existsSync(abs)) continue;
+      const file = candidate.segments.join("/");
+      if (candidate.managedOnly && !managed) {
+        skipped.push(file);
+        continue;
+      }
       try {
-        found.push({
-          stage,
-          file: segments.join("/"),
-          body: readFileSync(abs, "utf-8"),
-        });
+        graded.push({ stage, file, body: readFileSync(abs, "utf-8") });
       } catch {
         /* an unreadable surface is not a violation */
       }
     }
   }
-  return found;
+  return { graded, skipped: skipped.sort() };
 }
 
 /** 1-based line the pattern first matches on, or `fallback`. */
@@ -661,8 +725,22 @@ function lineOf(body: string, test: (line: string) => boolean, fallback: number)
 export function scanStageBlockAdoption(
   projectRoot: string,
 ): StageAdoptionViolation[] {
+  return gradeAdoptingSkills(surveyAdoptingSkills(projectRoot).graded);
+}
+
+/**
+ * The grading half, over an ALREADY-SCOPED surface list.
+ *
+ * Split out so the probe surveys the tree exactly once: a second
+ * `surveyAdoptingSkills` call would re-ask the ownership question and could, on
+ * a tree being written to underneath it, answer differently for the `skipped`
+ * list than for the graded one.
+ */
+function gradeAdoptingSkills(
+  files: readonly { stage: AdoptingStage; file: string; body: string }[],
+): StageAdoptionViolation[] {
   const violations: StageAdoptionViolation[] = [];
-  for (const { stage, file, body } of adoptingSkillFiles(projectRoot)) {
+  for (const { stage, file, body } of files) {
     const lastLine = Math.max(1, body.split("\n").length);
     if (closedStatusFences(body).length === 0) {
       violations.push({
@@ -717,8 +795,13 @@ export interface StageBlockAdoptionViolationRow {
 
 export interface StageBlockAdoptionReport {
   violations: StageBlockAdoptionViolationRow[];
-  /** True when the tree carries none of the eleven — nothing to grade. */
+  /** True when the tree carries none of the eleven IN SCOPE — nothing to grade. */
   vacuous: boolean;
+  /**
+   * Repo-relative `.claude/skills/…` paths that exist but went ungraded because
+   * the tree is not toolkit-managed, sorted. Named, never merely counted.
+   */
+  skipped: string[];
 }
 
 function buildMessage(v: StageAdoptionViolation): string {
@@ -741,14 +824,17 @@ function buildMessage(v: StageAdoptionViolation): string {
  *
  * Never throws: an absent tree, an unreadable surface and a BOM-mangled
  * SKILL.md all read as a verdict rather than a crashed gate run. Vacuous (zero
- * violations, `vacuous: true`) on a tree carrying none of the eleven.
+ * violations, `vacuous: true`) on a tree carrying none of the eleven IN SCOPE —
+ * which now includes a consumer tree whose only adopting-stage names live under
+ * `.claude/skills/` and which the toolkit does not own. Those surfaces are
+ * named in `skipped`, so declining to grade is visible rather than silent.
  */
 export async function runStageBlockAdoptionProbe(
   projectRoot: string,
 ): Promise<StageBlockAdoptionReport> {
-  const present = adoptingSkillFiles(projectRoot);
-  if (present.length === 0) return { violations: [], vacuous: true };
-  const violations = scanStageBlockAdoption(projectRoot).map((v) => ({
+  const { graded, skipped } = surveyAdoptingSkills(projectRoot);
+  if (graded.length === 0) return { violations: [], vacuous: true, skipped };
+  const violations = gradeAdoptingSkills(graded).map((v) => ({
     file: v.file,
     line: v.line,
     reason: v.reason,
@@ -756,7 +842,7 @@ export async function runStageBlockAdoptionProbe(
     message: buildMessage(v),
     severity: "error" as Severity,
   }));
-  return { violations, vacuous: false };
+  return { violations, vacuous: false, skipped };
 }
 
 // ---------------------------------------------------------------------------
@@ -855,6 +941,15 @@ if (import.meta.main) {
     );
   } else {
     for (const v of report.violations) console.log(v.message);
+  }
+  // The skip is reported on every run, verdict or not: an operator whose
+  // project-local skills went ungraded must be able to see that, rather than
+  // read a clean row and assume they were measured.
+  for (const file of report.skipped) {
+    console.log(
+      `${PROBE_ID}: skipped ${file} — the toolkit does not manage this tree, ` +
+        `so its project-local skills are out of scope`,
+    );
   }
   process.exit(report.violations.length === 0 ? 0 : 1);
 }

@@ -49,7 +49,9 @@
 // too, configured by this file's `FR_SECTION_WALK` row. What stays here is the
 // grading — the table, the rules and the caps.
 
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { basename, relative } from "node:path";
 
 import {
   countWords,
@@ -288,4 +290,324 @@ export function measureFrSections(
   sectionRules: readonly SectionRuleSpec[] = SECTION_RULES,
 ): MeasuredSection[] {
   return scanTree(projectRoot, sectionRules).measured;
+}
+
+// ---------------------------------------------------------------------------
+// The probe layer — word_cap grandfathering by git provenance
+// ---------------------------------------------------------------------------
+//
+// THE DEFECT THIS CLOSES (PR #76 finding F11). The word caps are RETROACTIVE:
+// they grade prose that was authored years before the rule existed. Measured
+// against v2.75.0 — this repository's own archived FRs, restored as ACTIVE
+// FRs — the raw scanner returns 638 `word_cap` violations across 320 of 447
+// files and ZERO violations of the four older prose rules. A consumer sitting
+// on the previous release installs this one, touches nothing, and `/gate-check`
+// flips PASSED to FAILED on prose they never wrote. This repository escaped
+// only because it currently has no active FRs at all.
+//
+// THE SHAPE IS PROBE #73's, FOLLOWED RATHER THAN INVENTED
+// (`plan_identity_mode_conditional`): grandfather by GIT PROVENANCE against a
+// dated epoch. Anything git says arrived BEFORE the epoch is legacy and silent;
+// anything at or after it is graded; a tree that is not a git repository at all
+// is legacy, because there is no provenance to read and failing there would BE
+// the forced migration this design exists to avoid; and an unreachable
+// introducing commit degrades to a warning-severity advisory rather than a hard
+// failure the operator cannot act on. Probe #68's second lesson applies too:
+// the sparing is TALLIED into the report, never dropped in silence.
+//
+// TWO PROPERTIES PULL IN OPPOSITE DIRECTIONS AND BOTH ARE LOAD-BEARING:
+//
+//   1. The grandfathering covers `word_cap` ALONE. `line_cap`, `backtick`,
+//      `ac_id` and `path_token` shipped in M105 and every consumer already
+//      passes them, so an epoch that silenced them would retire four working
+//      checks under cover of fixing one. Their severity stays `error` under
+//      every provenance class.
+//   2. `scanFrSummaryAltitude` is UNCHANGED. It stays the pure content scanner
+//      three sibling suites pin on non-git temp fixtures — where grandfathering
+//      in place would classify every fixture legacy and silence them. The epoch
+//      arm is a LAYER over it, exactly as probe #73 layers
+//      `classifyPlanProvenance` over its own walk.
+
+/**
+ * Midnight UTC on the ship date of the release that made the caps policy.
+ *
+ * Written down ONCE. `classifyFrProvenance` binds it as a DEFAULT ARGUMENT
+ * rather than restating the literal, so the boundary and the constant cannot
+ * drift apart — the `MINT_EPOCH` discipline, adopted verbatim.
+ *
+ * The `SHIP_DATE_CUTOFF` shape carries probe #73's known residual: an FR
+ * committed in a consumer between midnight UTC and the actual release instant
+ * on that same day classifies `fresh` and is graded. It is a several-hour
+ * window, not zero, and it is accepted rather than designed away.
+ */
+export const FR_WORD_CAP_EPOCH = "2026-09-01T00:00:00Z";
+
+/** The complete provenance vocabulary — exactly three labels, nothing else. */
+export type FrProvenanceClass = "fresh" | "legacy" | "undecidable";
+
+/**
+ * Run a git query in `projectRoot`, returning `null` when git refuses.
+ *
+ * stderr is piped rather than inherited so a severed-object repository does not
+ * spray `fatal: bad object` across an otherwise clean gate run.
+ */
+function gitQuery(projectRoot: string, args: string[]): string | null {
+  try {
+    return execFileSync("git", args, {
+      cwd: projectRoot,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The author date of the commit that introduced `rel`, in epoch millis, or
+ * `null` when no introducing commit is discoverable.
+ *
+ * ARCHIVE-AWARE, and that is the load-bearing part. `git log --diff-filter=A`
+ * scoped to one path returns the MOST RECENT add, so an FR archived and later
+ * reopened reads as introduced at the reopen commit. `/implement` Phase 4 and
+ * `/spec-archive` perform exactly that move on every FR they close, so a query
+ * blind to it would re-date genuinely legacy FRs past the epoch and hard-fail
+ * them — the forced migration this design exists to avoid, fired by the
+ * toolkit's own archival step.
+ *
+ * IDENTITY-KEYED, NOT RENAME-DETECTED, for the reason M119 recorded: FR files
+ * are template-shaped, so similarity-based rename detection (`--follow` and
+ * per-commit `-M` alike) routinely pairs unrelated FRs and launders a fresh
+ * one's date onto an old commit. An FR's basename IS its identity and it can
+ * only live at two canonical paths, so the introduction date is simply the
+ * OLDEST add across those two — no heuristic to tune.
+ *
+ * `--full-history` is load-bearing: default history simplification prunes the
+ * introducing commit of a path later renamed away, so the plain query returns
+ * empty for exactly the archived FRs this must date.
+ */
+function frIntroducingCommitDate(projectRoot: string, rel: string): number | null {
+  const name = basename(rel);
+  const out = gitQuery(projectRoot, [
+    "log",
+    "--full-history",
+    "--diff-filter=A",
+    "--format=%aI",
+    "--",
+    `specs/frs/${name}`,
+    `specs/frs/archive/${name}`,
+  ]);
+  if (out === null) return null;
+
+  const dates = out
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .map((iso) => Date.parse(iso))
+    .filter((n) => Number.isFinite(n));
+  if (dates.length === 0) return null;
+  return Math.min(...dates);
+}
+
+/**
+ * The repository-wide facts every FR's provenance answer rests on, read ONCE
+ * for a whole scope rather than once per file.
+ *
+ * A gate run over this repository's own archive asks about hundreds of FRs, and
+ * a git subprocess costs milliseconds: per-file `rev-parse` + `ls-files` +
+ * `cat-file` turned a probe run into thousands of spawns. These three are
+ * repository facts, not per-file ones, so they are read for the whole scope and
+ * shared. There is still exactly ONE decision function
+ * (`classifyAgainstFacts`) — the single-file entry point simply reads the facts
+ * for a scope of one, so a batched run and a single call cannot disagree.
+ */
+interface FrGitFacts {
+  /** False when `projectRoot` is not inside a git working tree at all. */
+  isGitTree: boolean;
+  /**
+   * Paths git knows, cwd-relative. `null` means git REFUSED to answer, which
+   * is not the same as answering "nothing is tracked".
+   */
+  tracked: Set<string> | null;
+  /**
+   * Paths present in the tip tree, cwd-relative. A refusal collapses to the
+   * empty set on purpose: the per-file check it replaces (`cat-file -e HEAD:…`)
+   * read every failure as "absent from HEAD" too.
+   */
+  inHead: Set<string>;
+}
+
+/** Non-empty, trimmed lines of a git listing. */
+const gitLines = (out: string): string[] =>
+  out
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+/**
+ * Read the repository facts for `scope` — a list of cwd-relative pathspecs.
+ *
+ * `ls-files` and `ls-tree` both emit paths relative to the CURRENT WORKING
+ * DIRECTORY, which is `projectRoot`, so their output is directly comparable to
+ * the `relative(projectRoot, …)` paths the caller holds. That is why neither
+ * uses the `<rev>:<path>` syntax, which resolves from the repo root instead and
+ * would mis-answer for a package nested inside a monorepo.
+ */
+function readFrGitFacts(projectRoot: string, scope: readonly string[]): FrGitFacts {
+  // Asked of git, not inferred from a `.git` entry at the project root — a
+  // monorepo package has none and is still fully datable.
+  if (gitQuery(projectRoot, ["rev-parse", "--show-toplevel"]) === null) {
+    return { isGitTree: false, tracked: null, inHead: new Set() };
+  }
+  const trackedOut = gitQuery(projectRoot, ["ls-files", "--", ...scope]);
+  const headOut = gitQuery(projectRoot, [
+    "ls-tree",
+    "-r",
+    "--name-only",
+    "HEAD",
+    "--",
+    ...scope,
+  ]);
+  return {
+    isGitTree: true,
+    tracked: trackedOut === null ? null : new Set(gitLines(trackedOut)),
+    inHead: new Set(headOut === null ? [] : gitLines(headOut)),
+  };
+}
+
+/**
+ * THE decision function — one FR's provenance, given the repository facts.
+ *
+ * The resolution order is load-bearing:
+ *
+ *   1. Not a git working tree ⇒ `legacy`. There is no provenance to read, and
+ *      failing there would BE the forced migration this design exists to avoid.
+ *   2. Untracked ⇒ `fresh`. Git cannot predate what it has never seen. A git
+ *      that REFUSES to answer is not the same as one answering "not tracked"
+ *      and degrades to `undecidable` instead.
+ *   3. Tracked but absent from the tip tree ⇒ `fresh` (staged, never
+ *      committed). THE discriminator probe #73 records: staged-and-never-
+ *      committed and severed-history read identically on `ls-files` and on
+ *      `--diff-filter=A`; only the tip tree parts them.
+ *   4. No discoverable introducing commit ⇒ `undecidable`.
+ *   5. Otherwise compare the introducing commit's author date to `epoch`,
+ *      INCLUSIVE at the boundary: at-or-after ⇒ `fresh`, before ⇒ `legacy`.
+ */
+function classifyAgainstFacts(
+  projectRoot: string,
+  rel: string,
+  epoch: string,
+  facts: FrGitFacts,
+): FrProvenanceClass {
+  if (!facts.isGitTree) return "legacy";
+  if (facts.tracked === null) return "undecidable";
+  if (!facts.tracked.has(rel)) return "fresh";
+  if (!facts.inHead.has(rel)) return "fresh";
+
+  const introducedAt = frIntroducingCommitDate(projectRoot, rel);
+  if (introducedAt === null) return "undecidable";
+
+  // The ONLY epoch-sensitive line in the function. Everything above answers
+  // "is there a date to compare at all", which no boundary can change.
+  return introducedAt >= Date.parse(epoch) ? "fresh" : "legacy";
+}
+
+/** `frPath` as git sees it: cwd-relative, POSIX separators even on Windows. */
+const gitRelative = (projectRoot: string, frPath: string): string =>
+  relative(projectRoot, frPath).split("\\").join("/");
+
+/**
+ * Classify one FR's provenance — the signal that separates prose written under
+ * the caps policy from prose that predates it.
+ *
+ * THE EPOCH IS A PARAMETER WITH A DEFAULT, NOT A REQUIRED ARGUMENT, and the
+ * default IS `FR_WORD_CAP_EPOCH` itself rather than a copy of its literal.
+ * Both halves matter: defaulting makes "today's boundary" true by construction
+ * for every existing caller, and binding to the constant means there is exactly
+ * one place the epoch is written down.
+ *
+ * Scope is the caller's job: this answers "when did it arrive", not "is this a
+ * file the probe grades".
+ */
+export function classifyFrProvenance(
+  projectRoot: string,
+  frPath: string,
+  epoch: string = FR_WORD_CAP_EPOCH,
+): FrProvenanceClass {
+  const rel = gitRelative(projectRoot, frPath);
+  return classifyAgainstFacts(projectRoot, rel, epoch, readFrGitFacts(projectRoot, [rel]));
+}
+
+/** A graded violation: the raw scanner's row plus the severity it is reported at. */
+export interface FrAltitudeViolationRow extends FrSummaryAltitudeViolation {
+  severity: "error" | "warning";
+}
+
+export interface FrSummaryAltitudeReport {
+  violations: FrAltitudeViolationRow[];
+  /** Repo-relative FR paths whose `word_cap` rows were spared. Visible, never silent. */
+  grandfathered: string[];
+  /** True when nothing measurable was found — no capped section in scope. */
+  vacuous: boolean;
+}
+
+/**
+ * The provenance classes that spare `word_cap` outright — no row, at any
+ * severity. Declared as a list rather than an `=== "legacy"` comparison so the
+ * disposition is data a reader can enumerate.
+ */
+const SILENT_PROVENANCE: readonly FrProvenanceClass[] = ["legacy"];
+
+/**
+ * `/gate-check` probe #67's FR half — the raw scanner plus the epoch arm.
+ *
+ * Every non-`word_cap` row passes through byte for byte, at `error`, under
+ * every provenance class. A `word_cap` row is disposed of by its file's
+ * provenance: `legacy` (including a non-git tree) is dropped and the file is
+ * named in `grandfathered`; `undecidable` is downgraded to `warning`, because
+ * an operator whose object store is severed cannot fix that by rewriting a
+ * summary; `fresh` is reported at `error` exactly as before.
+ *
+ * Provenance is asked ONCE PER FILE and only for files that actually carry a
+ * `word_cap` row — a clean pre-epoch FR was never grandfathered, because it
+ * never violated anything.
+ */
+export function runFrSummaryAltitudeProbe(
+  projectRoot: string,
+  sectionRules: readonly SectionRuleSpec[] = SECTION_RULES,
+): FrSummaryAltitudeReport {
+  const { violations: raw, measured } = scanTree(projectRoot, sectionRules);
+
+  // The repository facts, read once for the whole active-FR directory, then the
+  // same decision function every single-file caller goes through.
+  let facts: FrGitFacts | null = null;
+  const provenanceOf = new Map<string, FrProvenanceClass>();
+  const classify = (rel: string): FrProvenanceClass => {
+    const cached = provenanceOf.get(rel);
+    if (cached !== undefined) return cached;
+    facts ??= readFrGitFacts(projectRoot, ["specs/frs"]);
+    const answer = classifyAgainstFacts(projectRoot, rel, FR_WORD_CAP_EPOCH, facts);
+    provenanceOf.set(rel, answer);
+    return answer;
+  };
+
+  const violations: FrAltitudeViolationRow[] = [];
+  const grandfathered: string[] = [];
+  for (const v of raw) {
+    if (v.rule !== "word_cap") {
+      violations.push({ ...v, severity: "error" });
+      continue;
+    }
+    const provenance = classify(v.file);
+    if (SILENT_PROVENANCE.includes(provenance)) {
+      if (!grandfathered.includes(v.file)) grandfathered.push(v.file);
+      continue;
+    }
+    violations.push({
+      ...v,
+      severity: provenance === "undecidable" ? "warning" : "error",
+    });
+  }
+
+  return { violations, grandfathered, vacuous: measured.length === 0 };
 }
