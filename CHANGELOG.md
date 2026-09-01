@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.75.0] — 2026-09-01 — "Laconic"
+
+### Added
+
+- Stage reports are one fenced status block with a fixed section order and a hard line budget spanning the whole report, prose lead-in included — not the fence alone (STE-532)
+- Word caps on FR narrative sections, added to the existing altitude probe rather than a new one: Summary 80, Technical Design 120, Notes 60, with Requirement / Acceptance Criteria / Testing deliberately uncapped (STE-534)
+- Plan narrative capped at 150 words by section KIND rather than section name, so a renamed heading cannot evade it; checkbox majority counts items, not lines, because the mandated two-line task entry sits at exactly 50% and could never clear the threshold (STE-535)
+
+### Changed
+
+- The eleven skills carrying a closing-summary contract now emit the status block in place of free-form narration, on their own fence banner with their own vocabulary — `deliver-stage-result` stays /deliver's, since a hand-off between machines and a human-facing summary were never the same artifact (STE-533)
+- Authoring surfaces state the budgets where the writing happens, single-sourced from the scanner's exports and asserted in both drift directions; the plan template now clears the cap it states, which it did not (STE-536)
+
+Total test count at release: 10708 tests, 0 failures, 0 errors.
+
 ## [2.74.0] — 2026-08-27 — "Pawl"
 
 ### Added
