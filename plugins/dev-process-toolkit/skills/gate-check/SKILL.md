@@ -306,7 +306,7 @@ Combine command results + code review into a final verdict:
 
 ## Structured Output
 
-Optionally produce a JSON summary alongside the Markdown report so CI pipelines can parse results.
+Optionally produce a JSON summary alongside the Markdown report so CI pipelines can parse results. The status block below **supersedes** the closing shape this section formerly mandated; the JSON stays a CI artifact written *alongside* the report rather than verbatim content the report reproduces beneath the fence.
 
 ````json
 {

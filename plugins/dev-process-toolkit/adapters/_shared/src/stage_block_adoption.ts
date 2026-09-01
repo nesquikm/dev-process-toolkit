@@ -128,6 +128,18 @@ export interface CapExemptSection {
   heading: string;
   /** A REAL declarer: the module that declares the heading, or a real pin. */
   requiredBy: string;
+  /**
+   * The body lines this section's own renderer emits that are NEITHER a list
+   * row NOR a bare `name:` key — the one mandated literal an empty section is
+   * required to carry.
+   *
+   * Declared per entry rather than pattern-matched, because the carve-out
+   * admits the SHAPES the shipped renderers emit and nothing else: free prose
+   * under a correctly-spelled heading is still narration, and a grader that
+   * forgave a whole section would let a stage reinstate its former report by
+   * heading it well.
+   */
+  bodyLiterals?: readonly string[];
 }
 
 /**
@@ -157,6 +169,11 @@ export const CAP_EXEMPT_SECTIONS: readonly CapExemptSection[] = [
     heading: "## Advisory notes",
     // Shipped AC-STE-148.1: "Phase 4 step 14 names the heading".
     requiredBy: "tests/implement-advisory-notes.test.ts",
+    // Phase 4 step 14: "Zero entries ⇒ heading plus the literal line
+    // `No advisory notes.` — never absent, so the operator never confuses 'no
+    // concerns' with 'concerns hidden'." The mandated line is a SENTENCE, so
+    // no shape rule reaches it and the entry has to name it.
+    bodyLiterals: ["No advisory notes."],
   },
 ];
 
@@ -311,6 +328,36 @@ const DELIVER_FENCE_OPEN = new RegExp(
 const HEADING_RE = /^\s{0,3}#{1,6}\s+\S/;
 const LIST_ITEM_RE = /^\s*(?:[-*+]|\d+[.)])\s+\S/;
 
+/**
+ * A BARE `name:` line — the third shape the shipped section renderers emit.
+ *
+ * MEASURED on `renderImplementReportEvidence({})`, whose section is
+ * `## Verification evidence`, then `gate:` / `drive:` / `e2e:` each followed by
+ * a list row. Those three names are neither a heading nor a list item, so the
+ * carve-out that forgave only list rows charged every one of them as NARRATION
+ * — the effective lead-in budget for the one stage carrying exempt sections was
+ * 8, not the stated 12, and the same two sections placed AFTER the block read
+ * as four lines of trailing content.
+ *
+ * Deliberately BARE — nothing may follow the colon. A sentence that happens to
+ * carry one ("Setup: the skill resolved its layout, …") is narration and stays
+ * narration, which is what keeps this a shape rule rather than a licence.
+ */
+const SECTION_KEY_RE = /^\s*[A-Za-z][A-Za-z0-9_-]*:\s*$/;
+
+/**
+ * Is this line one the exempt section's OWN renderer emits?
+ *
+ * Three shapes and no fourth: a list row, a bare `name:` key, and a literal the
+ * entry itself declares. The carve-out admits the section's RENDERED BODY, not
+ * everything beneath its heading.
+ */
+function isRenderedBodyLine(line: string, entry: CapExemptSection): boolean {
+  if (LIST_ITEM_RE.test(line)) return true;
+  if (SECTION_KEY_RE.test(line)) return true;
+  return (entry.bodyLiterals ?? []).includes(line.trim());
+}
+
 /** The `stage:` scalar a status block states, or `null` when it states none. */
 function statedStage(fenceLines: readonly string[]): string | null {
   for (const line of fenceLines) {
@@ -322,29 +369,73 @@ function statedStage(fenceLines: readonly string[]): string | null {
 
 /**
  * The NARRATION in a region: every non-blank line that is not part of one of
- * this stage's exempt sections.
+ * this stage's exempt sections, AS ITS RENDERER EMITS IT.
  *
- * The carve-out admits the SECTION, not everything after it — a heading plus
- * its list rows. Prose under a correctly-headed section is still narration,
- * or a stage reinstates its whole report by heading it well.
+ * The carve-out runs from an exempt heading to the next heading of any kind,
+ * and inside that span it forgives the three shapes `isRenderedBodyLine` names.
+ * Prose under a correctly-headed section is still narration, or a stage
+ * reinstates its whole report by heading it well.
  */
 function narrationLines(
   region: readonly string[],
-  exemptHeadings: readonly string[],
+  exempt: readonly CapExemptSection[],
 ): string[] {
   const out: string[] = [];
-  let underExempt = false;
+  let current: CapExemptSection | null = null;
   for (const line of region) {
     if (line.trim().length === 0) continue;
     if (HEADING_RE.test(line)) {
-      underExempt = exemptHeadings.includes(line.trim());
-      if (!underExempt) out.push(line);
+      current = exempt.find((entry) => entry.heading === line.trim()) ?? null;
+      if (current === null) out.push(line);
       continue;
     }
-    if (underExempt && LIST_ITEM_RE.test(line)) continue;
+    if (current !== null && isRenderedBodyLine(line, current)) continue;
     out.push(line);
   }
   return out;
+}
+
+/**
+ * The 0-based line indexes an exempt section OWNS — its heading, and the body
+ * lines its own renderer emits — outside the fence.
+ *
+ * This is what FUNDS the carve-out. STE-532's whole-report cap is sized as
+ * `PROSE_LEAD_IN_LINE_CAP + FENCE_LINE_CAP + 2`, a partition of all 40 lines
+ * with nothing left over, and it counted every line in the report. A report
+ * respecting EVERY stated budget — 12 lines of prose, a full fence, and both
+ * sections `/implement` owes at their smallest legal size — runs 49 lines and
+ * was refused, with a Remedy naming only budgets it already met. A carve-out
+ * that is stated but not funded refuses the very reports it exists to permit.
+ *
+ * The cap is NOT raised: the exempt lines are excused from the count and every
+ * other line still faces the shipped 40. Narration bloat is refused exactly as
+ * before, and a stage that owes no section gets no extra budget at all.
+ */
+function exemptSectionIndexes(
+  lines: readonly string[],
+  fence: { startLine: number; endLine: number },
+  exempt: readonly CapExemptSection[],
+): Set<number> {
+  const owned = new Set<number>();
+  if (exempt.length === 0) return owned;
+  let current: CapExemptSection | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    // Inside the block nothing is exempt — the fence has its own budget, and a
+    // section heading cannot open across it.
+    if (i >= fence.startLine - 1 && i <= fence.endLine - 1) {
+      current = null;
+      continue;
+    }
+    const line = lines[i]!;
+    if (line.trim().length === 0) continue;
+    if (HEADING_RE.test(line)) {
+      current = exempt.find((entry) => entry.heading === line.trim()) ?? null;
+      if (current !== null) owned.add(i);
+      continue;
+    }
+    if (current !== null && isRenderedBodyLine(line, current)) owned.add(i);
+  }
+  return owned;
 }
 
 /**
@@ -409,11 +500,15 @@ export function verifyStageReportAdoption(
   report: string,
   evidence?: StageEvidenceInput | null,
 ): StageAdoptionVerdict {
-  const base = verifyStageStatusBlock(report, evidence);
-  const reasons: string[] = [...base.reasons];
-
   const fences = closedStatusFences(report);
-  if (fences.length !== 1) return { ok: false, reasons };
+  if (fences.length !== 1) {
+    // The count rule has exactly one owner: STE-532 refuses this, in STE-532's
+    // own words, and this module adds nothing to it.
+    return {
+      ok: false,
+      reasons: [...verifyStageStatusBlock(report, evidence).reasons],
+    };
+  }
   const fence = fences[0]!;
 
   const lines = report.split("\n");
@@ -423,6 +518,21 @@ export function verifyStageReportAdoption(
   // banner, graded by `verifyDeliverStageCapture` — widening either vocabulary
   // to swallow the other would make a false thing true.
   const stage = statedStage(fence.lines);
+  const exempt = exemptSectionsFor(stage ?? "");
+
+  // STE-532 runs in full, over the report MINUS the lines the carve-out owns —
+  // see `exemptSectionIndexes` for why the exemption has to be funded rather
+  // than merely stated. Its reasons ride the same `reasons` array, so a caller
+  // sees one verdict rather than two to reconcile.
+  const exemptIndexes = exemptSectionIndexes(lines, fence, exempt);
+  const base = verifyStageStatusBlock(
+    exemptIndexes.size === 0
+      ? report
+      : lines.filter((_, i) => !exemptIndexes.has(i)).join("\n"),
+    evidence,
+  );
+  const reasons: string[] = [...base.reasons];
+
   if (stage === null) {
     reasons.push(
       "the status block states no `stage:` value; the block names the stage " +
@@ -435,15 +545,10 @@ export function verifyStageReportAdoption(
         "`/deliver`'s ceremony vocabulary, graded on its own banner",
     );
   }
-  const exemptHeadings = exemptSectionsFor(stage ?? "").map((e) => e.heading);
-
   // (1) THE PROSE LEAD-IN CAP, over NARRATION alone. The structured sections
   // earlier milestones mandate are exempt (AC-STE-533.2a) — and still required,
-  // which the scanner grades from the other direction.
-  const prose = narrationLines(
-    lines.slice(0, fence.startLine - 1),
-    exemptHeadings,
-  );
+  // which the presence check below grades from the other direction.
+  const prose = narrationLines(lines.slice(0, fence.startLine - 1), exempt);
   if (prose.length > PROSE_LEAD_IN_LINE_CAP) {
     reasons.push(
       `the report carries ${prose.length} lines of prose before the status ` +
@@ -455,12 +560,31 @@ export function verifyStageReportAdoption(
   // (4) THE BLOCK COMES LAST, except this stage's exempt sections. Blank lines
   // are not content: a trailing newline is punctuation, not another paragraph
   // for the operator to read.
-  const trailing = narrationLines(lines.slice(fence.endLine), exemptHeadings);
+  const trailing = narrationLines(lines.slice(fence.endLine), exempt);
   if (trailing.length > 0) {
     reasons.push(
       `${trailing.length} non-blank line(s) follow the status block; the ` +
         "block is the LAST thing in the report, other than the cap-exempt " +
         "sections this stage is required to emit",
+    );
+  }
+
+  // EXEMPT IS NOT OPTIONAL (AC-STE-533.2a, second direction), graded on the
+  // REPORT.
+  //
+  // The only presence check that shipped read a SKILL.md body, and a SKILL.md
+  // is a different subject: this tree's `/implement` SKILL.md names both
+  // sections, so `scanStageBlockAdoption` is silent — while a RENDERED
+  // `/implement` report that dropped them both graded CLEAN. Documentation
+  // cannot excuse the report. The refusal NAMES the section, because a
+  // carve-out checked one way is unguarded the other way.
+  for (const entry of exempt) {
+    if (lines.some((line) => line.trim() === entry.heading)) continue;
+    reasons.push(
+      `the report does not carry the cap-exempt section ` +
+        `\`${entry.heading}\`: exempt is not optional — the carve-out ` +
+        `requires the section, it does not make it discretionary ` +
+        `(required by ${entry.requiredBy})`,
     );
   }
 

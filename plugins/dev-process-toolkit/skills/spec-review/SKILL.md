@@ -86,7 +86,7 @@ After the verdict line is rendered (before the closing summary at step 4d), feed
 Live-spec refresh suggested — N drift(s) found in cross-cutting specs; consider rerunning /spec-write before next /implement.
 ```
 
-When `drift_count` is `0` or `1`, `formatDriftHint` returns `null` and the orchestrator **omits** the hint entirely — the verdict line stands alone.
+When `drift_count` is `0` or `1`, `formatDriftHint` returns `null` and the orchestrator **omits** the hint entirely — the verdict line stands alone. The status block **supersedes** the closing shape this section formerly mandated; when the hint fires it is a single line of the prose lead-in above the fence, never a block reproduced beneath it.
 
 **Threshold rationale (`>= 2`, not `> 0`).** `/implement` routinely produces single-line cosmetic drifts during normal /implement churn (e.g., a stale `<!-- TODO -->` comment, a placeholder line whose path was just renamed). Surfacing a refresh hint on every single-drift audit would train operators to ignore it. `>= 2` means "drift is accumulating" — actionable, worth interrupting for.
 

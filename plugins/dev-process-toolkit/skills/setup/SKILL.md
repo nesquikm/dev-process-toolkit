@@ -340,7 +340,7 @@ Summarize what was created (list files created/modified), then present the SDD w
 7. /pr               → Create pull request
 ```
 
-**Key principle:** Specs are the source of truth. `/implement` reads specs to understand what to build, writes tests first, self-reviews against acceptance criteria, and reports for human approval before committing. Workflow paths (Bugfix / Feature / Refactor) and the spec-fill-in checklist live in `docs/setup-reference.md` § Step 11 — surface them to the user when relevant.
+**Key principle:** Specs are the source of truth. `/implement` reads specs to understand what to build, writes tests first, self-reviews against acceptance criteria, and reports for human approval before committing. Workflow paths (Bugfix / Feature / Refactor) and the spec-fill-in checklist live in `docs/setup-reference.md` § Step 11 — surface them to the user when relevant. The status block **supersedes** the free-form closing shape this step formerly mandated: the workflow listing above is reference material to surface inline while setup runs, not verbatim content the closing report reproduces beneath the fence.
 
 ```stage-status-block
 stage: setup   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md

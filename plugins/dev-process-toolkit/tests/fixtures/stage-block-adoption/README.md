@@ -15,13 +15,25 @@ The mutant's fence is **byte-identical** to the clean file's, so a token-grep
 passes it and so does STE-532's own `verifyStageStatusBlock` — it is a
 well-formed status block by every rule STE-532 owns. Only the adoption policy
 can tell the two apart, which is what makes this pair evidence for **this** FR
-rather than for the last one. The clean file carries 4 lines of prose above the
-fence; the mutant carries 14, over the 12-line prose lead-in cap.
+rather than for the last one. The clean file carries 3 lines of prose above the
+fence; the mutant carries 13, over the 12-line prose lead-in cap. The mutant
+sits at exactly the 40-line whole-report cap, so STE-532's own grader still
+accepts it and only the adoption policy refuses it.
 
 Isolation is checked, not assumed: the two files differ **only** by the
-reinstated narration. If a later edit changes the block in one of them, the red
-the mutant produces stops being attributable to the narration rule and the pair
-stops measuring anything.
+reinstated narration — the mutant is the clean file with ten narration lines
+inserted, and nothing else. If a later edit changes the block in one of them,
+the red the mutant produces stops being attributable to the narration rule and
+the pair stops measuring anything.
+
+## Both files carry the sections `/implement` OWES
+
+`## Verification evidence` and `## Advisory notes` are the two AC-STE-533.2a
+cap-exempt sections. **Exempt is not optional**: a rendered `/implement` report
+that drops them is not a compliant capture, so both files carry both sections
+after the block, where AC-STE-533.6 permits them. An earlier revision of these
+fixtures carried *neither* — and graded clean, which is exactly the direction a
+carve-out checked only one way leaves unguarded.
 
 ## Provenance, stated because the label is load-bearing
 

@@ -147,6 +147,16 @@ import {
   CANONICAL_CAPABILITY_KEYS,
   runClosingSummaryCapabilityKeysProbe,
 } from "../adapters/_shared/src/closing_summary_capability_keys";
+// The ONE shared renderer /implement step 14 is ordered to call for its
+// `## Verification evidence` section. Every fixture below that carries that
+// section is built FROM it, never hand-typed: a hand-typed copy keeps passing
+// on the day the renderer changes shape, which is the failure the pre-merge
+// review measured.
+import {
+  IMPLEMENT_EVIDENCE_HEADING,
+  renderImplementReportEvidence,
+} from "../adapters/_shared/src/implement_report_evidence";
+import { EVIDENCE_SECTIONS } from "../adapters/_shared/src/deliver_stage_evidence";
 // The smoke driver's canonical fixture-group roster. STE-533's SECOND consumer
 // registers here, mirroring STE-492/group 14 — the shipped precedent for
 // "a grader whose subject is a captured report gets a fixture-group consumer".
@@ -289,13 +299,93 @@ function blockOf(report: string): string {
 /** The report with only the block left in it: zero prose, nothing trailing. */
 const blockOnly = (report: string): string => blockOf(report);
 
+// ------------------------------------------- the cap-exempt sections, RENDERED
+//
+// MEASURED on the shipped code (2026-09-01), and the reason this whole block
+// exists: the carve-out AC-STE-533.2a added did NOT reach its sections' bodies.
+//
+//   renderImplementReportEvidence({}).lines
+//     = ["## Verification evidence", "gate:", "  - (none found)",
+//        "drive:", "  - (none found)", "e2e:", "  - (none found)"]
+//   `## Advisory notes` with zero entries  = the heading plus one mandated
+//                                            literal sentence.
+//
+// `gate:`, `drive:`, `e2e:` and that sentence are neither markdown headings nor
+// list items, so every one of them was charged as NARRATION — which is why the
+// two sections placed AFTER the block scored "4 non-blank line(s) follow the
+// status block", and nine narration lines plus the same sections placed BEFORE
+// it scored 13 over a 12-line cap. The effective lead-in budget for the only
+// stage that carries exempt sections was 8, not 12.
+//
+// Everything below is therefore driven off the SHIPPED renderers rather than
+// typed here, so these fixtures track the renderer instead of a snapshot of it.
+
 /**
- * The stage's report, with the `stage:` scalar rewritten. Adoption spans
- * eleven stages, only one of which the shipped fixture names, so a per-stage
- * loop has to be able to speak every stage's name.
+ * The `/implement` advisory section's empty-list body, READ OFF the surface
+ * that mandates it.
+ *
+ * `## Advisory notes` with zero entries is required to carry this exact line —
+ * "never absent, so the operator never confuses 'no concerns' with 'concerns
+ * hidden'". Reading it here means a reword of the mandate reaches these
+ * fixtures instead of leaving them pinned to a dead literal.
+ */
+const ADVISORY_EMPTY_LITERAL: string = (() => {
+  const m = /heading plus the literal line `([^`]+)`/.exec(read(skillPath("implement")));
+  if (m === null) {
+    throw new Error(
+      "skills/implement/SKILL.md no longer mandates an empty-list literal for " +
+        "`## Advisory notes`; the fixtures below were driven off that mandate",
+    );
+  }
+  return m[1]!;
+})();
+
+/**
+ * ONE cap-exempt section, rendered EXACTLY as its own shipped renderer emits
+ * it — heading and body together.
+ *
+ * A CAP_EXEMPT_SECTIONS entry with no renderer known here THROWS rather than
+ * being quietly skipped: a carve-out nothing can render is a carve-out nothing
+ * tests, and a silent skip is how a new entry would ride in untested.
+ */
+function renderedExemptSection(entry: CapExemptSection): readonly string[] {
+  if (entry.heading === IMPLEMENT_EVIDENCE_HEADING) {
+    return renderImplementReportEvidence({}).lines;
+  }
+  if (entry.stage === "implement" && /advisory/i.test(entry.heading)) {
+    return [entry.heading, ADVISORY_EMPTY_LITERAL];
+  }
+  throw new Error(
+    `no shipped renderer is known for cap-exempt section \`${entry.heading}\``,
+  );
+}
+
+/** Every section `stage` OWES, each rendered by its own renderer, in list order. */
+const owedSectionLines = (stage: string): string[] =>
+  exemptSectionsFor(stage).flatMap((entry) => [...renderedExemptSection(entry)]);
+
+/**
+ * A report with every section its stage OWES appended after the block.
+ *
+ * AC-STE-533.6 explicitly permits the exempt sections to follow the block, and
+ * "exempt is not optional" means a rendered `/implement` report that carries
+ * neither is not a compliant report at all — so this is what a COMPLIANT
+ * fixture looks like, not decoration on one.
+ */
+const withOwedSections = (report: string, stage: string): string =>
+  [report, ...owedSectionLines(stage)].join("\n");
+
+/**
+ * The stage's report, with the `stage:` scalar rewritten and every section
+ * that stage owes appended. Adoption spans eleven stages, only one of which the
+ * shipped fixture names, so a per-stage loop has to be able to speak every
+ * stage's name — and to speak it COMPLIANTLY.
  */
 function reportForStage(stage: string): string {
-  return CLEAN.replace(/^(\s*stage:).*$/m, `$1 ${stage}`);
+  return withOwedSections(
+    CLEAN.replace(/^(\s*stage:).*$/m, `$1 ${stage}`),
+    stage,
+  );
 }
 
 /**
@@ -495,8 +585,13 @@ describe("AC-STE-533.2 — prose before the block is capped at a stated number",
   });
 
   test("the shipped model report sits AT the cap and is accepted", () => {
-    expect(fenceOpenIndex(CLEAN)).toBe(PROSE_LEAD_IN_LINE_CAP);
-    expect(verifyStageReportAdoption(CLEAN)).toEqual({ ok: true, reasons: [] });
+    // `CLEAN` states `stage: implement`, and /implement OWES the two AC-2a
+    // sections — a report that dropped them is not a compliant report, so the
+    // accepted form carries them (they follow the block, which AC-STE-533.6
+    // permits). The assertion is unchanged; only the fixture is compliant.
+    const model = withOwedSections(CLEAN, "implement");
+    expect(fenceOpenIndex(model)).toBe(PROSE_LEAD_IN_LINE_CAP);
+    expect(verifyStageReportAdoption(model)).toEqual({ ok: true, reasons: [] });
   });
 
   test("THE DISCRIMINATING SHAPE: STE-532 accepts it, adoption does not", () => {
@@ -516,8 +611,14 @@ describe("AC-STE-533.2 — prose before the block is capped at a stated number",
   });
 
   test("a report exactly at the cap passes and one line over it fails", () => {
-    const atCap = withProseLines(CLEAN, PROSE_LEAD_IN_LINE_CAP);
-    const overCap = withProseLines(CLEAN, PROSE_LEAD_IN_LINE_CAP + 1);
+    const atCap = withOwedSections(
+      withProseLines(CLEAN, PROSE_LEAD_IN_LINE_CAP),
+      "implement",
+    );
+    const overCap = withOwedSections(
+      withProseLines(CLEAN, PROSE_LEAD_IN_LINE_CAP + 1),
+      "implement",
+    );
     expect(fenceOpenIndex(atCap)).toBe(PROSE_LEAD_IN_LINE_CAP);
     expect(fenceOpenIndex(overCap)).toBe(PROSE_LEAD_IN_LINE_CAP + 1);
     expect(verifyStageReportAdoption(atCap).ok).toBe(true);
@@ -661,9 +762,12 @@ describe("AC-STE-533.3 — the capability-keys probe is not weakened", () => {
 
   test("tokens ride INSIDE the block; a token left in the prose is refused", () => {
     const token = BASELINE_FAMILIES[0]![1];
-    const inside = blockOnly(CLEAN).replace(
-      /^(summary:)$/m,
-      `$1\n  - closing capability: \`${token}\``,
+    const inside = withOwedSections(
+      blockOnly(CLEAN).replace(
+        /^(summary:)$/m,
+        `$1\n  - closing capability: \`${token}\``,
+      ),
+      "implement",
     );
     expect(inside).toContain(`\`${token}\``);
     const located = locateCapabilityTokens(inside);
@@ -683,8 +787,9 @@ describe("AC-STE-533.3 — the capability-keys probe is not weakened", () => {
   });
 
   test("only CANONICAL keys count as capability tokens", () => {
-    const noise = ["A run mentioning `not_a_capability_key`.", blockOnly(CLEAN)].join(
-      "\n",
+    const noise = withOwedSections(
+      ["A run mentioning `not_a_capability_key`.", blockOnly(CLEAN)].join("\n"),
+      "implement",
     );
     const located = locateCapabilityTokens(noise);
     expect(located.inBlock).toEqual([]);
@@ -886,9 +991,11 @@ describe("AC-STE-533.6 — one block per report, and it comes last", () => {
   });
 
   test("blank lines after the block are not trailing content", () => {
-    expect(verifyStageReportAdoption(appendAfterBlock(CLEAN, "\n  \n")).ok).toBe(
-      true,
-    );
+    expect(
+      verifyStageReportAdoption(
+        appendAfterBlock(withOwedSections(CLEAN, "implement"), "\n  \n"),
+      ).ok,
+    ).toBe(true);
   });
 
   test("a report with no block at all fails", () => {
@@ -1386,7 +1493,10 @@ describe("AC-STE-533.1a — the adopting stages own their banner", () => {
   });
 
   test("the adoption grader ACCEPTS its own banner and REFUSES /deliver's", () => {
-    expect(verifyStageReportAdoption(CLEAN)).toEqual({ ok: true, reasons: [] });
+    expect(verifyStageReportAdoption(withOwedSections(CLEAN, "implement"))).toEqual({
+      ok: true,
+      reasons: [],
+    });
     const verdict = verifyStageReportAdoption(CLEAN_DELIVER);
     expect(verdict.ok).toBe(false);
     // Not "some other complaint": the adoption grader sees NO fence at all.
@@ -1644,8 +1754,7 @@ describe("AC-STE-533.2a — the exempt list is closed, cited and load-bearing", 
   });
 
   test("DIRECTION ONE — an exempt section does NOT count against the prose cap", () => {
-    const heading = "## Verification evidence";
-    const body = ["", heading, "", "- gate: pass 1, fail 0", ""];
+    const body = ["", ...owedSectionLines("implement"), ""];
     // The section is bolted ABOVE the block, taking the report past the cap in
     // raw lines while carrying not one line of narration.
     const withSection = [
@@ -2994,5 +3103,547 @@ describe("the roster-count cascade moved as one", () => {
     );
     expect(body).not.toContain('expected: "toHaveLength(14)"');
     expect(body).toContain('expected: "toHaveLength(15)"');
+  });
+});
+
+// ============================================================================
+// M137 PRE-MERGE REVIEW — the AC-STE-533.2a carve-out, made load-bearing
+// ============================================================================
+//
+// An adversarial review of PR #76 measured four ways in which the cap-exempt
+// carve-out was INERT. Every number below was read off the shipped code, not
+// reported:
+//
+//   1. THE CARVE-OUT DID NOT REACH ITS SECTIONS' CONTENT. `narrationLines`
+//      forgave an exempt HEADING plus lines matching `LIST_ITEM_RE`, and the
+//      shipped renderers emit neither: `renderImplementReportEvidence` emits
+//      `gate:` / `drive:` / `e2e:` section names, and `## Advisory notes` with
+//      zero entries emits one mandated sentence. All four were charged as
+//      narration — exempt sections AFTER the block scored "4 non-blank line(s)
+//      follow the status block", and nine narration lines plus the same
+//      sections BEFORE it scored 13 over a 12-line cap. The effective lead-in
+//      budget for the ONLY stage with exempt sections was 8, not 12.
+//
+//   2. THE CARVE-OUT WAS ARITHMETICALLY UNFUNDED.
+//      `PROSE_LEAD_IN_LINE_CAP = STAGE_REPORT_LINE_CAP - FENCE_LINE_CAP - 2`
+//      partitions all forty lines into fence, markers and prose, leaving ZERO
+//      budget for the exempt sections — and `verifyStageStatusBlock` applies
+//      the whole-report cap to every line, exempt or not. A report respecting
+//      every stated budget to its face is 49 lines and was refused.
+//
+//   3. "EXEMPT IS NOT OPTIONAL" WAS UNENFORCED AT RUNTIME. `exemptHeadings`
+//      was read ONLY to forgive lines from the narration count;
+//      `verifyStageReportAdoption` never checked an owed section was PRESENT.
+//      The milestone's own committed "compliant capture" fixture declared
+//      `stage: implement`, carried NEITHER mandated section, and graded
+//      `ok: true`. The one presence check that existed reads a SKILL.md body —
+//      documentation, which no rendered report can change.
+//
+//   4. THE CARVE-OUT COVERED ONE STAGE. `/gate-check` and `/setup` were given
+//      the same 12-line cap while their own SKILL.md still orders their reports
+//      to reproduce verbatim artifacts, and neither has an exempt entry.
+//      Disclosure is not resolution: AC-STE-533.2a says the exempt list IS the
+//      resolution, and those stages have no entries in it.
+
+/** Lines INSIDE the fence, markers excluded — the `FENCE_LINE_CAP` subject. */
+const fenceBodyLineCount = (report: string): number =>
+  fenceCloseIndex(report) - fenceOpenIndex(report) - 1;
+
+/**
+ * The report that respects EVERY budget the contract states, each at its face
+ * value: `PROSE_LEAD_IN_LINE_CAP` lines of narration, a fence body of exactly
+ * `FENCE_LINE_CAP` lines, its two markers, and every section the stage owes in
+ * its smallest legal form.
+ *
+ * Composed from the SHIPPED constants, never typed: if any budget moves, this
+ * construction moves with it rather than pinning yesterday's arithmetic.
+ */
+function maximalLegalReport(stage: string): string {
+  const scalarValue: Record<string, string> = {
+    stage,
+    milestone: "M137",
+    status: "ok",
+  };
+  const scalars: readonly string[] = SCALAR_STATUS_SECTIONS;
+  const body: string[] = [];
+  for (const name of STAGE_STATUS_SECTIONS as readonly string[]) {
+    if (scalars.includes(name)) {
+      body.push(`${name}: ${scalarValue[name] ?? "ok"}`);
+      continue;
+    }
+    body.push(`${name}:`, `  ${EMPTY_SECTION_FALLBACK}`);
+  }
+  const pad = FENCE_LINE_CAP - body.length;
+  if (pad < 0) {
+    throw new Error(
+      "the fixed section order no longer fits inside FENCE_LINE_CAP — this " +
+        "construction can no longer sit AT the stated budget",
+    );
+  }
+  const firstList = body.indexOf(`${LIST_STATUS_SECTIONS[0]}:`);
+  body.splice(
+    firstList + 1,
+    0,
+    ...Array.from({ length: pad }, (_, i) => `  - row ${i + 1} of the summary`),
+  );
+  return [
+    ...Array.from(
+      { length: PROSE_LEAD_IN_LINE_CAP },
+      (_, i) => `Prose ${i + 1}: what the stage did, in the operator's language.`,
+    ),
+    STAGE_BLOCK_FENCE_BANNER,
+    ...body,
+    "```",
+    ...owedSectionLines(stage),
+  ].join("\n");
+}
+
+/** A markdown heading line, and a list item — the two shapes the module forgave. */
+const IS_HEADING = (line: string): boolean => /^\s{0,3}#{1,6}\s+\S/.test(line);
+const IS_LIST_ITEM = (line: string): boolean =>
+  /^\s*(?:[-*+]|\d+[.)])\s+\S/.test(line);
+
+describe("M137 review — an exempt section is forgiven as its RENDERER emits it", () => {
+  test("THE MEASUREMENT: the shipped renderers emit lines that are neither heading nor list item", () => {
+    const rendered = renderImplementReportEvidence({}).lines;
+    expect(rendered[0]).toBe(IMPLEMENT_EVIDENCE_HEADING);
+    const body = rendered.slice(1).filter((l) => l.trim().length > 0);
+    expect(body.length).toBeGreaterThan(0);
+
+    // The `gate:` / `drive:` / `e2e:` section names — driven off the shipped
+    // section list, so this tracks the renderer rather than a snapshot of it.
+    const neither = body.filter((l) => !IS_HEADING(l) && !IS_LIST_ITEM(l));
+    expect(neither.map((l) => l.trim())).toEqual(
+      (EVIDENCE_SECTIONS as readonly string[]).map((name) => `${name}:`),
+    );
+
+    // …and the advisory section's mandated empty-list line is the same shape.
+    expect(IS_HEADING(ADVISORY_EMPTY_LITERAL)).toBe(false);
+    expect(IS_LIST_ITEM(ADVISORY_EMPTY_LITERAL)).toBe(false);
+  });
+
+  test("every owed section, EXACTLY as its renderer emits it, is forgiven AFTER the block", () => {
+    let checked = 0;
+    for (const stage of ADOPTING_STAGES) {
+      const owed = owedSectionLines(stage);
+      if (owed.length === 0) continue;
+      const report = [blockOnly(reportForStage(stage)), ...owed].join("\n");
+
+      // THE CONSTRUCTION IS THE SUBJECT: there really is non-blank content
+      // after the block, and it really does include the non-list lines above.
+      const trailing = report
+        .split("\n")
+        .slice(fenceCloseIndex(report) + 1)
+        .filter((l) => l.trim().length > 0);
+      expect(trailing.length).toBeGreaterThan(0);
+      expect(trailing.some((l) => !IS_HEADING(l) && !IS_LIST_ITEM(l))).toBe(true);
+
+      expect({ stage, verdict: verifyStageReportAdoption(report) }).toEqual({
+        stage,
+        verdict: { ok: true, reasons: [] },
+      });
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  test("…and BEFORE it, alongside a FULL prose lead-in — the budget is 12, not 8", () => {
+    const stage = "implement";
+    const prose = Array.from(
+      { length: PROSE_LEAD_IN_LINE_CAP },
+      (_, i) => `Prose ${i + 1}.`,
+    );
+    const report = [
+      ...prose,
+      ...owedSectionLines(stage),
+      blockOnly(reportForStage(stage)),
+    ].join("\n");
+
+    // The exempt sections really do push the fence past the raw cap — so the
+    // exemption is what has to carry the verdict, not a short report.
+    expect(fenceOpenIndex(report)).toBeGreaterThan(PROSE_LEAD_IN_LINE_CAP);
+    // …and the report is UNDER STE-532's whole-report cap, so this leg cannot
+    // be satisfied or refused by that other rule.
+    expect(lineCount(report)).toBeLessThanOrEqual(STAGE_REPORT_LINE_CAP);
+
+    expect(verifyStageReportAdoption(report)).toEqual({ ok: true, reasons: [] });
+  });
+
+  test("the boundary is still the STATED cap: one narration line more is refused", () => {
+    const stage = "implement";
+    const build = (n: number): string =>
+      [
+        ...Array.from({ length: n }, (_, i) => `Prose ${i + 1}.`),
+        ...owedSectionLines(stage),
+        blockOnly(reportForStage(stage)),
+      ].join("\n");
+    expect(verifyStageReportAdoption(build(PROSE_LEAD_IN_LINE_CAP)).ok).toBe(true);
+    const over = verifyStageReportAdoption(build(PROSE_LEAD_IN_LINE_CAP + 1));
+    expect(over.ok).toBe(false);
+    expect(over.reasons.some(isProseCapReason)).toBe(true);
+  });
+
+  test("DISCRIMINATOR — free prose inside an exempt section is STILL refused", () => {
+    const stage = "implement";
+    const report = [
+      blockOnly(reportForStage(stage)),
+      ...owedSectionLines(stage),
+      "And then the four paragraphs of narration this FR deleted, wearing a",
+      "compliant heading so nobody notices they came back.",
+    ].join("\n");
+    expect(verifyStageReportAdoption(report).ok).toBe(false);
+  });
+
+  test("DISCRIMINATOR — a body line the renderer never emits is STILL refused", () => {
+    // Isolation for the leg above: the carve-out admits the SHAPES the shipped
+    // renderers emit, not everything under a correctly-spelled heading. A
+    // grader that forgave the whole section would pass both legs while
+    // measuring nothing.
+    const stage = "implement";
+    const mutant = [
+      blockOnly(reportForStage(stage)),
+      IMPLEMENT_EVIDENCE_HEADING,
+      "The gate ran green, roughly, as far as anyone checked.",
+      ...owedSectionLines(stage).filter((l) => l !== IMPLEMENT_EVIDENCE_HEADING),
+    ].join("\n");
+    // THE MUTATION APPLIED: the sentence really is in the report.
+    expect(mutant).toContain("as far as anyone checked");
+    expect(verifyStageReportAdoption(mutant).ok).toBe(false);
+  });
+});
+
+describe("M137 review — the cap-exempt carve-out is arithmetically FUNDED", () => {
+  test("THE MEASUREMENT: the three stated budgets already consume the whole-report cap", () => {
+    // Fence body + its two markers + the prose lead-in = the WHOLE cap. There
+    // is, by construction, nothing left over for the sections AC-STE-533.2a
+    // exempts — which is why the exemption has to be funded rather than stated.
+    expect(PROSE_LEAD_IN_LINE_CAP + FENCE_LINE_CAP + 2).toBe(STAGE_REPORT_LINE_CAP);
+    expect(owedSectionLines("implement").length).toBeGreaterThan(0);
+  });
+
+  test("the MAXIMAL legal report — every stated budget at its face — is ACCEPTED", () => {
+    const maximal = maximalLegalReport("implement");
+
+    // The construction sits AT each stated budget…
+    expect(fenceOpenIndex(maximal)).toBe(PROSE_LEAD_IN_LINE_CAP);
+    expect(fenceBodyLineCount(maximal)).toBe(FENCE_LINE_CAP);
+    for (const entry of exemptSectionsFor("implement")) {
+      expect(maximal).toContain(entry.heading);
+    }
+    // …and over the RAW whole-report cap, so the exemption is what must carry
+    // it. Without this line the leg could pass on a report that simply fits.
+    expect(lineCount(maximal)).toBeGreaterThan(STAGE_REPORT_LINE_CAP);
+
+    expect(verifyStageReportAdoption(maximal)).toEqual({ ok: true, reasons: [] });
+  });
+
+  test("ISOLATION — the whole-report cap still refuses a report bloated with NARRATION", () => {
+    const stage = "implement";
+    const bloated = [
+      ...Array.from(
+        { length: STAGE_REPORT_LINE_CAP },
+        (_, i) => `Prose ${i + 1}.`,
+      ),
+      blockOnly(reportForStage(stage)),
+      ...owedSectionLines(stage),
+    ].join("\n");
+    const verdict = verifyStageReportAdoption(bloated);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.reasons.some((r) => /whole-report cap/i.test(r))).toBe(true);
+  });
+
+  test("ISOLATION — a stage that owes NOTHING gets no extra budget", () => {
+    // `/setup` carries no exempt entry, so its maximal legal report is exactly
+    // the cap and one line more inside the fence is refused by STE-532's cap.
+    const stage = ADOPTING_STAGES.find((s) => exemptSectionsFor(s).length === 0);
+    expect(stage).toBeDefined();
+    const maximal = maximalLegalReport(stage!);
+    expect(lineCount(maximal)).toBe(STAGE_REPORT_LINE_CAP);
+    expect(verifyStageReportAdoption(maximal)).toEqual({ ok: true, reasons: [] });
+
+    const over = maximal.replace(
+      `  ${EMPTY_SECTION_FALLBACK}`,
+      `  ${EMPTY_SECTION_FALLBACK}\n  - one row too many`,
+    );
+    // THE MUTATION APPLIED.
+    expect(lineCount(over)).toBe(STAGE_REPORT_LINE_CAP + 1);
+    const verdict = verifyStageReportAdoption(over);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.reasons.some((r) => /whole-report cap/i.test(r))).toBe(true);
+  });
+});
+
+describe("M137 review — EXEMPT IS NOT OPTIONAL in a RENDERED report", () => {
+  test("DIRECTION ONE — a report carrying every section it owes is ACCEPTED", () => {
+    let checked = 0;
+    for (const stage of ADOPTING_STAGES) {
+      const owed = owedSectionLines(stage);
+      if (owed.length === 0) continue;
+      const full = [blockOnly(reportForStage(stage)), ...owed].join("\n");
+      expect({ stage, verdict: verifyStageReportAdoption(full) }).toEqual({
+        stage,
+        verdict: { ok: true, reasons: [] },
+      });
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  test("DIRECTION TWO — dropping ONE owed section is REFUSED, and the refusal NAMES it", () => {
+    // Driven off the REAL `CAP_EXEMPT_SECTIONS`, never a hand-typed list: an
+    // entry added tomorrow is graded by this loop the day it lands.
+    let checked = 0;
+    for (const entry of CAP_EXEMPT_SECTIONS) {
+      const kept = exemptSectionsFor(entry.stage).filter(
+        (e) => e.heading !== entry.heading,
+      );
+      const without = [
+        blockOnly(reportForStage(entry.stage)),
+        ...kept.flatMap((e) => [...renderedExemptSection(e)]),
+      ].join("\n");
+
+      // THE MUTATION APPLIED: the section really is gone, and the others stay.
+      expect(without).not.toContain(entry.heading);
+      for (const e of kept) expect(without).toContain(e.heading);
+
+      const verdict = verifyStageReportAdoption(without);
+      expect({
+        heading: entry.heading,
+        ok: verdict.ok,
+        named: verdict.reasons.some((r) => r.includes(entry.heading)),
+      }).toEqual({ heading: entry.heading, ok: false, named: true });
+      checked += 1;
+    }
+    expect(checked).toBe(CAP_EXEMPT_SECTIONS.length);
+  });
+
+  test("DOCUMENTATION CANNOT EXCUSE THE REPORT — the SKILL.md check is a different subject", () => {
+    // The only presence check that shipped reads a SKILL.md body. This tree's
+    // `/implement` SKILL.md names both sections, and `scanStageBlockAdoption`
+    // is therefore silent — while the RENDERED report that dropped them is
+    // still a violation. Two subjects, and the report's own one must fire.
+    const skill = read(skillPath("implement"));
+    for (const entry of exemptSectionsFor("implement")) {
+      expect(skill).toContain(entry.heading);
+    }
+    expect(
+      scanStageBlockAdoption(REPO_ROOT).filter((v) => v.stage === "implement"),
+    ).toEqual([]);
+
+    const dropped = blockOnly(reportForStage("implement"));
+    for (const entry of exemptSectionsFor("implement")) {
+      expect(dropped).not.toContain(entry.heading);
+    }
+    expect(verifyStageReportAdoption(dropped).ok).toBe(false);
+  });
+
+  test("ISOLATION — a stage that owes nothing is not made to carry another stage's section", () => {
+    const stages = ADOPTING_STAGES.filter((s) => exemptSectionsFor(s).length === 0);
+    expect(stages.length).toBeGreaterThan(0);
+    for (const stage of stages) {
+      expect({ stage, verdict: verifyStageReportAdoption(blockOnly(reportForStage(stage))) })
+        .toEqual({ stage, verdict: { ok: true, reasons: [] } });
+    }
+  });
+
+  test("the committed 'compliant capture' fixture carries every section it OWES", () => {
+    // The measured defect, on the milestone's own model artifact: it declared
+    // `stage: implement`, carried NEITHER mandated section, and graded clean.
+    const body = read(CAPTURED_CLEAN);
+    const stage = /^\s*stage:\s*(\S+)/m.exec(body)?.[1];
+    expect(stage).toBe("implement");
+    let checked = 0;
+    for (const entry of exemptSectionsFor(stage!)) {
+      expect({ heading: entry.heading, carried: body.includes(entry.heading) }).toEqual({
+        heading: entry.heading,
+        carried: true,
+      });
+      checked += 1;
+    }
+    expect(checked).toBe(exemptSectionsFor(stage!).length);
+    expect(checked).toBeGreaterThan(0);
+
+    // The section bodies track the SHIPPED renderer's section names rather
+    // than a hand-typed shape.
+    const afterHeading = body.split(IMPLEMENT_EVIDENCE_HEADING)[1]!.split("\n").slice(1);
+    const stop = afterHeading.findIndex(IS_HEADING);
+    const evidenceBody = (stop < 0 ? afterHeading : afterHeading.slice(0, stop))
+      .filter((l) => l.trim().length > 0 && !IS_LIST_ITEM(l))
+      .map((l) => l.trim());
+    expect(evidenceBody).toEqual(
+      (EVIDENCE_SECTIONS as readonly string[]).map((name) => `${name}:`),
+    );
+    expect(body).toContain(ADVISORY_EMPTY_LITERAL);
+
+    // …and the narrated twin carries them too, so the pair still differs by
+    // narration ALONE.
+    const narrated = read(CAPTURED_NARRATED);
+    for (const entry of exemptSectionsFor(stage!)) {
+      expect(narrated).toContain(entry.heading);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The carve-out covers ONE stage (AC-STE-533.2a, widened to the eleven)
+// ---------------------------------------------------------------------------
+
+/** The cap sentence, matched on the LIVE number — never a typed 12. */
+const CAP_SENTENCE_RE = new RegExp(
+  `at most ${PROSE_LEAD_IN_LINE_CAP} lines of prose lead-in`,
+  "i",
+);
+
+/** Does this stage's shipped SKILL.md put its report under the prose cap? */
+const carriesProseCap = (stage: string): boolean =>
+  CAP_SENTENCE_RE.test(read(skillPath(stage)));
+
+/**
+ * The heading block of a stage's SKILL.md that carries the cap sentence — the
+ * section where that stage's closing report contract is written down.
+ */
+function closingSection(stage: string): { lines: string[]; capIndex: number } | null {
+  const lines = read(skillPath(stage)).split("\n");
+  const capIndex = lines.findIndex((l) => CAP_SENTENCE_RE.test(l));
+  if (capIndex < 0) return null;
+  let start = capIndex;
+  while (start > 0 && !/^#{1,6}\s/.test(lines[start]!)) start -= 1;
+  const level = (/^(#{1,6})\s/.exec(lines[start]!)?.[1] ?? "##").length;
+  let end = start + 1;
+  while (end < lines.length) {
+    const m = /^(#{1,6})\s/.exec(lines[end]!);
+    if (m !== null && m[1]!.length <= level) break;
+    end += 1;
+  }
+  return { lines: lines.slice(start, end), capIndex: capIndex - start };
+}
+
+/** The `## Heading` literals the closing contract ORDERS the report to emit. */
+function mandatedReportHeadings(stage: string): string[] {
+  const section = closingSection(stage);
+  if (section === null) return [];
+  const text = section.lines.join("\n");
+  const out = new Set<string>();
+  for (const m of text.matchAll(
+    /(?:render|append|emit|present|produce)[^.]{0,200}?`(## [^`]+)`/g,
+  )) {
+    out.add(m[1]!);
+  }
+  for (const m of text.matchAll(/`(## [^`]+)` section/g)) out.add(m[1]!);
+  return [...out];
+}
+
+/**
+ * The VERBATIM artifacts a stage's closing contract still orders its report to
+ * reproduce — fenced blocks other than the status block itself.
+ *
+ * A section that says in so many words that the status block REPLACES or
+ * SUPERSEDES its former shape has no such artifact left: the fence is a
+ * reference to a retired shape, not an order. The cap sentence is excluded from
+ * that scan, because every stage's cap sentence says the block "replaces the
+ * narration" and reading it as a supersession would excuse all eleven.
+ */
+function mandatedVerbatimArtifacts(stage: string): string[][] {
+  const section = closingSection(stage);
+  if (section === null) return [];
+  const superseded = section.lines.some(
+    (l, i) => i !== section.capIndex && /\b(replaces|supersedes|superseded)\b/i.test(l),
+  );
+  if (superseded) return [];
+  const out: string[][] = [];
+  let current: string[] | null = null;
+  let run = 0;
+  let isStatusBlock = false;
+  for (const line of section.lines) {
+    const m = /^\s*(`{3,})(.*)$/.exec(line);
+    if (m !== null) {
+      if (current === null) {
+        run = m[1]!.length;
+        isStatusBlock = `\`\`\`${m[2]!.trim()}` === STAGE_BLOCK_FENCE_BANNER;
+        current = [line];
+        continue;
+      }
+      if (m[1]!.length >= run && m[2]!.trim().length === 0) {
+        current.push(line);
+        if (!isStatusBlock) out.push(current);
+        current = null;
+        continue;
+      }
+    }
+    if (current !== null) current.push(line);
+  }
+  return out;
+}
+
+describe("M137 review — the carve-out covers EVERY capped stage, not one", () => {
+  test("THE INSTRUMENT WORKS — the heading extractor finds /implement's two, and no phantoms", () => {
+    // A scan that found nothing would pass the subset leg below while
+    // measuring nothing at all.
+    expect(mandatedReportHeadings("implement").sort()).toEqual(
+      exemptSectionsFor("implement").map((e) => e.heading).sort(),
+    );
+    // …and it does not fire on a stage that mandates no report section.
+    expect(mandatedReportHeadings("upgrade")).toEqual([]);
+  });
+
+  test("every capped stage's mandated report HEADINGS have a cap-exempt entry", () => {
+    let checked = 0;
+    for (const stage of ADOPTING_STAGES) {
+      if (!carriesProseCap(stage)) continue;
+      const owed = exemptSectionsFor(stage).map((e) => e.heading);
+      const mandated = mandatedReportHeadings(stage);
+      expect({ stage, uncovered: mandated.filter((h) => !owed.includes(h)) }).toEqual({
+        stage,
+        uncovered: [],
+      });
+      checked += 1;
+    }
+    // Enumerated, never sampled: every one of the eleven carries the cap.
+    expect(checked).toBe(ADOPTING_STAGES.length);
+  });
+
+  test("every VERBATIM artifact a capped stage still mandates is covered — or the cap does not apply", () => {
+    // MEASURED on the shipped tree (2026-09-01): `/gate-check` (11 lines),
+    // `/setup` (10) and `/spec-review` (3) each order their report to reproduce
+    // a verbatim block that is NOT marked superseded and has NO cap-exempt
+    // entry — structured content charged against a cap sized for free
+    // narration. `/deps`, `/report-issue` and `/spec-write` name a block too
+    // and write down that the status block supersedes it, which is what a
+    // resolved collision looks like.
+    //
+    // Two remedies, both legitimate: give the artifact a cap-exempt entry, or
+    // write down that the block supersedes the shape. What is not legitimate is
+    // leaving the stage under a cap its own contract cannot satisfy.
+    let checked = 0;
+    for (const stage of ADOPTING_STAGES) {
+      if (!carriesProseCap(stage)) continue;
+      const artifacts = mandatedVerbatimArtifacts(stage);
+      const owed = exemptSectionsFor(stage);
+      expect({
+        stage,
+        uncoveredArtifacts: owed.length > 0 ? 0 : artifacts.length,
+      }).toEqual({ stage, uncoveredArtifacts: 0 });
+      checked += 1;
+    }
+    expect(checked).toBe(ADOPTING_STAGES.length);
+  });
+
+  test("THE ISOLATING HALF — the supersession scan really does discriminate", () => {
+    // Without this leg the artifact scan could pass by finding nothing
+    // anywhere. Some stage's closing contract DOES still name a block, and the
+    // stages that retired theirs say so in writing.
+    const named = ADOPTING_STAGES.filter(
+      (s) => closingSection(s) !== null && /```/.test(closingSection(s)!.lines.join("\n")),
+    );
+    expect(named.length).toBeGreaterThan(0);
+    const retired = ADOPTING_STAGES.filter((s) => {
+      const section = closingSection(s);
+      if (section === null) return false;
+      return section.lines.some(
+        (l, i) => i !== section.capIndex && /\b(replaces|supersedes)\b/i.test(l),
+      );
+    });
+    expect(retired.length).toBeGreaterThan(0);
+    expect(retired.length).toBeLessThan(ADOPTING_STAGES.length);
   });
 });
