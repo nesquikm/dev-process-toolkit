@@ -1993,3 +1993,86 @@ describe("M137 round 3 — the known attacks and the taxonomy (documentation, NO
     }
   });
 });
+
+// ===========================================================================
+// FENCES — sample text is not a section, and code is not prose
+// ===========================================================================
+//
+// Both halves ship together and neither is sufficient. `fenceAware: false` was
+// harmless while every rule read one line at a time; per-name accumulation made
+// a fenced EXAMPLE of a capped section spend the real section's budget. But the
+// flip alone raised this repository's archived-corpus count from 638 to 644,
+// because a fenced heading had ALSO been truncating the real section early —
+// so ending that handed `## Technical Design` its own worked examples as
+// narration. One false-positive class traded for another is a relocation, not
+// a fix.
+describe("a fenced example is not a section, and its code is not prose", () => {
+  function frWith(body: string): { root: string; cleanup: () => void } {
+    const root = mkdtempSync(join(tmpdir(), "fr-fence-"));
+    mkdirSync(join(root, "specs", "frs"), { recursive: true });
+    writeFileSync(join(root, "specs", "frs", "STE-950.md"), body);
+    return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  }
+  const words = (n: number): string => Array.from({ length: n }, () => "w").join(" ");
+
+  test("a fenced EXAMPLE of a capped section does not spend the real one's budget", () => {
+    // The reported defect. Both Summaries are under the cap on their own; only
+    // pooling the fenced one into the real one breaches it.
+    const under = SUMMARY_WORD_CAP - 10;
+    const fx = frWith(
+      `# STE-950\n\n## Summary\n\n${words(under)}\n\n## Technical Design\n\n` +
+        `Shape:\n\n\`\`\`markdown\n## Summary\n\n${words(under)}\n\`\`\`\n`,
+    );
+    try {
+      const rows = scanFrSummaryAltitude(fx.root).filter((v) => v.rule === "word_cap");
+      expect(rows, "the fenced example is sample text, not a second Summary").toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("fenced CODE does not count toward a prose word cap", () => {
+    // A Technical Design carrying a long worked example is the section doing
+    // its job. Counting the example as narration flags it for that.
+    const fx = frWith(
+      `# STE-950\n\n## Technical Design\n\nShort prose.\n\n` +
+        `\`\`\`typescript\n// ${words(TECHNICAL_DESIGN_WORD_CAP * 2)}\n\`\`\`\n`,
+    );
+    try {
+      const rows = scanFrSummaryAltitude(fx.root).filter((v) => v.rule === "word_cap");
+      expect(rows, "a worked example is not narration").toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("prose OUTSIDE the fence is still counted — the skip is scoped", () => {
+    // Non-vacuity. If the fence skip leaked to the whole section the cap would
+    // stop working entirely, and the two legs above would pass for the wrong
+    // reason.
+    const fx = frWith(
+      `# STE-950\n\n## Summary\n\n${words(SUMMARY_WORD_CAP + 20)}\n\n` +
+        `\`\`\`markdown\nfenced\n\`\`\`\n`,
+    );
+    try {
+      const rows = scanFrSummaryAltitude(fx.root).filter((v) => v.rule === "word_cap");
+      expect(rows.length, "over-cap prose still flags").toBe(1);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("the `backtick` rule STILL fires on a fence in Summary", () => {
+    // `fencedFlags` marks the DELIMITER lines as fenced too, so a wholesale
+    // skip would silently retire this rule — which is documented as "any
+    // backtick character on a line, SUBSUMING code fences". The skip is scoped
+    // to word counting for exactly this reason.
+    const fx = frWith(`# STE-950\n\n## Summary\n\nShort.\n\n\`\`\`md\nx\n\`\`\`\n`);
+    try {
+      const rows = scanFrSummaryAltitude(fx.root).filter((v) => v.rule === "backtick");
+      expect(rows.length, "a fence in Summary is still a backtick violation").toBeGreaterThan(0);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});

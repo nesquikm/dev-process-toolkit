@@ -2,12 +2,12 @@
 // and the two closures belong in ONE entry, because their consumer profiles are
 // OPPOSITE and that contrast is what makes either one legible:
 //
-//   * The word caps (STE-534) needed a grandfathering epoch. They flagged 638
-//     violations across 320 archived FRs the moment they landed — a consumer
+//   * The word caps (STE-534) needed a grandfathering epoch. They flagged 616
+//     violations across 319 archived FRs the moment they landed — a consumer
 //     upgrading and touching nothing would have watched `/gate-check` flip
 //     PASSED → FAILED on prose they never wrote.
 //
-//   * The per-name accumulation fix needs NO epoch. 638 before, 638 after,
+//   * The per-name accumulation fix needs NO epoch. 616 before, 616 after,
 //     0 newly flagged, and 0 archived FRs repeat a capped section name.
 //     Nothing in 32 milestones of corpus ever relied on the split shape.
 //
@@ -24,12 +24,12 @@
 // provenance, and until STE-534's existing line says what it inherited from the
 // probe it was added to: the accumulator.
 //
-// THE NUMBERS ARE DERIVED, NOT QUOTED. 638 and 320 are re-measured here by
+// THE NUMBERS ARE DERIVED, NOT QUOTED. 616 and 319 are re-measured here by
 // copying `specs/frs/archive/*.md` into an ACTIVE `specs/frs/` and running the
 // shipped scanner; the milestone span is computed from two frontmatter fields.
 // The population is closed by construction: every FR authored from the epoch
 // forward is graded at error severity and must clear the caps, so a future
-// milestone cannot move 638 or 320. The corpus SIZE ("of 447 files") is
+// milestone cannot move 616 or 319. The corpus SIZE ("of 447 files") is
 // deliberately NOT pinned — that number grows with every milestone, and a pin
 // on it would force an edit to a historical release entry.
 //
@@ -255,8 +255,8 @@ describe("item B — the measurement the provenance rests on still reproduces", 
   test("the archived corpus yields the numbers the entry has to state", () => {
     const m = measureCorpus();
     expect(m.files).toBeGreaterThan(400);
-    expect(m.wordCapRows).toBe(638);
-    expect(m.wordCapFiles).toBe(320);
+    expect(m.wordCapRows).toBe(616);
+    expect(m.wordCapFiles).toBe(319);
   }, 60_000);
 
   test("nothing in the corpus relied on the split shape — so no epoch is owed", () => {
@@ -283,8 +283,8 @@ describe("item B — the requirement set discriminates before it is applied", ()
       whose first was already evadable, then copied the shape into a third
       scanner. The two closures ship as one entry because their consumer
       profiles are opposite. The caps needed a grandfathering epoch — they
-      flagged 638 violations across 320 of this repository's archived FRs the
-      moment they landed. The accumulation fix needs none: 638 before, 638
+      flagged 616 violations across 319 of this repository's archived FRs the
+      moment they landed. The accumulation fix needs none: 616 before, 616
       after, 0 newly flagged, and 0 archived FRs repeat a capped section name.
       (STE-534, STE-535)
   `);
@@ -300,11 +300,11 @@ describe("item B — the requirement set discriminates before it is applied", ()
       ["drops the span", COMPLETE.replace("for 32 milestones", "for a while")],
       [
         "drops the no-epoch contrast",
-        COMPLETE.replace("638 before, 638 after, 0 newly flagged, and ", ""),
+        COMPLETE.replace("616 before, 616 after, 0 newly flagged, and ", ""),
       ],
       [
         "drops the epoch measurement",
-        COMPLETE.replace("flagged 638 violations across 320 of", "flagged violations across"),
+        COMPLETE.replace("flagged 616 violations across 319 of", "flagged violations across"),
       ],
     ];
     for (const [label, text] of omissions) {

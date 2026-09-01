@@ -92,6 +92,7 @@ import { basename, relative } from "node:path";
 
 import {
   countWords,
+  fencedFlags,
   walkSections,
   type SectionWalkSpec,
 } from "./markdown_section_walk";
@@ -163,15 +164,24 @@ const HEADING_RE = /^##\s+(.*?)\s*$/;
  * which `scan_plan_narrative_altitude.ts` runs on too.
  *
  * `closes: null` — here one level-2 heading both ends the previous section and
- * starts the next, so the opener is the only closer. `fenceAware: false` — this
- * walk has never treated a `## ` inside a fence as sample text; that is stated
- * as data rather than left as a silent omission, so a later FR that wants to
- * flip it has one place to do it and one place to test.
+ * starts the next, so the opener is the only closer.
+ *
+ * `fenceAware: true` — FLIPPED, in the one place the knob was put for it. It
+ * was harmless while every rule read one line at a time: a `## Summary` quoted
+ * inside a fence opened a phantom section, and nothing pooled into a phantom.
+ * PER-NAME ACCUMULATION made it a false positive — a real Summary of 70 words,
+ * under the cap, flags because a fenced EXAMPLE of a Summary pools 70 more into
+ * the same name, and the row then points at a line inside the fence.
+ *
+ * The flip alone is not the fix: a fenced heading was also TRUNCATING the real
+ * section, so ending that hands the section its fenced code as prose. See the
+ * fence skip in the counting loop — the two land together or they trade one
+ * false-positive class for another.
  */
 const FR_SECTION_WALK: SectionWalkSpec = {
   opens: HEADING_RE,
   closes: null,
-  fenceAware: false,
+  fenceAware: true,
 };
 // AC-ID token of the AC-prefix shape, any flavor: tracker-mode with a numeric
 // ticket segment (AC-STE-386.2, AC-DST-45.1) or the mode-none short-ULID
@@ -292,6 +302,19 @@ function scanFile(
     const { section, rules, wordCap } = spec;
     const acc = accumulatorFor(section);
     let occurrenceWords = 0;
+    // FENCED CONTENT IS NOT PROSE. The word caps bound NARRATION; a Technical
+    // Design legitimately carries a worked example, and counting its code
+    // toward a prose budget flags the section for doing the thing it is for.
+    // Parity with `scan_plan_narrative_altitude`, which has categorised fenced
+    // lines as `code` since it shipped — the asymmetry between two scanners
+    // walking the same shape was the defect, not a missing feature.
+    //
+    // WORD COUNTING ONLY, deliberately. `fencedFlags` marks the DELIMITER
+    // lines as fenced too, so skipping fenced lines wholesale would stop the
+    // `backtick` rule firing on a fence in `## Summary` — and that rule is
+    // documented as "any backtick character on a line, SUBSUMING code fences".
+    // The predicates and `line_cap` below read every line exactly as before.
+    const bodyFenced = fencedFlags(entered.body);
 
     for (let i = 0; i < entered.body.length; i++) {
       const line = entered.body[i]!;
@@ -314,7 +337,7 @@ function scanFile(
         if (rules.includes(rule) && matches(line)) flag(at, rule, section);
       }
 
-      const n = countWords(line);
+      const n = bodyFenced[i] === true ? 0 : countWords(line);
       if (n > 0) {
         acc.words += n;
         occurrenceWords += n;
