@@ -705,3 +705,54 @@ describe("AC-STE-532.7 — mutation-verified, each mutation asserted to have APP
     );
   });
 });
+
+// ===========================================================================
+// PR #76 ROUND C — F6: A BOUNDARY PAIR FOR THE WHOLE-REPORT CAP
+// ===========================================================================
+//
+// STRENGTHENING, not a defect report. AC-STE-532.3 is a SPAN contract — it
+// pins that the measured span includes the prose lead-in — and the legs above
+// satisfy it exactly as written: a 40-line narration bolted onto a compliant
+// fence is refused, and the fence is proven compliant on its own banner.
+//
+// What no leg pins is the COMPARISON at the edge. Measured 2026-09-01:
+// changing `> STAGE_REPORT_LINE_CAP` to `> STAGE_REPORT_LINE_CAP + 1` in
+// `stage_status_block.ts` leaves the FULL gate green, because every fixture
+// sits far from the boundary. The sibling prose lead-in cap already ships its
+// at-cap/over-cap pair; this is the same pair for the report-wide budget.
+
+describe("AC-STE-532.3 STRENGTHENED — the cap is a boundary, and the boundary is pinned", () => {
+  const HEADROOM = STAGE_REPORT_LINE_CAP - lineCount(CLEAN);
+  const AT_CAP = insertNarration(CLEAN, HEADROOM);
+  const OVER_CAP = insertNarration(CLEAN, HEADROOM + 1);
+
+  test("the two reports really do straddle the cap by exactly one line", () => {
+    // The mutation-applied check. Without it an off-by-one in the FIXTURES
+    // would make the verdicts below agree with a cap set anywhere nearby.
+    expect(HEADROOM).toBeGreaterThanOrEqual(0);
+    expect(lineCount(AT_CAP)).toBe(STAGE_REPORT_LINE_CAP);
+    expect(lineCount(OVER_CAP)).toBe(STAGE_REPORT_LINE_CAP + 1);
+    expect(lineCount(OVER_CAP) - lineCount(AT_CAP)).toBe(1);
+    // The fence is byte-identical in both, so the ONLY difference graded is the
+    // report's total span.
+    expect(fenceBody(AT_CAP)).toEqual(fenceBody(CLEAN));
+    expect(fenceBody(OVER_CAP)).toEqual(fenceBody(CLEAN));
+  });
+
+  test("a report of EXACTLY the cap is clean", () => {
+    const verdict = verifyStageStatusBlock(AT_CAP);
+    expect(verdict.reasons.filter(isCapReason)).toEqual([]);
+    expect(verdict).toEqual({ ok: true, reasons: [] });
+  });
+
+  test("a report of the cap PLUS ONE is refused, and the refusal names the cap", () => {
+    const verdict = verifyStageStatusBlock(OVER_CAP);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.reasons.some(isCapReason)).toBe(true);
+    // The measured length is reported, not just the limit — an operator one
+    // line over needs to see which number is theirs.
+    expect(
+      verdict.reasons.some((r) => r.includes(String(STAGE_REPORT_LINE_CAP + 1))),
+    ).toBe(true);
+  });
+});

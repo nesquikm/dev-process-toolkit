@@ -26,9 +26,19 @@ Two sentences, one fact. Keep the first, delete the second. This also covers a s
 
 ## Counting a rule set
 
-A numbered claim about a rule set — "the four altitude rules", "three clauses per stage" — is true on the day it is written and wrong the moment the set grows, because nothing ties the numeral to the set. M137 corrected three of them: probe #67's "four altitude rules", the header of its colocated test, and `docs/stage-status-block.md`'s "The four adoption rules" (`verifyStageReportAdoption` grades six).
+A numbered claim about a rule set — "the four altitude rules", "three clauses per stage" — is true on the day it is written and wrong the moment the set grows, because nothing ties the numeral to the set. M137 corrected four of them: probe #67's "four altitude rules", the header of its colocated test, `docs/stage-status-block.md`'s "The four adoption rules" (`verifyStageReportAdoption` grades six), and the header of `adapters/_shared/src/stage_block_adoption.ts`, which said "four REPORT-LEVEL rules" over a list of six — the same file the third correction was about, one surface over, found only because a test compared the two lists item for item instead of reading either numeral.
 
 State the count **from the set** wherever a reader is not the only consumer: read `RULES.length`, render the word from an index, or let a numbered list be its own count. Where prose genuinely needs the numeral — a heading, a sentence — name the binding beside it so a reader checking the claim knows which array to count, and expect to re-check it whenever that array changes.
+
+## When the guard has the blind spot it exists to catch
+
+`tests/m137-archive-blind-spot-class.test.ts` was written to close the archival blind spot as a CLASS: it scans every test source and fails any that reaches a live spec file without naming its archived twin. It shipped seeing only the FILE form — `join(REPO_ROOT, "specs", "frs", "STE-533.md")` — and not the DIRECTORY form — `mdFilesIn(join(repoRoot, "specs", "frs"))`. Two of the same milestone's own dogfoods reached the active tree by the second shape, and the class-closing guard reported clean over both.
+
+The two forms fail differently, which is why one shape hid behind the other. A hardcoded file path throws ENOENT at the archive commit: loud, immediate, unmissable. A hardcoded directory path throws nothing — the walk returns `[]`, the suite measures an empty subject and reports a pass. The quiet half is the one worth the guard, and it was the half the guard could not see.
+
+This is the sixth recorded instance of *a fix reaches only the clause you name*, and the first where the thing not reached was the guard itself.
+
+**Before writing a guard, enumerate the forms the defect takes, and prove the guard sees each one.** Write the enumeration down where the guard lives, and give every form its own falsifiability leg on a fixture built to break it — a leg that passes on one shape and is silent on the others is the shipped defect, one level up. Where two forms need two different verdicts — here the file form is a violation and the directory form is merely seen, because a vacuous walk is not an ENOENT — say which rule each takes, or conflating them becomes the next bug.
 
 ## Why nothing enforces this
 

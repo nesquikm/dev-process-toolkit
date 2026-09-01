@@ -92,9 +92,10 @@ import {
 } from "../adapters/_shared/src/stage_block_adoption";
 import { STAGE_REPORT_LINE_CAP } from "../adapters/_shared/src/stage_status_block";
 import { FENCE_LINE_CAP } from "../adapters/_shared/src/deliver_stage_capture";
-// Frontmatter milestone binding — how the FR-side archive fallback below stays
-// scoped to THIS milestone instead of swallowing 440-plus pre-rule FRs.
-import { boundToMilestone } from "./_spec_tree";
+// The shared milestone-scoped spec-tree resolver — how the FR-side dogfood below
+// stays scoped to THIS milestone on BOTH paths instead of swallowing 440-plus
+// pre-rule FRs on one and the next milestone's FRs on the other.
+import { milestoneSpecFiles } from "./_spec_tree";
 
 const pluginRoot = join(import.meta.dir, "..");
 const SELF = join(import.meta.dir, "m137-ste-536-budget-single-source.test.ts");
@@ -1539,32 +1540,30 @@ const DOGFOOD_MILESTONE = "M137";
  * reason, and this one now speaks the same idiom.
  */
 function frDogfoodTree(repoRoot: string = REPO_ROOT): FrDogfood {
-  const noop = (): void => {};
-  const frsDir = join(repoRoot, "specs", "frs");
-  const mdIn = (dir: string): string[] =>
-    existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith(".md")).sort() : [];
-
-  const active = mdIn(frsDir);
-  if (active.length > 0) {
-    return { root: repoRoot, source: "active", files: active, cleanup: noop };
-  }
-  const archiveDir = join(frsDir, "archive");
-  const archived = mdIn(archiveDir).filter((n) =>
-    boundToMilestone(join(archiveDir, n), DOGFOOD_MILESTONE),
-  );
-  if (archived.length === 0) {
+  // BOTH paths through the shared resolver. The ACTIVE half used to take every
+  // `.md` under `specs/frs/` while only the ARCHIVE half was milestone-scoped,
+  // so the moment the next milestone opened an FR this suite would have graded
+  // M137's stated budgets over M138's prose with every non-vacuity leg green.
+  const resolved = milestoneSpecFiles(repoRoot, "specs/frs", DOGFOOD_MILESTONE);
+  if (resolved.source === "none") {
     throw new Error(
       `this repository carries no FR files for ${DOGFOOD_MILESTONE} at all, active or ` +
         "archived, so the FR-side guard would report a clean tree while measuring nothing",
     );
   }
+  // Always staged, on either path: the scanner walks a DIRECTORY, so a filtered
+  // list handed back beside an unfiltered root would grade the files the filter
+  // was supposed to remove.
+  const names = resolved.files.map((abs) => abs.split(/[\\/]/).pop() as string);
   const files: Record<string, string> = {};
-  for (const n of archived) files[`specs/frs/${n}`] = read(join(archiveDir, n));
+  for (const abs of resolved.files) {
+    files[`specs/frs/${abs.split(/[\\/]/).pop() as string}`] = read(abs);
+  }
   const staged = stageTree(files, "budget-surface-fr-");
   return {
     root: staged.root,
-    source: "archive",
-    files: archived,
+    source: resolved.source,
+    files: names,
     cleanup: staged.cleanup,
   };
 }
@@ -1651,5 +1650,110 @@ describe("budget-stating surfaces — the FR guidance surface clears its own cap
     expect(audit.violations.length).toBeGreaterThan(0);
     expect(audit.violations.every((v) => v.rule === "word_cap")).toBe(true);
     expect(new Set(audit.violations.map((v) => v.section)).size).toBeGreaterThan(0);
+  });
+});
+
+// ===========================================================================
+// PR #76 ROUND C — F8: THE FR DOGFOOD'S ACTIVE PATH IS UNSCOPED
+// ===========================================================================
+//
+// `frDogfoodTree`'s own doc comment argues the scoping case at length — 442
+// archived FRs, 638 `word_cap` breaches against a rule they predate — and then
+// applies it to the ARCHIVE branch alone. The ACTIVE branch takes every `.md`
+// in `specs/frs/`, unfiltered. The two are indistinguishable while M137 is the
+// only open milestone; they diverge the moment M138 opens an FR, and at that
+// point this suite grades M137's stated budgets over M138's prose while every
+// non-vacuity leg keeps passing.
+//
+// `milestoneSpecFiles` in `tests/_spec_tree.ts` is the shared shape that
+// filters both paths and reports which one answered.
+
+/** A minimal active FR bound to `milestone`, with one budgeted section. */
+function fixtureFr(id: string, milestone: string, summaryWords: number): string {
+  const words = Array.from({ length: summaryWords }, (_, i) => `word${i % 7}`).join(" ");
+  return [
+    "---",
+    `title: "Fixture ${id}"`,
+    "status: active",
+    `milestone: ${milestone}`,
+    "---",
+    "",
+    `# ${id}: Fixture`,
+    "",
+    "## Summary",
+    "",
+    words,
+    "",
+  ].join("\n");
+}
+
+describe("F8 — the FR dogfood subject is milestone-scoped on BOTH paths", () => {
+  test("an ACTIVE tree carrying a LATER milestone's FRs supplies only THIS milestone's", () => {
+    const fx = stageTree(
+      {
+        "specs/frs/STE-990.md": fixtureFr("STE-990", DOGFOOD_MILESTONE, 30),
+        "specs/frs/STE-991.md": fixtureFr("STE-991", "M138", 30),
+      },
+      "budget-surface-f8-",
+    );
+    const dog = frDogfoodTree(fx.root);
+    try {
+      expect(dog.source).toBe("active");
+      expect([...dog.files]).toEqual(["STE-990.md"]);
+    } finally {
+      dog.cleanup();
+      fx.cleanup();
+    }
+  });
+
+  test("the SCANNER sees only those files — the reported list and the graded root agree", () => {
+    // `auditFrTree` hands `dog.root` to a scanner that walks the DIRECTORY, so
+    // filtering only the reported `files` would leave M138's FR graded while
+    // the names looked right.
+    const fx = stageTree(
+      {
+        "specs/frs/STE-990.md": fixtureFr("STE-990", DOGFOOD_MILESTONE, 30),
+        "specs/frs/STE-991.md": fixtureFr("STE-991", "M138", 30),
+      },
+      "budget-surface-f8-",
+    );
+    const dog = frDogfoodTree(fx.root);
+    try {
+      const rules = statedSectionRules(read(SPEC_WRITE));
+      const files = new Set(measureFrSections(dog.root, rules).map((m) => m.file));
+      expect([...files].sort()).toEqual(["specs/frs/STE-990.md"]);
+    } finally {
+      dog.cleanup();
+      fx.cleanup();
+    }
+  });
+
+  test("an ACTIVE tree holding none of THIS milestone's FRs never reads as an active pass", () => {
+    const fx = stageTree(
+      { "specs/frs/STE-992.md": fixtureFr("STE-992", "M138", 30) },
+      "budget-surface-f8-",
+    );
+    try {
+      // No archived copy exists under this temp root either, so the resolver
+      // must raise rather than hand back another milestone's FR.
+      expect(() => frDogfoodTree(fx.root)).toThrow(/M137/);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("ISOLATION — an active tree of THIS milestone's FRs alone still resolves active", () => {
+    const fx = stageTree(
+      { "specs/frs/STE-993.md": fixtureFr("STE-993", DOGFOOD_MILESTONE, 30) },
+      "budget-surface-f8-",
+    );
+    const dog = frDogfoodTree(fx.root);
+    try {
+      expect(dog.source).toBe("active");
+      expect([...dog.files]).toEqual(["STE-993.md"]);
+    } finally {
+      dog.cleanup();
+      fx.cleanup();
+    }
   });
 });

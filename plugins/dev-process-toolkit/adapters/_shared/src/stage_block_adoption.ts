@@ -5,9 +5,12 @@
 // whole-report line cap, the empty-section fallback and counts-without-capture.
 // It shipped with no production consumer, and this module is that consumer.
 //
-// What is NEW here is deliberately small — four REPORT-LEVEL rules that only
-// make sense once a stage has committed to emitting the block INSTEAD of
-// narrating:
+// What is NEW here is deliberately small. Every rule below is REPORT-LEVEL — it
+// only makes sense once a stage has committed to emitting the block INSTEAD of
+// narrating. The list is its own count, and no numeral restates it here: an
+// earlier header said "four" while the list already ran to six, which is the
+// § Counting a rule set defect in `docs/prose-altitude.md`. The same list, in
+// the same order, heads `docs/stage-status-block.md`.
 //
 //   1. a prose lead-in cap, so the block replaces the narration rather than
 //      riding beneath it;
@@ -16,7 +19,14 @@
 //      STE-532's own words, because a second parser free to disagree with the
 //      first is the two-renderers defect this repository has recorded;
 //   4. the block is the LAST thing in the report, EXCEPT the closed, cited set
-//      of structured sections earlier milestones mandate (AC-STE-533.2a).
+//      of structured sections earlier milestones mandate (AC-STE-533.2a);
+//   5. the block names an ADOPTING stage — `stage:` must be one of
+//      `ADOPTING_STAGES`; a missing value and a `/deliver` ceremony id are
+//      both refused, because that vocabulary rides the other banner;
+//   6. capability tokens ride INSIDE the block — `locateCapabilityTokens`
+//      splits the tokens it finds into `inBlock` and `outsideBlock`, and a
+//      token left loose in the prose is a reason of its own. It is a REFUSAL,
+//      not a presence check: a report carrying no token at all grades clean.
 //
 // Everything else is delegated. The fence walk is `closedStatusFences`, taken
 // from the module that owns the adopting banner rather than rebuilt here; the
@@ -32,6 +42,17 @@
 // narration paragraphs above and below a compliant fence score clean).
 // Narration is a property of a RENDERED REPORT and is graded below, by
 // `verifyStageReportAdoption`. Two halves, two subjects.
+//
+// WHAT THE `--report` FRONT DOOR CANNOT GRADE, stated rather than implied.
+// STE-532's counts-without-capture rule is never graded off a capture: the
+// front door reads a rendered report off disk, there is no run behind that
+// file, and the `evidence` argument it would have to trace a number back to
+// does not exist at that point — so the front door calls
+// `verifyStageReportAdoption(body)` with one argument and the rule stays
+// silent. It fires only for an IN-PROCESS caller that has the run's evidence
+// in hand and passes it as the second argument. Documented here because a rule
+// advertised as enforced and enforced nowhere is worse than one written down
+// as unenforced.
 //
 // Pure and read-only in the grading half (it takes report TEXT, not a path);
 // the scanner half reads SKILL.md bodies off disk and does nothing else — no
