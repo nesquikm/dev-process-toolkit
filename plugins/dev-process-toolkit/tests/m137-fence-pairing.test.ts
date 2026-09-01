@@ -98,3 +98,44 @@ describe("a mispaired fence must not silence probe #67", () => {
     }
   });
 });
+
+describe("the fix marks LESS content fenced, not more", () => {
+  test("the old closer rule swallowed two headings this one does not", () => {
+    // THE DISCRIMINATING LEG. A fix to a fence pairer could plausibly go the
+    // wrong way — pairing more aggressively would fence MORE of the document
+    // and hide more sections. This asserts the direction, not just the
+    // outcome, by running the old rule beside the new one on one input.
+    //
+    // Old rule: any fence-shaped line closes. New rule: CommonMark.
+    const doc = [
+      "# STE-981", "", "## Technical Design", "",
+      "```markdown", "sample", "```bash", "echo hi", "```", "",
+      "## Summary", "", "words here", "",
+      "## Notes", "", "```ts", "const x = 1;", "```", "",
+    ];
+    const oldFlags = ((lines: readonly string[]): boolean[] => {
+      const RE = /^\s*(?:```|~~~)/;
+      const flags = new Array(lines.length).fill(false);
+      let i = 0;
+      while (i < lines.length) {
+        if (!RE.test(lines[i]!)) { i++; continue; }
+        let close = i + 1;
+        while (close < lines.length && !RE.test(lines[close]!)) close++;
+        if (close >= lines.length) break;
+        for (let k = i; k <= close; k++) flags[k] = true;
+        i = close + 1;
+      }
+      return flags;
+    })(doc);
+
+    const headings = (flags: boolean[]): number[] =>
+      doc.flatMap((l, i) => (/^##\s+/.test(l) && flags[i] ? [i + 1] : []));
+
+    expect(headings(oldFlags), "the old rule swallowed Summary and Notes").toEqual([11, 15]);
+    expect(headings(fencedFlags(doc)), "the new rule swallows neither").toEqual([]);
+    expect(
+      fencedFlags(doc).filter(Boolean).length,
+      "and it fences FEWER lines overall — the fix does not over-pair",
+    ).toBeLessThan(oldFlags.filter(Boolean).length);
+  });
+});
