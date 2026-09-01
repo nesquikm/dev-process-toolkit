@@ -170,6 +170,11 @@ import {
   isTestPath,
   walkTextFiles,
 } from "./_module_consumers";
+// The active-then-archive spec lookup. THIS FR's own file is a subject of two
+// legs below, and an FR moves to `specs/frs/archive/` the moment its milestone
+// ships — the one transition no gate run precedes. Reaching it by a hardcoded
+// active path is green until the archive commit and ENOENT on it.
+import { readSpecFile } from "./_spec_tree";
 
 // ----------------------------------------------------------------------- paths
 
@@ -201,6 +206,20 @@ const README = join(REPO_ROOT, "README.md");
  * has already recorded going wrong once.
  */
 const SMOKE_SKILL = join(REPO_ROOT, ".claude", "skills", "smoke-test", "SKILL.md");
+
+/**
+ * THIS FR's own spec file, read through the active-then-archive lookup.
+ *
+ * Two legs below assert on its body. `specs/frs/STE-533.md` is where it lives
+ * while M137 is open and `specs/frs/archive/STE-533.md` is where `git mv` puts
+ * it when M137 ships, so a hardcoded active path passes every run up to the
+ * archive commit and throws on it. `readSpecFile` throws on neither-path rather
+ * than handing back an empty body, and reports which tree answered.
+ */
+const SELF_FR = "STE-533.md";
+function selfFr(): { body: string; rel: string; source: string } {
+  return readSpecFile(REPO_ROOT, "specs/frs", SELF_FR);
+}
 
 /** The committed captured-report fixtures STE-533's fixture group grades. */
 const ADOPTION_FIXTURE_DIR = join(
@@ -2416,8 +2435,15 @@ describe("M137 audit leftovers — no surface claims what its neighbour denies",
 
     // The second false claim: the names appear "only here". They do not — this
     // FR's own acceptance criteria spell all eleven out too.
-    const frBody = read(join(REPO_ROOT, "specs", "frs", "STE-533.md"));
-    expect(ADOPTING_STAGES.every((s) => frBody.includes(s))).toBe(true);
+    const self = selfFr();
+    // WHICH tree answered, stated outright. A subject that resolved nowhere
+    // would make the eleven-name check below trivially true against `""`, so
+    // the source is pinned before the body is read.
+    expect(["active", "archive"]).toContain(self.source);
+    expect([self.rel, ADOPTING_STAGES.every((s) => self.body.includes(s))]).toEqual([
+      self.rel,
+      true,
+    ]);
     expect(/only here/i.test(doc)).toBe(false);
 
     // What the doc must still say — dropping the claim is the fix, deleting
@@ -2838,9 +2864,13 @@ describe("CONSUMER 2 — the committed captured-report fixtures are REAL and DET
 
 describe("FREQUENCY IS STATED HONESTLY — conformance-run enforcement, not gate-time", () => {
   test("no shipped surface claims the narration rules run at gate time", () => {
+    const self = selfFr();
+    // The FR is one of the four surfaces graded here; naming WHICH tree it came
+    // from keeps a vanished subject from reading as a fourth clean surface.
+    expect(["active", "archive"]).toContain(self.source);
     for (const [label, body] of [
       ["docs/stage-status-block.md", read(STATUS_BLOCK_DOC)],
-      ["specs/frs/STE-533.md", read(join(REPO_ROOT, "specs", "frs", "STE-533.md"))],
+      [self.rel, self.body],
       [".claude/skills/smoke-test/SKILL.md", smokeSkill()],
       [ADOPTION_MODULE_REL, read(ADOPTION_MODULE_SRC)],
     ] as const) {
