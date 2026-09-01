@@ -61,6 +61,85 @@ The taxonomy that tells you where to look: a rule carrying **state across lines*
 needs the property; a **per-line predicate** does not. Measured, not assumed —
 one heading with three dirty lines fires identically to three headings with one.
 
+## A zero from a wrapped `grep` is not proof of absence
+
+This one outranks the entry below it, and for a reason that makes the entry below
+insufficient rather than wrong.
+
+Every other discipline failure recorded here was a BAD COMMAND — the wrong filter,
+the wrong subject, a pipe eating the exit status — and every one was findable by
+reading the command you had just typed. This is a GOOD COMMAND LYING. There is
+nothing to read: `grep -c "x" file` is correct, and the answer is wrong.
+
+Measured, M137, on a tracked and non-ignored file:
+
+    git ls-files          tracked
+    git check-ignore      NOT ignored
+    python ground truth   8 occurrences
+    command grep          8
+    wrapped grep          0 — and on another string, no output at all
+
+**The mechanism, so nobody re-verifies the wrong thing.** `grep` here is a shell
+function wrapping `ugrep --ignore-files`. ugrep's ignore semantics are NOT git's,
+so `git check-ignore` reporting a file as searchable does **not** mean the wrapper
+will search it. Confirming the file is tracked and un-ignored, then believing the
+zero, is the obvious next mistake.
+
+**A control does not save you.** "Run a control that must match" is the remedy in
+the next entry, and it is insufficient here: the skip is PER FILE, so a control on
+file A passes while file B — the one the claim is about — is silently skipped. A
+control only rescues a *globally* broken search. Selective breakage is invisible to
+it.
+
+**The rule.** For any claim that turns on ABSENCE, use `command grep` or a
+language-level read. The wrapper is fine for FINDING things and unreliable for
+proving they are not there — which is exactly backwards from how this milestone
+used it, since every phantom it found was proved by a zero: a formatter that did
+not exist, a fixture nothing produced, two citations resolving to comments, a
+module with no consumers. Those were right. They were not reliably right.
+
+It surfaced only because a worker said it had edited a file and a grep said the
+string was not in it. Two sources disagreeing is what exposed it; one source
+would have been believed.
+
+## A rule enforced in one place is followed in one place
+
+`/spec-write` § 7a already says: stage an explicit path list, never `git add -A`.
+It is written down, it is correct, and it has been there all along. M137 followed
+it on every release commit — where a test enforces it — and reached for `git add
+-A` on a fix commit, where nothing does, sweeping another agent's in-flight work
+into a commit whose message described something else.
+
+That is not a rule someone failed to know. It is a rule that was real only where it
+was mechanised. Which predicts where the next lapse is, and is more useful than
+restating the rule: **any rule this repository states in prose and enforces in one
+place is being followed in that one place.** Look there first.
+
+The same shape appears as procedures. "The release count must be the last edit on
+the branch" was written down twice in this milestone and is a procedure — a thing
+that works while someone remembers it. It became a guard only when it was made a
+git query at the merge boundary.
+
+## Assert that the command FINDS something, not that it runs
+
+`git log --grep` takes a BASIC regex, and `chore(release):` contains parentheses.
+Adding `--extended-regexp` turns them into a group, so `^chore(release):` matches
+`chorerelease:`. Measured on this repository:
+
+    plain (BRE)   126 commits
+    with -E         0 commits
+    exit status     0
+
+Total silence: no error, no non-zero exit, every release commit in the history
+invisible. A guard built to stop a stale number would have concluded "no release
+commit exists" and passed quietly on every branch forever — disabled by `-E`, which
+is the flag a careful person adds.
+
+It was caught by a leg that required the command to FIND the most recent release
+commit rather than merely to run. That is the cheapest general form of the
+evasion-twin rule, it costs one assertion, and it is the only thing that separates
+a guard that works from a guard that is quiet.
+
 ## Name the command's actual subject, and run a control
 
 Three false clean zeroes in one session, from two agents, one shape each time:
