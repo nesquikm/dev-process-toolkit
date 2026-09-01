@@ -1,16 +1,13 @@
 /implement STE-533 — stage report
 
-Landed the STE-533 FR set on `feat/m137-say-less`. The operator approved the
-commit at the Phase 4 gate; nothing was pushed from this stage.
-
-Full gate re-run from `plugins/dev-process-toolkit`: green, no new skips.
+Landed the STE-533 FR set on `feat/m137-say-less`; the operator approved the
+commit at the Phase 4 gate. Full gate re-run from the plugin root: green.
 
 ```stage-status-block
 stage: implement
 milestone: M137
 status: ok
 summary:
-  - the adoption grader gained an executable front door
   - best_practices_lens_applied
 gate:
   - pass 9412, fail 0, skip 16, baseline 16, delta 0
@@ -21,3 +18,12 @@ e2e:
 follow_ups:
   - (none found)
 ```
+## Verification evidence
+gate:
+  - pass 9412, fail 0, skip 16, baseline 16, delta 0
+drive:
+  - pass 12, fail 0, skip 0
+e2e:
+  - (none found)
+## Advisory notes
+No advisory notes.
