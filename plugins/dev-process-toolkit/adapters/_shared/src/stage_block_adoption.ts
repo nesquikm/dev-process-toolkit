@@ -70,10 +70,10 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { CANONICAL_CAPABILITY_KEYS } from "./closing_summary_capability_keys";
-import {
-  DELIVER_STAGE_FENCE_BANNER,
-  FENCE_LINE_CAP,
-} from "./deliver_stage_capture";
+// The BANNER crosses the seam on purpose — each grader must refuse the other's
+// banner, which is a claim about the other's bytes. The ARITHMETIC does not:
+// `ADOPTED_FENCE_LINE_CAP` below is this contract's own, declared here.
+import { DELIVER_STAGE_FENCE_BANNER } from "./deliver_stage_capture";
 import {
   renderStageEvidence,
   type StageEvidenceInput,
@@ -130,17 +130,36 @@ export type AdoptingStage = (typeof ADOPTING_STAGES)[number];
 const STAGE_NAMES: readonly string[] = ADOPTING_STAGES;
 
 /**
+ * The number of lines the ADOPTED status block's body may hold, its opener and
+ * closer excluded.
+ *
+ * THIS CONTRACT'S OWN, and that is the whole point (AC-STE-533.1a, round 5).
+ * The cap was formerly read from `FENCE_LINE_CAP` in
+ * `./deliver_stage_capture` — /deliver's module, /deliver's contract — so a
+ * /deliver retune moved eleven adopting stages' prose budget across the seam
+ * this FR declares severed. MEASURED before the split: rewriting
+ * `FENCE_LINE_CAP = 26` to `30` in a copy of the shared tree moved
+ * `PROSE_LEAD_IN_LINE_CAP` from 12 to 8, with no edit to this file at all.
+ *
+ * The two caps hold the SAME VALUE today. That is expected, and it is not the
+ * subject: the deliverable is the INDEPENDENCE, and a second contract is free
+ * to retune its own fence without touching this one.
+ */
+export const ADOPTED_FENCE_LINE_CAP = 26;
+
+/**
  * The number of prose lines a report may carry BEFORE the fence opener.
  *
  * DERIVED, never typed. STE-532 sized its whole-report cap as "the 26 lines the
  * fence itself may hold, its two markers, and a dozen lines of prose to say
  * what the stage did before the numbers start". That third term IS this cap, so
- * it is computed back out of the other two: a hand-picked literal here would
- * let the two budgets drift apart silently, which is the whole failure mode
- * this milestone keeps recording.
+ * it is computed back out of the other two — the whole-report cap and THIS
+ * contract's own fence cap: a hand-picked literal here would let the two
+ * budgets drift apart silently, which is the whole failure mode this milestone
+ * keeps recording.
  */
 export const PROSE_LEAD_IN_LINE_CAP =
-  STAGE_REPORT_LINE_CAP - FENCE_LINE_CAP - 2;
+  STAGE_REPORT_LINE_CAP - ADOPTED_FENCE_LINE_CAP - 2;
 
 // ---------------------------------------------------------------------------
 // AC-STE-533.2a — the cap-exempt sections
@@ -535,7 +554,7 @@ function narrationLines(
  * lines its own renderer emits — outside the fence.
  *
  * This is what FUNDS the carve-out. STE-532's whole-report cap is sized as
- * `PROSE_LEAD_IN_LINE_CAP + FENCE_LINE_CAP + 2`, a partition of all 40 lines
+ * `PROSE_LEAD_IN_LINE_CAP + ADOPTED_FENCE_LINE_CAP + 2`, a partition of all 40 lines
  * with nothing left over, and it counted every line in the report. A report
  * respecting EVERY stated budget — 12 lines of prose, a full fence, and both
  * sections `/implement` owes at their smallest legal size — runs 49 lines and
@@ -589,9 +608,15 @@ interface ExemptSectionAccounting {
   duplicated: { entry: CapExemptSection; occurrences: number }[];
 }
 
+/**
+ * `fences` is a LIST, not the one fence: the count rule's own branch runs with
+ * zero fences (or several), and it needs this accounting too — see
+ * `verifyStageReportAdoption`, where handing STE-532 the raw report refused
+ * blockless reports for a cap the carve-out already funds.
+ */
 function exemptSectionIndexes(
   lines: readonly string[],
-  fence: { startLine: number; endLine: number },
+  fences: readonly { startLine: number; endLine: number }[],
   exempt: readonly CapExemptSection[],
 ): ExemptSectionAccounting {
   const owned = new Set<number>();
@@ -616,9 +641,9 @@ function exemptSectionIndexes(
   };
 
   for (let i = 0; i < lines.length; i++) {
-    // Inside the block nothing is exempt — the fence has its own budget, and a
+    // Inside a block nothing is exempt — the fence has its own budget, and a
     // section heading cannot open across it.
-    if (i >= fence.startLine - 1 && i <= fence.endLine - 1) {
+    if (fences.some((f) => i >= f.startLine - 1 && i <= f.endLine - 1)) {
       current = null;
       continue;
     }
@@ -648,6 +673,21 @@ function exemptSectionIndexes(
     if (seen > 1) duplicated.push({ entry, occurrences: seen });
   }
   return { owned, overBudget, duplicated };
+}
+
+/**
+ * The report MINUS the lines the carve-out owns — THE SPAN STE-532 IS GRADED
+ * ON, spelled once so no call site can quietly hand over the raw report.
+ *
+ * That span IS the funding: the carve-out is stated in `exemptSectionIndexes`
+ * and funded here, and a delegation that skipped it would refuse the very
+ * reports the exemption exists to permit.
+ */
+function exemptFilteredSpan(
+  lines: readonly string[],
+  owned: ReadonlySet<number>,
+): string {
+  return lines.filter((_, i) => !owned.has(i)).join("\n");
 }
 
 /**
@@ -713,17 +753,29 @@ export function verifyStageReportAdoption(
   evidence?: StageEvidenceInput | null,
 ): StageAdoptionVerdict {
   const fences = closedStatusFences(report);
+  const lines = report.split("\n");
   if (fences.length !== 1) {
     // The count rule has exactly one owner: STE-532 refuses this, in STE-532's
     // own words, and this module adds nothing to it.
+    //
+    // ON THE EXEMPT-FILTERED SPAN, like every other call site. With no block
+    // there is no `stage:` scalar to read, so the filter uses the WHOLE closed
+    // carve-out list — the conservative choice on a branch whose verdict is
+    // already "refuse": it can only drop a spurious SECOND reason, never the
+    // missing-block refusal itself. MEASURED before the fix: a blockless
+    // 41-line `/implement` report (filtered span 32) was refused for the
+    // whole-report cap the carve-out funds, with a Remedy naming a budget the
+    // report already met.
+    const { owned } = exemptSectionIndexes(lines, fences, CAP_EXEMPT_SECTIONS);
     return {
       ok: false,
-      reasons: [...verifyStageStatusBlock(report, evidence).reasons],
+      reasons: [
+        ...verifyStageStatusBlock(exemptFilteredSpan(lines, owned), evidence)
+          .reasons,
+      ],
     };
   }
   const fence = fences[0]!;
-
-  const lines = report.split("\n");
 
   // THE STAGE VOCABULARY (AC-STE-533.1a). This grader speaks the adopting
   // eleven's names and nothing else. `/deliver`'s ceremony ids ride the OTHER
@@ -736,11 +788,9 @@ export function verifyStageReportAdoption(
   // see `exemptSectionIndexes` for why the exemption has to be funded rather
   // than merely stated. Its reasons ride the same `reasons` array, so a caller
   // sees one verdict rather than two to reconcile.
-  const { owned, overBudget, duplicated } = exemptSectionIndexes(lines, fence, exempt);
+  const { owned, overBudget, duplicated } = exemptSectionIndexes(lines, [fence], exempt);
   const base = verifyStageStatusBlock(
-    owned.size === 0
-      ? report
-      : lines.filter((_, i) => !owned.has(i)).join("\n"),
+    exemptFilteredSpan(lines, owned),
     evidence,
   );
   const reasons: string[] = [...base.reasons];

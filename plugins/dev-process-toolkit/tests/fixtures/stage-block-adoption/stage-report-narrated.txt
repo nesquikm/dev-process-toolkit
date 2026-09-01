@@ -2,7 +2,6 @@
 
 Landed the STE-533 FR set on `feat/m137-say-less`; the operator approved the
 commit at the Phase 4 gate. Full gate re-run from the plugin root: green.
-
 The run completed. Below is what it did, at the length these reports had
 drifted to before adoption: a paragraph for the setup, a paragraph for the
 work, a paragraph for the gate, and a closing paragraph nobody reads.
@@ -18,7 +17,19 @@ stage: implement
 milestone: M137
 status: ok
 summary:
-  - best_practices_lens_applied
+  - acceptance criteria: 41 of 41 pass — first 3 of 41 listed below
+  - AC-STE-533.1 pass — the adopting eleven, enumerated and stated once
+  - AC-STE-533.1a pass — one banner, one owner, one vocabulary each
+  - AC-STE-533.2 pass — the block replaces the narration above it
+  - files created/modified: 22 — first 3 of 22 listed below
+  - adapters/_shared/src/stage_block_adoption.ts (modified, +214/-61)
+  - adapters/_shared/src/stage_status_block.ts (modified, +18/-4)
+  - tests/m137-ste-533-stage-block-adoption.test.ts (modified, +503/-77)
+  - test coverage: 41 of 41 ACs pinned; 0 changed modules without direct tests
+  - self-review findings: 3 caught and fixed, 0 remaining
+  - spec changes: 1 edge case added, 2 deviations resolved, 0 provisional
+  - drift findings: 0 against specs/ (traceability map complete)
+  - review rounds used: 2 of 2; `best_practices_lens_applied`
 gate:
   - pass 9412, fail 0, skip 16, baseline 16, delta 0
 drive:

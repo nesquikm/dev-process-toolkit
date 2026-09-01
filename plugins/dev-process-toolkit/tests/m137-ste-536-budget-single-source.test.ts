@@ -86,17 +86,23 @@ import {
   type MeasuredSubsection,
   type PlanNarrativeViolation,
 } from "../adapters/_shared/src/scan_plan_narrative_altitude";
+// The adopting contract's OWN budgets. `ADOPTED_FENCE_LINE_CAP` replaced
+// /deliver's `FENCE_LINE_CAP` here under M137 round 5: this file's subject is
+// the ELEVEN ADOPTING STAGES' prose cap, and reading /deliver's constant to
+// grade it re-coupled two contracts AC-STE-533.1a declares severed — a
+// /deliver retune would have reddened every leg below on a tree where the
+// production code was correctly independent.
 import {
+  ADOPTED_FENCE_LINE_CAP,
   ADOPTING_STAGES,
   PROSE_LEAD_IN_LINE_CAP,
 } from "../adapters/_shared/src/stage_block_adoption";
 import { STAGE_REPORT_LINE_CAP } from "../adapters/_shared/src/stage_status_block";
-import { FENCE_LINE_CAP } from "../adapters/_shared/src/deliver_stage_capture";
+
 // The shared milestone-scoped spec-tree resolver — how the FR-side dogfood below
 // stays scoped to THIS milestone on BOTH paths instead of swallowing 440-plus
 // pre-rule FRs on one and the next milestone's FRs on the other.
 import { milestoneSpecFiles } from "./_spec_tree";
-
 const pluginRoot = join(import.meta.dir, "..");
 const SELF = join(import.meta.dir, "m137-ste-536-budget-single-source.test.ts");
 const SPEC_WRITE = join(pluginRoot, "skills", "spec-write", "SKILL.md");
@@ -457,7 +463,7 @@ describe("AC-STE-536.6 — direction (ii): surface moves, scanner does not", () 
 // AC-STE-536.4 / AC-STE-536.6 — the DERIVED prose lead-in cap
 //
 // The three budgets above are TYPED in their scanners. `PROSE_LEAD_IN_LINE_CAP`
-// is not: it is computed as `STAGE_REPORT_LINE_CAP - FENCE_LINE_CAP - 2`, so it
+// is not: it is computed as `STAGE_REPORT_LINE_CAP - ADOPTED_FENCE_LINE_CAP - 2`, so it
 // moves whenever EITHER upstream budget moves — and it moves silently, because
 // nothing recomputes the prose. Twelve shipped surfaces restate its value as a
 // literal: the eleven `ADOPTING_STAGES` SKILL.md files and
@@ -604,7 +610,7 @@ describe("AC-STE-536.4 — the derived lead-in cap has one definition", () => {
 
   test("the cap is DERIVED from both upstream budgets, read from their owners", () => {
     expect(PROSE_LEAD_IN_LINE_CAP).toBe(
-      STAGE_REPORT_LINE_CAP - FENCE_LINE_CAP - FENCE_MARKER_LINES,
+      STAGE_REPORT_LINE_CAP - ADOPTED_FENCE_LINE_CAP - FENCE_MARKER_LINES,
     );
   });
 
@@ -617,7 +623,7 @@ describe("AC-STE-536.4 — the derived lead-in cap has one definition", () => {
     expect(m).not.toBeNull();
     const rhs = (m as RegExpExecArray)[1].replace(/\s+/g, "");
     expect(rhs).toBe(
-      `STAGE_REPORT_LINE_CAP-FENCE_LINE_CAP-${FENCE_MARKER_LINES}`,
+      `STAGE_REPORT_LINE_CAP-ADOPTED_FENCE_LINE_CAP-${FENCE_MARKER_LINES}`,
     );
   });
 
@@ -651,7 +657,7 @@ describe("AC-STE-536.4 — the derived lead-in cap has one definition", () => {
 
   test("the derivation restatement names both upstream budgets, as shipped", () => {
     const stating = LEAD_IN_SURFACES.filter(({ path }) =>
-      statesDerivation(read(path), STAGE_REPORT_LINE_CAP, FENCE_LINE_CAP),
+      statesDerivation(read(path), STAGE_REPORT_LINE_CAP, ADOPTED_FENCE_LINE_CAP),
     );
     expect(stating.length).toBeGreaterThan(0);
   });
@@ -663,7 +669,7 @@ describe("AC-STE-536.4 — the derived lead-in cap has one definition", () => {
     const src = read(SELF);
     expect(literalCount(src, PROSE_LEAD_IN_LINE_CAP)).toBe(0);
     expect(literalCount(src, STAGE_REPORT_LINE_CAP)).toBe(0);
-    expect(literalCount(src, FENCE_LINE_CAP)).toBe(0);
+    expect(literalCount(src, ADOPTED_FENCE_LINE_CAP)).toBe(0);
   });
 });
 
@@ -681,13 +687,13 @@ describe("AC-STE-536.6 — lead-in cap, direction (i): export moves, prose does 
   test("either upstream budget moving moves the derived cap", () => {
     // The reason direction (i) is not hypothetical: the cap has no author. A
     // change to EITHER input silently changes what the twelve surfaces owe.
-    const base = STAGE_REPORT_LINE_CAP - FENCE_LINE_CAP - FENCE_MARKER_LINES;
+    const base = STAGE_REPORT_LINE_CAP - ADOPTED_FENCE_LINE_CAP - FENCE_MARKER_LINES;
     expect(base).toBe(PROSE_LEAD_IN_LINE_CAP); // baseline
     const reportMoved =
-      STAGE_REPORT_LINE_CAP + MUTATION_DELTA - FENCE_LINE_CAP - FENCE_MARKER_LINES;
+      STAGE_REPORT_LINE_CAP + MUTATION_DELTA - ADOPTED_FENCE_LINE_CAP - FENCE_MARKER_LINES;
     expect(reportMoved).not.toBe(PROSE_LEAD_IN_LINE_CAP);
     const fenceMoved =
-      STAGE_REPORT_LINE_CAP - (FENCE_LINE_CAP + MUTATION_DELTA) - FENCE_MARKER_LINES;
+      STAGE_REPORT_LINE_CAP - (ADOPTED_FENCE_LINE_CAP + MUTATION_DELTA) - FENCE_MARKER_LINES;
     expect(fenceMoved).not.toBe(PROSE_LEAD_IN_LINE_CAP);
     // ...and the shipped prose tracks neither on its own.
     const doc = read(LEAD_IN_SURFACES[LEAD_IN_SURFACES.length - 1].path);
@@ -697,17 +703,17 @@ describe("AC-STE-536.6 — lead-in cap, direction (i): export moves, prose does 
 
   test("derivation restatement — a changed upstream budget no longer matches", () => {
     const stating = LEAD_IN_SURFACES.filter(({ path }) =>
-      statesDerivation(read(path), STAGE_REPORT_LINE_CAP, FENCE_LINE_CAP),
+      statesDerivation(read(path), STAGE_REPORT_LINE_CAP, ADOPTED_FENCE_LINE_CAP),
     );
     expect(stating.length).toBeGreaterThan(0);
     for (const { label, path } of stating) {
       const text = read(path);
       const report = STAGE_REPORT_LINE_CAP + MUTATION_DELTA;
-      const fence = FENCE_LINE_CAP + MUTATION_DELTA;
+      const fence = ADOPTED_FENCE_LINE_CAP + MUTATION_DELTA;
       expect(report).not.toBe(STAGE_REPORT_LINE_CAP);
-      expect(fence).not.toBe(FENCE_LINE_CAP);
+      expect(fence).not.toBe(ADOPTED_FENCE_LINE_CAP);
       expect(
-        statesDerivation(text, report, FENCE_LINE_CAP),
+        statesDerivation(text, report, ADOPTED_FENCE_LINE_CAP),
         `${label}: whole-report cap`,
       ).toBe(false);
       expect(
@@ -769,12 +775,12 @@ describe("AC-STE-536.6 — lead-in cap, direction (ii): prose moves, export does
 
   test("derivation restatement — a changed prose number no longer matches", () => {
     const stating = LEAD_IN_SURFACES.filter(({ path }) =>
-      statesDerivation(read(path), STAGE_REPORT_LINE_CAP, FENCE_LINE_CAP),
+      statesDerivation(read(path), STAGE_REPORT_LINE_CAP, ADOPTED_FENCE_LINE_CAP),
     );
     expect(stating.length).toBeGreaterThan(0);
     for (const { label, path } of stating) {
       const text = read(path);
-      for (const budget of [STAGE_REPORT_LINE_CAP, FENCE_LINE_CAP]) {
+      for (const budget of [STAGE_REPORT_LINE_CAP, ADOPTED_FENCE_LINE_CAP]) {
         const mutatedText = rewriteDerivationNumber(
           text,
           budget,
@@ -782,7 +788,7 @@ describe("AC-STE-536.6 — lead-in cap, direction (ii): prose moves, export does
         );
         expect(mutatedText, `${label}: mutation never applied`).not.toBe(text);
         expect(
-          statesDerivation(mutatedText, STAGE_REPORT_LINE_CAP, FENCE_LINE_CAP),
+          statesDerivation(mutatedText, STAGE_REPORT_LINE_CAP, ADOPTED_FENCE_LINE_CAP),
           `${label}: a drifted derivation was accepted`,
         ).toBe(false);
       }

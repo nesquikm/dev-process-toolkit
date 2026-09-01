@@ -219,7 +219,7 @@ Every successful invocation MUST emit a closing summary on the quiet path. The s
 
 1. A tabular status block reflecting the subcommand's effect:
    - `add` / `edit` / `delete` → before/after row for the affected manifest entry plus the resulting `specs/best-practices.yaml` change line.
-   - `list` → the full manifest table (or the empty-manifest literal line).
+   - `list` → the full manifest table (or the empty-manifest literal line). **BOUNDED, and inside the fence.** The markdown table is superseded for the CLOSING report — it is reference material to render inline when the operator asks for the manifest, not verbatim content the report reproduces above the fence, and a header + separator + one row per entry cannot fit any budget. `list` emits a `manifest entries: <M>` `summary:` row inside the block, then **at most the first 3** entries as `first 3 of <M>` rows. The total `<M>` is always stated, so the bound is never a silent truncation — `specs/best-practices.yaml` still holds every entry. Authoring shape: `docs/stage-status-block.md` § How a stage FITS.
 2. The capability rows the subcommand fired, one row per fired capability, as backticked literal tokens:
    - `best_practices_added_<name>` — `add` reached `writeManifest`.
    - `best_practices_list_<N>_entries` — `list`, entry count including 0.

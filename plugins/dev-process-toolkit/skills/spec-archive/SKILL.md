@@ -161,6 +161,8 @@ Merge Pass A and Pass B findings into a single table following Schema I (see `sp
 
 Exactly 5 columns in the order `File`, `Section`, `Severity`, `Reason`, `Suggested action`. Exactly 2 severity values: `high` (Pass A) and `medium` (Pass B).
 
+**The Schema I table is the DRIFT report, not the CLOSING report.** It is rendered in full inline, right here, at the user-choice gate below — the operator sees every row before choosing — and on the save-for-later path it is written verbatim to `specs/drift-{YYYY-MM-DD}.md`. It is therefore reference material surfaced inline while the archival runs, not verbatim content the closing report reproduces above the fence: header + separator + one row per finding cannot fit any budget, and a milestone archival routinely finds double figures. The closing status block carries a `drift findings: <K> (<H> high, <M> medium)` `summary:` row plus **at most the first 3** as `first 3 of <K>` rows. The total `<K>` is always stated, so the bound is never a silent truncation. Authoring shape: `docs/stage-status-block.md` § How a stage FITS.
+
 **Empty report:** if both passes found nothing, print the literal string `No drift detected` and continue to the final report without prompting the user.
 
 ### User choice (advisory — never blocks archival)

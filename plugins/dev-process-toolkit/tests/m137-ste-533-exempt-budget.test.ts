@@ -66,6 +66,7 @@ import { join } from "node:path";
 // is the difference between a RED test and a broken file.
 import * as adoption from "../adapters/_shared/src/stage_block_adoption";
 import {
+  ADOPTED_FENCE_LINE_CAP,
   ADOPTING_STAGES,
   CAP_EXEMPT_SECTIONS,
   exemptSectionsFor,
@@ -80,7 +81,6 @@ import {
   STAGE_REPORT_LINE_CAP,
   STAGE_STATUS_SECTIONS,
 } from "../adapters/_shared/src/stage_status_block";
-import { FENCE_LINE_CAP } from "../adapters/_shared/src/deliver_stage_capture";
 import {
   IMPLEMENT_EVIDENCE_HEADING,
   renderImplementReportEvidence,
@@ -159,10 +159,10 @@ function blockOnly(stage: string): string {
     }
     body.push(`${name}:`, `  ${EMPTY_SECTION_FALLBACK}`);
   }
-  const pad = FENCE_LINE_CAP - body.length;
+  const pad = ADOPTED_FENCE_LINE_CAP - body.length;
   if (pad < 0) {
     throw new Error(
-      "the fixed section order no longer fits inside FENCE_LINE_CAP — this " +
+      "the fixed section order no longer fits inside ADOPTED_FENCE_LINE_CAP — this " +
         "construction can no longer sit AT the stated budget",
     );
   }
@@ -259,7 +259,7 @@ function owedSectionsInflated(
 
 /**
  * The report that respects EVERY budget the contract states, each at its face:
- * a full prose lead-in, a fence body at `FENCE_LINE_CAP`, its two markers, and
+ * a full prose lead-in, a fence body at `ADOPTED_FENCE_LINE_CAP`, its two markers, and
  * every section the stage owes at exactly its renderer's size.
  *
  * This is Round A's "49-line maximal legal report", rebuilt from the shipped
