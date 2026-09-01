@@ -12,32 +12,51 @@
 //     for EVERY stage that adopted it, can the report that stage's OWN
 //     SKILL.md instructs actually conform?
 //
-// The answer, measured, is NO for nine of the eleven. Two of the nine cannot
-// conform AT ANY SIZE, under any bound: their mandated prose floor is already
-// over the 12-line lead-in cap before a single item of driving content is
-// added. Seven more conform only below a threshold their realistic use is
-// routinely over.
+// THE DEFECT THIS FILE ITSELF SHIPPED, and the reason it was rewritten. The
+// first version answered that question against a HAND-WRITTEN LITERAL TABLE of
+// eleven report plans. It never read a SKILL.md. MEASURED: spec-archive's
+// bounding edit was reverted on disk — "at most the first 3 as `first 3 of <K>`
+// rows" replaced by "every finding as its own row", the exact revert of the fix
+// — and this suite stayed 20/20 green. Six of the nine stages' bounding edits
+// could be reverted with the whole gate clean. The one deliverable that was
+// supposed to make a tenth broken stage unshippable was itself the class it was
+// built to catch: a guard that runs, returns cleanly, and measures nothing.
 //
-// So this file constructs, for every stage in `ADOPTING_STAGES`, the report
-// that stage's SKILL.md instructs — at realistic size — and REQUIRES it to
-// conform. It is RED until each stage's SKILL.md content is bounded. That red
-// IS the deliverable: an adoption contract nine of its eleven adopters cannot
-// satisfy is a contract enforced by nothing.
+// SO THE ROW BUDGET IS NOW DERIVED FROM THE SKILL.md. For every stage in
+// `ADOPTING_STAGES` this suite reads that stage's own text, derives what its
+// closing report is instructed to contain (`tests/_stage_report_instruction.ts`
+// states exactly what is derived, what is not, and what is refused), builds
+// that report, and grades it with `verifyStageReportAdoption`. Reverting a
+// stage's bounding edit removes the clause the derivation reads, the stage
+// becomes UNANALYSABLE, and two legs go red naming the paragraph — asserted
+// here in memory for every bounded stage, with the mutation asserted to have
+// APPLIED before any verdict is read, because a mutation that never applied
+// reads as a pass.
 //
-// WHY THE REPORTS ARE BUILT AS PROSE ABOVE THE FENCE. Because that is what the
-// SKILL.md says. Eight of the eleven still order their report to "Present:" /
-// "Summarize" / "report what happened, in this order" — free-form narration —
-// and only `/spec-write`, `/report-issue`, `/best-practices` and `/deps` carry
-// the sentence saying the rows now ride INSIDE the fence. A stage whose
-// SKILL.md orders narration emits narration, whatever a doc elsewhere says the
-// budget is; the report is built from the instruction, never from the budget it
-// is being graded against, or the test would be measuring its own arithmetic.
+// THE LITERAL TABLE SURVIVES AS A CROSS-CHECK ONLY. `PLANS` below no longer
+// decides any verdict; it is graded AGAINST the derivation, and a bound the
+// literal claims that the SKILL.md does not state is a finding rather than a
+// fallback. An unbounded fallback is how this file went hollow the first time.
 //
-// TWELFTH-STAGE COVERAGE. The suite iterates `ADOPTING_STAGES`, and a stage
-// with no plan of its own is graded against `DEFAULT_PLAN` rather than skipped
-// — a `for (const stage of ADOPTING_STAGES)` that silently covers ten of eleven
-// is the shape this repository keeps recording. `every stage is graded` asserts
-// the count.
+// WHAT THE DERIVATION COULD NOT DO, said out loud. A stage whose instructed
+// content cannot be derived at all FAILS LOUDLY as unanalysable — it does not
+// pass quietly and it does not fall back. Measured on the way in: `/upgrade`
+// was one. Its § Step 6 ordered per-entry content ("entries applied (id +
+// summary), entries declined, assisted entries routed and their outcome") and
+// bounded none of it; the claim that it was "bounded by construction" existed
+// only in this test file's own comment, on this test file's own authority.
+// That is the shape the rewrite was for, and it was found by the rewrite.
+//
+// WHY THE REPORTS ARE BUILT WITH A FULL PROSE LEAD-IN. Because the cap is the
+// one thing about narration every SKILL.md states in its own words, and it is
+// read out of that sentence rather than out of the module — a leg below
+// asserts the two agree, so a doc that drifts from `PROSE_LEAD_IN_LINE_CAP`
+// reddens instead of going quiet. Filling the derived cap exactly grades the
+// worst case the instruction permits.
+//
+// TWELFTH-STAGE COVERAGE. The suite iterates `ADOPTING_STAGES`, and a stage is
+// covered by reading its SKILL.md, so a twelfth added tomorrow is graded with
+// no edit here — and one whose text says nothing is refused, not skipped.
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -56,6 +75,12 @@ import {
   STAGE_BLOCK_FENCE_BANNER,
   STAGE_REPORT_LINE_CAP,
 } from "../adapters/_shared/src/stage_status_block";
+import {
+  deriveReportInstruction,
+  revertBoundingEdit,
+  type DerivedInstruction,
+} from "./_stage_report_instruction";
+
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const read = (path: string): string => readFileSync(path, "utf-8");
 const skillPath = (stage: string): string =>
@@ -124,23 +149,18 @@ function buildReport(stage: AdoptingStage, plan: StageReportPlan): string {
 }
 
 // ---------------------------------------------------------------------------
-// The eleven plans — each read off that stage's own SKILL.md
+// The eleven plans — DEMOTED to a cross-check
 // ---------------------------------------------------------------------------
-
-/**
- * A stage with no plan of its own. Deliberately MODEST — a twelfth stage is
- * graded rather than skipped, and a modest report that still fails says
- * something about the contract rather than about the plan.
- */
-const DEFAULT_PLAN: StageReportPlan = {
-  prose: [
-    "The stage ran and closed. What it did is in the block below.",
-    "Nothing was pushed from this stage.",
-  ],
-  summary: ["  - ran to completion, 0 refusals"],
-  cite: "no per-stage plan — DEFAULT_PLAN",
-  driving: "none (default plan)",
-};
+//
+// These decide NO verdict. Every conformance leg below builds its report from
+// `deriveReportInstruction`, and this table is held AGAINST that derivation:
+// a bound the literal claims which the SKILL.md does not state is a finding.
+//
+// There is deliberately no `DEFAULT_PLAN` any more. A fallback plan for a stage
+// with no entry here is exactly the shape that let a twelfth stage — and then
+// nine of the eleven — be "graded" by a literal nobody had checked against the
+// instruction. A stage with no entry is simply not cross-checked; it is still
+// DERIVED, still graded, and still refused if its own text bounds nothing.
 
 const PLANS: Partial<Record<AdoptingStage, StageReportPlan>> = {
   // § Closing-summary contract, item 1: the markdown table is SUPERSEDED for
@@ -390,57 +410,327 @@ const PLANS: Partial<Record<AdoptingStage, StageReportPlan>> = {
   },
 };
 
-const planFor = (stage: AdoptingStage): StageReportPlan =>
-  PLANS[stage] ?? DEFAULT_PLAN;
+// ---------------------------------------------------------------------------
+// THE MATRIX
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// THE DERIVED REPORT — built from the SKILL.md, never from the table above
+// ---------------------------------------------------------------------------
+
+/** Every adopting stage's derivation, read once. */
+const DERIVED: ReadonlyMap<AdoptingStage, DerivedInstruction> = new Map(
+  ADOPTING_STAGES.map((stage) => [
+    stage,
+    deriveReportInstruction(stage, read(skillPath(stage))),
+  ]),
+);
+
+const derivedFor = (stage: AdoptingStage): DerivedInstruction => {
+  const derived = DERIVED.get(stage);
+  if (derived === undefined) throw new Error(`no derivation for ${stage}`);
+  return derived;
+};
+
+/** The `summary:` rows the instruction adds up to, rendered. */
+function derivedSummaryRows(derived: DerivedInstruction): string[] {
+  const out: string[] = [];
+  const bounded = derived.groups.filter((g) => g.disposition.kind === "bounded");
+  if (derived.mandateCount !== null) {
+    // A fixed mandate list rides as one row each; the mandates that are
+    // themselves bounded lists contribute their item rows on top.
+    for (let i = 1; i <= derived.mandateCount; i += 1) {
+      out.push(`  - mandate ${i} of ${derived.mandateCount}, rolled up to one row`);
+    }
+  }
+  for (const group of derived.groups) {
+    const d = group.disposition;
+    if (derived.mandateCount === null && d.kind !== "fixed") {
+      out.push(`  - ${group.template}`);
+    }
+    if (d.kind === "bounded") {
+      for (let i = 1; i <= d.n; i += 1) {
+        out.push(`  - bounded item ${i} of ${d.n} — first ${d.n} of <M> listed`);
+      }
+    } else if (d.kind === "fixed") {
+      for (let i = 1; i <= d.n; i += 1) {
+        out.push(`  - fixed item ${i} of ${d.n}`);
+      }
+    }
+  }
+  if (out.length === 0) out.push(NONE[0]);
+  return out;
+}
+
+/**
+ * The report a stage's SKILL.md instructs, at the worst case that instruction
+ * permits: the full derived prose lead-in, the derived `summary:` rows, and
+ * every cap-exempt section the stage OWES (read off `exemptSectionsFor`, never
+ * re-listed, because exempt is not optional).
+ */
+function buildDerivedReport(
+  stage: AdoptingStage,
+  derived: DerivedInstruction,
+): string {
+  const proseCap = derived.proseCap;
+  if (proseCap === null) {
+    throw new Error(
+      `${stage}: its SKILL.md states no prose lead-in cap, so the narration ` +
+        "budget cannot be derived from the instruction",
+    );
+  }
+  const lines: string[] = [
+    ...rows(proseCap, (i) => `narration line ${i} of ${proseCap}, as instructed.`),
+    STAGE_BLOCK_FENCE_BANNER,
+    `stage: ${stage}`,
+    "milestone: M137",
+    "status: ok",
+    "summary:",
+    ...derivedSummaryRows(derived),
+    "gate:",
+    ...NONE,
+    "drive:",
+    ...NONE,
+    "e2e:",
+    ...NONE,
+    "follow_ups:",
+    ...NONE,
+    "```",
+  ];
+  for (const entry of exemptSectionsFor(stage)) lines.push(...entry.renderMax());
+  return lines.join("\n");
+}
 
 // ---------------------------------------------------------------------------
 // THE MATRIX
 // ---------------------------------------------------------------------------
 
 describe("THE CONFORMANCE MATRIX — every adopting stage's own report must conform", () => {
-  test("every stage in ADOPTING_STAGES is graded — none skipped, a twelfth included", () => {
-    let graded = 0;
+  test("every stage in ADOPTING_STAGES is derived — none skipped", () => {
+    expect([...DERIVED.keys()]).toEqual([...ADOPTING_STAGES]);
     for (const stage of ADOPTING_STAGES) {
-      const report = buildReport(stage, planFor(stage));
-      expect(report).toContain(STAGE_BLOCK_FENCE_BANNER);
-      expect(report).toContain(`stage: ${stage}`);
-      graded += 1;
+      expect({ stage, read: derivedFor(stage).regionParagraphs.length > 0 }).toEqual({
+        stage,
+        read: true,
+      });
     }
-    expect(graded).toBe(ADOPTING_STAGES.length);
   });
 
-  test("a stage with no plan of its own still gets graded, not skipped", () => {
-    // The twelfth-stage leg. `planFor` falls back rather than returning
-    // undefined, so a stage added to `ADOPTING_STAGES` tomorrow is covered by
-    // this suite with no edit here — which is the whole reason the list is
-    // driven off the const.
-    const unplanned = "a-twelfth-stage" as AdoptingStage;
-    expect(planFor(unplanned)).toBe(DEFAULT_PLAN);
-    expect(buildReport(unplanned, planFor(unplanned))).toContain(
-      "stage: a-twelfth-stage",
-    );
+  test("each SKILL.md STATES the prose lead-in cap, and it agrees with the module", () => {
+    // The one narration budget every stage writes down in its own words. Read
+    // it out of the text and hold it against the module that enforces it: a
+    // SKILL.md that drifts from `PROSE_LEAD_IN_LINE_CAP` reddens here instead
+    // of instructing a report the grader will refuse.
+    for (const stage of ADOPTING_STAGES) {
+      expect({ stage, stated: derivedFor(stage).proseCap }).toEqual({
+        stage,
+        stated: PROSE_LEAD_IN_LINE_CAP,
+      });
+    }
   });
 
   for (const stage of ADOPTING_STAGES) {
+    test(`${stage} — its closing-report instruction is ANALYSABLE`, () => {
+      // A stage whose instructed content cannot be derived fails HERE, naming
+      // the paragraph and the reason, rather than passing quietly on a literal
+      // somebody typed into this file.
+      const derived = derivedFor(stage);
+      expect({ stage, unanalysable: derived.unanalysable }).toEqual({
+        stage,
+        unanalysable: [],
+      });
+      expect(derived.groups.length).toBeGreaterThan(0);
+    });
+
     test(`${stage} — the report its SKILL.md instructs CONFORMS`, () => {
-      const plan = planFor(stage);
-      const report = buildReport(stage, plan);
-      // The verdict is asserted with the plan's own citation attached, so a red
-      // leg names the SKILL.md section a maintainer has to bound rather than
-      // handing them a line count and a shrug.
+      const derived = derivedFor(stage);
+      const report = buildDerivedReport(stage, derived);
+      // The verdict carries the derivation attached, so a red leg names the
+      // clause a maintainer has to bound rather than handing them a line count
+      // and a shrug.
       expect({
         stage,
-        driving: plan.driving,
-        cite: plan.cite,
+        rows: derived.summaryRows,
+        budget: derived.groups.map((g) => `${g.template} → ${g.disposition.kind}`),
         verdict: verifyStageReportAdoption(report),
       }).toEqual({
         stage,
-        driving: plan.driving,
-        cite: plan.cite,
+        rows: derived.summaryRows,
+        budget: derived.groups.map((g) => `${g.template} → ${g.disposition.kind}`),
         verdict: { ok: true, reasons: [] },
       });
+      expect(derivedSummaryRows(derived).length).toBe(derived.summaryRows);
     });
   }
+
+  test("MUTATION — reverting a stage's bounding edit makes the derivation REFUSE it", () => {
+    // THE ACCEPTANCE TEST FOR THIS FILE. Strip the `at most the first <N>`
+    // clause and the `first <N> of` row shape from the SKILL.md text — the
+    // exact revert of the round-2 fix — and the stage must become unanalysable.
+    // A stage whose bound is stated some other way (aggregated to one row, or
+    // fixed by construction) has no such clause to revert and is exempted BY
+    // NAME below, never by a silent `continue`.
+    const noBoundToRevert: string[] = [];
+    let reverted = 0;
+    for (const stage of ADOPTING_STAGES) {
+      const derived = derivedFor(stage);
+      const hasBound = derived.groups.some((g) => g.disposition.kind === "bounded");
+      if (!hasBound) {
+        noBoundToRevert.push(stage);
+        continue;
+      }
+      const mutant = revertBoundingEdit(read(skillPath(stage)));
+      // THE MUTATION APPLIED. A revert whose regex silently fails to match
+      // reads as a pass, which is the way this exact check has been fooled.
+      expect({ stage, applied: mutant !== null }).toEqual({ stage, applied: true });
+      const after = deriveReportInstruction(stage, mutant!);
+      expect({
+        stage,
+        refused: after.unanalysable.length > 0,
+        stillBounded: after.groups.some((g) => g.disposition.kind === "bounded"),
+      }).toEqual({ stage, refused: true, stillBounded: false });
+      reverted += 1;
+    }
+    // Named, not counted away: these three state their budget without an item
+    // bound, so there is no bounding edit to revert.
+    expect(noBoundToRevert).toEqual(["brainstorm", "report-issue"]);
+    expect(reverted).toBe(ADOPTING_STAGES.length - noBoundToRevert.length);
+  });
+
+  test("MUTATION — every derived verdict is SIZE-SENSITIVE, so a green leg is a real one", () => {
+    // A leg that passes no matter what it is handed certifies nothing. For each
+    // stage, narration past the derived cap must flip the verdict: that proves
+    // the grader is reading THIS report rather than agreeing by construction.
+    let mutated = 0;
+    for (const stage of ADOPTING_STAGES) {
+      const derived = derivedFor(stage);
+      const clean = buildDerivedReport(stage, derived);
+      const mutant = [
+        ...rows(PROSE_LEAD_IN_LINE_CAP + 1, (i) => `extra narration line ${i}.`),
+        clean,
+      ].join("\n");
+      expect(mutant.split("\n").length).toBeGreaterThan(clean.split("\n").length);
+      expect({ stage, verdict: verifyStageReportAdoption(mutant).ok }).toEqual({
+        stage,
+        verdict: false,
+      });
+      mutated += 1;
+    }
+    expect(mutated).toBe(ADOPTING_STAGES.length);
+  });
+
+  test("a stage whose text says NOTHING is refused, not skipped — the twelfth-stage leg", () => {
+    // `deriveReportInstruction` is the only thing that decides coverage, so a
+    // stage added to `ADOPTING_STAGES` tomorrow is graded with no edit here. An
+    // empty or silent SKILL.md must land in `unanalysable` rather than yielding
+    // a clean zero-group pass, which is the exact vacuity this file shipped.
+    const silent = deriveReportInstruction("a-twelfth-stage", "");
+    expect(silent.groups).toEqual([]);
+    expect(silent.unanalysable.length).toBe(1);
+    expect(silent.unanalysable[0]!.why).toContain("bounds");
+
+    // …and a stage that narrates about its closing summary while bounding
+    // nothing is refused for the same reason.
+    const narrating = deriveReportInstruction(
+      "a-twelfth-stage",
+      "**Closing summary — the status block.** It closes with exactly one\n" +
+        "`stage-status-block` fence, with at most 12 lines of prose lead-in.\n",
+    );
+    expect(narrating.unanalysable.length).toBe(1);
+  });
+
+  test("LEDGER — a stage's derived row budget cannot change without being seen", () => {
+    // A DROPPED SUBJECT READS AS A PASS, and this file has now been fooled by
+    // that twice: `/implement`'s bound lived inside its row template, so the
+    // mutated template stopped matching and vanished rather than being refused;
+    // `/report-issue`'s "**three files maximum**" could be deleted outright and
+    // the stage stayed green on its remaining group. Both are invisible to any
+    // leg that only grades what the derivation FOUND.
+    //
+    // So the derivation's OUTPUT is pinned. This is not the literal table
+    // coming back: nothing here can be satisfied by typing a plan into this
+    // file — every entry is only reachable by the SKILL.md still saying what it
+    // says. A group that disappears reddens, and a maintainer who meant it
+    // updates one line with the change in front of them.
+    const ledger: Readonly<Record<AdoptingStage, string>> = {
+      "best-practices": "bounded:3",
+      brainstorm: "fixed:3",
+      deps: "bounded:3",
+      "gate-check": "aggregated | aggregated | bounded:3",
+      implement: "bounded:3 | bounded:3 (+8 mandates)",
+      "report-issue": "aggregated | fixed:3",
+      setup: "bounded:3",
+      "spec-archive": "bounded:3",
+      "spec-review": "bounded:3",
+      "spec-write": "bounded:6",
+      upgrade: "bounded:3",
+    };
+    for (const stage of ADOPTING_STAGES) {
+      const derived = derivedFor(stage);
+      const shape = derived.groups
+        .map((g) =>
+          g.disposition.kind === "aggregated"
+            ? "aggregated"
+            : `${g.disposition.kind}:${g.disposition.n}`,
+        )
+        .join(" | ");
+      const mandates =
+        derived.mandateCount === null ? "" : ` (+${derived.mandateCount} mandates)`;
+      expect({ stage, shape: `${shape}${mandates}` }).toEqual({
+        stage,
+        shape: ledger[stage],
+      });
+    }
+  });
+
+  test("COVERAGE — how many of the eleven could be derived, stated as a number", () => {
+    // The count is asserted, not narrated, so "ten of eleven" cannot quietly
+    // become "one of eleven" while the suite stays green.
+    const analysable = ADOPTING_STAGES.filter(
+      (s) => derivedFor(s).unanalysable.length === 0,
+    );
+    expect(analysable.length).toBe(11);
+    expect(analysable.length).toBe(ADOPTING_STAGES.length);
+    // Every stage's budget comes from one of the three dispositions the
+    // derivation admits, and from nothing else.
+    for (const stage of ADOPTING_STAGES) {
+      for (const group of derivedFor(stage).groups) {
+        expect(["bounded", "aggregated", "fixed"]).toContain(
+          group.disposition.kind,
+        );
+        expect(group.quote.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // The literal table, DEMOTED to a cross-check
+  // -------------------------------------------------------------------------
+
+  test("CROSS-CHECK — every bound the literal plans claim is one the SKILL.md STATES", () => {
+    // The table below decides no verdict any more. It is held against the
+    // derivation: a `first N of M` the plans render must be a bound the stage's
+    // own text declares. A disagreement is a finding, named on both sides.
+    let checked = 0;
+    for (const stage of ADOPTING_STAGES) {
+      const plan = PLANS[stage];
+      if (plan === undefined) continue;
+      const stated = derivedFor(stage)
+        .groups.flatMap((g) => (g.disposition.kind === "bounded" ? [g.disposition.n] : []));
+      const claimed = [
+        ...buildReport(stage, plan).matchAll(/first (\d+) of (\d+)/g),
+      ].map((m) => Number(m[1]));
+      for (const n of claimed) {
+        expect({ stage, claimedBound: n, statedInSkill: stated }).toEqual({
+          stage,
+          claimedBound: n,
+          statedInSkill: expect.arrayContaining([n]),
+        });
+      }
+      checked += 1;
+    }
+    expect(checked).toBe(ADOPTING_STAGES.length);
+  });
 
   test("the plans are REAL — each cites a section that exists in that stage's SKILL.md", () => {
     // Falsifiability: a plan citing a section nobody wrote is a plan about
@@ -457,31 +747,6 @@ describe("THE CONFORMANCE MATRIX — every adopting stage's own report must conf
       checked += 1;
     }
     expect(checked).toBe(ADOPTING_STAGES.length);
-  });
-
-  test("MUTATION — every plan's verdict is SIZE-SENSITIVE, so a green leg is a real one", () => {
-    // A leg that passes no matter what it is handed certifies nothing. For each
-    // stage, adding narration past the cap must flip the verdict: that proves
-    // the grader is reading THIS report rather than agreeing by construction.
-    let mutated = 0;
-    for (const stage of ADOPTING_STAGES) {
-      const plan = planFor(stage);
-      const over: StageReportPlan = {
-        ...plan,
-        prose: [
-          ...plan.prose,
-          ...rows(PROSE_LEAD_IN_LINE_CAP + 1, (i) => `narration line ${i}.`),
-        ],
-      };
-      const mutant = buildReport(stage, over);
-      // THE MUTATION APPLIED.
-      expect(mutant.split("\n").length).toBeGreaterThan(
-        buildReport(stage, plan).split("\n").length,
-      );
-      expect(verifyStageReportAdoption(mutant).ok).toBe(false);
-      mutated += 1;
-    }
-    expect(mutated).toBe(ADOPTING_STAGES.length);
   });
 });
 
