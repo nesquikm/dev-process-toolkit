@@ -2435,3 +2435,325 @@ describe("F7 — `####` does NOT open a subsection; its prose rides the enclosin
     expect(src).toMatch(/####.{0,40}excluded/i);
   });
 });
+
+// ============================================================================
+// M137 ROUND 3 — THE NARRATIVE BUDGET IS PER SUBSECTION NAME, NOT PER OCCURRENCE
+// ============================================================================
+//
+// THE DEFECT, measured on the shipped scanner 2026-09-01, with its control:
+//
+//   VECTOR   3 x `### Notes` of 140 words (420 total, cap 150) -> []
+//   CONTROL  1 x `### Notes` of 420 words                      -> ["Notes"]
+//
+// `scanFile` resets its `words` accumulator every time it ENTERS a subsection,
+// so splitting an over-cap subsection into two identically-named subsections
+// evades the cap entirely. The same defect, in the same shape, sits in
+// `scan_fr_summary_altitude.ts` (word_cap AND line_cap) and in
+// `stage_block_adoption.ts` (the cap-exempt section budget): three modules, one
+// bug — an accumulator scoped to one occurrence of a heading.
+//
+// THE TAXONOMY, stated in `m137-ste-534-fr-word-caps.test.ts` and repeated here
+// in one line because it is what tells the next implementer where to look: a
+// rule that carries STATE ACROSS LINES needs this property; a per-line
+// predicate does not. This scanner has exactly one rule and it is an
+// accumulator, so all of it is at risk.
+//
+// THE ORDERING RULING (operator, 2026-09-01): THE PROPERTY GATES — it comes
+// first and decides correctness. The legs after it document known attacks and
+// are NOT coverage. If the property is green while a vector test is red, the
+// vector test is what is wrong.
+//
+// SCOPE, decided rather than left implicit. The compositions below repeat a
+// heading UNDER ONE MILESTONE — the same `##` parent — because that is the
+// vector and because the plan template mandates one milestone per file ("never
+// bundle M<N> and M<N+1> in the same file"). Whether the accumulator is keyed
+// per FILE or per PARENT `##` is therefore NOT pinned either way: measured
+// across this repository's 136 archived plans, ZERO repeat a `###` name at all,
+// under one parent or across two, so the two scopes coincide on every real
+// plan and pinning the difference would invent a rule nobody has needed. What
+// IS pinned is the quantity: repetition must not multiply the budget.
+//
+// STRUCTURAL BODIES STAY EXEMPT. A `### Tasks` full of checkbox items is exempt
+// from the cap, not merely under it, and every real plan carries a large one —
+// so only NARRATIVE occurrences accumulate. A fix that summed structural bodies
+// into the total would red every plan in this repository, which is why that
+// direction is pinned below as its own leg.
+
+/** The repetition counts — a list including a large value. */
+const PLAN_REPETITIONS: readonly number[] = [2, 3, 10];
+
+/** `total` prose words dealt into `n` bodies — remainder to the earliest. */
+function splitProse(total: number, n: number, prefix: string): string[][] {
+  const base = Math.floor(total / n);
+  const rem = total % n;
+  return Array.from({ length: n }, (_, i) =>
+    proseLines(base + (i < rem ? 1 : 0), `${prefix}${i + 1}z`),
+  );
+}
+
+interface PlanComposition {
+  name: string;
+  /** The `###` heading whose per-file total is the subject. */
+  section: string;
+  /** The NARRATIVE word total across every occurrence of that heading. */
+  total: number;
+  occurrences: number;
+  content: string;
+}
+
+/**
+ * The corpus: a repeated narrative heading, at several magnitudes, on both
+ * sides of the cap, in every arrangement one plan file can express.
+ */
+function planCompositions(): PlanComposition[] {
+  const cap = PLAN_NARRATIVE_WORD_CAP;
+  const out: PlanComposition[] = [];
+  const section = "Notes";
+
+  for (const total of [cap - 20, cap, cap + 1, cap * 3]) {
+    for (const n of [1, ...PLAN_REPETITIONS]) {
+      if (total < n) continue;
+      const bodies = splitProse(total, n, `p${n}t${total}`);
+      out.push({
+        name: `${total} narrative words over ${n} adjacent \`### ${section}\`, cap ${cap}`,
+        section,
+        total,
+        occurrences: n,
+        content: planFile(
+          DOGFOOD_MILESTONE,
+          bodies.map((b) => [section, b] as [string, string[]]),
+        ),
+      });
+
+      if (n > 1) {
+        // The repetitions separated by a DIFFERENT subsection — a merge that
+        // only joins ADJACENT twins is defeated by one heading in between.
+        const spaced: [string, string[]][] = [];
+        bodies.forEach((b, i) => {
+          spaced.push([section, b]);
+          if (i < bodies.length - 1) spaced.push([`Interlude ${i + 1}`, proseLines(10, `i${i}q`)]);
+        });
+        out.push({
+          name: `${total} narrative words over ${n} \`### ${section}\` split by other subsections`,
+          section,
+          total,
+          occurrences: n,
+          content: planFile(DOGFOOD_MILESTONE, spaced),
+        });
+
+        // …and separated by a STRUCTURAL subsection, which is exempt and must
+        // neither break the accumulation nor contribute to it.
+        const withTasks: [string, string[]][] = [];
+        bodies.forEach((b, i) => {
+          withTasks.push([section, b]);
+          if (i < bodies.length - 1) withTasks.push(["Tasks", twoLineTasks(4)]);
+        });
+        out.push({
+          name: `${total} narrative words over ${n} \`### ${section}\` split by structural \`### Tasks\``,
+          section,
+          total,
+          occurrences: n,
+          content: planFile(DOGFOOD_MILESTONE, withTasks),
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/** Scan one composition in its own temp tree. */
+function scanPlanComposition(c: PlanComposition): Violation[] {
+  const fx = makeTree({ [`specs/plan/${DOGFOOD_MILESTONE}.md`]: c.content });
+  try {
+    return scan(fx.root);
+  } finally {
+    fx.cleanup();
+  }
+}
+
+describe("M137 round 3 — THE PROPERTY: the narrative budget is scoped per NAME", () => {
+  test("GATING — a per-name narrative total over the cap ALWAYS flags, under it NEVER does", () => {
+    const corpus = planCompositions();
+    expect(corpus.length).toBeGreaterThan(0);
+
+    // NON-VACUITY, read before the property: the corpus must contain over-cap
+    // and under-cap compositions, single-heading and split forms. Without all
+    // four, the property holds on a scanner that flags everything, one that
+    // flags nothing, or one that was never shown a repetition.
+    expect(corpus.some((c) => c.total > PLAN_NARRATIVE_WORD_CAP)).toBe(true);
+    expect(corpus.some((c) => c.total <= PLAN_NARRATIVE_WORD_CAP)).toBe(true);
+    expect(corpus.some((c) => c.occurrences === 1)).toBe(true);
+    expect(
+      corpus.some((c) => c.occurrences > 1 && c.total > PLAN_NARRATIVE_WORD_CAP),
+    ).toBe(true);
+
+    const wrong: string[] = [];
+    for (const c of corpus) {
+      const hits = bySection(scanPlanComposition(c), c.section);
+      const flagged = hits.length > 0;
+      if (flagged !== c.total > PLAN_NARRATIVE_WORD_CAP) {
+        wrong.push(
+          `${c.name} — total ${c.total} vs cap ${PLAN_NARRATIVE_WORD_CAP}, flagged=${flagged}`,
+        );
+      }
+      // One violation per NAME per file when it fires — the shipped
+      // once-per-subsection semantics, not once per occurrence.
+      if (flagged && hits.length !== 1) {
+        wrong.push(`${c.name} — flagged ${hits.length} times, expected 1`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  test("EVASION TWIN — the SAME total RESTRUCTURED across headings gets the SAME verdict", () => {
+    const corpus = planCompositions();
+    const singles = new Map<number, boolean>();
+    for (const c of corpus.filter((x) => x.occurrences === 1)) {
+      singles.set(c.total, bySection(scanPlanComposition(c), c.section).length > 0);
+    }
+    expect(singles.size).toBeGreaterThan(0);
+
+    const divergent: string[] = [];
+    let compared = 0;
+    for (const c of corpus.filter((x) => x.occurrences > 1)) {
+      const original = singles.get(c.total);
+      if (original === undefined) continue;
+      const twin = bySection(scanPlanComposition(c), c.section).length > 0;
+      if (twin !== original) {
+        divergent.push(`${c.name} — single=${original}, restructured=${twin}`);
+      }
+      compared += 1;
+    }
+    expect(compared).toBeGreaterThan(0);
+    expect(divergent).toEqual([]);
+  });
+});
+
+describe("M137 round 3 — the known attacks (documentation, NOT coverage)", () => {
+  test("THE CONTROL — one `### Notes` at the same total really does flag", () => {
+    // The zero above is evidence only because this fires. A scanner that
+    // stopped measuring produces the identical empty result.
+    const content = planFile(DOGFOOD_MILESTONE, [
+      ["Notes", proseLines(PLAN_NARRATIVE_WORD_CAP * 3, "ctl")],
+    ]);
+    const fx = makeTree({ [`specs/plan/${DOGFOOD_MILESTONE}.md`]: content });
+    try {
+      expect(bySection(scan(fx.root), "Notes").length).toBe(1);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("N repetitions do NOT buy N budgets — three magnitudes, each occurrence legal alone", () => {
+    for (const n of PLAN_REPETITIONS) {
+      const per = Math.floor(PLAN_NARRATIVE_WORD_CAP * 0.9);
+      const content = planFile(
+        DOGFOOD_MILESTONE,
+        Array.from(
+          { length: n },
+          (_, i) => ["Notes", proseLines(per, `r${n}i${i}y`)] as [string, string[]],
+        ),
+      );
+      const fx = makeTree({ [`specs/plan/${DOGFOOD_MILESTONE}.md`]: content });
+      try {
+        // Each occurrence is UNDER the cap on its own — only the total is over.
+        expect(per).toBeLessThanOrEqual(PLAN_NARRATIVE_WORD_CAP);
+        const measured = measure(fx.root).filter((m) => m.section === "Notes");
+        expect({ n, occurrencesMeasured: measured.length > 0 }).toEqual({
+          n,
+          occurrencesMeasured: true,
+        });
+        expect({ n, total: per * n, flagged: bySection(scan(fx.root), "Notes").length > 0 })
+          .toEqual({ n, total: per * n, flagged: per * n > PLAN_NARRATIVE_WORD_CAP });
+      } finally {
+        fx.cleanup();
+      }
+    }
+  });
+
+  test("STRUCTURAL STAYS EXEMPT — repeated checkbox subsections never accumulate into a flag", () => {
+    // The direction that would red every real plan in this repository. A
+    // structural body is EXEMPT from the cap, not merely under it, so ten
+    // `### Tasks` of forty checkbox items must stay clean however large the
+    // word total gets.
+    const content = planFile(
+      DOGFOOD_MILESTONE,
+      Array.from({ length: 10 }, () => ["Tasks", twoLineTasks(12)] as [string, string[]]),
+    );
+    const fx = makeTree({ [`specs/plan/${DOGFOOD_MILESTONE}.md`]: content });
+    try {
+      const measured = measure(fx.root).filter((m) => m.section === "Tasks");
+      expect(measured.length).toBeGreaterThan(0);
+      expect(measured.every((m) => m.kind === "structural")).toBe(true);
+      // The total really is far over the cap — otherwise the clean verdict
+      // could come from a small fixture rather than from the exemption.
+      expect(measured.reduce((sum, m) => sum + m.words, 0)).toBeGreaterThan(
+        PLAN_NARRATIVE_WORD_CAP,
+      );
+      expect(bySection(scan(fx.root), "Tasks")).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("DOGFOOD EVASION TWIN — this milestone's OWN plan words, split across repeated headings", () => {
+    // The dogfood legs above ask whether this repository's plan passes the cap.
+    // They cannot ask whether the cap is avoidable — real material does not
+    // evade. This leg takes a REAL narrative subsection, pushes it just past
+    // the cap, and restructures the identical words across three headings of
+    // the same name under the same milestone. The verdict must not move.
+    const { abs } = realPlanFile();
+    expect(abs).not.toBe("");
+    const real = readFileSync(abs, "utf-8");
+    const narrative = subsectionsOfContent(real).find(
+      (s) => classify(s.body) === "narrative" && countWords(s.body) > 20,
+    );
+    expect(narrative).toBeDefined();
+
+    const realTokens = narrative!.body.join(" ").trim().split(/\s+/).filter(Boolean);
+    expect(realTokens.length).toBeGreaterThan(20);
+
+    // Just past the cap, so each of the three chunks lands UNDER it — a twin
+    // whose chunks were themselves over-cap would flag for a reason that has
+    // nothing to do with accumulation.
+    const target = PLAN_NARRATIVE_WORD_CAP + 9;
+    const words = [
+      ...realTokens,
+      ...Array.from({ length: Math.max(0, target - realTokens.length) }, (_, i) => `fillz${i + 1}`),
+    ].slice(0, target);
+    expect(words.length).toBe(target);
+    expect(words.slice(0, Math.min(realTokens.length, target))).toEqual(
+      realTokens.slice(0, target),
+    );
+
+    /** `words` laid out ten to a line — prose shape, no list markers. */
+    const lay = (ws: readonly string[]): string[] => {
+      const out: string[] = [];
+      for (let i = 0; i < ws.length; i += 10) out.push(ws.slice(i, i + 10).join(" "));
+      return out;
+    };
+    const heading = narrative!.heading;
+    const asOne = planFile(DOGFOOD_MILESTONE, [[heading, lay(words)]]);
+
+    const per = Math.ceil(words.length / 3);
+    const chunks = [words.slice(0, per), words.slice(per, per * 2), words.slice(per * 2)]
+      .filter((c) => c.length > 0);
+    expect(chunks.length).toBe(3);
+    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(PLAN_NARRATIVE_WORD_CAP);
+    const asMany = planFile(
+      DOGFOOD_MILESTONE,
+      chunks.map((c) => [heading, lay(c)] as [string, string[]]),
+    );
+
+    const verdictOf = (content: string): string[] => {
+      const fx = makeTree({ [`specs/plan/${DOGFOOD_MILESTONE}.md`]: content });
+      try {
+        return bySection(scan(fx.root), heading).map((v) => `${v.rule}|${v.section}`);
+      } finally {
+        fx.cleanup();
+      }
+    };
+    expect(verdictOf(asOne)).toEqual(["word_cap|" + heading]);
+    expect(verdictOf(asMany)).toEqual(verdictOf(asOne));
+  });
+});

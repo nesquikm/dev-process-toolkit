@@ -1505,3 +1505,491 @@ describe("F8 — the dogfood subject is milestone-scoped on BOTH paths", () => {
     }
   });
 });
+
+// ============================================================================
+// M137 ROUND 3 — THE BUDGET IS PER SECTION NAME PER FILE, NOT PER OCCURRENCE
+// ============================================================================
+//
+// THE DEFECT, measured on the shipped scanner 2026-09-01, each line with its
+// own control so a zero is evidence rather than a broken harness:
+//
+//   VECTOR   3 x `## Summary` of 70 words          (210 total, cap  80) -> []
+//   CONTROL  1 x `## Summary` of 210 words                              -> ["word_cap", "line_cap"]
+//   VECTOR   3 x `## Technical Design` of 100      (300 total, cap 120) -> []
+//   VECTOR   2 x `## Notes` of 55                  (110 total, cap  60) -> []
+//   VECTOR   2 x `## Summary` of 5 lines each      ( 10 total, cap   6) -> []
+//   CONTROL  1 x `## Summary` of 10 lines                               -> ["line_cap"]
+//
+// `scanFile` resets its `words` and `nonEmpty` accumulators every time it
+// ENTERS a section, so splitting an over-cap section into two identically-named
+// sections evades the cap entirely. `line_cap` shipped in STE-386 (M105) and has
+// been evadable for thirty-two milestones; the three word caps shipped in this
+// milestone and were evadable on the day they landed.
+//
+// THE TAXONOMY, stated here so the next implementer does not rediscover it:
+//
+//   * A rule that carries STATE ACROSS LINES — a running word count, a running
+//     non-empty line count — is graded against an ACCUMULATOR, and an
+//     accumulator scoped to one occurrence of a heading is defeated by a second
+//     occurrence. Those rules need the per-name property below.
+//   * A PER-LINE PREDICATE — `backtick`, `ac_id`, `path_token` — carries no
+//     state, so each offending line fires wherever it sits. MEASURED: one
+//     Summary with three offending lines and three Summaries with one each
+//     produce the identical multiset of violations. Those rules do NOT need it.
+//
+// That boundary is the useful half of this finding: it says which part of any
+// section walker is at risk, without anyone having to enumerate vectors.
+//
+// THE ORDERING RULING (operator, 2026-09-01): THE PROPERTY GATES. It comes
+// first and it is what decides correctness; the legs after it document known
+// attacks and are not coverage. If the property is green while a vector test is
+// red, THE VECTOR TEST IS WHAT IS WRONG.
+//
+// WHAT THIS SECTION DELIBERATELY DOES NOT PIN, said outright rather than left
+// implicit: a duplicate `## Summary` / `## Technical Design` / `## Notes` is
+// NOT made a violation in itself here. Two reasons, both measured. (1) Nothing
+// in the FR template forbids a repeated heading, and 2 of this repository's 447
+// archived FRs already carry one (`STE-74.md`, `STE-378.md`) — neither of them a
+// capped section, but a rule that fires on repetition alone would be a new
+// content rule retroactively applied to real prose, which is exactly what the
+// `FR_WORD_CAP_EPOCH` grandfathering exists to avoid. (2) Accumulating per name
+// closes the QUANTITY hole completely: 3 x 70 words is graded as 210. The
+// contrast with `m137-ste-533-exempt-budget.test.ts`, which DOES refuse a
+// duplicate outright, is deliberate: there the carve-out is a closed, cited
+// list of sections whose renderers emit them exactly once, and absence is
+// already a violation, so duplication must not be the loophole absence is not.
+
+/** The capped sections, read off the SHIPPED table — never re-listed here. */
+const CAPPED_SECTIONS: readonly { section: string; cap: number }[] = (
+  SECTION_RULES as readonly RuleSpec[]
+)
+  .filter((s) => s.wordCap !== null)
+  .map((s) => ({ section: s.section, cap: s.wordCap as number }));
+
+/** The sections carrying the accumulating LINE rule, read off the same table. */
+const LINE_CAP_SECTIONS: readonly string[] = (SECTION_RULES as readonly RuleSpec[])
+  .filter((s) => s.rules.includes("line_cap"))
+  .map((s) => s.section);
+
+/**
+ * The shipped line cap, MEASURED rather than typed: `LINE_CAP` is module-private,
+ * and a hand-typed 6 here is a number free to drift from the one that grades.
+ * Probed with single-word lines so the word cap cannot confound the answer.
+ */
+const measuredLineCap = (): number => {
+  for (let n = 1; n <= 30; n++) {
+    const content = frFile("STE-CAPPROBE", [
+      ["Summary", Array.from({ length: n }, (_, i) => `probe${i + 1}`)],
+    ]);
+    const fx = makeTree({ "specs/frs/STE-CAPPROBE.md": content });
+    try {
+      if (byRule(scan(fx.root), "line_cap").length > 0) return n - 1;
+    } finally {
+      fx.cleanup();
+    }
+  }
+  throw new Error("`line_cap` never fired on a Summary of up to 30 non-empty lines");
+};
+
+/** `total` words dealt into `n` bodies — remainder to the earliest bodies. */
+function splitWords(total: number, n: number, prefix: string): string[][] {
+  const base = Math.floor(total / n);
+  const rem = total % n;
+  return Array.from({ length: n }, (_, i) =>
+    bodyOfWords(base + (i < rem ? 1 : 0), `${prefix}${i + 1}x`),
+  );
+}
+
+/** `total` single-word lines dealt into `n` bodies. */
+function splitLines(total: number, n: number, prefix: string): string[][] {
+  const base = Math.floor(total / n);
+  const rem = total % n;
+  let seen = 0;
+  return Array.from({ length: n }, (_, i) => {
+    const take = base + (i < rem ? 1 : 0);
+    const body = Array.from({ length: take }, (_, j) => `${prefix}${seen + j + 1}`);
+    seen += take;
+    return body;
+  });
+}
+
+/** A section absent from the shipped table — graded by nothing, so a neutral spacer. */
+const UNCAPPED_SECTION = "Acceptance Criteria";
+
+interface FrComposition {
+  name: string;
+  /** The section name whose per-file total is the subject. */
+  section: string;
+  rule: "word_cap" | "line_cap";
+  /** The per-name total across every occurrence — words, or non-empty lines. */
+  total: number;
+  cap: number;
+  /** How many occurrences of the heading carry that total. */
+  occurrences: number;
+  content: string;
+}
+
+/**
+ * The corpus: every arrangement of a repeated capped heading this scanner can
+ * be handed, at several magnitudes and on both sides of every cap.
+ *
+ * Built from the SHIPPED table, so a section added to `SECTION_RULES` tomorrow
+ * is attacked by every arrangement here the day it lands.
+ */
+function frCompositions(): FrComposition[] {
+  const out: FrComposition[] = [];
+  const splits = [1, 2, 3, 10];
+
+  for (const { section, cap } of CAPPED_SECTIONS) {
+    for (const total of [cap - 10, cap, cap + 1, cap * 3]) {
+      for (const n of splits) {
+        if (total < n) continue;
+        const bodies = splitWords(total, n, `w${section.length}n${n}t${total}`);
+        const id = `STE-P${section.length}${n}${total}`;
+
+        out.push({
+          name: `${section}: ${total} words over ${n} adjacent heading(s), cap ${cap}`,
+          section,
+          rule: "word_cap",
+          total,
+          cap,
+          occurrences: n,
+          content: frFile(id, bodies.map((b) => [section, b] as [string, string[]])),
+        });
+
+        if (n > 1) {
+          // The same total, with an UNCAPPED section wedged between the
+          // repetitions — a walker that only merges ADJACENT twins is defeated
+          // by one intervening heading, and would pass the leg above.
+          const spaced: [string, string[]][] = [];
+          bodies.forEach((b, i) => {
+            spaced.push([section, b]);
+            if (i < bodies.length - 1) spaced.push([UNCAPPED_SECTION, ["- one criterion"]]);
+          });
+          out.push({
+            name: `${section}: ${total} words over ${n} heading(s) split by \`## ${UNCAPPED_SECTION}\``,
+            section,
+            rule: "word_cap",
+            total,
+            cap,
+            occurrences: n,
+            content: frFile(`${id}S`, spaced),
+          });
+
+          // …and with ANOTHER CAPPED section between them, each of the two
+          // subjects well under its own cap. A merge keyed on anything but the
+          // heading NAME collapses the wrong pair here.
+          const other = CAPPED_SECTIONS.find((c) => c.section !== section)!;
+          const interleaved: [string, string[]][] = [];
+          bodies.forEach((b, i) => {
+            interleaved.push([section, b]);
+            if (i < bodies.length - 1) {
+              interleaved.push([other.section, bodyOfWords(5, `o${i}y`)]);
+            }
+          });
+          out.push({
+            name: `${section}: ${total} words over ${n} heading(s) interleaved with \`## ${other.section}\``,
+            section,
+            rule: "word_cap",
+            total,
+            cap,
+            occurrences: n,
+            content: frFile(`${id}I`, interleaved),
+          });
+        }
+      }
+    }
+  }
+
+  const lineCap = measuredLineCap();
+  for (const section of LINE_CAP_SECTIONS) {
+    for (const total of [lineCap - 1, lineCap, lineCap + 1, lineCap * 3]) {
+      for (const n of splits) {
+        if (total < n) continue;
+        const bodies = splitLines(total, n, `L${n}t${total}n`);
+        out.push({
+          name: `${section}: ${total} non-empty lines over ${n} heading(s), line cap ${lineCap}`,
+          section,
+          rule: "line_cap",
+          total,
+          cap: lineCap,
+          occurrences: n,
+          content: frFile(
+            `STE-L${n}${total}`,
+            bodies.map((b) => [section, b] as [string, string[]]),
+          ),
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/** Scan one composition in its own temp tree and return its violations. */
+function scanComposition(c: FrComposition): Violation[] {
+  const fx = makeTree({ "specs/frs/subject.md": c.content });
+  try {
+    return scan(fx.root);
+  } finally {
+    fx.cleanup();
+  }
+}
+
+describe("M137 round 3 — THE PROPERTY: an accumulating rule is scoped per NAME per FILE", () => {
+  test("GATING — a per-name total over the cap ALWAYS flags, under the cap NEVER does", () => {
+    const corpus = frCompositions();
+    expect(corpus.length).toBeGreaterThan(0);
+
+    // NON-VACUITY, stated before the property is read. The corpus must contain
+    // over-cap AND under-cap compositions, and split AND single-heading forms —
+    // otherwise the property holds on a scanner that flags everything, on one
+    // that flags nothing, or on one that was never shown a repetition.
+    expect(corpus.some((c) => c.total > c.cap)).toBe(true);
+    expect(corpus.some((c) => c.total <= c.cap)).toBe(true);
+    expect(corpus.some((c) => c.occurrences === 1)).toBe(true);
+    expect(corpus.some((c) => c.occurrences > 1 && c.total > c.cap)).toBe(true);
+    expect(new Set(corpus.map((c) => c.rule))).toEqual(
+      new Set(["word_cap", "line_cap"]),
+    );
+
+    const wrong: string[] = [];
+    for (const c of corpus) {
+      const hits = bySection(byRule(scanComposition(c), c.rule), c.section);
+      const flagged = hits.length > 0;
+      if (flagged !== c.total > c.cap) {
+        wrong.push(
+          `${c.rule} — ${c.name} — total ${c.total} vs cap ${c.cap}, flagged=${flagged}`,
+        );
+      }
+      // …and when it flags, it flags ONCE for that name: one violation per
+      // section per file, the shipped semantics, not one per occurrence.
+      if (flagged && hits.length !== 1) {
+        wrong.push(`${c.rule} — ${c.name} — flagged ${hits.length} times, expected 1`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  test("EVASION TWIN — the SAME total RESTRUCTURED across headings gets the SAME verdict", () => {
+    // The standing rule (operator, 2026-09-01): every dogfood ships with an
+    // evasion twin, because a dogfood over unrestructured material can only
+    // answer "does this fire?" and never "can this be avoided?".
+    //
+    // Here every split composition is paired with the single-heading form of
+    // the SAME total, and the two verdicts are compared directly.
+    const corpus = frCompositions();
+    const singles = new Map<string, boolean>();
+    for (const c of corpus.filter((x) => x.occurrences === 1)) {
+      singles.set(
+        `${c.rule}|${c.section}|${c.total}`,
+        bySection(byRule(scanComposition(c), c.rule), c.section).length > 0,
+      );
+    }
+    expect(singles.size).toBeGreaterThan(0);
+
+    const divergent: string[] = [];
+    let compared = 0;
+    for (const c of corpus.filter((x) => x.occurrences > 1)) {
+      const key = `${c.rule}|${c.section}|${c.total}`;
+      const original = singles.get(key);
+      if (original === undefined) continue;
+      const twin = bySection(byRule(scanComposition(c), c.rule), c.section).length > 0;
+      if (twin !== original) {
+        divergent.push(`${c.name} — single=${original}, restructured=${twin}`);
+      }
+      compared += 1;
+    }
+    expect(compared).toBeGreaterThan(0);
+    expect(divergent).toEqual([]);
+  });
+});
+
+describe("M137 round 3 — the known attacks and the taxonomy (documentation, NOT coverage)", () => {
+  test("THE CONTROLS — the single-heading form at each total really does flag", () => {
+    // Coordinator's requirement, and the reason the zeros above are evidence:
+    // a green from a scanner that stopped measuring is indistinguishable from a
+    // green from a scanner that measures correctly, unless the control fires.
+    for (const { section, cap } of CAPPED_SECTIONS) {
+      const content = frFile("STE-CTRL", [
+        [section, bodyOfWords(cap * 3, `c${section.length}z`)],
+      ]);
+      const fx = makeTree({ "specs/frs/STE-CTRL.md": content });
+      try {
+        const hits = bySection(byRule(scan(fx.root), "word_cap"), section);
+        expect({ section, flagged: hits.length }).toEqual({ section, flagged: 1 });
+      } finally {
+        fx.cleanup();
+      }
+    }
+    const lineCap = measuredLineCap();
+    for (const section of LINE_CAP_SECTIONS) {
+      const content = frFile("STE-CTRLL", [
+        [section, Array.from({ length: lineCap * 3 }, (_, i) => `ctl${i + 1}`)],
+      ]);
+      const fx = makeTree({ "specs/frs/STE-CTRLL.md": content });
+      try {
+        const hits = bySection(byRule(scan(fx.root), "line_cap"), section);
+        expect({ section, flagged: hits.length }).toEqual({ section, flagged: 1 });
+      } finally {
+        fx.cleanup();
+      }
+    }
+  });
+
+  test("THE TAXONOMY — per-line predicates do NOT multiply, and are unchanged", () => {
+    // The other half of the boundary, MEASURED rather than assumed: the three
+    // per-line rules carry no state, so the same offending lines fire the same
+    // way however they are distributed across headings. A fix that merged
+    // sections must not double-count them either.
+    const perLineRules = ["backtick", "ac_id", "path_token"];
+    const oneSection = frFile("STE-T1", [["Summary", [DIRTY_LINE, DIRTY_LINE, DIRTY_LINE]]]);
+    const threeSections = frFile("STE-T3", [
+      ["Summary", [DIRTY_LINE]],
+      ["Summary", [DIRTY_LINE]],
+      ["Summary", [DIRTY_LINE]],
+    ]);
+    const tally = (content: string): Record<string, number> => {
+      const fx = makeTree({ "specs/frs/subject.md": content });
+      try {
+        const vs = scan(fx.root);
+        return Object.fromEntries(
+          perLineRules.map((r) => [r, byRule(vs, r).length]),
+        );
+      } finally {
+        fx.cleanup();
+      }
+    };
+    const expected = Object.fromEntries(perLineRules.map((r) => [r, 3]));
+    expect(tally(oneSection)).toEqual(expected);
+    expect(tally(threeSections)).toEqual(expected);
+  });
+
+  test("N repetitions do NOT buy N budgets — the live vector, at four magnitudes", () => {
+    for (const { section, cap } of CAPPED_SECTIONS) {
+      for (const n of [2, 3, 10, 50]) {
+        // Each occurrence sits COMFORTABLY under the cap on its own; only the
+        // per-file total is over it. A per-occurrence accumulator sees nothing.
+        const per = Math.max(1, Math.floor(cap * 0.7));
+        const bodies = Array.from({ length: n }, (_, i) =>
+          bodyOfWords(per, `m${section.length}n${n}i${i}q`),
+        );
+        const content = frFile(
+          `STE-M${section.length}${n}`,
+          bodies.map((b) => [section, b] as [string, string[]]),
+        );
+        const fx = makeTree({ "specs/frs/subject.md": content });
+        try {
+          const hits = bySection(byRule(scan(fx.root), "word_cap"), section);
+          expect({ section, n, per, total: per * n, cap, flagged: hits.length > 0 }).toEqual({
+            section,
+            n,
+            per,
+            total: per * n,
+            cap,
+            flagged: per * n > cap,
+          });
+        } finally {
+          fx.cleanup();
+        }
+      }
+    }
+  });
+
+  test("DOGFOOD EVASION TWIN — a real FR's own words, split across repeated headings", () => {
+    // The dogfood legs above ask whether this repository's FRs pass the caps.
+    // They cannot ask whether the caps are avoidable, because real prose does
+    // not evade. This leg takes REAL FR content, pushes ONE section over its
+    // cap, and then restructures the identical words across three headings of
+    // the same name — the verdict must not move.
+    const dog = dogfoodTree();
+    try {
+      expect(dog.source).not.toBe("none");
+      const files = mdFilesIn(join(dog.root, "specs", "frs"));
+      expect(files.length).toBeGreaterThan(0);
+
+      const subject = files
+        .map((abs) => ({ abs, body: readFileSync(abs, "utf-8") }))
+        .find((f) => /^## Summary\s*$/m.test(f.body));
+      expect(subject).toBeDefined();
+
+      // The real Summary body, verbatim — this is what makes it a dogfood.
+      const lines = subject!.body.split("\n");
+      const start = lines.findIndex((l) => /^## Summary\s*$/.test(l));
+      const end = lines.findIndex((l, i) => i > start && /^##\s+/.test(l));
+      const realBody = lines
+        .slice(start + 1, end === -1 ? lines.length : end)
+        .filter((l) => l.trim() !== "");
+      expect(realBody.length).toBeGreaterThan(0);
+      const realTokens = realBody.join(" ").trim().split(/\s+/).filter(Boolean);
+      expect(realTokens.length).toBeGreaterThan(0);
+
+      // MUTATION: the real words, topped up to just past the cap. "Just past"
+      // is the point — the restructured twin's chunks must each land UNDER the
+      // cap, or the twin would flag for a reason that has nothing to do with
+      // accumulation and this leg would pass while measuring nothing.
+      const target = SUMMARY_WORD_CAP + 9;
+      const filler = Array.from(
+        { length: Math.max(0, target - realTokens.length) },
+        (_, i) => `dogz${i + 1}`,
+      );
+      const allWords = [...realTokens, ...filler].slice(0, target);
+      expect(allWords.length).toBe(target);
+      expect(allWords.length).toBeGreaterThan(SUMMARY_WORD_CAP);
+      // The real prose really is in there — otherwise this is a synthetic
+      // fixture wearing a dogfood's name.
+      expect(allWords.slice(0, realTokens.length)).toEqual(realTokens);
+
+      const head = lines.slice(0, start).join("\n");
+      const tail = end === -1 ? "" : lines.slice(end).join("\n");
+      /** `words` laid out ten to a line — the shape a Summary really has. */
+      const lay = (words: readonly string[]): string[] => {
+        const out: string[] = [];
+        for (let i = 0; i < words.length; i += 10) out.push(words.slice(i, i + 10).join(" "));
+        return out;
+      };
+      const asOne = [head, "## Summary", "", ...lay(allWords), "", tail].join("\n");
+
+      // THE TWIN: the SAME words, dealt into three `## Summary` headings, each
+      // one comfortably under the cap on its own.
+      const per = Math.ceil(allWords.length / 3);
+      const chunks = [
+        allWords.slice(0, per),
+        allWords.slice(per, per * 2),
+        allWords.slice(per * 2),
+      ].filter((c) => c.length > 0);
+      expect(chunks.length).toBe(3);
+      for (const c of chunks) expect(c.length).toBeLessThanOrEqual(SUMMARY_WORD_CAP);
+      const asMany = [
+        head,
+        ...chunks.flatMap((c) => ["## Summary", "", ...lay(c), ""]),
+        tail,
+      ].join("\n");
+
+      // Same words, different structure — the definition of the twin.
+      const wordsIn = (content: string): number =>
+        content
+          .split("\n")
+          .filter((l) => !/^## Summary\s*$/.test(l))
+          .join(" ")
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean).length;
+      expect(wordsIn(asMany)).toBe(wordsIn(asOne));
+
+      const verdictOf = (content: string): string[] => {
+        const fx = makeTree({ "specs/frs/dogfood-twin.md": content });
+        try {
+          return bySection(byRule(scan(fx.root), "word_cap"), "Summary").map(
+            (v) => `${v.rule}|${v.section}`,
+          );
+        } finally {
+          fx.cleanup();
+        }
+      };
+      expect(verdictOf(asOne)).toEqual(["word_cap|Summary"]);
+      expect(verdictOf(asMany)).toEqual(verdictOf(asOne));
+    } finally {
+      dog.cleanup();
+    }
+  });
+});

@@ -52,6 +52,30 @@
 // at which the running word count first EXCEEDS the cap — mirroring the FR
 // scanner's `word_cap` anchor exactly.
 //
+// THE BUDGET IS PER HEADING NAME PER FILE, NOT PER OCCURRENCE (M137 round 3).
+// The cap is a rule that carries STATE ACROSS LINES — a running word total —
+// and an accumulator scoped to one occurrence of a heading is defeated by a
+// second occurrence of the same name. Measured on the shipped scanner: three
+// `### Notes` of 140 narrative words each — nearly three times
+// `PLAN_NARRATIVE_WORD_CAP` in total — scored ZERO, while the identical words
+// under one heading flagged. So the running total is keyed by the heading TEXT
+// and carried across every occurrence in the file, and the violation is
+// reported once per name.
+//
+// THE SCOPE IS THE FILE, chosen over the parent `##`. Both satisfy the
+// contract — measured, zero of this repository's 136 archived plans repeat a
+// `###` name at all, let alone under different parents — and per-file is the
+// scope the sibling FR scanner already uses, so the two altitude scanners
+// answer "how far does an accumulator reach?" the same way. A plan file is one
+// milestone; there is no second parent for a name to hide under.
+//
+// STRUCTURAL SUBSECTIONS DO NOT ACCUMULATE. A structural body is EXEMPT from
+// the cap, not merely under it, so its words never enter the running total —
+// otherwise ten `### Tasks` of checkbox rows would redden every real plan in
+// this repository. And repetition is NOT itself a violation here, for the same
+// reason it is not in `scan_fr_summary_altitude.ts`: accumulating per name
+// closes the quantity hole without adding a retroactive content rule.
+//
 // The classifier is an injectable PARAMETER defaulting to the shipped
 // `classifySectionBody`, so a mutation test can hand in a mutant (invert it,
 // count bare lines instead of items) and prove the shipped silence over a
@@ -260,18 +284,29 @@ function scanFile(abs: string, rel: string, classify: BodyClassifier): FileScan 
     return { violations, measured };
   }
 
+  // THE ACCUMULATOR IS PER HEADING NAME PER FILE, and it lives out here rather
+  // than inside the subsection loop — see the header note. A running total
+  // reset on every `### Notes` hands the second one a fresh budget.
+  const narrativeWords = new Map<string, number>();
+  const crossed = new Set<string>();
+
   // Finding the subsections is the shared walk's job; grading them is this
   // scanner's, and the two never mix.
   for (const sub of walkSections(content.split("\n"), PLAN_SECTION_WALK)) {
     const kind = classify(sub.body);
     let words = 0;
-    let crossed = false;
     for (let i = 0; i < sub.body.length; i++) {
       const n = countWords(sub.body[i]!);
       if (n === 0) continue;
       words += n;
-      if (kind === "narrative" && !crossed && words > PLAN_NARRATIVE_WORD_CAP) {
-        crossed = true;
+      // STRUCTURAL BODIES ARE EXEMPT, NOT MERELY UNDER THE CAP: they never
+      // enter the accumulator at all, so ten `### Tasks` of checkbox rows can
+      // no more accumulate into a flag than one could.
+      if (kind !== "narrative") continue;
+      const running = (narrativeWords.get(sub.heading) ?? 0) + n;
+      narrativeWords.set(sub.heading, running);
+      if (!crossed.has(sub.heading) && running > PLAN_NARRATIVE_WORD_CAP) {
+        crossed.add(sub.heading);
         violations.push({
           file: rel,
           line: sub.bodyLines[i]!,
@@ -280,6 +315,8 @@ function scanFile(abs: string, rel: string, classify: BodyClassifier): FileScan 
         });
       }
     }
+    // Measurement stays PER OCCURRENCE — it answers "what is in the tree", so
+    // a dogfood run can prove it was non-vacuous. GRADING is what accumulates.
     measured.push({ file: rel, section: sub.heading, line: sub.line, words, kind });
   }
   return { violations, measured };

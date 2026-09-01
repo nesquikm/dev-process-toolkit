@@ -49,7 +49,7 @@ Design-reference images (mockups, screenshots, design-system artifacts) live und
 
 ## The `.dpt/` tree
 
-Toolkit-owned state lives in one folder at the project root. Every path under it is composed by `adapters/_shared/src/dpt_paths.ts` (`dptRoot`, `locksDir`, `ledgerPath`, `scratchRoot`, `scratchDir`, `skipBaselinePath`, `checkoutIdPath`) — no other module composes a `.dpt` literal.
+Toolkit-owned state lives in one folder at the project root. Every path under it is composed by `adapters/_shared/src/dpt_paths.ts` (`dptRoot`, `locksDir`, `ledgerPath`, `scratchRoot`, `scratchDir`, `skipBaselinePath`, `checkoutIdPath`, `advisoryNotesPath`) — no other module composes a `.dpt` literal.
 
 ```
 .dpt/
@@ -58,6 +58,7 @@ Toolkit-owned state lives in one folder at the project root. Every path under it
 ├── ledger/…jsonl       ← ignored — token-ledger capture
 ├── scratch/<ulid>/     ← ignored — spec/deps research results
 ├── ledger/checkout-id  ← ignored — this checkout's identity (STE-527)
+├── ledger/advisory-notes.md ← ignored — every run's FULL advisory-note list (STE-533)
 └── skip-baseline.json  ← ignored — per-trunk-commit skip baseline (STE-527)
 ```
 

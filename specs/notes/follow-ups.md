@@ -1074,3 +1074,42 @@ The `/pr` case is the instructive one: a shipped test asserted the literal `—`
 **Interim, already landed:** `tests/m129-ste-497-deliver-identity.test.ts` pins the mirroring for the two skills M129 changed (`/deliver`, `/pr`), including a not-the-`—`-marker leg and a non-vacuity control. That covers the two rows this milestone touched and nothing else.
 
 Surfaced while implementing M129 / STE-496 and STE-497, 2026-08-17.
+
+## Evasion twins for every guard validated against real content only
+
+**The finding, measured.** Every accumulating rule this repository ships resets its
+accumulator on a repeated heading, so splitting an over-budget section into two
+identically-named sections evades the cap entirely. Measured with controls on 2026-09-01:
+
+| rule / cap | control (one heading) | evasion (repeated headings) |
+|---|---|---|
+| `line_cap` 6 lines (STE-386, M105) | 10 lines → flags | 5 + 5 = 10 → **silent** |
+| `word_cap` Summary 80 | 200 words → flags | 3 × 70 = 210 → **silent** |
+| `word_cap` Technical Design 120 | — | 3 × 100 = 300 → **silent** |
+| `word_cap` Notes 60 | — | 2 × 55 = 110 → **silent** |
+| plan narrative 150 | 400 words → flags | 3 × 140 = 420 → **silent** |
+| stage-report ceiling 49 lines | — | 50 × 2 = 124 → **accepted** |
+
+`backtick`, `ac_id` and `path_token` do NOT multiply — measured, not assumed. The boundary
+is structural: **a rule carrying state across lines needs a per-name property; a per-line
+predicate does not.**
+
+**Why it survived.** A dogfood over real content answers "does this fire?" and never
+"can this be avoided?" — real material does not evade. Every dogfood M137 shipped proved
+its scanner measures *something*; none proved it measures *all of its subject*. Five holes
+across three modules survived four adversarial review rounds for that reason, and no review
+can close it: a review inspects what exists, and this is a property the suite must contain.
+
+**What M137 shipped.** The per-name property (gating), the taxonomy above, and the standing
+rule that every dogfood ships with an **evasion twin** — same total, restructured, required
+to produce the same verdict.
+
+**What this FR owes.** M137 applied the twin rule to its own guards only. The following were
+validated by pointing them at real material and are therefore proven only to measure
+something: the archive-fallback dogfoods, the citation resolver (`resolveExemptCitation`),
+the adoption grader (`scanStageBlockAdoption`), and the `deliver-stage-result` fence contract.
+Audit every guard in `adapters/_shared/src/` for an evasion twin; add one or record why none
+can be constructed. Deliberately deferred from M137 to keep the milestone shippable — the
+rule is the deliverable, this sweep is its consequence.
+
+Surfaced while implementing M137 review round 2, 2026-09-01.
