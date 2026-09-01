@@ -63,11 +63,9 @@
 
 import { describe, expect, test } from "bun:test";
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -83,6 +81,9 @@ import {
   measureFrSections,
   scanFrSummaryAltitude,
 } from "../adapters/_shared/src/scan_fr_summary_altitude";
+// The archive-blind-spot idiom, shared with the sibling M137 suites so there is
+// exactly ONE spec-tree resolver rather than one per guard.
+import { boundToMilestone, mdFilesIn } from "./_spec_tree";
 
 // ---------------------------------------------------------------- shared shapes
 
@@ -713,30 +714,6 @@ interface Dogfood {
 
 /** This milestone's own FRs, wherever they live, identified by frontmatter. */
 const DOGFOOD_MILESTONE = "M137";
-
-/** `*.md` files directly in `dir` (non-recursive), absolute, sorted. */
-function mdFilesIn(dir: string): string[] {
-  if (!existsSync(dir)) return [];
-  try {
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isFile() && e.name.endsWith(".md"))
-      .map((e) => join(dir, e.name))
-      .sort();
-  } catch {
-    return [];
-  }
-}
-
-/** True iff the file's frontmatter binds it to `milestone: <milestone>`. */
-function boundToMilestone(abs: string, milestone: string): boolean {
-  let content: string;
-  try {
-    content = readFileSync(abs, "utf-8");
-  } catch {
-    return false;
-  }
-  return new RegExp(`^milestone:\\s*${milestone}\\s*$`, "m").test(content);
-}
 
 /**
  * Resolve the dogfood subject and return a root the scanner can walk.

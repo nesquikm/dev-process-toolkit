@@ -69,7 +69,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readdirSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -98,6 +97,9 @@ import {
   nonTestConsumers,
   walkTextFiles,
 } from "./_module_consumers";
+// The archive-blind-spot idiom, shared with the sibling M137 suites so there is
+// exactly ONE spec-tree resolver rather than one per guard.
+import { boundToMilestone, mdFilesIn, resolveSpecFile } from "./_spec_tree";
 
 // ---------------------------------------------------------------- shared shapes
 
@@ -170,30 +172,6 @@ function makeTree(files: Record<string, string>): {
     writeFileSync(abs, content);
   }
   return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
-}
-
-/** `*.md` files directly in `dir` (non-recursive), absolute, sorted. */
-function mdFilesIn(dir: string): string[] {
-  if (!existsSync(dir)) return [];
-  try {
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isFile() && e.name.endsWith(".md"))
-      .map((e) => join(dir, e.name))
-      .sort();
-  } catch {
-    return [];
-  }
-}
-
-/** True iff the file's frontmatter binds it to `milestone: <milestone>`. */
-function boundToMilestone(abs: string, milestone: string): boolean {
-  let content: string;
-  try {
-    content = readFileSync(abs, "utf-8");
-  } catch {
-    return false;
-  }
-  return new RegExp(`^milestone:\\s*${milestone}\\s*$`, "m").test(content);
 }
 
 /** 1-indexed line of the first line in `content` containing `needle`. */
@@ -389,19 +367,15 @@ function dogfoodTree(repoRoot: string = REPO_ROOT): PlanSubject {
   return stage(archived, "archive");
 }
 
-/** Absolute path of THIS milestone's plan file, active tree or archive. */
+/**
+ * Absolute path of THIS milestone's plan file, active tree or archive.
+ *
+ * Delegated to the shared resolver so the active-then-archive lookup exists in
+ * exactly one place: a per-suite copy is how this blind spot keeps coming back.
+ */
 function realPlanFile(): { abs: string; source: PlanSource } {
-  const active = join(REPO_ROOT, "specs", "plan", `${DOGFOOD_MILESTONE}.md`);
-  if (existsSync(active)) return { abs: active, source: "active" };
-  const archived = join(
-    REPO_ROOT,
-    "specs",
-    "plan",
-    "archive",
-    `${DOGFOOD_MILESTONE}.md`,
-  );
-  if (existsSync(archived)) return { abs: archived, source: "archive" };
-  return { abs: "", source: "none" };
+  const found = resolveSpecFile(REPO_ROOT, "specs/plan", `${DOGFOOD_MILESTONE}.md`);
+  return { abs: found.abs, source: found.source };
 }
 
 /**

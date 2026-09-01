@@ -92,6 +92,9 @@ import {
 } from "../adapters/_shared/src/stage_block_adoption";
 import { STAGE_REPORT_LINE_CAP } from "../adapters/_shared/src/stage_status_block";
 import { FENCE_LINE_CAP } from "../adapters/_shared/src/deliver_stage_capture";
+// Frontmatter milestone binding — how the FR-side archive fallback below stays
+// scoped to THIS milestone instead of swallowing 440-plus pre-rule FRs.
+import { boundToMilestone } from "./_spec_tree";
 
 const pluginRoot = join(import.meta.dir, "..");
 const SELF = join(import.meta.dir, "m137-ste-536-budget-single-source.test.ts");
@@ -1516,10 +1519,24 @@ interface FrDogfood {
   cleanup: () => void;
 }
 
+/** The milestone whose FRs this suite dogfoods, on either resolution path. */
+const DOGFOOD_MILESTONE = "M137";
+
 /**
  * A root whose `specs/frs/` the FR scanner can walk: this repository when its
- * active tree carries FRs, otherwise a temp root seeded from `archive/`.
- * Throws when neither exists — an empty subject is a failure, never a pass.
+ * active tree carries FRs, otherwise a temp root seeded with THIS MILESTONE's
+ * archived FRs. Throws when neither exists — an empty subject is a failure,
+ * never a pass.
+ *
+ * THE FALLBACK IS MILESTONE-SCOPED, and that scoping is the whole point rather
+ * than a refinement. `specs/frs/archive/` holds 442 FRs, nearly all of them
+ * written before these budgets existed; measured 2026-08-31 the archive carries
+ * 638 `word_cap` breaches against a rule it predates (`STE-101.md:47`,
+ * `STE-101.md:66`, `STE-103.md:77`, …). An unscoped fallback therefore does not
+ * restore the subject the archive commit took away — it substitutes a larger
+ * pre-rule subject and reddens the tree on legitimate history. The sibling
+ * STE-534 and STE-535 dogfoods scope theirs by frontmatter for exactly this
+ * reason, and this one now speaks the same idiom.
  */
 function frDogfoodTree(repoRoot: string = REPO_ROOT): FrDogfood {
   const noop = (): void => {};
@@ -1532,11 +1549,13 @@ function frDogfoodTree(repoRoot: string = REPO_ROOT): FrDogfood {
     return { root: repoRoot, source: "active", files: active, cleanup: noop };
   }
   const archiveDir = join(frsDir, "archive");
-  const archived = mdIn(archiveDir);
+  const archived = mdIn(archiveDir).filter((n) =>
+    boundToMilestone(join(archiveDir, n), DOGFOOD_MILESTONE),
+  );
   if (archived.length === 0) {
     throw new Error(
-      "this repository carries no FR files at all, active or archived, so the FR-side " +
-        "guard would report a clean tree while measuring nothing",
+      `this repository carries no FR files for ${DOGFOOD_MILESTONE} at all, active or ` +
+        "archived, so the FR-side guard would report a clean tree while measuring nothing",
     );
   }
   const files: Record<string, string> = {};
@@ -1553,6 +1572,10 @@ function frDogfoodTree(repoRoot: string = REPO_ROOT): FrDogfood {
 interface FrAudit {
   violations: FrSummaryAltitudeViolation[];
   measured: MeasuredSection[];
+  /** WHICH tree supplied the FRs — carried out so legs can pin it. */
+  source: "active" | "archive";
+  /** How many FR files the subject actually held. */
+  fileCount: number;
 }
 
 /** Run the shipped FR scanner over the dogfood tree under a given table. */
@@ -1562,6 +1585,8 @@ function auditFrTree(rules: readonly SectionRuleSpec[]): FrAudit {
     return {
       violations: scanFrSummaryAltitude(dog.root, rules),
       measured: measureFrSections(dog.root, rules),
+      source: dog.source,
+      fileCount: dog.files.length,
     };
   } finally {
     dog.cleanup();
@@ -1581,6 +1606,11 @@ describe("budget-stating surfaces — the FR guidance surface clears its own cap
 
   test("the FR subject tree is real — measured sections over more than one file", () => {
     const audit = auditFrTree(statedSectionRules(read(SPEC_WRITE)));
+    // WHICH tree answered, stated outright — and how many files it held. On the
+    // archive path that count is this milestone's FRs alone, never the whole
+    // 442-file archive, so a fallback that quietly widened would show up here.
+    expect(["active", "archive"]).toContain(audit.source);
+    expect([audit.source, audit.fileCount >= 3]).toEqual([audit.source, true]);
     expect(audit.measured.length, "no FR section was measured at all").toBeGreaterThan(0);
     expect(
       new Set(audit.measured.map((m) => m.file)).size,
