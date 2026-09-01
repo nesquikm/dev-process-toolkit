@@ -25,6 +25,28 @@ reproduces should be deleted with a one-line reason rather than left to rot.
 
 ---
 
+## From M137 — PR #76 adversarial review (2026-09-01)
+
+### 1. The CHANGELOG's release test count still drifts after the release commit is written
+
+**Measured, on this branch.** Against `f504493` (`chore(release): v2.75.0`):
+
+| what | value |
+| --- | --- |
+| commits landed after the release commit | 7 commits |
+| test files changed after the release commit | 11 test files |
+| count stated in the v2.75.0 entry | 10708 |
+| count the gate reported when the review measured it | 10950 |
+
+The stated 10708 was HONEST when written. It was made wrong afterwards, by the seven commits that landed past the release commit — which is why "check the number at write time" is only half a guard. Two boundaries, not one:
+
+- **The write boundary** — the number is wrong the moment `/ship-milestone` writes it. Closed by `checkWriteBoundary` in `adapters/_shared/src/release_test_count_guard.ts`, graded against the gate run pre-flight refusal #3 already makes, at no extra cost.
+- **The merge boundary** — the number is right when written and made wrong by later commits. This is the residual banked here. `/pr` now WARNS on it (`checkMergeBoundary`, a git query), and a warning is not a fix: nothing rewrites the stated count, and nobody is forced to. A branch whose release commit is not its last commit can still merge with a count that does not describe it.
+
+**What would actually close it**, and why neither is done here: rewriting the closing line automatically at merge time needs a gate run at merge time, which is the cost the deleted `tests/changelog-release-test-count.test.ts` proved unacceptable (89.5s -> 178.4s on every contributor's every run, forever, for a once-per-release staleness). Deriving the count from anything other than the gate reintroduces the defect as its own fix — a second implementation of "how many tests are there" is a number that can disagree with the gate. The remaining option is procedural — ship the release as the last commit on the branch — and the `/pr` warning is what makes that procedure mechanical rather than remembered.
+
+---
+
 ## From M121 implementation (2026-08-07)
 
 ### 0. Two live inconsistencies STE-446 created or left behind

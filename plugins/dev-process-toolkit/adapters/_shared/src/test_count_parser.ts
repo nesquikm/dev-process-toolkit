@@ -132,3 +132,45 @@ export function parseTestOutput(output: string, stack: Stack): TestCountParseRes
       return { ok: false, reason: "unknown stack — cannot parse test output" };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Command-line front door
+// ---------------------------------------------------------------------------
+
+// M137 (PR #76 review finding C6). This module is the PRODUCER of the number
+// the CHANGELOG's closing line states, and `/ship-milestone`'s write-boundary
+// check makes it load-bearing for a release-blocking refusal — while it sat in
+// exactly the ordered-and-unreachable shape that made C5 a finding: zero
+// `import.meta.main` occurrences, against three in each altitude scanner.
+//
+// Usage — `<stack>` is one of bun | pytest | flutter | unknown:
+//
+//     bun run test_count_parser.ts <stack> [path-to-captured-output]
+//
+// With a path it reads that file; with no path it reads stdin, so a gate run
+// can be piped straight in. It EXECUTES AND MEASURES: the four counters it
+// prints are `parseTestOutput`'s own, on whatever output it was handed, so two
+// different runs print two different totals. Unparseable input exits non-zero
+// carrying the parser's OWN reason — a second wording here could drift from
+// the one every other consumer surfaces, and a front door that reports success
+// on garbage is worse than no front door at all.
+//
+// Imported by /ship-milestone's callers and by the suite, where
+// `import.meta.main` is false and this block never runs: the module stays
+// side-effect-free at import.
+if (import.meta.main) {
+  const stack = (process.argv[2] ?? "unknown") as Stack;
+  const path = process.argv[3];
+  const output =
+    path === undefined ? await Bun.stdin.text() : await Bun.file(path).text();
+  const result = parseTestOutput(output, stack);
+  if (!result.ok) {
+    process.stderr.write(`test_count_parser: ${result.reason}\n`);
+    process.exit(1);
+  }
+  const { total, failures, errors, skipped } = result.count;
+  console.log(`total=${total}`);
+  console.log(`failures=${failures}`);
+  console.log(`errors=${errors}`);
+  console.log(`skipped=${skipped}`);
+}

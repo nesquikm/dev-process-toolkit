@@ -84,6 +84,8 @@ Any of these fire before any file write and exit non-zero with an NFR-10-shape m
 
    Use the stack detector to pick bun / pytest / flutter parsers from `adapters/_shared/src/test_count_parser.ts`. Unrecognized output or unknown stack → NFR-10 asking the user to specify or skip the line.
 
+   **Keep that run's parsed `TestCount`.** It is the measured side of both the CHANGELOG closing line (step 4) and the write-boundary check that grades it — the same run, parsed once. Never run the gate a second time to measure the count: a second run costs the whole ceremony's wall time again to re-derive a number this one already produced, and two runs can disagree.
+
 ## Flow
 
 ### 1. Resolve milestone + FR list
@@ -136,6 +138,16 @@ For each entry, compute the new file content via `bumpFile(entry, currentContent
 - **`kind: regex`** — substitutes the `(?<version>...)` capture in `pattern` using the `replace` template (with `{version}` placeholder). Used for free-form lines like the README "Latest:" banner.
 
 `optional: true` entries whose `path` is missing on disk emit an `n/a` row in the proposed-diff summary; required (non-optional) entries with missing paths surface NFR-10 canonical refusal.
+
+**Write boundary — the stated count must be the gate's count.** Once the `kind: changelog` entry is rendered and before the step 6 diff, read the count back off it with `parseStatedTestCount(changelog)` and grade it: call `checkWriteBoundary({ milestone, version, stated, measured })` from `adapters/_shared/src/release_test_count_guard.ts`, where `measured` is the `TestCount` refusal #3 already parsed — the same run, never a second one. A missing closing line reads as absent, not as a stated zero, and skips the check. `ok: true` prints nothing; on disagreement the call renders this refusal, quoted here from the module rather than retyped so the two cannot drift, and the release aborts before anything is staged:
+
+```
+/ship-milestone: the CHANGELOG closing line states <S> tests; the gate run reports <M>.
+Remedy: rewrite the closing line to read `Total test count at release: <M> tests, <F> failures, <E> errors.` — the count must be the last edit on the branch.
+Context: milestone=M<N>, version=<X.Y.Z>, stated=<S>, measured=<M>, skill=ship-milestone
+```
+
+This guards the WRITE boundary only: a count that is honest at the release commit still goes stale when work lands on the branch after it. `/pr` guards that second boundary.
 
 Refusals: `MissingReleaseFilesBlockError` (block absent or empty) and `MalformedReleaseFilesError` (entry violates schema, e.g. regex without `(?<version>)` named group) both abort the run with the canonical NFR-10 shape — `Remedy: add a \`## Release Files\` block to CLAUDE.md (run /setup or copy from examples/<stack>/release.yml). Context: skill=ship-milestone`.
 
