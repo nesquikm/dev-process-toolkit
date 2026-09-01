@@ -444,10 +444,10 @@ describe("AC-STE-492.4 — smoke fixture group 14 asserts against the capture", 
 });
 
 describe("AC-STE-492.4 — group 14 on the canonical roster", () => {
-  test("the roster is 14 groups, 1..14 in order", () => {
-    expect(CANONICAL_FIXTURE_GROUPS).toHaveLength(14);
+  test("the roster is 15 groups, 1..15 in order", () => {
+    expect(CANONICAL_FIXTURE_GROUPS).toHaveLength(15);
     expect(CANONICAL_FIXTURE_GROUPS.map((s) => s.group)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
     ]);
   });
 
@@ -541,19 +541,19 @@ describe("AC-STE-492.6 — a second, non-prose evidence path exists for the cont
 // count-pin suite (M116: "a new probe costs ~26 pinned sites"). Naming the
 // files makes the re-key a requirement rather than an accident discovered by a
 // red gate.
-describe("AC-STE-492.4 — shipped roster-count suites re-key from 13 to 14", () => {
+describe("AC-STE-492.4 — shipped roster-count suites re-key from 14 to 15", () => {
   const src = (name: string): string => mustRead(join(import.meta.dir, name));
 
   const REKEYS: ReadonlyArray<{ file: string; expected: string }> = [
-    { file: "m117-ste-425-falsifiable-coverage.test.ts", expected: "toHaveLength(14)" },
-    { file: "m121-ste-451-fixture-group-10.test.ts", expected: "toHaveLength(14)" },
-    { file: "m123-ste-464-deliver-skill.test.ts", expected: "toHaveLength(14)" },
-    { file: "m124-ste-467-implement-lens.test.ts", expected: "toHaveLength(14)" },
-    { file: "m125-ste-469-setup-template.test.ts", expected: "CANONICAL_FIXTURE_GROUPS.length).toBe(14)" },
+    { file: "m117-ste-425-falsifiable-coverage.test.ts", expected: "toHaveLength(15)" },
+    { file: "m121-ste-451-fixture-group-10.test.ts", expected: "toHaveLength(15)" },
+    { file: "m123-ste-464-deliver-skill.test.ts", expected: "toHaveLength(15)" },
+    { file: "m124-ste-467-implement-lens.test.ts", expected: "toHaveLength(15)" },
+    { file: "m125-ste-469-setup-template.test.ts", expected: "CANONICAL_FIXTURE_GROUPS.length).toBe(15)" },
   ];
 
   for (const { file, expected } of REKEYS) {
-    test(`${file} carries the 14-group form`, () => {
+    test(`${file} carries the 15-group form`, () => {
       expect({ file, rekeyed: src(file).includes(expected) }).toEqual({
         file,
         rekeyed: true,
@@ -561,12 +561,12 @@ describe("AC-STE-492.4 — shipped roster-count suites re-key from 13 to 14", ()
     });
   }
 
-  test("m121-ste-445-derivation-falsifiability.test.ts widens its per-leg coverage lists to include 14", () => {
+  test("m121-ste-445-derivation-falsifiability.test.ts widens its per-leg coverage lists to include 15", () => {
     const file = "m121-ste-445-derivation-falsifiability.test.ts";
     const body = src(file).replace(/\s+/g, "");
     // Boolean-wrapped: a bare toContain on a 40 KB source dumps the whole file
     // into the failure message and buries every other red in the run.
-    expect({ file, widened: body.includes("13,14]") }).toEqual({ file, widened: true });
+    expect({ file, widened: body.includes("14,15]") }).toEqual({ file, widened: true });
   });
 });
 

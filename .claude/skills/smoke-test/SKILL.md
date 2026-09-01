@@ -1679,6 +1679,39 @@ STE-492 runtime regression: 14a-stage-capture
 
 If sub-fixture 14a passes on a leg, append `STE-492 runtime check: PASS` to the run summary line; any failure appends `STE-492 runtime check: FAIL`, and a group that never executed appends `STE-492 runtime check: NOT-REACHED` rather than nothing at all. Tracker-independent by construction — the capture is read from disk and no assertion consults a tracker surface, so the group is never N/A on any registered leg.
 
+#### Fixture group 15 — STE-533 `stage-status-block` adoption conformance (Linear + Jira + tracker-less)
+
+One sub-fixture (15a). STE-532 landed `verifyStageStatusBlock`, a grader for a rendered stage report, and it shipped with **zero production callers**. STE-533 layered the report-level adoption rules on top of it — the prose lead-in cap, the both-block-and-prose refusal, exactly one fence, and the fence as the LAST thing in the report — inside `verifyStageReportAdoption`, and *that* function then had zero callers of its own. The failure mode this group exists to catch is therefore the **dead headline grader**: a rule set that every unit test exercises and no run ever executes. Its subject is consequently a captured stage report — the rendered text an operator actually reads at the end of a stage — never a SKILL.md.
+
+**The two halves, and which one this group is.** `/gate-check` probe #82 (`scanStageBlockAdoption`) grades an AUTHORING surface: it reads the eleven adopting `SKILL.md` bodies and asks whether each documents a closed fence on its own banner and still emits its cap-exempt sections. It cannot grade prose weight, because a `SKILL.md` is documentation and paragraphs around its fence are legitimate there. This group grades the OTHER half — the rendered report — and it runs on a conformance leg, which is a lower frequency than a probe and real enforcement all the same.
+
+**Provenance, stated because the committed fixtures are not yet harvests.** At runtime this group grades the capture named under 15a. The two files under `plugins/dev-process-toolkit/tests/fixtures/stage-block-adoption/` that pin the grader in unit tests are, by contrast, **hand-authored models** of that emission — see the `README.md` beside them. A hand-authored model is not a harvest and the difference must stay readable.
+
+**The wrong-subject exclusion, stated so nobody re-points this group at the easier target.** `plugins/dev-process-toolkit/docs/stage-status-block.md` itself carries a well-formed ```` ```stage-status-block ```` EXAMPLE, and every adopting `SKILL.md` carries one too — so a group aimed at that template, at the SKILL text, or at the contract doc's own prose would report green forever without any stage ever emitting anything. This group reads a stage CAPTURE and **never** a documentation surface; the grader it calls rejects `docs/stage-status-block.md` outright, because that document surrounds its example with pages of contract prose and the report-level rules refuse exactly that.
+
+##### Sub-fixture 15a — the captured stage report has adopted the block
+
+**Source:** `/tmp/dpt-smoke-<tracker>-ste533-stage-report.txt` — the closing report captured from the last adopting stage the chain ran (`/implement` on every leg). Where no adopting stage produced a closing report, the group renders NOT-REACHED, never PASS.
+
+**Assertions:**
+
+- Run `bun "${PLUGIN_DIR}/adapters/_shared/src/stage_block_adoption.ts" --report /tmp/dpt-smoke-<tracker>-ste533-stage-report.txt` — the executable front door for `verifyStageReportAdoption` (`adapters/_shared/src/stage_block_adoption.ts`). Exit **0** is the pass: the capture carries exactly one ```` ```stage-status-block ```` fence, at most the stated number of prose lines above it, nothing after it but the cap-exempt sections the stage owes, and every canonical capability token inside the fence. Exit **1** is a fail and every refusal is printed in the house `Remedy:`/`Context:` shape; exit **2** is a usage error and is neither.
+- Assert the **negative half**, which is what makes the group falsifiable: a capture that reinstates the old multi-paragraph narration above the block **FAILS** this group. Re-run the front door against a copy of the capture with the former report text pasted back in above the fence — the fence itself left byte-identical, so a token-grep and STE-532's own grader both still pass it — and assert exit 1 with a refusal naming the prose lead-in cap (`ok: false` from `verifyStageReportAdoption`). A group that only ever confirms the healthy case cannot tell a stage that adopted the block from one that bolted it under the paragraphs it was supposed to replace.
+- Assert the wrong-subject exclusion holds: the same front door run against `plugins/dev-process-toolkit/docs/stage-status-block.md` exits 1. If it ever exits 0, this group is measuring the contract document and its PASS means nothing.
+
+**Diagnostic on failure:**
+
+```
+STE-533 runtime regression: 15a-stage-report-adoption
+  expected: exit 0 on the captured stage report, exit 1 naming the prose lead-in
+            cap on the narration-reinstated copy
+  actual:   <exit code + verdict lines>
+  stdout excerpt (last 20 lines):
+    <tail -20 /tmp/dpt-smoke-<tracker>-ste533-stage-report.txt>
+```
+
+If sub-fixture 15a passes on a leg, append `STE-533 runtime check: PASS` to the run summary line; any failure appends `STE-533 runtime check: FAIL`, and a group that never executed appends `STE-533 runtime check: NOT-REACHED` rather than nothing at all. Tracker-independent by construction — the capture is read from disk and no assertion consults a tracker surface, so the group is never N/A on any registered leg.
+
 ### Phase 2.Y — End-of-run chain-integrity assertion (STE-355)
 
 Before any Phase 3 capture work, assert the canonical chain actually completed. Run `assertChainIntegrity` (`adapters/_shared/src/smoke_child_capture.ts`, built on the `stream_json_events` NDJSON reader) against every expected per-skill capture, in chain order, passing the **run-start timestamp** captured at Phase 0 acceptance (the epoch-ms moment the approval was logged) as the `runStart` argument:

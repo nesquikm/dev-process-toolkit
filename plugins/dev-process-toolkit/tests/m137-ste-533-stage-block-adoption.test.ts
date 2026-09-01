@@ -147,6 +147,13 @@ import {
   CANONICAL_CAPABILITY_KEYS,
   runClosingSummaryCapabilityKeysProbe,
 } from "../adapters/_shared/src/closing_summary_capability_keys";
+// The smoke driver's canonical fixture-group roster. STE-533's SECOND consumer
+// registers here, mirroring STE-492/group 14 — the shipped precedent for
+// "a grader whose subject is a captured report gets a fixture-group consumer".
+import {
+  CANONICAL_FIXTURE_GROUPS,
+  SMOKE_LEGS,
+} from "../adapters/_shared/src/smoke_fixture_groups";
 // The repository's OWN reference classifier — probe #81's. AC-STE-533.8 grades
 // this FR's probe registration with it rather than with a private rule, because
 // a guard that stays green by classifying its subject unreachable certifies the
@@ -187,6 +194,26 @@ const FIXTURE_DIR = join(import.meta.dir, "fixtures", "deliver-stage-capture");
 const GATE_CHECK_SKILL = join(PLUGIN_ROOT, "skills", "gate-check", "SKILL.md");
 const STATUS_BLOCK_DOC = join(PLUGIN_ROOT, "docs", "stage-status-block.md");
 const README = join(REPO_ROOT, "README.md");
+
+/**
+ * The smoke driver's operative surface. It lives at the REPO root, NOT under
+ * the plugin — a plugin-root-scoped sweep is blind to it, which this repository
+ * has already recorded going wrong once.
+ */
+const SMOKE_SKILL = join(REPO_ROOT, ".claude", "skills", "smoke-test", "SKILL.md");
+
+/** The committed captured-report fixtures STE-533's fixture group grades. */
+const ADOPTION_FIXTURE_DIR = join(
+  import.meta.dir,
+  "fixtures",
+  "stage-block-adoption",
+);
+const CAPTURED_CLEAN = join(ADOPTION_FIXTURE_DIR, "stage-report.txt");
+const CAPTURED_NARRATED = join(ADOPTION_FIXTURE_DIR, "stage-report-narrated.txt");
+const ADOPTION_FIXTURE_README = join(ADOPTION_FIXTURE_DIR, "README.md");
+
+/** The fixture group STE-533 registers on the canonical roster. */
+const ADOPTION_GROUP = 15;
 
 const read = (path: string): string => readFileSync(path, "utf-8");
 
@@ -1031,14 +1058,131 @@ describe("AC-STE-533.7 — mutation testing, per stage", () => {
 });
 
 // ============================================================================
-// THE ANTI-VACUITY GUARD — STE-532's module must have a REAL consumer
+// THE CALL GUARD — a MENTION is not a CALL
 // ============================================================================
 //
-// `stage_status_block.ts` shipped with ZERO production consumers: its only
-// referent was its own test. This repository has TWICE shipped a headline
-// feature that could never fire, both times preceded by "by design, a later FR
-// consumes it". STE-533 IS that later FR, so these assertions are the FR's
-// exit condition, not decoration.
+// THE DEFECT THIS SECTION EXISTS FOR, measured 2026-08-31 and operator-
+// authorized to close now:
+//
+//   `verifyStageReportAdoption` owns this FR's HEADLINE rules — the 12-line
+//   prose lead-in cap, the both-narration-and-block refusal, block-comes-last,
+//   and capability-token location — and had ZERO non-test CALLERS. Its only two
+//   non-test occurrences were inside its own file: the `export function`
+//   declaration, and a string naming itself in probe #82's remedy text. Probe
+//   #82 calls `scanStageBlockAdoption`, which never invokes it.
+//
+//   So the MODULE was reachable while the headline FUNCTION was dead. That is
+//   the fourth occurrence of this shape in this repository and a SHARPER
+//   variant of it: module-level reachability certifies the MODULE and says
+//   nothing whatever about the function.
+//
+// THE GUARD THAT LET IT THROUGH was the one directly below — it counted
+// non-test REFERENCES via `consumerFiles`, and a doc mention and a line of
+// `/gate-check` prose both satisfy that. It asserted a MENTION where the
+// requirement is a CALL. It is fixed here rather than supplemented, because a
+// guard that reports a hollow result as satisfied is the thing being fixed.
+//
+// WHAT THE FIX MUST LOOK LIKE — the SHIPPED PRECEDENT, taken literally rather
+// than reinvented. `verifyDeliverStageCapture` grades a CAPTURED WORKER REPORT
+// read from disk, and it has exactly two consumers: an executable front door,
+// and smoke fixture group 14 running it against a real capture.
+// `verifyStageReportAdoption`'s subject is the SAME KIND of thing — a rendered
+// stage report — so it gets the SAME TWO:
+//
+//   1. a CLI front door (`import.meta.main`) that takes a path to a captured
+//      report and grades it, printing violations in the NFR-10 shape;
+//   2. a fixture-group consumer of the smoke-driver shape, with a real
+//      captured-report fixture committed under `tests/fixtures/`.
+//
+// FREQUENCY, STATED HONESTLY. The smoke driver runs on CONFORMANCE runs, not on
+// every gate-check. That is real enforcement at a lower frequency, and no
+// surface may over-promise it as gate-time enforcement. The narration rule is
+// deliberately NOT retrofitted onto probe #82: an AUTHORING-surface probe
+// structurally cannot read a rendered report's narration.
+
+/** Roots the CALL search covers. */
+const CALL_SEARCH_ROOTS: readonly string[] = [
+  CONSUMER_SEARCH_ROOT,
+  join(REPO_ROOT, ".claude"),
+];
+
+interface CallSite {
+  root: string;
+  file: string;
+  line: number;
+  text: string;
+}
+
+/** A `//`, `*`, `/*` or `#` line — a MENTION, never a call. */
+const isCommentish = (line: string): boolean => {
+  const t = line.trim();
+  return (
+    t.startsWith("//") || t.startsWith("*") || t.startsWith("/*") || t.startsWith("#")
+  );
+};
+
+const EXECUTABLE_EXT = /\.(?:[cm]?[jt]sx?)$/;
+
+/**
+ * Every line that INVOKES `symbol` — not a declaration, not a comment, not a
+ * bare mention.
+ *
+ * TWO ROOTS on purpose. A plugin-root-scoped sweep cannot see
+ * `<repo>/.claude/skills/`, and that is where the smoke driver — one of the two
+ * consumers this FR is buying — lives. A one-root walk here would report the
+ * driver leg as absent and the fix as incomplete, or (worse, later) report a
+ * deleted driver leg as still present because nothing ever looked.
+ */
+function callSites(
+  symbol: string,
+  roots: readonly string[] = CALL_SEARCH_ROOTS,
+): CallSite[] {
+  const call = new RegExp(`(?<![A-Za-z0-9_$.])${symbol}\\s*\\(`);
+  const declaration = new RegExp(`\\bfunction\\s+${symbol}\\b`);
+  const out: CallSite[] = [];
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    for (const rel of walkTextFiles(root)) {
+      if (isTestPath(rel)) continue;
+      let body: string;
+      try {
+        body = read(join(root, ...rel.split("/")));
+      } catch {
+        continue;
+      }
+      body.split("\n").forEach((text, i) => {
+        if (!call.test(text)) return;
+        if (declaration.test(text)) return;
+        if (isCommentish(text)) return;
+        out.push({ root, file: rel, line: i + 1, text });
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * The call sites a MACHINE executes: `.ts`/`.js` files only.
+ *
+ * The distinction is not pedantry. `docs/stage-status-block.md` carries the
+ * line "`verifyStageReportAdoption(report, evidence)` layers the adoption
+ * policy" — call-SHAPED prose that a naive `symbol(` grep scores as an
+ * invocation. A markdown line can be an ORDERED INSTRUCTION (graded separately,
+ * with the repository's own classifier) but it is never a machine call, and
+ * conflating the two is how this defect would come back wearing a better grep.
+ */
+const executableCallSites = (
+  symbol: string,
+  roots?: readonly string[],
+): CallSite[] =>
+  callSites(symbol, roots).filter((site) => EXECUTABLE_EXT.test(site.file));
+
+/** Is this call site inside the file's `import.meta.main` entry block? */
+function underImportMetaMain(site: CallSite): boolean {
+  const lines = read(join(site.root, ...site.file.split("/"))).split("\n");
+  const guard = lines.findIndex((l) => /^\s*if\s*\(\s*import\.meta\.main\s*\)/.test(l));
+  return guard >= 0 && site.line > guard + 1;
+}
 
 describe("STE-532's grader has a real production consumer after STE-533", () => {
   test("stage_status_block.ts is referenced by at least one NON-TEST file", () => {
@@ -1046,9 +1190,110 @@ describe("STE-532's grader has a real production consumer after STE-533", () => 
     expect(files.length).toBeGreaterThan(0);
   });
 
-  test("the adoption module itself is referenced by a NON-TEST file", () => {
+  test("the adoption module is referenced by a NON-TEST file — the WEAK half, kept", () => {
+    // Kept verbatim, not deleted: "no longer sole evidence" means ADDED to. The
+    // strong half is the next test, and the comment above it says why this one
+    // could never have been it.
     const files = consumerFiles(ADOPTION_MODULE_REL);
     expect(files.length).toBeGreaterThan(0);
+  });
+
+  test("THE FIXED GUARD — `verifyStageReportAdoption` is CALLED by a non-test file, not merely mentioned", () => {
+    // This is the assertion the old guard should always have made. A reference
+    // count is satisfied by prose; only an invocation proves the function can
+    // fire.
+    const calls = executableCallSites("verifyStageReportAdoption");
+    expect(calls.map((c) => `${c.file}:${c.line}`)).not.toEqual([]);
+    expect(calls.length).toBeGreaterThan(0);
+  });
+
+  test("at least one of those calls sits under an `import.meta.main` entry — it is REACHABLE, not just written", () => {
+    // A call in a never-entered branch is a mention with parentheses. The
+    // shipped precedent for "executable" in this repository is the
+    // `import.meta.main` front door (`smoke_verdict.ts`, `gate_capture.ts`).
+    const entered = executableCallSites("verifyStageReportAdoption").filter(
+      underImportMetaMain,
+    );
+    expect(entered.map((c) => `${c.file}:${c.line}`)).not.toEqual([]);
+  });
+
+  test("THE INSTRUMENT WORKS — the same walk finds the sibling grader's real call", () => {
+    // Isolation. Without this leg a `callSites` that returned `[]` for
+    // everything would make the falsifiability test below pass while the guard
+    // above stayed permanently red for the wrong reason.
+    const sibling = executableCallSites("verifyStageStatusBlock");
+    expect(sibling.length).toBeGreaterThan(0);
+    expect(sibling.some((c) => c.file === ADOPTION_MODULE_REL)).toBe(true);
+  });
+
+  test("FALSIFIABLE — the call guard REDDENS on a mention-only tree the old guard passes", () => {
+    // The measured defect, rebuilt: a non-test module file whose only
+    // occurrences of the symbol are its declaration and a string naming itself,
+    // plus a doc that mentions the module path. `consumerFiles` is content —
+    // and that is exactly the hollow result the old guard reported as
+    // satisfied.
+    const fx = tempProject({
+      [ADOPTION_MODULE_REL]: [
+        "// verifyStageReportAdoption — the adoption policy grader.",
+        "export function verifyStageReportAdoption(report: string) {",
+        "  return { ok: true, reasons: [] as string[] };",
+        "}",
+        "",
+        "export function scanStageBlockAdoption(root: string) {",
+        '  const remedy = "the grader is `verifyStageReportAdoption`";',
+        "  return [remedy, root];",
+        "}",
+        "",
+        "if (import.meta.main) {",
+        "  console.log(scanStageBlockAdoption(process.cwd()));",
+        "}",
+        "",
+      ].join("\n"),
+      "docs/stage-status-block.md": [
+        "# The stage status block",
+        "",
+        "Grading lives in `adapters/_shared/src/stage_block_adoption.ts` —",
+        "`verifyStageReportAdoption(report, evidence)` layers the adoption policy.",
+        "",
+      ].join("\n"),
+      "skills/gate-check/SKILL.md": [
+        "82. **stage_block_adoption** — see `adapters/_shared/src/stage_block_adoption.ts`.",
+        "",
+      ].join("\n"),
+    });
+    try {
+      // THE OLD GUARD IS GREEN on this tree: three non-test referents.
+      expect(
+        consumerFiles(ADOPTION_MODULE_REL, fx.root).length,
+      ).toBeGreaterThan(0);
+
+      // THE FIXED GUARD IS RED on the same bytes.
+      expect(executableCallSites("verifyStageReportAdoption", [fx.root])).toEqual(
+        [],
+      );
+
+      // …and it is not simply blind: the SIBLING call in the same fixture is
+      // found, so the zero above is a measurement rather than a broken walk.
+      expect(
+        executableCallSites("scanStageBlockAdoption", [fx.root]).length,
+      ).toBeGreaterThan(0);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("the fixture-group consumer names the grader as an ORDERED instruction", () => {
+    // The markdown half, graded honestly: a SKILL.md line can never be a
+    // machine call, so it is classified with the repository's OWN classifier —
+    // probe #81's — rather than by a private rule that would let prose pass.
+    const smoke = read(SMOKE_SKILL);
+    const naming = smoke
+      .split("\n")
+      .filter((line) => line.includes("verifyStageReportAdoption"));
+    expect(naming.length).toBeGreaterThan(0);
+    expect(naming.some((line) => classifyReferenceLine(line) === "ordered")).toBe(
+      true,
+    );
   });
 
   test("the consumer chain REACHES a surface outside adapters/_shared/src", () => {
@@ -1648,32 +1893,111 @@ describe("AC-STE-533.8 — the adoption grader is registered on a runtime path",
     expect(/^\s*if\s*\(\s*import\.meta\.main\s*\)/m.test(src)).toBe(true);
   });
 
-  test("THE PROBE IS NOT PRESENCE-ONLY — eleven fences with a broken contract still violate", async () => {
-    const adopted = Object.fromEntries(
-      ADOPTING_STAGES.map((s) => [skillRel(s), adoptedSkillBody(s)]),
-    );
-    const fx = tempProject(adopted);
-    try {
-      const clean = await runStageBlockAdoptionProbe(fx.root);
-      expect(clean.violations).toEqual([]);
+  // THE LEG BELOW USED TO OVERCLAIM. It was titled "eleven fences with a broken
+  // contract still violate" and mutated by DROPPING A CAP-EXEMPT SECTION — but
+  // only `implement` carries one, so it proved the property for ONE of eleven
+  // stages and left the other ten resting on a title. It is split in two here:
+  // the broad claim gets a mutation that applies to ALL ELEVEN, and the
+  // exempt-section leg is renamed to the scope it actually covers, with that
+  // scope DERIVED from `CAP_EXEMPT_SECTIONS` rather than asserted in prose.
+  //
+  // Note what is deliberately NOT here: a narration mutation. Probe #82 grades
+  // an AUTHORING SURFACE and structurally cannot read a rendered report's
+  // narration — that is `verifyStageReportAdoption`'s subject, exercised by the
+  // front door and the fixture group below. Retrofitting it here would be a pin
+  // on the wrong subject.
 
-      // MUTATION: every stage keeps its fence — presence is untouched — but
-      // one drops a listed exempt section. Under presence-only grading this
-      // scores zero, which is precisely the vacuity AC-STE-533.8 refuses.
-      const entry = CAP_EXEMPT_SECTIONS[0]!;
-      const abs = join(fx.root, ...skillRel(entry.stage).split("/"));
-      const before = read(abs);
-      writeFileSync(abs, before.split(entry.heading).join("## Something else"), "utf-8");
-      // THE MUTATION APPLIED, and the fence SURVIVED it.
-      expect(read(abs)).not.toContain(entry.heading);
-      expect(emitsBanner(read(abs), STAGE_BLOCK_FENCE_BANNER)).toBe(true);
+  test("THE PROBE IS NOT PRESENCE-ONLY — ALL ELEVEN: a stage keeping its fence but emitting /deliver's banner still violates", async () => {
+    let mutated = 0;
+    for (const stage of ADOPTING_STAGES) {
+      const fx = tempProject(
+        Object.fromEntries(
+          ADOPTING_STAGES.map((s) => [skillRel(s), adoptedSkillBody(s)]),
+        ),
+      );
+      try {
+        const clean = await runStageBlockAdoptionProbe(fx.root);
+        expect({ stage, clean: clean.violations.length }).toEqual({ stage, clean: 0 });
 
-      const after = await runStageBlockAdoptionProbe(fx.root);
-      expect(after.violations.length).toBeGreaterThan(0);
-      expect(after.violations.some((v) => v.note.includes(entry.stage))).toBe(true);
-    } finally {
-      fx.cleanup();
+        // MUTATION: this stage KEEPS its own fence — presence untouched — and
+        // additionally emits `/deliver`'s hand-off banner. Under presence-only
+        // grading this scores zero. Unlike the exempt-section mutation, it
+        // applies to every one of the eleven, which is what the broad claim
+        // needs.
+        const abs = join(fx.root, ...skillRel(stage).split("/"));
+        const before = read(abs);
+        writeFileSync(
+          abs,
+          `${before}\n${DELIVER_STAGE_FENCE_BANNER}\nstage: implement\n\`\`\`\n`,
+          "utf-8",
+        );
+        // THE MUTATION APPLIED, and the stage's OWN fence SURVIVED it.
+        expect({ stage, changed: read(abs) !== before }).toEqual({
+          stage,
+          changed: true,
+        });
+        expect(emitsBanner(read(abs), DELIVER_STAGE_FENCE_BANNER)).toBe(true);
+        expect(emitsBanner(read(abs), STAGE_BLOCK_FENCE_BANNER)).toBe(true);
+
+        const after = await runStageBlockAdoptionProbe(fx.root);
+        expect({ stage, violations: after.violations.length > 0 }).toEqual({
+          stage,
+          violations: true,
+        });
+        expect({
+          stage,
+          named: after.violations.some((v) => v.note.includes(stage)),
+        }).toEqual({ stage, named: true });
+        mutated += 1;
+      } finally {
+        fx.cleanup();
+      }
     }
+    // Enumerated, never sampled — and the count is the list's, not a literal.
+    expect(mutated).toBe(ADOPTING_STAGES.length);
+  });
+
+  test("…and for the stages that CARRY a cap-exempt section, dropping it also violates (scope: the exempt stages, derived)", async () => {
+    // The former "eleven fences" leg, renamed to what it proves. Its coverage
+    // is stated as a NUMBER read off `CAP_EXEMPT_SECTIONS`, so a reader can see
+    // it is a subset and a future entry widens it automatically.
+    const exemptStages = [...new Set(CAP_EXEMPT_SECTIONS.map((e) => e.stage))];
+    expect(exemptStages.length).toBeGreaterThan(0);
+    expect(exemptStages.length).toBeLessThanOrEqual(ADOPTING_STAGES.length);
+
+    let covered = 0;
+    for (const entry of CAP_EXEMPT_SECTIONS) {
+      const fx = tempProject(
+        Object.fromEntries(
+          ADOPTING_STAGES.map((s) => [skillRel(s), adoptedSkillBody(s)]),
+        ),
+      );
+      try {
+        const clean = await runStageBlockAdoptionProbe(fx.root);
+        expect(clean.violations).toEqual([]);
+
+        const abs = join(fx.root, ...skillRel(entry.stage).split("/"));
+        const before = read(abs);
+        writeFileSync(
+          abs,
+          before.split(entry.heading).join("## Something else"),
+          "utf-8",
+        );
+        // THE MUTATION APPLIED, and the fence SURVIVED it.
+        expect(read(abs)).not.toContain(entry.heading);
+        expect(emitsBanner(read(abs), STAGE_BLOCK_FENCE_BANNER)).toBe(true);
+
+        const after = await runStageBlockAdoptionProbe(fx.root);
+        expect(after.violations.length).toBeGreaterThan(0);
+        expect(after.violations.some((v) => v.note.includes(entry.stage))).toBe(
+          true,
+        );
+        covered += 1;
+      } finally {
+        fx.cleanup();
+      }
+    }
+    expect(covered).toBe(CAP_EXEMPT_SECTIONS.length);
   });
 
   test("the probe also catches a stage still emitting /deliver's banner", async () => {
@@ -2100,5 +2424,545 @@ describe("M137 audit leftovers — no surface claims what its neighbour denies",
     // the pointer is not.
     expect(doc).toContain("ADOPTING_STAGES");
     expect(doc).toContain(ADOPTION_MODULE_REL);
+  });
+});
+
+// ============================================================================
+// CONSUMER 1 — THE CLI FRONT DOOR, WHICH MUST EXECUTE *AND* MEASURE
+// ============================================================================
+//
+// THE CONTRACT PINNED HERE, stated once so nothing has to be guessed:
+//
+//     bun adapters/_shared/src/stage_block_adoption.ts [<projectRoot>]
+//         # SHIPPED probe mode — scans an authoring tree. Unchanged.
+//
+//     bun adapters/_shared/src/stage_block_adoption.ts --report <path>
+//         # NEW. Reads a CAPTURED stage report off disk and grades it with
+//         # `verifyStageReportAdoption`.
+//
+//   exit 0 — clean; the one line printed names the probe id and the report.
+//   exit 1 — violations; EVERY reason printed in the module's existing NFR-10
+//            shape (a one-line verdict, then `Remedy:`, then `Context:`).
+//   exit 2 — bad invocation: `--report` with no path, or a path that does not
+//            resolve. Nothing is printed to stdout that could read as a clean
+//            verdict.
+//
+// THE VACUITY THIS SECTION EXISTS TO CATCH: a front door that runs, exits
+// non-zero, and prints nothing — or prints the same thing for every input. A
+// front door that cannot tell one violation from another has executed without
+// measuring, and the whole point of buying a consumer was the measurement.
+
+const decode = (buf: Uint8Array | null): string =>
+  buf === null ? "" : new TextDecoder().decode(buf);
+
+interface FrontDoorRun {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+}
+
+/** Run the module's `import.meta.main` entry point as a real process. */
+function frontDoor(args: readonly string[]): FrontDoorRun {
+  const proc = Bun.spawnSync({
+    cmd: ["bun", ADOPTION_MODULE_SRC, ...args],
+    cwd: PLUGIN_ROOT,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return {
+    status: proc.exitCode,
+    stdout: decode(proc.stdout),
+    stderr: decode(proc.stderr),
+  };
+}
+
+/** A captured report written to disk — the front door reads paths, not text. */
+function withReportFile<T>(body: string, use: (path: string) => T): T {
+  const dir = mkdtempSync(join(tmpdir(), "ste-533-report-"));
+  try {
+    const path = join(dir, "captured-report.txt");
+    writeFileSync(path, `${body}\n`, "utf-8");
+    return use(path);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** The NFR-10 canonical shape: a one-line verdict, then Remedy, then Context. */
+function carriesNfr10Shape(stdout: string): boolean {
+  const lines = stdout.split("\n");
+  return (
+    lines.some((l) => l.startsWith(`${ADOPTION_PROBE_ID}:`)) &&
+    lines.some((l) => l.startsWith("Remedy:")) &&
+    lines.some((l) => l.startsWith("Context:"))
+  );
+}
+
+/** The verdict lines alone — what distinguishes one violating input from another. */
+const verdictLines = (stdout: string): string[] =>
+  stdout.split("\n").filter((l) => l.startsWith(`${ADOPTION_PROBE_ID}:`));
+
+// --- the three violating report shapes, each built off the SHIPPED model ----
+
+/** Narration reinstated ABOVE a compliant block — the FR's headline refusal. */
+const REPORT_NARRATED = reinstateParagraphs(reportForStage("implement"), "implement");
+
+/** Narration trailing the block — rule 4, "the block is the LAST thing". */
+const REPORT_TRAILING = [
+  reportForStage("gate-check"),
+  "",
+  "One more thing the operator has to scroll past.",
+].join("\n");
+
+/** Two blocks — the count rule, owned by STE-532 and surfaced by the front door. */
+const REPORT_TWO_BLOCKS = [
+  reportForStage("setup"),
+  "",
+  blockOnly(reportForStage("setup")),
+].join("\n");
+
+describe("CONSUMER 1 — the CLI front door grades a captured report", () => {
+  test("the module still carries an `import.meta.main` entry (probe #81 stays green)", () => {
+    expect(/^\s*if\s*\(\s*import\.meta\.main\s*\)/m.test(read(ADOPTION_MODULE_SRC))).toBe(
+      true,
+    );
+  });
+
+  test("--report on a COMPLIANT captured report exits 0 and says so", () => {
+    const run = withReportFile(reportForStage("implement"), (path) =>
+      frontDoor(["--report", path]),
+    );
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain(ADOPTION_PROBE_ID);
+    expect(run.stdout).toMatch(/clean/i);
+    // It names the SUBJECT it graded. "clean" with no subject is a verdict
+    // about nothing in particular.
+    expect(run.stdout).toContain("captured-report.txt");
+  });
+
+  test("--report on NARRATION-ABOVE-THE-FENCE exits 1 and NAMES THE RULE", () => {
+    const run = withReportFile(REPORT_NARRATED, (path) =>
+      frontDoor(["--report", path]),
+    );
+    expect(run.status).toBe(1);
+    // NOT-VACUOUS: it printed something.
+    expect(run.stdout.trim().length).toBeGreaterThan(0);
+    // …and that something identifies WHICH rule fired.
+    expect(run.stdout).toMatch(/prose|lead-in|narration/i);
+    expect(carriesNfr10Shape(run.stdout)).toBe(true);
+  });
+
+  test("--report on TRAILING NARRATION exits 1 and names the block-comes-last rule", () => {
+    const run = withReportFile(REPORT_TRAILING, (path) =>
+      frontDoor(["--report", path]),
+    );
+    expect(run.status).toBe(1);
+    expect(run.stdout).toMatch(/follow|last/i);
+    expect(carriesNfr10Shape(run.stdout)).toBe(true);
+  });
+
+  test("--report on TWO BLOCKS exits 1 and names the count rule", () => {
+    const run = withReportFile(REPORT_TWO_BLOCKS, (path) =>
+      frontDoor(["--report", path]),
+    );
+    expect(run.status).toBe(1);
+    expect(run.stdout).toMatch(/exactly one|2 stage-status-block|two .{0,12}fence/i);
+    expect(carriesNfr10Shape(run.stdout)).toBe(true);
+  });
+
+  test("THE VACUITY LEG — the three violations do NOT print the same thing", () => {
+    // A front door that exits 1 with a constant message has executed without
+    // measuring: it would pass all three tests above while being unable to tell
+    // narration from a second block. The verdict lines must differ.
+    const outs = [REPORT_NARRATED, REPORT_TRAILING, REPORT_TWO_BLOCKS].map((body) =>
+      withReportFile(body, (path) => frontDoor(["--report", path])),
+    );
+    for (const run of outs) expect(verdictLines(run.stdout).length).toBeGreaterThan(0);
+    const shapes = outs.map((run) => verdictLines(run.stdout).sort().join("\n"));
+    expect(new Set(shapes).size).toBe(shapes.length);
+    // …and none of them is the clean message.
+    for (const shape of shapes) expect(shape).not.toMatch(/clean/i);
+  });
+
+  test("--report with a path that does not resolve exits 2 and prints NO clean verdict", () => {
+    const missing = join(tmpdir(), "ste-533-does-not-exist-9c1f.txt");
+    expect(existsSync(missing)).toBe(false);
+    const run = frontDoor(["--report", missing]);
+    expect(run.status).toBe(2);
+    expect(`${run.stdout}${run.stderr}`).toContain(missing);
+    expect(run.stdout).not.toMatch(/clean/i);
+  });
+
+  test("--report with no path exits 2 and states a usage line", () => {
+    const run = frontDoor(["--report"]);
+    expect(run.status).toBe(2);
+    expect(`${run.stdout}${run.stderr}`).toMatch(/usage:/i);
+  });
+
+  test("THE SHIPPED PROBE MODE IS UNTOUCHED — a clean tree still exits 0", () => {
+    const fx = tempProject(
+      Object.fromEntries(
+        ADOPTING_STAGES.map((s) => [skillRel(s), adoptedSkillBody(s)]),
+      ),
+    );
+    try {
+      const run = frontDoor([fx.root]);
+      expect(run.status).toBe(0);
+      expect(run.stdout).toMatch(/clean/i);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("THE SHIPPED PROBE MODE IS UNTOUCHED — a narrating tree still exits 1", () => {
+    const fx = tempProject({ [skillRel("brainstorm")]: "# /brainstorm\n" });
+    try {
+      const run = frontDoor([fx.root]);
+      expect(run.status).toBe(1);
+      expect(run.stdout).toContain(ADOPTION_PROBE_ID);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("the front door is DOCUMENTED at the contract surface", () => {
+    // A front door nobody is told about is a call site, not a consumer. The
+    // shipped `gate_capture.ts` precedent puts the invocation in the doc verbatim.
+    const doc = read(STATUS_BLOCK_DOC);
+    expect(doc).toContain("--report");
+    expect(doc).toContain(ADOPTION_MODULE_REL);
+  });
+});
+
+// ============================================================================
+// CONSUMER 2 — THE FIXTURE GROUP, RUN OVER A REAL CAPTURED-REPORT FIXTURE
+// ============================================================================
+//
+// The shipped precedent, taken literally: STE-492 gave `verifyDeliverStageCapture`
+// smoke fixture group 14 plus committed capture fixtures under
+// `tests/fixtures/deliver-stage-capture/`. `verifyStageReportAdoption` grades
+// the same KIND of artifact, so it gets group 15 and its own fixture directory.
+//
+// FREQUENCY, HONESTLY: the smoke driver runs on CONFORMANCE runs, not on every
+// gate-check. Lower frequency, real enforcement — and no surface may say
+// otherwise.
+
+const smokeSkill = (): string => read(SMOKE_SKILL);
+
+/** The `#### Fixture group 15 …` block, up to the next `#### `/`### ` heading. */
+function fixtureGroupBlock(n: number): string {
+  const body = smokeSkill();
+  const lines = body.split("\n");
+  const start = lines.findIndex((l) =>
+    new RegExp(`^#### Fixture group ${n}\\b`).test(l),
+  );
+  expect({ group: n, found: start >= 0 }).toEqual({ group: n, found: true });
+  const rest = lines.slice(start + 1);
+  const endRel = rest.findIndex((l) => /^#{1,4} /.test(l));
+  return [lines[start]!, ...(endRel < 0 ? rest : rest.slice(0, endRel))].join("\n");
+}
+
+/** Sentences, so a claim is scoped to the clause that makes it. */
+const sentencesOf = (text: string): string[] =>
+  text.split(/(?<=[.!?;:])\s+/).filter((s) => s.trim().length > 0);
+
+/**
+ * Does `text` claim, IN ONE SENTENCE, that the report-level narration rules run
+ * at gate time? That claim is FALSE and the FR must not make it.
+ */
+const claimsGateTimeNarration = (text: string): boolean =>
+  sentencesOf(text).some(
+    (s) =>
+      /verifyStageReportAdoption|narration|prose lead-in/i.test(s) &&
+      /every gate run|every gate-check|every gate check|at gate time|on each gate run/i.test(
+        s,
+      ),
+  );
+
+/** Does `text` state the real frequency — a conformance run — for the grader? */
+const statesConformanceFrequency = (text: string): boolean =>
+  sentencesOf(text).some(
+    (s) =>
+      /verifyStageReportAdoption|fixture group 15|stage-block-adoption/i.test(s) &&
+      /conformance/i.test(s),
+  );
+
+describe("CONSUMER 2 — smoke fixture group 15 grades a captured report", () => {
+  test("the roster carries 15 groups, 1..15 in order", () => {
+    expect(CANONICAL_FIXTURE_GROUPS).toHaveLength(15);
+    expect(CANONICAL_FIXTURE_GROUPS.map((s) => s.group)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+    ]);
+  });
+
+  test("group 15: sut STE-533, legs = the SMOKE_LEGS ALIAS, a real rationale", () => {
+    const spec = CANONICAL_FIXTURE_GROUPS.find((s) => s.group === ADOPTION_GROUP);
+    expect(spec).toBeDefined();
+    expect(spec!.sut).toBe("STE-533");
+    expect([...spec!.legs].sort()).toEqual(["jira", "linear", "none"]);
+    // STE-446: the ALIAS, not a parallel literal. Reference identity is the
+    // observable — a hand-written copy is why every roster stayed static when
+    // the leg enum was mutated.
+    expect(spec!.legs).toBe(SMOKE_LEGS as unknown as typeof spec.legs);
+    // STE-449 floor: a rationale is a clause, not a token.
+    expect(String(spec!.rationale).trim().split(/\s+/).length).toBeGreaterThanOrEqual(6);
+  });
+
+  test("the smoke SKILL carries the group 15 block, and it names the GRADER", () => {
+    const block = fixtureGroupBlock(ADOPTION_GROUP);
+    expect(block).toContain("STE-533");
+    expect(block).toContain("verifyStageReportAdoption");
+    expect(block).toContain(ADOPTION_MODULE_REL);
+  });
+
+  test("the group's subject is a CAPTURE, never a SKILL — the wrong-subject exclusion is written down", () => {
+    const block = fixtureGroupBlock(ADOPTION_GROUP);
+    expect(block).toContain("/tmp/dpt-smoke-");
+    expect(block).toMatch(/captur/i);
+    // The same exclusion group 14 states: nobody may re-point this at the
+    // contract doc, which carries a well-formed example fence.
+    expect(block).toMatch(/stage-status-block\.md|template|SKILL text|own prose/i);
+  });
+
+  test("the group states the NEGATIVE half — a narrated report FAILS it", () => {
+    const block = fixtureGroupBlock(ADOPTION_GROUP);
+    expect(block).toMatch(/narrat/i);
+    expect(block).toMatch(/ok: false|FAILS|fails/);
+  });
+
+  test("the group carries all three runtime-check summary lines (house footer shape)", () => {
+    const block = fixtureGroupBlock(ADOPTION_GROUP);
+    expect(block).toContain("STE-533 runtime check: PASS");
+    expect(block).toContain("STE-533 runtime check: FAIL");
+    expect(block).toContain("STE-533 runtime check: NOT-REACHED");
+  });
+});
+
+describe("CONSUMER 2 — the committed captured-report fixtures are REAL and DETECTABLE", () => {
+  test("the fixture directory exists and carries both reports plus a provenance README", () => {
+    for (const path of [CAPTURED_CLEAN, CAPTURED_NARRATED, ADOPTION_FIXTURE_README]) {
+      expect({ path, exists: existsSync(path) }).toEqual({ path, exists: true });
+    }
+    // The group-14 precedent: the provenance label is load-bearing, because a
+    // hand-authored model is not a harvest and the difference must be readable.
+    expect(read(ADOPTION_FIXTURE_README)).toMatch(/provenance/i);
+  });
+
+  test("the CLEAN fixture is a genuine adopting-stage report the grader ACCEPTS", () => {
+    const body = read(CAPTURED_CLEAN);
+    expect(body).toContain(STAGE_BLOCK_FENCE_BANNER);
+    expect(body).not.toContain(DELIVER_STAGE_FENCE_BANNER);
+    const stage = /^\s*stage:\s*(\S+)/m.exec(body)?.[1];
+    expect([...ADOPTING_STAGES]).toContain(stage as never);
+    expect(verifyStageReportAdoption(body)).toEqual({ ok: true, reasons: [] });
+  });
+
+  test("the NARRATED fixture is the DISCRIMINATING shape: STE-532 accepts it, adoption does not", () => {
+    const body = read(CAPTURED_NARRATED);
+    // The block itself is compliant — a token-grep, and STE-532's own grader,
+    // both pass it. Only the adoption policy can tell it apart, which is what
+    // makes this fixture evidence for THIS FR rather than for the last one.
+    expect(body).toContain(STAGE_BLOCK_FENCE_BANNER);
+    expect(verifyStageStatusBlock(body).ok).toBe(true);
+
+    const verdict = verifyStageReportAdoption(body);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.reasons.some(isProseCapReason)).toBe(true);
+  });
+
+  test("the two fixtures differ ONLY by the reinstated narration", () => {
+    // Isolation. If the mutant differed in its block too, the red above would
+    // not be attributable to the narration rule.
+    expect(blockOf(read(CAPTURED_NARRATED))).toBe(blockOf(read(CAPTURED_CLEAN)));
+    expect(fenceOpenIndex(read(CAPTURED_NARRATED))).toBeGreaterThan(
+      PROSE_LEAD_IN_LINE_CAP,
+    );
+    expect(fenceOpenIndex(read(CAPTURED_CLEAN))).toBeLessThanOrEqual(
+      PROSE_LEAD_IN_LINE_CAP,
+    );
+  });
+
+  test("THE GROUP RUNS THE GRADER OVER THE FIXTURE ON DISK — front door, real file, both verdicts", () => {
+    // This is the leg that ties the three pieces together: a real captured
+    // report on disk, graded by the executable front door, in the shape the
+    // fixture group orders.
+    const clean = frontDoor(["--report", CAPTURED_CLEAN]);
+    expect({ status: clean.status, clean: /clean/i.test(clean.stdout) }).toEqual({
+      status: 0,
+      clean: true,
+    });
+
+    const narrated = frontDoor(["--report", CAPTURED_NARRATED]);
+    expect(narrated.status).toBe(1);
+    expect(narrated.stdout).toMatch(/prose|lead-in|narration/i);
+  });
+
+  test("MUTATION — mutating the on-disk fixture REDDENS the group, and the unmutated copy does not", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ste-533-fixture-mut-"));
+    try {
+      const pristine = join(dir, "pristine.txt");
+      const mutant = join(dir, "mutant.txt");
+      const body = read(CAPTURED_CLEAN);
+      writeFileSync(pristine, body, "utf-8");
+      // MUTATION: trailing narration after the block — the operator scrolling
+      // past the summary, which is the condition adoption exists to end.
+      writeFileSync(
+        mutant,
+        `${body.replace(/\n+$/, "")}\n\nAnd a closing paragraph the block was supposed to replace.\n`,
+        "utf-8",
+      );
+      // THE MUTATION APPLIED.
+      expect(read(mutant)).not.toBe(read(pristine));
+      expect(read(mutant)).toContain(STAGE_BLOCK_FENCE_BANNER);
+
+      // ISOLATION: the pristine copy passes.
+      expect(frontDoor(["--report", pristine]).status).toBe(0);
+      // …and the mutant reddens, naming the rule.
+      const red = frontDoor(["--report", mutant]);
+      expect(red.status).toBe(1);
+      expect(red.stdout).toMatch(/follow|last/i);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("WRONG-SUBJECT exclusion: the CONTRACT DOC does not grade clean", () => {
+    // `docs/stage-status-block.md` carries a well-formed ```stage-status-block
+    // example. A group re-pointed at it would report green forever without any
+    // stage ever emitting anything.
+    const run = frontDoor(["--report", STATUS_BLOCK_DOC]);
+    expect(run.status).toBe(1);
+    expect(verifyStageReportAdoption(read(STATUS_BLOCK_DOC)).ok).toBe(false);
+  });
+});
+
+describe("FREQUENCY IS STATED HONESTLY — conformance-run enforcement, not gate-time", () => {
+  test("no shipped surface claims the narration rules run at gate time", () => {
+    for (const [label, body] of [
+      ["docs/stage-status-block.md", read(STATUS_BLOCK_DOC)],
+      ["specs/frs/STE-533.md", read(join(REPO_ROOT, "specs", "frs", "STE-533.md"))],
+      [".claude/skills/smoke-test/SKILL.md", smokeSkill()],
+      [ADOPTION_MODULE_REL, read(ADOPTION_MODULE_SRC)],
+    ] as const) {
+      expect({ label, overpromises: claimsGateTimeNarration(body) }).toEqual({
+        label,
+        overpromises: false,
+      });
+    }
+  });
+
+  test("the contract doc STATES the real frequency — a conformance run", () => {
+    expect(statesConformanceFrequency(read(STATUS_BLOCK_DOC))).toBe(true);
+  });
+
+  test("BOTH predicates are falsifiable — they fire on the sentences they name", () => {
+    // Without this leg a predicate hard-wired to `false` (or to `true`) would
+    // satisfy both tests above while measuring nothing.
+    expect(
+      claimsGateTimeNarration(
+        "`verifyStageReportAdoption` grades narration on every gate run.",
+      ),
+    ).toBe(true);
+    expect(
+      claimsGateTimeNarration("The scanner runs on every gate run."),
+    ).toBe(false);
+    expect(
+      statesConformanceFrequency(
+        "Fixture group 15 runs `verifyStageReportAdoption` on every conformance leg.",
+      ),
+    ).toBe(true);
+    expect(
+      statesConformanceFrequency(
+        "Fixture group 15 runs `verifyStageReportAdoption` over a captured report.",
+      ),
+    ).toBe(false);
+  });
+
+  test("probe #82's clauses are NOT widened to narration — the analysis stands", () => {
+    // Operator decision: an AUTHORING-surface probe structurally cannot read a
+    // rendered report's narration. Eleven SKILL.md carrying narration around a
+    // compliant fence must still score clean.
+    const narrated = Object.fromEntries(
+      ADOPTING_STAGES.map((s) => [
+        skillRel(s),
+        [
+          `# /${s}`,
+          "",
+          ...Array.from({ length: 6 }, (_, i) => `Paragraph ${i + 1} of legitimate documentation prose.\n`),
+          adoptedSkillBody(s),
+          "",
+          "And more documentation prose below the fence, which is legitimate here.",
+          "",
+        ].join("\n"),
+      ]),
+    );
+    const fx = tempProject(narrated);
+    try {
+      expect(scanStageBlockAdoption(fx.root)).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
+
+// ============================================================================
+// THE ROSTER-COUNT CASCADE — a new fixture group re-keys every count pin
+// ============================================================================
+//
+// M116's lesson, restated by the STE-492 precedent that registered group 14:
+// "a roster registration flips the count in every shipped count-pin suite".
+// Naming the sites makes the re-key a REQUIREMENT rather than an accident
+// discovered by a red gate an hour later.
+
+/** The count these pins read BEFORE group 15 — the number that must be gone. */
+const STALE_GROUP_COUNT = 14;
+
+const ROSTER_COUNT_PINS: readonly (readonly [string, string])[] = [
+  ["tests/m117-ste-425-falsifiable-coverage.test.ts", "toHaveLength({N})"],
+  ["tests/m121-ste-451-fixture-group-10.test.ts", "toHaveLength({N})"],
+  ["tests/m123-ste-464-deliver-skill.test.ts", "toHaveLength({N})"],
+  ["tests/m124-ste-467-implement-lens.test.ts", "toHaveLength({N})"],
+  ["tests/m129-ste-492-deliver-fence-producer.test.ts", "toHaveLength({N})"],
+  ["tests/m125-ste-469-setup-template.test.ts", "CANONICAL_FIXTURE_GROUPS.length).toBe({N})"],
+] as const;
+
+describe("the roster-count cascade moved as one", () => {
+  test("EVERY enumerated roster pin reads the live count — none left behind", () => {
+    const live = CANONICAL_FIXTURE_GROUPS.length;
+    expect(live).toBe(15);
+    const missing: string[] = [];
+    const stale: string[] = [];
+    for (const [rel, template] of ROSTER_COUNT_PINS) {
+      const body = read(join(PLUGIN_ROOT, ...rel.split("/")));
+      if (!body.includes(fill(template, live))) missing.push(`${rel} — ${fill(template, live)}`);
+      if (body.includes(fill(template, STALE_GROUP_COUNT))) {
+        stale.push(`${rel} — ${fill(template, STALE_GROUP_COUNT)}`);
+      }
+    }
+    // ANTI-VACUITY: an empty table reports a clean cascade by moving nothing.
+    expect(ROSTER_COUNT_PINS.length).toBeGreaterThanOrEqual(6);
+    expect({ missing, stale }).toEqual({ missing: [], stale: [] });
+  });
+
+  test("the per-leg coverage lists widen to include group 15 on all three legs", () => {
+    // Group 15 is rostered on the SMOKE_LEGS alias, so all three lists gain it.
+    // A roster entry the coverage derivation never sees is a group that runs
+    // nowhere — the shape STE-446 recorded when a hand-written leg copy went
+    // stale.
+    const body = read(
+      join(PLUGIN_ROOT, "tests", "m121-ste-445-derivation-falsifiability.test.ts"),
+    ).replace(/\s+/g, "");
+    expect({ widened: body.split("14,15]").length - 1 }).toEqual({ widened: 3 });
+  });
+
+  test("the STE-492 re-key registry itself re-keys — a registry pinned at 14 is a stale pin", () => {
+    // `m129-ste-492` carries a table asserting five sibling suites contain
+    // `toHaveLength(14)`. Those suites move to 15, so the registry moves with
+    // them or it fails on the very re-key it exists to enforce.
+    const body = read(
+      join(PLUGIN_ROOT, "tests", "m129-ste-492-deliver-fence-producer.test.ts"),
+    );
+    expect(body).not.toContain('expected: "toHaveLength(14)"');
+    expect(body).toContain('expected: "toHaveLength(15)"');
   });
 });

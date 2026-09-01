@@ -635,8 +635,93 @@ export async function runStageBlockAdoptionProbe(
   return { violations, vacuous: false };
 }
 
+// ---------------------------------------------------------------------------
+// The CLI front door
+// ---------------------------------------------------------------------------
+//
+// TWO MODES, one entry point:
+//
+//   bun adapters/_shared/src/stage_block_adoption.ts [<projectRoot>]
+//       the SHIPPED probe mode — scans an AUTHORING tree with the scanner half.
+//
+//   bun adapters/_shared/src/stage_block_adoption.ts --report <path>
+//       grades one CAPTURED, RENDERED stage report off disk with
+//       `verifyStageReportAdoption` — the report-level half, whose subject is
+//       a rendered report rather than a SKILL.md.
+//
+// Exit codes: 0 clean, 1 violations (each printed in the NFR-10 shape), 2 a bad
+// invocation. Nothing that could read as a clean verdict reaches stdout on a
+// bad invocation.
+//
+// This is the SAME shape `deliver_stage_capture`'s captured-report grader ships
+// with, and it exists because a grader nobody can run is a grader nothing
+// enforces. Its running FREQUENCY is stated where the contract is stated:
+// `docs/stage-status-block.md`.
+
+/** The module path, plugin-root-relative — printed, never re-derived by a caller. */
+const MODULE_REL = "adapters/_shared/src/stage_block_adoption.ts";
+
+/** The one usage line both bad-invocation exits print. */
+export const FRONT_DOOR_USAGE = [
+  `usage: bun ${MODULE_REL} [<projectRoot>]        # scan an authoring tree`,
+  `       bun ${MODULE_REL} --report <path>        # grade a captured report`,
+].join("\n");
+
+/**
+ * One report-level violation, rendered in the module's existing NFR-10 shape:
+ * a one-line verdict naming the subject, then `Remedy:`, then `Context:`.
+ *
+ * The reason rides the verdict line VERBATIM, so two different refusals print
+ * two different verdicts. A front door that printed one constant message would
+ * have executed without measuring anything.
+ */
+function buildReportMessage(reportPath: string, reason: string): string {
+  return [
+    `${PROBE_ID}: ${reportPath} — ${reason}`,
+    `Remedy: close the stage with exactly one ` +
+      `\`${STAGE_BLOCK_FENCE_BANNER}\`` +
+      ` fence as the LAST thing in the report, at most ` +
+      `${PROSE_LEAD_IN_LINE_CAP} lines of prose above it, and every capability ` +
+      `token inside the fence. The contract is \`docs/stage-status-block.md\`; ` +
+      `the grader is \`verifyStageReportAdoption\` in \`${MODULE_REL}\`.`,
+    `Context: report=${reportPath}, probe=${PROBE_ID}, ` +
+      `prose_cap=${PROSE_LEAD_IN_LINE_CAP}, severity=error`,
+  ].join("\n");
+}
+
 if (import.meta.main) {
-  const projectRoot = process.argv[2] ?? process.cwd();
+  const argv = process.argv.slice(2);
+
+  if (argv[0] === "--report") {
+    const reportPath = argv[1];
+    if (reportPath === undefined || reportPath.length === 0) {
+      console.error(`${PROBE_ID}: --report needs a path to a captured report`);
+      console.error(FRONT_DOOR_USAGE);
+      process.exit(2);
+    }
+    let body: string;
+    try {
+      body = readFileSync(reportPath, "utf-8");
+    } catch {
+      console.error(`${PROBE_ID}: cannot read ${reportPath}`);
+      console.error(FRONT_DOOR_USAGE);
+      process.exit(2);
+    }
+    const verdict = verifyStageReportAdoption(body);
+    if (verdict.ok) {
+      console.log(
+        `${PROBE_ID}: clean — ${reportPath} adopts the status block ` +
+          `(one fence, block last, at most ${PROSE_LEAD_IN_LINE_CAP} prose lines above it)`,
+      );
+      process.exit(0);
+    }
+    for (const reason of verdict.reasons) {
+      console.log(buildReportMessage(reportPath, reason));
+    }
+    process.exit(1);
+  }
+
+  const projectRoot = argv[0] ?? process.cwd();
   const report = await runStageBlockAdoptionProbe(projectRoot);
   if (report.vacuous) {
     console.log(`${PROBE_ID}: vacuous — no adopting skill found under ${projectRoot}`);
