@@ -1164,33 +1164,38 @@ heading appears. Strictly better than grading presence, and it generalises past
 these two sections. That is the FR someone should pick up; do not attempt it as
 a tightening of the substring match.
 
-## Ordered-list exemption — a measured residual from M137 round 3
+## Structural exemption has no ITEM-LENGTH bound (banked from M137 round 3)
 
-`7b9ed07` made ordered rows structural so the plan scanner could see the task
-shape this project actually writes. Correct, and measured: on the 136 archived
-plans staged as active it takes violations 41 → 28, and **11 of the 13 removed
-are `Tasks`** — the false positives the round set out to fix.
+A structural body's rows are exempt from the narrative word cap, and a row of
+ANY length counts as one row. A "task row" carrying 120 words is narrative
+wearing a list marker, and nothing bounds it.
 
-**The other two are a real loss.** `Deviations from the approved design` and
-`Follow-ups carried out of M136` are narrative sections that happen to be
-written as numbered lists, and they now ride exempt. Demonstrated with a
-control: identical 968-word prose is FLAGGED as plain bullets and EXEMPT as
-`1. …` rows. Before that commit, ordered lists were narrative and capped, so
-the change widened the shape-vs-quantity hole that the same commit's other half
-was closing.
+**Measured on the 136 archived plans staged as active:** 40 structural
+subsections exceed the cap in raw words, with **21,217 words riding exempt**.
+The largest single one is 6,429 words (`Halt condition`, M121). Thirty-eight of
+those were exempt before M137 touched anything — this is a pre-existing hole,
+not a new one.
 
-**Do not fix this by reverting** — that restores 11 false positives to remove 2
-true ones.
+**What M137 changed, with both halves of the ledger.** `7b9ed07` made ordered
+rows structural so the scanner could see the task shape this project actually
+writes. On that corpus it takes violations **41 → 28**: of the 13 removed,
+**11 are `Tasks`** — the false positives that made the finding — and **2 are
+narrative written as numbered lists** (`Deviations from the approved design`,
+`Follow-ups carried out of M136`), which now ride exempt. Control: identical
+968-word prose is FLAGGED as plain bullets and EXEMPT as `1. …` rows, the prose
+held constant and only the list marker varied.
 
-**The principled close is an item-length bound:** a task ROW carrying 120 words
-is not a task row, it is narrative wearing a list marker. The obstacle is that
-every formulation either introduces a second budget literal — which AC-STE-536.4
+So the change bought 11 and cost 2, and made two more instances of the
+item-length problem reachable. **Do not fix it by reverting** — that restores 11
+wrong reds to remove 2 right ones.
+
+**Scope this as the WHOLE question, not the two sections M137 made reachable.**
+Fixing the two while leaving the thirty-eight that were always there is "the fix
+reaches only the clause you name" committed on purpose, in the round convened to
+stop doing that.
+
+**The obstacle is real and is what the FR must decide:** every formulation of an
+item-length bound either introduces a second budget literal — which AC-STE-536.4
 refuses, one definition per budget — or picks a fraction of the existing cap,
-which is a new number wearing a derivation. It needs an FR that decides the
-number and states where it lives.
-
-Scope note: 40 structural subsections in that corpus exceed the cap in raw
-words (21,217 words riding exempt), but most is legitimate task content and the
-largest — 6,429 words, `Halt condition` in M121 — was exempt before the change
-too. The item-length question is pre-existing; this commit made one slice of it
-newly reachable, not the whole of it.
+which is a new number wearing a derivation. The FR has to name the number and
+say where it lives.
