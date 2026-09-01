@@ -433,7 +433,7 @@ export function scanSurfaceForModuleReferences(
  * scanners — stopped naming a module nobody could run. A LOWERING again; the
  * pin has never been raised.
  */
-export const ORDERED_UNREACHABLE_PIN = 136;
+export const ORDERED_UNREACHABLE_PIN = 133;
 
 // ---------------------------------------------------------------------------
 // The probe

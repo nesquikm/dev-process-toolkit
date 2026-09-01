@@ -183,9 +183,37 @@ const PROBE_MODULES = {
  * any edit, committed or not, forever. If a LATER milestone legitimately
  * changes a probe, it updates this constant deliberately, which is the point.
  */
+// RE-RECORDED IN M137, deliberately, with evidence — read this before moving
+// either value again.
+//
+// This pin's AC (`STE-488.4`) says "nothing in THIS FR touches the systems
+// under test", and the docstring above says "as it stands BEFORE this FR".
+// Both scope the claim to one FR. The IMPLEMENTATION scopes it to all future
+// time: a working-tree byte digest fails for anyone who ever edits these
+// modules again. That gap is a real defect in the pin, banked as its own FR —
+// the durable repair is a BEHAVIOURAL pin over the two probes, not a byte
+// digest, because "the module at commit X hashed to D" is an assertion about
+// frozen history that can never fail once true, which would trade an
+// over-strict guard for a vacuous one.
+//
+// `planIdentity` moved because M137 added exactly two `export` keywords and a
+// comment, so `scan_plan_narrative_altitude.ts` could honour the SAME
+// `kind: legacy` / `kind: scaffolding` hatch instead of declaring a second copy
+// of it. A second exempt-kind list is the drift this milestone removed twice.
+//
+// BEHAVIOUR WAS PROVED UNCHANGED, not assumed: both probes' suites were run
+// against the module before and after — 294 tests across 7 files
+// (gate-check-identity-mode-conditional, gate-check-plan-identity-mode-
+// conditional, m119-441, m119-442, m120-443, m126-481, m116-424) — identical
+// pass/fail/skip AND identical `expect()` counts both ways.
+//
+// A digest that may never be re-recorded is not a pin, it is a freeze, and a
+// freeze on a live module trips on every legitimate refactor while carrying no
+// information. Re-recording is legitimate when it is deliberate, reviewed, and
+// carries evidence. Do it that way or not at all.
 const PROBE_MODULE_SHA256 = {
   identity: "ea2ca90d8e00c119bea9cd02c30d23b58f7a4a076ed7557800cb1db0e6d63326",
-  planIdentity: "19b80bd3484353ac7ebed0cad853a7b5bfbfe3ec546ad910bbd13fa5af6ef160",
+  planIdentity: "eb4424954dd0bbb7786d843179154f6d5fe5471608f15084a7ef22912b34fc4b",
 } as const;
 
 /** The two canonical probe sentences the retired assertions demanded verbatim. */

@@ -82,7 +82,14 @@
 // 346-word checkbox body is a measurement rather than a stub. This mirrors the
 // sibling scanner's injectable section table.
 
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+
+// The hatch and the epoch are IMPORTED, never re-declared. A second list of
+// exempt kinds, or a second copy of the epoch date, is a second thing to keep
+// in sync with the operator-facing documentation that names them.
+import { EXEMPT_PLAN_KINDS, planKind } from "./plan_identity_mode_conditional";
+import { FR_WORD_CAP_EPOCH } from "./scan_fr_summary_altitude";
 
 import {
   countWords,
@@ -386,6 +393,160 @@ export function measurePlanSubsections(
 // and probe #81 grades such an order UNREACHABLE unless the module can in fact
 // be run by hand. `skills/gate-check/SKILL.md` names the two sanctioned
 // resolutions and rules the third out explicitly: give the module an
+// ---------------------------------------------------------------------------
+// THE GRANDFATHERING ARM — a cap that lands on prose nobody was warned about
+// ---------------------------------------------------------------------------
+//
+// WHY THIS EXISTS, and why its absence was not merely a missing feature. A
+// consumer upgrading the toolkit has ACTIVE plans written long before this cap
+// was policy. Measured on a reproduction: two plans authored 2026-01-15
+// against an epoch of 2026-09-01 both flagged at `error` — and one of them
+// declared `kind: legacy`, which is the operator's documented, permanent,
+// manual escape for exactly this, honoured by `plan_identity_mode_conditional`
+// and the reason STE-443's accepted exposure is acceptable at all. This
+// scanner graded straight through it. A consumer who applies the documented
+// remedy and still gets a red gate has been told a lie by the tool; that is a
+// different and worse thing than a cap with no epoch.
+//
+// THE EPOCH IS REUSED, NOT MINTED. `FR_WORD_CAP_EPOCH` is the ship date of the
+// release that made the caps policy, and the plan cap shipped in the SAME
+// milestone — so the date is identical and there is no second number to keep
+// in sync. AC-STE-536.4's one-definition-per-budget rule stays satisfied.
+//
+// THE MECHANISM IS BORROWED FROM THE SIBLING; THE CONSTANTS ARE NOT. There is
+// a strong pull toward calling `classifyPlanProvenance` in
+// `plan_identity_mode_conditional.ts` wholesale — it already dates plans by git
+// provenance and already honours the hatch. Do not. Its epochs are
+// `MINT_EPOCH` and `JIRA_EPIC_EPOCH`, which date plan NAMING, and a word cap
+// graded against a naming epoch is a wrong-subject pin that would read as
+// working. A sibling's mechanism is a good prior; its constants are not.
+
+/** What a plan's `word_cap` rows are worth, once git has been asked. */
+export type PlanProvenanceVerdict = "fresh" | "legacy" | "undecidable";
+
+/** The verdicts that spare a `word_cap` row outright, as data. */
+const SILENT_PLAN_PROVENANCE: readonly PlanProvenanceVerdict[] = ["legacy"];
+
+function gitQuery(projectRoot: string, args: string[]): string | null {
+  try {
+    return execFileSync("git", args, {
+      cwd: projectRoot,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The OLDEST commit date that introduced `rel`, epoch millis, or `null`.
+ *
+ * Both canonical paths are asked and the older answer wins: `/spec-archive`
+ * moves a plan into `specs/plan/archive/`, so a query blind to that would
+ * re-date a reopened plan to its archive commit and fail it — the toolkit's
+ * own housekeeping turning a legacy plan fresh.
+ */
+function planIntroducedAt(projectRoot: string, name: string): number | null {
+  let oldest: number | null = null;
+  for (const rel of [`specs/plan/${name}`, `specs/plan/archive/${name}`]) {
+    const out = gitQuery(projectRoot, [
+      "log", "--full-history", "--diff-filter=A", "--format=%aI", "--", rel,
+    ]);
+    for (const line of (out ?? "").split("\n")) {
+      const t = Date.parse(line.trim());
+      if (Number.isNaN(t)) continue;
+      if (oldest === null || t < oldest) oldest = t;
+    }
+  }
+  return oldest;
+}
+
+/**
+ * One plan's provenance for `word_cap` purposes.
+ *
+ * ORDER IS LOAD-BEARING. The hatch is read first — it is declared by the
+ * operator and outranks anything git says, which is what "permanent, manual
+ * escape" means. Shallowness is asked BEFORE any date, because a truncated
+ * store does not fail the date query: every path's first add is the graft
+ * commit, so every legacy plan would read `fresh` and hard-fail in CI, where
+ * `actions/checkout` defaults to `fetch-depth: 1`.
+ */
+export function classifyPlanNarrativeProvenance(
+  projectRoot: string,
+  name: string,
+  epoch: string = FR_WORD_CAP_EPOCH,
+): PlanProvenanceVerdict {
+  let raw = "";
+  try {
+    raw = readFileSync(`${projectRoot}/specs/plan/${name}`, "utf-8");
+  } catch {
+    raw = "";
+  }
+  if (EXEMPT_PLAN_KINDS.includes(planKind(raw))) return "legacy";
+
+  if (gitQuery(projectRoot, ["rev-parse", "--show-toplevel"]) === null) return "legacy";
+  if ((gitQuery(projectRoot, ["rev-parse", "--is-shallow-repository"]) ?? "").trim() === "true") {
+    return "undecidable";
+  }
+
+  const introducedAt = planIntroducedAt(projectRoot, name);
+  if (introducedAt === null) return "undecidable";
+  return introducedAt >= Date.parse(epoch) ? "fresh" : "legacy";
+}
+
+/** A graded plan-narrative row. */
+export interface PlanNarrativeViolationRow extends PlanNarrativeViolation {
+  severity: "error" | "warning";
+}
+
+export interface PlanNarrativeAltitudeReport {
+  violations: PlanNarrativeViolationRow[];
+  /** Plans whose rows were spared — named, never silently dropped. */
+  grandfathered: string[];
+  /** The spared count in the SAME unit `violations` uses: rows, not files. */
+  grandfatheredRows: number;
+  vacuous: boolean;
+}
+
+/**
+ * Probe #67's PLAN half with the epoch arm layered over the pure scanner.
+ *
+ * `legacy` (pre-epoch, an exempt `kind:`, or not a git tree) drops the row and
+ * names the file; `undecidable` (severed or shallow history) downgrades to
+ * `warning`, because an operator whose object store is truncated cannot fix
+ * that by rewriting a subsection; `fresh` stays `error`.
+ */
+export function runPlanNarrativeAltitudeProbe(
+  projectRoot: string,
+  classify: BodyClassifier = classifySectionBody,
+): PlanNarrativeAltitudeReport {
+  const { violations: raw, measured } = scanTree(projectRoot, classify);
+  const cache = new Map<string, PlanProvenanceVerdict>();
+  const provenanceOf = (rel: string): PlanProvenanceVerdict => {
+    const name = rel.split("/").pop() ?? rel;
+    const hit = cache.get(name);
+    if (hit !== undefined) return hit;
+    const answer = classifyPlanNarrativeProvenance(projectRoot, name);
+    cache.set(name, answer);
+    return answer;
+  };
+
+  const violations: PlanNarrativeViolationRow[] = [];
+  const grandfathered: string[] = [];
+  let grandfatheredRows = 0;
+  for (const v of raw) {
+    const provenance = provenanceOf(v.file);
+    if (SILENT_PLAN_PROVENANCE.includes(provenance)) {
+      if (!grandfathered.includes(v.file)) grandfathered.push(v.file);
+      grandfatheredRows += 1;
+      continue;
+    }
+    violations.push({ ...v, severity: provenance === "undecidable" ? "warning" : "error" });
+  }
+  return { violations, grandfathered, grandfatheredRows, vacuous: measured.length === 0 };
+}
+
 // `import.meta.main` entry, or word the registration so it orders nothing —
 // raising the pin to admit one more order nobody can carry out is the drift
 // the pin exists to catch. This is the first resolution. Imported by the probe
