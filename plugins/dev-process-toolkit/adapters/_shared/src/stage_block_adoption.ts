@@ -19,7 +19,14 @@
 //      STE-532's own words, because a second parser free to disagree with the
 //      first is the two-renderers defect this repository has recorded;
 //   4. the block is the LAST thing in the report, EXCEPT the closed, cited set
-//      of structured sections earlier milestones mandate (AC-STE-533.2a);
+//      of structured sections earlier milestones mandate (AC-STE-533.2a) —
+//      and that carve-out is BOUNDED: each cap-exempt section owns at most the
+//      lines its own renderer emits (its per-section budget, read off
+//      `renderMax`), FUNDED ONCE PER REPORT rather than once per occurrence,
+//      and a repeated exempt heading is refused outright by name; every line
+//      past that budget is narration again, and an accepted report therefore
+//      has a stated ceiling of `maxAdoptedReportLines(stage)` — 49 for
+//      `/implement`, 40 for a stage that owes nothing;
 //   5. the block names an ADOPTING stage — `stage:` must be one of
 //      `ADOPTING_STAGES`; a missing value and a `/deliver` ceremony id are
 //      both refused, because that vocabulary rides the other banner;
@@ -67,7 +74,11 @@ import {
   DELIVER_STAGE_FENCE_BANNER,
   FENCE_LINE_CAP,
 } from "./deliver_stage_capture";
-import type { StageEvidenceInput } from "./deliver_stage_evidence";
+import {
+  renderStageEvidence,
+  type StageEvidenceInput,
+} from "./deliver_stage_evidence";
+import { renderMaxAdvisoryNotes } from "./implement_advisory_notes";
 import {
   closedStatusFences,
   STAGE_BLOCK_FENCE_BANNER,
@@ -151,18 +162,50 @@ export interface CapExemptSection {
   /** A REAL declarer: the module that declares the heading, or a real pin. */
   requiredBy: string;
   /**
-   * The body lines this section's own renderer emits that are NEITHER a list
-   * row NOR a bare `name:` key — the one mandated literal an empty section is
-   * required to carry.
+   * The section AS ITS OWN SHIPPED RENDERER EMITS IT, at the largest size that
+   * renderer can produce — heading first, then its body.
    *
-   * Declared per entry rather than pattern-matched, because the carve-out
-   * admits the SHAPES the shipped renderers emit and nothing else: free prose
-   * under a correctly-spelled heading is still narration, and a grader that
-   * forgave a whole section would let a stage reinstate its former report by
-   * heading it well.
+   * THIS IS THE BUDGET, and it is read rather than typed. A number written
+   * beside an entry is a number free to drift from what the renderer really
+   * emits, which is this repository's most-recorded failure shape; a renderer
+   * that grew a line would then hand the carve-out an allowance nobody voted
+   * for. Both shipped sections are FIXED-SIZE by construction — the evidence
+   * block always emits three sections and their rows, and the advisory section
+   * always emits its heading and one bounded line — so "the largest it can
+   * emit" is a real ceiling rather than a hopeful sample.
+   *
+   * OPTIONAL IN THE TYPE, REQUIRED IN THE LIST: `CAP_EXEMPT_SECTIONS` is typed
+   * as `BoundedCapExemptSection`, so an entry landing without a renderer does
+   * not compile, while callers that only need the citation half (see
+   * `resolveExemptCitation`) can still describe an entry without one.
    */
-  bodyLiterals?: readonly string[];
+  renderMax?: () => readonly string[];
 }
+
+/** An entry whose ceiling is known — the only shape the canonical list admits. */
+export type BoundedCapExemptSection = CapExemptSection & {
+  renderMax: () => readonly string[];
+};
+
+/**
+ * `## Verification evidence`, at the size `renderImplementReportEvidence`
+ * emits it.
+ *
+ * IT IS THE SAME RENDERER, reached one link down the chain. That module derives
+ * nothing itself — it calls `renderStageEvidence` and re-labels the result with
+ * this heading — so composing the heading here over the same shared renderer
+ * yields its bytes rather than a snapshot of them, and the round-2 leg that
+ * compares this against `renderImplementReportEvidence({}).lines` is what keeps
+ * them married.
+ *
+ * WHY NOT IMPORT THAT MODULE DIRECTLY: a shipped measurement (STE-531,
+ * `tests/m136-ste-531-order-fires.test.ts`) pins `implement_report_evidence.ts`
+ * as having NO non-test importers and being unreachable — that FR's whole
+ * subject. Importing it here would silently rewrite the defect that test
+ * exists to hold still. Naming the reason beats leaving the next reader to
+ * rediscover it.
+ */
+const EVIDENCE_SECTION_HEADING = "## Verification evidence";
 
 /**
  * THE closed, cited carve-out list, stated HERE, once.
@@ -179,29 +222,77 @@ export interface CapExemptSection {
  * violation in its own right (`scanStageBlockAdoption` grades that direction),
  * because a carve-out checked one way is unguarded the other way.
  */
-export const CAP_EXEMPT_SECTIONS: readonly CapExemptSection[] = [
+export const CAP_EXEMPT_SECTIONS: readonly BoundedCapExemptSection[] = [
   {
     stage: "implement",
-    heading: "## Verification evidence",
+    heading: EVIDENCE_SECTION_HEADING,
     // `IMPLEMENT_EVIDENCE_HEADING` — the executable declaration of the literal.
     requiredBy: "adapters/_shared/src/implement_report_evidence.ts",
+    renderMax: () => [
+      EVIDENCE_SECTION_HEADING,
+      ...renderStageEvidence({}).lines,
+    ],
   },
   {
     stage: "implement",
     heading: "## Advisory notes",
     // Shipped AC-STE-148.1: "Phase 4 step 14 names the heading".
     requiredBy: "tests/implement-advisory-notes.test.ts",
-    // Phase 4 step 14: "Zero entries ⇒ heading plus the literal line
-    // `No advisory notes.` — never absent, so the operator never confuses 'no
-    // concerns' with 'concerns hidden'." The mandated line is a SENTENCE, so
-    // no shape rule reaches it and the entry has to name it.
-    bodyLiterals: ["No advisory notes."],
+    // The heading literal is stated HERE once (AC-STE-533.2a's own pin asserts
+    // exactly one occurrence in this module); the renderer states its own, and
+    // the round-2 leg asserting `renderMax()[0] === heading` is what refuses
+    // the two drifting apart.
+    renderMax: renderMaxAdvisoryNotes,
   },
 ];
 
 /** The exempt sections a stage carries. Reads the ONE list, never a re-listing. */
-export function exemptSectionsFor(stage: string): readonly CapExemptSection[] {
+export function exemptSectionsFor(
+  stage: string,
+): readonly BoundedCapExemptSection[] {
   return CAP_EXEMPT_SECTIONS.filter((entry) => entry.stage === stage);
+}
+
+/**
+ * How many lines ONE cap-exempt section may own — READ OFF ITS RENDERER.
+ *
+ * The accessor CALLS `renderMax()`. It does not consult a table, and there is
+ * no number here to keep in step with anything: a section that renders seven
+ * lines is funded for seven, and the day its renderer emits an eighth the
+ * budget is eight, with no edit to this file and no window in which the two
+ * disagree.
+ *
+ * An entry with no renderer is REFUSED rather than defaulted. A default would
+ * be an unbounded exemption acquired by omission, which is precisely the hole
+ * this function closes; `BoundedCapExemptSection` makes it unreachable from the
+ * canonical list, and this throw covers a caller that built one by hand.
+ */
+export function exemptSectionBudget(entry: CapExemptSection): number {
+  const render = entry.renderMax;
+  if (typeof render !== "function") {
+    throw new Error(
+      `the cap-exempt section \`${entry.heading}\` declares no renderMax(), so ` +
+        "its budget cannot be read off its renderer: an entry with no ceiling " +
+        "is an unbounded exemption",
+    );
+  }
+  return render.call(entry).length;
+}
+
+/**
+ * The STATED CEILING on a report this grader will accept for `stage`: the
+ * whole-report cap, plus every exempt budget the stage owes and not one line
+ * more.
+ *
+ * Derived, so it is a consequence of the budgets rather than a second opinion
+ * about them. A stage that owes nothing gets exactly `STAGE_REPORT_LINE_CAP`;
+ * `/implement`, which owes both sections, gets 49.
+ */
+export function maxAdoptedReportLines(stage: string): number {
+  return exemptSectionsFor(stage).reduce(
+    (sum, entry) => sum + exemptSectionBudget(entry),
+    STAGE_REPORT_LINE_CAP,
+  );
 }
 
 /** What a citation resolved to — the evidence, or `null` when it resolved to nothing. */
@@ -368,16 +459,38 @@ const LIST_ITEM_RE = /^\s*(?:[-*+]|\d+[.)])\s+\S/;
 const SECTION_KEY_RE = /^\s*[A-Za-z][A-Za-z0-9_-]*:\s*$/;
 
 /**
+ * The non-shaped body lines an entry's own renderer emits — the mandated
+ * sentences that are neither a list row nor a bare `name:` key.
+ *
+ * READ OFF `renderMax`, never declared beside the entry: the admitted literals
+ * are then exactly the ones the renderer produces, and a reworded mandate
+ * reaches this grader instead of leaving it pinned to a dead string. Memoised
+ * per entry because the grader asks once per line.
+ */
+const BODY_LITERALS = new WeakMap<CapExemptSection, readonly string[]>();
+function renderedBodyLiterals(entry: CapExemptSection): readonly string[] {
+  const cached = BODY_LITERALS.get(entry);
+  if (cached !== undefined) return cached;
+  const literals =
+    typeof entry.renderMax === "function"
+      ? entry.renderMax().slice(1).map((line) => line.trim())
+      : [];
+  BODY_LITERALS.set(entry, literals);
+  return literals;
+}
+
+/**
  * Is this line one the exempt section's OWN renderer emits?
  *
  * Three shapes and no fourth: a list row, a bare `name:` key, and a literal the
- * entry itself declares. The carve-out admits the section's RENDERED BODY, not
- * everything beneath its heading.
+ * entry's renderer emits. The carve-out admits the section's RENDERED BODY, not
+ * everything beneath its heading — and, since M137 round 2, no more of that
+ * body than the renderer can actually produce (`exemptSectionBudget`).
  */
 function isRenderedBodyLine(line: string, entry: CapExemptSection): boolean {
   if (LIST_ITEM_RE.test(line)) return true;
   if (SECTION_KEY_RE.test(line)) return true;
-  return (entry.bodyLiterals ?? []).includes(line.trim());
+  return renderedBodyLiterals(entry).includes(line.trim());
 }
 
 /** The `stage:` scalar a status block states, or `null` when it states none. */
@@ -429,18 +542,79 @@ function narrationLines(
  * was refused, with a Remedy naming only budgets it already met. A carve-out
  * that is stated but not funded refuses the very reports it exists to permit.
  *
- * The cap is NOT raised: the exempt lines are excused from the count and every
- * other line still faces the shipped 40. Narration bloat is refused exactly as
- * before, and a stage that owes no section gets no extra budget at all.
+ * The cap is NOT raised for narration: the exempt lines are excused from the
+ * count and every other line still faces the shipped 40.
+ *
+ * AND THE CARVE-OUT IS BOUNDED (M137 round 2). Each occurrence of an exempt
+ * heading owns AT MOST its own section budget — `exemptSectionBudget`, read off
+ * that section's renderer — and every line past it is narration again, facing
+ * the whole-report cap like any other line, with a refusal naming the section
+ * and the number. The exemption shipped unbounded for one release, and the
+ * measurement is worth keeping: a maximal legal 49-line report plus 120
+ * narration paragraphs WEARING LIST MARKERS under `## Advisory notes` ran 169
+ * lines and graded `{"ok":true,"reasons":[]}` against a 40-line cap, because
+ * `isRenderedBodyLine` forgave every list row and this function then deleted
+ * them all before anything counted. A stage could reinstate its entire former
+ * report by heading it correctly and bulleting it.
+ *
+ * THE BOUND IS PER REPORT, PER HEADING (M137 round 3) — NOT per occurrence,
+ * which is what shipped and what round 2's fix left open. Applied per
+ * occurrence, REPEATING THE HEADING MULTIPLIES THE ALLOWANCE: measured against
+ * a stated ceiling of 49 for `/implement`, 5 x `## Advisory notes` graded
+ * `ok=true` at 34 lines and 50 x graded `ok=true` at 124. So the running spend
+ * is keyed by the heading TEXT and carried across every occurrence in the
+ * report: the first occurrence is funded, and every line of every repetition is
+ * narration facing the whole-report cap.
+ *
+ * That is what makes `maxAdoptedReportLines(stage)` a real ceiling rather than
+ * a description of one composition: an accepted report can excuse at most one
+ * budget per owed heading, so its total can never exceed the shipped 40 plus
+ * the sum of those budgets, whatever shape it takes. A stage that owes no
+ * section gets no extra budget at all.
+ *
+ * WHY IT WAS PER OCCURRENCE, which matters more than the fix: a test was wrong
+ * about its own subject. AC-STE-533.6's "an exempt section MAY follow the
+ * block" built its subject by APPENDING an owed heading to a report that
+ * already carried it — meaning to assert PLACEMENT and asserting DUPLICATION
+ * instead. A per-report bound reddened it, so the bound was weakened to keep it
+ * green. Placement is still admitted in full: DIFFERENT owed sections may sit
+ * on either side of the block, each appearing once.
  */
+interface ExemptSectionAccounting {
+  /** The 0-based line indexes the carve-out excuses from the count. */
+  owned: Set<number>;
+  /** One record per exempt HEADING whose report-wide spend ran past its budget. */
+  overBudget: { entry: CapExemptSection; budget: number; lines: number }[];
+  /** One record per exempt heading carried more than once, with its count. */
+  duplicated: { entry: CapExemptSection; occurrences: number }[];
+}
+
 function exemptSectionIndexes(
   lines: readonly string[],
   fence: { startLine: number; endLine: number },
   exempt: readonly CapExemptSection[],
-): Set<number> {
+): ExemptSectionAccounting {
   const owned = new Set<number>();
-  if (exempt.length === 0) return owned;
+  const overBudget: ExemptSectionAccounting["overBudget"] = [];
+  const duplicated: ExemptSectionAccounting["duplicated"] = [];
+  if (exempt.length === 0) return { owned, overBudget, duplicated };
+
+  // Non-blank lines each HEADING has spent report-wide, heading lines included.
+  // Every shape is counted, not only the excusable ones: prose smuggled under
+  // the heading is still the section growing past what its renderer can emit,
+  // and a bound that only counted the shapes it forgives would be a bound on
+  // the wrong thing.
+  const spent = new Map<string, number>();
+  const occurrences = new Map<string, number>();
   let current: CapExemptSection | null = null;
+
+  /** This heading's spend so far, plus `n`. */
+  const spend = (entry: CapExemptSection, n: number): number => {
+    const total = (spent.get(entry.heading) ?? 0) + n;
+    spent.set(entry.heading, total);
+    return total;
+  };
+
   for (let i = 0; i < lines.length; i++) {
     // Inside the block nothing is exempt — the fence has its own budget, and a
     // section heading cannot open across it.
@@ -451,13 +625,29 @@ function exemptSectionIndexes(
     const line = lines[i]!;
     if (line.trim().length === 0) continue;
     if (HEADING_RE.test(line)) {
+      // Compared on the TRIMMED line: a markdown heading may carry up to three
+      // leading spaces and still be a heading, so an indented twin is a twin.
       current = exempt.find((entry) => entry.heading === line.trim()) ?? null;
-      if (current !== null) owned.add(i);
+      if (current !== null) {
+        occurrences.set(current.heading, (occurrences.get(current.heading) ?? 0) + 1);
+        if (spend(current, 1) <= exemptSectionBudget(current)) owned.add(i);
+      }
       continue;
     }
-    if (current !== null && isRenderedBodyLine(line, current)) owned.add(i);
+    if (current === null) continue;
+    const total = spend(current, 1);
+    if (total <= exemptSectionBudget(current) && isRenderedBodyLine(line, current))
+      owned.add(i);
   }
-  return owned;
+
+  for (const entry of exempt) {
+    const budget = exemptSectionBudget(entry);
+    const total = spent.get(entry.heading) ?? 0;
+    if (total > budget) overBudget.push({ entry, budget, lines: total });
+    const seen = occurrences.get(entry.heading) ?? 0;
+    if (seen > 1) duplicated.push({ entry, occurrences: seen });
+  }
+  return { owned, overBudget, duplicated };
 }
 
 /**
@@ -546,14 +736,46 @@ export function verifyStageReportAdoption(
   // see `exemptSectionIndexes` for why the exemption has to be funded rather
   // than merely stated. Its reasons ride the same `reasons` array, so a caller
   // sees one verdict rather than two to reconcile.
-  const exemptIndexes = exemptSectionIndexes(lines, fence, exempt);
+  const { owned, overBudget, duplicated } = exemptSectionIndexes(lines, fence, exempt);
   const base = verifyStageStatusBlock(
-    exemptIndexes.size === 0
+    owned.size === 0
       ? report
-      : lines.filter((_, i) => !exemptIndexes.has(i)).join("\n"),
+      : lines.filter((_, i) => !owned.has(i)).join("\n"),
     evidence,
   );
   const reasons: string[] = [...base.reasons];
+
+  // THE CARVE-OUT IS BOUNDED. A section past its budget is refused BY NAME and
+  // BY NUMBER: "something is too long" leaves the operator hunting, and the
+  // whole-report cap alone would name a total without saying which section
+  // spent it.
+  for (const { entry, budget, lines: spent } of overBudget) {
+    reasons.push(
+      `the cap-exempt section \`${entry.heading}\` carries ${spent} lines, ` +
+        `over its ${budget}-line section budget: the carve-out excuses the ` +
+        `lines that section's own renderer emits and no more, so every line ` +
+        `past the budget is narration again`,
+    );
+  }
+
+  // AND THE HEADING IS CARRIED ONCE. Duplication is refused OUTRIGHT rather
+  // than left to the arithmetic above: the carve-out is a CLOSED, CITED list of
+  // sections whose own renderers emit them exactly once, and ABSENCE is already
+  // a violation ("exempt is not optional"), so repetition must not be the
+  // loophole absence is not. It is also the one refusal that reaches the
+  // SMALLEST duplicate — two occurrences at their exact rendered size sit under
+  // the ceiling, so no line-counting rule can carry that verdict. This does NOT
+  // generalise: the FR and plan altitude scanners deliberately do not make a
+  // repeated heading a violation, because their headings are free prose and a
+  // retroactive repetition rule would grade material written before it.
+  for (const { entry, occurrences } of duplicated) {
+    reasons.push(
+      `the report carries the cap-exempt section \`${entry.heading}\` ` +
+        `${occurrences} times; each cap-exempt section appears exactly once — ` +
+        `its own renderer emits it once, and the carve-out funds it once per ` +
+        `report, so repeating the heading buys no second budget`,
+    );
+  }
 
   if (stage === null) {
     reasons.push(

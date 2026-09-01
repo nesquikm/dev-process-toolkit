@@ -15,6 +15,7 @@
 //   line_cap   — more than 6 non-empty lines fails; the violation anchors at
 //                the first non-empty line beyond the cap (the 7th). The
 //                3-line floor is authoring guidance (STE-385), NOT enforced.
+//                Counted PER SECTION NAME PER FILE — see the taxonomy below.
 //   backtick   — any backtick character on a line (subsumes code fences).
 //   ac_id      — an AC-ID token of the AC-prefix shape, regardless of tracker
 //                flavor: tracker-mode (AC-STE-386.2, AC-DST-45.1) and the
@@ -31,9 +32,45 @@
 // the first body line at which the running word count first EXCEEDS the cap,
 // mirroring line_cap's "first line beyond the cap".
 //
+// THE TAXONOMY — WHICH RULES ACCUMULATE, AND WHY IT IS SCOPED PER NAME PER
+// FILE (M137 round 3). Every rule here falls into exactly one of two classes,
+// and the class decides the scope:
+//
+//   * A rule that carries STATE ACROSS LINES — `line_cap`'s running non-empty
+//     count, `word_cap`'s running word total — is graded against an
+//     ACCUMULATOR. An accumulator scoped to ONE OCCURRENCE of a heading is
+//     defeated by a second occurrence of the same heading: measured on the
+//     shipped scanner, three `## Summary` sections of 70 words each — well over
+//     `SUMMARY_WORD_CAP` in total — scored ZERO violations, while the identical
+//     words under one heading scored two. Those rules are therefore keyed by
+//     SECTION NAME PER FILE, so a repeated heading spends one budget rather
+//     than buying another.
+//   * A PER-LINE PREDICATE — `backtick`, `ac_id`, `path_token` — carries no
+//     state, so each offending line fires wherever it sits. MEASURED: one
+//     Summary with three offending lines and three Summaries with one each
+//     produce the identical multiset. Those rules must NOT be made stateful;
+//     doing so would double-count them.
+//
+// REPETITION IS NOT ITSELF A VIOLATION HERE, deliberately, and this is where
+// this scanner parts from `stage_block_adoption.ts` (which refuses a duplicate
+// exempt heading outright). Nothing in the FR template forbids a repeated
+// level-2 heading; 2 of this repository's 447 archived FRs already carry one,
+// and a rule firing on repetition alone would be a NEW CONTENT RULE applied
+// retroactively to real prose — exactly what `FR_WORD_CAP_EPOCH` exists to
+// prevent. Accumulating per name closes the QUANTITY hole without one.
+//
+// MEASURED CONSEQUENCE FOR `line_cap`, which is NOT grandfathered: no archived
+// FR in this repository splits a capped section (Summary / Technical Design /
+// Notes) across repeated headings, so scoping the accumulator per name newly
+// flags NOTHING in the existing corpus. Closing this hole is not a retroactive
+// tightening — the opposite of the word-cap situation the epoch below exists
+// for.
+//
 // Detection-only + deterministic: `file` is repo-root-relative with POSIX
 // separators; `line` is 1-indexed; every violation names the `section` it was
 // measured over, because a rule id alone cannot say which of three caps broke.
+// A flagged accumulating rule reports ONCE PER NAME PER FILE — at the crossing
+// line, wherever in the file that lands.
 // Vacuous paths (no capped/ruled section present, empty or absent
 // `specs/frs/`) yield zero violations and zero measurements — the probe caller
 // renders zero violations as a bare GATE PASSED row.
@@ -192,6 +229,24 @@ interface FileScan {
   measured: MeasuredSection[];
 }
 
+/**
+ * One section NAME's running state for the whole file — the accumulator that
+ * makes the caps unsplittable (STE-534, M137 round 3).
+ *
+ * Keyed by name and not by occurrence, and that is the entire fix. See the
+ * TAXONOMY note above `LINE_PREDICATES` for which rules need this and which
+ * must never get it.
+ */
+interface SectionAccumulator {
+  /** Words seen under this NAME so far, across every occurrence in the file. */
+  words: number;
+  /** Non-empty body lines seen under this NAME so far, likewise. */
+  nonEmpty: number;
+  /** Once per name per file, not once per occurrence. */
+  lineCapFlagged: boolean;
+  wordCapFlagged: boolean;
+}
+
 function scanFile(
   abs: string,
   rel: string,
@@ -211,6 +266,19 @@ function scanFile(
     violations.push({ file: rel, line: at, rule, section });
   };
 
+  // THE ACCUMULATORS LIVE OUT HERE, one per section NAME per FILE — never
+  // inside the section loop, where a second `## Summary` would reset them and
+  // hand the author a second budget.
+  const accumulators = new Map<string, SectionAccumulator>();
+  const accumulatorFor = (section: string): SectionAccumulator => {
+    let acc = accumulators.get(section);
+    if (acc === undefined) {
+      acc = { words: 0, nonEmpty: 0, lineCapFlagged: false, wordCapFlagged: false };
+      accumulators.set(section, acc);
+    }
+    return acc;
+  };
+
   // The shared walk yields every level-2 section in file order; the TABLE, and
   // nothing else, decides which of them this scanner grades. A section absent
   // from the table is skipped here rather than never opened — the same result,
@@ -222,38 +290,46 @@ function scanFile(
     // Every applicability decision below reads `rules` / `wordCap` off the
     // section's own table row — never off the section NAME.
     const { section, rules, wordCap } = spec;
-    let words = 0;
-    let nonEmpty = 0;
-    let lineCapFlagged = false;
-    let wordCapFlagged = false;
+    const acc = accumulatorFor(section);
+    let occurrenceWords = 0;
 
     for (let i = 0; i < entered.body.length; i++) {
       const line = entered.body[i]!;
       const at = entered.bodyLines[i]!;
 
       if (line.trim() !== "") {
-        nonEmpty++;
-        if (rules.includes("line_cap") && nonEmpty > LINE_CAP && !lineCapFlagged) {
-          lineCapFlagged = true;
+        acc.nonEmpty++;
+        if (rules.includes("line_cap") && acc.nonEmpty > LINE_CAP && !acc.lineCapFlagged) {
+          acc.lineCapFlagged = true;
           flag(at, "line_cap", section);
         }
       }
+      // PER-LINE PREDICATES ARE UNTOUCHED BY THE ACCUMULATOR. They read the
+      // line and nothing else, so they fire once per offending line wherever
+      // it sits — three dirty lines under one heading and three headings of
+      // one dirty line each produce the identical multiset. Making them
+      // stateful would double-count them, which is the OTHER direction of this
+      // same defect.
       for (const [rule, matches] of LINE_PREDICATES) {
         if (rules.includes(rule) && matches(line)) flag(at, rule, section);
       }
 
       const n = countWords(line);
       if (n > 0) {
-        words += n;
-        if (wordCap !== null && words > wordCap && !wordCapFlagged) {
-          wordCapFlagged = true;
+        acc.words += n;
+        occurrenceWords += n;
+        if (wordCap !== null && acc.words > wordCap && !acc.wordCapFlagged) {
+          acc.wordCapFlagged = true;
           flag(at, "word_cap", section);
         }
       }
     }
 
+    // MEASUREMENT STAYS PER OCCURRENCE. It answers "what is in the tree", not
+    // "what broke": one row per capped section actually present, so a dogfood
+    // run can still prove it was non-vacuous. GRADING is what accumulates.
     if (wordCap !== null) {
-      measured.push({ file: rel, section, words });
+      measured.push({ file: rel, section, words: occurrenceWords });
     }
   }
   return { violations, measured };

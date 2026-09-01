@@ -278,6 +278,16 @@ const FENCE_CLOSE_RE = /^[ \t]*```[ \t]*$/;
 
 const lineCount = (text: string): number => text.split("\n").length;
 
+/**
+ * How many times a heading appears in a report, COMPARED ON THE TRIMMED LINE.
+ *
+ * Trimmed, because a markdown heading may carry up to three leading spaces and
+ * still be a heading to every reader and to the grader — a substring or
+ * strict-equality count would miss the indented twin.
+ */
+const occurrencesOf = (report: string, heading: string): number =>
+  report.split("\n").filter((line) => line.trim() === heading).length;
+
 /** 0-indexed line the fence opener sits on — also the count of prose lines. */
 function fenceOpenIndex(report: string): number {
   return report.split("\n").findIndex((line) => FENCE_OPEN_RE.test(line));
@@ -1852,17 +1862,51 @@ describe("AC-STE-533.2a — the exempt list is closed, cited and load-bearing", 
 // ============================================================================
 
 describe("AC-STE-533.6 — the block comes last, except the exempt sections", () => {
-  test("an AC-2a exempt section MAY follow the block", () => {
-    const entry = CAP_EXEMPT_SECTIONS.find((e) => e.stage === "implement");
-    expect(entry).toBeDefined();
-    const trailing = appendAfterBlock(
-      reportForStage("implement"),
-      ["", entry!.heading, "", "- gate: pass 1, fail 0"].join("\n"),
-    );
-    // The mutation applied: there really is non-blank content after the block.
-    expect(trailing.split("\n").slice(fenceCloseIndex(trailing) + 1).join("").trim().length)
-      .toBeGreaterThan(0);
+  test("an AC-2a exempt section MAY follow the block — each heading carried ONCE", () => {
+    // THIS LEG'S SUBJECT IS PLACEMENT, and it was wrong about that for one
+    // round. The construction it replaced appended `entry.heading` to
+    // `reportForStage("implement")` — a report that ALREADY carries that
+    // heading, because "exempt is not optional" requires it. So it asserted a
+    // report with TWO `## Verification evidence` headings must be ACCEPTED,
+    // which no shipped renderer ever emits, and which is what forced the
+    // section budget to be applied PER OCCURRENCE: a per-report bound reddened
+    // this leg, so the bound was weakened to keep it green. A test wrong about
+    // its own subject bought the defect it was standing next to.
+    const stage = "implement";
+    const entries = exemptSectionsFor(stage);
+    expect(entries.length).toBeGreaterThan(0);
+
+    const trailing = [
+      blockOnly(reportForStage(stage)),
+      ...owedSectionLines(stage),
+    ].join("\n");
+
+    // THE CONSTRUCTION IS THE SUBJECT — each owed heading appears EXACTLY ONCE…
+    for (const entry of entries) {
+      expect({
+        heading: entry.heading,
+        occurrences: occurrencesOf(trailing, entry.heading),
+      }).toEqual({ heading: entry.heading, occurrences: 1 });
+    }
+    // …and it really does sit AFTER the block, headings included.
+    const after = trailing
+      .split("\n")
+      .slice(fenceCloseIndex(trailing) + 1)
+      .filter((l) => l.trim().length > 0);
+    expect(after.length).toBeGreaterThan(0);
+    for (const entry of entries) expect(after).toContain(entry.heading);
+
     expect(verifyStageReportAdoption(trailing)).toEqual({ ok: true, reasons: [] });
+
+    // FALSIFIABILITY, in place: the SAME placement with a heading one word off
+    // is refused. Without it, a grader that forgave everything after the block
+    // would pass this leg while measuring nothing.
+    const victim = entries[0]!;
+    const nearMiss = trailing.split(victim.heading).join("## Verification notes");
+    expect(nearMiss).not.toContain(victim.heading);
+    const missVerdict = verifyStageReportAdoption(nearMiss);
+    expect(missVerdict.ok).toBe(false);
+    expect(missVerdict.reasons.some(isBlockLastReason)).toBe(true);
   });
 
   test("a NON-exempt trailing paragraph still FAILS — the discriminator", () => {
