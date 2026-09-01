@@ -58,6 +58,7 @@ import {
   checkMergeBoundary,
   checkWriteBoundary,
   findLatestReleaseCommit,
+  isShallowRepository,
   parseStatedTestCount,
   testFilesChangedSince,
 } from "../adapters/_shared/src/release_test_count_guard";
@@ -380,6 +381,28 @@ describe("C6/B — `/ship-milestone` carries the guard, and quotes it rather tha
   });
 });
 
+/**
+ * A CHANGELOG whose topmost entry carries a real closing count line.
+ *
+ * The fixtures below used to write a bare `## [1.0.0]`. Under the artifact
+ * anchor that is a legitimate `indeterminate` — an entry stating no count has
+ * no count to go stale — so every merge-boundary fixture needs a real one.
+ */
+function changelogWith(version: string, total: number): string {
+  return [
+    "# Changelog",
+    "",
+    `## [${version}] — 2026-01-01 — "X"`,
+    "",
+    "### Added",
+    "",
+    "- a thing",
+    "",
+    `Total test count at release: ${total} tests, 0 failures, 0 errors.`,
+    "",
+  ].join("\n");
+}
+
 // ===========================================================================
 // GROUP C — PART 2, the MERGE boundary
 // ===========================================================================
@@ -397,27 +420,36 @@ describe("C6/C — the merge boundary is a git query", () => {
   test("it finds the most recent release commit", () => {
     const repo = makeRepo();
     commit(repo, { "a.txt": "1" }, "feat(x): first");
-    const release = commit(repo, { "CHANGELOG.md": "## [1.0.0]" }, "chore(release): v1.0.0");
+    const release = commit(repo, { "CHANGELOG.md": changelogWith("1.0.0", 100) }, "chore(release): v1.0.0");
     const found = findLatestReleaseCommit(repo);
     expect(found).not.toBeNull();
     expect(found!.sha).toBe(release);
     cleanup();
   });
 
-  test("a repository with no release commit is a verdict, not a crash", () => {
+  test("a repository with no count line is INDETERMINATE, never a quiet all-clear", () => {
+    // THIS LEG USED TO ASSERT THE DEFECT. It read `stale: false` for a tree the
+    // guard had not checked, which is the whole failure mode: "I could not
+    // check" rendered as "nothing changed". Three states, and this is the third.
     const repo = makeRepo();
     commit(repo, { "a.txt": "1" }, "feat(x): first");
     expect(findLatestReleaseCommit(repo)).toBeNull();
     const result = checkMergeBoundary(repo);
-    expect(result.stale).toBe(false);
-    expect(result.releaseCommit).toBeNull();
+    expect(result.verdict).toBe("indeterminate");
+    expect(result.anchor).toBeNull();
+    expect(result.indeterminateReason, "an unchecked tree must say why").not.toBeNull();
+    expect(result.message, "and it must say so out loud").not.toBeNull();
+    expect(result.message!).toContain("NOT CHECKED");
+    // Loud, but NOT blocking: a guard that hard-fails every shallow CI
+    // checkout gets deleted, and then it guards nothing at all.
+    expect(result.stale, "indeterminate must not read as stale either").toBe(false);
     cleanup();
   });
 
   test("release commit IS HEAD — clean, the count was the last edit", () => {
     const repo = makeRepo();
     commit(repo, { "src/a.ts": "1", "src/a.test.ts": "x" }, "feat(x): first");
-    commit(repo, { "CHANGELOG.md": "## [1.0.0]" }, "chore(release): v1.0.0");
+    commit(repo, { "CHANGELOG.md": changelogWith("1.0.0", 100) }, "chore(release): v1.0.0");
     const result = checkMergeBoundary(repo);
     expect(result.stale).toBe(false);
     expect(result.commitsSince).toBe(0);
@@ -432,7 +464,7 @@ describe("C6/C — the merge boundary is a git query", () => {
     // ignore the warning.
     const repo = makeRepo();
     commit(repo, { "src/a.test.ts": "x" }, "feat(x): first");
-    commit(repo, { "CHANGELOG.md": "## [1.0.0]" }, "chore(release): v1.0.0");
+    commit(repo, { "CHANGELOG.md": changelogWith("1.0.0", 100) }, "chore(release): v1.0.0");
     commit(repo, { "README.md": "docs" }, "docs(readme): tidy");
     const result = checkMergeBoundary(repo);
     expect(result.commitsSince).toBe(1);
@@ -447,7 +479,7 @@ describe("C6/C — the merge boundary is a git query", () => {
   test("commits after the release AND a test file changed — it FIRES", () => {
     const repo = makeRepo();
     commit(repo, { "src/a.test.ts": "x" }, "feat(x): first");
-    commit(repo, { "CHANGELOG.md": "## [1.0.0]" }, "chore(release): v1.0.0");
+    commit(repo, { "CHANGELOG.md": changelogWith("1.0.0", 100) }, "chore(release): v1.0.0");
     commit(repo, { "src/b.test.ts": "y" }, "test(b): add");
     commit(repo, { "src/c.spec.test.js": "z" }, "test(c): add");
     const result = checkMergeBoundary(repo);
@@ -460,7 +492,7 @@ describe("C6/C — the merge boundary is a git query", () => {
   test("its answer IS the git command's answer — derived, not re-implemented", () => {
     const repo = makeRepo();
     commit(repo, { "src/a.test.ts": "x" }, "feat(x): first");
-    const release = commit(repo, { "CHANGELOG.md": "## [1.0.0]" }, "chore(release): v1.0.0");
+    const release = commit(repo, { "CHANGELOG.md": changelogWith("1.0.0", 100) }, "chore(release): v1.0.0");
     commit(repo, { "src/b.test.ts": "y", "docs/x.md": "d" }, "test(b): add");
     const raw = git(repo, "diff", "--name-only", `${release}..HEAD`, "--", "*.test.*")
       .split("\n")
@@ -473,7 +505,7 @@ describe("C6/C — the merge boundary is a git query", () => {
   test("the warning names the release commit, the commit count and the files", () => {
     const repo = makeRepo();
     commit(repo, { "src/a.test.ts": "x" }, "feat(x): first");
-    const release = commit(repo, { "CHANGELOG.md": "## [1.0.0]" }, "chore(release): v1.0.0");
+    const release = commit(repo, { "CHANGELOG.md": changelogWith("1.0.0", 100) }, "chore(release): v1.0.0");
     commit(repo, { "src/b.test.ts": "y" }, "test(b): add");
     const message = checkMergeBoundary(repo).message!;
     expect(message, "no message on a stale branch is a silent skip").toBeTruthy();
@@ -486,7 +518,7 @@ describe("C6/C — the merge boundary is a git query", () => {
   test("the message is derived — a second changed test file changes it", () => {
     const repo = makeRepo();
     commit(repo, { "src/a.test.ts": "x" }, "feat(x): first");
-    commit(repo, { "CHANGELOG.md": "## [1.0.0]" }, "chore(release): v1.0.0");
+    commit(repo, { "CHANGELOG.md": changelogWith("1.0.0", 100) }, "chore(release): v1.0.0");
     commit(repo, { "src/b.test.ts": "y" }, "test(b): add");
     const one = checkMergeBoundary(repo).message!;
     commit(repo, { "src/c.test.ts": "z" }, "test(c): add");
@@ -525,13 +557,13 @@ describe("C6/C — it costs NO gate run", () => {
     // What must hold in BOTH states is that the module reports what git
     // reports.
     const result = checkMergeBoundary(REPO_ROOT);
-    if (result.releaseCommit === null) return;
-    const raw = git(REPO_ROOT, "diff", "--name-only", `${result.releaseCommit.sha}..HEAD`, "--", "*.test.*")
+    if (result.anchor === null) return;
+    const raw = git(REPO_ROOT, "diff", "--name-only", `${result.anchor.sha}..HEAD`, "--", "*.test.*")
       .split("\n")
       .filter((l) => l.trim() !== "");
     expect(result.testFilesChanged.slice().sort()).toEqual(raw.slice().sort());
     const count = Number(
-      git(REPO_ROOT, "rev-list", "--count", `${result.releaseCommit.sha}..HEAD`).trim(),
+      git(REPO_ROOT, "rev-list", "--count", `${result.anchor.sha}..HEAD`).trim(),
     );
     expect(result.commitsSince).toBe(count);
     expect(result.stale).toBe(count > 0 && raw.length > 0);
@@ -581,7 +613,7 @@ describe("C6/C — `/pr` carries the merge-boundary check", () => {
   test("the skill quotes the guard's own wording, fragment for fragment", () => {
     const repo = makeRepo();
     commit(repo, { "src/a.test.ts": "x" }, "feat(x): first");
-    commit(repo, { "CHANGELOG.md": "## [1.0.0]" }, "chore(release): v1.0.0");
+    commit(repo, { "CHANGELOG.md": changelogWith("1.0.0", 100) }, "chore(release): v1.0.0");
     commit(repo, { "src/b.test.ts": "y" }, "test(b): add");
     const rendered = checkMergeBoundary(repo).message!;
     cleanup();
@@ -799,5 +831,109 @@ describe("C6/F — the drift class is recorded in specs/notes/follow-ups.md", ()
       body.indexOf("10708"),
       "the new entry is filed below an older milestone's section",
     ).toBeLessThan(body.indexOf("## From M121 implementation"));
+  });
+});
+
+// ===========================================================================
+// GROUP C — PART 3, the ANCHOR: why the artifact and not the subject
+// ===========================================================================
+//
+// THESE LEGS CANNOT BE WRITTEN AGAINST THE LIVE TREE, and that is the point.
+// On this repository today the subject anchor and the artifact anchor return
+// the SAME commit — they agree by accident, because a non-release commit
+// happened to carry a release-shaped subject. Any assertion written against
+// the working tree would therefore pass identically under the broken
+// implementation and the fixed one: a green test about a fix, proving nothing.
+// Every leg below is built on a repository where the two DISAGREE.
+describe("C6/D — the anchor is the artifact, not the subject", () => {
+  test("a MERGE COMMIT steals the subject anchor — the artifact anchor is unmoved", () => {
+    // THE MECHANISM, measured on this repository: `git log --grep` anchors `^`
+    // at EVERY LINE of a commit message, and a GitHub merge commit's body
+    // lists the merged subjects at column 0. Twenty-one merge commits here
+    // match `^chore(release):` for that reason alone. Each is NEWER than the
+    // release it merged, so it becomes the newest match and the guard reports
+    // clean forever after — retired by the very merge that ships it.
+    const repo = makeRepo();
+    commit(repo, { "src/a.test.ts": "x", "CHANGELOG.md": changelogWith("1.0.0", 100) },
+      "chore(release): v1.0.0");
+    const release = git(repo, "rev-parse", "HEAD").trim();
+    git(repo, "checkout", "-q", "-b", "feat/x");
+    commit(repo, { "src/b.test.ts": "y" }, "feat: add b");
+    git(repo, "checkout", "-q", "main");
+    git(repo, "merge", "-q", "--no-ff", "feat/x", "-m",
+      "Merge pull request #1 from x/feat/x", "-m", "feat: add b\nchore(release): v1.0.0");
+
+    const subject = findLatestReleaseCommit(repo)!;
+    expect(subject.subject, "the subject anchor lands on the MERGE").toContain("Merge pull request");
+    expect(subject.sha, "which is not the release").not.toBe(release);
+
+    const result = checkMergeBoundary(repo);
+    expect(result.anchor!.sha, "the artifact anchor names the commit that wrote the count")
+      .toBe(release);
+    expect(result.verdict, "and a test file DID land after the count was written").toBe("stale");
+    expect(result.testFilesChanged).toContain("src/b.test.ts");
+    cleanup();
+  });
+
+  test("TIGHTENING the subject pattern does not save it — the merge body matches that too", () => {
+    // The obvious fix for the collision is `^chore(release): v`. It fixes the
+    // instance and leaves the family: the merge body quotes the release
+    // subject verbatim, `v` and all. Asserted so nobody re-proposes it.
+    const repo = makeRepo();
+    commit(repo, { "CHANGELOG.md": changelogWith("1.0.0", 100) }, "chore(release): v1.0.0");
+    git(repo, "checkout", "-q", "-b", "feat/x");
+    commit(repo, { "src/b.test.ts": "y" }, "feat: add b");
+    git(repo, "checkout", "-q", "main");
+    git(repo, "merge", "-q", "--no-ff", "feat/x", "-m", "Merge pull request #1",
+      "-m", "chore(release): v1.0.0");
+    const tightened = git(repo, "log", "--grep", "^chore(release): v", "-n", "1", "--format=%s").trim();
+    expect(tightened, "the tightened pattern still lands on the merge").toContain("Merge pull request");
+    cleanup();
+  });
+
+  test("an amended count with NO release commit — the case the subject anchor cannot see", () => {
+    const repo = makeRepo();
+    commit(repo, { "CHANGELOG.md": changelogWith("1.0.0", 100) }, "chore: seed");
+    const amend = commit(repo, { "CHANGELOG.md": changelogWith("1.0.0", 250) }, "fix: correct the count");
+    commit(repo, { "src/b.test.ts": "y" }, "test(b): add");
+    expect(findLatestReleaseCommit(repo), "no release commit exists at all").toBeNull();
+    const result = checkMergeBoundary(repo);
+    expect(result.anchor!.sha, "the artifact anchor sees the amendment").toBe(amend);
+    expect(result.verdict).toBe("stale");
+    cleanup();
+  });
+
+  test("a SHALLOW clone is indeterminate — it returns the TIP, not empty", () => {
+    // The hazard both reviewers of this guard first got wrong. A truncated
+    // history does not make the query fail and does not return empty: with one
+    // commit reachable, the tip is the only commit that can have introduced
+    // the line, so the anchor comes back as the tip and the verdict as a
+    // serene `fresh`. "Empty means cannot determine" never fires. Shallowness
+    // has to be asked about directly.
+    const origin = makeRepo();
+    commit(origin, { "CHANGELOG.md": changelogWith("1.0.0", 100) }, "chore(release): v1.0.0");
+    commit(origin, { "src/b.test.ts": "y" }, "test(b): add");
+    const shallow = `${origin}-shallow`;
+    git(origin, "clone", "-q", "--depth", "1", `file://${origin}`, shallow);
+    expect(isShallowRepository(shallow), "the fixture must actually be shallow").toBe(true);
+    const result = checkMergeBoundary(shallow);
+    expect(result.verdict).toBe("indeterminate");
+    expect(result.indeterminateReason!).toContain("shallow");
+    expect(result.stale, "and never a quiet all-clear").toBe(false);
+    cleanup();
+  });
+
+  test("on THIS repository the two anchors disagree across real merge commits", () => {
+    // The stronger claim: they differ on the SHIPPED corpus, not only on a
+    // fixture built to make them differ.
+    const bodyOnly = git(REPO_ROOT, "log", "--grep", "^chore(release):", "--format=%H\u001f%p\u001f%s")
+      .split("\n")
+      .filter((l) => l.trim() !== "")
+      .map((l) => l.split("\u001f"))
+      .filter(([, , subject]) => !subject!.startsWith("chore(release):"));
+    expect(bodyOnly.length, "this history must contain body-only matches").toBeGreaterThan(0);
+    for (const [, parents, subject] of bodyOnly) {
+      expect(parents!.trim().split(/\s+/).length, `${subject} should be a merge`).toBe(2);
+    }
   });
 });

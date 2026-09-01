@@ -36,9 +36,9 @@ This pre-flight is soft: it never auto-blocks, and every choice is the operator'
 
 ## Merge-Boundary Check (CHANGELOG test count)
 
-Before Step 1, check whether the release entry's test count still describes this branch. Call `checkMergeBoundary(repoRoot)` from `adapters/_shared/src/release_test_count_guard.ts`: it is a git query — the latest `chore(release):` commit, the commits since it, and the test files those commits changed — and it costs milliseconds, never a gate run.
+Before Step 1, check whether the release entry's test count still describes this branch. Call `checkMergeBoundary(repoRoot)` from `adapters/_shared/src/release_test_count_guard.ts`: it is a git query — the commit that LAST WROTE the count line in `CHANGELOG.md`, the commits since it, and the test files those commits changed — and it costs milliseconds, never a gate run. It anchors on the artifact, never on a `chore(release):` subject: `git log --grep` anchors `^` at every line of a message, so a merge commit quoting a release subject in its body steals the anchor and the guard reports clean forever after.
 
-It warns only when BOTH hold: commits landed past the release commit AND at least one of them changed a test file. A docs-only commit cannot move the count, and warning about it would train the operator to ignore the warning. A branch with no release commit on it is clean by definition and prints nothing. When it does fire, print the module's warning verbatim — quoted here rather than retyped, so the two cannot drift:
+It warns only when BOTH hold: commits landed past the anchor AND at least one of them changed a test file. A docs-only commit cannot move the count, and warning about it would train the operator to ignore the warning. The verdict has THREE states: `fresh` prints nothing, `stale` warns, and `indeterminate` — a shallow clone, no `CHANGELOG.md`, or a top entry stating no count — prints the module's NOT CHECKED notice and does NOT block. An unchecked tree must never read as a clean one. When it does fire, print the module's warning verbatim — quoted here rather than retyped, so the two cannot drift:
 
 ```
 /pr: the CHANGELOG test count was written at <sha>; work has landed on top of it since.
