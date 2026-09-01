@@ -11,13 +11,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Stage reports are one fenced status block with a fixed section order and a hard line budget spanning the whole report, prose lead-in included — not the fence alone (STE-532)
-- Word caps on FR narrative sections, added to the existing altitude probe rather than a new one: Summary 80, Technical Design 120, Notes 60, with Requirement / Acceptance Criteria / Testing deliberately uncapped (STE-534)
+- Word caps on FR narrative sections, added to the existing altitude probe rather than a new one — and what they inherited from that probe was its accumulator: Summary 80, Technical Design 120, Notes 60, with Requirement / Acceptance Criteria / Testing deliberately uncapped (STE-534)
 - Plan narrative capped at 150 words by section KIND rather than section name, so a renamed heading cannot evade it; checkbox majority counts items, not lines, because the mandated two-line task entry sits at exactly 50% and could never clear the threshold (STE-535)
 
 ### Changed
 
 - The eleven skills carrying a closing-summary contract now emit the status block in place of free-form narration, on their own fence banner with their own vocabulary — `deliver-stage-result` stays /deliver's, since a hand-off between machines and a human-facing summary were never the same artifact (STE-533)
 - Authoring surfaces state the budgets where the writing happens, single-sourced from the scanner's exports and asserted in both drift directions; the plan template now clears the cap it states, which it did not (STE-536)
+
+### Fixed
+
+- Both altitude scanners grade an accumulating rule per section NAME per file, and the hole they closed predates the milestone. `line_cap` — the first rule on that walker to carry state across lines — shipped in STE-386 (M105), so probe #67 has been evadable by a repeated heading for 32 releases. M137 did not introduce the defect: it added a second accumulating rule to a walker whose first was already evadable, then copied the shape into a third scanner. The two closures ship as one entry because their consumer profiles are opposite. The word caps needed a grandfathering epoch — measured against this repository's own archived FRs, they flagged 638 violations across 320 files the moment they landed, on prose no consumer ever wrote. The per-name accumulation fix needs none: 638 before, 638 after, 0 newly flagged, and 0 archived FRs repeat a capped section name. (STE-534, STE-535)
 
 Total test count at release: 10708 tests, 0 failures, 0 errors.
 
