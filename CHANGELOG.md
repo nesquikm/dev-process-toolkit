@@ -23,7 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Both altitude scanners grade an accumulating rule per section NAME per file, and the hole they closed predates the milestone. `line_cap` — the first rule on that walker to carry state across lines — shipped in STE-386 (M105), so probe #67 has been evadable by a repeated heading for 32 releases. M137 did not introduce the defect: it added a second accumulating rule to a walker whose first was already evadable, then copied the shape into a third scanner. The two closures ship as one entry because their consumer profiles are opposite. The word caps needed a grandfathering epoch — measured against this repository's own archived FRs, they flagged 638 violations across 320 files the moment they landed, on prose no consumer ever wrote. The per-name accumulation fix needs none: 638 before, 638 after, 0 newly flagged, and 0 archived FRs repeat a capped section name. (STE-534, STE-535)
 
-Total test count at release: 10708 tests, 0 failures, 0 errors.
+Total test count at release: 10992 tests, 0 failures, 0 errors.
 
 ## [2.74.0] — 2026-08-27 — "Pawl"
 
