@@ -400,11 +400,34 @@ describe("AC-STE-517.6 — the ordered-and-unreachable count is pinned", () => {
     );
   });
 
-  test("the pin is not carried from any prior document", () => {
-    // The design's own inventory figures, which measured NOT to reproduce.
-    expect(ORDERED_UNREACHABLE_PIN).not.toBe(136);
-    expect(ORDERED_UNREACHABLE_PIN).not.toBe(128);
-    expect(ORDERED_UNREACHABLE_PIN).not.toBe(193);
+  test("the pin is not carried from any prior document", async () => {
+    // The design's own inventory figures — 136, 128, 193 — measured NOT to
+    // reproduce when this probe was built, which is why the pin was taken from
+    // a run instead. As of M137 the RUN reports 136: giving
+    // `scan_fr_summary_altitude.ts` the `import.meta.main` front door its
+    // sibling already carried made one catalogued order runnable, and the count
+    // fell 137 → 136 onto one of those three numbers by coincidence.
+    //
+    // A value coincidence can therefore no longer discriminate provenance, so
+    // this leg stops asking "is the pin one of the three?" — a question that now
+    // has a false answer — and asks the one AC-STE-517.6 actually means: a
+    // document figure is admissible ONLY when a run produces it. 136 is now
+    // produced; 128 and 193 still are not, and a pin taken from either still
+    // reds. Asserting equality with the live measurement is strictly stronger
+    // than the three inequalities it replaces: every non-measured value fails,
+    // not merely the three that were written down.
+    const measured = (await runModuleReachabilityProbe(repoRoot)).orderedUnreachable;
+    for (const figure of [136, 128, 193]) {
+      if (figure === measured) continue;
+      expect(
+        ORDERED_UNREACHABLE_PIN,
+        `${figure} is a prior document's figure and no run produces it`,
+      ).not.toBe(figure);
+    }
+    expect(
+      ORDERED_UNREACHABLE_PIN,
+      `the pin must equal what the probe measures (${measured}), whatever any document said`,
+    ).toBe(measured);
   });
 
   test("a seeded ordered-and-unreachable reference moves the count", async () => {

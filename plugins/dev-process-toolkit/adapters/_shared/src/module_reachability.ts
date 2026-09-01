@@ -425,8 +425,15 @@ export function scanSurfaceForModuleReferences(
  * the `if (import.meta.main)` front door probe #82's registration requires, and
  * reachability is transitive — two references that were ordered-and-unreachable
  * are now ordered-and-reachable. A LOWERING, which is the sanctioned direction.
+ *
+ * Re-measured again 137 → 136 in the same milestone, for the same reason and by
+ * the same remedy: `scan_fr_summary_altitude.ts` gained the `import.meta.main`
+ * front door its sibling `scan_plan_narrative_altitude.ts` had carried since it
+ * landed, so probe #67's one registration — which orders a reader to run BOTH
+ * scanners — stopped naming a module nobody could run. A LOWERING again; the
+ * pin has never been raised.
  */
-export const ORDERED_UNREACHABLE_PIN = 137;
+export const ORDERED_UNREACHABLE_PIN = 136;
 
 // ---------------------------------------------------------------------------
 // The probe

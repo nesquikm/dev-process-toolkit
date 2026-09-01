@@ -700,3 +700,31 @@ export function runFrSummaryAltitudeProbe(
 
   return { violations, grandfathered, grandfatheredRows, vacuous: measured.length === 0 };
 }
+
+// Read-only CLI front door, the same idiom the sibling `scan_plan_narrative_
+// altitude.ts` carries. Probe #67's registration is ONE line ordering a reader
+// to call BOTH scanners, and probe #81 grades such an order UNREACHABLE unless
+// the named module can in fact be run by hand — so a half with no entry point
+// stranded the half carrying the whole grandfathering layer. `skills/gate-check/
+// SKILL.md` names the two sanctioned resolutions and rules the third out: give
+// the module an `import.meta.main` entry, or word the registration so it orders
+// nothing — raising the pin to admit one more order nobody can carry out is the
+// drift the pin exists to catch. This is the first resolution. Imported by the
+// probe and by tests, `import.meta.main` is false and this block never runs, so
+// the module stays side-effect-free at import.
+//
+// IT SPEAKS FOR THE RAW SCANNER, NOT FOR THE GRADED PROBE, and that is a
+// decision rather than an oversight. `runFrSummaryAltitudeProbe` grandfathers
+// `word_cap` on any file it classifies `legacy`, and a tree that is not a git
+// repository classifies EVERY file that way — so a front door wired to the
+// graded probe would print nothing on a violating scratch directory and read as
+// a clean pass. A door that is silent for the wrong reason is worse than no
+// door. Prints `file:line — rule — section` per violation, both rule classes
+// alike (the accumulating `word_cap` and the per-line predicates); empty stdout
+// means the ACTIVE FRs are clean.
+if (import.meta.main) {
+  const projectRoot = process.argv[2] ?? process.cwd();
+  for (const v of scanFrSummaryAltitude(projectRoot)) {
+    console.log(`${v.file}:${v.line} — ${v.rule} — ${v.section}`);
+  }
+}
