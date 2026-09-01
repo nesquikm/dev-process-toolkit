@@ -99,7 +99,7 @@ import {
 } from "./_module_consumers";
 // The archive-blind-spot idiom, shared with the sibling M137 suites so there is
 // exactly ONE spec-tree resolver rather than one per guard.
-import { boundToMilestone, mdFilesIn, resolveSpecFile } from "./_spec_tree";
+import { mdFilesIn, milestoneSpecFiles, resolveSpecFile } from "./_spec_tree";
 
 // ---------------------------------------------------------------- shared shapes
 
@@ -353,18 +353,15 @@ function dogfoodTree(repoRoot: string = REPO_ROOT): PlanSubject {
     };
   };
 
-  const active = mdFilesIn(join(repoRoot, "specs", "plan")).filter((abs) =>
-    boundToMilestone(abs, DOGFOOD_MILESTONE),
-  );
-  if (active.length > 0) return stage(active, "active");
-
-  const archived = mdFilesIn(join(repoRoot, "specs", "plan", "archive")).filter((abs) =>
-    boundToMilestone(abs, DOGFOOD_MILESTONE),
-  );
-  if (archived.length === 0) {
+  // One resolver for both paths. This suite already filtered its two halves the
+  // same way, and that is exactly why it must not keep its own copy: two
+  // sibling suites hand-rolled the same walk and got the ACTIVE half wrong, so
+  // the idiom lives in `_spec_tree.ts` and every caller reads it from there.
+  const resolved = milestoneSpecFiles(repoRoot, "specs/plan", DOGFOOD_MILESTONE);
+  if (resolved.source === "none") {
     return { root: repoRoot, source: "none", files: [], cleanup: noop };
   }
-  return stage(archived, "archive");
+  return stage(resolved.files, resolved.source);
 }
 
 /**
@@ -2338,5 +2335,103 @@ describe("GAP 4 — a NEXT milestone's plan cannot red THIS milestone's dogfood"
     } finally {
       dog.cleanup();
     }
+  });
+});
+
+// ===========================================================================
+// PR #76 ROUND C — F7: THE LEVEL-3-ONLY RULE IS ASSERTED BY NOTHING
+// ===========================================================================
+//
+// `H3_RE` is `/^###(?!#)\s+(.*?)\s*$/` and its comment says "`####`
+// deliberately excluded". Measured 2026-09-01: widening it to `/^#{3,4}\s+/`
+// leaves the entire gate GREEN. No fixture in this suite carries a `####`
+// heading at all, so the exclusion is a claim the suite never reads.
+//
+// It is not a cosmetic claim. A `####` that opened a subsection would let a
+// 400-word narrative be split under two sub-headings and clear the 150-word cap
+// twice over, evading the budget entirely — while the plan on screen reads as
+// one long narrative section, which is what the cap exists to bound.
+//
+// The discriminating pair below is the whole leg: the SAME prose split under
+// `####` must measure as ONE over-cap subsection, and split under `###` must
+// measure as THREE clean ones. A widened `H3_RE` flips the first and leaves the
+// second untouched, so only the pair can tell them apart.
+
+describe("F7 — `####` does NOT open a subsection; its prose rides the enclosing `###`", () => {
+  const PER_SUB = PLAN_NARRATIVE_WORD_CAP - 50; // 100 words: clean alone, over-cap together
+  const SUB_A = proseLines(PER_SUB, "sa", 20);
+  const SUB_B = proseLines(PER_SUB, "sb", 20);
+
+  /** One `### Notes` whose body is split under two `####` sub-headings. */
+  const NESTED = planFile("M901", [
+    ["Notes on the rollout", ["#### First half", "", ...SUB_A, "", "#### Second half", "", ...SUB_B]],
+  ]);
+
+  /** The SAME prose, promoted to two sibling level-3 subsections. */
+  const FLAT = planFile("M902", [
+    ["Notes on the rollout", []],
+    ["First half", SUB_A],
+    ["Second half", SUB_B],
+  ]);
+
+  test("the fixtures really are the discriminating pair — same prose, different heading level", () => {
+    expect(NESTED).toContain("#### First half");
+    expect(NESTED).toContain("#### Second half");
+    expect(FLAT).not.toContain("####");
+    expect(FLAT).toContain("### First half");
+    // Each half alone is UNDER the cap; the two together are over it. Without
+    // that the nested case would fail for a reason unrelated to the walk.
+    expect(countWords(SUB_A)).toBeLessThan(PLAN_NARRATIVE_WORD_CAP);
+    expect(countWords(SUB_B)).toBeLessThan(PLAN_NARRATIVE_WORD_CAP);
+    expect(countWords([...SUB_A, ...SUB_B])).toBeGreaterThan(PLAN_NARRATIVE_WORD_CAP);
+  });
+
+  test("the `####` plan measures as ONE subsection carrying BOTH halves' words", () => {
+    const fx = makeTree({ "specs/plan/M901.md": NESTED });
+    try {
+      const measured = measure(fx.root);
+      expect(measured.map((m) => m.section)).toEqual(["Notes on the rollout"]);
+      // The sub-headings are not sections: their text never becomes a section
+      // name, and their prose is counted into the enclosing one.
+      expect(measured.map((m) => m.section)).not.toContain("First half");
+      expect(measured[0]!.words).toBeGreaterThan(PLAN_NARRATIVE_WORD_CAP);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("…and it is REFUSED — the split under `####` does not buy a second budget", () => {
+    const fx = makeTree({ "specs/plan/M901.md": NESTED });
+    try {
+      const violations = scan(fx.root);
+      expect(violations.map((v) => [v.rule, v.section])).toEqual([
+        ["word_cap", "Notes on the rollout"],
+      ]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("THE ISOLATING HALF — the SAME prose under `###` measures as three, and is clean", () => {
+    // This is what a widened `H3_RE` would turn the nested fixture into. Both
+    // legs are needed: the nested one alone could be satisfied by a walk that
+    // never split anything, and this one alone by a walk that always did.
+    const fx = makeTree({ "specs/plan/M902.md": FLAT });
+    try {
+      const measured = measure(fx.root);
+      expect(measured.map((m) => m.section).sort()).toEqual([
+        "First half",
+        "Notes on the rollout",
+        "Second half",
+      ]);
+      expect(scan(fx.root)).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("the exclusion is stated in the scanner beside the pattern that implements it", () => {
+    const src = readFileSync(SCANNER_SRC, "utf-8");
+    expect(src).toMatch(/####.{0,40}excluded/i);
   });
 });

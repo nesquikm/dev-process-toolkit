@@ -547,6 +547,14 @@ export interface FrSummaryAltitudeReport {
   violations: FrAltitudeViolationRow[];
   /** Repo-relative FR paths whose `word_cap` rows were spared. Visible, never silent. */
   grandfathered: string[];
+  /**
+   * How many `word_cap` ROWS those files spared — the same unit `violations`
+   * counts in. `grandfathered` counts FILES and `violations` counts ROWS, so a
+   * reader comparing the two numbers side by side was comparing units: one
+   * pre-epoch FR breaching two caps is one file and two rows. Always a number,
+   * zero included, so a clean tree reports the unit rather than omitting it.
+   */
+  grandfatheredRows: number;
   /** True when nothing measurable was found — no capped section in scope. */
   vacuous: boolean;
 }
@@ -563,8 +571,11 @@ const SILENT_PROVENANCE: readonly FrProvenanceClass[] = ["legacy"];
  *
  * Every non-`word_cap` row passes through byte for byte, at `error`, under
  * every provenance class. A `word_cap` row is disposed of by its file's
- * provenance: `legacy` (including a non-git tree) is dropped and the file is
- * named in `grandfathered`; `undecidable` is downgraded to `warning`, because
+ * provenance: `legacy` (including a non-git tree) is dropped, the file is named
+ * in `grandfathered` (FILES) and the row is tallied into `grandfatheredRows`
+ * (ROWS) — both units reported, because the spared count and the flagged count
+ * have to be in the same unit before a reader can compare them;
+ * `undecidable` is downgraded to `warning`, because
  * an operator whose object store is severed cannot fix that by rewriting a
  * summary; `fresh` is reported at `error` exactly as before.
  *
@@ -593,6 +604,7 @@ export function runFrSummaryAltitudeProbe(
 
   const violations: FrAltitudeViolationRow[] = [];
   const grandfathered: string[] = [];
+  let grandfatheredRows = 0;
   for (const v of raw) {
     if (v.rule !== "word_cap") {
       violations.push({ ...v, severity: "error" });
@@ -601,6 +613,7 @@ export function runFrSummaryAltitudeProbe(
     const provenance = classify(v.file);
     if (SILENT_PROVENANCE.includes(provenance)) {
       if (!grandfathered.includes(v.file)) grandfathered.push(v.file);
+      grandfatheredRows += 1;
       continue;
     }
     violations.push({
@@ -609,5 +622,5 @@ export function runFrSummaryAltitudeProbe(
     });
   }
 
-  return { violations, grandfathered, vacuous: measured.length === 0 };
+  return { violations, grandfathered, grandfatheredRows, vacuous: measured.length === 0 };
 }

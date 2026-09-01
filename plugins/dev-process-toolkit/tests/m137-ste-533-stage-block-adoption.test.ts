@@ -3647,3 +3647,373 @@ describe("M137 review — the carve-out covers EVERY capped stage, not one", () 
     expect(retired.length).toBeLessThan(ADOPTING_STAGES.length);
   });
 });
+
+// ===========================================================================
+// PR #76 ROUND C — C3: THE ONE RUNTIME PATH HAS NO PRODUCER
+// ===========================================================================
+//
+// Fixture group 15 is the ONLY runtime path claimed for
+// `verifyStageReportAdoption` — the group added specifically to close the
+// dead-grader gap. Its subject is `/tmp/dpt-smoke-<tracker>-ste533-stage-report.txt`
+// and, measured 2026-09-01, NOTHING WRITES THAT FILE: the only occurrences of
+// the literal repo-wide are group 15's own body, a comment in
+// `m117-ste-425-falsifiable-coverage.test.ts` and the fixture README.
+//
+// So the group renders NOT-REACHED on every leg, forever, and
+// `docs/stage-status-block.md`'s claim that the report-level rules are
+// "enforced at conformance frequency rather than probe frequency — lower, and
+// real" is false as written. A grader whose only consumer never runs is the
+// dead grader this FR exists to prevent, one level up.
+//
+// Group 14 is the shipped shape and states its producer outright: "the driver
+// writes the capture from the stage report text it did receive". Group 13a
+// states its own ("captured by this sub-fixture's own spawn above"). Every
+// other Source line names the phase that already captured it.
+//
+// The guard is therefore over EVERY Source line rather than over group 15
+// alone: a group whose subject nothing writes must fail a test on the branch
+// that adds it, which is the only way this does not recur silently.
+
+/** Every `**Source:**` line in the smoke driver, with its 1-indexed line. */
+function smokeSourceLines(): { line: number; text: string }[] {
+  return read(SMOKE_SKILL)
+    .split("\n")
+    .map((text, i) => ({ line: i + 1, text }))
+    .filter((row) => row.text.startsWith("**Source:**"));
+}
+
+/**
+ * The producer shapes the smoke driver already ships. A Source line has to name
+ * WHO writes its subject; these are the four ways it currently does.
+ *
+ * Kept as a closed union rather than a "mentions a verb" heuristic: the whole
+ * failure being closed is a Source line whose grammar implies a producer
+ * ("the closing report captured from the last adopting stage") without there
+ * being one.
+ */
+const PRODUCER_CLAUSE =
+  /already captured during Phase|captured by this sub-fixture's own spawn|the driver writes|new spawns to/;
+
+describe("C3 — every fixture group's subject has a PRODUCER, named on the Source line", () => {
+  test("the scan has a real subject — the driver carries many Source lines", () => {
+    const sources = smokeSourceLines();
+    expect(sources.length).toBeGreaterThanOrEqual(8);
+  });
+
+  test("THE INSTRUMENT WORKS — group 14's shipped Source line satisfies the predicate", () => {
+    // Isolation. A predicate that matched nothing would make the guard below
+    // red for the wrong reason; one that matched everything would make it
+    // vacuous. Group 14 is the shape the review points at, read from the
+    // driver rather than retyped.
+    const block14 = fixtureGroupBlock(14);
+    const source14 = block14.split("\n").find((l) => l.startsWith("**Source:**"));
+    expect(source14).toBeDefined();
+    expect(PRODUCER_CLAUSE.test(source14!)).toBe(true);
+    // …and a Source line written without a producer does NOT satisfy it.
+    expect(
+      PRODUCER_CLAUSE.test(
+        "**Source:** `/tmp/dpt-smoke-<tracker>-x.txt` — the report captured from the last stage the chain ran.",
+      ),
+    ).toBe(false);
+  });
+
+  test("no Source line names a subject with no producer", () => {
+    const orphans = smokeSourceLines().filter((row) => !PRODUCER_CLAUSE.test(row.text));
+    expect(
+      orphans.map((row) => `SKILL.md:${row.line} — ${row.text.slice(0, 120)}`),
+      "these fixture groups grade a file nothing in the driver writes, so they render " +
+        "NOT-REACHED on every leg forever. Name the producer the way group 14 does " +
+        "(`the driver writes the capture from …`), or point the group at a subject an " +
+        "earlier phase already captured",
+    ).toEqual([]);
+  });
+
+  test("group 15 in particular — the claim that it enforces at conformance frequency is EARNED", () => {
+    const block = fixtureGroupBlock(ADOPTION_GROUP);
+    const source = block.split("\n").find((l) => l.startsWith("**Source:**"));
+    expect(source).toBeDefined();
+    expect(PRODUCER_CLAUSE.test(source!)).toBe(true);
+    // The contract doc makes the frequency claim; it is only true while the
+    // group above actually runs. The two are asserted together on purpose —
+    // separated, either can go stale without the other noticing.
+    expect(statesConformanceFrequency(read(STATUS_BLOCK_DOC))).toBe(true);
+  });
+});
+
+// ===========================================================================
+// PR #76 ROUND C — C5: GROUP 15 MAY ONLY PIN WHAT EXIT 0 ENFORCES
+// ===========================================================================
+//
+// The group's first assertion says exit 0 proves four things. Two are worth
+// re-measuring rather than assuming:
+//
+//   "nothing after it but the cap-exempt sections the stage owes" — TRUE, and
+//   only since Round A: the OWED half (a listed section that stopped being
+//   emitted) is now graded on the report, not just on the SKILL.md.
+//
+//   "every canonical capability token inside the fence" — FALSE.
+//   `locateCapabilityTokens` refuses tokens found OUTSIDE the fence and says
+//   nothing about tokens that are absent, so a report carrying ZERO tokens
+//   exits 0. The enforced property is "no token loose in the prose", which is
+//   a different sentence.
+
+/** The same report with every canonical capability token spelled away. */
+const withoutCapabilityTokens = (report: string): string =>
+  (CANONICAL_CAPABILITY_KEYS as readonly string[]).reduce(
+    (acc, key) => acc.split(key).join("the gate stayed green"),
+    report,
+  );
+
+describe("C5 — the group pins the enforced clause, not a stronger one", () => {
+  test("MEASUREMENT — a report carrying NO capability token at all grades clean", () => {
+    const stripped = withoutCapabilityTokens(read(CAPTURED_CLEAN));
+    // The mutation applied: the clean fixture DID carry a token and now carries
+    // none. Without this the leg below would pass on a fixture that never had
+    // one.
+    expect(locateCapabilityTokens(read(CAPTURED_CLEAN)).inBlock.length).toBeGreaterThan(0);
+    expect(locateCapabilityTokens(stripped)).toEqual({ inBlock: [], outsideBlock: [] });
+    // …and the grader accepts it. So exit 0 cannot prove "every canonical
+    // capability token is inside the fence".
+    expect(verifyStageReportAdoption(stripped)).toEqual({ ok: true, reasons: [] });
+  });
+
+  test("the group's token clause names the direction the grader actually refuses", () => {
+    const block = fixtureGroupBlock(ADOPTION_GROUP);
+    const tokenLines = block.split("\n").filter((l) => /capability token/i.test(l));
+    expect(tokenLines.length).toBeGreaterThan(0);
+    for (const line of tokenLines) {
+      expect(
+        /every canonical capability token inside the fence/i.test(line),
+        "exit 0 does not prove the canonical set is PRESENT — only that no token " +
+          "found in the report sits outside the block",
+      ).toBe(false);
+    }
+    expect(
+      tokenLines.some((l) => /outside|loose/i.test(l)),
+      "state the enforced direction: a token loose in the prose is the refusal",
+    ).toBe(true);
+  });
+
+  test("the OWED-section clause IS enforced, so the group may keep pinning it", () => {
+    // The other half of C5, kept honest by measurement rather than by
+    // assumption. Dropping a cap-exempt section the stage owes is refused ON
+    // THE REPORT, and the refusal names the section.
+    const clean = read(CAPTURED_CLEAN);
+    const owed = exemptSectionsFor("implement");
+    expect(owed.length).toBeGreaterThan(0);
+    const heading = owed[0]!.heading;
+    const dropped = clean
+      .split("\n")
+      .filter((line) => line.trim() !== heading)
+      .join("\n");
+    expect(dropped).not.toBe(clean);
+    const verdict = verifyStageReportAdoption(dropped);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.reasons.some((r) => r.includes(heading))).toBe(true);
+  });
+});
+
+// ===========================================================================
+// PR #76 ROUND C — F2: THE COUNTS-WITHOUT-CAPTURE RULE CANNOT FIRE AT RUNTIME
+// ===========================================================================
+//
+// AC-STE-532.5's headline is that "a number that traces to nothing is refused".
+// The rule is gated behind the optional `evidence` parameter, and measured
+// 2026-09-01 NO runtime path supplies one: the `--report` front door calls
+// `verifyStageReportAdoption(body)` with a single argument, so `evidence` is
+// `undefined` on every real invocation and the refusal exists only under unit
+// test.
+//
+// Two honest resolutions, and the surface must take one of them:
+//
+//   WIRE IT — pass an evidence object through the `--report` front door. A
+//   captured report has no run behind it, so whatever is passed has to be
+//   something the capture itself can honestly supply.
+//
+//   DECLARE IT — say plainly, at the surface a reader meets, that the counts
+//   rule is not graded off a capture. A rule documented as enforced and
+//   enforced nowhere is worse than one documented as unenforced.
+//
+// What is NOT acceptable is a third path invented to make the guard green.
+
+/** Argument lists of every CALL to `symbol` in `src` — the declaration excluded. */
+function callArgLists(src: string, symbol: string): string[] {
+  const out: string[] = [];
+  const re = new RegExp(`\\b${symbol}\\s*\\(`, "g");
+  for (let m = re.exec(src); m !== null; m = re.exec(src)) {
+    const before = src.slice(0, m.index);
+    if (/\b(?:function|const|let|var)\s+$/.test(before)) continue;
+    let depth = 0;
+    let i = m.index + m[0].length - 1;
+    for (; i < src.length; i++) {
+      if (src[i] === "(") depth += 1;
+      else if (src[i] === ")") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    if (depth !== 0) continue;
+    out.push(src.slice(m.index + m[0].length, i).trim());
+  }
+  return out;
+}
+
+/** Top-level comma count + 1 — how many arguments a call passes. */
+function arityOf(args: string): number {
+  if (args.trim().length === 0) return 0;
+  let depth = 0;
+  let count = 1;
+  for (const ch of args) {
+    if ("([{".includes(ch)) depth += 1;
+    else if (")]}".includes(ch)) depth -= 1;
+    else if (ch === "," && depth === 0) count += 1;
+  }
+  return count;
+}
+
+describe("F2 — the counts-without-capture rule is wired at runtime OR declared test-only", () => {
+  test("THE INSTRUMENT WORKS — the arity walk reads a two-argument call correctly", () => {
+    const probe = [
+      "export function verifyStageReportAdoption(report: string, evidence?: X) {}",
+      "const a = verifyStageReportAdoption(body);",
+      "const b = verifyStageReportAdoption(body, evidenceFor(run, { deep: 1 }));",
+    ].join("\n");
+    const calls = callArgLists(probe, "verifyStageReportAdoption");
+    expect(calls.map(arityOf)).toEqual([1, 2]);
+  });
+
+  test("the module's runtime call sites are MEASURED, and the count is stated", () => {
+    const src = read(ADOPTION_MODULE_SRC);
+    const calls = callArgLists(src, "verifyStageReportAdoption");
+    // Non-vacuity: the front door really does call it. A walk that found no
+    // call would satisfy the disjunction below for free.
+    expect(calls.length).toBeGreaterThan(0);
+  });
+
+  test("either the front door PASSES evidence, or the surface SAYS the rule cannot fire there", () => {
+    const src = read(ADOPTION_MODULE_SRC);
+    const wired = callArgLists(src, "verifyStageReportAdoption").some(
+      (args) => arityOf(args) >= 2,
+    );
+
+    const surfaces = `${src}\n${read(STATUS_BLOCK_DOC)}`;
+    const declared = surfaces
+      .split(/(?<=[.!?])\s+/)
+      .some(
+        (s) =>
+          /counts?[- ]without[- ]capture|count with no capture|counts.{0,40}captur/i.test(s) &&
+          /not graded|never graded|cannot fire|does not fire|no evidence|test-only|unit tests only|off a capture/i.test(
+            s,
+          ),
+      );
+
+    expect(
+      { wired, declared, satisfied: wired || declared },
+      "AC-STE-532.5's refusal is gated behind an optional `evidence` argument that no " +
+        "runtime path supplies, so the headline rule fires only under unit test. Wire " +
+        "evidence through the `--report` front door with something a capture can " +
+        "honestly supply, or state plainly at the surface that the rule is not graded " +
+        "off a capture. Do not invent a runtime path to make this green",
+    ).toMatchObject({ satisfied: true });
+  });
+});
+
+// ===========================================================================
+// PR #76 ROUND C — F5: A RULE SET COUNTED BY A LITERAL, FOR THE FOURTH TIME
+// ===========================================================================
+//
+// `stage_block_adoption.ts`'s header says "four REPORT-LEVEL rules" and
+// enumerates 1-4. `docs/stage-status-block.md` heads the same list "The six
+// adoption rules" and enumerates 1-6. `verifyStageReportAdoption` grades six.
+//
+// This is the FOURTH instance of the class in one milestone, and the repository
+// already wrote down the remedy: `docs/prose-altitude.md` § Counting a rule set
+// says to let a numbered list be its own count, and to name the binding
+// wherever prose genuinely needs the numeral.
+
+/** `//   N. …` items in a module's leading `//` header comment. */
+function headerRuleItems(src: string): number[] {
+  const header: string[] = [];
+  for (const line of src.split("\n")) {
+    if (!line.startsWith("//")) break;
+    header.push(line);
+  }
+  return header
+    .map((l) => /^\/\/\s+(\d+)\.\s+\S/.exec(l))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => Number(m[1]));
+}
+
+/** `N. …` items in the markdown section opened by `heading`. */
+function docRuleItems(body: string, heading: RegExp): number[] {
+  const lines = body.split("\n");
+  const start = lines.findIndex((l) => heading.test(l));
+  expect(start).toBeGreaterThan(-1);
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((l) => /^#{1,3} /.test(l));
+  return (end < 0 ? rest : rest.slice(0, end))
+    .map((l) => /^(\d+)\.\s+\S/.exec(l))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => Number(m[1]));
+}
+
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+};
+
+describe("F5 — the header's rule set and the doc's rule set are the SAME set", () => {
+  test("both surfaces enumerate a real, contiguous list", () => {
+    const headerItems = headerRuleItems(read(ADOPTION_MODULE_SRC));
+    const docItems = docRuleItems(read(STATUS_BLOCK_DOC), /^## The \w+ adoption rules\s*$/);
+    expect(headerItems.length).toBeGreaterThan(0);
+    expect(docItems.length).toBeGreaterThan(0);
+    expect(headerItems).toEqual(headerItems.map((_, i) => i + 1));
+    expect(docItems).toEqual(docItems.map((_, i) => i + 1));
+  });
+
+  test("the module header enumerates every rule the contract states — not a stale prefix", () => {
+    const headerItems = headerRuleItems(read(ADOPTION_MODULE_SRC));
+    const docItems = docRuleItems(read(STATUS_BLOCK_DOC), /^## The \w+ adoption rules\s*$/);
+    expect(headerItems.length).toBe(docItems.length);
+  });
+
+  test("no surface restates the count as a numeral that disagrees with its own list", () => {
+    const src = read(ADOPTION_MODULE_SRC);
+    const headerItems = headerRuleItems(src);
+    const header = src.split("\n").filter((l) => l.startsWith("//")).join("\n");
+    for (const m of header.matchAll(/\b(\w+)\s+REPORT-LEVEL rules\b/gi)) {
+      const stated = NUMBER_WORDS[m[1]!.toLowerCase()] ?? Number(m[1]);
+      expect({ stated, listed: headerItems.length }).toEqual({
+        stated: headerItems.length,
+        listed: headerItems.length,
+      });
+    }
+    const doc = read(STATUS_BLOCK_DOC);
+    const docHeading = /^## The (\w+) adoption rules\s*$/m.exec(doc);
+    expect(docHeading).not.toBeNull();
+    const docStated = NUMBER_WORDS[docHeading![1]!.toLowerCase()] ?? Number(docHeading![1]);
+    expect(docStated).toBe(
+      docRuleItems(doc, /^## The \w+ adoption rules\s*$/).length,
+    );
+  });
+
+  test("the fourth instance is RECORDED beside the three the milestone already logged", () => {
+    // `docs/prose-altitude.md` § Counting a rule set enumerates the corrected
+    // surfaces. A running tally that stops one short is the same defect it is
+    // a record of.
+    const doc = readFileSync(
+      join(PLUGIN_ROOT, "docs", "prose-altitude.md"),
+      "utf-8",
+    );
+    expect(doc).toContain("stage_block_adoption.ts");
+  });
+});

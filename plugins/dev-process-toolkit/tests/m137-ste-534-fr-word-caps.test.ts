@@ -83,7 +83,7 @@ import {
 } from "../adapters/_shared/src/scan_fr_summary_altitude";
 // The archive-blind-spot idiom, shared with the sibling M137 suites so there is
 // exactly ONE spec-tree resolver rather than one per guard.
-import { boundToMilestone, mdFilesIn } from "./_spec_tree";
+import { mdFilesIn, milestoneSpecFiles } from "./_spec_tree";
 
 // ---------------------------------------------------------------- shared shapes
 
@@ -728,26 +728,29 @@ const DOGFOOD_MILESTONE = "M137";
 function dogfoodTree(repoRoot: string = REPO_ROOT): Dogfood {
   const noop = (): void => {};
 
-  const active = mdFilesIn(join(repoRoot, "specs", "frs"));
-  if (active.length > 0) {
-    return {
-      root: repoRoot,
-      source: "active",
-      files: active.map((f) => basename(f)),
-      cleanup: noop,
-    };
-  }
-
-  const archived = mdFilesIn(join(repoRoot, "specs", "frs", "archive")).filter(
-    (abs) => boundToMilestone(abs, DOGFOOD_MILESTONE),
-  );
-  if (archived.length === 0) {
+  // BOTH paths go through the shared milestone-scoped resolver. Hand-rolling
+  // the walk here is how the ACTIVE half shipped unfiltered while the ARCHIVE
+  // half was scoped: `milestoneSpecFiles` filters the two identically and says
+  // which one answered, so the two halves cannot drift apart again.
+  const resolved = milestoneSpecFiles(repoRoot, "specs/frs", DOGFOOD_MILESTONE);
+  if (resolved.source === "none") {
     return { root: repoRoot, source: "none", files: [], cleanup: noop };
+  }
+  const names = resolved.files.map((f) => basename(f));
+
+  // The reported list and the GRADED SUBJECT must agree. The scanner walks a
+  // DIRECTORY, not this list, so returning `repoRoot` while reporting a
+  // filtered list would leave the filtered-out FRs being measured under names
+  // that looked correct. The unstaged root is therefore only handed back when
+  // the filter removed nothing at all.
+  const activeAll = mdFilesIn(join(repoRoot, "specs", "frs"));
+  if (resolved.source === "active" && activeAll.length === resolved.files.length) {
+    return { root: repoRoot, source: "active", files: names, cleanup: noop };
   }
 
   const staged = mkdtempSync(join(tmpdir(), "fr-word-caps-dogfood-"));
   mkdirSync(join(staged, "specs", "frs"), { recursive: true });
-  for (const abs of archived) {
+  for (const abs of resolved.files) {
     writeFileSync(
       join(staged, "specs", "frs", basename(abs)),
       readFileSync(abs, "utf-8"),
@@ -755,8 +758,8 @@ function dogfoodTree(repoRoot: string = REPO_ROOT): Dogfood {
   }
   return {
     root: staged,
-    source: "archive",
-    files: archived.map((f) => basename(f)),
+    source: resolved.source,
+    files: names,
     cleanup: () => rmSync(staged, { recursive: true, force: true }),
   };
 }
@@ -1388,5 +1391,117 @@ describe("AC-STE-534.5 — probe #67's registration prose matches the shipped sc
     expect(misPaired.map((s) => s.section)).toEqual(capped.map((s) => s.section));
     // …and reports a section it cannot find at all as null, not as a match.
     expect(capNearest(swapped, "Nonexistent Section", caps)).toBeNull();
+  });
+});
+
+// ===========================================================================
+// PR #76 ROUND C — F8: THE DOGFOOD'S ACTIVE PATH IS UNSCOPED
+// ===========================================================================
+//
+// `dogfoodTree` scopes its ARCHIVE fallback to `DOGFOOD_MILESTONE` by
+// frontmatter — the comment above it explains why at length: the archive holds
+// 440-plus FRs written before these caps existed, and staging it wholesale
+// swaps in a pre-rule subject. Every word of that reasoning applies to the
+// ACTIVE path too, and the active path applies none of it: it takes
+// `mdFilesIn(specs/frs)` unfiltered.
+//
+// While M137 is the only open milestone the two are indistinguishable, which is
+// exactly why this shipped. The moment M138 opens an FR, this suite grades
+// M137's acceptance criteria over M138's material — and AC-STE-534.7's
+// non-vacuity legs would keep passing, because SOMETHING was measured.
+//
+// The sibling STE-535 dogfood filters both paths and is the shape to copy;
+// `milestoneSpecFiles` in `tests/_spec_tree.ts` is that shape, shared.
+
+/** An FR file bound to an arbitrary milestone — `frFile` hardcodes M137. */
+function frFileForMilestone(
+  id: string,
+  milestone: string,
+  sections: [string, string[]][],
+): string {
+  return frFile(id, sections).replace(/^milestone: M137$/m, `milestone: ${milestone}`);
+}
+
+describe("F8 — the dogfood subject is milestone-scoped on BOTH paths", () => {
+  const SUMMARY = bodyOfWords(40, "own");
+
+  test("the fixture builder really does bind the two files to different milestones", () => {
+    // Mutation-applied check first: if both files came out as M137 the leg
+    // below would pass on a scoping that never happened.
+    const mine = frFileForMilestone("STE-990", DOGFOOD_MILESTONE, [["Summary", SUMMARY]]);
+    const next = frFileForMilestone("STE-991", "M138", [["Summary", SUMMARY]]);
+    expect(mine).toContain(`milestone: ${DOGFOOD_MILESTONE}`);
+    expect(next).toContain("milestone: M138");
+    expect(next).not.toContain(`milestone: ${DOGFOOD_MILESTONE}\n`);
+  });
+
+  test("an ACTIVE tree carrying a LATER milestone's FRs supplies only THIS milestone's", () => {
+    const fx = makeTree({
+      "specs/frs/STE-990.md": frFileForMilestone("STE-990", DOGFOOD_MILESTONE, [
+        ["Summary", SUMMARY],
+      ]),
+      "specs/frs/STE-991.md": frFileForMilestone("STE-991", "M138", [["Summary", SUMMARY]]),
+    });
+    const dog = dogfoodTree(fx.root);
+    try {
+      expect(dog.source).toBe("active");
+      expect(dog.files).toEqual(["STE-990.md"]);
+    } finally {
+      dog.cleanup();
+      fx.cleanup();
+    }
+  });
+
+  test("the SCANNER sees only those files — a filtered list over an unfiltered root is not a fix", () => {
+    // The list and the subject must agree. `dogfoodTree` hands the scanner a
+    // ROOT, and the scanner walks the directory rather than the list, so
+    // filtering `files` while returning `repoRoot` would leave M138's FRs being
+    // graded while the reported names looked correct.
+    const fx = makeTree({
+      "specs/frs/STE-990.md": frFileForMilestone("STE-990", DOGFOOD_MILESTONE, [
+        ["Summary", SUMMARY],
+      ]),
+      "specs/frs/STE-991.md": frFileForMilestone("STE-991", "M138", [["Summary", SUMMARY]]),
+    });
+    const dog = dogfoodTree(fx.root);
+    try {
+      const files = new Set(measure(dog.root).map((m) => m.file));
+      expect([...files].sort()).toEqual(["specs/frs/STE-990.md"]);
+    } finally {
+      dog.cleanup();
+      fx.cleanup();
+    }
+  });
+
+  test("an ACTIVE tree holding none of THIS milestone's FRs does not read as an active pass", () => {
+    const fx = makeTree({
+      "specs/frs/STE-992.md": frFileForMilestone("STE-992", "M138", [["Summary", SUMMARY]]),
+    });
+    const dog = dogfoodTree(fx.root);
+    try {
+      expect(dog.source).not.toBe("active");
+      expect(dog.files).toEqual([]);
+    } finally {
+      dog.cleanup();
+      fx.cleanup();
+    }
+  });
+
+  test("ISOLATION — an active tree of THIS milestone's FRs alone still resolves active", () => {
+    // Without this leg a `dogfoodTree` that returned `"none"` unconditionally
+    // would pass every assertion above.
+    const fx = makeTree({
+      "specs/frs/STE-993.md": frFileForMilestone("STE-993", DOGFOOD_MILESTONE, [
+        ["Summary", SUMMARY],
+      ]),
+    });
+    const dog = dogfoodTree(fx.root);
+    try {
+      expect(dog.source).toBe("active");
+      expect(dog.files).toEqual(["STE-993.md"]);
+    } finally {
+      dog.cleanup();
+      fx.cleanup();
+    }
   });
 });

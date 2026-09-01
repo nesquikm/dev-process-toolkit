@@ -976,3 +976,116 @@ describe("F11.6 — probe #67 routes through the grandfathering entry point", ()
     }
   });
 });
+
+// ===========================================================================
+// PR #76 ROUND C — THE UNIT MISMATCH IN THE PROBE'S OWN REPORT
+// ===========================================================================
+//
+// `runFrSummaryAltitudeProbe` returns `violations` as ROWS and `grandfathered`
+// as FILE PATHS. An operator reading the probe's two numbers side by side is
+// comparing rows against files and has no way to know it: measured 2026-09-01
+// on this repository's archive, 65 grandfathered FILES spared 117 word_cap
+// ROWS. "65 spared, 117 flagged" reads as a ratio and is not one.
+//
+// This is the SAME wrong-unit error probe #67 shipped and M137 corrected —
+// measuring lines where it meant words — which is this milestone's own headline
+// finding. So the fix is the one that finding prescribes: report both counts,
+// in named units, rather than leaving a reader to infer which is which.
+//
+// The discriminating fixture is an FR with TWO over-cap sections. One file,
+// two rows: any report that carries a single spared number is ambiguous on it,
+// and any report that carries both is not.
+
+describe("the probe reports the spared count in the SAME unit as the flagged count", () => {
+  /** One pre-epoch FR whose Summary AND Notes are both over their caps. */
+  function twoBreachFr(stem: string): string {
+    return [
+      "---",
+      `id: ${stem}`,
+      "status: active",
+      "---",
+      "",
+      `# ${stem}`,
+      "",
+      "## Summary",
+      "",
+      Array.from({ length: SUMMARY_WORD_CAP + 40 }, (_, i) => `word${i}`).join(" "),
+      "",
+      "## Notes",
+      "",
+      Array.from({ length: NOTES_WORD_CAP + 40 }, (_, i) => `note${i}`).join(" "),
+      "",
+    ].join("\n");
+  }
+
+  test("NON-VACUITY — the fixture really is one FILE carrying TWO word_cap rows", () => {
+    const fx = makeProject({
+      frs: [
+        {
+          name: "two-breach.md",
+          body: twoBreachFr("two-breach"),
+          committedAt: isoAt(epochMs() - ONE_YEAR),
+        },
+      ],
+    });
+    try {
+      const raw = wordCapRows(scanFrSummaryAltitude(fx.root));
+      expect(raw.length).toBe(2);
+      expect(new Set(raw.map((r) => (r as { file: string }).file)).size).toBe(1);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("the spared ROWS are counted, not only the spared FILES", () => {
+    const fx = makeProject({
+      frs: [
+        {
+          name: "two-breach.md",
+          body: twoBreachFr("two-breach"),
+          committedAt: isoAt(epochMs() - ONE_YEAR),
+        },
+      ],
+    });
+    try {
+      const report = runFrSummaryAltitudeProbe(fx.root);
+      expect(wordCapRows(report.violations)).toEqual([]);
+      // The file list is unchanged — this is an addition, not a replacement.
+      expect(report.grandfathered).toEqual(["specs/frs/two-breach.md"]);
+      // …and the row count is reported beside it, in the unit `violations`
+      // speaks, so the two numbers a reader compares are comparable.
+      expect(report.grandfatheredRows).toBe(2);
+      expect(report.grandfatheredRows).not.toBe(report.grandfathered.length);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("a clean tree reports ZERO in both units — the field is never left undefined", () => {
+    const fx = makeProject({
+      frs: [
+        { name: "clean.md", body: cleanFr("clean"), committedAt: isoAt(epochMs() - ONE_YEAR) },
+      ],
+    });
+    try {
+      const report = runFrSummaryAltitudeProbe(fx.root);
+      expect(report.grandfathered).toEqual([]);
+      expect(report.grandfatheredRows).toBe(0);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("the probe's authoring surface NAMES the unit each number is in", () => {
+    // A reader of `/gate-check` meets these two numbers in prose before they
+    // ever meet the type. The surface has to say which is which, or the fix
+    // stops at the type and the ambiguity ships anyway.
+    const skill = read(GATE_CHECK_SKILL);
+    const sentence = skill
+      .split(/(?<=[.!?])\s+/)
+      .filter((s) => /grandfathered/i.test(s));
+    expect(sentence.length).toBeGreaterThan(0);
+    expect(sentence.some((s) => /\bfiles?\b/i.test(s))).toBe(true);
+    expect(skill).toMatch(/grandfatheredRows/);
+  });
+});
