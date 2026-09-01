@@ -474,7 +474,8 @@ export function renderIndeterminateNotice(reason: string): string {
     "Release test count: NOT CHECKED on this tree.",
     `  reason: ${reason}`,
     "  This is not a failure of the branch. The count may or may not be current;",
-    "  this check could not tell. Re-run in a full clone to get a verdict.",
+    "  this check could not tell, and the reason above is what to address —",
+    "  a full clone, a committed CHANGELOG.md, or a release entry stating a count.",
   ].join("\n");
 }
 
