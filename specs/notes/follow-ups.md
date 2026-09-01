@@ -1135,3 +1135,31 @@ can be constructed. Deliberately deferred from M137 to keep the milestone shippa
 rule is the deliverable, this sweep is its consequence.
 
 Surfaced while implementing M137 review round 2, 2026-09-01.
+
+## K8 — grade the INSTRUCTION, not the heading (banked from M137 round 3)
+
+`gradeAdoptingSkills` in `stage_block_adoption.ts` enforces "exempt is not
+optional" with `body.includes(entry.heading)` — a raw substring search over a
+SKILL.md. Four evasions demonstrated: a bare heading, a heading only inside a
+fence, a heading in an HTML comment, and a heading in prose. The last is the
+worst — `"We removed the ## Verification evidence section entirely."` satisfies
+the check that the section still exists.
+
+**Three of the four cannot be closed by tightening it, and attempting to would
+flag the correct file.** In `skills/implement/SKILL.md` both required headings
+(`## Verification evidence`, `## Advisory notes`) appear ONLY as backticked
+mentions inside one prose paragraph at line 280 — zero line-start occurrences.
+The subject is an AUTHORING surface: a SKILL.md *instructs* the runtime to emit
+a section, it does not contain one. The module's own header says so.
+
+**This is the review committing the error the FR already retracted.** AC-533.8
+originally demanded a probe over SKILL.md grade a rendered report's narration —
+structurally impossible for the same reason, and withdrawn during the milestone.
+K8 treats a heading-presence check on an authoring surface as though the surface
+were the report.
+
+**The closable half needs a different and larger check:** assert the skill
+ORDERS the section — `render ## X through <renderer>` — rather than that the
+heading appears. Strictly better than grading presence, and it generalises past
+these two sections. That is the FR someone should pick up; do not attempt it as
+a tightening of the substring match.
