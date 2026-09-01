@@ -151,8 +151,8 @@ gh gist create -s -d "<title>" report.md metadata.json [transcript.jsonl]
 On every successful run, emit a closing summary that satisfies the per-skill console-status contract (used by `/spec-write`, `/setup`, `/implement`, `/gate-check`, `/spec-review`, `/simplify`). The status block below **supersedes** the shape this section formerly mandated; the rows it names now ride inside the fence. For reference, that summary must include, on stdout:
 
 - The rendered gist URL.
-- File list with byte sizes.
-- Redaction-match counts grouped by pattern key.
+- File list with byte sizes. Bounded by construction — § 6 writes **three files maximum** — so it needs no `first N of M` row: there is no tail to lose.
+- Redaction-match counts, **AGGREGATED in the report and CITED to the file that holds the breakdown**. `scrubSecrets` emits one row per `SECRET_PATTERNS` entry *regardless of match count* (zero counts included, deliberately, so a consumer can render an exhaustive summary), so the per-pattern group is a fixed 7 rows on every run and does not shrink on a clean report — a floor no lead-in budget can absorb. The block carries one `redaction: <N> match(es) across <P> pattern(s) — breakdown in metadata.json` `summary:` row instead. **That citation resolves to a file this run really writes:** § 6 above composes `metadata.json` with a `redaction_summary` field of shape `[{ "pattern": "<key>", "count": <n> }, ...]`, and it is uploaded in the same `gh gist create` as `report.md`, so the operator reads the full breakdown from the gist rather than from a report that never had room for it.
 - Severity (echoed from the narrative).
 - The `report_issue_redacted_payload` capability row, fired unconditionally so operators see the scrub summary in console regardless of match count.
 - The `report_issue_default_applied` capability row when the marker drove auto-push (per step 7).

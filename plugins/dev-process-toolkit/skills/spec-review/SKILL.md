@@ -52,7 +52,9 @@ The orchestrator runs in the **main context** (no `context: fork`) so it can par
    AC-HG95TY.1 → src/service.ts:15, tests/service.test.ts:8
    ```
 
-   b. **Status table**:
+   **BOUNDED, and inside the fence.** One line per AC does not fit above the fence — a typical FR carries 6–9 ACs and a milestone audit many more. The map rides inside the block as an `ACs audited: <N> — <D> done, <Mi> missing, <P> partial` `summary:` row, then **at most the first 3** AC rows as `first 3 of <N>` — except that **every `missing` and `partial` AC is named in full**, ahead of the `done` rows and never bounded away: a gap is what the operator must act on. The total `<N>` is always stated, so the bound is never a silent truncation, and `block.traceability` still carries every row for a caller that needs them all. Authoring shape: `docs/stage-status-block.md` § How a stage FITS.
+
+   b. **Status table** — the same rows in tabular form. Superseded for the CLOSING report by the bounded map above: it is reference material to render inline when the operator asks for the full audit, not verbatim content the closing report reproduces above the fence.
 
    | Requirement  | Status    | Implementation     | Notes                    |
    | ------------ | --------- | ------------------ | ------------------------ |

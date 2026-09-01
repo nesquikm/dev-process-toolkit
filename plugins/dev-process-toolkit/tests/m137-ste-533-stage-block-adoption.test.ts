@@ -105,6 +105,7 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -116,10 +117,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import {
+  ADOPTED_FENCE_LINE_CAP,
   ADOPTING_STAGES,
   CAP_EXEMPT_SECTIONS,
   PROBE_ID as ADOPTION_PROBE_ID,
   PROSE_LEAD_IN_LINE_CAP,
+  exemptSectionBudget,
   exemptSectionsFor,
   locateCapabilityTokens,
   resolveExemptCitation,
@@ -185,7 +188,6 @@ import {
 // ships — the one transition no gate run precedes. Reaching it by a hardcoded
 // active path is green until the archive commit and ENOENT on it.
 import { readSpecFile } from "./_spec_tree";
-
 // ----------------------------------------------------------------------- paths
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
@@ -464,6 +466,20 @@ const isProseCapReason = (reason: string): boolean =>
   reason.includes(String(PROSE_LEAD_IN_LINE_CAP)) &&
   !/whole-report/i.test(reason);
 
+/**
+ * STE-532's OWN whole-report cap refusal — the other half of the pair above.
+ *
+ * It is named here because the two graders' DISAGREEMENT is load-bearing under
+ * M137 round 5: the shipped grader counts every line in the report, the
+ * adoption grader counts the report MINUS the lines the cap-exempt sections'
+ * own renderers emit, and an honest `/implement` report lands in the gap. A
+ * suite that cannot tell this refusal from the prose one cannot say which
+ * grader spoke.
+ */
+const isWholeReportCapReason = (reason: string): boolean =>
+  /whole-report cap/i.test(reason) &&
+  reason.includes(String(STAGE_REPORT_LINE_CAP));
+
 /** The block-must-be-last refusal. */
 const isBlockLastReason = (reason: string): boolean =>
   /last|trailing|after the (?:block|fence)/i.test(reason);
@@ -568,11 +584,19 @@ describe("AC-STE-533.2 — prose before the block is capped at a stated number",
     expect(Number.isInteger(PROSE_LEAD_IN_LINE_CAP)).toBe(true);
     expect(PROSE_LEAD_IN_LINE_CAP).toBeGreaterThan(0);
     expect(PROSE_LEAD_IN_LINE_CAP).toBeLessThan(STAGE_REPORT_LINE_CAP);
-    // STE-532 sized its whole-report cap as "the 26 lines the fence itself may
-    // hold, its two markers, and a dozen lines of prose". That third term IS
-    // this cap, so it is computed from the other two rather than typed twice —
-    // a hand-picked number here would let the two budgets drift apart.
-    expect(PROSE_LEAD_IN_LINE_CAP).toBe(STAGE_REPORT_LINE_CAP - FENCE_LINE_CAP - 2);
+    // THE TAUTOLOGY THAT USED TO SIT HERE was
+    //     expect(PROSE_LEAD_IN_LINE_CAP).toBe(STAGE_REPORT_LINE_CAP - FENCE_LINE_CAP - 2)
+    // and the module COMPUTES the constant with that exact expression, so both
+    // sides moved together. Mutation-tested (fence cap 26 → 30): the assertion
+    // stayed GREEN while five unrelated tests reddened — the arithmetic was
+    // protected only INCIDENTALLY, by tests that happen to depend on the
+    // values, and those can be rewritten for their own reasons. The guard that
+    // LOOKED like the guard would have stayed green through that.
+    //
+    // The arithmetic is now asserted against INDEPENDENT expected values, in
+    // `§ THE ARITHMETIC` below. What is left here is the SHAPE claim the
+    // derivation makes and the expression cannot: the cap is smaller than the
+    // report it is carved out of, and it is a real, positive whole number.
   });
 
   test("the number is WRITTEN DOWN at a shipped surface, not only in the module", () => {
@@ -2936,13 +2960,64 @@ describe("CONSUMER 2 — the committed captured-report fixtures are REAL and DET
     expect(verifyStageReportAdoption(body)).toEqual({ ok: true, reasons: [] });
   });
 
-  test("the NARRATED fixture is the DISCRIMINATING shape: STE-532 accepts it, adoption does not", () => {
-    const body = read(CAPTURED_NARRATED);
-    // The block itself is compliant — a token-grep, and STE-532's own grader,
-    // both pass it. Only the adoption policy can tell it apart, which is what
-    // makes this fixture evidence for THIS FR rather than for the last one.
+  test("the CLEAN fixture is the DISCRIMINATING shape: STE-532 REFUSES it, adoption ACCEPTS it", () => {
+    // THE PAIR INVERTED (M137 round 5). It is not dead, and the new form is the
+    // stronger one.
+    //
+    // The old framing — "STE-532 accepts the NARRATED twin, adoption refuses
+    // it" — is UNSATISFIABLE for an honest report, and the arithmetic says so.
+    // The twin needs at least `PROSE_LEAD_IN_LINE_CAP + 1` narration lines to
+    // break the prose cap, plus the fence and its two markers, plus the nine
+    // lines of the two sections `/implement` OWES: 49 against STE-532's own
+    // 40-line whole-report cap, which does not fund the carve-out. The only
+    // report that ever satisfied the old framing was the four-line stub the
+    // conformance matrix exists to outlaw.
+    //
+    // What separates the two graders is the CARVE-OUT FUNDING — the actual
+    // design difference — and it separates them on the LEGAL report, the other
+    // way round from the old pair.
+    const body = read(CAPTURED_CLEAN);
     expect(body).toContain(STAGE_BLOCK_FENCE_BANNER);
-    expect(verifyStageStatusBlock(body).ok).toBe(true);
+
+    // STE-532 counts EVERY line, the two mandated sections included, so it
+    // refuses a report that broke no budget it can name.
+    const base = verifyStageStatusBlock(body);
+    expect(base.ok).toBe(false);
+    expect(base.reasons.some(isWholeReportCapReason)).toBe(true);
+    // …and it refuses it for the CAP, not for the rule adoption owns.
+    expect(base.reasons.some(isProseCapReason)).toBe(false);
+
+    // Adoption excuses exactly the lines those sections' own renderers emit and
+    // accepts the SAME BYTES.
+    expect(verifyStageReportAdoption(body)).toEqual({ ok: true, reasons: [] });
+
+    // ISOLATION — the disagreement is the FUNDING and nothing else. Restage the
+    // same bytes onto an adopting stage that owes NO cap-exempt section: the
+    // funding disappears, and adoption refuses on STE-532's own cap.
+    const unfunded = ADOPTING_STAGES.find(
+      (stage) => exemptSectionsFor(stage).length === 0,
+    );
+    expect(unfunded, "every adopting stage owes an exempt section").toBeDefined();
+    const restaged = body.replace(/^(\s*stage:).*$/m, `$1 ${unfunded}`);
+    // THE MUTATION APPLIED, and it moved nothing but the scalar.
+    expect(restaged).not.toBe(body);
+    expect(lineCount(restaged)).toBe(lineCount(body));
+    const sibling = verifyStageReportAdoption(restaged);
+    expect(sibling.ok).toBe(false);
+    expect(sibling.reasons.some(isWholeReportCapReason)).toBe(true);
+  });
+
+  test("the NARRATED twin is refused by BOTH graders — and only adoption names the RULE", () => {
+    const body = read(CAPTURED_NARRATED);
+    expect(body).toContain(STAGE_BLOCK_FENCE_BANNER);
+
+    // Honest about the arithmetic (see above): the twin is over STE-532's raw
+    // cap at any size, so "532 accepts it" is not constructible for a report
+    // that carries its own mandates. What still discriminates is the REASON —
+    // the prose lead-in cap is a rule STE-532 does not own and never states.
+    const base = verifyStageStatusBlock(body);
+    expect(base.ok).toBe(false);
+    expect(base.reasons.some(isProseCapReason)).toBe(false);
 
     const verdict = verifyStageReportAdoption(body);
     expect(verdict.ok).toBe(false);
@@ -3012,6 +3087,165 @@ describe("CONSUMER 2 — the committed captured-report fixtures are REAL and DET
     const run = frontDoor(["--report", STATUS_BLOCK_DOC]);
     expect(run.status).toBe(1);
     expect(verifyStageReportAdoption(read(STATUS_BLOCK_DOC)).ok).toBe(false);
+  });
+});
+
+// ============================================================================
+// THE TWO GRADERS' DISAGREEMENT IS LOAD-BEARING — pin it (M137 round 5)
+// ============================================================================
+//
+// The inversion above turns "STE-532 refuses a legal /implement report" from an
+// incidental fact into a property the design DEPENDS on. A property the design
+// relies on, held up by nothing but nobody having done the obvious thing yet,
+// is the tautological-pin defect in miniature. Two things are pinned here:
+//
+//   * NO production path grades an UNFILTERED report from an adopting stage.
+//     The delegation is on the EXEMPT-FILTERED span — that span IS the funding.
+//   * probe #82's registration SAYS SO. It currently advertises the one-block
+//     count as "delegated to `verifyStageStatusBlock`, in its own words", and
+//     honouring that prose literally refuses every legal report: measured,
+//     `verifyStageStatusBlock` grading the committed CLEAN fixture directly
+//     returns `{ok:false, "the report runs 41 lines, over the 40-line
+//     whole-report cap"}`. Prose that describes a different program than the
+//     code runs is a rule advertised as enforced and enforced nowhere.
+
+/**
+ * Every `.ts` file under the plugin, tests excluded BY PATH, that calls `needle`.
+ *
+ * Dot-directories are excluded too: a `.scratch/` probe someone left behind is
+ * not a production path, and letting one join the sweep makes this leg report a
+ * second caller that nothing ships.
+ */
+function productionCallersOf(needle: string): string[] {
+  return walkTextFiles(CONSUMER_SEARCH_ROOT)
+    .filter((rel) => rel.endsWith(".ts") && !isTestPath(rel))
+    .filter((rel) => !rel.split("/").some((seg) => seg.startsWith(".")))
+    .filter((rel) => {
+      try {
+        return read(join(CONSUMER_SEARCH_ROOT, ...rel.split("/"))).includes(needle);
+      } catch {
+        return false;
+      }
+    });
+}
+
+/**
+ * The CLEAN fixture with its block DELETED and `narration` lines of prose put
+ * where it stood.
+ *
+ * Still a report from an adopting stage, still carrying both sections
+ * `/implement` OWES — and carrying no block at all, so it takes the branch
+ * where the count rule is delegated. That branch is the one that grades the
+ * RAW report today.
+ */
+function unblockedCleanFixture(narration: number): string {
+  const lines = read(CAPTURED_CLEAN).replace(/\n+$/, "").split("\n");
+  const open = lines.findIndex((line) => FENCE_OPEN_RE.test(line));
+  const close = lines.findIndex((line, i) => i > open && FENCE_CLOSE_RE.test(line));
+  expect({ open: open >= 0, close: close > open }).toEqual({ open: true, close: true });
+  const filler = Array.from(
+    { length: narration },
+    (_, i) => `Narration line ${i + 1} the status block was supposed to replace.`,
+  );
+  return [...lines.slice(0, open), ...filler, ...lines.slice(close + 1)].join("\n");
+}
+
+/** Every line the cap-exempt sections a stage owes are funded for, summed. */
+const exemptSpendFor = (stage: string): number =>
+  exemptSectionsFor(stage).reduce(
+    (total, entry) => total + exemptSectionBudget(entry),
+    0,
+  );
+
+describe("THE DELEGATION IS ON THE EXEMPT-FILTERED SPAN, on every production path", () => {
+  test("`verifyStageStatusBlock` has exactly ONE production caller — the adoption module", () => {
+    // Non-vacuity first: the delegation really is in the tree, and it really is
+    // in one place. A sweep that finds nothing certifies nothing.
+    const callers = productionCallersOf("verifyStageStatusBlock(");
+    expect(callers).toContain(ADOPTION_MODULE_REL);
+    expect(callers.filter((rel) => rel !== STATUS_BLOCK_REL)).toEqual([
+      ADOPTION_MODULE_REL,
+    ]);
+  });
+
+  test("NO call site hands it the RAW report — every one is given the filtered span", () => {
+    const src = read(ADOPTION_MODULE_SRC);
+    // Non-vacuity: the module carries at least two call sites (the count-rule
+    // branch and the main one), so an empty match below means something.
+    expect((src.match(/verifyStageStatusBlock\(/g) ?? []).length).toBeGreaterThanOrEqual(
+      2,
+    );
+    expect(src.match(/verifyStageStatusBlock\(\s*report\b/g) ?? []).toEqual([]);
+  });
+
+  test("a BLOCKLESS report is refused for the MISSING BLOCK, never for a cap the carve-out funds", () => {
+    // THE BAND WHERE THE TWO GRADERS DISAGREE: raw length over the shipped
+    // whole-report cap, exempt-filtered length under it. An honest /implement
+    // report lives in exactly this band, so a spurious cap refusal here names a
+    // budget the report already met — the shape the carve-out exists to end.
+    const spend = exemptSpendFor("implement");
+    expect(spend).toBeGreaterThan(0);
+
+    const pad = STAGE_REPORT_LINE_CAP + 1 - lineCount(unblockedCleanFixture(0));
+    expect(pad).toBeGreaterThan(0);
+    const report = unblockedCleanFixture(pad);
+    expect(lineCount(report)).toBe(STAGE_REPORT_LINE_CAP + 1);
+    expect(lineCount(report) - spend).toBeLessThanOrEqual(STAGE_REPORT_LINE_CAP);
+
+    const verdict = verifyStageReportAdoption(report);
+    expect(verdict.ok).toBe(false);
+    // The count rule fires, in STE-532's own words — that is the delegation.
+    expect(verdict.reasons.some((r) => /fence|block/i.test(r))).toBe(true);
+    // …and the whole-report cap does NOT, because the span it was handed is the
+    // one the carve-out funds.
+    expect(verdict.reasons.filter(isWholeReportCapReason)).toEqual([]);
+  });
+
+  test("…and the SAME clause fires once the FILTERED span really is over the cap", () => {
+    // Isolation. Without this leg the assertion above is satisfied by a grader
+    // that simply never reports the cap on a blockless report.
+    const spend = exemptSpendFor("implement");
+    const pad =
+      STAGE_REPORT_LINE_CAP + spend + 1 - lineCount(unblockedCleanFixture(0));
+    expect(pad).toBeGreaterThan(0);
+    const report = unblockedCleanFixture(pad);
+    expect(lineCount(report) - spend).toBeGreaterThan(STAGE_REPORT_LINE_CAP);
+
+    const verdict = verifyStageReportAdoption(report);
+    expect(verdict.reasons.some(isWholeReportCapReason)).toBe(true);
+  });
+
+  test("PROOF the literal reading of the registration prose is FALSE", () => {
+    // The registration says the count is "delegated to `verifyStageStatusBlock`,
+    // in its own words". Called on the raw report — the only reading that prose
+    // admits — the shipped grader refuses the committed LEGAL fixture.
+    const base = verifyStageStatusBlock(read(CAPTURED_CLEAN));
+    expect(base.ok).toBe(false);
+    expect(base.reasons.some(isWholeReportCapReason)).toBe(true);
+    // The same bytes, through the front door the probe actually runs: clean.
+    expect(frontDoor(["--report", CAPTURED_CLEAN]).status).toBe(0);
+  });
+
+  test("probe #82's registration SAYS the delegation is on the exempt-filtered span", () => {
+    const mine = probeRegistrationLines().find((r) =>
+      r.line.includes(`\`${ADOPTION_PROBE_ID}\``),
+    );
+    expect(mine).toBeDefined();
+    // Non-vacuity: the registration really does advertise the delegation, so
+    // the per-sentence rule below has a subject.
+    const advertising = sentencesOf(mine!.line).filter((s) =>
+      s.includes("verifyStageStatusBlock"),
+    );
+    expect(advertising.length).toBeGreaterThan(0);
+    // And EVERY sentence that advertises it says what it is called ON.
+    for (const sentence of advertising) {
+      expect(
+        /exempt-filtered|exempt-section|cap-exempt sections removed|minus the cap-exempt|exempt lines removed/i.test(
+          sentence,
+        ),
+        `probe #82 advertises the delegation without naming the span it runs on: ${sentence}`,
+      ).toBe(true);
+    }
   });
 });
 
@@ -3189,14 +3423,14 @@ describe("the roster-count cascade moved as one", () => {
 //      Disclosure is not resolution: AC-STE-533.2a says the exempt list IS the
 //      resolution, and those stages have no entries in it.
 
-/** Lines INSIDE the fence, markers excluded — the `FENCE_LINE_CAP` subject. */
+/** Lines INSIDE the fence, markers excluded — the `ADOPTED_FENCE_LINE_CAP` subject. */
 const fenceBodyLineCount = (report: string): number =>
   fenceCloseIndex(report) - fenceOpenIndex(report) - 1;
 
 /**
  * The report that respects EVERY budget the contract states, each at its face
  * value: `PROSE_LEAD_IN_LINE_CAP` lines of narration, a fence body of exactly
- * `FENCE_LINE_CAP` lines, its two markers, and every section the stage owes in
+ * `ADOPTED_FENCE_LINE_CAP` lines, its two markers, and every section the stage owes in
  * its smallest legal form.
  *
  * Composed from the SHIPPED constants, never typed: if any budget moves, this
@@ -3217,10 +3451,10 @@ function maximalLegalReport(stage: string): string {
     }
     body.push(`${name}:`, `  ${EMPTY_SECTION_FALLBACK}`);
   }
-  const pad = FENCE_LINE_CAP - body.length;
+  const pad = ADOPTED_FENCE_LINE_CAP - body.length;
   if (pad < 0) {
     throw new Error(
-      "the fixed section order no longer fits inside FENCE_LINE_CAP — this " +
+      "the fixed section order no longer fits inside ADOPTED_FENCE_LINE_CAP — this " +
         "construction can no longer sit AT the stated budget",
     );
   }
@@ -3361,7 +3595,9 @@ describe("M137 review — the cap-exempt carve-out is arithmetically FUNDED", ()
     // Fence body + its two markers + the prose lead-in = the WHOLE cap. There
     // is, by construction, nothing left over for the sections AC-STE-533.2a
     // exempts — which is why the exemption has to be funded rather than stated.
-    expect(PROSE_LEAD_IN_LINE_CAP + FENCE_LINE_CAP + 2).toBe(STAGE_REPORT_LINE_CAP);
+    expect(PROSE_LEAD_IN_LINE_CAP + ADOPTED_FENCE_LINE_CAP + 2).toBe(
+      STAGE_REPORT_LINE_CAP,
+    );
     expect(owedSectionLines("implement").length).toBeGreaterThan(0);
   });
 
@@ -3370,7 +3606,7 @@ describe("M137 review — the cap-exempt carve-out is arithmetically FUNDED", ()
 
     // The construction sits AT each stated budget…
     expect(fenceOpenIndex(maximal)).toBe(PROSE_LEAD_IN_LINE_CAP);
-    expect(fenceBodyLineCount(maximal)).toBe(FENCE_LINE_CAP);
+    expect(fenceBodyLineCount(maximal)).toBe(ADOPTED_FENCE_LINE_CAP);
     for (const entry of exemptSectionsFor("implement")) {
       expect(maximal).toContain(entry.heading);
     }
@@ -4059,5 +4295,283 @@ describe("F5 — the header's rule set and the doc's rule set are the SAME set",
       "utf-8",
     );
     expect(doc).toContain("stage_block_adoption.ts");
+  });
+});
+
+// ============================================================================
+// AC-STE-533.1a, ARITHMETIC HALF — the adopting contract owns its OWN fence cap
+// ============================================================================
+//
+// THE COUPLING THIS SECTION BREAKS (operator decision, M137 round 5).
+//
+// `FENCE_LINE_CAP` lives in `adapters/_shared/src/deliver_stage_capture.ts` —
+// /deliver's module, /deliver's contract — and `stage_block_adoption.ts`
+// derived the ELEVEN adopting stages' prose budget from it. AC-STE-533.1a split
+// those two banners on the argument that they are TWO CONTRACTS WITH TWO
+// OWNERS; the arithmetic stayed joined, so a /deliver retune silently moved
+// eleven stages' prose budget across the seam the FR declares severed.
+//
+// MEASURED, before the split: rewriting `FENCE_LINE_CAP = 26` to `30` in a copy
+// of the shared tree moved `PROSE_LEAD_IN_LINE_CAP` from 12 to 8 in the same
+// copy, with no edit to the adopting module at all.
+//
+// The adopting contract now names its own fence cap, in its own home. The two
+// may hold the SAME VALUE today — that is expected, and it is not the subject.
+// THE DELIVERABLE IS THE INDEPENDENCE, proven by mutation below.
+
+const SHARED_SRC = join(PLUGIN_ROOT, "adapters", "_shared", "src");
+
+/** A delta big enough that no budget's mutant collides with another's value. */
+const FENCE_CAP_MUTATION_DELTA = 4;
+
+/** A throwaway copy of the shared source tree, for one mutation. */
+function withMutatedSharedTree<T>(
+  label: string,
+  mutate: (copySrc: string) => void,
+  use: (copySrc: string) => Promise<T>,
+): Promise<T> {
+  const dir = mkdtempSync(join(tmpdir(), `ste-533-${label}-`));
+  const copySrc = join(dir, "src");
+  cpSync(SHARED_SRC, copySrc, { recursive: true });
+  mutate(copySrc);
+  return use(copySrc).finally(() => rmSync(dir, { recursive: true, force: true }));
+}
+
+/** Rewrite `export const <name> = <from>;` to `<to>`, asserting it APPLIED. */
+function retuneConst(path: string, name: string, from: number, to: number): void {
+  const original = read(path);
+  const anchor = `export const ${name} = ${from};`;
+  // A mutation that never applied reads as a pass. Assert the anchor is present
+  // exactly once BEFORE relying on the rewrite.
+  expect(
+    original.split(anchor).length - 1,
+    `${name} is not declared as \`${anchor}\` — the mutation would be a no-op`,
+  ).toBe(1);
+  writeFileSync(path, original.replace(anchor, `export const ${name} = ${to};`), "utf-8");
+}
+
+describe("AC-STE-533.1a — the adopting contract's fence cap is its OWN", () => {
+  test("`ADOPTED_FENCE_LINE_CAP` is exported by the ADOPTING module", () => {
+    expect(Number.isInteger(ADOPTED_FENCE_LINE_CAP)).toBe(true);
+    expect(ADOPTED_FENCE_LINE_CAP).toBeGreaterThan(0);
+    expect(ADOPTED_FENCE_LINE_CAP).toBeLessThan(STAGE_REPORT_LINE_CAP);
+  });
+
+  test("it is DECLARED there — not an alias, not a re-export, not a copy of the import", () => {
+    const src = read(ADOPTION_MODULE_SRC);
+    // Its own home, its own literal.
+    expect(src).toMatch(
+      new RegExp(String.raw`export const ADOPTED_FENCE_LINE_CAP\s*=\s*\d+\s*;`),
+    );
+    // Not `export { FENCE_LINE_CAP as ADOPTED_FENCE_LINE_CAP } from …`
+    expect(src).not.toMatch(/export\s*\{[^}]*FENCE_LINE_CAP[^}]*\}\s*from/);
+    // Not `export const ADOPTED_FENCE_LINE_CAP = FENCE_LINE_CAP`
+    expect(src).not.toMatch(/ADOPTED_FENCE_LINE_CAP\s*=\s*FENCE_LINE_CAP\b/);
+  });
+
+  test("the adopting module no longer IMPORTS /deliver's fence cap", () => {
+    const src = read(ADOPTION_MODULE_SRC);
+    const block = /import\s*\{([^}]*)\}\s*from\s*"\.\/deliver_stage_capture"/.exec(src);
+    // Non-vacuity: the import really is there, so the exclusion below has a
+    // subject. The BANNER still crosses the seam on purpose — each grader must
+    // refuse the other's banner, which is a claim about the other's bytes.
+    expect(block, "the adopting module no longer imports from ./deliver_stage_capture").not.toBeNull();
+    const named = block![1]!
+      .split(",")
+      .map((s) => s.trim().split(/\s+as\s+/)[0]!.trim())
+      .filter((s) => s.length > 0);
+    expect(named).toContain("DELIVER_STAGE_FENCE_BANNER");
+    // …the ARITHMETIC does not.
+    expect(named).not.toContain("FENCE_LINE_CAP");
+  });
+
+  test("THE DELIVERABLE — a /deliver fence-cap retune moves NO adopting stage's prose cap", async () => {
+    await withMutatedSharedTree(
+      "deliver-retune",
+      (copySrc) =>
+        retuneConst(
+          join(copySrc, "deliver_stage_capture.ts"),
+          "FENCE_LINE_CAP",
+          FENCE_LINE_CAP,
+          FENCE_LINE_CAP + FENCE_CAP_MUTATION_DELTA,
+        ),
+      async (copySrc) => {
+        // THE MUTATION IS LIVE in the copy — read back off the copy's own module.
+        const capture = await import(join(copySrc, "deliver_stage_capture.ts"));
+        expect(capture.FENCE_LINE_CAP).toBe(FENCE_LINE_CAP + FENCE_CAP_MUTATION_DELTA);
+        expect(capture.FENCE_LINE_CAP).not.toBe(FENCE_LINE_CAP);
+
+        // …and the adopting contract, out of THE SAME COPY, did not move.
+        const adoption = await import(join(copySrc, "stage_block_adoption.ts"));
+        expect(
+          adoption.ADOPTED_FENCE_LINE_CAP,
+          "/deliver's fence cap moved the adopting contract's fence cap: the two are re-coupled",
+        ).toBe(ADOPTED_FENCE_LINE_CAP);
+        expect(
+          adoption.PROSE_LEAD_IN_LINE_CAP,
+          "/deliver's fence cap moved eleven adopting stages' prose budget across the seam AC-STE-533.1a declares severed",
+        ).toBe(PROSE_LEAD_IN_LINE_CAP);
+      },
+    );
+  });
+
+  test("HARNESS CONTROL — retuning the ADOPTING cap in the same copy DOES move its prose cap", async () => {
+    // Without this leg the independence assertion above is satisfied by a
+    // harness that cannot see movement at all — a stale module cache, a copy
+    // that never loaded, an import resolving back to the real tree. This leg
+    // fails in exactly those worlds and passes only when the harness measures.
+    await withMutatedSharedTree(
+      "adopting-retune",
+      (copySrc) =>
+        retuneConst(
+          join(copySrc, "stage_block_adoption.ts"),
+          "ADOPTED_FENCE_LINE_CAP",
+          ADOPTED_FENCE_LINE_CAP,
+          ADOPTED_FENCE_LINE_CAP + FENCE_CAP_MUTATION_DELTA,
+        ),
+      async (copySrc) => {
+        const adoption = await import(join(copySrc, "stage_block_adoption.ts"));
+        expect(adoption.ADOPTED_FENCE_LINE_CAP).toBe(
+          ADOPTED_FENCE_LINE_CAP + FENCE_CAP_MUTATION_DELTA,
+        );
+        // The prose cap is still DERIVED — it moved by exactly the delta, the
+        // other way. A cap that ignored its own fence budget would be a second
+        // hand-typed number, which is the drift the derivation exists to stop.
+        expect(adoption.PROSE_LEAD_IN_LINE_CAP).toBe(
+          PROSE_LEAD_IN_LINE_CAP - FENCE_CAP_MUTATION_DELTA,
+        );
+        // /deliver's cap, untouched in this copy, is where it always was.
+        const capture = await import(join(copySrc, "deliver_stage_capture.ts"));
+        expect(capture.FENCE_LINE_CAP).toBe(FENCE_LINE_CAP);
+      },
+    );
+  });
+
+  test("no shipped surface describes the ADOPTING prose cap as derived from /deliver's cap", () => {
+    // The prose must name the owner the code reads. A doc line saying
+    // `STAGE_REPORT_LINE_CAP - FENCE_LINE_CAP - 2` after the split points the
+    // reader across the seam it was cut to close.
+    //
+    // The subject is an ARITHMETIC statement — `± FENCE_LINE_CAP` on a line
+    // that names the adopting cap — not any sentence that happens to mention
+    // both. A line CONTRASTING the two contracts is legitimate prose and stays
+    // legal; a line that adds or subtracts across the seam does not.
+    const derivesAcrossTheSeam = (line: string): boolean =>
+      /[-+−]\s*(?<!ADOPTED_)FENCE_LINE_CAP\b/.test(line);
+
+    const surfaces = [STATUS_BLOCK_DOC, ADOPTION_MODULE_SRC];
+    let stating = 0;
+    for (const path of surfaces) {
+      for (const line of read(path).split("\n")) {
+        if (!line.includes("PROSE_LEAD_IN_LINE_CAP")) continue;
+        // The POPULATION, counted before the rule is applied — so the
+        // non-vacuity gate below still measures something once every line has
+        // been corrected.
+        stating += 1;
+        expect(
+          derivesAcrossTheSeam(line),
+          `${path} derives the adopting prose cap from /deliver's cap: ${line.trim()}`,
+        ).toBe(false);
+      }
+    }
+    // Non-vacuity: the surfaces really do talk about this cap.
+    expect(stating).toBeGreaterThan(0);
+    // …and the rule can fire — the isolating half, so the sweep above is not a
+    // predicate that answers `false` for everything.
+    expect(
+      derivesAcrossTheSeam(
+        "`PROSE_LEAD_IN_LINE_CAP`, derived as `STAGE_REPORT_LINE_CAP - FENCE_LINE_CAP - 2`",
+      ),
+    ).toBe(true);
+    expect(
+      derivesAcrossTheSeam(
+        "`PROSE_LEAD_IN_LINE_CAP` = `STAGE_REPORT_LINE_CAP - ADOPTED_FENCE_LINE_CAP - 2`",
+      ),
+    ).toBe(false);
+  });
+});
+
+// ============================================================================
+// THE ARITHMETIC — three budgets, three INDEPENDENT expected values
+// ============================================================================
+//
+// THE DEFECT THIS REPLACES. `expect(PROSE_LEAD_IN_LINE_CAP).toBe(
+// STAGE_REPORT_LINE_CAP - FENCE_LINE_CAP - 2)` restates the very expression the
+// module computes the constant with, so both sides move together. Mutation-
+// tested (fence cap 26 → 30): that assertion stayed GREEN while five unrelated
+// tests reddened. The arithmetic was protected only INCIDENTALLY — by tests
+// that happen to depend on the values — and those can be rewritten for their
+// own reasons, at which point the protection vanishes while the assertion that
+// LOOKS like the guard stays green.
+//
+// The three numbers below are therefore HAND-TYPED, deliberately, against this
+// file's usual rule of reading every number off an export. That rule buys
+// tracking; here tracking is the defect. A retune of any one budget reddens a
+// test NAMED for the arithmetic, and its message says which budget moved and
+// what that did to the others.
+
+interface Budget {
+  readonly name: string;
+  readonly what: string;
+  readonly actual: () => number;
+  readonly expected: number;
+}
+
+const BUDGETS: readonly Budget[] = [
+  {
+    name: "STAGE_REPORT_LINE_CAP",
+    what: "STE-532's whole-report cap — every line a rendered report may carry",
+    actual: () => STAGE_REPORT_LINE_CAP,
+    expected: 40,
+  },
+  {
+    name: "ADOPTED_FENCE_LINE_CAP",
+    what: "the adopting contract's own fence-body cap",
+    actual: () => ADOPTED_FENCE_LINE_CAP,
+    expected: 26,
+  },
+  {
+    name: "PROSE_LEAD_IN_LINE_CAP",
+    what: "the prose lead-in cap, derived from the two above",
+    actual: () => PROSE_LEAD_IN_LINE_CAP,
+    expected: 12,
+  },
+];
+
+/** Every budget's current value against its expected one — the whole picture. */
+const budgetLedger = (): string =>
+  BUDGETS.map(
+    (b) =>
+      `${b.name} = ${b.actual()} (expected ${b.expected})${
+        b.actual() === b.expected ? "" : "   ← MOVED"
+      }`,
+  ).join("\n");
+
+describe("THE ARITHMETIC — the three budgets, pinned to independent values", () => {
+  for (const budget of BUDGETS) {
+    test(`${budget.name} is ${budget.expected} — ${budget.what}`, () => {
+      expect(
+        budget.actual(),
+        `${budget.name} was retuned. The three budgets now read:\n${budgetLedger()}\n` +
+          "They are a PARTITION of the whole report — fence body + its two " +
+          "markers + prose lead-in — so moving one moves what the others may " +
+          "spend. Retune the expected values here, in the same commit, and " +
+          "restate the numbers on every surface that carries them.",
+      ).toBe(budget.expected);
+    });
+  }
+
+  test("the three PARTITION the whole report, with the fence's two markers and nothing over", () => {
+    const FENCE_MARKERS = 2;
+    const report = BUDGETS.find((b) => b.name === "STAGE_REPORT_LINE_CAP")!;
+    const fence = BUDGETS.find((b) => b.name === "ADOPTED_FENCE_LINE_CAP")!;
+    const prose = BUDGETS.find((b) => b.name === "PROSE_LEAD_IN_LINE_CAP")!;
+    // Asserted on the EXPECTED values, not the live ones: this is the claim the
+    // three literals above make about each other, and it must hold on them
+    // whether or not the module currently agrees.
+    expect(fence.expected + FENCE_MARKERS + prose.expected).toBe(report.expected);
+    // …and then the live values are held to the same shape, so a retune that
+    // kept the sum but moved the split still reddens a named test above.
+    expect(fence.actual() + FENCE_MARKERS + prose.actual()).toBe(report.actual());
   });
 });
