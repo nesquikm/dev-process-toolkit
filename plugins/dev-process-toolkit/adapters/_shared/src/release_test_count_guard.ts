@@ -397,7 +397,7 @@ export interface MergeBoundaryResult {
  * BOTH CONDITIONS ARE REQUIRED (the AND-rule). Commits past the release commit
  * that touch no test file cannot have moved the count, and warning about them
  * is how a guard gets ignored. A repository with no release commit at all is a
- * verdict — `stale: false`, `releaseCommit: null` — never a crash.
+ * verdict — `indeterminate`, `anchor: null` — never a crash.
  *
  * COSTS NO GATE RUN. Three git queries, milliseconds. Nothing here executes
  * the project's tests; the first attempt at this guard did, and it doubled the
@@ -525,13 +525,19 @@ function renderMergeBoundaryWarning(
 if (import.meta.main) {
   const repo = process.argv[2] ?? process.cwd();
   const result = checkMergeBoundary(repo);
-  if (result.releaseCommit === null) {
-    console.log("no release commit on this branch — nothing to compare against");
-  } else if (result.message !== null) {
+  // SWITCH ON THE VERDICT, never on a field being null. The previous version
+  // tested `result.releaseCommit === null` — a field this module renamed to
+  // `anchor` — so the guard read `undefined === null`, fell through, and
+  // dereferenced it. It crashed on the FRESH path specifically: the one state
+  // this guard exists to certify, reachable only when the count really is the
+  // last edit. Every other path printed `message` and looked healthy.
+  if (result.verdict === "indeterminate" || result.verdict === "stale") {
     console.log(result.message);
+  } else if (result.anchor === null) {
+    console.log("no commit wrote the count line — nothing to compare against");
   } else {
     console.log(
-      `clean: the count was the last edit at ${result.releaseCommit.sha.slice(0, 7)} ` +
+      `clean: the count was the last edit at ${result.anchor.sha.slice(0, 7)} ` +
         `(${result.commitsSince} commits since, 0 test files changed)`,
     );
   }
