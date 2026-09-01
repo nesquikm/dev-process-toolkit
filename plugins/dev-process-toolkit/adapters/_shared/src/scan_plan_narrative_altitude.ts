@@ -152,7 +152,23 @@ const PLAN_SECTION_WALK: SectionWalkSpec = {
   fenceAware: true,
 };
 /** A checkbox bullet; group 1 is its leading indent. */
-const CHECKBOX_RE = /^(\s*)[-*+]\s+\[[^\]]*\]/;
+/**
+ * A TASK ITEM: a checkbox row, or an ORDERED-list row.
+ *
+ * MEASURED, and it is why the ordered arm exists. This project's own plans
+ * M132..M136 carry 13-21 ordered task rows each and ZERO checkbox rows, while
+ * the shipped `plan.md.template` teaches `- [ ] <task>`. A guard recognising
+ * only the checkbox shape therefore exempts whoever copies our TEMPLATE and
+ * flags whoever copies our PRACTICE — punishing the closer reader. This is the
+ * second guard in this repository keyed on a task shape the project stopped
+ * writing (`plan_task_state` parses checkbox tasks only, so every modern
+ * `### Tasks` reports zero); a third is likely, and is worth going to look for.
+ *
+ * PLAIN BULLETS ARE DELIBERATELY EXCLUDED. `- some observation` is how prose
+ * lists are written in `### Notes` and `### Risks`, and those should be capped.
+ * Only shapes that mean "a task" earn the exemption.
+ */
+const CHECKBOX_RE = /^(\s*)(?:[-*+]\s+\[[^\]]*\]|\d+[.)]\s+)/;
 /**
  * A table delimiter row: cells of dashes with optional alignment colons and
  * optional leading/trailing pipes. A prose line merely mentioning a pipe can
@@ -294,15 +310,27 @@ function scanFile(abs: string, rel: string, classify: BodyClassifier): FileScan 
   // scanner's, and the two never mix.
   for (const sub of walkSections(content.split("\n"), PLAN_SECTION_WALK)) {
     const kind = classify(sub.body);
+    // GRADING IS PER LINE, NOT PER SECTION — this is the smuggling fix.
+    // Exempting a whole body because its SHAPE reads structural let an
+    // arbitrarily long paragraph ride along under a handful of task rows:
+    // seven checkbox items plus a single 1000-word line classified
+    // `structural` and scored zero violations at the cap. The exemption a
+    // task row earns is for THAT ROW, so only structural lines are skipped and
+    // prose is capped wherever it sits.
+    const cats = categorize(sub.body);
     let words = 0;
     for (let i = 0; i < sub.body.length; i++) {
       const n = countWords(sub.body[i]!);
       if (n === 0) continue;
       words += n;
-      // STRUCTURAL BODIES ARE EXEMPT, NOT MERELY UNDER THE CAP: they never
-      // enter the accumulator at all, so ten `### Tasks` of checkbox rows can
-      // no more accumulate into a flag than one could.
-      if (kind !== "narrative") continue;
+      // A NARRATIVE body is graded WHOLE, exactly as before — the section
+      // verdict stays load-bearing, and inverting the classifier still turns
+      // this scanner red. A STRUCTURAL body is graded PER LINE: its task rows
+      // are exempt, its prose is not. That is the smuggling fix — seven
+      // checkbox rows plus a single very long line classified `structural` and
+      // scored zero violations, because the shape of a body was taken as a
+      // licence for its quantity.
+      if (kind !== "narrative" && cats[i] !== "prose") continue;
       const running = (narrativeWords.get(sub.heading) ?? 0) + n;
       narrativeWords.set(sub.heading, running);
       if (!crossed.has(sub.heading) && running > PLAN_NARRATIVE_WORD_CAP) {
