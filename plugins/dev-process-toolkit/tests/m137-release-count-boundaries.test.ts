@@ -50,6 +50,7 @@
 // never about the artifact's current value.
 
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -935,5 +936,64 @@ describe("C6/D — the anchor is the artifact, not the subject", () => {
     for (const [, parents, subject] of bodyOnly) {
       expect(parents!.trim().split(/\s+/).length, `${subject} should be a merge`).toBe(2);
     }
+  });
+});
+
+// ===========================================================================
+// GROUP C — PART 4, the CLI FRONT DOOR is executed, not merely present
+// ===========================================================================
+//
+// THE FRONT DOOR SHIPPED DEAD AND EVERY TEST WAS GREEN. Round 3 renamed
+// `releaseCommit` to `anchor` on the result and left the `import.meta.main`
+// block reading the old name. `undefined === null` is false, so the guard fell
+// through and dereferenced it.
+//
+// It crashed on the FRESH path SPECIFICALLY — the single state this guard
+// exists to certify, reachable only when the count really is the last edit.
+// The stale and indeterminate paths print `message` and never touch the field,
+// so every route a reviewer is likely to try by hand looked healthy.
+//
+// And probe #81 certified this module `reachable: true` BECAUSE
+// `import.meta.main` matched. The reachability evidence was the presence of
+// the very block that could not run. Presence is not execution; these legs
+// EXECUTE it, on all three verdicts.
+describe("C6/E — the CLI front door runs on every verdict", () => {
+  function runCli(repo: string): { out: string; status: number } {
+    const modulePath = join(
+      import.meta.dir, "..", "adapters", "_shared", "src", "release_test_count_guard.ts",
+    );
+    const proc = spawnSync("bun", [modulePath, repo], { encoding: "utf-8" });
+    return { out: `${proc.stdout ?? ""}${proc.stderr ?? ""}`, status: proc.status ?? -1 };
+  }
+
+  test("FRESH — the path that crashed; it must print the clean line, not throw", () => {
+    const repo = makeRepo();
+    commit(repo, { "src/a.test.ts": "x" }, "feat(x): first");
+    commit(repo, { "CHANGELOG.md": changelogWith("1.0.0", 100) }, "chore(release): v1.0.0");
+    const { out, status } = runCli(repo);
+    expect(out, "the renamed field must not be dereferenced").not.toContain("TypeError");
+    expect(out).toContain("clean:");
+    expect(status, "a clean tree is exit 0").toBe(0);
+    cleanup();
+  });
+
+  test("STALE — it prints the warning", () => {
+    const repo = makeRepo();
+    commit(repo, { "CHANGELOG.md": changelogWith("1.0.0", 100) }, "chore(release): v1.0.0");
+    commit(repo, { "src/b.test.ts": "y" }, "test(b): add");
+    const { out } = runCli(repo);
+    expect(out).not.toContain("TypeError");
+    expect(out).toContain("written at");
+    cleanup();
+  });
+
+  test("INDETERMINATE — it says NOT CHECKED and does not claim clean", () => {
+    const repo = makeRepo();
+    commit(repo, { "a.txt": "1" }, "feat(x): first");
+    const { out } = runCli(repo);
+    expect(out).not.toContain("TypeError");
+    expect(out).toContain("NOT CHECKED");
+    expect(out, "an unchecked tree must never print the clean line").not.toContain("clean:");
+    cleanup();
   });
 });
