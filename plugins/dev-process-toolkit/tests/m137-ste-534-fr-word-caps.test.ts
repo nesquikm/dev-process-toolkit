@@ -62,6 +62,7 @@
 //   AC-STE-534.8 — mutation-verified, each mutation asserted to have applied
 
 import { describe, expect, test } from "bun:test";
+const PLUGIN_ROOT = join(import.meta.dir, "..");
 import {
   mkdirSync,
   mkdtempSync,
@@ -2074,5 +2075,61 @@ describe("a fenced example is not a section, and its code is not prose", () => {
     } finally {
       fx.cleanup();
     }
+  });
+});
+
+// ===========================================================================
+// PROBE #67's REGISTRATION — what it ORDERS must be what the code DOES
+// ===========================================================================
+//
+// Two claims in that registration were false, and both were prose defects
+// rather than code defects — so they are fixed in the prose and pinned here,
+// NOT by wiring the probe to make the sentence true.
+describe("probe #67's registration describes the code that exists", () => {
+  const registration = (): string => {
+    const src = readFileSync(join(PLUGIN_ROOT, "skills", "gate-check", "SKILL.md"), "utf-8");
+    const line = src.split("\n").find((l) => l.includes("**`fr_summary_altitude`**"));
+    expect(line, "probe #67's registration must exist to be graded").toBeDefined();
+    return line!;
+  };
+
+  test("a repeated capped heading pools into ONE row — the BEHAVIOUR, not the prose", () => {
+    // The registration used to say `word_cap` "flags once per section". Under
+    // per-name accumulation two `## Summary` sections pool into one budget and
+    // one row. Graded by execution so the prose cannot drift away from it
+    // again: this is the fact, the sentence merely reports it.
+    const root = mkdtempSync(join(tmpdir(), "fr-twosum-"));
+    mkdirSync(join(root, "specs", "frs"), { recursive: true });
+    const half = Array.from({ length: SUMMARY_WORD_CAP - 30 }, () => "w").join(" ");
+    writeFileSync(
+      join(root, "specs", "frs", "STE-960.md"),
+      `# STE-960\n\n## Summary\n\n${half}\n\n## Notes\n\nx\n\n## Summary\n\n${half}\n`,
+    );
+    try {
+      const rows = scanFrSummaryAltitude(root).filter((v) => v.rule === "word_cap");
+      expect(rows.length, "two occurrences, one pooled budget, one row").toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("it does NOT claim the probe entry point covers the plan half", () => {
+    // `runFrSummaryAltitudeProbe` never calls `scanPlanNarrativeAltitude`, and
+    // no adapter module does — the plan scanner's only runtime caller is its
+    // own `import.meta.main` front door. A registration that names one
+    // "the runtime entry point" while the plan half needs a second call is how
+    // a shipped cap goes unenforced while reading as covered.
+    expect(registration()).toContain("does NOT reach the plan half");
+  });
+
+  test("the claim it makes about the entry point is TRUE of the module", () => {
+    // The pin above grades a sentence. This one grades the fact the sentence
+    // asserts, so the pair cannot agree with each other while both being wrong.
+    const src = readFileSync(
+      join(PLUGIN_ROOT, "adapters", "_shared", "src", "scan_fr_summary_altitude.ts"),
+      "utf-8",
+    );
+    expect(src, "if this module ever DOES call the plan scanner, the prose above is now wrong")
+      .not.toContain("scanPlanNarrativeAltitude");
   });
 });
