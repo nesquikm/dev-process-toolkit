@@ -47,8 +47,51 @@
 // reader to run by hand. Probe #81 grades ORDERED references, and nothing
 // orders this one.
 
-/** A fence line, either flavor, at any indent. */
-const FENCE_RE = /^\s*(?:```|~~~)/;
+/** A fence line, either flavor, at any indent. Group 1 is the marker run,
+ *  group 2 the info string. */
+const FENCE_RE = /^\s*(`{3,}|~{3,})(.*)$/;
+
+/**
+ * The opener a fence line begins, or `null` when it cannot open one.
+ *
+ * CommonMark: a fence opens on three or more backticks or tildes, optionally
+ * followed by an info string. A BACKTICK opener's info string may not itself
+ * contain a backtick — that is what keeps inline code from opening a block.
+ */
+function fenceOpener(line: string): { char: string; run: number } | null {
+  const m = FENCE_RE.exec(line);
+  if (m === null) return null;
+  const marker = m[1]!;
+  const char = marker[0]!;
+  if (char === "`" && m[2]!.includes("`")) return null;
+  return { char, run: marker.length };
+}
+
+/**
+ * Whether `line` CLOSES a fence opened by `opener`.
+ *
+ * THREE CONDITIONS, and every one of them was missing. The previous version
+ * closed on any fence-shaped line at all — flavor-blind, run-length-blind and
+ * info-string-blind — so ```` ```bash ````, which is an OPENER, was read as the
+ * closer of the block above it. Every span after that point shifted by one, and
+ * with `fenceAware: true` on the FR walk a real `## Summary` could land inside
+ * a phantom span and NEVER OPEN. Probe #67 then went silent on that whole FR —
+ * not merely `word_cap`, but the four error-severity M105 rules that
+ * grandfathering deliberately never touches. One forgotten closing fence
+ * retired all five. Reproduced before this was written.
+ */
+function closesFence(line: string, opener: { char: string; run: number }): boolean {
+  const m = FENCE_RE.exec(line);
+  if (m === null) return false;
+  const marker = m[1]!;
+  // Same flavor: a `~~~` never closes a ``` block.
+  if (marker[0] !== opener.char) return false;
+  // At least as long as the opener: ``` never closes ````.
+  if (marker.length < opener.run) return false;
+  // A closer carries NO info string. This is the clause that matters here:
+  // it is what makes ```bash an opener rather than a closer.
+  return m[2]!.trim() === "";
+}
 
 /**
  * Per-line flags for lines inside a MATCHED fence pair (markers included).
@@ -60,12 +103,13 @@ export function fencedFlags(lines: readonly string[]): boolean[] {
   const flags: boolean[] = new Array(lines.length).fill(false);
   let i = 0;
   while (i < lines.length) {
-    if (!FENCE_RE.test(lines[i]!)) {
+    const opener = fenceOpener(lines[i]!);
+    if (opener === null) {
       i++;
       continue;
     }
     let close = i + 1;
-    while (close < lines.length && !FENCE_RE.test(lines[close]!)) close++;
+    while (close < lines.length && !closesFence(lines[close]!, opener)) close++;
     // No closer anywhere below: nothing left to pair, and this opener is inert.
     if (close >= lines.length) break;
     for (let k = i; k <= close; k++) flags[k] = true;
