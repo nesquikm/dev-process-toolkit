@@ -767,8 +767,21 @@ export function runFrSummaryAltitudeProbe(
 // alike (the accumulating `word_cap` and the per-line predicates); empty stdout
 // means the ACTIVE FRs are clean.
 if (import.meta.main) {
+  // THE GRADED ENTRY, never the raw scanner. This front door called
+  // `scanFrSummaryAltitude` directly, so it printed every pre-epoch FR as a
+  // violation and the grandfathering arm — the whole point of the epoch — never
+  // ran. Measured on a 447-FR corpus: 616 rows here against 0 through the
+  // graded path. Presence of a front door is not routing; a door onto the wrong
+  // function is worse than no door, because it looks like the feature works.
   const projectRoot = process.argv[2] ?? process.cwd();
-  for (const v of scanFrSummaryAltitude(projectRoot)) {
-    console.log(`${v.file}:${v.line} — ${v.rule} — ${v.section}`);
+  const report = runFrSummaryAltitudeProbe(projectRoot);
+  for (const v of report.violations) {
+    console.log(`${v.file}:${v.line} — ${v.rule} — ${v.section} — ${v.severity}`);
+  }
+  if (report.grandfathered.length > 0) {
+    console.log(
+      `grandfathered: ${report.grandfatheredRows} row(s) across ` +
+        `${report.grandfathered.length} pre-epoch file(s) — spared, not silenced`,
+    );
   }
 }

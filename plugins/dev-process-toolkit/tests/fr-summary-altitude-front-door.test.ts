@@ -38,12 +38,32 @@
 //
 // AND THE SHARPER TRAP, specific to THIS module: its runtime entry point
 // `runFrSummaryAltitudeProbe` GRANDFATHERS `word_cap` on a tree that is not a
-// git repository — every temp fixture in this suite is exactly such a tree. A
-// front door wired to the graded probe would therefore print nothing on a
-// violating fixture and look correct. The `NOT SILENCED BY PROVENANCE` block
-// below establishes that silence as the control and then refuses it.
+// git repository — every temp fixture in this suite was exactly such a tree.
+//
+// THIS SUITE ORIGINALLY WIRED THE FRONT DOOR TO THE RAW SCANNER ON PURPOSE, for
+// that reason: a graded door on a non-git fixture would print nothing on a
+// violating file and read as a clean pass. That was a real fear and it is
+// recorded here rather than quietly reversed, because a deliberate decision
+// found undocumented gets re-litigated in both directions forever.
+//
+// WHAT CHANGED IS THE PREMISE, not the fear. M137 round 5 measured the raw
+// wiring against a consumer: the registration, the CLI and the skill prose all
+// ordered the RAW scanner, so the grandfathering arm could not fire through any
+// door a user comes in by — 616 error rows against 0 on a 447-FR corpus, on
+// prose no consumer wrote. And the graded door now DISCLOSES what it spared
+// (`grandfathered: N row(s) across M pre-epoch file(s) — spared, not silenced`),
+// so the precise failure this file exists to catch — a door that prints NOTHING
+// and looks correct — cannot occur through it.
+//
+// So the door routes GRADED, and the vacuity control is re-aimed rather than
+// deleted: the violating leg runs against a git fixture committed AFTER the
+// epoch, where a real violation is visible at error severity, and a second leg
+// proves the non-git path DISCLOSES rather than swallows. Both halves of the
+// original fear stay asserted; the door stops lying to consumers to keep a
+// fixture observable. The vacuity was in the FIXTURE, not the door.
 
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,12 +73,16 @@ import {
   runModuleReachabilityProbe,
 } from "../adapters/_shared/src/module_reachability";
 import {
+  FR_WORD_CAP_EPOCH,
   SUMMARY_WORD_CAP,
   runFrSummaryAltitudeProbe,
   scanFrSummaryAltitude,
   type FrSummaryAltitudeViolation,
 } from "../adapters/_shared/src/scan_fr_summary_altitude";
-import { scanPlanNarrativeAltitude } from "../adapters/_shared/src/scan_plan_narrative_altitude";
+import {
+  runPlanNarrativeAltitudeProbe,
+  scanPlanNarrativeAltitude,
+} from "../adapters/_shared/src/scan_plan_narrative_altitude";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
@@ -93,6 +117,45 @@ function makeRoot(): string {
 function cleanup(): void {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 }
+
+/**
+ * A fixture root that IS a git repository, with its FRs committed after
+ * `FR_WORD_CAP_EPOCH` so provenance classifies them `fresh` and the graded door
+ * reports them at error severity.
+ *
+ * This is what replaces the raw wiring: the observability the suite needs comes
+ * from the fixture having a datable history, not from the front door skipping
+ * the grading arm.
+ */
+function makeGitRoot(files: Record<string, string>): string {
+  const dir = mkdtempSync(join(tmpdir(), "fr-front-door-git-"));
+  dirs.push(dir);
+  for (const [rel, body] of Object.entries(files)) {
+    const abs = join(dir, rel);
+    mkdirSync(abs.slice(0, abs.lastIndexOf("/")), { recursive: true });
+    writeFileSync(abs, body);
+  }
+  const env = {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_SYSTEM: "/dev/null",
+    GIT_AUTHOR_DATE: POST_EPOCH,
+    GIT_COMMITTER_DATE: POST_EPOCH,
+  };
+  const run = (args: string[]): void => {
+    execFileSync("git", args, { cwd: dir, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"], env });
+  };
+  run(["init", "-q", "-b", "main"]);
+  run(["config", "user.email", "fixture@example.invalid"]);
+  run(["config", "user.name", "Fixture"]);
+  run(["config", "commit.gpgsign", "false"]);
+  run(["add", "--", "."]);
+  run(["commit", "-q", "-m", "chore: post-epoch fixture"]);
+  return dir;
+}
+
+/** Five days past the epoch — `fresh`, so the grading arm reports rather than spares. */
+const POST_EPOCH = new Date(Date.parse(FR_WORD_CAP_EPOCH) + 86_400_000 * 5).toISOString();
 
 /** A `## Summary` well inside every cap: short, no backtick, no AC-ID, no path. */
 const CLEAN_FR = [
@@ -129,6 +192,17 @@ function violatingFr(): string {
 /** The sibling's shipped output shape, reproduced from a violation row. */
 const renderRow = (v: FrSummaryAltitudeViolation): string =>
   `${v.file}:${v.line} — ${v.rule} — ${v.section}`;
+
+/**
+ * The GRADED row shape, severity included.
+ *
+ * The graded doors print severity because provenance can downgrade a row to
+ * `warning`, and a row whose severity is invisible cannot be acted on
+ * differently from one that fails the gate. Derived here, never typed, so a
+ * door printing a fixed string still cannot satisfy the leg.
+ */
+const renderGradedRow = (v: { file: string; line: number; rule: string; section: string; severity: string }): string =>
+  `${v.file}:${v.line} — ${v.rule} — ${v.section} — ${v.severity}`;
 
 interface Run {
   readonly stdout: string;
@@ -206,14 +280,16 @@ describe("C5 — the front door runs, and what it prints is a measurement", () =
     cleanup();
   });
 
-  test("violating tree: stdout reproduces the scanner's verdict ROW FOR ROW", () => {
-    const root = makeRoot();
-    writeFileSync(join(root, "specs", "frs", "STE-001.md"), violatingFr());
+  test("violating tree: stdout reproduces the GRADED verdict ROW FOR ROW", () => {
+    // A GIT fixture committed after the epoch. The observability this leg needs
+    // comes from the fixture having a datable history — not from the door
+    // skipping the grading arm, which is what it used to come from.
+    const root = makeGitRoot({ "specs/frs/STE-001.md": violatingFr() });
 
-    // Both sides derived. The expectation is computed from the same scanner
-    // the front door is supposed to be a door onto — never a typed literal —
+    // Both sides derived, and now from the GRADED entry — the one the
+    // registration orders and the door is a door onto. Never a typed literal,
     // so a front door printing a fixed string cannot satisfy it.
-    const expected = scanFrSummaryAltitude(root).map(renderRow);
+    const expected = runFrSummaryAltitudeProbe(root).violations.map(renderGradedRow);
     expect(
       expected.length,
       "the fixture must actually violate, or the leg below is vacuous",
@@ -230,8 +306,7 @@ describe("C5 — the front door runs, and what it prints is a measurement", () =
   });
 
   test("it names BOTH rule classes — accumulating and per-line", () => {
-    const root = makeRoot();
-    writeFileSync(join(root, "specs", "frs", "STE-001.md"), violatingFr());
+    const root = makeGitRoot({ "specs/frs/STE-001.md": violatingFr() });
     const run = runCli(FR_SCANNER, root);
     expect(run.stdout).toContain("word_cap");
     expect(run.stdout).toContain("backtick");
@@ -239,39 +314,57 @@ describe("C5 — the front door runs, and what it prints is a measurement", () =
     cleanup();
   });
 
-  test("NOT SILENCED BY PROVENANCE — the trap this module carries and its sibling does not", () => {
+  test("NOT SILENCED BY PROVENANCE — the vacuity control, re-aimed", () => {
+    // THE ORIGINAL FEAR, KEPT. A non-git tree classifies `legacy`, so the
+    // grading arm spares every `word_cap` row. A door that simply dropped them
+    // would print nothing on a file breaking two caps and read as a clean pass
+    // — which is the vacuity this whole file exists to catch.
     const root = makeRoot();
     writeFileSync(join(root, "specs", "frs", "STE-001.md"), violatingFr());
 
-    // THE CONTROL. A temp directory is not a git tree, so the graded runtime
-    // entry point classifies the file `legacy` and drops every `word_cap` row
-    // into `grandfathered`. A front door wired to THAT would print nothing here
-    // and read as a clean pass on a file that breaks two caps.
+    // THE CONTROL: the grading arm really does spare them here.
     const graded = runFrSummaryAltitudeProbe(root);
     expect(graded.grandfatheredRows).toBeGreaterThan(0);
     expect(graded.violations.filter((v) => v.rule === "word_cap")).toEqual([]);
 
-    // THE REFUSAL. The front door speaks for the raw scanner, so the row the
-    // grandfathering arm spared is still printed.
+    // THE REFUSAL, now met by DISCLOSURE rather than by raw output. The door
+    // routes graded — so a consumer's pre-epoch prose is not reported as a
+    // failure — and it still says what it spared, so the run cannot be mistaken
+    // for a clean one. Silence is what was forbidden; grading is not silence.
     const run = runCli(FR_SCANNER, root);
+    expect(run.exitCode, run.stderr).toBe(0);
     expect(
       run.stdout,
-      "the front door went silent on a violating fixture because the tree is not " +
-        "a git repository — that is the vacuity, not a pass",
-    ).toContain("word_cap");
+      "the front door went silent on a violating fixture — that is the vacuity, " +
+        "and disclosing the sparing is what refuses it",
+    ).toContain("grandfathered");
+    expect(run.stdout, "the spared count must be stated, not merely alluded to")
+      .toMatch(/grandfathered: [1-9]\d* row\(s\)/);
+    cleanup();
+  });
+
+  test("a POST-EPOCH violation is still reported at error — sparing is not blanket", () => {
+    // The other half of the fear: a door that discloses sparing but never
+    // reports anything would also be worthless. This is the same fixture shape
+    // with a datable history, and it fails.
+    const root = makeGitRoot({ "specs/frs/STE-001.md": violatingFr() });
+    const run = runCli(FR_SCANNER, root);
+    expect(run.stdout).toContain("word_cap");
+    expect(run.stdout).toContain("error");
+    expect(run.stdout, "nothing was spared on a post-epoch tree").not.toContain("grandfathered");
     cleanup();
   });
 
   test("the sibling still behaves identically — no regression on the half that worked", () => {
-    const root = mkdtempSync(join(tmpdir(), "fr-front-door-plan-"));
-    dirs.push(root);
-    mkdirSync(join(root, "specs", "plan"), { recursive: true });
-    writeFileSync(
-      join(root, "specs", "plan", "M999.md"),
-      ["# Plan", "", "## M999", "", "### Notes", "", new Array(200).fill("narrative").join(" "), ""].join("\n"),
-    );
-    const expected = scanPlanNarrativeAltitude(root).map(renderRow);
-    expect(expected.length).toBeGreaterThan(0);
+    const root = makeGitRoot({
+      "specs/plan/M999.md": ["# Plan", "", "## M999", "", "### Notes", "",
+        new Array(200).fill("narrative").join(" "), ""].join("\n"),
+    });
+    // A git fixture here too, for the same reason: the plan door also routes
+    // graded now, so a non-git tree would be spared and the leg would compare
+    // the disclosure line against a raw row.
+    const expected = runPlanNarrativeAltitudeProbe(root).violations.map(renderGradedRow);
+    expect(expected.length, "the fixture must actually violate").toBeGreaterThan(0);
     expect(runCli(PLAN_SCANNER, root).lines).toEqual(expected);
     cleanup();
   });
