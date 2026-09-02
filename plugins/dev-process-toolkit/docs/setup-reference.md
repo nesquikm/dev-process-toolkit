@@ -207,7 +207,7 @@ After all writes (steps 5–8) settle, step 8a's audit-section post-condition ha
 Procedure:
 
 1. **Pre-flight check.** Run `git status --porcelain`. If the only untracked or modified files are in the bootstrap set, proceed. Anything else → abort with NFR-10 canonical shape: `"uncommitted changes exist; resolve before /setup"`. If the project is not a git repo, run `git init` first.
-2. **Stage the canonical set.** `CLAUDE.md`, `.claude/settings.json`, `.mcp.json` (when written), `specs/requirements.md`, `specs/technical-spec.md`, `specs/testing-spec.md`, `specs/plan/M1.md`, plus `.gitkeep` stubs in `specs/frs/`, `specs/frs/archive/`, `specs/plan/archive/` so empty dirs survive the initial commit.
+2. **Stage the canonical set.** `CLAUDE.md`, `.claude/settings.json`, `.mcp.json` (when written), `specs/requirements.md`, `specs/technical-spec.md`, `specs/testing-spec.md`, `specs/plan/M1.md` (tracker mode) or `specs/plan/M_<tail>.md` (`mode: none`), plus `.gitkeep` stubs in `specs/frs/`, `specs/frs/archive/`, `specs/plan/archive/` so empty dirs survive the initial commit.
 3. **Diff preview.** Show the user the diff. Prompt: `Commit these as 'chore: bootstrap dev-process-toolkit'? (y/n/edit)`. Default `y` in autonomous mode.
 4. **Commit.** Message format: `chore: bootstrap dev-process-toolkit (v<plugin-version>)`. Version comes from `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`. Body lists the files written, not their contents.
 5. **On `n`.** Log a warning to the final report and append a `## /setup audit` entry: `step:8b (bootstrap_commit) value:"declined" reason:"user declined commit, manual commit required before /spec-write"`. Files stay staged.

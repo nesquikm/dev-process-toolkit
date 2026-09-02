@@ -181,7 +181,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.75.0 — "Laconic"** (M137, say less: the toolkit was verbose on the three surfaces a human actually reads. Stage reports are now one fenced status block with a fixed section order and a line budget spanning the whole report, prose lead-in included, adopted by the eleven skills that carry a closing-summary contract; FR narrative sections gained word caps on the altitude probe that already existed, so no probe id and no published count moved for that rule; plan narrative is capped by what a subsection IS rather than what it is called, counting checkbox items rather than lines because the mandated two-line task entry sits at exactly half and could never clear the threshold; and every budget is stated where the writing happens, single-sourced from the scanner that enforces it and asserted in both drift directions.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.75.1 — "Namesake"** (M138, bootstrap identity: a tracker-less project bootstrapped with no arguments got a plan named with a sequential number, the one shape that mode does not use, and nothing went red because the bootstrap plan is exempt from the probe that would object. `/setup` now mints the identity when it writes the plan, so the name is right from the moment the file exists, and `/spec-write` adopts that recorded identity instead of minting a second one — rewriting the frontmatter in place rather than renaming, with the single mint pinned as a call count because a second mint leaves no trace in the filename.)
 
 ## Core Philosophy
 
