@@ -710,9 +710,14 @@ export async function runPlanIdentityModeConditionalProbe(
     // at it. Gathered only under `mode: none`, and only for plans sitting
     // directly in `specs/plan/` — an archived scaffold is the correct resting
     // place for a consumed one, not a defect.
+    // The `kind:` test runs FIRST and the filename test second. Since STE-537
+    // /setup mints the scaffold's own filename under `mode: none`, a scaffold
+    // now normally IS a minted name; testing the name first would file it under
+    // activeMintedPlans, leave activeScaffolds empty, and blind this pass
+    // permanently against the one pairing it exists to catch.
     if (!isTracker && dirname(file) === planDir) {
-      if (isMintedPlanId(basename(file))) activeMintedPlans.push(basename(file));
-      else if (planKind(content) === SCAFFOLD_PLAN_KIND) activeScaffolds.push({ file, rel });
+      if (planKind(content) === SCAFFOLD_PLAN_KIND) activeScaffolds.push({ file, rel });
+      else if (isMintedPlanId(basename(file))) activeMintedPlans.push(basename(file));
     }
 
     if (isTracker) {

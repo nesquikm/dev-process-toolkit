@@ -183,8 +183,8 @@ const PROBE_MODULES = {
  * any edit, committed or not, forever. If a LATER milestone legitimately
  * changes a probe, it updates this constant deliberately, which is the point.
  */
-// RE-RECORDED IN M137, deliberately, with evidence — read this before moving
-// either value again.
+// RE-RECORDED IN M137 AND AGAIN IN M138, deliberately, with evidence — read
+// this before moving either value again.
 //
 // This pin's AC (`STE-488.4`) says "nothing in THIS FR touches the systems
 // under test", and the docstring above says "as it stands BEFORE this FR".
@@ -207,13 +207,29 @@ const PROBE_MODULES = {
 // conditional, m119-441, m119-442, m120-443, m126-481, m116-424) — identical
 // pass/fail/skip AND identical `expect()` counts both ways.
 //
+// `planIdentity` moved AGAIN in M138 (STE-537), authorised by that FR's
+// § Technical Design: the unconsumed-scaffold accumulator now tests
+// `planKind(content) === SCAFFOLD_PLAN_KIND` BEFORE `isMintedPlanId(basename)`.
+// The order had to invert because /setup now mints the scaffold's own filename
+// under `mode: none`, so a scaffold normally IS a minted name; testing the name
+// first filed it under `activeMintedPlans`, left `activeScaffolds` empty, and
+// blinded that pass permanently against the one pairing it exists to catch.
+//
+// Unlike M137's, this edit CHANGES BEHAVIOUR — deliberately, in exactly one
+// respect, and that is the FR's whole point. The evidence is therefore the
+// complement: every PRE-EXISTING suite is unchanged. The same 294 tests across
+// the same 7 files were run against the module before and after the reorder —
+// 294 pass / 0 fail / 790 `expect()` calls, identical both ways — and the one
+// behavioural difference is asserted positively by its own new leg in
+// `m138-ste-537-setup-scaffold-identity.test.ts`, which is RED on the old order.
+//
 // A digest that may never be re-recorded is not a pin, it is a freeze, and a
 // freeze on a live module trips on every legitimate refactor while carrying no
 // information. Re-recording is legitimate when it is deliberate, reviewed, and
 // carries evidence. Do it that way or not at all.
 const PROBE_MODULE_SHA256 = {
   identity: "ea2ca90d8e00c119bea9cd02c30d23b58f7a4a076ed7557800cb1db0e6d63326",
-  planIdentity: "eb4424954dd0bbb7786d843179154f6d5fe5471608f15084a7ef22912b34fc4b",
+  planIdentity: "3017e243f529f19442e5aa07a36d5e18aa1c5bdb1c77e3f4472285ed86618833",
 } as const;
 
 /** The two canonical probe sentences the retired assertions demanded verbatim. */

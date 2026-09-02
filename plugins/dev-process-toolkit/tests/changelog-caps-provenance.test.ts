@@ -20,9 +20,12 @@
 // 32 milestones" is a bigger statement than "fixed a bug we just wrote", and it
 // is the true one.
 //
-// RED-state until `CHANGELOG.md`'s topmost release entry carries that
+// RED-state until `CHANGELOG.md`'s v2.75.0 release entry carries that
 // provenance, and until STE-534's existing line says what it inherited from the
-// probe it was added to: the accumulator.
+// probe it was added to: the accumulator. That entry is addressed BY VERSION
+// (`DOCUMENTED_RELEASE`) rather than as "the topmost one": these are claims
+// about the release that shipped the caps, and reading whichever entry happens
+// to sit at the top turned them into a demand on every future release instead.
 //
 // THE NUMBERS ARE DERIVED, NOT QUOTED. 616 and 319 are re-measured here by
 // copying `specs/frs/archive/*.md` into an ACTIVE `specs/frs/` and running the
@@ -78,12 +81,26 @@ interface ReleaseEntry {
   readonly bullets: readonly string[];
 }
 
-/** The topmost `## [X.Y.Z]` section — the one a release ships. */
-function topmostEntry(): ReleaseEntry {
+/**
+ * The release whose entry carries item B's provenance claim.
+ *
+ * PINNED, and deliberately not "whatever is topmost". These assertions are
+ * about ONE release's CHANGELOG entry — the one that shipped the word caps and
+ * the accumulator. Reading the topmost entry instead made them a demand on
+ * every FUTURE release: the next milestone to ship inherits `topmost`, and is
+ * then required to restate M137's provenance in its own entry and to sit
+ * exactly `MILESTONE_SPAN` milestones after `line_cap`. M138 was the first
+ * release to trip it, and every release after would have tripped it too.
+ * A claim about a past entry is pinned to that entry.
+ */
+const DOCUMENTED_RELEASE = "2.75.0";
+
+/** The `## [X.Y.Z]` section for `version`. */
+function entryFor(version: string): ReleaseEntry {
   const lines = read(CHANGELOG).split("\n");
-  const start = lines.findIndex((l) => /^## \[\d+\.\d+\.\d+\]/.test(l));
-  if (start < 0) throw new Error("CHANGELOG.md carries no release entry at all");
-  const version = /^## \[(\d+\.\d+\.\d+)\]/.exec(lines[start]!)![1]!;
+  const head = new RegExp(`^## \\[${version.replace(/\./g, "\\.")}\\]`);
+  const start = lines.findIndex((l) => head.test(l));
+  if (start < 0) throw new Error(`CHANGELOG.md carries no [${version}] release entry`);
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i++) {
     if (/^## \[/.test(lines[i]!)) {
@@ -200,7 +217,7 @@ function shippingMilestone(version: string): number {
 
 /** The milestone `line_cap` — the first accumulating rule — shipped in. */
 const LINE_CAP_MILESTONE = milestoneOf(join(ARCHIVE_FRS, "STE-386.md"));
-const MILESTONE_SPAN = shippingMilestone(topmostEntry().version) - LINE_CAP_MILESTONE;
+const MILESTONE_SPAN = shippingMilestone(DOCUMENTED_RELEASE) - LINE_CAP_MILESTONE;
 
 // ───────────────────────────────────────────────────────────────────────────
 // The requirement set
@@ -316,7 +333,7 @@ describe("item B — the requirement set discriminates before it is applied", ()
 
 describe("item B — the shipped CHANGELOG carries it", () => {
   test("exactly ONE entry closes both — the epoch and the accumulator", () => {
-    const joint = jointBullets(topmostEntry().bullets);
+    const joint = jointBullets(entryFor(DOCUMENTED_RELEASE).bullets);
     expect(
       joint.length,
       "the two closures must be ONE entry: their consumer profiles are opposite " +
@@ -325,7 +342,7 @@ describe("item B — the shipped CHANGELOG carries it", () => {
   });
 
   test("that entry states the whole provenance", () => {
-    const entry = topmostEntry();
+    const entry = entryFor(DOCUMENTED_RELEASE);
     const joint = jointBullets(entry.bullets)[0];
     expect(joint, "no entry in the topmost release mentions both halves").toBeDefined();
     expect(
@@ -335,7 +352,7 @@ describe("item B — the shipped CHANGELOG carries it", () => {
   }, 60_000);
 
   test("STE-534's own line says what it inherited: the accumulator", () => {
-    const entry = topmostEntry();
+    const entry = entryFor(DOCUMENTED_RELEASE);
     const joint = new Set(jointBullets(entry.bullets));
     // The EXISTING STE-534 line, not the new joint one — "word caps were added
     // to the probe that already exists" is accurate and now pointed.

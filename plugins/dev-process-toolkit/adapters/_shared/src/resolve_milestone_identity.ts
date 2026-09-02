@@ -21,10 +21,13 @@
 //                  Epic-first derivation, `PROJ-500` → `M_PROJ_500`. Its
 //                  never-a-silent-bad-id contract survives the dispatch: an
 //                  unsanitizable key throws rather than returning a bad token.
-//   mode: none   → `mintMilestoneId` (mint_milestone_id.ts)
-//                  the collision-guarded minter. This branch is the only one
-//                  that produces an `id`, and it is STRUCTURALLY incapable of
-//                  emitting a sequential `M<N>`: it never consults the scan.
+//   mode: none   → `adoptOrMintMilestoneId` (adopt_or_mint_milestone_id.ts)
+//                  ADOPT the identity `/setup` step 8 already recorded on the
+//                  bootstrap plan, falling back to the collision-guarded
+//                  `mintMilestoneId` when there is nothing adoptable (STE-538).
+//                  This branch is the only one that produces an `id`, and it is
+//                  STRUCTURALLY incapable of emitting a sequential `M<N>`:
+//                  neither the adopted nor the minted half consults the scan.
 //
 // The return type is one interface with an optional `id` rather than three
 // shapes, so the call site is a single destructure. `id` is present ONLY on
@@ -39,8 +42,8 @@
 // dispatcher runs BEFORE any plan or FR file is written, because the
 // tracker-less branch determines the plan filename.
 
+import { adoptOrMintMilestoneId, type MilestoneMinter } from "./adopt_or_mint_milestone_id";
 import { milestoneIdFromEpicKey } from "./milestone_token";
-import { mintMilestoneId } from "./mint_milestone_id";
 import {
   nextFreeMilestoneNumber,
   type BranchMilestoneScanner,
@@ -67,6 +70,17 @@ export interface ResolveMilestoneIdentityInput {
   changelogPath?: string;
   provider?: MilestoneListingProvider;
   branchScanner?: BranchMilestoneScanner;
+  /**
+   * Optional allocator seam, forwarded verbatim on the `none` branch — the same
+   * kind of injection point as `provider` / `branchScanner` above, and defaulted
+   * the same way (omit it and `adoptOrMintMilestoneId` falls back to the real
+   * `mintMilestoneId`). It exists because a SECOND mint leaves no trace in the
+   * outcome: both mints produce a well-formed `M_<tail>` carrying a well-formed
+   * `id:` the name derives, so the only falsifiable form of "it minted once" is
+   * a counter on an injected minter — and a counter the dispatcher never reaches
+   * measures nothing.
+   */
+  minter?: MilestoneMinter;
 }
 
 /** A resolved milestone identity. `id` is present on the `none` branch only. */
@@ -125,9 +139,12 @@ export async function resolveMilestoneIdentity(
       return { milestoneId: milestoneIdFromEpicKey(input.epicKey ?? "") };
     }
     case "none": {
-      // The minter owns both halves of the identity; an `epicKey` supplied
-      // here is IGNORED by construction, never used to derive the token.
-      const minted = mintMilestoneId(input.specsDir);
+      // Adoption first, minting only when there is nothing to adopt. Either
+      // way ONE allocator owns both halves of the identity; an `epicKey`
+      // supplied here is IGNORED by construction, never used to derive the
+      // token. The branch's contract is unchanged: it is the only one that
+      // returns an `id` key.
+      const minted = adoptOrMintMilestoneId(input.specsDir, input.minter);
       return { milestoneId: minted.milestoneId, id: minted.id };
     }
     default: {
