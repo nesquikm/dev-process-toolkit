@@ -203,25 +203,48 @@ describe("new work is FRESH, not undecidable — the siblings' disposition", () 
     git(root, ["add", "--", "specs/plan/M51.md"]);
     expect(classifyPlanNarrativeProvenance(root, "M51.md")).toBe("fresh");
     const report = runPlanNarrativeAltitudeProbe(root);
-    expect(report.violations.every((v) => v.severity === "error")).toBe(true);
+    // NON-VACUITY FIRST, and it is the load-bearing half. `.every()` on an
+    // empty array is `true` and `grandfathered` is `[]` when nothing was
+    // graded, so without this guard a probe reporting NOTHING satisfies both
+    // clauses below — and the severity clause is exactly what this leg is for,
+    // since undecidable->warning versus fresh->error IS the defect.
+    expect(report.violations.length, "a staged over-cap plan must be reported").toBeGreaterThan(0);
+    expect(report.violations.every((v) => v.severity === "error"),
+      "error, not the warning `undecidable` would produce").toBe(true);
     expect(report.grandfathered).toEqual([]);
     cleanup();
   });
 
-  test("the three modules AGREE — parity asserted, not assumed", () => {
-    // Cross-module parity in one leg, so a future change to any one of them
-    // that re-introduces the divergence reddens here rather than going unnoticed
-    // until a consumer's new plan quietly downgrades to a warning.
+  test("the three modules AGREE on BOTH branches — parity asserted, not assumed", () => {
+    // BOTH branches, because the first version of this leg exercised only the
+    // UNTRACKED case while claiming to cover any re-introduced divergence.
+    // Measured: mutating the plan module's STAGED branch to `undecidable` left
+    // this leg green (it reddened elsewhere, so coverage was not holed — but
+    // the leg whose whole job is parity covered neither half of it).
     const root = seeded();
     mkdirSync(join(root, "specs", "frs"), { recursive: true });
-    writeFileSync(join(root, "specs", "plan", "M52.md"), `# M52\n\n### Rationale\n\n${overCap()}\n`);
-    writeFileSync(join(root, "specs", "frs", "STE-52.md"), `# STE-52\n\n## Summary\n\n${overCap()}\n`);
-    expect(classifyPlanNarrativeProvenance(root, "M52.md")).toBe("fresh");
-    expect(classifyFrProvenance(root, join(root, "specs", "frs", "STE-52.md"))).toBe("fresh");
-    expect(
-      classifyPlanProvenance(root, join(root, "specs", "plan", "M52.md"),
-        readFileSync(join(root, "specs", "plan", "M52.md"), "utf-8")),
-    ).toBe("fresh");
+    const planOf = (n: string): string => join(root, "specs", "plan", `${n}.md`);
+    const frOf = (n: string): string => join(root, "specs", "frs", `${n}.md`);
+
+    // UNTRACKED on both sides.
+    writeFileSync(planOf("M52"), `# M52\n\n### Rationale\n\n${overCap()}\n`);
+    writeFileSync(frOf("STE-52"), `# STE-52\n\n## Summary\n\n${overCap()}\n`);
+    // STAGED but never committed on both sides.
+    writeFileSync(planOf("M53"), `# M53\n\n### Rationale\n\n${overCap()}\n`);
+    writeFileSync(frOf("STE-53"), `# STE-53\n\n## Summary\n\n${overCap()}\n`);
+    git(root, ["add", "--", "specs/plan/M53.md", "specs/frs/STE-53.md"]);
+
+    for (const [branch, plan, fr] of [
+      ["untracked", "M52", "STE-52"],
+      ["staged", "M53", "STE-53"],
+    ] as const) {
+      expect(classifyPlanNarrativeProvenance(root, `${plan}.md`), `${branch}: plan scanner`).toBe("fresh");
+      expect(classifyFrProvenance(root, frOf(fr)), `${branch}: FR sibling`).toBe("fresh");
+      expect(
+        classifyPlanProvenance(root, planOf(plan), readFileSync(planOf(plan), "utf-8")),
+        `${branch}: plan-identity sibling`,
+      ).toBe("fresh");
+    }
     cleanup();
   });
 });
