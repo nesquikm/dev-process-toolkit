@@ -34,24 +34,6 @@ Before Step 1, check whether this branch archives a milestone without carrying i
 
 This pre-flight is soft: it never auto-blocks, and every choice is the operator's. Branches with no archive moves — spec-only PRs included — see no prompt at all and go straight to Step 1.
 
-## Merge-Boundary Check (CHANGELOG test count)
-
-Before Step 1, check whether the release entry's test count still describes this branch. Call `checkMergeBoundary(repoRoot)` from `adapters/_shared/src/release_test_count_guard.ts`: it is a git query — the commit that LAST WROTE the count line in `CHANGELOG.md`, the commits since it, and the test files those commits changed — and it costs milliseconds, never a gate run. It anchors on the artifact, never on a `chore(release):` subject: `git log --grep` anchors `^` at every line of a message, so a merge commit quoting a release subject in its body steals the anchor and the guard reports clean forever after.
-
-It warns only when BOTH hold: commits landed past the anchor AND at least one of them changed a test file. A docs-only commit cannot move the count, and warning about it would train the operator to ignore the warning. The verdict has THREE states: `fresh` prints nothing, `stale` warns, and `indeterminate` — a shallow clone, no `CHANGELOG.md`, or a top entry stating no count — prints the module's NOT CHECKED notice and does NOT block. An unchecked tree must never read as a clean one. When it does fire, print the module's warning verbatim — quoted here rather than retyped, so the two cannot drift:
-
-```
-/pr: the CHANGELOG test count was written at <sha>; work has landed on top of it since.
-  commits since the release commit: <C>
-  test files changed since it: <T>
-  - <changed test file>
-The stated count cannot describe this branch — it was measured before those commits.
-Remedy: re-run the gate and rewrite the topmost CHANGELOG entry's closing line, then amend the release commit; or open this PR and let the release ship after it merges.
-Context: release=<sha>, commits-since=<C>, test-files-changed=<T>, skill=pr
-```
-
-This check is soft, like the ship-state pre-flight above: it never blocks, and the operator decides whether to amend the release or let the count be rewritten by the next one. It exists because the count is written once and the branch keeps moving — measured on this repository at `f504493`, where a count that was honest when written was 242 tests short by the time the PR opened.
-
 ## Steps
 
 1. Check `git status` and `git log` to understand what's being submitted
