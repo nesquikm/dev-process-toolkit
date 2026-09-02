@@ -95,6 +95,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join, relative } from "node:path";
 import { milestoneIdFromUlid } from "../adapters/_shared/src/milestone_token";
+import { mintMilestoneId } from "../adapters/_shared/src/mint_milestone_id";
 import { runPlanIdentityModeConditionalProbe } from "../adapters/_shared/src/plan_identity_mode_conditional";
 import { resolveMilestoneIdentity } from "../adapters/_shared/src/resolve_milestone_identity";
 import { ULID_REGEX } from "../adapters/_shared/src/ulid";
@@ -186,19 +187,28 @@ async function loadConsumeModule(): Promise<ConsumeScaffoldModule> {
 const SEEDED_MARKER = "verify: bun test src/barrel.test.ts";
 const BOOTSTRAP_ROW = "| <scaffolding> | Bootstrap (barrel + primary feature shipped pre-toolkit) | n/a |";
 
-/** Mirrors `/setup` step 8's bootstrap-milestone routing (STE-197 AC-STE-197.3). */
-function scaffoldPlanSource(): string {
+/**
+ * Mirrors `/setup` step 8's bootstrap-milestone routing (STE-197 AC-STE-197.3).
+ *
+ * PARAMETERISED BY IDENTITY since M138/STE-537: step 8 names the bootstrap plan
+ * per mode — `M1.md` under a tracker, `M_<tail>.md` carrying its minted `id:`
+ * under `mode: none`. Defaults to the legacy sequential shape so the fixtures
+ * that deliberately model an already-bootstrapped tracker-less project (and
+ * every tracker-mode fixture) read exactly as they did.
+ */
+function scaffoldPlanSource(
+  identity: { milestoneId: string; id?: string } = { milestoneId: "M1" },
+): string {
+  const token = identity.milestoneId;
+  const fm = ["---", `milestone: ${token}`, "status: active", "archived_at: null"];
+  if (identity.id !== undefined) fm.push(`id: ${identity.id}`);
+  fm.push("kind: scaffolding", "---");
   return [
-    "---",
-    "milestone: M1",
-    "status: active",
-    "archived_at: null",
-    "kind: scaffolding",
-    "---",
+    ...fm,
     "",
     "# Implementation Plan",
     "",
-    "## M1 — Foundation / Scaffolding {#M1}",
+    `## ${token} — Foundation / Scaffolding {#${token}}`,
     "",
     "**Goal:** bootstrap the detected stack.",
     "",
@@ -256,12 +266,24 @@ const AFTER_MINT_EPOCH = "2026-08-16T12:00:00Z";
 interface Project {
   root: string;
   specsDir: string;
+  /** Basename of the scaffold `/setup` left behind (`M1.md` / `M_<tail>.md`). */
+  scaffoldName: string;
+  /** The scaffold's own minted id — `mode: none`, non-legacy naming only. */
+  scaffoldId?: string;
   cleanup: () => void;
 }
 
 /**
  * A project as `/setup` leaves it: `specs/plan/{,archive/}` plus the
  * `kind: scaffolding` bootstrap plan.
+ *
+ * SCAFFOLD NAMING IS MODE-CONDITIONAL since M138/STE-537. Under `mode: none`
+ * step 8 mints the milestone identity and writes `M_<tail>.md` recording it;
+ * under either tracker it still writes `M1.md`. Fixtures read the name off
+ * `project.scaffoldName` rather than hard-coding it, so the two shapes stay
+ * distinguishable. `legacyScaffoldName` opts back into the sequential name for
+ * the legs that model an ALREADY-bootstrapped tracker-less project — the
+ * upgrade population whose `M1.md` must keep working untouched.
  */
 function setupProject(opts: {
   mode?: "none" | "linear" | "jira";
@@ -271,15 +293,29 @@ function setupProject(opts: {
   scaffoldRaw?: string;
   /** Initialise a git repo and commit the scaffold at this instant. */
   committedAt?: string;
+  /** Force the pre-STE-537 sequential `specs/plan/M1.md` name. */
+  legacyScaffoldName?: boolean;
 } = {}): Project {
   const root = mkdtempSync(join(tmpdir(), "ste481-plan-"));
   const specsDir = join(root, "specs");
   mkdirSync(join(specsDir, "plan", "archive"), { recursive: true });
-  writeFileSync(join(root, "CLAUDE.md"), claudeMd(opts.mode ?? "none"));
+  const mode = opts.mode ?? "none";
+  writeFileSync(join(root, "CLAUDE.md"), claudeMd(mode));
   writeFileSync(join(root, "README.md"), "# Fixture\n");
 
+  let scaffoldName = "M1.md";
+  let scaffoldId: string | undefined;
   if (opts.scaffold !== false) {
-    writeFileSync(join(specsDir, "plan", "M1.md"), opts.scaffoldRaw ?? scaffoldPlanSource());
+    if (mode === "none" && opts.legacyScaffoldName !== true) {
+      const minted = mintMilestoneId(specsDir);
+      scaffoldName = `${minted.milestoneId}.md`;
+      scaffoldId = minted.id;
+    }
+    writeFileSync(
+      join(specsDir, "plan", scaffoldName),
+      opts.scaffoldRaw ??
+        scaffoldPlanSource({ milestoneId: scaffoldName.replace(/\.md$/, ""), id: scaffoldId }),
+    );
   }
 
   if (opts.committedAt !== undefined) {
@@ -294,7 +330,13 @@ function setupProject(opts: {
     });
   }
 
-  return { root, specsDir, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  return {
+    root,
+    specsDir,
+    scaffoldName,
+    scaffoldId,
+    cleanup: () => rmSync(root, { recursive: true, force: true }),
+  };
 }
 
 /** Every ACTIVE plan file — `specs/plan/*.md`, `archive/` deliberately excluded. */
@@ -355,12 +397,30 @@ describe("AC-STE-481.1 — `/setup` then `/spec-write` under `mode: none` leaves
     const project = setupProject();
     try {
       // Precondition: /setup really did leave its scaffold behind.
-      expect(activePlanFiles(project.specsDir)).toEqual(["M1.md"]);
+      expect(activePlanFiles(project.specsDir)).toEqual([project.scaffoldName]);
 
       await specWriteMint(project, mod);
 
       const survivor = assertExactlyOneActivePlan(project.specsDir);
-      expect(survivor).not.toBe("M1.md");
+
+      // SUPERSEDED SHAPE (M138/STE-537 + STE-538). This used to read
+      // `not.toBe(project.scaffoldName)` — a proxy for "consumption really
+      // happened", valid only while the scaffold arrived under a name the
+      // minted survivor could never occupy. Step 8 now writes the tracker-less
+      // scaffold ALREADY at its minted name and `/spec-write` ADOPTS that
+      // identity, so on this fixture the survivor IS `project.scaffoldName` and
+      // the old proxy asserts the opposite of the contract.
+      //
+      // AC.1's invariant is `assertExactlyOneActivePlan` above and it is
+      // unchanged. What is re-pinned here is the same thing the proxy stood
+      // for, expressed on the adoption path: the survivor carries the minted
+      // shape, and the scaffold MARKER — the thing consumption consumes — is
+      // gone from its frontmatter. A consumption that silently no-ops leaves
+      // `kind: scaffolding` sitting there and fails on the second assertion.
+      expect(survivor).toMatch(MINTED_PLAN_RE);
+      const survivorFm = frontmatterOf(read(join(project.specsDir, "plan", survivor)));
+      expect(survivorFm).toMatch(/^milestone:/m); // non-vacuity: frontmatter really parsed
+      expect(survivorFm).not.toMatch(/^kind:/m);
     } finally {
       project.cleanup();
     }
@@ -373,8 +433,14 @@ describe("AC-STE-481.1 — `/setup` then `/spec-write` under `mode: none` leaves
       const { outcome } = await specWriteMint(project, mod);
 
       expect(outcome.consumed).toBe(true);
-      expect(outcome.from).toBe(join(project.specsDir, "plan", "M1.md"));
-      expect(existsSync(outcome.from!)).toBe(false);
+      expect(outcome.from).toBe(join(project.specsDir, "plan", project.scaffoldName));
+      // SUPERSEDED SHAPE (STE-538). This used to assert the OLD path had been
+      // vacated — the tell of a rename. On the adoption path `from === to`, so
+      // the scaffold's own path correctly still exists; asserting `false` here
+      // would demand the very file the adoption branch exists to keep. The real
+      // point survives below: the seeded content is still there, in a file that
+      // was rewritten in place rather than delete-and-recreated.
+      expect(outcome.from).toBe(outcome.to);
       expect(existsSync(outcome.to)).toBe(true);
 
       const survivorBody = read(outcome.to);
@@ -425,7 +491,7 @@ describe("AC-STE-481.1 — `/setup` then `/spec-write` under `mode: none` leaves
     const project = setupProject({ scaffoldRaw: raw });
     try {
       expect(mod.findScaffoldPlan(project.specsDir)).toBe(
-        join(project.specsDir, "plan", "M1.md"),
+        join(project.specsDir, "plan", project.scaffoldName),
       );
       const { outcome } = await specWriteMint(project, mod);
       expect(outcome.consumed).toBe(true);
@@ -465,7 +531,7 @@ describe("AC-STE-481.1 — `/setup` then `/spec-write` under `mode: none` leaves
         }),
       ).toThrow();
       expect(read(taken)).toContain("# taken");
-      expect(existsSync(join(project.specsDir, "plan", "M1.md"))).toBe(true);
+      expect(existsSync(join(project.specsDir, "plan", project.scaffoldName))).toBe(true);
     } finally {
       project.cleanup();
     }
@@ -616,14 +682,29 @@ describe("AC-STE-481.3 — the shipped prose about the plan filename is true as 
     expect(row).toMatch(/scaffold/i);
   });
 
-  test("`/setup`'s class-(5) inventory still promises `specs/plan/M1.md` unconditionally", () => {
-    // The consume direction is chosen precisely so this stays true. A "do not
-    // scaffold under mode: none" implementation falsifies it, which is the same
-    // untrue-surface defect AC.3 exists to close.
-    const body = read(SETUP_SKILL);
-    expect(body).toContain("`specs/plan/M1.md`");
-    expect(body).toContain("emitted unconditionally");
-    expect(body).toContain("The scaffold list is non-negotiable");
+  test("`/setup`'s class-(5) inventory still promises a bootstrap plan — now per mode", () => {
+    // The consume direction is chosen precisely so this inventory stays TRUE.
+    // A "do not scaffold under mode: none" implementation falsifies it, which
+    // is the same untrue-surface defect AC.3 exists to close.
+    //
+    // REWRITTEN LINE-SCOPED (M138/STE-537). This used to read `read(SETUP_SKILL)`
+    // file-wide, and `specs/plan/M1.md` appears on TWO lines of that file — the
+    // step-8 producing instruction and this inventory sentence — so a file-wide
+    // `toContain` was satisfied by either and re-pinned neither. It also asserted
+    // the claim was UNCONDITIONAL, which STE-537 retires: step 8 now writes
+    // `M_<tail>.md` under `mode: none`. The deliverable is still emitted
+    // unconditionally; only its NAME is mode-dependent.
+    const hits = read(SETUP_SKILL)
+      .split("\n")
+      .filter((l) => l.includes("Scaffold deliverables (canonical inventory"));
+    expect(hits).toHaveLength(1);
+    const line = hits[0]!;
+
+    expect(line).toContain("`specs/plan/M1.md`");
+    expect(line).toMatch(/specs\/plan\/M_/);
+    expect(line).toMatch(/mode: none|tracker mode|tracker-less/);
+    expect(line).toContain("emitted unconditionally");
+    expect(line).toContain("The scaffold list is non-negotiable");
   });
 
   test("the plan template stops promising `kind: scaffolding` silences the probe forever", () => {
@@ -683,7 +764,7 @@ describe("AC-STE-481.4 — probe #73 no longer papers over an unconsumed scaffol
     // A real git repo committed AFTER the mint epoch: without the exemption the
     // sequential plan would classify `fresh` anyway, so the fixture cannot pass
     // by accident of provenance.
-    const project = setupProject({ committedAt: AFTER_MINT_EPOCH });
+    const project = setupProject({ committedAt: AFTER_MINT_EPOCH, legacyScaffoldName: true });
     try {
       const id = "fr_01K9ZQ8XJ4VDTAF4VDTAF4VDTA";
       const milestoneId = milestoneIdFromUlid(id);
@@ -708,7 +789,7 @@ describe("AC-STE-481.4 — probe #73 no longer papers over an unconsumed scaffol
   test("a LONE scaffolding plan is still exempt — narrowed, not retired", async () => {
     // Same post-epoch git provenance. Retiring the exemption outright would
     // hard-fail every freshly bootstrapped project on its own /setup output.
-    const project = setupProject({ committedAt: AFTER_MINT_EPOCH });
+    const project = setupProject({ committedAt: AFTER_MINT_EPOCH, legacyScaffoldName: true });
     try {
       expect(activePlanFiles(project.specsDir)).toEqual(["M1.md"]);
       const report = await runPlanIdentityModeConditionalProbe(project.root);
@@ -721,6 +802,7 @@ describe("AC-STE-481.4 — probe #73 no longer papers over an unconsumed scaffol
   test("`kind: legacy` beside a minted plan stays silent — only scaffolding narrows", async () => {
     const project = setupProject({
       committedAt: AFTER_MINT_EPOCH,
+      legacyScaffoldName: true,
       scaffoldRaw: scaffoldPlanSource().replace("kind: scaffolding", "kind: legacy"),
     });
     try {
@@ -824,7 +906,7 @@ describe("AC-STE-481.5 — restoring the double-write fails the same assertion A
   }
 
   test("two active plan files ⇒ the AC.1 assertion throws", async () => {
-    const project = setupProject();
+    const project = setupProject({ legacyScaffoldName: true });
     try {
       await restoreDoubleWrite(project);
 
@@ -841,7 +923,7 @@ describe("AC-STE-481.5 — restoring the double-write fails the same assertion A
   });
 
   test("the restored double-write also reddens probe #73", async () => {
-    const project = setupProject({ committedAt: AFTER_MINT_EPOCH });
+    const project = setupProject({ committedAt: AFTER_MINT_EPOCH, legacyScaffoldName: true });
     try {
       await restoreDoubleWrite(project);
 

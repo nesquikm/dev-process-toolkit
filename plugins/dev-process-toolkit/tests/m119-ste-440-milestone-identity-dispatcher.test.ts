@@ -178,15 +178,22 @@ describe("AC-STE-440.1 — resolveMilestoneIdentity dispatches by mode", () => {
   test("it is a ROUTER: it delegates to the three owning helpers, never re-implements them", () => {
     // The Technical Design's load-bearing claim — "a thin router, not a
     // reimplementation" — is what keeps the five-way scan, the Epic-key
-    // derivation and the collision-guarded minter on their own tests. A
+    // derivation and the tracker-less allocator on their own tests. A
     // dispatcher that inlined any of them would pass the value assertions
     // below and silently fork the semantics on the next edit.
+    //
+    // The `none` branch's OWNING HELPER MOVED (M138/STE-538): it delegates to
+    // `adoptOrMintMilestoneId`, which adopts the identity `/setup` step 8 already
+    // recorded on the bootstrap plan and falls back to the collision-guarded
+    // `mintMilestoneId` itself. The router invariant is untouched — only the
+    // name of the helper that owns the branch — so the two `none` greps follow
+    // the delegation one hop out. The linear and jira greps are unchanged.
     const src = readFileSync(MODULE_PATH, "utf-8");
     expect(src).toMatch(/from\s+["']\.\/next_free_milestone_number["']/);
-    expect(src).toMatch(/from\s+["']\.\/mint_milestone_id["']/);
+    expect(src).toMatch(/from\s+["']\.\/adopt_or_mint_milestone_id["']/);
     expect(src).toMatch(/from\s+["']\.\/milestone_token["']/);
     expect(src).toMatch(/\bnextFreeMilestoneNumber\s*\(/);
-    expect(src).toMatch(/\bmintMilestoneId\s*\(/);
+    expect(src).toMatch(/\badoptOrMintMilestoneId\s*\(/);
     expect(src).toMatch(/\bmilestoneIdFromEpicKey\s*\(/);
     // Re-implementation tells: the minter's own primitives must not appear
     // here (they belong to `mint_milestone_id.ts`).
