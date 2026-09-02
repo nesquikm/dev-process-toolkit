@@ -139,16 +139,6 @@ For each entry, compute the new file content via `bumpFile(entry, currentContent
 
 `optional: true` entries whose `path` is missing on disk emit an `n/a` row in the proposed-diff summary; required (non-optional) entries with missing paths surface NFR-10 canonical refusal.
 
-**Write boundary — the stated count must be the gate's count.** Once the `kind: changelog` entry is rendered and before the step 6 diff, read the count back off it with `parseStatedTestCount(changelog)` and grade it: call `checkWriteBoundary({ milestone, version, stated, measured })` from `adapters/_shared/src/release_test_count_guard.ts`, where `measured` is the `TestCount` refusal #3 already parsed — the same run, never a second one. A missing closing line reads as absent, not as a stated zero, and skips the check. `ok: true` prints nothing; on disagreement the call renders this refusal, quoted here from the module rather than retyped so the two cannot drift, and the release aborts before anything is staged:
-
-```
-/ship-milestone: the CHANGELOG closing line states <S> tests; the gate run reports <M>.
-Remedy: rewrite the closing line to read `Total test count at release: <M> tests, <F> failures, <E> errors.` — the count must be the last edit on the branch.
-Context: milestone=M<N>, version=<X.Y.Z>, stated=<S>, measured=<M>, skill=ship-milestone
-```
-
-This guards the WRITE boundary only: a count that is honest at the release commit still goes stale when work lands on the branch after it. `/pr` guards that second boundary.
-
 Refusals: `MissingReleaseFilesBlockError` (block absent or empty) and `MalformedReleaseFilesError` (entry violates schema, e.g. regex without `(?<version>)` named group) both abort the run with the canonical NFR-10 shape — `Remedy: add a \`## Release Files\` block to CLAUDE.md (run /setup or copy from examples/<stack>/release.yml). Context: skill=ship-milestone`.
 
 ### 5. Invoke /docs --commit --full

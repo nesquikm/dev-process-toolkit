@@ -40,8 +40,24 @@ reproduces should be deleted with a one-line reason rather than left to rot.
 
 The stated 10708 was HONEST when written. It was made wrong afterwards, by the seven commits that landed past the release commit — which is why "check the number at write time" is only half a guard. Two boundaries, not one:
 
-- **The write boundary** — the number is wrong the moment `/ship-milestone` writes it. Closed by `checkWriteBoundary` in `adapters/_shared/src/release_test_count_guard.ts`, graded against the gate run pre-flight refusal #3 already makes, at no extra cost.
-- **The merge boundary** — the number is right when written and made wrong by later commits. This is the residual banked here. `/pr` now WARNS on it (`checkMergeBoundary`, a git query), and a warning is not a fix: nothing rewrites the stated count, and nobody is forced to. A branch whose release commit is not its last commit can still merge with a count that does not describe it.
+- **The write boundary** — the number is wrong the moment `/ship-milestone` writes it. A `checkWriteBoundary` grading the stated line against the gate run was BUILT AND REVERTED in M137; see the note below.
+- **The merge boundary** — the number is right when written and made wrong by later commits. This is the residual, and it is STILL OPEN. A `/pr` warning was built and reverted in M137; see below.
+
+**M137 BUILT THIS GUARD AND REVERTED IT — read before rebuilding.** Both boundaries were
+implemented (`release_test_count_guard.ts`, its `/pr` and `/ship-milestone` prose, and a test
+suite), and the operator dropped them on measurement: **7 of the 24 HIGH findings across two
+review rounds came from that one module** — the highest count of any file in the milestone. It
+was never one of the five FRs; it was a follow-up added to correct a cosmetic CHANGELOG figure,
+and it cost two rounds of consumer-facing defects, including a CLI that crashed on the exact
+verdict it existed to certify and an anchor blinded by the merge commit of every release.
+
+**The lesson is about proportion, not about the design.** The anchor question was answered well
+in the end — anchor on the ARTIFACT (the commit that last wrote the count line), never on a
+`chore(release):` subject, because `git log --grep` anchors `^` at every line of a message and a
+GitHub merge body quotes the subject it merged; 21 merge commits in this history match. Anyone
+rebuilding this should start there and should not re-derive it. But a guard correcting a
+cosmetic number is not worth defects a consumer sees, and the count going back to a hand edit as
+the last step before merge is the cheaper correct answer.
 
 **What would actually close it**, and why neither is done here: rewriting the closing line automatically at merge time needs a gate run at merge time, which is the cost the deleted `tests/changelog-release-test-count.test.ts` proved unacceptable (89.5s -> 178.4s on every contributor's every run, forever, for a once-per-release staleness). Deriving the count from anything other than the gate reintroduces the defect as its own fix — a second implementation of "how many tests are there" is a number that can disagree with the gate. The remaining option is procedural — ship the release as the last commit on the branch — and the `/pr` warning is what makes that procedure mechanical rather than remembered.
 
