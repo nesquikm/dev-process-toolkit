@@ -292,7 +292,7 @@ flowchart TD
 |---|---|---|---|
 | CLAUDE.md · settings.json · .mcp.json · commit-msg hook · tracker-config.yaml | /setup | create / merge / copy | Setup |
 | specs/requirements.md · technical-spec.md · testing-spec.md | /setup | create (scaffold) | Setup |
-| specs/plan/M1.md + stubs | /setup step 8 | create | Setup |
+| specs/plan/M1.md (tracker mode) or specs/plan/M_<tail>.md (mode: none) + stubs | /setup step 8 | create | Setup |
 | specs/frs/(id).md | /spec-write | create | Plan |
 | specs/plan/M(N).md | /spec-write | merge (row) | Plan |
 | requirements / technical / testing spec (cross-cutting only) | /spec-write | merge | Plan |
