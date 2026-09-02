@@ -501,6 +501,24 @@ export function classifyPlanNarrativeProvenance(
   // newest content in the tree, and precisely what a cap is for — escaped with
   // a warning, while an old committed plan got the error. Absence of history
   // because a file is NEW is not absence of history because it is SEVERED.
+  // THE SINGLE-PATH CHECK BELOW IS DELIBERATE, and `planIntroducedAt`'s union
+  // of `specs/plan/` and `specs/plan/archive/` beneath it is NOT dead code —
+  // the two sit adjacent and invite exactly the wrong repair.
+  //
+  // These two questions have different subjects. "Does git track this path
+  // right now" is about the ACTIVE file, so it asks about the active path only.
+  // "When did this plan first appear" is about the plan's identity across a
+  // rename, so it must union both paths or `/spec-archive` re-dates a legacy
+  // plan to its archive commit.
+  //
+  // The visible consequence: an active plan whose working copy is an untracked
+  // or staged restoration from `archive/` reads `fresh` where it previously
+  // read `legacy`. That is the SIBLINGS' documented rule, not a divergence —
+  // staged is indistinguishable from new on `ls-files` plus the tip tree, probe
+  // #73 records that as intentional, this walk never enters `archive/`, and the
+  // window closes at the next commit. Do not "fix" it by unioning the paths
+  // here; that would make a restored-from-archive plan undatable rather than
+  // fresh, and would not match either sibling.
   const tracked = gitQuery(projectRoot, ["ls-files", "--", `specs/plan/${name}`]);
   if (tracked === null) return "undecidable"; // git refused to answer at all
   if (tracked.trim().length === 0) return "fresh"; // untracked: brand new
