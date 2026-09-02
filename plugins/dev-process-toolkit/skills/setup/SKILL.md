@@ -327,9 +327,7 @@ If you skipped the bootstrap commit (`n` at step 8b), commit the staged files ma
 
 ### 11. Report
 
-Summarize what was created (list files created/modified), then present the SDD workflow.
-
-**Your SDD Workflow:**
+Summarize what was created **inside the fence, bounded**: a `files created/modified: <M>` `summary:` row, then at most the first 3 as `first 3 of <M>` rows — the total is always stated, so the bound is never a silent truncation and `git status --porcelain` still holds every path. A bootstrap run creates on the order of 13 files; the file list is per-item content, not narration, and does not belong above the fence (authoring shape: `docs/stage-status-block.md` § How a stage FITS). Then present the SDD workflow below. **The closing summary IS the status block** — `/setup` closes with **exactly one** `stage-status-block` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it: the block **replaces** the free-form narration this step formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
 
 ```
 0. /brainstorm       → (Optional) Explore approaches before writing specs
@@ -342,9 +340,11 @@ Summarize what was created (list files created/modified), then present the SDD w
 7. /pr               → Create pull request
 ```
 
-**Key principle:** Specs are the source of truth. `/implement` reads specs to understand what to build, writes tests first, self-reviews against acceptance criteria, and reports for human approval before committing.
+**Key principle:** Specs are the source of truth. `/implement` reads specs to understand what to build, writes tests first, self-reviews against acceptance criteria, and reports for human approval before committing. Workflow paths (Bugfix / Feature / Refactor) and the spec-fill-in checklist live in `docs/setup-reference.md` § Step 11 — surface them to the user when relevant. The status block **supersedes** the free-form closing shape this step formerly mandated: the workflow listing above is reference material to surface inline while setup runs, not verbatim content the closing report reproduces beneath the fence.
 
-Workflow paths (Bugfix / Feature / Refactor) and the spec-fill-in checklist live in `docs/setup-reference.md` § Step 11. Surface them to the user when relevant.
+```stage-status-block
+stage: setup   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md
+```
 
 ## Rules
 

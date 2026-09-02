@@ -56,6 +56,23 @@ export function scratchDir(projectRoot: string, ulid: string): string {
 }
 
 /**
+ * Advisory-note store: `<projectRoot>/.dpt/ledger/advisory-notes.md` (STE-533).
+ *
+ * The FULL advisory list every `/implement` run appends, and the path the
+ * step-14 report's bounded `## Advisory notes` line cites. It sits under
+ * `ledger/` for the reason `checkoutIdPath` does: that subtree is this layout's
+ * declared home for state that must OUTLIVE a run, it is already covered by
+ * `.dpt/.gitignore`'s CLOSED rule set (STE-383 AC-STE-383.1) so no fourth rule
+ * is needed, and it is not the per-run `scratch/` tree, which is pruned.
+ *
+ * Composed here rather than in `implement_advisory_notes.ts` so that module
+ * carries no `.dpt` literal of its own (AC-STE-382.1).
+ */
+export function advisoryNotesPath(projectRoot: string): string {
+  return join(dptRoot(projectRoot), "ledger", "advisory-notes.md");
+}
+
+/**
  * Skip baseline: `<projectRoot>/.dpt/skip-baseline.json` (STE-509).
  *
  * One store of the pre-work skip count, keyed by TRUNK COMMIT (M136 /

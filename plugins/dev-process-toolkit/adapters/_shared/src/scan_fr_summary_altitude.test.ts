@@ -7,11 +7,27 @@
 //   scanFrSummaryAltitude(projectRoot: string)
 //     => { file: string; line: number; rule: string }[]
 //
-// Walks ACTIVE FRs only — `specs/frs/*.md`, `archive/` excluded — and for
-// each file whose body carries a `## Summary` section (heading matched by
-// /^##\s+Summary\s*$/; the section ends at the next LEVEL-2 `## ` heading or
-// EOF — an h3 subheading inside the body does not end it) evaluates the four
-// altitude rules over the SECTION BODY ONLY:
+// Walks ACTIVE FRs only — `specs/frs/*.md`, `archive/` excluded — and enters
+// every narrative section named by the shipped section table, located by exact
+// level-2 heading text (matched by /^##\s+<text>\s*$/; the section ends at the
+// next LEVEL-2 `## ` heading or EOF — an h3 subheading inside the body does not
+// end it). Since STE-534 (M137) the closed rule union is FIVE members, not
+// four, and the table measures THREE sections rather than `## Summary` alone:
+//
+//   Summary          — word cap 80,  plus the four prose rules below
+//   Technical Design — word cap 120, prose rules NOT applied
+//   Notes            — word cap 60,  prose rules NOT applied
+//
+//   word_cap   — the section's running whitespace-delimited word count
+//                exceeding its own cap; flags once per section, anchored at
+//                the CROSSING line. This is the fifth union member and the
+//                ONLY rule that applies outside `## Summary`.
+//
+// The four prose rules below stay bound to `## Summary` ALONE — Technical
+// Design and Notes legitimately carry backticks, AC-IDs and paths. This file's
+// fixtures therefore exercise the four over the SUMMARY SECTION BODY ONLY;
+// `word_cap` and the two other measured sections are covered by the sibling
+// suite `tests/m137-ste-534-fr-word-caps.test.ts`.
 //
 //   line_cap   — more than 6 non-empty lines fails; the violation anchors at
 //                the first non-empty line beyond the cap (the 7th). The
@@ -77,8 +93,10 @@ function lineOf(content: string, needle: string): number {
  * A realistic active-FR file. When `summaryLines` is given, a `## Summary`
  * section lands first-in-body (STE-385 placement); either way the file ends
  * with a `## Requirement` tail that deliberately carries backticks, an AC-ID
- * token, and a path token — so EVERY fixture also proves the four rules stop
- * at the section boundary (post-section content never flags).
+ * token, and a path token — so EVERY fixture also proves the four PROSE rules
+ * stop at the section boundary (post-section content never flags).
+ * `## Requirement` is absent from the shipped section table, so it is neither
+ * word-capped nor measured either.
  */
 function frWith(id: string, summaryLines: string[] | null): string {
   const head = [
@@ -97,7 +115,7 @@ function frWith(id: string, summaryLines: string[] | null): string {
     "",
     "Post-section prose may reference `scan_fr_summary_altitude.ts` and",
     "adapters/_shared/src/scan_fr_summary_altitude.ts and AC-STE-386.1",
-    "freely — the four altitude rules bind to the Summary section only.",
+    "freely — the four prose rules bind to the Summary section only.",
     "",
   ];
   return `${[...head, ...summary, ...tail].join("\n")}\n`;

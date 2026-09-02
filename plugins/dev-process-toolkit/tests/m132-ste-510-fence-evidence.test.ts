@@ -1498,7 +1498,7 @@ describe("surface drift — the eight sections and the raised cap agree everywhe
     const { FENCE_LINE_CAP } = await loadCapture();
 
     // Scoped to statements about THIS cap. Both files also mention the NFR-1
-    // skill-file line cap (a 351-line budget on the document itself), and
+    // skill-file line cap (a 358-line budget on the document itself), and
     // sweeping every `/line cap/i` line would drag that unrelated number in and
     // fail on it — a guard that false-REDs a healthy surface.
     for (const [label, path] of [

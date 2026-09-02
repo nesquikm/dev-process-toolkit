@@ -52,7 +52,9 @@ The orchestrator runs in the **main context** (no `context: fork`) so it can par
    AC-HG95TY.1 → src/service.ts:15, tests/service.test.ts:8
    ```
 
-   b. **Status table**:
+   **BOUNDED, and inside the fence.** One line per AC does not fit above the fence — a typical FR carries 6–9 ACs and a milestone audit many more. The map rides inside the block as an `ACs audited: <N> — <D> done, <Mi> missing, <P> partial` `summary:` row, then **at most the first 3** AC rows as `first 3 of <N>` — except that **every `missing` and `partial` AC is named in full**, ahead of the `done` rows and never bounded away: a gap is what the operator must act on. The total `<N>` is always stated, so the bound is never a silent truncation, and `block.traceability` still carries every row for a caller that needs them all. Authoring shape: `docs/stage-status-block.md` § How a stage FITS.
+
+   b. **Status table** — the same rows in tabular form. Superseded for the CLOSING report by the bounded map above: it is reference material to render inline when the operator asks for the full audit, not verbatim content the closing report reproduces above the fence.
 
    | Requirement  | Status    | Implementation     | Notes                    |
    | ------------ | --------- | ------------------ | ------------------------ |
@@ -86,11 +88,17 @@ After the verdict line is rendered (before the closing summary at step 4d), feed
 Live-spec refresh suggested — N drift(s) found in cross-cutting specs; consider rerunning /spec-write before next /implement.
 ```
 
-When `drift_count` is `0` or `1`, `formatDriftHint` returns `null` and the orchestrator **omits** the hint entirely — the verdict line stands alone.
+When `drift_count` is `0` or `1`, `formatDriftHint` returns `null` and the orchestrator **omits** the hint entirely — the verdict line stands alone. The status block **supersedes** the closing shape this section formerly mandated; when the hint fires it is a single line of the prose lead-in above the fence, never a block reproduced beneath it.
 
 **Threshold rationale (`>= 2`, not `> 0`).** `/implement` routinely produces single-line cosmetic drifts during normal /implement churn (e.g., a stale `<!-- TODO -->` comment, a placeholder line whose path was just renamed). Surfacing a refresh hint on every single-drift audit would train operators to ignore it. `>= 2` means "drift is accumulating" — actionable, worth interrupting for.
 
 The threshold + literal-line shape live in `adapters/_shared/src/spec_review_drift_hint.ts` (`formatDriftHint(count)`) so the rule is integration-testable across `0` / `1` / `2` / `4` drift fixtures (`tests/spec-review-drift-hint.test.ts`). Per the migration split: the audit fork emits the count (so `drift_count >= 2` is the canonical threshold check), main emits the line — both halves of the rule remain testable, and bypassing the helper string and re-deriving the line inline is a contract violation caught by the doc-conformance test.
+
+**Closing summary — the status block.** `/spec-review` closes with **exactly one** `stage-status-block` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
+
+```stage-status-block
+stage: spec-review   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md
+```
 
 ## Rules
 

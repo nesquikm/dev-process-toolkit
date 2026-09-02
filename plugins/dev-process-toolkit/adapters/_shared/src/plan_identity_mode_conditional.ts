@@ -365,7 +365,12 @@ export type PlanProvenanceClass = "fresh" | "legacy" | "undecidable" | "exempt";
  * key being smuggled in — a check no runtime assertion can make. Substituting
  * the imported constant here reads as a tidy-up and turns that guard red.
  */
-const EXEMPT_PLAN_KINDS: readonly string[] = ["scaffolding", "legacy"];
+/**
+ * Exported so `scan_plan_narrative_altitude.ts` honours the SAME hatch rather
+ * than declaring a second copy of it. Two lists of exempt kinds is two things
+ * to keep in sync, and the operator reads one sentence of documentation.
+ */
+export const EXEMPT_PLAN_KINDS: readonly string[] = ["scaffolding", "legacy"];
 
 /**
  * A plan's declared `kind:`, or `""` when it declares none.
@@ -380,7 +385,7 @@ const EXEMPT_PLAN_KINDS: readonly string[] = ["scaffolding", "legacy"];
  * would silently drop it out of the narrowing pass and restore the very hole
  * that pass exists to close.
  */
-function planKind(rawPlanSource: string): string {
+export function planKind(rawPlanSource: string): string {
   const kind = parseFrontmatter(rawPlanSource, { lenient: true })["kind"];
   return typeof kind === "string" ? kind.trim() : "";
 }

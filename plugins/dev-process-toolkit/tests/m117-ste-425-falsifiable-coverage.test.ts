@@ -598,7 +598,7 @@ function mod(): FixtureGroupsModule {
 
 /** Every canonical group, observed as PASSED, minus the ones named. */
 function allPassedExcept(...skip: number[]): ObservedGroup[] {
-  return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+  return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     .filter((g) => !skip.includes(g))
     .map((group) => ({ group, outcome: "passed" }));
 }
@@ -630,7 +630,7 @@ describe("AC-STE-425.2 — the outcome vocabulary", () => {
   test("the canonical roster covers every registered group, in order", () => {
     const m = mod();
     expect(m.CANONICAL_FIXTURE_GROUPS.map((s) => s.group)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
     ]);
   });
 
@@ -689,6 +689,11 @@ describe("AC-STE-425.2 — the outcome vocabulary", () => {
       // stage report read off disk, and the `deliver-stage-result` fence shape
       // is the same artifact whatever tracker the leg configures.
       14: ["jira", "linear", "none"],
+      // Group 15 (STE-533) rides the full alias for the same off-disk reason
+      // group 14 does: its subject is a captured stage report, and the prose
+      // lead-in cap, the one-fence rule and block-comes-last are properties of
+      // the rendered text whatever tracker the leg configures.
+      15: ["jira", "linear", "none"],
     };
     const actual = Object.fromEntries(
       m.CANONICAL_FIXTURE_GROUPS.map((s) => [s.group, [...s.legs].sort()]),
@@ -700,7 +705,7 @@ describe("AC-STE-425.2 — the outcome vocabulary", () => {
   // FR existed to end, so emptiness is the failure — not merely a missing field.
   test("every group carries a non-empty, non-placeholder rationale", () => {
     const m = mod();
-    expect(m.CANONICAL_FIXTURE_GROUPS).toHaveLength(14);
+    expect(m.CANONICAL_FIXTURE_GROUPS).toHaveLength(15);
     for (const spec of m.CANONICAL_FIXTURE_GROUPS) {
       const why = (spec as { rationale?: unknown }).rationale;
       expect({ group: spec.group, isString: typeof why === "string" }).toEqual({
@@ -722,7 +727,7 @@ describe("AC-STE-425.2 — the outcome vocabulary", () => {
         String((s as { rationale?: unknown }).rationale).trim(),
       ),
     );
-    expect(unique.size).toBe(14);
+    expect(unique.size).toBe(15);
   });
 });
 
@@ -731,7 +736,7 @@ D("AC-STE-425.2 — the roster agrees with the SKILL it models", () => {
   test("every roster entry's `sut` is the token that group's runtime-check line uses", () => {
     const m = mod();
     const slices = fixtureGroupSlices(SKILL!);
-    expect(slices.size).toBe(14);
+    expect(slices.size).toBe(15);
     for (const spec of m.CANONICAL_FIXTURE_GROUPS) {
       const slice = slices.get(spec.group) ?? "";
       expect(slice.length).toBeGreaterThan(0);
@@ -756,7 +761,7 @@ D("AC-STE-425.2 — the roster agrees with the SKILL it models", () => {
   test("every group heading enumerates exactly its own roster", () => {
     const m = mod();
     const slices = fixtureGroupSlices(SKILL!);
-    expect(slices.size).toBe(14); // non-vacuity: the parse found every block
+    expect(slices.size).toBe(15); // non-vacuity: the parse found every block
 
     // Operator-facing label per registered leg. A leg added to `SMOKE_LEGS`
     // without a label lands here as `undefined` and fails loudly rather than
@@ -859,7 +864,7 @@ describe("AC-STE-425.2 — a group that did not execute is never rendered as a p
   test("the 2026-07-27 Linear leg: group 2 is NOT-REACHED, not absorbed", () => {
     const m = mod();
     const records = m.reconcileFixtureGroups(allPassedExcept(2), "linear");
-    expect(records).toHaveLength(14);
+    expect(records).toHaveLength(15);
     const g2 = recordFor(records, 2);
     expect(g2.outcome).toBe("not-reached");
     expect(g2.outcome).not.toBe("passed");
@@ -888,13 +893,13 @@ describe("AC-STE-425.2 — a group that did not execute is never rendered as a p
     ];
     const records = m.reconcileFixtureGroups(observed, "linear");
     expect(recordFor(records, 3).outcome).toBe("failed");
-    expect(records.filter((r) => r.outcome === "passed")).toHaveLength(11);
+    expect(records.filter((r) => r.outcome === "passed")).toHaveLength(12);
   });
 
   test("observing nothing yields one record per group and zero passes", () => {
     const m = mod();
     const records = m.reconcileFixtureGroups([], "linear");
-    expect(records).toHaveLength(14);
+    expect(records).toHaveLength(15);
     expect(records.filter((r) => r.outcome === "passed")).toEqual([]);
     // TWELVE, and the gap is the point: on the `linear` leg groups 9 and 10 are
     // both `not-applicable` by roster before silence is ever consulted, so
@@ -903,9 +908,10 @@ describe("AC-STE-425.2 — a group that did not execute is never rendered as a p
     // and still tracked 8 at 10, because those additions were tracker-less-only
     // (STE-450, STE-451). It moved to 9 when group 11 (STE-464) rostered the
     // full alias again, to 10 when group 12 (M124) did the same, to 11 with
-    // group 13 (M125) and to 12 with group 14 (M129); the delta from the length
-    // above stays 2, the two n/a-by-roster groups.
-    expect(records.filter((r) => r.outcome === "not-reached")).toHaveLength(12);
+    // group 13 (M125), to 12 with group 14 (M129) and to 13 with group 15
+    // (STE-533); the delta from the length above stays 2, the two n/a-by-roster
+    // groups.
+    expect(records.filter((r) => r.outcome === "not-reached")).toHaveLength(13);
   });
 });
 
@@ -950,7 +956,7 @@ describe("AC-STE-425.2 — rendering", () => {
       .renderFixtureGroupSummary(m.reconcileFixtureGroups(allPassedExcept(2), "linear"))
       .split("\n")[0]!;
     expect(head).toMatch(/^Fixture groups: FAIL\b/);
-    expect(head).toMatch(/\b11 passed\b/);
+    expect(head).toMatch(/\b12 passed\b/);
     expect(head).toMatch(/\b0 failed\b/);
     expect(head).toMatch(/\b1 not-reached\b/);
     // TWO n/a on the linear leg: groups 9 and 10 are both tracker-less-only.
@@ -965,7 +971,7 @@ describe("AC-STE-425.2 — rendering", () => {
       .renderFixtureGroupSummary(m.reconcileFixtureGroups(allPassedExcept(2), "jira"))
       .split("\n")[0]!;
     expect(head).toMatch(/^Fixture groups: PASS\b/);
-    expect(head).toMatch(/\b11 passed\b/);
+    expect(head).toMatch(/\b12 passed\b/);
     expect(head).toMatch(/\b0 not-reached\b/);
     // THREE on the jira leg — group 2 by capability, plus the two
     // tracker-less-only groups. One more than the linear leg, and the asymmetry
@@ -1044,7 +1050,7 @@ function runGroupsCli(args: string[]): {
 
 describe("AC-STE-425.2 — the CLI carries the aggregate in its exit status", () => {
   test("a complete Jira roster (group 2 n/a) renders PASS and exits 0", () => {
-    const r = runGroupsCli(["render", "--leg", "jira", "--passed", "1 3 4 5 6 7 8 11 12 13 14"]);
+    const r = runGroupsCli(["render", "--leg", "jira", "--passed", "1 3 4 5 6 7 8 11 12 13 14 15"]);
     expect(r.exitCode).toBe(0);
     expect(r.stdout.split("\n")[0]).toMatch(/^Fixture groups: PASS\b/);
     expect(r.stdout).toContain("STE-214 runtime check: N/A");
@@ -1085,7 +1091,7 @@ describe("AC-STE-425.2 — the CLI carries the aggregate in its exit status", ()
       "--leg",
       "jira",
       "--passed",
-      "1 3 4 5 6 7 8 11 12 13 14 99",
+      "1 3 4 5 6 7 8 11 12 13 14 15 99",
     ]);
     expect(r.stderr).toMatch(/outside the canonical roster: 99/);
     expect(r.exitCode).toBe(0); // the canonical records still decide rc
@@ -1103,7 +1109,7 @@ D("AC-STE-425.2 — the SKILL renders the three outcomes", () => {
     // Groups 1, 2 and 3 state ONLY a PASS branch today — the mechanism by
     // which an unreached group is absorbed.
     const slices = fixtureGroupSlices(SKILL!);
-    expect(slices.size).toBe(14);
+    expect(slices.size).toBe(15);
     const missing: string[] = [];
     for (const [group, slice] of slices) {
       const sut = slice.match(/(STE-\d+) runtime check:/)?.[1];
@@ -1631,6 +1637,11 @@ describe("Phase 3 round-2 hardening — closing check covers every persist class
     // the run reads the models never, and writes them never — so there is
     // nothing here for the closing check to clean up or stage.
     documented.delete("deliver-stage-capture");
+    // `stage-block-adoption/` (M137/STE-533) is that same class again: two
+    // committed, hand-authored capture models pinning `verifyStageReportAdoption`
+    // in unit tests. Fixture group 15's RUNTIME subject is
+    // `/tmp/dpt-smoke-<tracker>-ste533-stage-report.txt`, never this directory.
+    documented.delete("stage-block-adoption");
     const missing = [...documented].filter((c) => !covered.has(c)).sort();
     expect(missing).toEqual([]);
   });

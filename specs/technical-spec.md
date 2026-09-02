@@ -86,7 +86,7 @@ The v1 monolithic layout (a single `specs/requirements.md` holding every FR, plu
 
 | Invariant | Statement | Enforcement |
 |-----------|-----------|-------------|
-| Skill file cap | Every SKILL.md ≤ 351 lines | NFR-1 (STE-305); overflow extracted to `docs/<skill>-reference.md` |
+| Skill file cap | Every SKILL.md ≤ 358 lines | NFR-1; `tests/skill-nfr-1-length.test.ts` enforces, `requirements.md` carries the bump history; overflow extracted to `docs/<skill>-reference.md` |
 | Filename immutability | FR ULID in filename equals `id:` in frontmatter; never renamed post-mint | NFR-15; `/gate-check` v2 probe |
 | Absence-is-default | `## Task Tracking` missing ⇒ `mode: none`; no line emitted by `/setup` | Pattern 9 (backward compat) |
 | Deterministic gates | Compiler/linter/tests override LLM judgment; gate outputs `GATE PASSED` / `PASSED WITH NOTES` / `FAILED` | Schema F |
@@ -553,7 +553,7 @@ Downstream projects that adopt the plugin carry whatever dependencies their stac
 
 | Risk | Severity | Mitigation |
 |------|----------|------------|
-| Skill file exceeding NFR-1 351-line cap | Medium | Recheck `wc -l` after every skill edit; overflow extracts to `docs/<skill>-reference.md` |
+| Skill file exceeding NFR-1 358-line cap | Medium | Recheck `wc -l` after every skill edit; overflow extracts to `docs/<skill>-reference.md` |
 | Drift detection false positives eroding trust | Medium | Drift always produces `GATE PASSED WITH NOTES`, never `GATE FAILED` (AC-1.4); advisory framing preserved |
 | Cross-skill schema drift (Schemas A–W) | Medium | Tier 1 grep checks in testing-spec + automated probes (`probe-parity.test.ts`, `archive-path-drift.test.ts`, `gate-check-milestone-strip-lint.test.ts`) |
 | Tracker mode concurrent edits (local vs. remote) | High | FR-33 `updatedAt` recording + FR-39 mandatory diff/resolve before push; Pattern: optimistic concurrency |

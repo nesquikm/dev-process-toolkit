@@ -5,7 +5,7 @@
 This companion doc carries the detailed procedures that `/setup` uses when
 the user opts into a tracker mode (Linear / Jira / custom). It is
 pointed at from `skills/setup/SKILL.md` to keep that file under NFR-1
-(≤351 lines) while still giving operators enough detail to audit the flow.
+(≤358 lines) while still giving operators enough detail to audit the flow.
 
 Applies to `mode: linear | jira | custom` only. `mode: none` (the
 default) never reads this document — the `mode: none` branch runs unchanged.

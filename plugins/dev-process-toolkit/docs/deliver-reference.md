@@ -1,6 +1,6 @@
 # `/deliver` Reference
 
-Extended reference material for `/dev-process-toolkit:deliver` that was extracted from `skills/deliver/SKILL.md` to keep the skill file under the NFR-1 351-line cap. The skill file contains a one-line pointer to this file.
+Extended reference material for `/dev-process-toolkit:deliver` that was extracted from `skills/deliver/SKILL.md` to keep the skill file under the NFR-1 358-line cap. The skill file contains a one-line pointer to this file.
 
 This reference is **not required reading** on every run — the skill itself has enough guidance to operate. Consult this file when a stage hand-off misbehaves, when a merge-policy edge case comes up, or when debugging a halted pipeline run.
 

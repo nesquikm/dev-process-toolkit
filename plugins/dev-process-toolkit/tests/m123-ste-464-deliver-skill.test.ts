@@ -408,10 +408,15 @@ describe("AC-STE-464.9 — docs/deliver-reference.md carries the narrative; the 
     expect(deliver()).toContain("docs/deliver-reference.md");
   });
 
-  test("NFR-1: skills/deliver/SKILL.md is ≤ 351 lines (disk-derived)", () => {
+  // M137: this pin read 351 — the NFR-1 cap on the day STE-464 shipped, left
+  // behind when the enforcer moved 351 -> 352 -> 354 -> 358. It is a mirror of
+  // the global cap (the "NFR-1:" label says so), not a deliberate tighter
+  // budget for deliver, so it tracks the enforced number; the five M129
+  // suites already pin this same file at 358.
+  test("NFR-1: skills/deliver/SKILL.md is ≤ 358 lines (disk-derived)", () => {
     const lineCount = deliver().split("\n").length;
     expect(lineCount).toBeGreaterThan(0);
-    expect(lineCount).toBeLessThanOrEqual(351);
+    expect(lineCount).toBeLessThanOrEqual(358);
   });
 });
 
@@ -461,10 +466,10 @@ describe("AC-STE-464.10 — canonical roster gains group 11; SMOKE_LEGS is untou
     );
   });
 
-  test("the roster is 14 groups, 1..14 in order (widened by M129's group 14)", () => {
-    expect(CANONICAL_FIXTURE_GROUPS).toHaveLength(14);
+  test("the roster is 15 groups, 1..15 in order (widened by STE-533's group 15)", () => {
+    expect(CANONICAL_FIXTURE_GROUPS).toHaveLength(15);
     expect(CANONICAL_FIXTURE_GROUPS.map((s) => s.group)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
     ]);
   });
 
@@ -485,14 +490,14 @@ describe("AC-STE-464.10 — canonical roster gains group 11; SMOKE_LEGS is untou
 // (m117-ste-425-falsifiable-coverage.test.ts:632 group list, :687 length pin,
 // and the STE-449 row-by-row table). Whitespace-normalized substrings, so the
 // pin survives prettier's line wrapping of the widened array.
-describe("AC-STE-464.10 — m117-ste-425-falsifiable-coverage.test.ts re-keys with the roster (14 groups post-M129)", () => {
+describe("AC-STE-464.10 — m117-ste-425-falsifiable-coverage.test.ts re-keys with the roster (15 groups post-STE-533)", () => {
   const src = (): string =>
     mustRead(join(import.meta.dir, "m117-ste-425-falsifiable-coverage.test.ts"));
 
-  test("the group-list toEqual and the toHaveLength pin both count 14", () => {
+  test("the group-list toEqual and the toHaveLength pin both count 15", () => {
     const norm = src().replace(/\s+/g, "");
-    expect(norm).toMatch(/1,2,3,4,5,6,7,8,9,10,11,12,13,14,?\]/);
-    expect(src()).toContain("toHaveLength(14)");
+    expect(norm).toMatch(/1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,?\]/);
+    expect(src()).toContain("toHaveLength(15)");
   });
 
   test("the audited roster table carries group 11's row", () => {
