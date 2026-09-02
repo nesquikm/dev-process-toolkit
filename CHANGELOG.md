@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.75.1] — 2026-09-02 — "Namesake"
+
+### Fixed
+
+- `/setup` now mints the tracker-less bootstrap plan's milestone identity when it writes the plan, so a `mode: none` project gets `specs/plan/M_<tail>.md` carrying the minted `id:` in frontmatter instead of the sequential `M1.md` that mode never uses. Both tracker modes stay byte-identical to before. (STE-537)
+- `/spec-write`'s tracker-less branch now adopts the identity `/setup` already recorded rather than minting a second one, rewriting the bootstrap plan's frontmatter in place instead of renaming it. The single mint is pinned as a call count, because a second mint leaves no trace in the resulting filename. (STE-538)
+
+Total test count at release: 11071 tests, 0 failures, 0 errors.
+
 ## [2.75.0] — 2026-09-01 — "Laconic"
 
 ### Added
