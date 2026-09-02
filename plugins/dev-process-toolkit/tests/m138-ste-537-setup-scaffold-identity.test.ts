@@ -442,6 +442,20 @@ describe("AC-STE-537.6 — the step-8 PRODUCER line is pinned in its own right",
     expect(producer.line).toContain("`specs/plan/M1.md`");
     expect(producer.line).toMatch(MINTED_SHAPE_RE);
     expect(producer.line).toMatch(MODE_QUALIFIER_RE);
+
+    // AC-STE-537.2's PRODUCER half. The `id:` invariant above is pinned
+    // against `scaffoldPlanIdentity`'s RETURN VALUE; nothing pinned the
+    // shipped instruction that makes a real `/setup` run write the key. That
+    // gap was measured, not supposed: deleting the clause naming the returned
+    // `id:` from this line left the ENTIRE suite green (11056 pass, 0 fail),
+    // while a minted-named plan carrying `kind: scaffolding` and no `id:`
+    // fires probe #73 with `expected: "present"` — so the omission would red a
+    // consumer project's first `/gate-check` with every test still passing
+    // here. The helper's output and the order to record it are two surfaces,
+    // and a pin on one is not a pin on the other.
+    expect(producer.line).toContain("`id:`");
+    expect(producer.line).toMatch(/returns the minted `id:`|record(ing)? the minted `id:`/);
+    expect(producer.line).toMatch(/plan frontmatter/);
   });
 
   test("a file-wide check CANNOT stand in for the line-scoped one", () => {

@@ -553,12 +553,20 @@ describe("AC-STE-538.5 — `/setup` then `/spec-write` under `mode: none` mints 
         mode: "none",
         minter: double,
       });
-      // NON-VACUITY GUARD for the count below. A count on a double nothing ever
-      // reached is not a measurement: with the `minter` seam unthreaded, the
-      // dispatcher would mint through the real module, the counter would sit at
-      // the setup leg's 1, and `calls === 1` would pass on the defect it exists
-      // to catch. These two assertions witness that the spec-write leg returned
-      // the SCAFFOLD'S OWN identity rather than any mint at all.
+      // What these two assertions DO witness: the spec-write leg returned the
+      // SCAFFOLD'S OWN identity, so it adopted rather than minted. That is what
+      // gives `calls === 1` below its meaning.
+      //
+      // What they do NOT witness, stated plainly because an earlier version of
+      // this comment claimed it and the claim was measured false: they are not
+      // the non-vacuity guard for the `minter` seam. Adoption never reaches the
+      // minter on either side of that seam, so deleting `minter: double` from
+      // the call above leaves BOTH of these assertions — and `calls === 1` —
+      // green. Verified by mutation: unthreading the seam keeps this whole
+      // describe at 2 pass / 0 fail. The seam's own wiring is proven where a
+      // mint actually happens, by AC-STE-538.4's third leg, which threads the
+      // same double through `resolveMilestoneIdentity` with the scaffold's
+      // `id:` removed and records `calls === 1` on that mint.
       expect(identity.id).toBe(setupIdentity.id);
       expect(identity.milestoneId).toBe(setupIdentity.milestoneId);
 
