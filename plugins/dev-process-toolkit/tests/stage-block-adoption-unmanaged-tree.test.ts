@@ -159,42 +159,62 @@ function claudeMd(signal: "setup_marker" | "task_tracking_section" | "docs_secti
 // 1. THE REPORTED CONSUMER TREE — zero violations
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("F12.1 — a tree the toolkit does not own is never graded", () => {
-  test("THE REPORTED CASE: setup + deps project-local skills yield ZERO violations", async () => {
-    const fx = tempProject({
-      "README.md": "# A project that never installed the toolkit\n",
-      [consumerSkillRel("setup")]:
-        "# setup\n\nSet up the local dev environment: run `make bootstrap`.\n",
-      [consumerSkillRel("deps")]: "# deps\n\nUpdate dependencies: run `npm update`.\n",
-    });
-    try {
-      expect(isToolkitManaged(fx.root)).toBe(false);
-      expect(scanStageBlockAdoption(fx.root)).toEqual([]);
-      const report = await runStageBlockAdoptionProbe(fx.root);
-      expect(report.violations).toEqual([]);
-    } finally {
-      fx.cleanup();
-    }
-  });
+describe("F12.1 — a consumer's `.claude/skills/` is NEVER graded", () => {
+  // THE CONTRACT CHANGED IN M137 ROUND 4, and it is now definitional rather
+  // than conditional. `docs/verification-skills.md` defines
+  // `.claude/skills/<name>/SKILL.md` as the skill root of "the consuming
+  // project (not in the toolkit)". That namespace is theirs, so this probe does
+  // not look in it — managed tree or not.
+  //
+  // The earlier gate asked `isToolkitManaged` and graded the consumer root on
+  // trees that had run `/setup`. It narrowed PR #76's F12 from "any project" to
+  // "any project that installed us" and left the defect: a consumer who adopts
+  // the toolkit AND owns a skill named `implement` — an ordinary English word,
+  // like all eleven — still collected an error-severity row ordering them to
+  // close `/implement` with a fence they have never heard of.
 
-  test("all ELEVEN generic names stay silent on an unmanaged tree", async () => {
-    const fx = tempProject({
-      "README.md": "# Not a toolkit project\n",
-      ...elevenProjectLocal(),
-    });
+  test("THE REPORTED CASE: setup + deps project-local skills yield ZERO violations", async () => {
+    const fx = tempProject(elevenProjectLocal());
     try {
-      expect(scanStageBlockAdoption(fx.root)).toEqual([]);
       expect((await runStageBlockAdoptionProbe(fx.root)).violations).toEqual([]);
     } finally {
       fx.cleanup();
     }
   });
 
-  test("an unmanaged tree is VACUOUS — there was nothing in scope to grade", async () => {
-    const fx = tempProject({
-      "README.md": "# Not a toolkit project\n",
-      ...elevenProjectLocal(),
-    });
+  test("THE CASE THE OLD GATE MISSED: a MANAGED consumer's own skill is still not graded", async () => {
+    // This is the regression the round-4 review found, and the reason the gate
+    // was replaced rather than tightened. Under the old contract this tree
+    // produced eleven error rows; the tree is managed by every signal.
+    const fx = tempProject({ ...elevenProjectLocal(), "CLAUDE.md": claudeMd("setup_marker") });
+    try {
+      const report = await runStageBlockAdoptionProbe(fx.root);
+      expect(report.violations, "their namespace, their skills").toEqual([]);
+      expect(report.vacuous, "nothing of ours is in scope on a consumer tree").toBe(true);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("all ELEVEN generic names stay silent, managed and unmanaged alike", async () => {
+    for (const managed of [false, true]) {
+      const files = managed
+        ? { ...elevenProjectLocal(), "CLAUDE.md": claudeMd("setup_marker") }
+        : elevenProjectLocal();
+      const fx = tempProject(files);
+      try {
+        expect(
+          (await runStageBlockAdoptionProbe(fx.root)).violations,
+          `managed=${managed} must not change the answer`,
+        ).toEqual([]);
+      } finally {
+        fx.cleanup();
+      }
+    }
+  });
+
+  test("a consumer tree is VACUOUS — there was nothing OF OURS in scope", async () => {
+    const fx = tempProject(elevenProjectLocal());
     try {
       expect((await runStageBlockAdoptionProbe(fx.root)).vacuous).toBe(true);
     } finally {
@@ -202,185 +222,89 @@ describe("F12.1 — a tree the toolkit does not own is never graded", () => {
     }
   });
 
-  test("the skip is REPORTED, not silent — every ungraded surface is named", async () => {
-    // A silently count-only skip is the M136 defect this repository has already
-    // paid for once: a test silenced and a test un-silenced read identically.
-    const fx = tempProject({
-      "README.md": "# Not a toolkit project\n",
-      ...elevenProjectLocal(),
-    });
-    try {
-      const report = await runStageBlockAdoptionProbe(fx.root);
-      expect([...report.skipped].sort()).toEqual(
-        [...ADOPTING_STAGES].map(consumerSkillRel).sort(),
-      );
-    } finally {
-      fx.cleanup();
-    }
-  });
-
-  test("an unmanaged tree with NO skills at all reports nothing skipped", async () => {
-    const fx = tempProject({ "README.md": "# empty\n" });
-    try {
-      const report = await runStageBlockAdoptionProbe(fx.root);
-      expect(report.skipped).toEqual([]);
-      expect(report.vacuous).toBe(true);
-    } finally {
-      fx.cleanup();
-    }
+  test("the report has NO skipped list — there is no decision to disclose", () => {
+    // The old shape named every ungraded consumer surface, because declining to
+    // grade a file we might have graded is a decision an operator should see.
+    // We make no such decision now: the namespace is not ours, so those files
+    // were never in scope to decline. The field and its reporting loop are gone
+    // rather than left permanently empty — an always-[] list and a loop that
+    // cannot execute are the dead machinery this milestone spent four rounds
+    // removing.
+    const src = read(ADOPTION_MODULE_SRC);
+    expect(src).not.toMatch(/skipped:\s*string\[\]/);
+    expect(src).not.toMatch(/for \(const file of report\.skipped\)/);
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 2. NON-VACUITY — the spared fixture is one the probe WOULD have failed
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe("F12.2 — the unmanaged fixture really does contain failing skills", () => {
-  test("THE DISCRIMINATOR: the same eleven files, parted only by CLAUDE.md", async () => {
-    // Without this leg, "zero violations" is satisfied by a fixture the probe
-    // never had anything to say about, and the gate would measure nothing.
-    const files = { "README.md": "# project\n", ...elevenProjectLocal() };
-
-    const unmanaged = tempProject(files);
-    let unmanagedCount: number;
+describe("F12.2 — the fixture really does contain would-be-failing skills", () => {
+  test("THE DISCRIMINATOR: the same eleven files ARE graded under the plugin root", async () => {
+    // Non-vacuity for the whole suite. If these bodies were compliant, every
+    // leg above would pass by writing nothing worth catching. Placed under the
+    // TOOLKIT'S OWN root, the identical bodies fail — so what parts them is the
+    // ROOT, which is exactly the property under test.
+    const pluginPlaced: Record<string, string> = {};
+    for (const stage of ADOPTING_STAGES) pluginPlaced[pluginSkillRel(stage)] = projectLocalSkill(stage);
+    const fx = tempProject(pluginPlaced);
     try {
-      unmanagedCount = (await runStageBlockAdoptionProbe(unmanaged.root)).violations
-        .length;
+      const report = await runStageBlockAdoptionProbe(fx.root);
+      expect(report.vacuous, "the toolkit's own root IS in scope").toBe(false);
+      expect(report.violations.length, "and these bodies are genuinely non-compliant")
+        .toBe(ADOPTING_STAGES.length);
     } finally {
-      unmanaged.cleanup();
-    }
-
-    const managed = tempProject({
-      ...files,
-      "CLAUDE.md": claudeMd("setup_marker"),
-    });
-    try {
-      const report = await runStageBlockAdoptionProbe(managed.root);
-      // Every one of the eleven is a surface the probe WOULD have failed.
-      expect(report.violations.length).toBe(ADOPTING_STAGES.length);
-      expect(
-        [...new Set(report.violations.map((v) => v.file))].sort(),
-      ).toEqual([...ADOPTING_STAGES].map(consumerSkillRel).sort());
-      expect(report.vacuous).toBe(false);
-      expect(unmanagedCount).toBe(0);
-    } finally {
-      managed.cleanup();
+      fx.cleanup();
     }
   });
 
   test("EACH of the eleven is individually a would-have-failed surface", async () => {
-    // Enumerated, not sampled: a gate keyed on the aggregate could be satisfied
-    // by one loud stage while ten others were quietly out of scope.
-    let proven = 0;
     for (const stage of ADOPTING_STAGES) {
-      const files = {
-        "CLAUDE.md": claudeMd("setup_marker"),
-        [consumerSkillRel(stage)]: projectLocalSkill(stage),
-      };
-      const managed = tempProject(files);
+      const fx = tempProject({ [pluginSkillRel(stage)]: projectLocalSkill(stage) });
       try {
-        const report = await runStageBlockAdoptionProbe(managed.root);
-        expect({ stage, n: report.violations.length }).toEqual({ stage, n: 1 });
-        expect(report.violations[0]!.file).toBe(consumerSkillRel(stage));
-        expect(report.violations[0]!.severity).toBe("error");
-      } finally {
-        managed.cleanup();
-      }
-
-      const { "CLAUDE.md": _dropped, ...unmanagedFiles } = files;
-      const unmanaged = tempProject({
-        "README.md": "# project\n",
-        ...unmanagedFiles,
-      });
-      try {
-        const report = await runStageBlockAdoptionProbe(unmanaged.root);
-        expect({ stage, n: report.violations.length }).toEqual({ stage, n: 0 });
-        expect(report.skipped).toEqual([consumerSkillRel(stage)]);
-      } finally {
-        unmanaged.cleanup();
-      }
-      proven += 1;
-    }
-    expect(proven).toBe(ADOPTING_STAGES.length);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 3. A MANAGED TREE IS GRADED EXACTLY AS BEFORE
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe("F12.3 — a toolkit-managed tree still grades all eleven", () => {
-  test("every managed SIGNAL in the shared vocabulary opens the gate", async () => {
-    const signals = ["setup_marker", "task_tracking_section", "docs_section"] as const;
-    for (const signal of signals) {
-      const fx = tempProject({
-        "CLAUDE.md": claudeMd(signal),
-        ...elevenProjectLocal(),
-      });
-      try {
-        // The fixture really does carry the signal it claims to.
-        expect(detectManagedSignals(fx.root)).toContain(signal);
-        const report = await runStageBlockAdoptionProbe(fx.root);
-        expect({ signal, n: report.violations.length }).toEqual({
-          signal,
-          n: ADOPTING_STAGES.length,
-        });
+        expect(
+          (await runStageBlockAdoptionProbe(fx.root)).violations.length,
+          `${stage} must be a real failure when it is OURS`,
+        ).toBe(1);
       } finally {
         fx.cleanup();
       }
     }
   });
+});
 
-  test("an ADOPTED project-local skill on a managed tree stays clean", async () => {
-    const fx = tempProject({
-      "CLAUDE.md": claudeMd("task_tracking_section"),
-      ...Object.fromEntries(
-        ADOPTING_STAGES.map((s) => [consumerSkillRel(s), adoptedSkillBody(s)]),
-      ),
-    });
+describe("F12.3 — the toolkit's own root is graded, with no ownership question", () => {
+  test("the PLUGIN authoring root is graded with NO CLAUDE.md at all", async () => {
+    // A tree carrying `plugins/dev-process-toolkit/skills/` IS the toolkit and
+    // needs no proof of ownership. This was true before and stays true: it is
+    // the reason the probe still works on this repository, which deliberately
+    // carries no managed marker of its own.
+    const fx = tempProject({ [pluginSkillRel("implement")]: projectLocalSkill("implement") });
     try {
-      const report = await runStageBlockAdoptionProbe(fx.root);
-      expect(report.violations.map((v) => v.note)).toEqual([]);
-      expect(report.vacuous).toBe(false);
-      // Graded, therefore not skipped — the two lists are disjoint answers to
-      // the same question.
-      expect(report.skipped).toEqual([]);
+      expect((await runStageBlockAdoptionProbe(fx.root)).violations.length).toBe(1);
     } finally {
       fx.cleanup();
     }
   });
 
-  test("the PLUGIN authoring root is graded with NO CLAUDE.md at all", async () => {
-    // The toolkit's own source tree IS the toolkit; requiring it to prove
-    // ownership of itself would silence the probe on the one tree it was
-    // written for, and would redden every shipped fixture in
-    // tests/m137-ste-533-stage-block-adoption.test.ts.
+  test("an ADOPTED plugin skill is clean — the grader is not simply always red", async () => {
+    const fx = tempProject({ [pluginSkillRel("implement")]: adoptedSkillBody("implement") });
+    try {
+      expect((await runStageBlockAdoptionProbe(fx.root)).violations).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("a consumer skill beside a plugin skill changes NOTHING", async () => {
+    // Both roots present. Only ours is graded, and the count is exactly the
+    // plugin surfaces — so the consumer file cannot contribute a row.
     const fx = tempProject({
-      [pluginSkillRel("brainstorm")]: projectLocalSkill("brainstorm"),
+      [pluginSkillRel("implement")]: projectLocalSkill("implement"),
+      [consumerSkillRel("implement")]: projectLocalSkill("implement"),
+      "CLAUDE.md": claudeMd("setup_marker"),
     });
     try {
-      expect(isToolkitManaged(fx.root)).toBe(false);
       const report = await runStageBlockAdoptionProbe(fx.root);
       expect(report.violations.length).toBe(1);
-      expect(report.violations[0]!.file).toBe(pluginSkillRel("brainstorm"));
-      expect(report.vacuous).toBe(false);
-      expect(report.skipped).toEqual([]);
-    } finally {
-      fx.cleanup();
-    }
-  });
-
-  test("BOTH roots are graded together on a managed tree", async () => {
-    const fx = tempProject({
-      "CLAUDE.md": claudeMd("setup_marker"),
-      [pluginSkillRel("setup")]: projectLocalSkill("setup"),
-      [consumerSkillRel("setup")]: projectLocalSkill("setup"),
-    });
-    try {
-      const report = await runStageBlockAdoptionProbe(fx.root);
-      expect([...report.violations.map((v) => v.file)].sort()).toEqual(
-        [consumerSkillRel("setup"), pluginSkillRel("setup")].sort(),
-      );
+      expect(report.violations[0]!.file, "the row names OUR file").toContain("plugins/dev-process-toolkit");
     } finally {
       fx.cleanup();
     }
@@ -388,64 +312,39 @@ describe("F12.3 — a toolkit-managed tree still grades all eleven", () => {
 
   test("DOGFOOD — probe #82 is still clean and non-vacuous over THIS repository", async () => {
     const report = await runStageBlockAdoptionProbe(REPO_ROOT);
-    expect(report.violations.map((v) => v.note)).toEqual([]);
-    expect(report.vacuous).toBe(false);
+    expect(report.vacuous, "it must still grade the eleven plugin surfaces here").toBe(false);
+    expect(report.violations).toEqual([]);
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 4. THE DECISION ROUTES THROUGH THE SHARED PREDICATE
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe("F12.4 — managed-ness comes from the shared predicate, not a private copy", () => {
-  test("the module imports isToolkitManaged from ./toolkit_managed", () => {
+describe("F12.4 — the module asks no ownership question at all", () => {
+  test("it no longer imports `isToolkitManaged` — the question is gone, not answered", () => {
+    // The old suite asserted this module consults the SHARED managed-ness
+    // predicate rather than a private copy. That was right while it asked the
+    // question. It no longer asks: the consumer root is gone, so there is no
+    // ownership decision left to make correctly or incorrectly.
+    // Asserted on the IMPORT, not on the identifier appearing anywhere: the
+    // module's comments still explain that the shared predicate exists and why
+    // this probe no longer needs it, and a bare substring check would forbid
+    // the explanation along with the dependency.
     const src = read(ADOPTION_MODULE_SRC);
-    expect(src).toMatch(/from\s+["']\.\/toolkit_managed(?:\.[jt]s)?["']/);
-    expect(src).toContain("isToolkitManaged");
+    expect(src).not.toMatch(/^import .*isToolkitManaged.*$/m);
+    expect(src).not.toMatch(/isToolkitManaged\s*\(/);
   });
 
   test("it re-derives NOTHING: no private CLAUDE.md read, no restated marker", () => {
+    // Unchanged in force. The failure this guards is a module answering
+    // managed-ness by open-coding it, which is how four probes once drifted.
     const src = read(ADOPTION_MODULE_SRC);
-    // The four drifted probes STE-432 consolidated each carried their own
-    // marker literal and their own heading regexes. None of the three may
-    // reappear here.
-    expect(src).not.toContain(SETUP_MARKER);
-    expect(src).not.toMatch(/["']CLAUDE\.md["']/);
-    expect(src).not.toMatch(/\^##\\s\+Task Tracking/);
-    expect(src).not.toMatch(/\^##\\s\+Docs/);
+    expect(src).not.toContain("generated by /dev-process-toolkit:setup");
+    expect(src).not.toContain('"CLAUDE.md"');
   });
 
-  test("the shared predicate's OWN answer decides — measured, not just imported", async () => {
-    // An import that is never consulted is the vacuous half of every
-    // "routes through the shared module" claim. Assert the two agree on a
-    // tree the predicate calls managed and on one it does not.
-    for (const [managed, extra] of [
-      [true, { "CLAUDE.md": claudeMd("docs_section") }],
-      [false, { "README.md": "# nope\n" }],
-    ] as const) {
-      const fx = tempProject({ ...extra, ...elevenProjectLocal() });
-      try {
-        expect(isToolkitManaged(fx.root)).toBe(managed);
-        const graded = (await runStageBlockAdoptionProbe(fx.root)).violations.length > 0;
-        expect({ managed, graded }).toEqual({ managed, graded: managed });
-      } finally {
-        fx.cleanup();
-      }
-    }
-  });
-
-  test("probe #74's fuse stays green over this repository after the change", async () => {
-    // The fuse cannot SELECT this module (it resolves no CLAUDE.md path), which
-    // is why the omission survived review. Importing the predicate must not
-    // break the fuse for the modules it does select.
-    const report = await runClaudeMdProbeManagedGuardProbe(REPO_ROOT);
-    expect(report.violations.map((v) => v.note)).toEqual([]);
-  });
-
-  test("the module records WHY the fuse could not catch it", () => {
-    // A defect whose cause is a structural blind spot has to leave the blind
-    // spot written down, or the next module in the same class repeats it.
+  test("the deletion records WHY in definitional terms, not enumerative ones", () => {
+    // "We checked and found none" is an enumeration and enumerations come back
+    // short. "That namespace is theirs by documented contract" survives a fork.
     const src = read(ADOPTION_MODULE_SRC);
-    expect(src).toMatch(/claudemd_probe_managed_guard|probe #74/);
+    expect(src).toContain("not in the toolkit");
+    expect(src).toMatch(/definitional/i);
   });
 });
