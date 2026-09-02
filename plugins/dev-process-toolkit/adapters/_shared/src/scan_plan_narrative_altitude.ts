@@ -554,8 +554,19 @@ export function runPlanNarrativeAltitudeProbe(
 // module stays side-effect-free at import. Prints `file:line — rule — section`
 // per violation; empty stdout means the ACTIVE plans are clean.
 if (import.meta.main) {
+  // THE GRADED ENTRY, matching the FR scanner and the registration. Calling the
+  // raw scanner here skipped the grandfathering arm, so a consumer's pre-epoch
+  // plans printed as violations through the one door they are most likely to
+  // use by hand.
   const projectRoot = process.argv[2] ?? process.cwd();
-  for (const v of scanPlanNarrativeAltitude(projectRoot)) {
-    console.log(`${v.file}:${v.line} — ${v.rule} — ${v.section}`);
+  const report = runPlanNarrativeAltitudeProbe(projectRoot);
+  for (const v of report.violations) {
+    console.log(`${v.file}:${v.line} — ${v.rule} — ${v.section} — ${v.severity}`);
+  }
+  if (report.grandfathered.length > 0) {
+    console.log(
+      `grandfathered: ${report.grandfatheredRows} row(s) across ` +
+        `${report.grandfathered.length} pre-epoch plan(s) — spared, not silenced`,
+    );
   }
 }

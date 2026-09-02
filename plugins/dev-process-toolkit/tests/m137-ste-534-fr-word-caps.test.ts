@@ -588,7 +588,15 @@ describe("AC-STE-534.5 — probe id, severity and the README's probe count agree
       .find((l) => l.startsWith(`67. **\`${PROBE_ID}\`**`));
     expect(entry).toBeDefined();
     expect(entry!).toContain("**Severity: error.**");
-    expect(entry!).toContain("scanFrSummaryAltitude(projectRoot)");
+    // MENTIONED, NEVER ORDERED. This pinned the CALL form
+    // `scanFrSummaryAltitude(projectRoot)`, and a name in call form inside an
+    // instruction reads as an order — which is how probe #67 came to route
+    // past its own grandfathering arm (616 error rows against 0 on a 447-FR
+    // corpus). The layering must stay visible; the raw scanner must not be
+    // ordered. Routing itself is asserted in fr-word-cap-epoch-grandfathering
+    // and by the class guard in m137-registration-routing.
+    expect(entry!).toContain("scanFrSummaryAltitude");
+    expect(entry!).not.toMatch(/call `scanFrSummaryAltitude\(/);
   });
 
   test("STE-534 minted no probe id of its own — the list ends where #82 left it", () => {
@@ -1280,7 +1288,15 @@ describe("AC-STE-534.5 — probe #67's registration prose matches the shipped sc
     const entry = probe67Entry();
     expect(PROBE_ID).toBe("fr_summary_altitude");
     expect(entry).toContain("**Severity: error.**");
-    expect(entry).toContain("scanFrSummaryAltitude(projectRoot)");
+    // MENTIONED, NEVER ORDERED. This pinned the CALL form
+    // `scanFrSummaryAltitude(projectRoot)`, and a name in call form inside an
+    // instruction reads as an order — which is how probe #67 came to route
+    // past its own grandfathering arm (616 error rows against 0 on a 447-FR
+    // corpus). The layering must stay visible; the raw scanner must not be
+    // ordered. Routing itself is asserted in fr-word-cap-epoch-grandfathering
+    // and by the class guard in m137-registration-routing.
+    expect(entry).toContain("scanFrSummaryAltitude");
+    expect(entry).not.toMatch(/call `scanFrSummaryAltitude\(/);
 
     const skill = readFileSync(
       join(import.meta.dir, "..", "skills", "gate-check", "SKILL.md"),

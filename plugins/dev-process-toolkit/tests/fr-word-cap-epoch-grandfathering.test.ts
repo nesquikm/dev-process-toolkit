@@ -926,8 +926,26 @@ describe("F11.6 — probe #67 routes through the grandfathering entry point", ()
     return match![0];
   }
 
-  test("the gate-check entry names the grandfathering entry point", () => {
-    expect(probe67Block()).toContain("runFrSummaryAltitudeProbe(projectRoot)");
+  test("the gate-check entry ORDERS the grandfathering entry point", () => {
+    // THIS TEST WAS GREEN WHILE NOTHING ROUTED THROUGH IT, and that is the
+    // finding it now exists to prevent. Its previous form asserted the
+    // registration CONTAINED `runFrSummaryAltitudeProbe(projectRoot)` — and it
+    // did, in a descriptive clause reading "the runtime entry point ... is ...",
+    // while the IMPERATIVE at the top of the entry ordered the raw
+    // `scanFrSummaryAltitude`. Measured on a 447-FR corpus: 616 error rows
+    // through the door a reader actually uses, against 0 through the graded one.
+    //
+    // `toContain` on a function name proves the NAME APPEARS. A name appearing
+    // in prose that DESCRIBES it is indistinguishable from a name appearing in
+    // prose that ORDERS it — so presence is not routing, and a test named for
+    // routing that checks presence vouches for the defect it was written to
+    // catch. Assert the imperative.
+    const imperatives = [...probe67Block().matchAll(/call `([A-Za-z]+)\(/g)].map((m) => m[1]!);
+    expect(imperatives.length, "the entry must issue at least one order").toBeGreaterThan(0);
+    expect(imperatives, "the FR half must be ORDERED through the grading arm")
+      .toContain("runFrSummaryAltitudeProbe");
+    expect(imperatives, "the raw scanner must not be ordered — it skips grandfathering")
+      .not.toContain("scanFrSummaryAltitude");
   });
 
   test("the entry states the epoch by NAME and the grandfathered disposition", () => {
@@ -940,10 +958,18 @@ describe("F11.6 — probe #67 routes through the grandfathering entry point", ()
     expect(block).toMatch(/undecidable/i);
   });
 
-  test("the entry still names the raw scanner — the pure half is not retired", () => {
-    // Two sibling suites pin this literal; the epoch arm layers over the
-    // scanner rather than replacing it.
-    expect(probe67Block()).toContain("scanFrSummaryAltitude(projectRoot)");
+  test("the entry still MENTIONS the raw scanner — the pure half is not retired", () => {
+    // The intent is unchanged and still right: the epoch arm LAYERS over the
+    // scanner rather than replacing it, and a reader should be able to see that
+    // from the registration. What changed is the form. Requiring the literal
+    // `scanFrSummaryAltitude(projectRoot)` required it in CALL form, and a name
+    // in call form inside an instruction reads as an order — which is how the
+    // raw scanner came to be the thing this entry routed to.
+    //
+    // So: mentioned, never ordered. The leg above enforces the second half.
+    const block = probe67Block();
+    expect(block, "the layering must stay visible to a reader").toContain("scanFrSummaryAltitude");
+    expect(block, "but not as an order").not.toMatch(/call `scanFrSummaryAltitude\(/);
   });
 
   test("DOGFOOD — the probe is clean over THIS repository", () => {

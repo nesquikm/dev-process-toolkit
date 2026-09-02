@@ -1316,7 +1316,15 @@ describe("STE-535 wiring — the plan scanner has a PRODUCTION consumer", () => 
     const entry = probe67Entry();
     // The same two things it already names for the FR half — same shape, one
     // entry, no second probe.
-    expect(entry).toContain("scanPlanNarrativeAltitude(projectRoot)");
+    // MENTIONED, NEVER ORDERED. This pinned the CALL form
+    // `scanFrSummaryAltitude(projectRoot)`, and a name in call form inside an
+    // instruction reads as an order — which is how probe #67 came to route
+    // past its own grandfathering arm (616 error rows against 0 on a 447-FR
+    // corpus). The layering must stay visible; the raw scanner must not be
+    // ordered. Routing itself is asserted in fr-word-cap-epoch-grandfathering
+    // and by the class guard in m137-registration-routing.
+    expect(entry).toContain("scanPlanNarrativeAltitude");
+    expect(entry).not.toMatch(/call `scanPlanNarrativeAltitude\(/);
     expect(entry).toContain(PLAN_SCANNER_REL);
   });
 
@@ -1575,7 +1583,15 @@ describe("STE-535 wiring — probe id, severity and NFR-1 cap are UNMOVED", () =
     expect(PROBE_ID).toBe("fr_summary_altitude");
     const entry = probe67Entry();
     expect(entry).toContain("**Severity: error.**");
-    expect(entry).toContain("scanFrSummaryAltitude(projectRoot)");
+    // MENTIONED, NEVER ORDERED. This pinned the CALL form
+    // `scanFrSummaryAltitude(projectRoot)`, and a name in call form inside an
+    // instruction reads as an order — which is how probe #67 came to route
+    // past its own grandfathering arm (616 error rows against 0 on a 447-FR
+    // corpus). The layering must stay visible; the raw scanner must not be
+    // ordered. Routing itself is asserted in fr-word-cap-epoch-grandfathering
+    // and by the class guard in m137-registration-routing.
+    expect(entry).toContain("scanFrSummaryAltitude");
+    expect(entry).not.toMatch(/call `scanFrSummaryAltitude\(/);
     expect(entry).toContain(FR_SCANNER_REL);
   });
 
