@@ -1,6 +1,6 @@
 # `/implement` Reference
 
-Extended reference material for `/dev-process-toolkit:implement` that was extracted from `skills/implement/SKILL.md` to keep the skill file under the NFR-1 351-line cap. The skill file contains a one-line pointer to this file at the Stage C section.
+Extended reference material for `/dev-process-toolkit:implement` that was extracted from `skills/implement/SKILL.md` to keep the skill file under the NFR-1 358-line cap. The skill file contains a one-line pointer to this file at the Stage C section.
 
 This reference is **not required reading** on every run — the skill itself has enough guidance to operate. Consult this file when Stage C (Hardening) is run on round 1 of the self-review loop, or when a hardening pass needs concrete examples.
 
@@ -287,12 +287,17 @@ advisoryNote: {
 }
 ```
 
-**Render contract.** A single shared formatter renders each `advisoryNote` to the bullet-body shape `<concern> — <rationale>`. Two surfaces consume the formatter's output:
+**Render contract.** The single shared formatter is `adapters/_shared/src/implement_advisory_notes.ts`, and `advisoryNoteBody(note)` is the bullet-body shape `<concern> — <rationale>` every surface below renders through. *This paragraph described that module in the present tense from M40 (STE-148) until M137 shipped it: measured 2026-09-01, `advisoryNote` had exactly one TypeScript occurrence in the plugin — a test pinning SKILL.md prose — so there was no formatter, no store, and no consumer. The claim is recorded here rather than quietly deleted, because a doc that describes a module nobody wrote is the failure worth remembering.*
 
-1. **Phase 4 step 14 report** — append a `## Advisory notes` section after the existing report items, one bullet per advisory entry in capture order. Empty list ⇒ heading + the literal line `No advisory notes.` — never absent.
-2. **Phase 4 § Milestone Archival archived-FR write** — append a `## Implementation notes` body section after the FR's existing `## Notes` section, body content is the FR's slice of `advisoryNote[]` rendered via the same formatter. Empty slice ⇒ heading + the literal line `No advisory notes.`.
+**The record is written before it is displayed.** `persistAdvisoryNotes(projectRoot, notes, meta)` appends the FULL list — one bullet per advisory entry, in capture order — to `.dpt/ledger/advisory-notes.md` (composed by `advisoryNotesPath` in `dpt_paths.ts`; `ledger/` is the layout's home for state that outlives a run and is already inside `.dpt/.gitignore`'s closed rule set), then READS THE BYTES BACK from that same path and throws if they are not there. The citation the report prints is therefore proved by execution rather than asserted. This write is unconditional: § Milestone Archival's persistence only happens on a milestone run, so a single-FR run would otherwise keep the concerns nowhere but in a bounded line.
 
-Bullet bodies between the two surfaces are byte-identical because both share the same source list and the same formatter. If the rendering ever diverges, that's the regression signal — the formatter must be the single source of truth for advisory-note prose.
+Three surfaces consume the formatter's output:
+
+1. **Phase 4 step 14 report** — append a `## Advisory notes` section after the existing report items, rendered by `renderAdvisoryNotes(notes, citation)`: the heading plus exactly ONE line, `first <N> of <M>` (N = `ADVISORY_NOTES_SHOWN`) carrying those bodies and citing the durable file. Bounded because the section is cap-exempt from the stage status block's whole-report cap and that carve-out is funded by what this renderer emits — see `docs/stage-status-block.md`; never silently truncated, because the line states the total and names where the rest are. Empty list ⇒ heading + the literal line `No advisory notes.` — never absent.
+2. **The durable store** — `renderAdvisoryNoteBullets(notes)`, one bullet per advisory entry, appended per run under a dated `## /implement` block.
+3. **Phase 4 § Milestone Archival archived-FR write** — append a `## Implementation notes` body section after the FR's existing `## Notes` section, body content is the FR's slice of `advisoryNote[]` rendered via `renderAdvisoryNotesFull` from the same module — the whole slice, because an archived FR is an audit trail rather than a display. Empty slice ⇒ heading + the literal line `No advisory notes.`.
+
+Bullet bodies across the three surfaces are byte-identical because all three share the same source list and the same `advisoryNoteBody`. If the rendering ever diverges, that's the regression signal — the formatter must be the single source of truth for advisory-note prose.
 
 ## Phase 4 Close (atomic — full text)
 

@@ -219,9 +219,15 @@ The advisory **never edits the consumer's `.gitignore`**. It names the offending
 
 ## Step 6 — closing summary
 
-Report what happened, in this order: entries applied (id + summary), entries declined, assisted entries routed and their outcome, **the backup directory of any assisted entry that took one — named verbatim, whatever the outcome**, and any advisories raised in step 1 that still stand. The backup row is not optional bookkeeping: it is the operator's only restore path for a tree git cannot undo, and a summary that omits it strands them. Then re-run every applied entry's `detect` and confirm each now returns `applies: false` — a migration that still detects after applying is a bug in the entry, and the summary must say so loudly rather than reporting success.
+The status block below **supersedes** the free-form shape this step formerly mandated; its rows now ride inside the fence. For reference, that shape read — report what happened, in this order: entries applied (id + summary), entries declined, assisted entries routed and their outcome, **the backup directory of any assisted entry that took one — named verbatim, whatever the outcome**, and any advisories raised in step 1 that still stand. The backup row is not optional bookkeeping: it is the operator's only restore path for a tree git cannot undo, and a summary that omits it strands them. **BOUNDED, and inside the fence.** Those per-entry lines are reference material to surface inline while the walk runs, not verbatim content the closing report reproduces above the fence: the block carries an `entries: <A> applied, <D> declined, <S> assisted` `summary:` row, then **at most the first 3** applied entries as `first 3 of <A>` rows. The total `<A>` is always stated, so the bound is never a silent truncation and the registry still holds every entry; the backup directory and any advisory still standing are named in full and never bounded away, because those are what the operator must act on. Authoring shape: `docs/stage-status-block.md` § How a stage FITS. Then re-run every applied entry's `detect` and confirm each now returns `applies: false` — a migration that still detects after applying is a bug in the entry, and the summary must say so loudly rather than reporting success.
 
 Recommend `/gate-check` as the follow-up when anything was applied.
+
+**Closing summary — the status block.** `/upgrade` closes with **exactly one** `stage-status-block` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
+
+```stage-status-block
+stage: upgrade   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md
+```
 
 ## Rules
 

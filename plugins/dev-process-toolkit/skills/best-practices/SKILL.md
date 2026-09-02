@@ -215,11 +215,11 @@ On `y`, stage `specs/best-practices.yaml` and create the commit with the exact s
 
 ## Closing-summary contract
 
-Every successful invocation MUST emit a closing summary on the quiet path. The summary must be ≥ 100 bytes on stdout and must include:
+Every successful invocation MUST emit a closing summary on the quiet path. The status block below **supersedes** the shape this contract formerly mandated; the rows it names now ride inside the fence. For reference, that shape was ≥ 100 bytes on stdout and must include:
 
 1. A tabular status block reflecting the subcommand's effect:
    - `add` / `edit` / `delete` → before/after row for the affected manifest entry plus the resulting `specs/best-practices.yaml` change line.
-   - `list` → the full manifest table (or the empty-manifest literal line).
+   - `list` → the full manifest table (or the empty-manifest literal line). **BOUNDED, and inside the fence.** The markdown table is superseded for the CLOSING report — it is reference material to render inline when the operator asks for the manifest, not verbatim content the report reproduces above the fence, and a header + separator + one row per entry cannot fit any budget. `list` emits a `manifest entries: <M>` `summary:` row inside the block, then **at most the first 3** entries as `first 3 of <M>` rows. The total `<M>` is always stated, so the bound is never a silent truncation — `specs/best-practices.yaml` still holds every entry. Authoring shape: `docs/stage-status-block.md` § How a stage FITS.
 2. The capability rows the subcommand fired, one row per fired capability, as backticked literal tokens:
    - `best_practices_added_<name>` — `add` reached `writeManifest`.
    - `best_practices_list_<N>_entries` — `list`, entry count including 0.
@@ -228,6 +228,12 @@ Every successful invocation MUST emit a closing summary on the quiet path. The s
 3. The branch-gate row from `requireCommittableBranch` (any of the `branch_gate_*` literal-token outcomes) for `add` / `edit` / `delete` runs that committed. `list` is read-only and skips the gate.
 
 The `Next:` line varies by subcommand — `list` recommends `add`; `add` / `edit` / `delete` recommend `list`.
+
+**Closing summary — the status block.** `/best-practices` closes with **exactly one** `stage-status-block` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
+
+```stage-status-block
+stage: best-practices   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md
+```
 
 ## Rules
 

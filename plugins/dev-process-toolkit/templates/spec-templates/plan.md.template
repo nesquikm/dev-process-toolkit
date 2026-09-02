@@ -59,20 +59,17 @@ is resolved for you when the plan is created. Delete this note once the value is
 
 ### Task Sizing
 
-Each task should be ≈ one commit's worth of work — small enough that the verification step is unambiguous. Write tasks as 2-line entries:
+Each task is ≈ one commit, written as two lines: the action as a checkbox bullet (`- [ ] Add X`), then an indented `verify:` line — the command or observation proving it done. Won't fit one sentence? Split it. `[deferred]` marks work moved out; both gates accept it.
 
-- line 1 — the action as a checkbox bullet, e.g. `- [ ] Add X`
-- line 2 — an indented `verify:` line stating the command or observation that proves the task is done
+**Narrative budget.** Prose `###` subsections are capped at 150 words, from `scan_plan_narrative_altitude`'s cap. Over it, split or extract. **No aphorisms, and never restate a point in a second register**; see `docs/prose-altitude.md`.
 
-If you can't write the `verify:` line in one sentence, the task is too big. Split it.
+**Exemption.** Checkbox items, table rows and fenced code lines count TOGETHER as one combined share of non-blank lines (not three exemptions); only above 60% is a body structural.
 
-A task may also be marked `[deferred]` (e.g., `- [deferred] multiply — moved to M<N+1>`) to signal that the work was intentionally moved out of this milestone. `/ship-milestone` treats `[deferred]` as ship-OK and `/gate-check` skips it from the task-FR coverage probe.
+**Anti-patterns:**
 
-**Anti-patterns — tasks too large to verify cleanly:**
-
-- `- [ ] Implement entire feature` — "entire feature" is a milestone, not a task; you can't verify it in one step
-- `- [ ] Refactor and add tests and update docs` — conjunctions hide three separate commits' worth of work; each clause needs its own `verify:` line
-- `- [ ] Clean up technical debt` — no observable end state; can't tell when it's done
+- `- [ ] Implement entire feature` — a milestone, not a task
+- `- [ ] Refactor and add tests and update docs` — three commits
+- `- [ ] Clean up technical debt` — no observable end state
 
 ## M<N> — [Foundation / Scaffolding] {#M<N>}
 

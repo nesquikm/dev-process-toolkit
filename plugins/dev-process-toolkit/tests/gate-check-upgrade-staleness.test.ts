@@ -1065,13 +1065,13 @@ describe("AC-STE-410.6 — gate-check SKILL #69 documents the carve-out; M111 sp
     expect(entry).toContain("GATE FAILED");
   });
 
-  test("the carve-out amends #69 in place — the enumeration is the live 81, contiguous", () => {
+  test("the carve-out amends #69 in place — the enumeration is the live count, contiguous", () => {
     // AC-STE-410.6 amended an existing entry rather than registering a probe,
     // so M111 moved no count site. The literal below is the LIVE total (M133
-    // added #81 `module_reachability`), not an M111 freeze.
+    // added #82 `stage_block_adoption`), not an M111 freeze.
     const numbers = [...body.matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
     expect(numbers.length).toBeGreaterThan(0);
-    expect(Math.max(...numbers)).toBe(81);
-    expect(numbers.length).toBe(81);
+    expect(Math.max(...numbers)).toBe(82);
+    expect(numbers.length).toBe(82);
   });
 });

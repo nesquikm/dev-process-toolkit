@@ -1723,9 +1723,10 @@ describe("fixture teardown (STE-531 legs)", () => {
 //     by anything below.
 //   * `skills/gate-check/SKILL.md` — carries a POSITIONAL pin (probe #26's row
 //     at line 81 exactly). Untouched by anything below.
-//   * `skills/deliver/SKILL.md` — `wc -l` 252, split-length 253. Its tightest
-//     cap is 351 (`tests/m123-ste-464-deliver-skill.test.ts`, stricter than the
-//     global 358), so it has 98 lines of headroom and a fenced or inline
+//   * `skills/deliver/SKILL.md` — `wc -l` 252, split-length 253. Its cap is
+//     the global NFR-1 358 (M137 re-aligned the mirror in
+//     `tests/m123-ste-464-deliver-skill.test.ts`, which had been left at a
+//     stale 351), so it has 105 lines of headroom and a fenced or inline
 //     command fits with room to spare. That is why the fix belongs there.
 // ===========================================================================
 
@@ -2016,8 +2017,8 @@ describe("carried gap (STE-529, part two) — `/deliver` orders the run's skip n
       commands,
       "skills/deliver/SKILL.md's evidence section carries no runnable `gate_capture` " +
         "command — fenced or inline. `/implement`'s SKILL surface carries the inline form " +
-        "against its zero-headroom line cap; deliver's tightest cap is 351 against a " +
-        "split-length of 253, so it has 98 lines of room and no such excuse.",
+        "against its zero-headroom line cap; deliver's cap is the global NFR-1 358 against a " +
+        "split-length of 253, so it has 105 lines of room and no such excuse.",
     ).not.toHaveLength(0);
   });
 

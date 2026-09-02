@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.75.0] — 2026-09-01 — "Laconic"
+
+### Added
+
+- Stage reports are one fenced status block with a fixed section order and a hard line budget spanning the whole report, prose lead-in included — not the fence alone (STE-532)
+- Word caps on FR narrative sections, added to the existing altitude probe rather than a new one — and what they inherited from that probe was its accumulator: Summary 80, Technical Design 120, Notes 60, with Requirement / Acceptance Criteria / Testing deliberately uncapped (STE-534)
+- Plan narrative capped at 150 words by section KIND rather than section name, so a renamed heading cannot evade it; checkbox majority counts items, not lines, because the mandated two-line task entry sits at exactly 50% and could never clear the threshold (STE-535)
+
+### Changed
+
+- The eleven skills carrying a closing-summary contract now emit the status block in place of free-form narration, on their own fence banner with their own vocabulary — `deliver-stage-result` stays /deliver's, since a hand-off between machines and a human-facing summary were never the same artifact (STE-533)
+- Authoring surfaces state the budgets where the writing happens, single-sourced from the scanner's exports and asserted in both drift directions; the plan template now clears the cap it states, which it did not (STE-536)
+
+### Fixed
+
+- Both altitude scanners grade an accumulating rule per section NAME per file, and the hole they closed predates the milestone. `line_cap` — the first rule on that walker to carry state across lines — shipped in STE-386 (M105), so probe #67 has been evadable by a repeated heading for 32 releases. M137 did not introduce the defect: it added a second accumulating rule to a walker whose first was already evadable, then copied the shape into a third scanner. The two closures ship as one entry because their consumer profiles are opposite. The word caps needed a grandfathering epoch — measured against this repository's own archived FRs, they flagged 616 violations across 319 files the moment they landed, on prose no consumer ever wrote. The per-name accumulation fix needs none: 616 before, 616 after, 0 newly flagged, and 0 archived FRs repeat a capped section name — re-derived under the corrected scanner rather than carried over, since a before/after equality is only evidence for the scanner it was measured on. Those figures moved from 638/320 as first measured because the SCANNER got more correct, not because the corpus changed: the FR walk now treats a level-2 heading inside a code fence as sample text rather than a section opener (`fenceAware: true`, matching the plan walk), and fenced content no longer counts toward a PROSE word cap. Both halves ship together — the flip alone raised the count to 644, because a fenced heading had also been truncating the real section, and ending that handed Technical Design its own worked examples as narration. (STE-534, STE-535)
+
+- Probe #67's grandfathering arm could not fire through any door a user comes in by. The registration's imperative ordered the raw `scanFrSummaryAltitude`, the module's CLI called it, and skill prose named it, while `runFrSummaryAltitudeProbe` — which layers the epoch grading on top — appeared only in a descriptive clause. Measured on this repository's 447 archived FRs restored as active: 616 error rows through the raw path against 0 through the graded one, on prose no consumer ever wrote. Every test passed throughout, because tests call the graded function directly; the arm was verified across eight legs, mutation-tested, and had never run. All three doors now route graded, both scanners' CLIs disclose what they spared rather than going quiet, and a guard fails when any registration imperative names a raw scanner for a module exporting a graded wrapper. The test that should have caught this asserted the registration CONTAINED the graded name — which it did, in prose that described it: presence is not routing. (STE-534)
+- Fence pairing follows CommonMark: a closer must match the opener's marker character, be at least as long, and carry no info string. `fencedFlags` closed on any fence-shaped line, so ```` ```bash ````, which is an opener, closed the block above it and every span after it shifted — and with the FR walk now fence-aware, a real `## Summary` could land inside a phantom span and never open, silencing the whole probe on that file rather than one rule. A single unclosed fence also abandoned the entire scan, hiding every later matched pair. (STE-534)
+- Plan and FR provenance agree on what new work is. A plan git does not track, or one staged but never committed, classified `undecidable` where both sibling modules return `fresh` — and since `undecidable` downgrades to `warning` while `fresh` reports at `error`, a plan the operator had just written escaped with a warning while an old committed plan got the error. Absence of history because a file is new is not absence because it is severed. (STE-535)
+
+Total test count at release: 10995 tests, 0 failures, 0 errors.
+
 ## [2.74.0] — 2026-08-27 — "Pawl"
 
 ### Added

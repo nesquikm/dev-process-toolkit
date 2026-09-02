@@ -3,7 +3,7 @@
 > See `docs/layout-reference.md` — canonical authority on FR file shape (per-FR file path, AC-prefix derivation, `## Acceptance Criteria` section).
 
 Detailed tracker-mode procedures for `/implement`. Pointed at from
-`skills/implement/SKILL.md` step 0 to keep the skill under NFR-1 (≤351 lines).
+`skills/implement/SKILL.md` step 0 to keep the skill under NFR-1 (≤358 lines).
 
 In `mode: none`, this document is unused — the `mode: none` branch runs unchanged.
 

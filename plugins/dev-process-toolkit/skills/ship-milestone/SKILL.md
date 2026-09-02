@@ -84,6 +84,8 @@ Any of these fire before any file write and exit non-zero with an NFR-10-shape m
 
    Use the stack detector to pick bun / pytest / flutter parsers from `adapters/_shared/src/test_count_parser.ts`. Unrecognized output or unknown stack → NFR-10 asking the user to specify or skip the line.
 
+   **Keep that run's parsed `TestCount`.** It is the measured side of both the CHANGELOG closing line (step 4) and the write-boundary check that grades it — the same run, parsed once. Never run the gate a second time to measure the count: a second run costs the whole ceremony's wall time again to re-derive a number this one already produced, and two runs can disagree.
+
 ## Flow
 
 ### 1. Resolve milestone + FR list

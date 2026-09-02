@@ -25,6 +25,44 @@ reproduces should be deleted with a one-line reason rather than left to rot.
 
 ---
 
+## From M137 — PR #76 adversarial review (2026-09-01)
+
+### 1. The CHANGELOG's release test count still drifts after the release commit is written
+
+**Measured, on this branch.** Against `f504493` (`chore(release): v2.75.0`):
+
+| what | value |
+| --- | --- |
+| commits landed after the release commit | 7 commits |
+| test files changed after the release commit | 11 test files |
+| count stated in the v2.75.0 entry | 10708 |
+| count the gate reported when the review measured it | 10950 |
+
+The stated 10708 was HONEST when written. It was made wrong afterwards, by the seven commits that landed past the release commit — which is why "check the number at write time" is only half a guard. Two boundaries, not one:
+
+- **The write boundary** — the number is wrong the moment `/ship-milestone` writes it. A `checkWriteBoundary` grading the stated line against the gate run was BUILT AND REVERTED in M137; see the note below.
+- **The merge boundary** — the number is right when written and made wrong by later commits. This is the residual, and it is STILL OPEN. A `/pr` warning was built and reverted in M137; see below.
+
+**M137 BUILT THIS GUARD AND REVERTED IT — read before rebuilding.** Both boundaries were
+implemented (`release_test_count_guard.ts`, its `/pr` and `/ship-milestone` prose, and a test
+suite), and the operator dropped them on measurement: **7 of the 24 HIGH findings across two
+review rounds came from that one module** — the highest count of any file in the milestone. It
+was never one of the five FRs; it was a follow-up added to correct a cosmetic CHANGELOG figure,
+and it cost two rounds of consumer-facing defects, including a CLI that crashed on the exact
+verdict it existed to certify and an anchor blinded by the merge commit of every release.
+
+**The lesson is about proportion, not about the design.** The anchor question was answered well
+in the end — anchor on the ARTIFACT (the commit that last wrote the count line), never on a
+`chore(release):` subject, because `git log --grep` anchors `^` at every line of a message and a
+GitHub merge body quotes the subject it merged; 21 merge commits in this history match. Anyone
+rebuilding this should start there and should not re-derive it. But a guard correcting a
+cosmetic number is not worth defects a consumer sees, and the count going back to a hand edit as
+the last step before merge is the cheaper correct answer.
+
+**What would actually close it**, and why neither is done here: rewriting the closing line automatically at merge time needs a gate run at merge time, which is the cost the deleted `tests/changelog-release-test-count.test.ts` proved unacceptable (89.5s -> 178.4s on every contributor's every run, forever, for a once-per-release staleness). Deriving the count from anything other than the gate reintroduces the defect as its own fix — a second implementation of "how many tests are there" is a number that can disagree with the gate. The remaining option is procedural — ship the release as the last commit on the branch — and the `/pr` warning is what makes that procedure mechanical rather than remembered.
+
+---
+
 ## From M121 implementation (2026-08-07)
 
 ### 0. Two live inconsistencies STE-446 created or left behind
@@ -1074,3 +1112,143 @@ The `/pr` case is the instructive one: a shipped test asserted the literal `—`
 **Interim, already landed:** `tests/m129-ste-497-deliver-identity.test.ts` pins the mirroring for the two skills M129 changed (`/deliver`, `/pr`), including a not-the-`—`-marker leg and a non-vacuity control. That covers the two rows this milestone touched and nothing else.
 
 Surfaced while implementing M129 / STE-496 and STE-497, 2026-08-17.
+
+## Evasion twins for every guard validated against real content only
+
+**The finding, measured.** Every accumulating rule this repository ships resets its
+accumulator on a repeated heading, so splitting an over-budget section into two
+identically-named sections evades the cap entirely. Measured with controls on 2026-09-01:
+
+| rule / cap | control (one heading) | evasion (repeated headings) |
+|---|---|---|
+| `line_cap` 6 lines (STE-386, M105) | 10 lines → flags | 5 + 5 = 10 → **silent** |
+| `word_cap` Summary 80 | 200 words → flags | 3 × 70 = 210 → **silent** |
+| `word_cap` Technical Design 120 | — | 3 × 100 = 300 → **silent** |
+| `word_cap` Notes 60 | — | 2 × 55 = 110 → **silent** |
+| plan narrative 150 | 400 words → flags | 3 × 140 = 420 → **silent** |
+| stage-report ceiling 49 lines | — | 50 × 2 = 124 → **accepted** |
+
+`backtick`, `ac_id` and `path_token` do NOT multiply — measured, not assumed. The boundary
+is structural: **a rule carrying state across lines needs a per-name property; a per-line
+predicate does not.**
+
+**Why it survived.** A dogfood over real content answers "does this fire?" and never
+"can this be avoided?" — real material does not evade. Every dogfood M137 shipped proved
+its scanner measures *something*; none proved it measures *all of its subject*. Five holes
+across three modules survived four adversarial review rounds for that reason, and no review
+can close it: a review inspects what exists, and this is a property the suite must contain.
+
+**What M137 shipped.** The per-name property (gating), the taxonomy above, and the standing
+rule that every dogfood ships with an **evasion twin** — same total, restructured, required
+to produce the same verdict.
+
+**What this FR owes.** M137 applied the twin rule to its own guards only. The following were
+validated by pointing them at real material and are therefore proven only to measure
+something: the archive-fallback dogfoods, the citation resolver (`resolveExemptCitation`),
+the adoption grader (`scanStageBlockAdoption`), and the `deliver-stage-result` fence contract.
+Audit every guard in `adapters/_shared/src/` for an evasion twin; add one or record why none
+can be constructed. Deliberately deferred from M137 to keep the milestone shippable — the
+rule is the deliverable, this sweep is its consequence.
+
+Surfaced while implementing M137 review round 2, 2026-09-01.
+
+## K8 — grade the INSTRUCTION, not the heading (banked from M137 round 3)
+
+`gradeAdoptingSkills` in `stage_block_adoption.ts` enforces "exempt is not
+optional" with `body.includes(entry.heading)` — a raw substring search over a
+SKILL.md. Four evasions demonstrated: a bare heading, a heading only inside a
+fence, a heading in an HTML comment, and a heading in prose. The last is the
+worst — `"We removed the ## Verification evidence section entirely."` satisfies
+the check that the section still exists.
+
+**Three of the four cannot be closed by tightening it, and attempting to would
+flag the correct file.** In `skills/implement/SKILL.md` both required headings
+(`## Verification evidence`, `## Advisory notes`) appear ONLY as backticked
+mentions inside one prose paragraph at line 280 — zero line-start occurrences.
+The subject is an AUTHORING surface: a SKILL.md *instructs* the runtime to emit
+a section, it does not contain one. The module's own header says so.
+
+**This is the review committing the error the FR already retracted.** AC-533.8
+originally demanded a probe over SKILL.md grade a rendered report's narration —
+structurally impossible for the same reason, and withdrawn during the milestone.
+K8 treats a heading-presence check on an authoring surface as though the surface
+were the report.
+
+**The closable half needs a different and larger check:** assert the skill
+ORDERS the section — `render ## X through <renderer>` — rather than that the
+heading appears. Strictly better than grading presence, and it generalises past
+these two sections. That is the FR someone should pick up; do not attempt it as
+a tightening of the substring match.
+
+## Structural exemption has no ITEM-LENGTH bound (banked from M137 round 3)
+
+A structural body's rows are exempt from the narrative word cap, and a row of
+ANY length counts as one row. A "task row" carrying 120 words is narrative
+wearing a list marker, and nothing bounds it.
+
+**Measured on the 136 archived plans staged as active:** 40 structural
+subsections exceed the cap in raw words, with **21,217 words riding exempt**.
+The largest single one is 6,429 words (`Halt condition`, M121). Thirty-eight of
+those were exempt before M137 touched anything — this is a pre-existing hole,
+not a new one.
+
+**What M137 changed, with both halves of the ledger.** `7b9ed07` made ordered
+rows structural so the scanner could see the task shape this project actually
+writes. On that corpus it takes violations **41 → 28**: of the 13 removed,
+**11 are `Tasks`** — the false positives that made the finding — and **2 are
+narrative written as numbered lists** (`Deviations from the approved design`,
+`Follow-ups carried out of M136`), which now ride exempt. Control: identical
+968-word prose is FLAGGED as plain bullets and EXEMPT as `1. …` rows, the prose
+held constant and only the list marker varied.
+
+So the change bought 11 and cost 2, and made two more instances of the
+item-length problem reachable. **Do not fix it by reverting** — that restores 11
+wrong reds to remove 2 right ones.
+
+**Scope this as the WHOLE question, not the two sections M137 made reachable.**
+Fixing the two while leaving the thirty-eight that were always there is "the fix
+reaches only the clause you name" committed on purpose, in the round convened to
+stop doing that.
+
+**The obstacle is real and is what the FR must decide:** every formulation of an
+item-length bound either introduces a second budget literal — which AC-STE-536.4
+refuses, one definition per budget — or picks a fraction of the existing cap,
+which is a new number wearing a derivation. The FR has to name the number and
+say where it lives.
+
+## The STE-488 probe digest is a FREEZE, not a pin (banked from M137 round 4)
+
+`tests/m127-ste-488-contradictory-assertions.test.ts` pins the sha256 of
+`identity_mode_conditional.ts` and `plan_identity_mode_conditional.ts` and
+asserts byte-equality against the WORKING TREE. **The file contradicts itself
+about what that is supposed to mean:**
+
+- `specs/frs/archive/STE-488.md:27` — "Both probes' own BEHAVIOUR is
+  byte-unchanged — nothing in **THIS FR** touches the systems under test."
+- the pin's own docstring — "sha256 of each probe module as it stands
+  **BEFORE THIS FR**, recorded here rather than derived from git."
+- the implementation — a live-tree digest, which scopes the claim to **all
+  future time**.
+
+Two of the three scope it to one FR. Only the implementation freezes the module
+permanently, so every later milestone that legitimately edits either probe trips
+a guard whose trip carries no information. M137 was the first to hit it (two
+`export` keywords) — the module had not changed since `824910b`, before the
+digest was recorded, so the pin had never once had to tell a legitimate change
+from a violation.
+
+**Do NOT "fix" this by re-scoping the digest to a commit range.** "The module at
+commit X hashed to D" is an assertion about frozen history: once true it can
+never fail. That trades an over-strict guard for a vacuous one, which is the
+class this milestone spent four rounds removing.
+
+**The durable repair is a BEHAVIOURAL pin over the two probes** — assert what
+they DO, which is what the AC actually claims, and which survives a refactor
+that changes bytes without changing verdicts. Larger than a follow-up line;
+it needs an FR that decides what behaviour to pin and how.
+
+**Interim practice, used in M137 and recorded in the pin itself:** re-recording
+a digest is legitimate when it is deliberate, reviewed, and carries evidence
+that behaviour is unchanged — here, both probes' suites run before and after,
+294 tests across 7 files, identical pass/fail/skip and identical `expect()`
+counts. A digest that may never be re-recorded is not a pin, it is a freeze.
