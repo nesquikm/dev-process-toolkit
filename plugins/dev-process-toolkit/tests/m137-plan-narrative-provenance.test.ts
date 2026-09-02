@@ -16,7 +16,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -26,7 +26,11 @@ import {
   runPlanNarrativeAltitudeProbe,
   scanPlanNarrativeAltitude,
 } from "../adapters/_shared/src/scan_plan_narrative_altitude";
-import { FR_WORD_CAP_EPOCH } from "../adapters/_shared/src/scan_fr_summary_altitude";
+import {
+  FR_WORD_CAP_EPOCH,
+  classifyFrProvenance,
+} from "../adapters/_shared/src/scan_fr_summary_altitude";
+import { classifyPlanProvenance } from "../adapters/_shared/src/plan_identity_mode_conditional";
 
 const roots: string[] = [];
 function git(root: string, args: string[], env: Record<string, string> = {}): void {
@@ -144,6 +148,80 @@ describe("a truncated history cannot date a plan, and must not guess", () => {
       env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
     });
     expect(runPlanNarrativeAltitudeProbe(shallow).violations).toEqual([]);
+    cleanup();
+  });
+});
+
+describe("new work is FRESH, not undecidable — the siblings' disposition", () => {
+  // THE DEFECT THIS PINS, and why `undecidable` was the wrong answer rather
+  // than merely a different one. `classifyFrProvenance` and
+  // `classifyPlanProvenance` both return `fresh` for a file git does not track
+  // and for one staged but never committed. This module returned `undecidable`,
+  // because "no introducing commit" collapsed two different facts: a file with
+  // no history because it is NEW, and one with no history because the object
+  // store is SEVERED.
+  //
+  // The consequence ran backwards. `undecidable` downgrades to `warning` and
+  // `fresh` reports at `error` — so a plan the operator had just written, the
+  // newest thing in the tree and exactly what a cap exists to bind, escaped
+  // with a warning while an old committed plan got the error.
+  //
+  // EVERY LEG HERE FAILS UNDER `undecidable`, deliberately: each asserts the
+  // class is `fresh` AND that the row reports at `error`. An assertion that
+  // passed under both values would pin nothing, and this is a disposition —
+  // the severity IS the behaviour.
+
+  function seeded(): string {
+    const root = mkdtempSync(join(tmpdir(), "plan-prov-new-"));
+    roots.push(root);
+    mkdirSync(join(root, "specs", "plan"), { recursive: true });
+    git(root, ["init", "-q", "-b", "main"]);
+    git(root, ["config", "user.email", "fixture@example.invalid"]);
+    git(root, ["config", "user.name", "Fixture"]);
+    git(root, ["config", "commit.gpgsign", "false"]);
+    writeFileSync(join(root, "README.md"), "seed\n");
+    git(root, ["add", "--", "README.md"]);
+    git(root, ["commit", "-q", "-m", "chore: seed"], { GIT_AUTHOR_DATE: before(), GIT_COMMITTER_DATE: before() });
+    return root;
+  }
+
+  test("an UNTRACKED plan is fresh and reports at error", () => {
+    const root = seeded();
+    writeFileSync(join(root, "specs", "plan", "M50.md"), `# M50\n\n### Rationale\n\n${overCap()}\n`);
+    expect(classifyPlanNarrativeProvenance(root, "M50.md")).toBe("fresh");
+    const report = runPlanNarrativeAltitudeProbe(root);
+    expect(report.violations.length, "a brand-new over-cap plan must be reported").toBeGreaterThan(0);
+    expect(report.violations.every((v) => v.severity === "error"),
+      "error, not the warning `undecidable` would produce").toBe(true);
+    expect(report.grandfathered, "and nothing is spared").toEqual([]);
+    cleanup();
+  });
+
+  test("a STAGED-but-never-committed plan is fresh and reports at error", () => {
+    const root = seeded();
+    writeFileSync(join(root, "specs", "plan", "M51.md"), `# M51\n\n### Rationale\n\n${overCap()}\n`);
+    git(root, ["add", "--", "specs/plan/M51.md"]);
+    expect(classifyPlanNarrativeProvenance(root, "M51.md")).toBe("fresh");
+    const report = runPlanNarrativeAltitudeProbe(root);
+    expect(report.violations.every((v) => v.severity === "error")).toBe(true);
+    expect(report.grandfathered).toEqual([]);
+    cleanup();
+  });
+
+  test("the three modules AGREE — parity asserted, not assumed", () => {
+    // Cross-module parity in one leg, so a future change to any one of them
+    // that re-introduces the divergence reddens here rather than going unnoticed
+    // until a consumer's new plan quietly downgrades to a warning.
+    const root = seeded();
+    mkdirSync(join(root, "specs", "frs"), { recursive: true });
+    writeFileSync(join(root, "specs", "plan", "M52.md"), `# M52\n\n### Rationale\n\n${overCap()}\n`);
+    writeFileSync(join(root, "specs", "frs", "STE-52.md"), `# STE-52\n\n## Summary\n\n${overCap()}\n`);
+    expect(classifyPlanNarrativeProvenance(root, "M52.md")).toBe("fresh");
+    expect(classifyFrProvenance(root, join(root, "specs", "frs", "STE-52.md"))).toBe("fresh");
+    expect(
+      classifyPlanProvenance(root, join(root, "specs", "plan", "M52.md"),
+        readFileSync(join(root, "specs", "plan", "M52.md"), "utf-8")),
+    ).toBe("fresh");
     cleanup();
   });
 });

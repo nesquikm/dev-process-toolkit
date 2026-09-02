@@ -490,6 +490,24 @@ export function classifyPlanNarrativeProvenance(
     return "undecidable";
   }
 
+  // NEW WORK IS `fresh`, NOT `undecidable` — both siblings say so and this
+  // module used to disagree with them. `classifyFrProvenance` and
+  // `classifyPlanProvenance` both return `fresh` for a file git does not track
+  // and for one staged but never committed; this returned `undecidable`,
+  // because "no introducing commit" collapsed two different facts into one.
+  //
+  // The consequence was backwards. `undecidable` downgrades to `warning` while
+  // `fresh` reports at `error`, so a plan the operator had just written — the
+  // newest content in the tree, and precisely what a cap is for — escaped with
+  // a warning, while an old committed plan got the error. Absence of history
+  // because a file is NEW is not absence of history because it is SEVERED.
+  const tracked = gitQuery(projectRoot, ["ls-files", "--", `specs/plan/${name}`]);
+  if (tracked === null) return "undecidable"; // git refused to answer at all
+  if (tracked.trim().length === 0) return "fresh"; // untracked: brand new
+  if (gitQuery(projectRoot, ["cat-file", "-e", `HEAD:./specs/plan/${name}`]) === null) {
+    return "fresh"; // tracked but absent from the tip: staged, never committed
+  }
+
   const introducedAt = planIntroducedAt(projectRoot, name);
   if (introducedAt === null) return "undecidable";
   return introducedAt >= Date.parse(epoch) ? "fresh" : "legacy";
