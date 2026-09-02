@@ -139,3 +139,35 @@ describe("the fix marks LESS content fenced, not more", () => {
     ).toBeLessThan(oldFlags.filter(Boolean).length);
   });
 });
+
+describe("one unclosed fence does not blind the rest of the document", () => {
+  test("a MATCHED pair after an unclosed opener is still found", () => {
+    // The `break` this replaces abandoned the entire scan on the first
+    // unpairable opener, so every later matched pair went unflagged. Both the
+    // adjacent comment and the module docstring described skip-and-continue —
+    // singular, "this opener is inert" — and the code disagreed with both.
+    //
+    // The opener must be a DIFFERENT FLAVOR to be genuinely unpairable: a bare
+    // ``` later in the document would legitimately close a ``` opener, so a
+    // backtick fixture cannot reach this branch. That is why the earlier
+    // "unterminated fence" leg passed under the bug — it never got here.
+    const doc = ["prose", "~~~", "still prose", "```ts", "const x = 1;", "```", "after"];
+    expect(fencedLines(doc), "the ```ts…``` pair is real and must be fenced").toEqual([4, 5, 6]);
+  });
+
+  test("the unclosed opener ITSELF still flags nothing", () => {
+    // The property the old `break` got right, kept: an opener with no closer
+    // pairs with nothing, so a stray fence cannot swallow the rest of the file.
+    expect(fencedLines(["text", "```md", "a", "b"])).toEqual([]);
+  });
+
+  test("TWO unclosed openers do not stop a third, matched one", () => {
+    // FIXTURE NOTE, because the first attempt at this leg was wrong and looked
+    // like a code defect: `~~~` then `~~~~~` is NOT two unclosed openers — the
+    // longer tilde run legitimately CLOSES the shorter one, same flavor, run
+    // length at least equal. To get two genuinely unpairable openers the LONG
+    // one must come first, so the short one cannot close it.
+    const doc = ["~~~~~", "a", "~~~", "b", "```", "c", "```", "after"];
+    expect(fencedLines(doc), "only the matched backtick pair is fenced").toEqual([5, 6, 7]);
+  });
+});

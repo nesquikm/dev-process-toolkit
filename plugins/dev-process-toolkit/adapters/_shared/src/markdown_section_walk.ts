@@ -20,12 +20,14 @@
 //            ends the previous section and starts the next, so the opener is
 //            the only closer. The plan walk closes on level-1 and level-2
 //            headings, which outrank its level-3 openers.
-//   fenceAware — whether a heading inside a MATCHED fence pair counts. The
-//            plan walk says yes: a plan quoting `### Tasks` inside a fence is
-//            showing sample text, not opening a subsection. The FR walk has
-//            never been fence-aware and stays that way here. Writing that
-//            down as `false` is the point: it turns a silent omission into a
-//            reviewable choice that a later FR can flip in ONE place.
+//   fenceAware — whether a heading inside a MATCHED fence pair counts. BOTH
+//            walks now say yes: a document quoting `### Tasks` or `## Summary`
+//            inside a fence is showing sample text, not opening a section.
+//            The FR walk was `false` until M137, when per-name accumulation
+//            turned that into a false positive — a fenced EXAMPLE of a Summary
+//            spent the real Summary's word budget. Recorded here because this
+//            header previously said the FR walk "stays that way", which the
+//            code stopped being true of and nothing caught.
 //
 // A fourth difference did NOT survive into a knob. The FR scanner used to
 // decide its rules line-by-line as it walked and the plan scanner had to
@@ -110,8 +112,16 @@ export function fencedFlags(lines: readonly string[]): boolean[] {
     }
     let close = i + 1;
     while (close < lines.length && !closesFence(lines[close]!, opener)) close++;
-    // No closer anywhere below: nothing left to pair, and this opener is inert.
-    if (close >= lines.length) break;
+    // No closer anywhere below: THIS opener is inert — skip past it and keep
+    // scanning. `break` abandoned the whole document here, so one unclosed
+    // fence made every LATER matched pair invisible. Measured: a `~~~` with no
+    // tilde closer, followed by a properly matched ```ts…``` pair, flagged
+    // nothing at all. The adjacent comment and the docstring both said
+    // "this opener is inert" — singular — and the code disagreed with both.
+    if (close >= lines.length) {
+      i++;
+      continue;
+    }
     for (let k = i; k <= close; k++) flags[k] = true;
     i = close + 1;
   }
