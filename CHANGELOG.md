@@ -27,7 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Fence pairing follows CommonMark: a closer must match the opener's marker character, be at least as long, and carry no info string. `fencedFlags` closed on any fence-shaped line, so ```` ```bash ````, which is an opener, closed the block above it and every span after it shifted — and with the FR walk now fence-aware, a real `## Summary` could land inside a phantom span and never open, silencing the whole probe on that file rather than one rule. A single unclosed fence also abandoned the entire scan, hiding every later matched pair. (STE-534)
 - Plan and FR provenance agree on what new work is. A plan git does not track, or one staged but never committed, classified `undecidable` where both sibling modules return `fresh` — and since `undecidable` downgrades to `warning` while `fresh` reports at `error`, a plan the operator had just written escaped with a warning while an old committed plan got the error. Absence of history because a file is new is not absence because it is severed. (STE-535)
 
-Total test count at release: 10992 tests, 0 failures, 0 errors.
+Total test count at release: 10995 tests, 0 failures, 0 errors.
 
 ## [2.74.0] — 2026-08-27 — "Pawl"
 
