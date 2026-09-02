@@ -2757,3 +2757,69 @@ describe("M137 round 3 — the known attacks (documentation, NOT coverage)", () 
     expect(verdictOf(asMany)).toEqual(verdictOf(asOne));
   });
 });
+
+// ===========================================================================
+// BOTH HALVES OF THE M137 CLASSIFIER REPAIR, PINNED
+// ===========================================================================
+//
+// MEASURED, AND THIS IS WHY THE FILE ENDS THIS WAY: before these legs existed
+// BOTH halves of that repair could be reverted with the entire suite — 11,036
+// tests — byte-identically green. The fix that took a full review round to
+// argue, land, and correct had no guard on either half. Round 4 found that by
+// reverting them, not by reading.
+//
+// Each leg is written so that reverting ITS half turns it red and the other
+// leg stays green, because two legs that die together do not tell you which
+// half broke.
+describe("the ordered-list arm — the shape this project actually writes", () => {
+  test("numbered task rows are STRUCTURAL, as checkbox rows already were", () => {
+    // Reverting `CHECKBOX_RE` to the checkbox-only form kills this and nothing
+    // else. Plans M132..M136 carry 13-21 ordered rows and zero checkbox rows,
+    // while the shipped template teaches `- [ ]` — so a checkbox-only
+    // classifier exempts whoever copies the template and flags whoever copies
+    // the practice.
+    const ordered = Array.from({ length: 8 }, (_, i) => `${i + 1}. do the thing numbered ${i + 1}`);
+    expect(classifySectionBody(ordered)).toBe("structural");
+  });
+
+  test("PLAIN bullets stay narrative — the arm is not a blanket list exemption", () => {
+    // The discrimination is deliberate: `- some observation` is how prose lists
+    // are written in Notes and Risks, and those are meant to be capped. Without
+    // this leg the arm could be widened to any list marker and stay green.
+    const bullets = Array.from({ length: 8 }, () => "- an observation about the work");
+    expect(classifySectionBody(bullets)).toBe("narrative");
+  });
+});
+
+describe("the per-line grading arm — a row's exemption is for THAT row", () => {
+  test("prose smuggled under task rows is FLAGGED, though the body reads structural", () => {
+    // Reverting to whole-body grading (`if (kind !== "narrative") continue`)
+    // kills this and nothing else. Seven task rows plus one very long line
+    // classified `structural` and scored zero violations, because the SHAPE of
+    // a body was taken as a licence for its QUANTITY.
+    const smuggled = [
+      ...Array.from({ length: 7 }, (_, i) => `- [ ] task ${i + 1}`),
+      Array.from({ length: PLAN_NARRATIVE_WORD_CAP * 3 }, () => "smuggled").join(" "),
+    ];
+    const fx = makeTree({ "specs/plan/M914.md": planFile("M914", [["Tasks", smuggled]]) });
+    try {
+      expect(classifySectionBody(smuggled), "the body still reads structural").toBe("structural");
+      expect(scan(fx.root).length, "and the prose inside it is still capped").toBe(1);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("a body of task rows ALONE still flags nothing — the arm is scoped to prose", () => {
+    // The other direction. Without this, per-line grading could be widened to
+    // count task rows themselves and the suite would stay green while the
+    // exemption quietly disappeared.
+    const rows = Array.from({ length: 40 }, (_, i) => `- [ ] task number ${i + 1} in this plan`);
+    const fx = makeTree({ "specs/plan/M915.md": planFile("M915", [["Tasks", rows]]) });
+    try {
+      expect(scan(fx.root)).toEqual([]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
