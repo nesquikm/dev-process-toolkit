@@ -64,6 +64,10 @@ export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
     "applicability derives from the declared tracker `mode:`, read via `readTaskTrackingSection`.",
   public_surface_count_drift:
     "CLAUDE.md is an INPUT DOCUMENT whose documented count tokens are being byte-checked, not a managed-ness signal.",
+  release_config:
+    "applicability derives from the declared `## Release Files` block its front door parses; an absent block already refuses with `MissingReleaseFilesBlockError`, so managed-ness would only add a second gate that refuses trees the block itself declares in scope.",
+  release_surface_agreement:
+    "applicability derives from the declared `changelog_ci_owned` docs flag, read via `readDocsConfig` — the same reader `release_config` consults before it skips the CHANGELOG entry; managed-ness would gate the grader differently from the writer it must agree with.",
   setup_output_completeness:
     "applicability derives from the declared tracker `mode:` (any value other than `none`).",
   task_tracking_canonical_keys:

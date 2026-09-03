@@ -65,6 +65,16 @@ function loadPlanTexts(): PlanText[] {
 
 const plans = loadPlanTexts();
 
+// The release these fixtures grade. STE-546 made the version an EXPLICIT
+// argument to `checkReleaseSurfaceAgreement` — the check locates its CHANGELOG
+// entry by version match, never by position — and every call below is grading
+// this repo's newest release, so the subject is named once here.
+//
+// A function, not a `const`: the parseability of CHANGELOG.md is what the first
+// test in group A asserts, and evaluating `!` at module scope would turn that
+// failure into a whole-file load crash with no assertion to name it.
+const topVersion = (): string => parseChangelogTop(changelog)!.version;
+
 // The shipped defect, recovered verbatim from the pre-amend release commit (bb8973f, superseded by the amended release commit; the sha is unreachable — this fixture IS the record).
 const defectFixture = readFileSync(
   join(import.meta.dir, "fixtures", "readme-latest", "shipped-defect-v2.75.0.md"),
@@ -90,7 +100,7 @@ describe("A — README 'Latest:' line agrees with the topmost CHANGELOG entry", 
   });
 
   test("A1 — the VERSION matches", () => {
-    expect(parseReadmeLatest(readme)!.version).toBe(parseChangelogTop(changelog)!.version);
+    expect(parseReadmeLatest(readme)!.version).toBe(topVersion());
   });
 
   test("A2 — the CODENAME matches", () => {
@@ -105,7 +115,7 @@ describe("A — README 'Latest:' line agrees with the topmost CHANGELOG entry", 
   });
 
   test("A4 — the aggregate check reports no violations for the live repo", () => {
-    expect(checkReleaseSurfaceAgreement(readme, changelog, plans)).toEqual([]);
+    expect(checkReleaseSurfaceAgreement(readme, changelog, plans, topVersion())).toEqual([]);
   });
 });
 
@@ -121,12 +131,12 @@ describe("B — the check reddens on the line that actually shipped", () => {
     // Its codename and milestone are BOTH stale relative to what shipped.
     expect(parsed!.codename).not.toBe(parseChangelogTop(changelog)!.codename);
     expect(parsed!.milestone).not.toBe(
-      findMilestoneForRelease(plans, parseChangelogTop(changelog)!.version),
+      findMilestoneForRelease(plans, topVersion()),
     );
   });
 
   test("B1 — a CODENAME violation is reported", () => {
-    const violations = checkReleaseSurfaceAgreement(defectFixture, changelog, plans);
+    const violations = checkReleaseSurfaceAgreement(defectFixture, changelog, plans, topVersion());
     const codename = violations.find((v) => v.field === "codename");
     expect(codename).toBeDefined();
     expect(codename!.found).toBe(parseReadmeLatest(defectFixture)!.codename);
@@ -134,11 +144,11 @@ describe("B — the check reddens on the line that actually shipped", () => {
   });
 
   test("B2 — a MILESTONE violation is reported", () => {
-    const violations = checkReleaseSurfaceAgreement(defectFixture, changelog, plans);
+    const violations = checkReleaseSurfaceAgreement(defectFixture, changelog, plans, topVersion());
     const milestone = violations.find((v) => v.field === "milestone");
     expect(milestone).toBeDefined();
     expect(milestone!.expected).toBe(
-      findMilestoneForRelease(plans, parseChangelogTop(changelog)!.version),
+      findMilestoneForRelease(plans, topVersion()),
     );
   });
 
@@ -149,7 +159,7 @@ describe("B — the check reddens on the line that actually shipped", () => {
     // defect escaped: not a wrong answer, a wrong question.
     const versionOnly = /Latest: \*\*v\d+\.\d+\.\d+/;
     expect(versionOnly.test(defectFixture)).toBe(true);
-    expect(checkReleaseSurfaceAgreement(defectFixture, changelog, plans).length).toBeGreaterThan(0);
+    expect(checkReleaseSurfaceAgreement(defectFixture, changelog, plans, topVersion()).length).toBeGreaterThan(0);
   });
 });
 
@@ -172,7 +182,7 @@ describe("C — each field fails independently", () => {
     const current = parseReadmeLatest(readme)!;
     const mutant = readme.replace(`"${current.codename}"`, `"${prev.codename}"`);
     expect(mutant).not.toBe(readme);
-    const violations = checkReleaseSurfaceAgreement(mutant, changelog, plans);
+    const violations = checkReleaseSurfaceAgreement(mutant, changelog, plans, topVersion());
     expect(violations.map((v) => v.field)).toEqual(["codename"]);
   });
 
@@ -182,7 +192,7 @@ describe("C — each field fails independently", () => {
     const current = parseReadmeLatest(readme)!;
     const mutant = readme.replace(`(${current.milestone},`, `(${prevMilestone},`);
     expect(mutant).not.toBe(readme);
-    const violations = checkReleaseSurfaceAgreement(mutant, changelog, plans);
+    const violations = checkReleaseSurfaceAgreement(mutant, changelog, plans, topVersion());
     expect(violations.map((v) => v.field)).toEqual(["milestone"]);
   });
 
@@ -191,7 +201,7 @@ describe("C — each field fails independently", () => {
     const current = parseReadmeLatest(readme)!;
     const mutant = readme.replace(`**v${current.version} —`, `**v${prev.version} —`);
     expect(mutant).not.toBe(readme);
-    const violations = checkReleaseSurfaceAgreement(mutant, changelog, plans);
+    const violations = checkReleaseSurfaceAgreement(mutant, changelog, plans, topVersion());
     expect(violations.map((v) => v.field)).toEqual(["version"]);
   });
 });
