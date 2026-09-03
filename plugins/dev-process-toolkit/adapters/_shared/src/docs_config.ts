@@ -48,6 +48,25 @@ export class MalformedDocsConfigError extends Error {
   }
 }
 
+/**
+ * Fold a CLAUDE.md source to LF and drop a leading BOM before any line is
+ * matched — the same idiom `normalizeFrontmatterSource` and the module-scanner
+ * `normalizeSource` helpers already carry, and the same failure the 2026-07-26
+ * sweep closed across 16 frontmatter readers.
+ *
+ * Without it the heading match below (`l === "## Docs"`) never fires on a
+ * CRLF-authored file, because the line is `"## Docs\r"`. That is not a loud
+ * failure: the reader returns all-false, and a project declaring
+ * `changelog_ci_owned: true` gets its CHANGELOG rewritten anyway. The gate
+ * fails OPEN, which is the direction that costs the operator a file.
+ *
+ * `\r\n` is folded before lone `\r` so CRLF never becomes a blank line, and
+ * neither substitution changes the line COUNT.
+ */
+function normalizeSource(raw: string): string {
+  return raw.replace(/^﻿/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
 const ALL_FALSE: DocsConfig = {
   userFacingMode: false,
   packagesMode: false,
@@ -74,7 +93,7 @@ function parseBool(key: string, raw: string): boolean {
 export function readDocsConfig(claudeMdPath: string): DocsConfig {
   if (!existsSync(claudeMdPath)) return { ...ALL_FALSE };
   const md = readFileSync(claudeMdPath, "utf8");
-  const lines = md.split("\n");
+  const lines = normalizeSource(md).split("\n");
   const startIdx = lines.findIndex((l) => l === "## Docs");
   if (startIdx < 0) return { ...ALL_FALSE };
 

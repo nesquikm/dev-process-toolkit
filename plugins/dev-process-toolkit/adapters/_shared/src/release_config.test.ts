@@ -307,6 +307,10 @@ describe("bumpFile dispatcher", () => {
         codename: "New",
         date: "2026-04-30",
         changelogBody: "### Added\n- x\n",
+        // AC-STE-545.4 (M141): the `changelog` kind now refuses without a
+        // count. This leg is about DISPATCH, so it supplies one and asserts
+        // the same routed header as before.
+        testCount: { total: 1, failures: 0, errors: 0 },
       },
     );
     expect(out).toContain('## [1.1.0] — 2026-04-30 — "New"');

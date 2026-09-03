@@ -21,6 +21,17 @@ export interface TestCount {
   skipped: number;
 }
 
+/**
+ * The three counters the CHANGELOG closing line states — `skipped` deliberately
+ * excluded, per {@link renderClosingLine}'s note.
+ *
+ * Named once here because it is a CROSS-MODULE shape: the renderer takes it,
+ * and `release_config`'s `BumpOptions.testCount` / `bumpChangelog` forward it
+ * unchanged. Three separate spellings of the same `Pick<>` is how a fourth
+ * counter gets folded into one of them and not the others.
+ */
+export type ClosingLineCount = Pick<TestCount, "total" | "failures" | "errors">;
+
 export type TestCountParseResult =
   | { ok: true; count: TestCount }
   | { ok: false; reason: string };
@@ -131,6 +142,19 @@ export function parseTestOutput(output: string, stack: Stack): TestCountParseRes
     default:
       return { ok: false, reason: "unknown stack — cannot parse test output" };
   }
+}
+
+// STE-545 AC-STE-545.5: the CHANGELOG closing line has exactly ONE renderer,
+// and it lives here — beside the parser that produces the numbers it states.
+// A second copy (M132 kept one inside its own suite) is how the rendered
+// sentence and the asserted sentence drift apart without a single test going
+// red. It reads exactly three fields: `skipped` is reported alongside the
+// legacy three by `TestCount`, never folded in and never rendered here —
+// AC-STE-508.6 pins the byte-identical three-field output for a skip-bearing
+// run, so the parameter type deliberately excludes `skipped` rather than
+// merely ignoring it.
+export function renderClosingLine(count: ClosingLineCount): string {
+  return `Total test count at release: ${count.total} tests, ${count.failures} failures, ${count.errors} errors.`;
 }
 
 // ---------------------------------------------------------------------------
