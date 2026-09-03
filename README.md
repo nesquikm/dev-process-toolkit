@@ -181,7 +181,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.75.1 — "Namesake"** (M138, bootstrap identity: a tracker-less project bootstrapped with no arguments got a plan named with a sequential number, the one shape that mode does not use, and nothing went red because the bootstrap plan is exempt from the probe that would object. `/setup` now mints the identity when it writes the plan, so the name is right from the moment the file exists, and `/spec-write` adopts that recorded identity instead of minting a second one — rewriting the frontmatter in place rather than renaming, with the single mint pinned as a call count because a second mint leaves no trace in the filename.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.76.0 — "Answerable"** (M141, release tooling front doors: the three modules that would do the release's work carried no entry point and no non-test importer, so the ceremony was prose an operator followed by hand — and the closing line stating the test count at release was typed from memory, wrongly, three times on one release. Ordering the writer made eleven shipped promises checkable for the first time and every one of them was false; all eleven are closed. The bump inferrer now reads both frontmatter spellings, so this release is the first to compute its own version with nobody hand-mapping anything, and the release-surface check now runs after the bump, where a disagreement between the README banner and the CHANGELOG is observable rather than impossible.)
 
 ## Core Philosophy
 
