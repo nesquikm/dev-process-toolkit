@@ -18,6 +18,11 @@ import { basename, join, relative } from "node:path";
 // Union grammar: `M<N>` and `M_<epic-key>` archived plans are both walked.
 import { PLAN_FILENAME_RE, compareMilestoneTokens } from "./milestone_token";
 import { normalizeFrontmatterSource } from "./frontmatter";
+// STE-546: probe #63 also grades the two RELEASE SURFACES against each other.
+// Registered here by EXTENSION rather than as a new probe id — a new number
+// drags sixty pinned sites across fifteen files, and the subject is the same
+// one this probe already owns: what a plan's `shipped_in:` stamp claims shipped.
+import { runReleaseSurfaceAgreement } from "./release_surface_agreement";
 
 const PROBE = "plan_ship_coherence";
 
@@ -208,6 +213,29 @@ export async function runPlanShipCoherenceProbe(
         ),
       );
     }
+  }
+
+  // STE-546 — the release-surface agreement rows, in this probe's own shape.
+  // Vacuous (zero rows) unless the README carries the banner marker, the
+  // CHANGELOG has a parseable release heading, and some plan carries a real
+  // shipped stamp; see `checkReleaseSurfaceAgreement`.
+  for (const row of await runReleaseSurfaceAgreement(projectRoot)) {
+    const reason = `release surfaces disagree on ${row.field}: ${row.detail}`;
+    violations.push({
+      file: join(projectRoot, "README.md"),
+      line: 1,
+      reason,
+      note: `README.md:1 — ${reason}`,
+      message: [
+        `${PROBE}: ${reason}`,
+        `Remedy: rewrite README.md's \`Latest:\` line so its version, codename and milestone ` +
+          `match the CHANGELOG entry of the released version and the plan whose \`shipped_in:\` ` +
+          `stamp names it. The \`kind: regex\` release-file entry rewrites the version ONLY, so ` +
+          `the codename and the milestone are hand-written.`,
+        `Context: file=README.md, field=${row.field}, expected=${row.expected ?? "<none>"}, ` +
+          `found=${row.found ?? "<none>"}, probe=${PROBE}`,
+      ].join("\n"),
+    });
   }
 
   if (parked.length > 0) {

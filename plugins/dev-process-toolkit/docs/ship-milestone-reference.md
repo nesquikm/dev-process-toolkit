@@ -81,6 +81,8 @@ Implemented in `adapters/_shared/src/version_bump.ts`. The `inferBump(ctx)` func
 3. **Patch bump.** Every FR's `changelog_category` is `Fixed` or `Removed` (pure fix-class milestone). Rationale: `patch bump: milestone contains only fix-class FRs (N)`.
 4. **Minor bump.** Default. Rationale: `minor bump: milestone shipped N additive FRs`.
 
+Each FR reaches the function exactly as read from disk: the value passed as its category is that FR's `changelog_category` frontmatter value, and `inferBump` accepts both that snake spelling and the camel `changelogCategory` (STE-544).
+
 Empty FR list is still a minor bump, labelled `default minor bump (no FRs in milestone)` — but `/ship-milestone`'s unshipped-FR pre-flight refusal catches the real cases first.
 
 ## README structure counts (not auto-refreshed)
@@ -127,9 +129,11 @@ Anything else in `git status --porcelain` triggers pre-flight refusal 2. `/ship-
 - No `Provider.releaseLock` / `getTicketStatus` — `/implement` already released each FR's lock at its own Phase 4 Close.
 - The CHANGELOG bullet references use `short-ULID.tail.STE-X`-style per M16's AC-prefix convention when FRs have no tracker binding.
 
-## Dry run (deferred decision from M20 brainstorm)
+## Dry run (`--dry-run`)
 
-`--dry-run` is intentionally not shipped. The human-approval gate (step 6) already functions as a dry run: the user sees the full diff and can refuse. An explicit `--dry-run` flag remains on the deferred-decisions list; add when dogfooding surfaces the need.
+`--dry-run` is the flag step 4 runs, and it is how the ceremony previews a release without touching the tree. It computes every rewrite exactly as the real run does — same `## Release Files` parse, same `bumpFile` dispatch per `kind`, same refusals with the same verdicts and the same exit code — then, instead of writing, prints `would rewrite <path> (dry-run)` followed by a unified-diff hunk for each changed path, plus `would skip <path> (<reason>) (dry-run)` for each entry a config gate (e.g. `changelog_ci_owned: true`) skipped. It writes nothing and exits zero.
+
+Those hunks are the release-file half of the step-6 approval diff: the preview holds both the old and the new content in memory, so both sides reach the operator instead of being re-derived by hand. Step 7 re-runs the identical command line without the flag, so what lands on disk is what the operator approved — and a declined release leaves no bumped version and no written CHANGELOG section behind.
 
 ## Self-hosting risk
 

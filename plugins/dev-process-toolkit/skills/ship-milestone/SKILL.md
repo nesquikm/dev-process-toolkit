@@ -112,6 +112,7 @@ Call `inferBump({ currentVersion, frs, override })` from `adapters/_shared/src/v
 - **patch bump** when every FR's `changelog_category` is `Fixed` or `Removed` (pure fix-class milestone).
 - **minor bump** otherwise — the default, matching M12–M19 history.
 - `--version X.Y.Z` override wins and bypasses inference.
+- Each FR is handed to `inferBump` exactly as read: the value passed as its category is the FR's `changelog_category` frontmatter value (the camel `changelogCategory` spelling is accepted too), so no key rewriting happens at this call site.
 
 ### 3. Prompt for codename
 
@@ -127,19 +128,25 @@ Validate: non-empty, ≤ 32 chars, no backticks, no newlines. Re-prompt on inval
 
 **Migration-coverage pre-flight.** Before computing any bump, call `assertMigrationDeclared(planPath, MIGRATIONS, releaseVersion)` from `adapters/_shared/src/migrations/coverage.ts` (registry from `adapters/_shared/src/migrations/index.ts`; version from step 2). It refuses with the NFR-10 shape (naming the plan) when the plan's `migration:` key is absent or the template sentinel (`null`/empty), when a declared id is not present in the registry, or when the declared id's `introduced_in` ≠ the version being shipped. `migration: none` proceeds. The step rides the existing ceremony — no additional approval prompt; a refusal aborts before any file is rewritten.
 
-Read the host project's `## Release Files` block from `CLAUDE.md` via `parseReleaseFiles(content)` from `adapters/_shared/src/release_config.ts`. The block declares every path that gets rewritten on this release; no path is hard-coded in this skill body. Schema reference + per-kind worked examples live in `docs/ship-milestone-reference.md` § Release Files block schema.
+**Preview the release-file rewrites by RUNNING the writer — never by hand.** From the repo root, with the counts the pre-flight test-gate run (refusal #3) measured. `--dry-run` here because nothing may reach disk before the step-6 approval; step 7 runs the same line without it:
 
-For each entry, compute the new file content via `bumpFile(entry, currentContent, opts)`:
+```bash
+bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/release_config.ts <projectRoot> <newVersion> --codename "<Codename>" --date <YYYY-MM-DD> --body "<changelog body>" --test-count <total>,<failures>,<errors> --dry-run
+```
+
+It reads the host project's `## Release Files` block from `CLAUDE.md` via `parseReleaseFiles(content)`, computes each listed path's new content, and prints one line per path it would rewrite. Every refusal — block absent, version missing, a `changelog` entry with no `--test-count` — writes the NFR-10 canonical shape to stderr, exits non-zero, and leaves the tree untouched; the preview refuses whatever the real run refuses, with the same verdict, so an approved diff is never one the write step then rejects. The counts are FORWARDED on `--test-count`, never re-measured at the write step: detection answers differently per directory, and the pre-flight test-gate run (refusal #3) already measured them against the root the gate ran in. The block declares every path that gets rewritten on this release; no path is hard-coded in this skill body. Schema reference + per-kind worked examples live in `docs/ship-milestone-reference.md` § Release Files block schema.
+
+For each entry the writer computes the new file content via `bumpFile(entry, currentContent, opts)`, dispatching on `kind`:
 
 - **`kind: json`** — rewrites a JSON property at the dot-path in `field`. Output is reformatted with two-space indent.
 - **`kind: toml`** — rewrites a TOML field (top-level or one-level dotted).
 - **`kind: yaml`** — rewrites a top-level YAML scalar; preserves a Flutter `+<build>` suffix on the same line.
-- **`kind: changelog`** — inserts a new `## [X.Y.Z] — YYYY-MM-DD — "<Codename>"` section above the topmost prior version section. Body comes from FR `changelog_category` + title (`### Added` / `### Changed` / `### Removed` / `### Fixed` subsections; cross-refs rendered as `(STE-X)`). Closing line `Total test count at release: <N> tests, <F> failures, <E> errors.` from `parseTestOutput`. **Skipped entirely if `changelog_ci_owned: true`** (from `readDocsConfig(CLAUDE.md)`) — CI owns the CHANGELOG; the closing line is also suppressed because it lives inside the entry.
+- **`kind: changelog`** — inserts a new `## [X.Y.Z] — YYYY-MM-DD — "<Codename>"` section above the topmost prior version section. Body comes from FR `changelog_category` + title (`### Added` / `### Changed` / `### Removed` / `### Fixed` subsections; cross-refs rendered as `(STE-X)`). Closing line `Total test count at release: <N> tests, <F> failures, <E> errors.` rendered from the forwarded `--test-count` (measured by `parseTestOutput` on the pre-flight test-gate run, refusal #3), and the section is refused outright without one. **Skipped entirely if `changelog_ci_owned: true`** (from `readDocsConfig(CLAUDE.md)`) — CI owns the CHANGELOG; the closing line is also suppressed because it lives inside the entry.
 - **`kind: regex`** — substitutes the `(?<version>...)` capture in `pattern` using the `replace` template (with `{version}` placeholder). Used for free-form lines like the README "Latest:" banner.
 
 `optional: true` entries whose `path` is missing on disk emit an `n/a` row in the proposed-diff summary; required (non-optional) entries with missing paths surface NFR-10 canonical refusal.
 
-Refusals: `MissingReleaseFilesBlockError` (block absent or empty) and `MalformedReleaseFilesError` (entry violates schema, e.g. regex without `(?<version>)` named group) both abort the run with the canonical NFR-10 shape — `Remedy: add a \`## Release Files\` block to CLAUDE.md (run /setup or copy from examples/<stack>/release.yml). Context: skill=ship-milestone`.
+Refusals: `MissingReleaseFilesBlockError` (block absent or empty) and `MalformedReleaseFilesError` (entry violates schema, e.g. regex without `(?<version>)` named group) both abort the run with the canonical NFR-10 shape on stderr and exit non-zero. Verdict line first — `Refusing: to rewrite the release files — <what failed>.` — then Remedy: fix the `## Release Files` block in CLAUDE.md (or the offending file) and re-run; nothing was written. — then Context: root=`<projectRoot>`, version=`<X.Y.Z>`, skill=ship-milestone. The remedy names the block to fix and reports what reached disk; it does not send the operator to `/setup`.
 
 ### 5. Invoke /docs --commit --full
 
@@ -157,7 +164,7 @@ Context: milestone=M<N>, version=<X.Y.Z>, skill=ship-milestone
 
 ### 6. Unified diff + approval
 
-Print a single unified diff covering every modified file (every `## Release Files` entry that produced a non-empty bump + any `docs/` files `/docs --commit --full` touched). The diff also renders the frontmatter stamp hunk — `shipped_in: v<X.Y.Z>` on the resolved plan file — alongside the release-file bumps; the stamp rides the existing single `Apply?` approval below, no extra prompt. Then:
+Print a single unified diff covering every modified file (every `## Release Files` entry that produced a non-empty bump + any `docs/` files `/docs --commit --full` touched). The release-file half of that diff is never assembled by hand here: it is the unified-diff hunks the step-4 `--dry-run` preview already printed, one per changed path, computed from the same two sides the step-7 write will use. The diff also renders the frontmatter stamp hunk — `shipped_in: v<X.Y.Z>` on the resolved plan file — alongside the release-file bumps; the stamp rides the existing single `Apply?` approval below, no extra prompt. Then:
 
 ```
 === Proposed diff (N files, M lines) ===
@@ -169,11 +176,31 @@ Accept case-insensitive `y` / `yes` as approval. The user can type `e` to open `
 
 ### 7. On approval — commit
 
-**Universal pre-commit branch gate (STE-228).** Before `git add` runs, call `requireCommittableBranch({ commitType: "chore", proposedBranchName, currentBranch, isAutoMode })` from `adapters/_shared/src/require_committable_branch.ts` with `proposedBranchName` returned by `branchNameFor({ version })` from `skills/ship-milestone/branch_name_for.ts` (release shape → `release/v<X.Y.Z>`; collision-suffix per STE-228 AC-STE-228.11 is exceedingly rare for this skill). On `created` / `edited` the gate runs `git checkout -b <branchName>` so the release commit lands on the new branch; `declined` rolls back staging via `git reset HEAD <paths>` (explicit list, never `--hard`) and exits non-zero before the release commit lands; `no-op` (off-trunk OR `commitType ∈ TRUNK_OK_TYPES = ["ci"]`) is silent. Auto-mode default-apply uses the `<dpt:auto-approve>v1</dpt:auto-approve>` marker per STE-226. See STE-228 § Branch-name canonical table for the full builder catalogue.
+**Universal pre-commit branch gate (STE-228).** Runs FIRST, before the rewrites below put a single byte on disk — the write depends on nothing this gate produces, so ordering it after would leave a declined run with bumped files it cannot take back. Call `requireCommittableBranch({ commitType: "chore", proposedBranchName, currentBranch, isAutoMode })` from `adapters/_shared/src/require_committable_branch.ts` with `proposedBranchName` returned by `branchNameFor({ version })` from `skills/ship-milestone/branch_name_for.ts` (release shape → `release/v<X.Y.Z>`; collision-suffix per STE-228 AC-STE-228.11 is exceedingly rare for this skill). On `created` / `edited` the gate runs `git checkout -b <branchName>` so the release commit lands on the new branch; `declined` exits non-zero before any release file is rewritten — no release file is touched, nothing is staged, nothing is written, and the tree is left exactly as the run found it, so a re-run reads the un-bumped version at step 2 instead of double-bumping and inserting a second CHANGELOG section; `no-op` (off-trunk OR `commitType ∈ TRUNK_OK_TYPES = ["ci"]`) is silent. Auto-mode default-apply uses the `<dpt:auto-approve>v1</dpt:auto-approve>` marker per STE-226. See STE-228 § Branch-name canonical table for the full builder catalogue.
+
+**Apply the release-file rewrites.** With the branch settled, the approved diff is applied — the step-4 preview wrote nothing, so this is the run's first write to disk: the same line, minus `--dry-run`, before `git add`:
+
+```bash
+bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/release_config.ts <projectRoot> <newVersion> --codename "<Codename>" --date <YYYY-MM-DD> --body "<changelog body>" --test-count <total>,<failures>,<errors>
+```
+
+Same arguments as the preview, with one exception: when the operator edited the proposed CHANGELOG entry at step 6, the edited body is what `--body` carries here — so what lands on disk is what the operator approved, not the entry they replaced. A refusal here aborts before the commit.
 
 **Stamp the resolved plan.** Before the commit is created, call `stampShippedIn(resolvedPlanPath, "v<X.Y.Z>")` from `adapters/_shared/src/plan_ship_stamp.ts` to write `shipped_in: v<X.Y.Z>` — the final version chosen for this release, after any `--version` override — into the resolved plan file's frontmatter. The stamp targets the resolved plan path from step 1, so it lands identically on the live path and the archive-fallback path, and the stamped plan file rides the same single atomic release commit.
 
 **Stamp semantics.** `shipped_in` is written only by this skill or the one-shot backfill script (run once against the historical archive, never shipped, deleted after the backfill commit). Absence of `shipped_in` on an archived plan means unshipped debt: the plan reached the archive without a release carrying it. Absence on a live plan is normal — the milestone simply hasn't shipped yet.
+
+**Grade the two release surfaces.** With the bumped README, the newly written CHANGELOG section and the `shipped_in` stamp all on disk — the first moment in this ceremony at which the two surfaces *can* disagree — run the agreement check from the repo root:
+
+```bash
+bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/release_surface_agreement.ts <projectRoot> <newVersion>
+```
+
+Exit `0`: the README `Latest:` banner and the CHANGELOG entry for `<newVersion>` agree on version, codename and milestone — or the check is vacuous (no banner, no codenamed `CHANGELOG.md` release heading at all, no plan stamped with it, or the project declares `changelog_ci_owned: true`, whose CHANGELOG the bump never writes and which is therefore a surface this project never adopted). Exit `1`: they disagree, one line per violation on stderr naming the field — including a `changelog` row when the CHANGELOG carries no `## [<newVersion>] — <date> — "<Codename>"` heading for the release just written, which is a disagreement rather than vacuity. The usual pair is `codename` and `milestone`: the README entry is `kind: regex` and its replacement stops at the em-dash, so the bump rewrites the version and leaves everything after it describing the previous release. Exit `2`: no `<projectRoot>` was given.
+
+**On exit `1`, abort before `git add`** — nothing is staged, no commit is created, and the bumped files stay in the working tree. Hand-edit the README `Latest:` line so its codename and `M<N>` match the CHANGELOG entry this release just wrote, re-run the line above, and continue to the commit once it exits `0`.
+
+Ordering matters: this check cannot run before the step-6 approval. Up to the step-7 write, both surfaces still describe the *previous* release, so they agree by construction and the check would pass on exactly the tree it exists to catch.
 
 **Render the `## Token Stats` rollup.** Opt-in gate: skip this rollup render when `readTokenStatsConfig(projectRoot).enabled === false`. Alongside the stamp, read the token ledger (`.dpt/ledger/token-ledger.jsonl`; absent or no rows for this milestone ⇒ skip, vacuously), scope rows to this milestone first — a row belongs when its `claimed_by` names an in-scope FR, when it is unclaimed and its `git_branch` is on the milestone's branch lineage, or when it carries the `DESIGN_BUCKET` sentinel as its `claimed_by` (a demoted row) and its `git_branch` is on that same lineage: a demoted row names no in-scope FR and is not unclaimed, so without its own leg it would be dropped before the render and shrink the milestone total — the sentinel marks shared-session cost, not another milestone's cost. That keeps a shared ledger from leaking another milestone's rows. Then call `renderMilestoneRollup(rows, { frOrder })` / its upsert counterpart `upsertMilestoneRollup` from `adapters/_shared/src/token_stats_render.ts` to write the milestone rollup into the resolved plan file (`specs/plan/M<N>.md`, or the archive-fallback path): one per-FR subtotal line per model for each in-scope FR (plan order), a `(main-loop)` line per model for unattributed orchestrator rows, a `design/exploration` line covering both unclaimed `brainstorm` rows and rows demoted there from any skill when two FRs of one session claim the same rows (demoted rows carry the sentinel as their `claimed_by`, so shared-session cost stays visible on one line instead of being double-counted), and a milestone `total` row.
 
@@ -198,7 +225,7 @@ Refs: M<N>
 
 ### 8. On refusal
 
-Any response other than `y` / `yes` (including Ctrl-C): no staging, no commit, any temp files deleted. Exit `0` with:
+Any response other than `y` / `yes` (including Ctrl-C): no release file is rewritten (the step-4 preview wrote nothing and the step-7 write never runs), no staging, no commit, any temp files deleted. Exit `0` with:
 
 ```
 ship-milestone declined; release not committed. To retry, re-run /ship-milestone M<N>.

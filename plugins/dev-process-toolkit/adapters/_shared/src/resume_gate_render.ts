@@ -30,11 +30,13 @@
 // `$(...)` shape eats that newline out of the rendering; a gate ending exactly
 // at the record was graded a retelling for it, a false red on a faithful gate.
 // This repo has lost a whole transform to CRLF twice (M114's Linear checkbox
-// push, M113's colon-only readers), and eight sibling modules already strip a
-// leading BOM for the same reason (`carrier_phrase_probe.ts`,
-// `claudemd_docs_section.ts`, `deliver_stage_capture.ts`,
+// push, M113's colon-only readers, M141's release writer), and ten sibling
+// modules already strip a leading BOM for the same reason
+// (`carrier_phrase_probe.ts`, `claudemd_docs_section.ts`,
+// `deliver_stage_capture.ts`, `docs_config.ts`,
 // `first_turn_refusal_marker.ts`, `frontmatter.ts`, `module_reachability.ts`,
-// `orchestration_config.ts`, `toolkit_managed.ts`). NONE OF THE THREE WIDENS
+// `orchestration_config.ts`, `release_config.ts`, `toolkit_managed.ts`).
+// NONE OF THE THREE WIDENS
 // WHAT PASSES — that is the test each one has to meet. A BOM'd faithful render
 // was graded a retelling and dropping the mark admits no retelling that was not
 // already admitted; trimming the capture's tail admits none either, because a
