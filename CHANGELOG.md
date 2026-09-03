@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.76.0] — 2026-09-03 — "Answerable"
+
+### Changed
+
+- `/ship-milestone` now grades the release banner against the CHANGELOG **after** the version bump instead of before it. The detector existed, was tested against the real shipped line, and had zero callers; the check that did run fired while both surfaces still described the previous release, so they agreed by construction and it could never fail. It now carries a front door and a production caller in probe #63, locates the changelog entry by matching the released version rather than by taking the topmost heading, and stays silent on projects that never adopted the banner. (STE-546)
+
+### Fixed
+
+- `inferBump` now accepts either spelling of the two fields it reads. It read `changelogCategory` while the frontmatter writer emits `changelog_category`, so an FR handed over exactly as read fell through to the additive default and returned a minor version for a pure-fix milestone, with a rationale affirmatively stating the wrong thing. The tracker reference carried the same mismatch in the same function and closes with it. (STE-544)
+- The release-file writer has a front door, and the ceremony now orders it instead of describing it. It carried no entry point and no non-test importer, so the write step was prose an operator carried out by hand and the mandated closing line was typed from memory — wrongly, three times on one release. Ordering it made eleven shipped promises checkable for the first time, and each was false: a `changelog_ci_owned` skip the module could not keep, a command that wrote to disk before the approval gate, CRLF and BOM blindness that left a CRLF-authored project unable to release at all, and unknown or value-less flags that silently swallowed the next argument. All eleven are closed. (STE-545)
+
+Total test count at release: 11297 tests, 0 failures, 0 errors.
+
 ## [2.75.1] — 2026-09-02 — "Namesake"
 
 ### Fixed
