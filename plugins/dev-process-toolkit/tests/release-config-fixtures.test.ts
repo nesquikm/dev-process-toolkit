@@ -81,6 +81,10 @@ describe("Round-trip 0.1.0 → 0.2.0 bump per kind (AC-STE-167.6)", () => {
       codename: "New",
       date: "2026-04-30",
       changelogBody: "### Added\n- thing\n",
+      // AC-STE-545.4 (M141): the `changelog` kind now refuses without a count.
+      // This leg is about ROUND-TRIPPING the typescript-node fixture, so it
+      // supplies one and asserts the same section ordering as before.
+      testCount: { total: 1, failures: 0, errors: 0 },
     });
     expect(after).toContain('## [0.2.0] — 2026-04-30 — "New"');
     expect(after).toContain('## [0.1.0] — 2026-01-01 — "Old"');

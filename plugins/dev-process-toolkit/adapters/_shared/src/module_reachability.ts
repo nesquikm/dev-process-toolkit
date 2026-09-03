@@ -432,8 +432,16 @@ export function scanSurfaceForModuleReferences(
  * landed, so probe #67's one registration — which orders a reader to run BOTH
  * scanners — stopped naming a module nobody could run. A LOWERING again; the
  * pin has never been raised.
+ *
+ * Re-measured 133 → 131 under M141/STE-545: `release_config.ts` — which gained
+ * its own `import.meta.main` front door in the same FR, and is therefore an
+ * entry point — now imports `./docs_config` so the release writer can honour
+ * `changelog_ci_owned`. Reachability is transitive, so the two ordered
+ * references to `docs_config.ts` (skills/docs/SKILL.md and
+ * skills/implement/SKILL.md) stopped naming a module nothing runnable reaches.
+ * A LOWERING again; the pin has still never been raised.
  */
-export const ORDERED_UNREACHABLE_PIN = 133;
+export const ORDERED_UNREACHABLE_PIN = 131;
 
 // ---------------------------------------------------------------------------
 // The probe
