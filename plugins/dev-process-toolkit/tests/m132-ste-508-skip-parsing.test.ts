@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   parseTestOutput,
+  renderClosingLine,
   type TestCount,
   type TestCountParseResult,
 } from "../adapters/_shared/src/test_count_parser";
@@ -36,20 +37,16 @@ function assertOk(result: TestCountParseResult): TestCount {
   return result.count;
 }
 
-/**
- * The shipped three-field consumer: /ship-milestone's CHANGELOG closing line,
- * documented in skills/ship-milestone/SKILL.md as
- *   `Total test count at release: <N> tests, <F> failures, <E> errors.`
- * Reads exactly three fields — never `skipped`. AC-STE-508.6 pins that the
- * fourth field does not change one byte of what this renders.
- */
-function renderClosingLine(count: {
-  total: number;
-  failures: number;
-  errors: number;
-}): string {
-  return `Total test count at release: ${count.total} tests, ${count.failures} failures, ${count.errors} errors.`;
-}
+// The shipped three-field consumer: /ship-milestone's CHANGELOG closing line,
+// documented in skills/ship-milestone/SKILL.md as
+//   `Total test count at release: <N> tests, <F> failures, <E> errors.`
+// Reads exactly three fields — never `skipped`. AC-STE-508.6 pins that the
+// fourth field does not change one byte of what this renders.
+//
+// STE-545 (M141): this renderer used to be DECLARED here, as a local copy of a
+// sentence the release ceremony types by hand. It is now imported from
+// `test_count_parser.ts`, which already owned the parse half — render and parse
+// sit together, and the two can no longer drift apart.
 
 // ---------------------------------------------------------------------------
 // Real-shape fixtures
