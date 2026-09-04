@@ -111,7 +111,7 @@ Empirical research via the `claude-code-guide` agent confirmed the contract: `${
 - **Name:** `pre-commit-tdd-orchestrator`
 - **Event:** `PreToolUse`
 - **Matcher:** `Bash` (with command-pattern guard for `git commit*`)
-- **Requirement:** If FR-related files are staged (heuristic: `specs/frs/<id>.md` or matching test files under `tests/` referencing an FR ID), a `Skill(/dev-process-toolkit:tdd)` `tool_use` MUST appear in the current session log. Byte-checkable continuation of STE-283's TDD Orchestrator Contract: prevents the "Inline TDD Antipattern" where `/implement` writes tests + code itself instead of forking `/dev-process-toolkit:tdd`.
+- **Requirement:** If FR-related files are staged (heuristic: `specs/frs/<id>.md`, or a source file staged together with its test, where "source" and "test" mean whatever the detected stack's layout says they mean — Dart sources under `lib/` with tests under `test/` or `integration_test/`; Python sources under `src/` with tests under `tests/` or `test/`; TypeScript/JavaScript sources under `src/` with tests under `__tests__/` or `tests/`; Kotlin/Java sources under `src/main/` with tests under `src/test/`; Go sources anywhere, paired with their `_test.go` siblings), a `Skill(/dev-process-toolkit:tdd)` `tool_use` MUST appear in the current session log. Byte-checkable continuation of STE-283's TDD Orchestrator Contract: prevents the "Inline TDD Antipattern" where `/implement` writes tests + code itself instead of forking `/dev-process-toolkit:tdd`.
 - **NFR-10 refusal shape on miss:**
   ```
   Refusing: required dev-process-toolkit:tdd Skill tool_use not found in current session.

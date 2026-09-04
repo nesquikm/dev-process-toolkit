@@ -25,13 +25,24 @@
 // hence tdd-required).
 
 import { parseHookPayload, requireSkillToolUse } from "../session.ts";
+import {
+  buildLayoutPredicates,
+  FALLBACK_LAYOUT,
+  resolveStackLayout,
+  type LayoutPredicates,
+  type StackLayoutEntry,
+} from "../../../../adapters/_shared/src/stack_layout.ts";
 
 // ---------------------------------------------------------------------------
 // Pure classifier — exported for unit tests (AC-STE-295.1).
+//
+// STE-547: the source/test predicates are no longer hard-coded TypeScript path
+// regexes. They are derived from the ONE marker table in `stack_layout.ts`, so a
+// Dart, Python, Kotlin or Go commit staging a source file and its test gets the
+// same verdict a TypeScript one already did.
 // ---------------------------------------------------------------------------
 
 const FR_RE = /^specs\/frs\/.*\.md$/;
-const TEST_SUFFIX_RE = /\.(test|spec)\.(ts|tsx|js)$/;
 
 // Spec-only carve-out patterns. Every staged path must match at least one of
 // these AND none may match the src/test patterns below for `spec-only`.
@@ -45,17 +56,31 @@ const SPEC_PATTERNS: RegExp[] = [
   /^specs\/testing-spec\.md$/,
 ];
 
-const SRC_RE = /^src\//;
-const TESTS_DIR_RE = /(^|\/)__tests__(\/|$)/;
-
 const isSpecPath = (p: string): boolean =>
   SPEC_PATTERNS.some((re) => re.test(p));
 
-const isSrcOrTestPath = (p: string): boolean =>
-  SRC_RE.test(p) || TESTS_DIR_RE.test(p) || TEST_SUFFIX_RE.test(p);
+/**
+ * The predicates for a resolved table entry, with the no-marker fallback applied
+ * in ONE place. The verdict below and the STE-360 subtraction in the entrypoint
+ * must read the same layout — a project that fell back to the TypeScript shape
+ * for one and to a stack's own rules for the other could raise the requirement
+ * under one layout and waive it under another.
+ */
+const predicatesFor = (entry: StackLayoutEntry | null): LayoutPredicates =>
+  buildLayoutPredicates(entry?.layout ?? FALLBACK_LAYOUT);
 
-const isFrRelated = (p: string): boolean =>
-  FR_RE.test(p) || p.includes("__tests__") || TEST_SUFFIX_RE.test(p);
+/**
+ * The STE-290 trigger for ONE staged path: FR markdown (stack-independent) or a
+ * file the resolved stack calls a test. Named once because the entrypoint filters
+ * the tdd-required SET with the same rule the verdict is decided by. Two copies
+ * of that rule could disagree: `required` would come back empty for a commit
+ * already classified `tdd-required`, and the exemption's `required.length > 0`
+ * guard would turn that into an unexplainable block rather than a waiver.
+ */
+const isTddRequiredPath = (
+  path: string,
+  isTest: (p: string) => boolean,
+): boolean => FR_RE.test(path) || isTest(path);
 
 export type StagedClassification = "spec-only" | "tdd-required" | "no-fr";
 
@@ -72,18 +97,41 @@ export type StagedClassification = "spec-only" | "tdd-required" | "no-fr";
  *   - "no-fr"        — neither carve-out nor STE-290 trigger fires; hook
  *                       exits 0 (e.g., empty set, pure README/CHANGELOG).
  *
- * Pure function: no I/O, no globals.
+ * `projectRoot` is OPTIONAL and only selects WHICH stack's conventions apply;
+ * it defaults to walking up from the process cwd to the first stack marker (or
+ * the enclosing `.git` checkout root, whichever comes first). A project no
+ * marker resolves for keeps the pre-STE-547 TypeScript layout, so its verdicts
+ * are unchanged rather than silently unguarded.
  */
-export function classifyStagedPaths(paths: string[]): StagedClassification {
+export function classifyStagedPaths(
+  paths: string[],
+  projectRoot?: string,
+): StagedClassification {
+  return classifyStagedPathsForEntry(
+    paths,
+    resolveStackLayout(projectRoot ?? process.cwd()),
+  );
+}
+
+/**
+ * The same classifier with the resolved table entry INJECTED rather than looked
+ * up — one code path, two front doors. Emptying an entry's `layout` and passing
+ * it here exercises the shipped predicate builder, not a copy of it.
+ */
+export function classifyStagedPathsForEntry(
+  paths: string[],
+  entry: StackLayoutEntry | null,
+): StagedClassification {
   if (paths.length === 0) {
     return "no-fr";
   }
-  const hasSrcOrTest = paths.some(isSrcOrTestPath);
+  const { isSource, isTest } = predicatesFor(entry);
+  const hasSrcOrTest = paths.some((p) => isSource(p) || isTest(p));
   const allSpec = paths.every(isSpecPath);
   if (!hasSrcOrTest && allSpec) {
     return "spec-only";
   }
-  if (paths.some(isFrRelated)) {
+  if (paths.some((p) => isTddRequiredPath(p, isTest))) {
     return "tdd-required";
   }
   return "no-fr";
@@ -159,7 +207,11 @@ if (import.meta.main) {
   const { stdout: stagedRaw } = await gitOut(["diff", "--cached", "--name-only"]);
   const staged = stagedRaw.split("\n").filter((l) => l.length > 0);
 
-  const verdict = classifyStagedPaths(staged);
+  // ONE resolution, reused below: the verdict and the STE-360 subtraction must
+  // read the same stack, or a placeholder could be exempted under one layout
+  // while the requirement was raised under another.
+  const entry = resolveStackLayout(process.cwd());
+  const verdict = classifyStagedPathsForEntry(staged, entry);
   if (verdict !== "tdd-required") {
     process.exit(0);
   }
@@ -168,7 +220,8 @@ if (import.meta.main) {
   // every path that triggered "tdd-required" is an exempt placeholder, the
   // commit passes without /tdd evidence; any remaining tdd-required path
   // (FR markdown, real test file) keeps the requirement in force.
-  const required = staged.filter(isFrRelated);
+  const { isTest } = predicatesFor(entry);
+  const required = staged.filter((p) => isTddRequiredPath(p, isTest));
   const exemptFlags = await Promise.all(required.map(isExemptPlaceholder));
   if (required.length > 0 && exemptFlags.every(Boolean)) {
     process.exit(0);
