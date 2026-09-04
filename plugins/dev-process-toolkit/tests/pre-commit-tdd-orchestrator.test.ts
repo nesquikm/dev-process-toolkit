@@ -175,6 +175,16 @@ async function initRepoWithStaged(
   ]).exited;
   await Bun.spawn(["git", "-C", repoDir, "config", "user.name", "Test"])
     .exited;
+  // M142 / STE-548 — these fixtures have always MEANT "a TypeScript project"
+  // and never said so. Since STE-547 the layout comes from a stack marker, and
+  // since STE-548 a project with no marker is "could not tell" rather than
+  // "nothing to guard". The marker is written but NEVER staged: staging it
+  // would change the staged set these tests are asking about. No assertion
+  // below moves.
+  writeFileSync(
+    join(repoDir, "package.json"),
+    '{"name":"fixture","version":"0.0.0","private":true}\n',
+  );
   for (const [rel, body] of Object.entries(files)) {
     const full = join(repoDir, rel);
     const dir = full.split("/").slice(0, -1).join("/");
