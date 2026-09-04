@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.79.0] — 2026-09-04 — "Bearings"
+
+### Added
+
+- An unrecognised layout is a loud signal, not a silent pass (STE-548)
+
+### Fixed
+
+- Derive the TDD hook's path predicates from the detected stack (STE-547)
+
+Total test count at release: 11581 tests, 0 failures, 0 errors.
+
 ## [2.78.0] — 2026-09-04 — "Pulse"
 
 ### Added
