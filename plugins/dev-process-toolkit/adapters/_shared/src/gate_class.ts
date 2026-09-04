@@ -106,7 +106,7 @@ export type GateLike = string | GateDescriptor;
 // ---------------------------------------------------------------------------
 // The irreversible guards.
 //
-// One guard per named action, never one regex covering all five: a combined
+// One guard per named action, never one regex covering them all: a combined
 // matcher is mutation-verifiable only as a unit, and a guard that cannot be
 // dropped on its own cannot be shown to be load-bearing.
 // ---------------------------------------------------------------------------
@@ -175,6 +175,46 @@ export const IRREVERSIBLE_GUARDS: readonly IrreversibleGuard[] = [
       "unsent once delivered",
     /\boutward[-\s]facing\b/i,
   ),
+  guard(
+    "open_pr",
+    "open a pull request",
+    "opening a pull request publishes the branch and its history to the " +
+      "repository host, notifies reviewers and CI, and is visible to every " +
+      "collaborator the instant it lands; closing it afterwards does not " +
+      "unsend those notifications",
+    // THE GUARD IS ABOUT THE ACTION, NOT FOUR PHRASINGS OF IT. An earlier
+    // draft matched only `open <1-4 words> PR`, which passed every phrasing the
+    // criterion happened to name and MISSED the whole alternative-verb family —
+    // `create a pull request`, `raise a PR`, `submit`, `file`, `gh pr create` —
+    // plus the zero-word forms (`Open PR?`), the hyphenated `pull-request`, and
+    // anything with five or more words in between. Every one of those misses
+    // fell on the UNSAFE side of a Tier-1 exclusion, and the shipped ceremony
+    // prompt survived only because the word `ceremony` happened to sit inside
+    // the window: deleting one word would have unguarded it silently. Audited
+    // by execution 2026-09-05.
+    //
+    // Over-matching is the correct direction here, exactly as `push_to_trunk`
+    // records above: a false positive costs one fresh instruction naming the
+    // action, a false negative costs an unrecallable publication. No MECHANICAL
+    // gate in `GATE_REGISTRY` names a pull request, so widening cannot
+    // reclassify one — asserted, not assumed, by this FR's AC.5 leg.
+    //
+    // THE ONE THING THE PATTERN MUST NOT CATCH is `merge_pr`'s shipped summary,
+    // "merge the open pull request". Not for tidiness: `freshInstructionAuthorizes`
+    // requires every guard a gate trips to be named by the instruction too, so
+    // catching it would make "merge the PR for M143 now" stop authorizing a
+    // merge — closing the operator's only route past an irreversible gate, on a
+    // gate this guard has no business touching. That single constraint is what
+    // shapes the alternation below, and nothing else is narrowed for it:
+    //
+    //   * `open` needs at least one intervening word (unbounded, lazy), because
+    //     in that summary `open` is an ADJECTIVE sitting directly on its object.
+    //   * `open` with ZERO words is allowed when no determiner precedes it, so
+    //     `Open PR?` is caught while `the open pull request` is not.
+    //   * every OTHER verb allows zero words, since none of them appears in that
+    //     summary at all.
+    /\b(?:create|raise|submit|file|start|publish|put\s+up)(?:s|d|es|ed|ing)?\b[^.;\n]{0,60}?\b(?:pull[-\s]?requests?|prs?)\b|\bopen(?:s|ed|ing)?\b(?:\s+\S+)+?\s+(?:pull[-\s]?requests?|prs?)\b|(?<!\b(?:the|an|a|this|that|any|each|every|its|our|their)\s)\bopen(?:s|ing)?\s+(?:pull[-\s]?requests?|prs?)\b|\bgh\s+pr\s+(?:create|new)\b/i,
+  ),
 ];
 
 // ---------------------------------------------------------------------------
@@ -239,6 +279,50 @@ export const GATE_REGISTRY: readonly GateDescriptor[] = [
     "tracker_write_prompt",
     "mechanical",
     "confirm a tracker field write for the item under work",
+  ),
+
+  // The chain-continuation prompts (STE-551's ask-shaped offers), registered
+  // here for the same reason `deliver_chain_confirm` above is: unregistered,
+  // every one of them resolved through `classifyGateWith`'s unknown-gate
+  // fallback, which answers `content` for any input it does not recognise. They
+  // were undelegable by OMISSION rather than by decision — an operator who has
+  // handed over the mechanical class was still asked, prompt after prompt, a
+  // question the chain in the kickoff had already answered.
+  //
+  // Mechanical, not content: each meets this file's own definition of the class
+  // word for word — one correct answer, already determined upstream by the
+  // chain that named the step. The operator still decides WHAT gets built at
+  // `implement_commit_approval` and WHICH chain runs at `deliver_chain_confirm`;
+  // these three only ask whether the step the chain already names starts now.
+  //
+  // Each summary deliberately names NO guarded action. A guard hit OVERRIDES
+  // the declared class, so a summary that named one would silently make its
+  // gate irreversible rather than mechanical — which is also why the seventh
+  // ask-shaped offer, the ceremony-PR prompt, is absent from this list
+  // altogether: its ask names an action the `open_pr` guard catches, and
+  // registering it mechanical would be a mis-registration the guards exist to
+  // catch, not a delegation.
+  //
+  // What registration does NOT change, stated because it is the whole safety
+  // argument: nothing at all without a delegation on the record.
+  // `relayRequired(gate, null)` is `true` for EVERY gate — registered or not,
+  // whatever its class — so an undelegated run asks exactly the questions it
+  // asked before these three lines existed. Registration widens what an
+  // operator CAN delegate; it delegates nothing by itself.
+  gate(
+    "brainstorm_start_now",
+    "mechanical",
+    "confirm the design is settled and begin writing the specs now",
+  ),
+  gate(
+    "implement_ship_ready_close",
+    "mechanical",
+    "confirm the milestone is ship-ready and run the close ceremony now",
+  ),
+  gate(
+    "implement_phase5_close",
+    "mechanical",
+    "confirm the close ceremony runs now that the final FR is complete",
   ),
 
   // IRREVERSIBLE — the operator alone, per action.
