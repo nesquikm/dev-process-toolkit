@@ -11,12 +11,16 @@
 // helper that owns that mode today, so all three keep their current semantics
 // AND their current tests:
 //
-//   mode: linear → `nextFreeMilestoneNumber` (next_free_milestone_number.ts)
-//                  the five-way scan: active plans, archived plans, CHANGELOG,
-//                  tracker milestones, git branches. Every optional scan input
-//                  is forwarded verbatim — dropping one silently demotes the
-//                  five-way scan to a two-way one while still returning a
-//                  plausible `M<N>`.
+//   mode: linear → `mintMilestoneLinear` (mint_milestone_linear.ts)
+//                  TRACKER-FIRST (STE-541): create the project milestone under
+//                  the human title, read the identifier the tracker allocates
+//                  back, and derive the milestone id from it. The identity is
+//                  the tracker's answer, not a sequential number this branch
+//                  computed for itself — so two projects, two clones, or two
+//                  concurrent sessions cannot mint the same token. The branch
+//                  no longer consults `nextFreeMilestoneNumber`'s five-way scan
+//                  at all; that allocator keeps its own front door for the
+//                  explicit-`M<N>` collision check.
 //   mode: jira   → `milestoneIdFromEpicKey` (milestone_token.ts)
 //                  Epic-first derivation, `PROJ-500` → `M_PROJ_500`. Its
 //                  never-a-silent-bad-id contract survives the dispatch: an
@@ -35,7 +39,7 @@
 // `id:` line, so the tracker branches must omit the key, not merely leave it
 // empty.
 //
-// Async because the linear branch delegates to the async five-way scan; the
+// Async because the linear branch delegates to the async tracker mint; the
 // Epic and mint branches resolve immediately.
 //
 // Ordering contract (preserved verbatim from the prose it replaces): the
@@ -45,35 +49,65 @@
 import { adoptOrMintMilestoneId, type MilestoneMinter } from "./adopt_or_mint_milestone_id";
 import { milestoneIdFromEpicKey } from "./milestone_token";
 import {
-  nextFreeMilestoneNumber,
-  type BranchMilestoneScanner,
-  type MilestoneListingProvider,
+  mintMilestoneLinear,
+  type MintMilestoneLinearProvider,
+} from "./mint_milestone_linear";
+// TYPE-ONLY on purpose. The linear branch no longer calls the five-way scan,
+// so this module is no longer one of its importers (probe #81 pins that list
+// empty); the allocator's shapes stay referenced here only because the input
+// interface still ACCEPTS its optional scan seams from existing callers.
+import type {
+  BranchMilestoneScanner,
+  MilestoneListingProvider,
 } from "./next_free_milestone_number";
 
 /** The three milestone-identity modes, keyed off `Task Tracking → mode`. */
 export type MilestoneIdentityMode = "linear" | "jira" | "none";
 
-/** Inputs to the dispatcher. Only `specsDir` + `mode` are always meaningful. */
+/** Inputs to the dispatcher. `mode` is the only one every branch reads. */
 export interface ResolveMilestoneIdentityInput {
-  /** Project `specs/` directory — the root of the plan tree. */
+  /**
+   * Project `specs/` directory — the root of the plan tree. Read by the `none`
+   * branch alone since STE-541 took the five-way scan off the `linear` branch;
+   * still required, because that branch cannot be typed away per-mode.
+   */
   specsDir: string;
   /** Which allocation branch to take. */
   mode: MilestoneIdentityMode;
   /** Tracker-assigned Epic key. Read by the `jira` branch only. */
   epicKey?: string;
   /**
-   * Optional five-way-scan inputs, forwarded verbatim on the `linear` branch.
-   * They are NOT new behavior — omitting them here would silently demote the
-   * five-way scan to a two-way one (active + archived plans), which is exactly
-   * the defect AC-STE-440.3's equality assertions catch.
+   * The tracker project the milestone is minted in. Read by the `linear`
+   * branch only — `mintMilestoneLinear` cannot create without it.
+   */
+  project?: string;
+  /**
+   * The HUMAN milestone title. Read by the `linear` branch only, and the only
+   * name that exists at create time: the canonical `M_<id> — <Title>` name is
+   * not knowable until the tracker has allocated the identifier it derives
+   * from.
+   */
+  title?: string;
+  /**
+   * The tracker milestone provider. On the `linear` branch this is the mint's
+   * provider and MUST carry the milestone-create op; the type is widened past
+   * `MilestoneListingProvider` — which cannot express `createMilestone` —
+   * precisely so such a provider is accepted here.
+   */
+  provider?: MilestoneListingProvider | MintMilestoneLinearProvider;
+  /**
+   * Vestigial five-way-scan seams, accepted so existing callers keep type-
+   * checking. Since STE-541 the `linear` branch mints instead of scanning, so
+   * NOTHING reads these — AC-STE-541.1 asserts exactly that, as a call count of
+   * zero on an injected `branchScanner`.
    */
   changelogPath?: string;
-  provider?: MilestoneListingProvider;
   branchScanner?: BranchMilestoneScanner;
   /**
    * Optional allocator seam, forwarded verbatim on the `none` branch — the same
-   * kind of injection point as `provider` / `branchScanner` above, and defaulted
-   * the same way (omit it and `adoptOrMintMilestoneId` falls back to the real
+   * kind of injection point as `provider` above (NOT `branchScanner`, which is
+   * vestigial since STE-541 and reaches nothing), and defaulted the same way
+   * (omit it and `adoptOrMintMilestoneId` falls back to the real
    * `mintMilestoneId`). It exists because a SECOND mint leaves no trace in the
    * outcome: both mints produce a well-formed `M_<tail>` carrying a well-formed
    * `id:` the name derives, so the only falsifiable form of "it minted once" is
@@ -124,14 +158,37 @@ export async function resolveMilestoneIdentity(
 ): Promise<MilestoneIdentity> {
   switch (input.mode) {
     case "linear": {
-      const availability = await nextFreeMilestoneNumber(
-        input.specsDir,
-        input.changelogPath,
-        input.provider,
-        input.branchScanner,
-      );
+      // TRACKER-FIRST. The identity is whatever the tracker allocated, derived
+      // by the mint itself — never a number this branch computed. `?? {}`
+      // routes a missing provider into `mintMilestoneLinear`'s own create-op
+      // refusal rather than a `TypeError` on the destructure.
+      //
+      // The project and the title are guarded HERE, before the mint, and the
+      // asymmetry with the `jira` branch is the reason. An earlier version of
+      // this comment claimed `?? ""` gave "the same one-refusal-not-two shape
+      // the jira branch uses" — that was false in the one direction that
+      // matters. `milestoneIdFromEpicKey("")` THROWS, so an empty Epic key
+      // costs nothing; `mintMilestoneLinear(p, "", "")` CREATES, so an empty
+      // title silently allocated a real tracker milestone named "" in a
+      // project named "" and returned a well-formed id derived from it. A
+      // defaulted empty string is harmless in front of a sanitizer and is an
+      // outward WRITE in front of a mint. Refusing here also makes the
+      // in-process route agree with this module's own CLI front door, which
+      // has always refused exactly this argv.
+      const project = input.project ?? "";
+      const title = input.title ?? "";
+      if (project === "" || title === "") {
+        throw new Error(
+          `resolveMilestoneIdentity: refusing to mint a Linear milestone without a project and a human title ` +
+            `(project=${JSON.stringify(project)}, title=${JSON.stringify(title)}). ` +
+            `The tracker-first route CREATES the milestone before deriving its id, so a missing value here is a ` +
+            `write, not a bad read: it would allocate a real milestone under an empty name and return an id ` +
+            `derived from it. Supply both, or use mode "jira" / "none" if no tracker milestone should be created.`,
+        );
+      }
+      const minted = await mintMilestoneLinear(input.provider ?? {}, project, title);
       // No `id` KEY at all — probe #73 fails a tracker-mode plan carrying one.
-      return { milestoneId: `M${availability.next}` };
+      return { milestoneId: minted.milestoneId };
     }
     case "jira": {
       // `?? ""` routes a missing key into the sanitizer's own refusal rather

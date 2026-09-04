@@ -716,6 +716,10 @@ const BASELINE_FAMILIES: readonly (readonly [string, string])[] = [
   ["brainstorm_socratic", "brainstorm_socratic_refused"],
   ["setup_allowlist", "setup_allowlist_entries_added"],
   ["end_to_end", "end_to_end_tests_authored"],
+  // M139/STE-541: the Linear scheme-changeover notice — a new family, listed
+  // here so the whole-set coverage leg below stays exhaustive rather than
+  // silently tolerating an unlisted key.
+  ["linear_milestone", "linear_milestone_scheme_adopted"],
 ] as const;
 
 /** The canonical key count measured on 2026-08-31, before the rewrite. */

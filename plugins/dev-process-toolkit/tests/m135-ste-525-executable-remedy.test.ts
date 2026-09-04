@@ -24,6 +24,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join, relative } from "node:path";
+import { MilestoneAttachmentError } from "../adapters/_shared/src/attach_project_milestone";
 import { runTrackerProjectMilestoneAttachedProbe } from "../adapters/_shared/src/tracker_project_milestone_attached";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
@@ -166,7 +167,11 @@ describe("AC-STE-525.2 — the scan is proven to be looking at something", () =>
 // Driving the probe for a real violation message, per binding.
 // ---------------------------------------------------------------------------
 
-type Binding = "object" | "label" | "epic";
+// STE-540 adds `milestone-id`: the binding an identifier-bound Linear
+// milestone verifies on. Enumerated HERE, alongside the probe bindings, so
+// the new remedy is subject to AC.4's "every operation a remedy names
+// exists" audit instead of escaping it.
+type Binding = "object" | "label" | "epic" | "milestone-id";
 
 interface BindingCase {
   binding: Binding;
@@ -185,6 +190,7 @@ const CASE_SPEC: Record<Binding, { milestone: string; title: string; trackerKey:
   object: { milestone: "M31", title: "Tracker Workflow Hardening", trackerKey: "linear", ticket: "STE-117" },
   label: { milestone: "M31", title: "Tracker Workflow Hardening", trackerKey: "jira", ticket: "DST-42" },
   epic: { milestone: "M_DST_42", title: "Epic Keyed Milestone", trackerKey: "jira", ticket: "DST-9" },
+  "milestone-id": { milestone: "M_3fa85f", title: "Waiting States II", trackerKey: "linear", ticket: "STE-540" },
 };
 
 function makeFixture(binding: Binding): { root: string; milestone: string } {
@@ -233,6 +239,40 @@ function makeFixture(binding: Binding): { root: string; milestone: string } {
 async function bindingCase(binding: Binding): Promise<BindingCase> {
   const { root, milestone } = makeFixture(binding);
   const cleanup = () => rmSync(root, { recursive: true, force: true });
+  // STE-540 — the `milestone-id` remedy is not a probe verdict. It is the
+  // `MilestoneAttachmentError` an identifier-bound Linear milestone raises
+  // when the read-back identifier derives to a different token, so it is
+  // driven from the error itself rather than through the probe fixture.
+  if (binding === "milestone-id") {
+    try {
+      const err = new (MilestoneAttachmentError as unknown as new (
+        expected: string,
+        actual: string | null,
+        binding: string,
+        identifier?: string,
+      ) => MilestoneAttachmentError)(
+        milestone,
+        "M_a1b2c3",
+        "milestone-id",
+        "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      );
+      const line = err.message.split("\n").find((l) => l.startsWith("Remedy: "));
+      if (line === undefined) {
+        throw new Error(`bindingCase(milestone-id): message has no \`Remedy: \` line:\n${err.message}`);
+      }
+      return {
+        binding,
+        message: err.message,
+        remedy: line.slice("Remedy: ".length),
+        root,
+        milestone,
+        cleanup,
+      };
+    } catch (e) {
+      cleanup();
+      throw e;
+    }
+  }
   try {
     const issue =
       binding === "object"
@@ -305,10 +345,15 @@ describe("AC-STE-525.3 — the replacement remedy is binding-aware", () => {
     }
   });
 
-  test("the three remedies are pairwise distinct (binding-aware, not one fixed string)", async () => {
-    const cases = await Promise.all([bindingCase("object"), bindingCase("label"), bindingCase("epic")]);
+  test("the four remedies are pairwise distinct (binding-aware, not one fixed string)", async () => {
+    const cases = await Promise.all([
+      bindingCase("object"),
+      bindingCase("label"),
+      bindingCase("epic"),
+      bindingCase("milestone-id"),
+    ]);
     try {
-      expect(new Set(cases.map((c) => c.remedy)).size).toBe(3);
+      expect(new Set(cases.map((c) => c.remedy)).size).toBe(4);
     } finally {
       cases.forEach((c) => c.cleanup());
     }
@@ -330,7 +375,12 @@ const ADAPTER_DOC_BY_NS: Record<string, string> = {
 
 describe("AC-STE-525.4 — every operation a remedy names exists", () => {
   test("named skills, flags, tracker calls and file paths all resolve", async () => {
-    const cases = await Promise.all([bindingCase("object"), bindingCase("label"), bindingCase("epic")]);
+    const cases = await Promise.all([
+      bindingCase("object"),
+      bindingCase("label"),
+      bindingCase("epic"),
+      bindingCase("milestone-id"),
+    ]);
     try {
       const skills: { skill: string; flags: string[]; from: Binding }[] = [];
       const mcpCalls: { ns: string; call: string; from: Binding }[] = [];

@@ -1,12 +1,21 @@
 // tracker_project_milestone_attached — /gate-check probe (#26, STE-118 AC-STE-118.6, STE-194 AC-STE-194.1..5, STE-214 AC-STE-214.1..6).
 //
-// For each `status: active` FR with a tracker block, assert that the
-// tracker ticket's `projectMilestone.name` byte-equals the canonical
-// milestone name derived from the local plan-file milestone heading (parsed
-// via the shared `parsePlanHeading`, which accepts the current `## M<N> —`
-// H2 form and still parses the legacy `# M<N> —` H1 and `## M<N>: <title>`
-// colon forms — STE-335). Closes the drift surface where
-// /spec-write didn't auto-attach (STE-115/116 origin).
+// For each `status: active` FR with a tracker block, assert that the tracker
+// ticket carries the milestone the local plan-file heading names (parsed via
+// the shared `parsePlanHeading`, which accepts the current `## M<N> —` H2 form
+// and still parses the legacy `# M<N> —` H1 and `## M<N>: <title>` colon forms
+// — STE-335). Closes the drift surface where /spec-write didn't auto-attach
+// (STE-115/116 origin).
+//
+// STE-540: the object branch is KIND-ROUTED and no longer a name compare. It
+// delegates to `milestoneBindingPresent(issue, heading, "object")`, the same
+// predicate the writer and the archival assertion use, so an identifier-keyed
+// `M_<key>` milestone is verified by deriving `projectMilestone.id` forward to
+// the token — that milestone keeps whatever human title was typed, so its name
+// can never byte-equal the heading — while a grandfathered numeric `M<N>`
+// keeps the byte-equal name compare. Before that, this probe was the one
+// reader of the object binding that never consulted the shared predicate, and
+// it reported every correctly-bound identifier-keyed FR as a mismatch.
 //
 // Vacuous on:
 //   - mode: none
@@ -16,7 +25,9 @@
 //
 // Hard fails:
 //   - ticket projectMilestone is null  (unless the capability-gap downgrade fires — see below)
-//   - ticket projectMilestone.name != canonical local heading
+//   - the ticket's milestone is not the one the heading names, per the
+//     kind-routed check above (numeric: name mismatch; identifier-keyed: no
+//     `projectMilestone.id` deriving to the token)
 //
 // Capability-gap downgrade (STE-194 + STE-214). When the FR's `## Notes`
 // section contains a word-bounded match of any of the three milestone-
@@ -31,10 +42,15 @@
 // Diagnostic format (AC-STE-118.6; the sibling .7 escape-hatch AC it once
 // cited was retired by STE-525, whose flag never existed) shows both
 // byte-rendered strings so em-dash drift is visible. The mismatch remedy is
-// binding-aware and names only operations that exist: on the OBJECT binding,
-// rename the tracker milestone to the canonical heading via
-// `mcp__linear__save_issue`; or — when the tracker side is the correct one —
-// edit the `specs/plan/M<N>.md` heading to match.
+// binding-aware and names only operations that exist. On the OBJECT binding it
+// splits on the token, because the two arms have OPPOSITE fixes: a
+// grandfathered numeric `M<N>` is told to rename the tracker milestone to the
+// canonical heading via `mcp__linear__save_issue` (or, when the tracker side is
+// right, to edit the `specs/plan/M<N>.md` heading to match), while an
+// identifier-keyed `M_<key>` is told that renaming would NOT fix it — the
+// binding is by identifier, so that remedy names the token nothing derives to
+// and the write that restores it. Handing the identifier-keyed arm the rename
+// order would overwrite the human title and still leave the binding broken.
 //
 // The mismatch kind reaches ONLY the object binding, and the remedy prose is
 // scoped to it deliberately. `mismatch` has a single call site, inside the
@@ -62,7 +78,11 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
-import { milestoneBindingPresent, milestoneLabel } from "./attach_project_milestone";
+import {
+  leadingMilestoneToken,
+  milestoneBindingPresent,
+  milestoneLabel,
+} from "./attach_project_milestone";
 import { parsePlanHeading } from "./plan_heading";
 import { normalizeFrontmatterSource } from "./frontmatter";
 
@@ -98,10 +118,23 @@ export interface TrackerProjectMilestoneAttachedDeps {
    */
   getIssue: (
     ticketId: string,
-  ) => Promise<{ projectMilestone?: { name: string } | null; labels?: string[]; parent?: string | null }>;
+  ) => Promise<{
+    // STE-540 — the identifier is REQUIRED of the contract, not merely of the
+    // internal projection. Widening only the local `let issue` left the fix
+    // unreachable at its real call site: a caller conforming to this type
+    // returns `name` alone, the by-id comparison reads `id === undefined`,
+    // and the mismatch it was meant to prevent fires anyway. Optional, so an
+    // adapter that genuinely cannot surface one still satisfies the type —
+    // but the field is now part of what the probe ASKS for.
+    projectMilestone?: { name: string; id?: string } | null;
+    labels?: string[];
+    parent?: string | null;
+  }>;
   /**
    * Which milestone-binding the active adapter uses. `object` (Linear,
-   * default when absent) verifies `projectMilestone.name`; `label` (Jira
+   * default when absent) is kind-routed — identifier-keyed milestones verify
+   * `projectMilestone.id` derived forward, numeric ones verify
+   * `projectMilestone.name`; `label` (Jira
    * legacy) verifies that the ticket's `labels` array contains
    * `milestone-<M-token>`; `epic` (Jira Epic-first) verifies the ticket's
    * `parent` key sanitizes back to the Epic-keyed milestone token, falling
@@ -225,6 +258,33 @@ function buildMessage(
     return [
       `tracker_project_milestone_attached: ${reason}`,
       `Remedy: ${epicRemedy}`,
+      `Context: file=${file}, probe=tracker_project_milestone_attached`,
+    ].join("\n");
+  }
+  // STE-540 — the OBJECT binding's identifier-keyed leg, the exact mirror of
+  // the Epic-keyed clause above and for the same reason. Once the milestone id
+  // is derived from the identifier Linear allocated, the milestone keeps the
+  // human title someone typed while the plan heading is `M_<6 hex> — <Title>`,
+  // so the two can never be byte-equal and a NAME difference is not the fault.
+  // Without this clause the generic arms below tell the operator to "rename the
+  // tracker milestone to that exact string", which would overwrite the human
+  // title and still not fix the binding — the remedy would break the very
+  // thing it is diagnosing. What can actually be wrong is narrow: no milestone
+  // in the project carries an identifier that derives to this token.
+  if (binding === "object" && (expectedToken ?? "").startsWith("M_")) {
+    const objectRemedy =
+      "This milestone is resolved by its Linear IDENTIFIER, never by its name — a name difference is not a binding " +
+      `failure on this arm, and renaming the milestone would NOT fix it. What is absent is a milestone whose ` +
+      `identifier derives to \`${expectedToken}\` (the leading six hex of its uuid): confirm the milestone still ` +
+      "exists in the project and that this issue points at it, then re-attach via " +
+      "mcp__linear__save_issue(id=<ticket>, milestone=<that milestone's identifier>) — the tool schema documents " +
+      "the parameter as \"Milestone name or ID\", and /implement Phase 1 calls attachProjectMilestone() " +
+      "idempotently to do the same. If the milestone is gone for good, re-derive the milestone id from one that " +
+      "exists: the plan FILE, its `## M_<key> — <Title>` heading and each bound FR's `milestone:` frontmatter all " +
+      "move together. Never hand-edit the token to one no milestone carries.";
+    return [
+      `tracker_project_milestone_attached: ${reason}`,
+      `Remedy: ${objectRemedy}`,
       `Context: file=${file}, probe=tracker_project_milestone_attached`,
     ].join("\n");
   }
@@ -389,7 +449,14 @@ export async function runTrackerProjectMilestoneAttachedProbe(
     const heading = readPlanHeading(planPath);
     if (heading === null) continue; // probe #27 owns the orphan/missing-plan diagnostic
 
-    let issue: { projectMilestone?: { name: string } | null; labels?: string[]; parent?: string | null };
+    // STE-540 — `id` is read on the identifier-keyed arm below. Optional, so
+    // a `getIssue` that projects only the name still type-checks; a row that
+    // offers no identifier simply cannot satisfy the by-id comparison.
+    let issue: {
+      projectMilestone?: { name: string; id?: string } | null;
+      labels?: string[];
+      parent?: string | null;
+    };
     try {
       issue = await deps.getIssue(fm.trackerId);
     } catch (e) {
@@ -454,6 +521,30 @@ export async function runTrackerProjectMilestoneAttachedProbe(
       continue;
     }
 
+    // STE-540 — the `object` branch is ALSO kind-routed now, and it routes
+    // through the SAME shared predicate the `epic` branch above uses rather
+    // than keeping a private name compare.
+    //
+    // This probe was the THIRD reader of the object binding, and the only one
+    // that never consulted `milestoneBindingPresent`. Once a milestone is
+    // minted by `mintMilestoneLinear`, it keeps the HUMAN TITLE while the plan
+    // heading is the canonical `M_<6 hex> — <Title>` derived from its
+    // identifier — so the byte-equal name compare that used to live here
+    // reported a mismatch on every CORRECTLY bound identifier-keyed FR, and
+    // its remedy told the operator to rename the milestone to the canonical
+    // name, which would have broken the very binding it was checking.
+    //
+    // A grandfathered numeric `M<N>` token is unaffected: the shared predicate
+    // keeps the byte-equal name compare on that arm, so this branch's existing
+    // behaviour — including the capability-gap downgrade and the mismatch
+    // diagnostic below — is preserved exactly for it.
+    if (milestoneBindingPresent(issue, heading, "object")) continue;
+
+    // The token the heading claims, threaded into every diagnostic below so
+    // the identifier-keyed arm can render its OWN remedy. Passing it is what
+    // makes the `binding === "object" && M_` clause in `buildMessage` live
+    // code rather than an unreachable branch.
+    const objectToken = leadingMilestoneToken(heading);
     const attached = issue.projectMilestone?.name ?? null;
     if (attached === null) {
       // STE-194 + STE-214: capability-gap downgrade. Any of the three
@@ -472,7 +563,7 @@ export async function runTrackerProjectMilestoneAttachedProbe(
         line: 1,
         reason,
         note: `${rel}:1 — ${trackerRef} not attached to projectMilestone (expected "${heading}")`,
-        message: buildMessage(reason, rel, "missing"),
+        message: buildMessage(reason, rel, "missing", "object", objectToken),
       });
       continue;
     }
@@ -483,7 +574,7 @@ export async function runTrackerProjectMilestoneAttachedProbe(
         line: 1,
         reason,
         note: `${rel}:1 — ${trackerRef} milestone "${attached}" != local "${heading}"`,
-        message: buildMessage(reason, rel, "mismatch"),
+        message: buildMessage(reason, rel, "mismatch", "object", objectToken),
       });
     }
   }

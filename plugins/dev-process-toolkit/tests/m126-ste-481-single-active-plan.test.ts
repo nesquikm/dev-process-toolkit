@@ -639,12 +639,29 @@ describe("AC-STE-481.3 — the shipped prose about the plan filename is true as 
   });
 
   test("the tracker-mode half of that claim holds: `plan/M1.md` survives", async () => {
+    // RETARGETED (M139/STE-541, AC-STE-541.6). This resolved a linear identity
+    // with NO provider. THE BEHAVIOURAL CHANGE: `mode: linear` no longer
+    // resolves an identity OFFLINE — the sequential scan needed no tracker,
+    // whereas `mintMilestoneLinear` requires a provider carrying the
+    // milestone-create op, because an identity derived from a tracker object
+    // cannot be computed without the tracker. Only the INPUTS change here: the
+    // claim under test — a tracker-mode identity carries no minted `id`, so
+    // there is nothing to consume with and `plan/M1.md` survives — is exactly
+    // the same one, and is REPLACED by nothing because nothing about it was
+    // retired.
     const mod = await loadConsumeModule();
     const project = setupProject({ mode: "linear" });
     try {
       const identity = await resolveMilestoneIdentity({
         specsDir: project.specsDir,
         mode: "linear",
+        project: "DPT",
+        title: "Tracker-First Linear Milestones",
+        provider: {
+          createMilestone: async (_project: string, _opts: { name: string }) => ({
+            id: "550e8400-e29b-41d4-a716-446655440000",
+          }),
+        },
       });
       expect(identity.id).toBeUndefined();
 

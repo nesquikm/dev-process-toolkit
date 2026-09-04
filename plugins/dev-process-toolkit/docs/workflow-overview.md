@@ -30,7 +30,7 @@ flowchart LR
 
 ## 2. Plan + Research (detail)
 
-`/brainstorm` and `/spec-write` each fork a read-only researcher (`spec-research`, and `deps-research` when `specs/deps.yaml` is non-empty) for topic-aware retrieval before any artifact is written. The milestone-identity guard and the auto-approve marker gate guard the write — the 5-way number scan on Linear, key-derived ids on Jira and in `mode: none`.
+`/brainstorm` and `/spec-write` each fork a read-only researcher (`spec-research`, and `deps-research` when `specs/deps.yaml` is non-empty) for topic-aware retrieval before any artifact is written. The milestone-identity guard and the auto-approve marker gate guard the write — key-derived ids on every mode: the minted milestone identifier on Linear, the Epic key on Jira, a locally minted ULID tail in `mode: none`.
 
 ```mermaid
 flowchart TD
@@ -46,7 +46,7 @@ flowchart TD
     deps["/deps — manifest surface"]:::skill
     fSpecR["spec-research FORK → spec-researcher (haiku)"]:::fork
     fDepsR["deps-research FORK → deps-researcher (haiku)"]:::fork
-    gMs{"milestone identity: 5-way scan (Linear) | key-derived (jira, none) (NFR-10)"}:::gate
+    gMs{"milestone identity: key-derived (linear, jira, none) (NFR-10)"}:::gate
     gMarker{"FR-draft + auto-approve marker gate"}:::gate
 
     aFrs[("specs/frs/(id).md")]:::artifact
@@ -234,8 +234,8 @@ flowchart TD
 | spec_write_first_turn_drift_scan | gate-check vs SKILL.md | first non-tty call = AskUserQuestion or refusal | drift → GATE FAILED |
 | Auto-approve marker byte-grep | /spec-write, /deps | PRESENT→default y; ABSENT+non-tty→refuse | sole decider, no inference |
 | resolveMilestoneIdentity dispatch | /spec-write plan alloc, **all three modes** | one call routes by mode; `mode: none` cannot return `M<N>` | unknown mode → throw, never a sequential fallback |
-| ├ nextFreeMilestoneNumber 5-way scan | dispatcher's **Linear only** branch | max(active∪archived∪changelog∪tracker∪branches)+1 | collision → NFR-10 refusal |
-| └ Key-derived milestone id | dispatcher's jira + mode:none branches | Epic key → `M_<epic-key>`; minted ULID tail → `M_<short-ULID>` | collision-free by construction; allocator bypassed |
+| └ Key-derived milestone id | dispatcher's **all three** branches | milestone identifier → `M_<6-hex>`; Epic key → `M_<epic-key>`; minted ULID tail → `M_<short-ULID>` | collision-free by construction; allocator bypassed on every branch |
+| nextFreeMilestoneNumber explicit-`M<N>` check | its own CLI front door, off the dispatcher | max(active∪archived∪changelog∪tracker∪branches)+1 | hand-typed token collides → NFR-10 refusal |
 | Post-write FR self-checks | /spec-write | frontmatter / guessed-id / short-ULID scans | shape error / placeholder → halt |
 | Risk scan (llm-review) | /spec-write Step 6 | per high-severity risk | resolve or accept before hand-off |
 | Deps Socratic mgmt flows | /deps add/edit/delete/sync | one prompt per step | DepsManifestShapeError (NFR-10) |

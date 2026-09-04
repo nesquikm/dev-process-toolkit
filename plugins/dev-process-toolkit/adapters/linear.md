@@ -51,6 +51,37 @@ AC-37.5).
 | `transition_status` | `mcp__linear__save_issue` | `id`, **`state`** (accepts state type, name, or ID — no team.states lookup needed) | Pass the canonical status name resolved via `status_mapping` (e.g., `"In Progress"`). **Never** pass `stateId`, `status`, or any other variant — Linear silently ignores unknown keys. |
 | `upsert_ticket_metadata` | `mcp__linear__save_issue` (omit `id` to create, pass `id` to update) | `id?`, `title`, `description`, **`assignee`** (accepts user ID, name, email, or `"me"`), **`team?`** (required on create — sourced from `### Linear`.team if not passed), **`project?`** (required on create — sourced from `### Linear`.project if not passed), **`labels?`** (optional on create — sourced from `### Linear`.default_labels when populated) | Body MUST include the back-link to `specs/frs/<TICKET-ID>.md`. **Never** pass `assigneeId` or `assigneeEmail` — Linear silently ignores unknown keys. On create, both `team` and `project` MUST be present (resolved from the call argument or from the workspace binding sub-section); reject the call if neither source supplies a value. **Labels:** when `### Linear`.default_labels is populated (free-form sub-section field, parsed as inline-YAML array per `docs/patterns.md`) **or** the call argument carries `labels`, forward every entry as the `labels` parameter to `save_issue` (Linear MCP accepts either label IDs or names). Empty array or missing key ⇒ no `labels` field is forwarded. On update (with `id`), `team`, `project`, and `labels` are not forwarded — Linear cannot reassign team/project/labels on an existing issue without explicit operator intent (`save_issue.labels` is also append-only on update per the MCP contract, so silent overrides would surprise the operator). |
 | `list_project_statuses` | `mcp__linear__list_issue_statuses` | `team` (required — sourced from `### Linear`.team in CLAUDE.md) | Fetch the full per-team status list scoped to the team bound in `## Task Tracking` § `### Linear`. Output: ordered array of status names verbatim from Linear (preserves casing, whitespace, special chars). Used by `/setup` Step Nb (STE-303) to seed `specs/tracker-config.yaml` with the workspace-bound status vocabulary. The team binding is resolved via `readWorkspaceBinding(claudeMdPath, "linear")` — reject the call with NFR-10 canonical shape when `team` is unresolved (mirrors the create-path silent-landing guard). Pure read; no mutation. |
+| `create_milestone` | `mcp__linear__save_milestone` (omit `id` to create) | `project` (required), `name` (required on create) | The op `mintMilestoneLinear` binds as `provider.createMilestone`. Create with the **human title alone** — the canonical `M_<id> — <Title>` name embeds the identifier this very call allocates, so it cannot be sent. The response carries the allocated `id` as a UUID (verified live: creating in project `DPT — Dev Process Toolkit` returned `{"id":"41d5aa02-1fdb-4a32-a339-b59b1ee8438b", "name": …}`), and that `id` is what the milestone identity derives from. Passing `id` UPDATES an existing milestone instead of creating one — never pass it on the mint path. |
+| `list_milestones` | `mcp__linear__list_milestones` | `project` (required) | Returns each milestone's `id` and `name`. `mintMilestoneLinear` uses it for the find-before-create leg, and `attachProjectMilestone`'s by-id arm derives each candidate's `id` forward to compare against the token. A row carrying no `id` is SKIPPED on that arm rather than derived from. |
+
+**Mint — create, read the identifier back, derive the id, then write the plan file.**
+A Linear project milestone is minted in the only order whose values exist at the
+moment each is needed — the same order `adapters/jira.md` documents for an Epic,
+and for the same reason. `adapters/_shared/src/mint_milestone_linear.ts` performs
+steps 1–3; its caller performs step 4. Steps 1–2 are wrapped in a
+find-before-create retry on the canonical `1s + 2s + 4s` schedule: a create that
+lands in Linear and then times out is FOUND on the retry and reused, never
+created a second time. That protection is why a timeout does not mint a
+duplicate milestone.
+
+1. Create the milestone with the **human title alone** —
+   `mcp__linear__save_milestone(project=<project>, name=<human title>)`, with no
+   `id` (passing one updates an existing milestone). The canonical
+   `M_<id> — <Title>` name is not available here: it embeds the identifier
+   Linear is about to allocate for this very milestone, so ordering it would
+   order a value that does not yet exist.
+2. **read the identifier back** from the create response, verbatim — the `id`
+   field, a UUID.
+3. **derive the id** from that identifier via `milestoneIdFromLinearMilestone`
+   (`3fa85f64-…` → `M_3fa85f`, the leading six hex): an identifier that will not
+   sanitize into a well-formed id refuses rather than yielding a malformed one.
+4. (caller) write the plan file at `specs/plan/M_<6-hex>.md` and bind each FR
+   with `milestone: M_<6-hex>` frontmatter.
+
+The milestone KEEPS the human title — it is never renamed to the canonical form.
+That is deliberate and is why the binding above matches by KEY: once the identity
+is derived from the identifier, the milestone's name and the plan heading can
+never be byte-equal again, so a name comparison could only ever fail.
 
 ### Silent no-op trap (FR-67 AC-67.2)
 
@@ -201,12 +232,16 @@ observed status; operators fix either by transitioning the ticket to
 
 ### `attach_project_milestone(ticket_id, milestone_name) → void`
 
-Idempotent binding from a Linear issue to a project milestone matching the local plan-file H1 heading. Implemented by `attachProjectMilestone(provider, project, milestoneName, ticketId)` in `adapters/_shared/src/attach_project_milestone.ts`; called by `/implement` Phase 1 step 0.e when the adapter declares `project_milestone: true` (see frontmatter above). Procedure:
+Idempotent binding from a Linear issue to a project milestone named by the local plan-file milestone heading. What that heading's leading token *matches on* differs per arm — the identifier-keyed arm joins on the milestone's Linear identifier, never on its name (steps 2-4 below). Implemented by `attachProjectMilestone(provider, project, milestoneName, ticketId)` in `adapters/_shared/src/attach_project_milestone.ts`; called by `/implement` Phase 1 step 0.e when the adapter declares `project_milestone: true` (see frontmatter above). Procedure:
 
 1. List milestones in `project` via `mcp__linear__list_milestones`.
-2. If `milestone_name` is absent from the list, create it via `mcp__linear__save_milestone(project, name=milestone_name)`.
-3. Attach the ticket via `mcp__linear__save_issue(id=ticket_id, milestone=milestone_name)` — the parameter is the milestone *name* (string), not an ID. Linear silently dropping `milestone:` would cause `getIssue` to round-trip `projectMilestone == null`; the post-write verify catches the silent no-op (FR-67 pattern).
-4. Re-fetch via `mcp__linear__get_issue(id=ticket_id)` and assert `projectMilestone.name === milestone_name`. Mismatch → raise `MilestoneAttachmentError` (NFR-10 canonical shape).
+2. **Numeric `M<N>` arm only** — if `milestone_name` is absent from the list, create it via `mcp__linear__save_milestone(project, name=milestone_name)`. On the identifier-keyed arm a token with no matching milestone is *refused* (`MilestoneObjectNotFoundError`), never created: a freshly minted milestone gets a fresh identifier that can never derive back to the token.
+3. Attach the ticket via `mcp__linear__save_issue(id=ticket_id, milestone=…)`. The tool schema documents this parameter as **"Milestone name or ID"** — both forms are accepted, and the arm decides which one is sent:
+   - **Identifier-keyed token** (`M_<6 hex>`, derived from the milestone's own Linear identifier): send the matched milestone's **identifier**. If a workspace rejects the identifier form, the adapter retries the same write once with the matched milestone's own `name` — the single `mcp__linear__list_milestones` lookup from step 1 serves both attempts, so the fallback never re-enumerates.
+   - **Grandfathered numeric token** (`M<N>`): send the milestone **name**, byte-equal to the canonical plan-file heading.
+
+   Linear silently dropping `milestone:` would cause `getIssue` to round-trip `projectMilestone == null`; the post-write verify catches the silent no-op (FR-67 pattern).
+4. Re-fetch via `mcp__linear__get_issue(id=ticket_id)` and verify — the check differs per arm. Identifier-keyed: re-derive the token from the read-back `projectMilestone.id` and assert it equals the token (a name-only assertion would accept a silent swap that kept the name and changed the milestone). Numeric: assert `projectMilestone.name === milestone_name`. Mismatch → raise `MilestoneAttachmentError` (NFR-10 canonical shape).
 
 **Capability-gap surfacing in FR `## Notes` (STE-194).** When the adapter cannot attach (e.g., Linear project starts with zero milestones and the smoke driver has not seeded one), `/spec-write` declares the gap by writing the canonical `milestone_attach_unavailable` capability key into the new FR's `## Notes` section (per `skills/spec-write/SKILL.md` § Step 7's capability-key map). `/gate-check` probe #26 (`tracker-project-milestone-attached`) reads the same token from `## Notes` and downgrades the missing-binding outcome from GATE FAILED to ADVISORY (see `skills/gate-check/SKILL.md` § probe #26 decision table). The round-trip — write the token in spec-write, read the token in gate-check — keeps the audit trail visible without false-positive gate failures on intentional capability gaps.
 
