@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.78.0] — 2026-09-04 — "Pulse"
+
+### Added
+
+- Classify, check, and record external links when they are authored (STE-542)
+- Gate probe grading recorded external-link verdicts (STE-543)
+
+Total test count at release: 11503 tests, 0 failures, 0 errors.
+
 ## [2.77.0] — 2026-09-04 — "Provenance"
 
 ### Changed
