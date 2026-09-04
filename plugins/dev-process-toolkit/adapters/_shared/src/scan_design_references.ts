@@ -20,6 +20,23 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
+export interface ExternalReferenceRow {
+  /** The URL named in the backtick token (verbatim). */
+  url: string;
+  /** Repo-root-relative path of the spec file, POSIX separators. */
+  file: string;
+  /** 1-indexed line of the entry. */
+  line: number;
+  /** Which section the entry was authored under. */
+  section: "design" | "external";
+  /** Prose caption after the separator dash, `null` when absent. */
+  caption: string | null;
+  /** ISO-8601 timestamp from the `(checked …)` tail, `null` when absent. */
+  checkedAt: string | null;
+  /** Verdict from the `(checked …)` tail, `null` when the tail is absent. */
+  verdict: "reachable" | "dead" | "unchecked" | null;
+}
+
 export interface DesignReferenceRow {
   /** Repo-root-relative path named in the backtick token (verbatim). */
   path: string;
@@ -129,6 +146,119 @@ export function scanDesignReferences(projectRoot: string): DesignReferenceRow[] 
   const rows: DesignReferenceRow[] = [];
   for (const absPath of listSpecFiles(projectRoot)) {
     rows.push(...scanFile(absPath, projectRoot));
+  }
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
+// External references (STE-542) — the URL tokens `isRepoRootRelativePath`
+// rejects at line 51 are no longer discarded: they surface here as their own
+// row kind. No on-disk resolution is attempted (and no `resolves` key exists),
+// because the probe #61 caller `existsSync`es every DesignReferenceRow and a
+// URL would GATE FAILED. `scanDesignReferences` is untouched.
+// ---------------------------------------------------------------------------
+
+// A LEVEL-2 heading whose text is exactly "External References" — the same h2
+// discipline as DESIGN_REFS_HEADING_RE (an `###` demotion yields zero rows).
+const EXTERNAL_REFS_HEADING_RE = /^##[ \t]+External References[ \t]*$/;
+// The `(checked <ISO8601>: <verdict>)` tail written by
+// `formatExternalReferenceLine`. Absent ⇒ the row is unverdicted, never
+// silently "reachable".
+// The timestamp itself carries colons (`10:00:00Z`), so the greedy `[^)]+`
+// backtracks to the LAST colon before the verdict word.
+const CHECKED_TAIL_RE =
+  /\(checked\s+([^)]+):\s*(reachable|dead|unchecked)\)\s*$/;
+// The separator between the backtick token and its caption (em dash or hyphen).
+const CAPTION_SEPARATOR_RE = /^\s*[—-]\s*/;
+
+/** A backtick token is an external reference iff it carries a URL scheme. */
+function isUrlToken(token: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(token);
+}
+
+function parseExternalEntry(
+  line: string,
+  rel: string,
+  lineNumber: number,
+  section: "design" | "external",
+): ExternalReferenceRow | null {
+  const match = FIRST_BACKTICK_RE.exec(line);
+  if (!match) return null;
+  const token = match[1]!;
+  if (!isUrlToken(token)) return null;
+
+  let rest = line.slice(match.index + match[0].length);
+  rest = rest.replace(CAPTION_SEPARATOR_RE, "");
+
+  let checkedAt: string | null = null;
+  let verdict: ExternalReferenceRow["verdict"] = null;
+  const tail = CHECKED_TAIL_RE.exec(rest);
+  if (tail) {
+    checkedAt = tail[1]!.trim();
+    verdict = tail[2] as ExternalReferenceRow["verdict"];
+    rest = rest.slice(0, tail.index);
+  }
+  const caption = rest.trim();
+
+  return {
+    url: token,
+    file: rel,
+    line: lineNumber,
+    section,
+    caption: caption === "" ? null : caption,
+    checkedAt,
+    verdict,
+  };
+}
+
+function scanFileForExternal(
+  absPath: string,
+  projectRoot: string,
+): ExternalReferenceRow[] {
+  let content: string;
+  try {
+    content = readFileSync(absPath, "utf-8");
+  } catch {
+    return [];
+  }
+  const rel = relative(projectRoot, absPath).split(sep).join("/");
+  const lines = content.split("\n");
+  const rows: ExternalReferenceRow[] = [];
+  let section: "design" | "external" | null = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (DESIGN_REFS_HEADING_RE.test(line)) {
+      section = "design";
+      continue;
+    }
+    if (EXTERNAL_REFS_HEADING_RE.test(line)) {
+      section = "external";
+      continue;
+    }
+    if (section === null) continue;
+    if (SECTION_END_RE.test(line)) {
+      section = null;
+      continue;
+    }
+    if (!LIST_ITEM_RE.test(line)) continue; // only list items are entries
+    const row = parseExternalEntry(line, rel, i + 1, section);
+    if (row) rows.push(row);
+  }
+  return rows;
+}
+
+/**
+ * Every external (URL-bearing) list entry under `## Design References` or
+ * `## External References`, across the same spec-file glob
+ * `scanDesignReferences` walks. Rows carry NO `resolves` key.
+ */
+export function scanExternalReferences(
+  projectRoot: string,
+): ExternalReferenceRow[] {
+  const rows: ExternalReferenceRow[] = [];
+  for (const absPath of listSpecFiles(projectRoot)) {
+    rows.push(...scanFileForExternal(absPath, projectRoot));
   }
   return rows;
 }

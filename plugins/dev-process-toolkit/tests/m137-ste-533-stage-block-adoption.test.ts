@@ -720,6 +720,10 @@ const BASELINE_FAMILIES: readonly (readonly [string, string])[] = [
   // here so the whole-set coverage leg below stays exhaustive rather than
   // silently tolerating an unlisted key.
   ["linear_milestone", "linear_milestone_scheme_adopted"],
+  // M140/STE-542: the external-link reachability check's offline disposition —
+  // a new family, listed here so the whole-set coverage leg below stays
+  // exhaustive rather than silently tolerating an unlisted key.
+  ["external_link", "external_link_check_unchecked_offline"],
 ] as const;
 
 /** The canonical key count measured on 2026-08-31, before the rewrite. */
