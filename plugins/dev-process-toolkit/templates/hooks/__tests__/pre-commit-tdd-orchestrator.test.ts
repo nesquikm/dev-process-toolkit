@@ -65,6 +65,13 @@ async function initRepoWithStaged(
   await Bun.spawn(
     ["git", "-C", repoDir, "config", "user.name", "Test"],
   ).exited;
+  // M142 / STE-548 — written, never staged. The refusal case below means "a
+  // TypeScript project staging a test file"; since STE-547 the layout is read
+  // off a stack marker, so the fixture has to carry one.
+  writeFileSync(
+    join(repoDir, "package.json"),
+    '{"name":"fixture","version":"0.0.0","private":true}\n',
+  );
   for (const [rel, body] of Object.entries(files)) {
     const full = join(repoDir, rel);
     const dir = full.split("/").slice(0, -1).join("/");

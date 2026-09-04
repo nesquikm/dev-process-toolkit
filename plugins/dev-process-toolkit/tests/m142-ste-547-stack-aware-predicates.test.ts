@@ -479,10 +479,10 @@ describe("AC-STE-547.4 — the TypeScript layout's shipped expectations are unto
     );
   });
 
-  test("an unrecognised project still folds to today's no-fr (STE-548 is a separate verdict)", () => {
+  test("an unrecognised project gets STE-548's own verdict, not today's no-fr", () => {
     const root = fixtureRoot("markerless", []);
     expect(classifyIn(["counter.dart", "counter_test.dart"], root)).toBe(
-      "no-fr",
+      "stack-unknown",
     );
   });
 });
@@ -810,9 +810,9 @@ describe("AC-STE-547.6 — removing a stack's rule flips its fixture back to no-
     }
   });
 
-  test("a null entry (no marker resolved) folds to no-fr, STE-547's scope boundary", () => {
+  test("a null entry (no marker resolved) reports STE-548's unidentified verdict", () => {
     expect(classifyForEntry(["counter.dart", "counter_test.dart"], null)).toBe(
-      "no-fr",
+      "stack-unknown",
     );
     // FR markdown is stack-independent and keeps firing with no stack at all.
     expect(classifyForEntry(["specs/frs/STE-547.md"], null)).toBe("spec-only");
