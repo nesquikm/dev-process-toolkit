@@ -29,33 +29,25 @@ import { join, resolve } from "node:path";
 import { runGateNamingSkips } from "./gate_identity_run";
 import { captureSkipBaseline, resolveTrunkSha, type CaptureResult } from "./skip_baseline";
 import { skipNamesSource } from "./skip_identities";
+import { STACK_LAYOUTS, type GateInvocation } from "./stack_layout";
 import { parseTestOutput, type Stack } from "./test_count_parser";
 
-/** The gate this module runs to obtain a skip count, and how to read it. */
-export interface GateInvocation {
-  /** Which runner's output shape `parseTestOutput` should be told to read. */
-  readonly stack: Stack;
-  /** argv of the gate command, run with the project root as its cwd. */
-  readonly command: readonly string[];
-}
+// STE-547: the marker → runner mapping this module used to keep privately is now
+// one half of the ONE table in `stack_layout.ts`, whose other half is the path
+// layout the pre-commit classifier reads. There is no second copy: an entry this
+// repo can parse no count out of (Kotlin, Go) carries `gate: null` and is a
+// recognised LAYOUT the scan below steps PAST — never a stop that turns a
+// gate-carrying project's answer into `null`.
+export type { GateInvocation };
 
-/**
- * Marker file → runner. Ordered most specific first: a Flutter package carries
- * a `pubspec.yaml` and nothing else here, while a Python project can carry
- * either of two markers, and `package.json` is the broadest of the three.
- */
-const STACK_MARKERS: ReadonlyArray<{ readonly marker: string } & GateInvocation> = [
-  { marker: "pubspec.yaml", stack: "flutter", command: ["flutter", "test"] },
-  { marker: "pyproject.toml", stack: "pytest", command: ["python3", "-m", "pytest"] },
-  { marker: "pytest.ini", stack: "pytest", command: ["python3", "-m", "pytest"] },
-  { marker: "package.json", stack: "bun", command: ["bun", "test"] },
-];
-
-/** The gate to run in `projectRoot`, or `null` when no marker is recognised. */
+/** The gate to run in `projectRoot`, or `null` when no gated marker is found. */
 export function detectGate(projectRoot: string): GateInvocation | null {
-  for (const candidate of STACK_MARKERS) {
-    if (existsSync(join(projectRoot, candidate.marker))) {
-      return { stack: candidate.stack, command: candidate.command };
+  for (const entry of STACK_LAYOUTS) {
+    if (entry.gate === null) continue;
+    if (existsSync(join(projectRoot, entry.marker))) {
+      // Rebuilt rather than returned by reference so this function's contract —
+      // exactly `{ stack, command }` — cannot drift with the table's entry shape.
+      return { stack: entry.gate.stack, command: entry.gate.command };
     }
   }
   return null;
@@ -110,7 +102,9 @@ export function runCapture(projectRoot: string): CaptureRun {
 
   const gate = detectGate(projectRoot);
   if (gate === null) {
-    const markers = STACK_MARKERS.map((candidate) => candidate.marker).join(", ");
+    const markers = STACK_LAYOUTS.filter((entry) => entry.gate !== null)
+      .map((entry) => entry.marker)
+      .join(", ");
     throw new Error(`no test runner detected in ${projectRoot} — looked for ${markers}`);
   }
 

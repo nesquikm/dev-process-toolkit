@@ -111,11 +111,17 @@ Empirical research via the `claude-code-guide` agent confirmed the contract: `${
 - **Name:** `pre-commit-tdd-orchestrator`
 - **Event:** `PreToolUse`
 - **Matcher:** `Bash` (with command-pattern guard for `git commit*`)
-- **Requirement:** If FR-related files are staged (heuristic: `specs/frs/<id>.md` or matching test files under `tests/` referencing an FR ID), a `Skill(/dev-process-toolkit:tdd)` `tool_use` MUST appear in the current session log. Byte-checkable continuation of STE-283's TDD Orchestrator Contract: prevents the "Inline TDD Antipattern" where `/implement` writes tests + code itself instead of forking `/dev-process-toolkit:tdd`.
+- **Requirement:** If FR-related files are staged (heuristic: `specs/frs/<id>.md`, or a source file staged together with its test, where "source" and "test" mean whatever the detected stack's layout says they mean — Dart sources under `lib/` with tests under `test/` or `integration_test/`; Python sources under `src/` with tests under `tests/` or `test/`; TypeScript/JavaScript sources under `src/` with tests under `__tests__/` or `tests/`; Kotlin/Java sources under `src/main/` with tests under `src/test/`; Go sources anywhere, paired with their `_test.go` siblings), a `Skill(/dev-process-toolkit:tdd)` `tool_use` MUST appear in the current session log. Byte-checkable continuation of STE-283's TDD Orchestrator Contract: prevents the "Inline TDD Antipattern" where `/implement` writes tests + code itself instead of forking `/dev-process-toolkit:tdd`.
 - **NFR-10 refusal shape on miss:**
   ```
   Refusing: required dev-process-toolkit:tdd Skill tool_use not found in current session.
   Remedy: run /dev-process-toolkit:tdd before retrying this action.
+  Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:tdd, hook=pre-commit-tdd-orchestrator
+  ```
+- **Advisory shape when no stack is identified (STE-548):** the staged-set verdict has four outcomes, not three — the spec-only carve-out, nothing to guard, requires the run, and *could not tell*. The fourth fires when no stack marker resolves from the commit's directory up to the enclosing checkout, and it is deliberately **not** a refusal: the hook emits a `Reminder:` block naming the checkout root and the fact that no stack was identified, then exits 0. A guard that blocked on its own ignorance would punish the operator for it, and would be disabled within a week. Before this, an unidentified project silently reused the TypeScript rules, so a Dart or Go commit reported the same clean exit as a commit with genuinely nothing to guard — a guard that never looked was byte-indistinguishable from one that passed.
+  ```
+  Reminder: no stack marker was identified for <checkout root>, so the /tdd guard could not tell whether this commit stages a source file and its test.
+  Remedy: add a recognised stack marker at the project root (for example `package.json`, `pubspec.yaml`, `pyproject.toml`, `go.mod`), or run /dev-process-toolkit:tdd yourself when this commit carries an FR.
   Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:tdd, hook=pre-commit-tdd-orchestrator
   ```
 - **Override pattern:** Disable the plugin or copy-and-override — snapshot-copy the seeded script into `~/.claude/hooks/pre-commit-tdd-orchestrator.sh`, edit (e.g., tighten or loosen the "FR-related staged" heuristic, allow-list certain commit types like `docs:` or `chore:`), and register the local absolute path in the operator's `~/.claude/settings.json`.
