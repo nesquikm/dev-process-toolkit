@@ -210,12 +210,18 @@ const EXPECTED_CLASSES: GateClass[] = ["content", "mechanical", "irreversible"];
  * mutation-verifiable only as a unit, which is what AC-STE-493.6's "every guard
  * in it is mutation-verified" forbids.
  */
+//
+// PIN MOVED by M143 STE-552 (AC.8), deliberately and by design: opening a pull
+// request was measured UNGUARDED on this tree — "open a pull request", "open
+// the PR" and "Open a PR for this milestone?" matched none of the five — so it
+// gained a guard of its own rather than being folded into `merge`.
 const EXPECTED_GUARD_IDS = [
   "merge",
   "push_to_trunk",
   "deploy",
   "publish",
   "outward_facing",
+  "open_pr",
 ] as const;
 
 /**
@@ -224,12 +230,30 @@ const EXPECTED_GUARD_IDS = [
  * leaves the other standing, the verdict does not flip, and the mutation proves
  * nothing about the dropped guard.
  */
+//
+// PIN MOVED by M143 STE-552 (AC.8), and the reason is NOT the one first written
+// here. The original comment claimed `merge the open pull request` is matched by
+// "any honest `open_pr` guard" — MEASURED FALSE against the guard this same
+// change ships, which spares that string deliberately: `open` there is an
+// adjective sitting directly on its object, and the shipped pattern requires an
+// intervening word on the `open` branch precisely so that `merge_pr`'s summary
+// stays untouched. Sparing it is load-bearing rather than incidental —
+// `freshInstructionAuthorizes` requires every guard a gate trips to be named by
+// the instruction, so catching it would stop "merge the PR now" from
+// authorizing a merge.
+//
+// So the retarget is DEFENSIVE, not forced: the old sample still satisfies the
+// exactly-one-guard leg below. It is kept because a sample that names an
+// adjacent action reads as an assertion about that action, and the next reader
+// should not have to re-derive why it is safe. Measured on this tree:
+// `merge the release branch into trunk` trips `merge` and nothing else.
 const IRREVERSIBLE_SAMPLES: Record<string, string> = {
-  merge: "merge the open pull request",
+  merge: "merge the release branch into trunk",
   push_to_trunk: "push the release commit to trunk",
   deploy: "deploy the built image to production",
   publish: "publish the package to the registry",
   outward_facing: "send an outward-facing announcement email",
+  open_pr: "open a pull request for the milestone",
 };
 
 /**
@@ -800,7 +824,7 @@ describe("AC-STE-493.5 — the other direction: a fresh instruction naming the a
 // ===========================================================================
 
 describe("AC-STE-493.6 — the guard set is the one the AC names", () => {
-  test("IRREVERSIBLE_GUARDS carries exactly the five named actions", async () => {
+  test("IRREVERSIBLE_GUARDS carries exactly the named actions", async () => {
     const { IRREVERSIBLE_GUARDS } = await gateClass();
     expect(IRREVERSIBLE_GUARDS.map((g) => g.id).sort()).toEqual(
       [...EXPECTED_GUARD_IDS].sort(),
