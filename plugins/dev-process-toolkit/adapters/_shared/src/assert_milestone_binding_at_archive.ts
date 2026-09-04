@@ -7,7 +7,10 @@
 // adapter-aware surface, mirroring /gate-check probe #26
 // (tracker_project_milestone_attached):
 //
-//   - `object` (Linear, default) ⇒ `projectMilestone.name` byte-equals the
+//   - `object` (Linear, default) ⇒ kind-routed since STE-540: an
+//     identifier-keyed `M_<key>` milestone derives `projectMilestone.id`
+//     FORWARD to the token (the milestone keeps its human title, so names
+//     never match there); a grandfathered numeric `M<N>` byte-equals the
 //     canonical plan-heading name (planFileHeadingToMilestoneName).
 //   - `epic` (Jira's primary path) ⇒ for an Epic-KEYED milestone the ticket's
 //     `parent` key sanitizes back to the milestone token; a grandfathered
@@ -257,9 +260,11 @@ export async function assertMilestoneBindingAtArchive(
   // parent that was already correct while the real fault was the milestone
   // NAME. Refusing here costs six tracker calls less and names the true fault.
   //
-  // `object` is the ONE exemption: it compares `projectMilestone.name` against
-  // the canonical name verbatim and needs no token at all, so a token-less
-  // name is an ordinary (if odd) milestone name there. It carries the
+  // `object` is the ONE exemption, and only on its numeric arm: there it
+  // compares `projectMilestone.name` against the canonical name verbatim and
+  // needs no token at all, so a token-less name is an ordinary (if odd)
+  // milestone name. (An identifier-keyed name DOES carry a token, and its arm
+  // reads the identifier rather than the name.) It carries the
   // canonical name through and reaches the fetch unchanged.
   let expected: string;
   if (binding === "object") {

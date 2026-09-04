@@ -11,52 +11,89 @@
 // no-op trap (FR-67 pattern: Linear MCP echoes success but the binding
 // silently dropped if param names drift).
 //
-// The join is binding-shaped, and the two regimes are deliberate:
+// The join is TOKEN-shaped rather than binding-shaped: since STE-540 the
+// `object` (Linear) branch routes on the leading milestone token's kind just
+// as STE-523's `epic` branch does, so a binding no longer picks a regime on
+// its own. The two regimes are deliberate:
 //
-//   - Match-by-NAME — the `object` (Linear) and `label` (Jira legacy)
-//     bindings, plus a grandfathered numeric `M<N>` milestone under the
-//     `epic` binding, which STE-523 routes onto that same label surface (the
-//     reader has always looked for it there). The local plan-file heading is
-//     the source of truth (no
+//   - Match-by-NAME — a grandfathered NUMERIC `M<N>` token, plus the whole
+//     `label` (Jira legacy) binding. Under `object` that is the shipped
+//     list/create/attach-by-name path; under `epic` STE-523 routes it onto
+//     the milestone LABEL surface instead (the reader has always looked for
+//     it there). The local plan-file heading is the source of truth (no
 //     reverse dependency on tracker-assigned IDs). Trade-off: two milestones
 //     sharing a name attach to the first match — operator error boundary
 //     (deduped at plan-file heading authorship time).
-//   - Match-by-KEY (STE-521) — an Epic-KEYED milestone (`M_GF_78`) under the
-//     `epic` binding. Here the reverse dependency already exists INSIDE the
-//     id: the token was derived from the key the tracker allocated, while the
-//     Epic keeps whatever human title was typed, so the canonical name can
-//     never equal the Epic's summary. Each candidate Epic's key is sanitized
-//     forward (`milestoneIdFromEpicKey`) and compared to the token — the same
-//     expression `milestoneBindingPresent` applies to the ticket's parent, so
-//     writer and reader agree by construction instead of by matching strings.
-//     A token with no such Epic is a refusal, never a mint (minting would
-//     allocate a fresh key that can never sanitize back to the token).
+//   - Match-by-KEY — an OPAQUE `M_<key>` token, on either surface: an
+//     Epic-KEYED milestone under the `epic` binding (STE-521, keys sanitized
+//     through `milestoneIdFromEpicKey`) and an identifier-KEYED Linear
+//     milestone under the `object` binding (STE-540, identifiers sanitized
+//     through `milestoneIdFromLinearMilestone`). Here the reverse dependency
+//     already exists INSIDE the id: the token was derived from the key the
+//     tracker allocated, while the Epic or milestone keeps whatever human
+//     title was typed, so the canonical name can never equal it. Each
+//     candidate's key is sanitized FORWARD and compared to the token — the
+//     same expression `milestoneBindingPresent` applies to the bound ticket,
+//     so writer and reader agree by construction instead of by matching
+//     strings. A token whose Epic or milestone is not there is a refusal,
+//     never a mint (minting would allocate a fresh key that can never
+//     sanitize back to the token).
 
 import { readFileSync } from "node:fs";
-import { isMilestoneToken, milestoneIdFromEpicKey, parseMilestoneToken } from "./milestone_token";
+import {
+  isMilestoneToken,
+  milestoneIdFromEpicKey,
+  milestoneIdFromLinearMilestone,
+  parseMilestoneToken,
+} from "./milestone_token";
 import { parsePlanHeading } from "./plan_heading";
 
 export class MilestoneAttachmentError extends Error {
   readonly expected: string;
   readonly actual: string | null;
-  readonly binding: "object" | "label" | "epic";
+  readonly binding: "object" | "label" | "epic" | "milestone-id";
+  /**
+   * STE-540 — the Linear milestone IDENTIFIER the attach wrote, carried on the
+   * `milestone-id` binding so the remedy can name the thing that binds rather
+   * than the token derived from it. Absent on every other binding.
+   */
+  readonly identifier?: string;
 
   // STE-329: the remedy is binding-aware — the `object` (Linear) path and the
   // `label` (Jira) path land at different MCP calls, so a single hardcoded
   // Linear remedy would misdirect a Jira operator hitting the label-verify trap.
   // STE-375 adds the `epic` binding (parent-Epic key verify).
+  // STE-540 adds `milestone-id` (Linear identifier verify) — declared as its
+  // OWN arm rather than left to the `object` default, because a new union
+  // member that nobody branched on renders the old name remedy and reads like
+  // a pass.
   constructor(
     expected: string,
     actual: string | null,
-    binding: "object" | "label" | "epic" = "object",
+    binding: "object" | "label" | "epic" | "milestone-id" = "object",
+    identifier?: string,
   ) {
-    const noun = binding === "label" ? "label" : binding === "epic" ? "parent Epic" : "milestone";
+    const noun =
+      binding === "label"
+        ? "label"
+        : binding === "epic"
+          ? "parent Epic"
+          : binding === "milestone-id"
+            ? "milestone identifier"
+            : "milestone";
     const remedy =
       binding === "label"
         ? `re-fetch the ticket via the tracker's get-issue call (e.g. mcp__atlassian__getJiraIssue) and confirm the \`labels\` array contains "${expected}"; if the label silently dropped, verify the attach wrote the read-merge-write union to editJiraIssue.additional_fields.labels (there is no top-level \`labels\` param). Re-run /implement Phase 1 to retry.`
         : binding === "epic"
           ? `re-fetch the ticket via the tracker's get-issue call (e.g. mcp__atlassian__getJiraIssue) and confirm the \`parent\` field is the Epic key "${expected}"; if the parent silently dropped, verify the attach wrote the Epic key to the issue's parent field. Re-run /implement Phase 1 to retry.`
-          : `re-fetch the ticket via mcp__linear__get_issue and confirm the projectMilestone.name field; if Linear silently dropped the param, verify the adapter is forwarding \`milestone:\` as a string (not an ID) to mcp__linear__save_issue. Re-run /implement Phase 1 to retry.`;
+          : binding === "milestone-id"
+            ? `re-fetch the ticket via mcp__linear__get_issue and confirm projectMilestone.id is the milestone identifier "${identifier ?? "unknown"}" — the milestone token "${expected}" was derived from it, so the NAME on the milestone is not what binds and renaming it fixes nothing. If Linear silently dropped the param, verify the adapter forwarded \`milestone: "${identifier ?? "unknown"}"\` to mcp__linear__save_issue. Re-run /implement Phase 1 to retry.`
+            : // STE-540 — `mcp__linear__save_issue` documents `milestone` as
+              // "Milestone name or ID", so BOTH forms are accepted. This
+              // binding is the grandfathered numeric `M<N>` arm, which sends
+              // the name; the identifier-keyed arm sends the identifier and
+              // reports under the `milestone-id` binding above.
+              `re-fetch the ticket via mcp__linear__get_issue and confirm the projectMilestone.name field; if Linear silently dropped the param, verify the adapter forwarded \`milestone: "${expected}"\` to mcp__linear__save_issue — the schema takes a "Milestone name or ID", and this binding sends the name. Re-run /implement Phase 1 to retry.`;
     super(
       `MilestoneAttachmentError: ticket binding mismatch — expected ${noun} "${expected}", got ${actual ? `"${actual}"` : "null"}.\n` +
         `Remedy: ${remedy}\n` +
@@ -66,6 +103,7 @@ export class MilestoneAttachmentError extends Error {
     this.expected = expected;
     this.actual = actual;
     this.binding = binding;
+    this.identifier = identifier;
   }
 }
 
@@ -214,19 +252,59 @@ export class MilestoneTokenUnparseableError extends MilestonePermanentRefusalErr
 }
 
 /**
+ * STE-540 AC-STE-540.5 — the Linear counterpart of `MilestoneEpicNotFoundError`.
+ * An identifier-KEYED milestone token (`M_3fa85f`) was derived FROM the
+ * identifier the tracker allocated, so a milestone minted on the miss would get
+ * a fresh identifier that can never sanitize back to the token — the second
+ * milestone is exactly the state `milestoneBindingPresent` will never accept.
+ * Binding never creates: a token whose milestone is not in the project is a
+ * refusal.
+ *
+ * Raised OUTSIDE `retryTransient` — a refusal is a decision, not a transient.
+ *
+ * NFR-10 canonical shape: verdict line + `Remedy:` + `Context:`. The message
+ * names the token and the project it searched.
+ */
+export class MilestoneObjectNotFoundError extends MilestonePermanentRefusalError {
+  readonly token: string;
+  readonly milestoneName: string;
+  readonly project: string;
+
+  constructor(token: string, milestoneName: string, project: string) {
+    super(
+      `MilestoneObjectNotFoundError: refusing to attach — no milestone in project "${project}" has an identifier that sanitizes to the milestone token "${token}" (cut from the canonical name "${milestoneName}"). The token was derived from a milestone that already exists, so creating one would mint a SECOND milestone under an identifier that can never match the token.\n` +
+        `Remedy: pick one — (a) confirm the milestone still exists and is visible in project "${project}" (restore it if it was archived/deleted, or fix the project the adapter is searching); (b) if the milestone lives in a different project, point the attach at that project; (c) if the milestone is gone for good, mint a new one with \`mintMilestoneLinear\` and re-run /spec-write so the plan heading carries the new \`M_<key>\` token. Never hand-edit the token to a key no milestone identifier derives to, and never rename a milestone to fix this — the NAME is not what binds.\n` +
+        `Context: token="${token}", milestoneName="${milestoneName}", project="${project}", binding=milestone-id, helper=attachProjectMilestone`,
+    );
+    this.name = "MilestoneObjectNotFoundError";
+    this.token = token;
+    this.milestoneName = milestoneName;
+    this.project = project;
+  }
+}
+
+/**
  * Read-back projection of a ticket consumed by the verify legs: the Linear
  * milestone object (`object` binding), the Jira milestone labels (`label`
  * binding), and — STE-375 — the ticket's current parent Epic key (`epic`
- * binding).
+ * binding). STE-540 widens the milestone projection with the tracker's own
+ * OPTIONAL identifier — the field the `milestone-id` verify re-derives from.
  */
 export interface TicketMilestoneView {
-  projectMilestone?: { name: string } | null;
+  projectMilestone?: { name: string; id?: string } | null;
   labels?: string[];
   parent?: string | null;
 }
 
 export interface MilestoneOps {
-  listMilestones(project: string): Promise<{ name: string }[]>;
+  /**
+   * STE-539 — the identifier is OPTIONAL on the enumerated rows, so no
+   * existing provider (or provider double) has to grow one. `mintMilestoneLinear`
+   * is the consumer that reads it: its find-before-create leg needs the
+   * identifier of a milestone that already carries the human title, and a row
+   * that offers none is a refusal there rather than a blind re-create.
+   */
+  listMilestones(project: string): Promise<{ name: string; id?: string }[]>;
   saveMilestone(project: string, opts: { name: string }): Promise<void>;
   upsertTicketMetadata(ticketId: string, meta: { milestone?: string }): Promise<string>;
   getIssue(ticketId: string): Promise<TicketMilestoneView>;
@@ -282,6 +360,16 @@ export interface MilestoneOps {
    */
   listEpics?: (project: string) => Promise<{ key: string; name: string }[]>;
   createEpic?: (project: string, opts: { name: string }) => Promise<{ key: string }>;
+  /**
+   * STE-539 AC-STE-539.1 — the Linear counterpart of `createEpic`: it creates
+   * a project milestone OBJECT under the human title and returns the
+   * identifier the tracker allocated for it. Like `createEpic` it is NOT an
+   * attach op — the attach never mints on any binding. It stays declared here
+   * because `mintMilestoneLinear` — its one production caller — takes a
+   * provider carrying it, and because writer and reader then agree about the
+   * op's shape by construction. Property-arrow style, matching its siblings.
+   */
+  createMilestone?: (project: string, opts: { name: string }) => Promise<{ id: string }>;
   setParent?: (ticketId: string, epicKey: string) => Promise<void>;
   /**
    * STE-329 AC-STE-329.3 — read-merge-write label attach. Required only when
@@ -318,7 +406,10 @@ export interface MilestoneOps {
  * - `"milestone_create_required"` ⇒ the project's `list_milestones`
  *   returned no entry matching the canonical name; the helper created
  *   one and bound the ticket. `createdName` carries the new milestone
- *   name so the summary row can render it.
+ *   name so the summary row can render it. Reachable ONLY from the
+ *   grandfathered by-NAME arm of the `object` binding — since STE-540 an
+ *   identifier-keyed token's miss is `MilestoneObjectNotFoundError`, and
+ *   binding never creates on any other branch.
  * - `"milestone_attach_skipped_adapter_limit"` ⇒ the adapter declared
  *   `supports("project_milestone") === false`; the helper short-circuits
  *   without any list/save/upsert calls.
@@ -362,11 +453,12 @@ export interface AttachProjectMilestoneOptions {
 
 /**
  * The real-time wait behind every optional `sleep` seam in the retry
- * apparatus. Exported so `mintMilestoneEpic` — the other `retryTransient`
- * caller — uses the SAME default rather than a second copy: the schedule
+ * apparatus. Exported so the mints — `mintMilestoneEpic` (Jira) and
+ * `mintMilestoneLinear` (STE-539), the other `retryTransient` callers — use
+ * the SAME default rather than a copy each: the schedule
  * (`TRANSIENT_RETRY_SCHEDULE_MS`), the loop (`retryTransient`) and the wait are
- * one set of three, and a divergent third piece would let two call sites of one
- * contract disagree about what "no injected sleep" means.
+ * one set of three, and a divergent piece would let call sites of one contract
+ * disagree about what "no injected sleep" means.
  */
 export const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -378,7 +470,10 @@ export const defaultSleep = (ms: number): Promise<void> =>
  * schedule. Classification is **by exclusion**: only `MilestoneAttachmentError`
  * (binding mismatch — the write landed but the read-back disagrees) is
  * known-permanent and NEVER retries (retrying a mismatch would mask a real
- * config bug, e.g. forwarding a milestone ID instead of a name). Every other
+ * config bug, e.g. binding the wrong milestone object — the example this line
+ * used to give, "forwarding a milestone ID instead of a name", INVERTED with
+ * STE-540: sending the identifier is now the correct write on the
+ * identifier-keyed arm). Every other
  * throw — Gateway-Timeout / 504 / connection reset, but also e.g. a 401 — is
  * treated as possibly-transient and retried; MCP error shapes are too varied
  * for a reliable positive network-class match (same trade-off as the
@@ -420,7 +515,9 @@ function writeAndVerify(
     write: () => Promise<void>;
     expected: string;
     read: (fresh: TicketMilestoneView) => string | null;
-    binding: "object" | "label" | "epic";
+    binding: "object" | "label" | "epic" | "milestone-id";
+    /** STE-540 — the identifier the `milestone-id` remedy names. */
+    identifier?: string;
   },
 ): Promise<void> {
   return retryTransient(async () => {
@@ -428,7 +525,12 @@ function writeAndVerify(
     const fresh = await provider.getIssue(ticketId);
     const actual = round.read(fresh);
     if (actual !== round.expected) {
-      throw new MilestoneAttachmentError(round.expected, actual, round.binding);
+      throw new MilestoneAttachmentError(
+        round.expected,
+        actual,
+        round.binding,
+        round.identifier,
+      );
     }
   }, sleep);
 }
@@ -594,9 +696,8 @@ export async function attachProjectMilestone(
     // Non-null EXACTLY when the token is Epic-keyed: the key the match looks
     // for, and the key the refusal below names.
     const tokenEpicKey = parsedToken?.kind === "epic" ? parsedToken.key : null;
-    const isEpicKeyed = tokenEpicKey !== null;
     const matchesMilestoneEpic = (e: { key: string; name: string }): boolean => {
-      if (!isEpicKeyed) return e.name === milestoneName;
+      if (tokenEpicKey === null) return e.name === milestoneName;
       try {
         return milestoneIdFromEpicKey(e.key) === milestoneToken;
       } catch {
@@ -637,9 +738,13 @@ export async function attachProjectMilestone(
     // `epicKey: null` is the miss sentinel the round-trip above threads out —
     // now emitted on BOTH arms, so the verdict routes on which match was run.
     // An Epic-KEYED miss can name the key it looked for (`tokenEpicKey` is
-    // non-null exactly on that arm); a by-NAME miss can name only the name.
+    // non-null exactly on that arm — the routing test below is that same fact,
+    // asked of the value the refusal then names); a by-NAME miss can name only
+    // the name.
     if (epicKey === null) {
-      if (isEpicKeyed) throw new MilestoneEpicNotFoundError(milestoneToken, tokenEpicKey!, project);
+      if (tokenEpicKey !== null) {
+        throw new MilestoneEpicNotFoundError(milestoneToken, tokenEpicKey, project);
+      }
       throw new MilestoneEpicUnmintedError(milestoneName, project);
     }
     if (alreadyBound) {
@@ -666,6 +771,99 @@ export async function attachProjectMilestone(
   }
 
   const existing = await provider.listMilestones(project);
+
+  // STE-540 AC-STE-540.1 — kind routing on the OBJECT branch, the Linear
+  // mirror of what STE-523 did for the `epic` branch. Once the milestone token
+  // is derived FROM the identifier Linear allocated
+  // (`milestoneIdFromLinearMilestone(uuid)` → `M_<6 hex>`), the canonical name
+  // is `M_3fa85f — Waiting States II` while the milestone object keeps whatever
+  // human title was typed — so `m.name === milestoneName` can never succeed on
+  // that pair, and its miss branch auto-CREATED a second milestone under a
+  // fresh identifier that can never sanitize back to the token.
+  //
+  // Match-by-KEY instead: each candidate's identifier is sanitized FORWARD
+  // through `milestoneTokenFromLinearId` (this module's one wrapper over
+  // `milestoneIdFromLinearMilestone`) and compared to the token — the same
+  // expression the minter derived the token with, the same one the verify and
+  // `milestoneBindingPresent` derive through, so writer and reader agree by
+  // construction rather than by matching strings. Nothing on this arm is
+  // matched by NAME; the AC-540.4 fallback below sends the found milestone's
+  // own name as a write param, but no name is ever compared.
+  //
+  // `milestoneIdFromLinearMilestone` — NOT `milestoneIdFromEpicKey`: the latter
+  // is the `mode: jira` dispatch, and a token minted from a Linear identifier
+  // would never round-trip through it.
+  //
+  // A NUMERIC `M<N>` token is grandfathered and falls through to the shipped
+  // by-name list/create/attach path below, untouched.
+  const objectToken = leadingMilestoneToken(milestoneName);
+  if (parseMilestoneToken(objectToken)?.kind === "epic") {
+    // `id` is OPTIONAL on the enumerated rows (STE-539 widened them so no
+    // existing provider double had to grow the field), so a row that offers
+    // none is SKIPPED rather than derived from — as is one whose identifier
+    // does not derive. Both absences are `milestoneTokenFromLinearId`'s null,
+    // the same expression the verify and the reader below derive through.
+    //
+    // Declared as a TYPE GUARD, not a plain predicate: what the find returns
+    // is the row the write then sends an identifier from, so `id` being
+    // present is a fact the type carries rather than one a `!` re-asserts.
+    const matchesMilestoneObject = (
+      m: { name: string; id?: string },
+    ): m is { name: string; id: string } =>
+      m.id !== undefined && milestoneTokenFromLinearId(m.id) === objectToken;
+    const foundById = existing.find(matchesMilestoneObject);
+    // AC-STE-540.5 — a miss REFUSES; binding never creates. Raised outside
+    // `retryTransient` so the refusal does not pay the backoff schedule.
+    if (!foundById) {
+      throw new MilestoneObjectNotFoundError(objectToken, milestoneName, project);
+    }
+    const milestoneIdentifier = foundById.id;
+    // AC-STE-540.2 — the write sends the IDENTIFIER (`Milestone name or ID`),
+    // and the verify re-derives the token from the READ-BACK identifier: a
+    // name-only verify accepts a silent swap that kept the name and changed
+    // the milestone.
+    await writeAndVerify(provider, ticketId, sleep, {
+      // AC-STE-540.4 — name-resolution fallback. `Milestone name or ID` says
+      // both forms are accepted, but a workspace that rejects the identifier
+      // form must not turn a correct binding into a failed attach. So the
+      // write retries ONCE with the FOUND milestone's own `name` — not the
+      // requested canonical name, which a decoy milestone may also carry.
+      //
+      // The retry lives INSIDE `write`, deliberately: `retryTransient` wraps
+      // the whole round-trip on the `1s + 2s + 4s` schedule, and a rejected
+      // param is a fact about the workspace, not an outage — riding the
+      // backoff would pay ~7s to learn the same thing. It also keeps the
+      // enumeration count at one: `foundById` is already in hand, so the
+      // fallback re-uses the step-1 lookup instead of re-listing.
+      //
+      // The catch is DELIBERATELY BROAD, and the cost is named rather than
+      // hidden. It cannot tell "this workspace rejects the identifier form"
+      // from a 504 — `retryTransient`'s own header records why (MCP error
+      // shapes are too varied for a reliable positive network-class match) —
+      // so a transient on the id write also spends this one name attempt.
+      // What makes that safe is the VERIFY below, not the catch: `read`
+      // re-derives the token from the read-back IDENTIFIER, so a name write
+      // landing on a different milestone that happens to share the name is a
+      // loud `MilestoneAttachmentError`, never a silent mis-bind. The name
+      // ADDRESSES the write; the identifier is what is checked. The residual
+      // is narrow and named: where two milestones share one name, a transient
+      // can surface as that permanent refusal instead of being retried into a
+      // success. Both directions are pinned in this FR's suite.
+      write: async () => {
+        try {
+          await provider.upsertTicketMetadata(ticketId, { milestone: milestoneIdentifier });
+        } catch {
+          await provider.upsertTicketMetadata(ticketId, { milestone: foundById.name });
+        }
+      },
+      expected: objectToken,
+      read: (fresh) => milestoneTokenFromLinearId(fresh.projectMilestone?.id),
+      binding: "milestone-id",
+      identifier: milestoneIdentifier,
+    });
+    return { capability: null };
+  }
+
   const found = existing.find((m) => m.name === milestoneName);
   let createdName: string | undefined;
   if (!found) {
@@ -701,8 +899,38 @@ export async function attachProjectMilestone(
  * (`parseMilestoneToken` / `isMilestoneToken`); an empty name yields `""`,
  * which no caller accepts as a token.
  */
-function leadingMilestoneToken(canonicalName: string): string {
+export function leadingMilestoneToken(canonicalName: string): string {
   return canonicalName.split(/\s/, 1)[0] ?? "";
+}
+
+/**
+ * STE-540 — ONE expression turning a Linear milestone IDENTIFIER into its
+ * milestone token, `null` when there is no token to be had (no identifier on
+ * the row/view, or an identifier that does not derive — a candidate that is
+ * simply not this milestone, never a crash).
+ *
+ * Shared by the THREE sites that have to agree about it, and that is the whole
+ * point of it existing: the writer's by-id match over the enumerated
+ * milestones, that write's read-back verify, and the `milestoneBindingPresent`
+ * reader. Those three arrived from different directions — a writer and a
+ * reader that had each spelled the rule out in their own words is the drift
+ * STE-523's comment block at the epic branch records as this module's
+ * recurring defect, and this FR exists because it recurred. They now cannot
+ * disagree: there is only one spelling.
+ *
+ * The COMPARISON deliberately stays with each caller — the writer picks a
+ * milestone out of a list, the verify projects a read-back to a token, the
+ * reader tests one already-bound issue. Those are three different questions
+ * about the same derivation; folding them together would hide the difference
+ * rather than remove it.
+ */
+function milestoneTokenFromLinearId(id: string | null | undefined): string | null {
+  if (id === undefined || id === null || id === "") return null;
+  try {
+    return milestoneIdFromLinearMilestone(id);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -776,7 +1004,11 @@ function labelSurfacePresent(labels: string[], canonical: string): boolean {
 }
 
 export function milestoneBindingPresent(
-  issue: { projectMilestone?: { name: string } | null; labels?: string[]; parent?: string | null },
+  issue: {
+    projectMilestone?: { name: string; id?: string } | null;
+    labels?: string[];
+    parent?: string | null;
+  },
   canonical: string,
   binding: "object" | "label" | "epic",
 ): boolean {
@@ -796,6 +1028,29 @@ export function milestoneBindingPresent(
     }
     // Grandfathered numeric milestone under the epic binding: label surface.
     return labelSurfacePresent(issue.labels ?? [], canonical);
+  }
+  // STE-540 cross-surface — the READER half of match-by-key. The `object`
+  // branch of the writer above binds an EPIC-kind token by deriving each
+  // candidate's identifier FORWARD through `milestoneIdFromLinearMilestone`
+  // and comparing to the token; this predicate must read what that writer
+  // wrote, using the SAME expression. A byte-equal NAME compare here would
+  // report `false` for a correctly bound milestone (the object keeps the human
+  // title, not the canonical name) and `true` for a decoy that merely carries
+  // the canonical name under a different identifier — precisely the
+  // writer/reader disagreement STE-523's comment block above records as the
+  // recurring defect.
+  //
+  // "The SAME expression" is literal, not aspirational: both halves derive
+  // through `milestoneTokenFromLinearId`, so an absent `id` and a non-UUID
+  // identifier mean the same thing here that they mean at the write — not this
+  // milestone, never a crash — and no future edit can move one half without
+  // the other.
+  //
+  // A NUMERIC `M<N>` token is grandfathered: it keeps the shipped byte-equal
+  // name compare, byte for byte.
+  const objectToken = leadingMilestoneToken(canonical);
+  if (parseMilestoneToken(objectToken)?.kind === "epic") {
+    return milestoneTokenFromLinearId(issue.projectMilestone?.id) === objectToken;
   }
   return (issue.projectMilestone?.name ?? null) === canonical;
 }

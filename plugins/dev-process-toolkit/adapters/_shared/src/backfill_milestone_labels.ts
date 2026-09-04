@@ -13,8 +13,10 @@
 //
 // The present/missing predicate is adapter-aware and SHARED with the
 // archival assertion (milestoneBindingPresent — the two M97 surfaces cannot
-// drift by construction): `object` (Linear, default) ⇒ `projectMilestone.name`
-// byte-equals the canonical plan-heading name; `label` (Jira) ⇒ `labels`
+// drift by construction): `object` (Linear, default) ⇒ an identifier-keyed
+// `M_<key>` milestone derives `projectMilestone.id` forward to the token, a
+// grandfathered numeric `M<N>` byte-equals the canonical plan-heading name;
+// `label` (Jira) ⇒ `labels`
 // contains `milestone-<M-token>`. Missing bindings attach via
 // attachProjectMilestone (which carries the transient retry + read-back
 // verify).

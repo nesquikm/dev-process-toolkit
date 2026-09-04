@@ -1,7 +1,18 @@
 // next_free_milestone_number — STE-119 AC-STE-119.2 + STE-284 AC-STE-284.1
 //   + STE-338 AC-STE-338.4.
 //
-// Five-way scan to find the next safe `M<N>` allocation. Sources:
+// Five-way scan over every `M<N>` the project can already see.
+//
+// NO IDENTITY ROUTE CALLS THIS ANY MORE. Every branch of
+// `resolve_milestone_identity.ts` derives its milestone id from a key — the
+// tracker's, or the local minter's — and `mode: linear` was the last one to
+// stop scanning (STE-541). What the scan still owns is the check an operator
+// who hand-TYPES an `M<N>` needs: `explicitMilestoneCollisionRefusal` below,
+// reachable in process or through this module's own front door at the foot of
+// the file. Read the counts below as "what the project can already see",
+// never as "what the next milestone will be named".
+//
+// Sources:
 //   1. Active plan files: `<specsDir>/plan/M<N>.md`
 //   2. Archived plan files: `<specsDir>/plan/archive/M<N>.md`
 //   3. CHANGELOG.md `M<N>` references (best-effort signal)
@@ -110,4 +121,114 @@ export async function nextFreeMilestoneNumber(
   const all = new Set<number>([...active, ...archived, ...changelog, ...tracker, ...branches]);
   const max = all.size === 0 ? 0 : Math.max(...all);
   return { next: max + 1, sources: { active, archived, changelog, tracker, branches } };
+}
+
+/** One scan source's name, derived from the result shape rather than listed. */
+type MilestoneSourceName = keyof MilestoneAvailability["sources"];
+
+/**
+ * The per-source breakdown, one indented `  <source>: <numbers>` line each,
+ * `(none)` for an empty leg.
+ *
+ * Rendered by walking the KEYS of `sources`, never a hand-written list of
+ * five. Both consumers — the collision refusal below and the front door at the
+ * foot of this file — print the same breakdown, and each had its own copy of
+ * the formatting rule; a sixth source added to `MilestoneAvailability` would
+ * have been reported by whichever copy someone remembered to extend and gone
+ * silently missing from the other. One renderer, so neither path can go quiet
+ * alone.
+ */
+export function renderMilestoneSourceBreakdown(
+  sources: MilestoneAvailability["sources"],
+): string[] {
+  return (Object.keys(sources) as MilestoneSourceName[]).map(
+    (s) => `  ${s}: ${sources[s].length === 0 ? "(none)" : sources[s].join(", ")}`,
+  );
+}
+
+/**
+ * The explicit-`M<N>` collision check the milestone-number allocation guard
+ * orders in prose: an operator who TYPES a milestone number gets it validated
+ * against all five sources, and a number any of them already holds is refused
+ * in NFR-10 canonical shape showing every breakdown plus the next free number.
+ *
+ * Returns `null` when the typed number is free — the guard proceeds — and the
+ * refusal text when it is taken. Building the message here rather than at the
+ * call site keeps the five-source breakdown and the scan that produced it in
+ * one place, so a source added to `MilestoneAvailability` cannot go unreported.
+ */
+export function explicitMilestoneCollisionRefusal(
+  typed: number,
+  availability: MilestoneAvailability,
+): string | null {
+  const { sources } = availability;
+  const holders = (Object.keys(sources) as MilestoneSourceName[]).filter((s) =>
+    sources[s].includes(typed),
+  );
+  if (holders.length === 0) return null;
+  return [
+    `Refusing: milestone M${typed} is already claimed — the five-way scan found it in: ${holders.join(", ")}.`,
+    `Remedy: type M${availability.next} instead, or pick a number none of the five sources holds.`,
+    `Context: mode=milestone-number-allocation, phase=explicit-M-token-check, typed=M${typed}, next-free=M${availability.next}`,
+    ...renderMilestoneSourceBreakdown(sources),
+  ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Command-line entry point
+// ---------------------------------------------------------------------------
+//
+// The scan no longer allocates an identity for a new Linear milestone — that
+// is the minter's job now. What survives is the check an operator who TYPES an
+// `M<N>` still needs: this door runs the five-way scan over a real specs tree
+// and either refuses the typed number with the full breakdown or reports the
+// next free one.
+//
+//   bun run adapters/_shared/src/next_free_milestone_number.ts specs M101
+//   Refusing: milestone M101 is already claimed — ...
+//
+//   bun run adapters/_shared/src/next_free_milestone_number.ts specs M999
+//   typed=M999
+//   verdict=free
+//   next-free=M102
+//
+// The tracker and branch legs need injected scanners this door cannot build,
+// so both report `(none)` here — the file-system and CHANGELOG legs are the
+// ones a command line can measure. `import.meta.main` is false on import, so
+// the module stays side-effect free for its importers.
+if (import.meta.main) {
+  const specsDir = process.argv[2];
+  const typedToken = process.argv[3];
+  const typedNumber = typedToken?.match(new RegExp(`^${NUMERIC_MILESTONE_NUMBER_SOURCE}$`))?.[1];
+
+  if (specsDir === undefined || typedNumber === undefined) {
+    console.error(
+      [
+        "Refusing: to check a typed milestone identity without a specs directory and an `M<N>` token.",
+        "Remedy: bun run adapters/_shared/src/next_free_milestone_number.ts <specsDir> <typed-M-token>",
+        `Context: mode=milestone-number-allocation, phase=explicit-M-token-check, argv=${specsDir === undefined ? "incomplete" : `malformed-token:${typedToken}`}`,
+      ].join("\n"),
+    );
+    process.exitCode = 1;
+  } else {
+    const typed = Number(typedNumber);
+    const availability = await nextFreeMilestoneNumber(
+      specsDir,
+      join(specsDir, "..", "CHANGELOG.md"),
+    );
+    const refusal = explicitMilestoneCollisionRefusal(typed, availability);
+    if (refusal !== null) {
+      console.error(refusal);
+      process.exitCode = 1;
+    } else {
+      console.log(`typed=M${typed}`);
+      console.log("verdict=free");
+      console.log(`next-free=M${availability.next}`);
+      // The SAME renderer the refusal uses, so the free verdict and the
+      // refused one can never disagree about what the scan saw.
+      for (const line of renderMilestoneSourceBreakdown(availability.sources)) {
+        console.log(line);
+      }
+    }
+  }
 }

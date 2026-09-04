@@ -165,24 +165,55 @@ describe("AC-STE-417.2 — /spec-write gains a mode: none minted-id branch", () 
     expect(body).not.toContain("Linear and `mode: none` keep the sequential five-way scan");
   });
 
-  test("the unchanged clause narrows to Linear, and Jira keeps Epic-first", () => {
+  test("the closing clause says Linear MINTS, and Jira keeps Epic-first", () => {
+    // RETARGETED (M139 STE-541, AC-STE-541.6). This pinned
+    // `"Linear keeps the sequential five-way scan unchanged"` — the narrowed
+    // survivor of AC-STE-377.4's "Linear and mode: none unchanged" block, which
+    // AC-STE-417.5 re-scoped to Linear alone. Both are retired by name in
+    // `specs/plan/M139.md`: `mode: linear` no longer resolves an identity
+    // OFFLINE. The sequential scan needed no tracker; `mintMilestoneLinear`
+    // requires a provider carrying the milestone-create op, because an identity
+    // derived from a tracker object cannot be computed without the tracker.
+    //
+    // REPLACEMENT, named here rather than dropped: the clause's other half
+    // (`Jira keeps Epic-first`) is kept verbatim, and the Linear half is
+    // re-pinned onto the sentence that now states the new contract. The
+    // BEHAVIOURAL replacement for the retired scan pin is the mint-equality
+    // assertion in `tests/m139-ste-541-linear-minted-milestone.test.ts`
+    // ("the returned milestoneId is the mint's own derivation of the allocated
+    // identifier"), which pins the dispatcher against the mint's own answer —
+    // something a prose literal never could.
     const p = guard();
-    expect(p).toContain("Linear keeps the sequential five-way scan unchanged");
+    expect(p).not.toContain("Linear keeps the sequential five-way scan unchanged");
+    expect(p).toContain("Linear mints from the tracker");
     expect(p).toContain("Jira keeps Epic-first");
   });
 
-  test("the Linear five-way scan is byte-unchanged", () => {
+  test("the allocator still owns the explicitly-typed `M<N>` check, and names its five sources", () => {
     // RETIRED (STE-440 #5): the full
     // `nextFreeMilestoneNumber(specsDir, changelogPath, provider, branchScanner)`
-    // call literal. The dispatcher forwards those four arguments now, and the
-    // equality assertion in
-    // `tests/m119-ste-440-milestone-identity-dispatcher.test.ts` ("ALL FIVE
-    // scan legs are forwarded") pins the forwarding against the helper's own
-    // answer — which a prose literal never could. What the guard still owes a
-    // reader is WHERE the scan lives and WHAT it scans.
+    // call literal. The dispatcher forwards those four arguments now.
+    //
+    // RETARGETED AGAIN (M139 STE-541, AC-STE-541.6): the ORDER literal
+    // `"It runs a **five-way scan**"` is retired with the rest of AC-STE-417.5's
+    // Linear-unchanged block, because no mint route runs that scan any more —
+    // `mode: linear` no longer resolves an identity OFFLINE, and
+    // `mintMilestoneLinear` requires a provider carrying the milestone-create
+    // op. REPLACEMENT: the call-count assertion in
+    // `tests/m139-ste-541-linear-minted-milestone.test.ts` ("the five-way scan
+    // is not run — a CALL COUNT on a double, proven able to increment"), which
+    // measures the absence instead of asserting a sentence about it.
+    //
+    // The MODULE-PATH pin below SURVIVES on purpose and is not retargeted: the
+    // guard still names `next_free_milestone_number.ts` for the one job the
+    // allocator keeps — checking a hand-typed `M<N>` against everything the
+    // project can see — and probe #81's ordered-reference leg
+    // (AC-STE-541.2) depends on that reference continuing to exist on a
+    // shipped surface. The five-source list is what makes the refusal
+    // checkable, so it stays too.
     const p = guard();
     expect(p).toContain("adapters/_shared/src/next_free_milestone_number.ts");
-    expect(p).toContain("It runs a **five-way scan**");
+    expect(p).not.toContain("It runs a **five-way scan**");
     expect(p).toContain("`active` / `archived` / `changelog` / `tracker` / `branches`");
   });
 

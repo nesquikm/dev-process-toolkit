@@ -139,8 +139,13 @@ const ALL_TOKENS = [
  * discovered-count pin — and a cross-pin in the M126 allow-list suite already
  * holds those three to the live length. This leg holds the LIVE LENGTH to the
  * number this FR owes, which is the half no existing pin can supply.
+ *
+ * Conscious bump 42 → 43 (M139/STE-541 `linear_milestone_scheme_adopted`, the
+ * once-per-project Linear scheme-changeover notice). The pin is absolute by
+ * design, so every later registration moves it here as well; what it forbids
+ * is a SILENT move, not a declared one.
  */
-const REGISTRY_LENGTH_AFTER_THIS_FR = 42;
+const REGISTRY_LENGTH_AFTER_THIS_FR = 43;
 
 /** The NFR line cap on `/implement`'s SKILL.md. Zero-ish headroom by design. */
 const IMPLEMENT_SKILL_LINE_CAP = 358;

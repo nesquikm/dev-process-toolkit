@@ -608,8 +608,14 @@ const FLIPPED_BY_THE_DOCS_CONFIG_IMPORT = [
 ] as const;
 
 describe("AC-STE-545.7 — probe #81 stays put while the class flips", () => {
-  test("the pin sits at the measured count", () => {
-    expect(ORDERED_UNREACHABLE_PIN).toBe(PIN_NOW);
+  test("the pin sits at or below the count this FR measured", () => {
+    // `PIN_NOW` is M141's LANDING value, frozen. A later milestone may lower
+    // the pin further (M139/STE-541 did: 131 -> 130, when the Linear branch
+    // stopped calling the five-way scan and the retargeted allocator gained
+    // its own front door). What must never happen is a RAISE, which would
+    // admit one more order nobody can carry out — so this reads the live pin
+    // against M141's floor rather than pinning it to a stale equality.
+    expect(ORDERED_UNREACHABLE_PIN).toBeLessThanOrEqual(PIN_NOW);
   });
 
   test("the pin only ever FELL, and by exactly the number of references named as the cause", () => {
@@ -626,7 +632,8 @@ describe("AC-STE-545.7 — probe #81 stays put while the class flips", () => {
   test("the probe over the working tree is green at that count", async () => {
     const report = await runModuleReachabilityProbe(REPO_ROOT);
     expect(report.records.length).toBeGreaterThan(0);
-    expect(report.orderedUnreachable).toBe(PIN_NOW);
+    // Against the LIVE pin, not M141's frozen landing — see above.
+    expect(report.orderedUnreachable).toBe(ORDERED_UNREACHABLE_PIN);
     expect(report.ok).toBe(true);
   });
 

@@ -311,10 +311,33 @@ describe("AC-STE-377.3 — FR binding + self-describing membership", () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────
-// AC-STE-377.4 — Linear unchanged (mode:none re-scoped out by STE-417)
+// AC-STE-377.4 — RETIRED by M139/STE-541 (AC-STE-541.6).
+//
+// STE-377 pinned "Linear AND mode: none milestone allocation byte-unchanged".
+// AC-STE-417.5 re-scoped the tracker-less half out; M139 retires the Linear
+// half that survived it, by name, in `specs/plan/M139.md`.
+//
+// THE BEHAVIOURAL CHANGE: `mode: linear` no longer resolves an identity
+// OFFLINE. The sequential scan needed no tracker; `mintMilestoneLinear`
+// requires a provider carrying the milestone-create op, because an identity
+// derived from a tracker object cannot be computed without the tracker. Linear
+// therefore no longer routes through `nextFreeMilestoneNumber` at all, so
+// "Linear milestone allocation is unchanged" is not a claim this file can make.
+//
+// REPLACEMENT, named here rather than dropped: the Linear branch's behaviour is
+// owned by `tests/m139-ste-541-linear-minted-milestone.test.ts` (AC-STE-541.1 —
+// mint equality plus a zero call count on an injected scanner double) and by
+// `tests/m119-ste-440-milestone-identity-dispatcher.test.ts` (AC-STE-440.3 —
+// the dispatcher equals `mintMilestoneLinear`'s own derivation).
+//
+// WHAT SURVIVES HERE, retargeted rather than deleted: the sequential
+// allocator's OWN exclusion contract — `M_<key>` tokens must not be read as
+// numbers by any of its five sources. That contract is untouched by this FR,
+// and the allocator still owns the explicitly-typed `M<N>` collision check, so
+// deleting these legs would lose live coverage of a live surface.
 // ───────────────────────────────────────────────────────────────────────
 
-describe("AC-STE-377.4 — Linear milestone allocation is byte-unchanged", () => {
+describe("AC-STE-377.4 RETIRED (M139/STE-541) — the allocator's M_<key> exclusion survives", () => {
   function makeScanFixture(): { specs: string; changelog: string; cleanup: () => void } {
     const root = mkdtempSync(join(tmpdir(), "ste377-scan-"));
     const specs = join(root, "specs");
@@ -354,7 +377,15 @@ describe("AC-STE-377.4 — Linear milestone allocation is byte-unchanged", () =>
     }
   });
 
-  test("Linear (provider, no branchScanner) keeps the sequential path", async () => {
+  test("a provider with no branchScanner still yields a four-source answer", async () => {
+    // RETARGETED (M139/STE-541). This read "Linear (provider, no
+    // branchScanner) keeps the sequential path" — the load-bearing half of the
+    // retired pin. Linear does not take this path any more; what is still true,
+    // and still worth guarding, is the ALLOCATOR's own contract: an omitted
+    // `branchScanner` degrades to an empty `branches` leg rather than throwing
+    // or dropping the tracker leg. That matters for the surface the allocator
+    // kept — the explicitly-typed `M<N>` collision refusal, which names all
+    // five sources including the empty one.
     const fx = makeScanFixture();
     try {
       const provider = { listMilestones: async () => [{ name: "M97 — Labeled" }] };
