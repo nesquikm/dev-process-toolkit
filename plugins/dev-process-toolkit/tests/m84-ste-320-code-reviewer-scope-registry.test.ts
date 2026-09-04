@@ -162,6 +162,12 @@ const EXPECTED_SET_A: ReadonlySet<string> = new Set([
   // mints the identifier-derived milestone, keeping Set A = discovered
   // directives.
   "linear_milestone_scheme_adopted",
+  // Post-M84 expansion (M140): the external-link check-did-not-run
+  // disposition. The pin moves consciously 43 → 44 — the key carries a literal
+  // `MUST emit \`external_link_check_unchecked_offline\`` directive in
+  // /spec-write SKILL.md § 0b step 6b (and again in its § 7 static-map row),
+  // keeping Set A = discovered directives.
+  "external_link_check_unchecked_offline",
 ]);
 
 // Keys explicitly excluded from registration — they appear only as table-
@@ -276,9 +282,11 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
   // → 42 (M132/STE-512 the four /implement Phase 4 end-to-end authoring
   // dispositions: tests_authored / tests_edited / none_needed / suite_red)
   // → 43 (M139/STE-541 linear_milestone_scheme_adopted, the once-per-project
-  // Linear scheme-changeover notice).
-  test("CANONICAL_CAPABILITY_KEYS length is exactly 43", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(43);
+  // Linear scheme-changeover notice) → 44 (M140
+  // external_link_check_unchecked_offline, the external-link liveness check
+  // that could not run at all).
+  test("CANONICAL_CAPABILITY_KEYS length is exactly 44", () => {
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(44);
   });
 
   test("CANONICAL_CAPABILITY_KEYS contains every key in Set A", () => {
@@ -318,7 +326,7 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
     while ((match = re.exec(body)) !== null) {
       discovered.add(match[1]!);
     }
-    expect(discovered.size).toBe(43);
+    expect(discovered.size).toBe(44);
     for (const key of EXPECTED_SET_A) {
       expect(discovered.has(key)).toBe(true);
     }

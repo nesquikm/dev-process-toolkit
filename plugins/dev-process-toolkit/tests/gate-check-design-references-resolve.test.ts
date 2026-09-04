@@ -375,4 +375,38 @@ describe("AC-STE-343 — design-references-resolve helper", () => {
       fx.cleanup();
     }
   });
+
+  // STE-542 AC-STE-542.5 — a URL under `## Design References` must NEVER
+  // become a DesignReferenceRow: probe #61 `existsSync`es every row and would
+  // GATE FAILED on a scheme-bearing token. The URL's own row kind is covered
+  // in tests/m140-ste-542-external-links.test.ts; this leg pins the exclusion
+  // on the shipped scanner, alongside its positive control.
+  test("AC-STE-542.5 — a scheme-bearing token in the same section is excluded, while the path row beside it is still emitted", () => {
+    const fr = [
+      "# STE-542",
+      "",
+      "## Design References",
+      "",
+      "- `specs/design/system/exists.png` — seeded on disk",
+      "- `https://example.invalid/upstream-spec` — Upstream spec",
+      "",
+    ].join("\n");
+
+    const fx = makeTree(
+      { "specs/frs/STE-542.md": fr },
+      ["specs/design/system/exists.png"],
+    );
+    try {
+      const rows = scanDesignReferences(fx.root) as Row[];
+      // POSITIVE CONTROL — the scanner demonstrably read this fixture.
+      expect(find(rows, "specs/design/system/exists.png")).toBeDefined();
+      // …and the URL is not among the path rows, under any field.
+      expect(rows.map((r) => r.path)).not.toContain(
+        "https://example.invalid/upstream-spec",
+      );
+      expect(rows.length).toBe(1);
+    } finally {
+      fx.cleanup();
+    }
+  });
 });

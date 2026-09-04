@@ -720,6 +720,10 @@ const BASELINE_FAMILIES: readonly (readonly [string, string])[] = [
   // here so the whole-set coverage leg below stays exhaustive rather than
   // silently tolerating an unlisted key.
   ["linear_milestone", "linear_milestone_scheme_adopted"],
+  // M140/STE-542: the external-link reachability check's offline disposition —
+  // a new family, listed here so the whole-set coverage leg below stays
+  // exhaustive rather than silently tolerating an unlisted key.
+  ["external_link", "external_link_check_unchecked_offline"],
 ] as const;
 
 /** The canonical key count measured on 2026-08-31, before the rewrite. */
@@ -2054,7 +2058,7 @@ describe("AC-STE-533.8 — the adoption grader is registered on a runtime path",
   test("/gate-check registers it as probe #82, contiguous with the rest", () => {
     const registrations = probeRegistrationLines();
     const numbers = registrations.map((r) => r.number);
-    expect(numbers).toEqual(Array.from({ length: 82 }, (_, i) => i + 1));
+    expect(numbers).toEqual(Array.from({ length: 83 }, (_, i) => i + 1));
     const mine = registrations.filter((r) =>
       r.line.includes(`\`${ADOPTION_PROBE_ID}\``),
     );
@@ -2359,8 +2363,14 @@ const PROBE_COUNT_PINS: readonly (readonly [string, string])[] = [
   ["tests/m137-ste-535-plan-narrative-cap.test.ts", String.raw`expect(Math.max(...numbers)).toBe({N});`],
 ] as const;
 
-/** The count these pins read BEFORE probe #82 — the number that must be gone. */
-const STALE_PROBE_COUNT = 81;
+/**
+ * The count these pins read BEFORE probe #83 — the number that must be gone.
+ *
+ * REPOINTED, NOT SWEPT: this shipped at 81 while the live count was already
+ * 82, so the staleness half below could never fail again. M140/STE-543 moves
+ * it to the count this cascade actually replaces.
+ */
+const STALE_PROBE_COUNT = 82;
 
 const fill = (template: string, n: number): string =>
   template.split("{N}").join(String(n));
@@ -2371,9 +2381,9 @@ const surfaceBody = (rel: string): string =>
     : read(join(PLUGIN_ROOT, ...rel.split("/")));
 
 describe("AC-STE-533.8 — the probe-count cascade moved as one", () => {
-  test("the live count is 82 and README advertises it in BOTH places", () => {
+  test("the live count is 83 and README advertises it in BOTH places", () => {
     const live = liveProbeCount();
-    expect(live).toBe(82);
+    expect(live).toBe(83);
     const readme = read(README);
     expect(readme).toContain(`${live} numbered \`/gate-check\` probes`);
     expect(readme).toMatch(new RegExp(`layers ${live} probes`));

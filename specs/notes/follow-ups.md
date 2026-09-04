@@ -1252,3 +1252,62 @@ a digest is legitimate when it is deliberate, reviewed, and carries evidence
 that behaviour is unchanged — here, both probes' suites run before and after,
 294 tests across 7 files, identical pass/fail/skip and identical `expect()`
 counts. A digest that may never be re-recorded is not a pin, it is a freeze.
+
+## `scan_design_references.ts` is reachable only TRANSITIVELY (measured in M140)
+
+`ORDERED_UNREACHABLE_PIN` fell 130 → 129 under M140/STE-543 because
+`external_link_verdicts.ts` imports the row parser from
+`scan_design_references.ts` and carries an `import.meta.main` front door, which
+made the scanner reachable and stopped its ordered references naming a module
+nothing runnable reaches.
+
+**The drop is real by probe #81's model and thin in substance.** The scanner
+still has NO front door of its own: a reader who follows probe #61's order at
+`skills/gate-check/SKILL.md:148` — "call `run…Probe(projectRoot)` from
+`adapters/_shared/src/scan_design_references.ts`" — still cannot execute it by
+hand. The count improved because a *neighbour* became runnable, not because the
+ordered thing did.
+
+**The substantive repair is to give `scan_design_references.ts` its own
+`import.meta.main` entry**, which makes probe #61's order genuinely executable
+and makes the 129 honest rather than incidental. Deliberately not done inside
+M140: neither FR owns that module, and the change is a behaviour-visible
+addition to a shipped surface, which this repo requires an FR to authorise.
+
+Worth pairing with the broader question the pin keeps raising: probe #81 counts
+an order as satisfied when *anything reachable* imports the module, so
+reachability and hand-runnability are not the same property, and only the second
+is what the order actually promises a reader.
+
+## `check_external_link.ts` keeps a reader-side copy whose reason is spent (M140)
+
+`check_external_link.ts` holds a LOCAL copy of three heading regexes from
+`scan_design_references.ts`. Its comment justified the duplication by saying an
+import would make the scanner transitively reachable and move probe #81's pin.
+
+**That cost has since been paid.** `external_link_verdicts.ts` added exactly
+that import in the same milestone and the pin moved. So the copy now persists
+for a reason that no longer exists, inside the milestone whose own FR says
+"one parser, never a reader-side copy — producer/consumer asymmetry has shipped
+in this repository three times". Nothing pins the two copies in sync.
+
+Not collapsed in M140 because doing so adds a second import edge and moves
+probe #81's pin a second time in one milestone, unrelated to either FR's ACs.
+The comment at the copy records this; this ledger entry is the durable half.
+
+## A REQUIRED external link recorded `unchecked` passes with notes (M140)
+
+`unchecked` is a live third verdict of the parser, and a required row carrying
+it falls through `external_link_verdicts.ts`'s rule table to a note rather than
+a violation. No AC covers it: STE-542 mandates that an unrunnable check record
+`unchecked` and never `dead`, and STE-543 grades `dead` and missing records,
+but neither decides what a *required* link whose check could not run should do
+at the gate.
+
+The choice sits uneasily beside AC-STE-543.3, which fails a required link with
+no record precisely because the check never ran — an `unchecked` record says the
+same thing and does not fail. Both readings are defensible (a machine with no
+egress must not red the gate; an unverifiable required dependency is exactly
+what the FR wanted surfaced), which is why it needs an FR rather than a patch.
+
+Undeclared, untested and unspecced today. Raised rather than silently accepted.

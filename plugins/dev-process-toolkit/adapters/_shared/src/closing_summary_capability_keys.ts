@@ -165,6 +165,12 @@ export const CANONICAL_CAPABILITY_KEYS = [
   // milestone exists. No state file backs it: the plan tree IS the record,
   // which is why no migration-registry entry ships with it.
   "linear_milestone_scheme_adopted",
+  // M140: the external-link liveness check could not run at all (no network,
+  // no fetch implementation, pre-flight offline). Every cited link is recorded
+  // `unchecked` and NEVER `dead` — an unreachable checker is not evidence a
+  // link is gone — and the run surfaces a capability row saying the check did
+  // not run, so a silent skip cannot read as a clean bill of health.
+  "external_link_check_unchecked_offline",
 ] as const;
 
 export type CapabilityKey = (typeof CANONICAL_CAPABILITY_KEYS)[number];
@@ -273,6 +279,12 @@ export const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   // /spec-write's milestone-number allocation guard, at the Linear branch that
   // does the minting.
   linear_milestone_scheme_adopted: "spec-write",
+  // M140: the external-link check-did-not-run disposition. Routes to
+  // spec-write for the same reason as every row above — the § 7 static map is
+  // the canonical owner surface this probe enforces — and the MUST-emit
+  // directive itself lives in /spec-write § 0b step 6b, at the external-link
+  // classification + liveness-check site.
+  external_link_check_unchecked_offline: "spec-write",
 };
 
 /**
