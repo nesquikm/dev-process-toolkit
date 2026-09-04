@@ -145,6 +145,13 @@ export async function runExternalLinkChecks(
   rows: readonly ExternalLinkRow[],
   options: ExternalLinkCheckOptions,
 ): Promise<ExternalLinkCheck[]> {
+  // CALLER CONTRACT — `fetchImpl` MUST impose its own timeout/abort.
+  // Rows are awaited sequentially and this loop applies no bound of its own,
+  // so a single hanging URL stalls every later row in the authoring run with
+  // no partial-progress signal. That is deliberate (the module stays pure and
+  // injectable, and nothing here should decide a network policy), but it is
+  // the caller's job to pass a bounded fetch — an unbounded one turns a dead
+  // host into a hung `/spec-write`.
   const { fetchImpl, preflight, now } = options;
   const out: ExternalLinkCheck[] = [];
   for (const row of rows) {

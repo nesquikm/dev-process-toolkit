@@ -549,6 +549,21 @@ describe("AC-STE-543.5 — every violation renders in the NFR-10 canonical shape
       const v = report.violations[0]!;
 
       expect(v.note).toMatch(/^specs\/[^:]+:\d+ — /);
+
+      // NFR-10 is EXACTLY three parts: a one-line verdict, `Remedy:` and
+      // `Context:`. Content checks alone ("Remedy: is present") stay green
+      // against a fourth sub-line, and this probe shipped a `Detail:` line
+      // for exactly that reason until review caught it. Pin the part COUNT,
+      // and pin the first line as the verdict so a part cannot be smuggled
+      // in above it either.
+      const parts = v.message.split("\n");
+      expect(parts.length).toBe(3);
+      expect(parts[0]!.startsWith("Remedy:")).toBe(false);
+      expect(parts[0]!.startsWith("Context:")).toBe(false);
+      expect(parts[1]!.startsWith("Remedy:")).toBe(true);
+      expect(parts[2]!.startsWith("Context:")).toBe(true);
+      expect(v.message).not.toContain("\nDetail:");
+
       expect(v.message).toContain("Remedy:");
       expect(v.message).toContain("Context:");
       expect(v.message).toContain(DEAD_URL);

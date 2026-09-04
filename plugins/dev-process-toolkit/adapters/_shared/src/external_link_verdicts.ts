@@ -150,8 +150,13 @@ function makeViolation(
     reason: rule.reason,
     note: note(row, rule.reason),
     message: [
-      `${PROBE_ID}: ${headline}`,
-      `Detail: ${rule.detail}`,
+      // `rule.detail` rides the VERDICT line rather than a `Detail:` sub-line
+      // of its own. NFR-10 (specs/requirements.md) defines exactly three
+      // parts — a one-line verdict, `Remedy:` and `Context:` — and a fourth
+      // sub-line would be a silent local extension of a canonical shape the
+      // whole toolkit shares. The distinguishing text AC-STE-543.3 needs is
+      // preserved verbatim; only its position changed.
+      `${PROBE_ID}: ${headline} — ${rule.detail}`,
       `Remedy: ${rule.remedy}`,
       `Context: file=${row.file}, line=${row.line}, url=${row.url}, ` +
         `rule=${rule.id}, probe=${PROBE_ID}`,
@@ -233,7 +238,12 @@ export function runExternalLinkVerdictsProbe(
 // side-effect free at import. Its presence is also load-bearing: a probe
 // registration whose module has no front door turns probe #81 red.
 if (import.meta.main) {
-  const projectRoot = process.argv[2] ?? process.cwd();
+  // `||`, not `??`: `??` substitutes only on null/undefined, so `bun run
+  // external_link_verdicts.ts ""` would pass an empty string straight through
+  // as the project root and resolve every spec path against "". The sibling
+  // shim in check_external_link.ts rejects an empty argv entry explicitly;
+  // this one falls back, which is the same decision reached two ways.
+  const projectRoot = process.argv[2] || process.cwd();
   const report = runExternalLinkVerdictsProbe(projectRoot);
   if (report.notes.length > 0) console.log(report.notes.join("\n"));
   if (report.violations.length > 0) {
