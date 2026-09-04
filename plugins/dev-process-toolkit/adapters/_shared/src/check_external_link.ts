@@ -181,10 +181,21 @@ export function formatExternalReferenceLine(entry: {
   return `- \`${entry.url}\` — ${entry.caption} (checked ${entry.checkedAt}: ${entry.verdict})`;
 }
 
-// The heading grammar is deliberately a LOCAL copy of the three regexes in
-// `scan_design_references.ts` rather than a shared import: importing the
-// scanner from this module (which carries an `import.meta.main` front door)
-// would make the scanner transitively reachable and move probe #81's pin.
+// The heading grammar is a LOCAL copy of the three regexes in
+// `scan_design_references.ts` rather than a shared import.
+//
+// The original reason is SPENT, and is recorded here rather than quietly left
+// standing: this copy existed because importing the scanner from a module with
+// an `import.meta.main` front door would make the scanner transitively
+// reachable and move probe #81's pin. `external_link_verdicts.ts` has since
+// done precisely that, and the pin was lowered 130 → 129 to record it. So the
+// cost this copy was avoiding has already been paid, and nothing keeps the two
+// copies in sync — which is the producer/consumer asymmetry M140's own FR says
+// has shipped in this repository three times.
+//
+// Not consolidated here because collapsing it means adding another import edge,
+// and probe #81's pin moves on import topology: that is a second pin move in
+// one milestone, unrelated to either FR's ACs. Left as an M140 follow-up.
 const H2_RE = /^## /;
 const DESIGN_REFS_HEADING_RE = /^##[ \t]+Design References[ \t]*$/;
 const EXTERNAL_REFS_HEADING_RE = /^##[ \t]+External References[ \t]*$/;
