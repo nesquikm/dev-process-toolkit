@@ -16,6 +16,9 @@
 // no session, no FS. Modelled on `adapters/_shared/src/design_asset_slug.test.ts`.
 
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
+
 import { classifyLinkVerdict } from "./check_external_link";
 
 /** What the probe observed: an HTTP status, or a transport-level error code. */
@@ -144,5 +147,73 @@ describe("AC-STE-542.6 — an offline preflight records unchecked, never dead", 
   test("a reachable-online row also degrades to unchecked offline (the preflight dominates)", () => {
     expect(online({ status: 200 })).toBe("reachable");
     expect(offline({ status: 200 })).toBe("unchecked");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE CLI FRONT DOOR
+//
+// The shim is not decoration: probe #81 grades a registration whose module
+// lacks an `import.meta.main` entry as an unreachable order, and this module's
+// door is what made `scan_design_references.ts` reachable and moved
+// ORDERED_UNREACHABLE_PIN 130 -> 129. A door nothing exercises is exactly the
+// defect this repository keeps shipping, so it is driven for real here —
+// spawned as a subprocess rather than by exporting `main`, because the thing
+// worth pinning is that `bun run <module>` actually works, exit codes and all.
+// ---------------------------------------------------------------------------
+
+describe("the `import.meta.main` CLI shim actually runs", () => {
+  const MODULE = join(import.meta.dir, "check_external_link.ts");
+
+  const run = (...args: string[]) => {
+    const r = spawnSync("bun", ["run", MODULE, ...args], { encoding: "utf-8" });
+    return {
+      code: r.status,
+      stdout: (r.stdout ?? "").trim(),
+      stderr: (r.stderr ?? "").trim(),
+    };
+  };
+
+  test("a reachable case prints REACHABLE and exits 0", () => {
+    expect(run("online", "200")).toMatchObject({ code: 0, stdout: "REACHABLE" });
+  });
+
+  test("403 prints REACHABLE — the authorization-challenge split survives the shim", () => {
+    expect(run("online", "403")).toMatchObject({ code: 0, stdout: "REACHABLE" });
+  });
+
+  test("a dead case prints DEAD and exits 0", () => {
+    expect(run("online", "404")).toMatchObject({ code: 0, stdout: "DEAD" });
+  });
+
+  test("a transport code is routed as a code, not parsed as a status", () => {
+    expect(run("online", "ENOTFOUND")).toMatchObject({ code: 0, stdout: "DEAD" });
+  });
+
+  test("offline prints UNCHECKED even for a status that reads dead online", () => {
+    // The offline/online pair is the mutation control: without the online leg
+    // above, a shim hard-coded to UNCHECKED would pass this.
+    expect(run("offline", "404")).toMatchObject({ code: 0, stdout: "UNCHECKED" });
+  });
+
+  test("a bad preflight exits 2 with the NFR-10 three-part shape on stderr", () => {
+    const r = run("sideways", "200");
+    expect(r.code).toBe(2);
+    expect(r.stdout).toBe("");
+    // Positive control for the two absence-ish claims below: the error really
+    // was rendered, so `Remedy:`/`Context:` are read off real output.
+    expect(r.stderr).toContain("check_external_link: argument error:");
+    expect(r.stderr).toContain("Remedy:");
+    expect(r.stderr).toContain("Context:");
+    expect(r.stderr).toContain("'sideways'");
+  });
+
+  test("a missing observation exits 2 and names which argument is wrong", () => {
+    const r = run("online");
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("argv[3]");
+    // Distinct from the preflight error, or one generic message would satisfy
+    // both legs — the same distinctness rule AC-STE-543.3 applies to reasons.
+    expect(r.stderr).not.toContain("argv[2]");
   });
 });

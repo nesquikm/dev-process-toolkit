@@ -720,3 +720,89 @@ describe("STE-542 budget pins — the two zero-headroom caps this FR must not br
     expect(count).toBeLessThanOrEqual(SKILLS_STE_TOKEN_CEILING);
   });
 });
+
+// ===========================================================================
+// PRODUCER/CONSUMER SYNC GUARDS
+//
+// M140 ships a writer (`check_external_link.ts`) and a reader
+// (`scan_design_references.ts` + `external_link_verdicts.ts`) that share a
+// vocabulary but, deliberately, NOT a module: consolidating them would add an
+// import edge, and probe #81's pin moves on import topology. STE-542's own FR
+// says "one parser, never a reader-side copy — producer/consumer asymmetry has
+// shipped in this repository three times." The copies are the sanctioned
+// exception; these guards are the price of keeping them.
+//
+// Source-text assertions, not behavioural ones, precisely BECAUSE the modules
+// must not import each other. Each carries its own positive control, so a
+// guard that read nothing cannot pass.
+// ===========================================================================
+
+describe("the duplicated writer/reader vocabulary cannot drift silently", () => {
+    const adaptersSrc = join(pluginRoot, "adapters", "_shared", "src");
+  const writerSrc = read(join(adaptersSrc, "check_external_link.ts"));
+  const scannerSrc = read(join(adaptersSrc, "scan_design_references.ts"));
+  const probeSrc = read(join(adaptersSrc, "external_link_verdicts.ts"));
+
+  test("all three sources were actually read (control for every leg below)", () => {
+    // A guard whose file read returned "" passes every not-/toContain below.
+    for (const [name, src] of [
+      ["check_external_link.ts", writerSrc],
+      ["scan_design_references.ts", scannerSrc],
+      ["external_link_verdicts.ts", probeSrc],
+    ] as const) {
+      expect(src.length, `${name} read empty`).toBeGreaterThan(500);
+    }
+  });
+
+  test("the three-verdict vocabulary is spelled identically in all three modules", () => {
+    // Drift here is not cosmetic: if a fourth verdict joins `LinkVerdict` but
+    // the reader's CHECKED_TAIL_RE alternation does not learn it, the row
+    // parses as `verdict: null` — "never checked" — and the probe's
+    // `unrecorded-required` rule raises a FALSE GATE FAILED for a link that
+    // was checked and answered fine.
+    expect(writerSrc).toContain(
+      'export type LinkVerdict = "reachable" | "dead" | "unchecked";',
+    );
+    expect(scannerSrc).toContain(
+      'verdict: "reachable" | "dead" | "unchecked" | null;',
+    );
+    expect(scannerSrc).toContain("(reachable|dead|unchecked)");
+  });
+
+  test("`LinkClassification` is declared identically in writer and probe", () => {
+    // Declared verbatim in two modules with no compiler linkage between them.
+    const DECL = 'export type LinkClassification = "required" | "informational";';
+    expect(writerSrc).toContain(DECL);
+    expect(probeSrc).toContain(DECL);
+  });
+
+  test("the writer's heading regexes match the scanner's byte for byte", () => {
+    // The writer appends rows using its own copy; the reader locates them with
+    // the canonical one. If the two disagree on where a section ends, a
+    // freshly-checked link is written "inside" a section the reader no longer
+    // considers it part of — dropped from grading with no error anywhere.
+    for (const literal of [
+      "/^##[ \\t]+Design References[ \\t]*$/",
+      "/^##[ \\t]+External References[ \\t]*$/",
+    ]) {
+      expect(writerSrc, `writer lost ${literal}`).toContain(literal);
+      expect(scannerSrc, `scanner lost ${literal}`).toContain(literal);
+    }
+  });
+
+  test("the guards above can fail — a mutated spelling is not silently accepted", () => {
+    // Falsifiability: the exact literals asserted above must be ABSENT from a
+    // string that spells the vocabulary differently, or the assertions would
+    // hold against any source at all.
+    const mutated = writerSrc.replace(/unchecked/g, "unverified");
+    expect(mutated).not.toContain(
+      'export type LinkVerdict = "reachable" | "dead" | "unchecked";',
+    );
+    // "unchecked" (9) -> "unverified" (10): exactly one char per occurrence,
+    // and there must BE occurrences, or the mutation was a no-op that reads
+    // as a pass.
+    const hits = (writerSrc.match(/unchecked/g) ?? []).length;
+    expect(hits).toBeGreaterThan(0);
+    expect(mutated.length).toBe(writerSrc.length + hits);
+  });
+});
