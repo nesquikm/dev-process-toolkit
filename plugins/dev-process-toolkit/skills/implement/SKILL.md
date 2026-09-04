@@ -151,7 +151,7 @@ Each round has three sequential stages. **Complete each stage before starting th
 
    Stage B runs two sequential `code-reviewer` invocations via the `Agent` tool: **Pass 1 — Spec Compliance** then **Pass 2 — Code Quality**. Both use `agents/code-reviewer.md`'s canonical rubric; only the prompt differs. Delegation keeps each review in an isolated context.
 
-   **If Pass 1 returns critical findings, do NOT run Pass 2; surface Pass 1 findings and stop.**
+   **If Pass 1 returns critical findings: Skip Pass 2. Fix findings, re-run gate check, then re-invoke Pass 1 on round 2 — if round 2 still fails, escalate.**
 
    Resolve `<base-ref>` once before either pass: feature branch's merge base (e.g., `git merge-base HEAD main`), `HEAD~1` on a hotfix on main, or `HEAD` if Phase 2 left uncommitted changes.
 
