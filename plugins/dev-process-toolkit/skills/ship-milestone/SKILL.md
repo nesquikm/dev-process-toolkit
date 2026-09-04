@@ -243,6 +243,8 @@ Next steps (not automated):
   3. Update any external references (tracker milestone close, announcement)
 ```
 
+**Driven runs.** Omit this offer when the invocation body carries the driven-run marker: the step it offers was already fixed by the orchestrator that named it. In a run whose chain already holds the push, the `/pr` and the external updates, "not automated" is a false statement about that run, and a false line is worse than a redundant one. What is omitted is the notice, never the steps: the chain still runs each one under its own gate, and omitting this line authorizes no push and no PR.
+
 ### 10. Opt-in /pr chain
 
 Fires only after a **successful release commit** lands **off-trunk** (the step-7 branch gate created `release/v<X.Y.Z>`, or the run was already on a feature branch). On-trunk landings and every refusal/abort path skip this step silently. After the step-9 checklist prints, prompt (exact format, mirroring /implement Phase 5's milestone-close prompt):
@@ -253,6 +255,7 @@ Open ceremony PR via /pr now? (y/n):
 
 - **Accept** — input is `y` or `yes` (case-insensitive, trimmed). Chain into `/pr` **in-process** with all `/pr` gates intact — the tracker-mode probe, the uncommitted-changes confirmation, and the push run exactly as on a manual `/pr` invocation. Any push happens inside `/pr` under its own confirmation; `/ship-milestone` itself still never pushes — the chain does not erode that invariant.
 - **Decline** — input is `n` / `no` / empty / any other non-matching string. Do not chain; print the hint and exit 0: `Run: /pr`.
+- **Driven runs** — Omit this offer when the invocation body carries the driven-run marker: the step it offers was already fixed by the orchestrator that named it. Do not chain into `/pr` from here either — the chain the worker was spawned with already names `/pr` after this stage, so a PR opened here would be a second one. What is dropped is this surface's claim on the PR, never the PR: the chain still opens it, once. What the marker removes is the redundant question, never the authorization: opening a pull request is an outward act, and every `/pr` gate — the tracker-mode probe, the uncommitted-changes confirmation, and the push confirmation — still runs and still decides.
 
 Chain-start failure ⇒ NFR-10 canonical refusal, exit non-zero:
 

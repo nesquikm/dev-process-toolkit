@@ -152,7 +152,7 @@ Every relayed gate carries one of three classes. The taxonomy is code — `adapt
 |-------|----------|-------------|----------------------------------------|
 | `content` | the `/implement` commit approval, the release approval | operator, gate by gate | No |
 | `mechanical` | the next milestone number, the branch name the convention fixes, a tracker field write | operator by default; the worker once a standing authorization is on the record | **Yes** — this is the only class it covers |
-| `irreversible` | merge a pull request, push to trunk, deploy to an environment, publish a package or release, send an outward-facing message | operator, **per action, always** | **Never** |
+| `irreversible` | merge a pull request, open a pull request, push to trunk, deploy to an environment, publish a package or release, send an outward-facing message | operator, **per action, always** | **Never** |
 
 - **Relay-everything is the shipped default.** With no delegation on the record, `relayRequired` is `true` for every gate in every class — a run where the operator says nothing behaves exactly as it always has.
 - **Restate once.** A delegation covers nothing until it has been read back to the operator; an authorization nobody has confirmed has no scope.

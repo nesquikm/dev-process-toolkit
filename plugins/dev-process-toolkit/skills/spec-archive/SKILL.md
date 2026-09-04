@@ -73,6 +73,8 @@ Archival uses the same code path as `/implement` Phase 4. The milestone-binding 
 
 **Exit hints** (milestone archival closing line): default runs end `Archived. Next: /ship-milestone M<N>`; parked runs end `Archived (parked). Unpark by shipping: /ship-milestone M<N>`.
 
+**Driven runs.** Omit this offer when the invocation body carries the driven-run marker: the step it offers was already fixed by the orchestrator that named it. The exit hint is a recommendation to a human, never a gate — the archival, its approval gate and the drift check are untouched — and under a driven run the next actor is the orchestrator, which already holds `/ship-milestone`, so the default line only restates the chain. Standalone runs still print it, and the parked variant is not this offer: it names an unpark no chain has scheduled, so it renders on every parked run.
+
 **Capability tokens (closing summary).** Per archived FR, the closing summary MUST emit `milestone_label_asserted_at_archive` when the milestone-binding assertion passed (binding present, or missing-then-attached) and MUST emit `milestone_label_archive_refused` when the assertion refused that FR's archive (FR skipped, still `status: active`; the refusal names which of its six causes fired and carries the remedy that fits that cause — quote it verbatim rather than assuming the attach simply did not land). Exactly one literal backticked token per archived FR; narrative paraphrase is insufficient — `/gate-check`'s `closing_summary_capability_keys` probe greps the literal.
 
 No skill writes to files under `specs/frs/archive/` or `specs/plan/archive/` except the frontmatter flip (`status` / `archived_at`, plus `ship_state` under `--parked`) at move time. Full reference: `docs/layout-reference.md` § `/spec-archive`.
@@ -175,7 +177,7 @@ If the drift report is non-empty, offer the user exactly three choices:
 
 The drift check **never blocks the archival operation itself**. The archive moves, frontmatter flips, and `releaseLock` calls are already committed to disk by the time this check runs; the user's choice only governs what happens to the drift report.
 
-**Closing summary — the status block.** `/spec-archive` closes with **exactly one** `stage-status-block` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
+**Closing summary — the status block.** `/spec-archive` closes with **exactly one** `stage-status-block` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`. Skip this block when the invocation body carries the driven-run marker: the orchestrator drives the next step in the same turn.
 
 ```stage-status-block
 stage: spec-archive   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md

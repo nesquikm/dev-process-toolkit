@@ -167,6 +167,18 @@ const PRE_FR_REGISTRY: readonly RegistryRow[] = [
   },
 ];
 
+/**
+ * PIN MOVED by M143 STE-552 (AC.6): the chain-continuation prompts registered
+ * AFTER this FR. Named explicitly rather than filtered by class, so the sweep
+ * guard below still catches an unrelated entry smuggled in on the same edit —
+ * which is the whole reason that guard exists.
+ */
+const POST_FR_ADDED_IDS: readonly string[] = [
+  "brainstorm_start_now",
+  "implement_ship_ready_close",
+  "implement_phase5_close",
+];
+
 const row = (g: GateDescriptor): RegistryRow => ({
   id: g.id,
   gateClass: g.gateClass,
@@ -447,13 +459,19 @@ describe("AC-STE-515.6 — the other registry entries are byte-identical", () =>
 
   test("the registry MINUS the confirm gate is exactly the pre-FR list, in order", () => {
     // Catches deletion, reordering, and any unrelated addition smuggled in on
-    // the same sweep — not just per-entry drift.
-    const others = GATE_REGISTRY.filter((g) => g.id !== CONFIRM_GATE).map(row);
+    // the same sweep — not just per-entry drift. STE-552's three named
+    // additions are subtracted alongside the confirm gate; anything else is
+    // still an unrelated addition and still reds this leg.
+    const others = GATE_REGISTRY.filter(
+      (g) => g.id !== CONFIRM_GATE && !POST_FR_ADDED_IDS.includes(g.id),
+    ).map(row);
     expect(others).toEqual([...PRE_FR_REGISTRY]);
   });
 
   test("the registry grew by exactly one entry", () => {
-    expect(GATE_REGISTRY.length).toBe(PRE_FR_REGISTRY.length + 1);
+    expect(GATE_REGISTRY.length).toBe(
+      PRE_FR_REGISTRY.length + 1 + POST_FR_ADDED_IDS.length,
+    );
   });
 
   test("the confirm gate is not one of the pre-FR ids under a new name", () => {

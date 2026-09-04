@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.80.0] — 2026-09-04 — "Onward"
+
+### Added
+
+- A skill can tell whether an orchestrator is driving it (STE-549)
+
+### Changed
+
+- An inline phase does not close with a terminal report (STE-550)
+- A continuation offer is not made when the answer was already given (STE-551)
+
+### Fixed
+
+- Chain-continuation prompts are registered so a delegation can reach them (STE-552)
+- One review outcome, one instruction (STE-553)
+
+Total test count at release: 11764 tests, 0 failures, 0 errors.
+
 ## [2.79.0] — 2026-09-04 — "Bearings"
 
 ### Added
