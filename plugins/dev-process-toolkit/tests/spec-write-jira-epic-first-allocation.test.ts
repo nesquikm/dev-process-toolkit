@@ -54,9 +54,11 @@ describe("AC-STE-377.1/.3/.5 — spec-write SKILL documents the Jira Epic-first 
     });
   }
 
-  test("the sequential five-way-scan guard is still present for the Linear path (AC .4)", () => {
+  test("the allocator guard is still present for the explicitly-typed `M<N>` path (AC .4)", () => {
     // The existing allocation guard paragraph must survive the Jira branch
-    // edit — the five-way scan remains the Linear path.
+    // edit. It once said so because "the five-way scan remains the Linear
+    // path"; that reason is dead (see RETARGETED below) and the paragraph
+    // survives for the hand-typed-`M<N>` check instead.
     //
     // RETIRED (M119 STE-440): the full
     // `nextFreeMilestoneNumber(specsDir, changelogPath, provider, branchScanner)`
@@ -70,8 +72,26 @@ describe("AC-STE-377.1/.3/.5 — spec-write SKILL documents the Jira Epic-first 
     // `tests/m119-ste-440-milestone-identity-dispatcher.test.ts`, which
     // asserts the dispatcher's linear branch equals the helper's own answer
     // with all four arguments forwarded.
+    // RETARGETED (M139 STE-541, AC-STE-541.6). This asserted `"five-way scan"`
+    // as prose evidence that "the five-way scan remains the Linear path". That
+    // claim is now false: `mode: linear` no longer resolves an identity
+    // OFFLINE — the sequential scan needed no tracker, whereas
+    // `mintMilestoneLinear` requires a provider carrying the milestone-create
+    // op, because an identity derived from a tracker object cannot be computed
+    // without the tracker. AC-STE-377.4's Linear-unchanged block and
+    // AC-STE-417.5's narrowed survivor are both retired by name in
+    // `specs/plan/M139.md`.
+    //
+    // REPLACEMENT, named at the site: the mint-equality and zero-call-count
+    // assertions in `tests/m139-ste-541-linear-minted-milestone.test.ts`
+    // (AC-STE-541.1) own the Linear branch's behaviour now. What survives here
+    // is the half this file was ever answerable for — the guard still NAMES the
+    // allocator module, for the one job it keeps: checking a hand-typed `M<N>`
+    // against everything the project can see. Retargeted onto that job rather
+    // than deleted, so the Jira edit still cannot silently drop the reference.
     expect(skill).toContain("adapters/_shared/src/next_free_milestone_number.ts");
-    expect(skill).toContain("five-way scan");
+    expect(skill).not.toContain("five-way scan");
+    expect(skill).toContain("Explicitly-typed `M<N>` check");
   });
 });
 

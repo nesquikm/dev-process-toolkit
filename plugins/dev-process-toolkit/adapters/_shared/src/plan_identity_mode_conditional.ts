@@ -13,10 +13,14 @@
 //
 // ONE TRACKER ARM IS NOT ALL TRACKER ARMS. The second rule is keyed on the mode
 // STRING (`mode === "jira"`), never on the `isTracker` boolean, because that
-// boolean lumps together two modes with OPPOSITE expectations: sequential
-// numbering is the CORRECT shape under `mode: linear` by explicit prior
-// decision, and the WRONG one under `mode: jira` since the Epic-first path made
-// `M_<KEY>` the derived name. A rule keyed on the boolean would police both legs
+// boolean lumps together two modes with OPPOSITE dispositions toward the plans
+// already on disk. Under `mode: jira` a sequential `M<N>` plan written after
+// the Epic-first path landed is the WRONG shape, since that path made
+// `M_<KEY>` the derived name, and the provenance arm exists to say so. Under
+// `mode: linear` the tracker-first minter derives `M_<6-hex>` for anything NEW,
+// but every `M<N>` plan already committed is legitimate shipped history that
+// must stay green: no provenance rule is written for that mode, so none runs.
+// A rule keyed on the boolean would police both legs
 // identically and hard-fail every linear project on its own archived sequential
 // plans — this repository included, with a hundred-plus of them. An unknown
 // tracker string (`mode: github` from a hand-edited CLAUDE.md) therefore falls
@@ -60,8 +64,10 @@
 // advisory never masks a hard failure and an advisory-only run stays green.
 //
 // TWO ARMS RUN THAT CLASSIFIER — `mode: none` and `mode: jira` — over one
-// machinery and two epochs; `mode: linear` runs neither, sequential numbering
-// being its correct shape. The arms diverge on exactly two things: the boundary
+// machinery and two epochs; `mode: linear` runs neither, because no epoch was
+// ever fixed for it — its `M<N>` plans are shipped history whatever their date,
+// and dating them would redden trees whose operators did nothing wrong.
+// The arms diverge on exactly two things: the boundary
 // instant (`MINT_EPOCH` vs `JIRA_EPIC_EPOCH`) and what a `fresh` plan should
 // have been instead — a re-minted `M_<6-char>` under `none`, an Epic-derived
 // `M_<KEY>` under `jira`. Those two remedies ask the operator for genuinely
@@ -120,10 +126,18 @@
 //   - ACTIVE only. `specs/plan/archive/` is where a consumed-and-shipped
 //     scaffold legitimately ends up, so an archived scaffold beside a live
 //     minted plan is the CORRECT steady state and says nothing.
-//   - `mode: none` only. The jira and linear arms never mint `M_<6-char>`
-//     plans from a ULID, so the co-presence this pass keys on cannot arise
-//     there and policing it would only invent failures on trees the tracker
-//     modes shape differently.
+//   - `mode: none` only. The reason is SCOPE rather than shape. This once
+//     read that the jira and linear arms "never mint `M_<6-char>` plans from a
+//     ULID, so the co-presence this pass keys on cannot arise there" — the
+//     conclusion still holds, but that reason stopped being true when Linear
+//     went tracker-first. `milestoneIdFromLinearMilestone` derives `M_` plus
+//     the leading SIX HEX of the milestone identifier, and a leading hex run
+//     that happens to be all digits (~3.8% of uuids) matches `MINTED_TAIL_RE`
+//     below exactly as a Crockford tail does. A linear-minted token is
+//     therefore not distinguishable from a minted one by SHAPE. What keeps
+//     this pass correct is that it runs on the `mode: none` arm alone, so a
+//     linear tree never reaches it — and policing tracker trees here would
+//     only invent failures on trees the tracker modes shape differently.
 //   - `kind: legacy` is UNNARROWED. It is the operator's permanent, manual
 //     declaration about a plan git cannot date — a different promise from
 //     `scaffolding`'s producer-written one, and nothing about a co-present

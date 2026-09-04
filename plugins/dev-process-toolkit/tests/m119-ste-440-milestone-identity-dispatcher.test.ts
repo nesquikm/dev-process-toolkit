@@ -9,16 +9,29 @@
 //   AC-STE-440.1 — `adapters/_shared/src/resolve_milestone_identity.ts`
 //                  exports `resolveMilestoneIdentity(input)`; given
 //                  `{ specsDir, mode, epicKey? }` it dispatches to
-//                  `nextFreeMilestoneNumber` (linear) /
+//                  `mintMilestoneLinear` (linear) /
 //                  `milestoneIdFromEpicKey` (jira) / `mintMilestoneId` (none)
 //                  and returns `{ milestoneId, id? }`.
 //   AC-STE-440.2 — mode: none returns `M_<6 Crockford>` + a `ULID_REGEX` `id`
 //                  with `milestoneIdFromUlid(id) === milestoneId`, and NO
 //                  input drives it to a sequential `M<N>` token.
 //   AC-STE-440.3 — jira ⇒ `M_<sanitized-epic-key>`, no `id`; linear ⇒
-//                  `M<next>` from the five-way scan, no `id`. Both asserted
-//                  EQUAL to the pre-existing helper's output for the same
-//                  input (byte-unchanged, not merely shaped alike).
+//                  `M_<6 hex>` from `mintMilestoneLinear`, no `id`. Both
+//                  asserted EQUAL to the owning helper's output for the same
+//                  input (delegated, not merely shaped alike).
+//
+//                  RETARGETED (M139 STE-541, AC-STE-541.6). The linear arm read
+//                  "`M<next>` from the five-way scan … byte-unchanged": it was
+//                  the code half of AC-STE-417.5's Linear-unchanged regression
+//                  pin, retired by name in `specs/plan/M139.md`. THE
+//                  BEHAVIOURAL CHANGE, stated once for every leg below:
+//                  `mode: linear` no longer resolves an identity OFFLINE. The
+//                  sequential scan needed no tracker; `mintMilestoneLinear`
+//                  requires a provider carrying the milestone-create op,
+//                  because an identity derived from a tracker object cannot be
+//                  computed without the tracker. Every leg is retargeted onto
+//                  the new contract (mint-equality, or the throw) rather than
+//                  deleted — a deleted assertion is coverage lost.
 //   AC-STE-440.4 — all three branches route through ONE `requireOrRefuse`
 //                  gate site, differing only in `defaultValue`.
 //
@@ -33,6 +46,10 @@
 //     // branch. They are NOT new behavior: dropping them would silently
 //     // demote the "byte-unchanged" five-way scan of AC-STE-440.3 to a
 //     // two-way one, which is the defect the equality assertions catch.
+//     // VESTIGIAL since M139/STE-541: the linear branch mints, so nothing
+//     // reads these. They stay on the input type so existing callers keep
+//     // type-checking; `project` / `title` / a create-carrying `provider` are
+//     // what the branch reads now.
 //     changelogPath?: string;
 //     provider?: MilestoneListingProvider;
 //     branchScanner?: BranchMilestoneScanner;
@@ -47,7 +64,8 @@
 //   ): Promise<{ gateSite: string; defaultValue: string; identity: MilestoneIdentity }>;
 //
 // `resolveMilestoneIdentity` is async because the linear branch delegates to
-// the async five-way scan; the mint and Epic branches resolve immediately.
+// the async tracker mint (the async five-way scan, before M139/STE-541); the
+// mint and Epic branches resolve immediately.
 //
 // Seeded-ULID caveat, inherited from `adapters/_shared/src/mint_milestone_id.test.ts`:
 // under `DPT_TEST_ULID_SEED` the tail comes from a monotonic in-process
@@ -59,8 +77,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { milestoneIdFromEpicKey, milestoneIdFromUlid } from "../adapters/_shared/src/milestone_token";
+import {
+  milestoneIdFromEpicKey,
+  milestoneIdFromLinearMilestone,
+  milestoneIdFromUlid,
+} from "../adapters/_shared/src/milestone_token";
 import { mintMilestoneId } from "../adapters/_shared/src/mint_milestone_id";
+import { mintMilestoneLinear } from "../adapters/_shared/src/mint_milestone_linear";
 import {
   nextFreeMilestoneNumber,
   type BranchMilestoneScanner,
@@ -146,6 +169,52 @@ function makeBranchScanner(numbers: number[]): BranchMilestoneScanner {
   return { listBranchMilestones: async () => [...numbers] };
 }
 
+/** A stable Linear milestone identifier, and a second one to discriminate against. */
+const LINEAR_UUID = "550e8400-e29b-41d4-a716-446655440000";
+const LINEAR_UUID_2 = "9f1c2d3e-4b5a-6c7d-8e9f-0a1b2c3d4e5f";
+
+/**
+ * A milestone provider whose create allocates `uuid`, recording every call.
+ *
+ * ADDED M139/STE-541: the linear branch mints instead of scanning, so its legs
+ * need a create-carrying provider. `listMilestones` returns `[]` so the mint's
+ * find-before-create leg misses and the create runs.
+ */
+function makeMintingProvider(uuid: string): {
+  provider: {
+    createMilestone: (project: string, opts: { name: string }) => Promise<{ id: string }>;
+    listMilestones: (project: string) => Promise<{ name: string; id?: string }[]>;
+  };
+  creates: { project: string; name: string }[];
+} {
+  const creates: { project: string; name: string }[] = [];
+  return {
+    creates,
+    provider: {
+      createMilestone: async (project: string, opts: { name: string }) => {
+        creates.push({ project, name: opts.name });
+        return { id: uuid };
+      },
+      listMilestones: async (_project: string) => [] as { name: string; id?: string }[],
+    },
+  };
+}
+
+/** The linear branch's inputs, minus `specsDir` — which it no longer reads. */
+function linearInput(uuid: string): {
+  mode: "linear";
+  project: string;
+  title: string;
+  provider: ReturnType<typeof makeMintingProvider>["provider"];
+} {
+  return {
+    mode: "linear",
+    project: "DPT",
+    title: "Tracker-First Linear Milestones",
+    provider: makeMintingProvider(uuid).provider,
+  };
+}
+
 let stashedNodeEnv: string | undefined;
 let stashedSeed: string | undefined;
 
@@ -188,25 +257,67 @@ describe("AC-STE-440.1 — resolveMilestoneIdentity dispatches by mode", () => {
     // `mintMilestoneId` itself. The router invariant is untouched — only the
     // name of the helper that owns the branch — so the two `none` greps follow
     // the delegation one hop out. The linear and jira greps are unchanged.
+    //
+    // The `linear` branch's OWNING HELPER MOVED TOO (M139/STE-541): it delegates
+    // to `mintMilestoneLinear`, because `mode: linear` no longer resolves an
+    // identity OFFLINE — an identity derived from a tracker object cannot be
+    // computed without the tracker. The two `linear` greps follow the
+    // delegation to its new owner, and the negative below is the REPLACEMENT
+    // for the retired `nextFreeMilestoneNumber(` grep: the router must not call
+    // the displaced allocator at all. That is a strictly stronger claim than
+    // the positive it replaces (behavioural coverage lives in
+    // `tests/m139-ste-541-linear-minted-milestone.test.ts`, AC-STE-541.1).
     const src = readFileSync(MODULE_PATH, "utf-8");
-    expect(src).toMatch(/from\s+["']\.\/next_free_milestone_number["']/);
+    expect(src).toMatch(/from\s+["']\.\/mint_milestone_linear["']/);
     expect(src).toMatch(/from\s+["']\.\/adopt_or_mint_milestone_id["']/);
     expect(src).toMatch(/from\s+["']\.\/milestone_token["']/);
-    expect(src).toMatch(/\bnextFreeMilestoneNumber\s*\(/);
+    expect(src).toMatch(/\bmintMilestoneLinear\s*\(/);
     expect(src).toMatch(/\badoptOrMintMilestoneId\s*\(/);
     expect(src).toMatch(/\bmilestoneIdFromEpicKey\s*\(/);
+    expect(src).not.toMatch(/\bnextFreeMilestoneNumber\s*\(/);
     // Re-implementation tells: the minter's own primitives must not appear
     // here (they belong to `mint_milestone_id.ts`).
     expect(src).not.toMatch(/\bmintUniqueId\s*\(/);
     expect(src).not.toMatch(/\breaddirSync\s*\(/);
   });
 
-  test("mode: linear returns a sequential milestoneId and no `id`", async () => {
+  test("mode: linear returns the TRACKER-derived milestoneId and no `id`", async () => {
+    // RETARGETED (M139 STE-541, AC-STE-541.6) from "returns a sequential
+    // milestoneId": `mode: linear` no longer resolves an identity OFFLINE. The
+    // sequential scan needed no tracker; `mintMilestoneLinear` requires a
+    // provider carrying the milestone-create op. The REPLACEMENT for the
+    // retired `"M102"` literal is equality against the derivation itself, which
+    // a constant never was.
     const fx = makeFixture();
     try {
-      const r = await resolveMilestoneIdentity({ specsDir: fx.specs, mode: "linear" });
-      expect(r.milestoneId).toBe("M102");
+      const r = await resolveMilestoneIdentity({ specsDir: fx.specs, ...linearInput(LINEAR_UUID) });
+      expect(r.milestoneId).toBe(milestoneIdFromLinearMilestone(LINEAR_UUID));
       expect(r.id).toBeUndefined();
+      // The sequential answer this leg used to assert is still what a scan of
+      // the SAME tree gives — so "not M102" is a statement about the branch,
+      // not about a fixture that stopped answering.
+      expect((await nextFreeMilestoneNumber(fx.specs)).next).toBe(102);
+      expect(r.milestoneId).not.toBe("M102");
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("mode: linear with NO create op REFUSES rather than falling back to the scan", async () => {
+    // The other half of the same behavioural change, and the reason every
+    // linear leg in this file gained a provider. A fall-back to the sequential
+    // allocator here would be indistinguishable from a deliberate allocation
+    // forever after — the exact failure the dispatcher exists to prevent.
+    const fx = makeFixture();
+    try {
+      await expect(
+        resolveMilestoneIdentity({
+          specsDir: fx.specs,
+          mode: "linear",
+          project: "DPT",
+          title: "Tracker-First Linear Milestones",
+        }),
+      ).rejects.toThrow(/milestone-create op/);
     } finally {
       fx.cleanup();
     }
@@ -407,87 +518,144 @@ describe("AC-STE-440.3 — the jira branch equals milestoneIdFromEpicKey", () =>
   });
 });
 
-describe("AC-STE-440.3 — the linear branch equals the five-way scan's own answer", () => {
-  test("bare call: dispatcher output === `M${nextFreeMilestoneNumber(specsDir).next}`", async () => {
+describe("AC-STE-440.3 — the linear branch equals mintMilestoneLinear's own derivation", () => {
+  // RETARGETED WHOLESALE (M139 STE-541, AC-STE-541.6). This suite was the code
+  // half of AC-STE-417.5's "Linear keeps the sequential five-way scan
+  // unchanged" regression pin — retired by name in `specs/plan/M139.md`
+  // alongside AC-STE-377.4's "Linear milestone allocation is byte-unchanged".
+  //
+  // THE BEHAVIOURAL CHANGE, stated once for the whole suite rather than
+  // re-argued per leg: `mode: linear` no longer resolves an identity OFFLINE.
+  // The sequential scan needed no tracker; `mintMilestoneLinear` requires a
+  // provider carrying the milestone-create op, because an identity derived from
+  // a tracker object cannot be computed without the tracker.
+  //
+  // The SHAPE of the suite is preserved on purpose: it still asserts the
+  // dispatcher's answer EQUALS the owning helper's own answer for the same
+  // input — only the owning helper changed. That is what keeps this a
+  // delegation test rather than a shape test.
+
+  test("bare call: dispatcher output === `milestoneIdFromLinearMilestone(allocated)`", async () => {
     const fx = makeFixture();
     try {
-      const helper = await nextFreeMilestoneNumber(fx.specs);
-      const r = await resolveMilestoneIdentity({ specsDir: fx.specs, mode: "linear" });
-      expect(r.milestoneId).toBe(`M${helper.next}`);
+      const helper = await mintMilestoneLinear(
+        makeMintingProvider(LINEAR_UUID).provider,
+        "DPT",
+        "Tracker-First Linear Milestones",
+      );
+      const r = await resolveMilestoneIdentity({ specsDir: fx.specs, ...linearInput(LINEAR_UUID) });
+      expect(r.milestoneId).toBe(helper.milestoneId);
+      expect(r.milestoneId).toBe(milestoneIdFromLinearMilestone(LINEAR_UUID));
       expect(r.id).toBeUndefined();
+
+      // DISCRIMINATING SIBLING, replacing the retired scan equality: a
+      // DIFFERENT allocation gives a DIFFERENT id, so the equality above is
+      // about the tracker's answer and not about a constant.
+      const other = await resolveMilestoneIdentity({
+        specsDir: fx.specs,
+        ...linearInput(LINEAR_UUID_2),
+      });
+      expect(other.milestoneId).toBe(milestoneIdFromLinearMilestone(LINEAR_UUID_2));
+      expect(other.milestoneId).not.toBe(r.milestoneId);
     } finally {
       fx.cleanup();
     }
   });
 
-  test("ALL FIVE scan legs are forwarded: dispatcher === helper given the same four args", async () => {
-    // A dispatcher that forgot to forward `changelogPath` / `provider` /
-    // `branchScanner` still returns an `M<N>` and still passes a
-    // shape-only assertion — it just silently demotes the five-way scan to a
-    // two-way one. Only equality against the fully-armed helper catches that,
-    // and each leg below is the sole source of its own number.
+  test("the CREATE args are forwarded, and the five scan seams are inert", async () => {
+    // REPLACES "ALL FIVE scan legs are forwarded". That leg existed because a
+    // dispatcher which dropped `changelogPath` / `provider` / `branchScanner`
+    // still returned an `M<N>` and still passed a shape-only assertion — it
+    // just silently demoted the five-way scan to a two-way one. The same class
+    // of defect survives the retarget in a new place: a dispatcher that dropped
+    // `project` or `title` would still return a well-formed `M_<hex>`, because
+    // the id derives from the identifier alone. So the forwarding is asserted
+    // where it now lives — on the create call itself — and the retired seams
+    // are asserted INERT by call count, which is strictly more than the old
+    // leg claimed.
     const fx = makeFixture();
+    const minting = makeMintingProvider(LINEAR_UUID);
+    let scanCalls = 0;
+    const scanner: BranchMilestoneScanner = {
+      listBranchMilestones: async () => {
+        scanCalls++;
+        return [1234];
+      },
+    };
     try {
-      const args = {
-        changelogPath: fx.changelog,
-        providerNames: ["M900 — tracker milestone"],
-        branchNumbers: [1234],
-      };
-      const helper = await nextFreeMilestoneNumber(
-        fx.specs,
-        args.changelogPath,
-        makeProvider(args.providerNames),
-        makeBranchScanner(args.branchNumbers),
-      );
-      expect(helper.next).toBe(1235); // branches leg dominates
-      expect(helper.sources).toEqual({
-        active: [101],
-        archived: [99],
-        changelog: [100],
-        tracker: [900],
-        branches: [1234],
-      });
-
       const r = await resolveMilestoneIdentity({
         specsDir: fx.specs,
         mode: "linear",
-        changelogPath: args.changelogPath,
-        provider: makeProvider(args.providerNames),
-        branchScanner: makeBranchScanner(args.branchNumbers),
+        project: "DPT",
+        title: "Tracker-First Linear Milestones",
+        provider: minting.provider,
+        changelogPath: fx.changelog,
+        branchScanner: scanner,
       });
-      expect(r.milestoneId).toBe(`M${helper.next}`);
-      expect(r.milestoneId).toBe("M1235");
-      expect(r.id).toBeUndefined();
+
+      // The create carried the HUMAN TITLE alone — never the canonical
+      // `M_<id> — <Title>` name, which is not knowable until it returns.
+      expect(minting.creates).toEqual([
+        { project: "DPT", name: "Tracker-First Linear Milestones" },
+      ]);
+      expect(r.milestoneId).toBe(milestoneIdFromLinearMilestone(LINEAR_UUID));
+      expect(scanCalls).toBe(0);
+
+      // POSITIVE CONTROL for that zero, in the same test: the SAME double
+      // handed to the allocator itself increments. `0` is therefore a
+      // measurement of the linear branch, not a counter that can never move.
+      await nextFreeMilestoneNumber(fx.specs, fx.changelog, undefined, scanner);
+      expect(scanCalls).toBe(1);
     } finally {
       fx.cleanup();
     }
   });
 
-  test("an empty specs tree still allocates M1 (the helper's edge case is preserved)", async () => {
+  test("the specs tree is IRRELEVANT: an empty tree and a populated one agree", async () => {
+    // REPLACES "an empty specs tree still allocates M1 (the helper's edge case
+    // is preserved)". That edge case belonged to the scan, which read the tree;
+    // the mint does not read it at all. The replacement asserts exactly that
+    // independence — and it is the sharpest available form, because the old
+    // leg's whole point was that the tree DROVE the answer.
     const root = mkdtempSync(join(tmpdir(), "ste440-linear-empty-"));
+    const populated = makeFixture();
     try {
       const specs = join(root, "specs");
       mkdirSync(join(specs, "plan"), { recursive: true });
-      const helper = await nextFreeMilestoneNumber(specs);
-      const r = await resolveMilestoneIdentity({ specsDir: specs, mode: "linear" });
-      expect(helper.next).toBe(1);
-      expect(r.milestoneId).toBe("M1");
+
+      const onEmpty = await resolveMilestoneIdentity({ specsDir: specs, ...linearInput(LINEAR_UUID) });
+      const onPopulated = await resolveMilestoneIdentity({
+        specsDir: populated.specs,
+        ...linearInput(LINEAR_UUID),
+      });
+      expect(onEmpty.milestoneId).toBe(onPopulated.milestoneId);
+      expect(onEmpty.milestoneId).toBe(milestoneIdFromLinearMilestone(LINEAR_UUID));
+
+      // CONTROL: the two trees DO disagree for the displaced allocator, so the
+      // agreement above is a property of the mint and not of two identical
+      // fixtures. (`M1` is the very edge case the retired leg pinned.)
+      expect((await nextFreeMilestoneNumber(specs)).next).toBe(1);
+      expect((await nextFreeMilestoneNumber(populated.specs)).next).toBe(102);
     } finally {
       rmSync(root, { recursive: true, force: true });
+      populated.cleanup();
     }
   });
 
-  test("the linear branch never mints — no `id` leaks into a tracker-mode plan", async () => {
+  test("the linear branch leaks no `id` KEY into a tracker-mode plan", async () => {
     const fx = makeFixture();
     try {
       const r: MilestoneIdentity = await resolveMilestoneIdentity({
         specsDir: fx.specs,
-        mode: "linear",
+        ...linearInput(LINEAR_UUID),
       });
       // Probe #73 fails any tracker-mode plan carrying `id:`, so an `id` here
-      // would turn the very next gate red rather than merely being unused.
+      // would turn the very next gate red rather than merely being unused. The
+      // claim strengthens from "never mints" (false now — it mints a TRACKER
+      // milestone) to "carries no `id` KEY", which is what the probe reads.
       expect(r.id).toBeUndefined();
-      expect("id" in r ? r.id : undefined).toBeUndefined();
+      expect(Object.keys(r)).toEqual(["milestoneId"]);
+      expect("id" in r).toBe(false);
     } finally {
       fx.cleanup();
     }
@@ -504,9 +672,16 @@ describe("AC-STE-440.4 — all three branches share ONE requireOrRefuse gate sit
   });
 
   test("the gate site identifier is IDENTICAL across the three modes", async () => {
+    // RETARGETED (M139 STE-541, AC-STE-541.6): the linear spec now needs a
+    // create-carrying provider, because `mode: linear` no longer resolves an
+    // identity OFFLINE. The CLAIM is untouched — one gate site, three modes —
+    // only the inputs the linear branch requires changed.
     const fx = makeFixture();
     try {
-      const linear = await milestoneAllocationGateSpec({ specsDir: fx.specs, mode: "linear" });
+      const linear = await milestoneAllocationGateSpec({
+        specsDir: fx.specs,
+        ...linearInput(LINEAR_UUID),
+      });
       const jira = await milestoneAllocationGateSpec({
         specsDir: fx.specs,
         mode: "jira",
@@ -529,8 +704,10 @@ describe("AC-STE-440.4 — all three branches share ONE requireOrRefuse gate sit
     // indistinguishable.
     const fx = makeFixture();
     try {
+      // RETARGETED (M139 STE-541, AC-STE-541.6): same reason as the leg above
+      // — the linear branch mints, so its gate spec needs the create op.
       const specs = [
-        await milestoneAllocationGateSpec({ specsDir: fx.specs, mode: "linear" }),
+        await milestoneAllocationGateSpec({ specsDir: fx.specs, ...linearInput(LINEAR_UUID) }),
         await milestoneAllocationGateSpec({
           specsDir: fx.specs,
           mode: "jira",
@@ -553,7 +730,10 @@ describe("AC-STE-440.4 — all three branches share ONE requireOrRefuse gate sit
       expect(withoutVarying(specs[2]!)).toEqual(withoutVarying(specs[0]!));
 
       // ...and defaultValue is exactly the resolved milestone id, per mode.
-      expect(specs[0]!.defaultValue).toBe("M102");
+      // The linear literal was `"M102"` — the sequential scan's answer for this
+      // fixture — and is retargeted onto the mint's derivation of the allocated
+      // identifier, which is what the branch returns now.
+      expect(specs[0]!.defaultValue).toBe(milestoneIdFromLinearMilestone(LINEAR_UUID));
       expect(specs[1]!.defaultValue).toBe("M_PROJ_500");
       expect(specs[2]!.defaultValue).toMatch(MINTED_TOKEN_RE);
       for (const s of specs) expect(s.defaultValue).toBe(s.identity.milestoneId);

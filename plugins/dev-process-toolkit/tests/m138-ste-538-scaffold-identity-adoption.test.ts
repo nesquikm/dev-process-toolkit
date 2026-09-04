@@ -50,7 +50,11 @@ import {
   findScaffoldPlan,
 } from "../adapters/_shared/src/consume_scaffold_plan";
 import { splitFrontmatter } from "../adapters/_shared/src/frontmatter";
-import { PLAN_FILENAME_RE, milestoneIdFromUlid } from "../adapters/_shared/src/milestone_token";
+import {
+  PLAN_FILENAME_RE,
+  milestoneIdFromLinearMilestone,
+  milestoneIdFromUlid,
+} from "../adapters/_shared/src/milestone_token";
 import { mintMilestoneId } from "../adapters/_shared/src/mint_milestone_id";
 import { runPlanIdentityModeConditionalProbe } from "../adapters/_shared/src/plan_identity_mode_conditional";
 import {
@@ -414,6 +418,17 @@ describe("AC-STE-538.4 — the adoption path is `mode: none` only, and needs a r
     const double = countingMinter();
 
     // ── Leg 1: mode: linear. ───────────────────────────────────────────────
+    //
+    // RETARGETED (M139/STE-541, AC-STE-541.6). This leg resolved a linear
+    // identity with no provider and asserted a sequential `/^M\d+$/` token.
+    // THE BEHAVIOURAL CHANGE: `mode: linear` no longer resolves an identity
+    // OFFLINE — the sequential scan needed no tracker, whereas
+    // `mintMilestoneLinear` requires a provider carrying the milestone-create
+    // op, because an identity derived from a tracker object cannot be computed
+    // without the tracker. The leg is retargeted onto the NEW contract (a
+    // create-carrying provider, and the tracker's own derivation) rather than
+    // deleted: the CLAIM it exists for — the tracker branches never adopt, and
+    // never carry an `id` key — is unchanged and still needs guarding.
     const linear = makeProject("linear");
     try {
       writeFileSync(
@@ -422,9 +437,17 @@ describe("AC-STE-538.4 — the adoption path is `mode: none` only, and needs a r
       );
       const before = read(join(linear.planDir, "M1.md"));
 
+      const linearUuid = "550e8400-e29b-41d4-a716-446655440000";
       const identity = await resolve({
         specsDir: linear.specsDir,
         mode: "linear",
+        project: "DPT",
+        title: "Tracker-First Linear Milestones",
+        provider: {
+          createMilestone: async (_project: string, _opts: { name: string }) => ({
+            id: linearUuid,
+          }),
+        },
         minter: double,
       });
 
@@ -432,7 +455,10 @@ describe("AC-STE-538.4 — the adoption path is `mode: none` only, and needs a r
       // tracker-mode plan carrying an `id:` line, and `consumeScaffoldPlan`'s
       // structural rail is keyed on the key's presence.
       expect("id" in identity).toBe(false);
-      expect(identity.milestoneId).toMatch(/^M\d+$/);
+      // REPLACES the sequential-token pin: the id is the tracker's answer,
+      // derived by the mint, and is NOT the sequential shape it used to be.
+      expect(identity.milestoneId).toBe(milestoneIdFromLinearMilestone(linearUuid));
+      expect(identity.milestoneId).not.toMatch(/^M\d+$/);
 
       const outcome = consumeScaffoldPlan(linear.specsDir, identity);
       expect(outcome.consumed).toBe(false);

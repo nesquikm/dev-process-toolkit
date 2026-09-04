@@ -1,8 +1,14 @@
 // STE-376 AC-STE-376.1 — centralized milestone-token union matcher.
 //
 // ONE home for the milestone-id grammar. Two shapes are legal:
-//   - `M<N>`         — sequential numeric ids (`M101`), the historical grammar
-//   - `M_<epic-key>` — opaque Jira-Epic-keyed ids (`M_PROJ_500`, `M_PROJ-500`)
+//   - `M<N>`   — sequential numeric ids (`M101`), the historical grammar
+//   - `M_<key>` — opaque tracker-derived ids (`M_PROJ_500`, `M_PROJ-500`,
+//     `M_0K0K0K`, `M_550e84`). THREE producers feed this one branch, and only
+//     the first is Jira: `milestoneIdFromEpicKey` (a Jira Epic key),
+//     `milestoneIdFromUlid` (a minted ULID's tail, `mode: none`) and
+//     `milestoneIdFromLinearMilestone` (a Linear milestone identifier's leading
+//     six hex). The key is OPAQUE — the branch is deliberately one grammar for
+//     all three, so a reader must not infer the producer from the token.
 // Everything else (`M`, `M_`, `Mx`, `milestone-M5`, `M5-extra`) is malformed.
 //
 // Consumers embed the exported regex SOURCES into their larger patterns (plan
@@ -120,6 +126,47 @@ export function milestoneIdFromUlid(ulid: string): string {
   if (!isMilestoneToken(id)) {
     throw new Error(
       `milestoneIdFromUlid: minted id "${ulid}" does not derive a well-formed \`M_<key>\` milestone id (got "${id}")`,
+    );
+  }
+  return id;
+}
+
+/**
+ * The canonical UUID shape a Linear milestone identifier arrives in:
+ * `8-4-4-4-12` hex groups. The gate is a SHAPE check, not a version check —
+ * the identifier is opaque and belongs to the tracker.
+ */
+const LINEAR_MILESTONE_UUID_RE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * STE-539 AC-STE-539.3 — Linear milestone-id derivation, the tracker-first
+ * sibling of `milestoneIdFromEpicKey` and `milestoneIdFromUlid`, feeding the
+ * SAME opaque `M_<key>` branch of the union grammar (no grammar change:
+ * `EPIC_KEY_SOURCE` already admits a 6-char hex head, so `M_550e84` parses).
+ *
+ * The key is the LEADING six hex characters of the identifier the tracker
+ * allocated — `uuid.slice(0, 6)`. Deliberately NOT the ULID sibling's
+ * `slice(23, 29)` offsets: those exist because minted ULIDs are monotonic and
+ * share their leading characters within a millisecond, which is a fact about
+ * `ulid.ts` and not about a tracker-assigned UUID. Index 23 of a UUID is a
+ * group separator, so the borrowed offsets would sanitize to the malformed
+ * `M__44665` — a token with a `_` key head, which the union grammar rejects.
+ *
+ * Throws when the input is not UUID-shaped, or when the derived token is
+ * malformed under the union grammar — mirroring both siblings'
+ * never-a-silent-bad-id contract.
+ */
+export function milestoneIdFromLinearMilestone(uuid: string): string {
+  if (!LINEAR_MILESTONE_UUID_RE.test(uuid)) {
+    throw new Error(
+      `milestoneIdFromLinearMilestone: "${uuid}" is not a well-formed Linear milestone identifier (8-4-4-4-12 hex)`,
+    );
+  }
+  const id = `M_${uuid.slice(0, 6)}`;
+  if (!isMilestoneToken(id)) {
+    throw new Error(
+      `milestoneIdFromLinearMilestone: milestone identifier "${uuid}" does not derive a well-formed \`M_<key>\` milestone id (got "${id}")`,
     );
   }
   return id;
