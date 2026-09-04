@@ -155,6 +155,13 @@ const EXPECTED_SET_A: ReadonlySet<string> = new Set([
   "end_to_end_tests_edited",
   "end_to_end_none_needed",
   "end_to_end_suite_red",
+  // Post-M84 expansion (M139 STE-541): the Linear scheme-adoption notice. The
+  // pin moves consciously 42 → 43 — the key carries a literal
+  // `MUST emit \`linear_milestone_scheme_adopted\`` directive in /spec-write
+  // SKILL.md's milestone-number allocation guard, at the Linear branch that
+  // mints the identifier-derived milestone, keeping Set A = discovered
+  // directives.
+  "linear_milestone_scheme_adopted",
 ]);
 
 // Keys explicitly excluded from registration — they appear only as table-
@@ -267,9 +274,11 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
   // first-turn refusal disposition) → 38 (M126/STE-482
   // setup_allowlist_entries_added, the /setup allow-list merge report)
   // → 42 (M132/STE-512 the four /implement Phase 4 end-to-end authoring
-  // dispositions: tests_authored / tests_edited / none_needed / suite_red).
-  test("CANONICAL_CAPABILITY_KEYS length is exactly 42", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(42);
+  // dispositions: tests_authored / tests_edited / none_needed / suite_red)
+  // → 43 (M139/STE-541 linear_milestone_scheme_adopted, the once-per-project
+  // Linear scheme-changeover notice).
+  test("CANONICAL_CAPABILITY_KEYS length is exactly 43", () => {
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(43);
   });
 
   test("CANONICAL_CAPABILITY_KEYS contains every key in Set A", () => {
@@ -309,7 +318,7 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
     while ((match = re.exec(body)) !== null) {
       discovered.add(match[1]!);
     }
-    expect(discovered.size).toBe(42);
+    expect(discovered.size).toBe(43);
     for (const key of EXPECTED_SET_A) {
       expect(discovered.has(key)).toBe(true);
     }

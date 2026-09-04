@@ -1,8 +1,12 @@
 // STE-376 AC-STE-376.1 — centralized milestone-token union matcher.
 //
 // One exported matcher recognizes BOTH milestone-id shapes:
-//   - `M<N>`         — sequential numeric ids (`M101`), the historical grammar
-//   - `M_<epic-key>` — opaque Jira-Epic-keyed ids (`M_PROJ_500`, `M_PROJ-500`)
+//   - `M<N>`   — sequential numeric ids (`M101`), the historical grammar
+//   - `M_<key>` — opaque tracker-derived ids (`M_PROJ_500`, `M_PROJ-500`,
+//     `M_0K0K0K`, `M_550e84`), fed by THREE producers of which only the first
+//     is Jira: `milestoneIdFromEpicKey`, `milestoneIdFromUlid` and
+//     `milestoneIdFromLinearMilestone`. Kept in step with the module header it
+//     mirrors — the two are edited together or they desync.
 // and rejects malformed tokens (`M`, `M_`, `Mx`, `milestone-M5`, `M5-extra`).
 //
 // Contract pinned here:
@@ -131,6 +135,11 @@ describe("AC-STE-376.1 — consumers reference the shared matcher (STE-335 AC-7 
     // and a module comment claimed otherwise.
     join(sharedSrc, "deliver_stage_capture.ts"),
     join(sharedSrc, "deliver_argument.ts"),
+    // STE-539. The Linear mint derives its milestone id from the identifier
+    // the tracker allocates; it must reach the union grammar through this
+    // module, never through a private `M\\d+` (or a private `M_` composer) of
+    // its own — which is precisely the shape a tracker-first mint invites.
+    join(sharedSrc, "mint_milestone_linear.ts"),
   ];
 
   for (const file of CONSUMERS) {
@@ -244,5 +253,169 @@ describe("AC-STE-417.1 — the slice(23, 29) offsets are shared with acPrefix", 
     const tokenSrc = readFileSync(join(sharedSrc, "milestone_token.ts"), "utf-8");
     expect(acPrefixSrc).toContain("slice(23, 29)");
     expect(tokenSrc).toContain("slice(23, 29)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STE-539 AC-STE-539.3 / AC-STE-539.4 — `milestoneIdFromLinearMilestone`: the
+// Linear producer for the SAME opaque `M_<key>` branch `milestoneIdFromEpicKey`
+// and `milestoneIdFromUlid` already feed.
+//
+// No grammar change: `EPIC_KEY_SOURCE = [A-Za-z0-9][A-Za-z0-9_-]*` already
+// admits a 6-char hex head, so `M_550e84` parses today. This block pins the
+// NEW producer only, mirroring the ULID sibling's shape above:
+//   - `M_` + the LEADING SIX hex characters of the tracker's identifier
+//   - the shape, independently of the literal (6 chars, epic-key charset)
+//   - round-trip `parseMilestoneToken(milestoneIdFromLinearMilestone(u))`
+//   - throw on any input that fails the UUID-shape gate — never a silent bad
+//     id, mirroring `milestoneIdFromUlid`'s contract
+//
+// NOT `slice(23, 29)`: index 23 of a UUID is a HYPHEN. The dedicated leg below
+// makes that decision executable rather than a comment.
+//
+// The function is loaded lazily and per test, so that until it exists the RED
+// is scoped to these blocks instead of taking the whole file — and with it the
+// STE-376/STE-417 pins above — down on a module-link error that says nothing
+// about its own subject.
+// ---------------------------------------------------------------------------
+
+/** `[uuid, expected id]` — the literal table. */
+const LINEAR_FIXTURES: [string, string][] = [
+  ["550e8400-e29b-41d4-a716-446655440000", "M_550e84"],
+  ["6f1e2d3c-4b5a-4998-8877-665544332211", "M_6f1e2d"],
+  ["00000000-0000-4000-8000-000000000000", "M_000000"],
+  ["ffffffff-ffff-4fff-bfff-ffffffffffff", "M_ffffff"],
+];
+
+/** The canonical fixture, named because three separate legs read it. */
+const LINEAR_UUID = "550e8400-e29b-41d4-a716-446655440000";
+
+async function loadMilestoneIdFromLinearMilestone(): Promise<(uuid: string) => string> {
+  const mod = (await import("./milestone_token")) as {
+    milestoneIdFromLinearMilestone?: (uuid: string) => string;
+  };
+  if (typeof mod.milestoneIdFromLinearMilestone !== "function") {
+    throw new Error(
+      "adapters/_shared/src/milestone_token.ts does not export a `milestoneIdFromLinearMilestone` function",
+    );
+  }
+  return mod.milestoneIdFromLinearMilestone;
+}
+
+describe("AC-STE-539.3 — milestoneIdFromLinearMilestone derives M_<leading 6 hex>", () => {
+  for (const [uuid, expected] of LINEAR_FIXTURES) {
+    test(`${uuid} derives ${expected}`, async () => {
+      const milestoneIdFromLinearMilestone = await loadMilestoneIdFromLinearMilestone();
+      expect(milestoneIdFromLinearMilestone(uuid)).toBe(expected);
+    });
+  }
+
+  test("the derived id is exactly `M_${uuid.slice(0, 6)}` — the LEADING six", async () => {
+    const milestoneIdFromLinearMilestone = await loadMilestoneIdFromLinearMilestone();
+    for (const [uuid] of LINEAR_FIXTURES) {
+      expect(milestoneIdFromLinearMilestone(uuid)).toBe(`M_${uuid.slice(0, 6)}`);
+    }
+  });
+
+  test("the SHAPE is pinned independently of the literals — 6 chars, epic-key charset", async () => {
+    const milestoneIdFromLinearMilestone = await loadMilestoneIdFromLinearMilestone();
+    // A derivation emitting four or eight characters fails here even if
+    // someone updated the table above in step with it.
+    for (const [uuid] of LINEAR_FIXTURES) {
+      const id = milestoneIdFromLinearMilestone(uuid);
+      expect(id).toMatch(/^M_[A-Za-z0-9_]{6}$/);
+      expect(id.slice(2)).toHaveLength(6);
+      expect(isMilestoneToken(id)).toBe(true);
+    }
+  });
+});
+
+describe("AC-STE-539.3 — the offsets decision is executable, not a comment", () => {
+  test("slice(23, 29) lands on a hyphen and sanitizes to the malformed M__44665", async () => {
+    const milestoneIdFromLinearMilestone = await loadMilestoneIdFromLinearMilestone();
+
+    // A fact about UUIDs, not prose: index 23 is the fourth group separator.
+    expect(LINEAR_UUID.charAt(23)).toBe("-");
+
+    // The ULID sibling's offsets, applied here and sanitized the way
+    // `milestoneIdFromEpicKey` sanitizes, produce a token whose key head is
+    // `_` — malformed under the union grammar.
+    const wrong = `M_${LINEAR_UUID.slice(23, 29).replace(/[^A-Za-z0-9_]/g, "_")}`;
+    expect(wrong).toBe("M__44665");
+    expect(isMilestoneToken("M__44665")).toBe(false);
+    expect(parseMilestoneToken("M__44665")).toBeNull();
+
+    // And the SHIPPED derivation does not do that.
+    expect(milestoneIdFromLinearMilestone(LINEAR_UUID)).toBe("M_550e84");
+    expect(milestoneIdFromLinearMilestone(LINEAR_UUID)).not.toBe(wrong);
+  });
+});
+
+describe("AC-STE-539.3 — an identifier that will not sanitize is refused, never returned malformed", () => {
+  const MALFORMED: [string, string][] = [
+    ["", "empty string"],
+    ["not-a-uuid", "not a uuid at all"],
+    ["------------", "hyphens only"],
+    ["--0e8400-e29b-41d4-a716-446655440000", "canonical shape with its head hyphenated"],
+  ];
+
+  for (const [input, why] of MALFORMED) {
+    test(`${JSON.stringify(input)} (${why}) throws, naming the helper`, async () => {
+      const milestoneIdFromLinearMilestone = await loadMilestoneIdFromLinearMilestone();
+      // Matching the MESSAGE, so a `TypeError` from an unrelated line cannot
+      // score as the refusal.
+      expect(() => milestoneIdFromLinearMilestone(input)).toThrow(
+        /milestoneIdFromLinearMilestone/,
+      );
+    });
+  }
+
+  test("positive control — it is not simply throwing on everything", async () => {
+    const milestoneIdFromLinearMilestone = await loadMilestoneIdFromLinearMilestone();
+    // The literal table, re-run here so "it throws" is known not to be "it
+    // always throws". Without this the four refusals above are satisfied by a
+    // one-line `throw`.
+    for (const [uuid, expected] of LINEAR_FIXTURES) {
+      expect(milestoneIdFromLinearMilestone(uuid)).toBe(expected);
+    }
+  });
+});
+
+describe("AC-STE-539.4 — every emitted token parses as the epic-kind branch", () => {
+  test("the fixture table round-trips through the union grammar", async () => {
+    const milestoneIdFromLinearMilestone = await loadMilestoneIdFromLinearMilestone();
+    for (const [uuid] of LINEAR_FIXTURES) {
+      const id = milestoneIdFromLinearMilestone(uuid);
+      // `kind` compared against the LITERAL "epic" — never merely `!== null`,
+      // so a numeric or null parse fails here.
+      expect(parseMilestoneToken(id)).toEqual({ kind: "epic", key: id.slice(2) });
+      expect(parseMilestoneToken(id)).toEqual({ kind: "epic", key: uuid.slice(0, 6) });
+    }
+  });
+
+  test("200 real crypto.randomUUID() values all parse as epic", async () => {
+    const milestoneIdFromLinearMilestone = await loadMilestoneIdFromLinearMilestone();
+    for (let i = 0; i < 200; i += 1) {
+      const uuid = crypto.randomUUID();
+      const id = milestoneIdFromLinearMilestone(uuid);
+      expect(parseMilestoneToken(id)).toEqual({ kind: "epic", key: id.slice(2) });
+      expect((parseMilestoneToken(id) as { kind: "epic"; key: string }).key).toHaveLength(6);
+    }
+  });
+
+  test("the derived id is accepted by isMilestoneToken and names a legal plan file", async () => {
+    const milestoneIdFromLinearMilestone = await loadMilestoneIdFromLinearMilestone();
+    for (let i = 0; i < 200; i += 1) {
+      const id = milestoneIdFromLinearMilestone(crypto.randomUUID());
+      expect(isMilestoneToken(id)).toBe(true);
+      expect(PLAN_FILENAME_RE.test(`${id}.md`)).toBe(true);
+    }
+  });
+
+  test("re-deriving from the parsed key reproduces the id (M_ + key)", async () => {
+    const milestoneIdFromLinearMilestone = await loadMilestoneIdFromLinearMilestone();
+    const id = milestoneIdFromLinearMilestone(LINEAR_UUID);
+    const parsed = parseMilestoneToken(id) as { kind: "epic"; key: string };
+    expect(`M_${parsed.key}`).toBe(id);
   });
 });

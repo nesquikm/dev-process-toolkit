@@ -440,8 +440,20 @@ export function scanSurfaceForModuleReferences(
  * references to `docs_config.ts` (skills/docs/SKILL.md and
  * skills/implement/SKILL.md) stopped naming a module nothing runnable reaches.
  * A LOWERING again; the pin has still never been raised.
+ *
+ * Re-measured 131 → 130 under M139/STE-541: the Linear branch now mints its
+ * identity from the tracker, which left `next_free_milestone_number.ts` with no
+ * runtime importer at all. It was retargeted rather than deleted — it still
+ * carries the explicit-`M<N>` collision refusal — and given its own
+ * `import.meta.main` front door, so its single ordered reference
+ * (skills/spec-write/SKILL.md) stopped naming a module nothing runnable
+ * reaches. Exactly one module left the set and none entered it:
+ * `mint_milestone_linear.ts` gained a front door in the same FR for a
+ * different reason — the guard's prose now names it, and a newly-named
+ * unreachable module on that same line would have cancelled this lowering.
+ * A LOWERING again; the pin has still never been raised.
  */
-export const ORDERED_UNREACHABLE_PIN = 131;
+export const ORDERED_UNREACHABLE_PIN = 130;
 
 // ---------------------------------------------------------------------------
 // The probe

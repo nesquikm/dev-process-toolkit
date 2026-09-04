@@ -227,9 +227,47 @@ const PROBE_MODULES = {
 // freeze on a live module trips on every legitimate refactor while carrying no
 // information. Re-recording is legitimate when it is deliberate, reviewed, and
 // carries evidence. Do it that way or not at all.
+// ── Re-record #2, M139/STE-541 (`planIdentity` only; `identity` untouched).
+//
+// AC-STE-541.3 requires retiring this module's header rationale, which stated
+// as load-bearing fact that sequential numbering is `mode: linear`'s CORRECT
+// shape and that the linear arm never mints an `M_` plan. M139 makes Linear
+// mint from the tracker, so that sentence became false about the very
+// dispatcher it describes — and leaving it would have been worse than a stale
+// comment, because this module's prose is the stated reason its arms are
+// keyed on the mode STRING rather than the `isTracker` boolean.
+//
+// So the digest and AC-STE-541.3 are an UNSATISFIABLE PAIR: one forbids the
+// module changing, the other requires it. Both are shipped ACs; the pair is
+// recorded in `specs/plan/M139.md` with both sides named, which is where this
+// repo puts a conflict it resolves rather than hides.
+//
+// Evidence, per the protocol immediately above — this edit is BEHAVIOUR-NEUTRAL,
+// which is the complement of M138's case and a weaker claim to have to make:
+//   * `git diff -U0` on the module yields comment-only changes throughout —
+//     EVERY changed line is a comment. Filtering the diff for non-comment
+//     changed lines returns empty. No executable line was touched.
+//   * The module's behavioural suites — gate-check-plan-identity-mode-conditional,
+//     m119-ste-441, m120-ste-443, m126-ste-481, m137-plan-narrative-provenance —
+//     were run against it: 172 pass / 508 `expect()` calls, with the single
+//     failure being AC-STE-481.3, which fails for an unrelated and separately
+//     recorded reason (it calls `resolveMilestoneIdentity` in `mode: linear`
+//     with no milestone-create op, an expectation this milestone retires) and
+//     is red with or without this comment edit.
+//
+// The AUDIT stage then found a THIRD stale sentence in the same header, missed
+// by the first sweep, and it is folded into this same re-record rather than
+// left for a follow-up: the `mode: none` scope limit justified itself by
+// claiming the linear arm "never mints `M_<6-char>` plans from a ULID". The
+// CONCLUSION is right and the pass is correct, but that REASON died with this
+// milestone — a Linear-derived token is `M_` plus six leading hex, and an
+// all-digit hex run matches `MINTED_TAIL_RE` exactly as a Crockford tail does.
+// What actually keeps the pass correct is that it runs on the `mode: none` arm
+// alone. A scope limit defended by a false reason is the kind of comment that
+// survives until someone widens the scope trusting it.
 const PROBE_MODULE_SHA256 = {
   identity: "ea2ca90d8e00c119bea9cd02c30d23b58f7a4a076ed7557800cb1db0e6d63326",
-  planIdentity: "3017e243f529f19442e5aa07a36d5e18aa1c5bdb1c77e3f4472285ed86618833",
+  planIdentity: "88939b7ddade4a40e1ecbb2b1fbcd85fef5ed1678bccd41a94686e05b0a0aad2",
 } as const;
 
 /** The two canonical probe sentences the retired assertions demanded verbatim. */

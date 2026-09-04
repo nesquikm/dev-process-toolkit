@@ -181,7 +181,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.76.0 — "Answerable"** (M141, release tooling front doors: the three modules that would do the release's work carried no entry point and no non-test importer, so the ceremony was prose an operator followed by hand — and the closing line stating the test count at release was typed from memory, wrongly, three times on one release. Ordering the writer made eleven shipped promises checkable for the first time and every one of them was false; all eleven are closed. The bump inferrer now reads both frontmatter spellings, so this release is the first to compute its own version with nobody hand-mapping anything, and the release-surface check now runs after the bump, where a disagreement between the README banner and the CHANGELOG is observable rather than impossible.)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.77.0 — "Provenance"** (M139, tracker-first Linear milestones: a Linear milestone identity used to be a sequential number computed locally from a five-way scan and then stamped onto a tracker object. It now comes FROM the tracker — create the project milestone under the human title, read the identifier back, derive the identity from it — which is the order Jira has used since the Epic-first path shipped. Issues bind to milestones by deriving each candidate's identifier forward and comparing, never by name, because a milestone that keeps its human title can never byte-equal the plan heading again. The sequential allocator is retargeted rather than deleted: it still guards a hand-typed identity, now behind its own front door.)
 
 ## Core Philosophy
 

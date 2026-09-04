@@ -493,7 +493,19 @@ describe("AC-STE-544.7 — M139's workaround line is removed, the rest intact", 
   test("the plan's other content is unchanged", () => {
     const body = plan();
     expect(body).toContain("## M139 — Tracker-First Linear Milestones {#M139}");
-    expect(body).toContain("**Release target:** v2.76.0 (provisional, minor — all three FRs are Changed).");
+    // RETARGETED by M139/STE-541, and the reason is worth recording because
+    // this pin could not have survived either way. M141 froze M139's release
+    // target at the literal `v2.76.0` — and then M141 SHIPPED as v2.76.0
+    // itself, taking the number out from under the plan it was pinning. So the
+    // frozen literal became unsatisfiable the moment M141 released: M139 must
+    // move, and this assertion had to move with it. The replacement is not
+    // hand-picked either — `inferBump`, fed M139's three FRs exactly as
+    // `parseFrontmatter` returns them, answers 2.77.0.
+    //
+    // What this leg is actually for survives intact: it proves the M139 plan
+    // still HAS a release-target line in the canonical shape, so a plan that
+    // lost it during the workaround removal would still red.
+    expect(body).toContain("**Release target:** v2.77.0 (minor — all three FRs are Changed).");
     expect(body).toContain("### Dependency graph");
     expect(body).toContain("`cd plugins/dev-process-toolkit && bun test`");
     for (const fr of ["STE-539", "STE-540", "STE-541"]) {
@@ -502,9 +514,24 @@ describe("AC-STE-544.7 — M139's workaround line is removed, the rest intact", 
   });
 
   test("all 12 task bullets survive the deletion", () => {
+    // COUNTS TOTAL TASKS, checked or not — retargeted by M139/STE-541, and the
+    // original form was wrong rather than merely stale.
+    //
+    // This leg exists to prove the workaround-line deletion removed no TASK.
+    // It measured that by filtering `- [ ] `, i.e. UNCHECKED bullets, which
+    // silently made it assert something else entirely: that M139's tasks stay
+    // unchecked forever. Ticking a task off is not removing it — but the
+    // predicate could not tell those apart, so the leg was green only while
+    // M139 was unimplemented and failed the moment it was implemented, which
+    // is the one moment it was never meant to fire.
+    //
+    // The fix is NOT to leave the plan's tasks unticked to satisfy it: the
+    // checkboxes are real state, `/implement` step 13 ticks them by contract,
+    // and probe #14's carve-outs read them. So the predicate is corrected to
+    // the claim it was always making — twelve tasks still EXIST.
     const bullets = plan()
       .split("\n")
-      .filter((line) => line.startsWith("- [ ] "));
+      .filter((line) => line.startsWith("- [ ] ") || line.startsWith("- [x] "));
     expect(bullets.length).toBe(12);
   });
 });

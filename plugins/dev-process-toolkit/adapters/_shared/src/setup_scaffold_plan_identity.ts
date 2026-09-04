@@ -10,10 +10,14 @@
 // the author's first `/spec-write`.
 //
 // DELIBERATELY NOT `resolveMilestoneIdentity`. That dispatcher answers "what is
-// the NEXT milestone": its `linear` branch runs the five-way availability scan
-// rather than the literal `M1` step 8 has always written, and its `jira` branch
-// throws on the absent bootstrap Epic key — the bootstrap plan is written
-// before any Epic exists. This helper answers the narrower question "what does
+// the NEXT milestone", and every one of its tracker branches answers it in a
+// way the bootstrap cannot use. Its `linear` branch MINTS — since STE-541 it
+// creates a project milestone in the tracker and derives the identity from the
+// identifier that comes back, so asking it for the bootstrap name would create
+// a real milestone for a plan `/setup` names `M1` by convention; before that it
+// ran the five-way availability scan, which likewise never yielded the literal
+// `M1` step 8 has always written. Its `jira` branch throws on the absent
+// bootstrap Epic key — the bootstrap plan is written before any Epic exists. This helper answers the narrower question "what does
 // /setup call the bootstrap plan", so it shares only the `none` branch's
 // delegate (`mintMilestoneId`) and hard-codes the sequential bootstrap name for
 // the tracker modes.

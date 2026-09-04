@@ -158,6 +158,13 @@ export const CANONICAL_CAPABILITY_KEYS = [
   "end_to_end_tests_edited",
   "end_to_end_none_needed",
   "end_to_end_suite_red",
+  // M139: the Linear scheme-changeover notice. /spec-write's Linear branch
+  // emits it at the FIRST identifier-derived mint in a project whose
+  // `specs/plan/` still holds sequential `M<N>` plans — a once-per-project
+  // changeover row, not a per-run one, and it stops firing once such a
+  // milestone exists. No state file backs it: the plan tree IS the record,
+  // which is why no migration-registry entry ships with it.
+  "linear_milestone_scheme_adopted",
 ] as const;
 
 export type CapabilityKey = (typeof CANONICAL_CAPABILITY_KEYS)[number];
@@ -168,7 +175,7 @@ export type CapabilityKey = (typeof CANONICAL_CAPABILITY_KEYS)[number];
  * static map source); future keys can route to `gate-check` or
  * `smoke-test` SKILL.md by adding a row.
  */
-const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
+export const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   spec_write_draft_default_applied: "spec-write",
   spec_write_draft_declined: "spec-write",
   spec_write_commit_default_applied: "spec-write",
@@ -260,6 +267,12 @@ const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   end_to_end_tests_edited: "spec-write",
   end_to_end_none_needed: "spec-write",
   end_to_end_suite_red: "spec-write",
+  // M139: the Linear scheme-adoption notice. Routes to spec-write for the same
+  // reason as every row above — the § 7 static map is the canonical owner
+  // surface this probe enforces — and the MUST-emit directive itself lives in
+  // /spec-write's milestone-number allocation guard, at the Linear branch that
+  // does the minting.
+  linear_milestone_scheme_adopted: "spec-write",
 };
 
 /**
