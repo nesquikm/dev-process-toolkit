@@ -158,27 +158,12 @@ export const STACK_LAYOUTS: ReadonlyArray<StackLayoutEntry> = [
   },
 ];
 
-/**
- * The layout assumed when NO marker resolves.
- *
- * This is the TypeScript shape the pre-commit classifier recognised before
- * STE-547, kept byte-for-byte in behaviour so an unrecognised project keeps
- * today's verdicts rather than silently losing its guard. Naming a distinct
- * fourth verdict for "could not tell" is STE-548, not this module.
- */
-export const FALLBACK_LAYOUT: StackPathLayout = {
-  sourceDirs: ["src/"],
-  sourceExtensions: [".ts", ".tsx", ".js"],
-  testDirs: ["__tests__/"],
-  testGlobs: [
-    "**/*.test.ts",
-    "**/*.test.tsx",
-    "**/*.test.js",
-    "**/*.spec.ts",
-    "**/*.spec.tsx",
-    "**/*.spec.js",
-  ],
-};
+// STE-548 retired the "layout assumed when NO marker resolves" constant that
+// stood here. There is no such layout any more: a project no marker resolves for
+// is not silently read as a TypeScript one, it is reported as unidentified. What
+// stood here was also a SECOND divergent TypeScript layout beside the
+// `package.json` entry above — three extensions and one test directory against
+// six and two — which is the private copy M142 exists to end.
 
 /** Path predicates derived from one layout. */
 export interface LayoutPredicates {

@@ -4,10 +4,12 @@
 //
 // Refusing hook: on `git commit*`, runs `git diff --cached --name-only` to
 // find staged files, then asks `classifyStagedPaths` for a verdict:
-//   - "spec-only"    → exit 0 (carve-out: pure spec/plan/requirements commit)
-//   - "no-fr"        → exit 0 (no FR-related paths; STE-290 didn't flag)
-//   - "tdd-required" → require a `dev-process-toolkit:tdd` Skill tool_use in
-//                       the session transcript (exit 2 on miss).
+//   - "spec-only"     → exit 0 (carve-out: pure spec/plan/requirements commit)
+//   - "no-fr"         → exit 0 (no FR-related paths; STE-290 didn't flag)
+//   - "stack-unknown" → exit 0 + an NFR-10 `Reminder:` on stderr (STE-548: no
+//                        stack marker resolved, so the guard could not look).
+//   - "tdd-required"  → require a `dev-process-toolkit:tdd` Skill tool_use in
+//                        the session transcript (exit 2 on miss).
 //
 // Spec-only carve-out fires iff the staged set is NON-EMPTY, EVERY path
 // matches one of the SPEC_PATTERNS below, AND NO path matches the
@@ -24,10 +26,13 @@
 // back into the spec-only carve-out (placeholder + FR file stays mixed,
 // hence tdd-required).
 
-import { parseHookPayload, requireSkillToolUse } from "../session.ts";
+import {
+  emitNFR10,
+  parseHookPayload,
+  requireSkillToolUse,
+} from "../session.ts";
 import {
   buildLayoutPredicates,
-  FALLBACK_LAYOUT,
   resolveStackLayout,
   type LayoutPredicates,
   type StackLayoutEntry,
@@ -60,14 +65,16 @@ const isSpecPath = (p: string): boolean =>
   SPEC_PATTERNS.some((re) => re.test(p));
 
 /**
- * The predicates for a resolved table entry, with the no-marker fallback applied
- * in ONE place. The verdict below and the STE-360 subtraction in the entrypoint
- * must read the same layout — a project that fell back to the TypeScript shape
- * for one and to a stack's own rules for the other could raise the requirement
- * under one layout and waive it under another.
+ * The predicates for a RESOLVED table entry — one place, so the verdict below
+ * and the STE-360 subtraction in the entrypoint read the same layout. A project
+ * that used one stack's rules for the verdict and another's for the subtraction
+ * could raise the requirement under one and waive it under the other.
+ *
+ * STE-548: there is no `null` leg any more. An unresolved marker no longer picks
+ * a default layout to guess with — it never reaches a predicate at all.
  */
-const predicatesFor = (entry: StackLayoutEntry | null): LayoutPredicates =>
-  buildLayoutPredicates(entry?.layout ?? FALLBACK_LAYOUT);
+const predicatesFor = (entry: StackLayoutEntry): LayoutPredicates =>
+  buildLayoutPredicates(entry.layout);
 
 /**
  * The STE-290 trigger for ONE staged path: FR markdown (stack-independent) or a
@@ -82,26 +89,33 @@ const isTddRequiredPath = (
   isTest: (p: string) => boolean,
 ): boolean => FR_RE.test(path) || isTest(path);
 
-export type StagedClassification = "spec-only" | "tdd-required" | "no-fr";
+export type StagedClassification =
+  | "spec-only"
+  | "tdd-required"
+  | "no-fr"
+  | "stack-unknown";
 
 /**
- * Classify a staged-paths list into one of three verdicts that drive the
+ * Classify a staged-paths list into one of FOUR verdicts that drive the
  * pre-commit /tdd orchestrator's early-exit decision.
  *
- *   - "spec-only"    — staged set is non-empty, every path matches a spec
- *                       pattern, and no path matches src/test patterns.
- *                       Hook exits 0 (carve-out).
- *   - "tdd-required" — staged set contains an FR-markdown path or any
- *                       test-related path (`__tests__` dir or test/spec
- *                       suffix). Hook requires /tdd Skill tool_use.
- *   - "no-fr"        — neither carve-out nor STE-290 trigger fires; hook
- *                       exits 0 (e.g., empty set, pure README/CHANGELOG).
+ *   - "spec-only"     — staged set is non-empty and every path matches a spec
+ *                        pattern (and, where a stack resolved, no path matches
+ *                        its src/test rules). Hook exits 0 (carve-out).
+ *   - "tdd-required"  — staged set contains an FR-markdown path or any path the
+ *                        resolved stack calls a test. Hook requires a /tdd
+ *                        Skill tool_use.
+ *   - "no-fr"         — a stack resolved and neither carve-out nor the STE-290
+ *                        trigger fired; hook exits 0 (empty set, pure
+ *                        README/CHANGELOG). "Nothing to guard."
+ *   - "stack-unknown" — STE-548: NO stack marker resolved, so nothing could be
+ *                        classified. "Could not tell", which is not the same
+ *                        claim as "nothing to guard" — hook exits 0 with an
+ *                        NFR-10 `Reminder:` naming the project.
  *
  * `projectRoot` is OPTIONAL and only selects WHICH stack's conventions apply;
  * it defaults to walking up from the process cwd to the first stack marker (or
- * the enclosing `.git` checkout root, whichever comes first). A project no
- * marker resolves for keeps the pre-STE-547 TypeScript layout, so its verdicts
- * are unchanged rather than silently unguarded.
+ * the enclosing `.git` checkout root, whichever comes first).
  */
 export function classifyStagedPaths(
   paths: string[],
@@ -125,9 +139,26 @@ export function classifyStagedPathsForEntry(
   if (paths.length === 0) {
     return "no-fr";
   }
+  // Computed ONCE and read by both branches below, because the question is
+  // stack-independent by construction: `specs/frs/*.md` is spec material
+  // whatever the project is written in. Two copies of this rule could drift,
+  // and the no-entry branch is exactly where a drifted copy would silently
+  // delete `spec-only` (AC-STE-548.6).
+  const allSpec = paths.every(isSpecPath);
+  if (entry === null) {
+    // STE-548. The spec carve-out is answered FIRST and deliberately: a staged
+    // set of nothing but spec files carries nothing a stack could have told us
+    // about. Reporting "could not tell" ahead of the carve-out would fold
+    // `spec-only` away in exactly the projects this FR is about.
+    if (allSpec) {
+      return "spec-only";
+    }
+    // Anything else: we cannot say whether this commit needed a guard, and
+    // saying "no-fr" would claim we had looked.
+    return "stack-unknown";
+  }
   const { isSource, isTest } = predicatesFor(entry);
   const hasSrcOrTest = paths.some((p) => isSource(p) || isTest(p));
-  const allSpec = paths.every(isSpecPath);
   if (!hasSrcOrTest && allSpec) {
     return "spec-only";
   }
@@ -152,6 +183,24 @@ async function gitOut(
   const stdout = await new Response(proc.stdout).text();
   const exitCode = await proc.exited;
   return { exitCode, stdout };
+}
+
+/**
+ * The project root the STE-548 advisory should NAME — not `process.cwd()`.
+ *
+ * `resolveStackLayout` walks UP from the cwd to the first stack marker or the
+ * enclosing `.git`, and the paths it classifies come back from `git diff
+ * --cached` relative to the CHECKOUT ROOT. So on a commit made from a
+ * subdirectory the cwd is neither the root the search covered nor the directory
+ * the remedy asks for a marker in, and naming it tells the operator about the
+ * wrong project. On the `stack-unknown` path no marker resolved anywhere between
+ * the cwd and the checkout root, which makes the checkout root precisely where
+ * the walk stopped. Falls back to the cwd when git cannot answer.
+ */
+async function advisoryProjectRoot(): Promise<string> {
+  const { exitCode, stdout } = await gitOut(["rev-parse", "--show-toplevel"]);
+  const root = stdout.trim();
+  return exitCode === 0 && root.length > 0 ? root : process.cwd();
 }
 
 // ---------------------------------------------------------------------------
@@ -212,6 +261,24 @@ if (import.meta.main) {
   // while the requirement was raised under another.
   const entry = resolveStackLayout(process.cwd());
   const verdict = classifyStagedPathsForEntry(staged, entry);
+  if (verdict === "stack-unknown") {
+    // STE-548 — ADVISORY, never a refusal (AC-STE-548.4). Not knowing the stack
+    // is the toolkit's limitation, not the operator's mistake, so the commit
+    // proceeds; the line names WHICH project so the reminder is actionable —
+    // the root the verdict was computed against, which is not the cwd when the
+    // commit is made from a subdirectory.
+    emitNFR10(
+      "Reminder",
+      `no stack marker was identified for ${await advisoryProjectRoot()}, so the /tdd guard ` +
+        `could not tell whether this commit stages a source file and its test.`,
+      "add a recognised stack marker at the project root (for example " +
+        "`package.json`, `pubspec.yaml`, `pyproject.toml`, `go.mod`), or run " +
+        "/dev-process-toolkit:tdd yourself when this commit carries an FR.",
+      "dev-process-toolkit:tdd",
+      "pre-commit-tdd-orchestrator",
+    );
+    process.exit(0);
+  }
   if (verdict !== "tdd-required") {
     process.exit(0);
   }
@@ -220,7 +287,10 @@ if (import.meta.main) {
   // every path that triggered "tdd-required" is an exempt placeholder, the
   // commit passes without /tdd evidence; any remaining tdd-required path
   // (FR markdown, real test file) keeps the requirement in force.
-  const { isTest } = predicatesFor(entry);
+  // `tdd-required` is unreachable with no entry resolved — the null case answers
+  // `spec-only` or `stack-unknown` and has already exited above — so this is a
+  // narrowing of a state the classifier has ruled out, not an unchecked guess.
+  const { isTest } = predicatesFor(entry!);
   const required = staged.filter((p) => isTddRequiredPath(p, isTest));
   const exemptFlags = await Promise.all(required.map(isExemptPlaceholder));
   if (required.length > 0 && exemptFlags.every(Boolean)) {
