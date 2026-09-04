@@ -693,7 +693,9 @@ describe("AC-STE-546.5 — the marker decides, not parse success", () => {
 });
 
 // ===========================================================================
-// AC-STE-546.6 — registered by EXTENDING probe #63, not by adding #83
+// AC-STE-546.6 — registered by EXTENDING probe #63, not by adding a row of
+// its own. STE-546 minted no probe id; the next free id is whatever the live
+// registry ends at plus one — #83 went to M140's `external_link_verdicts`.
 // ===========================================================================
 
 const gateSkill = (): string => read(GATE_SKILL).replace(/\r\n/g, "\n");
@@ -714,25 +716,25 @@ function probeRow(n: number): string {
 }
 
 describe("AC-STE-546.6 — the probe count and its pinned sites do not move", () => {
-  test("the numbered probe list is still contiguous 1..82", () => {
+  test("the numbered probe list is still contiguous 1..83", () => {
     const numbers = [...gateSkill().matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
     expect(
       numbers.length,
       "the probe count moved — a new probe id drags sixty pinned sites across fifteen files",
-    ).toBe(82);
-    expect([...numbers].sort((a, b) => a - b)).toEqual(Array.from({ length: 82 }, (_, i) => i + 1));
+    ).toBe(83);
+    expect([...numbers].sort((a, b) => a - b)).toEqual(Array.from({ length: 83 }, (_, i) => i + 1));
   });
 
-  test("no `83.` row was registered", () => {
-    expect(gateSkill()).not.toMatch(/^83\. \*\*/m);
+  test("no `84.` row was registered", () => {
+    expect(gateSkill()).not.toMatch(/^84\. \*\*/m);
   });
 
-  test("README's two probe-count sentences still say 82", () => {
+  test("README's two probe-count sentences still say 83", () => {
     const readme = read(join(REPO_ROOT, "README.md"));
     const line = (re: RegExp): string =>
       readme.split("\n").find((l) => re.test(l)) ?? "";
-    expect(line(/numbered `\/gate-check` probes/)).toMatch(/\b82\b/);
-    expect(line(/which layers \d+ probes on top/)).toMatch(/\b82\b\s+probes/);
+    expect(line(/numbered `\/gate-check` probes/)).toMatch(/\b83\b/);
+    expect(line(/which layers \d+ probes on top/)).toMatch(/\b83\b\s+probes/);
   });
 
   test("row #63 is still plan_ship_coherence and still names its runner", () => {

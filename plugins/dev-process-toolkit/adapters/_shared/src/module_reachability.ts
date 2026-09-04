@@ -452,8 +452,31 @@ export function scanSurfaceForModuleReferences(
  * different reason — the guard's prose now names it, and a newly-named
  * unreachable module on that same line would have cancelled this lowering.
  * A LOWERING again; the pin has still never been raised.
+ *
+ * Re-measured 130 → 129 under M140/STE-543: the external-link verdicts probe
+ * grades records the authoring side wrote, so it imports the row parser from
+ * `scan_design_references.ts` rather than copying it — producer/consumer
+ * asymmetry has shipped here three times — and carries its own
+ * `import.meta.main` front door, because a registration whose module lacks one
+ * is exactly what this probe counts. Those two together made
+ * `scan_design_references.ts` reachable, so its ordered references stopped
+ * naming a module nothing runnable reaches. It carries TWO of them after this
+ * change, not one: skills/gate-check/SKILL.md:148 (probe #61's registration)
+ * and :170 (probe #83's, which names both modules on a single line). Both are
+ * reachable, so the arithmetic is unaffected — recorded because this block is
+ * the audit trail, and "single" was true only before the new registration. Exactly one module left the set and none
+ * entered it: `external_link_verdicts.ts` is ordered by its own new
+ * registration and is reachable through that same front door.
+ *
+ * Recorded honestly rather than claimed as a win: the drop is TRANSITIVE.
+ * A reader who follows probe #61's order still cannot execute
+ * `scan_design_references.ts` by hand — it has no front door of its own, only
+ * a reachable importer. Giving it one is the substantive fix and is left as a
+ * follow-up rather than smuggled in here, since M140 does not own that module.
+ *
+ * A LOWERING again; the pin has still never been raised.
  */
-export const ORDERED_UNREACHABLE_PIN = 130;
+export const ORDERED_UNREACHABLE_PIN = 129;
 
 // ---------------------------------------------------------------------------
 // The probe
