@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - An unrecognised layout is a loud signal, not a silent pass (STE-548)
 
+### Changed
+
+- A repository whose stack the toolkit cannot identify no longer has its commit refused. Staging a source file and its test in a markerless repo previously exited 2 on a TypeScript-shaped guess; it now exits 0 and prints the unidentified-stack reminder. Blocking a commit on the toolkit's own ignorance gets the hook disabled, which costs more than the miss it prevents (STE-548)
+
 ### Fixed
 
 - Derive the TDD hook's path predicates from the detected stack (STE-547)
