@@ -321,7 +321,7 @@ Optionally produce a JSON summary alongside the Markdown report so CI pipelines 
 }
 ````
 
-The `verdict` field uses one of: `GATE PASSED`, `GATE PASSED WITH NOTES`, `GATE FAILED`. **Closing summary — the status block.** `/gate-check` closes with **exactly one** `stage-status-block` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
+The `verdict` field uses one of: `GATE PASSED`, `GATE PASSED WITH NOTES`, `GATE FAILED`. **Closing summary — the status block.** `/gate-check` closes with **exactly one** `stage-status-block` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`. Skip this block when the invocation body carries the driven-run marker: the orchestrator drives the next step in the same turn.
 
 ```stage-status-block
 stage: gate-check   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md

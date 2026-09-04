@@ -223,7 +223,7 @@ The status block below **supersedes** the free-form shape this step formerly man
 
 Recommend `/gate-check` as the follow-up when anything was applied.
 
-**Closing summary — the status block.** `/upgrade` closes with **exactly one** `stage-status-block` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`.
+**Closing summary — the status block.** `/upgrade` closes with **exactly one** `stage-status-block` fence as the LAST thing in its report, with at most 12 lines of prose lead-in above it — the block **replaces** the narration this contract formerly mandated rather than riding beneath it. Fixed section order, the `- (none found)` fallback and the caps live in `docs/stage-status-block.md`; adoption is graded by `adapters/_shared/src/stage_block_adoption.ts`. Skip this block when the invocation body carries the driven-run marker: the orchestrator drives the next step in the same turn.
 
 ```stage-status-block
 stage: upgrade   # then milestone, status, summary, gate, drive, e2e, follow_ups in fixed order — docs/stage-status-block.md
