@@ -630,7 +630,7 @@ See `docs/auto-mode-protocol.md § Socratic Loop Contract` for the full contract
 **Enforced by**: `/gate-check` runs `runRootHygiene(specsDir, pluginJsonPath)` from `adapters/_shared/src/root_hygiene.ts` as one of its conformance probes. Two sub-checks:
 
 - **(a) Milestone-ID leakage** — grep `\bM\d+\b` in each root spec, walk up to the containing `##`/`###` heading, skip allowlist, then check `specs/plan/archive/M<N>.md` existence. Any remaining match → **GATE FAILED** with `<file>:<line>: archived milestone M<N> in live-framing`.
-- **(b) Version/status freshness** — compare `requirements.md` §1 `Latest shipped release: vX.Y.Z` against `plugin.json` `version`; verify `In-flight milestone: M<N>` (if named) resolves to a live `specs/plan/M<N>.md`. Drift → **GATE FAILED** naming the line + observed vs. expected value.
+- **(b) Version/status freshness** — compare `requirements.md` §1 `Latest shipped release: vX.Y.Z` against `plugin.json` `version`, and its quoted codename (when present) against the CHANGELOG entry for that version; verify `In-flight milestone: M<N>` (if named) resolves to a live `specs/plan/M<N>.md`. Both milestone tokens read the shared `M<N>` | `M_<key>` union grammar. Drift → **GATE FAILED** naming the line + observed vs. expected value.
 
 **Why grep-based, not AST**: markdown AST parsing is overkill for the pattern space, and grep produces stable line numbers a human can jump to. Captured in the M17 brainstorm deferred decision #4.
 

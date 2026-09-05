@@ -65,6 +65,61 @@ export class MalformedReleaseFilesError extends Error {
   }
 }
 
+/**
+ * STE-555. A `kind: regex` entry whose pattern matched nothing.
+ *
+ * A CLASS, not a message: the command-line door has to tell this miss apart
+ * from every other way a bumper can fail, because `optional: true` skips this
+ * one and nothing else. Matching on the message text would make the skip
+ * hostage to a wording change, and `optional` would then start guarding — or
+ * stop guarding — without anybody editing the guard.
+ */
+export class RegexPatternMissError extends Error {
+  readonly pattern: string;
+  constructor(pattern: string) {
+    super(`bumpRegex: pattern did not match`);
+    this.name = "RegexPatternMissError";
+    this.pattern = pattern;
+  }
+}
+
+/**
+ * STE-554. A `replace` template names `{codename}` and no codename was supplied.
+ *
+ * The shipped writer had no codename to render at all, so the placeholder went
+ * to disk as its six literal characters — measured on a v2.81.0 dry-run of this
+ * repository. Falling back to leaving `{version}` substituted and `{codename}`
+ * alone would reproduce that byte-for-byte, so the miss refuses instead.
+ */
+export class MissingCodenameError extends Error {
+  constructor() {
+    super(
+      "bumpRegex: `replace` template names {codename} but no codename was supplied",
+    );
+    this.name = "MissingCodenameError";
+  }
+}
+
+/**
+ * STE-555. The CHANGELOG already carries a section for the version being written.
+ *
+ * The shipped inserter looked only for the topmost `## [` heading, so a second
+ * run of an identical release produced a second identical section and reported
+ * success — the JSON bumpers being idempotent is what made the doubled file the
+ * only trace.
+ */
+export class DuplicateChangelogSectionError extends Error {
+  readonly version: string;
+  constructor(version: string) {
+    super(
+      `bumpChangelog: CHANGELOG already carries a \`## [${version}]\` section — ` +
+        `refusing to insert a second one`,
+    );
+    this.name = "DuplicateChangelogSectionError";
+    this.version = version;
+  }
+}
+
 const HEADING_RE = /^##\s+Release Files\s*$/m;
 const FENCE_RE = /```ya?ml\s*\n([\s\S]*?)\n```/;
 
@@ -412,6 +467,12 @@ export function bumpChangelog(
   // only move it off the boundary that actually writes release files.
   testCount?: ClosingLineCount,
 ): string {
+  // STE-555 AC-STE-555.4. Before anything is computed: the file already
+  // answers whether this release was written, and the answer is only knowable
+  // here, where the existing content is in hand.
+  if (hasChangelogSection(content, version)) {
+    throw new DuplicateChangelogSectionError(version);
+  }
   const header = `## [${version}] — ${date} — "${codename}"`;
   const bodyBlock = body.endsWith("\n") ? body : `${body}\n`;
   // The closing line is the LAST line of the new section, rendered from
@@ -430,19 +491,61 @@ export function bumpChangelog(
   return `${trimmed}\n\n${newSection}`;
 }
 
+/**
+ * True iff the CHANGELOG already carries a `## [<version>]` heading. The
+ * leading `v` is tolerated on the heading side, matching every other version
+ * comparison in the release path.
+ */
+function hasChangelogSection(content: string, version: string): boolean {
+  return new RegExp(String.raw`^##\s+\[v?${escapeRegex(version)}\]`, "m").test(content);
+}
+
+/**
+ * Rewrite every occurrence of `pattern` with the rendered `replace` template.
+ *
+ * THREE properties this function did not have, all measured on the shipped
+ * version (STE-554 / STE-555):
+ *
+ *  - `{codename}` renders. The shipped renderer substituted `{version}` alone
+ *    and `bumpFile` never forwarded a codename, so a template naming the
+ *    codename put the six characters `{codename}` on disk.
+ *  - EVERY occurrence is rewritten. `new RegExp(pattern)` carried no flags, so
+ *    a project naming its version twice got the first one bumped and a success
+ *    report for both.
+ *  - The template lands LITERALLY. The rewrite passed `rendered` as a
+ *    replacement STRING, so `$&`, `$1`, `` $` ``, `$'` and `$$` in a user's
+ *    template were expanded by the engine — measured: `[$&] v{version}`
+ *    produced `[v1.0.0] v2.0.0`. A replacer FUNCTION is the only form the
+ *    engine does not scan for `$` patterns; hand-escaping would hold until
+ *    something rendered a `$` of its own.
+ *
+ * `m` is deliberately NOT added alongside `g`: it would change what `^` and `$`
+ * mean in every consumer pattern already written against this writer.
+ */
 export function bumpRegex(
   content: string,
   pattern: string,
   replace: string,
   version: string,
+  codename?: string,
 ): string {
-  const re = new RegExp(pattern);
-  const m = re.exec(content);
-  if (!m) {
-    throw new Error(`bumpRegex: pattern did not match`);
+  if (replace.includes("{codename}") && codename === undefined) {
+    throw new MissingCodenameError();
   }
-  const rendered = replace.replace(/\{version\}/g, version);
-  return content.replace(re, rendered);
+  const re = new RegExp(pattern, "g");
+  // `test` on a global regex advances `lastIndex`; the rewrite below reuses the
+  // same instance, so the cursor is put back before it does. `replace` resets
+  // it too — asserting it here is what keeps the detection and the rewrite from
+  // disagreeing if either ever stops doing so (AC-STE-555.9).
+  const matched = re.test(content);
+  re.lastIndex = 0;
+  if (!matched) {
+    throw new RegexPatternMissError(pattern);
+  }
+  const rendered = replace
+    .replace(/\{version\}/g, version)
+    .replace(/\{codename\}/g, codename ?? "");
+  return content.replace(re, () => rendered);
 }
 
 export function bumpFile(file: ReleaseFile, content: string, opts: BumpOptions): string {
@@ -476,7 +579,11 @@ export function bumpFile(file: ReleaseFile, content: string, opts: BumpOptions):
         opts.testCount,
       );
     case "regex":
-      return bumpRegex(content, file.pattern!, file.replace!, opts.newVersion);
+      // STE-554 AC-STE-554.2: the codename is forwarded HERE. `BumpOptions`
+      // has always carried it and the changelog arm has always consumed it;
+      // this arm dropped it, which is why the README banner's codename went
+      // stale on every release since that entry was written.
+      return bumpRegex(content, file.pattern!, file.replace!, opts.newVersion, opts.codename);
   }
 }
 
@@ -771,12 +878,24 @@ if (import.meta.main) {
           throw new Error(`release_config: required release file is missing: ${entry.path}`);
         }
         const before = readFileSync(abs, "utf-8");
-        pending.push({
-          path: entry.path,
-          abs,
-          before,
-          content: bumpFile(entry, before, opts),
-        });
+        // STE-555 AC-STE-555.1. `optional` used to guard a missing FILE and
+        // nothing else, so an optional entry whose pattern stopped matching
+        // aborted the whole release — and the toolkit's own README entry is
+        // exactly that shape: `optional: true` over a hand-maintained banner
+        // that always exists. The skip reads the SAME declaration the
+        // `existsSync` branch above reads, and reports through the same
+        // channel; every other failure still throws (AC-STE-555.2).
+        let content: string;
+        try {
+          content = bumpFile(entry, before, opts);
+        } catch (error) {
+          if (error instanceof RegexPatternMissError && entry.optional) {
+            skipped.push({ path: entry.path, reason: "optional, pattern did not match" });
+            continue;
+          }
+          throw error;
+        }
+        pending.push({ path: entry.path, abs, before, content });
       }
       // Every refusal above is reached identically in both modes: the preview
       // is the SAME computation, and only this last step diverges. A preview
