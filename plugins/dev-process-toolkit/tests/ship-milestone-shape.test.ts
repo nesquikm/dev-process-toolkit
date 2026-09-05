@@ -216,11 +216,18 @@ describe("AC-STE-73.12 — CHANGELOG closing line with total test count", () => 
   });
 });
 
-describe("NFR-1 — 300-line budget + reference overflow", () => {
-  test("ship-milestone SKILL.md is ≤ 300 lines", () => {
+describe("NFR-1 — line budget + reference overflow", () => {
+  test("ship-milestone SKILL.md is ≤ 358 lines", () => {
+    // NFR-1 is 358 — `specs/requirements.md` and the one
+    // `const SKILL_LINE_CAP = 358;` in `tests/skill-nfr-1-length.test.ts`.
+    // This pin previously carried a superseded value (351 -> 352 under
+    // STE-373 -> 354 under STE-374 -> 358); a pin tighter than the contract
+    // reds a change the NFR permits, and one looser is a hole. Repointed by
+    // M_8f8e25/STE-558.
+    const SKILL_LINE_CAP = 358;
     const body = readSkill();
     const lines = body.split("\n").length;
-    expect(lines).toBeLessThanOrEqual(300);
+    expect(lines).toBeLessThanOrEqual(SKILL_LINE_CAP);
   });
 
   test("SKILL.md points to docs/ship-milestone-reference.md", () => {

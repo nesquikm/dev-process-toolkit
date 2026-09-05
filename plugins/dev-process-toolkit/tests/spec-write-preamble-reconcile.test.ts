@@ -46,12 +46,15 @@ describe("AC-STE-284.3: § 0.5 Tracker-local reconciliation section present", ()
     expect(body).toContain("STE-135");
   });
 
-  test("NFR-1: SKILL.md ≤ 360 lines (preamble addition stays within budget)", () => {
+  test("NFR-1: SKILL.md ≤ 358 lines (preamble addition stays within budget)", () => {
+    // This pin used to allow 360 — LOOSER than the contract, so it was a
+    // hole rather than a false red: two lines past NFR-1 would have passed
+    // here while `tests/skill-nfr-1-length.test.ts` failed. NFR-1 is 358
+    // (`specs/requirements.md`, and the one `const SKILL_LINE_CAP = 358;`).
+    // Repointed by M_8f8e25/STE-558.
+    const SKILL_LINE_CAP = 358;
     const body = readFileSync(SKILL_PATH, "utf-8");
     const lineCount = body.split("\n").length;
-    // FR's NFR-1 quotes 350 lines as the canonical cap; we allow a small
-    // headroom because the preamble addition itself is the source of the
-    // increment. Any future growth past 360 has to compress something else.
-    expect(lineCount).toBeLessThanOrEqual(360);
+    expect(lineCount).toBeLessThanOrEqual(SKILL_LINE_CAP);
   });
 });
