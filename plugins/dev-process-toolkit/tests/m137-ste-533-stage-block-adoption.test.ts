@@ -2058,7 +2058,7 @@ describe("AC-STE-533.8 — the adoption grader is registered on a runtime path",
   test("/gate-check registers it as probe #82, contiguous with the rest", () => {
     const registrations = probeRegistrationLines();
     const numbers = registrations.map((r) => r.number);
-    expect(numbers).toEqual(Array.from({ length: 83 }, (_, i) => i + 1));
+    expect(numbers).toEqual(Array.from({ length: 85 }, (_, i) => i + 1));
     const mine = registrations.filter((r) =>
       r.line.includes(`\`${ADOPTION_PROBE_ID}\``),
     );
@@ -2370,7 +2370,7 @@ const PROBE_COUNT_PINS: readonly (readonly [string, string])[] = [
  * 82, so the staleness half below could never fail again. M140/STE-543 moves
  * it to the count this cascade actually replaces.
  */
-const STALE_PROBE_COUNT = 82;
+const STALE_PROBE_COUNT = 83;
 
 const fill = (template: string, n: number): string =>
   template.split("{N}").join(String(n));
@@ -2381,9 +2381,9 @@ const surfaceBody = (rel: string): string =>
     : read(join(PLUGIN_ROOT, ...rel.split("/")));
 
 describe("AC-STE-533.8 — the probe-count cascade moved as one", () => {
-  test("the live count is 83 and README advertises it in BOTH places", () => {
+  test("the live count is 85 and README advertises it in BOTH places", () => {
     const live = liveProbeCount();
-    expect(live).toBe(83);
+    expect(live).toBe(85);
     const readme = read(README);
     expect(readme).toContain(`${live} numbered \`/gate-check\` probes`);
     expect(readme).toMatch(new RegExp(`layers ${live} probes`));

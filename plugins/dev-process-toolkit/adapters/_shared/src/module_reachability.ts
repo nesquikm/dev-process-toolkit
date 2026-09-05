@@ -408,75 +408,256 @@ export function scanSurfaceForModuleReferences(
 // ---------------------------------------------------------------------------
 
 /**
- * The count of references that are both ORDERED and UNREACHABLE across the two
- * shipped trees, as this check itself reported it at implementation time.
+ * ONE RECORDED MOVE of the pin: the count it took, the commit that made it,
+ * and why.
  *
- * A BARE LITERAL, never a value computed at load: a pin assigned from a call
- * is a mirror of the implementation and can never disagree with it, which is
- * the one thing a pin exists to do. Nothing here is carried from the design,
- * the FR or the plan — the design's own inventory figures measured NOT to
- * reproduce, which is the argument for generating this list rather than
- * writing it down.
- *
- * When this number moves, the run reds. Lowering it is the fix; raising it is
- * a decision to ship one more order nobody can carry out.
- *
- * Re-measured 139 → 137 under M137/STE-533: `stage_block_adoption.ts` gained
- * the `if (import.meta.main)` front door probe #82's registration requires, and
- * reachability is transitive — two references that were ordered-and-unreachable
- * are now ordered-and-reachable. A LOWERING, which is the sanctioned direction.
- *
- * Re-measured again 137 → 136 in the same milestone, for the same reason and by
- * the same remedy: `scan_fr_summary_altitude.ts` gained the `import.meta.main`
- * front door its sibling `scan_plan_narrative_altitude.ts` had carried since it
- * landed, so probe #67's one registration — which orders a reader to run BOTH
- * scanners — stopped naming a module nobody could run. A LOWERING again; the
- * pin has never been raised.
- *
- * Re-measured 133 → 131 under M141/STE-545: `release_config.ts` — which gained
- * its own `import.meta.main` front door in the same FR, and is therefore an
- * entry point — now imports `./docs_config` so the release writer can honour
- * `changelog_ci_owned`. Reachability is transitive, so the two ordered
- * references to `docs_config.ts` (skills/docs/SKILL.md and
- * skills/implement/SKILL.md) stopped naming a module nothing runnable reaches.
- * A LOWERING again; the pin has still never been raised.
- *
- * Re-measured 131 → 130 under M139/STE-541: the Linear branch now mints its
- * identity from the tracker, which left `next_free_milestone_number.ts` with no
- * runtime importer at all. It was retargeted rather than deleted — it still
- * carries the explicit-`M<N>` collision refusal — and given its own
- * `import.meta.main` front door, so its single ordered reference
- * (skills/spec-write/SKILL.md) stopped naming a module nothing runnable
- * reaches. Exactly one module left the set and none entered it:
- * `mint_milestone_linear.ts` gained a front door in the same FR for a
- * different reason — the guard's prose now names it, and a newly-named
- * unreachable module on that same line would have cancelled this lowering.
- * A LOWERING again; the pin has still never been raised.
- *
- * Re-measured 130 → 129 under M140/STE-543: the external-link verdicts probe
- * grades records the authoring side wrote, so it imports the row parser from
- * `scan_design_references.ts` rather than copying it — producer/consumer
- * asymmetry has shipped here three times — and carries its own
- * `import.meta.main` front door, because a registration whose module lacks one
- * is exactly what this probe counts. Those two together made
- * `scan_design_references.ts` reachable, so its ordered references stopped
- * naming a module nothing runnable reaches. It carries TWO of them after this
- * change, not one: skills/gate-check/SKILL.md:148 (probe #61's registration)
- * and :170 (probe #83's, which names both modules on a single line). Both are
- * reachable, so the arithmetic is unaffected — recorded because this block is
- * the audit trail, and "single" was true only before the new registration. Exactly one module left the set and none
- * entered it: `external_link_verdicts.ts` is ordered by its own new
- * registration and is reachable through that same front door.
- *
- * Recorded honestly rather than claimed as a win: the drop is TRANSITIVE.
- * A reader who follows probe #61's order still cannot execute
- * `scan_design_references.ts` by hand — it has no front door of its own, only
- * a reachable importer. Giving it one is the substantive fix and is left as a
- * follow-up rather than smuggled in here, since M140 does not own that module.
- *
- * A LOWERING again; the pin has still never been raised.
+ * This shape replaces a prose audit trail that sat above a bare literal. The
+ * prose stated the right rules — a lowering owes a reason, a raise is never
+ * sanctioned — and nothing read it, so the rules held only for as long as
+ * whoever moved the pin happened to re-read the comment. As data they are
+ * graded by `gradePinLedger`, which probe #81 runs on every gate run.
  */
-export const ORDERED_UNREACHABLE_PIN = 129;
+export interface UnreachablePinMove {
+  /** The count the pin took at this move. */
+  readonly value: number;
+  /** The commit that made it — a short sha, resolvable in this repository. */
+  readonly commit: string;
+  /** Why it moved. A blank rationale is refused. */
+  readonly rationale: string;
+}
+
+/**
+ * Every move the pin has made, NEWEST FIRST. The head IS the pin.
+ *
+ * ONE LITERAL, deliberately. The count used to be written in three places that
+ * had to agree byte-for-byte — here, in a sibling suite's `toBe(129)`, and in
+ * shipped prose — so the sanctioned direction cost three coordinated edits and
+ * a red file the lowering did not name. Lowering is now one prepended entry.
+ *
+ * STILL NOT COMPUTED AT LOAD, which was the original argument for a bare
+ * literal and survives intact: a pin assigned from a call to the thing it pins
+ * is a mirror of the implementation and can never disagree with it, which is
+ * the one thing a pin exists to do. Deriving the constant from the head of a
+ * hand-written list keeps it a written-down number; it stops being three of
+ * them.
+ *
+ * RECOVERED FROM GIT, not from recollection: `git log -L` over the constant
+ * yields all nine moves. The two oldest predate the prose trail entirely, so
+ * their rationales come from their own commit messages and say so.
+ */
+export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
+  {
+    value: 129,
+    commit: "5017488",
+    rationale:
+      "M140/STE-543: the external-link verdicts probe imports the row parser " +
+      "from `scan_design_references.ts` rather than copying it, and carries " +
+      "its own `import.meta.main` front door, so that module became reachable " +
+      "and its ordered references stopped naming a module nothing runnable " +
+      "reaches. The drop is TRANSITIVE — a reader following probe #61's order " +
+      "still cannot execute `scan_design_references.ts` by hand.",
+  },
+  {
+    value: 130,
+    commit: "6f62eb7",
+    rationale:
+      "M139/STE-541: the Linear branch mints its identity from the tracker, " +
+      "which left `next_free_milestone_number.ts` with no runtime importer. " +
+      "It was retargeted rather than deleted and given its own front door, so " +
+      "its single ordered reference stopped naming an unreachable module. " +
+      "Exactly one module left the set and none entered it.",
+  },
+  {
+    value: 131,
+    commit: "bc94a98",
+    rationale:
+      "M141/STE-545: `release_config.ts` gained a front door and now imports " +
+      "`./docs_config` so the release writer honours `changelog_ci_owned`. " +
+      "Reachability is transitive, so the two ordered references to " +
+      "`docs_config.ts` stopped naming a module nothing runnable reaches.",
+  },
+  {
+    value: 133,
+    commit: "2a444ff",
+    rationale:
+      "M137/STE-535: grandfathering pre-epoch plans moved three references " +
+      "into the reachable set. The commit records the move as the ratchet's " +
+      "good direction without naming the three; recovered from git rather " +
+      "than from a prose trail, and recorded here as the weaker evidence it is.",
+  },
+  {
+    value: 136,
+    commit: "8b97764",
+    rationale:
+      "M137/STE-534: `scan_fr_summary_altitude.ts` gained the " +
+      "`import.meta.main` front door its sibling `scan_plan_narrative_" +
+      "altitude.ts` had carried since it landed, so probe #67's registration " +
+      "— which orders a reader to run BOTH scanners — stopped naming a module " +
+      "nobody could run.",
+  },
+  {
+    value: 137,
+    commit: "a558449",
+    rationale:
+      "M137/STE-533: `stage_block_adoption.ts` gained the front door probe " +
+      "#82's registration requires, and reachability is transitive, so two " +
+      "ordered-and-unreachable references became ordered-and-reachable.",
+  },
+  {
+    value: 139,
+    commit: "60839ff",
+    rationale:
+      "M136/STE-527: `skip_baseline.ts` gained a `./branch_proposal` import, " +
+      "which made three previously-unreachable ordered references reachable.",
+  },
+  {
+    value: 142,
+    commit: "a1f8cd9",
+    rationale:
+      "M135/STE-522: giving minting a home whose name is computable made four " +
+      "ordered references reachable — the commit message names the count and " +
+      "the direction, which is the whole record that survives from before the " +
+      "prose trail began.",
+  },
+  {
+    value: 146,
+    commit: "b574073",
+    rationale:
+      "M133/STE-517: the count as this check itself first reported it. Not " +
+      "a move — the origin, and the only entry with no predecessor. Nothing " +
+      "here was carried from the design, the FR or the plan; the design's own " +
+      "inventory figures measured NOT to reproduce, which is the argument for " +
+      "generating this list rather than writing it down.",
+  },
+];
+
+/**
+ * The pinned count of references that are both ORDERED and UNREACHABLE across
+ * the two shipped trees.
+ *
+ * DERIVED FROM THE LEDGER HEAD, so the number has exactly one home. When it
+ * moves, the run reds. Lowering it is the fix; raising it is a decision to
+ * ship one more order nobody can carry out, and `gradePinLedger` refuses that
+ * rather than leaving it to a reader who may not be reading.
+ */
+export const ORDERED_UNREACHABLE_PIN: number = ORDERED_UNREACHABLE_PIN_LEDGER[0]!.value;
+
+/** What `gradePinLedger` says about a ledger. */
+export interface PinLedgerVerdict {
+  /** True only when the ledger owes no refusal. */
+  readonly ok: boolean;
+  /** One sentence per refusal, each naming the move it refuses. */
+  readonly refusals: readonly string[];
+}
+
+/**
+ * The lowering ceremony, executed rather than described.
+ *
+ * Three rules, each of which used to live in prose above the constant:
+ *
+ *   * a move carries a rationale — a lowering with no recorded reason is a
+ *     number nobody can audit later;
+ *   * a move carries the commit that made it — an audit trail that cannot be
+ *     resolved is decoration;
+ *   * the pin never RISES. A raise admits one more order nobody can carry out,
+ *     which is precisely the drift the pin exists to catch.
+ *
+ * A move that changes nothing is refused too: an entry recording the same
+ * count as its predecessor records no fix, and would let the ledger grow while
+ * the ceremony was skipped.
+ */
+export function gradePinLedger(ledger: readonly UnreachablePinMove[]): PinLedgerVerdict {
+  const refusals: string[] = [];
+
+  if (ledger.length === 0) {
+    return {
+      ok: false,
+      refusals: [
+        "the pin ledger is empty — the pin has no recorded value, and a count " +
+          "nobody wrote down cannot be a pin",
+      ],
+    };
+  }
+
+  for (const move of ledger) {
+    if (move.rationale.trim().length === 0) {
+      refusals.push(
+        `the move to ${move.value} (${move.commit || "no commit"}) carries no ` +
+          "rationale — a lowering is sanctioned only with the reason recorded " +
+          "beside it",
+      );
+    }
+    if (move.commit.trim().length === 0) {
+      refusals.push(
+        `the move to ${move.value} names no commit — an audit trail that ` +
+          "cannot be resolved is decoration",
+      );
+    }
+  }
+
+  // Newest first, so `ledger[i]` is the move that FOLLOWED `ledger[i + 1]`.
+  for (let i = 0; i + 1 < ledger.length; i++) {
+    const after = ledger[i]!;
+    const before = ledger[i + 1]!;
+    if (after.value > before.value) {
+      refusals.push(
+        `the pin was RAISED from ${before.value} to ${after.value} ` +
+          `(${after.commit || "no commit"}) — a raise ships one more order ` +
+          "nobody can carry out, which is the drift the pin exists to catch, " +
+          "and is never sanctioned",
+      );
+    } else if (after.value === before.value) {
+      refusals.push(
+        `the move to ${after.value} (${after.commit || "no commit"}) moved ` +
+          "nothing — an entry that changes no count records no fix",
+      );
+    }
+  }
+
+  return { ok: refusals.length === 0, refusals };
+}
+
+/**
+ * The move `commit` made, for a sibling suite asserting about its OWN
+ * milestone's landing value.
+ *
+ * This is the replacement for `expect(ORDERED_UNREACHABLE_PIN).toBe(<literal>)`
+ * in a suite that does not own the pin. That assertion is true for exactly one
+ * commit and reds every later lowering; this one is a fact about history and
+ * stays true forever.
+ */
+export function pinLedgerMove(
+  commit: string,
+  ledger: readonly UnreachablePinMove[] = ORDERED_UNREACHABLE_PIN_LEDGER,
+): UnreachablePinMove {
+  const move = ledger.find((m) => m.commit === commit);
+  if (move === undefined) {
+    throw new Error(
+      `the pin ledger records no move made by ${commit} — an assertion ` +
+        "against a move the ledger does not carry asserts nothing",
+    );
+  }
+  return move;
+}
+
+/**
+ * The count the pin held immediately BEFORE `commit` moved it, or `null` for
+ * the origin entry, which has no predecessor.
+ */
+export function pinValueBefore(
+  commit: string,
+  ledger: readonly UnreachablePinMove[] = ORDERED_UNREACHABLE_PIN_LEDGER,
+): number | null {
+  const index = ledger.findIndex((m) => m.commit === commit);
+  if (index < 0) {
+    throw new Error(
+      `the pin ledger records no move made by ${commit} — an assertion ` +
+        "against a move the ledger does not carry asserts nothing",
+    );
+  }
+  const before = ledger[index + 1];
+  return before === undefined ? null : before.value;
+}
 
 // ---------------------------------------------------------------------------
 // The probe
@@ -517,20 +698,33 @@ function isOrderedUnreachable(record: ModuleReferenceRecord): boolean {
 /**
  * Walk `plugins/dev-process-toolkit/{skills,docs}/**\/*.md` under
  * `projectRoot`, classify every module reference, and grade the
- * ordered-and-unreachable count against `ORDERED_UNREACHABLE_PIN`.
+ * ordered-and-unreachable count against the head of `ledger`.
+ *
+ * TWO SUBJECTS, both graded here. The COUNT, which is what the probe has
+ * always been about; and the LEDGER ITSELF, because the ceremony that governs
+ * a move used to be prose above a bare literal and was therefore enforced by
+ * nobody. A ledger that records a raise, or a move with no reason, is an error
+ * in the gate's own report rather than a finding in one suite.
+ *
+ * `ledger` is a parameter so the ceremony can be driven over fixtures. The
+ * default is the shipped ledger, so every existing call site is unchanged.
  *
  * SEVERITY IS NARROW BY DESIGN (AC-STE-517.12): the references this check
  * merely catalogues never fail the gate — they surface as ONE warning row
- * carrying the count. Only a count that has moved off the pin is an error.
- * A probe that redded every pre-existing order would be silenced within a day.
+ * carrying the count. Only a count that has moved off the pin, or a ledger
+ * that breaks the ceremony, is an error. A probe that redded every
+ * pre-existing order would be silenced within a day.
  *
  * Vacuous — zero records, zero violations, `ok: true` — when the walk finds no
  * module reference at all, which is the state of a project that never
  * installed the toolkit's own sources. Nothing found and nothing looked at are
- * therefore distinguishable by `records`, never conflated in `ok`.
+ * therefore distinguishable by `records`, never conflated in `ok`. A BROKEN
+ * LEDGER IS NOT VACUOUS: it is a property of the shipped module, not of the
+ * tree being scanned, so it is graded before the walk's own verdict.
  */
 export async function runModuleReachabilityProbe(
   projectRoot: string,
+  ledger: readonly UnreachablePinMove[] = ORDERED_UNREACHABLE_PIN_LEDGER,
 ): Promise<ModuleReachabilityReport> {
   const pluginRoot = join(projectRoot, "plugins", "dev-process-toolkit");
   const records: ModuleReferenceRecord[] = [];
@@ -549,16 +743,43 @@ export async function runModuleReachabilityProbe(
 
   const orderedUnreachable = records.filter(isOrderedUnreachable).length;
 
-  // Nothing looked at ⇒ nothing to grade. Vacuous, not a verdict of zero.
-  if (records.length === 0) {
-    return { ok: true, records, orderedUnreachable, violations };
+  // THE CEREMONY, EXECUTED. Graded before anything about the scanned tree,
+  // because a ledger that records a raise is wrong in a checkout that carries
+  // no markdown at all.
+  const verdict = gradePinLedger(ledger);
+  for (const refusal of verdict.refusals) {
+    const note = `${PROBE_MODULE_REL}:1 — ${refusal}`;
+    violations.push({
+      file: join(projectRoot, PROBE_MODULE_REL),
+      line: 1,
+      reason: refusal,
+      note,
+      severity: "error",
+      message: [
+        `${PROBE_ID}: ${note}`,
+        "Remedy: a move of the pin is one prepended `ORDERED_UNREACHABLE_PIN_" +
+          "LEDGER` entry carrying the new count, the commit that lands it, and " +
+          "why the count fell. Lowering is the sanctioned direction; raising " +
+          "the pin to admit a new unrunnable order is never sanctioned.",
+        `Context: file=${PROBE_MODULE_REL}, line=1, probe=${PROBE_ID}, ` +
+          "severity=error",
+      ].join("\n"),
+    });
   }
 
-  if (orderedUnreachable === ORDERED_UNREACHABLE_PIN) {
+  const pin = ledger[0]?.value ?? ORDERED_UNREACHABLE_PIN;
+
+  // Nothing looked at ⇒ nothing to grade ABOUT THE TREE. Vacuous, not a
+  // verdict of zero — but a ledger refusal already recorded still stands.
+  if (records.length === 0) {
+    return { ok: verdict.ok, records, orderedUnreachable, violations };
+  }
+
+  if (orderedUnreachable === pin) {
     if (orderedUnreachable > 0) {
       const reason =
         `${orderedUnreachable} module references are ordered and unreachable — ` +
-        `catalogued, at the pinned count (${ORDERED_UNREACHABLE_PIN})`;
+        `catalogued, at the pinned count (${pin})`;
       const note = `${PROBE_MODULE_REL}:1 — ${reason}`;
       violations.push({
         file: join(projectRoot, PROBE_MODULE_REL),
@@ -571,16 +792,16 @@ export async function runModuleReachabilityProbe(
           "Remedy: none required — these are pre-existing orders this check " +
             "catalogues rather than fails. Give one of the named modules a " +
             "command-line entry point, or reword its order into a description, " +
-            "and lower the pin by the same amount in the same commit.",
+            "and prepend a ledger entry recording the lower count and why.",
           `Context: file=${PROBE_MODULE_REL}, line=1, measured=${orderedUnreachable}, ` +
-            `pin=${ORDERED_UNREACHABLE_PIN}, probe=${PROBE_ID}, severity=warning`,
+            `pin=${pin}, probe=${PROBE_ID}, severity=warning`,
         ].join("\n"),
       });
     }
-    return { ok: true, records, orderedUnreachable, violations };
+    return { ok: verdict.ok, records, orderedUnreachable, violations };
   }
 
-  const direction = orderedUnreachable > ORDERED_UNREACHABLE_PIN ? "grown" : "fallen";
+  const direction = orderedUnreachable > pin ? "grown" : "fallen";
   const offenders = records
     .filter(isOrderedUnreachable)
     .slice(0, 10)
@@ -588,7 +809,7 @@ export async function runModuleReachabilityProbe(
     .join("; ");
   const reason =
     `ordered-and-unreachable count has ${direction}: measured ${orderedUnreachable}, ` +
-    `pinned ${ORDERED_UNREACHABLE_PIN}`;
+    `pinned ${pin}`;
   const note = `${PROBE_MODULE_REL}:1 — ${reason}`;
   violations.push({
     file: join(projectRoot, PROBE_MODULE_REL),
@@ -601,10 +822,11 @@ export async function runModuleReachabilityProbe(
       "Remedy: if the count GREW, a surface now orders a module nobody can " +
         "run — give that module an `import.meta.main` entry point, or reword " +
         "the order into a description. If the count FELL, that is the fix " +
-        `landing: lower \`ORDERED_UNREACHABLE_PIN\` to ${orderedUnreachable} in ` +
-        "the same commit. Never raise the pin to make a new order pass.",
+        "landing: prepend an `ORDERED_UNREACHABLE_PIN_LEDGER` entry recording " +
+        `${orderedUnreachable}, the commit that lands it, and why it fell. ` +
+        "Never raise the pin to make a new order pass.",
       `Context: file=${PROBE_MODULE_REL}, line=1, measured=${orderedUnreachable}, ` +
-        `pin=${ORDERED_UNREACHABLE_PIN}, probe=${PROBE_ID}, severity=error` +
+        `pin=${pin}, probe=${PROBE_ID}, severity=error` +
         (offenders ? `, sample=${offenders}` : ""),
     ].join("\n"),
   });

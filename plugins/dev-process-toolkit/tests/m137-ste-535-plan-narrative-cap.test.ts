@@ -1595,16 +1595,16 @@ describe("STE-535 wiring — probe id, severity and NFR-1 cap are UNMOVED", () =
     expect(entry).toContain(FR_SCANNER_REL);
   });
 
-  test("STE-535 minted no probe id of its own — the list ends where #83 left it", () => {
+  test("STE-535 minted no probe id of its own — the list ends where #85 left it", () => {
     const skill = readFileSync(GATE_CHECK_SKILL, "utf-8");
     const numbers = [...skill.matchAll(/^(\d+)\. \*\*`/gm)].map((m) => Number(m[1]));
     expect(numbers.length).toBeGreaterThan(0);
-    expect(Math.max(...numbers)).toBe(83);
+    expect(Math.max(...numbers)).toBe(85);
   });
 
-  test("README advertises the live count — 83 since STE-543 landed probe #83", () => {
+  test("README advertises the live count — 85 since STE-558 landed probes #84 and #85", () => {
     const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf-8");
-    expect(readme).toContain("83 numbered `/gate-check` probes");
+    expect(readme).toContain("85 numbered `/gate-check` probes");
     expect(readme).not.toMatch(/\b81\b numbered `\/gate-check` probes/);
   });
 

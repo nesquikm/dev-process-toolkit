@@ -591,8 +591,18 @@ describe("G6 — the documented vacuity contract names the template sentinel", (
   });
 
   test("the NFR-1 line cap still holds after the in-place edit", () => {
+    // NFR-1 is 358 — `specs/requirements.md` and the one
+    // `const SKILL_LINE_CAP = 358;` in `tests/skill-nfr-1-length.test.ts`.
+    // This pin carried 354 while CALLING it the NFR-1 cap: 354 is a superseded
+    // historical value (351 -> 352 under STE-373 -> 354 under STE-374 -> 358),
+    // so the pin was four lines tighter than the shipped contract and would
+    // have redded a change the NFR permits. Repointed by M_8f8e25/STE-558.
+    const SKILL_LINE_CAP = 358;
     const lines = read(GATE_SKILL).split("\n").length;
-    expect(lines, `skills/gate-check/SKILL.md is ${lines} lines by split("\\n")`).toBeLessThanOrEqual(354);
+    expect(
+      lines,
+      `skills/gate-check/SKILL.md is ${lines} lines by split("\\n")`,
+    ).toBeLessThanOrEqual(SKILL_LINE_CAP);
   });
 });
 

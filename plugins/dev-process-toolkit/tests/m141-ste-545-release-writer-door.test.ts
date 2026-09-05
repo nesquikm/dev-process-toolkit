@@ -59,6 +59,10 @@ import { detectGate } from "../adapters/_shared/src/capture_skip_baseline";
 import { readDocsConfig } from "../adapters/_shared/src/docs_config";
 import {
   ORDERED_UNREACHABLE_PIN,
+  ORDERED_UNREACHABLE_PIN_LEDGER,
+  gradePinLedger,
+  pinLedgerMove,
+  pinValueBefore,
   classifyReferenceLine,
   runModuleReachabilityProbe,
 } from "../adapters/_shared/src/module_reachability";
@@ -595,6 +599,9 @@ const PIN_BEFORE_THE_DOOR = 133;
  */
 const PIN_NOW = 131;
 
+/** The commit that landed M141's own lowering, 133 -> 131. The ledger's key. */
+const M141_PIN_COMMIT = "bc94a98";
+
 const DOCS_CONFIG_KEY = "adapters/_shared/src/docs_config.ts";
 
 /**
@@ -619,14 +626,38 @@ describe("AC-STE-545.7 — probe #81 stays put while the class flips", () => {
   });
 
   test("the pin only ever FELL, and by exactly the number of references named as the cause", () => {
+    // WHAT THIS USED TO BE (STE-557): `expect(PIN_NOW).toBeLessThan(
+    // PIN_BEFORE_THE_DOOR)` over two frozen literals in this file, compared to
+    // each other. Its name claimed to guard the pin; it never read the pin, so
+    // it could not fail on it. Measured: mutating the constant redded seven
+    // legs across five files and left this one green.
+    //
+    // Now it reads the LIVE ledger. M141's move is a fact about history and
+    // stays true; the live pin and the live ceremony are what the name claims.
+    const landed = pinLedgerMove(M141_PIN_COMMIT);
+    const before = pinValueBefore(M141_PIN_COMMIT);
+    expect(before, "M141's move is the ledger's origin, which it is not").not.toBeNull();
+    expect(landed.value, "the frozen landing value drifted from the ledger").toBe(PIN_NOW);
+    expect(before, "the frozen pre-door value drifted from the ledger").toBe(
+      PIN_BEFORE_THE_DOOR,
+    );
     expect(
-      PIN_NOW,
+      landed.value,
       "the pin was RAISED — that ships one more order nobody can carry out",
-    ).toBeLessThan(PIN_BEFORE_THE_DOOR);
+    ).toBeLessThan(before!);
     expect(
-      PIN_BEFORE_THE_DOOR - PIN_NOW,
+      before! - landed.value,
       "the drop is bigger than the references this file can account for",
     ).toBe(FLIPPED_BY_THE_DOCS_CONFIG_IMPORT.length);
+
+    // The half that makes this leg able to fail on the LIVE pin at all.
+    expect(
+      ORDERED_UNREACHABLE_PIN,
+      "the live pin is above M141's landing value — the pin was raised",
+    ).toBeLessThanOrEqual(landed.value);
+    const verdict = gradePinLedger(ORDERED_UNREACHABLE_PIN_LEDGER);
+    expect(verdict.refusals.join("\n")).toBe("");
+    expect(verdict.ok).toBe(true);
   });
 
   test("the probe over the working tree is green at that count", async () => {

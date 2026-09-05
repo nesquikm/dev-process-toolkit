@@ -141,8 +141,15 @@ describe("AC-STE-393.2 — /ship-milestone documents the migration pre-flight", 
     expect(body).toMatch(/registry|introduced_in/);
   });
 
-  test("ship-milestone SKILL.md stays within the NFR-1 line cap (354)", () => {
-    expect(skill().split("\n").length).toBeLessThanOrEqual(354);
+  test("ship-milestone SKILL.md stays within the NFR-1 line cap (358)", () => {
+    // NFR-1 is 358 — `specs/requirements.md` and the one
+    // `const SKILL_LINE_CAP = 358;` in `tests/skill-nfr-1-length.test.ts`.
+    // This pin carried 354 while CALLING it the NFR-1 cap: 354 is a superseded
+    // historical value (351 -> 352 under STE-373 -> 354 under STE-374 -> 358),
+    // so the pin was four lines tighter than the shipped contract and would
+    // have redded a change the NFR permits. Repointed by M_8f8e25/STE-558.
+    const SKILL_LINE_CAP = 358;
+    expect(skill().split("\n").length).toBeLessThanOrEqual(SKILL_LINE_CAP);
   });
 
   test("the new pre-flight prose adds no STE-N token (skills ceiling is at 246/246)", () => {
@@ -191,8 +198,15 @@ describe("AC-STE-393.3 — probe #68 `migration_coverage` is wired in gate-check
     expect(block).toMatch(/epoch|grandfather|exempt/i);
   });
 
-  test("gate-check SKILL.md stays within the NFR-1 line cap (354)", () => {
-    expect(skill().split("\n").length).toBeLessThanOrEqual(354);
+  test("gate-check SKILL.md stays within the NFR-1 line cap (358)", () => {
+    // NFR-1 is 358 — `specs/requirements.md` and the one
+    // `const SKILL_LINE_CAP = 358;` in `tests/skill-nfr-1-length.test.ts`.
+    // This pin carried 354 while CALLING it the NFR-1 cap: 354 is a superseded
+    // historical value (351 -> 352 under STE-373 -> 354 under STE-374 -> 358),
+    // so the pin was four lines tighter than the shipped contract and would
+    // have redded a change the NFR permits. Repointed by M_8f8e25/STE-558.
+    const SKILL_LINE_CAP = 358;
+    expect(skill().split("\n").length).toBeLessThanOrEqual(SKILL_LINE_CAP);
   });
 });
 
@@ -250,13 +264,13 @@ describe("AC-STE-393.6 — README probe-count pins move 68 → 69", () => {
     expect(body).not.toMatch(/layers 67 probes/);
   });
 
-  test("the Features bullet counts 83 numbered probes", () => {
+  test("the Features bullet counts 85 numbered probes", () => {
     // Recalibrated 82 → 83: M140 added #83 external_link_verdicts.
-    expect(readme()).toMatch(/\b83\b\s+numbered `\/gate-check` probes/);
+    expect(readme()).toMatch(/\b85\b\s+numbered `\/gate-check` probes/);
   });
 
-  test("the /implement-invokes-/tdd aside counts 83 probes", () => {
-    expect(readme()).toMatch(/layers 83 probes/);
+  test("the /implement-invokes-/tdd aside counts 85 probes", () => {
+    expect(readme()).toMatch(/layers 85 probes/);
   });
 });
 
