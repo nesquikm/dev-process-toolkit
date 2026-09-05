@@ -5,6 +5,7 @@ archived_at: 2026-09-05T07:48:33Z
 kickoff_branch: null
 frozen_at: null
 migration: none
+shipped_in: v2.80.1
 ---
 
 # Implementation Plan
