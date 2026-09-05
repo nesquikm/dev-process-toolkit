@@ -1,7 +1,7 @@
 ---
 milestone: M_dc2ecb
-status: active
-archived_at: null
+status: archived
+archived_at: 2026-09-05T07:48:33Z
 kickoff_branch: null
 frozen_at: null
 migration: none
