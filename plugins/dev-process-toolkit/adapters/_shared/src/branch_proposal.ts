@@ -89,7 +89,7 @@ function epicBranchKey(key: string): string {
  * renders as `_<epic_key>` in sanitizer form (`"M_PROJ_500"` →
  * `m_proj_500`); anything else passes through untouched (legacy behavior).
  */
-function milestoneBranchToken(milestone: string): string {
+export function milestoneBranchToken(milestone: string): string {
   const token = parseMilestoneToken(milestone);
   return token?.kind === "epic" ? `_${epicBranchKey(token.key)}` : milestone;
 }

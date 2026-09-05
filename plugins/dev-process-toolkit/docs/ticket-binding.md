@@ -12,6 +12,13 @@ runs unchanged.
 
 Tiers run in order. **First hit wins silently.**
 
+Tier 1 has **two branch-derived arms** and they are one tier, not two: both
+resolve from the branch name alone, deterministically, with no question asked.
+Tier 1 reads the ticket id off the branch; Tier 1b reads the milestone off the
+branch and looks up which FR binds it. Tier 2 is the only tier that involves a
+human, which is what the count is about — a skill running under `claude -p`
+either resolves in Tier 1 or has nowhere to go.
+
 ### Tier 1 — Branch-name regex
 
 Each adapter declares `ticket_id_regex:` in its Schema M frontmatter
@@ -22,6 +29,46 @@ git rev-parse --abbrev-ref HEAD
 ```
 
 and applies the adapter's regex. If the regex captures an ID, use it.
+
+### Tier 1b — The milestone the branch names (STE-563)
+
+Tier 1 misses on every branch the DEFAULT template renders for a tracker-first
+milestone. `{type}/m{N}-{slug}` with `{N}` rendering `M_<6-hex>` produces
+`feat/m_b11423-greet-helper`, which carries no `STE-<N>` at all — so before
+this tier, `/gate-check` fell to Tier 2, found no human under `claude -p`, and
+withheld `push_ac_toggle` on a green gate with a Done ticket.
+
+The branch does not name the ticket, but it names the MILESTONE, and the
+milestone is bound locally. This tier is **deterministic** and reads only
+files under `specs/frs/` (active first, then `archive/`):
+
+```bash
+bun "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/branch_ticket_resolution.ts" <projectRoot> <branch>
+```
+
+`resolveTicketForBranch` in
+`adapters/_shared/src/branch_ticket_resolution.ts` returns
+`{ tier: "milestone-fr", ticketId, milestone, frPath }` when **exactly one**
+FR binds the branch's milestone AND carries a tracker id. Anything else — no
+milestone segment, no bound FR, or more than one — returns
+`{ tier: "interactive", reason }` and falls through to Tier 2 below.
+
+**More than one candidate never resolves.** A milestone branch carrying
+several FRs is the ordinary case, and choosing among them — the first, the
+newest, the one whose slug is closest — is exactly the guess this document
+forbids. The reason line names every candidate so the Tier 2 prompt arrives
+with the answer already in front of the operator.
+
+**The comparison happens in the rendering domain.** The branch segment is
+compared against each candidate milestone rendered FORWARD through the same
+`milestoneBranchToken` the branch was built with, never against a milestone id
+reconstructed from the branch. Reconstruction cannot work: `M_PROJ-500`,
+`M_PROJ_500` and `M_proj_500` all render `m_proj_500`, so a parser has to pick
+one spelling and is wrong for the other two.
+
+**Resolution is not consent.** This tier decides which ticket the skill is
+talking about; the mandatory confirmation prompt below is unchanged and still
+runs on the value it returns.
 
 ### Tier 2 — Interactive prompt
 
