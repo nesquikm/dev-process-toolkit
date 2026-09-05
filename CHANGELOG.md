@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.80.3] — 2026-09-05 — "Anchor"
+
+### Fixed
+
+- The AC toggle survives a milestone-keyed branch (STE-563)
+- Fixture arms key on the subject, not on a rendering that moved (STE-564)
+- The harness keeps the evidence it gathered (STE-565)
+
+Total test count at release: 12012 tests, 0 failures, 0 errors.
+
 ## [2.80.2] — 2026-09-05 — "Datum"
 
 ### Fixed
