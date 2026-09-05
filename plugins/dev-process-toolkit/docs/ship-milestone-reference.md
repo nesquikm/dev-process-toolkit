@@ -79,7 +79,7 @@ Implemented in `adapters/_shared/src/version_bump.ts`. The `inferBump(ctx)` func
 1. **Override wins.** If `ctx.override` parses as `<major>.<minor>.<patch>`, use it verbatim. Rationale: `override: --version <X.Y.Z> (user-provided)`.
 2. **Major bump.** Any FR with frontmatter `breaking: true`. Rationale: `major bump: FR <STE-X> marked breaking`.
 3. **Patch bump.** Every FR's `changelog_category` is `Fixed` or `Removed` (pure fix-class milestone). Rationale: `patch bump: milestone contains only fix-class FRs (N)`.
-4. **Minor bump.** Default. Rationale: `minor bump: milestone shipped N additive FRs`.
+4. **Minor bump.** Default. Rationale: `minor bump: milestone shipped N additive FRs`, where N counts the ADDITIVE FRs — those whose category is neither `Fixed` nor `Removed` — not the milestone's total. The two differ on exactly the mixed milestones this branch exists for; before STE-556 the label reported the total, so `[Added, Fixed, Fixed, Removed]` claimed four additive FRs over one.
 
 Each FR reaches the function exactly as read from disk: the value passed as its category is that FR's `changelog_category` frontmatter value, and `inferBump` accepts both that snake spelling and the camel `changelogCategory` (STE-544).
 
@@ -185,9 +185,9 @@ files:
 | `path` | yes | Repo-relative path |
 | `kind` | yes | `json` / `toml` / `yaml` / `changelog` / `regex` |
 | `field` | iff json/toml/yaml | Dot-path (e.g. `version`, `project.version`, `plugins[0].version`) |
-| `pattern` | iff regex | Regex with named `(?<version>...)` group |
-| `replace` | iff regex | Template with `{version}` placeholder |
-| `optional` | no | Default `false`. Missing path emits `n/a` instead of failing. |
+| `pattern` | iff regex | Regex with named `(?<version>...)` group. EVERY occurrence it matches is rewritten. |
+| `replace` | iff regex | Template with `{version}` and `{codename}` placeholders, written literally (`$&`, `$1`, `` $` ``, `$'`, `$$` land as those characters). Naming `{codename}` with no codename on the release refuses. |
+| `optional` | no | Default `false`. A missing path, AND a pattern that matches nothing, emit `n/a` instead of failing. Non-optional entries refuse on both. |
 
 ### Per-kind worked examples
 
@@ -227,12 +227,14 @@ files:
 ```yaml
 - path: README.md
   kind: regex
-  pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+) — '
-  replace: 'Latest: **v{version} — '
+  pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+) — "(?<codename>[^"]+)"'
+  replace: 'Latest: **v{version} — "{codename}"'
   optional: true
 ```
 
-The pattern must contain a `(?<version>...)` named group; `replace` substitutes `{version}` with the new version string.
+The pattern must contain a `(?<version>...)` named group; `replace` substitutes `{version}` with the new version string and `{codename}` with the release codename. Capture only what the template rewrites: a pattern reaching past the fields you substitute leaves the rest of the matched text replaced by the template, and a template naming `{codename}` on a release that supplies none is refused rather than written out as the literal placeholder.
+
+Per-stack defaults still ship the version-only form of this entry; a banner with no quoted codename would stop matching a codename-capturing pattern, and — since `optional: true` now skips a miss instead of aborting — would silently stop being bumped at all. Widening the defaults needs a pattern whose codename group is optional, which the current renderer cannot express.
 
 ### Per-stack defaults (consumed by `/setup`)
 

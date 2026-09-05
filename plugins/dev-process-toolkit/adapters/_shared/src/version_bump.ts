@@ -121,7 +121,20 @@ export function inferBump(ctx: BumpContext): BumpResult {
     };
   }
 
-  const label = count === 0 ? "default minor bump (no FRs in milestone)" : `minor bump: milestone shipped ${count} additive FRs`;
+  // STE-556. The minor branch is reached exactly when NOT every FR is
+  // fix-class — the mixed milestones where the total and the additive count
+  // differ — and the shipped label reused `count` as though it were the
+  // additive one. Measured: `[Added, Fixed, Fixed, Removed]` reported "shipped
+  // 4 additive FRs" over a single additive FR. The VERSION was right both
+  // times; the sentence explaining it was not, which is worse than silence,
+  // because a reader consults the rationale precisely when the number
+  // surprises them. `count` stays where the patch label reads it — there it is
+  // the right number, and `allFixClass` guards it.
+  const additive = ctx.frs.filter((fr) => !FIX_CLASS.has(categoryOf(fr))).length;
+  const label =
+    count === 0
+      ? "default minor bump (no FRs in milestone)"
+      : `minor bump: milestone shipped ${additive} additive FRs`;
   return {
     version: `${major}.${minor + 1}.0`,
     rationale: label,

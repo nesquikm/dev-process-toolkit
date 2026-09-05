@@ -27,9 +27,11 @@ Users add the marketplace, install the plugin, then run `/dev-process-toolkit:se
 
 ## Release Checklist
 
-`/ship-milestone` reads the `## Release Files` block below to drive the per-release version bump. The block is the single source of truth for which files get rewritten on a release; partial-update bugs (e.g., a release that forgets to bump README's "Latest:" line) cannot happen because every file ships in the block.
+`/ship-milestone` reads the `## Release Files` block below to drive the per-release version bump. The block is the single source of truth for which files get rewritten on a release: a file that ships in the block is rewritten by the ceremony, and a release surface that does not ship in it is maintained by hand and will go stale. That is the whole guarantee — the block does not make partial-update bugs impossible, it makes them a missing entry, which is a thing you can look for.
 
-`specs/requirements.md` carries a `Latest shipped release: vX.Y.Z` line that must also stay in sync — it is enforced separately by gate-check probe #9b (root spec hygiene), not by `/ship-milestone`. Update it as part of the same release commit when bumping versions.
+`specs/requirements.md` ships in the block as of v2.80.1 (STE-554). Its `Latest shipped release:` line carries a version and a codename, both rewritten by the release run and both graded by gate-check probe #9b (root spec hygiene); before STE-554 the line had no writer, so every release commit red that probe until a human amended the file by hand.
+
+What remains hand-maintained, deliberately: the prose paragraph after the README "Latest:" banner and the milestone id inside it. Those are written by a person, and `release_surface_agreement` grades the milestone before the release commit is created.
 
 Schema reference + per-kind worked examples live in `plugins/dev-process-toolkit/docs/ship-milestone-reference.md`.
 
@@ -47,9 +49,13 @@ files:
     kind: changelog
   - path: README.md
     kind: regex
-    pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+) — '
-    replace: 'Latest: **v{version} — '
+    pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+) — "(?<codename>[^"]+)"'
+    replace: 'Latest: **v{version} — "{codename}"'
     optional: true
+  - path: specs/requirements.md
+    kind: regex
+    pattern: '\*\*Latest shipped release:\*\* \*\*v(?<version>\d+\.\d+\.\d+) \("(?<codename>[^"]+)"\)\*\*'
+    replace: '**Latest shipped release:** **v{version} ("{codename}")**'
 ```
 
 ## Core Principles

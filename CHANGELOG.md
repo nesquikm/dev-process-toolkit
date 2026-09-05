@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.80.1] — 2026-09-05 — "Notary"
+
+### Fixed
+
+- The release writer writes every surface it claims to write (STE-554)
+- The release writer fails loudly rather than silently (STE-555)
+- The guards read what the writers write, and the docs stop overclaiming (STE-556)
+
+Total test count at release: 11828 tests, 0 failures, 0 errors.
+
 ## [2.80.0] — 2026-09-04 — "Onward"
 
 ### Added
