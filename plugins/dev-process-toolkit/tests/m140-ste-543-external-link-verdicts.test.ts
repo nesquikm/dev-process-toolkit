@@ -83,6 +83,7 @@ import {
 } from "../adapters/_shared/src/external_link_verdicts";
 import {
   ORDERED_UNREACHABLE_PIN,
+  pinLedgerMove,
   runModuleReachabilityProbe,
 } from "../adapters/_shared/src/module_reachability";
 
@@ -101,6 +102,13 @@ const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
  * constant here would compare it against itself and assert nothing.
  */
 const PIN_ENTERING_M140 = 130;
+
+/**
+ * The commit that landed M140's own lowering, 130 -> 129. The ledger keys on
+ * it, so this file asserts about the move it made rather than about whatever
+ * the pin happens to be today.
+ */
+const M140_PIN_COMMIT = "5017488";
 const README = join(REPO_ROOT, "README.md");
 const GATE_CHECK_SKILL = join(PLUGIN_ROOT, "skills", "gate-check", "SKILL.md");
 
@@ -759,12 +767,16 @@ const M137_ADOPTION_TEST_REL = "tests/m137-ste-533-stage-block-adoption.test.ts"
  *
  * REPAIRED, NOT INHERITED: M137 shipped `STALE_PROBE_COUNT = 81` while the
  * live count was already 82, so its staleness half could never fail again.
- * That file is repointed to 82 as part of this change (asserted below) and
- * this table starts at the count it is actually replacing.
+ * That file is repointed as part of this change (asserted below) and this
+ * table starts at the count it is actually replacing.
+ *
+ * REPAIRED A SECOND TIME under M_8f8e25/STE-558: this constant sat at 82 while
+ * the cascade moved 83 -> 85, so THIS file's staleness half went dead exactly
+ * as M137's had. Both now read 83.
  */
-const STALE_PROBE_COUNT = 82;
+const STALE_PROBE_COUNT = 83;
 /** The count after this FR registers `external_link_verdicts`. */
-const NEW_PROBE_COUNT = 83;
+const NEW_PROBE_COUNT = 85;
 
 /**
  * Every surface carrying the probe count, as `[repo-relative-or-plugin-relative
@@ -878,7 +890,7 @@ function onlyLine(body: string, anchor: RegExp): { line: string; number: number 
 }
 
 describe("AC-STE-543.8 — the probe-count cascade moved as one", () => {
-  test("the live count is 83 and the numbers are contiguous 1..83", () => {
+  test("the live count is 85 and the numbers are contiguous 1..85", () => {
     const registrations = probeRegistrationLines();
     expect(liveProbeCount()).toBe(NEW_PROBE_COUNT);
     expect(registrations.map((r) => r.number)).toEqual(
@@ -911,7 +923,7 @@ describe("AC-STE-543.8 — the probe-count cascade moved as one", () => {
     }
   });
 
-  test("README's TWO pins read 83, each on its own unique measured line", () => {
+  test("README's TWO pins read 85, each on its own unique measured line", () => {
     const readme = read(README);
     const gates = onlyLine(readme, /numbered `\/gate-check` probes/);
     expect(gates.number).toBe(14);
@@ -927,7 +939,15 @@ describe("AC-STE-543.8 — the probe-count cascade moved as one", () => {
 
     // The staleness half was frozen at 81 while live was already 82 — a count
     // assertion that could never fail. Repaired to 82 as part of this change.
-    expect(body).toContain("const STALE_PROBE_COUNT = 82;");
+    // REPOINTED AGAIN under M_8f8e25/STE-558. This leg asserted 82, which was
+    // correct while live was 83. The cascade to 85 made 82 doubly superseded,
+    // so BOTH M137's copy and this file's own went dead — the same defect
+    // this leg was written to repair, recurring one count later. Both now
+    // read 83, the count immediately before the live one, and a derived leg
+    // in tests/m_8f8e25-ste-558-scanner-registration.test.ts holds all three
+    // tables to the same value so the next cascade cannot leave one behind.
+    expect(body).toContain("const STALE_PROBE_COUNT = 83;");
+    expect(body).not.toContain("const STALE_PROBE_COUNT = 82;");
     expect(body).not.toContain("const STALE_PROBE_COUNT = 81;");
 
     // THE FOURTH 82 SURVIVES UNMOVED: `stage_block_adoption`'s own probe
@@ -957,18 +977,23 @@ describe("AC-STE-543.8 — the probe-count cascade moved as one", () => {
     const registrations = probeRegistrationLines();
     const mine = registrations.filter((r) => r.line.includes(`\`${PROBE_ID}\``));
     expect(mine.length).toBe(1);
-    expect(mine[0]!.number).toBe(NEW_PROBE_COUNT);
+    // `external_link_verdicts`' OWN probe number — 83, frozen where M140 put
+    // it. It coincided with the count only while this was the newest row;
+    // reading the count here would sweep a probe id along with a cascade.
+    expect(mine[0]!.number).toBe(83);
     expect(mine[0]!.line).toContain("**Severity: error**");
     expect(mine[0]!.line).toContain("runExternalLinkVerdictsProbe(projectRoot)");
     expect(mine[0]!.line).toContain(MODULE_REL);
     expect(mine[0]!.line).toContain(TEST_FILE_REL);
   });
 
-  test("the UNPINNED prose at SKILL.md:245 now names probe #83", () => {
+  test("the UNPINNED prose at SKILL.md:248 names the NEXT unregistered probe", () => {
     // `PROBE_COUNT_PINS` has no SKILL.md row, so nothing else would catch it.
     const skill = read(GATE_CHECK_SKILL);
-    expect(skill).toContain("registering probe #83 will turn probe #81 red");
-    expect(skill).not.toContain("registering probe #82 will turn probe #81 red");
+    // Repointed by M_8f8e25/STE-558: the warning must name the next
+    // UNREGISTERED number (86 at 85 live registrations), never one that landed.
+    expect(skill).toContain("registering probe #86 will turn probe #81 red");
+    expect(skill).not.toContain("registering probe #85 will turn probe #81 red");
   });
 
   test("gate-check SKILL.md stays within the NFR-1 line cap (358)", () => {
@@ -1001,8 +1026,16 @@ describe("AC-STE-543.8 — the probe-count cascade moved as one", () => {
     // two together necessarily make `scan_design_references.ts` reachable, so
     // the count MUST fall. Freezing the pin and satisfying the FR are mutually
     // exclusive — see the rationale block on the constant itself.
-    expect(ORDERED_UNREACHABLE_PIN).toBe(129);
+    // NOT `expect(ORDERED_UNREACHABLE_PIN).toBe(129)`, which was true for
+    // exactly one commit and redded this file on every later lowering — a file
+    // the lowering does not name (STE-557). M140's claim is a fact about
+    // HISTORY, so it is asserted against the ledger entry for M140's own
+    // commit, which no later move can invalidate.
+    const m140Move = pinLedgerMove(M140_PIN_COMMIT);
+    expect(m140Move.value).toBe(129);
+    expect(m140Move.rationale).toContain("scan_design_references.ts");
     // Direction is the real invariant: this pin has never been raised.
+    expect(ORDERED_UNREACHABLE_PIN).toBeLessThanOrEqual(m140Move.value);
     expect(ORDERED_UNREACHABLE_PIN).toBeLessThan(PIN_ENTERING_M140);
     // BOTH halves: the pin alone is satisfied by a probe that never ran.
     expect(report.orderedUnreachable).toBe(ORDERED_UNREACHABLE_PIN);

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.80.2] — 2026-09-05 — "Datum"
+
+### Fixed
+
+- Lowering the unreachable pin costs one edit, not three (STE-557)
+- The two M143 scanners grade the tree, not just their own suites (STE-558)
+
+Total test count at release: 11905 tests, 0 failures, 0 errors.
+
 ## [2.80.1] — 2026-09-05 — "Notary"
 
 ### Fixed

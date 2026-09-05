@@ -1125,18 +1125,18 @@ describe("AC-STE-443.10 — the arm ships inside probe #73, not as a probe #75",
   test("GUARD — the highest numbered probe is still the live count, with no gap", () => {
     // Recalibrated 82 → 83: M140 added #83 external_link_verdicts.
     const numbers = probeNumbers();
-    expect(Math.max(...numbers)).toBe(83);
-    expect(numbers.length).toBe(83);
+    expect(Math.max(...numbers)).toBe(85);
+    expect(numbers.length).toBe(85);
   });
 
   test("GUARD — README's two probe-count pins still read the live count", () => {
     const body = read(README);
     const featureLine = body.split("\n").filter((l) => /numbered `\/gate-check` probes/.test(l));
     expect(featureLine.length).toBe(1);
-    expect(featureLine[0]!).toMatch(/\b83\b.*numbered/);
+    expect(featureLine[0]!).toMatch(/\b85\b.*numbered/);
     const asideLine = body.split("\n").filter((l) => /which layers \d+ probes on top/.test(l));
     expect(asideLine.length).toBe(1);
-    expect(asideLine[0]!).toMatch(/\b83\b\s+probes/);
+    expect(asideLine[0]!).toMatch(/\b85\b\s+probes/);
   });
 
   test("GUARD — the module still exports exactly one probe runner", () => {

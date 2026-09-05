@@ -2,7 +2,7 @@
 //
 // Covers AC-STE-70.1 (skill file exists at canonical path + frontmatter),
 // AC-STE-70.2 (mutually-exclusive flag refusal shape), AC-STE-70.6
-// (DocsConfig gate refusal shape), AC-STE-70.7 (NFR-1 300-line budget +
+// (DocsConfig gate refusal shape), AC-STE-70.7 (NFR-1 line budget +
 // docs-reference.md overflow pointer), AC-STE-70.8 (nav-contract gate
 // reference), plus AC-STE-71.7 / AC-STE-72.3 verbatim-constraint wording.
 
@@ -53,10 +53,17 @@ describe("STE-70 AC-STE-70.6 — DocsConfig gate refusal shape", () => {
 });
 
 describe("STE-70 AC-STE-70.7 — NFR-1 budget + reference overflow", () => {
-  test("SKILL.md is ≤ 300 lines", () => {
+  test("SKILL.md is ≤ 358 lines", () => {
+    // NFR-1 is 358 — `specs/requirements.md` and the one
+    // `const SKILL_LINE_CAP = 358;` in `tests/skill-nfr-1-length.test.ts`.
+    // This pin previously carried a superseded value (351 -> 352 under
+    // STE-373 -> 354 under STE-374 -> 358); a pin tighter than the contract
+    // reds a change the NFR permits, and one looser is a hole. Repointed by
+    // M_8f8e25/STE-558.
+    const SKILL_LINE_CAP = 358;
     const body = readFileSync(skillPath, "utf-8");
     const lines = body.split("\n").length;
-    expect(lines).toBeLessThanOrEqual(300);
+    expect(lines).toBeLessThanOrEqual(SKILL_LINE_CAP);
   });
 
   test("SKILL.md links to docs-reference.md for the overflow content", () => {

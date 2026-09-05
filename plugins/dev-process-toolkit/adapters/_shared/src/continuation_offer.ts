@@ -56,6 +56,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { isDrivenRun } from "./driven_run_signal";
+import {
+  resumeChain,
+  type FrResumeClassification,
+  type ResumeClassification,
+} from "./resume_classifier";
 
 // ---------------------------------------------------------------------------
 // The registry (AC-STE-551.1 .. AC-STE-551.6)
@@ -800,4 +805,195 @@ export function scanDrivenClaimProse(
     });
   }
   return violations;
+}
+
+// ---------------------------------------------------------------------------
+// The graded half (AC-STE-558.2) — BOTH scanners, wrapped as one probe
+// ---------------------------------------------------------------------------
+
+/**
+ * The probe id, as registered in `skills/gate-check/SKILL.md`.
+ *
+ * ONE OWNER, for the same reason the clause and the registry have one: the id
+ * opens every violation message AND rides its `Context:` line, and a reader who
+ * greps the id out of a red must land on the registration row that named it.
+ */
+export const PROBE_ID = "continuation_offer_adoption";
+
+/**
+ * BOTH scanners, under one probe id — not two.
+ *
+ * A reworded clause and a clause that still ORDERS the step are different
+ * defects with different remedies, but they are the same SUBJECT: whether a
+ * shipped close still asks, or still performs, a step the orchestrator already
+ * fixed. Registering only one of them would leave the other graded by its own
+ * suite and nothing else, which is the whole defect this FR closes — so the
+ * remedy travels per violation, by `source`, rather than one remedy per probe.
+ */
+const REMEDY: Record<DrivenClaimViolation["source"] | "adoption", string> = {
+  adoption:
+    "append `DRIVEN_OMISSION_CLAUSE` (adapters/_shared/src/" +
+    "continuation_offer.ts) inside the offer's own span — after its anchor and " +
+    "before the next offer's — it is one line and appendable to an existing " +
+    "sentence",
+  prose:
+    "rewrite the offer's driven clause to DROP this surface's claim on the " +
+    "step rather than order it: the orchestrator's chain still runs the step, " +
+    "once, under its own gates",
+  registry:
+    "clear the step from this offer's `runsWhenDriven` in `CONTINUATION_OFFERS` " +
+    "(adapters/_shared/src/continuation_offer.ts): the driven branch drops the " +
+    "surface's claim on the step, never the step",
+};
+
+/** One graded violation, in the shape probe #77 established. */
+export interface ContinuationOfferAdoptionViolation {
+  readonly file: string;
+  readonly line: number;
+  /** Severity travels PER VIOLATION, never as a report-level field. */
+  readonly severity: "error";
+  readonly reason: string;
+  /** `<repo-relative-file>:<line> — <reason>`, per STE-82. */
+  readonly note: string;
+  /** The NFR-10 canonical shape: verdict line, `Remedy:`, `Context:`. */
+  readonly message: string;
+}
+
+export interface ContinuationOfferAdoptionReport {
+  readonly violations: ContinuationOfferAdoptionViolation[];
+  /** MEASURED: no offering surface existed under this root at all. */
+  readonly vacuous: boolean;
+}
+
+/**
+ * A milestone-scoped classification whose only job is to reach
+ * `milestoneResumeChain` and let it render its own `SHIP_TAIL`.
+ *
+ * A FIXTURE FOR A DERIVATION, not a claim about any real milestone: the chain
+ * builder is the one owner of which steps a chain names, and a hand-typed step
+ * list here would keep agreeing with a `resumeChain` that had stopped emitting
+ * `/ship-milestone` — the exact step whose double-run motivated M143.
+ */
+const CHAIN_SHAPE_MILESTONE: ResumeClassification = {
+  milestone: "M0",
+  state: "ready_to_implement",
+  planStatus: "active",
+  totalTasks: 1,
+  uncheckedTasks: 1,
+  frsAwaitingReview: [],
+  parkedReason: null,
+  shippedIn: null,
+  shipCoherenceViolations: [],
+  reviewConsistencyViolations: [],
+};
+
+/** The FR-scoped counterpart — `lastActiveFr`, so the close tail is emitted. */
+const CHAIN_SHAPE_FR: FrResumeClassification = {
+  scope: "fr",
+  fr: "STE-0",
+  milestone: "M0",
+  state: "ready_to_implement",
+  lastActiveFr: true,
+  remainingActiveFrIds: [],
+  needsTechnicalReview: true,
+  reviewConsistencyViolations: [],
+};
+
+/**
+ * Every step any shipped orchestrator chain names, DERIVED from the surfaces
+ * and the builder that own them.
+ *
+ * Three sources, because each names steps the others do not: `/deliver`'s two
+ * inline phases live only in its prose, the FR-scoped chain carries the close
+ * ceremony, and the milestone-scoped chain renders `SHIP_TAIL`. A list stopping
+ * at `/deliver`'s inline phases would score the `/ship-milestone` double-run —
+ * the worst case this FR exists to catch — perfectly clean.
+ */
+export function shippedChainSteps(projectRoot: string): readonly string[] {
+  return chainNamedSteps([
+    deliverInlinePhaseSteps(projectRoot),
+    resumeChain(CHAIN_SHAPE_FR).map((s) => s.skill as string),
+    resumeChain(CHAIN_SHAPE_MILESTONE).map((s) => s.skill as string),
+  ]);
+}
+
+/**
+ * Grade every registered continuation offer — adoption AND driven-claim prose.
+ *
+ * RENDERS, DOES NOT RE-SCAN. `scanContinuationOfferAdoption` and
+ * `scanDrivenClaimProse` stay the two shipped walks and the two authors of
+ * `reason`; this function only dresses their rows in the house violation shape.
+ * A second derivation of "why is this offer delinquent" here would be a private
+ * paraphrase that drifts the day either scanner's wording changes.
+ *
+ * VACUOUS IS MEASURED, not assumed. `vacuous` is true exactly when no offering
+ * skill's SKILL.md exists under `projectRoot` — the consumer-project case,
+ * where the toolkit's own tree is absent and there is nothing to grade. It is
+ * NOT "the walks returned no violations": a clean tree is a graded tree.
+ *
+ * And the chain derivation runs ONLY on the graded path. `deliverInlinePhaseSteps`
+ * throws by design when `/deliver`'s surface is missing, so that a caller cannot
+ * go quietly vacuous on a half-present tree; letting it throw from here would
+ * crash the gate in every consumer project, where the tree is legitimately absent.
+ */
+export function runContinuationOfferAdoptionProbe(
+  projectRoot: string,
+): ContinuationOfferAdoptionReport {
+  // The SAME path expression both scanners walk — `offer.file` is shared, not
+  // respelled, so "graded nothing" and "found nothing" cannot disagree.
+  const graded = CONTINUATION_OFFERS.filter((offer) =>
+    existsSync(join(projectRoot, ...offer.file.split("/"))),
+  );
+  if (graded.length === 0) return { violations: [], vacuous: true };
+
+  const chainSteps = shippedChainSteps(projectRoot);
+
+  const render = (
+    offer: string,
+    file: string,
+    line: number,
+    reason: string,
+    source: DrivenClaimViolation["source"] | "adoption",
+  ): ContinuationOfferAdoptionViolation => ({
+    file,
+    line,
+    severity: "error",
+    reason,
+    note: `${file}:${line} — ${reason}`,
+    message: [
+      `${PROBE_ID}: ${file}:${line} — ${reason}`,
+      `Remedy: ${REMEDY[source]}`,
+      `Context: file=${file}, line=${line}, offer=${offer}, ` +
+        `source=${source}, probe=${PROBE_ID}, severity=error`,
+    ].join("\n"),
+  });
+
+  const violations: ContinuationOfferAdoptionViolation[] = [
+    ...scanContinuationOfferAdoption(projectRoot).map((v) =>
+      render(v.offer, v.file, v.line, v.reason, "adoption"),
+    ),
+    ...scanDrivenClaimProse(projectRoot, chainSteps).map((v) =>
+      render(v.offer, v.file, v.line, v.reason, v.source),
+    ),
+  ];
+
+  return { violations, vacuous: false };
+}
+
+// Read-only CLI front door. Imported by tests and by /gate-check, where
+// `import.meta.main` is false and this block never runs — the module stays
+// side-effect free at import. Its presence is also load-bearing: a probe
+// registration whose module has no front door turns probe #81 red.
+if (import.meta.main) {
+  // `||`, not `??`: `??` substitutes only on null/undefined, so `bun run
+  // continuation_offer.ts ""` would pass an empty string straight through as
+  // the project root and resolve every offer path against "". Falling back on
+  // any falsy argv entry is the same decision the sibling front door in
+  // external_link_verdicts.ts reaches.
+  const projectRoot = process.argv[2] || process.cwd();
+  const report = runContinuationOfferAdoptionProbe(projectRoot);
+  if (report.violations.length > 0) {
+    console.log(report.violations.map((v) => v.message).join("\n\n"));
+    process.exit(1);
+  }
 }
