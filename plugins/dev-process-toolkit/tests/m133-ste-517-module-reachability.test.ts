@@ -68,17 +68,26 @@ const gateCheckSkillMd = join(pluginRoot, "skills", "gate-check", "SKILL.md");
 const M = (name: string) => `adapters/_shared/src/${name}.ts`;
 
 /**
- * The nine modules the plan names as the measured casualties of the design's
+ * The modules the plan names as the measured casualties of the design's
  * AND-rule: each carries a command-line entry point and has NO non-test
- * importer, so the AND-rule calls all nine unreachable while every one of them
- * is a working front door. `upgrade_staleness` is probe #69's own.
+ * importer, so the AND-rule calls them unreachable while every one is a
+ * working front door. `upgrade_staleness` is probe #69's own.
+ *
+ * MEASURED MEMBERSHIP, and it moved (STE-564). `harness_artifact_paths` was
+ * the ninth and has left the class in the ordinary way: `fixture_arm_subject`
+ * now imports it, so it is an entry point WITH a non-test importer and is no
+ * longer a boundary case. It stays reachable under both halves of the rule,
+ * which is why nothing about the rule changed — only which modules sit on its
+ * boundary. This roster is a measurement, so it is edited when the measurement
+ * moves rather than defended; the generalized leg below derives every entry
+ * point from the graph and is what keeps the list honest in the other
+ * direction.
  */
-const ENTRY_POINT_NO_IMPORTER_NINE = [
+const ENTRY_POINT_NO_IMPORTER_EIGHT = [
   M("capability_row_assert"),
   M("claim_witness_assert"),
   M("classify_diff"),
   M("fork_tdd_result_assert"),
-  M("harness_artifact_paths"),
   M("smoke_verdict"),
   M("socratic_first_turn_assert"),
   M("template_source_analyzer"),
@@ -325,23 +334,23 @@ describe("AC-STE-517.4 — entry point, or transitively reached by one", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("AC-STE-517.5 — the two boundary cases the rule was corrected for", () => {
-  test("POSITIVE: the nine entry-point-no-importer modules are reachable", () => {
-    for (const m of ENTRY_POINT_NO_IMPORTER_NINE) {
+  test("POSITIVE: the eight entry-point-no-importer modules are reachable", () => {
+    for (const m of ENTRY_POINT_NO_IMPORTER_EIGHT) {
       // Premise, measured from the graph itself — not assumed.
       expect(realGraph.hasEntryPoint(m)).toBe(true);
       expect(realGraph.nonTestImporters(m)).toEqual([]);
       // Conclusion. The design's AND-rule returns false for every one of these.
       expect(realGraph.reachable(m)).toBe(true);
     }
-    expect(ENTRY_POINT_NO_IMPORTER_NINE.length).toBe(9);
+    expect(ENTRY_POINT_NO_IMPORTER_EIGHT.length).toBe(8);
   });
 
   test("POSITIVE generalized: every entry point in the tree is reachable", () => {
     const entryPoints = realGraph.modules.filter((m) => realGraph.hasEntryPoint(m));
-    expect(entryPoints.length).toBeGreaterThanOrEqual(ENTRY_POINT_NO_IMPORTER_NINE.length);
+    expect(entryPoints.length).toBeGreaterThanOrEqual(ENTRY_POINT_NO_IMPORTER_EIGHT.length);
     for (const m of entryPoints) expect(realGraph.reachable(m)).toBe(true);
     // The nine are a subset of the measured set, not a stale parallel list.
-    for (const m of ENTRY_POINT_NO_IMPORTER_NINE) expect(entryPoints).toContain(m);
+    for (const m of ENTRY_POINT_NO_IMPORTER_EIGHT) expect(entryPoints).toContain(m);
   });
 
   test("NEGATIVE: no entry point and unreached by one ⇒ unreachable", () => {

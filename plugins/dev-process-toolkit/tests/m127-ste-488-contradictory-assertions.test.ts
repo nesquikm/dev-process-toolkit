@@ -595,7 +595,7 @@ describe("AC-STE-488.3 — 9a/9b measure the rendered surface, not the module's 
     // underscored 0 / hyphenated 2 in August — a complete inversion.
     const shell = shellAt({
       section: "Sub-fixture 9a",
-      select: 'ste450-tracker-block.log "**#13 "',
+      select: "ste450-tracker-block.log identity_mode_conditional",
     });
     expect(shell).toContain("CAP_ASSERT");
     expect(shell).toContain("any-of");
@@ -616,7 +616,7 @@ describe("AC-STE-488.3 — 9a/9b measure the rendered surface, not the module's 
   test("9b asserts the rendered probe identifier and verdict against its OWN capture", () => {
     const id = shellAt({
       section: "Sub-fixture 9b",
-      select: 'ste450-plan-stem.log "**#73 "',
+      select: "ste450-plan-stem.log plan_identity_mode_conditional",
     });
     expect(id).toContain("any-of");
     const verdict = shellAt({
@@ -946,37 +946,62 @@ describe("M126's scope guard is retired, with the reason recorded", () => {
 // ══════════════════════════════════════════════════════════════════════════
 
 describe("cross-subject isolation — each sub-fixture's clause fails on its SIBLING's capture", () => {
-  /** The arms as the SKILL ships them, extracted rather than retyped. */
-  const armsOf = (section: string): string[] => {
-    const span = shellAt({ section, select: `${section === "Sub-fixture 9a" ? "ste450-tracker-block" : "ste450-plan-stem"}.log "**#` });
-    return [...span.matchAll(/"([^"]*#\d[^"]*)"/g)].map((m) => m[1] as string);
+  /**
+   * The arms AND the expectation as the SKILL ships them, extracted rather
+   * than retyped.
+   *
+   * STE-564 re-keyed these arms off the `**` row decoration and onto the
+   * probes' own ids, so the extraction reads the tokens after the log path
+   * instead of hunting for quoted `#<n>` shapes. The EXPECTATION is extracted
+   * too: the isolation this block measures is a property of the arms and the
+   * matcher together, and retyping `any-of` here while the SKILL shipped
+   * `any-of-token` would test a pair the fixture does not use.
+   */
+  const clauseOf = (section: string): { expectation: string; arms: string[] } => {
+    const log = section === "Sub-fixture 9a" ? "ste450-tracker-block" : "ste450-plan-stem";
+    const probe =
+      section === "Sub-fixture 9a" ? "identity_mode_conditional" : "plan_identity_mode_conditional";
+    const span = shellAt({ section, select: `${log}.log ${probe}` });
+    const tokens = span.trim().split(/\s+/).filter((t) => t !== "" && t !== "`");
+    const at = tokens.findIndex((t) => t.startsWith("any-of") || t.startsWith("present"));
+    expect(at).toBeGreaterThan(-1);
+    return { expectation: tokens[at] as string, arms: tokens.slice(at + 2) };
   };
 
   test("9a's identifier arms are satisfied by its OWN capture", () => {
-    const arms = armsOf("Sub-fixture 9a");
+    const { expectation, arms } = clauseOf("Sub-fixture 9a");
     expect(arms.length).toBeGreaterThanOrEqual(2);
-    expect(capAssert("any-of", NEW_FIXTURES.trackerBlock, arms).code).toBe(0);
+    expect(capAssert(expectation, NEW_FIXTURES.trackerBlock, arms).code).toBe(0);
   });
 
   test("9a's identifier arms FAIL on 9b's capture — probe #13 never fired there", () => {
-    // The load-bearing half. With the retired bare-key arm this exited 0.
-    expect(capAssert("any-of", NEW_FIXTURES.planStem, armsOf("Sub-fixture 9a")).code).not.toBe(0);
+    // The load-bearing half. With the retired bare-key arm this exited 0, and
+    // it is now the MATCHER rather than a row decoration that keeps it non-zero.
+    const { expectation, arms } = clauseOf("Sub-fixture 9a");
+    expect(capAssert(expectation, NEW_FIXTURES.planStem, arms).code).not.toBe(0);
   });
 
   test("9b's identifier arms are satisfied by its OWN capture", () => {
-    const arms = armsOf("Sub-fixture 9b");
+    const { expectation, arms } = clauseOf("Sub-fixture 9b");
     expect(arms.length).toBeGreaterThanOrEqual(2);
-    expect(capAssert("any-of", NEW_FIXTURES.planStem, arms).code).toBe(0);
+    expect(capAssert(expectation, NEW_FIXTURES.planStem, arms).code).toBe(0);
   });
 
   test("9b's identifier arms FAIL on 9a's capture", () => {
-    expect(capAssert("any-of", NEW_FIXTURES.trackerBlock, armsOf("Sub-fixture 9b")).code).not.toBe(0);
+    const { expectation, arms } = clauseOf("Sub-fixture 9b");
+    expect(capAssert(expectation, NEW_FIXTURES.trackerBlock, arms).code).not.toBe(0);
   });
 
   test("NON-VACUITY — the retired bare key really did span both captures", () => {
-    // Kept as the standing record of the defect: if someone reinstates the bare
-    // key, this documents exactly what it costs. Both exit 0 — that IS the bug.
+    // Kept as the standing record of the defect: if someone reinstates the
+    // UNBOUNDED bare key, this documents exactly what it costs. Both exit 0 —
+    // that IS the bug, and it is why STE-488 reached for a delimiter at all.
     expect(capAssert("any-of", NEW_FIXTURES.trackerBlock, ["identity_mode_conditional"]).code).toBe(0);
     expect(capAssert("any-of", NEW_FIXTURES.planStem, ["identity_mode_conditional"]).code).toBe(0);
+
+    // …and the delimiter the fixture ships today closes it WITHOUT borrowing a
+    // shape from the runtime's prose (STE-564).
+    expect(capAssert("any-of-token", NEW_FIXTURES.trackerBlock, ["identity_mode_conditional"]).code).toBe(0);
+    expect(capAssert("any-of-token", NEW_FIXTURES.planStem, ["identity_mode_conditional"]).code).not.toBe(0);
   });
 });

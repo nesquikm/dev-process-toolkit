@@ -12,6 +12,13 @@ In `mode: none`, this document is unused — the `mode: none` branch runs unchan
 Run the 2-tier ticket-binding resolver and mandatory confirmation prompt per
 `docs/ticket-binding.md`. Decline exits cleanly with zero side effects.
 
+**Tier 1b is what makes step 5 reachable non-interactively (STE-563).** On a
+milestone-keyed branch Tier 1 finds no ticket id, and before Tier 1b existed
+this pre-flight fell to the interactive prompt — so under `claude -p` the
+`push_ac_toggle` calls in step 5 were withheld on a passing gate and nothing
+reported it. Tier 1b resolves the ticket from the single FR bound to the
+branch's milestone, or falls through to Tier 2 naming why it would not choose.
+
 ### 2. `updatedAt` re-check
 
 Call the active adapter's `pull_acs(ticket_id)` exactly once at skill
