@@ -140,6 +140,12 @@ describe("AC-STE-376.1 — consumers reference the shared matcher (STE-335 AC-7 
     // module, never through a private `M\\d+` (or a private `M_` composer) of
     // its own — which is precisely the shape a tracker-first mint invites.
     join(sharedSrc, "mint_milestone_linear.ts"),
+    // STE-556. The guard /ship-milestone runs before `git add` — and probe #63
+    // runs at gate time — recognised milestones through THREE private `M\\d+`
+    // literals, and was never on this list. The first milestone minted under
+    // M139's tracker-first scheme parsed as no milestone at all, which aborted
+    // its own release ceremony. An audit is only as wide as its enumeration.
+    join(sharedSrc, "release_surface_agreement.ts"),
   ];
 
   for (const file of CONSUMERS) {

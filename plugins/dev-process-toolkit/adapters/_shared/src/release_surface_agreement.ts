@@ -25,6 +25,14 @@ import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 import { readDocsConfig } from "./docs_config";
+// STE-556. Milestone recognition here was three private `M\d+` literals, and
+// this module was never registered in the STE-335 AC-7 consumer audit — which
+// is the only reason they survived a check written to prevent exactly them.
+// M139's tracker-first scheme mints `M_<key>` ids, so the first milestone
+// minted under it (`M_dc2ecb`) parsed as no milestone at all: measured on a
+// fixture of its own post-release tree, this module returned a `latest_line`
+// violation and exit 1, which aborts /ship-milestone before `git add`.
+import { MILESTONE_TOKEN_SOURCE, parseMilestoneToken } from "./milestone_token";
 
 export interface PlanText {
   /** Path on disk, used only for diagnostics. */
@@ -87,8 +95,9 @@ function bareVersion(v: string): string {
 // Deliberately tolerant about the dash (em-dash today, but an en-dash or hyphen
 // must not make the check silently unparseable — an unparseable README is
 // reported as a violation, never as agreement).
-const README_LATEST_RE =
-  /Latest:\s*\*\*v(?<version>\d+\.\d+\.\d+)\s*[—–-]\s*"(?<codename>[^"]+)"\*\*\s*\((?<milestone>M\d+)\b/;
+const README_LATEST_RE = new RegExp(
+  String.raw`Latest:\s*\*\*v(?<version>\d+\.\d+\.\d+)\s*[—–-]\s*"(?<codename>[^"]+)"\*\*\s*\((?<milestone>${MILESTONE_TOKEN_SOURCE})\b`,
+);
 
 /** Parses the README's `Latest:` line. Returns `null` when the line is absent or malformed. */
 export function parseReadmeLatest(readme: string): ReadmeLatest | null {
@@ -156,7 +165,8 @@ export function findChangelogEntry(changelog: string, version: string): Changelo
   return parseChangelogEntries(changelog).find((entry) => entry.version === want) ?? null;
 }
 
-const PLAN_MILESTONE_RE = /^milestone:\s*(M\d+)\s*$/m;
+const PLAN_MILESTONE_RE = new RegExp(String.raw`^milestone:\s*(${MILESTONE_TOKEN_SOURCE})\s*$`, "m");
+const PLAN_FILENAME_MILESTONE_RE = new RegExp(String.raw`(?:^|/)(${MILESTONE_TOKEN_SOURCE})\.md$`);
 const PLAN_SHIPPED_IN_RE = /^shipped_in:\s*(\S+)\s*$/m;
 
 /**
@@ -175,10 +185,35 @@ export function findMilestonesForRelease(plans: PlanText[], version: string): st
     if (!shipped || shipped === "null") continue;
     if (bareVersion(stripQuotes(shipped)) !== want) continue;
     const milestone =
-      PLAN_MILESTONE_RE.exec(text)?.[1] ?? /\b(M\d+)\.md$/.exec(plan.path)?.[1] ?? null;
+      PLAN_MILESTONE_RE.exec(text)?.[1] ??
+      PLAN_FILENAME_MILESTONE_RE.exec(plan.path)?.[1] ??
+      null;
     if (milestone && !found.includes(milestone)) found.push(milestone);
   }
-  return found.sort((a, b) => Number(b.slice(1)) - Number(a.slice(1)));
+  return found.sort(compareMilestonesDescending);
+}
+
+/**
+ * A TOTAL order over the union grammar, descending (AC-STE-556.9).
+ *
+ * `Number(token.slice(1))` — what this sort used to be — is `NaN` for every
+ * `M_<key>`, and a comparator that returns `NaN` orders nothing: the list came
+ * back in whatever order it was built in, silently, for exactly the ids M139
+ * started minting.
+ *
+ * Numeric ids come first, descending by number, which is the historical
+ * behaviour unchanged. Epic-keyed ids follow, descending by key. That second
+ * rule is STABILITY, not seniority: the keys are opaque by contract, so no
+ * ordering over them means anything — what matters is that two runs over the
+ * same set answer the same way.
+ */
+function compareMilestonesDescending(a: string, b: string): number {
+  const left = parseMilestoneToken(a);
+  const right = parseMilestoneToken(b);
+  if (left?.kind === "numeric" && right?.kind === "numeric") return right.number - left.number;
+  if (left?.kind === "numeric") return -1;
+  if (right?.kind === "numeric") return 1;
+  return b.localeCompare(a);
 }
 
 function stripQuotes(v: string): string {

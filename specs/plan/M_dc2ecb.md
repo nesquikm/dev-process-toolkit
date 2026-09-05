@@ -44,22 +44,24 @@ Eight defects, every one measured by executing the module rather than by reading
 
 ### Tasks
 
-- [ ] STE-554 — pass the codename through the regex arm and render it
+- [x] STE-554 — pass the codename through the regex arm and render it
   verify: a bump whose template names the codename rewrites it; a template without one is byte-unchanged
-- [ ] STE-554 — give `specs/requirements.md` a writer, and put it where the ceremony can see it
+- [x] STE-554 — give `specs/requirements.md` a writer, and put it where the ceremony can see it
   verify: a release run rewrites the line unaided, and probe #9b passes on the release commit with no hand edit
-- [ ] STE-555 — an optional entry whose pattern does not match is skipped, not fatal
+- [x] STE-555 — an optional entry whose pattern does not match is skipped, not fatal
   verify: the fixture above completes the release and reports the skip; a non-optional miss still refuses
-- [ ] STE-555 — refuse a second insertion of a version the CHANGELOG already carries
+- [x] STE-555 — refuse a second insertion of a version the CHANGELOG already carries
   verify: the double-run fixture exits non-zero on the second run and leaves one section
-- [ ] STE-555 — bump every occurrence, and write the template literally
+- [x] STE-555 — bump every occurrence, and write the template literally
   verify: two-occurrence fixture bumps both; a `$&` template lands as the four characters
-- [ ] STE-556 — probe #9b compares the codename as well as the version
+- [x] STE-556 — probe #9b compares the codename as well as the version
   verify: the mutated-codename fixture reds, and the unmutated one stays green
-- [ ] STE-556 — the two "cannot happen" claims say what is actually true
+- [x] STE-556 — the two "cannot happen" claims say what is actually true
   verify: both sites are asserted, and a tripwire fails if the absolute wording returns
-- [ ] STE-556 — the minor rationale counts additive FRs
+- [x] STE-556 — the minor rationale counts additive FRs
   verify: the mixed-category fixture reports 1, and an all-additive milestone is unchanged
+- [x] STE-556 — the release-surface guard reads the union milestone grammar (discovered in delivery)
+  verify: a fixture of this milestone's own post-release tree grades clean, and restoring the private numeric token reds it
 
 ### Gate
 

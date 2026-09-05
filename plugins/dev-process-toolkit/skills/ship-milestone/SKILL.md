@@ -6,7 +6,7 @@ argument-hint: '[M<N>] [--version X.Y.Z] [--codename "<name>"] [--summary "<text
 
 # /ship-milestone
 
-Ship one completed milestone as a single, reviewed release commit. Dogfoods the Release Checklist in `CLAUDE.md` so partial-update bugs (e.g., a release that forgets to bump the README "Latest:" line) cannot happen.
+Ship one completed milestone as a single, reviewed release commit. Dogfoods the Release Checklist in `CLAUDE.md`: every file listed in the host's `## Release Files` block is rewritten by this ceremony, so a partial update is a missing entry in that block rather than a step somebody forgot. A release surface absent from the block — `specs/requirements.md`'s `Latest shipped release:` line was one until it was added to the block — is maintained by hand and goes stale.
 
 Detailed reference (CHANGELOG subsection policy, version-bump semver rules, structure-count recipes, stack-specific test-parser fallbacks) lives in `docs/ship-milestone-reference.md`.
 
@@ -142,9 +142,9 @@ For each entry the writer computes the new file content via `bumpFile(entry, cur
 - **`kind: toml`** — rewrites a TOML field (top-level or one-level dotted).
 - **`kind: yaml`** — rewrites a top-level YAML scalar; preserves a Flutter `+<build>` suffix on the same line.
 - **`kind: changelog`** — inserts a new `## [X.Y.Z] — YYYY-MM-DD — "<Codename>"` section above the topmost prior version section. Body comes from FR `changelog_category` + title (`### Added` / `### Changed` / `### Removed` / `### Fixed` subsections; cross-refs rendered as `(STE-X)`). Closing line `Total test count at release: <N> tests, <F> failures, <E> errors.` rendered from the forwarded `--test-count` (measured by `parseTestOutput` on the pre-flight test-gate run, refusal #3), and the section is refused outright without one. **Skipped entirely if `changelog_ci_owned: true`** (from `readDocsConfig(CLAUDE.md)`) — CI owns the CHANGELOG; the closing line is also suppressed because it lives inside the entry.
-- **`kind: regex`** — substitutes the `(?<version>...)` capture in `pattern` using the `replace` template (with `{version}` placeholder). Used for free-form lines like the README "Latest:" banner.
+- **`kind: regex`** — rewrites every occurrence of `pattern` using the `replace` template, which renders `{version}` and `{codename}` and is otherwise written literally. Used for free-form lines like the README "Latest:" banner and the `Latest shipped release:` line in `specs/requirements.md`, both of which name a version AND a codename.
 
-`optional: true` entries whose `path` is missing on disk emit an `n/a` row in the proposed-diff summary; required (non-optional) entries with missing paths surface NFR-10 canonical refusal.
+`optional: true` entries emit an `n/a` row in the proposed-diff summary on either of the two ways they can decline to be rewritten — the `path` is missing on disk, or the `pattern` matches nothing in it. Required (non-optional) entries surface the NFR-10 canonical refusal on both. A hand-maintained banner that got reformatted must not abort a release; a declared surface that silently stops being written must not pass for one that was.
 
 Refusals: `MissingReleaseFilesBlockError` (block absent or empty) and `MalformedReleaseFilesError` (entry violates schema, e.g. regex without `(?<version>)` named group) both abort the run with the canonical NFR-10 shape on stderr and exit non-zero. Verdict line first — `Refusing: to rewrite the release files — <what failed>.` — then Remedy: fix the `## Release Files` block in CLAUDE.md (or the offending file) and re-run; nothing was written. — then Context: root=`<projectRoot>`, version=`<X.Y.Z>`, skill=ship-milestone. The remedy names the block to fix and reports what reached disk; it does not send the operator to `/setup`.
 

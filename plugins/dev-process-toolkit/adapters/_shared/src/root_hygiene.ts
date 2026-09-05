@@ -23,6 +23,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { MILESTONE_TOKEN_SOURCE } from "./milestone_token";
+// STE-556 AC-STE-556.3. "What codename shipped as version X" already has ONE
+// reader on the release path; the probe that grades the answer consults it
+// rather than parsing the CHANGELOG a second time. A private parser here is
+// the drift this probe exists to catch, one layer up.
+import { findChangelogEntry } from "./release_surface_agreement";
 
 export interface LeakageHit {
   file: string;
@@ -34,6 +39,7 @@ export interface LeakageHit {
 export interface FreshnessDrift {
   kind:
     | "version-mismatch"
+    | "codename-mismatch"
     | "in-flight-archived"
     | "in-flight-missing-plan"
     | "version-unparseable"
@@ -124,7 +130,14 @@ export function findMilestoneLeakage(specsDir: string): LeakageHit[] {
   return hits;
 }
 
-export function findVersionFreshnessDrift(specsDir: string, pluginJsonPath: string): FreshnessDrift[] {
+export function findVersionFreshnessDrift(
+  specsDir: string,
+  pluginJsonPath: string,
+  // STE-556. Optional and defaulted from the specs directory's parent, so every
+  // caller that passes nothing behaves exactly as it did before this argument
+  // existed. Named explicitly by the tests, which grade fixture trees.
+  changelogPath: string = join(specsDir, "..", "CHANGELOG.md"),
+): FreshnessDrift[] {
   const drifts: FreshnessDrift[] = [];
   const reqPath = join(specsDir, "requirements.md");
 
@@ -173,13 +186,35 @@ export function findVersionFreshnessDrift(specsDir: string, pluginJsonPath: stri
   }
 
   // Version check: "Latest shipped release: ... vX.Y.Z ..."
-  const versionRe = /Latest shipped release:[^\n]*v(\d+\.\d+\.\d+)/;
+  //
+  // STE-556. A SECOND named group, on the same scan of the same line. The
+  // shipped matcher captured the version alone and swallowed the codename
+  // inside `[^\n]*`; measured at HEAD, rewriting the line's codename to
+  // `("CompletelyWrongCodename")` produced drifts byte-identical to the
+  // unmutated run — `[]` both times. Combined with the codename having no
+  // writer either (STE-554), the field was maintained by nothing and checked
+  // by nothing.
+  //
+  // The codename group is OPTIONAL: a consumer project whose line reads
+  // `Latest shipped release: v1.0.0` never adopted a codenamed banner, and
+  // grading it for a convention it does not use is a false accusation, not a
+  // catch.
+  // The codename must be QUOTED to be read as one. An unquoted parenthetical
+  // is left alone deliberately — `v1.0.0 (2026-01-01)` is a date, and reading
+  // it as a codename would red a project that never had one. The version half
+  // of the pattern is byte-identical to the shipped one, GREEDY `[^\n]*`
+  // included: making it lazy would change which version a line naming two
+  // resolves to, which is not this FR's business.
+  const versionRe =
+    /Latest shipped release:[^\n]*v(?<version>\d+\.\d+\.\d+)(?:[^\n]*?\(\s*"(?<codename>[^"\n]+)"\s*\))?/;
   let declaredVersion = "";
+  let declaredCodename = "";
   let declaredVersionLine = -1;
   for (let i = overviewStart; i < overviewEnd; i++) {
     const m = versionRe.exec(lines[i]!);
-    if (m) {
-      declaredVersion = m[1]!;
+    if (m?.groups) {
+      declaredVersion = m.groups.version!;
+      declaredCodename = m.groups.codename ?? "";
       declaredVersionLine = i + 1;
       break;
     }
@@ -201,14 +236,49 @@ export function findVersionFreshnessDrift(specsDir: string, pluginJsonPath: stri
     });
   }
 
+  // Codename check. Vacuous on two independent conditions, each of which means
+  // the surface being graded does not exist here: the line names no codename,
+  // or the CHANGELOG carries no entry for the version the line declares. The
+  // expected value comes from the CHANGELOG, never from the line itself — a
+  // stale line must not supply its own expectation.
+  if (declaredVersion !== "" && declaredCodename !== "") {
+    let changelog = "";
+    if (existsSync(changelogPath)) {
+      try {
+        changelog = readFileSync(changelogPath, "utf8");
+      } catch {
+        // Unreadable CHANGELOG contributes no expectation, exactly as an
+        // absent one does — the check goes vacuous rather than accusing.
+      }
+    }
+    const entry = changelog === "" ? null : findChangelogEntry(changelog, declaredVersion);
+    if (entry !== null && entry.codename !== declaredCodename) {
+      drifts.push({
+        kind: "codename-mismatch",
+        file: "requirements.md",
+        line: declaredVersionLine,
+        message:
+          `Declared codename "${declaredCodename}" does not match the CHANGELOG entry for ` +
+          `v${declaredVersion}, which is "${entry.codename}"`,
+      });
+    }
+  }
+
   // In-flight milestone check: "In-flight milestone: M<N>" (plain text or
   // bolded). Optional — absence is legal.
-  const inFlightRe = /In-flight milestone:[^\n]*\bM(\d+)\b/;
+  //
+  // STE-556. The shipped matcher was a private `\bM(\d+)\b` — inside a module
+  // already importing the shared union grammar for its OTHER scan, which is
+  // how the audit that greps for a `milestone_token` reference passed while a
+  // private copy sat two hundred lines below the import. Under M139's
+  // tracker-first scheme a live milestone is `M_<key>`, and the private copy
+  // matched nothing on such a line: the check did not fail, it silently
+  // declined to run on a claim it could not read.
+  const inFlightRe = new RegExp(String.raw`In-flight milestone:[^\n]*\b(${MILESTONE_TOKEN_SOURCE})\b`);
   for (let i = overviewStart; i < overviewEnd; i++) {
     const m = inFlightRe.exec(lines[i]!);
     if (!m) continue;
-    const milestoneNum = m[1]!;
-    const milestoneId = `M${milestoneNum}`;
+    const milestoneId = m[1]!;
     const livePlan = join(specsDir, "plan", `${milestoneId}.md`);
     const archivedPlan = join(specsDir, "plan", "archive", `${milestoneId}.md`);
     if (!existsSync(livePlan)) {
@@ -234,7 +304,12 @@ export function findVersionFreshnessDrift(specsDir: string, pluginJsonPath: stri
   return drifts;
 }
 
-export function runRootHygiene(specsDir: string, pluginJsonPath: string): RootHygieneReport {
+export function runRootHygiene(
+  specsDir: string,
+  pluginJsonPath: string,
+  // Threaded through unchanged; omitting it keeps today's behaviour exactly.
+  changelogPath?: string,
+): RootHygieneReport {
   const leakage = findMilestoneLeakage(specsDir);
   if (!existsSync(pluginJsonPath)) {
     return {
@@ -247,6 +322,9 @@ export function runRootHygiene(specsDir: string, pluginJsonPath: string): RootHy
   }
   return {
     leakage,
-    freshness: findVersionFreshnessDrift(specsDir, pluginJsonPath),
+    freshness:
+      changelogPath === undefined
+        ? findVersionFreshnessDrift(specsDir, pluginJsonPath)
+        : findVersionFreshnessDrift(specsDir, pluginJsonPath, changelogPath),
   };
 }
