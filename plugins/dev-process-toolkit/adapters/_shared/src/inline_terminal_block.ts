@@ -208,3 +208,103 @@ export function scanDrivenSuppressionAdoption(
   }
   return violations;
 }
+
+// ---------------------------------------------------------------------------
+// The graded half (AC-STE-558.1) — the scanner, wrapped as a /gate-check probe
+// ---------------------------------------------------------------------------
+
+/**
+ * The probe id, as registered in `skills/gate-check/SKILL.md`.
+ *
+ * ONE OWNER, for the same reason the clause above has one: the id opens every
+ * violation message AND rides its `Context:` line, and a reader who greps the
+ * id out of a red must land on the registration row that named it.
+ */
+export const PROBE_ID = "driven_suppression_adoption";
+
+/** The one-line fix, stated once — every violation carries the same remedy. */
+const REMEDY =
+  "append `DRIVEN_SUPPRESSION_CLAUSE` (adapters/_shared/src/" +
+  "inline_terminal_block.ts) to the stage's closing-block instruction — it is " +
+  "one line and appendable to an existing sentence";
+
+/** One graded violation, in the shape probe #77 established. */
+export interface DrivenSuppressionAdoptionViolation {
+  readonly file: string;
+  readonly line: number;
+  /** Severity travels PER VIOLATION, never as a report-level field. */
+  readonly severity: "error";
+  readonly reason: string;
+  /** `<repo-relative-file>:<line> — <reason>`, per STE-82. */
+  readonly note: string;
+  /** The NFR-10 canonical shape: verdict line, `Remedy:`, `Context:`. */
+  readonly message: string;
+}
+
+export interface DrivenSuppressionAdoptionReport {
+  readonly violations: DrivenSuppressionAdoptionViolation[];
+  /** MEASURED: no adopting stage's surface existed under this root at all. */
+  readonly vacuous: boolean;
+}
+
+/**
+ * Grade every adopting stage's driven-suppression adoption.
+ *
+ * RENDERS, DOES NOT RE-SCAN. `scanDrivenSuppressionAdoption` above stays the
+ * one walk and the one author of `reason`; this function only dresses its rows
+ * in the house violation shape. A second derivation of "why is this surface
+ * delinquent" here would be a private paraphrase that drifts the day the
+ * scanner's wording changes.
+ *
+ * VACUOUS IS MEASURED, not assumed. `vacuous` is true exactly when no adopting
+ * stage's SKILL.md exists under `projectRoot` — the consumer-project case,
+ * where the toolkit's own tree is absent and there is nothing to grade. It is
+ * NOT "the walk returned no violations": a clean tree is a graded tree, and
+ * collapsing the two would let a probe that scans nothing anywhere report
+ * itself as vacuous forever.
+ */
+export function runDrivenSuppressionAdoptionProbe(
+  projectRoot: string,
+): DrivenSuppressionAdoptionReport {
+  // The SAME path expression the scanner walks — `SKILL_SEGMENTS` is shared,
+  // not respelled, so "graded nothing" and "found nothing" cannot disagree.
+  const graded = ADOPTING_STAGES.filter((stage) =>
+    existsSync(join(projectRoot, ...SKILL_SEGMENTS(stage))),
+  );
+
+  const violations = scanDrivenSuppressionAdoption(projectRoot).map(
+    (v): DrivenSuppressionAdoptionViolation => ({
+      file: v.file,
+      line: v.line,
+      severity: "error",
+      reason: v.reason,
+      note: `${v.file}:${v.line} — ${v.reason}`,
+      message: [
+        `${PROBE_ID}: ${v.file}:${v.line} — ${v.reason}`,
+        `Remedy: ${REMEDY}`,
+        `Context: file=${v.file}, line=${v.line}, stage=${v.stage}, ` +
+          `probe=${PROBE_ID}, severity=error`,
+      ].join("\n"),
+    }),
+  );
+
+  return { violations, vacuous: graded.length === 0 };
+}
+
+// Read-only CLI front door. Imported by tests and by /gate-check, where
+// `import.meta.main` is false and this block never runs — the module stays
+// side-effect free at import. Its presence is also load-bearing: a probe
+// registration whose module has no front door turns probe #81 red.
+if (import.meta.main) {
+  // `||`, not `??`: `??` substitutes only on null/undefined, so `bun run
+  // inline_terminal_block.ts ""` would pass an empty string straight through as
+  // the project root and resolve every skill path against "". Falling back on
+  // any falsy argv entry is the same decision the sibling front door in
+  // external_link_verdicts.ts reaches.
+  const projectRoot = process.argv[2] || process.cwd();
+  const report = runDrivenSuppressionAdoptionProbe(projectRoot);
+  if (report.violations.length > 0) {
+    console.log(report.violations.map((v) => v.message).join("\n\n"));
+    process.exit(1);
+  }
+}

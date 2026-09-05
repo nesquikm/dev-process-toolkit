@@ -391,13 +391,35 @@ describe("AC-STE-517.6 — the ordered-and-unreachable count is pinned", () => {
     expect(report.records.filter((r) => r.refClass === "ordered").length).toBeGreaterThan(0);
   });
 
-  test("the pin is a literal in the source, never a value computed at load", () => {
+  test("the pin is a written-down number, never a value computed at load", () => {
     const source = readFileSync(probeModulePath, "utf-8");
     // A pin assigned from a call is a mirror of the implementation and can
     // never disagree with it — which is the one thing a pin exists to do.
-    expect(/export const ORDERED_UNREACHABLE_PIN\s*(?::\s*number\s*)?=\s*\d+\s*;/.test(source)).toBe(
-      true,
-    );
+    //
+    // WHAT CHANGED (STE-557): the pin is no longer `= <digits>` on its own
+    // line. It is the HEAD of `ORDERED_UNREACHABLE_PIN_LEDGER`, because the
+    // number used to be written in three places that had to agree
+    // byte-for-byte and the sanctioned direction therefore cost three
+    // coordinated edits. The invariant this leg exists for is untouched: the
+    // head is still a hand-written literal, so the pin can still disagree with
+    // the implementation, which is the whole point of a pin.
+    expect(
+      /export const ORDERED_UNREACHABLE_PIN\s*(?::\s*number\s*)?=\s*ORDERED_UNREACHABLE_PIN_LEDGER\[0\]!\.value;/.test(
+        source,
+      ),
+      "the pin is no longer derived from the ledger head",
+    ).toBe(true);
+    expect(
+      new RegExp(String.raw`value:\s*${ORDERED_UNREACHABLE_PIN},`).test(source),
+      "the ledger head is not a written-down literal",
+    ).toBe(true);
+    // The thing that must NEVER return: a pin computed from the probe itself.
+    expect(
+      /ORDERED_UNREACHABLE_PIN\s*(?::\s*number\s*)?=\s*(?:await\s+)?(?:run|records|scan)/.test(
+        source,
+      ),
+      "the pin is computed at load — it now mirrors the implementation it grades",
+    ).toBe(false);
   });
 
   test("the pin is not carried from any prior document", async () => {

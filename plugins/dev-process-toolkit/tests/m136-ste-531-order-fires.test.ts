@@ -870,21 +870,41 @@ describe("AC-STE-531.4 — ORDERED_UNREACHABLE_PIN is re-measured, not assumed",
     expect(ORDERED_UNREACHABLE_PIN).toBeLessThanOrEqual(mod.ORDERED_UNREACHABLE_PIN);
   }, 60_000);
 
-  test("every shipped surface stating the pinned count states the CURRENT one", () => {
-    const stated: Array<{ surface: string; value: number }> = [];
+  test("no shipped surface RESTATES the pinned count — it has exactly one home", () => {
+    // WHAT THIS USED TO BE (STE-557): a leg requiring every shipped surface
+    // that states the count to state the CURRENT one. It worked, and it was
+    // one of the three surfaces that had to be edited in lockstep for a
+    // lowering to land. The count now lives in the ledger head and nowhere
+    // else, so the obligation inverts: shipped prose may NAME the pin and must
+    // not carry its value.
+    const naming: Array<{ surface: string; number: number; line: string }> = [];
     for (const file of shippedMarkdown()) {
-      for (const m of read(file).matchAll(/(\d{2,4}) records it pins/g)) {
-        stated.push({ surface: rel(file), value: Number(m[1]) });
-      }
+      read(file)
+        .split("\n")
+        .forEach((line, i) => {
+          if (/ORDERED_UNREACHABLE_PIN|records it pins|pinned count/.test(line)) {
+            naming.push({ surface: rel(file), number: i + 1, line });
+          }
+        });
     }
-    expect(stated.length, "no shipped surface states the pinned count — the pin is non-vacuous")
-      .toBeGreaterThan(0);
-    for (const entry of stated) {
-      expect(
-        entry.value,
-        `${entry.surface} states ${entry.value} where the pin is ${ORDERED_UNREACHABLE_PIN}`,
-      ).toBe(ORDERED_UNREACHABLE_PIN);
-    }
+    expect(
+      naming.length,
+      "no shipped surface names the pin at all — this sweep would pass on an empty tree",
+    ).toBeGreaterThan(0);
+
+    const carriesTheValue = new RegExp(String.raw`(?<!\d)${ORDERED_UNREACHABLE_PIN}(?!\d)`);
+    expect(
+      naming.filter((h) => carriesTheValue.test(h.line)).map((h) => `${h.surface}:${h.number}`),
+      `a shipped surface restates the pin (${ORDERED_UNREACHABLE_PIN}); the count ` +
+        "lives in the ledger head, and a second copy makes a lowering a coordinated edit",
+    ).toEqual([]);
+
+    // The rewording DROPPED THE NUMBER, not the disclosure. Without this half,
+    // deleting the sentence outright would read as a pass.
+    expect(
+      naming.some((h) => h.line.includes("is itself one of the records it pins")),
+      "probe #81 no longer discloses that its own registration is in the class it counts",
+    ).toBe(true);
   });
 });
 
