@@ -347,9 +347,16 @@ Per-entry keys:
   - kind:     json | toml | yaml | changelog | regex
   - field:    dot-path (json/toml/yaml only) — e.g. version, project.version,
               plugins[0].version
-  - pattern:  regex with named (?<version>...) group (regex only)
-  - replace:  template using {version} placeholder (regex only)
-  - optional: bool (default false) — missing path is `n/a`, not error
+  - pattern:  regex with named (?<version>...) group (regex only). Every
+              occurrence the pattern matches is rewritten, not just the first.
+  - replace:  template using {version} and {codename} placeholders (regex
+              only). The template is written LITERALLY — `$&`, `$1` and
+              friends land as those characters. Naming {codename} when the
+              release supplies none is refused, never written as the literal
+              placeholder.
+  - optional: bool (default false) — a missing path is `n/a`, not an error,
+              and so is a pattern that matches nothing. A NON-optional entry
+              still refuses on both.
 
 Full schema + per-kind worked examples: docs/ship-milestone-reference.md.
 ===============================================================================

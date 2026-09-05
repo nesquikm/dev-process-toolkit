@@ -207,39 +207,32 @@ describe("C — each field fails independently", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Group D — the mechanism, PINNED AS IT ACTUALLY IS.
+// Group D — the mechanism, PINNED AS A CAPABILITY (STE-554 closed the gap).
 //
-// The obvious assertion to write here is "a release bump rewrites the
-// codename". It does not, and it cannot: `bumpRegex` interpolates exactly one
-// token —
+// This group used to pin the LIMITATION: `bumpRegex` interpolated exactly one
+// token, `BumpOptions.codename` was discarded on the `kind: regex` arm, and no
+// pattern/replace pair writable in CLAUDE.md could rewrite the codename. The
+// mechanism was incapable, not merely misconfigured, and that incapability was
+// the root cause of the shipped defect at the top of this file.
 //
-//     const rendered = replace.replace(/\{version\}/g, version);
+// The old contract said, in as many words, that no path to a fix leaves this
+// group green: the fix must force it to be REWRITTEN as a capability rather
+// than let the mechanism quietly diverge from the tests describing it. STE-554
+// landed both halves it named —
+//   1. `bumpRegex` learned `{codename}`, and `bumpFile`'s `regex` arm forwards
+//      `opts.codename`;
+//   2. the README entry's `pattern`/`replace` pair was widened past the
+//      em-dash to span the codename.
+// — so what follows is that rewrite, assertion for assertion. Each one keeps
+// reading the shipped configuration through `parseReleaseFiles` / `bumpFile`,
+// so it still describes what `/ship-milestone` actually executes.
 //
-// — so `BumpOptions.codename` reaches `bumpFile`, is handed to the changelog
-// bumper, and is DISCARDED for `kind: regex`. No pattern/replace pair writable
-// in CLAUDE.md can rewrite the codename; the mechanism is incapable, not merely
-// misconfigured. That incapability is the root cause of the shipped defect at
-// the top of this file, and it is what makes groups A–C load-bearing rather
-// than belt-and-braces: the observable check is currently the ONLY thing
-// standing between a release and a stale codename.
-//
-// So these tests assert the LIMITATION as a fact, with the fields read through
-// `parseReleaseFiles` / `bumpFile` rather than re-parsed by hand, so they
-// describe what `/ship-milestone` actually executes.
-//
-// FOLLOW-UP, UNCLOSED — warrants its own FR. Closing the gap takes BOTH halves:
-//   1. `release_config.ts`: teach `bumpRegex` a `{codename}` token (and thread
-//      `opts.codename` through `bumpFile`'s `regex` arm);
-//   2. the host project's `## Release Files` block: widen the README entry's
-//      `pattern`/`replace` pair past the em-dash to span the codename.
-// D2 reddens on half 1; D3 and D4 redden on half 2; the combination that
-// actually closes the gap reddens all three. No path to a fix leaves this group
-// green. That is deliberate: the fix must force this contract to be rewritten
-// as a capability, rather than let the mechanism quietly diverge from the tests
-// that describe it.
+// Groups A–C stay load-bearing. The banner also names a MILESTONE and a
+// paragraph of prose, neither of which any bump writes, so the observable
+// check is still the only thing standing between a release and a stale banner.
 // ---------------------------------------------------------------------------
 
-describe("D — what the release bumper can and cannot rewrite today", () => {
+describe("D — what the release bumper rewrites", () => {
   const entries = parseChangelogEntries(changelog);
   const readmeEntry = parseReleaseFiles(claudeMd).find((e) => e.path === "README.md");
 
@@ -263,41 +256,51 @@ describe("D — what the release bumper can and cannot rewrite today", () => {
     expect(parseReadmeLatest(bumped)!.version).toBe(nextVersion);
   });
 
-  test("D2 — bumpRegex does NOT substitute a codename token (pinned limitation)", () => {
-    // Isolates half 1 of the gap from half 2: this calls bumpRegex with a
-    // replacement template that ASKS for a codename, using a pattern wide enough
-    // to span one. The token survives verbatim into the output, which is only
-    // possible because nothing interpolates it.
-    //
-    // REDDENS when `bumpRegex` learns `{codename}` — whether it substitutes a
-    // real value or an empty string, the literal token stops appearing.
+  test("D2 — bumpRegex substitutes a codename token", () => {
+    // Half 1 of the old gap, now the capability. Calls bumpRegex with a
+    // replacement template that ASKS for a codename, using a pattern wide
+    // enough to span one. The token is interpolated; the literal `{codename}`
+    // can no longer survive into the output.
     const out = bumpRegex(
       readme,
       'Latest: \\*\\*v(?<version>\\d+\\.\\d+\\.\\d+) — "[^"]+"',
       'Latest: **v{version} — "{codename}"',
       "9.9.9",
+      "Ceremony",
     );
-    expect(out).toContain('Latest: **v9.9.9 — "{codename}"');
-    expect(out).not.toContain(`Latest: **v9.9.9 — "${entries[0]!.codename}"`);
+    expect(out).toContain('Latest: **v9.9.9 — "Ceremony"');
+    expect(out).not.toContain("{codename}");
   });
 
-  test("D3 — the shipped README entry's templates do not reach the codename (pinned limitation)", () => {
-    // Half 2 of the gap, asserted on the shipped configuration rather than on
-    // the code: the entry's replacement stops at the em-dash, so even a
-    // codename-aware bumpRegex would rewrite nothing here.
-    //
-    // REDDENS when the `## Release Files` block is widened past the em-dash.
+  test("D2b — a {codename} template with no codename refuses rather than writing the token", () => {
+    // The measured pre-STE-554 output was the six characters `{codename}` on
+    // disk. Rendering an empty string would be the same silence with fewer
+    // characters, so the miss refuses instead.
+    expect(() =>
+      bumpRegex(
+        readme,
+        'Latest: \\*\\*v(?<version>\\d+\\.\\d+\\.\\d+) — "[^"]+"',
+        'Latest: **v{version} — "{codename}"',
+        "9.9.9",
+      ),
+    ).toThrow(/\{codename\}/);
+  });
+
+  test("D3 — the shipped README entry's templates reach the codename", () => {
+    // Half 2, asserted on the shipped configuration rather than on the code.
     expect(readmeEntry!.kind).toBe("regex");
-    expect(readmeEntry!.replace).not.toContain("{codename}");
-    expect(readmeEntry!.pattern).not.toContain("codename");
+    expect(readmeEntry!.replace).toContain("{codename}");
+    expect(readmeEntry!.pattern).toContain("(?<codename>");
+    // And the widened pattern still matches the banner as it stands, which a
+    // declaration alone no longer proves: an optional entry whose pattern
+    // misses is skipped rather than fatal (STE-555).
+    expect(new RegExp(readmeEntry!.pattern!).test(readme)).toBe(true);
   });
 
-  test("D4 — end-to-end, a bump leaves a NEW version beside the OLD codename (pinned limitation)", () => {
-    // The two halves composed: this is the exact shape of the defect this file
-    // guards, produced on demand by the shipped release path. `codename:` is
-    // passed and ignored.
-    //
-    // REDDENS when either half lands, which is the whole point of keeping it.
+  test("D4 — end-to-end, a bump carries the NEW version AND the NEW codename", () => {
+    // The two halves composed: the exact shape of the defect this file guards,
+    // no longer producible by the shipped release path. `codename:` is passed
+    // and used.
     const nextVersion = nextVersionAfterTop();
     const before = parseReadmeLatest(readme)!.codename;
     // Derived from the previous release, never hand-typed.
@@ -312,7 +315,10 @@ describe("D — what the release bumper can and cannot rewrite today", () => {
     });
     const after = parseReadmeLatest(bumped)!;
     expect(after.version).toBe(nextVersion);
-    expect(after.codename).not.toBe(requested);
-    expect(after.codename).toBe(before);
+    expect(after.codename).toBe(requested);
+    expect(after.codename).not.toBe(before);
+    // The milestone and the prose after it are still untouched by any bump —
+    // which is why groups A–C remain the guard that catches them.
+    expect(after.milestone).toBe(parseReadmeLatest(readme)!.milestone);
   });
 });
