@@ -562,10 +562,22 @@ describeIfLoop("STE-453 § Testing — every named test file exists and actually
     // driver's fences. A file that only greps prose does not support that
     // claim, and this file is itself the cautionary case: it was cited as
     // integration coverage for three paths while executing nothing at all.
+    //
+    // STE-565 — the predicate is "executes a subprocess", not "contains the
+    // literal `Bun.spawnSync`". When the dual-shell fence runner moved into
+    // `tests/_fence.ts`, two files that execute MORE than before (every fence
+    // under every available shell, rather than under bash alone) stopped
+    // carrying the literal and this check red on them. Pinning one spelling of
+    // a capability is the same defect the sibling FR in this milestone repairs
+    // in the smoke fixtures: it grades a rendering rather than the subject.
+    const EXECUTES = ["Bun.spawnSync", "runInShell", "runInEveryShell"] as const;
     const cited = [...new Set([...loop!.matchAll(/tests\/([a-z0-9._-]+\.test\.ts)/g)].map((m) => m[1]!))];
     for (const file of cited) {
       const body = readFileSync(join(pluginRoot, "tests", file), "utf-8");
-      expect(body, `${file} is cited as coverage but spawns nothing`).toContain("Bun.spawnSync");
+      expect(
+        EXECUTES.some((marker) => body.includes(marker)),
+        `${file} is cited as coverage but executes nothing (looked for ${EXECUTES.join(" / ")})`,
+      ).toBe(true);
     }
   });
 

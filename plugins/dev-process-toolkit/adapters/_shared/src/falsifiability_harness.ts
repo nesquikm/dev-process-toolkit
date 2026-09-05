@@ -337,9 +337,14 @@ export const M127_REPAIRS: readonly RepairEntry[] = [
     id: "STE-488",
     site: {
       section: "Sub-fixture 9a",
-      select: 'ste450-tracker-block.log "**#13 "',
+      select: "ste450-tracker-block.log identity_mode_conditional",
     },
-    subject: "**#13 ",
+    // STE-564 re-sited both identifier clauses off the `**` row decoration and
+    // onto the probes' own ids. The decoration was STE-488's leading delimiter
+    // against the substring hazard, and STE-532/533 stopped rendering it — so
+    // the delimiter now comes from `any-of-token` instead, and the SUBJECT
+    // these rows mutate is the probe id the arm actually names.
+    subject: "identity_mode_conditional",
     leg: "none",
     capture: "gate-check-ste450-tracker-block-none.ndjson",
     threshold: 1,
@@ -359,15 +364,13 @@ export const M127_REPAIRS: readonly RepairEntry[] = [
       {
         site: {
           section: "Sub-fixture 9b",
-          select: 'ste450-plan-stem.log "**#73 "',
+          select: "ste450-plan-stem.log plan_identity_mode_conditional",
         },
-        // The plan-stem capture rendered this row as `**✗ Probe #73 ...`, not as
-        // the bare `**#73 ` shape its sibling used — the same LLM-rendering
-        // variance the two arms exist for. The subject is the shape THIS capture
-        // actually carries, so the mutation demonstrably applies; if a future
-        // capture renders the other shape, `removeSubject` throws loudly rather
-        // than leaving the absent half unmutated and scoring a silent pass.
-        subject: "**✗ Probe #73 ",
+        // The underscored spelling is what this capture carries; the hyphenated
+        // arm is measured 0 here, so removing the present one retires the whole
+        // any-of. `removeSubject` throws if it ever stops applying, rather than
+        // leaving the absent half unmutated and scoring a silent pass.
+        subject: "plan_identity_mode_conditional",
         capture: "gate-check-ste450-plan-stem-none.ndjson",
         threshold: 1,
         scoreBy: "exit-code",
@@ -410,10 +413,23 @@ export const M127_REPAIRS: readonly RepairEntry[] = [
     // signal through exit status, so a stdout count reads 1 whether the
     // expectation was met or not and every pair would be 1-vs-1.
     //
-    // 2b's subject is the row-scoped `**#26 ` shape THIS capture renders, not
-    // the `**Probe #26 ` arm — which is assistant-0 and raw-0 here, so removing
-    // the one present arm retires the whole any-of and no `removeAll` is needed
-    // (and would throw, since the absent arm cannot be removed).
+    // 2b's CLAUSE IS ITS IDENTIFIER SPAN, and the reason is a limitation of
+    // this harness rather than of the fixture (STE-564). 2b's discriminating
+    // clause is now an ABSENCE — `absent-token` over both capability keys,
+    // which is what actually separates the control from its two siblings. This
+    // harness models falsifiability as REMOVING the subject and requiring the
+    // clause to fail; removing a subject from an absence clause makes it MORE
+    // satisfied, so an absence is inexpressible here and `classifyMutation`
+    // would score the inverse mutation `rewording-only` and refuse it.
+    //
+    // So this row scores 2b's identifier clause, which IS removal-falsifiable,
+    // and 2b's discrimination is measured in both directions — 0 on the
+    // control, 1 on each sibling — in
+    // `tests/m_f040b5-ste-564-fixture-arm-subject.test.ts` § AC-STE-564.6.
+    // Stated rather than glossed: this row proves 2b's clause CAN fail, and it
+    // is the sibling suite that proves 2b's clause is about 2b. Teaching the
+    // harness an injection class would make the absence registrable here and
+    // is recorded as a follow-up.
     id: "STE-489",
     site: {
       section: "Sub-fixture 2a",
@@ -428,9 +444,9 @@ export const M127_REPAIRS: readonly RepairEntry[] = [
       {
         site: {
           section: "Sub-fixture 2b",
-          select: "ste221-control.log '**#26 ",
+          select: "ste221-control.log tracker-project-milestone-attached",
         },
-        subject: "**#26 `tracker-project-milestone-attached` — GATE FAILED",
+        subject: "tracker-project-milestone-attached",
         capture: "gate-check-ste221-control-linear.ndjson",
         threshold: 1,
         scoreBy: "exit-code",

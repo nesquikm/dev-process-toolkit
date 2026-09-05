@@ -36,7 +36,7 @@
 // apart the two methods are. It never participates in the decision.
 //
 // Usage (the CLI shim at the bottom, mirroring socratic_first_turn_assert.ts):
-//   bun capability_row_assert.ts <present|absent|any-of> <capture.log> <key…>
+//   bun capability_row_assert.ts <present|absent|any-of|…-token> <capture.log> <key…>
 // Exit codes: expectation met ⇒ 0, not met ⇒ 1, usage error ⇒ 2.
 
 import { REQUIRES_INPUT_REFUSED_MARKER } from "./requires_input";
@@ -56,8 +56,34 @@ export interface CapabilityScore {
   postRefusalHits: number;
 }
 
-/** What the caller expects of the key set as a whole. */
-export type CapabilityExpectation = "present" | "absent" | "any-of";
+/**
+ * What the caller expects of the key set as a whole.
+ *
+ * The `-token` variants (STE-564) differ from their plain siblings in ONE way
+ * and nothing else: a key matches only where it is not adjacent to an
+ * identifier character. The assistant-text projection, the post-refusal
+ * subtraction, the diagnostics-only `rawHits` and the all-zero scoring of an
+ * absent or malformed capture are all unchanged.
+ */
+export type CapabilityExpectation =
+  | "present"
+  | "absent"
+  | "any-of"
+  | "present-token"
+  | "absent-token"
+  | "any-of-token";
+
+/** True for the token-bounded half of the vocabulary. */
+export function isTokenBounded(expectation: CapabilityExpectation): boolean {
+  return expectation.endsWith("-token");
+}
+
+/** The plain expectation a `-token` variant decides with. */
+export function baseExpectation(
+  expectation: CapabilityExpectation,
+): "present" | "absent" | "any-of" {
+  return expectation.replace(/-token$/, "") as "present" | "absent" | "any-of";
+}
 
 export interface CapabilityVerdict {
   /** Single line: `<expectation>: <ok|fail> <key>=… …`. */
@@ -68,21 +94,49 @@ export interface CapabilityVerdict {
   scores: Record<string, CapabilityScore>;
 }
 
-const EXPECTATIONS: ReadonlySet<string> = new Set<CapabilityExpectation>([
+export const EXPECTATIONS: ReadonlySet<string> = new Set<CapabilityExpectation>([
   "present",
   "absent",
   "any-of",
+  "present-token",
+  "absent-token",
+  "any-of-token",
 ]);
 
+/**
+ * Characters that continue an identifier. A hit flanked by one of these is a
+ * hit INSIDE a longer key, not an occurrence of this key.
+ *
+ * STE-564: `identity_mode_conditional` is a proper substring of
+ * `plan_identity_mode_conditional`, so a plain match on the shorter key exits
+ * 0 against a capture in which only the LONGER probe fired. Sub-fixture 9a
+ * records that measurement and worked around it by keying on the `**` row
+ * decoration — the only leading delimiter that survived the constraint that
+ * these spans are executed in a shell where a backtick is command
+ * substitution. When STE-532/533 standardised probe-row rendering, that
+ * decoration stopped being emitted and the arm died silently.
+ *
+ * The substring hazard is a MATCHING problem and this is its matching-level
+ * answer: the arm can then name its probe rather than a rendering of it.
+ */
+const IDENTIFIER_CHAR = /[A-Za-z0-9_-]/;
+
+function tokenBounded(haystack: string, at: number, length: number): boolean {
+  const before = at === 0 ? "" : haystack[at - 1]!;
+  const afterAt = at + length;
+  const after = afterAt >= haystack.length ? "" : haystack[afterAt]!;
+  return !IDENTIFIER_CHAR.test(before) && !IDENTIFIER_CHAR.test(after);
+}
+
 /** Start indexes of every non-overlapping occurrence of `needle`. */
-function occurrences(haystack: string, needle: string): number[] {
+function occurrences(haystack: string, needle: string, bounded = false): number[] {
   if (!needle) return [];
   const out: number[] = [];
   let from = 0;
   for (;;) {
     const at = haystack.indexOf(needle, from);
     if (at < 0) return out;
-    out.push(at);
+    if (!bounded || tokenBounded(haystack, at, needle.length)) out.push(at);
     from = at + needle.length;
   }
 }
@@ -98,12 +152,14 @@ function occurrences(haystack: string, needle: string): number[] {
 export function scoreCapabilityKey(
   ndjson: string,
   key: string,
+  opts: { tokenBounded?: boolean } = {},
 ): CapabilityScore {
+  const bounded = opts.tokenBounded === true;
   const raw = typeof ndjson === "string" ? ndjson : "";
-  const rawHits = occurrences(raw, key).length;
+  const rawHits = occurrences(raw, key, bounded).length;
 
   const assistantText = raw.trim().length > 0 ? extractAssistantText(raw) : "";
-  const hits = occurrences(assistantText, key);
+  const hits = occurrences(assistantText, key, bounded);
 
   // First marker occurrence wins: everything downstream of the refusal is
   // wrap-up prose, however many times the marker is restated.
@@ -124,7 +180,7 @@ function expectationMet(
   expectation: CapabilityExpectation,
   scores: CapabilityScore[],
 ): boolean {
-  switch (expectation) {
+  switch (baseExpectation(expectation)) {
     case "present":
       // Vacuously true on an empty key list, but the CLI rejects that as a
       // usage error before it can become a silent pass.
@@ -149,7 +205,8 @@ export function capabilityVerdict(
   expectation: CapabilityExpectation,
 ): CapabilityVerdict {
   const scores: Record<string, CapabilityScore> = {};
-  for (const key of keys) scores[key] = scoreCapabilityKey(ndjson, key);
+  const bounded = isTokenBounded(expectation);
+  for (const key of keys) scores[key] = scoreCapabilityKey(ndjson, key, { tokenBounded: bounded });
 
   const ok = expectationMet(
     expectation,
@@ -178,7 +235,7 @@ if (import.meta.main) {
     keys.length === 0
   ) {
     console.error(
-      "usage: bun capability_row_assert.ts <present|absent|any-of> <capture.log> <key…>",
+      "usage: bun capability_row_assert.ts <present|absent|any-of|present-token|absent-token|any-of-token> <capture.log> <key…>",
     );
     process.exit(2);
   }

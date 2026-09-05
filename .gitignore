@@ -11,3 +11,12 @@ node_modules/
 # smoke run's pre-flight #4. A `*` never crosses a `/`, so the trimmed
 # reproducers under `socratic-first-turn/regression/` stay tracked.
 plugins/dev-process-toolkit/tests/fixtures/socratic-first-turn/*.json
+
+# Raw per-run nested-spawn captures from smoke fixture group 8a, persisted for
+# replay during regression triage. Same class as the Phase 8 captures above:
+# local run OUTPUT, never committed. Un-ignored, they left the tree dirty and
+# the next run's pre-flight #4 refuses to start on a dirty tree — so a run that
+# finished cleanly sabotaged its successor (STE-565, measured 2026-09-05).
+# A `*` never crosses a `/`, so any tracked reproducer in a subdirectory stays
+# tracked, exactly as the socratic-first-turn rule intends.
+plugins/dev-process-toolkit/tests/fixtures/nested-spawn/*.log

@@ -141,6 +141,18 @@ const RETIRED_PATTERN = "ADVISORY.*probe.*26|probe.*26.*ADVISORY";
 /** The two capability keys the group stages, and the deprecated one. */
 const CANONICAL_KEY = "milestone_attach_skipped_adapter_limit";
 const DEPRECATED_ALIAS = "milestone_attach_unavailable";
+/**
+ * Probe #26's own id, in the two spellings the runtime renders.
+ *
+ * STE-564 re-keyed every identifier clause in this group off the `**#26 ` /
+ * `**Probe #26 ` row decorations and onto these — the decorations fell to ZERO
+ * occurrences across five 2026-09-05 captures when STE-532/533 standardised
+ * probe-row rendering, while probe #26 stayed healthy.
+ */
+const PROBE_26_NAMES = [
+  "tracker-project-milestone-attached",
+  "tracker_project_milestone_attached",
+] as const;
 
 /** The two probe ids the retired staging tripped. */
 const STAGING_PROBE_KEYS = [
@@ -276,12 +288,11 @@ function spanNaming(sectionBody: string, needle: string): string {
   return hits[0] as string;
 }
 
-/** A sub-fixture's IDENTIFIER clause: names `#26`, names no outcome subject. */
+/** A sub-fixture's IDENTIFIER clause: names probe #26, names no outcome subject. */
 function identifierSpan(sectionBody: string): string {
   const hits = ste221Spans(sectionBody).filter(
     (s) =>
-      s.includes("#26") &&
-      !s.includes("GATE FAILED") &&
+      s.includes(PROBE_26_NAMES[0]) &&
       !s.includes(CANONICAL_KEY) &&
       !s.includes(DEPRECATED_ALIAS),
   );
@@ -289,10 +300,18 @@ function identifierSpan(sectionBody: string): string {
   return hits[0] as string;
 }
 
-/** Each sub-fixture's SUBJECT clause — the one that has to discriminate. */
+/**
+ * Each sub-fixture's SUBJECT clause — the one that has to discriminate.
+ *
+ * 2b's is located by the CANONICAL KEY like its siblings, because STE-564
+ * turned it into an ABSENCE over both capability keys: the control is the
+ * capture in which neither key was read back, which is exactly what separates
+ * it from 2a (canonical key present) and 2c (alias present). It used to be
+ * located by `GATE FAILED`, which the clause no longer carries.
+ */
 const subjectSpans = () => ({
   positive: spanNaming(fixture2a(), CANONICAL_KEY),
-  control: spanNaming(fixture2b(), "GATE FAILED"),
+  control: spanNaming(fixture2b(), CANONICAL_KEY),
   alias: spanNaming(fixture2c(), DEPRECATED_ALIAS),
 });
 
@@ -465,20 +484,26 @@ describe("AC-STE-489.1 — group 2's matching is NDJSON-safe in both directions"
 // ══════════════════════════════════════════════════════════════════════════
 
 describe("AC-STE-489.2 — `#26`, not the word `probe` followed by 26", () => {
-  test("both identifier clauses are an any-of over ≥ 2 rendered row shapes", () => {
+  test("both identifier clauses are an any-of over ≥ 2 rendered id spellings", () => {
     // Single-literal re-keying is how fixture 3c drifted three times: the SAME
     // jira leg rendered probe #37's id underscored 17 / hyphenated 0 in July and
-    // underscored 0 / hyphenated 2 in August. One run of THIS group renders
-    // probe #26 three different ways, which is the same hazard at closer range.
+    // underscored 0 / hyphenated 2 in August. The two-arm discipline survives
+    // STE-564 unchanged; what changed is WHAT the arms name.
     for (const shell of [identifierSpan(fixture2a()), identifierSpan(fixture2c())]) {
       expect(shell).toContain("CAP_ASSERT");
-      expect(shell).toContain("any-of");
-      expect(shell).toContain("#26");
-      const arms = [...shell.matchAll(/"([^"]*#26[^"]*)"/g)].map((m) => m[1] as string);
-      expect(arms.length).toBeGreaterThanOrEqual(2);
-      // Delimited on the LEADING side — a bare key is substring-satisfiable by a
-      // sibling row (the STE-488 lesson); `#26` needs the row marker in front.
-      for (const arm of arms) expect(arm.startsWith("**")).toBe(true);
+      // TOKEN-BOUNDED, which is where the delimiter comes from now. STE-488
+      // needed a LEADING delimiter against the substring hazard and the only
+      // one available was the `**` row marker; borrowing a shape from the
+      // runtime's prose is what made the arm a hostage to how that prose is
+      // drawn. The matcher supplies the boundary instead.
+      expect(shell).toContain("any-of-token");
+      const arms = PROBE_26_NAMES.filter((name) => shell.includes(name));
+      expect(arms.length).toBe(2);
+      // No arm carries a row decoration — the subject, not the rendering.
+      for (const arm of arms) {
+        expect(arm.includes("**")).toBe(false);
+        expect(/#\d/.test(arm)).toBe(false);
+      }
     }
   });
 
@@ -595,11 +620,17 @@ describe("AC-STE-489.3 — the staging isolates the subject", () => {
 // ══════════════════════════════════════════════════════════════════════════
 
 describe("AC-STE-489.4 — 2b measures its own subject, not the staging artefact", () => {
-  test("2b's clause is row-scoped: it names probe #26 as well as the failure", () => {
+  test("2b's clause names the control's own subject: NEITHER capability key", () => {
+    // STE-564. The control stages no milestone-attach key, so what makes it
+    // the control is that probe #26 read neither one back. Paired with the
+    // identifier clause — which proves the probe surfaced at all — that is
+    // 2b's subject, and it carries no row decoration to go stale.
     const shell = subjectSpans().control;
     expect(shell).toContain("CAP_ASSERT");
-    expect(shell).toContain("#26");
-    expect(shell).toContain("GATE FAILED");
+    expect(shell).toContain("absent-token");
+    expect(shell).toContain(CANONICAL_KEY);
+    expect(shell).toContain(DEPRECATED_ALIAS);
+    expect(shell.includes("**")).toBe(false);
   });
 
   test("PERMANENT RECORD — the retired aggregate is present in ALL THREE captures", () => {

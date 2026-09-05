@@ -23,7 +23,15 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 import { SMOKE_LEGS } from "../adapters/_shared/src/smoke_fixture_groups";
-import { anyFences, bashFences, fenceContaining, mutate } from "./_fence";
+import {
+  type FenceShell,
+  anyFences,
+  availableFenceShells,
+  bashFences,
+  fenceContaining,
+  mutate,
+  runInShell,
+} from "./_fence";
 
 const pluginRoot = join(import.meta.dir, "..");
 const repoRoot = join(pluginRoot, "..", "..");
@@ -66,13 +74,45 @@ function freshToken(prefix: string): { token: string; dispose: () => void } {
 
 type Outcome = { status: number; stdout: string; stderr: string };
 
-function runScript(lines: readonly string[]): Outcome {
-  const proc = Bun.spawnSync(["bash", "-c", lines.join("\n")]);
-  return {
-    status: proc.exitCode,
-    stdout: new TextDecoder().decode(proc.stdout).trim(),
-    stderr: new TextDecoder().decode(proc.stderr).trim(),
-  };
+/**
+ * STE-565 — every fence in this file runs under EVERY available shell, and the
+ * shells must agree.
+ *
+ * This runner used to hard-code `bash`. That is the shell the fences are
+ * LABELLED with and it is NOT the shell that executes them: an agent's Bash
+ * tool runs zsh on macOS. The leg-accounting guard's
+ * `$(set -- ${SELECTED_LEGS}; echo $#)` needs POSIX field splitting, zsh does
+ * not split unquoted expansions, and a COMPLETED two-leg run was aborted at
+ * its final gate — while this file stayed green, because it exercised only the
+ * one shell where the bug is invisible.
+ *
+ * Every existing assertion therefore gains a second interpreter with no
+ * call-site change, and a fence whose behaviour DIFFERS between shells throws
+ * naming both — which is the finding, reported rather than averaged away.
+ */
+function runScript(lines: readonly string[], only?: FenceShell): Outcome {
+  const script = lines.join("\n");
+  if (only !== undefined) {
+    const one = runInShell(only, script);
+    return { status: one.status, stdout: one.stdout, stderr: one.stderr };
+  }
+  const shells = availableFenceShells();
+  if (shells.length === 0) {
+    throw new Error("no fence shell available — refusing to report a vacuous pass");
+  }
+  const runs = shells.map((shell) => runInShell(shell, script));
+  const first = runs[0]!;
+  for (const run of runs.slice(1)) {
+    if (run.status !== first.status || run.stdout !== first.stdout) {
+      throw new Error(
+        `fence behaved differently between shells:\n` +
+          runs
+            .map((r) => `  ${r.shell}: status=${r.status} stdout=${JSON.stringify(r.stdout)}`)
+            .join("\n"),
+      );
+    }
+  }
+  return { status: first.status, stdout: first.stdout, stderr: first.stderr };
 }
 
 // ===========================================================================
@@ -96,6 +136,8 @@ function runGreen(opts: {
   selected: readonly string[];
   findings: Findings;
   mutation?: (fence: string) => string;
+  /** Run under exactly this shell instead of requiring the shells to agree. */
+  shell?: FenceShell;
 }): Outcome {
   const { token, dispose } = freshToken("ste452green");
   try {
@@ -106,15 +148,18 @@ function runGreen(opts: {
       writeFileSync(`/tmp/dpt-smoke-findings-${token}-${leg}.md`, body);
     }
     const fence = opts.mutation ? opts.mutation(greenFence()) : greenFence();
-    return runScript([
-      `DATE=${token}`,
-      "ITER=1",
-      `SELECTED_LEGS="${opts.selected.join(" ")}"`,
-      "for _ONE in 1; do",
-      fence,
-      "done",
-      'if [ -n "${STATUS+x}" ]; then echo "STATUS=[${STATUS}]"; else echo "STATUS-UNSET"; fi',
-    ]);
+    return runScript(
+      [
+        `DATE=${token}`,
+        "ITER=1",
+        `SELECTED_LEGS="${opts.selected.join(" ")}"`,
+        "for _ONE in 1; do",
+        fence,
+        "done",
+        'if [ -n "${STATUS+x}" ]; then echo "STATUS=[${STATUS}]"; else echo "STATUS-UNSET"; fi',
+      ],
+      opts.shell,
+    );
   } finally {
     for (const leg of Object.keys(opts.findings)) {
       rmSync(`/tmp/dpt-smoke-findings-${token}-${leg}.md`, { force: true });
@@ -492,13 +537,33 @@ describeIfLoop("AC-STE-452.4 + AC-STE-452.5 — the absent-file semantic is EXPL
       green: false,
     });
 
-    const unguarded = runGreen({ selected: SMOKE_LEGS, findings, mutation: stripGuard });
-    expect(aborted(unguarded)).toBe(false);
-    expect(unguarded.stdout).not.toContain("Aborting");
-    // …and note it STILL does not report green. That is the accident the FR
-    // describes: fail-closed by luck. The difference the guard buys is the
-    // loud, explained abort — which is what the two runs above measure.
-    expect(reportedGreen(unguarded)).toBe(false);
+    // The MUTANT is measured PER SHELL, because its residual behaviour is
+    // genuinely shell-dependent and averaging the two would hide the point.
+    //
+    // STE-565, measured when this file gained its second interpreter: the
+    // "fail-closed by luck" the original comment recorded is BASH-ONLY luck.
+    // With the guard stripped, bash leaves STATUS unset and zsh reports
+    // `green` — a false green on a run with a missing findings file. The guard
+    // is therefore not a nicety that buys a louder message; on the shell an
+    // agent actually runs, it is the only thing standing between a missing
+    // artifact and a green verdict.
+    for (const shell of availableFenceShells()) {
+      const unguarded = runGreen({ selected: SMOKE_LEGS, findings, mutation: stripGuard, shell });
+      expect(aborted(unguarded)).toBe(false);
+      expect(unguarded.stdout).not.toContain("Aborting");
+    }
+
+    const perShellGreen = availableFenceShells().map((shell) => ({
+      shell,
+      green: reportedGreen(runGreen({ selected: SMOKE_LEGS, findings, mutation: stripGuard, shell })),
+    }));
+    // Recorded as a measurement rather than asserted as a uniform property:
+    // whatever each shell does, the GUARDED fence above aborts in both, which
+    // is the property this AC is actually about.
+    expect(perShellGreen.find((r) => r.shell === "bash")?.green ?? false).toBe(false);
+    if (perShellGreen.some((r) => r.shell === "zsh")) {
+      expect(perShellGreen.find((r) => r.shell === "zsh")!.green).toBe(true);
+    }
   });
 });
 
