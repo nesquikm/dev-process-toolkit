@@ -31,6 +31,11 @@
 // release.
 
 import { describe, expect, test } from "bun:test";
+// STE-556. The banner's milestone is asserted through the SHARED grammar, never a
+// private `M\\d+`. This suite carried the fourth copy of that assumption — three in
+// the module it guards, one here — and this one only fired the day the banner first
+// named an `M_<key>` milestone, in the release that fixed the other three.
+import { isMilestoneToken } from "../adapters/_shared/src/milestone_token";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -96,7 +101,7 @@ describe("A — README 'Latest:' line agrees with the topmost CHANGELOG entry", 
     expect(latest).not.toBeNull();
     expect(top!.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(top!.codename.length).toBeGreaterThan(0);
-    expect(latest!.milestone).toMatch(/^M\d+$/);
+    expect(isMilestoneToken(latest!.milestone)).toBe(true);
   });
 
   test("A1 — the VERSION matches", () => {
