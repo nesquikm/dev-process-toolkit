@@ -572,7 +572,13 @@ case "${RC_NONE}"   in ''|*[!0-9]*) RC_NONE=1 ;; esac
 # Same accounting guard as the green probe: every RC_* pre-defaults to 0, so an
 # arm that never fires reads as a clean leg. A selected token that matched no
 # arm is an unexamined leg, and an unexamined leg may not pass this gate.
-SELECTED_COUNT=$(set -- ${SELECTED_LEGS}; echo $#)
+# STE-565: the count does NOT come from the shell splitting an unquoted
+# expansion. `$(set -- ${SELECTED_LEGS}; echo $#)` needs POSIX field splitting,
+# which zsh does not perform: "linear none" collapses to ONE word there, the
+# guard reads examined=2 against count=1, and a COMPLETED two-leg run is
+# aborted at its final gate. Measured live 2026-09-05 at 2h40m. `wc -w` counts
+# words in text handed to it, so the answer is 2 under bash, zsh AND sh.
+SELECTED_COUNT=$(printf %s "${SELECTED_LEGS}" | wc -w | tr -dc 0-9)
 if [ "${EXAMINED_LEGS}" -ne "${SELECTED_COUNT}" ]; then
   echo "/conformance-loop: RC collection examined ${EXAMINED_LEGS} of ${SELECTED_COUNT} selected leg(s) [${SELECTED_LEGS}] — an unrecognized or mis-delimited leg cannot be graded. Aborting."
   exit 1
@@ -890,7 +896,13 @@ fi
 # every arm and report green having counted nothing. So the arms are made to
 # account for themselves: one increment per arm, compared against the selection
 # word count. Any selected token that matched no arm is an unexamined leg.
-SELECTED_COUNT=$(set -- ${SELECTED_LEGS}; echo $#)
+# STE-565: the count does NOT come from the shell splitting an unquoted
+# expansion. `$(set -- ${SELECTED_LEGS}; echo $#)` needs POSIX field splitting,
+# which zsh does not perform: "linear none" collapses to ONE word there, the
+# guard reads examined=2 against count=1, and a COMPLETED two-leg run is
+# aborted at its final gate. Measured live 2026-09-05 at 2h40m. `wc -w` counts
+# words in text handed to it, so the answer is 2 under bash, zsh AND sh.
+SELECTED_COUNT=$(printf %s "${SELECTED_LEGS}" | wc -w | tr -dc 0-9)
 if [ "${EXAMINED_LEGS}" -ne "${SELECTED_COUNT}" ]; then
   echo "/conformance-loop: green probe examined ${EXAMINED_LEGS} of ${SELECTED_COUNT} selected leg(s) [${SELECTED_LEGS}] — an unrecognized or mis-delimited leg cannot be graded and is never green. Aborting."
   exit 1

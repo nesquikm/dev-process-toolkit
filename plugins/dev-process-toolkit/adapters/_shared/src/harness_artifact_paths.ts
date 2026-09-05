@@ -31,6 +31,7 @@
 //
 //     bun adapters/_shared/src/harness_artifact_paths.ts            # both SKILLs
 //     bun adapters/_shared/src/harness_artifact_paths.ts FILE...    # exactly those
+//     bun adapters/_shared/src/harness_artifact_paths.ts ignore-scan  # STE-565
 //
 // One verdict line on stdout, and the VERDICT IS THE EXIT CODE:
 //     artifact-paths: ok scanned=<N> unscoped=0        → exit 0
@@ -361,8 +362,140 @@ export function scanArtifactPaths(files: readonly string[]): {
   };
 }
 
+/**
+ * STE-565 — the in-repo half: a per-run artifact path that lands INSIDE the
+ * repository must be ignored by git, or a completed run dirties the tree and
+ * the NEXT run's pre-flight #4 refuses to start on it.
+ *
+ * MEASURED on 2026-09-05: sub-fixture 8a persists to
+ * `tests/fixtures/nested-spawn/8a-<tracker>-<date>.log`, untracked AND
+ * un-ignored, so a run that finished cleanly sabotaged its successor. The
+ * sibling class — Phase 8's transcript captures — was already ignored, so the
+ * tree-clean promise existed and this path sat outside it.
+ *
+ * DERIVED from `enumeratePerRunArtifactPaths`, never from a list of the known
+ * offenders: the next persist path added to a harness SKILL is covered without
+ * anyone remembering this FR. An enumerated list is the shape that let this
+ * one sit outside a promise its sibling was already inside.
+ */
+export interface RepoArtifactIgnoreRef {
+  /** The enumerated path literal, repo-root-relative as written in the SKILL. */
+  path: string;
+  /** 1-based line in the SKILL body. */
+  line: number;
+  /** A concrete path the class would write, with placeholders resolved. */
+  sample: string;
+  /** Whether git ignores `sample`. */
+  ignored: boolean;
+}
+
+/**
+ * Resolve a path literal's placeholders to a concrete filename.
+ *
+ * The literals carry `<tracker>` / `${DATE}` style placeholders that never
+ * appear on disk. `git check-ignore` decides on a real path, so the sample has
+ * to be one — and it must keep the extension, because that is what most
+ * ignore rules key on.
+ */
+export function sampleArtifactPath(path: string): string {
+  return path.replace(/\$\{[^}]*\}/g, "sample").replace(/<[^<>]*>/g, "sample");
+}
+
+/**
+ * The plugin root, repo-root-relative — derived from this module's own
+ * location, never typed.
+ *
+ * The harness SKILLs write `tests/fixtures/...`, which is PLUGIN-root
+ * relative; the files land at `plugins/dev-process-toolkit/tests/fixtures/...`
+ * and that is the path git has to be asked about. Asking about the unprefixed
+ * form reports every already-ignored class as un-ignored — measured, and it is
+ * why this prefix is applied rather than assumed away.
+ */
+export const PLUGIN_ROOT_RELATIVE = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "..",
+).slice(REPO_ROOT.length + 1);
+
+/** Where a SKILL-written literal actually lands, repo-root-relative. */
+export function repoRelativeArtifactPath(path: string): string {
+  const sample = sampleArtifactPath(path);
+  if (sample.startsWith(`${PLUGIN_ROOT_RELATIVE}/`)) return sample;
+  return join(PLUGIN_ROOT_RELATIVE, sample);
+}
+
+/** The in-repo subset of the enumerated per-run artifact paths. */
+export function inRepoArtifactPaths(
+  skillBody: string,
+): readonly ArtifactPathRef[] {
+  return enumeratePerRunArtifactPaths(skillBody).filter(
+    (ref) => !ref.path.startsWith("/tmp/") && ref.path.includes("tests/fixtures/"),
+  );
+}
+
+/**
+ * Every in-repo per-run artifact path, with git's own verdict on whether it is
+ * ignored.
+ *
+ * The verdict comes from `git check-ignore`, never from grepping `.gitignore`
+ * for a string: negations, directory rules and precedence are git's semantics,
+ * and a pattern present in the file that does not match the path is exactly
+ * the failure a grep cannot see.
+ */
+export function scanUnignoredRepoArtifacts(
+  repoRoot: string,
+  skillRelativePaths: readonly string[] = HARNESS_SKILL_RELATIVE_PATHS,
+): readonly RepoArtifactIgnoreRef[] {
+  const out: RepoArtifactIgnoreRef[] = [];
+  for (const rel of skillRelativePaths) {
+    const abs = join(repoRoot, rel);
+    let body: string;
+    try {
+      body = readFileSync(abs, "utf8");
+    } catch {
+      continue; // an absent harness SKILL is the consumer case, not a violation
+    }
+    for (const ref of inRepoArtifactPaths(body)) {
+      const sample = repoRelativeArtifactPath(ref.path);
+      out.push({ path: ref.path, line: ref.line, sample, ignored: gitIgnores(repoRoot, sample) });
+    }
+  }
+  return out.filter((ref) => !ref.ignored);
+}
+
+/** Ask git — `check-ignore` exits 0 when the path is ignored, 1 when it is not. */
+function gitIgnores(repoRoot: string, path: string): boolean {
+  const proc = Bun.spawnSync(["git", "check-ignore", "-q", "--no-index", path], {
+    cwd: repoRoot,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return proc.exitCode === 0;
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
+
+  // STE-565 — a SUBCOMMAND, not an extra field on the scoping verdict.
+  // `artifact-paths: ok scanned=<N> unscoped=0` is a pinned contract quoted in
+  // shipped prose, and leg-scoping and tree-cleanliness are two subjects: one
+  // line carrying both would make a caller read a verdict it did not ask for.
+  if (args[0] === "ignore-scan") {
+    const unignored = scanUnignoredRepoArtifacts(REPO_ROOT);
+    for (const ref of unignored) {
+      process.stderr.write(
+        `un-ignored ${ref.path} (line ${ref.line}, would land at ${ref.sample})\n`,
+      );
+    }
+    process.stdout.write(
+      unignored.length === 0
+        ? "artifact-ignore: ok un-ignored=0\n"
+        : `artifact-ignore: FAIL un-ignored=${unignored.length}\n`,
+    );
+    process.exit(unignored.length === 0 ? 0 : 1);
+  }
+
   const files =
     args.length > 0
       ? args

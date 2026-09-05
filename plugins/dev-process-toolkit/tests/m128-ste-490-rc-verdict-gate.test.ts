@@ -39,7 +39,7 @@ import {
   type SmokeVerdict,
   type SmokeVerdictRead,
 } from "../adapters/_shared/src/smoke_verdict";
-import { fenceContaining, mutate } from "./_fence";
+import { availableFenceShells, fenceContaining, mutate, runInShell } from "./_fence";
 
 const pluginRoot = join(import.meta.dir, "..");
 const repoRoot = join(pluginRoot, "..", "..");
@@ -423,13 +423,33 @@ describe("AC-STE-490.1/.2/.3 — the `classify` CLI, scored on exit status", () 
 
 type Outcome = { status: number; stdout: string; stderr: string };
 
+/**
+ * STE-565 — the RC-collection fence is executed under EVERY available shell
+ * and the shells must agree.
+ *
+ * This is the other suite that executes a leg-accounting fence, and it had the
+ * same bash-only blind spot: the guard it certifies aborted completed two-leg
+ * runs under zsh while this file stayed green.
+ */
 function runScript(lines: readonly string[]): Outcome {
-  const proc = Bun.spawnSync(["bash", "-c", lines.join("\n")]);
-  return {
-    status: proc.exitCode,
-    stdout: new TextDecoder().decode(proc.stdout).trim(),
-    stderr: new TextDecoder().decode(proc.stderr).trim(),
-  };
+  const script = lines.join("\n");
+  const shells = availableFenceShells();
+  if (shells.length === 0) {
+    throw new Error("no fence shell available — refusing to report a vacuous pass");
+  }
+  const runs = shells.map((shell) => runInShell(shell, script));
+  const first = runs[0]!;
+  for (const run of runs.slice(1)) {
+    if (run.status !== first.status || run.stdout !== first.stdout) {
+      throw new Error(
+        `fence behaved differently between shells:\n` +
+          runs
+            .map((r) => `  ${r.shell}: status=${r.status} stdout=${JSON.stringify(r.stdout)}`)
+            .join("\n"),
+      );
+    }
+  }
+  return { status: first.status, stdout: first.stdout, stderr: first.stderr };
 }
 
 /** A per-invocation token, unique without relying on PID non-reuse. */
@@ -690,7 +710,15 @@ describeIfLoop("AC-STE-490.5 — the extraction is anchored and the fence keeps 
     const fence = rcFence();
     expect(fence).toContain('if [ -z "${SELECTED_LEGS:-}" ]');
     expect(fence).toContain("EXAMINED_LEGS=0");
-    expect(fence).toContain("SELECTED_COUNT=$(set -- ${SELECTED_LEGS}; echo $#)");
+    // STE-565 — the pin MOVED to the shipped form rather than being deleted.
+    // The retired `$(set -- ${SELECTED_LEGS}; echo $#)` needed POSIX field
+    // splitting that zsh does not perform, and aborted completed runs.
+    expect(fence).toContain('SELECTED_COUNT=$(printf %s "${SELECTED_LEGS}" | wc -w | tr -dc 0-9)');
+    // Anchored on the ASSIGNMENT, not on the text: the fence's own rationale
+    // comment quotes the retired form while explaining why it was retired, and
+    // a check that could not tell an argument from an assertion would forbid
+    // writing the explanation down.
+    expect(fence).not.toContain("SELECTED_COUNT=$(set --");
     expect(fence).toContain('if [ "${EXAMINED_LEGS}" -ne "${SELECTED_COUNT}" ]');
     for (const leg of SMOKE_LEGS) {
       const upper = leg.toUpperCase();
