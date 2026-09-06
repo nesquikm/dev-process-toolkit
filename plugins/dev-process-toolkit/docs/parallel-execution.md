@@ -40,7 +40,7 @@ See the [Claude Code agent-teams documentation](https://code.claude.com/docs/en/
 **Concrete examples:**
 
 - **Subagent example:** Phase 3 Stage B Pass 1 fires a `code-reviewer` subagent with the AC checklist and changed files, waits for `OVERALL: OK` or `OVERALL: CONCERNS (N)`, integrates, moves on. One turn, one return value.
-- **Team example:** A 5-milestone `/implement all` run uses a team: lead reads `plan.md`, dispatches M1 to worker A with a worktree, receives completion, approves Phase 4, dispatches M2 to worker B in a fresh worktree, etc. Lead and workers exchange messages across ~50 conversation turns.
+- **Team example:** A 5-milestone `/implement all` run uses a team: lead reads `specs/plan/<M#>.md`, dispatches M1 to worker A with a worktree, receives completion, approves Phase 4, dispatches M2 to worker B in a fresh worktree, etc. Lead and workers exchange messages across ~50 conversation turns.
 
 ## Worktree-per-Subagent Isolation
 

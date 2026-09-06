@@ -86,7 +86,7 @@ describe("permission-shape projection only ever narrows — no cross-toolchain w
     const path = bootstrapSettings(root, ["Bash(python *)"]);
     permissionShapes.apply!(root);
     const after = allowAfter(path);
-    for (const forbidden of ["Bash(uv sync)", "Bash(uv run)", "Bash(pytest)"]) {
+    for (const forbidden of ["Bash(uv sync)", "Bash(uv run:*)", "Bash(pytest:*)"]) {
       expect(after).not.toContain(forbidden);
     }
     // Any surviving rule must actually invoke python.
@@ -98,7 +98,7 @@ describe("permission-shape projection only ever narrows — no cross-toolchain w
     const path = bootstrapSettings(root, ["Bash(node *)"]);
     permissionShapes.apply!(root);
     const after = allowAfter(path);
-    for (const forbidden of ["Bash(npm install)", "Bash(npm test)", "Bash(npx)"]) {
+    for (const forbidden of ["Bash(npm install)", "Bash(npm test)", "Bash(npx:*)"]) {
       expect(after).not.toContain(forbidden);
     }
   });
@@ -108,8 +108,8 @@ describe("permission-shape projection only ever narrows — no cross-toolchain w
     const path = bootstrapSettings(root, ["Bash(flutter *)"]);
     permissionShapes.apply!(root);
     const after = allowAfter(path);
-    expect(after).not.toContain("Bash(dart)");
-    expect(after).not.toContain("Bash(fvm flutter)");
+    expect(after).not.toContain("Bash(dart:*)");
+    expect(after).not.toContain("Bash(fvm flutter:*)");
   });
 
   test("`Bash(bun *)` STILL projects the full bun toolchain (the coherent case is unbroken)", () => {
@@ -117,7 +117,7 @@ describe("permission-shape projection only ever narrows — no cross-toolchain w
     const path = bootstrapSettings(root, ["Bash(bun *)"]);
     permissionShapes.apply!(root);
     const after = allowAfter(path);
-    for (const expected of ["Bash(bun install)", "Bash(bun test)", "Bash(bun run)", "Bash(bunx)"]) {
+    for (const expected of ["Bash(bun install)", "Bash(bun test:*)", "Bash(bun run:*)", "Bash(bunx:*)"]) {
       expect(after).toContain(expected);
     }
   });

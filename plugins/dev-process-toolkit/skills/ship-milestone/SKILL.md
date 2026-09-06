@@ -1,6 +1,6 @@
 ---
 name: ship-milestone
-description: Bundle the Release Checklist + /docs --commit --full into one atomic, human-approved release commit. Reads specs/plan/M<N>.md, bumps the four release files, regenerates docs, prompts once for approval, commits on `y`, does not push.
+description: Bundle the Release Checklist + /docs --commit and /docs --full into one atomic, human-approved release commit. Reads specs/plan/M<N>.md, bumps the four release files, regenerates docs, prompts once for approval, commits on `y`, does not push.
 argument-hint: '[M<N>] [--version X.Y.Z] [--codename "<name>"] [--summary "<text>"]'
 ---
 
@@ -66,7 +66,7 @@ Any of these fire before any file write and exit non-zero with an NFR-10-shape m
 
    Both shapes exit non-zero and preserve the `Context:` line byte-identically. See `docs/ship-milestone-reference.md` § Refusal #1 remedy shapes for the full decision matrix including mixed tracker-Done / not-Done sets (the "any genuinely unshipped" branch wins on mix — safer than misdirecting to `/spec-archive` when a ticket genuinely isn't done yet).
 
-2. **Dirty working tree outside the expected set**. The expected-modified set is every entry in the host's `## Release Files` block, plus the `docs/` subtree (for the `/docs --commit --full` step), plus the resolved plan path (`specs/plan/M<N>.md`, or `specs/plan/archive/M<N>.md` on the archive-fallback leg) for the `shipped_in` frontmatter stamp. `git status --porcelain` lines outside that set ⇒ refuse:
+2. **Dirty working tree outside the expected set**. The expected-modified set is every entry in the host's `## Release Files` block, plus the `docs/` subtree (for the two `/docs` invocations in step 5), plus the resolved plan path (`specs/plan/M<N>.md`, or `specs/plan/archive/M<N>.md` on the archive-fallback leg) for the `shipped_in` frontmatter stamp. `git status --porcelain` lines outside that set ⇒ refuse:
 
    ```
    /ship-milestone: working tree has uncommitted changes outside the release files: <list>.
@@ -148,23 +148,25 @@ For each entry the writer computes the new file content via `bumpFile(entry, cur
 
 Refusals: `MissingReleaseFilesBlockError` (block absent or empty) and `MalformedReleaseFilesError` (entry violates schema, e.g. regex without `(?<version>)` named group) both abort the run with the canonical NFR-10 shape on stderr and exit non-zero. Verdict line first — `Refusing: to rewrite the release files — <what failed>.` — then Remedy: fix the `## Release Files` block in CLAUDE.md (or the offending file) and re-run; nothing was written. — then Context: root=`<projectRoot>`, version=`<X.Y.Z>`, skill=ship-milestone. The remedy names the block to fix and reports what reached disk; it does not send the operator to `/setup`.
 
-### 5. Invoke /docs --commit --full
+### 5. Invoke /docs --commit, then /docs --full
 
-If `readDocsConfig(CLAUDE.md)` returns at least one mode true, run `/docs --commit --full` in-process. Its approval prompt is merged into step 6's single gate (user sees one diff).
+The docs step is TWO invocations, in this order, because `/docs` refuses two or more of its three flags as mutually exclusive and exits non-zero — and step 5 treats any non-zero `/docs` exit as a hard abort. `--commit` merges the fragments `/docs --quick` staged during the milestone into the canonical tree; `--full` then regenerates that tree from specs + source + config. The order is not a preference: `--full` deletes every `docs/.pending/` fragment as superseded, so running it first would leave `--commit` nothing to merge.
 
-If both docs modes are false, log `docs disabled — skipping /docs --commit --full` and continue.
+If `readDocsConfig(CLAUDE.md)` returns at least one mode true, run `/docs --commit` in-process, then `/docs --full` in-process. Both approval prompts are merged into step 6's single gate (user sees one diff).
 
-If `/docs --commit --full` fails (any non-zero exit / thrown error), abort with NFR-10:
+If both docs modes are false, log `docs disabled — skipping /docs --commit and /docs --full` and continue.
+
+If either invocation fails (any non-zero exit / thrown error), abort with NFR-10 naming the one that failed. A `--commit` failure aborts before `--full` runs:
 
 ```
-/ship-milestone: /docs --commit --full failed; cannot proceed with release.
+/ship-milestone: /docs <flag> failed; cannot proceed with release.
 Remedy: fix the underlying /docs failure (see its stderr), then re-run /ship-milestone. Partial release (release commit without doc updates) is not supported.
-Context: milestone=M<N>, version=<X.Y.Z>, skill=ship-milestone
+Context: milestone=M<N>, version=<X.Y.Z>, step=<--commit|--full>, skill=ship-milestone
 ```
 
 ### 6. Unified diff + approval
 
-Print a single unified diff covering every modified file (every `## Release Files` entry that produced a non-empty bump + any `docs/` files `/docs --commit --full` touched). The release-file half of that diff is never assembled by hand here: it is the unified-diff hunks the step-4 `--dry-run` preview already printed, one per changed path, computed from the same two sides the step-7 write will use. The diff also renders the frontmatter stamp hunk — `shipped_in: v<X.Y.Z>` on the resolved plan file — alongside the release-file bumps; the stamp rides the existing single `Apply?` approval below, no extra prompt. Then:
+Print a single unified diff covering every modified file (every `## Release Files` entry that produced a non-empty bump + any `docs/` files the step-5 `/docs` invocations touched). The release-file half of that diff is never assembled by hand here: it is the unified-diff hunks the step-4 `--dry-run` preview already printed, one per changed path, computed from the same two sides the step-7 write will use. The diff also renders the frontmatter stamp hunk — `shipped_in: v<X.Y.Z>` on the resolved plan file — alongside the release-file bumps; the stamp rides the existing single `Apply?` approval below, no extra prompt. Then:
 
 ```
 === Proposed diff (N files, M lines) ===
@@ -270,8 +272,8 @@ Context: milestone=M<N>, chain=pr, skill=ship-milestone
 - **Never `git push`.** The user pushes. Publishing a release is irreversible from the agent's side; that invariant holds regardless of user pressure.
 - **Never bundle unrelated work.** Pre-flight refusal 2 exists because a release commit that carries an unrelated half-fix corrupts the release's provenance in git history.
 - **Never skip the CHANGELOG closing line** on a CHANGELOG-owned release. A non-zero `<F>` blocks release; `<N>=0` is still written if the test gate happens to run zero tests (the line itself is the discipline).
-- **Single approval gate.** Merge `/docs --commit --full`'s diff into the ship-milestone diff; the user sees one unified diff and answers `y` / `N` once.
-- **Stay within the expected-modified set.** Pre-flight refusal 2 is the contract; the set is whatever `## Release Files` declares (plus `docs/` if `/docs --commit --full` ran). `git add -A` is forbidden — use explicit `git add <file>` per entry.
+- **Single approval gate.** Merge both step-5 `/docs` diffs into the ship-milestone diff; the user sees one unified diff and answers `y` / `N` once.
+- **Stay within the expected-modified set.** Pre-flight refusal 2 is the contract; the set is whatever `## Release Files` declares (plus `docs/` if the step-5 `/docs` invocations ran). `git add -A` is forbidden — use explicit `git add <file>` per entry.
 - **Version bump is inferred, not invented.** Reach for `inferBump` before `--version`; `--version` is an escape hatch when inference is wrong, not a default.
 - **Codename validation is strict.** Backticks in commit messages break shell embeds downstream; newlines break the commit subject line. Re-prompt on invalid.
 

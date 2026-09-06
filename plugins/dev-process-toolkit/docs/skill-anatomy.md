@@ -93,7 +93,7 @@ The toolkit's canonical read-only example is `skills/spec-review/SKILL.md`, whic
 ### 3. TDD (multi-agent orchestrator)
 - **Purpose**: RED → GREEN → REFACTOR → AUDIT for one FR via four forked subagents with strict context isolation per STE-225 + STE-296
 - **Invocation**: User-invoked (`/dev-process-toolkit:tdd <FR-id>`) or called inline from /implement Phase 2
-- **Key pattern**: One orchestrator (main context) drives three child skills with `context: fork` + `agent:` pairing — `tdd-write-test` (once per FR, batched ACs), `tdd-implement` (once per AC), `tdd-refactor` (once at end after all GREEN). Each child ends with a single fenced `tdd-result` YAML block parsed deterministically by `parseTddResultBlock` from `adapters/_shared/src/tdd_result.ts`. Bounded retries (max 2 per role per AC for semantic failures via `recordTddFailure` from `tdd_retry_state.ts`; single targeted retry for format violations). Halt path emits failure mode + retry count + last block via `formatHaltReport` from `tdd_halt_report.ts`. The retry prompt injects only raw failing-test output — no orchestrator-side analysis — to preserve the test-writer-cannot-see-implementation guarantee. Plugin-bundled subagents drop `hooks` / `mcpServers` / `permissionMode` (Claude Code strips these on the plugin path); behavior comes from the SKILL.md prompt + `tools` allowlist (`Read, Grep, Glob, Write, Edit, Bash` — no `Agent`, no Web tools). `/gate-check` carries a structural probe `tdd_orchestrator_integrity` that asserts the four skill paths exist, children carry `context: fork`, `agent:` resolves, `user-invocable: false` on children, subagent `tools` excludes `Agent`.
+- **Key pattern**: One orchestrator (main context) drives four child skills with `context: fork` + `agent:` pairing — `tdd-write-test` (once per FR, batched ACs), `tdd-implement` (once per AC), `tdd-refactor` (once at end after all GREEN), `tdd-spec-review` (once at end after REFACTOR is GREEN — the AUDIT stage, agent `tdd-spec-reviewer`, read-only `Read, Grep, Glob`, emitting a `tdd-spec-review-result` fence and halting on missing ACs). Each child ends with a single fenced `tdd-result` YAML block parsed deterministically by `parseTddResultBlock` from `adapters/_shared/src/tdd_result.ts`. Bounded retries (max 2 per role per AC for semantic failures via `recordTddFailure` from `tdd_retry_state.ts`; single targeted retry for format violations). Halt path emits failure mode + retry count + last block via `formatHaltReport` from `tdd_halt_report.ts`. The retry prompt injects only raw failing-test output — no orchestrator-side analysis — to preserve the test-writer-cannot-see-implementation guarantee. Plugin-bundled subagents drop `hooks` / `mcpServers` / `permissionMode` (Claude Code strips these on the plugin path); behavior comes from the SKILL.md prompt + `tools` allowlist (`Read, Grep, Glob, Write, Edit, Bash` — no `Agent`, no Web tools). `/gate-check` probe #39 `tdd_orchestrator_integrity` covers the orchestrator plus the first three children — it asserts the four skill paths exist, children carry `context: fork`, `agent:` resolves, `user-invocable: false` on children, subagent `tools` excludes `Agent`. The fourth child, `tdd-spec-review`, has its own probe, #50.
 
 ### 4. Debug (structured debugging protocol)
 - **Purpose**: Systematic investigation of failing tests or gate check failures
@@ -153,7 +153,12 @@ Use `` !`command` `` to run shell commands before the skill content is sent to C
 
 ## Subagent Execution
 
-There are two ways to run work in a separate context (isolated from the parent skill's conversation history): **explicit `Agent`-tool invocation from inside a skill body** (the pattern this plugin actually uses) and **`context: fork` frontmatter** (a documented alternative that this plugin does not exercise).
+There are two ways to run work in a separate context (isolated from the parent skill's conversation history), and **this plugin ships both**:
+
+- **Whole-skill `context: fork` + `agent:` frontmatter** — the delegation primitive of the seven fork children (`spec-research`, `deps-research`, `spec-review-audit`, and the four TDD children `tdd-write-test` / `tdd-implement` / `tdd-refactor` / `tdd-spec-review`). Reach for it when the delegated unit is a whole skill with its own paired subagent and its own hand-off contract. `/gate-check` probes #39, #50, #51 and #54 hard-fail if any of them loses the pairing.
+- **Explicit `Agent`-tool invocation from inside a skill body** — mid-skill delegation, where the parent keeps control of the prompt and the return shape and continues afterwards. `/implement` Phase 3 Stage B uses it to reach `code-reviewer`.
+
+Which to pick: if the delegated work is *the whole skill*, fork it; if it is *one step inside a skill that then keeps going*, invoke the `Agent` tool.
 
 ### Explicit `Agent`-tool invocation (reference implementation)
 
@@ -183,7 +188,7 @@ Why this pattern: the skill author has explicit control over the prompt and the 
 
 **Sequential multi-pass variant.** `/implement` Phase 3 Stage B uses this primitive twice in a row (Pass 1 — Spec Compliance, Pass 2 — Code Quality) with two different prompts against the same subagent, a fail-fast rule between them, and a literal skipped-pass reporting line when Pass 1 finds critical findings. See `skills/implement/SKILL.md` § Stage B for the full template and `agents/code-reviewer.md` § Pass-Specific Return Contracts for the two prompt shapes. When you need different scrutiny levels on the same diff, the multi-pass variant lets you order them deterministically (cheapest gate first) instead of conflating them into one prompt.
 
-### Alternative — `context: fork` (unexercised in this plugin)
+### Whole-skill `context: fork` (the fork-child primitive)
 
 Add `context: fork` to the skill frontmatter to run the whole skill in a forked context:
 
@@ -194,7 +199,9 @@ agent: Explore    # Built-in: Explore, Plan, general-purpose, or a custom name f
 ---
 ```
 
-No skills in this plugin use this frontmatter — the failure modes and prompt-passing ergonomics are not road-tested here. Prefer the explicit `Agent`-tool invocation pattern above for new delegation points. `context: fork` remains documented for readers adapting the plugin to other contexts where whole-skill forking is a better fit.
+Seven shipped skills carry this frontmatter, so the failure modes and prompt-passing ergonomics are road-tested here rather than hypothetical. Each pairs `context: fork` with an `agent:` naming its own subagent, carries `user-invocable: false` so it stays off the slash menu, and returns a single fenced result block its orchestrator parses — `tdd-result`, `tdd-spec-review-result` and `spec-review-result` respectively. The pairing is enforced: `/gate-check` probe #39 (`tdd_orchestrator_integrity`) hard-fails if a TDD child loses it, and probes #50, #51 and #54 cover the audit fork and the two research forks.
+
+Two skills carry `user-invocable: false` WITHOUT being fork children — `/upgrade` and `setup-template`. They are dispatched by name (by `/gate-check` probe #69's remedy and by `/setup --template`), not forked, so do not read the frontmatter flag as a fork marker on its own.
 
 ## Agents vs Skills
 
@@ -229,7 +236,7 @@ Read-side enforcement: `/gate-check` probe #38 `auto-approve-marker-in-canonical
 
 ## Best Practices
 
-1. **Keep SKILL.md under 500 lines** — move reference material to separate files
+1. **Keep SKILL.md under 358 lines** (NFR-1, enforced per skill by `tests/skill-nfr-1-length.test.ts`) — move reference material to `docs/<skill-name>-reference.md`, the overflow home nine of these docs already are
 2. **Reserve `disable-model-invocation: true` for bootstrap skills** — use it on skills that rewrite project scaffolding (e.g., `/setup`) where a subagent re-running the skill mid-flight would clobber the working tree. Do **not** use it on composable skills like `/implement` or `/pr`; the flag blocks agent-team subagents from invoking them via the `Skill` tool, forcing the leaky workaround of reading `SKILL.md` body manually.
 3. **Use `allowed-tools`** to restrict what Claude can do (e.g., read-only for review skills)
 4. **Reference supporting files** so Claude knows when to load them

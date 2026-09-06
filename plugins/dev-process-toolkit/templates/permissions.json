@@ -1,22 +1,22 @@
 {
   "_doc": "Canonical Bash() permissions allow-list per detected stack. STE-106 AC-STE-106.1. /setup reads this at write time. Adding a new stack = adding a row. STE-209 AC-STE-209.1 (M54): explicit-subcommand allowlist replaces globbed `Bash(<cmd> *)` shapes — the harness denies any glob-shaped Bash rule when /setup writes settings.json on a fresh repo (the F3b self-modification-denial bug). Each entry below is a Conventional Commit / read-only command the toolkit invokes from skill prose; expand the list (not the glob) when adding new invocations. Rule shapes are NOT interchangeable: `Bash(x:*)` is a prefix rule covering `x` and `x <args>`; `Bash(x)` matches the bare command only; `Bash(x *)` is the denied glob shape. Entries whose real invocations carry arguments — `git log -1 --oneline`, `echo <text>`, `git commit -F -` (including its `&&`-chained and heredoc forms) — therefore use the `:*` prefix form. That makes the grant declared and covering-shaped under these documented semantics; it is not a measurement of what the live permission classifier admits.",
   "_common": [
-    "Bash(git status)",
-    "Bash(git diff)",
+    "Bash(git status:*)",
+    "Bash(git diff:*)",
     "Bash(git log:*)",
-    "Bash(git show)",
-    "Bash(git rev-parse)",
-    "Bash(git ls-files)",
-    "Bash(git branch)",
-    "Bash(git blame)",
-    "Bash(gh pr list)",
-    "Bash(gh pr view)",
-    "Bash(gh issue list)",
-    "Bash(gh issue view)",
-    "Bash(gh repo view)",
-    "Bash(gh api)",
-    "Bash(ls)",
-    "Bash(mkdir)",
+    "Bash(git show:*)",
+    "Bash(git rev-parse:*)",
+    "Bash(git ls-files:*)",
+    "Bash(git branch:*)",
+    "Bash(git blame:*)",
+    "Bash(gh pr list:*)",
+    "Bash(gh pr view:*)",
+    "Bash(gh issue list:*)",
+    "Bash(gh issue view:*)",
+    "Bash(gh repo view:*)",
+    "Bash(gh api:*)",
+    "Bash(ls:*)",
+    "Bash(mkdir:*)",
     "Bash(echo:*)"
   ],
   "_writes": {
@@ -39,32 +39,32 @@
   "stacks": {
     "bun": [
       "Bash(bun install)",
-      "Bash(bun test)",
-      "Bash(bun run)",
+      "Bash(bun test:*)",
+      "Bash(bun run:*)",
       "Bash(bun --version)",
-      "Bash(bunx)"
+      "Bash(bunx:*)"
     ],
     "node": [
       "Bash(npm install)",
       "Bash(npm test)",
-      "Bash(npm run)",
+      "Bash(npm run:*)",
       "Bash(npm audit)",
-      "Bash(npx)"
+      "Bash(npx:*)"
     ],
     "flutter": [
-      "Bash(flutter test)",
-      "Bash(flutter analyze)",
+      "Bash(flutter test:*)",
+      "Bash(flutter analyze:*)",
       "Bash(flutter --version)",
-      "Bash(fvm flutter)",
-      "Bash(dart)"
+      "Bash(fvm flutter:*)",
+      "Bash(dart:*)"
     ],
     "python": [
       "Bash(uv sync)",
-      "Bash(uv run)",
+      "Bash(uv run:*)",
       "Bash(uv --version)",
-      "Bash(python)",
-      "Bash(python3)",
-      "Bash(pytest)"
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(pytest:*)"
     ],
     "kotlin": [
       "Bash(./gradlew compileKotlin)",

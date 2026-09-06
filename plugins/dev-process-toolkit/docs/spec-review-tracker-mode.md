@@ -45,7 +45,7 @@ empty list.
 ## Side effects
 
 None. `/spec-review` is read-only in both modes. `allowed-tools: Read,
-Glob, Grep` is unchanged — the adapter `pull_acs` call is invoked via
+Glob, Grep, Skill` is unchanged — the adapter `pull_acs` call is invoked via
 Claude's MCP tools, which are separate from `allowed-tools` (they live
 under the `mcp__*` namespace).
 

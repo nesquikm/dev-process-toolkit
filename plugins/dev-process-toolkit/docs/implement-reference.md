@@ -88,7 +88,11 @@ Fires at Phase 1 entry, **between resolver (0.b′) and `claimLock` (0.c)** — 
 
 ### Scope boundary
 
-Only `/implement` reads `branch_template:`. `/tdd`, `/debug`, `/spec-write`, `/gate-check`, `/pr`, `/spec-archive`, `/spec-review`, `/visual-check`, `/simplify`, `/brainstorm` never read the key and never prompt for branch creation.
+Only `/implement` reads `branch_template:`. That is one mechanism; branch CREATION is a second, and the two are independent.
+
+`/tdd`, `/debug`, `/gate-check`, `/pr`, `/spec-review`, `/visual-check`, `/simplify` and `/brainstorm` neither read the key nor prompt for branch creation — they are read-only with respect to the branch.
+
+`/spec-write`, `/spec-archive`, `/setup`, `/ship-milestone`, `/deps`, `/best-practices` and `/upgrade` do not read `branch_template:` either, but they DO prompt: each calls `requireCommittableBranch`, which on a protected trunk offers `[Y] create / [e] edit / [n] abort` and runs `git checkout -b` on acceptance. They propose a name from their own builder rather than from the key. Measured in `docs/setup-tracker-mode.md` § the branch gate: on a repository carrying no CLAUDE.md the gate returned `created` and moved `HEAD`.
 
 ## Milestone Archival Procedure
 
@@ -402,9 +406,9 @@ chore(specs): propagate file removal to cross-cutting specs
 
 **The bound is enforced before anything is written.** `buildPropagationCommitMessage(removedPaths, proseMentions, {mode, ticket})` forwards its third argument to `assertPropagationSubjectWithinCap`, which runs inside the builder and throws in the NFR-10 refusal shape (verdict, `Remedy:`, `Context:`) rather than letting a rejected subject reach the hook. Bypassing the hook is never an acceptable response on any path: deterministic gates override LLM judgment, so the commit conforms to the gate rather than the gate bending to the commit.
 
-### Coupled surface — do not repair here
+### Coupled surface — where the smoke greps live now
 
-`.claude/skills/smoke-test/SKILL.md` lines 998 and 1006 grep for the *old*, path-embedding subject and therefore look stale against the shipped literal above. Repairing those two greps is STE-488's job in M127; leave them alone when editing this hook so the two milestones stay separable.
+STE-488 shipped in v2.67.0, so the hold-off that used to stand here is discharged. `.claude/skills/smoke-test/SKILL.md` now pins the shipped subject verbatim with `--fixed-strings`; the greps moved when the fixture around them grew, which is why naming their line numbers was never going to keep working. A change to the subject is made in `adapters/_shared/src/propagation_commit_message.ts` (`PROPAGATION_COMMIT_SUBJECT`) and the smoke asserts follow from there — search the smoke SKILL for the constant's value rather than for a line number.
 
 ## Commit message format
 
