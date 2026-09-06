@@ -16,13 +16,14 @@ A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** wor
 - **Non-technical drafting (`--no-tech`)** — `/brainstorm` and `/spec-write` skip the technical-design + testing interviews; FR ships with `needs_technical_review: true` and `/implement` refuses until a reviewer fills it in
 - **Topic-aware spec retrieval** — `spec-researcher` Read-only Haiku subagent (invoked by `/brainstorm` and `/spec-write` via the `spec-research` fork) returns related FRs from active + archived specs as a fixed-shape ≤ 25-line block, no parent-context pollution
 - **Dependency docs catalog** — `/deps` manages a git-tracked `specs/deps.yaml` manifest of sibling packages (add/edit/delete/list/sync); a `deps-researcher` Read-only Haiku subagent (invoked by `/brainstorm` and `/spec-write` via the `deps-research` fork) folds each sibling's `docs/` tree into design context as a fixed-shape ≤ 25-line block, so consumer projects with several private packages stop rediscovering APIs
+- **House best-practices catalog** — `/best-practices` manages a git-tracked `specs/best-practices.yaml` manifest of house best-practices docs (add/edit/delete/list) with scope globs and topics, so planning and implementation retrieve the conventions a project has already written down instead of re-deriving them
 - **Privacy-first incident reports** — `/report-issue` bundles repo state + dev narrative, scrubs secrets via 7 patterns (Anthropic / OpenAI / GitHub PAT / AWS / JWT / generic / AWS-secret), previews before publish, then posts a secret GitHub gist; the URL round-trips into `/brainstorm <gist-url>` for self-debug
 - **Diátaxis docs generation** — `/docs` stages fragments per FR (`--quick`), merges with human approval (`--commit`), or regenerates the canonical tree (`--full`)
 - **Task tracker sync** — Linear, Jira, or `none`; auto-claim on FR start, auto-release on archive; adapter-agnostic `Provider` interface
 - **Conventional Commits v1.0.0** — local `commit-msg` hook (POSIX shell by default or opt-in `commitlint`)
 - **Atomic release commits** — `/ship-milestone` enforces the multi-file Release Checklist + folds staged doc fragments into the canonical tree in one commit
 - **Spec lifecycle management** — ULID-keyed FRs, `/spec-archive` for manual archival by ULID / tracker ID / `M<N>`, post-archive drift checks
-- **Browser-based UI verification** — `/visual-check` via Chrome DevTools MCP
+- **Browser-based UI verification** — `/visual-check` drives a rubber-duck MCP with Chrome browser tools (`chrome-devtools-mcp` is an optional extra for direct Chrome access), and falls back to a manual checklist when the duck is unconfigured
 - **Project-authored verification skills** — declare a `verify_skill` in a `## Verification` block and `/implement`'s Phase 4b″ runs your project's own "does it actually run / look right?" check after the gate passes; `/setup` and `/implement` scaffold a stack-aware stub, or fall back to `/visual-check` (see [`plugins/dev-process-toolkit/docs/verification-skills.md`](./plugins/dev-process-toolkit/docs/verification-skills.md))
 - **Stack-adaptive setup** — auto-detects TypeScript, Flutter, Python, Kotlin; generates `CLAUDE.md`, settings, and the `commit-msg` hook
 
@@ -57,7 +58,7 @@ bun --version
 
 ## Workflow
 
-The toolkit groups its 18 user-invoked skills into a four-phase lifecycle. Read left-to-right for the full path, or jump to whichever phase matches what you're doing now.
+The diagram below maps the 15 skills that sit inside the four-phase lifecycle. Read left-to-right for the phase path, or jump to whichever phase matches what you're doing now. Three of the 18 user-invocable skills are deliberately not on it — see the carve-out below the diagram.
 
 ```mermaid
 flowchart LR
@@ -106,15 +107,15 @@ flowchart LR
     Build --> Ship
 ```
 
-Under the hood, `/implement` invokes the `/tdd` orchestrator inline per FR — `/tdd` forks four subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`, `tdd-spec-reviewer`) into isolated contexts and parses their `tdd-result` YAML hand-off. It runs gate commands inline (e.g., `bun test`) rather than invoking the `/gate-check` skill (which layers 85 probes on top of those commands), and invokes `/docs --quick` once per FR for the Phase 4b doc fragment. `/brainstorm` and `/spec-write` similarly fork the read-only `spec-research` skill (paired with the `spec-researcher` Haiku subagent) for topic-aware retrieval of related active + archived FRs. After self-review and human approval, `/implement` commits and stops — you open the PR via `/pr` separately. `/ship-milestone` invokes `/docs --commit --full` to fold staged fragments into the canonical docs tree before cutting the release commit.
+Under the hood, `/implement` invokes the `/tdd` orchestrator inline per FR — `/tdd` forks four subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`, `tdd-spec-reviewer`) into isolated contexts and parses their `tdd-result` YAML hand-off. It runs gate commands inline (e.g., `bun test`) rather than invoking the `/gate-check` skill (which layers 85 probes on top of those commands), and invokes `/docs --quick` once per FR for the Phase 4b doc fragment. `/brainstorm` and `/spec-write` similarly fork the read-only `spec-research` skill (paired with the `spec-researcher` Haiku subagent) for topic-aware retrieval of related active + archived FRs. After self-review and human approval, `/implement` commits and stops — you open the PR via `/pr` separately. `/ship-milestone` invokes `/docs --commit` and then `/docs --full` — the flags are mutually exclusive — to fold staged fragments into the canonical docs tree and regenerate it before cutting the release commit.
 
-Spine skills (bold, stadium-shaped) are the recommended invoke path; secondary skills (muted rectangles) are auxiliary tools and auto-invoked helpers. `/deliver` wraps the whole Plan → Build → Ship path into one supervised pipeline: it runs `/brainstorm` and `/spec-write` inline with you, then drives each milestone's `/implement` → `/ship-milestone` → `/pr` chain in a fresh visible spawned worker, relaying every approval gate back to you (like `/deps`, it is table-only above — it is the pipeline around the phases, not a fifth phase).
+Spine skills (bold, stadium-shaped) are the recommended invoke path; secondary skills (muted rectangles) are auxiliary tools and auto-invoked helpers. `/deliver` wraps the whole Plan → Build → Ship path into one supervised pipeline: it runs `/brainstorm` and `/spec-write` inline with you, then drives each milestone's `/implement` → `/ship-milestone` → `/pr` chain in a fresh visible spawned worker, relaying every approval gate back to you (like `/deps` and `/best-practices`, it is table-only above — it is the pipeline around the phases, not a fifth phase).
 
 Tracker integration (Linear, Jira, or `mode: none`) threads through Plan → Build → Ship: `/spec-write` files the FR, `/implement` claims it on entry and releases on success, and `/ship-milestone` archives the milestone group.
 
 All commits in toolkit-managed repositories follow [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/), enforced locally by a `commit-msg` hook that `/setup` installs (a POSIX-shell hook by default; opt into `--commitlint` for projects with Node/Bun tooling).
 
-> The diagram above is a deliberately high-level lifecycle map. For the mechanics it omits — the TDD and self-review loops, the deterministic gates/evals, the `spec-research` / `deps-research` forks, and every artifact-write point — see [`docs/workflow-overview.md`](plugins/dev-process-toolkit/docs/workflow-overview.md).
+> The diagram above is a deliberately high-level lifecycle map. The three skills it leaves out are `/deliver`, `/deps` and `/best-practices`: an orchestrator that wraps the phases and two manifest-management surfaces that feed them. For the mechanics it omits — the TDD and self-review loops, the deterministic gates/evals, the `spec-research` / `deps-research` forks, and every artifact-write point — see [`docs/workflow-overview.md`](plugins/dev-process-toolkit/docs/workflow-overview.md).
 
 ## What You Get
 
@@ -135,11 +136,11 @@ Commands are invoked with the `/dev-process-toolkit:` plugin-namespace prefix in
 | `/spec-review`    | Audit code against spec requirements                                                                                                                                                                                                                               | `[requirement-id or 'all']`                                                |
 | `/spec-archive`   | Manually archive a FR (by ULID or tracker ref) or milestone (`M<N>` group) via `git mv` into `specs/frs/archive/` / `specs/plan/archive/` with diff approval; runs a post-archive drift check (Pass A grep + Pass B semantic scan) on finish (FR-17, FR-21, FR-45) | `<ULID, tracker ID, tracker URL, or M<N>>`                                 |
 | `/visual-check`   | Browser-based UI verification via MCP                                                                                                                                                                                                                              | `[page-path] [checklist items...]`                                         |
-| `/docs`           | Generate or update project docs — staged fragments (`--quick`), human-approved merge (`--commit`), or full canonical regeneration (`--full`)                                                                                                                       | `<--quick \| --commit \| --full>`                                          |
+| `/docs`           | Generate or update project docs — staged fragments (`--quick`), human-approved merge (`--commit`), or full canonical regeneration (`--full`). Requires at least one of `user_facing_mode` / `packages_mode` true in CLAUDE.md's `## Docs` block, which `/setup` writes                                                                                                                       | `<--quick \| --commit \| --full>`                                          |
 | `/pr`             | Pull request creation                                                                                                                                                                                                                                              | `[--draft]`                                                                |
 | `/simplify`       | Code quality review and cleanup                                                                                                                                                                                                                                    | `[focus area]`                                                             |
 | `/report-issue`   | Capture a structured bug report (narrative + redacted curated context, optional session transcript), preview, and publish to a secret GitHub gist for triage or self-debug via `/brainstorm <gist-url>`                                                            | `[--full] [--dry-run]`                                                     |
-| `/ship-milestone` | Bundle the Release Checklist + `/docs --commit --full` into one atomic, human-approved release commit                                                                                                                                                              | `[M<N>] [--version X.Y.Z] [--codename "<name>"] [--summary "<text>"]`      |
+| `/ship-milestone` | Bundle the Release Checklist + `/docs --commit` then `/docs --full` into one atomic, human-approved release commit                                                                                                                                                              | `[M<N>] [--version X.Y.Z] [--codename "<name>"] [--summary "<text>"]`      |
 | `/deps`           | Manage a git-tracked `specs/deps.yaml` manifest of sibling packages — Socratic `add` / `edit` / `delete` / `list` / `sync` subcommands; underpins the `deps-research` retrieval fork that feeds `/brainstorm` and `/spec-write`                                    | `<subcommand> [args...]`                                                   |
 | `/best-practices` | Manage a git-tracked `specs/best-practices.yaml` manifest of house best-practices docs — Socratic `add` / `edit` / `delete` / `list` subcommands over repo-relative document paths with scope globs and topics                                                     | `<subcommand> [args...]`                                                   |
 
@@ -155,6 +156,7 @@ Nine additional skills (`spec-research`, `spec-review-audit`, `tdd-write-test`, 
 | `tdd-implementer`    | Implements the minimum code to turn one AC's failing test GREEN — invoked once per AC by `/tdd`                                                      |
 | `tdd-refactorer`     | Cleans up cross-AC duplication while keeping every test GREEN — invoked once at end of FR by `/tdd`                                                  |
 | `tdd-spec-reviewer`  | Read-only Sonnet that traces every AC of one FR to file + test post-REFACTOR; emits a closed-schema audit block and blocks the pipeline only on missing ACs (bounded single-round auto-retry) — invoked once at end of FR by `/tdd`                                |
+| `spec-reviewer`      | Read-only subagent that performs the entire `/spec-review` audit — traces every AC of one FR to file:line + test-file:line against shipped code, classifies Done / Missing / Partial, and emits a single `spec-review-result` block; invoked via the `spec-review-audit` fork |
 | `deps-researcher`    | Read-only Haiku that scans manifest-listed sibling packages' `docs/` trees and emits a fixed-shape ≤ 25-line block of relevant packages + verbatim API signatures + reusable patterns — invoked by `/brainstorm` Step 1.5b and `/spec-write` § 0b step 2.5b           |
 
 ## What's Inside
@@ -169,11 +171,16 @@ dev-process-toolkit/
 │       │   └── plugin.json          # Plugin manifest
 │       ├── skills/                  # 27 (18 + 9) skills (18 user-invocable + 9 internal forks)
 │       ├── agents/                  # 8 specialist agents (code-reviewer, spec-researcher, spec-reviewer, deps-researcher, tdd-{test-writer,implementer,refactorer,spec-reviewer})
-│       ├── adapters/                # 3 tracker adapters (linear, jira, _template) + _shared helpers
-│       ├── templates/               # CLAUDE.md and spec templates
+│       ├── adapters/                # 3 tracker adapters (linear, jira, _template) + _shared helpers (every deterministic probe, parser and bumper)
+│       ├── templates/               # CLAUDE.md and spec templates, permissions.json, git hooks
 │       ├── docs/                    # Methodology and guides
-│       ├── tests/                   # Pattern 9 regression fixture + capture/verify scripts + MCP/project fixtures
-│       └── examples/                # Stack-specific configs
+│       ├── hooks/                   # hooks.json — the SessionEnd / Stop wiring
+│       ├── scripts/                 # Migration helpers invoked by /upgrade and probe remedies
+│       ├── tests/                   # The `bun test` gate root — Pattern 9 regression fixture + capture/verify scripts + MCP/project fixtures
+│       └── examples/                # Per-stack configs (typescript-node, bun-typescript, flutter-dart, kotlin, python, plugin)
+├── .claude/                         # This repo's own skills + settings (the maintainer-only skills, incl. the declared verify_skill)
+├── specs/                           # This repo's own SDD specs (frs/, plan/, requirements/technical/testing)
+├── CHANGELOG.md
 ├── CLAUDE.md
 ├── README.md
 └── LICENSE
@@ -201,15 +208,15 @@ The key insight: **deterministic checks always override LLM judgment**. A failin
 
 ### Examples Provided For
 
-- **Python** — stack-detection config + CLAUDE.md template under `plugins/dev-process-toolkit/examples/python/` (not dogfooded in production by the plugin author, but the `/setup` detection path and example config are maintained alongside the TypeScript and Flutter examples).
-- **Kotlin** — stack-detection config + CLAUDE.md template under `plugins/dev-process-toolkit/examples/kotlin/` (not dogfooded in production by the plugin author, but the `/setup` detection path and example config are maintained alongside the TypeScript and Flutter examples).
+- **Python** — `gate-commands.md` (gate commands, TDD patterns, key conventions, settings example), `release.yml` (a `## Release Files` block), `check-skill-example.md` and a starter `.github/workflows/gate-check.yml` under `plugins/dev-process-toolkit/examples/python/`. `/setup` generates the CLAUDE.md itself from `templates/CLAUDE.md.template` — the example directories hold the stack-specific fragments it draws on, not a template of their own. (Not dogfooded in production by the plugin author, but the `/setup` detection path and example config are maintained alongside the TypeScript and Flutter examples.)
+- **Kotlin** — `gate-commands.md`, `release.yml` and a starter `.github/workflows/gate-check.yml` under `plugins/dev-process-toolkit/examples/kotlin/`, on the same footing: `/setup` writes the CLAUDE.md, the directory supplies the stack fragments. (Not dogfooded in production by the plugin author, but the `/setup` detection path and example config are maintained alongside the TypeScript and Flutter examples.)
 
 ## Documentation
 
 - [`plugins/dev-process-toolkit/docs/sdd-methodology.md`](plugins/dev-process-toolkit/docs/sdd-methodology.md) — What SDD is and how it works
 - [`plugins/dev-process-toolkit/docs/skill-anatomy.md`](plugins/dev-process-toolkit/docs/skill-anatomy.md) — How Claude Code skills work
 - [`plugins/dev-process-toolkit/docs/adaptation-guide.md`](plugins/dev-process-toolkit/docs/adaptation-guide.md) — Reference for customizing skills and configuration after `/setup`
-- [`plugins/dev-process-toolkit/docs/patterns.md`](plugins/dev-process-toolkit/docs/patterns.md) — 25 proven patterns + anti-patterns
+- [`plugins/dev-process-toolkit/docs/patterns.md`](plugins/dev-process-toolkit/docs/patterns.md) — 31 proven patterns + anti-patterns
 - [`plugins/dev-process-toolkit/docs/upgrade-reference.md`](plugins/dev-process-toolkit/docs/upgrade-reference.md) — `/upgrade` migration-registry contract + entry-authoring guide (detector purity, kind semantics, approval rails)
 - [`plugins/dev-process-toolkit/docs/layout-reference.md`](plugins/dev-process-toolkit/docs/layout-reference.md) — spec layout behavioral contract (file-per-FR keyed by tracker ID / short-ULID; ULID in frontmatter; Provider interface; skill integration map)
 - [`plugins/dev-process-toolkit/docs/workflow-overview.md`](plugins/dev-process-toolkit/docs/workflow-overview.md) — End-to-end workflow map: phases, loops, evals, researcher forks, and artifact-write points

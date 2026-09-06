@@ -25,31 +25,31 @@ describe("canonicalAllowList — stack-keyed lookup (STE-209: explicit-subcomman
     const allow = canonicalAllowList(permissionsTemplate, "bun");
     // STE-209 AC-STE-209.1: globs replaced with explicit subcommands —
     // `Bash(git *)` no longer in _common; assert canonical replacements.
-    expect(allow).toContain("Bash(git status)");
+    expect(allow).toContain("Bash(git status:*)");
     expect(allow).toContain("Bash(bun install)");
-    expect(allow).toContain("Bash(bunx)");
+    expect(allow).toContain("Bash(bunx:*)");
     expect(allow).not.toContain("Bash(git *)");
   });
 
   test("returns common + stack-specific entries (flutter)", () => {
     const allow = canonicalAllowList(permissionsTemplate, "flutter");
-    expect(allow).toContain("Bash(flutter test)");
-    expect(allow).toContain("Bash(dart)");
-    expect(allow).toContain("Bash(git status)");
+    expect(allow).toContain("Bash(flutter test:*)");
+    expect(allow).toContain("Bash(dart:*)");
+    expect(allow).toContain("Bash(git status:*)");
     expect(allow).not.toContain("Bash(flutter *)");
   });
 
   test("returns common + stack-specific entries (python)", () => {
     const allow = canonicalAllowList(permissionsTemplate, "python");
     expect(allow).toContain("Bash(uv sync)");
-    expect(allow).toContain("Bash(python)");
-    expect(allow).toContain("Bash(git status)");
+    expect(allow).toContain("Bash(python:*)");
+    expect(allow).toContain("Bash(git status:*)");
     expect(allow).not.toContain("Bash(uv *)");
   });
 
   test("unknown stack falls back to common only (generic)", () => {
     const allow = canonicalAllowList(permissionsTemplate, "generic");
-    expect(allow).toContain("Bash(git status)");
+    expect(allow).toContain("Bash(git status:*)");
     expect(allow).not.toContain("Bash(bun install)");
     expect(allow).not.toContain("Bash(git *)");
   });

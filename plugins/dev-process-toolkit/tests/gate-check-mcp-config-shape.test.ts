@@ -84,7 +84,7 @@ describe("STE-209 — setup-permissions-shape probe (AC-STE-209.6)", () => {
       mkdirSync(join(root, ".claude"), { recursive: true });
       writeFileSync(
         join(root, ".claude", "settings.json"),
-        '{\n  "permissions": {\n    "allow": [\n      "Bash(git status)",\n      "Bash(git diff)"\n    ]\n  }\n}\n',
+        '{\n  "permissions": {\n    "allow": [\n      "Bash(git status:*)",\n      "Bash(git diff)"\n    ]\n  }\n}\n',
       );
       const r = await runSetupPermissionsShapeProbe(root);
       expect(r.violations).toEqual([]);

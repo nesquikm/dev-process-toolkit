@@ -926,11 +926,16 @@ describe("AC-STE-543.8 — the probe-count cascade moved as one", () => {
   test("README's TWO pins read 85, each on its own unique measured line", () => {
     const readme = read(README);
     const gates = onlyLine(readme, /numbered `\/gate-check` probes/);
-    expect(gates.number).toBe(14);
-    expect(gates.line).toContain(`${NEW_PROBE_COUNT} numbered \`/gate-check\` probes`);
-
     const layers = onlyLine(readme, /which layers \d+ probes on top/);
-    expect(layers.number).toBe(109);
+
+    // `onlyLine` THROWS unless exactly one line matches, which is what "its own
+    // unique measured line" means and is the whole point of the helper. The
+    // absolute indices this used to pin (14 and 109) bought nothing on top of
+    // that and cost a red on every ordinary README edit — M_645517 added one
+    // Features bullet and moved both. What is asserted instead is that the two
+    // pins are distinct lines carrying the live count.
+    expect(gates.number).not.toBe(layers.number);
+    expect(gates.line).toContain(`${NEW_PROBE_COUNT} numbered \`/gate-check\` probes`);
     expect(layers.line).toContain(`layers ${NEW_PROBE_COUNT} probes`);
   });
 

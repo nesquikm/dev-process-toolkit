@@ -249,7 +249,7 @@ If spec files were created:
 1. Fill in `specs/requirements.md` — define what to build (functional requirements + acceptance criteria)
 2. Fill in `specs/technical-spec.md` — define how to build it (architecture, data model, key patterns)
 3. Fill in `specs/testing-spec.md` — define how to test it (conventions, coverage targets)
-4. Fill in `specs/plan.md` — break work into milestones with task order
+4. Fill in `specs/plan/M1.md` — the bootstrap plan `/setup` wrote; break work into milestones with task order
 5. Run `/dev-process-toolkit:implement <milestone>` to start building
 
 Or run `/dev-process-toolkit:spec-write` to have Claude guide you through filling specs interactively.

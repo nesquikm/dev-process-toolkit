@@ -100,10 +100,10 @@ describe("AC-STE-317.2 — bun-typescript.md permission block matches `_common +
     expect(body).toMatch(/templates\/permissions\.json/);
     expect(body).toMatch(/bun.*stack key/i);
     expect(body).toContain("Bash(bun install)");
-    expect(body).toContain("Bash(bun test)");
-    expect(body).toContain("Bash(bun run)");
+    expect(body).toContain("Bash(bun test:*)");
+    expect(body).toContain("Bash(bun run:*)");
     expect(body).toContain("Bash(bun --version)");
-    expect(body).toContain("Bash(bunx)");
+    expect(body).toContain("Bash(bunx:*)");
   });
 
   test("gate-check-bun-zero-match-placeholder.test.ts L148-151 assertion updated to explicit-subcommand form", () => {
@@ -141,8 +141,8 @@ describe("AC-STE-317.3 — typescript-node / python / flutter-dart example block
   test("examples/typescript-node/gate-commands.md contains at least one explicit `_common` git/gh rule", () => {
     const body = readExample(join("typescript-node", "gate-commands.md"));
     // The `_common` set must project into the example block.
-    expect(body).toContain("Bash(git status)");
-    expect(body).toContain("Bash(gh pr view)");
+    expect(body).toContain("Bash(git status:*)");
+    expect(body).toContain("Bash(gh pr view:*)");
   });
 
   test("examples/typescript-node/gate-commands.md contains explicit stacks.node rules (or _common-only note if absent)", () => {
@@ -174,7 +174,7 @@ describe("AC-STE-317.3 — typescript-node / python / flutter-dart example block
   test("examples/python/gate-commands.md contains explicit `_common` + stacks.python rules", () => {
     const body = readExample(join("python", "gate-commands.md"));
     // _common must surface.
-    expect(body).toContain("Bash(git status)");
+    expect(body).toContain("Bash(git status:*)");
     const pyRules = perms.stacks.python ?? [];
     if (pyRules.length > 0) {
       const anyPresent = pyRules.some((r) => body.includes(r));
@@ -194,7 +194,7 @@ describe("AC-STE-317.3 — typescript-node / python / flutter-dart example block
 
   test("examples/flutter-dart/gate-commands.md contains explicit `_common` + stacks.flutter rules", () => {
     const body = readExample(join("flutter-dart", "gate-commands.md"));
-    expect(body).toContain("Bash(git status)");
+    expect(body).toContain("Bash(git status:*)");
     const flutterRules = perms.stacks.flutter ?? [];
     if (flutterRules.length > 0) {
       const anyPresent = flutterRules.some((r) => body.includes(r));

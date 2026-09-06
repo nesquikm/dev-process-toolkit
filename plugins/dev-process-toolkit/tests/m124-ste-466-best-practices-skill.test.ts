@@ -24,6 +24,10 @@
 //     an absence paired with presence floors on the same extractions.
 
 import { describe, expect, test } from "bun:test";
+import {
+  readDiagramIntroCount,
+  readDiagramNodes,
+} from "../adapters/_shared/src/readme_surface_reachability";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -194,9 +198,14 @@ describe("AC-STE-466.1 — README count surfaces (probe #57's exact lines)", () 
     expect(line3).toMatch(/18\s+commands?,\s+8\s+agents?/);
   });
 
-  test("the lifecycle prose counts 18 user-invoked skills", () => {
-    expect(onlyLine(mustRead(README), /^The toolkit groups its/)).toMatch(
-      /\b18 user-invoked skills\b/,
+  test("the lifecycle prose states the DIAGRAM's node count, derived", () => {
+    // STE-567: the sentence promised 18 skills over a fifteen-node diagram.
+    // It now states the diagram's own count, and the 18 user-invocable total
+    // lives on README L3 where probe #57 grades it against CLAUDE.md's split.
+    const body = mustRead(README);
+    expect(readDiagramIntroCount(body)).toBe(readDiagramNodes(body).length);
+    expect(onlyLine(body, /^A Claude Code plugin that adds/)).toMatch(
+      /\b18 commands\b/,
     );
   });
 
@@ -213,9 +222,16 @@ describe("AC-STE-466.1 — README count surfaces (probe #57's exact lines)", () 
   });
 });
 
-describe("AC-STE-466.1 — CLAUDE.md count surfaces (probe #57 reads line 15 verbatim)", () => {
-  test("line 15 skills row: 27 slash commands (18 user-invocable + 9 dispatch …)", () => {
-    const line15 = mustRead(CLAUDE_MD).split("\n")[14] ?? "";
+describe("AC-STE-466.1 — CLAUDE.md count surfaces (probe #57 reads them by content)", () => {
+  test("the skills row: 27 slash commands (18 user-invocable + 9 dispatch …)", () => {
+    // Content-anchored, not `split("\\n")[14]`. Probe #57 read this row off a
+    // fixed index until STE-567 de-anchored it; a pin on the index outlived
+    // the coupling it recorded.
+    const rows = mustRead(CLAUDE_MD)
+      .split("\n")
+      .filter((l) => /^├── skills\//.test(l));
+    expect(rows).toHaveLength(1);
+    const line15 = rows[0]!;
     expect(line15).toMatch(/^├── skills\//);
     expect(line15).toMatch(/27\s+slash commands?/);
     expect(line15).toMatch(/\(18\s+user-invocable\s*\+\s*9\s+dispatch/);

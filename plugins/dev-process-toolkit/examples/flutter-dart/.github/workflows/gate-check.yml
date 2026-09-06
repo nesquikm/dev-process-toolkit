@@ -18,6 +18,11 @@ jobs:
 
       - run: flutter pub get
 
+      # `make codegen` runs before analysis for the same reason it does
+      # locally: generated sources have to exist before anything reads them.
+      - name: Codegen
+        run: make codegen
+
       - name: Analyze
         run: flutter analyze
 

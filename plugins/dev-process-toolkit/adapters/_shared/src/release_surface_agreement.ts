@@ -319,7 +319,9 @@ export function checkReleaseSurfaceAgreement(
       detail:
         `README "Latest:" names codename "${latest.codename}"; v${entry.version}'s CHANGELOG ` +
         `entry is "${entry.codename}". The README release-file entry rewrites only the version, ` +
-        "so this field goes stale unless it is written by hand.",
+        "so this field goes stale unless a writer maintains it. Add `{codename}` to that " +
+        "entry's `replace` template, or maintain the line by hand — see " +
+        "`docs/ship-milestone-reference.md` § `kind: regex`.",
     });
   }
 

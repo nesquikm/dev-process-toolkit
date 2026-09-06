@@ -142,7 +142,9 @@ the adapter is treated as production-ready.
 - [ ] Updating an existing ticket rewrites title + description only (no
       status change, no AC toggle — those have dedicated ops)
 - [ ] Description body contains the full FR body **and** a visible back-link
-      to `specs/requirements.md#FR-{N}`
+      to `specs/frs/{tracker_id}.md`. The retired `specs/requirements.md#{fr_anchor}`
+      form predates the file-per-FR layout; a shipped test asserts no adapter
+      template contains `{fr_anchor}`.
 - [ ] Bidirectional-sync round-trip: after `upsert` then `pull_acs`, the returned AC list
       is identical (after normalization) to what was pushed — no infinite
       reconciliation
@@ -322,7 +324,7 @@ tracker we don't bundle.
 
      ---
 
-     Source: specs/requirements.md#{fr_anchor}
+     Source: specs/frs/{tracker_id}.md
    helpers_dir: adapters/github/src
    ---
    ```

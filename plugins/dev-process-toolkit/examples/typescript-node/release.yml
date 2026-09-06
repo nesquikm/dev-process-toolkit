@@ -9,6 +9,6 @@ files:
     kind: changelog
   - path: README.md
     kind: regex
-    pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+) — '
+    pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+)\s*[—–-]\s*'
     replace: 'Latest: **v{version} — '
     optional: true

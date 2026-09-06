@@ -112,14 +112,14 @@ The set of files `/ship-milestone` is allowed to stage is pinned at:
 - `.claude-plugin/marketplace.json`
 - `CHANGELOG.md`
 - `README.md`
-- every file under `docs/` (for the `/docs --commit --full` step)
+- every file under `docs/` (for the two `/docs` invocations in step 5)
 - the resolved plan path — `specs/plan/M<N>.md`, or `specs/plan/archive/M<N>.md` on the archive-fallback leg — for the `shipped_in` frontmatter stamp
 
 Anything else in `git status --porcelain` triggers pre-flight refusal 2. `/ship-milestone` never runs `git add -A`; it `git add`s each path explicitly.
 
 ## Interaction with `/implement M<N>` close-prompt chain
 
-`/implement`'s milestone-close prompt adds an opt-in prompt at the end of a milestone-scope run: "Ship this milestone now? [y/N]". On `y`, `/implement` chains into `/ship-milestone M<N>`. The chain is **not a bypass** — `/ship-milestone`'s own unified-diff approval gate (step 6) still fires, and the user must type `y` again.
+`/implement`'s milestone-close prompt adds an opt-in prompt at the end of a milestone-scope run: `Run /ship-milestone M<N> now? (y/n):` — the literal in `skills/implement/SKILL.md` and `docs/implement-reference.md`. On `y`, `/implement` chains into `/ship-milestone M<N>`. The chain is **not a bypass** — `/ship-milestone`'s own unified-diff approval gate (step 6) still fires, and the user must type `y` again.
 
 ## Mode: none compatibility
 
@@ -162,7 +162,7 @@ All refusals carry the three-line shape: one-line verdict / `Remedy: <action>` /
 1. `milestone M<N> has <count> unshipped FR(s): <list>`
 2. `working tree has uncommitted changes outside the release files: <list>`
 3. `cannot tag release with <F> test failure(s)`
-4. `/docs --commit --full failed; cannot proceed with release`
+4. `/docs <flag> failed; cannot proceed with release` — `<flag>` names which of the two step-5 invocations failed
 
 ## `## Release Files` block schema
 
@@ -243,7 +243,8 @@ Per-stack defaults still ship the version-only form of this entry; a banner with
 - `examples/typescript-node/release.yml`
 - `examples/flutter-dart/release.yml`
 - `examples/python/release.yml`
-- `examples/plugin/release.yml` — the toolkit dogfoods this fixture
+- `examples/kotlin/release.yml`
+- `examples/plugin/release.yml` — carries a `plugins/<your-plugin>/` placeholder plus a marketplace entry marked `optional: true`; edit both paths for your plugin before the first release
 
 Unrecognized stacks get a commented stub plus a "fill this in before running /ship-milestone" pointer.
 
@@ -289,4 +290,4 @@ Skip step 1 (`/spec-archive M<N>`) whenever the FRs are already archived on `mai
 - `CLAUDE.md` § Release Files — the toolkit's own block (it dogfoods the contract).
 - `examples/<stack>/release.yml` — per-stack defaults `/setup` copies in.
 - `adapters/_shared/src/release_config.ts` — parser + per-kind bumpers.
-- `docs/docs-reference.md` § `/docs --commit --full` — the docs-regen half of the ship flow.
+- `docs/docs-reference.md` — the docs-regen half of the ship flow, run as `/docs --commit` then `/docs --full`.

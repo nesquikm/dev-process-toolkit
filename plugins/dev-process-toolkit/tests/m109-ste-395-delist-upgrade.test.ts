@@ -45,6 +45,10 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  readDiagramIntroCount,
+  readDiagramNodes,
+} from "../adapters/_shared/src/readme_surface_reachability";
+import {
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -191,8 +195,20 @@ describe("AC-STE-395.2 — README count tokens", () => {
     );
   });
 
-  test("the lifecycle prose counts 18 user-invoked skills", () => {
-    expect(onlyLine(readme(), /^The toolkit groups its/)).toMatch(/\b18 user-invoked skills\b/);
+  test("the lifecycle prose states the DIAGRAM's node count, derived", () => {
+    // STE-567: this sentence used to read "the toolkit groups its 18
+    // user-invoked skills … read left-to-right for the full path" above a
+    // diagram of fifteen nodes — a completeness promise the diagram did not
+    // keep. The count it states is now the diagram's own, so the pin is on the
+    // agreement rather than on a digit.
+    const body = readme();
+    const stated = readDiagramIntroCount(body);
+    expect(stated).toBe(readDiagramNodes(body).length);
+    // The 18 user-invocable total still has a home — README L3, which probe
+    // #57 grades against CLAUDE.md's split.
+    expect(onlyLine(body, /^A Claude Code plugin that adds/)).toMatch(
+      /\b18 commands\b/,
+    );
   });
 
   test("the repo-tree skills/ row re-keys BOTH token forms on the one line", () => {
@@ -206,7 +222,7 @@ describe("AC-STE-395.2 — README count tokens", () => {
   test("no stale 16-user-invocable token survives on any pinned README line", () => {
     const body = readme();
     expect(onlyLine(body, /^A Claude Code plugin that adds/)).not.toMatch(/16 commands?/);
-    expect(onlyLine(body, /^The toolkit groups its/)).not.toMatch(/\b16\b/);
+    expect(onlyLine(body, /^The diagram below maps the/)).not.toMatch(/\b16\b/);
     const row = onlyLine(body, /^│\s+├── skills\//);
     expect(row).not.toMatch(/\b16\b/);
     expect(row).not.toMatch(/\+\s*8\b/);
@@ -398,14 +414,18 @@ function readmeClaiming(commands: number): string {
 describe("AC-STE-395.4 — CLAUDE.md:15 keeps a literal the probe's splitMatch can read", () => {
   const SPLIT_RE = /\((\d+)\s+user-invocable\s*\+\s*(\d+)\s+dispatch/;
 
-  test("line 15 matches the probe's splitMatch regex verbatim", () => {
-    const line15 = read(claudeMdPath).split("\n")[14];
-    expect(line15).toBeDefined();
-    expect(SPLIT_RE.test(line15!)).toBe(true);
+  /** The one `├── skills/` row of CLAUDE.md, located by content. */
+  const skillsRow = (): string => onlyLine(read(claudeMdPath), /^├── skills\//);
+
+  test("the skills row matches the probe's splitMatch regex verbatim", () => {
+    // Content-anchored, not `split("\\n")[14]`. Probe #57 read this row off a
+    // fixed index until STE-567 de-anchored it; a pin on the index outlived
+    // the coupling it recorded.
+    expect(SPLIT_RE.test(skillsRow())).toBe(true);
   });
 
   test("the parsed split is (18 user-invocable, 9 dispatch)", () => {
-    const m = SPLIT_RE.exec(read(claudeMdPath).split("\n")[14]!);
+    const m = SPLIT_RE.exec(skillsRow());
     expect(m).not.toBeNull();
     expect(Number(m![1])).toBe(18);
     expect(Number(m![2])).toBe(9);

@@ -29,7 +29,7 @@ The orchestrator runs in the **main context** (no `context: fork`) so it can par
 
    - The resolved FR file path(s).
    - The changed-files / source-tree surface to scan.
-   - The project test command (from CLAUDE.md Key Commands / Gating rule) so the fork can confirm GREEN before classifying.
+   - The project test command (from CLAUDE.md Key Commands / Gating rule) as reference context ONLY — the fork's toolset is read-only and cannot run it.
 
    The child skill carries `context: fork` + `user-invocable: false` + `agent: spec-reviewer`. It runs in an isolated context with a read-only toolset (`Read, Grep, Glob`); it cannot Write, Edit, run Bash, or spawn nested Agents. It does the trace + classify + drift-scan work and ends its turn with exactly one fenced ` ```spec-review-result ` block.
 

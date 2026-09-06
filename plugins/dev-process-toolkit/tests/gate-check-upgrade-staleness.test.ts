@@ -962,7 +962,7 @@ function probeEntry(body: string, n: number): string {
 describe("AC-STE-410.1 — LEGACY_MONOLITH_HINT byte-pinned literal", () => {
   test("the exported hint is byte-exact and routes /setup THEN /upgrade", () => {
     expect(LEGACY_MONOLITH_HINT).toBe(
-      "legacy monolithic specs detected — run /dev-process-toolkit:setup to bootstrap, then /dev-process-toolkit:upgrade to split specs/requirements.md into per-FR files.",
+      "legacy monolithic specs detected — run /dev-process-toolkit:setup to bootstrap, then have Claude run /dev-process-toolkit:upgrade (Claude can invoke it; it is not on the slash menu) to split specs/requirements.md into per-FR files.",
     );
   });
 });

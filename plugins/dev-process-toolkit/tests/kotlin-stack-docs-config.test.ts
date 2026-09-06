@@ -67,9 +67,15 @@ describe("AC-STE-336.1 — examples/kotlin/ directory + gate-commands.md", () =>
     expect(existsSync(kotlinDir)).toBe(true);
   });
 
-  test("contains EXACTLY two files: gate-commands.md + release.yml", () => {
+  test("contains EXACTLY the kotlin stack fixtures", () => {
+    // `.github/` joined the set in STE-569: the CI/CD-parity rule in
+    // docs/adaptation-guide.md points a consumer at a starter workflow per
+    // stack, and kotlin was the one detected stack that shipped none.
     const entries = existsSync(kotlinDir) ? readdirSync(kotlinDir).sort() : [];
-    expect(entries).toEqual(["gate-commands.md", "release.yml"]);
+    expect(entries).toEqual([".github", "gate-commands.md", "release.yml"]);
+    expect(
+      existsSync(join(kotlinDir, ".github", "workflows", "gate-check.yml")),
+    ).toBe(true);
   });
 
   describe("gate-commands.md content", () => {
@@ -129,8 +135,16 @@ describe("AC-STE-336.3 — examples/kotlin/release.yml Gradle version-bump set",
   test("declares gradle.properties as kind: regex with a version=<semver> pattern", () => {
     expect(rel).toMatch(/path:\s*gradle\.properties/);
     expect(rel).toMatch(/kind:\s*regex/);
-    // The version= semver capture, e.g. ^version=(?<version>\d+\.\d+\.\d+)
-    expect(rel).toMatch(/\^version=\(\?<version>\\d\+\\\.\\d\+\\\.\\d\+\)/);
+    // AC-STE-566.8: the pin MOVED with the pattern rather than being deleted.
+    // It used to pin the leading `^`, which `bumpRegex` — compiled with `g` and
+    // deliberately without `m` — anchors to the start of the FILE, so the entry
+    // could never match a real gradle.properties. The line-start LOOKBEHIND is
+    // what replaced it, and pinning it here is what stops a future edit from
+    // quietly reinstating the caret.
+    expect(rel).toMatch(
+      /\(\?<=\^\|\\n\)version=\(\?<version>\\d\+\\\.\\d\+\\\.\\d\+\)/,
+    );
+    expect(rel).not.toMatch(/pattern:\s*'\^version=/);
   });
 
   test("declares CHANGELOG.md as kind: changelog", () => {

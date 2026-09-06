@@ -187,14 +187,17 @@ describe("T1 — /setup doctor anchor check is separator-neutral", () => {
 describe("T2 — documented missing-anchor grep pattern is separator-neutral", () => {
   const grepLine = lineContaining(patterns, "Grep pattern to find missing anchors");
   const literals = [...grepLine.matchAll(/`([^`\n]+)`/g)].map((m) => m[1]!);
-  // The plan.md pattern is the `^##`-anchored one; `(?!#)` excludes `^###` (FR).
+  // The plan pattern is the `^##`-anchored one; `(?!#)` excludes `^###` (FR).
   const planPattern = literals.find((l) => /\^#{2}(?!#)/.test(l)) ?? "";
-  const frPattern = literals.find((l) => /\^#{3}/.test(l)) ?? "";
 
-  test("the documented grep line still names both patterns (slice sanity)", () => {
-    expect(grepLine).toContain("plan.md");
+  test("the documented grep line names the surviving pattern (slice sanity)", () => {
+    // STE-568 retired the FR half of this line. The `### FR-N:` heading block
+    // is no longer a convention to grep FOR — it is drift that probe #29
+    // flags — so the doctor grep now carries the milestone check alone, and
+    // this slice sanity asserts the half that is still live.
+    expect(grepLine).toContain("specs/plan/");
     expect(planPattern).not.toBe("");
-    expect(frPattern).toContain("FR-");
+    expect(literals.some((l) => /\^#{3}/.test(l))).toBe(false);
   });
 
   test("the plan.md pattern matches the heading the plan template actually emits", () => {
@@ -216,8 +219,11 @@ describe("T2 — documented missing-anchor grep pattern is separator-neutral", (
     expect(re.test(`# M3 ${EM_DASH} Legacy H1 heading`)).toBe(false);
   });
 
-  test("the FR pattern is unchanged (its colon is the real FR emit form)", () => {
-    expect(new RegExp(frPattern).test("### FR-3: User authentication {#FR-3}")).toBe(true);
+  test("the retired FR grep is gone rather than merely reworded", () => {
+    // Absence paired with a positive: the line must still be a doctor grep,
+    // not an empty sentence that satisfies the absence check by saying nothing.
+    expect(grepLine).not.toContain("FR-[0-9]+");
+    expect(grepLine).toContain("{#M");
   });
 });
 
@@ -252,9 +258,20 @@ describe("T3 — documented milestone heading form matches its own source of tru
     expect(exampleBlock).toContain("{#M3}");
   });
 
-  test("the FR row is untouched — `### FR-{N}: {title}` stays colon-form", () => {
-    expect(frRow).toContain("### FR-{N}: {title}");
-    expect(frRow).toContain("{#FR-{N}}");
+  test("the FR row describes the per-file layout, not a heading anchor", () => {
+    // STE-568: the `### FR-{N}:` heading convention was retired with the
+    // file-per-FR layout, and probe #29 now flags those blocks as drift. The
+    // row's own named source of truth — requirements.md.template — forbids
+    // them outright, so the table was contradicting the file it cited.
+    expect(frRow).toContain("specs/frs/");
+    expect(frRow).not.toContain("### FR-{N}: {title}");
+    expect(frRow).not.toContain("{#FR-{N}}");
+    const template = readFileSync(
+      join(repoRoot, "plugins", "dev-process-toolkit", "templates",
+        "spec-templates", "requirements.md.template"),
+      "utf-8",
+    );
+    expect(template).toMatch(/Do NOT add/i);
   });
 });
 

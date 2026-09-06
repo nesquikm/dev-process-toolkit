@@ -222,8 +222,15 @@ describe("AC-STE-469.1 — count surfaces re-key to the 27 (18 + 9) forms", () =
     expect(row).toMatch(/\(18 user-invocable \+ 9 internal forks\)/);
   });
 
-  test("CLAUDE.md line 15 skills row: 27 slash commands (18 user-invocable + 9 dispatch …)", () => {
-    const line15 = mustRead(CLAUDE_MD).split("\n")[14] ?? "";
+  test("CLAUDE.md skills row: 27 slash commands (18 user-invocable + 9 dispatch …)", () => {
+    // Content-anchored, not `split("\\n")[14]`. Probe #57 read this row off a
+    // fixed index until STE-567 de-anchored it; a pin on the index outlived
+    // the coupling it recorded.
+    const rows = mustRead(CLAUDE_MD)
+      .split("\n")
+      .filter((l) => /^├── skills\//.test(l));
+    expect(rows).toHaveLength(1);
+    const line15 = rows[0]!;
     expect(line15).toMatch(/^├── skills\//);
     expect(line15).toMatch(/27\s+slash commands?/);
     expect(line15).toMatch(/\(18\s+user-invocable\s*\+\s*9\s+dispatch/);
