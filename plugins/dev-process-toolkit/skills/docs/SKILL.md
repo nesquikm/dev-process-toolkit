@@ -1,6 +1,6 @@
 ---
 name: docs
-description: Generate or update project docs (requires /setup --docs first). One of --quick, --commit, --full. `--quick` stages a fragment per FR; `--commit` merges staged fragments with human approval; `--full` regenerates the canonical docs/ tree from scratch.
+description: Generate or update project docs (requires user_facing_mode or packages_mode true in CLAUDE.md's ## Docs block, which /setup writes). One of --quick, --commit, --full. `--quick` stages a fragment per FR; `--commit` merges staged fragments with human approval; `--full` regenerates the canonical docs/ tree from scratch.
 argument-hint: '<--quick | --commit | --full>'
 ---
 

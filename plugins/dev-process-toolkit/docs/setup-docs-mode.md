@@ -7,18 +7,22 @@ section `/setup` writes to `CLAUDE.md`. Pointed at from the skill to keep
 
 Applies whenever `/setup` runs, regardless of tracker mode. `mode: none`
 projects still get the prompts — docs generation is orthogonal to task
-tracking. Absent `## Docs` section ≡ all three values `false`,
-which is the backward-compatible default for projects whose CLAUDE.md
-predates the docs section.
+tracking. On **read**, an absent `## Docs` section ≡ all three values
+`false` — the backward-compatible fallback `readDocsConfig` applies to
+projects whose CLAUDE.md predates the docs section. It is not the write
+contract: `/setup` always emits the section (see § Both-false refusal),
+and `/gate-check` probe #18 (`claudemd-docs-section-present`) hard-fails on
+a toolkit-managed CLAUDE.md that lacks the heading.
 
 ## Core contract (read first)
 
 - **Three binary prompts.** No mode strings, no free-form. Case-insensitive
   `y`/`yes`/`n`/`no`; other inputs re-prompt with the remedy literal
   `answer y or n`.
-- **Absent section ≡ all-false.** No migration prompt on upgrade; existing
-  projects continue to work with `/docs` as a no-op until they re-run
-  `/setup`.
+- **Absent section ≡ all-false, on READ only.** No migration prompt on
+  upgrade; existing projects continue to work with `/docs` as a no-op until
+  they re-run `/setup`. `/setup` itself never writes a file without the
+  section — the fallback exists for files it did not write.
 - **Both-false is a hard refusal.** If the user declines both
   `user_facing_mode` and `packages_mode`, surface the NFR-10 refusal
   below and re-ask those two prompts only. `changelog_ci_owned` from the
@@ -78,9 +82,13 @@ Remedy: answer yes to either "user-facing docs?" or "packages API refs?", or dec
 Context: mode=<tracker-mode>, skill=setup
 ```
 
-If the user chooses "decline both" on the re-ask, do not write the
-`## Docs` section at all. The `mode=<tracker-mode>` field is the active
-tracker mode (`none`, `linear`, `jira`, or custom name).
+If the user declines both on the re-ask, **still emit** the `## Docs`
+section with all-false defaults — matching `docs/setup-reference.md`
+§ Step 7d and `skills/setup/SKILL.md` step 7d. The refusal literal above
+predates probe #18 and is preserved byte-identically because it is quoted
+in two places; read its closing parenthetical as describing `/docs` going
+inert, not the section going missing. The `mode=<tracker-mode>` field is
+the active tracker mode (`none`, `linear`, `jira`, or custom name).
 
 ## Writing the section
 

@@ -41,6 +41,8 @@ specs/
 ├── design/                              # design-reference images (never archived)
 │   ├── system/                          # durable design-system artifacts
 │   └── frs/<id>/                        # per-FR mockups (folder keyed on FR stem)
+├── deps.yaml                            # manifest read by /deps — feeds the deps-research fork
+├── best-practices.yaml                  # manifest read by /best-practices — house conventions
 ├── requirements.md                      # cross-cutting only
 ├── technical-spec.md                    # architecture, ADRs, cross-cutting schemas
 └── testing-spec.md                      # framework + conventions
@@ -84,13 +86,22 @@ npm run typecheck && npm run lint && npm run test
 **UI change:** `/implement → /visual-check → /gate-check → /pr`
 
 <!-- Other user-invocable skills (call directly as needed):
+     - `/deliver` — the full delivery pipeline orchestrator: it chains the phase
+       skills end-to-end, from idea through specs to shipped milestones. It is
+       the consumer of the Orchestration block below — `default_effort`
+       and `merge_policy` configure this skill and nothing else.
      - `/deps` — manage the sibling-package dependency manifest (`specs/deps.yaml`)
        that feeds topic-aware retrieval into `/brainstorm` and `/spec-write`.
+     - `/best-practices` — manage the house best-practices manifest
+       (`specs/best-practices.yaml`): repo-relative doc paths with scope globs
+       and topics, retrieved during planning and implementation.
+     - `/spec-archive` — manually archive an FR or a milestone group by
+       `git mv` into `specs/frs/archive/` (and `specs/plan/archive/`).
      - `/spec-review` — audit shipped code against the FR's specs (read-only).
      - `/docs` — `--quick` stages per-FR doc fragments; `--commit` merges them;
        `--full` regenerates the canonical `docs/` tree.
-     - `/ship-milestone` — bundle the Release Checklist + `/docs --commit --full`
-       into one atomic, human-approved release commit. -->
+     - `/ship-milestone` — bundle the Release Checklist + `/docs --commit` then
+       `/docs --full` into one atomic, human-approved release commit. -->
 
 
 ## Key Patterns
@@ -191,7 +202,21 @@ Schema L keys `/setup` emits:
                      `perf`, ...) enforces a derived branch via the
                      proposal flow.
 
-For the full live-section contract (keys, sync-log form, per-tracker
+In tracker mode `/setup` ALSO emits a populated workspace-binding
+sub-section under `## Task Tracking`, and `/gate-check` probe #25
+(`task-tracking-workspace-binding-present`) hard-fails without it — a
+missing sub-section, a missing key, or an empty value all fail:
+
+  ### Linear        team: <team-name>       project: <project-name>
+  ### Jira          project: <PROJECT-KEY>
+
+The probe exists because tickets created without `project` silently
+landed on the wrong board. A `## Task Tracking` section hand-written
+from the key list above ALONE will fail its first gate; the sub-section
+is not optional. See docs/patterns.md § Schema L Workspace binding
+sub-sections for the full contract.
+
+For the rest of the live-section contract (sync-log form, per-tracker
 quirks), see docs/tracker-adapters.md. `/setup` emits the section when a
 tracker mode is chosen; leaving this comment intact is purely a hint to
 humans editing the file by hand.
@@ -345,8 +370,15 @@ patterns (e.g., a non-standard README "Latest:" line).
 Per-entry keys:
   - path:     repo-relative path
   - kind:     json | toml | yaml | changelog | regex
-  - field:    dot-path (json/toml/yaml only) — e.g. version, project.version,
-              plugins[0].version
+  - field:    per-kind, and NOT interchangeable (measured against the parser):
+              json — any dot-path, array index included:
+                     version | package.version | plugins[0].version
+              toml — top-level or one-level-dotted only:
+                     version | project.version   (plugins[0].version throws at
+                     bump time: "bumpToml: could not find [plugins[0]].version")
+              yaml — top-level scalar only, NO dots:
+                     version                     (project.version is REFUSED at
+                     parse time: "yaml kind only supports top-level fields")
   - pattern:  regex with named (?<version>...) group (regex only). Every
               occurrence the pattern matches is rewritten, not just the first.
   - replace:  template using {version} and {codename} placeholders (regex

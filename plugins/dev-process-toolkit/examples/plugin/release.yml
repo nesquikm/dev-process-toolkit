@@ -1,17 +1,32 @@
-# `## Release Files` block for a Claude Code plugin / marketplace project —
-# the dogfood case the toolkit itself uses. Two manifest JSON files plus
-# CHANGELOG and README.
+# `## Release Files` block for a Claude Code plugin / marketplace project.
+# Five entries: two manifest JSON files, CHANGELOG, the README banner, and the
+# `Latest shipped release:` line in specs/requirements.md.
+#
+# EDIT THE TWO PATHS BELOW for your plugin. `plugins/<your-plugin>/` is the
+# directory holding your `.claude-plugin/plugin.json`; a repository that is not
+# also a marketplace has no `.claude-plugin/marketplace.json` at its root, which
+# is why that entry is optional.
 files:
-  - path: plugins/dev-process-toolkit/.claude-plugin/plugin.json
+  - path: plugins/<your-plugin>/.claude-plugin/plugin.json
     kind: json
     field: version
   - path: .claude-plugin/marketplace.json
     kind: json
     field: plugins[0].version
+    optional: true
   - path: CHANGELOG.md
     kind: changelog
   - path: README.md
     kind: regex
-    pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+) — '
+    pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+)\s*[—–-]\s*'
     replace: 'Latest: **v{version} — '
+    optional: true
+  # Probe #9b grades this line on every release, and its freshness arm is
+  # existence-guarded on `.claude-plugin/plugin.json` — so a plugin project is
+  # exactly the one kind that cannot skip it. Optional because a project whose
+  # overview line carries no quoted codename has nothing here to rewrite.
+  - path: specs/requirements.md
+    kind: regex
+    pattern: '\*\*Latest shipped release:\*\* \*\*v(?<version>\d+\.\d+\.\d+) \("(?<codename>[^"]+)"\)\*\*'
+    replace: '**Latest shipped release:** **v{version} ("{codename}")**'
     optional: true

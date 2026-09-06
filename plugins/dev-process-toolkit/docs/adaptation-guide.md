@@ -38,7 +38,7 @@ The `/implement` skill reads configuration from your CLAUDE.md at runtime. Custo
 
 ### Input source
 `/implement` auto-detects the input source in this order:
-- **Spec milestones**: Read `specs/plan.md`
+- **Spec milestones**: Read `specs/plan/<M#>.md` (the per-milestone plan; `specs/plan.md` was retired with the file-per-FR layout)
 - **GitHub issues**: Use `gh issue view $ARGUMENTS`
 - **Task files**: Read `.tasks/$ARGUMENTS.md`
 - **Inline description**: Use `$ARGUMENTS` directly
@@ -63,15 +63,20 @@ If you want the full SDD workflow, create specs:
 
 ```
 specs/
-├── requirements.md     # Functional requirements with acceptance criteria
+├── requirements.md     # Cross-cutting functional requirements (shape only, current only)
 ├── technical-spec.md   # Architecture decisions and patterns
 ├── testing-spec.md     # Test conventions and coverage targets
-└── plan.md             # Milestones with task order
+├── frs/                # One file per FR, keyed by tracker ID or short-ULID
+│   ├── <id>.md
+│   └── archive/        # Archived FRs (git mv'd here, stem preserved)
+└── plan/               # One file per milestone
+    ├── M1.md           # One milestone, with task order
+    └── archive/        # Archived milestone plans
 ```
 
 See `templates/spec-templates/` for starter templates.
 
-If you're adding SDD to an existing project, start with just `plan.md` to define milestones for new features. You can back-fill other specs later.
+If you're adding SDD to an existing project, start with just the bootstrap plan at `specs/plan/M1.md` to define milestones for new features. You can back-fill other specs later.
 
 ## Step 5: Choose Your Skill Set
 
@@ -102,16 +107,30 @@ Not every project needs every skill. Here's a recommended progression:
 - `/simplify`
 - `/pr`
 
-### Domain-specific additions
-- **Flutter**: `/codegen`, `/build-run`, `/l10n`, `/feature-scaffold`, `/bump-version`
+### Domain-specific additions (skills you write yourself — none of these ship with the plugin)
+
+Every skill named in the tiers above is a real plugin skill. Every skill named below is a suggestion for one you would author in your own `.claude/skills/`; the plugin has never shipped any of them.
+
+- **Flutter**: `/codegen`, `/build-run`, `/l10n`, `/feature-scaffold` — but not a `/bump-version`: `pubspec.yaml`'s `version` is owned by `/ship-milestone` via the `## Release Files` block, and two writers for one field is how a release disagrees with itself
 - **MCP servers**: `/tool-review`
-- **Web SPA**: `/visual-check`
+- **Web SPA**: `/visual-check` **ships with the plugin** — it is the one entry here you do not have to write
 
 ## Step 6: Configure Agents (Optional)
 
-Agents are specialist personas spawned by Claude via the `Agent` tool. The plugin ships exactly one agent:
+Agents are specialist personas that run in a context of their own. The plugin ships eight, in two groups.
+
+**Invoked by an explicit `Agent`-tool call from inside a skill body — one:**
 
 - **code-reviewer** — The canonical code review rubric (quality, security, patterns, stack-specific). `/implement` Phase 3 Stage B delegates to it via explicit `Agent`-tool invocation — see `docs/skill-anatomy.md` § Subagent Execution for the concrete example. `/gate-check` also references `agents/code-reviewer.md` as its rubric source, but runs the review inline so the verdict returns in one turn. `/spec-review` runs the deep-traceability audit; `code-reviewer` Pass-1 is the inline per-PR check inside `/implement` Phase 3 Stage B — both own spec-compliance in different contexts.
+
+**Paired with a `context: fork` child skill — seven:**
+
+- **spec-researcher** — read-only topic-aware retrieval of related active + archived FRs, forked by `/brainstorm` and `/spec-write` through the `spec-research` child skill.
+- **deps-researcher** — read-only retrieval over the sibling packages catalogued in `specs/deps.yaml`, forked by the same two skills through `deps-research`.
+- **spec-reviewer** — performs the entire `/spec-review` audit, forked through `spec-review-audit`, and emits a single `spec-review-result` block.
+- **tdd-test-writer**, **tdd-implementer**, **tdd-refactorer**, **tdd-spec-reviewer** — the RED / GREEN / REFACTOR / AUDIT stages of `/tdd`, each forked through its own child skill and each returning a `tdd-result` (or `tdd-spec-review-result`) fence.
+
+The pairing is enforced rather than conventional: `/gate-check` probes #39, #50, #51 and #54 hard-fail if a child loses its `context: fork` or its `agent:`. See `docs/skill-anatomy.md` § Subagent Execution for when to reach for which of the two groups.
 
 Agents live in `.claude/agents/` (or `plugins/<plugin>/agents/` for plugins) and need `name` and `description` in frontmatter, a domain expertise description, and an explicit return shape so the calling skill can parse findings deterministically.
 
@@ -233,10 +252,13 @@ The gate-check commands in CLAUDE.md and `/gate-check` should be **identical** t
 
 ### Starter Configs
 
-See `examples/` for GitHub Actions starter configs:
+See `examples/` for GitHub Actions starter configs. Each one runs everything
+its sibling `gate-commands.md` runs — that is the parity rule above, applied to
+the files that demonstrate it:
 - `examples/typescript-node/.github/workflows/gate-check.yml`
 - `examples/python/.github/workflows/gate-check.yml`
 - `examples/flutter-dart/.github/workflows/gate-check.yml`
+- `examples/kotlin/.github/workflows/gate-check.yml`
 
 ## Customizing Archival
 

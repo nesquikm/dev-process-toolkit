@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.80.4] — 2026-09-06 — "Verity"
+
+### Fixed
+
+- One contract governs the docs step of the release, and it is one `/docs` accepts (STE-566)
+- The front door describes what is actually behind it (STE-567)
+- The docs tree stops describing a toolkit that no longer exists (STE-568)
+- What a consumer copies works for the consumer, not for this repo (STE-569)
+- Skills describe each other correctly (STE-570)
+
+Total test count at release: 12234 tests, 0 failures, 0 errors.
+
 ## [2.80.3] — 2026-09-05 — "Anchor"
 
 ### Fixed

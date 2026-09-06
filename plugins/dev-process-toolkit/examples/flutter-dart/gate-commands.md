@@ -32,7 +32,8 @@ make codegen           # Code generation (Freezed, json_serializable, Retrofit, 
 - `/build-run` — Build or run the app with correct flavor
 - `/l10n` — Add/update localization keys
 - `/feature-scaffold` — Create feature module structure
-- `/bump-version` — Increment version in pubspec.yaml
+
+These are skills you would author yourself — none of them ships with the plugin. Do NOT add a `/bump-version` skill: `pubspec.yaml`'s `version` field is written by `/ship-milestone` from the `## Release Files` block (see `examples/flutter-dart/release.yml`), and a second writer for one field is how a release silently disagrees with itself.
 
 ## Settings Example
 
@@ -42,28 +43,28 @@ make codegen           # Code generation (Freezed, json_serializable, Retrofit, 
 {
   "permissions": {
     "allow": [
-      "Bash(git status)",
-      "Bash(git diff)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
       "Bash(git log:*)",
-      "Bash(git show)",
-      "Bash(git rev-parse)",
-      "Bash(git ls-files)",
-      "Bash(git branch)",
-      "Bash(git blame)",
-      "Bash(gh pr list)",
-      "Bash(gh pr view)",
-      "Bash(gh issue list)",
-      "Bash(gh issue view)",
-      "Bash(gh repo view)",
-      "Bash(gh api)",
-      "Bash(ls)",
-      "Bash(mkdir)",
+      "Bash(git show:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git branch:*)",
+      "Bash(git blame:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh repo view:*)",
+      "Bash(gh api:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
       "Bash(echo:*)",
-      "Bash(flutter test)",
-      "Bash(flutter analyze)",
+      "Bash(flutter test:*)",
+      "Bash(flutter analyze:*)",
       "Bash(flutter --version)",
-      "Bash(fvm flutter)",
-      "Bash(dart)"
+      "Bash(fvm flutter:*)",
+      "Bash(dart:*)"
     ]
   }
 }

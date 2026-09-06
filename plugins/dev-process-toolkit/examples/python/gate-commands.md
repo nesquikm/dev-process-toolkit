@@ -33,29 +33,29 @@ pytest               # Run all tests
 {
   "permissions": {
     "allow": [
-      "Bash(git status)",
-      "Bash(git diff)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
       "Bash(git log:*)",
-      "Bash(git show)",
-      "Bash(git rev-parse)",
-      "Bash(git ls-files)",
-      "Bash(git branch)",
-      "Bash(git blame)",
-      "Bash(gh pr list)",
-      "Bash(gh pr view)",
-      "Bash(gh issue list)",
-      "Bash(gh issue view)",
-      "Bash(gh repo view)",
-      "Bash(gh api)",
-      "Bash(ls)",
-      "Bash(mkdir)",
+      "Bash(git show:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git branch:*)",
+      "Bash(git blame:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh repo view:*)",
+      "Bash(gh api:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
       "Bash(echo:*)",
       "Bash(uv sync)",
-      "Bash(uv run)",
+      "Bash(uv run:*)",
       "Bash(uv --version)",
-      "Bash(python)",
-      "Bash(python3)",
-      "Bash(pytest)"
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(pytest:*)"
     ]
   }
 }

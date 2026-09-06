@@ -13,7 +13,7 @@ flowchart LR
     classDef trk fill:#ede7f6,stroke:#6a1b9a,stroke-width:2px,color:#000
 
     S["SETUP<br/>/setup"]:::spine
-    P["PLAN<br/>/brainstorm · /spec-write · /deps<br/>+ spec-research / deps-research forks"]:::spine
+    P["PLAN<br/>/brainstorm · /spec-write · /deps · /best-practices<br/>+ spec-research / deps-research forks"]:::spine
     B["BUILD<br/>/implement → /tdd<br/>RED→GREEN→REFACTOR→AUDIT + self-review"]:::spine
     SH["SHIP<br/>/docs · /ship-milestone · /spec-archive · /pr"]:::spine
 
@@ -44,6 +44,7 @@ flowchart TD
     gDesign{"design-approval gate"}:::gate
     specwrite["/spec-write — FRs + plan"]:::skill
     deps["/deps — manifest surface"]:::skill
+    bestp["/best-practices — manifest surface"]:::skill
     fSpecR["spec-research FORK → spec-researcher (haiku)"]:::fork
     fDepsR["deps-research FORK → deps-researcher (haiku)"]:::fork
     gMs{"milestone identity: key-derived (linear, jira, none) (NFR-10)"}:::gate
@@ -52,6 +53,7 @@ flowchart TD
     aFrs[("specs/frs/(id).md")]:::artifact
     aPlan[("specs/plan/M(N).md")]:::artifact
     aDeps[("specs/deps.yaml")]:::artifact
+    aBestP[("specs/best-practices.yaml")]:::artifact
     aCross[("requirements / technical / testing")]:::artifact
     trk[("Tracker — create / upsert, no claim")]:::tracker
 
@@ -67,6 +69,7 @@ flowchart TD
     gMarker -->|"merge cross-cutting"| aCross
     specwrite -->|"create / upsert"| trk
     deps -->|"merge"| aDeps
+    bestp -->|"merge"| aBestP
 ```
 
 ## 3. Build — the TDD loop (detail)
@@ -119,7 +122,7 @@ flowchart TD
     classDef skill fill:#e1f5e1,stroke:#2e7d32,stroke-width:2px,color:#000
     classDef esc fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000
 
-    gate{"Phase 2 gate-check (kill switch)<br/>typecheck + lint + tests + ~60 probes"}:::eval
+    gate{"Phase 2 gate-check (kill switch)<br/>typecheck + lint + tests + 85 probes"}:::eval
     debug["/debug — root-cause loop"]:::skill
     stageA{"Stage A — spec compliance (in-process)"}:::eval
     stageB["Stage B — code-reviewer FORK<br/>Pass 1 spec → Pass 2 quality (fail-fast)"]:::fork
@@ -139,7 +142,7 @@ flowchart TD
 
 ## 5. Ship + artifact lifecycle (detail)
 
-`/docs --quick` stages one fragment per FR during Build. `/ship-milestone` runs preflight, invokes `/docs --commit --full` to fold the staged fragments into the canonical tree, bumps the four release files, and lands one human-approved commit (no push). `/spec-archive` is the manual archive escape hatch; `/pr` opens the pull request.
+`/docs --quick` stages one fragment per FR during Build. `/ship-milestone` runs preflight, invokes `/docs --commit` and then `/docs --full` to fold the staged fragments into the canonical tree and regenerate it, bumps the four release files, and lands one human-approved commit (no push). `/spec-archive` is the manual archive escape hatch; `/pr` opens the pull request.
 
 ```mermaid
 flowchart TD
@@ -152,7 +155,7 @@ flowchart TD
     aPending[("docs/.pending/(fr-id).md")]:::artifact
     ship["/ship-milestone"]:::skill
     gShip{"preflight<br/>no unshipped FR · clean tree · tests green"}:::gate
-    docscf["/docs --commit --full<br/>(invoked by ship)"]:::skill
+    docscf["/docs --commit then --full<br/>(invoked by ship)"]:::skill
     aTree[("docs/ canonical tree")]:::artifact
     aRel[("plugin.json · marketplace.json<br/>CHANGELOG · README 'Latest:'")]:::artifact
     gDiff{"unified-diff approval (y/N)"}:::gate
@@ -261,7 +264,7 @@ flowchart TD
 | Post-release verification 4d | /implement Release | assert status==done (+updatedAt advanced) | mismatch → NFR-10 |
 | Per-FR milestone iteration | /implement M(N) | N = active FR count | any FR fail → partial success |
 | Gate commands | /gate-check | any fail ⇒ GATE FAILED | kill switch; no LLM downgrade |
-| ~60 conformance probes (NFR-15) | /gate-check | error⇒FAIL, warn⇒NOTES | file:line — reason |
+| 85 conformance probes (NFR-15) | /gate-check | error⇒FAIL, warn⇒NOTES | file:line — reason |
 | Inline code review (5-criterion) | /gate-check | critical CONCERN⇒FAIL | cannot downgrade failing command |
 | Drift check (audit) | /gate-check | implemented/not-found/no-AC | never FAILED; WITH NOTES |
 | spec-review missing-AC halt | spec-reviewer → orchestrator | one bounded retry | >=1 Missing ⇒ halt |

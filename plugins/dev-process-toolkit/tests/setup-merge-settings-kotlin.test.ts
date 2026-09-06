@@ -39,9 +39,9 @@ describe("AC-STE-336.6 — canonicalAllowList(template, 'kotlin')", () => {
 
   test("contains the _common entries (git status, mkdir, gh api, ...)", () => {
     const allow = canonicalAllowList(permissionsTemplate, "kotlin");
-    expect(allow).toContain("Bash(git status)");
-    expect(allow).toContain("Bash(mkdir)");
-    expect(allow).toContain("Bash(gh api)");
+    expect(allow).toContain("Bash(git status:*)");
+    expect(allow).toContain("Bash(mkdir:*)");
+    expect(allow).toContain("Bash(gh api:*)");
   });
 
   test("differs from the generic fallback (kotlin ≠ generic)", () => {

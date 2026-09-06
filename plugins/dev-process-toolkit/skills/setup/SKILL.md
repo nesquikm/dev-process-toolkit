@@ -214,7 +214,7 @@ Full prompt list, NFR-10 refusal text, and section format: `docs/setup-reference
 
 ### 7e. Release Files block
 
-`default: per-stack template` — emit a `## Release Files` block in CLAUDE.md from `examples/<stack>/release.yml` (typescript-node / flutter-dart / python / plugin); unrecognized stack ⇒ commented stub. Skip when CLAUDE.md already carries a `## Release Files` heading — user-edited overrides win on regenerate. Append immediately after `## Docs`. Drives `/ship-milestone`'s version bump; full schema in `docs/ship-milestone-reference.md`.
+`default: per-stack template` — emit a `## Release Files` block in CLAUDE.md from `examples/<stack>/release.yml` (typescript-node / flutter-dart / python / kotlin / plugin); unrecognized stack ⇒ commented stub. The `plugin` fixture carries a `plugins/<your-plugin>/` placeholder the operator must edit. Skip when CLAUDE.md already carries a `## Release Files` heading — user-edited overrides win on regenerate. Append immediately after `## Docs`. Drives `/ship-milestone`'s version bump; full schema in `docs/ship-milestone-reference.md`.
 
 ### 7f. Tracker-config write
 
