@@ -88,10 +88,15 @@ describe("AC-STE-73.4 — Release-file flow reads the `## Release Files` block",
   });
 });
 
-describe("AC-STE-73.5 — invokes /docs --commit --full internally", () => {
-  test("skill names the /docs --commit --full invocation", () => {
+describe("AC-STE-73.5 — invokes /docs --commit then /docs --full internally", () => {
+  // AC-STE-566.2: the composite `--commit --full` form is one `/docs` REFUSES.
+  // The pin moved rather than being deleted, so the skill is still asserted to
+  // name its docs invocations — in the form the sibling accepts.
+  test("skill names both single-flag /docs invocations", () => {
     const body = readSkill();
-    expect(body).toContain("/docs --commit --full");
+    expect(body).toContain("/docs --commit");
+    expect(body).toContain("/docs --full");
+    expect(body).not.toContain("/docs --commit --full");
   });
 
   test("skill documents the abort-on-/docs-failure NFR-10 refusal", () => {

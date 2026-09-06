@@ -59,28 +59,28 @@ The canonical Bun-stack `Bash()` permissions live in `templates/permissions.json
 {
   "permissions": {
     "allow": [
-      "Bash(git status)",
-      "Bash(git diff)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
       "Bash(git log:*)",
-      "Bash(git show)",
-      "Bash(git rev-parse)",
-      "Bash(git ls-files)",
-      "Bash(git branch)",
-      "Bash(git blame)",
-      "Bash(gh pr list)",
-      "Bash(gh pr view)",
-      "Bash(gh issue list)",
-      "Bash(gh issue view)",
-      "Bash(gh repo view)",
-      "Bash(gh api)",
-      "Bash(ls)",
-      "Bash(mkdir)",
+      "Bash(git show:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git branch:*)",
+      "Bash(git blame:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh repo view:*)",
+      "Bash(gh api:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
       "Bash(echo:*)",
       "Bash(bun install)",
-      "Bash(bun test)",
-      "Bash(bun run)",
+      "Bash(bun test:*)",
+      "Bash(bun run:*)",
       "Bash(bun --version)",
-      "Bash(bunx)"
+      "Bash(bunx:*)"
     ]
   }
 }

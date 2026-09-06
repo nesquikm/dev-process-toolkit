@@ -44,7 +44,7 @@ When the stdout is **non-empty**, print that same block and then append the CLI'
 ```
 Context: mode=upgrade, ticket=unbound, skill=upgrade
 monolith-split (1.16.0): <evidence from the sniff>
-legacy monolithic specs detected — run /dev-process-toolkit:setup to bootstrap, then /dev-process-toolkit:upgrade to split specs/requirements.md into per-FR files.
+legacy monolithic specs detected — run /dev-process-toolkit:setup to bootstrap, then have Claude run /dev-process-toolkit:upgrade (Claude can invoke it; it is not on the slash menu) to split specs/requirements.md into per-FR files.
 ```
 
 Either way the exit is terminal: nothing is migrated and no detector runs. A hand-written `CLAUDE.md` with no marker and no managed sections takes this same path. Never migrate a file the toolkit does not own.

@@ -69,7 +69,7 @@ export const UPGRADE_STALENESS_REMEDY =
  * monolithic `specs/requirements.md` into per-FR files with `/upgrade`.
  */
 export const LEGACY_MONOLITH_HINT =
-  "legacy monolithic specs detected — run /dev-process-toolkit:setup to bootstrap, then /dev-process-toolkit:upgrade to split specs/requirements.md into per-FR files.";
+  "legacy monolithic specs detected — run /dev-process-toolkit:setup to bootstrap, then have Claude run /dev-process-toolkit:upgrade (Claude can invoke it; it is not on the slash menu) to split specs/requirements.md into per-FR files.";
 
 export interface UpgradeStalenessReport {
   /** One byte-pinned row per applying entry, in registry order. */

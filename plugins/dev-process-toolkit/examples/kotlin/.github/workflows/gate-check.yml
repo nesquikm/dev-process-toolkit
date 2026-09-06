@@ -1,0 +1,35 @@
+name: Gate Check
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  gate-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Every step below mirrors examples/kotlin/gate-commands.md, in the same
+      # order. The CI/CD-parity rule in docs/adaptation-guide.md is that
+      # everything the local gate runs also runs here.
+      - name: Typecheck
+        run: ./gradlew compileKotlin
+
+      - name: Lint
+        run: ./gradlew detekt
+
+      - name: Test
+        run: ./gradlew test
+
+      - name: Build
+        run: ./gradlew build

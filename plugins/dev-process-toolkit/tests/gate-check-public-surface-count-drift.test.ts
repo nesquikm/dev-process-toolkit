@@ -91,6 +91,17 @@ function makeFixture(opts: {
   maxProbeNumber: number;
   readmeContent: string;
   claudeMdContent: string;
+  /**
+   * How many of `skillsCount` carry `user-invocable: false` (STE-567).
+   *
+   * The probe now grades the DISPATCH half of CLAUDE.md's split against the
+   * on-disk frontmatter, so a fixture documenting a split has to build one.
+   * Defaults to the dispatch number its own `claudeMdContent` documents, which
+   * keeps every existing call site meaning what it already meant: a fixture
+   * whose counts were "byte-exact" stays byte-exact on the half that had no
+   * reader until now.
+   */
+  dispatchCount?: number;
 }): Fixture {
   const root = mkdtempSync(join(tmpdir(), "pscd-probe-"));
   const pluginBase = join(root, "plugins", "dev-process-toolkit");
@@ -100,13 +111,23 @@ function makeFixture(opts: {
   // a non-directory entry (if any) is filtered out by the probe.
   const skillsDir = join(pluginBase, "skills");
   mkdirSync(skillsDir, { recursive: true });
+  const documentedDispatch = /\(\d+\s+user-invocable\s*\+\s*(\d+)\s+dispatch/.exec(
+    opts.claudeMdContent,
+  );
+  const dispatchCount =
+    opts.dispatchCount ??
+    (documentedDispatch === null ? 0 : Number.parseInt(documentedDispatch[1]!, 10));
   for (let i = 1; i <= opts.skillsCount; i++) {
     const slug = `skill-${i}`;
     const d = join(skillsDir, slug);
     mkdirSync(d, { recursive: true });
+    // The last `dispatchCount` of them are the dispatch-only half.
+    const dispatch = i > opts.skillsCount - dispatchCount;
     writeFileSync(
       join(d, "SKILL.md"),
-      `---\nname: ${slug}\ndescription: stub\n---\n\n# ${slug}\n`,
+      `---\nname: ${slug}\ndescription: stub\n` +
+        (dispatch ? "user-invocable: false\n" : "") +
+        `---\n\n# ${slug}\n`,
     );
   }
 

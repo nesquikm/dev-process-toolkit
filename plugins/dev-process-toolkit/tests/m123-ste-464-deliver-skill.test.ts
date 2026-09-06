@@ -147,9 +147,17 @@ describe("AC-STE-464.1 — README count surfaces (probe #57's exact lines)", () 
 });
 
 describe("AC-STE-464.1 — CLAUDE.md count surfaces (probe #57 reads line 15 verbatim)", () => {
-  test("line 15 skills row: 27 slash commands (18 user-invocable + 9 dispatch …)", () => {
-    const line15 = mustRead(CLAUDE_MD).split("\n")[14] ?? "";
-    expect(line15).toMatch(/^├── skills\//);
+  test("the skills row: 27 slash commands (18 user-invocable + 9 dispatch …)", () => {
+    // Content-anchored, not `split("\n")[14]`. Probe #57 read this row off a
+    // fixed index until STE-567 de-anchored it — a single row added to the
+    // structure block above slid the token off line 15, at which point the
+    // probe's regexes matched nothing and BOTH comparisons were skipped with
+    // zero violations. A pin on the index outlived the coupling it recorded.
+    const rows = mustRead(CLAUDE_MD)
+      .split("\n")
+      .filter((l) => /^├── skills\//.test(l));
+    expect(rows).toHaveLength(1);
+    const line15 = rows[0]!;
     // The probe's own totalMatch and splitMatch regexes, instantiated:
     expect(line15).toMatch(/27\s+slash commands?/);
     expect(line15).toMatch(/\(18\s+user-invocable\s*\+\s*9\s+dispatch/);

@@ -66,7 +66,7 @@ Pass the spec-reviewer:
 
 - The FR file path (so it can re-read the canonical AC list as authored).
 - The AC list (the same batched list handed to the test-writer).
-- The project test command (so it can confirm the FR is still GREEN before classifying).
+- The project test command, as reference context ONLY. The orchestrator has already verified GREEN; this fork cannot run it — see the read-only toolset below.
 
 The child fork runs in isolation with a read-only toolset (no `Write`, no `Edit`, no `Bash`, no `Agent`). It traces each AC to the implementation + tests, classifies each as ✓ Done / ✗ Missing / ⚠ Partial, scans for cross-cutting spec drift, and ends with a single `tdd-spec-review-result` fenced block.
 
@@ -145,7 +145,7 @@ When the bounded budget is exhausted, the orchestrator:
 
 ## Pacing
 
-The halt path **does** pause for the operator. This is intentional — the bounded-retry cap means halt only fires after a real failure. Routine TDD cycles (no retries needed) run end-to-end without operator interaction. `/implement` Phase 3 invokes this orchestrator inline.
+The halt path **does** pause for the operator. This is intentional — the bounded-retry cap means halt only fires after a real failure. Routine TDD cycles (no retries needed) run end-to-end without operator interaction. `/implement` Phase 2 invokes this orchestrator inline.
 
 ## Rules
 

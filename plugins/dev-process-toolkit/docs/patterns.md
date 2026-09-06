@@ -320,7 +320,7 @@ Drift findings are **advisory** (GATE PASSED WITH NOTES, never GATE FAILED) beca
 | Unit type | Heading form | Anchor format | Source of truth |
 |-----------|-------------|---------------|-----------------|
 | Milestone | `## M{N} — {title}` | `{#M{N}}` — appended to the heading line | `templates/spec-templates/plan.md.template` |
-| FR | `### FR-{N}: {title}` | `{#FR-{N}}` — appended to the heading line | `templates/spec-templates/requirements.md.template` |
+| FR | *(no heading anchor)* — the FR unit is a per-file spec at `specs/frs/<id>.md`; identity is carried by frontmatter + filename | n/a | `specs/frs/` |
 | AC | `- AC-{N}.{M}: {text}` | The AC ID itself acts as the anchor — existing convention, no change | list-item line in requirements.md |
 
 Example of a properly anchored milestone heading:
@@ -329,7 +329,7 @@ Example of a properly anchored milestone heading:
 ## M3 — User authentication {#M3}
 ```
 
-Grep pattern to find missing anchors: `^##\s+M[0-9]+\s*(—|:)` in `plan.md` and `^###\s+FR-[0-9]+:` in `requirements.md` — any match whose line does NOT also contain `{#M` / `{#FR-` is a doctor warning. Archival (HG95V9) and `/spec-archive` (HG95VA) resolve pointer targets through these anchors.
+Grep pattern to find missing anchors: `^##\s+M[0-9]+\s*(—|:)` in `specs/plan/<M#>.md` — any match whose line does NOT also contain `{#M` is a doctor warning. There is no FR half any more: `### FR-N:` heading blocks in `requirements.md` are drift, and probe #29 (`requirements-md-no-placeholder`) flags them. Archival (HG95V9) and `/spec-archive` (HG95VA) resolve pointer targets through these anchors.
 
 ### Pattern: Archival Lifecycle
 
@@ -468,7 +468,7 @@ A one-time migration helper for projects that ran `/setup` before the workspace-
 
 **Problem**: A single-context `/tdd` lets the test-writer subconsciously design around the implementation it's about to write, so test-first becomes test-last-pretending-to-be-first. The fix has to be structural, not stylistic — relying on the model to "stay disciplined" loses the deterministic-gate property.
 
-**The shape (four skills + three subagents)**:
+**The shape (five skills + four subagents)**:
 
 ```
 plugins/dev-process-toolkit/
@@ -476,11 +476,13 @@ plugins/dev-process-toolkit/
 │   ├── tdd/SKILL.md               # orchestrator (main context, no `context: fork`)
 │   ├── tdd-write-test/SKILL.md    # `context: fork` + `agent: tdd-test-writer` + `user-invocable: false`
 │   ├── tdd-implement/SKILL.md     # `context: fork` + `agent: tdd-implementer` + `user-invocable: false`
-│   └── tdd-refactor/SKILL.md      # `context: fork` + `agent: tdd-refactorer` + `user-invocable: false`
+│   ├── tdd-refactor/SKILL.md      # `context: fork` + `agent: tdd-refactorer` + `user-invocable: false`
+│   └── tdd-spec-review/SKILL.md   # `context: fork` + `agent: tdd-spec-reviewer` + `user-invocable: false`
 └── agents/
     ├── tdd-test-writer.md         # tools: Read, Grep, Glob, Write, Edit, Bash; maxTurns: 8
     ├── tdd-implementer.md         # same allowlist; maxTurns: 8
-    └── tdd-refactorer.md          # same allowlist; maxTurns: 8
+    ├── tdd-refactorer.md          # same allowlist; maxTurns: 8
+    └── tdd-spec-reviewer.md       # READ-ONLY: tools: Read, Grep, Glob — no Write, no Edit, no Bash
 ```
 
 **Why the skill+subagent pairing**: The skill is the unit of *task instruction*; the subagent is the unit of *execution sandbox*. `context: fork` pairs them — task-as-prompt + locked-down tools + isolated context — per the Claude Code docs at `https://code.claude.com/docs/en/skills#run-skills-in-a-subagent`. Plugin-bundled subagents drop `hooks` / `mcpServers` / `permissionMode`; behavior comes from the SKILL.md prompt + `tools` allowlist exclusively. The `Agent` tool is excluded from the allowlist so the subagents cannot nest-spawn (same constraint that gates the `/implement` Runs In-Process pattern, applied here as a budget-by-construction).
@@ -490,10 +492,11 @@ plugins/dev-process-toolkit/
 - `tdd-write-test` ⇒ **once per FR** with the full AC list batched into the prompt.
 - `tdd-implement` ⇒ **once per AC** (one fork per AC, passing only that AC's text + the failing-test command).
 - `tdd-refactor` ⇒ **exactly once at end** of FR after every AC is GREEN.
+- `tdd-spec-review` ⇒ **exactly once at end**, after REFACTOR returns GREEN. The AUDIT stage: it traces every AC of the FR to `file:line` + `test-file:line`, classifies each Done / Missing / Partial, and ends with a single fenced ` ```tdd-spec-review-result ` block. It is read-only by design — the orchestrator has already verified GREEN, and the fork cannot run anything. Missing ACs halt the pipeline after one bounded auto-retry; Partial classifications are reported, not blocking. Guarded by its own probe, #50.
 
 The per-AC implementer dispatch is the load-bearing isolation: the implementer sees one AC, never the full list, never the test-writer's reasoning, never other ACs' implementations. The refactor stage runs once-at-end because the correctness gate is "tests still pass" and a single global pass sees cross-AC duplication that per-AC refactor wouldn't.
 
-**Hand-off contract (deterministic)**: Every child ends with exactly one fenced ` ```tdd-result ` YAML block. The orchestrator parses it via `parseTddResultBlock` from `adapters/_shared/src/tdd_result.ts`. Required fields: `role` (test-writer | implementer | refactorer), `status` (ok | failed), `files` (list, may be empty for refactorer), `command`, `output_excerpt`. Strict YAML keeps the parse deterministic — matches DPT's "deterministic gates override LLM judgment" principle.
+**Hand-off contract (deterministic)**: Every child ends with exactly one fenced ` ```tdd-result ` YAML block. The orchestrator parses it via `parseTddResultBlock` from `adapters/_shared/src/tdd_result.ts`. Required fields: `role` (test-writer | implementer | refactorer | spec-reviewer — the union in `TddRole`), `status` (ok | failed), `files` (list, may be empty for refactorer), `command`, `output_excerpt`. Strict YAML keeps the parse deterministic — matches DPT's "deterministic gates override LLM judgment" principle.
 
 **Bounded retries** via `recordTddFailure` from `tdd_retry_state.ts`:
 
@@ -509,7 +512,7 @@ The retry prompt **injects only raw failing-test output** — no orchestrator-si
 
 ## Pattern 23: File-per-FR Layout
 
-**When to use**: Team collaborates on the same spec tree from multiple parallel branches, and merge conflicts on shared spec files (`plan.md`, `requirements.md`, `archive/*.md`) are a recurring friction point.
+**When to use**: Team collaborates on the same spec tree from multiple parallel branches, and merge conflicts on the monolithic shared spec files this pattern retired (`plan.md`, `requirements.md`, `archive/*.md`) are a recurring friction point.
 
 **The pattern**:
 
@@ -527,7 +530,7 @@ The retry prompt **injects only raw failing-test output** — no orchestrator-si
 
 **Invariants enforced by `/gate-check`** (conformance probes):
 - Filename matches `Provider.filenameFor(spec)` (strict — every base name equals `Provider.filenameFor(spec)`)
-- Required frontmatter fields: `id, title, milestone, status, archived_at, tracker, created_at`
+- Required frontmatter fields — mode-invariant: `title`, `milestone`, `status`, `archived_at`, `created_at`. `id` and `tracker` are **mode-conditional mirrors**: `id` is required in `mode: none` and absent in tracker mode, `tracker` the other way round. Probe #13 `identity_mode_conditional` enforces the conditionality.
 
 **Cross-refs**: `technical-spec.md` §8 (design), `docs/layout-reference.md` (behavioral reference for every spec-touching skill).
 
@@ -698,11 +701,11 @@ See `docs/auto-mode-protocol.md § Socratic Loop Contract` for the full contract
 
 **Problem**: Toolkit users on protected-trunk repos cannot push commits made directly on `main` / `master`. Before STE-228, four of the five commit-producing skills (`/setup`, `/spec-write`, `/spec-archive`, `/ship-milestone`) had no branch logic at all and `/implement`'s existing branch logic was gated on the optional `branch_template:` Schema L key — when absent, `/implement` happily landed `feat(...)` commits on trunk too. Result: every spec-write, archive, and release commit cleared the local hook but failed the remote push.
 
-**Where**: `plugins/dev-process-toolkit/adapters/_shared/src/require_committable_branch.ts` (the shared gate), `skills/{setup,spec-write,spec-archive,ship-milestone}/branch_name_for.ts` (per-skill builders — `/implement` reuses the existing `buildBranchProposal` flow), `adapters/_shared/src/branch_proposal.ts` (canonical home for `PROTECTED_TRUNKS` after the M61 refactor), `adapters/_shared/src/commit_producing_skill_branch_gate.ts` (`/gate-check` probe + `COMMIT_PRODUCING_SKILLS` constant), `tests/branch-gate-doc-conformance.test.ts` + `tests/gate-check-commit-producing-skill-branch-gate.test.ts` (read-side enforcement).
+**Where**: `plugins/dev-process-toolkit/adapters/_shared/src/require_committable_branch.ts` (the shared gate), `skills/{setup,spec-write,spec-archive,ship-milestone}/branch_name_for.ts` (per-skill builders — `/implement` reuses the existing `buildBranchProposal` flow), `adapters/_shared/src/branch_proposal.ts` (canonical home for `PROTECTED_TRUNKS` after the M61 refactor), `adapters/_shared/src/commit_producing_skill_branch_gate.ts` (`/gate-check` probe + `COMMIT_PRODUCING_SKILLS` constant), `tests/branch-gate-doc-conformance.test.ts` + `tests/branch-gate-probe.test.ts` (read-side enforcement).
 
 **Decision**: Lift the branch-proposal flow into a shared pre-commit gate `requireCommittableBranch({ commitType, proposedBranchName, currentBranch, isAutoMode })` that every commit-producing skill calls before staging. The gate has no tracker awareness — per-skill `branchNameFor(...)` builders pass tracker-derived (or literal) names through opaquely. The trunk-OK allowlist narrows to the constant `TRUNK_OK_TYPES = ["ci"]` only — `chore` and `docs` no longer ship directly to trunk (supersedes STE-202 AC-STE-202.5). Protected branches are hardcoded as `PROTECTED_TRUNKS = ["main", "master"]`. When the current branch is in `PROTECTED_TRUNKS` AND `commitType ∉ TRUNK_OK_TYPES`, the gate prompts `[Y] create / [e] edit / [n] abort`; `Y` runs `git checkout -b <branchName>` (after collision-suffix probe per AC-STE-228.11), `n` rolls back staging via `git reset HEAD <paths>` (explicit list, never `--hard`) and exits non-zero. Off-trunk current branch ⇒ silent no-op (composes with `feedback_branch_isolation`).
 
-**Per-skill builder shapes** (full table in `specs/frs/STE-228.md` § Branch-name canonical table):
+**Per-skill builder shapes** (full table in `specs/frs/archive/STE-228.md` § Branch-name canonical table):
 
 | Skill | Run shape | Clean branch name |
 |---|---|---|
@@ -776,4 +779,4 @@ Two riders, both learned the hard way. Prefer replacing a narrowed ban with some
 
 Two more, added by STE-450 after both were hit in one FR. **Run the mutation against the form you are REPLACING, not only the one you are shipping.** A RED under the new pin proves nothing until you know the old pin stayed green — otherwise the mutation cannot distinguish them and the "proof" is that both forms work. Measured instance: a document-wide `toContain` was narrowed to one line and the obvious mutation (delete that line) reddened both, because the token occurred exactly once; only deleting the line *while leaving the token elsewhere* separated them. And **the collision has a positive twin that is harder to see.** Everything above is about bans firing where they should not. The same wrong-scope root cause also makes *positive* pins succeed where they should not — `toContain("GATE FAILED")` satisfied by the `<…>` placeholder in a failure-diagnostic template while the operative assertion it guards is deleted. A spurious RED announces itself; a spurious GREEN never does.
 
-**Cross-refs**: Pattern 12 (Verification-Before-Completion), `specs/notes/follow-ups.md` § 0b (mutation-probe hazards), `specs/plan/M121.md` § Recorded conflict — AC-STE-423.4 vs AC-STE-446.4 (what happens when a pin and a shipped AC cannot both be satisfied).
+**Cross-refs**: Pattern 12 (Verification-Before-Completion), `specs/notes/follow-ups.md` § 0b (mutation-probe hazards), `specs/plan/archive/M121.md` § Recorded conflict — AC-STE-423.4 vs AC-STE-446.4 (what happens when a pin and a shipped AC cannot both be satisfied).

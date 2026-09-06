@@ -33,7 +33,17 @@ const stacks = [
   { dir: "typescript-node", expectKinds: ["json", "changelog", "regex"] as const },
   { dir: "flutter-dart", expectKinds: ["yaml", "changelog", "regex"] as const },
   { dir: "python", expectKinds: ["toml", "changelog", "regex"] as const },
-  { dir: "plugin", expectKinds: ["json", "json", "changelog", "regex"] as const },
+  // Five entries since STE-569: the `specs/requirements.md` line the root
+  // block gained in STE-554 was missing here, so a plugin-stack consumer
+  // reproduced exactly the defect that FR closed — and probe #9b's freshness
+  // arm is existence-guarded on the plugin manifest, so this is the one stack
+  // that cannot skip it.
+  { dir: "plugin", expectKinds: ["json", "json", "changelog", "regex", "regex"] as const },
+  // AC-STE-566.9: kotlin joined the EXECUTABLE roster. It shipped for four
+  // milestones covered only by string assertions, which is why a pattern that
+  // could never match a real gradle.properties sat here undetected — a string
+  // assertion reads the bytes, not what the parser and the bumper do with them.
+  { dir: "kotlin", expectKinds: ["regex", "changelog", "regex"] as const },
 ];
 
 describe("examples/<stack>/release.yml fixtures (AC-STE-167.3)", () => {

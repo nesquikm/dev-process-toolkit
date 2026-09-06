@@ -138,7 +138,7 @@ On `y`, stage `specs/deps.yaml` and create the commit with the exact subject abo
 - `deps_add_diataxis_missing` — Step 5 validation failed (entry not appended).
 - `branch_gate_*` — one of the universal pre-commit branch-gate outcomes from Step 7.
 
-All capability tokens MUST appear as backticked literal tokens in the closing summary — `/gate-check`'s `closing_summary_capability_keys` probe greps the exact strings. Reuse-without-clone (Case C / E) is reflected in the tabular status block's outcome column, not as a separate capability row.
+All capability tokens MUST appear as backticked literal tokens in the closing summary — narrative paraphrase is insufficient. Reuse-without-clone (Case C / E) is reflected in the tabular status block's outcome column, not as a separate capability row.
 
 ## list
 
@@ -150,7 +150,7 @@ Print a tabular summary of every manifest entry to stdout. Read-only: no prompts
 2. **Resolve** each entry's sibling path with `resolveSiblingPath(consumerRepoRoot, entry)`, then probe disk with `existsSync(absPath)`. Render the `local-status` column as the literal `present` when the path exists, `missing` otherwise. The probe is purely an `existsSync` check — no `git` introspection, no content validation (that is `/deps sync`'s concern).
 3. **Render** a Markdown table with the exact column order `name | path | origin | ref | local-status`. Use the literal em-dash `—` for absent `origin` or `ref` fields (both are optional in the schema). The table is the primary stdout payload — do not wrap it in prose, do not collapse columns, do not reorder them.
 4. **Empty-manifest case.** When the manifest contains zero entries (either because `specs/deps.yaml` is absent → `readManifest` returns an empty manifest, or the file exists with `deps: []`), skip the table and emit the literal line `(no manifest entries — use /deps add to register a sibling package)`. The closing-summary contract still fires with `<N> = 0`.
-5. **Closing summary.** Emit the capability row `deps_list_<N>_entries` where `<N>` is the entry count (including 0). The token MUST appear as a backticked literal in the closing summary so `/gate-check`'s `closing_summary_capability_keys` probe greps it byte-for-byte. Narrative paraphrase (e.g., "listed 3 entries") is insufficient — the literal `deps_list_3_entries` token is required.
+5. **Closing summary.** Emit the capability row `deps_list_<N>_entries` where `<N>` is the entry count (including 0). The token MUST appear as a backticked literal in the closing summary — narrative paraphrase (e.g., "listed 3 entries") is insufficient; the literal `deps_list_3_entries` token is required.
 
 ### Capability rows summary (closing-summary contract)
 
@@ -220,7 +220,7 @@ On `y`, stage `specs/deps.yaml` and create the commit with the exact subject abo
 
 `/deps edit` emits:
 
-- `deps_edit_<name>` — fires unconditionally on every successful edit (i.e., the write reached `writeManifest`). The byte-checkable token is the structural signal `/gate-check`'s `closing_summary_capability_keys` probe greps for; narrative paraphrase is insufficient.
+- `deps_edit_<name>` — fires unconditionally on every successful edit (i.e., the write reached `writeManifest`). The byte-checkable token is the structural signal; narrative paraphrase is insufficient.
 - `branch_gate_*` — one of the universal pre-commit branch-gate outcomes from Step 6.
 
 Validation refusals (Step 1 missing-name, Step 2 non-canonical field, Step 4 schema violation) abort before the write and emit no `deps_edit_<name>` row.
@@ -312,7 +312,7 @@ Every successful `/deps` invocation MUST emit a closing summary on the quiet pat
    - `add` / `edit` / `delete` → before/after row for the affected manifest entry plus the resulting `specs/deps.yaml` change line.
    - `list` → the full manifest table (or `(no deps registered)`).
    - `sync` → one row per manifest entry with the reconciled `local-status` column.
-2. The capability rows the subcommand fired (one row per fired capability). Capability keys for this skill all share the `deps_*` prefix and are registered in `adapters/_shared/src/closing_summary_capability_keys.ts` under the `CANONICAL_CAPABILITY_KEYS` registry — never invent ad-hoc keys at runtime. The byte-checkable literal tokens are what `/gate-check`'s `closing_summary_capability_keys` probe greps for; narrative paraphrase is insufficient.
+2. The capability rows the subcommand fired (one row per fired capability). Capability keys for this skill all share the `deps_*` prefix — never invent ad-hoc keys at runtime. They are NOT in `CANONICAL_CAPABILITY_KEYS` (that registry holds the five `deps_research_*` keys, all owned by `/spec-write`), so nothing greps them: the backticked literal is a discipline this skill keeps, not an enforcement it is under. Narrative paraphrase is still insufficient.
 3. The branch-gate row from `requireCommittableBranch` (any of the `branch_gate_*` literal-token outcomes) for `add` / `edit` / `delete` / `sync` runs that committed. `list` is read-only and skips the gate.
 
 Reference shape:

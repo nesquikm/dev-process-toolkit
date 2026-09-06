@@ -4,12 +4,19 @@
 files:
   - path: gradle.properties
     kind: regex
-    pattern: '^version=(?<version>\d+\.\d+\.\d+)'
+    # `bumpRegex` compiles with `g` and deliberately WITHOUT `m`, so `^` would
+    # anchor to the start of the FILE, not the line — and no real
+    # gradle.properties leads with `version=`. A zero-width line-start
+    # lookbehind matches at byte 0 or after any newline without the flag, and
+    # without also matching `kotlin.version=` the way a bare `version=` would.
+    # NOT `optional: true`: this key must be written, so a miss has to refuse
+    # loudly rather than skip silently (AC-STE-566.7).
+    pattern: '(?<=^|\n)version=(?<version>\d+\.\d+\.\d+)'
     replace: 'version={version}'
   - path: CHANGELOG.md
     kind: changelog
   - path: README.md
     kind: regex
-    pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+) — '
+    pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+)\s*[—–-]\s*'
     replace: 'Latest: **v{version} — '
     optional: true

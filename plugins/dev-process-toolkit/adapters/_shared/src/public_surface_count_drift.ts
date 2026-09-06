@@ -16,6 +16,10 @@ import { Glob } from "bun";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeFrontmatterSource } from "./frontmatter";
+import {
+  checkReadmeSurfaceReachability,
+  describesTree,
+} from "./readme_surface_reachability";
 
 export const PROBE_ID = "public_surface_count_drift";
 
@@ -45,6 +49,18 @@ interface ObservedCounts {
   // header — matches the on-disk reality where every shipped skill carries
   // the standard frontmatter envelope.
   skills: number;
+  /**
+   * Skills whose frontmatter carries `user-invocable: false` — the dispatch
+   * half of CLAUDE.md's documented split (STE-567 AC-STE-567.7).
+   *
+   * Before this existed the split was graded on ONE side: `claudeDispatch` was
+   * parsed and never read, no check asserted the halves summed to the total,
+   * and neither number was ever compared to the frontmatter. A skill flipped
+   * to or from dispatch-only left both documents green as long as they agreed
+   * with each other — measured: editing the split to an arithmetically
+   * impossible pair returned zero violations.
+   */
+  dispatchSkills: number;
   agents: number;
   maxProbeNumber: number;
 }
@@ -60,6 +76,7 @@ async function computeObservedCounts(
   // check, then require a SKILL.md that opens with the canonical `---`
   // YAML frontmatter line.
   let skills = 0;
+  let dispatchSkills = 0;
   if (existsSync(skillsBase)) {
     for (const entry of readdirSync(skillsBase)) {
       const abs = join(skillsBase, entry);
@@ -81,6 +98,19 @@ async function computeObservedCounts(
         continue;
       }
       skills += 1;
+      // The frontmatter is re-read off the same normalized source used for the
+      // `---` check above, so a BOM-prefixed skill counts consistently in both
+      // halves rather than inflating one of them.
+      try {
+        const fm = normalizeFrontmatterSource(readFileSync(skillMd, "utf-8"))
+          .split(/^---\s*$/m)[1];
+        if (fm !== undefined && /^user-invocable:\s*false\s*$/m.test(fm)) {
+          dispatchSkills += 1;
+        }
+      } catch {
+        // Unreadable frontmatter: already counted as a skill above, and a
+        // read that failed is not evidence of dispatch-only.
+      }
     }
   }
 
@@ -109,7 +139,7 @@ async function computeObservedCounts(
     }
   }
 
-  return { skills, agents, maxProbeNumber };
+  return { skills, dispatchSkills, agents, maxProbeNumber };
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +170,10 @@ interface ParsedDocs {
   claudeUserInvocable?: number; // from "(M user-invocable + K dispatch)"
   claudeDispatch?: number;
   claudeAgents?: DocumentedToken;
+  /** Where the split token sits, for anchoring its own violations. */
+  claudeSplitLine?: number;
+  claudeSplitColumn?: number;
+  claudeSplitRaw?: string;
 }
 
 function parseReadmeTokens(text: string): {
@@ -228,46 +262,63 @@ function parseClaudeMdTokens(text: string): {
   claudeUserInvocable?: number;
   claudeDispatch?: number;
   claudeAgents?: DocumentedToken;
+  /** Where the split token sits, for anchoring its own violations. */
+  claudeSplitLine?: number;
+  claudeSplitColumn?: number;
+  claudeSplitRaw?: string;
 } {
   const out: ReturnType<typeof parseClaudeMdTokens> = {};
   const lines = text.split("\n");
 
-  const line15 = lines[14];
-  if (line15 !== undefined) {
-    const totalMatch = /(\d+)\s+slash commands?/.exec(line15);
-    if (totalMatch !== null) {
-      out.claudeTotalSkills = {
-        kind: "claude-total-skills",
-        file: "CLAUDE.md",
-        line: 15,
-        column: totalMatch.index + 1,
-        documented: Number.parseInt(totalMatch[1]!, 10),
-        raw: totalMatch[0],
-      };
+  // ANCHORED BY CONTENT, not by a fixed line index (STE-567 AC-STE-567.7,
+  // applying the fix STE-394 already made on the README side). These two
+  // tokens were read off `lines[14]` / `lines[15]`; adding a single row to the
+  // structure block above them slid both off their index, at which point the
+  // regexes matched nothing, the tokens stayed permanently `undefined`, and
+  // both comparisons were skipped with zero violations — a dead leg that reads
+  // green. The reported line is the token's TRUE 1-based line number, so the
+  // violation anchors where a reader can actually find it.
+  for (const [idx, line] of lines.entries()) {
+    if (out.claudeTotalSkills === undefined) {
+      const totalMatch = /(\d+)\s+slash commands?/.exec(line);
+      if (totalMatch !== null) {
+        out.claudeTotalSkills = {
+          kind: "claude-total-skills",
+          file: "CLAUDE.md",
+          line: idx + 1,
+          column: totalMatch.index + 1,
+          documented: Number.parseInt(totalMatch[1]!, 10),
+          raw: totalMatch[0],
+        };
+        // The parenthesized "(M user-invocable + K dispatch …)" split lives on
+        // the same line as the total it decomposes; reading it anywhere else
+        // would let the two drift onto different lines unnoticed.
+        const splitMatch = /\((\d+)\s+user-invocable\s*\+\s*(\d+)\s+dispatch/.exec(
+          line,
+        );
+        if (splitMatch !== null) {
+          out.claudeUserInvocable = Number.parseInt(splitMatch[1]!, 10);
+          out.claudeDispatch = Number.parseInt(splitMatch[2]!, 10);
+          out.claudeSplitLine = idx + 1;
+          out.claudeSplitColumn = splitMatch.index + 1;
+          out.claudeSplitRaw = splitMatch[0];
+        }
+      }
     }
-    // Parse the parenthesized "(M user-invocable + K dispatch …)" split.
-    const splitMatch = /\((\d+)\s+user-invocable\s*\+\s*(\d+)\s+dispatch/.exec(
-      line15,
-    );
-    if (splitMatch !== null) {
-      out.claudeUserInvocable = Number.parseInt(splitMatch[1]!, 10);
-      out.claudeDispatch = Number.parseInt(splitMatch[2]!, 10);
+    if (out.claudeAgents === undefined) {
+      const m = /(\d+)\s+subagent templates?/.exec(line);
+      if (m !== null) {
+        out.claudeAgents = {
+          kind: "claude-agents",
+          file: "CLAUDE.md",
+          line: idx + 1,
+          column: m.index + 1,
+          documented: Number.parseInt(m[1]!, 10),
+          raw: m[0],
+        };
+      }
     }
-  }
-
-  const line16 = lines[15];
-  if (line16 !== undefined) {
-    const m = /(\d+)\s+subagent templates?/.exec(line16);
-    if (m !== null) {
-      out.claudeAgents = {
-        kind: "claude-agents",
-        file: "CLAUDE.md",
-        line: 16,
-        column: m.index + 1,
-        documented: Number.parseInt(m[1]!, 10),
-        raw: m[0],
-      };
-    }
+    if (out.claudeTotalSkills !== undefined && out.claudeAgents !== undefined) break;
   }
 
   return out;
@@ -352,6 +403,56 @@ export async function runPublicSurfaceCountDriftProbe(
     );
   }
 
+  // ── STE-567 AC-STE-567.7: BOTH halves of the split are graded ──────────
+  //
+  // `claudeDispatch` used to be assigned and never read. These two checks are
+  // what make the split a claim about the tree rather than a claim about
+  // itself: the first compares the dispatch half to the on-disk
+  // `user-invocable: false` frontmatter count, and the second asserts the
+  // halves add up to the total the same line documents. Neither is implied by
+  // the other — a pair that sums correctly can still both be wrong, and a
+  // correct dispatch half can sit beside an arithmetically impossible total.
+  if (
+    parsed.claudeDispatch !== undefined &&
+    parsed.claudeSplitLine !== undefined &&
+    parsed.claudeDispatch !== observed.dispatchSkills
+  ) {
+    violations.push(
+      makeViolation({
+        file: "CLAUDE.md",
+        line: parsed.claudeSplitLine,
+        column: parsed.claudeSplitColumn ?? 1,
+        reason: `documented dispatch count (${parsed.claudeDispatch}) disagrees with on-disk observed count (${observed.dispatchSkills})`,
+        refusing: `CLAUDE.md L${parsed.claudeSplitLine} documents "${parsed.claudeSplitRaw}" but ${observed.dispatchSkills} skills carry \`user-invocable: false\``,
+        remedy: `update the split to "${observed.skills - observed.dispatchSkills} user-invocable + ${observed.dispatchSkills} dispatch" to match the on-disk frontmatter.`,
+        context:
+          "source of truth: grep -l '^user-invocable: false' plugins/dev-process-toolkit/skills/*/SKILL.md",
+      }),
+    );
+  }
+
+  if (
+    parsed.claudeUserInvocable !== undefined &&
+    parsed.claudeDispatch !== undefined &&
+    parsed.claudeSplitLine !== undefined &&
+    parsed.claudeTotalSkills !== undefined &&
+    parsed.claudeUserInvocable + parsed.claudeDispatch !==
+      parsed.claudeTotalSkills.documented
+  ) {
+    const sum = parsed.claudeUserInvocable + parsed.claudeDispatch;
+    violations.push(
+      makeViolation({
+        file: "CLAUDE.md",
+        line: parsed.claudeSplitLine,
+        column: parsed.claudeSplitColumn ?? 1,
+        reason: `the documented split does not add up: ${parsed.claudeUserInvocable} + ${parsed.claudeDispatch} = ${sum}, but the same line documents ${parsed.claudeTotalSkills.documented} slash commands`,
+        refusing: `CLAUDE.md L${parsed.claudeSplitLine} documents "${parsed.claudeSplitRaw}" against a stated total of ${parsed.claudeTotalSkills.documented}`,
+        remedy: `make the two halves sum to the total — on disk that is "${observed.skills - observed.dispatchSkills} user-invocable + ${observed.dispatchSkills} dispatch" of ${observed.skills}.`,
+        context: `observed: ${observed.skills} skills, ${observed.dispatchSkills} of them dispatch-only`,
+      }),
+    );
+  }
+
   // Each remaining check compares one DocumentedToken against an observed
   // disk count and emits a uniform NFR-10 violation on mismatch.
   const diskChecks: Array<{
@@ -417,6 +518,37 @@ export async function runPublicSurfaceCountDriftProbe(
         context: `source of truth: ${check.sourceOfTruth}`,
       }),
     );
+  }
+
+  // ── STE-567 AC-STE-567.2 / .3 / .6: reachability, not just arithmetic ──
+  //
+  // Graded HERE rather than as a new probe number: this module already has
+  // README.md and both trees open, and registering a probe costs roughly two
+  // dozen pinned sites across the suite for nothing this check needs. It is
+  // existence-guarded on the plugin tree so consumer projects — which ship no
+  // `plugins/dev-process-toolkit/skills/` — stay silent rather than being told
+  // to rewrite their own README.
+  const pluginRoot = join(projectRoot, "plugins", "dev-process-toolkit");
+  const readmeForReach = existsSync(readmePath) ? readFileSync(readmePath, "utf-8") : "";
+  if (describesTree(readmeForReach, pluginRoot)) {
+    for (const r of checkReadmeSurfaceReachability(readmeForReach, pluginRoot)) {
+      violations.push(
+        makeViolation({
+          file: r.file,
+          line: r.line,
+          column: 1,
+          reason: r.reason,
+          refusing: `${r.file} does not describe the shipped surface \`${r.subject}\``,
+          remedy:
+            r.rule === "skill_unreachable"
+              ? `add ${r.subject} to the workflow diagram, or name it in the prose beneath the diagram that accounts for the table-only skills.`
+              : r.rule === "diagram_intro_count"
+                ? "state the diagram's own node count in the sentence that introduces it."
+                : `bring the README Agents table and plugins/dev-process-toolkit/agents/ into agreement on \`${r.subject}\`.`,
+          context: `rule=${r.rule}, subject=${r.subject}`,
+        }),
+      );
+    }
   }
 
   return { violations };
