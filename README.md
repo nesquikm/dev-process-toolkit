@@ -174,7 +174,10 @@ dev-process-toolkit/
 │       ├── adapters/                # 3 tracker adapters (linear, jira, _template) + _shared helpers (every deterministic probe, parser and bumper)
 │       ├── templates/               # CLAUDE.md and spec templates, permissions.json, git hooks
 │       ├── docs/                    # Methodology and guides
-│       ├── hooks/                   # hooks.json — the SessionEnd / Stop wiring
+│       ├── hooks/                   # hooks.json — the SessionEnd / Stop capture wiring PLUS the
+│       │                            #   blocking PreToolUse gates: pre-commit-gate-check and
+│       │                            #   pre-commit-tdd-orchestrator block `git commit`,
+│       │                            #   pre-pr-spec-review blocks `gh pr create`
 │       ├── scripts/                 # Migration helpers invoked by /upgrade and probe remedies
 │       ├── tests/                   # The `bun test` gate root — Pattern 9 regression fixture + capture/verify scripts + MCP/project fixtures
 │       └── examples/                # Per-stack configs (typescript-node, bun-typescript, flutter-dart, kotlin, python, plugin)
@@ -219,6 +222,8 @@ The key insight: **deterministic checks always override LLM judgment**. A failin
 - [`plugins/dev-process-toolkit/docs/patterns.md`](plugins/dev-process-toolkit/docs/patterns.md) — 31 proven patterns + anti-patterns
 - [`plugins/dev-process-toolkit/docs/upgrade-reference.md`](plugins/dev-process-toolkit/docs/upgrade-reference.md) — `/upgrade` migration-registry contract + entry-authoring guide (detector purity, kind semantics, approval rails)
 - [`plugins/dev-process-toolkit/docs/layout-reference.md`](plugins/dev-process-toolkit/docs/layout-reference.md) — spec layout behavioral contract (file-per-FR keyed by tracker ID / short-ULID; ULID in frontmatter; Provider interface; skill integration map)
+- [`plugins/dev-process-toolkit/docs/hooks-reference.md`](plugins/dev-process-toolkit/docs/hooks-reference.md) — The manual for the bundled hooks: what each one does, the blocking `PreToolUse` gates that refuse `git commit` and `gh pr create` until the Skill they name has run in the session, their exact refusal text, and the override path
+- [`plugins/dev-process-toolkit/docs/honored-contracts.md`](plugins/dev-process-toolkit/docs/honored-contracts.md) — The prose-layer catalog of contracts between skills: each one's mandate, its named violation, and the byte-checkable evidence that proves it was honored
 - [`plugins/dev-process-toolkit/docs/workflow-overview.md`](plugins/dev-process-toolkit/docs/workflow-overview.md) — End-to-end workflow map: phases, loops, evals, researcher forks, and artifact-write points
 
 **Claude Code official docs:** https://code.claude.com/docs/en

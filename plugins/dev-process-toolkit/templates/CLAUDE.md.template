@@ -85,7 +85,7 @@ npm run typecheck && npm run lint && npm run test
 **Refactor:** `/implement → /simplify → /gate-check → /spec-review → /pr`
 **UI change:** `/implement → /visual-check → /gate-check → /spec-review → /pr`
 
-**Gates on these chains.** Three hooks *block*: when one fires it exits 2 and the
+**Gates on these chains.** The hooks below *block*: when one fires it exits 2 and the
 tool call never runs. Each checks the current session's transcript for a `Skill`
 tool_use of the skill it names — running the equivalent commands by hand does not
 satisfy it. They fail open only when they cannot see the session at all: no
