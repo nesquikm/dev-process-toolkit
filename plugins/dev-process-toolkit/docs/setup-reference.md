@@ -245,6 +245,8 @@ Procedure:
 
 `/spec-review` sits before `/pr` on every chain because the `pre-pr-spec-review` hook blocks `gh pr create` until it has run in the session; `/tdd` is marked `(auto)` because `/implement` orchestrates it per FR rather than the operator invoking it.
 
+Three bundled hooks block, and each checks the current session's transcript for a `Skill` `tool_use` of the skill it names — hand-running the equivalent commands does not satisfy them, and a miss exits 2 so the tool call never runs. `pre-commit-gate-check` blocks `git commit` without `/dev-process-toolkit:gate-check`; `pre-commit-tdd-orchestrator` blocks a `git commit` staging an FR file or any file the stack calls a test without `/dev-process-toolkit:tdd`; `pre-pr-spec-review` blocks `gh pr create` without `/dev-process-toolkit:spec-review`. The full manual is `docs/hooks-reference.md` in the plugin.
+
 > **Canonical copy.** The `## Workflows` block in `templates/CLAUDE.md.template` is the source of truth for these chains — it is what ships into every bootstrapped project; the list above in `docs/setup-reference.md` is a copy kept for readers of this manual. Change the template first, then mirror the edit here: the two must name the same chains with the same steps in the same order, and a test compares them against each other.
 
 **Next steps**
