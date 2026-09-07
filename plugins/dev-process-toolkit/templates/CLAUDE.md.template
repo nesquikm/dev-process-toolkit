@@ -101,8 +101,10 @@ transcript, an unreadable one, or stdin they cannot parse.
   not fire it, and a spec-only commit is carved out. When no stack marker resolves
   it says so and exits 0 rather than guessing.
 
-Full manual: `${CLAUDE_PLUGIN_ROOT}/docs/hooks-reference.md` — it ships inside
-the installed dev-process-toolkit plugin, not in this repository.
+Full manual: `docs/hooks-reference.md` inside the installed dev-process-toolkit
+plugin — not a path in this repository. Open it from the plugin cache
+(`~/.claude/plugins/cache/dev-process-toolkit/dev-process-toolkit/<version>/docs/hooks-reference.md`)
+or read it in the plugin's source repository.
 
 <!-- Other user-invocable skills (call directly as needed):
      - `/deliver` — the full delivery pipeline orchestrator: it chains the phase
