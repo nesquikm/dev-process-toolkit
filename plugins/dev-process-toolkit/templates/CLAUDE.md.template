@@ -80,10 +80,29 @@ npm run typecheck && npm run lint && npm run test
 <!-- Choose the path that matches your task. The Feature path is the canonical
      SDD+TDD chain — `/implement` orchestrates `/tdd` per FR automatically. -->
 
-**Bugfix:** `/report-issue → /debug → /implement → /tdd (auto) → /gate-check → /pr`
-**Feature:** `/brainstorm → /spec-write → /implement → /tdd (auto) → /gate-check → /docs → /ship-milestone → /pr`
-**Refactor:** `/implement → /simplify → /gate-check → /pr`
-**UI change:** `/implement → /visual-check → /gate-check → /pr`
+**Bugfix:** `/report-issue → /debug → /implement → /tdd (auto) → /gate-check → /spec-review → /pr`
+**Feature:** `/brainstorm → /spec-write → /implement → /tdd (auto) → /gate-check → /docs → /ship-milestone → /spec-review → /pr`
+**Refactor:** `/implement → /simplify → /gate-check → /spec-review → /pr`
+**UI change:** `/implement → /visual-check → /gate-check → /spec-review → /pr`
+
+**Gates on these chains.** Three hooks *block*: when one fires it exits 2 and the
+tool call never runs. Each checks the current session's transcript for a `Skill`
+tool_use of the skill it names — running the equivalent commands by hand does not
+satisfy it. They fail open only when they cannot see the session at all: no
+transcript, an unreadable one, or stdin they cannot parse.
+
+- `pre-commit-gate-check` — fires on a `git commit` Bash call — requires
+  `/dev-process-toolkit:gate-check` in this session.
+- `pre-pr-spec-review` — fires on a `gh pr create` Bash call — requires
+  `/dev-process-toolkit:spec-review` in this session.
+- `pre-commit-tdd-orchestrator` — fires on a `git commit` whose staged set carries
+  an FR file under `specs/frs/` or any file your stack calls a test — requires
+  `/dev-process-toolkit:tdd` in this session. A staged source file on its own does
+  not fire it, and a spec-only commit is carved out. When no stack marker resolves
+  it says so and exits 0 rather than guessing.
+
+Full manual: `${CLAUDE_PLUGIN_ROOT}/docs/hooks-reference.md` — it ships inside
+the installed dev-process-toolkit plugin, not in this repository.
 
 <!-- Other user-invocable skills (call directly as needed):
      - `/deliver` — the full delivery pipeline orchestrator: it chains the phase
