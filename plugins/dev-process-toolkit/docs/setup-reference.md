@@ -238,9 +238,14 @@ Procedure:
 
 **Workflows** — choose the path that matches your task:
 
-- **Bugfix:** `/debug → /implement → /gate-check → /pr`
-- **Feature:** `/brainstorm → /spec-write → /implement → /simplify → /spec-review → /gate-check → /pr`
-- **Refactor:** `/implement → /simplify → /gate-check → /pr`
+- **Bugfix:** `/report-issue → /debug → /implement → /tdd (auto) → /gate-check → /spec-review → /pr`
+- **Feature:** `/brainstorm → /spec-write → /implement → /tdd (auto) → /gate-check → /docs → /ship-milestone → /spec-review → /pr`
+- **Refactor:** `/implement → /simplify → /gate-check → /spec-review → /pr`
+- **UI change:** `/implement → /visual-check → /gate-check → /spec-review → /pr`
+
+`/spec-review` sits before `/pr` on every chain because the `pre-pr-spec-review` hook blocks `gh pr create` until it has run in the session; `/tdd` is marked `(auto)` because `/implement` orchestrates it per FR rather than the operator invoking it.
+
+> **Canonical copy.** The `## Workflows` block in `templates/CLAUDE.md.template` is the source of truth for these chains — it is what ships into every bootstrapped project; the list above in `docs/setup-reference.md` is a copy kept for readers of this manual. Change the template first, then mirror the edit here: the two must name the same chains with the same steps in the same order, and a test compares them against each other.
 
 **Next steps**
 
