@@ -347,9 +347,15 @@ describe("dogfood — real specs/plan/archive/ tree is coherent", () => {
     // ceremony remedy is actionable. A flat zero-violations assert here
     // would turn `bun test` red for every mid-ceremony commit and deadlock
     // the ship (can't ship gate-red, can't go green without shipping).
-    const corrupt = report.violations.filter((v) =>
-      v.reason.includes("corrupt stamp"),
-    );
+    //
+    // STE-574: selected by the record's TYPED `kind`, not by a substring of
+    // its prose. The substring form said the same thing while it lasted, but
+    // it made the scope of a live-tree assert depend on wording that two
+    // sibling suites also pin — so a reworded diagnostic would have silently
+    // widened or emptied this filter. Behaviour-preservation of this exact
+    // migration is proved on an all-three-kinds fixture in
+    // `tests/m_a8e09a-ste-574-dogfood-scope.test.ts` (AC-STE-574.8).
+    const corrupt = report.violations.filter((v) => v.kind === "corrupt_stamp");
     expect(corrupt).toEqual([]);
   });
 });

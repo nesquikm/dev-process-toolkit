@@ -90,6 +90,7 @@ import {
 import { bumpFile, parseReleaseFiles } from "../adapters/_shared/src/release_config";
 import { runPlanShipCoherenceProbe } from "../adapters/_shared/src/plan_ship_coherence";
 import { consumerFiles } from "./_module_consumers";
+import { gradedViolations } from "./_plan_ship_grading";
 import { checkPortion, shipCeremonyWindow } from "./_release_surface_regions";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
@@ -1056,14 +1057,30 @@ describe("AC-STE-546.8 — reverting the comparison turns the stale fixture gree
 // ===========================================================================
 
 describe("dogfood — the live tree is clean", () => {
-  test("README v2.75.1 \"Namesake\" (M138) matches the CHANGELOG entry it names", async () => {
+  // The title used to name a specific release — `README v2.75.1 "Namesake"
+  // (M138)` — while the assertion below reads whatever the tree says today.
+  // The repo shipped six more releases past that one and the title stayed put,
+  // which is the half-rewritten-title defect m_8f8e25 AC.10 names, in a suite
+  // that had no digit in its assertion to drag it along. Stated by SUBJECT now,
+  // so it cannot go stale again.
+  test("the README \"Latest:\" banner matches the CHANGELOG entry it names", async () => {
     const rows = await runReleaseSurfaceAgreement(REPO_ROOT);
     expect(rows, describeRows(rows)).toEqual([]);
   });
 
-  test("probe #63 over the live tree is clean", async () => {
+  test("probe #63 over the live tree is clean, unshipped debt excluded", async () => {
+    // STE-574. Graded through the SHARED predicate, not a flat assert: an
+    // archived plan that has not yet shipped is legitimate transient state
+    // between /implement's archival commit and /ship-milestone's release
+    // commit, and a flat assert reds every `bun test` run inside that window —
+    // which /ship-milestone's pre-flight then refuses to ship past, so the
+    // gate cannot be cleared without shipping and cannot be shipped without
+    // clearing. Corrupt stamps and surface disagreement still red here; only
+    // the transient kind is excluded, and probe #63 still grades it at
+    // severity error at operator-chosen instants.
     const report = await runPlanShipCoherenceProbe(REPO_ROOT);
-    expect(report.violations, describeRowsOfProbe(report.violations)).toEqual([]);
+    const graded = gradedViolations(report.violations);
+    expect(graded, describeRowsOfProbe(graded)).toEqual([]);
   });
 
   test("the dogfood is not vacuous — all three conditions hold on this repo", () => {
