@@ -42,12 +42,20 @@ Exit non-zero. Applies to all three flags; no flag bypasses this gate.
   Context: mode=<docs-mode>, skill=docs
   ```
 
+**(c) Run outcome line.** Every terminal path — a successful write, a no-op, a decline and a refusal alike — MUST print exactly one outcome line, and it MUST be the last line of the run:
+
+```
+docs-run: <outcome> (<flag>) — <detail>
+```
+
+`<outcome>` is exactly one of `written` (files changed on disk), `no-op` (the run completed and deliberately changed nothing), `declined` (the operator refused the proposed diff) or `refused` (a gate aborted the run). **Callers read this line, never the exit code.** Exit `0` is returned by a successful write, by the `--quick` empty-set no-op, by both decline paths AND by the zero-flag usage path — four outcomes behind one status — so the exit code alone cannot tell a docs leg that did its work from one that silently did nothing. A run that prints no outcome line MUST be treated by its caller as `refused`: a missing verdict is a failed leg, never an assumed success.
+
 ### 1. `/docs --quick`
 
 Writes exactly one fragment to `docs/.pending/<fr-id>.md` and exits. Non-destructive beyond the single file write.
 
 1. **Compute the ImpactSet** — call `computeImpactSet({ mode: "working-tree", projectRoot })` from `adapters/_shared/src/impact_set.ts`. Filter to public symbols via `filterPublicSymbols(impactSet)`.
-2. **Empty-set no-op.** If `isEmptyImpactSet(publicSet)` is true, print the literal line `no doc-relevant changes detected — fragment not written` and exit `0`. Do not create an empty fragment.
+2. **Empty-set no-op.** If `isEmptyImpactSet(publicSet)` is true, print the literal line `no doc-relevant changes detected — fragment not written`, then `docs-run: no-op (--quick) — empty impact set`, and exit `0`. Do not create an empty fragment. The outcome line is what distinguishes this from a `--quick` run that failed; both exit `0`.
 3. **Resolve `<fr-id>`.** If `branch_template:` in `CLAUDE.md` maps the current branch to a tracker ID or ULID, use that. Otherwise, pick the most-recent FR whose file appears in the diff (git-log it). If neither resolves, use `_unbound-<UTC-timestamp>.md` and include a `warning:` line in the fragment body.
 4. **Render the fragment.** Use the LLM prompt in `docs/docs-reference.md` § Quick-fragment prompt; the prompt pins `publicSet` as authoritative and includes the NFR-22-enforced verbatim constraint:
 
@@ -93,9 +101,9 @@ Merges staged fragments. Gated on an intact nav contract.
 
 5. **Unified diff + approval.** Compute the diff across all target files. Print `=== Proposed diff (N files, M lines) ===`, the diff body, then `=== Apply? [y/N] ===`. Accept case-insensitive `y`/`yes`. Anything else is refusal.
 
-6. **On approval.** Write each merged target file, delete every merged fragment (`docs/.pending/<fr-id>.md` + any `<fr-id>.signatures.json`), print a suggested commit message to stdout, but **do not run `git commit`** — the caller decides.
+6. **On approval.** Write each merged target file, delete every merged fragment (`docs/.pending/<fr-id>.md` + any `<fr-id>.signatures.json`), print a suggested commit message to stdout, but **do not run `git commit`** — the caller decides. Print `docs-run: written (--commit) — <n> file(s)`.
 
-7. **On refusal.** No file writes. Fragments preserved. Print `commit declined; fragments preserved.` and exit `0`.
+7. **On refusal.** No file writes. Fragments preserved. Print `commit declined; fragments preserved.`, then `docs-run: declined (--commit) — operator refused the diff`, and exit `0`.
 
 ### 3. `/docs --full`
 
@@ -104,12 +112,22 @@ Regenerates the entire canonical `docs/` tree from sources of truth. Bypasses th
 1. **Seed the layout (idempotent).** Call `ensureCanonicalLayout(projectRoot, docsConfig, templatesDir)` so missing directories/files are created from templates. Existing files are preserved and diff'd against the regenerated output.
 
 2. **Gather inputs.** Read:
-   - Every active spec under `specs/frs/*.md` and `specs/plan/*.md` (skip `archive/`).
+   - Every spec under `specs/frs/*.md` and `specs/plan/*.md` **together with their archives**, `specs/frs/archive/*.md` and `specs/plan/archive/*.md`. The archives are not skippable history here. A project that has shipped its backlog has archived every FR it ever completed, so a repo carrying 25 archived FRs against zero active ones is the normal steady state of a mature project, not a degenerate one — and reading only the active set regenerates that project's entire canonical tree from an empty corpus.
    - `CLAUDE.md` (project overview, tracker mode, docs modes).
    - Project source (for `ImpactSet` + `SignatureGroundTruth` when `packagesMode === true`).
    - Current `CHANGELOG.md`.
 
-3. **Packages-mode ground truth.** If `docsConfig.packagesMode === true`, call `extractSignatures(projectRoot, docsConfig)`. Pin the result as the LLM prompt's `SignatureGroundTruth` context block (prompt verbatim in `docs/docs-reference.md` § Packages-mode prompt). After generation, run `validateGeneratedReference(llmOutput, ground)`:
+3. **Empty-corpus refusal (NFR-10).** Count the specs gathered above, active and archived together. **Zero ⇒ refuse, and regenerate nothing.** `--full` rewrites every file under `docs/` from these inputs, so an empty corpus does not yield an empty diff — it yields a plausible one, with the FR-derived narrative silently dropped or invented, spread across enough files that nobody can eyeball it. The approval gate is no defence against this: the gate is the surface the damage arrives through, because a large plausible diff is exactly what it is least able to reject.
+
+   ```
+   /docs --full: no specs found — refusing to regenerate docs/ from an empty corpus.
+   Remedy: confirm specs/frs/ and specs/frs/archive/ exist and are non-empty (an archived-only project is expected, and IS read). If this project genuinely has no specs, /docs --full has no source of truth to regenerate from — run /spec-write first, or maintain docs/ by hand.
+   Context: active=<n-active>, archived=<n-archived>, root=<projectRoot>, skill=docs
+   ```
+
+   Exit non-zero, write nothing, and print `docs-run: refused (--full) — empty spec corpus`.
+
+4. **Packages-mode ground truth.** If `docsConfig.packagesMode === true`, call `extractSignatures(projectRoot, docsConfig)`. Pin the result as the LLM prompt's `SignatureGroundTruth` context block (prompt verbatim in `docs/docs-reference.md` § Packages-mode prompt). After generation, run `validateGeneratedReference(llmOutput, ground)`:
    - `{ ok: true }` → continue.
    - `{ ok: false, invented }` → retry once with a strictened prompt re-quoting the ground truth. Second failure fails `/docs --full` with the NFR-10 canonical shape:
 
@@ -119,17 +137,17 @@ Regenerates the entire canonical `docs/` tree from sources of truth. Bypasses th
      Context: strategy=<strategy>, module=<module-path>, skill=docs
      ```
 
-4. **Non-TS stack banner.** If `ground.strategy === "regex-fallback"`, prepend the generated reference file with the literal banner:
+5. **Non-TS stack banner.** If `ground.strategy === "regex-fallback"`, prepend the generated reference file with the literal banner:
 
    ```html
    <!-- WARNING: This reference was generated without mechanical signature extraction for this stack. Signatures may be imprecise. Review carefully before publishing. -->
    ```
 
-5. **Full-tree diff + approval.** Compute a unified diff across every file in `docs/` (old vs. newly rendered). Print `=== Proposed diff (N files, M lines) ===`, body, `=== Apply? [y/N] ===`.
+6. **Full-tree diff + approval.** Compute a unified diff across every file in `docs/` (old vs. newly rendered). Print `=== Proposed diff (N files, M lines) ===`, body, `=== Apply? [y/N] ===`.
 
-6. **On approval.** Write every target file. Delete all `docs/.pending/*.md` + `*.signatures.json` fragments (superseded by the full regeneration). Exit `0`.
+7. **On approval.** Write every target file. Delete all `docs/.pending/*.md` + `*.signatures.json` fragments (superseded by the full regeneration). Print `docs-run: written (--full) — <n> file(s) from <n-active> active + <n-archived> archived spec(s)` and exit `0`. The counts are the ones step 3 gathered, so a run that regenerated from a thin corpus says so on its own last line.
 
-7. **On refusal.** No file writes. `.pending/` preserved. Print `full regeneration declined; no writes.` and exit `0`.
+8. **On refusal.** No file writes. `.pending/` preserved. Print `full regeneration declined; no writes.`, then `docs-run: declined (--full) — operator refused the diff`, and exit `0`.
 
 ## Rules
 
@@ -138,6 +156,8 @@ Regenerates the entire canonical `docs/` tree from sources of truth. Bypasses th
 - **DocsConfig gate always fires first.** `--quick` refuses when docs are disabled — never writes a fragment against a disabled tree.
 - **Nav contract gate fires for `--commit`.** `--full` bypasses nav-contract (it's the fix), never DocsConfig.
 - **Regenerate-from-scratch is atomic.** `--full` writes all target files or none — any extraction failure or LLM validator rejection aborts the whole regeneration before any write.
+- **`--full` never regenerates from an empty corpus.** It reads `specs/frs/archive/` and `specs/plan/archive/` alongside the active specs, and refuses outright when the two together are empty. An all-archived project is the expected steady state of a shipped project and MUST regenerate from its archives; a genuinely spec-less project MUST get the refusal, never a diff. Silently rebuilding the canonical tree from nothing is the one outcome this flag may not have.
+- **Every run states its outcome.** One `docs-run:` line, last, on every terminal path. A caller that cannot find one treats the leg as failed.
 - **Fragments are append-only until `--commit`.** `--quick` never edits an existing fragment; it writes one per invocation. Merge decides ordering at commit time via `generated_at` frontmatter.
 
 ## Red flags

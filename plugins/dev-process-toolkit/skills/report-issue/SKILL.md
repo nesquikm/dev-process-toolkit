@@ -22,7 +22,7 @@ For one-off questions or trivial behaviour, just file a GitHub issue manually.
 
 ## Branch-gate exemption
 
-`/report-issue` writes nothing under VCS — the only outbound operation is `gh gist create -s` against the secret gist endpoint, and every working file lives under `mktemp -d` (deleted on every exit path via `trap … EXIT` / `finally`). The skill never invokes `git commit`, never edits a tracked file, and is therefore exempt from STE-228's `commit_producing_skill_branch_gate` probe. The exemption is enforced by the `NON_COMMIT_PRODUCING_SKILLS` allowlist in `adapters/_shared/src/commit_producing_skill_branch_gate.ts` — `report-issue` is on that list.
+`/report-issue` writes nothing under VCS — the only outbound operation is `gh gist create` against the secret gist endpoint, and every working file lives under `mktemp -d` (deleted on every exit path via `trap … EXIT` / `finally`). The skill never invokes `git commit`, never edits a tracked file, and is therefore exempt from STE-228's `commit_producing_skill_branch_gate` probe. The exemption is enforced by the `NON_COMMIT_PRODUCING_SKILLS` allowlist in `adapters/_shared/src/commit_producing_skill_branch_gate.ts` — `report-issue` is on that list.
 
 ## Process
 
@@ -139,10 +139,11 @@ Push to gist? [y / n / edit]
 When the preview gate accepts `y`, shell out:
 
 ```bash
-gh gist create -s -d "<title>" report.md metadata.json [transcript.jsonl]
+gh gist create -d "<title>" report.md metadata.json [transcript.jsonl]
 ```
 
-- `-s` is the secret/unlisted flag.
+- **No visibility flag is passed, and that is what makes the gist secret.** `gh gist create` creates a secret gist by default (`gh gist create --help`: "By default, gists are secret; use `--public` to make publicly listed ones"). Earlier revisions of this skill passed `-s` as a secret flag; **no such flag exists** — `gh` 2.95.0 exits 1 with `unknown shorthand flag: s in -s`, so that form never published anything at all.
+- **NEVER repair this by substituting `-p`.** `-p` / `--public` is the only visibility flag `gh gist create` still accepts, which makes it the flag a hurried reader reaches for when `-s` fails — and it does the exact opposite of what `-s` was there to express. This payload carries curated repo state, redacted settings files and optionally a full session transcript; publishing it as a **publicly listed** gist is an irreversible disclosure. The correct argument list has no visibility flag on it.
 - Title format: `dev-process-toolkit issue: <severity> — <one-line narrative head, ≤72 chars>` (truncate at 72 with ellipsis if longer).
 - Capture stdout (the gist URL) and the exit code. Non-zero exit ⇒ surface as the canonical NFR-10 shape naming the underlying `gh` stderr (e.g., rate-limited / network-error / auth-revoked-mid-flight).
 
