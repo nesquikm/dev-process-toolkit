@@ -5,7 +5,7 @@ archived_at: 2026-09-08T10:59:44Z
 kickoff_branch: null
 frozen_at: null
 migration: none
-shipped_in: null
+shipped_in: v2.80.6
 ---
 
 # Implementation Plan
@@ -87,3 +87,17 @@ STE-574   STE-575   STE-576   STE-577
 ```
 
 The four are independent. STE-574 runs first because it is the one that loosens a check, and the rest of the milestone should be measured against a tree where that has already settled.
+
+<!-- token-stats:begin -->
+
+## Token Stats
+
+| scope | model | input | output | cache-read | cache-creation |
+| --- | --- | ---: | ---: | ---: | ---: |
+| dev-process-toolkit:gate-check | claude-opus-5 | 30 | 13995 | 6071388 | 187682 |
+| dev-process-toolkit:implement | claude-opus-5 | 100 | 34924 | 14195357 | 126998 |
+| dev-process-toolkit:spec-review | claude-opus-5 | 12 | 6199 | 3216940 | 16515 |
+| dev-process-toolkit:tdd | claude-opus-5 | 64 | 22508 | 11903198 | 67187 |
+| total |  | 206 | 77626 | 35386883 | 398382 |
+
+<!-- token-stats:end -->

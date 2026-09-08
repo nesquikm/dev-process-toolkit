@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.80.6] — 2026-09-08 — "Purview"
+
+### Fixed
+
+- The dogfood grades only the subject its milestone owns (STE-574)
+- `/pr` transitions the ticket forward only (STE-575)
+- The PR-title rule states two things that are not true (STE-576)
+- The blocking-gate count is derived, not typed (STE-577)
+
+Total test count at release: 12486 tests, 0 failures, 0 errors.
+
 ## [2.80.5] — 2026-09-07 — "Herald"
 
 ### Fixed
