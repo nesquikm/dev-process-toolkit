@@ -26,16 +26,22 @@ Consequently the post-create steps below are **orthogonal to the draft
 choice**: both run unchanged whether the PR was opened as a draft or ready for
 review, and neither is skipped, reordered, or duplicated because of it.
 
-**A draft still transitions the ticket to `in_review`.** This is deliberate and
-stated here rather than left to the reader: a draft is "built, not yet claimed
-ready", so an argument exists for holding the ticket back. The shipped
-behaviour does not do that, for two reasons. First, the transition marks that
-work has left the author's hands and is visible for review on the host — the
-draft flag communicates readiness on the PR itself, which is where a reviewer
-looks. Second, splitting the transition on draft state would make the
-post-create sequence conditional and put the call budget below at the mercy of
-an invocation flag. If the ticket should stay put, move it back in the tracker
-after the fact; `/pr` does not infer that.
+**A draft still transitions the ticket to `in_review`, on exactly the same
+terms as a ready-for-review PR.** This is deliberate and stated here rather
+than left to the reader: a draft is "built, not yet claimed ready", so an
+argument exists for holding the ticket back. The shipped behaviour does not do
+that, for two reasons. First, the transition marks that work has left the
+author's hands and is visible for review on the host — the draft flag
+communicates readiness on the PR itself, which is where a reviewer looks.
+Second, the draft flag is not a fact about the ticket. The post-create
+transition **is** conditional — it is skipped when the observed status has
+already reached the `done` lane, and skipped when the project declares no
+review lane, per § Post-create below — but every one of those conditions is
+read off the tracker. Splitting on draft state would add an unrelated
+condition supplied by an invocation flag, and neither the forward-only rule
+nor the call budget below is at the mercy of how the PR was opened. If the
+ticket should stay put, move it back in the tracker after the fact; `/pr` does
+not infer that.
 
 The refusal path is likewise shared: when the host cannot hold drafts and a
 draft was explicitly asked for, `/pr` refuses with the canonical
@@ -47,9 +53,16 @@ never happens on either path.
 
 After the PR URL is known:
 
-1. **Transition status** — call the active adapter's
-   `transition_status(ticket_id, "in_review")`. The adapter resolves the
-   tracker-side label via `status_mapping`.
+1. **Transition status, forward only** — decide the move from the ticket's
+   observed status, which the binding pre-flight already read, so the decision
+   costs no additional MCP call. Call the active adapter's
+   `transition_status(ticket_id, "in_review")` only when the move goes forward;
+   the adapter resolves the tracker-side label via `status_mapping`. Skip the
+   call when the observed status already maps to the `done` role — moving a
+   finished ticket into the review lane drags it backwards — and skip it when
+   the project's `in_review` status is byte-identical to its `in_progress`
+   status, because no review lane exists to move to. Report every skip in
+   plain words, naming the observed status and the reason it was not moved.
 2. **Update ticket description with PR link** (optional, best-effort) —
    call `upsert_ticket_metadata(ticket_id, title, <description with PR
    URL appended>)`. This appends a `PR: <url>` line to the existing

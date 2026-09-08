@@ -14,10 +14,21 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { deriveBlockingGates } from "./_blocking_gates";
 import { mutate } from "./_fence";
 
 const pluginRoot = join(import.meta.dir, "..");
 const read = (p: string) => readFileSync(p, "utf-8");
+
+/**
+ * The blocking gates as the hook entry points themselves declare them.
+ *
+ * Computed ONCE, here, so every roll-up below grades the hand-kept `HOOKS`
+ * against a set that grows the day a fourth entry point lands. The hand-kept
+ * array is deliberately NOT replaced by it: this suite's sibling binds entries
+ * by index, and the derivation is name-sorted.
+ */
+const DERIVED_GATES = deriveBlockingGates(pluginRoot);
 
 const TEMPLATE_PATH = join(pluginRoot, "templates", "CLAUDE.md.template");
 const REFERENCE_PATH = join(pluginRoot, "docs", "setup-reference.md");
@@ -117,9 +128,10 @@ function gateBlockDescribesHook(body: string, name: string): boolean {
   return entry !== null && entry.includes(hook.trigger) && entry.includes(hook.skill);
 }
 
-/** AC.2 — all three, so naming two of three is false. */
+/** AC.2 — every derived gate, so naming all but one is false. */
 const gateBlockNamesEveryHook = (body: string): boolean =>
-  HOOKS.length === 3 && HOOKS.every((h) => gateBlockDescribesHook(body, h.name));
+  HOOKS.length === DERIVED_GATES.length &&
+  HOOKS.every((h) => gateBlockDescribesHook(body, h.name));
 
 /** AC.3 — the two surfaces carry the same chains with the same steps. */
 function chainsAgree(tpl: string, ref: string): boolean {
@@ -147,6 +159,40 @@ function canonicalDeclaration(tpl: string, ref: string): string | null {
   }
   return null;
 }
+
+// ===========================================================================
+// The agreement leg — the hand-kept `HOOKS` and the gates the entry points
+// themselves declare must name the same set.
+//
+// Compared as SORTED collections, never positionally: `DERIVED_GATES` arrives
+// name-sorted while `HOOKS` keeps the order its documentation rows want, so an
+// index-by-index comparison would red on a perfectly healthy tree. Skills are
+// graded alongside names, because a gate that kept its name and changed the
+// Skill it demands is a changed promise that a name-only check cannot see.
+// ===========================================================================
+
+describe("the hand-kept list agrees with the derived gates", () => {
+  test("HOOKS and DERIVED_GATES name the same gates and demand the same skills", () => {
+    const openThis =
+      "the blocking gates are read from the entry points under " +
+      "templates/hooks/_lib/hooks — open that tree, then reconcile HOOKS above";
+
+    // An unreadable or absent hook tree derives to `[]`, and `[].sort()` equals
+    // `[].sort()`: the comparison below would pass while grading nothing. This
+    // is the guard that makes the agreement mean something.
+    expect(
+      DERIVED_GATES.length,
+      "no blocking gate was derived at all — " + openThis,
+    ).toBeGreaterThan(0);
+
+    expect([...HOOKS].map((h) => h.name).sort(), openThis).toEqual(
+      DERIVED_GATES.map((g) => g.hook).sort(),
+    );
+    expect([...HOOKS].map((h) => `${h.name} → ${h.skill}`).sort(), openThis).toEqual(
+      DERIVED_GATES.map((g) => `${g.hook} → ${g.skill}`).sort(),
+    );
+  });
+});
 
 // ===========================================================================
 // Zero-hit guard — an extraction that finds nothing must fail loudly here,
