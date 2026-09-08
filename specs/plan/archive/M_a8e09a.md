@@ -1,7 +1,7 @@
 ---
 milestone: M_a8e09a
-status: active
-archived_at: null
+status: archived
+archived_at: 2026-09-08T10:59:44Z
 kickoff_branch: null
 frozen_at: null
 migration: none
@@ -47,31 +47,31 @@ The gate-count FR is one line away from reproducing its own subject. Two entries
 
 ### Tasks
 
-- [ ] STE-574 — the violation record carries a typed kind
+- [x] STE-574 — the violation record carries a typed kind
   verify: all four push sites set it, including the one that builds its record inline
-- [ ] STE-574 — the live-tree assert excludes the kind this milestone does not own
+- [x] STE-574 — the live-tree assert excludes the kind this milestone does not own
   verify: empty on a reconstructed archive-then-ship window, and the arm reds before the change
-- [ ] STE-574 — the filter cannot degenerate into selecting nothing
+- [x] STE-574 — the filter cannot degenerate into selecting nothing
   verify: a corrupt-stamp fixture and a surface-disagreement fixture both survive it
-- [ ] STE-574 — both surviving detectors are confirmed still wired
+- [x] STE-574 — both surviving detectors are confirmed still wired
   verify: the probe registration and the release skill's archive scan are each asserted
-- [ ] STE-575 — the transition decision is a pure helper over the observed status
+- [x] STE-575 — the transition decision is a pure helper over the observed status
   verify: skip on the done role, skip when no review lane exists, transition otherwise
-- [ ] STE-575 — the skip is reported in words
+- [x] STE-575 — the skip is reported in words
   verify: every skip carries a non-empty reason naming the observed status
-- [ ] STE-575 — the end-to-end arm reds before and passes after
+- [x] STE-575 — the end-to-end arm reds before and passes after
   verify: on a synthetic three-lane config, drift routing yields pass after and genuine drift before
-- [ ] STE-575 — all three describing surfaces are amended together
+- [x] STE-575 — all three describing surfaces are amended together
   verify: each of the skill bullet, the reference doc and the diagram is asserted separately
-- [ ] STE-576 — the release-branch clause names what exists
+- [x] STE-576 — the release-branch clause names what exists
   verify: the bullet no longer carries the phrase, sliced through the existing reader
-- [ ] STE-576 — the hook claim is replaced with the real constraint
+- [x] STE-576 — the hook claim is replaced with the real constraint
   verify: the validate-against-the-hook clause is gone and the four prose pins still pass
-- [ ] STE-577 — both suites grade their list against the derived set
+- [x] STE-577 — both suites grade their list against the derived set
   verify: neither roll-up compares against a literal, and each agreement test is first in its file
-- [ ] STE-577 — the hand-kept arrays and their order are untouched
+- [x] STE-577 — the hand-kept arrays and their order are untouched
   verify: the two index-bound entries still name the skill files they name today
-- [ ] STE-577 — a fourth gate reds both suites, and a removed gate does too
+- [x] STE-577 — a fourth gate reds both suites, and a removed gate does too
   verify: measured green on the unmutated tree first, and green under the same mutation before the change
 
 ### Gate commands
