@@ -154,6 +154,8 @@ The docs step is TWO invocations, in this order, because `/docs` refuses two or 
 
 If `readDocsConfig(CLAUDE.md)` returns at least one mode true, run `/docs --commit` in-process, then `/docs --full` in-process. Both approval prompts are merged into step 6's single gate (user sees one diff).
 
+**Grade each leg by its `docs-run:` outcome line, not by its exit code.** `/docs` § 0 (c) makes every terminal path print one, last; exit `0` covers a successful write, an empty-set no-op, either decline path and the zero-flag usage path alike, so the status alone cannot tell a release that regenerated its docs from one whose docs leg quietly did nothing. Route on the outcome: `written` ⇒ continue; `no-op` ⇒ continue and record it in the release report, since a release that changed no docs is a fact worth stating rather than an absence to infer; `declined` ⇒ the operator refused the diff, so stop the ceremony and leave the release uncommitted; `refused` — including `refused (--full) — empty spec corpus` — ⇒ hard abort, exactly as a non-zero exit does. **A leg that prints no `docs-run:` line is treated as `refused`**, never as a silent success.
+
 If both docs modes are false, log `docs disabled — skipping /docs --commit and /docs --full` and continue.
 
 If either invocation fails (any non-zero exit / thrown error), abort with NFR-10 naming the one that failed. A `--commit` failure aborts before `--full` runs:

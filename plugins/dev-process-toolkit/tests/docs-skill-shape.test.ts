@@ -126,3 +126,109 @@ describe("STE-72 AC-STE-72.6 — /setup prompt 2 augmented with probe result", (
     expect(body).toContain("stack: <ts|other>");
   });
 });
+
+// ---------------------------------------------------------------------------
+// GB-20 — /docs --full must never regenerate from an empty corpus, and every
+// /docs run must state which terminal outcome it reached.
+//
+// Reported upstream from the glacy projects (Jira GB-20 + a secret triage
+// gist) and re-verified against this tree on 2026-09-08.
+// ---------------------------------------------------------------------------
+
+describe("GB-20 — /docs --full reads the archives and refuses an empty corpus", () => {
+  const fullSection = () => {
+    const body = readFileSync(skillPath, "utf-8");
+    const start = body.indexOf("### 3. `/docs --full`");
+    const end = body.indexOf("## Rules", start);
+    expect(start, "the --full section vanished").toBeGreaterThan(-1);
+    expect(end, "the Rules section vanished").toBeGreaterThan(start);
+    return body.slice(start, end);
+  };
+
+  test("the gather step names BOTH archive trees, not just the active specs", () => {
+    const section = fullSection();
+    expect(section).toContain("specs/frs/archive/*.md");
+    expect(section).toContain("specs/plan/archive/*.md");
+  });
+
+  // The defect in its original wording. A repo whose specs are all archived
+  // (glacy-app-be: 0 active FRs, 25 archived, 19 archived plans) regenerated
+  // its ENTIRE canonical docs/ tree from nothing — no error, just a plausible
+  // 18-file diff behind an approval prompt nobody can eyeball.
+  test("the instruction to skip archive/ when gathering --full inputs is GONE", () => {
+    const section = fullSection();
+    expect(
+      section,
+      "--full is skipping archive/ again — an all-archived repo regenerates from empty input",
+    ).not.toMatch(/Every active spec under[^\n]*skip\s+`archive\/`/);
+  });
+
+  test("zero specs is an explicit NFR-10 refusal, not a silent regeneration", () => {
+    const section = fullSection();
+    expect(section).toContain("refusing to regenerate docs/ from an empty corpus");
+    // NFR-10 canonical shape: verdict + Remedy + Context.
+    expect(section).toMatch(/Remedy:[^\n]*specs\/frs\/archive\//);
+    expect(section).toMatch(/Context:[^\n]*active=<n-active>[^\n]*archived=<n-archived>/);
+    expect(section).toContain("Exit non-zero");
+  });
+
+  test("the empty-corpus guarantee is a standing rule, not only a step", () => {
+    const body = readFileSync(skillPath, "utf-8");
+    expect(body).toContain("`--full` never regenerates from an empty corpus.");
+  });
+});
+
+describe("GB-20 — every /docs run states its outcome", () => {
+  test("the shared preflight defines the four-outcome docs-run contract", () => {
+    const body = readFileSync(skillPath, "utf-8");
+    expect(body).toContain("docs-run: <outcome> (<flag>) — <detail>");
+    for (const outcome of ["`written`", "`no-op`", "`declined`", "`refused`"]) {
+      expect(body, `outcome ${outcome} is not defined`).toContain(outcome);
+    }
+  });
+
+  test("the contract says callers read the line, never the exit code", () => {
+    const body = readFileSync(skillPath, "utf-8");
+    expect(body).toContain("Callers read this line, never the exit code.");
+    // The reason the exit code cannot serve: four distinct outcomes share 0.
+    expect(body).toMatch(/four outcomes behind one status/);
+  });
+
+  test("a run with no outcome line is a failed leg, never an assumed success", () => {
+    const body = readFileSync(skillPath, "utf-8");
+    expect(body).toMatch(/no outcome line MUST be treated by its caller as `refused`/);
+  });
+
+  test("each terminal path emits its own outcome", () => {
+    const body = readFileSync(skillPath, "utf-8");
+    for (const emitted of [
+      "docs-run: no-op (--quick)",
+      "docs-run: written (--commit)",
+      "docs-run: declined (--commit)",
+      "docs-run: refused (--full) — empty spec corpus",
+      "docs-run: written (--full)",
+      "docs-run: declined (--full)",
+    ]) {
+      expect(body, `terminal path missing its outcome line: ${emitted}`).toContain(emitted);
+    }
+  });
+});
+
+// The producer half is worthless if no consumer reads it — the half-wire trap.
+describe("GB-20 — the docs-run outcome reaches its consumers", () => {
+  const shipMilestonePath = join(pluginRoot, "skills", "ship-milestone", "SKILL.md");
+  const implementPath = join(pluginRoot, "skills", "implement", "SKILL.md");
+
+  test("/ship-milestone step 5 routes on the outcome, not the exit code", () => {
+    const body = readFileSync(shipMilestonePath, "utf-8");
+    expect(body).toContain("Grade each leg by its `docs-run:` outcome line, not by its exit code.");
+    expect(body).toContain("empty spec corpus");
+    expect(body).toMatch(/no `docs-run:` line is treated as `refused`/);
+  });
+
+  test("/implement Phase 4b does not report a fragment the run never wrote", () => {
+    const body = readFileSync(implementPath, "utf-8");
+    expect(body).toContain("`docs-run: no-op` ⇒ append `| Doc fragment | none |");
+    expect(body).toMatch(/never by its exit code/);
+  });
+});
