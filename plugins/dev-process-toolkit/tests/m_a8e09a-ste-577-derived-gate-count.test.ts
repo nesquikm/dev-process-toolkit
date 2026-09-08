@@ -730,9 +730,20 @@ describe("AC-STE-577.8 — no suite claims the list was measured from the regist
   for (const { label } of SUITES) {
     test(`${label} does not claim its list came from hooks.json`, () => {
       const body = suiteBody(label);
+      // Both alternatives are anchored to the FALSE claim, not to a phrase
+      // that appears inside it. A bare /not derived/i would match any line
+      // using those two words correctly — including one explaining that the
+      // list is graded against the derived set — which is an assertion wider
+      // than its own subject, the thing this whole FR is about. So the second
+      // alternative requires the claim's actual shape: "not derived" as a
+      // trailing disclaimer on a provenance sentence.
       const offending = body
         .split("\n")
-        .filter((l) => /measured from[^\n]*hooks\.json/i.test(l) || /not derived/i.test(l));
+        .filter(
+          (l) =>
+            /measured from[^\n]*hooks\.json/i.test(l) ||
+            /,\s*not derived\b/i.test(l),
+        );
       expect(
         offending,
         `${label} still carries a false provenance claim: the list is typed, and ` +

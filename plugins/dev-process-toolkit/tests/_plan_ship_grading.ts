@@ -11,9 +11,17 @@
 // `specs/plan/archive/` for exactly this predicate. What changes is the one
 // instant at which a `bun test` run passes judgement on it.
 //
-// This lives in ONE module rather than being retyped at each dogfood so that
+// This lives in ONE module rather than being inlined so that
 // `tests/m_a8e09a-ste-574-dogfood-scope.test.ts` grades THE predicate the
-// dogfoods use, not a copy of it that could drift away from them.
+// live-tree dogfood uses, not a copy that could drift away from it.
+//
+// Its consumer is singular, and saying so matters: only the dogfood in
+// `tests/m141-ste-546-surface-agreement.test.ts` imports this. The sibling in
+// `tests/gate-check-plan-ship-coherence.test.ts` keeps an inline
+// `kind === "corrupt_stamp"` filter, which is a DIFFERENT and narrower
+// predicate — it excludes surface disagreement as well — and is the form
+// AC-STE-574.8 asks for. Calling them both consumers of this module would be
+// the over-claim this milestone exists to delete.
 
 import type { PlanShipCoherenceViolation } from "../adapters/_shared/src/plan_ship_coherence";
 

@@ -18,8 +18,14 @@
 // WHAT MOVES AND WHAT DOES NOT:
 //
 //   moves      the instant at which a `bun test` run passes judgement on
-//              unshipped debt — the two live-tree dogfoods now grade through
-//              `gradedViolations` (tests/_plan_ship_grading.ts).
+//              unshipped debt — the live-tree dogfood in
+//              tests/m141-ste-546-surface-agreement.test.ts now grades through
+//              `gradedViolations` (tests/_plan_ship_grading.ts). ONE dogfood,
+//              not two: the sibling in gate-check-plan-ship-coherence.test.ts
+//              keeps its own inline `kind === "corrupt_stamp"` filter, which is
+//              NARROWER on purpose (it excludes surface disagreement too) and
+//              is what AC-STE-574.8 specifies. Stated exactly, because a
+//              comment claiming more than it does is this milestone's subject.
 //   does NOT   detection. The probe still emits the row; /gate-check probe #63
 //              still grades it at severity error; /ship-milestone's bare
 //              no-arg form still scans `specs/plan/archive/` for exactly this
