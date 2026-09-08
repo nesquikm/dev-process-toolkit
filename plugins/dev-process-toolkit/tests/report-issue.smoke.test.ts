@@ -217,8 +217,39 @@ describe("AC-STE-229.12 #7 — marker-present auto-push", () => {
     expect(body).toContain("report_issue_default_applied");
   });
 
-  test("SKILL.md cites the canonical `gh gist create -s -d` argument shape", () => {
+  test("SKILL.md cites the canonical `gh gist create -d` argument shape", () => {
     const body = readSkill();
-    expect(body).toContain("gh gist create -s -d");
+    expect(body).toContain('gh gist create -d "<title>" report.md metadata.json');
+  });
+
+  // GB-20: the skill mandated `gh gist create -s -d`. No `-s` flag exists on
+  // `gh gist create` — gh 2.95.0 exits 1 with `unknown shorthand flag: s in
+  // -s`, so the documented publish never ran at all. The dangerous repair is
+  // `-p`: it is the ONLY visibility flag left in the help output, so it is
+  // what a hurried reader substitutes, and it does the opposite of what `-s`
+  // was written to mean — turning a curated bug report (redacted settings
+  // files, optionally a full session transcript) into a PUBLICLY LISTED gist.
+  test("the publish command carries NO visibility flag — `-s` is gone, `-p` is never its repair", () => {
+    const body = readSkill();
+    // The command LINES only, not the surrounding prose: the guard paragraph
+    // names `--public` precisely in order to forbid it, so a whole-body grep
+    // would fail on the very warning that prevents the bug.
+    const cmdLines = body
+      .split("\n")
+      .filter((l) => l.trimStart().startsWith("gh gist create"));
+    expect(cmdLines.length, "no `gh gist create` command line found").toBeGreaterThan(0);
+    for (const line of cmdLines) {
+      expect(line, `${line} — \`-s\` is not a gh flag; gh exits 1 on it`).not.toMatch(/\s-s\b/);
+      expect(
+        line,
+        `${line} — \`-p\`/\`--public\` would publish this payload publicly`,
+      ).not.toMatch(/\s(?:-p\b|--public\b)/);
+    }
+  });
+
+  test("SKILL.md states secret-by-default and names the -p substitution as forbidden", () => {
+    const body = readSkill();
+    expect(body).toContain("By default, gists are secret");
+    expect(body).toContain("NEVER repair this by substituting `-p`");
   });
 });
