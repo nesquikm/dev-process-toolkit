@@ -36,7 +36,21 @@ export const SHIP_CEREMONY_RECIPE = [
   "3. /pr — push the branch and open the pull request",
 ].join("\n");
 
+/**
+ * The closed set of conditions this probe reports (STE-574).
+ *
+ * `unshipped_debt` is legitimate transient state between /implement's archival
+ * commit and /ship-milestone's release commit; the other two are not. A
+ * consumer that needs to tell them apart reads this field instead of matching
+ * on `reason` prose, which is pinned bytes and not a classification.
+ */
+export type PlanShipCoherenceViolationKind =
+  | "unshipped_debt"
+  | "corrupt_stamp"
+  | "surface_disagreement";
+
 export interface PlanShipCoherenceViolation {
+  kind: PlanShipCoherenceViolationKind;
   file: string;
   line: number;
   reason: string;
@@ -80,6 +94,7 @@ function scanFrontmatterField(content: string, key: string): FieldHit {
 
 /** Build the full violation record: `note` per STE-82, `message` per NFR-10. */
 function makeViolation(
+  kind: PlanShipCoherenceViolationKind,
   file: string,
   rel: string,
   line: number,
@@ -88,6 +103,7 @@ function makeViolation(
   stamp: string,
 ): PlanShipCoherenceViolation {
   return {
+    kind,
     file,
     line,
     reason,
@@ -171,6 +187,7 @@ export async function runPlanShipCoherenceProbe(
       // AC-STE-369.2 — neither stamped nor parked: unshipped debt.
       violations.push(
         makeViolation(
+          "unshipped_debt",
           file,
           rel,
           1,
@@ -187,6 +204,7 @@ export async function runPlanShipCoherenceProbe(
     if (!stampMatch) {
       violations.push(
         makeViolation(
+          "corrupt_stamp",
           file,
           rel,
           stampLine,
@@ -203,6 +221,7 @@ export async function runPlanShipCoherenceProbe(
     if (!changelogVersions.has(version)) {
       violations.push(
         makeViolation(
+          "corrupt_stamp",
           file,
           rel,
           stampLine,
@@ -222,6 +241,7 @@ export async function runPlanShipCoherenceProbe(
   for (const row of await runReleaseSurfaceAgreement(projectRoot)) {
     const reason = `release surfaces disagree on ${row.field}: ${row.detail}`;
     violations.push({
+      kind: "surface_disagreement",
       file: join(projectRoot, "README.md"),
       line: 1,
       reason,
