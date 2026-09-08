@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.80.5] — 2026-09-07 — "Herald"
+
+### Fixed
+
+- The chains a consumer follows name the gates they will hit (STE-571)
+- The manual for the gates is reachable from where an agent looks (STE-572)
+- A gate that ships unannounced reds the run that ships it (STE-573)
+
+Total test count at release: 12356 tests, 0 failures, 0 errors.
+
 ## [2.80.4] — 2026-09-06 — "Verity"
 
 ### Fixed

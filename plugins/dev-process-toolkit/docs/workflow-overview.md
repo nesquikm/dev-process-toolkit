@@ -114,6 +114,13 @@ flowchart TD
 
 After the FR is GREEN, `/implement` runs the Phase 2 gate-check (deterministic kill switch) then a three-stage self-review bounded to **max 2 rounds**. A failing gate with an unclear cause routes into `/debug` (3-Fix Rule). Round-2 issues — or an exhausted debug budget — escalate to the human (Core Principle 3).
 
+The loop is not advisory at its exit. Bundled hooks refuse the `git commit` itself, at the harness, before the Bash call runs:
+
+- `pre-commit-gate-check` blocks a `git commit` Bash call unless `/dev-process-toolkit:gate-check` ran as a Skill tool_use in this session.
+- `pre-commit-tdd-orchestrator` blocks a `git commit` whose staged set carries an FR file under `specs/frs/` — or any file the stack calls a test — unless `/dev-process-toolkit:tdd` ran as a Skill tool_use in this session. An all-spec staged set is carved out and passes; a source file on its own never fires it.
+
+Both exit 2, so the tool call never happens, and both read the CURRENT session's transcript: running the equivalent commands by hand does not satisfy them. Full manual: [`docs/hooks-reference.md`](hooks-reference.md).
+
 ```mermaid
 flowchart TD
     classDef eval fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#000
@@ -143,6 +150,8 @@ flowchart TD
 ## 5. Ship + artifact lifecycle (detail)
 
 `/docs --quick` stages one fragment per FR during Build. `/ship-milestone` runs preflight, invokes `/docs --commit` and then `/docs --full` to fold the staged fragments into the canonical tree and regenerate it, bumps the four release files, and lands one human-approved commit (no push). `/spec-archive` is the manual archive escape hatch; `/pr` opens the pull request.
+
+The PR has a hook of its own: `pre-pr-spec-review` blocks a `gh pr create` Bash call unless `/dev-process-toolkit:spec-review` ran as a Skill tool_use in this session. It exits 2 like the commit-side pair, and it grades this session's transcript — a review done by hand, or in an earlier session, does not clear it. See [`docs/hooks-reference.md`](hooks-reference.md).
 
 ```mermaid
 flowchart TD

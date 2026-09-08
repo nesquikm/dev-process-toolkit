@@ -15,7 +15,7 @@ Per the Claude Code plugins reference (`code.claude.com/docs/en/plugins-referenc
 3. At hook-fire time, the literal token `${CLAUDE_PLUGIN_ROOT}` is substituted inline against the plugin's runtime path on the user's machine — the plugin cache directory, not any dev-clone path.
 4. Plugin hooks fire in **every project** where the plugin is enabled (user scope). No per-project opt-in mechanism; opt-out is `claude plugin disable dev-process-toolkit` per the harness contract.
 
-**Install shape.** The five hook entries live in `<plugin-root>/hooks/hooks.json` as `command`-type entries whose `command` field is the literal inline form `"${CLAUDE_PLUGIN_ROOT}"/templates/hooks/process/<name>.sh` with `timeout: 5000`. The plugin owns the script bodies; updates propagate automatically when the plugin updates (no user action needed).
+**Install shape.** The hook entries live in `<plugin-root>/hooks/hooks.json` as six `command`-type entries registering the five distinct scripts — `session-token-ledger` is wired twice, once under `SessionEnd` and once under `Stop` — each whose `command` field is the literal inline form `"${CLAUDE_PLUGIN_ROOT}"/templates/hooks/process/<name>.sh` with `timeout: 5000`. The plugin owns the script bodies; updates propagate automatically when the plugin updates (no user action needed).
 
 **NFR-10 refusal shape.** On a contract miss, hooks exit non-zero and write a 3-line structured refusal to stderr in the canonical NFR-10 shape emitted by `templates/hooks/_lib/session.ts`:
 
@@ -100,8 +100,8 @@ Empirical research via the `claude-code-guide` agent confirmed the contract: `${
 - **Requirement:** When the user invokes `/dev-process-toolkit:spec-write`, the hook checks for a prior `Skill(/dev-process-toolkit:brainstorm)` `tool_use` in the current session. If absent AND the FR appears greenfield (heuristic: no resolved tracker ID arg passed), the hook injects a **stderr reminder** to consider `/brainstorm` first. This is a soft nudge — the hook does NOT block.
 - **NFR-10 refusal shape on miss:** This hook does **not** refuse; it only emits a reminder. The reminder text uses the NFR-10 shape for consistency but exits 0:
   ```
-  Reminder: no dev-process-toolkit:brainstorm Skill tool_use in this session and the FR looks greenfield (no tracker ID).
-  Remedy: consider running /dev-process-toolkit:brainstorm first to explore the design space before drafting the spec.
+  Reminder: greenfield /dev-process-toolkit:spec-write invoked without prior /dev-process-toolkit:brainstorm.
+  Remedy: consider running /dev-process-toolkit:brainstorm first to clarify the design space.
   Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:brainstorm, hook=pre-spec-write-brainstorm-reminder
   ```
 - **Override pattern:** Disable the plugin or copy-and-override — snapshot-copy the seeded script into `~/.claude/hooks/pre-spec-write-brainstorm-reminder.sh`, edit (e.g., tune the greenfield heuristic, change the reminder threshold, or convert the exit code to non-zero for a hard block), and register the local absolute path in the operator's `~/.claude/settings.json`.
@@ -111,7 +111,7 @@ Empirical research via the `claude-code-guide` agent confirmed the contract: `${
 - **Name:** `pre-commit-tdd-orchestrator`
 - **Event:** `PreToolUse`
 - **Matcher:** `Bash` (with command-pattern guard for `git commit*`)
-- **Requirement:** If FR-related files are staged (heuristic: `specs/frs/<id>.md`, or a source file staged together with its test, where "source" and "test" mean whatever the detected stack's layout says they mean — Dart sources under `lib/` with tests under `test/` or `integration_test/`; Python sources under `src/` with tests under `tests/` or `test/`; TypeScript/JavaScript sources under `src/` with tests under `__tests__/` or `tests/`; Kotlin/Java sources under `src/main/` with tests under `src/test/`; Go sources anywhere, paired with their `_test.go` siblings), a `Skill(/dev-process-toolkit:tdd)` `tool_use` MUST appear in the current session log. Byte-checkable continuation of STE-283's TDD Orchestrator Contract: prevents the "Inline TDD Antipattern" where `/implement` writes tests + code itself instead of forking `/dev-process-toolkit:tdd`.
+- **Requirement:** If FR-related files are staged (the predicate is `isTddRequiredPath` — `specs/frs/<id>.md` **or** any path the detected stack calls a test; a staged test file on its own fires it, and a staged source file on its own does not. An all-spec staged set is carved out ahead of that predicate and exits 0, so a spec-only commit never needs the run. Here "source" and "test" mean whatever the detected stack's layout says they mean, and a path matching the stack's test glob is a test wherever it lives — Dart sources under `lib/` with tests under `test/` or `integration_test/`; Python sources under `src/` with tests under `tests/` or `test/`; TypeScript/JavaScript sources under `src/` with tests under `__tests__/` or `tests/`; Kotlin/Java sources under `src/main/` with tests under `src/test/`; Go sources anywhere, paired with their `_test.go` siblings), a `Skill(/dev-process-toolkit:tdd)` `tool_use` MUST appear in the current session log. Byte-checkable continuation of STE-283's TDD Orchestrator Contract: prevents the "Inline TDD Antipattern" where `/implement` writes tests + code itself instead of forking `/dev-process-toolkit:tdd`.
 - **NFR-10 refusal shape on miss:**
   ```
   Refusing: required dev-process-toolkit:tdd Skill tool_use not found in current session.
@@ -131,7 +131,7 @@ Empirical research via the `claude-code-guide` agent confirmed the contract: `${
 - **Name:** `session-token-ledger`
 - **Event:** `SessionEnd`, with `Stop` wired as an equivalent trigger (robustness pick — survives unclean exits; both re-derive the whole session and replace its rows, so repeated firing is idempotent).
 - **Matcher:** `*`
-- **Behavior:** Capture hook, not a gate (STE-344, M92). Parses `transcript_path` + `session_id` from the stdin hook JSON via `parseHookPayload`, aggregates the session's per-`(attributionSkill, model)` token usage via `parseTranscriptTokenUsage`, and writes the rows to the git-ignored `<project>/.dpt/ledger/token-ledger.jsonl` (`writeSessionRows` — replaces any rows already recorded for the `session_id`, atomic temp-file + rename write). The path is composed via `ledgerPath()` from `adapters/_shared/src/dpt_paths.ts`, never hand-assembled. What makes it ignored is the `ledger/` rule in the toolkit-owned `.dpt/.gitignore` that `/setup` writes — sibling `.dpt/locks/` is deliberately **tracked**, so the ledger is ignored by an explicit rule rather than by a blanket exclusion of `.dpt/` (see `docs/layout-reference.md` § The `.dpt/` tree). **Fail-open by contract:** any parse/IO error exits `0` with no write and no stderr — there is no refusal shape, and the hook never blocks session teardown or dirties the tracked tree.
+- **Behavior:** Capture hook, not a gate (STE-344, M92). **Opt-in, default OFF (STE-379):** before anything else the hook reads the project's CLAUDE.md `## Token Stats` block and exits 0 with no write unless it says `enabled: true`, so a project that has not opted in accrues no ledger at all. When enabled it parses `transcript_path` + `session_id` from the stdin hook JSON via `parseHookPayload`, aggregates the session's per-`(attributionSkill, model)` token usage via `parseTranscriptTokenUsage`, and writes the rows to the git-ignored `<project>/.dpt/ledger/token-ledger.jsonl` (`writeSessionRows` — replaces any rows already recorded for the `session_id`, atomic temp-file + rename write). The path is composed via `ledgerPath()` from `adapters/_shared/src/dpt_paths.ts`, never hand-assembled. What makes it ignored is the `ledger/` rule in the toolkit-owned `.dpt/.gitignore` that `/setup` writes — sibling `.dpt/locks/` is deliberately **tracked**, so the ledger is ignored by an explicit rule rather than by a blanket exclusion of `.dpt/` (see `docs/layout-reference.md` § The `.dpt/` tree). **Fail-open by contract:** any parse/IO error exits `0` with no write and no stderr — there is no refusal shape, and the hook never blocks session teardown or dirties the tracked tree.
 - **Override pattern:** Disable the plugin, or copy-and-override — snapshot-copy `templates/hooks/process/session-token-ledger.sh` into `~/.claude/hooks/`, edit (e.g., change the ledger location or restrict to `SessionEnd` only), and register the local absolute path in the operator's `~/.claude/settings.json`.
 
 ---
@@ -141,6 +141,11 @@ Empirical research via the `claude-code-guide` agent confirmed the contract: `${
 - `hooks/hooks.json` — the plugin-bundled registration surface this catalog documents.
 - `docs/honored-contracts.md` — prose-layer catalog of the same contracts these hooks enforce.
 - `docs/skill-anatomy.md` — `${CLAUDE_PLUGIN_ROOT}` substitution pattern used by the bundled hook entries.
+- `templates/CLAUDE.md.template` — its `## Workflows` gate block announces the blocking gates to every bootstrapped project and points here for the full manual.
+- `docs/workflow-overview.md` — the end-to-end workflow map; it carries the same gates in its lifecycle prose and in its guardrail table.
+
+Those last two are inbound: they are the surfaces a reader arrives at this manual **from**, not further reading it sends them to. An edit that drops the gates from either one leaves this file describing a route nobody can take, so a change to `templates/CLAUDE.md.template` or `docs/workflow-overview.md` that removes their gate coverage has to remove the matching bullet here too.
+
 - STE-289 (M74) — current FR; bundled `hooks/hooks.json` model, supersedes M71/M72/M73 install-side mechanism.
 - STE-285 (M71) — original install-side FR; design intent superseded by STE-289 after empirical falsification on 2026-05-14.
 - STE-286 (M72), STE-288 (M73) — follow-up install-side fixes likewise superseded by STE-289.

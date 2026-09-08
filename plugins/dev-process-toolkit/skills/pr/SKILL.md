@@ -34,6 +34,12 @@ Before Step 1, check whether this branch archives a milestone without carrying i
 
 This pre-flight is soft: it never auto-blocks, and every choice is the operator's. Branches with no archive moves — spec-only PRs included — see no prompt at all and go straight to Step 1.
 
+## Spec-Review Pre-Flight (Hard — Enforced by the Harness)
+
+The `pre-pr-spec-review` hook refuses the `gh pr create` Bash call unless `/dev-process-toolkit:spec-review` has already run in this session as a `Skill` `tool_use`. The hook grades the current session's transcript, so a review that ran in an earlier session does not count, and neither does auditing the specs by hand or summarising them in prose — the invocation itself is the token, not the reading. The refusal is `exit 2` at `PreToolUse`, which lands before the command, so the `gh pr create` never runs.
+
+Unlike the Ship-State pre-flight directly above, this one is not this skill's to decide: there is no prompt and no operator choice, because the harness blocks the tool call before the skill sees it. Run `/dev-process-toolkit:spec-review` first, then re-run `/pr`. Full manual, including the verbatim refusal text and the override path: `docs/hooks-reference.md`.
+
 ## Steps
 
 1. Check `git status` and `git log` to understand what's being submitted
