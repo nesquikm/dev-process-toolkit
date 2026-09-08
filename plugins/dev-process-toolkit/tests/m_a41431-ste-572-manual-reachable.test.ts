@@ -18,11 +18,22 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { deriveBlockingGates } from "./_blocking_gates";
 import { runPublicSurfaceCountDriftProbe } from "../adapters/_shared/src/public_surface_count_drift";
 import { mutate } from "./_fence";
 
 const pluginRoot = join(import.meta.dir, "..");
 const repoRoot = join(pluginRoot, "..", "..");
+
+/**
+ * The blocking gates as the hook entry points themselves declare them.
+ *
+ * Computed ONCE, here, so every roll-up below grades the hand-kept `GATES`
+ * against a set that grows the day a fourth entry point lands. `GATES` is
+ * deliberately NOT replaced by it: the point-of-use rows below bind `GATES[0]`
+ * and `GATES[1]` BY INDEX, and the derivation is name-sorted.
+ */
+const DERIVED_GATES = deriveBlockingGates(pluginRoot);
 const read = (p: string) => readFileSync(p, "utf-8");
 
 const README_PATH = join(repoRoot, "README.md");
@@ -41,7 +52,14 @@ const manual = () => read(MANUAL_PATH);
 const workflow = () => read(WORKFLOW_PATH);
 
 // ---------------------------------------------------------------------------
-// The subject. Measured from `hooks/hooks.json`, not derived.
+// The subject. Hand-kept ON PURPOSE — and graded against the derived set.
+//
+// Nothing reads `hooks/hooks.json` to produce this array; it is typed here
+// because the point-of-use rows below bind `GATES[0]` and `GATES[1]` BY INDEX
+// to specific skill files, and `DERIVED_GATES` is name-sorted — so the
+// derivation cannot simply take its place. What keeps the typing honest is the
+// agreement test that runs first below: the day a fourth entry point lands the
+// derived set grows, and this list reds until someone extends it.
 // ---------------------------------------------------------------------------
 
 interface BlockingGate {
@@ -135,9 +153,10 @@ function contractsDocumentGate(body: string, gate: BlockingGate): boolean {
   return PRECEDENT_FRS.some((fr) => entry.includes(fr));
 }
 
-/** AC.1 — all three, so documenting two of three is false. */
+/** AC.1 — every derived gate, so documenting all but one is false. */
 const contractsDocumentEveryGate = (body: string): boolean =>
-  GATES.length === 3 && GATES.every((g) => contractsDocumentGate(body, g));
+  GATES.length === DERIVED_GATES.length &&
+  GATES.every((g) => contractsDocumentGate(body, g));
 
 // ===========================================================================
 // AC-STE-572.2 — the manual links BACK at the surfaces that cite it
@@ -278,6 +297,40 @@ function skillLineCap(): number {
 
 /** The same counter the cap test uses — `wc -l` reports one less at the boundary. */
 const lineCount = (body: string): number => body.split("\n").length;
+
+// ===========================================================================
+// The agreement leg — the hand-kept `GATES` and the gates the entry points
+// themselves declare must name the same set.
+//
+// Compared as SORTED collections, never positionally: `DERIVED_GATES` arrives
+// name-sorted while `GATES` keeps the order the point-of-use rows below bind by
+// index, so an index-by-index comparison would red on a perfectly healthy tree.
+// Skills are graded alongside names, because a gate that kept its name and
+// changed the Skill it demands is a changed promise a name-only check misses.
+// ===========================================================================
+
+describe("the hand-kept list agrees with the derived gates", () => {
+  test("GATES and DERIVED_GATES name the same gates and demand the same skills", () => {
+    const openThis =
+      "the blocking gates are read from the entry points under " +
+      "templates/hooks/_lib/hooks — open that tree, then reconcile GATES above";
+
+    // An unreadable or absent hook tree derives to `[]`, and `[].sort()` equals
+    // `[].sort()`: the comparison below would pass while grading nothing. This
+    // is the guard that makes the agreement mean something.
+    expect(
+      DERIVED_GATES.length,
+      "no blocking gate was derived at all — " + openThis,
+    ).toBeGreaterThan(0);
+
+    expect([...GATES].map((g) => g.name).sort(), openThis).toEqual(
+      DERIVED_GATES.map((g) => g.hook).sort(),
+    );
+    expect([...GATES].map((g) => `${g.name} → ${g.skill}`).sort(), openThis).toEqual(
+      DERIVED_GATES.map((g) => `${g.hook} → ${g.skill}`).sort(),
+    );
+  });
+});
 
 // ===========================================================================
 // Zero-hit guards — every reader above is pointed at a real, non-trivial
