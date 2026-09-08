@@ -185,7 +185,7 @@ flowchart TD
     gDiff -->|"approved"| commit
     archive -->|"git mv + status flip"| aArch
     archive -->|"release"| trk
-    pr -->|"transition in_review + PR url"| trk
+    pr -->|"transition in_review (skipped if done / no review lane) + PR url"| trk
 ```
 
 ## 6. Deliver — pipeline orchestration (detail)
@@ -332,7 +332,7 @@ flowchart TD
 | CHANGELOG.md (## [X.Y.Z] section) | /ship-milestone | bump | Ship |
 | README.md ("Latest:" line) | /ship-milestone | bump (regex, optional) | Ship |
 | release commit (no push) | /ship-milestone | commit | Ship |
-| tracker ticket (in_review + PR URL) | /pr | tracker (best-effort) | Ship |
+| tracker ticket (in_review when the move goes forward, else a reported skip; + PR URL) | /pr | tracker (best-effort) | Ship |
 
 ---
 

@@ -251,6 +251,69 @@ export function statusToRole(config: TrackerConfig, status: string): Role | null
 }
 
 // ---------------------------------------------------------------------------
+// Post-create transition decision (STE-575)
+// ---------------------------------------------------------------------------
+
+/**
+ * The decision `/pr` makes after the PR URL is known: write the in-review
+ * status, or leave the ticket where it is. `reason` is plain words for the
+ * operator — it is rendered whether the decision is a write or a skip.
+ */
+export interface PrTransitionDecision {
+  action: "transition" | "skip";
+  reason: string;
+}
+
+/**
+ * Decide whether the post-create step should transition the ticket to the
+ * in-review role, given the status the ticket is ALREADY in.
+ *
+ * Pure: reads nothing from disk, calls no tracker, mutates neither argument.
+ * It therefore belongs with the role/status mappers above rather than with
+ * the file I/O below.
+ *
+ * A `null` config means the project declares no tracker vocabulary, so no
+ * role can be resolved and the decision falls through to the write.
+ *
+ * The forward-only clause is role-driven, not a literal match on the word
+ * "Done": a project whose done lane is spelled "Shipped" skips just the same.
+ * The no-review-lane clause compares the two role labels byte-for-byte, so a
+ * project whose labels differ only in case still has a lane to write to.
+ */
+export function prTransitionDecision(
+  observedStatus: string,
+  config: TrackerConfig | null,
+): PrTransitionDecision {
+  if (config === null) {
+    return {
+      action: "transition",
+      reason: `no tracker config declared, so \`${observedStatus}\` maps to no role — transitioning to in_review`,
+    };
+  }
+
+  if (statusToRole(config, observedStatus) === "done") {
+    return {
+      action: "skip",
+      reason: `ticket is already in \`${observedStatus}\`, the done lane — transitioning to in_review would drag it backwards`,
+    };
+  }
+
+  // Byte identity, deliberately: two labels that differ only in case are two
+  // distinct tracker statuses, so a review lane DOES exist and must be written.
+  if (config.roles.in_review === config.roles.in_progress) {
+    return {
+      action: "skip",
+      reason: `project declares no review lane (in_review and in_progress are both \`${config.roles.in_review}\`), so there is nowhere to move \`${observedStatus}\` to`,
+    };
+  }
+
+  return {
+    action: "transition",
+    reason: `ticket is in \`${observedStatus}\`, which is behind the in_review lane — transitioning`,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Read / Write
 // ---------------------------------------------------------------------------
 

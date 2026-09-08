@@ -11,7 +11,7 @@ Create a pull request for the current branch.
 Before creating the PR, run the Schema L probe (see `docs/patterns.md` § Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and the rest of this skill runs unchanged. If a tracker mode is active:
 
 - Run the 2-tier ticket-binding resolver and mandatory confirmation prompt per `docs/ticket-binding.md` before any MCP write. Decline exits cleanly with zero side effects.
-- After the PR is created, call `transition_status(ticket, in_review)` and optionally `upsert_ticket_metadata` to add the PR URL to the ticket description (NFR-8 ≤ 2 MCP calls). Capability-missing cases degrade with a canonical-shape warning + proceed.
+- After the PR is created, decide the status move from where the ticket already is, then call `transition_status(ticket, in_review)` only when that move goes forward. Skip it when the observed status already maps to the `done` role — moving a finished ticket into the review lane drags it backwards — and skip it when the project's `in_review` status is byte-identical to its `in_progress` status, because the project declares no review lane to move to. Report every skip in plain words, stating the observed status and the reason it was not moved; a skipped transition is announced, never swallowed. Then optionally call `upsert_ticket_metadata` to add the PR URL to the ticket description (NFR-8 ≤ 2 MCP calls — the observed status was already read by the binding pre-flight, so deciding costs no additional call). Capability-missing cases degrade with a canonical-shape warning + proceed.
 
 See `docs/pr-tracker-mode.md` for the full tracker-mode flow.
 
