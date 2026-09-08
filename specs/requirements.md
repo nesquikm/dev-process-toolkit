@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.80.5 ("Herald")**.
+**Latest shipped release:** **v2.80.6 ("Purview")**.
 
 ### Shipped milestones
 
@@ -512,4 +512,8 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-571.1..4 | plugins/dev-process-toolkit/templates/CLAUDE.md.template, plugins/dev-process-toolkit/docs/setup-reference.md | plugins/dev-process-toolkit/tests/m_a41431-ste-571-consumer-chains.test.ts |
 | AC-STE-572.1..8 | README.md, CLAUDE.md, plugins/dev-process-toolkit/docs/honored-contracts.md, plugins/dev-process-toolkit/docs/hooks-reference.md, plugins/dev-process-toolkit/docs/workflow-overview.md, plugins/dev-process-toolkit/skills/pr/SKILL.md, plugins/dev-process-toolkit/skills/gate-check/SKILL.md | plugins/dev-process-toolkit/tests/m_a41431-ste-572-manual-reachable.test.ts |
 | AC-STE-573.1..7 | plugins/dev-process-toolkit/tests/_blocking_gates.ts | plugins/dev-process-toolkit/tests/m_a41431-ste-573-blocking-gate-announcement.test.ts |
+| AC-STE-574.1..8 | plugins/dev-process-toolkit/adapters/_shared/src/plan_ship_coherence.ts | plugins/dev-process-toolkit/tests/m_a8e09a-ste-574-dogfood-scope.test.ts, plugins/dev-process-toolkit/tests/_plan_ship_grading.ts |
+| AC-STE-575.1..10 | plugins/dev-process-toolkit/adapters/_shared/src/tracker_config.ts, plugins/dev-process-toolkit/skills/pr/SKILL.md, plugins/dev-process-toolkit/docs/pr-tracker-mode.md, plugins/dev-process-toolkit/docs/workflow-overview.md, plugins/dev-process-toolkit/docs/tracker-adapters.md | plugins/dev-process-toolkit/tests/m_a8e09a-ste-575-forward-only-transition.test.ts |
+| AC-STE-576.1..6 | plugins/dev-process-toolkit/skills/pr/SKILL.md | plugins/dev-process-toolkit/tests/m_a8e09a-ste-576-pr-title-facts.test.ts |
+| AC-STE-577.1..9 | plugins/dev-process-toolkit/tests/m_a41431-ste-571-consumer-chains.test.ts, plugins/dev-process-toolkit/tests/m_a41431-ste-572-manual-reachable.test.ts | plugins/dev-process-toolkit/tests/m_a8e09a-ste-577-derived-gate-count.test.ts |
 

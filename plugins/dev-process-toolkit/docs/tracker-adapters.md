@@ -173,8 +173,11 @@ the adapter is treated as production-ready.
       the `tracker-only` or `edited-both` classification and prompts
 - [ ] Pass gate → `/gate-check` toggles the AC on the tracker (unless
       adapter declares no `push_ac_toggle`)
-- [ ] Create PR → `/pr` transitions status to `in_review` and optionally
-      updates ticket description with PR URL
+- [ ] Create PR → `/pr` transitions status to `in_review` **only when that move
+      goes forward** — skipped when the observed status already maps to `done`,
+      and skipped when the project's `in_review` is byte-identical to its
+      `in_progress` (no review lane exists). A reported skip is a PASS on this
+      item, not a failed step. Optionally updates ticket description with PR URL
 - [ ] `/setup --migrate <tracker> → none` pulls ACs into local
       `specs/requirements.md` and leaves tracker tickets intact
 
