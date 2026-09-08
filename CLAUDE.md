@@ -20,7 +20,10 @@ plugins/dev-process-toolkit/             → The plugin
 ├── templates/                           → CLAUDE.md template, spec file templates, permissions.json (what /setup actually reads), git hooks
 ├── adapters/                            → Tracker adapters + _shared: every deterministic probe, parser and bumper the toolkit runs
 ├── tests/                               → The `bun test` gate root
-├── hooks/                               → hooks.json — SessionEnd / Stop wiring
+├── hooks/                               → hooks.json — SessionEnd / Stop capture wiring PLUS the blocking
+                                           PreToolUse gates: pre-commit-gate-check and
+                                           pre-commit-tdd-orchestrator block `git commit`,
+                                           pre-pr-spec-review blocks `gh pr create`
 ├── scripts/                             → Migration helpers named by /upgrade and by probe remedies
 ├── docs/                                → Methodology, skill anatomy, adaptation guide, patterns
 └── examples/                            → Per-stack configs (typescript-node, bun-typescript, flutter-dart, kotlin, python, plugin — `plugin` is this repo's own stack)

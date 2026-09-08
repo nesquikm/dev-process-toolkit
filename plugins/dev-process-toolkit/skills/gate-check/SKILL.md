@@ -6,7 +6,7 @@ argument-hint: '[--fix to auto-fix lint issues]'
 
 # Gate Check
 
-Run the project's gating checks and report a clear pass/fail for each.
+Run the project's gating checks and report a clear pass/fail for each. **Invoking this skill is itself the token the commit gate reads.** The `pre-commit-gate-check` hook greps the current session's transcript for a `Skill` `tool_use` of `dev-process-toolkit:gate-check`, so running the same typecheck, lint and tests by hand yields a green result the hook cannot see and the commit is still refused with `exit 2`.
 
 ## Layout + Tracker Mode Probes
 
