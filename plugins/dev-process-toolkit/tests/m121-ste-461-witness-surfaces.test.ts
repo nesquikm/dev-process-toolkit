@@ -635,10 +635,16 @@ describe("AC-STE-461.14 — the driver edit stays inside every recorded budget",
     expect(at0d).toBe(at0c + 1);
   });
 
-  test("the run adds ZERO tracker tokens under skills/ — the ceiling is AT 246", () => {
+  test("the run adds ZERO tracker tokens under skills/ — the ceiling is AT 245", () => {
     // There is no headroom, so "≤ ceiling" and "added zero" are only the same
     // assertion if the total is pinned exactly.
-    expect(countNamespaceTokens(join(PLUGIN_ROOT, "skills"))).toBe(246);
+    // M_840a06/STE-578 took this 246 -> 245: § 0.5 of spec-write/SKILL.md cited
+    // `STE-135` as the guard on the tracker-orphan auto-import, and that citation
+    // was false on both halves (the import module carries no existence check, and
+    // STE-135 is the resolver lookup contract). Deleting a FALSE citation lowers
+    // the tree count, so this pin moves DOWN. Still exact, not a cap: an added
+    // token reds at 246 and a further deletion reds at 244.
+    expect(countNamespaceTokens(join(PLUGIN_ROOT, "skills"))).toBe(245);
   });
 
   test("the two rewritten bullets themselves carry no tracker token", () => {

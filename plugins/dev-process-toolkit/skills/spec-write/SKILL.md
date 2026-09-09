@@ -23,7 +23,7 @@ Before any other step:
 
 ### 0.5 Tracker-local reconciliation
 
-Tracker mode only (mode-none vacuous). Call `reconcileTrackerLocal` to surface drift between local `specs/frs/` and the tracker: tracker-only orphans auto-import via `importFromTracker` (guarded by `existsSync` per STE-135 to avoid clobbering local edits); local-only orphans and milestone mismatches prompt the user to resolve before continuing.
+Tracker mode only (mode-none vacuous). Call `reconcileTrackerLocal` to surface drift between local `specs/frs/` and the tracker: tracker-only orphans are never auto-imported — `importFromTracker` has no existence check, writes the FR file unconditionally, then calls `provider.sync(spec)`, an OUTWARD tracker write — so an import happens only on an explicit per-orphan answer, asked once, listing every orphan by tracker id and title; under tty that ask is `AskUserQuestion`, and under non-tty the only legitimate answer is an operator-authored `<dpt:answers>v1` block resolved by `resolveInterviewAnswer(promptBody, "tracker_orphan_import")` and handed to `requireOrRefuse(...)` in its `preBakedValue` slot with `defaultValue: undefined`, so the auto-approve marker CANNOT default-apply an import and a missing answer refuses in the NFR-10 canonical shape; where several repos share one tracker project every sibling repo's ticket appears here as a tracker orphan and the board has no delete tool, which is why this gate has no safe default; local-only orphans and milestone mismatches prompt the user to resolve before continuing.
 
 ### 0a. Resolver entry
 
