@@ -245,18 +245,69 @@ Idempotent binding from a Linear issue to a project milestone named by the local
 
 **Capability-gap surfacing in FR `## Notes` (STE-194).** When the adapter cannot attach (e.g., Linear project starts with zero milestones and the smoke driver has not seeded one), `/spec-write` declares the gap by writing the canonical `milestone_attach_unavailable` capability key into the new FR's `## Notes` section (per `skills/spec-write/SKILL.md` § Step 7's capability-key map). `/gate-check` probe #26 (`tracker-project-milestone-attached`) reads the same token from `## Notes` and downgrades the missing-binding outcome from GATE FAILED to ADVISORY (see `skills/gate-check/SKILL.md` § probe #26 decision table). The round-trip — write the token in spec-write, read the token in gate-check — keeps the audit trail visible without false-positive gate failures on intentional capability gaps.
 
-> **Symmetric note (Gateway-Timeout idempotency hardening).** Linear's `save_issue` shares the same
-> Gateway-Timeout class of failure mode as Jira's `createJiraIssue` —
-> the Linear MCP can return a network-error response while the
-> server-side write has already landed. Smoke #6 surfaced the defect on
-> Jira only, but the mitigation applies to both adapters: on a network
-> error during create, retry the idempotency probe with backoff
-> (`1s + 2s + 4s`, three attempts via `mcp__linear__list_issues`
-> filtered by `query=<title>`) before falling through to a fresh
-> create. Persistent miss after backoff ⇒ surface
-> `tracker_idempotency_uncertain` in /spec-write Step 7 (same canonical
-> capability key as Jira). See `adapters/jira.md` § `upsert_ticket_metadata`
-> for the full schedule and rationale.
+> **Symmetric note (Gateway-Timeout idempotency hardening).** Linear's
+> `save_issue` shares the same Gateway-Timeout class of failure mode as
+> Jira's `createJiraIssue` — the Linear MCP can return a network-error
+> response while the server-side write has already landed. Smoke #6
+> surfaced the defect on Jira only, but the mitigation applies to both
+> adapters: on a network error during create, retry the idempotency probe
+> with backoff (`1s + 2s + 4s`, three attempts via
+> `mcp__linear__list_issues`) before deciding anything.
+>
+> **Never join on `query`.** `mcp__linear__list_issues`' `query` parameter
+> is a **ranked relevance search** over an issue's **title or description**
+> — it scores and orders, it does not filter, so it must
+> **never be joined on**. Measured read-only:
+> `list_issues(query="Reward banner", team=STE)`
+> returned nine issues and not one of their titles carried that string; an
+> exact-title query returned the intended issue at rank 1 *plus* nine
+> unrelated titles with `hasNextPage: true`. A naive "first hit wins" read
+> does not merely duplicate — it mis-binds this repo's FR onto an
+> unrelated ticket, and every later write lands on someone else's issue.
+>
+> **Narrow with the structured parameters instead.** Build the probe as
+> conjuncts from `mcp__linear__list_issues`' own typed parameters, in this
+> order:
+>
+> - `team` — the team bound in `### Linear`;
+> - `project` — the project bound in `### Linear`;
+> - `label` — the repo tag, when `### Linear`.`repo_tag` is declared (a
+>   free-form `### Linear` sub-section field, parsed like `default_labels`);
+> - `projectMilestone` — when the milestone container is already known.
+>
+> **The parameters narrow the page; the client decides the join.** A
+> non-empty page is NOT a hit. Compare each candidate's `title` — trimmed
+> and inner-whitespace-collapsed — against `title` with a client-side
+> normalized exact compare, and join only on that.
+>
+> **A normalized match carrying a DIFFERENT repo tag is a sibling repo's
+> ticket, not this run's.** On a shared board two repos' FRs live in one
+> project, so a title match across the tag boundary is a mis-binding
+> dressed as a resume. Do not return it, and do not create beside it:
+> stop, surface `tracker_idempotency_uncertain` naming BOTH issue ids and
+> BOTH repo tags, and let the operator decide.
+>
+> **A page that reaches the cap is uncertainty, not a miss.** If the result
+> page hits the documented cap before reporting the end of the collection,
+> the ticket has NOT been proven absent — do not create on it, surface
+> `tracker_idempotency_uncertain` instead.
+>
+> **If all three attempts miss, the fall-through splits on the repo tag.**
+>
+> A capped page is uncertainty and OUTRANKS the split below: it never reaches
+> a create, whether or not a tag is declared. On an UNCAPPED page:
+>
+> - **No repo tag declared** — today's behaviour, unchanged: fall through
+>   to a fresh `save_issue` create AND surface a
+>   `tracker_idempotency_uncertain` warning row in /spec-write Step 7 (same
+>   canonical capability key as Jira).
+> - **Repo tag declared** — do NOT create. Refuse in NFR-10 canonical
+>   shape, naming the `title`, the container conjuncts and the repo tag
+>   that were searched. On a shared board a spurious refusal costs one
+>   re-run; a spurious create costs a ticket nobody can delete.
+>
+> See `adapters/jira.md` § `upsert_ticket_metadata` for the full schedule
+> and rationale.
 
 ## Helper: `normalize.ts`
 
