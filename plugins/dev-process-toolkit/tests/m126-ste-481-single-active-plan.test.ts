@@ -117,7 +117,13 @@ const SKILL_LINE_CAP = 358;
 const skillLines = (path: string): number => read(path).split("\n").length;
 
 /** The `skills/` tracker-token ceiling — measured at 246/246, zero headroom. */
-const SKILLS_STE_TOKEN_CEILING = 246;
+// M_840a06/STE-578 took this 246 -> 245: § 0.5 of spec-write/SKILL.md cited
+// `STE-135` as the guard on the tracker-orphan auto-import, and that citation was
+// false on both halves (the import module carries no existence check, and STE-135
+// is the resolver lookup contract). Deleting a FALSE citation lowers the tree
+// count, so this pin moves DOWN. Still exact, not a cap: an added token reds at
+// 246 and a further deletion reds at 244.
+const SKILLS_STE_TOKEN_CEILING = 245;
 const NAMESPACE_TOKEN = /\b(?:STE|AC-STE)-\d+(?:\.\d+)?\b/g;
 
 function countNamespaceTokens(dir: string): number {
