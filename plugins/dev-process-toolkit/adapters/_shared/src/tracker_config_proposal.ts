@@ -208,7 +208,12 @@ function buildMcpUnavailableMessage(err: unknown): string {
   const detail = err instanceof Error ? err.message : String(err);
   return [
     `Refusing: tracker-config write — MCP status fetch failed (${detail}).`,
-    `Remedy: re-authenticate the tracker MCP server and re-run /setup --resume-tracker-binding (or /setup --migrate). The status list MUST come from the active adapter; falling back to a hard-coded vocabulary would silently drift from the project's tracker workflow.`,
+    `Remedy: re-authenticate the tracker MCP server and re-run /setup --resume-tracker-binding, which re-runs this very step. The status list MUST come from the active adapter; falling back to a hard-coded vocabulary would silently drift from the project's tracker workflow.`,
+    // This remedy fires from the MCP-unavailable branch — i.e. when step 7f's
+    // OWN status fetch has just failed — so the instrument it names has to be
+    // one that can re-run step 7f. `--migrate` is not that instrument, which
+    // is why the flag above must run 7f rather than being deleted.
+    `Note: /setup --migrate cannot recover this failure. It skips steps 1-8, the range that contains step 7f, and it refuses outright when the tracker mode does not change — which is exactly the same-mode repoint case.`,
     `Context: mode=tracker-config-write, stage=fetchStatuses, error=${detail}`,
   ].join("\n");
 }
