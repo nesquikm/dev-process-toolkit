@@ -275,6 +275,15 @@ Idempotent binding from a Linear issue to a project milestone named by the local
 >   free-form `### Linear` sub-section field, parsed like `default_labels`);
 > - `projectMilestone` — when the milestone container is already known.
 >
+
+> **Reference implementation.** The structured-conjunct build, the
+> normalized compare, the foreign-repo-tag stop and the page-cap refusal
+> are implemented executably in
+> `adapters/_shared/src/create_idempotency_probe.ts`, which carries a
+> command-line front door. This blockquote is the contract the LLM
+> executes; that module is the same contract in code. Nothing grades the
+> agreement, so a reader changing one should open the other.
+>
 > **The parameters narrow the page; the client decides the join.** A
 > non-empty page is NOT a hit. Compare each candidate's `title` — trimmed
 > and inner-whitespace-collapsed — against `title` with a client-side

@@ -352,6 +352,16 @@ the canonical form (no round-trip loop).
      | 2       | 2 seconds         | Same narrowed JQL probe, same client-side compare |
      | 3       | 4 seconds         | Same narrowed JQL probe, same client-side compare |
 
+
+     **Reference implementation.** The narrow-then-compare join, the
+     normalization rules, the foreign-repo-tag stop and the page-cap
+     refusal are implemented executably in
+     `adapters/_shared/src/create_idempotency_probe.ts`, which carries a
+     command-line front door (`normalize`, `jql`). This prose is the
+     contract the LLM executes; that module is the same contract in code,
+     and the two are meant to agree. Nothing grades the agreement, so a
+     reader changing one should open the other.
+
      Three attempts total; the schedule is `1s + 2s + 4s` (cumulative ~7s
      of additional latency on the timeout path only). The single-shot probe
      above stays as the fast path — the backoff schedule fires only on the
