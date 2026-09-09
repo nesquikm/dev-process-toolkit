@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - `/spec-write` § 0.5 no longer auto-imports tracker orphans. The import writes an FR file and then pushes outward, and the guard the prose cited does not exist — so an import now happens only on an explicit per-orphan answer, with no default the auto-approve marker can apply. (STE-578)
-- The milestone allocation guard orders a second repo to join an existing container rather than mint a rival, deriving the id from the key that already exists, and refuses rather than minting when the provider cannot enumerate what is there. (STE-580)
+- The milestone allocation guard orders a second repo to join an existing container rather than mint a rival, deriving the id from the key that already exists, and refuses rather than minting when the provider cannot enumerate what is there. The order is prose on the caller; the mint helper itself is unchanged. (STE-580)
 
 Total test count at release: 12687 tests, 0 failures, 0 errors.
 

@@ -246,6 +246,49 @@ describe("AC-STE-579.2 — repo_tag is documented on all three surfaces", () => 
     ).toBe(true);
   });
 
+  test("THE EXECUTING COPY carries the page-cap rule — not just the module and the adapters", () => {
+    // The cross-FR spec review caught this: the cap was stated in
+    // adapters/jira.md, in adapters/linear.md and in the module, and NOWHERE on
+    // the line the LLM actually runs — which said the opposite unconditional
+    // ("with no repo_tag declared the behaviour is unchanged — fall through to
+    // a fresh create"). AC.7 was rewritten to name exactly that exception, and
+    // it never reached the executing site. Nothing in the AC set obliged it
+    // there, so a green suite defended the gap. This is the assertion that
+    // closes it.
+    const executing = read(SPEC_WRITE_SKILL).split("\n")[108] ?? "";
+
+    expect(
+      executing,
+      "line 109 must state that a capped page has not PROVEN the ticket absent",
+    ).toMatch(/proven the ticket absent|not proven absent/i);
+
+    expect(
+      executing,
+      "line 109 must state the cap outranks the repo_tag split — it never reaches a create, tag or no tag",
+    ).toMatch(/whether or not a tag is declared|tag or no tag/i);
+
+    // The fall-through split must now be SCOPED to an uncapped page. Without
+    // this, the two clauses coexist and an LLM can still land on the create.
+    expect(
+      executing,
+      "the no-repo_tag fall-through must be scoped to an UNCAPPED page",
+    ).toMatch(/uncapped page/i);
+  });
+
+  test("THE EXECUTING COPY names the field the parser actually reads", () => {
+    // workspace_binding.ts parses `default_labels`; `defaultLabels` is the
+    // TS caller-facing spelling and is ignored by the parser. An operator
+    // copying the wrong key declares a label set nothing forwards, which makes
+    // the repo_tag conjunct inert — the precise failure precondition 2 of the
+    // repoint contract exists to prevent, arriving through the executing copy.
+    const executing = read(SPEC_WRITE_SKILL).split("\n")[108] ?? "";
+    expect(executing, "the executing line must name `default_labels`").toContain("default_labels");
+    expect(
+      executing.includes("defaultLabels"),
+      "the executing line must NOT name the caller-facing `defaultLabels`, which the parser ignores",
+    ).toBe(false);
+  });
+
   test("THE EXECUTING COPY carries the NARROWING CONTRACT itself, not just proxy tokens", () => {
     // The audit's finding: every assertion about narrow-then-compare was scoped to
     // adapters/jira.md. Line 109 was pinned only by `repo_tag` and the MUST-emit
