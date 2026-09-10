@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.82.0 ("Kinship")**.
+**Latest shipped release:** **v2.83.0 ("Knock First")**.
 
 ### Shipped milestones
 
@@ -526,4 +526,9 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-585.1..12 | plugins/dev-process-toolkit/adapters/_shared/src/mint_milestone_epic.ts, plugins/dev-process-toolkit/adapters/jira.md, plugins/dev-process-toolkit/adapters/jira/src/list_milestones.ts | plugins/dev-process-toolkit/tests/m_8f07e0-ste-585-epic-label.test.ts, plugins/dev-process-toolkit/tests/m_8f07e0-ste-585-label-on-join.test.ts |
 | AC-STE-586.1..15 | plugins/dev-process-toolkit/adapters/_shared/src/milestone_token.ts, plugins/dev-process-toolkit/adapters/_shared/src/mint_milestone_epic.ts, plugins/dev-process-toolkit/adapters/_shared/src/mint_milestone_linear.ts, plugins/dev-process-toolkit/adapters/jira.md, plugins/dev-process-toolkit/adapters/linear.md | plugins/dev-process-toolkit/tests/m132-ste-509-skip-baseline.test.ts, plugins/dev-process-toolkit/tests/m136-ste-527-trunk-baseline.test.ts, plugins/dev-process-toolkit/tests/m136-ste-530-executable-remedy.test.ts, plugins/dev-process-toolkit/tests/m_8f07e0-ste-586-normalized-join.test.ts |
 | AC-STE-587.1..9 | plugins/dev-process-toolkit/tests/_span_fixture.ts | plugins/dev-process-toolkit/tests/m_8f07e0-ste-587-span-fixture.test.ts |
+| AC-STE-588.1..13 | plugins/dev-process-toolkit/adapters/_shared/src/plan_ship_coherence.ts, plugins/dev-process-toolkit/adapters/_shared/src/sibling_release.ts, plugins/dev-process-toolkit/skills/gate-check/SKILL.md | plugins/dev-process-toolkit/tests/m_79b1f6-ste-588-sibling-coherence.test.ts, plugins/dev-process-toolkit/tests/m_a8e09a-ste-574-dogfood-scope.test.ts |
+| AC-STE-589.1..13 | plugins/dev-process-toolkit/adapters/_shared/src/active_plan_ship_ready.ts, plugins/dev-process-toolkit/adapters/_shared/src/plan_ship_stamp.ts, plugins/dev-process-toolkit/adapters/_shared/src/sibling_release.ts, plugins/dev-process-toolkit/docs/layout-reference.md, plugins/dev-process-toolkit/docs/ship-milestone-reference.md, plugins/dev-process-toolkit/skills/ship-milestone/SKILL.md | plugins/dev-process-toolkit/tests/m_79b1f6-ste-589-sibling-ship-gate.test.ts |
+| AC-STE-590.1..8 | plugins/dev-process-toolkit/adapters/_shared/src/resume_classifier.ts, plugins/dev-process-toolkit/docs/implement-reference.md, plugins/dev-process-toolkit/docs/ship-milestone-reference.md, plugins/dev-process-toolkit/skills/implement/SKILL.md, plugins/dev-process-toolkit/skills/ship-milestone/SKILL.md, plugins/dev-process-toolkit/skills/spec-archive/SKILL.md | plugins/dev-process-toolkit/tests/m_79b1f6-ste-590-offers-ask-the-gate.test.ts |
+| AC-STE-591.1..8 | plugins/dev-process-toolkit/adapters/_shared/src/frontmatter_milestone_not_archived.ts, plugins/dev-process-toolkit/skills/gate-check/SKILL.md, plugins/dev-process-toolkit/skills/pr/SKILL.md, plugins/dev-process-toolkit/templates/spec-templates/plan.md.template | plugins/dev-process-toolkit/tests/m_79b1f6-ste-591-sibling-by-tracker-id.test.ts |
+| AC-STE-592.1..6 | plugins/dev-process-toolkit/skills/spec-write/SKILL.md | plugins/dev-process-toolkit/tests/m_79b1f6-ste-592-epic-mint-prose.test.ts |
 

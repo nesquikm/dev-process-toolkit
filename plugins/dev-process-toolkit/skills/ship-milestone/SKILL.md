@@ -1,7 +1,7 @@
 ---
 name: ship-milestone
 description: Bundle the Release Checklist + /docs --commit and /docs --full into one atomic, human-approved release commit. Reads specs/plan/M<N>.md, bumps the four release files, regenerates docs, prompts once for approval, commits on `y`, does not push.
-argument-hint: '[M<N>] [--version X.Y.Z] [--codename "<name>"] [--summary "<text>"]'
+argument-hint: '[M<N>] [--version X.Y.Z] [--codename "<name>"] [--summary "<text>"] [--partial]'
 ---
 
 # /ship-milestone
@@ -15,7 +15,7 @@ Detailed reference (CHANGELOG subsection policy, version-bump semver rules, stru
 - `/ship-milestone M<N>` — explicit milestone.
 - `/ship-milestone` — no-arg form picks the **most recent in-progress milestone**: the `specs/plan/M<N>.md` with `status: active` (or with `frozen_at: null`). If none qualifies, run the ship-debt offer below before refusing.
 - **Epic-keyed milestones** (Jira milestone-as-Epic): a `specs/plan/M_<epic-key>.md` plan ships exactly like an `M<N>` plan — same resolution, same pre-flights, same `shipped_in` stamp. Everywhere this skill says `M<N>`, the `M_<epic-key>` form is equally valid, including the CHANGELOG milestone-ref convention (`Refs: M_<epic-key>` is an accepted milestone token).
-- Optional flags: `--version X.Y.Z` (override inferred bump), `--codename "<name>"` (skip prompt), `--summary "<text>"` (commit one-liner, else prompted).
+- Optional flags: `--version X.Y.Z` (override inferred bump), `--codename "<name>"` (skip prompt), `--summary "<text>"` (commit one-liner, else prompted), `--partial` (ship this repository's half of a spanning milestone — see pre-flight refusal #4).
 
 ### Ship-debt offer
 
@@ -27,6 +27,8 @@ Unshipped archived milestone M<N> — ship it? [y/N]
 
 - `y` / `yes` (case-insensitive) — proceed with that milestone exactly as if `/ship-milestone M<N>` had been invoked; resolution takes the archive-fallback leg of Flow step 1.
 - **Decline** (anything else, default `N`) — move to the next candidate; once candidates are exhausted (or none existed), emit today's refusal text and exit code byte-identically — the offer changes nothing about the declined path.
+
+Before offering a candidate, run the sibling release gate on it: `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/sibling_release.ts <projectRoot> specs/plan/archive/M<N>.md M<N>`. Exit 0 ⇒ offer it. A candidate the gate refuses (exit 1) is not offered; name every such candidate on one held line, `Held by sibling gate: M<N>[, M<N>…]`, printed once before the first prompt (or before the refusal when all are held), so the omission is never silent.
 
 ## Pre-flight refusals
 
@@ -85,6 +87,16 @@ Any of these fire before any file write and exit non-zero with an NFR-10-shape m
    Use the stack detector to pick bun / pytest / flutter parsers from `adapters/_shared/src/test_count_parser.ts`. Unrecognized output or unknown stack → NFR-10 asking the user to specify or skip the line.
 
    **Keep that run's parsed `TestCount`.** It is the measured side of both the CHANGELOG closing line (step 4) and the write-boundary check that grades it — the same run, parsed once. Never run the gate a second time to measure the count: a second run costs the whole ceremony's wall time again to re-derive a number this one already produced, and two runs can disagree.
+
+4. **Sibling still holds active FRs**. A plan that declares `spans_repos:` has a copy in each sibling repository it names; refuse while any declared sibling still holds active FRs bound to `M<N>`. Run `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/sibling_release.ts <projectRoot> <planFile> <milestone> [--partial]`: exit 1 ⇒ refuse with its stderr verbatim; exit 0 ⇒ its stdout lines are the `Spans:` footer.
+
+   ```
+   /ship-milestone: M<N> spans a sibling that still holds active work — <sibling>: <count> active FRs (<ids>)
+   Remedy: finish the sibling's active FRs first, or pass --partial to ship this repository's half alone
+   Context: milestone=M<N>, skill=ship-milestone
+   ```
+
+   The predicate is active FRs in the sibling, never "the sibling has not shipped": two repositories that each waited for the other to ship would deadlock, and neither could ever release. `--partial` is the only escape — it ships this repository's half and leaves the sibling's pending; on a plan that declares no sibling it refuses, since there is no second half. An unlocatable sibling is not a refusal: the front door prints one `not checked` line per such sibling on stderr and exits 0, and probe #63 grades that sibling after the release.
 
 ## Flow
 
@@ -190,7 +202,7 @@ bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/release_config.ts <projectRoo
 
 Same arguments as the preview, with one exception: when the operator edited the proposed CHANGELOG entry at step 6, the edited body is what `--body` carries here — so what lands on disk is what the operator approved, not the entry they replaced. A refusal here aborts before the commit.
 
-**Stamp the resolved plan.** Before the commit is created, call `stampShippedIn(resolvedPlanPath, "v<X.Y.Z>")` from `adapters/_shared/src/plan_ship_stamp.ts` to write `shipped_in: v<X.Y.Z>` — the final version chosen for this release, after any `--version` override — into the resolved plan file's frontmatter. The stamp targets the resolved plan path from step 1, so it lands identically on the live path and the archive-fallback path, and the stamped plan file rides the same single atomic release commit.
+**Stamp the resolved plan.** Before the commit is created, call `stampShippedIn(resolvedPlanPath, "v<X.Y.Z>")` from `adapters/_shared/src/plan_ship_stamp.ts` to write `shipped_in: v<X.Y.Z>` — the final version chosen for this release, after any `--version` override — into the resolved plan file's frontmatter. The stamp targets the resolved plan path from step 1, so it lands identically on the live path and the archive-fallback path, and the stamped plan file rides the same single atomic release commit. Under `--partial`, also call `stampShipPartial(resolvedPlanPath)` beside it to write the bare scalar `ship_partial: true` — unquoted, since probe #63 fails closed on a quoted value; a re-run writes nothing.
 
 **Stamp semantics.** `shipped_in` is written only by this skill or the one-shot backfill script (run once against the historical archive, never shipped, deleted after the backfill commit). Absence of `shipped_in` on an archived plan means unshipped debt: the plan reached the archive without a release carrying it. Absence on a live plan is normal — the milestone simply hasn't shipped yet.
 
@@ -218,12 +230,13 @@ chore(release): v<X.Y.Z>
 <one-line summary>
 
 Release: v<X.Y.Z> "<Codename>"
+Spans: <repo>@<version|pending>
 Refs: M<N>
 ```
 
 - **Subject** — exactly `chore(release): v<X.Y.Z>` (≤ 72 chars; `chore(release): v1.37.0` is 23 chars, well within budget).
 - **Body** — the existing release-checklist summary (CHANGELOG diff one-liner, files bumped, FRs included). `<one-line summary>` is `--summary "<text>"` if provided, else prompted.
-- **Footers** — `Release: v<X.Y.Z> "<Codename>"` (machine-readable release metadata) **and** `Refs: M<N>` (milestone group reference). One blank line separates the body from the footer block per CC spec.
+- **Footers** — `Release: v<X.Y.Z> "<Codename>"` (machine-readable release metadata), `Spans: <repo>@<version|pending>` (one line per declared sibling, copied from refusal #4's stdout; none when the plan declares no `spans_repos:`) **and** `Refs: M<N>` (milestone group reference). One blank line separates the body from the footer block per CC spec.
 
 **Does not run `git push`** — the push remains a user action (core principle: shared-state actions require confirmation).
 
