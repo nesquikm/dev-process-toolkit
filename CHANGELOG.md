@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.82.0] — 2026-09-10 — "Kinship"
+
+### Added
+
+- A spanning declaration reader: `spans_repos:` in plan frontmatter reads as a nested map with exactly three arms — undeclared, declared, and malformed-and-refused — each entry resolved through the shipped repo probe and FR binding, with a front door that prints one line per repo. (STE-583)
+- A spanning milestone waits for its sibling: a plan that would otherwise read ship-ready is held back while a sibling repo still carries active FRs bound to it, visible as an `awaiting-sibling` note on probe 75 and as a resume chain that orders no stage; an unlocatable sibling degrades to a `sibling-unlocatable` note with the verdict intact. (STE-584)
+- The minted milestone Epic carries its `milestone-M_<key>` label, written once after the id is derived, outside the retry and refusal-free, so the Jira listing's label leg — the only leg that can see a title-only Epic — finds it. (STE-585)
+- A two-root test fixture with a five-state falsifiability test over the ship-ready predicate, and a dated, re-derivable written acceptance in the plan that no smoke leg drives two roots. (STE-587)
+
+### Changed
+
+- A `target_repo:` value the parser turned into a non-string — a block list, an empty map, a bare key — is refused in the NFR-10 shape naming all three causes and pointing at `spans_repos:`, where it used to route silently to the invoking repo. (STE-582)
+
+### Fixed
+
+- Both milestone mints match on one shared normalizer, so a trailing space or a capital letter no longer mints a duplicate: one match joins, none creates, two or more refuse by name, and `{ join: true }` refuses rather than creates. (STE-586)
+
+Total test count at release: 12910 tests, 0 failures, 0 errors.
+
 ## [2.81.0] — 2026-09-09 — "Assent"
 
 ### Added

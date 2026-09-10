@@ -24,7 +24,12 @@ import { basename, join } from "node:path";
 
 import { parseFrontmatter } from "./frontmatter";
 import { readPlanTaskState, type PlanStatus } from "./plan_task_state";
-import { milestoneFrBinding, shipReadyMilestones } from "./active_plan_ship_ready";
+import {
+  classifyActivePlans,
+  leadingToken,
+  milestoneFrBinding,
+  spanningSiblingState,
+} from "./active_plan_ship_ready";
 import { runPlanShipCoherenceProbe } from "./plan_ship_coherence";
 import {
   frsAwaitingTechnicalReview,
@@ -86,6 +91,15 @@ export interface ResumeClassification {
   readonly shipCoherenceViolations: readonly string[];
   /** NFR-10 messages from `needs_technical_review_consistency` for its FRs. */
   readonly reviewConsistencyViolations: readonly string[];
+  /**
+   * `<token> (<name>: <n> active FRs)` entries from `classifyActivePlans` for
+   * THIS milestone — a declared sibling repo still holds active work, so the
+   * milestone waits: no `/implement`, no ship tail. Empty when nothing waits.
+   * `classifyResume` always sets it; OPTIONAL only so a hand-built fixture
+   * classification (e.g. `continuation_offer`'s chain-shape fixture) keeps
+   * meaning "nothing awaited" — absent reads as empty.
+   */
+  readonly awaitingSiblings?: readonly string[];
 }
 
 /**
@@ -109,6 +123,15 @@ export interface FrResumeClassification {
   readonly needsTechnicalReview: boolean;
   /** NFR-10 messages from the shipped consistency probe naming THIS FR. */
   readonly reviewConsistencyViolations: readonly string[];
+  /**
+   * `<token> (<name>: <n> active FRs)` entries from `spanningSiblingState` — the
+   * predicate `classifyActivePlans` is built on — read only when this is the
+   * last LOCAL active FR. Non-empty means a declared sibling repo still holds
+   * work, so this FR does not close the milestone and the chain stops at `/pr`.
+   * `classifyResume` always sets it; OPTIONAL only so a hand-built fixture
+   * classification keeps meaning "nothing awaited" — absent reads as empty.
+   */
+  readonly awaitingSiblings?: readonly string[];
 }
 
 /** Ask the milestone question — the shipped classification, unchanged. */
@@ -318,7 +341,13 @@ async function classifyMilestoneResume(
     .filter((fr) => fr.milestone === milestone)
     .map((fr) => fr.id)
     .sort();
-  const shipReady = (await shipReadyMilestones(projectRoot)).includes(milestone);
+  // ONE read of the shared classification answers both questions — a second
+  // read could see a different tree than the first.
+  const active = await classifyActivePlans(projectRoot);
+  const shipReady = active.shipReady.includes(milestone);
+  const awaitingSiblings = active.awaitingSiblings.filter(
+    (entry) => leadingToken(entry) === milestone,
+  );
 
   // Precedence is deliberate and each step is load-bearing:
   //   a real ship stamp beats a stale review flag (the work is done and out);
@@ -365,6 +394,7 @@ async function classifyMilestoneResume(
     reviewConsistencyViolations: violationMessagesFor(consistency.violations, (stem) =>
       boundActive.has(stem),
     ),
+    awaitingSiblings,
   };
 }
 
@@ -383,6 +413,19 @@ async function classifyMilestoneResume(
 // become a second source of truth for a binding the gate already computes, and
 // the two would drift silently. Read-only, like everything else in this file.
 // ===========================================================================
+
+/**
+ * The active plan's raw body, for the spanning declaration. A missing or
+ * unreadable plan reads as undeclared — the answer an absent key gives — so an
+ * FR is never refused over a plan file this read cannot see.
+ */
+async function readActivePlanBody(projectRoot: string, milestone: string): Promise<string> {
+  try {
+    return await readFile(join(projectRoot, "specs", "plan", `${milestone}.md`), "utf-8");
+  } catch {
+    return "";
+  }
+}
 
 /** The FR sits in the milestone's archive — there is nothing left to resume. */
 function frArchivedRefusal(fr: string, milestone: string): string {
@@ -440,12 +483,27 @@ async function classifyFrResume(
   );
   const consistency = await runNeedsTechnicalReviewConsistencyProbe(projectRoot);
 
+  // Read ONLY when this FR would close the milestone here — the one moment the
+  // chain would order the ship tail — mirroring `classifyActivePlans`, which
+  // reads the declaration only for a plan that would otherwise ship. The helper
+  // is the one that classification is built on: one predicate, one rendering.
+  const lastActiveFr = remainingActiveFrIds.length === 0;
+  const awaitingSiblings = lastActiveFr
+    ? (
+        await spanningSiblingState(
+          projectRoot,
+          await readActivePlanBody(projectRoot, milestone),
+          milestone,
+        )
+      ).busy
+    : [];
+
   return {
     scope: "fr",
     fr,
     milestone,
     state: needsTechnicalReview ? "needs_technical_review" : "ready_to_implement",
-    lastActiveFr: remainingActiveFrIds.length === 0,
+    lastActiveFr,
     remainingActiveFrIds,
     needsTechnicalReview,
     // This FR's own violations only: a sibling's inconsistency is that
@@ -454,6 +512,7 @@ async function classifyFrResume(
       consistency.violations,
       (stem) => stem === fr,
     ),
+    awaitingSiblings,
   };
 }
 
@@ -571,6 +630,10 @@ function reviewPassPlacement(route: ResumeRoute): StepPlacement {
  * chain carries on through `/spec-archive` (see the `ResumeSkill` member: a
  * single-FR `/implement` leaves `status: active` behind) and `/ship-milestone`.
  *
+ * A spanning milestone whose declared sibling still holds active FRs is the
+ * one exception: the last LOCAL FR does not close it, so the chain stops at
+ * `/pr` exactly as it does while a local sibling remains.
+ *
  * The shipped route rules apply unchanged: `reduced` has no toolkit ceremony to
  * run on either branch, and the review pass keeps the shipped placement rule.
  */
@@ -597,7 +660,7 @@ function frResumeChain(
   }
 
   steps.push({ skill: "/implement", placement: "worker", target: c.fr });
-  if (c.lastActiveFr) {
+  if (c.lastActiveFr && (c.awaitingSiblings ?? []).length === 0) {
     steps.push({ skill: "/spec-archive", placement: "worker", target: c.milestone });
     steps.push({ skill: "/ship-milestone", placement: "worker", target: c.milestone });
   }
@@ -611,6 +674,10 @@ function milestoneResumeChain(
   route: ResumeRoute,
 ): readonly ResumeChainStep[] {
   if (c.state === "shipped" || c.state === "parked") return [];
+  // A sibling repo still holds active work: nothing is ordered while it waits.
+  // Demotion alone would read `partly_implemented`, which orders `/implement`
+  // AND the ship tail.
+  if ((c.awaitingSiblings ?? []).length > 0) return [];
 
   const steps: ResumeChainStep[] = [];
   const specWritePlacement = reviewPassPlacement(route);
@@ -659,6 +726,13 @@ export function stepLines(chain: readonly ResumeChainStep[]): string[] {
  * written out.
  */
 function frBranchReason(c: FrResumeClassification): string {
+  if (c.lastActiveFr && (c.awaitingSiblings ?? []).length > 0) {
+    return (
+      `${c.fr} is the last active FR of ${c.milestone} in this repo, but a declared sibling ` +
+      `repo still holds active FRs, so the chain stops at the PR — the ship ceremony ` +
+      `belongs to the run that closes the milestone.`
+    );
+  }
   if (c.lastActiveFr) {
     return (
       `${c.fr} is the last active FR of ${c.milestone}: ${c.remainingActiveFrIds.length} active FRs would remain once ` +
@@ -685,8 +759,10 @@ export function renderResumePlan(
 
 function renderMilestoneResumePlan(c: ResumeClassification): ResumePlan {
   const chain = resumeChain(c);
+  const awaiting = c.awaitingSiblings ?? [];
   const lines = [
     `Resume ${c.milestone} — classified state: ${c.state}`,
+    ...(awaiting.length > 0 ? [`Waiting on sibling repos: ${awaiting.join(", ")}`] : []),
     "",
     ...stepLines(chain),
   ];
@@ -695,9 +771,11 @@ function renderMilestoneResumePlan(c: ResumeClassification): ResumePlan {
 
 function renderFrResumePlan(c: FrResumeClassification): ResumePlan {
   const chain = resumeChain(c);
+  const awaiting = c.awaitingSiblings ?? [];
   const lines = [
     `Resume ${c.fr} in ${c.milestone} — FR scope, classified state: ${c.state}`,
     frBranchReason(c),
+    ...(awaiting.length > 0 ? [`Waiting on sibling repos: ${awaiting.join(", ")}`] : []),
     "",
     ...stepLines(chain),
   ];

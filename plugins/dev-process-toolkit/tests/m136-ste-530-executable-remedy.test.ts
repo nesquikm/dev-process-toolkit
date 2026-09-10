@@ -1018,6 +1018,8 @@ const SKIP_BASELINE_LOCAL_DEPS = [
   "dpt_paths",
   "branch_proposal",
   "milestone_token",
+  // `milestone_token` gained `./create_idempotency_probe` under M_8f07e0 / STE-586.
+  "create_idempotency_probe",
   "ulid",
 ] as const;
 
