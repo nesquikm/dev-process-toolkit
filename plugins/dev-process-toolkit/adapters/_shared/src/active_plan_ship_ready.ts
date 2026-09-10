@@ -141,6 +141,40 @@ function byLeadingToken(a: string, b: string): number {
   return compareMilestoneTokens(leadingToken(a), leadingToken(b));
 }
 
+/** A spanning milestone's declared siblings, rendered once for every consumer. */
+export interface SpanningSiblingState {
+  /** `<token> (<name>: <n> active FRs)` — a declared sibling still holds work. */
+  busy: string[];
+  /** `<token> (<name> at <declaredPath>)` — a declared sibling cannot be located. */
+  unlocatable: string[];
+}
+
+/**
+ * THE sibling predicate: which of `milestone`'s declared `spans_repos:` siblings
+ * still hold active FRs, and which cannot be located. One home, two consumers —
+ * `classifyActivePlans` below and the FR-scoped resume classifier — so "a
+ * sibling is busy" has one answer and one rendering in both scopes. An
+ * undeclared plan resolves to two empty lists; a malformed declaration throws
+ * `SpansReposError`, exactly as `resolveSpansRepos` does.
+ */
+export async function spanningSiblingState(
+  projectRoot: string,
+  planBody: string,
+  milestone: string,
+): Promise<SpanningSiblingState> {
+  const siblings = (
+    await resolveSpansRepos({ planBody, milestone, invokingRepo: projectRoot })
+  ).filter((s) => !s.self);
+  return {
+    busy: siblings
+      .filter((s) => s.binding !== null && s.binding.activeFrIds.length > 0)
+      .map((s) => `${milestone} (${s.name}: ${s.binding!.activeFrIds.length} active FRs)`),
+    unlocatable: siblings
+      .filter((s) => s.root === null)
+      .map((s) => `${milestone} (${s.name} at ${s.declaredPath})`),
+  };
+}
+
 /** Walk active plans and classify each one; shared core of every export. */
 export async function classifyActivePlans(projectRoot: string): Promise<Classification> {
   const planDir = join(projectRoot, "specs", "plan");
@@ -182,29 +216,12 @@ export async function classifyActivePlans(projectRoot: string): Promise<Classifi
       // A spanning milestone waits for every declared sibling: one holding
       // active FRs demotes it; one that cannot be located is reported, but
       // does not block the local verdict. Undeclared plans resolve to [].
-      const siblings = (
-        await resolveSpansRepos({
-          planBody: content,
-          milestone: token,
-          invokingRepo: projectRoot,
-        })
-      ).filter((s) => !s.self);
-      const busy = siblings.filter(
-        (s) => s.binding !== null && s.binding.activeFrIds.length > 0,
-      );
+      const { busy, unlocatable } = await spanningSiblingState(projectRoot, content, token);
       if (busy.length > 0) {
-        for (const s of busy) {
-          out.awaitingSiblings.push(
-            `${token} (${s.name}: ${s.binding!.activeFrIds.length} active FRs)`,
-          );
-        }
+        out.awaitingSiblings.push(...busy);
         continue;
       }
-      for (const s of siblings) {
-        if (s.root === null) {
-          out.unlocatableSiblings.push(`${token} (${s.name} at ${s.declaredPath})`);
-        }
-      }
+      out.unlocatableSiblings.push(...unlocatable);
       out.shipReady.push(token);
     }
   }
