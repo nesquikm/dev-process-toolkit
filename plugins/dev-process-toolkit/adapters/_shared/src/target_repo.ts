@@ -204,10 +204,21 @@ export function readTargetRepoDeclaration(planBody: string): TargetRepoDeclarati
     );
   }
   const value = raw.trim();
-  if (value === "" || value === "null" || value === "~") {
+  if (isUndeclaredScalar(value)) {
     return { declared: false, value: null };
   }
   return { declared: true, value };
+}
+
+/**
+ * The undeclared scalar sentinels: the empty string, "null" and "~". The last
+ * two arrive from the parser as STRINGS — it coerces a bare `null` to JS null
+ * but never a quoted one, and it has no `~` rule at all. This is the set's one
+ * home: `spans_repos` reads it for its own key and for every entry value.
+ */
+export function isUndeclaredScalar(value: string): boolean {
+  const v = value.trim();
+  return v === "" || v === "null" || v === "~";
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +269,7 @@ export function defaultRepoProbe(invokingRepo: string = process.cwd()): RepoProb
  * slash, a `.` segment, or in relative form; a literal `===` would miss the
  * inline branch for `target_repo: .` and route the invoking repo cross-repo.
  */
-function sameRepo(a: string, b: string): boolean {
+export function sameRepo(a: string, b: string): boolean {
   return a === b || resolve(a) === resolve(b);
 }
 
