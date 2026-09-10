@@ -109,6 +109,9 @@ The read-side parser is `readTokenStatsConfig` in `adapters/_shared/src/token_st
 - Argument can be a ULID (direct) or `M<N>` (milestone-group; archives all FRs where `milestone == M<N>`). The milestone-group case produces N moves in one commit.
 - `--parked` additionally writes `ship_state: parked` into the plan's frontmatter during the flip (the opt-out the `plan_ship_coherence` gate probe reads); see `skills/spec-archive/SKILL.md` for the flag + exit hints.
 
+### `/ship-milestone`
+- `--partial` additionally writes `ship_partial: true` beside `shipped_in:` in the plan's frontmatter during the release stamp (the downgrade the `plan_ship_coherence` gate probe reads for a sibling holding no plan); see `skills/ship-milestone/SKILL.md` for the flag + the sibling refusal.
+
 ### `/gate-check`
 - Conformance probes:
   1. **Filename ↔ `Provider.filenameFor(spec)`** for every `specs/frs/**/*.md` (strict — every base name must equal `Provider.filenameFor(spec)`).

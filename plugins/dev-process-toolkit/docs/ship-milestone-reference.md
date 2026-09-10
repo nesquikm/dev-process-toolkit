@@ -155,14 +155,29 @@ Refusal #1 (unshipped FRs) fires with one of two remedy shapes. The branch probe
 
 Both shapes preserve the canonical `Context: milestone=M<N>, unshipped=<count>, skill=ship-milestone` line, and both exit non-zero. `mode: none` always flows through the genuinely-unshipped branch because `LocalProvider.getTicketStatus` returns the `local-no-tracker` sentinel, which never equals any tracker's `status_mapping.done`.
 
+## Refusal #4 sibling gate decision matrix
+
+The skill's pre-flight refusal #4 runs the sibling gate before any file is written. It asks one question: does a sibling repository declared in `spans_repos:` still hold active FRs bound to this milestone? It never asks whether the sibling has shipped, because two repositories that each waited for the other to ship would deadlock. `--partial` is the only escape.
+
+| State | Outcome |
+|-------|---------|
+| Sibling busy, no `--partial` | Refuse: exit 1, three-line refusal on stderr naming the milestone, sibling, count and FR ids; nothing written. |
+| Sibling busy, `--partial` | Ship; step 7 also stamps `ship_partial: true`; the footer is measured as in the rows below — `Spans: <repo>@pending`, or `<repo>@v<X.Y.Z>` once the sibling's plan carries a stamp. |
+| Sibling holds zero active FRs, unstamped | Ship; footer `<repo>@pending`. |
+| Sibling plan stamped `v<X.Y.Z>` (live or archived path) | Ship; footer `<repo>@v<X.Y.Z>`. |
+| Sibling unlocatable on this machine | Ship; one `not checked` line on stderr; footer `<repo>@pending`; probe #63 later reports it as a note, never a violation. |
+| `--partial` on a plan declaring no sibling | Refuse: there is no second half to leave pending. |
+| Malformed `spans_repos:` declaration | Refuse, carrying the reader's own refusal text. |
+
 ## Refusal summary (NFR-10 canonical shapes)
 
-All refusals carry the three-line shape: one-line verdict / `Remedy: <action>` / `Context: milestone=..., version=..., skill=ship-milestone`. The four refusal verdicts:
+All refusals carry the three-line shape: one-line verdict / `Remedy: <action>` / `Context: milestone=..., version=..., skill=ship-milestone`. The five refusal verdicts:
 
 1. `milestone M<N> has <count> unshipped FR(s): <list>`
 2. `working tree has uncommitted changes outside the release files: <list>`
 3. `cannot tag release with <F> test failure(s)`
 4. `/docs <flag> failed; cannot proceed with release` — `<flag>` names which of the two step-5 invocations failed
+5. `M<N> spans a sibling that still holds active work — <sibling>: <count> active FRs (<ids>)` — the skill's pre-flight refusal #4; its states are in the decision matrix above
 
 ## `## Release Files` block schema
 
