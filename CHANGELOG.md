@@ -23,7 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Both milestone mints match on one shared normalizer, so a trailing space or a capital letter no longer mints a duplicate: one match joins, none creates, two or more refuse by name, and `{ join: true }` refuses rather than creates. (STE-586)
 
-Total test count at release: 12888 tests, 0 failures, 0 errors.
+Total test count at release: 12910 tests, 0 failures, 0 errors.
 
 ## [2.81.0] — 2026-09-09 — "Assent"
 
