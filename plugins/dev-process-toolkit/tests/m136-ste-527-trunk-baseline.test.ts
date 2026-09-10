@@ -880,8 +880,17 @@ describe("AC-STE-527.6 — the v1 records on disk are dropped and named", () => 
 // mutation is asserted to have APPLIED before its effect is read.
 // ===========================================================================
 
-/** The transitive local imports a mutant copy of `skip_baseline.ts` needs. */
-const MUTANT_DEPS = ["dpt_paths.ts", "branch_proposal.ts", "milestone_token.ts", "ulid.ts"];
+/**
+ * The transitive local imports a mutant copy of `skip_baseline.ts` needs.
+ * `milestone_token.ts` gained `./create_idempotency_probe` under M_8f07e0 / STE-586.
+ */
+const MUTANT_DEPS = [
+  "dpt_paths.ts",
+  "branch_proposal.ts",
+  "milestone_token.ts",
+  "create_idempotency_probe.ts",
+  "ulid.ts",
+];
 
 /**
  * Write a mutated copy of `skip_baseline.ts` into a throwaway directory beside

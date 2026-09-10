@@ -518,7 +518,8 @@ async function loadMutant(
   // gained `./branch_proposal` under M136 / STE-527, and a closure that is
   // missing one module does not fail loudly — the import throws inside the leg
   // and the leg goes red for a reason unrelated to its subject.
-  for (const dep of ["dpt_paths", "branch_proposal", "milestone_token", "ulid"]) {
+  // `milestone_token` gained `./create_idempotency_probe` under M_8f07e0 / STE-586.
+  for (const dep of ["dpt_paths", "branch_proposal", "milestone_token", "create_idempotency_probe", "ulid"]) {
     const from = join(SHARED_SRC, `${dep}.ts`);
     expect(existsSync(from), `mutant dependency closure names a missing module: ${from}`).toBe(true);
     copyFileSync(from, join(dir, `${dep}.ts`));

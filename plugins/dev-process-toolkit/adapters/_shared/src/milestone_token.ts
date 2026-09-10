@@ -17,6 +17,7 @@
 // every consumer for a `milestone_token` reference so a private copy cannot
 // silently return.
 
+import { normalizeTitleForCompare } from "./create_idempotency_probe";
 import { ULID_REGEX } from "./ulid";
 
 /** Digits of a numeric milestone id (`101` of `M101`). */
@@ -184,4 +185,27 @@ export function compareMilestoneTokens(a: string, b: string): number {
   if (ta?.kind === "numeric") return -1;
   if (tb?.kind === "numeric") return 1;
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * STE-586 AC-STE-586.11 — the ONE milestone-title normalizer both mint
+ * modules join on. NFC first (decomposed and precomposed spellings meet),
+ * then every whitespace/glyph rule INHERITED from `normalizeTitleForCompare`
+ * (never re-written here), then an explicit en-US case fold LAST — a bare
+ * `toLowerCase` folds `I` differently under a Turkish-locale runtime.
+ */
+export function normalizeMilestoneTitle(t: string): string {
+  return normalizeTitleForCompare(t.normalize("NFC")).toLocaleLowerCase("en-US");
+}
+
+/**
+ * STE-586 — the ONE equality both mint find legs match on: the rows whose
+ * `name` normalizes equal to `title`, BOTH sides through
+ * `normalizeMilestoneTitle`. Returned as a list so each caller tells the three
+ * outcomes apart — one joins; zero creates or, under join, refuses; two or
+ * more are ambiguous and refuse.
+ */
+export function matchMilestoneTitle<T extends { readonly name: string }>(rows: readonly T[], title: string): T[] {
+  const wanted = normalizeMilestoneTitle(title);
+  return rows.filter((row) => normalizeMilestoneTitle(row.name) === wanted);
 }

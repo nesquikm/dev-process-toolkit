@@ -511,6 +511,14 @@ through the provider's `addLabel` and reports whether it landed as
 `labelled`; its command form prints the label it would write as
 `label=milestone-M_<key>` beside the derived id.
 
+**Joining, never minting.** A repo joining a container another repo already
+minted calls the mint with `{ join: true }`. Its find leg compares titles
+after normalizing whitespace and case: exactly one match joins that Epic, two
+or more refuse and name every candidate with its key, and no match — or a
+provider carrying no `listEpics` — refuses instead of creating. A join never
+creates. Without `{ join: true }` the same normalized match still joins, and
+only a genuine miss mints.
+
 The mint surfaces NO capability row: it is a step of its own, not an attach
 outcome, and the attach that follows FINDS the Epic and returns `capability:
 null`. `milestone_create_required` belongs to the object binding's
