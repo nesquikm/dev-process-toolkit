@@ -28,6 +28,8 @@ Unshipped archived milestone M<N> — ship it? [y/N]
 - `y` / `yes` (case-insensitive) — proceed with that milestone exactly as if `/ship-milestone M<N>` had been invoked; resolution takes the archive-fallback leg of Flow step 1.
 - **Decline** (anything else, default `N`) — move to the next candidate; once candidates are exhausted (or none existed), emit today's refusal text and exit code byte-identically — the offer changes nothing about the declined path.
 
+Before offering a candidate, run the sibling release gate on it: `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/sibling_release.ts <projectRoot> specs/plan/archive/M<N>.md M<N>`. Exit 0 ⇒ offer it. A candidate the gate refuses (exit 1) is not offered; name every such candidate on one held line, `Held by sibling gate: M<N>[, M<N>…]`, printed once before the first prompt (or before the refusal when all are held), so the omission is never silent.
+
 ## Pre-flight refusals
 
 Any of these fire before any file write and exit non-zero with an NFR-10-shape message:

@@ -119,7 +119,7 @@ Anything else in `git status --porcelain` triggers pre-flight refusal 2. `/ship-
 
 ## Interaction with `/implement M<N>` close-prompt chain
 
-`/implement`'s milestone-close prompt adds an opt-in prompt at the end of a milestone-scope run: `Run /ship-milestone M<N> now? (y/n):` — the literal in `skills/implement/SKILL.md` and `docs/implement-reference.md`. On `y`, `/implement` chains into `/ship-milestone M<N>`. The chain is **not a bypass** — `/ship-milestone`'s own unified-diff approval gate (step 6) still fires, and the user must type `y` again.
+`/implement`'s milestone-close prompt adds an opt-in prompt at the end of a milestone-scope run: `Run /ship-milestone M<N> now? (y/n):` — the literal in `skills/implement/SKILL.md` and `docs/implement-reference.md`. On `y`, `/implement` chains into `/ship-milestone M<N>`. The chain is **not a bypass** — `/ship-milestone`'s own unified-diff approval gate (step 6) still fires, and the user must type `y` again. Before the prompt, `/implement` runs this skill's refusal #4 front door, `adapters/_shared/src/sibling_release.ts`, on the milestone's plan; a refusal is printed in place of the prompt, so a busy sibling is named before any release is offered.
 
 ## Mode: none compatibility
 
