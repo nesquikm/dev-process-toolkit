@@ -1337,6 +1337,11 @@ These are grouped for triage. **Created** means this milestone's own specs, test
 - **C13. AC-STE-369.5's 2500-character window has 41 characters of headroom** on probe #63's gate-check row after STE-588's edit. The next edit made ahead of the row's test-coverage filename reds it.
 - **C14. AC-STE-591.6's 358-line cap binds nothing**: `skills/pr/SKILL.md` measures 72 lines.
 
+- **C15. `/pr`'s held offers read ambiguously** (found by the pre-PR /spec-review). `skills/pr/SKILL.md:24` says the gate runs on the archived plan, then gives the live-plan fallback in the same sentence. The prompt at :27-28 still prints `[s]hip first` when the gate refuses, so "held" means that choosing `s` prints the refusal, not that the option disappears. That is consistent with AC-STE-591.6, but it reads either way.
+- **C16. `docs/ship-milestone-reference.md` numbers refusal #4 two ways** (found by the pre-PR /spec-review). The verdict list at :174-180 makes item 4 the `/docs` failure, while the skill and the matrix at :158 call the sibling gate "refusal #4", which is item 5 in that list. The page's Context template also includes `version=`, which refusal #4's Context line does not carry.
+- **C17. A malformed declaration on an archived resumed plan throws out of `classifyResume`** (found by the pre-PR /spec-review). The archived-plan leg at `resume_classifier.ts:372-377` has no `SpansReposError` catch. That matches the live path's single loud refusal, and the plan's Risks row records that trade; no AC covers it.
+- **C18. The ship-debt `Held by sibling gate:` line gives no cause** (found by the pre-PR /spec-review). `skills/ship-milestone/SKILL.md:31` names only the milestone. A refusal with a cause other than the sibling (an unreadable plan, a malformed declaration) is therefore held with no reason given. This is C1's ambiguous exit code, surfacing on a fourth reader.
+
 ### Found by this milestone (predates it)
 
 - **F1. Probe #14 has no pre-claim window.** A freshly minted milestone's tickets sit in Backlog between the /spec-write commit and /implement's claim, and probe #14 reds that commit. It was committed on the orchestrating session's answer. The probe should carry a pre-claim carve-out, so the commit needs no override.
