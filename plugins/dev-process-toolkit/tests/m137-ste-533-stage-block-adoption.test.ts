@@ -724,6 +724,11 @@ const BASELINE_FAMILIES: readonly (readonly [string, string])[] = [
   // a new family, listed here so the whole-set coverage leg below stays
   // exhaustive rather than silently tolerating an unlisted key.
   ["external_link", "external_link_check_unchecked_offline"],
+  // M_840a06/STE-579: the tracker idempotency-probe fall-through disposition —
+  // a new family (sibling to `tracker_status` / `tracker_local`), listed here
+  // so the whole-set coverage leg below stays exhaustive rather than silently
+  // tolerating an unlisted key.
+  ["tracker_idempotency", "tracker_idempotency_uncertain"],
 ] as const;
 
 /** The canonical key count measured on 2026-08-31, before the rewrite. */

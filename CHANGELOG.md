@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.81.0] — 2026-09-09 — "Assent"
+
+### Added
+
+- The create-idempotency probe narrows before it binds: JQL and Linear's structured parameters narrow the candidate page, a client-side normalized compare decides, and a non-empty page is not a hit. A match wearing a sibling repo's tag is neither reused nor created beside — the run stops and surfaces `tracker_idempotency_uncertain`, now a registered capability key with its emit directive. (STE-579)
+- `/setup --resume-tracker-binding` is a real dispatch branch with a written contract: step 7b's workspace-binding probe and write plus step 7f's tracker-config write, every other step skipped, and a refusal rather than a partial write. `docs/setup-reference.md` gains § 0c and seven numbered repoint preconditions. (STE-581)
+
+### Fixed
+
+- `/spec-write` § 0.5 no longer auto-imports tracker orphans. The import writes an FR file and then pushes outward, and the guard the prose cited does not exist — so an import now happens only on an explicit per-orphan answer, with no default the auto-approve marker can apply. (STE-578)
+- The milestone allocation guard orders a second repo to join an existing container rather than mint a rival, deriving the id from the key that already exists, and refuses rather than minting when the provider cannot enumerate what is there. The order is prose on the caller; the mint helper itself is unchanged. (STE-580)
+
+Total test count at release: 12687 tests, 0 failures, 0 errors.
+
 ## [2.80.7] — 2026-09-08 — "Corpus"
 
 ### Fixed

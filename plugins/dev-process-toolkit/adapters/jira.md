@@ -288,10 +288,54 @@ the canonical form (no round-trip loop).
      `Subtask` only (no `Story`); `Task` is the universally available
      choice. Operators on Scrum templates can switch to `Story` via the
      override.
-   - **Pre-create JQL idempotency probe (single-shot fast path).** Before
-     `createJiraIssue` fires, search the project for a ticket whose summary
-     matches `title` exactly. A hit means the FR was already created on a
-     prior run (resume / retry); return that id without writing.
+   - **Pre-create JQL idempotency probe (single-shot fast path).** Before the
+     create call fires, look for a ticket this FR already minted on a prior
+     run (resume / retry) and return that id without writing.
+
+     **Never order `summary = <title>`.** Jira ACCEPTS `=` on `summary` and
+     answers zero rows — a silent always-miss, not a syntax error, so nothing
+     in the response tells you the probe was broken. Measured read-only
+     against cloudId `96bffaef-cf5d-4dbf-a170-3d700df9bc83`:
+     `project = GF AND summary = "The reward banner, repainted light"`
+     returned `{"issues": [], "isLast": true}`, while
+     `project = GF AND summary ~ "\"The reward banner, repainted light\""`
+     returned `GF-83` — exactly one — and `GF-83` provably carries that
+     summary when fetched by key. An always-missing probe means the retry
+     path below runs it three times, misses three times, and lands a
+     duplicate on a board that has no delete tool.
+
+     **Order the narrowed query instead.** Conjoin, in this order:
+
+     - `project = <projectKey>`;
+     - the container — `parent = <EpicKey>` for an Epic-keyed milestone,
+       `labels = "milestone-<M-token>"` for a grandfathered numeric one;
+     - `labels = "<repo_tag>"` when `### Jira`.repo_tag is declared (a
+       free-form sub-section field, parsed like `default_labels`);
+     - `summary ~ "\"<title>\""` — the quoted-phrase form. Without the
+       escaped inner quotes `~` widens from a phrase match to a word match.
+
+     **The query narrows the page; the client decides the join.** `~` is a
+     text match, never an identity test, so a non-empty page is NOT a hit.
+     Compare each candidate's summary against `title` with a client-side
+     normalized exact compare — trim, collapse inner whitespace — and join
+     only on that. This is the shape § Milestone Listing already ships twice:
+     broad JQL then a client-side name filter (Epic leg), broad
+     `labels IS NOT EMPTY` then a client-side exact-anchored label match
+     (label leg). The binding path further down already concedes the
+     principle — "For an Epic-KEYED milestone, summary equality is not the
+     join" — the create path simply never inherited it.
+
+     **A page that reaches the cap is uncertainty, not a miss.** Mirror the
+     milestone listing's `MILESTONE_PAGE_CAP` treatment: if the result page
+     hits the documented cap before reporting `isLast`, the ticket has NOT
+     been proven absent. Do not create on it — surface
+     `tracker_idempotency_uncertain` and let the operator decide.
+   - **A normalized match carrying a DIFFERENT repo tag is a sibling repo's
+     ticket, not this run's.** On a shared board two repos' FRs live in one
+     project, so a title match across the tag boundary is a mis-binding
+     dressed as a resume. Do not return it, and do not create beside it:
+     stop, surface `tracker_idempotency_uncertain` naming BOTH issue keys and
+     BOTH repo tags, and let the operator decide.
    - `mcp__atlassian__createJiraIssue(projectKey=<from CLAUDE.md ### Jira>, summary=title, description=<rendered template>, issuetype=<resolved type>, contentFormat: "markdown")`.
    - **Network-error retry path (Gateway-Timeout idempotency hardening).**
      If the create call returns a network-error response
@@ -304,19 +348,45 @@ the canonical form (no round-trip loop).
 
      | Attempt | Wait before probe | Action |
      |---------|-------------------|--------|
-     | 1       | 1 second          | JQL search by exact `summary` match |
-     | 2       | 2 seconds         | Same JQL search |
-     | 3       | 4 seconds         | Same JQL search |
+     | 1       | 1 second          | The narrowed JQL probe (container conjunct + repo tag + `summary ~` phrase), then the client-side normalized compare |
+     | 2       | 2 seconds         | Same narrowed JQL probe, same client-side compare |
+     | 3       | 4 seconds         | Same narrowed JQL probe, same client-side compare |
+
+
+     **Reference implementation.** The narrow-then-compare join, the
+     normalization rules, the foreign-repo-tag stop and the page-cap
+     refusal are implemented executably in
+     `adapters/_shared/src/create_idempotency_probe.ts`, which carries a
+     command-line front door (`normalize`, `jql`). This prose is the
+     contract the LLM executes; that module is the same contract in code,
+     and the two are meant to agree. Nothing grades the agreement, so a
+     reader changing one should open the other.
 
      Three attempts total; the schedule is `1s + 2s + 4s` (cumulative ~7s
      of additional latency on the timeout path only). The single-shot probe
      above stays as the fast path — the backoff schedule fires only on the
-     network-error branch. If any backoff attempt finds the original write,
-     return that id (no duplicate create). If all three backoff probes still
-     miss, the original write genuinely failed server-side: fall through to
-     a fresh `createJiraIssue` AND surface a `tracker_idempotency_uncertain`
-     warning row in `/spec-write` Step 7 — the operator should manually
-     verify before downstream skills bind to the new id.
+     network-error branch. Every attempt runs the NARROWED query *and* the
+     client-side normalized compare: the query narrows the page, the client
+     decides the join, and a non-empty page is still not a hit. If any
+     attempt's compare matches a candidate carrying this repo's tag (or any
+     candidate, when no `repo_tag` is declared), return that id — no
+     duplicate create. If the compare matches a candidate carrying a
+     DIFFERENT repo tag, stop exactly as the single-shot probe does:
+     `tracker_idempotency_uncertain`, both keys, both tags, no create.
+
+     **If all three attempts miss on an UNCAPPED page, the fall-through
+     splits on `repo_tag`.** A capped page is uncertainty and outranks both
+     arms below: it never reaches a create, whether or not a tag is declared.
+
+     - **No `repo_tag` declared** — today's behaviour, unchanged: the
+       original write genuinely failed server-side, so fall through to a
+       fresh `createJiraIssue` AND surface a `tracker_idempotency_uncertain`
+       warning row in `/spec-write` Step 7 — the operator should manually
+       verify before downstream skills bind to the new id.
+     - **`repo_tag` declared** — do NOT create. Refuse in NFR-10 canonical
+       shape, naming the `title`, the container conjunct and the repo tag
+       that were searched. On a shared board a spurious refusal costs one
+       re-run; a spurious create costs a ticket nobody can delete.
    - Capture the returned `key` (e.g., `ABC-123`); that's the ticket id.
 2. Else:
    - `mcp__atlassian__editJiraIssue(issueIdOrKey=ticket_id_or_null, fields={ summary, description }, contentFormat: "markdown")`.

@@ -168,6 +168,12 @@ const EXPECTED_SET_A: ReadonlySet<string> = new Set([
   // /spec-write SKILL.md § 0b step 6b (and again in its § 7 static-map row),
   // keeping Set A = discovered directives.
   "external_link_check_unchecked_offline",
+  // Post-M84 expansion (M_840a06 STE-579): the tracker idempotency-probe
+  // fall-through disposition. The pin moves consciously 44 → 45 — the key
+  // carries a literal `MUST emit \`tracker_idempotency_uncertain\`` directive
+  // in /spec-write SKILL.md's step 4 idempotency-hardening block (and again in
+  // its § 7 static-map row), keeping Set A = discovered directives.
+  "tracker_idempotency_uncertain",
 ]);
 
 // Keys explicitly excluded from registration — they appear only as table-
@@ -284,9 +290,11 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
   // → 43 (M139/STE-541 linear_milestone_scheme_adopted, the once-per-project
   // Linear scheme-changeover notice) → 44 (M140
   // external_link_check_unchecked_offline, the external-link liveness check
-  // that could not run at all).
-  test("CANONICAL_CAPABILITY_KEYS length is exactly 44", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(44);
+  // that could not run at all) → 45 (M_840a06/STE-579
+  // tracker_idempotency_uncertain, the idempotency-probe fall-through that
+  // created without a confirmed miss).
+  test("CANONICAL_CAPABILITY_KEYS length is exactly 45", () => {
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(45);
   });
 
   test("CANONICAL_CAPABILITY_KEYS contains every key in Set A", () => {
@@ -326,7 +334,7 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
     while ((match = re.exec(body)) !== null) {
       discovered.add(match[1]!);
     }
-    expect(discovered.size).toBe(44);
+    expect(discovered.size).toBe(45);
     for (const key of EXPECTED_SET_A) {
       expect(discovered.has(key)).toBe(true);
     }
