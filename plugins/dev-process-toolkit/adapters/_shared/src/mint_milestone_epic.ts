@@ -17,16 +17,18 @@
 // `createEpic` op (AC-STE-522.8).
 
 import type { MilestoneOps } from "./attach_project_milestone";
-import { defaultSleep, retryTransient } from "./attach_project_milestone";
+import { defaultSleep, milestoneLabel, retryTransient } from "./attach_project_milestone";
 import { milestoneIdFromEpicKey } from "./milestone_token";
 
 /**
  * The ops a mint uses: the Epic creator declared on `MilestoneOps`, plus the
- * OPTIONAL enumeration op the retry's find leg needs. Both are optional on
- * `MilestoneOps` itself, so a provider that carries only `createEpic` still
- * satisfies this type — it just mints without a find leg.
+ * OPTIONAL enumeration op the retry's find leg needs, plus the OPTIONAL label
+ * op that writes the milestone label on the minted Epic. All three are
+ * optional on `MilestoneOps` itself, so a provider that carries only
+ * `createEpic` still satisfies this type — it just mints without a find leg
+ * and without a label.
  */
-export type MintMilestoneEpicProvider = Pick<MilestoneOps, "createEpic" | "listEpics">;
+export type MintMilestoneEpicProvider = Pick<MilestoneOps, "createEpic" | "listEpics" | "addLabel">;
 
 /**
  * Injected wait for the canonical backoff schedule (tests pass a recorder).
@@ -42,6 +44,11 @@ export interface MintedMilestoneEpic {
   epicKey: string;
   /** `milestoneIdFromEpicKey(epicKey)` (`M_GF_78`). */
   milestoneId: string;
+  /**
+   * STE-585 — whether the `milestone-<milestoneId>` label was written on the
+   * Epic. `false` when the provider has no `addLabel` op or the write rejected.
+   */
+  readonly labelled: boolean;
 }
 
 /**
@@ -100,7 +107,24 @@ export async function mintMilestoneEpic(
   // the backoff schedule for it would re-create the Epic three more times.
   const milestoneId = milestoneIdFromEpicKey(epicKey);
 
-  return { epicKey, milestoneId };
+  // STE-585 — write the milestone label on the Epic, once. It runs AFTER the
+  // derivation (a refused key never gets a label) and OUTSIDE the retry (a
+  // label write is not worth re-paying the backoff schedule). The label value
+  // is DERIVED from `milestoneId` through `milestoneLabel`, the one function
+  // that decides the label string for every writer and reader — never composed
+  // here from the raw key or by hand. A rejection is swallowed: the Epic and
+  // the id stand, only `labelled` reports the miss.
+  let labelled = false;
+  if (provider.addLabel) {
+    try {
+      await provider.addLabel(epicKey, milestoneLabel(milestoneId));
+      labelled = true;
+    } catch {
+      labelled = false;
+    }
+  }
+
+  return { epicKey, milestoneId, labelled };
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +144,10 @@ export async function mintMilestoneEpic(
 //   epicKey=GF-78
 //   milestoneId=M_GF_78
 //   plan=specs/plan/M_GF_78.md
+//   label=milestone-M_GF_78
+//
+// The label, like the summary, is read off the argument the helper actually
+// sent to its recording `addLabel` — the door creates and writes nothing.
 //
 // `import.meta.main` is false on import, so the module stays side-effect free
 // for the route that consumes it.
@@ -142,12 +170,16 @@ if (import.meta.main) {
     // never re-derived from `title` here — a front door that printed its own
     // input would report the rule rather than measure it.
     let sentSummary: string | null = null;
+    let sentLabel: string | null = null;
     try {
       const minted = await mintMilestoneEpic(
         {
           createEpic: async (_project: string, opts: { name: string }) => {
             sentSummary = opts.name;
             return { key: allocatedKey };
+          },
+          addLabel: async (_ticketId: string, label: string) => {
+            sentLabel = label;
           },
         },
         project,
@@ -157,6 +189,7 @@ if (import.meta.main) {
       console.log(`epicKey=${minted.epicKey}`);
       console.log(`milestoneId=${minted.milestoneId}`);
       console.log(`plan=specs/plan/${minted.milestoneId}.md`);
+      console.log(`label=${sentLabel ?? ""}`);
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
       process.exitCode = 1;
