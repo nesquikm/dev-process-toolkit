@@ -1311,3 +1311,68 @@ egress must not red the gate; an unverifiable required dependency is exactly
 what the FR wanted surfaced), which is why it needs an FR rather than a patch.
 
 Undeclared, untested and unspecced today. Raised rather than silently accepted.
+
+## M_79b1f6 (v2.83.0): what the milestone created, and what it found
+
+These are grouped for triage. **Created** means this milestone's own specs, tests, surfaces or records introduced the gap or taught the lesson. **Found** means the gap predates the milestone and was measured along the way. The plan's own Risks rows (happy-path-only ACs, no smoke leg driving two roots) are not repeated here.
+
+### Created by this milestone
+
+- **C1. One exit code carries four meanings, and three readers parsed it.** `sibling_release.ts` exits 1 for a busy sibling, and also for an unreadable plan, a malformed declaration or incomplete argv. Three readers treated every exit 1 as "sibling waiting":
+  - /spec-archive's exit hint and the ship-debt held line, both fixed in STE-590;
+  - /pr's pre-flight, fixed in STE-591. It handed the door an archived plan path that does not exist after an FR-only archive move, so it held the ship step for milestones with no sibling.
+
+  All three readers are fixed, but the door is still ambiguous. A distinct exit code for "sibling busy" would let readers stop parsing prose. /pr was, for the second time in this milestone, the surface nobody had enumerated.
+- **C2. The research behind this programme opened `skills/pr/` in none of its fourteen dimensions**, which is why the design listed three offering surfaces and not four. An audit found the fourth, and it was folded into STE-591.
+- **C3. An AC can hold while the behaviour it describes loops.** AC-STE-591.4 asserted that the orphan remedy's sibling arm exists, not that following it clears the row. Probe #27 never reads `spans_repos`, so an operator who did as told stayed red. When an AC tells an operator to act, the honest shape is "doing it changes the verdict".
+- **C4. A superseded evidence capture went unread, and it was red.** STE-592's second full-suite capture ran on a tree this session did not write to and came back 13149/1/15. Nobody read it: the Stage C edits had already made it stale, and its completion notice never reached the session. The record first said one red capture, which overlapped an edit. There were three, and none named the failing test (F7). Superseding a capture is no reason to leave it unread. A red on a settled tree is the one result that must never be discarded.
+- **C5. In-place rewrites of a capped file can make the file contradict itself.** STE-592 appended a join-call sentence to spec-write line 177, in a file at 358/358. The line then disagreed with an older sentence on it. A new file cannot do this. A capped file whose only edit mode is in place invites it, because the author appends to prose they did not write. Before each such edit, re-read the whole line's existing claims, not only the insertion point.
+- **C6. Aim a negative control at the shipped artifact, and measure it silent there before trusting it.** Two of STE-592's four controls first ran against sentences composed for the test. A control that is silent on invented text proves only that the matcher can be silent. It says nothing about the text that ships.
+- **C7. Probe #63's `unshipped_debt` remedy ignores the sibling.** `SHIP_CEREMONY_RECIPE`, shared verbatim with the docs and pinned, tells a spanning plan with a busy sibling to run /ship-milestone. Refusal #4 then names the sibling, the FR ids, and the choice between finishing them and `--partial`. The wrong remedy costs one command and corrects itself.
+- **C8. A refused front-door run prints no not-checked line for an unlocatable sibling.** `siblingShipGate` returns those siblings, but the door drops them on refusal. AC-STE-589.3 allows this.
+- **C9. /pr never surfaces the front door's exit-0 "not checked" stderr lines**, so an unlocatable sibling reaches the PR only as `@pending`. This is legibility, not correctness.
+- **C10. The ship-stamp rule has four homes**: three private `STAMP_RE` copies, pinned to main by the STE-589 guard, and `shipStampVersion` in `sibling_release.ts`. The last stays there so probe #81 does not drop to 128 (F2).
+- **C11. /spec-archive's sibling-wait exit hint is enforced only by prose presence checks**, both its pass-through of other refusals and its driven-run rendering. A behaviour test pins the executable precondition, that the door's refusals separate cleanly. The rendering needs a two-root rendered-report fixture, and that same fixture closes the plan's two-root smoke risk.
+- **C12. AC-STE-590.6's no-restatement check matches only `/active FRs?/`**, so a reworded restatement of the predicate would pass it.
+- **C13. AC-STE-369.5's 2500-character window has 41 characters of headroom** on probe #63's gate-check row after STE-588's edit. The next edit made ahead of the row's test-coverage filename reds it.
+- **C14. AC-STE-591.6's 358-line cap binds nothing**: `skills/pr/SKILL.md` measures 72 lines.
+
+### Found by this milestone (predates it)
+
+- **F1. Probe #14 has no pre-claim window.** A freshly minted milestone's tickets sit in Backlog between the /spec-write commit and /implement's claim, and probe #14 reds that commit. It was committed on the orchestrating session's answer. The probe should carry a pre-claim carve-out, so the commit needs no override.
+- **F2. Probe #81 counts transitive reachability as a stand-in for hand-executability.** This was measured again here: importing `plan_ship_stamp.ts` from a reachable module drops the count from 129 to 128, with no new order a reader can run by hand. It is the same question as the M140 entry on `scan_design_references.ts` above, and one decision settles both.
+- **F3. Two front doors find no test runner at the plugin root.** `gate_capture.ts` and `capture_skip_baseline.ts` both report "no test runner detected" from `plugins/dev-process-toolkit`, because `bun.lock` sits at the repo root. Measured on 2026-09-10: called with the repo root, as the gate-check skill documents, `capture_skip_baseline.ts` runs `bun test` from the repo root before any refusal. That run also executes 3095 stale test files under `.claude/worktrees`, and only afterwards does the capture refuse an off-trunk tree. Two such runs during this milestone's gate rewrote the fixed `/tmp` paths in F9. This milestone's evidence came from `captureGateRun`, with the stack and argv passed explicitly.
+- **F4. `sameRepo` compares resolved paths without following symlinks**, so a sibling that names this repo through a symlink fails the disagreement check.
+- **F5. `attach_project_milestone` finds a milestone by exact name.** Carried from M_8f07e0.
+- **F6. spec-write line 177 has four older gaps, measured during STE-592:**
+  - it is silent on join mode's refusals on zero or several title matches;
+  - it spells a three-argument `mintMilestoneEpic(provider, project, title)`, while join mode travels as a fourth options argument;
+  - grammatically, the three-field return hangs off the command-form "CREATES NOTHING" sentence;
+  - its Linear branch never mentions `{ join: true }`.
+
+  One in-place rewrite covers all four. Any rewrite must respect the second-repo-joins suite's prefix rule: text before its frozen tail may grow, never shrink.
+- **F7. The full suite has an unidentified single failure.** Before STE-592's commit, three full runs each reported exactly one failure. They fall into two populations:
+  - 13165 tests, at 19:09 and 19:14 UTC. The second overlapped no edit by the session.
+  - 13166 tests, at 19:21. That run overlapped spec edits.
+
+  No run named the failing test. Four full runs since then are green on 13166 tests. Two of them ran on the settled archive tree, with the tree digest identical before and after.
+
+  An isolated worktree rebuilt the 13165-test tree of the second red. It came back 13165 tests / 0 fail / 27 skips. That is void by criteria registered before its result was read: twelve tests that read gitignored local captures skip wherever those captures are absent, so the rebuild was blind to exactly the tests that only run on this machine. That makes them a candidate population, not a suspect.
+
+  Two cheap experiments, one for each variant in F9. Neither needs a reconstruction or a worktree.
+  - **Collision (concurrent suites).** Run the suite twice concurrently on this machine and see whether a single unnamed failure appears.
+  - **Leftover state (persistence between runs).** Clear `/tmp/dpt-smoke-verdict-*.json` and `/tmp/dpt-smoke-*-phase9`, run the suite, run it again without clearing, and repeat a few times, alternating cleared and uncleared starts. A failure that appears only on uncleared starts demonstrates persistence.
+
+  The concurrent pair alone tests half of F9. A clean result there leaves the leftover-state variant untested.
+
+  The test, its cause and whether it recurs are all unknown. The instrument cannot attribute it (F8), and load is a candidate (F9). It shipped on the record as a known open question, by the orchestrating session's decision, which is taken to the operator with the pull request.
+- **F8. An evidence capture cannot say which tree it measured.** `captureGateRun`, and the identity run it calls, record no HEAD and no dirty state; their only git call is a repo-root lookup. A certification that cannot say what it certified has the same defect as a skip count that cannot say which skips. STE-592's three red captures could be placed against the edits only by timestamps kept outside the instrument, and it took a transcript reconstruction to learn that the second one overlapped no edit at all. A before-and-after tree digest in the capture would let the evidence renderer refuse a mixed tree, and would have told those captures apart at a glance.
+- **F9. Candidate cause of the single unnamed failure: fixed `/tmp` paths the suite itself writes and reads. Two variants, both unproven.**
+  - **Measured on 2026-09-10.** Suite runs rewrite `/tmp/dpt-smoke-verdict-<tracker>.json` and the `/tmp/dpt-smoke-<tracker>-phase9` directories. Two repo-root runs did it about 48 seconds in (19:59Z and 20:01Z), and a plugin-root run rewrote the verdict files at 20:06:20Z, inside its own run.
+  - **Who writes them.** Three tests in the plugin tree call the writers, so any suite run writes these paths, from either root. A repo-root run adds 18 stale copies under `.claude/worktrees`.
+  - **Variant 1, collision.** Two suites running at once: one rewrites a path while a test in the other reads it.
+  - **Variant 2, leftover state.** The paths persist between runs, so a test can read what an earlier, interrupted or neighbouring run left behind. No second suite is needed.
+  - **Why the second variant matters.** No concurrent suite is identified inside the second red's window. This session ran none during it, and the supervising session's four runs, all from the plugin root, finished by 14:31Z. That is ruled out by its own task records. Collision cannot explain that red; leftover state can.
+  - **Duration does not separate them.** The reds ran at 272–281s, and one green ran at 260s.
+  - **Refuted by measurement.** The gitignored in-tree captures are not the writer: none changed that day (fixture JSONs 2026-07-27 to 2026-09-05, `.dart_tool` in June). The token ledger changed during the third red, but no test reads it.
+  - **What would decide it.** No failure was ever named, and the same tests have run green five times since. The two experiments in F7 test the two variants separately. 42 test files hard-code a `/tmp/` path.
