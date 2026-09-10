@@ -115,3 +115,42 @@ export async function stampShippedIn(
   // leaving every other key and the entire body byte-for-byte intact.
   await writeFile(planPath, joinFrontmatter(split, [...fmLines, stampLine]), "utf-8");
 }
+
+/**
+ * Stamp the BARE scalar `ship_partial: true` into the plan's frontmatter —
+ * the `/ship-milestone --partial` marker written beside `shipped_in:`.
+ * Probe #63 matches only the bare `true`; a quoted `"true"` fails closed.
+ *
+ * Idempotent: a plan already carrying `ship_partial: true` is left untouched
+ * (no write). Same frontmatter-edit discipline as {@link stampShippedIn}:
+ * CRLF / lone-CR / BOM tolerant, every other key and the entire body kept
+ * byte-for-byte.
+ *
+ * @param planPath absolute path to the plan file
+ */
+export async function stampShipPartial(planPath: string): Promise<void> {
+  const stampLine = "ship_partial: true";
+  const original = await readFile(planPath, "utf-8");
+  const split = splitFrontmatter(original);
+  if (split === null) {
+    throw new Error(
+      [
+        `Refusing: plan file has no closed YAML frontmatter block to stamp \`ship_partial\` into.`,
+        `Remedy: ensure the plan starts with a closed \`---\` frontmatter block, then re-run.`,
+        `Context: mode=plan-ship-stamp, file=${planPath}, attempted=ship_partial`,
+      ].join("\n"),
+    );
+  }
+
+  const fmLines = split.lines;
+  for (let i = 0; i < fmLines.length; i += 1) {
+    const m = /^ship_partial\s*:\s*(.*)$/.exec(fmLines[i]!);
+    if (!m) continue;
+    if ((m[1] ?? "").trim() === "true") return; // idempotent no-op — no write
+    fmLines[i] = stampLine; // any other value: overwrite in place, keep key position
+    await writeFile(planPath, joinFrontmatter(split, fmLines), "utf-8");
+    return;
+  }
+
+  await writeFile(planPath, joinFrontmatter(split, [...fmLines, stampLine]), "utf-8");
+}
