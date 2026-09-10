@@ -258,22 +258,39 @@ export class ResumeRefusedError extends Error {
 
 const STAMP_RE = /^v\d+\.\d+\.\d+$/;
 
+/** A plan's file: its live home, or under `archive/` once the plan is archived. */
+function planFile(projectRoot: string, milestone: string, planStatus: PlanStatus): string {
+  const planDir = join(projectRoot, "specs", "plan");
+  return planStatus === "archived"
+    ? join(planDir, "archive", `${milestone}.md`)
+    : join(planDir, `${milestone}.md`);
+}
+
 /** The plan's own frontmatter — the ship stamp and the parked record. */
-async function readPlanFrontmatter(
+function planFrontmatter(body: string): Record<string, unknown> {
+  if (body === "") return {};
+  try {
+    return parseFrontmatter(body, { lenient: true });
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * A plan's raw body: its frontmatter, and the spanning declaration. A missing
+ * or unreadable plan reads as undeclared — the answer an absent key gives — so
+ * nothing is refused or held over a plan file this read cannot see.
+ */
+async function readPlanBody(
   projectRoot: string,
   milestone: string,
   planStatus: PlanStatus,
-): Promise<Record<string, unknown>> {
-  if (planStatus === "missing") return {};
-  const planDir = join(projectRoot, "specs", "plan");
-  const file =
-    planStatus === "archived"
-      ? join(planDir, "archive", `${milestone}.md`)
-      : join(planDir, `${milestone}.md`);
+): Promise<string> {
+  if (planStatus === "missing") return "";
   try {
-    return parseFrontmatter(await readFile(file, "utf-8"), { lenient: true });
+    return await readFile(planFile(projectRoot, milestone, planStatus), "utf-8");
   } catch {
-    return {};
+    return "";
   }
 }
 
@@ -330,9 +347,13 @@ async function classifyMilestoneResume(
   milestone: string,
 ): Promise<ResumeClassification> {
   const taskState = await readPlanTaskState(join(projectRoot, "specs"), milestone);
-  const planFm = await readPlanFrontmatter(projectRoot, milestone, taskState.planStatus);
+  // ONE read of the plan file serves its frontmatter and, on the archived leg,
+  // its spanning declaration.
+  const planBody = await readPlanBody(projectRoot, milestone, taskState.planStatus);
+  const planFm = planFrontmatter(planBody);
 
   const shippedIn = scalar(planFm, "shipped_in");
+  const stamped = shippedIn !== null && STAMP_RE.test(shippedIn);
   const parked = scalar(planFm, "ship_state") === "parked";
   const parkedReason = scalar(planFm, "park_reason");
 
@@ -345,9 +366,15 @@ async function classifyMilestoneResume(
   // read could see a different tree than the first.
   const active = await classifyActivePlans(projectRoot);
   const shipReady = active.shipReady.includes(milestone);
-  const awaitingSiblings = active.awaitingSiblings.filter(
-    (entry) => leadingToken(entry) === milestone,
-  );
+  // `classifyActivePlans` walks LIVE plans only. An archived, unstamped,
+  // unparked plan is the state the ship path runs in, so it asks the same
+  // predicate `classifyFrResume` asks, over its own archived body.
+  const awaitingSiblings =
+    taskState.planStatus === "archived" && !stamped && !parked
+      ? (
+          await spanningSiblingState(projectRoot, planBody, milestone)
+        ).busy
+      : active.awaitingSiblings.filter((entry) => leadingToken(entry) === milestone);
 
   // Precedence is deliberate and each step is load-bearing:
   //   a real ship stamp beats a stale review flag (the work is done and out);
@@ -357,7 +384,7 @@ async function classifyMilestoneResume(
   //   to implement); and partial work — ticked plan tasks OR an already
   //   archived FR — beats "nothing built yet", so finished work is not redone.
   let state: ResumeState;
-  if (shippedIn !== null && STAMP_RE.test(shippedIn)) {
+  if (stamped) {
     state = "shipped";
   } else if (parked) {
     state = "parked";
@@ -413,19 +440,6 @@ async function classifyMilestoneResume(
 // become a second source of truth for a binding the gate already computes, and
 // the two would drift silently. Read-only, like everything else in this file.
 // ===========================================================================
-
-/**
- * The active plan's raw body, for the spanning declaration. A missing or
- * unreadable plan reads as undeclared — the answer an absent key gives — so an
- * FR is never refused over a plan file this read cannot see.
- */
-async function readActivePlanBody(projectRoot: string, milestone: string): Promise<string> {
-  try {
-    return await readFile(join(projectRoot, "specs", "plan", `${milestone}.md`), "utf-8");
-  } catch {
-    return "";
-  }
-}
 
 /** The FR sits in the milestone's archive — there is nothing left to resume. */
 function frArchivedRefusal(fr: string, milestone: string): string {
@@ -492,7 +506,7 @@ async function classifyFrResume(
     ? (
         await spanningSiblingState(
           projectRoot,
-          await readActivePlanBody(projectRoot, milestone),
+          await readPlanBody(projectRoot, milestone, "active"),
           milestone,
         )
       ).busy
