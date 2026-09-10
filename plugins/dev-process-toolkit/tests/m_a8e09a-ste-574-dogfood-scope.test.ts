@@ -66,8 +66,19 @@ const SHIP_SKILL = join(PLUGIN_ROOT, "skills", "ship-milestone", "SKILL.md");
 
 const read = (path: string): string => readFileSync(path, "utf-8").replace(/\r\n/g, "\n");
 
-/** The closed union AC.1 fixes. Sorted, so set comparison is order-free. */
-const KINDS = ["corrupt_stamp", "surface_disagreement", "unshipped_debt"] as const;
+/**
+ * The closed union AC.1 fixes, widened by STE-588 with `sibling_unshipped`.
+ * Sorted, so set comparison is order-free.
+ *
+ * The fourth kind needs TWO roots — a spanning plan and its sibling — and every
+ * fixture in this file is a single root, so no fixture here can observe it.
+ * That is why the observed-kind tails below assert a SUBSET of this union plus
+ * a non-vacuity leg, rather than equality with it.
+ */
+const KINDS = ["corrupt_stamp", "sibling_unshipped", "surface_disagreement", "unshipped_debt"] as const;
+
+/** The kinds a single-root fixture can observe: every kind but the sibling one. */
+const SINGLE_ROOT_KINDS = ["corrupt_stamp", "surface_disagreement", "unshipped_debt"] as const;
 
 // ---------------------------------------------------------------------------
 // Fixture vocabulary — every root is BUILT from named parts, so two roots that
@@ -165,7 +176,8 @@ const surfaceRoot = (): string =>
   makeRoot({ readme: STALE_README, archivePlans: { M_prior: "v2.80.5", M_debt: null } });
 
 /**
- * All three kinds at once, and all FOUR of the probe's violation push sites:
+ * Every single-root kind at once, and all FOUR of the probe's pre-STE-588
+ * violation push sites:
  *
  *   M_debt  unstamped + unparked   → unshipped_debt
  *   M_mal   malformed stamp        → corrupt_stamp
@@ -199,7 +211,7 @@ const rowFor = (report: PlanShipCoherenceReport, needle: string): PlanShipCohere
 // ===========================================================================
 
 describe("AC-STE-574.1 — the violation record carries a closed kind", () => {
-  test("the union declared in the module is EXACTLY the three kinds", () => {
+  test("the union declared in the module is EXACTLY the closed set in KINDS", () => {
     const src = read(PROBE_MODULE);
     // Whichever declaration carries `"unshipped_debt"` — a named type alias or
     // the field's inline union — is the union. Anchored on the literal rather
@@ -219,7 +231,7 @@ describe("AC-STE-574.1 — the violation record carries a closed kind", () => {
     ]);
   });
 
-  test("all four push sites set a kind — one fixture, four rows, three kinds", async () => {
+  test("the four single-root push sites set a kind — one fixture, four rows", async () => {
     const report = await runPlanShipCoherenceProbe(allKindsRoot());
     // Non-vacuity first: four rows, or the mapping below grades an empty set.
     expect(report.violations.length, describeRows(report.violations)).toBe(4);
@@ -233,7 +245,11 @@ describe("AC-STE-574.1 — the violation record carries a closed kind", () => {
       "the release-surface-agreement site does not set `kind` — it is the one push site that " +
         "does not go through `makeViolation`, so a factory-only edit misses it",
     ).toBe("surface_disagreement");
-    expect(kindsOf(report.violations)).toEqual([...KINDS]);
+    // Subset: every observed kind is a member of the union …
+    const observed = kindsOf(report.violations);
+    expect(observed.filter((k) => !(KINDS as readonly string[]).includes(k))).toEqual([]);
+    // … and non-vacuity: the fixture really carries every single-root kind.
+    expect(observed).toEqual([...SINGLE_ROOT_KINDS]);
   });
 
   test("no row anywhere carries a kind outside the union", async () => {
@@ -587,7 +603,7 @@ describe("AC-STE-574.7 — the two operator-invoked detectors are still register
 // ===========================================================================
 
 describe("AC-STE-574.8 — reason-substring → kind, with the same rows selected", () => {
-  test("on a fixture carrying all three kinds the two selections are identical", async () => {
+  test("on a fixture carrying every single-root kind the two selections are identical", async () => {
     const report = await runPlanShipCoherenceProbe(allKindsRoot());
     const byReason = report.violations.filter((v) => v.reason.includes("corrupt stamp"));
     const byKind = report.violations.filter((v) => v.kind === "corrupt_stamp");
@@ -599,8 +615,11 @@ describe("AC-STE-574.8 — reason-substring → kind, with the same rows selecte
     expect(byKind.length, "the kind selection is empty — `kind` is not set").toBe(2);
     expect(byKind).toEqual(byReason);
     // And the fixture really did carry the other two kinds, or "same rows"
-    // would be a claim about a set with nothing to exclude.
-    expect(kindsOf(report.violations)).toEqual([...KINDS]);
+    // would be a claim about a set with nothing to exclude. Subset of the
+    // union, plus the non-vacuity leg naming the kinds this root carries.
+    const observed = kindsOf(report.violations);
+    expect(observed.filter((k) => !(KINDS as readonly string[]).includes(k))).toEqual([]);
+    expect(observed).toEqual([...SINGLE_ROOT_KINDS]);
   });
 
   test("neither of the other two kinds says `corrupt stamp` in its reason", async () => {
