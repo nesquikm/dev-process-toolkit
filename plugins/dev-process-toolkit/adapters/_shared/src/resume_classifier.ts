@@ -24,7 +24,11 @@ import { basename, join } from "node:path";
 
 import { parseFrontmatter } from "./frontmatter";
 import { readPlanTaskState, type PlanStatus } from "./plan_task_state";
-import { milestoneFrBinding, shipReadyMilestones } from "./active_plan_ship_ready";
+import {
+  classifyActivePlans,
+  leadingToken,
+  milestoneFrBinding,
+} from "./active_plan_ship_ready";
 import { runPlanShipCoherenceProbe } from "./plan_ship_coherence";
 import {
   frsAwaitingTechnicalReview,
@@ -86,6 +90,15 @@ export interface ResumeClassification {
   readonly shipCoherenceViolations: readonly string[];
   /** NFR-10 messages from `needs_technical_review_consistency` for its FRs. */
   readonly reviewConsistencyViolations: readonly string[];
+  /**
+   * `<token> (<name>: <n> active FRs)` entries from `classifyActivePlans` for
+   * THIS milestone — a declared sibling repo still holds active work, so the
+   * milestone waits: no `/implement`, no ship tail. Empty when nothing waits.
+   * `classifyResume` always sets it; OPTIONAL only so a hand-built fixture
+   * classification (e.g. `continuation_offer`'s chain-shape fixture) keeps
+   * meaning "nothing awaited" — absent reads as empty.
+   */
+  readonly awaitingSiblings?: readonly string[];
 }
 
 /**
@@ -318,7 +331,13 @@ async function classifyMilestoneResume(
     .filter((fr) => fr.milestone === milestone)
     .map((fr) => fr.id)
     .sort();
-  const shipReady = (await shipReadyMilestones(projectRoot)).includes(milestone);
+  // ONE read of the shared classification answers both questions — a second
+  // read could see a different tree than the first.
+  const active = await classifyActivePlans(projectRoot);
+  const shipReady = active.shipReady.includes(milestone);
+  const awaitingSiblings = active.awaitingSiblings.filter(
+    (entry) => leadingToken(entry) === milestone,
+  );
 
   // Precedence is deliberate and each step is load-bearing:
   //   a real ship stamp beats a stale review flag (the work is done and out);
@@ -365,6 +384,7 @@ async function classifyMilestoneResume(
     reviewConsistencyViolations: violationMessagesFor(consistency.violations, (stem) =>
       boundActive.has(stem),
     ),
+    awaitingSiblings,
   };
 }
 
@@ -611,6 +631,10 @@ function milestoneResumeChain(
   route: ResumeRoute,
 ): readonly ResumeChainStep[] {
   if (c.state === "shipped" || c.state === "parked") return [];
+  // A sibling repo still holds active work: nothing is ordered while it waits.
+  // Demotion alone would read `partly_implemented`, which orders `/implement`
+  // AND the ship tail.
+  if ((c.awaitingSiblings ?? []).length > 0) return [];
 
   const steps: ResumeChainStep[] = [];
   const specWritePlacement = reviewPassPlacement(route);
@@ -685,8 +709,10 @@ export function renderResumePlan(
 
 function renderMilestoneResumePlan(c: ResumeClassification): ResumePlan {
   const chain = resumeChain(c);
+  const awaiting = c.awaitingSiblings ?? [];
   const lines = [
     `Resume ${c.milestone} — classified state: ${c.state}`,
+    ...(awaiting.length > 0 ? [`Waiting on sibling repos: ${awaiting.join(", ")}`] : []),
     "",
     ...stepLines(chain),
   ];

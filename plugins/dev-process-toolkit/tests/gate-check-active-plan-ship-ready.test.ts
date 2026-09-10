@@ -479,7 +479,7 @@ describe("dogfood — real repo run is warning-only", () => {
     const report = await runActivePlanShipReadyProbe(repoRoot);
     expect(report.violations).toEqual([]);
     for (const note of report.notes) {
-      expect(note).toMatch(/^(ship-ready|parked) milestones: /);
+      expect(note).toMatch(/^(ship-ready|parked|awaiting-sibling|sibling-unlocatable) milestones: /);
     }
   });
 });
