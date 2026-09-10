@@ -17,6 +17,9 @@
 //     the house sentinel idiom (`shipped_in: null` in the plan template); a
 //     reader that treated it as a repo literally named "null" would refuse
 //     every scaffolded plan.
+//   * Any OTHER non-string value — a list, a map, a bare key, a boolean — is a
+//     refusal, never undeclared: one milestone routes to exactly one tree, and
+//     a milestone that lives in two repos says so under `spans_repos:`.
 //   * Toolkit presence is decided by `isToolkitManaged` from
 //     `./toolkit_managed` — the single implementation of that question — never
 //     by a second copy of its heading vocabulary.
@@ -175,16 +178,47 @@ export class TargetRepoError extends Error {
  * Lenient by construction: a document with no frontmatter at all (a bodiless
  * file, a stray heading) is UNDECLARED, never a crash. An absent key and the
  * `null` sentinel are the same answer.
+ *
+ * Throws `TargetRepoError` when the key carries a value that is not a string:
+ * one milestone routes to exactly one tree, so a list, a map, a bare key or a
+ * bare boolean is refused rather than read as undeclared.
  */
 export function readTargetRepoDeclaration(planBody: string): TargetRepoDeclaration {
   const fm = parseFrontmatter(planBody, { lenient: true });
   const raw = fm[TARGET_REPO_KEY];
-  if (typeof raw !== "string") return { declared: false, value: null };
+  // The null arm must come first: the parser hands the `null` sentinel through
+  // as JS null, and `typeof null` is "object" — a type test above it would
+  // refuse every scaffolded plan.
+  if (raw === undefined || raw === null) return { declared: false, value: null };
+  if (typeof raw !== "string") {
+    // The lenient parser turns a block list, an empty map and a bare key into
+    // the same empty object, and a nested map or a bare true/false into other
+    // non-strings. So the message says what was read and names every spelling
+    // that produces it — it never guesses which one was written.
+    throw new TargetRepoError(
+      [
+        `Refusing: the milestone's \`${TARGET_REPO_KEY}:\` declaration is not a single path — the parser read a non-string value, which is what a block list, an empty map, a bare key with no value, a nested map, or a bare true/false all become.`,
+        `Remedy: declare exactly one repo path as a scalar \`${TARGET_REPO_KEY}:\` value, or remove the key to target the invoking repo; a milestone whose work spans several repos declares them under \`spans_repos:\` instead.`,
+        `Context: ${TARGET_REPO_KEY}=<${typeof raw}>, phase=target-repo-read`,
+      ].join("\n"),
+    );
+  }
   const value = raw.trim();
-  if (value === "" || value === "null" || value === "~") {
+  if (isUndeclaredScalar(value)) {
     return { declared: false, value: null };
   }
   return { declared: true, value };
+}
+
+/**
+ * The undeclared scalar sentinels: the empty string, "null" and "~". The last
+ * two arrive from the parser as STRINGS — it coerces a bare `null` to JS null
+ * but never a quoted one, and it has no `~` rule at all. This is the set's one
+ * home: `spans_repos` reads it for its own key and for every entry value.
+ */
+export function isUndeclaredScalar(value: string): boolean {
+  const v = value.trim();
+  return v === "" || v === "null" || v === "~";
 }
 
 // ---------------------------------------------------------------------------
@@ -235,7 +269,7 @@ export function defaultRepoProbe(invokingRepo: string = process.cwd()): RepoProb
  * slash, a `.` segment, or in relative form; a literal `===` would miss the
  * inline branch for `target_repo: .` and route the invoking repo cross-repo.
  */
-function sameRepo(a: string, b: string): boolean {
+export function sameRepo(a: string, b: string): boolean {
   return a === b || resolve(a) === resolve(b);
 }
 

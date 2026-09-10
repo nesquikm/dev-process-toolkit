@@ -78,6 +78,14 @@ duplicate milestone.
 4. (caller) write the plan file at `specs/plan/M_<6-hex>.md` and bind each FR
    with `milestone: M_<6-hex>` frontmatter.
 
+**Joining, never minting.** A repo joining a milestone another repo already
+minted calls the mint with `{ join: true }`. Its find leg compares titles after
+normalizing whitespace and case: exactly one match joins that milestone, two or
+more refuse and name every candidate with its identifier, and no match — or a
+provider carrying no `listMilestones` — refuses instead of creating. A join
+never creates. Without `{ join: true }` the same normalized match still joins,
+and only a genuine miss mints.
+
 The milestone KEEPS the human title — it is never renamed to the canonical form.
 That is deliberate and is why the binding above matches by KEY: once the identity
 is derived from the identifier, the milestone's name and the plan heading can

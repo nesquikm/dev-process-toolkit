@@ -16,12 +16,19 @@
 //   - real `shipped_in: v<X.Y.Z>` stamp → never nudged.
 //   - zero bound FRs (fresh / plan-only) → never flagged.
 //   - `specs/plan/` absent or empty → vacuous.
+//   - a plan that would otherwise be ship-ready and declares `spans_repos:`
+//     is read through `resolveSpansRepos`: a declared sibling that still holds
+//     active FRs demotes it to the `awaiting-sibling milestones:` row (never
+//     ship-ready), and an unlocatable sibling adds a `sibling-unlocatable
+//     milestones:` row while the verdict stands. A malformed declaration
+//     propagates its `SpansReposError` refusal.
 
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 // Union grammar: `M<N>` and `M_<epic-key>` active plans are both walked.
 import { PLAN_FILENAME_RE, compareMilestoneTokens } from "./milestone_token";
 import { normalizeFrontmatterSource } from "./frontmatter";
+import { SpansReposError, resolveSpansRepos } from "./spans_repos";
 
 export interface ActivePlanShipReadyReport {
   /** Always empty — the probe is warning-only by contract (NotesOnly). */
@@ -111,18 +118,75 @@ function idsBoundTo(rows: readonly FrBindingRow[], milestone: string): string[] 
     .sort();
 }
 
-interface Classification {
+export interface Classification {
   shipReady: string[]; // sorted via compareMilestoneTokens
   parked: string[]; // sorted via compareMilestoneTokens
+  /** `<token> (<name>: <n> active FRs)` — a declared sibling still holds work. */
+  awaitingSiblings: string[]; // sorted via compareMilestoneTokens
+  /** `<token> (<name> at <declaredPath>)` — a declared sibling cannot be located. */
+  unlocatableSiblings: string[]; // sorted via compareMilestoneTokens
 }
 
-/** Walk active plans and classify each one; shared core of both exports. */
-async function classifyActivePlans(projectRoot: string): Promise<Classification> {
+/**
+ * The milestone token a rendered sibling entry leads with —
+ * `M7 (glacy-app-be: 1 active FRs)` → `M7`. The entry is rendered in this
+ * module, so its parse lives here too rather than in each consumer.
+ */
+export function leadingToken(entry: string): string {
+  return entry.split(" ", 1)[0]!;
+}
+
+/** Order rendered sibling entries by milestone token, not lexicographically. */
+function byLeadingToken(a: string, b: string): number {
+  return compareMilestoneTokens(leadingToken(a), leadingToken(b));
+}
+
+/** A spanning milestone's declared siblings, rendered once for every consumer. */
+export interface SpanningSiblingState {
+  /** `<token> (<name>: <n> active FRs)` — a declared sibling still holds work. */
+  busy: string[];
+  /** `<token> (<name> at <declaredPath>)` — a declared sibling cannot be located. */
+  unlocatable: string[];
+}
+
+/**
+ * THE sibling predicate: which of `milestone`'s declared `spans_repos:` siblings
+ * still hold active FRs, and which cannot be located. One home, two consumers —
+ * `classifyActivePlans` below and the FR-scoped resume classifier — so "a
+ * sibling is busy" has one answer and one rendering in both scopes. An
+ * undeclared plan resolves to two empty lists; a malformed declaration throws
+ * `SpansReposError`, exactly as `resolveSpansRepos` does.
+ */
+export async function spanningSiblingState(
+  projectRoot: string,
+  planBody: string,
+  milestone: string,
+): Promise<SpanningSiblingState> {
+  const siblings = (
+    await resolveSpansRepos({ planBody, milestone, invokingRepo: projectRoot })
+  ).filter((s) => !s.self);
+  return {
+    busy: siblings
+      .filter((s) => s.binding !== null && s.binding.activeFrIds.length > 0)
+      .map((s) => `${milestone} (${s.name}: ${s.binding!.activeFrIds.length} active FRs)`),
+    unlocatable: siblings
+      .filter((s) => s.root === null)
+      .map((s) => `${milestone} (${s.name} at ${s.declaredPath})`),
+  };
+}
+
+/** Walk active plans and classify each one; shared core of every export. */
+export async function classifyActivePlans(projectRoot: string): Promise<Classification> {
   const planDir = join(projectRoot, "specs", "plan");
   const planFiles = (await listMarkdownFiles(planDir)).filter((f) =>
     PLAN_FILENAME_RE.test(basename(f)),
   );
-  const out: Classification = { shipReady: [], parked: [] };
+  const out: Classification = {
+    shipReady: [],
+    parked: [],
+    awaitingSiblings: [],
+    unlocatableSiblings: [],
+  };
   if (planFiles.length === 0) return out;
 
   const frsDir = join(projectRoot, "specs", "frs");
@@ -149,19 +213,31 @@ async function classifyActivePlans(projectRoot: string): Promise<Classification>
     }
     // Ship-ready ⇔ zero active FRs bound AND ≥ 1 archived FR bound.
     if (!activeFrTokens.has(token) && archivedFrTokens.has(token)) {
+      // A spanning milestone waits for every declared sibling: one holding
+      // active FRs demotes it; one that cannot be located is reported, but
+      // does not block the local verdict. Undeclared plans resolve to [].
+      const { busy, unlocatable } = await spanningSiblingState(projectRoot, content, token);
+      if (busy.length > 0) {
+        out.awaitingSiblings.push(...busy);
+        continue;
+      }
+      out.unlocatableSiblings.push(...unlocatable);
       out.shipReady.push(token);
     }
   }
 
   out.shipReady.sort(compareMilestoneTokens);
   out.parked.sort(compareMilestoneTokens);
+  out.awaitingSiblings.sort(byLeadingToken);
+  out.unlocatableSiblings.sort(byLeadingToken);
   return out;
 }
 
 /**
  * Shared predicate: bare milestone tokens of every active plan that is
- * ship-ready (zero active FRs, ≥ 1 archived FR, not parked, not stamped),
- * sorted via compareMilestoneTokens.
+ * ship-ready (zero active FRs, ≥ 1 archived FR, not parked, not stamped, and
+ * no declared `spans_repos:` sibling still holding active FRs), sorted via
+ * compareMilestoneTokens.
  *
  * Call sites: `/gate-check` probe #75 (via runActivePlanShipReadyProbe) and
  * the `/implement` FR-form close offer — ONE predicate, two consumers.
@@ -210,13 +286,20 @@ export async function milestoneFrBinding(
 export async function runActivePlanShipReadyProbe(
   projectRoot: string,
 ): Promise<ActivePlanShipReadyReport> {
-  const { shipReady, parked } = await classifyActivePlans(projectRoot);
+  const { shipReady, parked, awaitingSiblings, unlocatableSiblings } =
+    await classifyActivePlans(projectRoot);
   const notes: string[] = [];
   if (shipReady.length > 0) {
     notes.push(`ship-ready milestones: ${shipReady.join(", ")}${NOTE_SUFFIX}`);
   }
   if (parked.length > 0) {
     notes.push(`parked milestones: ${parked.join(", ")}`);
+  }
+  if (awaitingSiblings.length > 0) {
+    notes.push(`awaiting-sibling milestones: ${awaitingSiblings.join(", ")}`);
+  }
+  if (unlocatableSiblings.length > 0) {
+    notes.push(`sibling-unlocatable milestones: ${unlocatableSiblings.join(", ")}`);
   }
   return { violations: [], notes };
 }
@@ -229,6 +312,15 @@ export async function runActivePlanShipReadyProbe(
 // empty stdout means none.
 if (import.meta.main) {
   const projectRoot = process.argv[2] ?? process.cwd();
-  const shipReady = await shipReadyMilestones(projectRoot);
-  if (shipReady.length > 0) console.log(shipReady.join("\n"));
+  try {
+    const shipReady = await shipReadyMilestones(projectRoot);
+    if (shipReady.length > 0) console.log(shipReady.join("\n"));
+  } catch (e) {
+    // A malformed `spans_repos:` on an otherwise ship-ready plan is a refusal,
+    // not a crash: its NFR-10 message goes to stderr and stdout stays EMPTY,
+    // so the /implement close offer's "empty stdout = none" reading holds.
+    if (!(e instanceof SpansReposError)) throw e;
+    console.error(e.message);
+    process.exitCode = 1;
+  }
 }

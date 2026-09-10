@@ -32,6 +32,20 @@ migration: none  # literal `none` (no consumer migration), or a migration-regist
 -->
 
 <!--
+  Optional cross-repo key: `spans_repos` declares that one milestone's work also lives in a
+  sibling repo. It is a nested map of repo name to path, relative to this repo's root, added to
+  the frontmatter above only when the milestone genuinely spans repos:
+
+      spans_repos:
+        glacy-app-fe: .
+        glacy-app-be: ../glacy-app-be
+
+  A list, or an empty map, is refused loudly rather than read as "no other repos". Like `id:` and
+  `kind:`, `spans_repos` is documented here and never scaffolded: a placeholder value shipped as
+  a live key would declare a span every plan this template creates does not have.
+-->
+
+<!--
   Tracker-ID placeholder convention: when drafting FR rows in tracker
   mode, use the literal placeholder `<tracker-id>` (e.g.,
   `| <tracker-id> | <Title> | ... |`) until the tracker allocator

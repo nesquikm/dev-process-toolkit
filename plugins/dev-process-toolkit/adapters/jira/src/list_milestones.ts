@@ -93,8 +93,10 @@ export async function listMilestones(
   const found = new Set<string>();
 
   try {
-    // Grandfathered milestone-M<N> label leg (STE-339) — persists solely for
-    // pre-Epic milestones; the epic leg below is the primary enumeration.
+    // Label leg (STE-339) — grandfathered milestone-M<N> labels for pre-Epic
+    // milestones, AND the milestone-M_<key> label the Epic mint writes: it is
+    // the only route to a freshly minted Epic whose summary does not yet lead
+    // with a milestone token. The epic leg below is the primary enumeration.
     const reachedLast = await scanPages(fetchPage, cap, (result) => {
       for (const issue of result.issues) {
         for (const label of issue.labels ?? []) {

@@ -26,7 +26,7 @@
 
 import type { MilestoneOps } from "./attach_project_milestone";
 import { defaultSleep, retryTransient } from "./attach_project_milestone";
-import { milestoneIdFromLinearMilestone } from "./milestone_token";
+import { matchMilestoneTitle, milestoneIdFromLinearMilestone, normalizeMilestoneTitle } from "./milestone_token";
 
 /**
  * The ops a mint uses: the milestone creator, plus the OPTIONAL enumeration op
@@ -50,6 +50,11 @@ export interface MintMilestoneLinearProvider {
  */
 export interface MintMilestoneLinearOptions {
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * STE-586 — JOIN mode: bind to an existing milestone, never create one. A
+   * find leg with no normalized match refuses instead of minting.
+   */
+  join?: boolean;
 }
 
 /** The pair a mint yields: the tracker's identifier, and the id derived from it. */
@@ -84,6 +89,33 @@ export async function mintMilestoneLinear(
       "mintMilestoneLinear: minting a project milestone requires a milestone-create op on the provider",
     );
   }
+  // STE-586 AC-STE-586.10 — a join is a FIND, and a provider with no
+  // enumerator cannot find. Refused here, before `retryTransient`: without
+  // this guard the missing find leg would fall straight through to the create
+  // a join must never make. Zero lists, zero creates, zero sleeps.
+  if (opts?.join && !listMilestones) {
+    throw new Error(
+      [
+        `Refusing: to join project milestone "${title}" in project ${project} — a join cannot look for the existing milestone because the provider carries no listMilestones operation.`,
+        "Remedy: give the provider its listMilestones op so the join can find the milestone the first repo minted — a join never creates.",
+        "Context: mode=linear, phase=project-milestone-mint, join=true, missing_op=listMilestones",
+      ].join("\n"),
+    );
+  }
+  // STE-586 AC-STE-586.12 — a title that normalizes to empty names nothing:
+  // the find leg would compare against "" and the create would mint a
+  // milestone with a blank name. Refused here, before `retryTransient`. Zero
+  // lists, zero creates, zero sleeps.
+  const normalized = normalizeMilestoneTitle(title);
+  if (normalized === "") {
+    throw new Error(
+      [
+        `Refusing: to mint a project milestone in project ${project} whose title is empty once whitespace is normalized.`,
+        "Remedy: pass the human title the project milestone should carry.",
+        "Context: mode=linear, phase=project-milestone-mint, title=empty",
+      ].join("\n"),
+    );
+  }
   const sleep = opts?.sleep ?? defaultSleep;
 
   // AC-STE-539.5 — steps 1–2 retry as ONE unit on the canonical STE-362
@@ -100,7 +132,18 @@ export async function mintMilestoneLinear(
   // returned rather than thrown because it is PERMANENT — re-listing three
   // more times cannot conjure an identifier, and creating anyway would mint
   // the duplicate. The refusal is raised outside the retry, below.
-  const milestoneUuid = await retryTransient<string | null>(async () => {
+  //
+  // STE-586 — two or more milestones whose names normalize equal are
+  // AMBIGUOUS, and permanent for the same reason, so they too leave the retry
+  // as a value and are refused once, below.
+  //
+  // STE-586 — under `{ join: true }` a find leg with ZERO normalized matches
+  // is equally permanent, so it too leaves the retry as a value and is refused
+  // once, below. It is a GUARD in front of the single create, not a second
+  // path around it.
+  const outcome = await retryTransient<
+    string | null | { ambiguous: { name: string; id?: string }[] } | { joinMiss: true }
+  >(async () => {
     // The find leg matches by NAME: at mint time no identifier exists to match
     // on. It runs on the FIRST attempt as well as on retries, which makes
     // minting IDEMPOTENT — re-running a mint after a crash, a resumed session,
@@ -108,14 +151,43 @@ export async function mintMilestoneLinear(
     // a second one. Moving this into the retry's failure path would restore
     // duplicate minting on exactly the re-run an operator is most likely to
     // make. `listMilestones` is optional; without it a mint has no find leg.
+    // STE-586 — the name match is NORMALIZED on both sides
+    // (`matchMilestoneTitle`), so a stray space or case difference joins the
+    // existing milestone instead of minting a twin. The create below still
+    // receives the RAW title.
     if (listMilestones) {
-      const found = (await listMilestones(project)).find((m) => m.name === title);
-      if (found) return found.id ?? null;
+      const matches = matchMilestoneTitle(await listMilestones(project), title);
+      if (matches.length > 1) return { ambiguous: matches };
+      if (matches.length === 1) return matches[0]!.id ?? null;
+      if (opts?.join) return { joinMiss: true };
     }
     // Step 1 — the name is the title, the only value that exists yet.
     // Step 2 — read the identifier back, verbatim.
     return (await createMilestone(project, { name: title })).id;
   }, sleep);
+
+  if (outcome !== null && typeof outcome !== "string" && "joinMiss" in outcome) {
+    throw new Error(
+      [
+        `Refusing: to join project milestone "${title}" in project ${project} — no existing milestone matches it (normalized "${normalized}").`,
+        "Remedy: check the title against the milestone the first repo minted, or mint it from that repo — a join never creates.",
+        `Context: mode=linear, phase=project-milestone-mint, join=true, normalized=${normalized}`,
+      ].join("\n"),
+    );
+  }
+  if (outcome !== null && typeof outcome !== "string") {
+    const candidates = outcome.ambiguous
+      .map((m) => `${m.id ?? "<no identifier>"} "${m.name}"`)
+      .join(", ");
+    throw new Error(
+      [
+        `Refusing: to mint project milestone "${title}" in project ${project} — ${outcome.ambiguous.length} existing milestones normalize to the same title: ${candidates}.`,
+        "Remedy: rename one of them in the tracker so their titles no longer normalize equal, then re-run the mint; to bind a specific one, join by its milestone identifier instead of by title.",
+        `Context: mode=linear, phase=project-milestone-mint, normalized=${normalized}`,
+      ].join("\n"),
+    );
+  }
+  const milestoneUuid = outcome;
 
   if (milestoneUuid === null) {
     throw new Error(

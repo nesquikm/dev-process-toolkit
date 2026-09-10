@@ -496,6 +496,29 @@ That protection is why a timeout does not mint a duplicate Epic.
    rather than yielding a malformed one.
 4. **write the plan file** under that id, with heading `## M_<key> — <Title>`.
 
+**Epic label — at mint time only.** After it derives the id, and outside the
+step-1 retry, the mint writes the label `milestone-M_<key>` on the Epic itself
+(`milestone-M_GF_78` for `GF-78`). That label is a read-side convenience: it
+lets a repo enumerating a shared project find the milestone by its label. It
+is never the binding surface — membership stays the FR's `parent`, below. A
+failed label write never fails the mint: the Epic and its derived id stand,
+and only the convenience is missing. In a live session the write is a
+read-merge-write on the Epic's own key —
+`mcp__atlassian__editJiraIssue(issueIdOrKey=<epic-key>,
+additional_fields={ labels: [...<existing labels>, "milestone-M_<key>"] })`,
+never clobbering a label already there. `mintMilestoneEpic` performs it
+through the provider's `addLabel` and reports whether it landed as
+`labelled`; its command form prints the label it would write as
+`label=milestone-M_<key>` beside the derived id.
+
+**Joining, never minting.** A repo joining a container another repo already
+minted calls the mint with `{ join: true }`. Its find leg compares titles
+after normalizing whitespace and case: exactly one match joins that Epic, two
+or more refuse and name every candidate with its key, and no match — or a
+provider carrying no `listEpics` — refuses instead of creating. A join never
+creates. Without `{ join: true }` the same normalized match still joins, and
+only a genuine miss mints.
+
 The mint surfaces NO capability row: it is a step of its own, not an attach
 outcome, and the attach that follows FINDS the Epic and returns `capability:
 null`. `milestone_create_required` belongs to the object binding's
@@ -504,11 +527,12 @@ null`. `milestone_create_required` belongs to the object binding's
 **Membership — `parent` set.** Bind the FR Task by writing the Epic's key to
 its `parent` field: `mcp__atlassian__editJiraIssue(issueIdOrKey=ticket_id,
 additional_fields={ parent: { key: <epic-key> } })`. This path never touches
-milestone objects. It scatters no `milestone-<M-token>` label for an
-Epic-KEYED milestone — but a grandfathered NUMERIC `M<N>` milestone under
-this same binding deliberately DOES take the label surface, because that is
-where the reader's own grandfather clause looks for it; see the numeric note
-below.
+milestone objects. For an Epic-KEYED milestone the per-FR attach writes no
+`milestone-<M-token>` label on the FR ticket; the only `milestone-M_<key>`
+label such a milestone carries is the one the mint writes on the Epic itself.
+A grandfathered NUMERIC `M<N>` milestone under this same binding deliberately
+DOES take the label surface on the ticket, because that is where the reader's
+own grandfather clause looks for it; see the numeric note below.
 Idempotency pre-check: when the issue's `parent` already equals the Epic's
 key the attach is a no-op — the parent is not rewritten and no second Epic
 is created.
@@ -589,7 +613,10 @@ the tracker leg of `nextFreeMilestoneNumber` fires in Jira mode. With the
 Epic-first binding (§ Project Milestone above), *listing* milestones means
 *enumerating milestone Epics* — a handful of objects, never a full
 labelled-task scan — with the legacy `milestone-<M-token>` labels unioned in
-as a grandfathered second leg so pre-Epic milestones stay visible.
+as a grandfathered second leg so pre-Epic milestones stay visible. That leg
+is no longer legacy-only: it is also the only route that sees a freshly
+minted Epic, which carries the `milestone-M_<key>` label the mint writes but
+not yet a summary that leads with a milestone token.
 
 **Pure-function core.** The two-leg scan + pagination + dedupe logic lives in
 the Schema-P helper `adapters/jira/src/list_milestones.ts`
@@ -609,9 +636,15 @@ driver simply supplies this method.
    Client-side name filter: an Epic counts iff its summary's first
    whitespace-delimited word is a valid milestone token (union grammar); each
    match contributes `M_<epic-key>` (key verbatim).
-2. **Label leg (grandfathered)** — the same JQL tool with
+2. **Label leg (grandfathered labels and freshly minted Epics)** — the same JQL tool with
    `jql = "project = <projectKey> AND labels IS NOT EMPTY ORDER BY created DESC"`,
    feeding each page's issues (their `labels` arrays) into `fetchPage`.
+   This JQL deliberately carries no `issuetype` filter, and that absence is
+   what lets the label leg return an Epic carrying the `milestone-M_<epic-key>`
+   label the mint writes — so a repo joining a shared project finds a freshly
+   minted Epic even before its summary is renamed to lead with a milestone
+   token (the only thing the Epic leg in step 1 counts); adding an `issuetype`
+   filter to this JQL would hide those Epics.
    Client-side, each label is matched against the exact-anchored union shape
    `^milestone-(<M-token>)$` — accepting `milestone-M<N>` and
    `milestone-M_<epic-key>` while `milestone-foo`, `milestone-`,
