@@ -42,7 +42,10 @@ migration: none  # literal `none` (no consumer migration), or a migration-regist
 
   A list, or an empty map, is refused loudly rather than read as "no other repos". Like `id:` and
   `kind:`, `spans_repos` is documented here and never scaffolded: a placeholder value shipped as
-  a live key would declare a span every plan this template creates does not have.
+  a live key would declare a span every plan this template creates does not have. An FR that
+  lives in a sibling repo is named in this plan by its tracker ID alone (`<tracker-id>`), never by
+  a path into the sibling's tree, because the traceability check resolves every `frs/<id>.md`
+  link locally.
 -->
 
 <!--

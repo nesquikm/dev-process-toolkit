@@ -141,12 +141,41 @@ function byLeadingToken(a: string, b: string): number {
   return compareMilestoneTokens(leadingToken(a), leadingToken(b));
 }
 
+/** One declared sibling still holding active FRs bound to the milestone. */
+export interface BusySibling {
+  /** The sibling's declared `spans_repos:` name. */
+  name: string;
+  /** Ids of the sibling's active FRs bound to the milestone. */
+  activeFrIds: string[];
+}
+
 /** A spanning milestone's declared siblings, rendered once for every consumer. */
 export interface SpanningSiblingState {
   /** `<token> (<name>: <n> active FRs)` — a declared sibling still holds work. */
   busy: string[];
+  /**
+   * ADDITIVE (STE-589): the same busy siblings as `busy`, structured, with
+   * their active FR ids — from the SAME resolution, so a consumer that names
+   * the ids never walks a second time.
+   */
+  busySiblings: BusySibling[];
   /** `<token> (<name> at <declaredPath>)` — a declared sibling cannot be located. */
   unlocatable: string[];
+  /**
+   * ADDITIVE (STE-589): every non-self declared sibling, in declaration order,
+   * from the SAME resolution — `root` is `null` when it cannot be located.
+   */
+  siblings: DeclaredSibling[];
+}
+
+/** One declared non-self sibling, as resolved. */
+export interface DeclaredSibling {
+  /** The sibling's declared `spans_repos:` name. */
+  name: string;
+  /** The path exactly as the declaration wrote it. */
+  declaredPath: string;
+  /** Absolute root of the sibling, or `null` when it cannot be located. */
+  root: string | null;
 }
 
 /**
@@ -165,13 +194,16 @@ export async function spanningSiblingState(
   const siblings = (
     await resolveSpansRepos({ planBody, milestone, invokingRepo: projectRoot })
   ).filter((s) => !s.self);
+  const busySiblings = siblings
+    .filter((s) => s.binding !== null && s.binding.activeFrIds.length > 0)
+    .map((s) => ({ name: s.name, activeFrIds: [...s.binding!.activeFrIds] }));
   return {
-    busy: siblings
-      .filter((s) => s.binding !== null && s.binding.activeFrIds.length > 0)
-      .map((s) => `${milestone} (${s.name}: ${s.binding!.activeFrIds.length} active FRs)`),
+    busy: busySiblings.map((s) => `${milestone} (${s.name}: ${s.activeFrIds.length} active FRs)`),
+    busySiblings,
     unlocatable: siblings
       .filter((s) => s.root === null)
       .map((s) => `${milestone} (${s.name} at ${s.declaredPath})`),
+    siblings: siblings.map(({ name, declaredPath, root }) => ({ name, declaredPath, root })),
   };
 }
 

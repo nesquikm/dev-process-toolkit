@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.83.0] — 2026-09-11 — "Knock First"
+
+### Added
+
+- `/ship-milestone` refuses while a sibling repository still holds active FRs bound to the milestone. This is pre-flight refusal #4, read through the one sibling predicate and never "the sibling has not shipped", which would deadlock two repos each waiting on the other. `--partial` is the only escape: it ships this repository's half and stamps a bare `ship_partial: true` beside `shipped_in:`. Release commits carry a measured `Spans: <repo>@<version|pending>` footer read from the sibling's own plan. (STE-589)
+
+### Fixed
+
+- Probe #63 grades a spanning milestone's sibling half. A located sibling with no plan, or one whose plan does not name this repository back, is a violation on the local plan; an unshipped or unlocatable sibling is a note, never silent. (STE-588)
+- Every surface that offers the release asks the sibling gate first: `/implement`'s close prompt, the `/spec-archive` exit hint and the no-argument ship-debt offer. A milestone-scope resume over an archived plan now waits for a busy sibling, where before it ordered the ship tail. (STE-590)
+- A sibling repository's FR is named by tracker ID only, because a path into the sibling always failed the traceability check. The orphan remedy names the sibling's plan and says what actually clears the row. `/pr`'s ship-state pre-flight runs the same gate, reads the plan wherever it lives, and carries the release's measured `Spans:` rows. (STE-591)
+- `/spec-write`'s executing Epic-mint prose names the label step, the returned `labelled` flag and the `{ join: true }` join mode that raises the no-enumerator refusal. It now says the joining repo's only mint call is that join call, which never creates. (STE-592)
+
+Total test count at release: 13166 tests, 0 failures, 0 errors.
+
 ## [2.82.0] — 2026-09-10 — "Kinship"
 
 ### Added
