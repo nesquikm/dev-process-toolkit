@@ -171,6 +171,14 @@ export const CANONICAL_CAPABILITY_KEYS = [
   // link is gone — and the run surfaces a capability row saying the check did
   // not run, so a silent skip cannot read as a clean bill of health.
   "external_link_check_unchecked_offline",
+  // M_840a06 STE-579: the tracker idempotency-probe fall-through could not tell
+  // a genuine miss from an eventual-consistency miss. On a board with no
+  // `repo_tag` declared the run falls through to a fresh create and surfaces
+  // this row so the operator manually verifies before downstream skills bind to
+  // the new id. The loudest ambiguity signal the toolkit has on a board with no
+  // delete tool — registering it moves it from ungraded prose to a key the
+  // bidirectional invariant grades in both directions.
+  "tracker_idempotency_uncertain",
 ] as const;
 
 export type CapabilityKey = (typeof CANONICAL_CAPABILITY_KEYS)[number];
@@ -285,6 +293,12 @@ export const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   // directive itself lives in /spec-write § 0b step 6b, at the external-link
   // classification + liveness-check site.
   external_link_check_unchecked_offline: "spec-write",
+  // M_840a06 STE-579: the tracker idempotency-uncertain disposition. Routes to
+  // spec-write for the same reason as every row above — the § 7 static map is
+  // the canonical owner surface this probe enforces — and the MUST-emit
+  // directive itself lives in /spec-write's step 4 idempotency-hardening block,
+  // at the backoff-probe fall-through that creates without a confirmed miss.
+  tracker_idempotency_uncertain: "spec-write",
 };
 
 /**

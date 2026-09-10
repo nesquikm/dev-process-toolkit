@@ -143,11 +143,13 @@ const ALL_TOKENS = [
  * Conscious bump 42 → 43 (M139/STE-541 `linear_milestone_scheme_adopted`, the
  * once-per-project Linear scheme-changeover notice), then 43 → 44 (M140
  * `external_link_check_unchecked_offline`, the external-link liveness check
- * that could not run at all). The pin is absolute by
+ * that could not run at all), then 44 → 45 (M_840a06/STE-579
+ * `tracker_idempotency_uncertain`, the idempotency-probe fall-through that
+ * created without a confirmed miss). The pin is absolute by
  * design, so every later registration moves it here as well; what it forbids
  * is a SILENT move, not a declared one.
  */
-const REGISTRY_LENGTH_AFTER_THIS_FR = 44;
+const REGISTRY_LENGTH_AFTER_THIS_FR = 45;
 
 /** The NFR line cap on `/implement`'s SKILL.md. Zero-ish headroom by design. */
 const IMPLEMENT_SKILL_LINE_CAP = 358;

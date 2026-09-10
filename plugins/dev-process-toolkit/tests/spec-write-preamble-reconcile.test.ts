@@ -2,8 +2,12 @@
 //
 // Asserts the SKILL.md carries a `§ 0.5 Tracker-local reconciliation` section
 // between § 0 and § 0a, referencing the shared helper, the import path, and
-// the STE-135 existsSync guard. Content-grep test in the same style as the
-// other SKILL.md-shape tests under `tests/`.
+// the no-auto-import rule that governs tracker-only orphans. Content-grep test
+// in the same style as the other SKILL.md-shape tests under `tests/`.
+//
+// M_840a06/STE-578 replaced the old "cites the STE-135 guard" pin: no such
+// guard exists (the import path has no existence check), so that assertion
+// was pinning a false claim open. It is deleted, not satisfied.
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -11,7 +15,7 @@ import { join } from "node:path";
 
 const SKILL_PATH = join(import.meta.dir, "..", "skills", "spec-write", "SKILL.md");
 
-describe("AC-STE-284.3: § 0.5 Tracker-local reconciliation section present", () => {
+describe("AC-STE-284.3 + AC-STE-578.1: § 0.5 Tracker-local reconciliation section present", () => {
   test("SKILL.md contains the literal `§ 0.5` reconciliation heading", () => {
     const body = readFileSync(SKILL_PATH, "utf-8");
     // The heading text must mention both "0.5" and "Tracker-local reconciliation".
@@ -35,15 +39,24 @@ describe("AC-STE-284.3: § 0.5 Tracker-local reconciliation section present", ()
     expect(body).toContain("reconcileTrackerLocal");
   });
 
-  test("§ 0.5 references the auto-import path via `importFromTracker`", () => {
+  test("§ 0.5 names `importFromTracker` as the path it forbids", () => {
     const body = readFileSync(SKILL_PATH, "utf-8");
     expect(body).toContain("importFromTracker");
   });
 
-  test("§ 0.5 cites the STE-135 `existsSync` guard", () => {
+  test("§ 0.5 forbids auto-import and cites no clobber guard", () => {
     const body = readFileSync(SKILL_PATH, "utf-8");
-    expect(body).toContain("existsSync");
-    expect(body).toContain("STE-135");
+    // Scope the positive to § 0.5 itself: asserting against the whole file
+    // would pass on the phrase turning up in any other section.
+    const start = body.indexOf("### 0.5 Tracker-local reconciliation");
+    const end = body.indexOf("\n### ", start + 1);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const section = body.slice(start, end);
+    expect(section).toMatch(/never auto-imported/i);
+    // The guard the old pin claimed does not exist, so the token must not
+    // return — not even inside a sentence denying it.
+    expect(body).not.toMatch(/STE-135/);
   });
 
   test("NFR-1: SKILL.md ≤ 358 lines (preamble addition stays within budget)", () => {

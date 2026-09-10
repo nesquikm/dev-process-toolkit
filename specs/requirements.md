@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.80.7 ("Corpus")**.
+**Latest shipped release:** **v2.81.0 ("Assent")**.
 
 ### Shipped milestones
 
@@ -516,4 +516,8 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-575.1..10 | plugins/dev-process-toolkit/adapters/_shared/src/tracker_config.ts, plugins/dev-process-toolkit/skills/pr/SKILL.md, plugins/dev-process-toolkit/docs/pr-tracker-mode.md, plugins/dev-process-toolkit/docs/workflow-overview.md, plugins/dev-process-toolkit/docs/tracker-adapters.md | plugins/dev-process-toolkit/tests/m_a8e09a-ste-575-forward-only-transition.test.ts |
 | AC-STE-576.1..6 | plugins/dev-process-toolkit/skills/pr/SKILL.md | plugins/dev-process-toolkit/tests/m_a8e09a-ste-576-pr-title-facts.test.ts |
 | AC-STE-577.1..9 | plugins/dev-process-toolkit/tests/m_a41431-ste-571-consumer-chains.test.ts, plugins/dev-process-toolkit/tests/m_a41431-ste-572-manual-reachable.test.ts | plugins/dev-process-toolkit/tests/m_a8e09a-ste-577-derived-gate-count.test.ts |
+| AC-STE-578.1..6 | plugins/dev-process-toolkit/skills/spec-write/SKILL.md | plugins/dev-process-toolkit/tests/m_840a06-ste-578-tracker-orphan-consent.test.ts, plugins/dev-process-toolkit/tests/spec-write-preamble-reconcile.test.ts |
+| AC-STE-579.1..13 | plugins/dev-process-toolkit/adapters/_shared/src/create_idempotency_probe.ts, plugins/dev-process-toolkit/adapters/_shared/src/closing_summary_capability_keys.ts, plugins/dev-process-toolkit/adapters/jira.md, plugins/dev-process-toolkit/adapters/linear.md, plugins/dev-process-toolkit/skills/spec-write/SKILL.md | plugins/dev-process-toolkit/tests/m_840a06-ste-579-idempotency-probe-narrows.test.ts |
+| AC-STE-580.1..5 | plugins/dev-process-toolkit/skills/spec-write/SKILL.md | plugins/dev-process-toolkit/tests/m_840a06-ste-580-second-repo-joins.test.ts |
+| AC-STE-581.1..7 | plugins/dev-process-toolkit/skills/setup/SKILL.md, plugins/dev-process-toolkit/docs/setup-reference.md, plugins/dev-process-toolkit/adapters/_shared/src/tracker_config_proposal.ts | plugins/dev-process-toolkit/tests/m_840a06-ste-581-repoint-instrument.test.ts |
 
