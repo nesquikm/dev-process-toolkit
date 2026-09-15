@@ -360,6 +360,9 @@ describeIfLoop("AC-STE-447.1 — the spawn fence spawns only the selected legs",
           rmSync(`/tmp/dpt-conformance-loop-${token}-iter-1-${leg}.${ext}`, { force: true });
         }
       }
+      // STE-594: the fence also persists its run's id in one per-run file keyed
+      // by DATE; this test's DATE is the token, so remove that file too.
+      rmSync(`/tmp/dpt-conformance-loop-${token}.run`, { force: true });
       return out;
     } finally {
       rmSync(bin, { recursive: true, force: true });
@@ -432,6 +435,10 @@ describeIfLoop("AC-STE-447.1 — the spawn fence spawns only the selected legs",
         }
       }
     } finally {
+      // STE-594: the fence also persists its run's id in one per-run file keyed
+      // by DATE; this test's DATE is the token. In `finally`, so a failing
+      // assertion above cannot leave it in the real /tmp.
+      rmSync(`/tmp/dpt-conformance-loop-${token}.run`, { force: true });
       rmSync(bin, { recursive: true, force: true });
     }
   });

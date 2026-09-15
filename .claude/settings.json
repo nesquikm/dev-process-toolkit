@@ -2,6 +2,7 @@
   "enabledPlugins": {},
   "permissions": {
     "allow": [
+      "Bash(bash:*)",
       "Bash(bun test:*)",
       "Bash(bun:*)",
       "Bash(cat:*)",
@@ -25,6 +26,20 @@
       "Write",
       "mcp__atlassian__*",
       "mcp__linear__*"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-bash-stdin-spawn.sh",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

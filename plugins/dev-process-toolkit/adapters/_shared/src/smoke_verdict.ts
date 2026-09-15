@@ -612,6 +612,20 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  console.error("usage: bun smoke_verdict.ts <emit|reconcile|classify> [flags]");
+  if (command === "outcome") {
+    // STE-594: the ARTIFACT's own reading, no rc folded in — the recorded
+    // outcome (`pass` / `fail` / `abort`), or why there is none (`missing`,
+    // `stale`, `unreadable`, `malformed`). Only a printed `pass` licenses the
+    // Termination cleanup to delete a leg's sessions.
+    if (!first(flags, "artifact")) {
+      console.error("usage: bun smoke_verdict.ts outcome --artifact <p> [--run-start <ms>]");
+      process.exit(2);
+    }
+    const read = readVerdictForSubcommand("outcome", flags);
+    console.log(read.status === "ok" ? read.verdict.outcome : read.status);
+    process.exit(0);
+  }
+
+  console.error("usage: bun smoke_verdict.ts <emit|reconcile|classify|outcome> [flags]");
   process.exit(2);
 }
