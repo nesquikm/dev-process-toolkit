@@ -596,6 +596,9 @@ describeIfSkills("beyond the ACs — the spawn fence survives a reduced selectio
           });
         }
       }
+      // STE-594: the fence also persists its run's id in one per-run file keyed
+      // by DATE; this test's DATE is the token, so remove that file too.
+      rmSync(`/tmp/dpt-conformance-loop-${token}.run`, { force: true });
       rmSync(bin, { recursive: true, force: true });
     }
   });
