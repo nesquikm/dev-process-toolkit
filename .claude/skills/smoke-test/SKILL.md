@@ -290,7 +290,7 @@ This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template sc
      "permissions": {
        "allow": [
          "Bash(claude:*)",
-         "Bash(bun:*)", "Bash(bunx:*)", "Bash(cp:*)", "Bash(date:*)",
+         "Bash(bash:*)", "Bash(bun:*)", "Bash(bunx:*)", "Bash(cp:*)", "Bash(date:*)",
          "Bash(find:*)", "Bash(gh:*)", "Bash(git:*)", "Bash(grep:*)",
          "Bash(jq:*)", "Bash(ls:*)", "Bash(mkdir:*)", "Bash(mv:*)",
          "Bash(rm:*)", "Bash(test:*)",
@@ -529,36 +529,90 @@ Every Phase 2 spawn has explicit stdin handling — no spawn relies on the child
 
 > ⛔ **FORBIDDEN at this spawn site.** Do NOT await a grandchild by any of these four paths: (1) the Bash tool's `run_in_background` parameter; (2) the `Monitor` tool; (3) waiting on a background-task completion notification; (4) ending the turn to await a grandchild ("I'll continue when it exits"). Under `claude -p` the completion notification never arrives (F3, 2026-07-04 conformance run: both legs fire-and-exited here; the 2026-07-24 Jira leg re-ran the same escape). Nor does self-narrating as an "interactive parent" re-open any of the four — the Phase-2-entry `[ -t 0 ]` SMOKE-CTX result is the sole determinant, a headless classification binds this spawn site for the rest of the run, and no self-classification, however phrased, overrides it. The ONLY sanctioned wait for a grandchild is the bounded `kill -0` poll-until-exit loop (§ Grandchild spawn lifecycle above) run in the foreground.
 
+**Run it from a file (STE-595).** Write each spawn fence below to a file and run `bash <file>`; never feed it to `bash`, `sh` or `zsh` through stdin, whether by heredoc, pipe or `bash -s`. A stdin-fed spawn script looped to ~1.5k sessions on 2026-09-11.
+
 Reference snippets — non-prompt-bearing children:
 
 ```bash
 # STE-350: exported once per spawning block so every spawn line begins bare
 # with `claude` and the tracked `Bash(claude:*)` allow entry matches.
 export CLAUDE_CONFIG_DIR=~/.claude-st
+# STE-595: counted as each child starts, and kept in memory, independent of the pidfiles.
+LAUNCHED=0
+PIDS=""
+# STE-594: the run and leg every child below is recorded under. Spawned by
+# /conformance-loop, this shell inherits both (and DPT_SMOKE_PARENT, the loop
+# child's own session id) from the loop's environment; run standalone, it mints
+# its own run and records under <tracker>.
+DPT_SMOKE_RUN_ID="${DPT_SMOKE_RUN_ID:-$(uuidgen | tr '[:upper:]' '[:lower:]')}"
+DPT_SMOKE_LEG="${DPT_SMOKE_LEG:-<tracker>}"
 
 # /gate-check — detached spawn + PID capture (STE-355); poll until exit
+SID_GATE_CHECK=$(uuidgen | tr '[:upper:]' '[:lower:]')
+bun /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts append \
+  --project-root /Users/ns/workspace/dev-process-toolkit \
+  --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_GATE_CHECK}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
 claude -p /dev-process-toolkit:gate-check \
+  --session-id "${SID_GATE_CHECK}" \
   --output-format stream-json --verbose \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
   < /dev/null > /tmp/dpt-smoke-<tracker>-gate-check.log 2>&1 &
 echo $! > /tmp/dpt-smoke-<tracker>-gate-check.pid
+LAUNCHED=$((LAUNCHED + 1)); PIDS="${PIDS} $!"
 
 # /spec-review — detached spawn + PID capture (STE-355); poll until exit
+SID_SPEC_REVIEW=$(uuidgen | tr '[:upper:]' '[:lower:]')
+bun /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts append \
+  --project-root /Users/ns/workspace/dev-process-toolkit \
+  --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_SPEC_REVIEW}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
 claude -p "/dev-process-toolkit:spec-review <feature-id>" \
+  --session-id "${SID_SPEC_REVIEW}" \
   --output-format stream-json --verbose \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
   < /dev/null > /tmp/dpt-smoke-<tracker>-spec-review.log 2>&1 &
 echo $! > /tmp/dpt-smoke-<tracker>-spec-review.pid
+LAUNCHED=$((LAUNCHED + 1)); PIDS="${PIDS} $!"
 
 # /simplify — detached spawn + PID capture (STE-355); poll until exit
+SID_SIMPLIFY=$(uuidgen | tr '[:upper:]' '[:lower:]')
+bun /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts append \
+  --project-root /Users/ns/workspace/dev-process-toolkit \
+  --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_SIMPLIFY}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
 claude -p /dev-process-toolkit:simplify \
+  --session-id "${SID_SIMPLIFY}" \
   --output-format stream-json --verbose \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
   < /dev/null > /tmp/dpt-smoke-<tracker>-simplify.log 2>&1 &
 echo $! > /tmp/dpt-smoke-<tracker>-simplify.pid
+LAUNCHED=$((LAUNCHED + 1)); PIDS="${PIDS} $!"
+
+# STE-595: the live-child count, the fence's LAST act, after every spawn and
+# before anything that can exit. `live` counts the RECORDED pids (the pidfiles
+# above) that answer `kill -0` and whose `ps -p <pid> -o comm=` names claude.
+# A just-forked child reports the forking shell's comm until its exec lands, so
+# re-read it, 18 checks 0.1 s apart, before calling a shortfall a mismatch; on a
+# mismatch, reap every launched pid that is still a claude process, then abort.
+for TRY in $(seq 1 18); do
+  LIVE=0
+  for PIDFILE in /tmp/dpt-smoke-<tracker>-gate-check.pid /tmp/dpt-smoke-<tracker>-spec-review.pid /tmp/dpt-smoke-<tracker>-simplify.pid; do
+    P=$(cat "${PIDFILE}" 2>/dev/null)
+    kill -0 "${P}" 2>/dev/null && case "$(ps -p "${P}" -o comm=)" in claude|*/claude) LIVE=$((LIVE + 1)) ;; esac
+  done
+  [ "${LIVE}" -eq "${LAUNCHED}" ] && break
+  sleep 0.1
+done
+echo "launched=${LAUNCHED} live=${LIVE}"
+if [ "${LIVE}" -ne "${LAUNCHED}" ]; then
+  for P in $(printf '%s\n' "${PIDS}"); do
+    kill -0 "${P}" 2>/dev/null && case "$(ps -p "${P}" -o comm=)" in claude|*/claude) kill "${P}" ;; esac
+  done
+  rm -f /tmp/dpt-smoke-<tracker>-gate-check.pid /tmp/dpt-smoke-<tracker>-spec-review.pid /tmp/dpt-smoke-<tracker>-simplify.pid
+  echo "ABORT: /smoke-test Phase 2 spawn count mismatch — reaped; run the Phase 5 teardown now"
+  exit 1
+fi
 ```
 
 #### Heredoc-on-stdin for prompt-bearing children (STE-185)
@@ -567,12 +621,21 @@ Prompt-bearing children (`/setup`, `/spec-write`, `/implement`) carry a per-skil
 
 **Threat model — content-swap attack surface (STE-185).** Prompt files on disk are vulnerable to mid-run content swap by external processes — linters, file-mode-line auto-fixes, language servers, shared editor sessions. Smoke #9 / Jira run 2 hit this in the field: an external linter overwrote a Jira-flavored prompt file with a stale Linear-flavored stub between the parent's `Write` and the spawned `claude -p` child's read, causing silent cross-tracker corruption (the child built a Linear-mode `CLAUDE.md` on a Jira run). The heredoc-on-stdin discipline closes the window — there is no file on disk to swap. Single-quoted heredoc tag (`<<'PROMPT_EOF'`) prevents shell expansion of `$variable` references in the body so prompt content passes through to Claude verbatim.
 
+**Run it from a file (STE-595).** The heredoc feeds the child's prompt body on the child's stdin; the fence itself still runs from a file. Write it to a file and run `bash <file>`; never feed the fence to `bash`, `sh` or `zsh` through stdin.
+
 Reference snippets — prompt-bearing children, per-skill prompt body inlined as the heredoc body. Linear-path / Jira-path branching stays inside each heredoc body (the parent renders the per-tracker fragments before piping):
 
 ```bash
 # STE-350: exported once per spawning block so every spawn line begins bare
 # with `claude` and the tracked `Bash(claude:*)` allow entry matches.
 export CLAUDE_CONFIG_DIR=~/.claude-st
+# STE-595: counted as each child starts, and kept in memory, independent of the pidfiles.
+LAUNCHED=0
+PIDS=""
+# STE-594: the run and leg every child below is recorded under — inherited
+# from /conformance-loop when it spawned this shell, minted here otherwise.
+DPT_SMOKE_RUN_ID="${DPT_SMOKE_RUN_ID:-$(uuidgen | tr '[:upper:]' '[:lower:]')}"
+DPT_SMOKE_LEG="${DPT_SMOKE_LEG:-<tracker>}"
 
 # /setup — heredoc body carries pre-baked answers + acknowledgment of pre-existing settings.json/.mcp.json
 # The prose lines are ORIENTATION only — pre-baked `<command-args>`-style text
@@ -584,7 +647,12 @@ export CLAUDE_CONFIG_DIR=~/.claude-st
 # marker is a hard precondition for the block, and an unmarked or malformed
 # block is inert (see `docs/auto-mode-protocol.md` § Sanctioned Answers Block).
 # Detached spawn + PID capture (STE-355); poll until exit before /spec-write.
+SID_SETUP=$(uuidgen | tr '[:upper:]' '[:lower:]')
+bun /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts append \
+  --project-root /Users/ns/workspace/dev-process-toolkit \
+  --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_SETUP}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
 claude -p \
+  --session-id "${SID_SETUP}" \
   --output-format stream-json --verbose \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
@@ -613,6 +681,7 @@ tracker_config: approve
 </dpt:answers>
 PROMPT_EOF
 echo $! > /tmp/dpt-smoke-<tracker>-setup.pid
+LAUNCHED=$((LAUNCHED + 1)); PIDS="${PIDS} $!"
 # STE-448: `tracker_mode: <tracker>` resolves to the leg under test, so on the
 # tracker-less leg this block elects `none` — the same key, a different value,
 # not a separate answers dialect. `tracker_config: approve` answers step 7f,
@@ -633,7 +702,12 @@ echo $! > /tmp/dpt-smoke-<tracker>-setup.pid
 # unmarked or malformed block is inert (see `docs/auto-mode-protocol.md`
 # § Sanctioned Answers Block).
 # Detached spawn + PID capture (STE-355); poll until exit before /implement.
+SID_SPEC_WRITE=$(uuidgen | tr '[:upper:]' '[:lower:]')
+bun /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts append \
+  --project-root /Users/ns/workspace/dev-process-toolkit \
+  --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_SPEC_WRITE}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
 claude -p \
+  --session-id "${SID_SPEC_WRITE}" \
   --output-format stream-json --verbose \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
@@ -659,10 +733,16 @@ risks: none identified — pure function, no external dependencies
 </dpt:answers>
 PROMPT_EOF
 echo $! > /tmp/dpt-smoke-<tracker>-spec-write.pid
+LAUNCHED=$((LAUNCHED + 1)); PIDS="${PIDS} $!"
 
 # /implement — heredoc body carries pre-authorization for the Phase 4 step 15 commit
 # Detached spawn + PID capture (STE-355); poll until exit before /gate-check.
+SID_IMPLEMENT=$(uuidgen | tr '[:upper:]' '[:lower:]')
+bun /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts append \
+  --project-root /Users/ns/workspace/dev-process-toolkit \
+  --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_IMPLEMENT}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
 claude -p \
+  --session-id "${SID_IMPLEMENT}" \
   --output-format stream-json --verbose \
   --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
@@ -673,6 +753,32 @@ claude -p \
 Pre-authorized: proceed through Phase 4 step 15 commit on success without prompting. Do NOT push. Stay on the current branch (skip worktree prompt).
 PROMPT_EOF
 echo $! > /tmp/dpt-smoke-<tracker>-implement.pid
+LAUNCHED=$((LAUNCHED + 1)); PIDS="${PIDS} $!"
+
+# STE-595: the live-child count, the fence's LAST act, after every spawn and
+# before anything that can exit. `live` counts the RECORDED pids (the pidfiles
+# above) that answer `kill -0` and whose `ps -p <pid> -o comm=` names claude.
+# A just-forked child reports the forking shell's comm until its exec lands, so
+# re-read it, 18 checks 0.1 s apart, before calling a shortfall a mismatch; on a
+# mismatch, reap every launched pid that is still a claude process, then abort.
+for TRY in $(seq 1 18); do
+  LIVE=0
+  for PIDFILE in /tmp/dpt-smoke-<tracker>-setup.pid /tmp/dpt-smoke-<tracker>-spec-write.pid /tmp/dpt-smoke-<tracker>-implement.pid; do
+    P=$(cat "${PIDFILE}" 2>/dev/null)
+    kill -0 "${P}" 2>/dev/null && case "$(ps -p "${P}" -o comm=)" in claude|*/claude) LIVE=$((LIVE + 1)) ;; esac
+  done
+  [ "${LIVE}" -eq "${LAUNCHED}" ] && break
+  sleep 0.1
+done
+echo "launched=${LAUNCHED} live=${LIVE}"
+if [ "${LIVE}" -ne "${LAUNCHED}" ]; then
+  for P in $(printf '%s\n' "${PIDS}"); do
+    kill -0 "${P}" 2>/dev/null && case "$(ps -p "${P}" -o comm=)" in claude|*/claude) kill "${P}" ;; esac
+  done
+  rm -f /tmp/dpt-smoke-<tracker>-setup.pid /tmp/dpt-smoke-<tracker>-spec-write.pid /tmp/dpt-smoke-<tracker>-implement.pid
+  echo "ABORT: /smoke-test Phase 2 spawn count mismatch — reaped; run the Phase 5 teardown now"
+  exit 1
+fi
 ```
 
 **Auto-approve marker contract (STE-226).** Every prompt-bearing heredoc above carries the literal line `<dpt:auto-approve>v1</dpt:auto-approve>` as the first body line. The marker is a byte-checkable pre-authorization token that child skills (`/spec-write`, `/implement`) detect by literal string match — no `<system-reminder>` introspection, no `claude -p` non-interactive inference. Children whose gates depend on operator approval (`/spec-write` § 0b step 4 + § 7a draft/commit gates; `/implement` Phase 4 step 15 commit) auto-apply `y` when the marker is in the prompt body and gate interactively otherwise. Removing the marker line (deliberate or accidental) is the canonical way to flip a smoke-driver child into interactive-gating mode for diagnostic runs; the regression to watch for is the inverse — a child that auto-applies WITHOUT the marker (covered by Phase 2.X group 1 sub-fixture 1b below).
@@ -739,20 +845,43 @@ ABORT: /smoke-test Phase 2 spawn /<skill> transient failure twice
   rollback recipe: git clean -fdq -e .claude -e .mcp.json && git checkout -- .
 ```
 
+**Run it from a file (STE-595).** Each driver Bash call in the worked example below runs its chunk from a file: write the chunk to a file and run `bash <file>`; never feed it to `bash`, `sh` or `zsh` through stdin.
+
 **Worked example (Phase 2 `/setup` spawn, retry-success path).** The driver wraps the existing detached heredoc-on-stdin spawn (above) in a two-attempt loop scoped to the prompt-bearing-children spawn surface only. Pseudocode spanning multiple driver Bash calls (the loop is sequential, not parallel; each `[STE-355 …]` comment marks where the bounded poll-until-exit calls run before the next line executes):
 
 ```bash
 # cwd: test project root, e.g. ../dpt-test-project-jira
 export CLAUDE_CONFIG_DIR=~/.claude-st   # STE-350: exported once per spawning block so every spawn line begins bare with `claude` and the tracked `Bash(claude:*)` allow entry matches.
+# STE-594: inherited from /conformance-loop when it spawned this shell, minted otherwise.
+DPT_SMOKE_RUN_ID="${DPT_SMOKE_RUN_ID:-$(uuidgen | tr '[:upper:]' '[:lower:]')}"
+DPT_SMOKE_LEG="${DPT_SMOKE_LEG:-<tracker>}"
 attempt_1_started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 # Attempt 1 captures into its OWN log — attempt 2 below writes a different
-# path, so nothing here is truncated by the retry.
-claude -p ... > /tmp/dpt-smoke-<tracker>-setup.attempt1.log 2>&1 <<'PROMPT_EOF' &
+# path, so nothing here is truncated by the retry. Each attempt is its own
+# session: a fresh id, recorded in the run ledger before it spawns (STE-594).
+SID_SETUP_1=$(uuidgen | tr '[:upper:]' '[:lower:]')
+bun /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts append \
+  --project-root /Users/ns/workspace/dev-process-toolkit \
+  --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_SETUP_1}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
+claude -p ... --session-id "${SID_SETUP_1}" > /tmp/dpt-smoke-<tracker>-setup.attempt1.log 2>&1 <<'PROMPT_EOF' &
 <dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:setup
 ...prompt body...
 PROMPT_EOF
 echo $! > /tmp/dpt-smoke-<tracker>-setup.pid
+# STE-595: the live-child count for this one child, before anything below can
+# exit; the same shape as the spawn fences above.
+for TRY in $(seq 1 18); do
+  LIVE=0; P=$(cat /tmp/dpt-smoke-<tracker>-setup.pid 2>/dev/null)
+  kill -0 "${P}" 2>/dev/null && case "$(ps -p "${P}" -o comm=)" in claude|*/claude) LIVE=1 ;; esac
+  [ "${LIVE}" -eq 1 ] && break; sleep 0.1
+done
+echo "launched=1 live=${LIVE}"
+if [ "${LIVE}" -ne 1 ]; then
+  kill -0 "$!" 2>/dev/null && case "$(ps -p "$!" -o comm=)" in claude|*/claude) kill "$!" ;; esac
+  echo "ABORT: /smoke-test Phase 2 spawn /setup attempt 1 count mismatch — reaped; run the Phase 5 teardown now"
+  exit 1
+fi
 # [STE-355: bounded poll calls (kill -0 + sleep 30) until the PID exits]
 # Promote attempt 1 to the canonical log downstream phases read; the
 # per-attempt capture stays on disk as the audit trail's evidence.
@@ -793,12 +922,28 @@ EOF
   git clean -fdq -e .claude -e .mcp.json && git checkout -- .
 
   attempt_2_started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  claude -p ... > /tmp/dpt-smoke-<tracker>-setup.attempt2.log 2>&1 <<'PROMPT_EOF' &
+  SID_SETUP_2=$(uuidgen | tr '[:upper:]' '[:lower:]')
+  bun /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts append \
+    --project-root /Users/ns/workspace/dev-process-toolkit \
+    --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_SETUP_2}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
+  claude -p ... --session-id "${SID_SETUP_2}" > /tmp/dpt-smoke-<tracker>-setup.attempt2.log 2>&1 <<'PROMPT_EOF' &
 <dpt:auto-approve>v1</dpt:auto-approve>
 /dev-process-toolkit:setup
 ...same prompt body...
 PROMPT_EOF
   echo $! > /tmp/dpt-smoke-<tracker>-setup.pid
+  # STE-595: the same live-child count for attempt 2, before anything below can exit.
+  for TRY in $(seq 1 18); do
+    LIVE=0; P=$(cat /tmp/dpt-smoke-<tracker>-setup.pid 2>/dev/null)
+    kill -0 "${P}" 2>/dev/null && case "$(ps -p "${P}" -o comm=)" in claude|*/claude) LIVE=1 ;; esac
+    [ "${LIVE}" -eq 1 ] && break; sleep 0.1
+  done
+  echo "launched=1 live=${LIVE}"
+  if [ "${LIVE}" -ne 1 ]; then
+    kill -0 "$!" 2>/dev/null && case "$(ps -p "$!" -o comm=)" in claude|*/claude) kill "$!" ;; esac
+    echo "ABORT: /smoke-test Phase 2 spawn /setup attempt 2 count mismatch — reaped; run the Phase 5 teardown now"
+    exit 1
+  fi
   # [STE-355: bounded poll calls (kill -0 + sleep 30) until the PID exits]
   # Promote attempt 2; attempt 1's capture is untouched beside it.
   cp /tmp/dpt-smoke-<tracker>-setup.attempt2.log /tmp/dpt-smoke-<tracker>-setup.log
@@ -1968,6 +2113,8 @@ Capture each child's transcript artifact under `tests/fixtures/socratic-first-tu
 
 **`/report-issue` is exercised in dry-run (STE-428).** Three of the four in-scope skills stop at a question; `/report-issue` does not — its flow ends in `gh gist create`, an irreversible push to a third-party service. Leaving that to per-run judgment is what made the fourth slot depend on classifier variance: measured 2026-07-27 on the Jira leg, the fourth spawn was denied outright, which is how the phase came to cover three of four. Phase 8 therefore passes `--dry-run` on the child's slash-command line — inside the heredoc body, which is part of the Bash command string the spawn boundary classifies, though not part of `claude`'s own argv — and only to `/report-issue`; the other three receive no argument. The flag rides that line rather than an env var or an ambient "smoke context" because the boundary that has to admit the run is the *spawn*, decided before the child starts, where nothing in-flow is yet visible. Under it the skill runs its whole flow up to the publish boundary and halts there through the canonical refusal envelope, so the exercise performs **no outward publish** — no gist is created and nothing leaves the machine — while the capture still scores `ok-refused` through the same runner the other three go through. What the flag buys is legibility of intent at the spawn boundary, **not** immunity: a `--dry-run` spawn is exactly as deniable as the one denied on 2026-07-27, and nothing here forces an allow. The determinism this phase actually gains against classifier variance comes from the four-fixture coverage gate above — a denial that used to pass silently as three-of-four coverage now fails loudly and names the skill it never reached.
 
+**Run it from a file (STE-595).** Write the driver wrapper below to a file and run `bash <file>`; never feed it to `bash`, `sh` or `zsh` through stdin, whether by heredoc, pipe or `bash -s`.
+
 **Driver wrapper (reference snippet).** Spawn each in-scope skill as a stream-json child, capture NDJSON to the per-skill fixture path, then run the bundled `socratic_first_turn_assert.ts` CLI runner against the fixture. The runner composes `parseStreamJsonTranscript` (NDJSON → `TranscriptEntry[]`) with `assertFirstTurnShape` (the helper); both are unit-tested at `socratic_first_turn{,_stream}.test.ts`.
 
 ```bash
@@ -1983,6 +2130,11 @@ TRACKER="${TRACKER:?--tracker must resolve to linear|jira|none before Phase 8}"
 TOOLKIT_REPO=${PLUGIN_DIR%/plugins/dev-process-toolkit}
 TEST_PROJECT_DIR=$(dirname "${TOOLKIT_REPO}")/dpt-test-project-${TRACKER}
 PHASE8_CWD=$(pwd)                        # restored after each child, so the phase leaves the driver's cwd where it found it
+# STE-594: the run and leg each Phase 8 child is recorded under — inherited from
+# /conformance-loop when it spawned this shell, minted here otherwise. The
+# ledger lives in the toolkit repo, not in the workspace each child runs in.
+DPT_SMOKE_RUN_ID="${DPT_SMOKE_RUN_ID:-$(uuidgen | tr '[:upper:]' '[:lower:]')}"
+DPT_SMOKE_LEG="${DPT_SMOKE_LEG:-${TRACKER}}"
 mkdir -p "${FIXTURE_DIR}"
 # STE-429: one counter per runner disposition, plus a FAULTS bucket for the
 # malformed-invocation exit. The `case` below matches exactly one arm per
@@ -2058,7 +2210,12 @@ for SKILL in setup brainstorm spec-write report-issue; do
     *) SKILL_ARGS= ;;
   esac
 
+  SID_PHASE8=$(uuidgen | tr '[:upper:]' '[:lower:]')
+  bun "${PLUGIN_DIR}/adapters/_shared/src/smoke_run_ledger.ts" append \
+    --project-root "${TOOLKIT_REPO}" \
+    --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_PHASE8}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
   claude -p \
+    --session-id "${SID_PHASE8}" \
     --output-format stream-json --verbose \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${FIXTURE}" 2>/dev/null <<PROMPT_EOF

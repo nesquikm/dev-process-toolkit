@@ -103,3 +103,18 @@ export function skipBaselinePath(projectRoot: string): string {
 export function checkoutIdPath(projectRoot: string): string {
   return join(dptRoot(projectRoot), "ledger", "checkout-id");
 }
+
+/**
+ * Smoke run ledger: `<projectRoot>/.dpt/ledger/smoke-run-<runId>.jsonl` (STE-594).
+ *
+ * One append-only file per `/conformance-loop` or `/smoke-test` run, naming
+ * every `claude -p` session that run spawned, so a run's cleanup can be scoped
+ * to exactly the sessions it owned. It sits under `ledger/` for the reason
+ * `checkoutIdPath` does: durable machine-local state that the CLOSED
+ * `.dpt/.gitignore` rule set already ignores (STE-383), and outside `/tmp`, so
+ * it survives a reboot. Composed here so `smoke_run_ledger.ts` carries no
+ * `.dpt` literal of its own (AC-STE-382.1).
+ */
+export function smokeRunLedgerPath(projectRoot: string, runId: string): string {
+  return join(dptRoot(projectRoot), "ledger", `smoke-run-${runId}.jsonl`);
+}
