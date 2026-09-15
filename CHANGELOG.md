@@ -10,9 +10,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- A smoke run's session debris is found by identity and removed by exact path. One cleanup module plans a run's sessions across ten stores from its spawn-ledger ids and a time window, deletes nothing without `--delete`, re-validates every exact path at delete time and names any survivor. The four id-less stores are planned only inside the window and only when no live session could own them. The first real sweep removed the 27 old `dpt-test-project-*` dirs with zero survivors. (STE-593)
+- A smoke run's session debris is found by identity and removed by exact path. One cleanup module plans a run's sessions across ten stores from its spawn-ledger ids and a time window, deletes nothing without `--delete`, re-validates every exact path at delete time and names any survivor. The stores that carry no session id are planned only inside a manual time window, and a shell snapshot never while a live session could own it. The first real sweep removed the 27 old `dpt-test-project-*` dirs with zero survivors. (STE-593)
 - Every spawned smoke session carries a recorded id. All 14 `claude -p` spawn sites in `/conformance-loop` and `/smoke-test` mint a `--session-id` and append it to a per-run ledger under `.dpt/ledger/` before they spawn. Termination removes a leg's sessions only when its verdict artifact reads `pass`, under bash and zsh alike. A failed, aborted or missing-verdict leg keeps every file for triage. (STE-594)
-- A spawn script cannot be fed to bash through stdin. A repo-level PreToolUse hook refuses `bash`, `sh` or `zsh` reading a backgrounding script from stdin, the shape behind the 2026-09-11 runaway. Every spawn site runs its fence from a file, and every spawn fence ends with a live-child count that aborts on a mismatch. (STE-595)
+- A spawn script cannot be fed to bash through stdin. A repo-level PreToolUse hook refuses `bash`, `sh` or `zsh` reading a backgrounding script from stdin, the shape behind the 2026-09-11 runaway. Every spawn site runs its fence from a file, and every backgrounded spawn fence ends with a live-child count that aborts on a mismatch. (STE-595)
 
 Total test count at release: 13551 tests, 0 failures, 0 errors.
 
