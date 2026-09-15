@@ -372,6 +372,8 @@ fi
 
 #### Leg spawn + bounded poll
 
+**Run it from a file (STE-595).** Write this fence to a file and run `bash <file>`; never feed it to `bash`, `sh` or `zsh` through stdin, whether by heredoc, pipe or `bash -s`. The 2026-09-11 run fed this fence to `bash` through stdin and its backgrounded spawns looped to ~1.5k sessions.
+
 **Reference snippet** — Phase A spawn (per iteration):
 
 ```bash
@@ -393,6 +395,32 @@ RC_FILE_NONE=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-none.rc
 RUN_START_MS=$(($(date +%s) * 1000))
 PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"   # cwd is the toolkit repo (verified by pre-flight (a))
 export CLAUDE_CONFIG_DIR=~/.claude-st             # STE-350: exported once per spawning block so every spawn line begins bare with `claude` and the tracked `Bash(claude:*)` allow entry matches.
+
+# STE-594: the RUN's id, shared by every leg of every iteration. ITER=1 mints
+# it and writes it to one per-run file keyed by DATE, the key the run's other
+# artifacts already use; every later iteration, and every later fence in a
+# fresh shell (Phase B, Termination), re-reads that file instead of minting a
+# second run. A per-iteration id would scope a later reader to the LAST
+# iteration only, so an earlier iteration's passed leg would never be cleaned.
+# If the file is gone at ITER>1 (a /tmp wipe mid-run), a fresh id is minted
+# with a warning: the run splits toward keeping sessions, never toward deleting
+# them. It is exported, so each /smoke-test child and every grandchild that
+# child spawns record their sessions under the same run. Each leg's session id
+# is minted and recorded in the run ledger BEFORE its group spawns, then passed
+# as `--session-id`: a child that was launched is always a child the ledger
+# names. Inside its group each leg exports its own name and session id, which
+# its grandchildren record as their leg and parent.
+RUN_ID_FILE="/tmp/dpt-conformance-loop-${DATE}.run"
+if [ "${ITER}" = 1 ]; then
+  uuidgen | tr '[:upper:]' '[:lower:]' > "${RUN_ID_FILE}"
+fi
+DPT_SMOKE_RUN_ID=$(cat "${RUN_ID_FILE}" 2>/dev/null)
+if [ -z "${DPT_SMOKE_RUN_ID}" ]; then
+  echo "/conformance-loop: no run id in ${RUN_ID_FILE} at iteration ${ITER} — minting a new one; this iteration's sessions will not share the earlier iterations' cleanup scope."
+  DPT_SMOKE_RUN_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+  echo "${DPT_SMOKE_RUN_ID}" > "${RUN_ID_FILE}"
+fi
+export DPT_SMOKE_RUN_ID
 
 # STE-447: one brace group per REGISTERED leg is written out below, each
 # wrapped in a MEMBERSHIP TEST against ${SELECTED_LEGS}. The wrapper is real
@@ -419,9 +447,19 @@ export CLAUDE_CONFIG_DIR=~/.claude-st             # STE-350: exported once per s
 # `echo $? > rc-file` inside each group persists the leg's exit code for
 # post-exit collection — this spawn call detaches both legs and returns
 # immediately (STE-355 backfill: no same-call foreground wait).
+#
+# STE-595: LAUNCHED counts the groups that ran, as each one starts, and PIDS
+# keeps their `$!` in memory. Both are independent of the pidfiles, which is
+# what lets the count at the foot of this fence catch a pid that never landed.
+LAUNCHED=0
+PIDS=""
 case " ${SELECTED_LEGS} " in *" linear "*)
+SID_LINEAR=$(uuidgen | tr '[:upper:]' '[:lower:]')
+bun "${PLUGIN_DIR}/adapters/_shared/src/smoke_run_ledger.ts" append --run "${DPT_SMOKE_RUN_ID}" --leg linear --session "${SID_LINEAR}"
 {
+  export DPT_SMOKE_LEG=linear DPT_SMOKE_PARENT="${SID_LINEAR}"
   claude -p "/smoke-test --tracker linear --linear-team ${LINEAR_TEAM:-STE}" \
+    --session-id "${SID_LINEAR}" \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${LOG_LINEAR}" 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
@@ -439,11 +477,16 @@ PROMPT_EOF
     --run-start "${RUN_START_MS}" > "${RC_FILE_LINEAR}"
 } &
 PID_LINEAR=$!; echo $! > "${PID_FILE_LINEAR}"
+LAUNCHED=$((LAUNCHED + 1)); PIDS="${PIDS} $!"
 ;; esac
 
 case " ${SELECTED_LEGS} " in *" jira "*)
+SID_JIRA=$(uuidgen | tr '[:upper:]' '[:lower:]')
+bun "${PLUGIN_DIR}/adapters/_shared/src/smoke_run_ledger.ts" append --run "${DPT_SMOKE_RUN_ID}" --leg jira --session "${SID_JIRA}"
 {
+  export DPT_SMOKE_LEG=jira DPT_SMOKE_PARENT="${SID_JIRA}"
   claude -p "/smoke-test --tracker jira --jira-project ${JIRA_PROJECT}" \
+    --session-id "${SID_JIRA}" \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${LOG_JIRA}" 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
@@ -457,11 +500,16 @@ PROMPT_EOF
     --run-start "${RUN_START_MS}" > "${RC_FILE_JIRA}"
 } &
 PID_JIRA=$!; echo $! > "${PID_FILE_JIRA}"
+LAUNCHED=$((LAUNCHED + 1)); PIDS="${PIDS} $!"
 ;; esac
 
 case " ${SELECTED_LEGS} " in *" none "*)
+SID_NONE=$(uuidgen | tr '[:upper:]' '[:lower:]')
+bun "${PLUGIN_DIR}/adapters/_shared/src/smoke_run_ledger.ts" append --run "${DPT_SMOKE_RUN_ID}" --leg none --session "${SID_NONE}"
 {
+  export DPT_SMOKE_LEG=none DPT_SMOKE_PARENT="${SID_NONE}"
   claude -p "/smoke-test --tracker none" \
+    --session-id "${SID_NONE}" \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${LOG_NONE}" 2>&1 <<'PROMPT_EOF'
 <dpt:auto-approve>v1</dpt:auto-approve>
@@ -476,7 +524,34 @@ PROMPT_EOF
     --run-start "${RUN_START_MS}" > "${RC_FILE_NONE}"
 } &
 PID_NONE=$!; echo $! > "${PID_FILE_NONE}"
+LAUNCHED=$((LAUNCHED + 1)); PIDS="${PIDS} $!"
 ;; esac
+
+# STE-595: the live-child count, right after the last group and before
+# anything that can exit, so no earlier abort skips it. `live` counts the
+# RECORDED pids (the pidfiles above) that answer `kill -0` and pass a
+# `ps -p <pid> -o comm=` identity check. A recorded pid is its brace group, a
+# fork of THIS shell, so the identity it must report is this shell's own comm.
+# live < launched means a child no poll or reap can find: reap every launched
+# group together with its claude child, then abort through § Per-leg abort
+# teardown.
+SELF_COMM=$(ps -p $$ -o comm=)
+LIVE=0
+# Split through command substitution, never an unquoted parameter: zsh does not
+# field-split `${SELECTED_LEGS}`, and a driver may run this fence inline in zsh.
+for SEL in $(printf '%s\n' "${SELECTED_LEGS}"); do
+  P=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-${SEL}.pid" 2>/dev/null)
+  kill -0 "${P}" 2>/dev/null && [ "$(ps -p "${P}" -o comm=)" = "${SELF_COMM}" ] && LIVE=$((LIVE + 1))
+done
+echo "launched=${LAUNCHED} live=${LIVE}"
+if [ "${LIVE}" -ne "${LAUNCHED}" ]; then
+  for P in $(printf '%s\n' "${PIDS}"); do
+    kill -0 "${P}" 2>/dev/null && [ "$(ps -p "${P}" -o comm=)" = "${SELF_COMM}" ] && kill $(pgrep -P "${P}") "${P}" 2>/dev/null
+  done
+  rm -f /tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-*.pid
+  echo "ABORT: /conformance-loop Phase A spawn count mismatch — reaped; run § Per-leg abort teardown now, then exit non-zero"
+  exit 1
+fi
 
 # STE-448: the summary line names the SELECTED set and reads each leg's PID
 # back from the pidfile the group just wrote, instead of referencing one
@@ -791,6 +866,13 @@ When `--auto-fix` is ON, sequentially walk the deduplicated **high-severity** fi
 IDX=0
 PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"
 export CLAUDE_CONFIG_DIR=~/.claude-st   # STE-350: exported once per spawning block so every spawn line begins bare with `claude` and the tracked `Bash(claude:*)` allow entry matches.
+# STE-594: every fixer is recorded in the run ledger before it spawns, under
+# this RUN's id, which Phase A's first iteration wrote to the per-run file keyed
+# by DATE (fresh shell per Bash call: re-read it, never mint a second run). The
+# fixers record under the `autofix` leg, which no smoke leg shares, so
+# Termination's per-leg cleanup never reaches a session that committed to this
+# repo.
+DPT_SMOKE_RUN_ID=$(cat "/tmp/dpt-conformance-loop-${DATE}.run")
 for FINDING_TEXT in <high-severity-findings-from-aggregated-report>; do
   IDX=$((IDX + 1))
   LOG_SW=/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-fix-${IDX}-spec-write.log
@@ -809,7 +891,10 @@ for FINDING_TEXT in <high-severity-findings-from-aggregated-report>; do
   #    `<dpt:auto-approve>v1</dpt:auto-approve>` is the byte-checkable
   #    pre-authorization handoff for /spec-write's draft + commit gates
   #    (STE-226); without it the child halts at the FR-draft prompt.
+  SID_SW=$(uuidgen | tr '[:upper:]' '[:lower:]')
+  bun "${PLUGIN_DIR}/adapters/_shared/src/smoke_run_ledger.ts" append --run "${DPT_SMOKE_RUN_ID}" --leg autofix --session "${SID_SW}"
   claude -p \
+    --session-id "${SID_SW}" \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${LOG_SW}" 2>&1 <<${EOF_TAG}
 <dpt:auto-approve>v1</dpt:auto-approve>
@@ -836,7 +921,10 @@ ${EOF_TAG}
   #    delimiter as the /spec-write spawn above; no body content needed
   #    beyond the marker because the slash command + argument live on
   #    the CLI argv.
+  SID_IMPL=$(uuidgen | tr '[:upper:]' '[:lower:]')
+  bun "${PLUGIN_DIR}/adapters/_shared/src/smoke_run_ledger.ts" append --run "${DPT_SMOKE_RUN_ID}" --leg autofix --session "${SID_IMPL}"
   claude -p "/dev-process-toolkit:implement ${NEW_TRACKER_ID}" \
+    --session-id "${SID_IMPL}" \
     --plugin-dir "${PLUGIN_DIR}" \
     > "${LOG_IMPL}" 2>&1 <<${EOF_TAG}
 <dpt:auto-approve>v1</dpt:auto-approve>
@@ -963,9 +1051,91 @@ The `green` probe runs after Phase A (Phase B's fixers may have lowered the coun
 
 **Capture-only short-circuit.** When `--auto-fix` is OFF, the loop exits after Phase A of iteration 1 unconditionally with `STATUS=capture-only` (not one of the three above). The three termination probes only matter when `--auto-fix` is ON and the loop may run multiple iterations.
 
+**Session cleanup at Termination (STE-594).** Once the loop has stopped, whether a probe above tripped or the capture-only short-circuit fired, the fence below walks the SELECTED legs. A leg's recorded sessions are removed through the STE-593 front door in delete mode only when that leg's verdict artifact at `/tmp/dpt-smoke-verdict-<leg>.json` reads `pass`. The artifact decides, not the rc-file, because the rc-file folds the process status in and a `claude -p` status cannot carry a verdict. Some legs are left alone: a `fail` or `abort` verdict, a missing, stale, malformed or unreadable artifact, or a delete whose status is not 0 because the survivor check found something still on disk. Nothing more of such a leg is deleted, and the closing summary names it with its manual cleanup command. An unselected leg is never touched. Every delete names the session ids the run ledger recorded for that leg under this run's id, never a time window. That keeps the findings files, the approval record and a failed partner's sessions out of its reach. The delete also runs after Orphan adoption above, and only once none of the leg's recorded pids answers `kill -0`. Those pids are the leg's Phase A pidfile and the per-skill pidfiles that adoption scans. The fence polls them with the same bounded discipline (up to 18 checks 30 s apart per Bash call, shared across legs), never signals them, and keeps a leg whose pid is still answering when the budget runs out.
+
+```bash
+# Fresh shell per Bash call: re-derive DATE/ITER/SELECTED_LEGS first. The run id
+# is re-read from the per-run file Phase A's first iteration wrote, keyed by
+# DATE alone, so every iteration's sessions are in scope. The file's mtime is
+# the freshness gate: a verdict artifact older than the run is a leftover and
+# reads `stale`, never `pass`. The loop variable is `SEL`, not `LEG`, for the
+# reason § Per-leg abort teardown records.
+PLUGIN_DIR="$(pwd)/plugins/dev-process-toolkit"
+CONFIG_DIR="${HOME}/.claude-st"
+RUN_ID_FILE="/tmp/dpt-conformance-loop-${DATE}.run"
+DPT_SMOKE_RUN_ID=$(cat "/tmp/dpt-conformance-loop-${DATE}.run" 2>/dev/null)
+RUN_START_S=$(date -r "${RUN_ID_FILE}" +%s 2>/dev/null)
+case "${RUN_START_S}" in ''|*[!0-9]*) RUN_START_MS="" ;; *) RUN_START_MS="${RUN_START_S}000" ;; esac
+CLEANED_LEGS=""
+KEPT_LEGS=""
+WAIT_LEFT=18
+# The word lists are split through command substitution, never by expanding an
+# unquoted parameter: bash field-splits `${SELECTED_LEGS}` and zsh does not, and a
+# driver may run this fence inline in either shell. An unquoted `$( … )` is split
+# by both. The delete's arguments are built as positional parameters for the same
+# reason, so each `--session <sid>` reaches the cleanup as its own words;
+# SESSION_FLAGS is only the printed form for the manual command.
+for SEL in $(printf '%s\n' "${SELECTED_LEGS}"); do
+  SIDS=""
+  if [ -n "${DPT_SMOKE_RUN_ID}" ]; then
+    SIDS=$(bun "${PLUGIN_DIR}/adapters/_shared/src/smoke_run_ledger.ts" sessions --run "${DPT_SMOKE_RUN_ID}" --leg "${SEL}" 2>/dev/null)
+  fi
+  SESSION_FLAGS=""
+  set --
+  for SID in $(printf '%s\n' "${SIDS}"); do
+    SESSION_FLAGS="${SESSION_FLAGS} --session ${SID}"
+    set -- "$@" --session "${SID}"
+  done
+  # The artifact's own reading, no rc folded in: pass, fail, abort, or why
+  # there is none (missing, stale, unreadable, malformed). An empty answer
+  # (the reader itself failed) is not a pass either.
+  OUTCOME=$(bun "${PLUGIN_DIR}/adapters/_shared/src/smoke_verdict.ts" outcome --artifact "/tmp/dpt-smoke-verdict-${SEL}.json" --run-start "${RUN_START_MS}" 2>/dev/null)
+  if [ "${OUTCOME}" != pass ]; then
+    KEEP_REASON="verdict ${OUTCOME:-unreadable}"
+  elif [ -z "${SESSION_FLAGS}" ]; then
+    echo "cleanup_skipped=${SEL} (verdict pass, but run ${DPT_SMOKE_RUN_ID:-<no run id>} recorded no session for it — nothing to delete)"
+    continue
+  else
+    # STE-594 AC.5: never delete a leg while one of ITS recorded pids answers
+    # kill -0 — its Phase A pidfile, and the per-skill pidfiles Orphan adoption
+    # scans. Only a leg about to be deleted is waited on, so a failed partner's
+    # live process never holds this fence. The wait is bounded like every other
+    # poll (up to 18 checks 30 s apart), and WAIT_LEFT is shared by every leg so
+    # the whole call stays under the 600 s ceiling. A pid that outlives it keeps
+    # the leg; it is never signalled.
+    LIVE_PIDS=""
+    for i in $(seq 1 18); do
+      LIVE_PIDS=""
+      P=$(cat "/tmp/dpt-conformance-loop-${DATE}-iter-${ITER}-${SEL}.pid" 2>/dev/null)
+      case "${P}" in ''|*[!0-9]*|0) ;; *) kill -0 "${P}" 2>/dev/null && LIVE_PIDS="${LIVE_PIDS} ${P}" ;; esac
+      for SKILL in setup spec-write implement gate-check spec-review simplify; do
+        P=$(cat "/tmp/dpt-smoke-${SEL}-${SKILL}.pid" 2>/dev/null)
+        case "${P}" in ''|*[!0-9]*|0) ;; *) kill -0 "${P}" 2>/dev/null && LIVE_PIDS="${LIVE_PIDS} ${P}" ;; esac
+      done
+      [ -z "${LIVE_PIDS}" ] && break
+      [ "${WAIT_LEFT}" -gt 0 ] || break
+      WAIT_LEFT=$((WAIT_LEFT - 1))
+      sleep 30
+    done
+    if [ -n "${LIVE_PIDS}" ]; then
+      KEEP_REASON="verdict pass, but recorded pid(s)${LIVE_PIDS} still answer kill -0 — re-run this fence once they exit"
+    elif bun "${PLUGIN_DIR}/adapters/_shared/src/smoke_session_cleanup.ts" --config-dir "${CONFIG_DIR}" "$@" --delete; then
+      CLEANED_LEGS="${CLEANED_LEGS}${CLEANED_LEGS:+ }${SEL}"
+      continue
+    else
+      KEEP_REASON="verdict pass, but the delete left a survivor"
+    fi
+  fi
+  KEPT_LEGS="${KEPT_LEGS}${KEPT_LEGS:+ }${SEL}"
+  echo "cleanup_kept=${SEL} (${KEEP_REASON}) — its sessions stay for triage; manual cleanup command:"
+  echo "  bun ${PLUGIN_DIR}/adapters/_shared/src/smoke_session_cleanup.ts --config-dir ${CONFIG_DIR}${SESSION_FLAGS} --delete"
+done
+echo "cleanup_cleaned=[${CLEANED_LEGS}] cleanup_kept=[${KEPT_LEGS}]"
+```
+
 ### Closing summary
 
-Emit a unified per-iteration table to stdout, plus the termination reason and links to every artifact:
+Emit a unified per-iteration table to stdout, plus the termination reason, links to every artifact, and one session-cleanup line per selected leg. A kept leg's line carries its manual cleanup command, `bun <plugin dir>/adapters/_shared/src/smoke_session_cleanup.ts --config-dir ~/.claude-st --session <sid> … --delete` (see § Session cleanup lines below):
 
 ```
 ## /conformance-loop summary
@@ -987,9 +1157,15 @@ Artifacts:
 - none logs:   /tmp/dpt-conformance-loop-<date>-iter-*-none.log
 - approval:    /tmp/dpt-conformance-loop-<date>-approval.txt
 
+Session cleanup (--legs: <SELECTED_LEGS>):
+- <leg>: cleaned (verdict pass; recorded sessions deleted, survivor check passed)
+- <leg>: kept (<reason>) — manual cleanup: <the command the Termination cleanup fence printed>
+
 Open questions / risks / inconsistencies:
 - (rendered from capability-key map; see § Capability-key map)
 ```
+
+**Session cleanup lines (STE-594).** The summary repeats what the Termination cleanup fence printed, one line per SELECTED leg. A leg is `cleaned` when its verdict artifact read `pass` and its delete passed the survivor check. A leg is `skipped` when its verdict read `pass` but the run recorded no session for it: there is nothing of it to delete, and the fence says so on its own `cleanup_skipped=` line. Every other selected leg is `kept`, with the reason: a `fail` or `abort` verdict, a missing, stale, malformed or unreadable artifact, or a delete that left a survivor. The line also carries the leg's manual cleanup command exactly as the fence printed it, `bun <plugin dir>/adapters/_shared/src/smoke_session_cleanup.ts --config-dir ~/.claude-st --session <sid> … --delete`. A kept leg's sessions are its forensics, and the operator runs that command once they have been triaged. An unselected leg gets no line, because the run never touched it.
 
 One `high (<leg>)` column per registered leg (`SMOKE_LEGS`), and the `medium` column names every one of them — a leg without a column is a leg whose findings the operator never reads off this table.
 

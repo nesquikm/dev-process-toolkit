@@ -92,14 +92,19 @@ const SPAWN_ALLOW_ENTRY = "Bash(claude:*)";
 //
 // Deliberately UNCOVERED, so the next reader does not assume otherwise:
 //   * the tracked file's Bash set may drift freely from the snippet's — the two
-//     serve different roles and are 13 entries apart today. Nothing asserts
-//     them equal and nothing should.
+//     serve different roles and differ by many entries today (no count is
+//     given here: any number would go stale with the next grant). Nothing
+//     asserts them equal and nothing should.
 //   * AC.1 measures the snippet against the matrix in the SAME SKILL.md, so it
 //     is a self-consistency pin, not a pin against what the chain really runs.
 //     A chain that grows a new command satisfies AC.1 as long as the matrix is
 //     left un-updated too (its floor is 10; the matrix lists 13).
 const CANONICAL_SCAFFOLD_ALLOW = [
   SPAWN_ALLOW_ENTRY,
+  // STE-595 AC.4: the file-run grant. Every spawn fence now runs from a file
+  // (`bash <file>`) because a stdin-fed spawn fence is refused by the repo hook,
+  // so the scaffold must grant the command the fences use.
+  "Bash(bash:*)",
   // Bash commands the Allowlist matrix says the canonical chain needs, in the
   // prefix shape the harness actually honors (`gh` is matrix-absent but keeps
   // parity with the retired glob entry — /pr and Phase 5 teardown need it).
