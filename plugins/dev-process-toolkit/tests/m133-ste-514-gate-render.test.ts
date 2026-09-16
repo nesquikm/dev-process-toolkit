@@ -975,8 +975,8 @@ describe("AC-STE-514.11 — deleting from either surface alone turns AC.10 red",
 //
 //   * THE PREDICATE HAS AN INVOKER (item 2). Measured: `verifyResumeGateRender`
 //     was imported by exactly one file, its own test, carried no
-//     `import.meta.main` entry — unlike `deliver_decision.ts:313` and
-//     `spawn_receipt.ts:445`, the two sibling M133 modules — and was named on
+//     `import.meta.main` entry — unlike `deliver_decision.ts:463` and
+//     `spawn_receipt.ts:481`, the two sibling M133 modules — and was named on
 //     NEITHER surface, while `verifyDeliverStageCapture` is named at
 //     SKILL.md:213, :215 and deliver-reference.md:197 precisely so an LLM
 //     reader reaches it. SKILL.md:83 told the reader to paste verbatim and

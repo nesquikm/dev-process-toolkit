@@ -175,7 +175,7 @@ const PRE_FR_EXPECTATION_COUNTS: Record<string, number> = {
   "m130-ste-502-fr-scope-surfaces.test.ts": 25,
   "m132-ste-510-fence-evidence.test.ts": 75,
   "m133-ste-514-gate-render.test.ts": 101,
-  "m133-ste-516-spawn-receipt.test.ts": 99,
+  "m133-ste-516-spawn-receipt.test.ts": 105, // 99 at 9153402; +6 audit follow-up legs (no default ownership check)
   "m134-ste-519-remote-control-field.test.ts": 29,
   "m134-ste-520-worker-naming-both-paths.test.ts": 37,
   "m136-ste-528-firing-caller.test.ts": 61,

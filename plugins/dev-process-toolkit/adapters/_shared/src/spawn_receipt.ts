@@ -184,6 +184,7 @@ export interface ParsedSpawnReceipt {
  */
 export const SPAWN_RECEIPT_HALTS = [
   "no-terminal-host",
+  "no-ownership-check",
   "no-ledger-row",
   "no-ownership-sidecar",
   "ownership-unresolved",
@@ -220,6 +221,14 @@ function halt(reason: SpawnReceiptHalt, refusing: string, remedy: string): never
  * hostless run emit a receipt for a worker that does not exist — precisely the
  * fail-open shape this FR closes.
  *
+ * A caller that names NO ownership check (`owned: null`) halts SECOND, after
+ * the host guard and before anything is run. There is deliberately no default
+ * to fall back to: this module cannot name a check that resolves on a clean
+ * machine — the spawning tool's `owned.py` lives under that plugin's own
+ * version-keyed install root and ships no executable on `$PATH` — so a default
+ * here was a guess dressed as a contract, and the one shipped before this
+ * guard named an executable nothing has ever installed. Silence is a refusal.
+ *
  * Exit 0 PERMITS emission; it does not guarantee it. A clean exit that
  * resolved no handle, or one that resolved a handle other than the reported
  * one, is a halt: the receipt names what the CHECK resolved, so there is
@@ -227,7 +236,8 @@ function halt(reason: SpawnReceiptHalt, refusing: string, remedy: string): never
  */
 export function renderSpawnReceipt(input: {
   spawned: SpawnedWorker;
-  owned: OwnedCheckRunner;
+  /** The ownership check, or `null` when the caller named none. */
+  owned: OwnedCheckRunner | null;
 }): SpawnReceipt {
   const { spawned, owned } = input;
 
@@ -239,6 +249,14 @@ export function renderSpawnReceipt(input: {
     );
   }
 
+  if (owned === null) {
+    halt(
+      "no-ownership-check",
+      `no ownership check was named for worker "${spawned.name}", so its handle cannot be resolved`,
+      "name the check after <host>, exactly as the agent-toolkit:spawn-agent skill spells it — `python3 <that plugin's root>/skills/spawn-agent/lib/owned.py` — then re-run the stage",
+    );
+  }
+
   let result: OwnedCheckResult;
   try {
     result = owned({ ledger: spawned.ledger, name: spawned.name });
@@ -246,8 +264,8 @@ export function renderSpawnReceipt(input: {
     const detail = error instanceof Error ? error.message : String(error);
     halt(
       "ownership-unresolved",
-      `the ownership check for worker "${spawned.name}" could not be run: ${detail}`,
-      "repair the agent-toolkit:spawn-agent install so its ownership check runs, then re-run the stage",
+      `the ownership check for worker "${spawned.name}" could not be started: ${detail}`,
+      "the check as named does not exist or is not executable — name it interpreter first, `python3 <path to owned.py>`, exactly as the agent-toolkit:spawn-agent skill spells it, then re-run the stage",
     );
   }
 
@@ -263,7 +281,13 @@ export function renderSpawnReceipt(input: {
       halt(
         "no-ownership-sidecar",
         `worker "${spawned.name}" has a ledger row but no ownership sidecar`,
-        "restore the missing .owner sidecar for that worker, then re-run the stage",
+        // The ledger is named because the sidecar sits beside it, and the
+        // exit-2 sibling above already names it; the sidecar's own filename is
+        // NOT derived here — that stem rule is the spawning tool's (it prints
+        // the resolved path on its stderr, which the command line passes
+        // through), and a copy of it here would be the drift this module's
+        // header forbids.
+        `restore the missing .owner sidecar beside the ledger at ${spawned.ledger}, then re-run the stage`,
       );
     }
     // Exits 3 and 4 are documented by `agent-toolkit lib/owned.py` as HARD
@@ -420,30 +444,42 @@ export function chainRequiresSpawnReceipt(chain: readonly ChainStep[]): boolean 
 // (`active_plan_ship_ready.ts`, `deliver_decision.ts`) and the operative
 // surface ORDERS the command instead of dictating a line.
 //
-//   bun run spawn_receipt.ts <handle> <ledger> <name> <host> [owned-check-command]
+//   bun run spawn_receipt.ts <handle> <ledger> <name> <host> <owned-check-command...>
 //
 // `<handle> <ledger> <name> <host>` are what the SPAWNING TOOL reported; the
 // module derives none of them. `<host>` is the empty string when the tool
 // reported no terminal host, which is how AC.6's halt is reachable from argv
-// alone. `[owned-check-command]` is invoked as `<command> <ledger> <name>`:
-// its EXIT CODE is the `owned` code and the first line of its stdout is the
-// handle it RESOLVED. Still NO SPAWN MECHANICS HERE — the check arrives as an
-// injected command exactly as the in-process path takes an injected runner.
+// alone. `<owned-check-command...>` is EVERY remaining argv token — a vector,
+// not one word — and is invoked as `<command...> <ledger> <name>`: its EXIT
+// CODE is the `owned` code and the first line of its stdout is the handle it
+// RESOLVED. A vector because the check the spawning tool documents is
+// `python3 <path to owned.py>`, two tokens, and `Bun.spawnSync` takes its
+// argv[0] verbatim with no shell — a one-word grammar could express neither
+// that form nor the bare script, which ships without an exec bit. Still NO
+// SPAWN MECHANICS HERE — the check arrives as an injected command exactly as
+// the in-process path takes an injected runner.
+//
+// THERE IS NO DEFAULT CHECK, and there must not be. The one shipped before
+// this line, `spawn-agent-owned`, named an executable no version of the
+// spawning tool has ever installed, so the four-token form the operative
+// surface ordered ENOENT'd on every machine and blamed a healthy install.
+// A command line that names no check reaches `renderSpawnReceipt`, where the
+// host guard still runs first and the `no-ownership-check` halt runs second.
 //
 // A clean resolve prints the ONE receipt line on stdout and exits 0. Every
 // other outcome prints the NFR-10 envelope on STDERR, exits non-zero, and
 // prints NOTHING on stdout: the record channel stays empty on a refusal, so a
-// caller reading stdout gets a whole receipt or nothing, never a partial.
+// caller reading stdout gets a whole receipt or nothing, never a partial. The
+// check's own stderr is INHERITED, not swallowed: on exit 5 the spawning tool
+// prints the resolved sidecar path and the one command that restores it, and
+// that is the text the operator needs beside the halt.
 //
 // Under `import` this block does not run, so the module stays side-effect free
 // and its exported functions stay pure.
 // ---------------------------------------------------------------------------
 
-/** The ownership check used when the caller names none — the tool's own. */
-const DEFAULT_OWNED_CHECK = "spawn-agent-owned";
-
 if (import.meta.main) {
-  const [handle, ledger, name, host, ownedCommand] = process.argv.slice(2);
+  const [handle, ledger, name, host, ...ownedCommand] = process.argv.slice(2);
   if (
     handle === undefined ||
     ledger === undefined ||
@@ -453,7 +489,7 @@ if (import.meta.main) {
     console.error(
       [
         "Refusing: the spawn receipt printer was given fewer than the four values the spawning tool reported",
-        "Remedy: run `bun run spawn_receipt.ts <handle> <ledger> <name> <host> [owned-check-command]`, passing an empty <host> when the tool reported no terminal host",
+        "Remedy: run `bun run spawn_receipt.ts <handle> <ledger> <name> <host> python3 <path to owned.py>`, passing an empty <host> when the tool reported no terminal host",
         "Context: reason=incomplete-argv",
       ].join("\n"),
     );
@@ -462,17 +498,20 @@ if (import.meta.main) {
     try {
       const receipt = renderSpawnReceipt({
         spawned: { handle, ledger, name, host },
-        owned: (query) => {
-          const proc = Bun.spawnSync(
-            [ownedCommand ?? DEFAULT_OWNED_CHECK, query.ledger, query.name],
-            { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
-          );
-          const resolved = (proc.stdout.toString().split("\n")[0] ?? "").trim();
-          return {
-            code: proc.exitCode ?? 1,
-            handle: resolved.length > 0 ? resolved : undefined,
-          };
-        },
+        owned:
+          ownedCommand.length === 0
+            ? null
+            : (query) => {
+                const proc = Bun.spawnSync(
+                  [...ownedCommand, query.ledger, query.name],
+                  { stdin: "ignore", stdout: "pipe", stderr: "inherit" },
+                );
+                const resolved = (proc.stdout.toString().split("\n")[0] ?? "").trim();
+                return {
+                  code: proc.exitCode ?? 1,
+                  handle: resolved.length > 0 ? resolved : undefined,
+                };
+              },
       });
       console.log(receipt.line);
     } catch (error) {

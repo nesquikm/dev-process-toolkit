@@ -41,6 +41,10 @@
 //
 //       reason=no-terminal-host        the tool is installed, no host to
 //                                      spawn into — its OWN remedy (AC.6)
+//       reason=no-ownership-check      the caller named NO check (`owned:
+//                                      null`) — there is no default to fall
+//                                      back to, and the halt runs AFTER the
+//                                      host guard (AUDIT FOLLOW-UP block)
 //       reason=no-ledger-row           owned.py exit 2 — its OWN remedy (AC.5)
 //       reason=no-ownership-sidecar    owned.py exit 5 — its OWN remedy (AC.5)
 //       reason=ownership-unresolved    EVERY other non-zero, and the message
@@ -212,7 +216,8 @@ interface ReceiptModule {
   SPAWN_RECEIPT_HALTS: readonly string[];
   renderSpawnReceipt(input: {
     spawned: SpawnedWorker;
-    owned: OwnedCheckRunner;
+    /** `null` = the caller named no check. A halt, never a default. */
+    owned: OwnedCheckRunner | null;
   }): SpawnReceipt;
   parseSpawnReceipt(lines: readonly string[]): ParsedSpawnReceipt | null;
   chainRequiresSpawnReceipt(chain: readonly ChainStep[]): boolean;
@@ -673,7 +678,19 @@ describe("AC-STE-516.5 — no exit code falls through to emission", () => {
     const mod = await loadReceipt();
     const message = haltText(() => render(mod, {}, runner({ code: 5 })));
     expect(message).toContain(`reason=${NAMED_REMEDIES[5]!.reason}`);
-    expect(envelopeLine(message, "Remedy: ")).toContain(NAMED_REMEDIES[5]!.subject);
+    const remedy = envelopeLine(message, "Remedy: ");
+    expect(remedy).toContain(NAMED_REMEDIES[5]!.subject);
+    // AUDIT FOLLOW-UP (F5). The exit-2 sibling interpolated the ledger it was
+    // handed and this one did not, so the operator was told to restore a file
+    // beside a path the message never named. The LEDGER is named — the bytes
+    // the tool reported — and the sidecar's own filename is NOT derived here:
+    // that stem rule belongs to the spawning tool, whose two existing copies
+    // already disagree, and a third in this module would be the drift the
+    // header forbids.
+    expect(remedy).toContain(SPAWNED.ledger);
+    // No PATH ending in `.owner` — neither `<ledger>.owner` (appended) nor
+    // `<stem>.owner` (substituted) is this module's to spell.
+    expect(remedy).not.toMatch(/\/\S*\.owner/);
   });
 
   test("every OTHER non-zero outcome quotes its exit code in the message", async () => {
@@ -845,6 +862,49 @@ describe("AC-STE-516.6 — no terminal host is a named halt", () => {
       );
       expect({ code, same: other === hostRemedy }).toEqual({ code, same: false });
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // AUDIT FOLLOW-UP (dpt-phantom-default). The module shipped a DEFAULT
+  // ownership check, `spawn-agent-owned` — an executable no version of the
+  // spawning tool has ever installed — and the operative surface ordered the
+  // four-token form that fell to it, so every shipped invocation ENOENT'd and
+  // the remedy blamed a healthy install. The default is gone: a caller that
+  // names no check halts by name. Two things the legs pin, because the survey
+  // fix got both wrong: the halt runs AFTER the host guard, so AC.6's leg above
+  // (host absent, runner never consulted) stays exactly as reachable as it was;
+  // and it is a halt in the MODULE, not argv prose in the CLI, so the in-process
+  // path and the command line refuse identically.
+  // -------------------------------------------------------------------------
+
+  test("NO ownership check named ⇒ a named halt, never a default and never a pass", async () => {
+    const mod = await loadReceipt();
+    expect(mod.SPAWN_RECEIPT_HALTS).toContain("no-ownership-check");
+    const message = haltText(() =>
+      mod.renderSpawnReceipt({ spawned: SPAWNED, owned: null }),
+    );
+    expect(message).toContain("Context: reason=no-ownership-check");
+    // The remedy names the check's real spelling — interpreter first, the
+    // spawning tool's own script — because that is the shim a field run had
+    // to reinvent when the old remedy sent it to repair the wrong repo.
+    const remedy = envelopeLine(message, "Remedy: ");
+    expect(remedy).toContain("python3");
+    expect(remedy).toContain("owned.py");
+    expect(remedy).not.toContain("spawn-agent-owned");
+    expect(remedy).not.toContain("repair");
+  });
+
+  test("the host guard still runs FIRST — hostless with no check is the host halt", async () => {
+    // AC.6's property, re-asserted against the new guard: a hostless run halts
+    // on the host whether or not a check was named, and the ordering is what
+    // keeps `runCli([handle, ledger, name, ""])` an AC.6 leg rather than an
+    // argv-arity leg.
+    const mod = await loadReceipt();
+    const message = haltText(() =>
+      mod.renderSpawnReceipt({ spawned: { ...SPAWNED, host: null }, owned: null }),
+    );
+    expect(message).toContain("reason=no-terminal-host");
+    expect(message).not.toContain("no-ownership-check");
   });
 
   // -------------------------------------------------------------------------
@@ -1204,6 +1264,11 @@ describe("AC-STE-516.10 — the guards are falsifiable, and distinctly so", () =
       mutation: "handle-unresolved",
       text: haltText(() => render(receipt, {}, runner({ code: 0 }))),
     });
+    // AUDIT FOLLOW-UP — the caller named no check at all.
+    failures.push({
+      mutation: "no-ownership-check",
+      text: haltText(() => receipt.renderSpawnReceipt({ spawned: SPAWNED, owned: null })),
+    });
 
     // NONE produced a pass, and every one of them is DISTINGUISHABLE. A single
     // catch-all halt would collapse this set and is refused here by name.
@@ -1215,7 +1280,7 @@ describe("AC-STE-516.10 — the guards are falsifiable, and distinctly so", () =
     expect({ collisions: collisions.map((entry) => entry.mutation) }).toEqual({
       collisions: [],
     });
-    expect(failures.length).toBe(3 + NON_ZERO_CODES.length + 2);
+    expect(failures.length).toBe(3 + NON_ZERO_CODES.length + 3);
   });
 });
 
@@ -2059,22 +2124,29 @@ describe("AUDIT 4 ITEM 2 — the executing surface passes the spawn expectation"
 // guess (the same discipline this file's header applies to the receipt line):
 //
 //     bun run adapters/_shared/src/spawn_receipt.ts \
-//         <handle> <ledger> <name> <host> [owned-check-command]
+//         <handle> <ledger> <name> <host> <owned-check-command...>
 //
 //   * `<handle> <ledger> <name> <host>` are what the SPAWNING TOOL reported.
 //     `<host>` is the empty string when the tool reported no terminal host —
 //     which is how AC.6's `no-terminal-host` halt is reachable from argv alone,
 //     without a live install.
-//   * `[owned-check-command]` is the ownership check, invoked as
-//     `<owned-check-command> <ledger> <name>`. Its EXIT CODE is the `owned`
-//     code; the first line of its stdout is the handle it RESOLVED. Omitted, it
-//     defaults to the spawning tool's own check — which is why the legs below
-//     supply a fake rather than assuming an agent-toolkit install.
+//   * `<owned-check-command...>` is the ownership check — EVERY remaining
+//     token, a vector — invoked as `<command...> <ledger> <name>`. Its EXIT
+//     CODE is the `owned` code; the first line of its stdout is the handle it
+//     RESOLVED. A vector because the check the spawning tool documents is
+//     `python3 <owned.py>`, two tokens, and the script ships without an exec
+//     bit — a one-word grammar could pass neither spelling.
+//   * THERE IS NO DEFAULT. Omitted, the CLI reaches the module's
+//     `no-ownership-check` halt — AFTER the host guard, so the four-token
+//     empty-host leg below is still AC.6's. The default this replaced named an
+//     executable nothing ships (AUDIT FOLLOW-UP legs at the end of the block).
 //   * A clean resolve prints the ONE receipt line on stdout and exits 0.
 //   * EVERY other outcome prints the module's NFR-10 envelope on STDERR, exits
 //     non-zero, and prints NOTHING on stdout. The record channel stays empty on
 //     a refusal — the `deliver_decision.ts` idiom, so a caller reading stdout
-//     gets a whole receipt or nothing, never a partial.
+//     gets a whole receipt or nothing, never a partial. The check's OWN stderr
+//     passes through beside the envelope, because on exit 5 it names the exact
+//     sidecar this module deliberately does not derive.
 //
 // A command whose only outcome were a refusal would be a strengthening that
 // cannot pass, so the fake ownership check gives the clean-resolve path a real
@@ -2088,13 +2160,21 @@ interface CliResult {
   code: number;
 }
 
-function runCli(args: readonly string[]): CliResult {
+/**
+ * `env` overrides ride on top of the ambient environment. The default forwards
+ * it untouched; the planted-PATH leg below narrows `PATH` on purpose, so that
+ * what it asserts is a property of the CLI and not of this machine.
+ */
+function runCli(
+  args: readonly string[],
+  env: Readonly<Record<string, string>> = {},
+): CliResult {
   const proc = Bun.spawnSync(["bun", "run", RECEIPT_MODULE, ...args], {
     cwd: PLUGIN_ROOT,
     // Deliberately non-tty: a printer that refuses here is a printer no test,
     // driver or headless capture could ever run.
     stdin: "ignore",
-    env: { ...process.env, NO_COLOR: "1" },
+    env: { ...process.env, NO_COLOR: "1", ...env },
   });
   return {
     stdout: proc.stdout.toString(),
@@ -2107,20 +2187,32 @@ function runCli(args: readonly string[]): CliResult {
  * A fake ownership check: records the argv it was asked, prints `handle`, exits
  * `code`. Values are BAKED INTO the script text rather than passed through the
  * environment, so the leg does not silently depend on the CLI forwarding env.
+ *
+ * `stderr` is a diagnostic line the fake prints to ITS stderr before exiting —
+ * what the real check does on exit 5. `executable: false` writes the script
+ * mode 0644, the mode the real `owned.py` ships in, so a leg can prove the
+ * interpreter token is what makes it runnable. `name` places the script under a
+ * chosen basename, for the leg that plants one on `PATH`.
  */
 function fakeOwnedCheck(options: {
   label: string;
   code: number;
   handle?: string;
-}): { command: string; recordPath: string } {
+  stderr?: string;
+  executable?: boolean;
+  name?: string;
+}): { command: string; recordPath: string; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), `ste516-owned-${options.label}-`));
-  const command = join(dir, "owned-check");
+  const command = join(dir, options.name ?? "owned-check");
   const recordPath = join(dir, "asked.txt");
   writeFileSync(
     command,
     [
       "#!/usr/bin/env bash",
       `printf '%s\\n%s\\n' "$1" "$2" > ${JSON.stringify(recordPath)}`,
+      ...(options.stderr === undefined
+        ? []
+        : [`printf '%s\\n' ${JSON.stringify(options.stderr)} >&2`]),
       ...(options.handle === undefined
         ? []
         : [`printf '%s\\n' ${JSON.stringify(options.handle)}`]),
@@ -2129,8 +2221,8 @@ function fakeOwnedCheck(options: {
     ].join("\n"),
     "utf-8",
   );
-  chmodSync(command, 0o755);
-  return { command, recordPath };
+  chmodSync(command, options.executable === false ? 0o644 : 0o755);
+  return { command, recordPath, dir };
 }
 
 /** The four reported positionals, in the contract's order. */
@@ -2290,12 +2382,144 @@ describe("AUDIT 4 ITEM 3 — the emission guard is runnable, not narrated", () =
     await assertFailClosed(result, "incomplete-argv");
   });
 
+  // -------------------------------------------------------------------------
+  // AUDIT FOLLOW-UP (dpt-phantom-default, dpt-single-token-command-grammar,
+  // dpt-default-untested, F5). Three legs, each red against the CLI as it
+  // shipped:
+  //
+  //   * The four-token form — the ONLY form the operative surface ordered —
+  //     was never run by any leg: the one four-token call above passes an
+  //     empty host and halts before the check is consulted. Run with a host it
+  //     fell to `DEFAULT_OWNED_CHECK = "spawn-agent-owned"`, an executable the
+  //     spawning tool has never shipped, and ENOENT'd on every machine. The
+  //     leg plants exactly that executable on PATH, answering a clean resolve,
+  //     and asserts the CLI STILL refuses — which pins that there is no PATH
+  //     fallback at all, not merely that this machine lacks one.
+  //   * The check was one argv token, so `python3 <owned.py>` — the only
+  //     spelling the spawning tool documents, for a script it ships mode 0644 —
+  //     could not be passed either way. The leg runs a 0644 script through its
+  //     interpreter, and the bare-token control proves the interpreter token
+  //     is what made it runnable.
+  //   * The check's stderr was piped and never read, so on exit 5 the one line
+  //     that names the exact sidecar — the spawning tool's own — was thrown
+  //     away, and the module's remedy named no path either.
+  // -------------------------------------------------------------------------
+
+  test("FOUR TOKENS WITH A HOST refuse BY NAME — a `spawn-agent-owned` on PATH is never consulted", async () => {
+    const planted = fakeOwnedCheck({
+      label: "planted",
+      code: 0,
+      handle: SPAWNED.handle,
+      name: "spawn-agent-owned",
+    });
+    const result = runCli(CLI_REPORTED, {
+      PATH: `${planted.dir}:${process.env.PATH ?? ""}`,
+    });
+    expect(result.code).not.toBe(0);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Context: reason=no-ownership-check");
+    expect(result.stderr).not.toContain("spawn-agent-owned");
+    // The planted executable would have resolved the handle. It was never run.
+    expect({ plantedWasAsked: existsSync(planted.recordPath) }).toEqual({
+      plantedWasAsked: false,
+    });
+    await assertFailClosed(result, "no-ownership-check");
+  });
+
+  test("THE CHECK IS A VECTOR — an interpreter plus a 0644 script resolves; the bare script does not", async () => {
+    const mod = await loadReceipt();
+    const fake = fakeOwnedCheck({
+      label: "vector",
+      code: 0,
+      handle: SPAWNED.handle,
+      executable: false,
+    });
+    const viaInterpreter = runCli([...CLI_REPORTED, "bash", fake.command]);
+    expect({ code: viaInterpreter.code, stderr: viaInterpreter.stderr }).toEqual({
+      code: 0,
+      stderr: "",
+    });
+    expect(mod.parseSpawnReceipt(viaInterpreter.stdout.split("\n"))).toEqual({
+      handle: SPAWNED.handle,
+      ledger: SPAWNED.ledger,
+      owned: 0,
+    });
+    // The reported bytes follow the WHOLE vector — the script saw them as its
+    // own $1 and $2, so nothing after the interpreter was dropped or reordered.
+    expect(readFileSync(fake.recordPath, "utf-8")).toBe(
+      `${SPAWNED.ledger}\n${SPAWNED.name}\n`,
+    );
+
+    // CONTROL: the same file as one token is not runnable (no exec bit), so
+    // the interpreter token above is load-bearing, not decorative.
+    const bare = runCli([...CLI_REPORTED, fake.command]);
+    expect(bare.code).not.toBe(0);
+    expect(bare.stdout).toBe("");
+    expect(bare.stderr).toContain("Context: reason=ownership-unresolved");
+    expect(envelopeLine(bare.stderr, "Remedy: ")).toContain("python3");
+    await assertFailClosed(bare, "bare-0644-script");
+  });
+
+  test("the check's own stderr PASSES THROUGH beside the halt — exit 5 names the sidecar the tool resolved", async () => {
+    const diagnostic = "owned: no .owner beside the ledger — restore it with: touch /the/exact/sidecar.owner";
+    const fake = fakeOwnedCheck({
+      label: "passthru",
+      code: 5,
+      handle: SPAWNED.handle,
+      stderr: diagnostic,
+    });
+    const result = runCli([...CLI_REPORTED, fake.command]);
+    expect(result.code).not.toBe(0);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(diagnostic);
+    expect(result.stderr).toContain("Context: reason=no-ownership-sidecar");
+    // The tool's text comes first, the envelope after — the operator reads the
+    // exact path, then the halt that names it.
+    expect(result.stderr.indexOf(diagnostic)).toBeLessThan(
+      result.stderr.indexOf("Refusing: "),
+    );
+    // And the module's own remedy names the ledger it was handed (F5).
+    expect(envelopeLine(result.stderr, "Remedy: ")).toContain(SPAWNED.ledger);
+    await assertFailClosed(result, "stderr-passthrough");
+  });
+
   test("THE OPERATIVE SURFACE ORDERS THE COMMAND — it does not tell a worker to type the line", async () => {
     // The whole item: a guard nothing invokes is a guard that never fires.
     // `${CLAUDE_PLUGIN_ROOT}/` is required by the shipped path-portability
     // gate — the model's cwd is the consumer project, never the plugin root.
     const order = "bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/spawn_receipt.ts";
     expect(mustRead(DELIVER_SKILL)).toContain(order);
+  });
+
+  test("the ordered command NAMES the ownership check, interpreter first, on BOTH surfaces", async () => {
+    // AUDIT FOLLOW-UP. The surface ordered four tokens and said the command
+    // "resolves the handle through the tool's own ownership check" — the one
+    // sentence that was false, since nothing shipped that check under the
+    // name the default looked up. Now the ordered line names the check the
+    // way the spawning tool spells it, both surfaces agree, and neither ever
+    // mentions the phantom. The halt name is read from the module, not retyped.
+    const mod = await loadReceipt();
+    const order = "bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/spawn_receipt.ts";
+    const halt = mod.SPAWN_RECEIPT_HALTS.find((name) => name === "no-ownership-check");
+    expect(halt).toBe("no-ownership-check");
+    for (const surface of [DELIVER_SKILL, DELIVER_REFERENCE]) {
+      const text = mustRead(surface).replace(/\r\n/g, "\n");
+      const ordered = text.split("\n").find((line) => line.includes(order));
+      expect({ surface, orders: ordered !== undefined }).toEqual({ surface, orders: true });
+      const afterOrder = ordered!.slice(ordered!.indexOf(order) + order.length);
+      expect({ surface, interpreterFirst: /python3 <owned\.py>/.test(afterOrder) }).toEqual({
+        surface,
+        interpreterFirst: true,
+      });
+      expect({ surface, namesTheHalt: text.includes(halt!) }).toEqual({
+        surface,
+        namesTheHalt: true,
+      });
+      expect({ surface, phantom: text.includes("spawn-agent-owned") }).toEqual({
+        surface,
+        phantom: false,
+      });
+    }
   });
 
   test("the module is no longer INVOKER-LESS: a shipped surface names it", async () => {
