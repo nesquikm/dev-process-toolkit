@@ -387,7 +387,7 @@ Spawn one `claude-st -p` child per skill, sequentially. Each child:
 - Is invoked as bare `claude -p ...` with `CLAUDE_CONFIG_DIR=~/.claude-st` exported once at the top of the spawning Bash block (STE-350: exported rather than inlined so every spawn line begins with `claude` and the tracked `Bash(claude:*)` allow entry matches) — NOT `claude-st -p`, because the `claude-st` zsh alias does not expand inside the parent harness's Bash tool.
 - Runs in default permission mode and reads the tracked `.claude/settings.json` `permissions.allow` allow-list (STE-252) from the spawn cwd. The allow-list covers the chain's normal Bash + MCP operations at command-pattern granularity. NOT sufficient alone for **creating** either `.claude/settings.json` or `.mcp.json`, nor for a direct full-file `Write` of one — the harness's sensitive-path classification of those two files survives default permission mode at the child's model layer, which is why Phase 1 step 6 pre-creates them from the parent. It does **not** follow that a child cannot touch them at all: a `/setup` merge into an already-existing `settings.json` succeeded on 2026-07-27 (§ Phase 1 step 6 — Measured correction), so the classification bounds creation and whole-file replacement, not every write. Combined: tracked allow-list for the bulk of the chain + parent-pre-creation for the sensitive paths = end-to-end runnable.
 - Passes `--mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json` (built in Phase 1 step 5; `linear` entry on the Linear path, `atlassian` entry on the Jira path). `--plugin-dir` (used to load the in-tree plugin under test) shadows plugin-loaded MCPs, so the active tracker MCP must be passed via `--mcp-config` from a per-tracker wrapper file written to `/tmp/`. The per-tracker filename keeps a concurrent run against another leg from clobbering this run's config (operator-driven parallelism). **On the tracker-less path the flag is OMITTED, not emptied (STE-448 AC.4):** Phase 1 step 5 constructed no config, so every `--mcp-config …` occurrence in the reference snippets below is dropped from the spawn line on that leg rather than pointed at a file that does not exist. A `--mcp-config` naming a missing path is a startup error, and one naming an empty envelope is a false claim; omission is the only shape that is both true and runnable.
-- Passes `--plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit` to load the in-tree plugin under test (not the cached version under `~/.claude-st/plugins/cache/`).
+- Passes `--plugin-dir "${DPT_PLUGIN_DIR}"` — the in-tree plugin under the checkout the driver is running in, bound per fence (never a literal path: one names one checkout) — to load the in-tree plugin under test (not the cached version under `~/.claude-st/plugins/cache/`).
 - Receives a fully-pre-baked prompt where the slash command is the **literal first line of the user message**, not wrapped in natural language. Plugin skills carry `disable-model-invocation: true`, so the child's model cannot call them via the Skill tool — only user-typed slash commands trigger; the prompt-pre-bake puts the slash command as the literal first line of the user message. Pre-baked answers go on the lines after.
 - Has its stdout/stderr captured to `/tmp/dpt-smoke-<tracker>-<skill>.log` (e.g., `/tmp/dpt-smoke-jira-implement.log`) as **stream-json NDJSON** — every spawn passes `--output-format stream-json --verbose` (STE-352; `--verbose` is required by `claude -p` for stream-json output). Default text mode emitted only the child's final result message, so mid-stream assistant tokens — per-probe capability rows, forked `tdd-result` fences — never reached the log (smoke F2, the blind spot that let the STE-350 0-byte-grandchild false-green survive). To read a capture, pick the projection by **who emitted the text**. For genuinely assistant-authored output, lift it via `extractAssistantText` (`adapters/_shared/src/smoke_child_capture.ts`; blocks are joined line-anchored so fences stay greppable), or project `text`/`tool_use` entries via the existing `parseStreamJsonTranscript` (`adapters/_shared/src/socratic_first_turn_stream.ts`) — the same parser Phase 8 already uses. **Correction (STE-484): `extractAssistantText` is the wrong projection for fork-emitted `tdd-result` fences, and earlier prose here naming it as the repair was wrong** — it excludes `user`/`tool_result` events by design, while the `/tdd` orchestrator's children run `context: fork`, so their hand-off blocks arrive in precisely those excluded `tool_result` events; routing through it returns **0** fences on all three real 2026-08-16 captures. Read fork-emitted blocks with `countForkTddResults`/`scoreForkTddResults` (`adapters/_shared/src/fork_tdd_result_assert.ts`) instead — that is a projection choice for fork-emitted blocks, not a blanket condemnation of the helper. Phase 2.X's substring greps keep working unchanged: literal tokens survive JSON string encoding.
 - Is spawned **detached** (`&` with its PID captured to `/tmp/dpt-smoke-<tracker>-<skill>.pid`) and awaited via the bounded poll-until-exit loop — never as a single foreground Bash call, which caps the grandchild at the harness's 10-minute per-call ceiling (STE-355; § Grandchild spawn lifecycle below).
@@ -511,7 +511,16 @@ if [ -n "${LIVE}" ]; then echo "LIVE:${LIVE} — finish the bounded poll loop, o
 # pidfile scan cannot see that trigger). `--outcome` escalates a
 # chain-complete, pidfile-clean run this driver is nonetheless reporting as
 # SMOKE-TEST FAIL; it can never mask an armed trigger.
-DPT_PLUGIN_DIR=/Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit
+# The toolkit checkout this run records under and loads the plugin from — never
+# a literal, which names ONE checkout and had a driver in a worktree record its
+# grandchildren under, and load the plugin from, a tree it was not running in
+# (M_4df444 F12). Inherited when the caller exported it; else the cwd when that
+# IS the checkout (pre-flight #1); else the checkout beside this test project
+# (pre-flight #6 pins them as siblings, #1 pins the basename). Refuses rather
+# than guessing when neither holds the plugin manifest.
+DPT_PROJECT_ROOT="${DPT_PROJECT_ROOT:-$([ -f plugins/dev-process-toolkit/.claude-plugin/plugin.json ] && pwd || echo "$(dirname "$(pwd)")/dev-process-toolkit")}"
+[ -f "${DPT_PROJECT_ROOT}/plugins/dev-process-toolkit/.claude-plugin/plugin.json" ] || { echo "ABORT: /smoke-test cannot resolve the toolkit checkout (tried ${DPT_PROJECT_ROOT}) — run from the checkout or its test project, or export DPT_PROJECT_ROOT" >&2; exit 1; }
+DPT_PLUGIN_DIR="${DPT_PROJECT_ROOT}/plugins/dev-process-toolkit"
 SMOKE_OUTCOME=pass   # `fail` when reporting SMOKE-TEST FAIL; `abort` on either trigger
 bun "${DPT_PLUGIN_DIR}/adapters/_shared/src/smoke_verdict.ts" emit \
   --tracker <tracker> --path /tmp/dpt-smoke-verdict-<tracker>.json \
@@ -546,16 +555,26 @@ PIDS=""
 # its own run and records under <tracker>.
 DPT_SMOKE_RUN_ID="${DPT_SMOKE_RUN_ID:-$(uuidgen | tr '[:upper:]' '[:lower:]')}"
 DPT_SMOKE_LEG="${DPT_SMOKE_LEG:-<tracker>}"
+# The toolkit checkout this run records under and loads the plugin from — never
+# a literal, which names ONE checkout and had a driver in a worktree record its
+# grandchildren under, and load the plugin from, a tree it was not running in
+# (M_4df444 F12). Inherited when the caller exported it; else the cwd when that
+# IS the checkout (pre-flight #1); else the checkout beside this test project
+# (pre-flight #6 pins them as siblings, #1 pins the basename). Refuses rather
+# than guessing when neither holds the plugin manifest.
+DPT_PROJECT_ROOT="${DPT_PROJECT_ROOT:-$([ -f plugins/dev-process-toolkit/.claude-plugin/plugin.json ] && pwd || echo "$(dirname "$(pwd)")/dev-process-toolkit")}"
+[ -f "${DPT_PROJECT_ROOT}/plugins/dev-process-toolkit/.claude-plugin/plugin.json" ] || { echo "ABORT: /smoke-test cannot resolve the toolkit checkout (tried ${DPT_PROJECT_ROOT}) — run from the checkout or its test project, or export DPT_PROJECT_ROOT" >&2; exit 1; }
+DPT_PLUGIN_DIR="${DPT_PROJECT_ROOT}/plugins/dev-process-toolkit"
 
 # /gate-check — detached spawn + PID capture (STE-355); poll until exit
 SID_GATE_CHECK=$(uuidgen | tr '[:upper:]' '[:lower:]')
-bun /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts append \
-  --project-root /Users/ns/workspace/dev-process-toolkit \
+bun "${DPT_PLUGIN_DIR}/adapters/_shared/src/smoke_run_ledger.ts" append \
+  --project-root "${DPT_PROJECT_ROOT}" \
   --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_GATE_CHECK}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
 claude -p /dev-process-toolkit:gate-check \
   --session-id "${SID_GATE_CHECK}" \
   --output-format stream-json --verbose \
-  --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
+  --plugin-dir "${DPT_PLUGIN_DIR}" \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
   < /dev/null > /tmp/dpt-smoke-<tracker>-gate-check.log 2>&1 &
 echo $! > /tmp/dpt-smoke-<tracker>-gate-check.pid
@@ -563,13 +582,13 @@ LAUNCHED=$((LAUNCHED + 1)); PIDS="${PIDS} $!"
 
 # /spec-review — detached spawn + PID capture (STE-355); poll until exit
 SID_SPEC_REVIEW=$(uuidgen | tr '[:upper:]' '[:lower:]')
-bun /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts append \
-  --project-root /Users/ns/workspace/dev-process-toolkit \
+bun "${DPT_PLUGIN_DIR}/adapters/_shared/src/smoke_run_ledger.ts" append \
+  --project-root "${DPT_PROJECT_ROOT}" \
   --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_SPEC_REVIEW}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
 claude -p "/dev-process-toolkit:spec-review <feature-id>" \
   --session-id "${SID_SPEC_REVIEW}" \
   --output-format stream-json --verbose \
-  --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
+  --plugin-dir "${DPT_PLUGIN_DIR}" \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
   < /dev/null > /tmp/dpt-smoke-<tracker>-spec-review.log 2>&1 &
 echo $! > /tmp/dpt-smoke-<tracker>-spec-review.pid
@@ -577,13 +596,13 @@ LAUNCHED=$((LAUNCHED + 1)); PIDS="${PIDS} $!"
 
 # /simplify — detached spawn + PID capture (STE-355); poll until exit
 SID_SIMPLIFY=$(uuidgen | tr '[:upper:]' '[:lower:]')
-bun /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts append \
-  --project-root /Users/ns/workspace/dev-process-toolkit \
+bun "${DPT_PLUGIN_DIR}/adapters/_shared/src/smoke_run_ledger.ts" append \
+  --project-root "${DPT_PROJECT_ROOT}" \
   --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_SIMPLIFY}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
 claude -p /dev-process-toolkit:simplify \
   --session-id "${SID_SIMPLIFY}" \
   --output-format stream-json --verbose \
-  --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
+  --plugin-dir "${DPT_PLUGIN_DIR}" \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
   < /dev/null > /tmp/dpt-smoke-<tracker>-simplify.log 2>&1 &
 echo $! > /tmp/dpt-smoke-<tracker>-simplify.pid
@@ -636,6 +655,16 @@ PIDS=""
 # from /conformance-loop when it spawned this shell, minted here otherwise.
 DPT_SMOKE_RUN_ID="${DPT_SMOKE_RUN_ID:-$(uuidgen | tr '[:upper:]' '[:lower:]')}"
 DPT_SMOKE_LEG="${DPT_SMOKE_LEG:-<tracker>}"
+# The toolkit checkout this run records under and loads the plugin from — never
+# a literal, which names ONE checkout and had a driver in a worktree record its
+# grandchildren under, and load the plugin from, a tree it was not running in
+# (M_4df444 F12). Inherited when the caller exported it; else the cwd when that
+# IS the checkout (pre-flight #1); else the checkout beside this test project
+# (pre-flight #6 pins them as siblings, #1 pins the basename). Refuses rather
+# than guessing when neither holds the plugin manifest.
+DPT_PROJECT_ROOT="${DPT_PROJECT_ROOT:-$([ -f plugins/dev-process-toolkit/.claude-plugin/plugin.json ] && pwd || echo "$(dirname "$(pwd)")/dev-process-toolkit")}"
+[ -f "${DPT_PROJECT_ROOT}/plugins/dev-process-toolkit/.claude-plugin/plugin.json" ] || { echo "ABORT: /smoke-test cannot resolve the toolkit checkout (tried ${DPT_PROJECT_ROOT}) — run from the checkout or its test project, or export DPT_PROJECT_ROOT" >&2; exit 1; }
+DPT_PLUGIN_DIR="${DPT_PROJECT_ROOT}/plugins/dev-process-toolkit"
 
 # /setup — heredoc body carries pre-baked answers + acknowledgment of pre-existing settings.json/.mcp.json
 # The prose lines are ORIENTATION only — pre-baked `<command-args>`-style text
@@ -648,13 +677,13 @@ DPT_SMOKE_LEG="${DPT_SMOKE_LEG:-<tracker>}"
 # block is inert (see `docs/auto-mode-protocol.md` § Sanctioned Answers Block).
 # Detached spawn + PID capture (STE-355); poll until exit before /spec-write.
 SID_SETUP=$(uuidgen | tr '[:upper:]' '[:lower:]')
-bun /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts append \
-  --project-root /Users/ns/workspace/dev-process-toolkit \
+bun "${DPT_PLUGIN_DIR}/adapters/_shared/src/smoke_run_ledger.ts" append \
+  --project-root "${DPT_PROJECT_ROOT}" \
   --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_SETUP}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
 claude -p \
   --session-id "${SID_SETUP}" \
   --output-format stream-json --verbose \
-  --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
+  --plugin-dir "${DPT_PLUGIN_DIR}" \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
   > /tmp/dpt-smoke-<tracker>-setup.log 2>&1 <<'PROMPT_EOF' &
 <dpt:auto-approve>v1</dpt:auto-approve>
@@ -703,13 +732,13 @@ LAUNCHED=$((LAUNCHED + 1)); PIDS="${PIDS} $!"
 # § Sanctioned Answers Block).
 # Detached spawn + PID capture (STE-355); poll until exit before /implement.
 SID_SPEC_WRITE=$(uuidgen | tr '[:upper:]' '[:lower:]')
-bun /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts append \
-  --project-root /Users/ns/workspace/dev-process-toolkit \
+bun "${DPT_PLUGIN_DIR}/adapters/_shared/src/smoke_run_ledger.ts" append \
+  --project-root "${DPT_PROJECT_ROOT}" \
   --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_SPEC_WRITE}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
 claude -p \
   --session-id "${SID_SPEC_WRITE}" \
   --output-format stream-json --verbose \
-  --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
+  --plugin-dir "${DPT_PLUGIN_DIR}" \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
   > /tmp/dpt-smoke-<tracker>-spec-write.log 2>&1 <<'PROMPT_EOF' &
 <dpt:auto-approve>v1</dpt:auto-approve>
@@ -738,13 +767,13 @@ LAUNCHED=$((LAUNCHED + 1)); PIDS="${PIDS} $!"
 # /implement — heredoc body carries pre-authorization for the Phase 4 step 15 commit
 # Detached spawn + PID capture (STE-355); poll until exit before /gate-check.
 SID_IMPLEMENT=$(uuidgen | tr '[:upper:]' '[:lower:]')
-bun /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts append \
-  --project-root /Users/ns/workspace/dev-process-toolkit \
+bun "${DPT_PLUGIN_DIR}/adapters/_shared/src/smoke_run_ledger.ts" append \
+  --project-root "${DPT_PROJECT_ROOT}" \
   --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_IMPLEMENT}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
 claude -p \
   --session-id "${SID_IMPLEMENT}" \
   --output-format stream-json --verbose \
-  --plugin-dir /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit \
+  --plugin-dir "${DPT_PLUGIN_DIR}" \
   --mcp-config /tmp/dpt-smoke-mcp-config-<tracker>.json \
   > /tmp/dpt-smoke-<tracker>-implement.log 2>&1 <<'PROMPT_EOF' &
 <dpt:auto-approve>v1</dpt:auto-approve>
@@ -855,13 +884,23 @@ export CLAUDE_CONFIG_DIR=~/.claude-st   # STE-350: exported once per spawning bl
 # STE-594: inherited from /conformance-loop when it spawned this shell, minted otherwise.
 DPT_SMOKE_RUN_ID="${DPT_SMOKE_RUN_ID:-$(uuidgen | tr '[:upper:]' '[:lower:]')}"
 DPT_SMOKE_LEG="${DPT_SMOKE_LEG:-<tracker>}"
+# The toolkit checkout this run records under and loads the plugin from — never
+# a literal, which names ONE checkout and had a driver in a worktree record its
+# grandchildren under, and load the plugin from, a tree it was not running in
+# (M_4df444 F12). Inherited when the caller exported it; else the cwd when that
+# IS the checkout (pre-flight #1); else the checkout beside this test project
+# (pre-flight #6 pins them as siblings, #1 pins the basename). Refuses rather
+# than guessing when neither holds the plugin manifest.
+DPT_PROJECT_ROOT="${DPT_PROJECT_ROOT:-$([ -f plugins/dev-process-toolkit/.claude-plugin/plugin.json ] && pwd || echo "$(dirname "$(pwd)")/dev-process-toolkit")}"
+[ -f "${DPT_PROJECT_ROOT}/plugins/dev-process-toolkit/.claude-plugin/plugin.json" ] || { echo "ABORT: /smoke-test cannot resolve the toolkit checkout (tried ${DPT_PROJECT_ROOT}) — run from the checkout or its test project, or export DPT_PROJECT_ROOT" >&2; exit 1; }
+DPT_PLUGIN_DIR="${DPT_PROJECT_ROOT}/plugins/dev-process-toolkit"
 attempt_1_started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 # Attempt 1 captures into its OWN log — attempt 2 below writes a different
 # path, so nothing here is truncated by the retry. Each attempt is its own
 # session: a fresh id, recorded in the run ledger before it spawns (STE-594).
 SID_SETUP_1=$(uuidgen | tr '[:upper:]' '[:lower:]')
-bun /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts append \
-  --project-root /Users/ns/workspace/dev-process-toolkit \
+bun "${DPT_PLUGIN_DIR}/adapters/_shared/src/smoke_run_ledger.ts" append \
+  --project-root "${DPT_PROJECT_ROOT}" \
   --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_SETUP_1}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
 claude -p ... --session-id "${SID_SETUP_1}" > /tmp/dpt-smoke-<tracker>-setup.attempt1.log 2>&1 <<'PROMPT_EOF' &
 <dpt:auto-approve>v1</dpt:auto-approve>
@@ -923,8 +962,8 @@ EOF
 
   attempt_2_started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   SID_SETUP_2=$(uuidgen | tr '[:upper:]' '[:lower:]')
-  bun /Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts append \
-    --project-root /Users/ns/workspace/dev-process-toolkit \
+  bun "${DPT_PLUGIN_DIR}/adapters/_shared/src/smoke_run_ledger.ts" append \
+    --project-root "${DPT_PROJECT_ROOT}" \
     --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" --session "${SID_SETUP_2}" ${DPT_SMOKE_PARENT:+--parent=${DPT_SMOKE_PARENT}}
   claude -p ... --session-id "${SID_SETUP_2}" > /tmp/dpt-smoke-<tracker>-setup.attempt2.log 2>&1 <<'PROMPT_EOF' &
 <dpt:auto-approve>v1</dpt:auto-approve>
@@ -1042,7 +1081,17 @@ Every "did the skill emit its capability row?" assertion below — and in Phase 
 The runner projects the capture through `extractAssistantText` (only `assistant` events' text blocks survive) and scores that. It also subtracts occurrences that land **after** the STE-408 refusal marker `<dpt:requires-input-refused>v1</dpt:requires-input-refused>` in that projection: those are post-refusal explanatory prose ("no row exists because § 7 was never reached"), never emissions — which is what stops a *correct* refusal from being reported as a marker-contract regression by the absence-asserting fixtures (1b, 5b). The rule is positional: the same token ahead of the marker still scores PRESENT.
 
 ```bash
-PLUGIN_DIR=/Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit
+# The toolkit checkout this run records under and loads the plugin from — never
+# a literal, which names ONE checkout and had a driver in a worktree record its
+# grandchildren under, and load the plugin from, a tree it was not running in
+# (M_4df444 F12). Inherited when the caller exported it; else the cwd when that
+# IS the checkout (pre-flight #1); else the checkout beside this test project
+# (pre-flight #6 pins them as siblings, #1 pins the basename). Refuses rather
+# than guessing when neither holds the plugin manifest.
+DPT_PROJECT_ROOT="${DPT_PROJECT_ROOT:-$([ -f plugins/dev-process-toolkit/.claude-plugin/plugin.json ] && pwd || echo "$(dirname "$(pwd)")/dev-process-toolkit")}"
+[ -f "${DPT_PROJECT_ROOT}/plugins/dev-process-toolkit/.claude-plugin/plugin.json" ] || { echo "ABORT: /smoke-test cannot resolve the toolkit checkout (tried ${DPT_PROJECT_ROOT}) — run from the checkout or its test project, or export DPT_PROJECT_ROOT" >&2; exit 1; }
+DPT_PLUGIN_DIR="${DPT_PROJECT_ROOT}/plugins/dev-process-toolkit"
+PLUGIN_DIR="${DPT_PLUGIN_DIR}"
 CAP_ASSERT=${PLUGIN_DIR}/adapters/_shared/src/capability_row_assert.ts
 # usage: bun "${CAP_ASSERT}" <present|absent|any-of> <capture.log> <key…>
 #   present  every named key emitted        absent  none emitted
@@ -2059,7 +2108,17 @@ Both tracker paths converge here. This is the run's **closing check** — the la
 Enumerate the run's OWN artifact paths. Never infer the answer from a bare `git status --porcelain`: that form under-reports twice over — a fully-untracked directory collapses into a single `!! <dir>/` row instead of listing the files inside it, and the Phase 8 raw transcript captures are git-ignored by design (§ Phase 8 — disposal rule), so they never appear in it at all. `--ignored=matching -uall` plus one explicit pathspec per artifact class is what keeps the answer complete, and it is what stops this check from going vacuous the moment an artifact class becomes ignored:
 
 ```bash
-PLUGIN_DIR=/Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit
+# The toolkit checkout this run records under and loads the plugin from — never
+# a literal, which names ONE checkout and had a driver in a worktree record its
+# grandchildren under, and load the plugin from, a tree it was not running in
+# (M_4df444 F12). Inherited when the caller exported it; else the cwd when that
+# IS the checkout (pre-flight #1); else the checkout beside this test project
+# (pre-flight #6 pins them as siblings, #1 pins the basename). Refuses rather
+# than guessing when neither holds the plugin manifest.
+DPT_PROJECT_ROOT="${DPT_PROJECT_ROOT:-$([ -f plugins/dev-process-toolkit/.claude-plugin/plugin.json ] && pwd || echo "$(dirname "$(pwd)")/dev-process-toolkit")}"
+[ -f "${DPT_PROJECT_ROOT}/plugins/dev-process-toolkit/.claude-plugin/plugin.json" ] || { echo "ABORT: /smoke-test cannot resolve the toolkit checkout (tried ${DPT_PROJECT_ROOT}) — run from the checkout or its test project, or export DPT_PROJECT_ROOT" >&2; exit 1; }
+DPT_PLUGIN_DIR="${DPT_PROJECT_ROOT}/plugins/dev-process-toolkit"
+PLUGIN_DIR="${DPT_PLUGIN_DIR}"
 TOOLKIT_REPO=${PLUGIN_DIR%/plugins/dev-process-toolkit}
 # One pathspec per artifact class this run writes into the toolkit repo: the
 # Phase 8 transcript captures, and the Phase 2.X group-8a nested-spawn capture
@@ -2119,13 +2178,24 @@ Capture each child's transcript artifact under `tests/fixtures/socratic-first-tu
 
 ```bash
 DATE=$(date +%Y-%m-%d)
-PLUGIN_DIR=/Users/ns/workspace/dev-process-toolkit/plugins/dev-process-toolkit
+# The toolkit checkout this run records under and loads the plugin from — never
+# a literal, which names ONE checkout and had a driver in a worktree record its
+# grandchildren under, and load the plugin from, a tree it was not running in
+# (M_4df444 F12). Inherited when the caller exported it; else the cwd when that
+# IS the checkout (pre-flight #1); else the checkout beside this test project
+# (pre-flight #6 pins them as siblings, #1 pins the basename). Refuses rather
+# than guessing when neither holds the plugin manifest.
+DPT_PROJECT_ROOT="${DPT_PROJECT_ROOT:-$([ -f plugins/dev-process-toolkit/.claude-plugin/plugin.json ] && pwd || echo "$(dirname "$(pwd)")/dev-process-toolkit")}"
+[ -f "${DPT_PROJECT_ROOT}/plugins/dev-process-toolkit/.claude-plugin/plugin.json" ] || { echo "ABORT: /smoke-test cannot resolve the toolkit checkout (tried ${DPT_PROJECT_ROOT}) — run from the checkout or its test project, or export DPT_PROJECT_ROOT" >&2; exit 1; }
+DPT_PLUGIN_DIR="${DPT_PROJECT_ROOT}/plugins/dev-process-toolkit"
+PLUGIN_DIR="${DPT_PLUGIN_DIR}"
 FIXTURE_DIR=${PLUGIN_DIR}/tests/fixtures/socratic-first-turn
 export CLAUDE_CONFIG_DIR=~/.claude-st   # STE-350: exported once per spawning block so every spawn line begins bare with `claude` and the tracked `Bash(claude:*)` allow entry matches.
 ASSERT_RUNNER=${PLUGIN_DIR}/adapters/_shared/src/socratic_first_turn_assert.ts
 # STE-422: the resolved test-project path, absolute — the parent of every
-# per-skill workspace below. Derived from PLUGIN_DIR so it does not depend on
-# the driver's cwd.
+# per-skill workspace below. Derived from PLUGIN_DIR, which the binding above
+# resolves from either of the driver's two documented cwds, so it does not
+# depend on which one this block runs in.
 TRACKER="${TRACKER:?--tracker must resolve to linear|jira|none before Phase 8}"
 TOOLKIT_REPO=${PLUGIN_DIR%/plugins/dev-process-toolkit}
 TEST_PROJECT_DIR=$(dirname "${TOOLKIT_REPO}")/dpt-test-project-${TRACKER}

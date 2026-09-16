@@ -27,7 +27,11 @@
 //     repo root in it is rebased into the sandbox. A fence therefore never reads
 //     or writes a real run's artifacts, pidfiles, findings or approval record,
 //     nor the repo's real `.dpt/`. HOME is the sandbox's, so `~/.claude-st`
-//     resolves inside it too.
+//     resolves inside it too. The smoke fences bind their checkout from the cwd
+//     (`<sandbox>/work`, which carries a plugin manifest for that purpose) rather
+//     than from a literal — a literal naming ANOTHER checkout escaped both the
+//     rebase and the delegate refusal, and from a worktree the real ledger
+//     writer recorded under that other tree (M_4df444 F12, measured 2026-09-16).
 //   * A guard lists the real repo's `.dpt/ledger/` tree before and after each
 //     termination scenario and fails the test if a run-ledger file appeared
 //     there.
@@ -228,6 +232,13 @@ export function makeSandbox(mode: StubMode): Sandbox {
     planted: [],
   };
   for (const d of [sb.bin, sb.tmp, sb.work, sb.home, sb.envDir]) mkdirSync(d, { recursive: true });
+  // `work` stands in for the toolkit checkout. The smoke fences no longer carry
+  // a literal checkout path for `rebase` to move (M_4df444 F12): each binds
+  // DPT_PROJECT_ROOT to its cwd when that cwd holds the plugin manifest, so the
+  // sandbox carries one — an empty manifest, never read, only found. The bun
+  // stub delegates by module BASENAME to this plugin's real source, so the
+  // path under `work` is never executed.
+  plantCheckout(sb.work);
   writeFileSync(join(sb.bin, "claude"), claudeStub(sb), { mode: 0o755 });
   writeFileSync(join(sb.bin, "bun"), bunStub(sb), { mode: 0o755 });
   writeFileSync(join(sb.bin, "sleep"), "#!/bin/bash\nexec /bin/sleep 0.2\n", { mode: 0o755 });
@@ -260,11 +271,15 @@ export interface FenceRun {
   timedOut: boolean;
 }
 
-/** Run a script FILE with the stubs first on PATH. Refuses to run if a stub is not what resolves. */
-export function runScript(sb: Sandbox, script: string, env: Record<string, string>, timeoutMs = 60_000): FenceRun {
+/**
+ * Run a script FILE with the stubs first on PATH. Refuses to run if a stub is not
+ * what resolves. `cwd` defaults to `<sandbox>/work`, the checkout stand-in; the
+ * F12 legs run from a sibling test-project dir instead, the cwd Phase 2 really has.
+ */
+export function runScript(sb: Sandbox, script: string, env: Record<string, string>, timeoutMs = 60_000, cwd: string = sb.work): FenceRun {
   const file = join(sb.root, `fence-${++seq}.sh`);
   writeFileSync(file, script);
-  const which = Bun.spawnSync(["bash", "-c", "command -v claude; command -v bun"], { env, cwd: sb.work });
+  const which = Bun.spawnSync(["bash", "-c", "command -v claude; command -v bun"], { env, cwd });
   expect(
     which.stdout.toString().trim().split("\n"),
     "SAFETY: the stubs must shadow the real claude and bun, or nothing runs",
@@ -274,7 +289,7 @@ export function runScript(sb: Sandbox, script: string, env: Record<string, strin
   const t0 = Date.now();
   const r = Bun.spawnSync(["bash", "-c", 'bash "$1" >"$2" 2>"$3"', "ste594-runner", file, out, err], {
     env,
-    cwd: sb.work,
+    cwd,
     timeout: timeoutMs,
   });
   const elapsedMs = Date.now() - t0;
@@ -534,9 +549,17 @@ export function assertRealLedgerUntouched(before: Set<string>): void {
   expect(added, "SAFETY: a fence under test wrote a run ledger into the REAL repo's .dpt/ledger/").toEqual([]);
 }
 
-/** Every run-ledger row the sandbox holds: each `.jsonl` under <work>/.dpt/ledger/ except the token ledger. */
-export function sandboxLedgerRows(sb: Sandbox): Array<Record<string, unknown>> {
-  const dir = join(sb.work, ".dpt", "ledger");
+/** A checkout stand-in at `dir`: the plugin manifest the smoke fences bind DPT_PROJECT_ROOT by. Found, never read. */
+export function plantCheckout(dir: string): string {
+  const manifestDir = join(dir, "plugins", "dev-process-toolkit", ".claude-plugin");
+  mkdirSync(manifestDir, { recursive: true });
+  writeFileSync(join(manifestDir, "plugin.json"), "{}\n");
+  return dir;
+}
+
+/** Every run-ledger row under `<root>/.dpt/ledger/` (default: the sandbox's work dir), each `.jsonl` except the token ledger. */
+export function sandboxLedgerRows(sb: Sandbox, root: string = sb.work): Array<Record<string, unknown>> {
+  const dir = join(root, ".dpt", "ledger");
   const rows: Array<Record<string, unknown>> = [];
   if (!existsSync(dir)) return rows;
   const walk = (d: string) => {

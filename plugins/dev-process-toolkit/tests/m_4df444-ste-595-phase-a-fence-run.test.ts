@@ -73,6 +73,12 @@ function makeSandbox(): Sandbox {
   const tmp = join(root, "tmp");
   const work = join(root, "work");
   for (const d of [bin, tmp, work]) mkdirSync(d, { recursive: true });
+  // `work` stands in for the toolkit checkout: each smoke fence binds its
+  // DPT_PROJECT_ROOT to the cwd when that cwd holds the plugin manifest, and
+  // refuses before any spawn when nothing does (M_4df444 F12). The manifest is
+  // found, never read; `bun` is fully stubbed here, so nothing under `work` runs.
+  mkdirSync(join(work, "plugins", "dev-process-toolkit", ".claude-plugin"), { recursive: true });
+  writeFileSync(join(work, "plugins", "dev-process-toolkit", ".claude-plugin", "plugin.json"), "{}\n");
   const record = join(root, "claude-stub.record");
   writeFileSync(
     join(bin, "claude"),

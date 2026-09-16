@@ -17,6 +17,8 @@
 // driver ran them, so a fence that needs an inherited variable must default it.
 
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 
 import { countLines, label, spawnLineIndices } from "./_spawn_fences";
 import {
@@ -27,10 +29,12 @@ import {
   makeSandbox,
   PHASE_A_ENV,
   phaseAScript,
+  plantCheckout,
   readCalls,
   reap,
   REGISTERED_LEGS,
   runScript,
+  sandboxLedgerRows,
   sessionIdOf,
   SMOKE_RUNNABLE,
   smokeScript,
@@ -195,4 +199,86 @@ describe("AC-STE-594.3 — a /smoke-test grandchild records the run id and leg i
       reap(sb);
     }
   }, 90_000);
+});
+
+// ===========================================================================
+// AUDIT FOLLOW-UP (M_4df444 F12) — a fence records under the checkout it is
+// RUNNING IN, never under a literal one.
+//
+// Every /smoke-test append and every `--plugin-dir` carried the literal
+// `/Users/ns/workspace/dev-process-toolkit`. That escaped the harness's rebase
+// (which moves the REAL repo root, i.e. wherever these tests live) and the
+// delegate stub's refusal (same string), so from a worktree the real ledger
+// writer recorded under the main checkout — twenty-one files, measured
+// 2026-09-16 — and the shipped fences would load one checkout's plugin while
+// running in another. The binding now resolves from the fence's cwd: the
+// checkout itself, or the test project beside it (Phase 2's real cwd), and
+// refuses before any spawn when neither holds the plugin manifest. Delegate
+// mode: the real writer runs, so "where the rows landed" is the assertion.
+// ===========================================================================
+
+describe("M_4df444 F12 — the fence binds its checkout from where it runs", () => {
+  const f = SMOKE_RUNNABLE[0];
+
+  test("run from the test project BESIDE the checkout, the rows land under the checkout", () => {
+    expect(f, "a runnable /smoke-test spawn fence").toBeDefined();
+    const k = spawnLineIndices(f!).length;
+    const sb = makeSandbox("delegate");
+    try {
+      // Pre-flights #1 and #6 pin this layout: the checkout's basename, and the
+      // test project as its sibling. The sandbox's own `work` is NOT the cwd.
+      const checkout = plantCheckout(join(sb.root, "dev-process-toolkit"));
+      const testProject = join(sb.root, "dpt-test-project-linear");
+      mkdirSync(testProject, { recursive: true });
+      const run = runScript(sb, smokeScript(f!, sb, "linear"), baseEnv(sb), 60_000, testProject);
+      const cs = waitForKind(sb, "claude", k);
+      expect(cs.filter((c) => c.kind === "claude").length, `stderr:\n${run.err}`).toBe(k);
+      expect(run.exitCode, `stderr:\n${run.err}`).toBe(0);
+      expect(sandboxLedgerRows(sb, checkout).length, "one row per spawn, under the CHECKOUT").toBe(k);
+      expect(sandboxLedgerRows(sb).length, "nothing under the sandbox's work dir").toBe(0);
+      expect(sandboxLedgerRows(sb, testProject).length, "nothing under the test project").toBe(0);
+      // `pwd` in the fence is the PHYSICAL path (the sandbox lives under a
+      // symlinked tmpdir on macOS), so compare against the resolved one.
+      const pluginDir = join(realpathSync(checkout), "plugins", "dev-process-toolkit");
+      for (const c of cs.filter((c) => c.kind === "claude")) {
+        expect(c.args, "every child loads the plugin from the checkout it runs beside").toContain(`--plugin-dir ${pluginDir}`);
+      }
+    } finally {
+      reap(sb);
+    }
+  }, 60_000);
+
+  test("an exported DPT_PROJECT_ROOT wins over the cwd", () => {
+    expect(f, "a runnable /smoke-test spawn fence").toBeDefined();
+    const k = spawnLineIndices(f!).length;
+    const sb = makeSandbox("delegate");
+    try {
+      const exported = plantCheckout(join(sb.root, "exported-checkout"));
+      const run = runScript(sb, smokeScript(f!, sb, "linear"), baseEnv(sb, { DPT_PROJECT_ROOT: exported }));
+      const cs = waitForKind(sb, "claude", k);
+      expect(cs.filter((c) => c.kind === "claude").length, `stderr:\n${run.err}`).toBe(k);
+      expect(sandboxLedgerRows(sb, exported).length, "rows under the exported root").toBe(k);
+      expect(sandboxLedgerRows(sb).length, "none under the cwd, which also holds a manifest").toBe(0);
+    } finally {
+      reap(sb);
+    }
+  }, 60_000);
+
+  test("nowhere to bind ⇒ the fence refuses BEFORE its first spawn — no child, no append, no guess", () => {
+    expect(f, "a runnable /smoke-test spawn fence").toBeDefined();
+    const sb = makeSandbox("delegate");
+    try {
+      // A bare dir: no manifest here, no checkout beside it.
+      const nowhere = join(sb.root, "nowhere", "dpt-test-project-linear");
+      mkdirSync(nowhere, { recursive: true });
+      const run = runScript(sb, smokeScript(f!, sb, "linear"), baseEnv(sb), 60_000, nowhere);
+      expect(run.exitCode).not.toBe(0);
+      expect(run.err).toContain("ABORT: /smoke-test cannot resolve the toolkit checkout");
+      expect(readCalls(sb).filter((c) => c.kind === "claude").length, "no child was spawned").toBe(0);
+      expect(appendsIn(readCalls(sb)).length, "no append was attempted").toBe(0);
+      expect(run.out, "no count line: the fence never reached its spawns").not.toMatch(/launched=/);
+    } finally {
+      reap(sb);
+    }
+  }, 60_000);
 });
