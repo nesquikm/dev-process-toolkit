@@ -145,11 +145,14 @@ const ALL_TOKENS = [
  * `external_link_check_unchecked_offline`, the external-link liveness check
  * that could not run at all), then 44 → 45 (M_840a06/STE-579
  * `tracker_idempotency_uncertain`, the idempotency-probe fall-through that
- * created without a confirmed miss). The pin is absolute by
+ * created without a confirmed miss), then 45 → 47 (M_0c14d0 the
+ * design-reference hand-off XOR pair `design_references_passed` /
+ * `design_references_none_cited`, the two /implement Phase 4b″
+ * dispositions). The pin is absolute by
  * design, so every later registration moves it here as well; what it forbids
  * is a SILENT move, not a declared one.
  */
-const REGISTRY_LENGTH_AFTER_THIS_FR = 45;
+const REGISTRY_LENGTH_AFTER_THIS_FR = 47;
 
 /** The NFR line cap on `/implement`'s SKILL.md. Zero-ish headroom by design. */
 const IMPLEMENT_SKILL_LINE_CAP = 358;

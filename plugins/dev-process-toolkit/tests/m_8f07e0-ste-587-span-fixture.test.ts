@@ -537,8 +537,10 @@ describe("AC-STE-587.8 — no new probe, leg or key", () => {
     expect(isContiguousFromOne(nums)).toBe(true);
   });
 
-  test("CANONICAL_CAPABILITY_KEYS.length is 45", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(45);
+  test("CANONICAL_CAPABILITY_KEYS.length is 47", () => {
+    // 45 when this suite landed; 47 since M_0c14d0's declared registration of
+    // the design-reference hand-off XOR pair. STE-587 registers none itself.
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(47);
   });
 
   test("SMOKE_LEGS.length is 3", () => {

@@ -179,6 +179,19 @@ export const CANONICAL_CAPABILITY_KEYS = [
   // delete tool — registering it moves it from ungraded prose to a key the
   // bidirectional invariant grades in both directions.
   "tracker_idempotency_uncertain",
+  // M_0c14d0: the design-reference hand-off dispositions. Exactly one of the
+  // two emits per /implement Phase 4b″ run (XOR — never both, never neither):
+  // `design_references_passed` when the in-scope FR cited at least one design
+  // reference and the rendered block travelled with the check-skill invocation
+  // (or the `manual` reminder), `design_references_none_cited` when the FR
+  // cited none and the invocation stayed byte-identical to a project that
+  // never adopted the capability. The cited-none half is registered precisely
+  // because it is the quiet one: an un-emitted vacuous path and a broken
+  // hand-off read identically in a closing summary. Both spelled digit-free so
+  // the probe's reverse orphan scan (`MUST emit \`([a-z_]+)\``) can see them
+  // and the const<->directive invariant stays two-way.
+  "design_references_passed",
+  "design_references_none_cited",
 ] as const;
 
 export type CapabilityKey = (typeof CANONICAL_CAPABILITY_KEYS)[number];
@@ -299,6 +312,14 @@ export const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   // directive itself lives in /spec-write's step 4 idempotency-hardening block,
   // at the backoff-probe fall-through that creates without a confirmed miss.
   tracker_idempotency_uncertain: "spec-write",
+  // M_0c14d0: the design-reference hand-off pair. Routes to spec-write for the
+  // same reason as every row above — the § 7 static map is the canonical owner
+  // surface this probe enforces, and the probe's fixture legs write only a
+  // fixture spec-write SKILL.md and expect one violation per canonical key.
+  // /implement carries the emission-site MUST-emit directives of its own, on
+  // the Phase 4b″ run-placement paragraph where the block is rendered.
+  design_references_passed: "spec-write",
+  design_references_none_cited: "spec-write",
 };
 
 /**
