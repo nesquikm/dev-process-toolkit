@@ -27,6 +27,7 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -35,7 +36,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import {
   scanDesignReferences,
   scanExternalReferences,
@@ -499,6 +500,30 @@ function shippedSources(): string[] {
 }
 
 /**
+ * Every shipped skill body — one `SKILL.md` per directory under `skills/`.
+ *
+ * The AC.2 emitter scan above walks `.ts` under `adapters/_shared/src`, and
+ * that source set contains NO CALLER of the renderer: the only caller in
+ * existence is /implement's Phase 4b″ prose. So the AC's second clause — "no
+ * caller re-renders it" — was graded against a set its subject could not
+ * appear in, and a hand-written restatement of the block's shape in skill
+ * prose landed byte-silently. This is the set that holds the callers.
+ *
+ * Markdown only, so the renderer's own source is out of scope by construction
+ * rather than by an exclusion someone has to remember to keep correct.
+ */
+function shippedSkillDocs(): string[] {
+  const skillsDir = join(import.meta.dir, "..", "skills");
+  const out: string[] = [];
+  for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const doc = join(skillsDir, entry.name, "SKILL.md");
+    if (existsSync(doc)) out.push(doc);
+  }
+  return out;
+}
+
+/**
  * Drop block + line comments so a source-level scan grades CODE, not prose.
  * Without this, a header comment that merely NAMES the section reads as a
  * second parser (`migrations/monolith_split.ts` mentions `## Design
@@ -772,6 +797,34 @@ describe("AC-STE-596 — design references reach the project's verification step
     // Control: the renderer itself is found by this scan.
     expect(emitters).toContain(mod.path);
     expect(emitters.length).toBe(1);
+  });
+
+  test("AC-STE-596.2 — no shipped SKILL.md restates the block's shape", () => {
+    // The OTHER half of AC.2, and until this leg it graded nothing. "No caller
+    // re-renders it" was checked against shipped `.ts` under
+    // adapters/_shared/src — a set containing no caller, because the only
+    // caller is /implement's Phase 4b″ PROSE. Planting a hand-written
+    // `Design references:` block in that paragraph — the exact second
+    // definition of the shape this AC forbids — left the whole suite
+    // byte-identical. The shape has one home; a caller that re-types it has
+    // made a second one, whether it did so in TypeScript or in markdown.
+    const header = "Design references:";
+    const skillDocs = shippedSkillDocs();
+
+    // Control 1 — the scan reaches a real, non-empty set of skill bodies.
+    expect(skillDocs.length).toBeGreaterThan(0);
+
+    // Control 2 — the scan can HIT. The renderer's own source carries the
+    // literal, so a search that cannot find it there is broken rather than
+    // clean, and the zero-hit assertion below would be vacuous.
+    expect(
+      readFileSync(join(SRC_DIR, "design_reference_block.ts"), "utf-8"),
+    ).toContain(header);
+
+    const restaters = skillDocs
+      .filter((f) => readFileSync(f, "utf-8").includes(header))
+      .map((f) => relative(join(import.meta.dir, ".."), f));
+    expect(restaters).toEqual([]);
   });
 
   test("AC-STE-596.1 — the rendered block carries every row's repo-root-relative path and authored caption", async () => {
