@@ -729,6 +729,10 @@ const BASELINE_FAMILIES: readonly (readonly [string, string])[] = [
   // so the whole-set coverage leg below stays exhaustive rather than silently
   // tolerating an unlisted key.
   ["tracker_idempotency", "tracker_idempotency_uncertain"],
+  // M_0c14d0: the design-reference hand-off dispositions — a new family,
+  // listed here so the whole-set coverage leg below stays exhaustive rather
+  // than silently tolerating an unlisted key.
+  ["design_references", "design_references_passed"],
 ] as const;
 
 /** The canonical key count measured on 2026-08-31, before the rewrite. */

@@ -7,7 +7,8 @@
 // the section ends at the next line beginning with `## `), and for each list
 // item under it whose first backtick-wrapped token is a repo-root-relative
 // path emit a row recording the path, the spec file it lives in, the entry's
-// 1-indexed line, and whether the path resolves on disk.
+// 1-indexed line, the prose caption after the separator dash, and whether the
+// path resolves on disk.
 //
 // Detection-only + deterministic: the probe (caller) GATE FAILEDs on any row
 // with `resolves === false`. Non-path prose lines under the heading (no
@@ -44,6 +45,10 @@ export interface DesignReferenceRow {
   file: string;
   /** 1-indexed line of the entry. */
   line: number;
+  /** Prose caption after the separator dash, `null` when absent. Read by the
+   * SAME `parseReferenceTail` reader the external rows use — one caption
+   * parser serves both row kinds, so they can never drift apart. */
+  caption: string | null;
   /** existsSync(join(projectRoot, path)). */
   resolves: boolean;
 }
@@ -136,6 +141,12 @@ function scanFile(absPath: string, projectRoot: string): DesignReferenceRow[] {
       path: token,
       file: rel,
       line: i + 1,
+      // The caption reader lives with the external-reference block below; it
+      // is shared, not duplicated (see `parseReferenceTail`).
+      // `false`: a design row has no verdict field, so a caption that happens
+      // to end in the `(checked …)` grammar stays caption text.
+      caption: parseReferenceTail(line, match.index + match[0].length, false)
+        .caption,
       resolves: existsSync(join(projectRoot, token)),
     });
   }
@@ -152,10 +163,15 @@ export function scanDesignReferences(projectRoot: string): DesignReferenceRow[] 
 
 // ---------------------------------------------------------------------------
 // External references (STE-542) — the URL tokens `isRepoRootRelativePath`
-// rejects at line 51 are no longer discarded: they surface here as their own
-// row kind. No on-disk resolution is attempted (and no `resolves` key exists),
-// because the probe #61 caller `existsSync`es every DesignReferenceRow and a
-// URL would GATE FAILED. `scanDesignReferences` is untouched.
+// rejects are no longer discarded: they surface here as their own row kind. No
+// on-disk resolution is attempted (and no `resolves` key exists), because the
+// probe #61 caller `existsSync`es every DesignReferenceRow and a URL would GATE
+// FAILED. `scanDesignReferences` is untouched.
+//
+// `parseReferenceTail` below is filed under this banner because the
+// `(checked …)` verdict tail is external-only, but the reader itself is SHARED:
+// `scanFile` above calls it for the design rows' captions, so both row kinds
+// parse one tail grammar and cannot drift apart.
 // ---------------------------------------------------------------------------
 
 // A LEVEL-2 heading whose text is exactly "External References" — the same h2
@@ -170,6 +186,52 @@ const CHECKED_TAIL_RE =
   /\(checked\s+([^)]+):\s*(reachable|dead|unchecked)\)\s*$/;
 // The separator between the backtick token and its caption (em dash or hyphen).
 const CAPTION_SEPARATOR_RE = /^\s*[—-]\s*/;
+
+/**
+ * Split whatever follows a reference's backtick token into its caption and
+ * its optional `(checked …)` verdict tail. BOTH row kinds read their caption
+ * here — a design-reference path row and an external URL row written with the
+ * same tail parse identically by construction, because there is one reader.
+ *
+ * `verdictTail` is the ONE thing the two kinds do not share, and it is a
+ * parameter rather than a second reader. Only the external row has somewhere
+ * to put a verdict: `DesignReferenceRow` declares no `checkedAt` and no
+ * `verdict`, so stripping that tail off a design caption would delete authored
+ * prose into fields that do not exist — silently, and only for the caption
+ * unlucky enough to end in that grammar. Passing `false` keeps the whole line
+ * in the caption where the author put it; the caption separator, which the two
+ * kinds genuinely do share, stays a single declaration above.
+ *
+ * @param line         the full list-item line
+ * @param tokenEnd     index just past the closing backtick of the first token
+ * @param verdictTail  parse a trailing `(checked …: verdict)` as a verdict
+ *                     (external rows) rather than as caption text (design rows)
+ */
+function parseReferenceTail(
+  line: string,
+  tokenEnd: number,
+  verdictTail: boolean,
+): {
+  caption: string | null;
+  checkedAt: string | null;
+  verdict: ExternalReferenceRow["verdict"];
+} {
+  let rest = line.slice(tokenEnd).replace(CAPTION_SEPARATOR_RE, "");
+
+  let checkedAt: string | null = null;
+  let verdict: ExternalReferenceRow["verdict"] = null;
+  if (verdictTail) {
+    const tail = CHECKED_TAIL_RE.exec(rest);
+    if (tail) {
+      checkedAt = tail[1]!.trim();
+      verdict = tail[2] as ExternalReferenceRow["verdict"];
+      rest = rest.slice(0, tail.index);
+    }
+  }
+
+  const caption = rest.trim();
+  return { caption: caption === "" ? null : caption, checkedAt, verdict };
+}
 
 /** A backtick token is an external reference iff it carries a URL scheme. */
 function isUrlToken(token: string): boolean {
@@ -187,25 +249,18 @@ function parseExternalEntry(
   const token = match[1]!;
   if (!isUrlToken(token)) return null;
 
-  let rest = line.slice(match.index + match[0].length);
-  rest = rest.replace(CAPTION_SEPARATOR_RE, "");
-
-  let checkedAt: string | null = null;
-  let verdict: ExternalReferenceRow["verdict"] = null;
-  const tail = CHECKED_TAIL_RE.exec(rest);
-  if (tail) {
-    checkedAt = tail[1]!.trim();
-    verdict = tail[2] as ExternalReferenceRow["verdict"];
-    rest = rest.slice(0, tail.index);
-  }
-  const caption = rest.trim();
+  const { caption, checkedAt, verdict } = parseReferenceTail(
+    line,
+    match.index + match[0].length,
+    true,
+  );
 
   return {
     url: token,
     file: rel,
     line: lineNumber,
     section,
-    caption: caption === "" ? null : caption,
+    caption,
     checkedAt,
     verdict,
   };
