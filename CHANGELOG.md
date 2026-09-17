@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.84.1] — 2026-09-17 — "Unbundled"
+
+### Fixed
+
+- The release content approval stops authorising the pull request (STE-599)
+- The target-repo sweep admits a plan that actually declares one (STE-600)
+
+Total test count at release: 13560 tests, 0 failures, 0 errors.
+
 ## [2.84.0] — 2026-09-15 — "Leave No Trace"
 
 ### Added
