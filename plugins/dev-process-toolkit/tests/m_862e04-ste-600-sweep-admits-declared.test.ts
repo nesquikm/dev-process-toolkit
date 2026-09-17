@@ -53,6 +53,7 @@ import { join } from "node:path";
 import {
   FULL_CHAIN_STAGES,
   MAX_CONCURRENT_WORKERS,
+  defaultRepoProbe,
   readTargetRepoDeclaration,
   routeMilestone,
   stagesRequiredFor,
@@ -76,6 +77,15 @@ const M129_SUITE_REL = "tests/m129-ste-495-target-repo.test.ts";
 const M129_SUITE_FILE = join(PLUGIN_ROOT, M129_SUITE_REL);
 const SIBLING_REL = "tests/m_8f07e0-ste-582-target-repo-refusal.test.ts";
 const SIBLING_FILE = join(PLUGIN_ROOT, SIBLING_REL);
+const OWN_SUITE_REL = "tests/m_862e04-ste-600-sweep-admits-declared.test.ts";
+
+/**
+ * Set by the MEASURED leg on the child it spawns. That leg now spawns THIS
+ * file as well as M129 — grading only M129 is what let this file re-home the
+ * forbidden invariant unnoticed — and a child that ran the spawning test again
+ * would spawn its own child forever. The guard is read once, here.
+ */
+const IS_SPAWNED_CHILD = process.env.DPT_STE600_CHILD === "1";
 
 const read = (p: string): string => readFileSync(p, "utf-8");
 
@@ -190,17 +200,70 @@ function recordingRouter(answer: (input: RouteInput) => MilestoneRouting): {
   };
 }
 
+/**
+ * The router stub the AC.3 corpus legs need: today's healthy answer for an
+ * UNDECLARED plan, and the SHIPPED router for a declared one.
+ *
+ * Returning `healthyInvoking` unconditionally is M129's forbidden invariant a
+ * third time — it claims every plan in the corpus declares nothing. Measured
+ * 2026-09-17, by the same-file grading leg AC.4 gained: with one real declaring
+ * plan on disk both legs below refused on THAT plan ("declares a target repo
+ * ... but was routed as if it declared nothing") instead of on the plan they
+ * poisoned, so the mutant kill was grading the wrong subject.
+ */
+function healthyUnlessDeclared(): (input: RouteInput) => MilestoneRouting {
+  return (input: RouteInput) =>
+    readTargetRepoDeclaration(input.planBody).declared
+      ? routeMilestone(input)
+      : healthyInvoking(input.invokingRepo);
+}
+
 function depsWith(
   mod: SweepModule,
   over: Partial<SweepDeps> = {},
 ): SweepDeps {
   return {
     invokingRepo: mod.INVOKING,
-    declaredProbe: mod.fixtureProbe(),
+    declaredProbe: corpusProbe(mod),
     readTargetRepoDeclaration,
     routeMilestone,
     stagesRequiredFor,
     ...over,
+  };
+}
+
+/**
+ * The probe the corpus legs get: the three synthetic fixtures FIRST, then the
+ * SHIPPED `defaultRepoProbe` for anything else.
+ *
+ * MEASURED 2026-09-17, and the reason this exists. With a bare `fixtureProbe()`
+ * here, writing one real plan that uses the shipped `target_repo:` declaration
+ * turned FOUR tests in this file red — every one of them a corpus leg — with
+ * `this plan declares a target repo (...) that the probe cannot locate`. That
+ * is M129's "no real plan declares a target repo" invariant, the one STE-600
+ * calls the WRONG invariant, re-homed into the file written to remove it. A
+ * fixture-only probe cannot locate a real tree, so the corpus legs forbade the
+ * very declaration the partition admits.
+ *
+ * Fixtures are consulted first so the synthetic cases keep their exact
+ * behaviour — `TOOLKIT_LESS_REPO` must still report no toolkit even though no
+ * such directory exists on disk for the real probe to inspect.
+ */
+function corpusProbe(mod: SweepModule): RepoProbe {
+  const fixture = mod.fixtureProbe();
+  const shipped = defaultRepoProbe(REPO_ROOT);
+  const SYNTHETIC = new Set([
+    mod.INVOKING,
+    mod.OTHER_TOOLKIT_REPO,
+    mod.TOOLKIT_LESS_REPO,
+  ]);
+  return {
+    locate: (declared: string): string | null =>
+      fixture.locate(declared) ?? shipped.locate(declared),
+    hasToolkit: (repoPath: string): boolean =>
+      SYNTHETIC.has(repoPath)
+        ? fixture.hasToolkit(repoPath)
+        : shipped.hasToolkit(repoPath),
   };
 }
 
@@ -408,11 +471,24 @@ describe("AC-STE-600.1 — the undeclared group keeps today's invariant", () => 
       depsWith(mod),
     );
     expect(verdicts.length, "a plan silently escaped the walk").toBe(files.length);
-    for (const v of verdicts) {
+    // PARTITIONED, not blanket. Asserting `invoking` over EVERY verdict, or
+    // that the declared group is empty, is M129's forbidden invariant written
+    // again — it fails the moment a real plan uses the shipped declaration,
+    // which is the thing STE-600 exists to make possible.
+    const undeclared = verdicts.filter((v) => !v.declared);
+    expect(
+      undeclared.length,
+      "no undeclared plan on disk — the invariant below would be vacuous",
+    ).toBeGreaterThan(0);
+    for (const v of undeclared) {
       expect(v.route, v.path).toBe("invoking");
       expect(v.repo, v.path).toBe(mod.INVOKING);
     }
-    expect(verdicts.filter((v) => v.declared).length).toBe(0);
+    // The declared group is ADMITTED and graded, never counted down to zero.
+    for (const v of verdicts.filter((x) => x.declared)) {
+      expect(v.route, v.path).not.toBe("invoking");
+      expect(v.repo, v.path).not.toBe(mod.INVOKING);
+    }
   });
 });
 
@@ -529,13 +605,22 @@ describe("AC-STE-600.2 — a declaring plan is admitted, and graded", () => {
         body: mod.planBody([`target_repo: ${mod.OTHER_TOOLKIT_REPO}`]),
       },
     ];
+    // The baseline is MEASURED off the real corpus rather than assumed to be
+    // zero: pinning the total at 1 forbids every real plan from declaring, and
+    // that is the invariant this FR removes.
+    const baseline = mod
+      .auditPlanCorpus(files.map((path) => ({ path, body: read(path) })), depsWith(mod))
+      .filter((v) => v.declared).length;
     const verdicts = mod.auditPlanCorpus(corpus, depsWith(mod));
     expect(verdicts.length).toBe(corpus.length);
     const declared = verdicts.filter((v) => v.declared);
-    expect(declared.length, "the declaring plan was dropped from the walk").toBe(1);
-    expect(declared[0]!.path).toBe("specs/plan/M_declares.md");
-    expect(declared[0]!.repo).toBe(mod.OTHER_TOOLKIT_REPO);
-    expect(declared[0]!.route).toBe("cross_repo_toolkit");
+    expect(declared.length, "the declaring plan was dropped from the walk").toBe(
+      baseline + 1,
+    );
+    const mine = declared.find((v) => v.path === "specs/plan/M_declares.md");
+    expect(mine, "the declaring plan is absent from the declared group").toBeDefined();
+    expect(mine!.repo).toBe(mod.OTHER_TOOLKIT_REPO);
+    expect(mine!.route).toBe("cross_repo_toolkit");
   });
 });
 
@@ -637,7 +722,7 @@ describe("AC-STE-600.3 — the undeclared guard still has teeth", () => {
                     specWrite: "worker",
                     chain: stagesRequiredFor("cross_repo_toolkit"),
                   })
-                : healthyInvoking(input.invokingRepo),
+                : healthyUnlessDeclared()(input),
           }),
         ),
       "one misrouted plan in the corpus",
@@ -650,9 +735,7 @@ describe("AC-STE-600.3 — the undeclared guard still has teeth", () => {
     const files = mod.allPlanFiles();
     const verdicts = mod.auditPlanCorpus(
       files.map((path) => ({ path, body: read(path) })),
-      depsWith(mod, {
-        routeMilestone: (input: RouteInput) => healthyInvoking(input.invokingRepo),
-      }),
+      depsWith(mod, { routeMilestone: healthyUnlessDeclared() }),
     );
     expect(verdicts.length).toBe(files.length);
   });
@@ -715,8 +798,8 @@ describe("AC-STE-600.4 — the M129 suite is green with a real declaring plan", 
   process.on("SIGINT", sweepProbePlan);
   process.on("SIGTERM", sweepProbePlan);
 
-  test(
-    "MEASURED: with a declaring plan on disk, the M129 suite exits 0 with 0 fail",
+  test.skipIf(IS_SPAWNED_CHILD)(
+    "MEASURED: with a declaring plan on disk, BOTH suites exit 0 with 0 fail",
     () => {
       // The 2026-09-16 failure, reproduced: writing the first plan that uses
       // `target_repo:` turned this suite red, and AC-STE-582.8 red with it.
@@ -736,14 +819,25 @@ describe("AC-STE-600.4 — the M129 suite is green with a real declaring plan", 
         );
         expect(decl.value).toBe(REPO_ROOT);
 
-        const proc = Bun.spawnSync(["bun", "test", M129_SUITE_REL], {
-          cwd: PLUGIN_ROOT,
-          stdout: "pipe",
-          stderr: "pipe",
-        });
-        const out = `${proc.stdout.toString()}\n${proc.stderr.toString()}`;
-        expect(out, out.slice(0, 4000)).toMatch(/\b0 fail\b/);
-        expect(proc.exitCode).toBe(0);
+        // BOTH suites, not just M129. Grading only the neighbour is how this
+        // file came to re-home the forbidden invariant in its own corpus legs
+        // and stay green: the file that proves the declaration is usable was
+        // never itself run against a real declaring plan. Measured 2026-09-17
+        // — four tests here went red under exactly this condition.
+        //
+        // `DPT_STE600_CHILD` stops the child re-entering this leg; without it
+        // the spawn recurses without bound.
+        for (const suite of [M129_SUITE_REL, OWN_SUITE_REL]) {
+          const proc = Bun.spawnSync(["bun", "test", suite], {
+            cwd: PLUGIN_ROOT,
+            stdout: "pipe",
+            stderr: "pipe",
+            env: { ...process.env, DPT_STE600_CHILD: "1" },
+          });
+          const out = `${proc.stdout.toString()}\n${proc.stderr.toString()}`;
+          expect(out, `${suite}: ${out.slice(0, 4000)}`).toMatch(/\b0 fail\b/);
+          expect(proc.exitCode, suite).toBe(0);
+        }
       } finally {
         rmSync(DECLARING_PLAN_FILE, { force: true });
       }
@@ -753,28 +847,31 @@ describe("AC-STE-600.4 — the M129 suite is green with a real declaring plan", 
     180_000,
   );
 
+  // The pinned block, hoisted so the pin below and its non-vacuity control
+  // read ONE definition. A control that restates the pin grades its own copy.
+  const BLOCK = [
+    'describe("AC-STE-582.8 — the M129 target-repo suite passes with zero failures", () => {',
+    "  test(",
+    '    "bun test tests/m129-ste-495-target-repo.test.ts exits 0 with 0 fail",',
+    "    () => {",
+    "      const proc = Bun.spawnSync(",
+    '        ["bun", "test", "tests/m129-ste-495-target-repo.test.ts"],',
+    '        { cwd: PLUGIN_ROOT, stdout: "pipe", stderr: "pipe" },',
+    "      );",
+    "      const out = `${proc.stdout.toString()}\\n${proc.stderr.toString()}`;",
+    "      expect(out).toMatch(/\\b0 fail\\b/);",
+    "      expect(proc.exitCode).toBe(0);",
+    "    },",
+    "    120_000,",
+    "  );",
+    "});",
+  ].join("\n");
+
   test("the sibling meta-test still grades that suite, verbatim and unedited", () => {
     // AC.4 says the sibling passes WITHOUT being edited. The block it passes
     // with is pinned here, so weakening it to buy a green fails this file
     // instead of going unnoticed.
     const sibling = read(SIBLING_FILE);
-    const BLOCK = [
-      'describe("AC-STE-582.8 — the M129 target-repo suite passes with zero failures", () => {',
-      "  test(",
-      '    "bun test tests/m129-ste-495-target-repo.test.ts exits 0 with 0 fail",',
-      "    () => {",
-      "      const proc = Bun.spawnSync(",
-      '        ["bun", "test", "tests/m129-ste-495-target-repo.test.ts"],',
-      '        { cwd: PLUGIN_ROOT, stdout: "pipe", stderr: "pipe" },',
-      "      );",
-      "      const out = `${proc.stdout.toString()}\\n${proc.stderr.toString()}`;",
-      "      expect(out).toMatch(/\\b0 fail\\b/);",
-      "      expect(proc.exitCode).toBe(0);",
-      "    },",
-      "    120_000,",
-      "  );",
-      "});",
-    ].join("\n");
     expect(
       sibling,
       `${SIBLING_REL}: the AC-STE-582.8 grading block was edited`,
@@ -788,7 +885,14 @@ describe("AC-STE-600.4 — the M129 suite is green with a real declaring plan", 
       "expect(proc.exitCode).toBe(0);",
       "// exit code no longer checked",
     );
-    expect(weakened).not.toBe(read(SIBLING_FILE));
-    expect(weakened).not.toContain("expect(proc.exitCode).toBe(0);");
+    expect(weakened, "the mutation did not apply").not.toBe(read(SIBLING_FILE));
+    // THE LOAD-BEARING LINE. Without it this test asserted that
+    // `String.replace` replaces — true of any string, and silent about whether
+    // the PIN would catch the weakening. Re-applying the pin's own `BLOCK` to
+    // the mutated text is what makes it a control.
+    expect(
+      weakened,
+      "the verbatim pin still matches a weakened block — it is vacuous",
+    ).not.toContain(BLOCK);
   });
 });
