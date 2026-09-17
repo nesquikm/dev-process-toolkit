@@ -901,31 +901,36 @@ describe("AC-STE-579.11 — the registry takes the key, and every pin moves with
     expect((KEY_OWNER_SKILL as Record<string, string>)[NEW_KEY]).toBe("spec-write");
   });
 
-  test("the set's length is 45", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(45);
+  test("the set's length is 47", () => {
+    // 45 when STE-579 landed its key; 47 since M_0c14d0 registered the
+    // design-reference hand-off XOR pair. The pin is absolute by design, so a
+    // later registration moves it here too — what it forbids is a SILENT move.
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(47);
   });
 
-  test("the m84 TITLE literal moved 44 -> 45", () => {
+  test("the m84 TITLE literal moved off 44, and tracks the live registry", () => {
     const m = /CANONICAL_CAPABILITY_KEYS length is exactly (\d+)/.exec(read(M84_TEST));
     expect(m).not.toBeNull();
     expect(Number(m![1])).toBe(CANONICAL_CAPABILITY_KEYS.length);
-    expect(Number(m![1])).toBe(45);
+    expect(Number(m![1])).toBeGreaterThan(44);
   });
 
-  test("the m84 ASSERTION literal moved 44 -> 45", () => {
+  test("the m84 ASSERTION literal moved off 44, and tracks the live registry", () => {
     const m = /expect\(CANONICAL_CAPABILITY_KEYS\.length\)\.toBe\((\d+)\)/.exec(read(M84_TEST));
     expect(m).not.toBeNull();
-    expect(Number(m![1])).toBe(45);
+    expect(Number(m![1])).toBe(CANONICAL_CAPABILITY_KEYS.length);
+    expect(Number(m![1])).toBeGreaterThan(44);
   });
 
-  test("the m84 discovered-set literal moved 44 -> 45", () => {
+  test("the m84 discovered-set literal moved off 44, and tracks the live registry", () => {
     const m = /expect\(discovered\.size\)\.toBe\((\d+)\)/.exec(read(M84_TEST));
     expect(m).not.toBeNull();
     expect(
       Number(m![1]),
       "`discovered` scrapes `MUST emit \\`<key>\\`` out of spec-write SKILL.md — " +
         "registering the key without landing the directive reds this instead",
-    ).toBe(45);
+    ).toBe(CANONICAL_CAPABILITY_KEYS.length);
+    expect(Number(m![1])).toBeGreaterThan(44);
   });
 
   test("m84's Set A carries the key, so the out-of-Set-A guard does not fire", () => {

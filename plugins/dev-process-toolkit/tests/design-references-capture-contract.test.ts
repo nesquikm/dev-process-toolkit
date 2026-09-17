@@ -152,4 +152,33 @@ describe("STE-342 — capture step in /spec-write + /brainstorm", () => {
     // …with a numeric collision suffix on a same-folder name clash.
     expect(sec0b).toMatch(/collision[\s\S]{0,80}(suffix|-2|numeric)|numeric[\s\S]{0,40}suffix/i);
   });
+
+  // -------------------------------------------------------------------------
+  // STE-596 — the caption stops being decoration. `DesignReferenceRow` now
+  // carries it, and Phase 4b″ hands it to the project's check skill, which is
+  // the only thing that tells the check WHAT it is looking at. A caption can
+  // only be read back if the line it is written on has a contracted shape:
+  // § 0b step 6 asks for "a one-line caption" today and pins no separator, so
+  // the record shape its sibling step 6b already spells out for external links
+  // has to exist for path rows too.
+  // -------------------------------------------------------------------------
+  test("AC-STE-596.4 — § 0b pins the design-reference RECORD SHAPE so the caption can be parsed back", () => {
+    const sec0b = specWriteSection0b(read(specWritePath));
+
+    // Control: the sibling external-link record shape is already contracted
+    // in this same section — the assertion below asks for no more than what
+    // step 6b already provides.
+    expect(sec0b).toMatch(/`<url>`\s*[—-]\s*<caption>/);
+
+    // (a) The path row's record shape is written out literally, separator
+    // included, so `scanDesignReferences` has a shape to parse rather than a
+    // convention to guess.
+    expect(sec0b).toMatch(/`<?path>?`\s*[—-]\s*<caption>|`<path>`\s*—\s*<caption>/);
+
+    // (b) The caption is named as the thing the verification step receives —
+    // not as a note for human readers only.
+    expect(sec0b).toMatch(
+      /caption[\s\S]{0,240}(verification|check skill|Phase 4b)|((verification|check skill|Phase 4b)[\s\S]{0,240}caption)/i,
+    );
+  });
 });

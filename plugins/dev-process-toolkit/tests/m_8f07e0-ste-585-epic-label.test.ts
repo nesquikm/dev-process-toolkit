@@ -13,7 +13,9 @@
 //     no label written it is invisible to the label leg too.
 //   * `adapters/jira.md` says "It scatters no `milestone-<M-token>` label"
 //     (`grep -c 'It scatters no'` = 1 at HEAD, measured).
-//   * `CANONICAL_CAPABILITY_KEYS.length` is 45 at HEAD (measured).
+//   * `CANONICAL_CAPABILITY_KEYS.length` was 45 when this suite landed and is
+//     47 at HEAD (measured) — M_0c14d0 registered the design-reference
+//     hand-off XOR pair. STE-585 itself still registers none.
 //   * The mint front door prints exactly four lines at HEAD (measured):
 //     `summary=Waiting States II`, `epicKey=GF-78`, `milestoneId=M_GF_78`,
 //     `plan=specs/plan/M_GF_78.md`.
@@ -341,8 +343,14 @@ describe("AC-STE-585.9 — the label leg names why it sees an Epic's label", () 
 // ───────────────────────────────────────────────────────────────────────
 
 describe("AC-STE-585.10 — no new capability key", () => {
-  test("CANONICAL_CAPABILITY_KEYS.length is still 45", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(45);
+  test("CANONICAL_CAPABILITY_KEYS.length is still 47 — none of them STE-585's", () => {
+    // Absolute by design: a later FR's declared registration moves the number
+    // here too (45 -> 47, M_0c14d0's design-reference pair). What the pin
+    // forbids is a SILENT move, and what THIS AC claims is that STE-585 added
+    // no key of its own — which the two named below carry.
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(47);
+    expect([...CANONICAL_CAPABILITY_KEYS]).toContain("design_references_passed");
+    expect([...CANONICAL_CAPABILITY_KEYS]).toContain("design_references_none_cited");
   });
 });
 

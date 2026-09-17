@@ -174,6 +174,15 @@ const EXPECTED_SET_A: ReadonlySet<string> = new Set([
   // in /spec-write SKILL.md's step 4 idempotency-hardening block (and again in
   // its § 7 static-map row), keeping Set A = discovered directives.
   "tracker_idempotency_uncertain",
+  // Post-M84 expansion (M_0c14d0): the design-reference hand-off pair. The pin
+  // moves consciously 45 → 47 — both keys carry literal
+  // `MUST emit \`design_references_passed\`` /
+  // `MUST emit \`design_references_none_cited\`` directives in /spec-write
+  // SKILL.md's § 7 static-map row (the emission-site directives live on
+  // /implement's Phase 4b″ run-placement paragraph), keeping Set A =
+  // discovered directives.
+  "design_references_passed",
+  "design_references_none_cited",
 ]);
 
 // Keys explicitly excluded from registration — they appear only as table-
@@ -292,9 +301,11 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
   // external_link_check_unchecked_offline, the external-link liveness check
   // that could not run at all) → 45 (M_840a06/STE-579
   // tracker_idempotency_uncertain, the idempotency-probe fall-through that
-  // created without a confirmed miss).
-  test("CANONICAL_CAPABILITY_KEYS length is exactly 45", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(45);
+  // created without a confirmed miss) → 47 (M_0c14d0 the design-reference
+  // hand-off XOR pair: design_references_passed / design_references_none_cited,
+  // the two /implement Phase 4b″ dispositions).
+  test("CANONICAL_CAPABILITY_KEYS length is exactly 47", () => {
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(47);
   });
 
   test("CANONICAL_CAPABILITY_KEYS contains every key in Set A", () => {
@@ -334,7 +345,7 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
     while ((match = re.exec(body)) !== null) {
       discovered.add(match[1]!);
     }
-    expect(discovered.size).toBe(45);
+    expect(discovered.size).toBe(47);
     for (const key of EXPECTED_SET_A) {
       expect(discovered.has(key)).toBe(true);
     }
