@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.85.0] — 2026-09-17 — "Legible"
+
+### Added
+
+- Design references reach the project's verification step. The images an author pastes during design now travel with the run: Phase 4b″ takes the in-scope FR's own `## Design References` rows — each carrying its repo-root-relative path and the caption its author wrote — and threads the block one shared renderer produces into the resolved check skill's invocation, printing the same block beneath the `manual` reminder so a project whose check does not auto-run is not the quiet half. A cited image that no longer resolves is named and marked skipped rather than failing the phase, which probe #61 already owns at error severity, and an FR citing none is vacuous — byte-identical invocation, and one of two capability tokens says which case fired. The renderer is the sole definition of the block's shape on both sides of that boundary: a caller that re-types it in prose is now caught, which it was not when the gate first went green. M91 built the storage half and deferred the consuming half; M93 claimed that lineage and shipped the verification hook instead, and the archive now says so. (STE-596)
+
+Total test count at release: 13608 tests, 0 failures, 0 errors.
+
 ## [2.84.1] — 2026-09-17 — "Unbundled"
 
 ### Fixed
@@ -13,7 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The release content approval stops authorising the pull request (STE-599)
 - The target-repo sweep admits a plan that actually declares one (STE-600)
 
-Total test count at release: 13560 tests, 0 failures, 0 errors.
+Total test count at release: 13575 tests, 0 failures, 0 errors.
 
 ## [2.84.0] — 2026-09-15 — "Leave No Trace"
 
