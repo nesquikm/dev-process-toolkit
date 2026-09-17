@@ -100,6 +100,22 @@ import { join } from "node:path";
 
 import { DELIVER_STAGE_SECTIONS } from "../adapters/_shared/src/deliver_stage_capture";
 import { parseFrontmatter } from "../adapters/_shared/src/frontmatter";
+// The shared sweep unit (STE-600). Its fixtures live here rather than being
+// restated below, so this suite and `m_862e04-ste-600-*` cannot drift apart on
+// what "the plan corpus" or "a realistic plan body" means. Statically imported
+// on purpose: the module's own imports are `node:fs`, `node:path` and an
+// ERASED `import type`, so it pulls no `target_repo` at load time and the lazy
+// import discipline below is untouched.
+import {
+  auditPlanCorpus,
+  allPlanFiles,
+  fixtureProbe,
+  neverConsultedProbe,
+  planBody,
+  INVOKING,
+  OTHER_TOOLKIT_REPO,
+  TOOLKIT_LESS_REPO,
+} from "./_target_repo_sweep";
 
 // ===========================================================================
 // Paths.
@@ -139,22 +155,8 @@ function frPath(): string {
   );
 }
 
-/** Every REAL milestone plan on disk: the active one plus the whole archive. */
-function allPlanFiles(): string[] {
-  const out: string[] = [];
-  const planDir = join(REPO_ROOT, "specs", "plan");
-  const archiveDir = join(planDir, "archive");
-  for (const dir of [planDir, archiveDir]) {
-    if (!existsSync(dir)) continue;
-    for (const name of readdirSync(dir)) {
-      const p = join(dir, name);
-      if (!name.endsWith(".md")) continue;
-      if (statSync(p).isDirectory()) continue;
-      out.push(p);
-    }
-  }
-  return out.sort();
-}
+// `allPlanFiles` — every REAL milestone plan on disk, the active ones plus the
+// whole archive — is imported from `./_target_repo_sweep`, not restated here.
 
 // ===========================================================================
 // The module under test, imported LAZILY.
@@ -243,9 +245,9 @@ async function targetRepo(): Promise<TargetRepoModule> {
 // Fixtures + helpers.
 // ===========================================================================
 
-const INVOKING = "/abs/invoking-repo";
-const OTHER_TOOLKIT_REPO = "/abs/other-toolkit-repo";
-const TOOLKIT_LESS_REPO = "/abs/docs-only-repo";
+// `INVOKING`, `OTHER_TOOLKIT_REPO` and `TOOLKIT_LESS_REPO` come from
+// `./_target_repo_sweep` — the shared unit grades the corpus against the same
+// three trees this suite routes fixtures to.
 
 const ALL_ROUTES: MilestoneRoute[] = [
   "invoking",
@@ -262,57 +264,12 @@ const EXPECTED_CROSS_REPO_CHAIN: StageId[] = [
 ];
 const EXPECTED_REDUCED_CHAIN: StageId[] = ["work", "pr"];
 
-/** A minimal but realistic milestone plan body. */
-function planBody(frontmatterExtra: string[] = []): string {
-  const lines = [
-    "---",
-    "milestone: M900",
-    "status: active",
-    "archived_at: null",
-    "kickoff_branch: null",
-    "frozen_at: null",
-    "migration: none",
-    ...frontmatterExtra,
-    "---",
-    "",
-    "# Implementation Plan",
-    "",
-    "## M900 — a milestone {#M900}",
-    "",
-  ];
-  return lines.join("\n");
-}
-
-/** A probe that resolves exactly the two fixture repos and nothing else. */
-function fixtureProbe(): RepoProbe {
-  return {
-    locate(declared: string): string | null {
-      if (declared === OTHER_TOOLKIT_REPO) return OTHER_TOOLKIT_REPO;
-      if (declared === TOOLKIT_LESS_REPO) return TOOLKIT_LESS_REPO;
-      if (declared === INVOKING || declared === ".") return INVOKING;
-      return null;
-    },
-    hasToolkit(repoPath: string): boolean {
-      return repoPath !== TOOLKIT_LESS_REPO;
-    },
-  };
-}
-
-/** A probe that FAILS LOUDLY if consulted — for the undeclared path. */
-function neverConsultedProbe(): RepoProbe {
-  return {
-    locate(): string | null {
-      throw new Error(
-        "probe.locate was consulted for a plan that declares NO target repo",
-      );
-    },
-    hasToolkit(): boolean {
-      throw new Error(
-        "probe.hasToolkit was consulted for a plan that declares NO target repo",
-      );
-    },
-  };
-}
+// `planBody` (a minimal but realistic milestone plan), `fixtureProbe` (resolves
+// exactly the three fixture trees) and `neverConsultedProbe` (throws if the
+// undeclared path goes looking) all come from `./_target_repo_sweep`. They used
+// to be restated here AND there, which is two definitions of one fixture free
+// to drift; the sweep grades the real corpus with the same objects this suite
+// routes its unit fixtures through.
 
 /** True when every needle appears in `body`, in the given order. */
 function containsInOrder(body: string, needles: readonly string[]): boolean {
@@ -641,42 +598,60 @@ describe("AC-STE-495.1 — the declaration, and the absent-declaration default",
     ).toBe(true);
   });
 
-  test("NON-REGRESSION SWEEP: every real plan on disk still routes to the invoking repo", async () => {
-    // The spine. `specs/plan/M129.md` plus the whole archive — none of them
-    // declares a target repo, and every one must behave exactly as it does
-    // today. The probe THROWS if consulted, so this also proves the undeclared
-    // path never goes looking for another tree.
-    const { routeMilestone, readTargetRepoDeclaration, FULL_CHAIN_STAGES } =
-      await targetRepo();
+  test("NON-REGRESSION SWEEP: every real plan on disk routes as its declaration says", async () => {
+    // The spine. `specs/plan/M129.md` plus the whole archive, graded through
+    // the SHARED unit in `tests/_target_repo_sweep.ts` rather than a loop body
+    // nothing outside this test can reach (STE-600). A plan that declares
+    // nothing must behave exactly as it does today — invoking repo, full chain,
+    // inline spec-writing, with a probe that THROWS if consulted, so
+    // "undeclared never goes looking for another tree" stays an assertion. A
+    // plan that DOES declare a target repo is admitted and graded against the
+    // tree it named, instead of being scored as a defect.
+    const {
+      routeMilestone,
+      readTargetRepoDeclaration,
+      stagesRequiredFor,
+      defaultRepoProbe,
+    } = await targetRepo();
     const plans = allPlanFiles();
-    let checked = 0;
-    for (const p of plans) {
-      const body = read(p);
-      const decl = readTargetRepoDeclaration(body);
-      expect(decl.declared, `${p} unexpectedly declares a target repo`).toBe(
-        false,
-      );
-      const routing = routeMilestone({
-        planBody: body,
+    const verdicts = auditPlanCorpus(
+      plans.map((p) => ({ path: p, body: read(p) })),
+      {
         invokingRepo: INVOKING,
-        probe: neverConsultedProbe(),
-      });
-      expect(routing.route, p).toBe("invoking");
-      expect(routing.repo, p).toBe(INVOKING);
-      expect(routing.specWrite, p).toBe("inline");
-      expect([...routing.chain], p).toEqual([...FULL_CHAIN_STAGES]);
-      checked += 1;
+        declaredProbe: defaultRepoProbe(REPO_ROOT),
+        readTargetRepoDeclaration,
+        routeMilestone,
+        stagesRequiredFor,
+      },
+    );
+    expect(verdicts.length).toBe(plans.length);
+    expect(verdicts.length).toBeGreaterThanOrEqual(100);
+    for (const v of verdicts.filter((x) => !x.declared)) {
+      expect(v.route, v.path).toBe("invoking");
+      expect(v.repo, v.path).toBe(INVOKING);
     }
-    expect(checked).toBe(plans.length);
-    expect(checked).toBeGreaterThanOrEqual(100);
   });
 
   test("NON-VACUITY: the same reader DOES see a declaration when one is present", async () => {
-    // Without this, "every plan on disk is undeclared" would be satisfied by a
-    // reader that can never report a declaration at all.
+    // Without this, "an undeclared plan routes to the invoking repo" would be
+    // satisfied by a reader that can never report a declaration at all.
+    //
+    // The sample is the first plan the reader scores UNDECLARED, never
+    // `allPlanFiles()[0]` (STE-600). Indexing position 0 restated this suite's
+    // own repaired premise — that no real plan declares a target repo — one
+    // test below the repair, narrowed from the whole corpus to one slot, and
+    // reds the moment a declaring plan sorts first. Measured: it does.
     const { readTargetRepoDeclaration } = await targetRepo();
-    const sample = read(allPlanFiles()[0]!);
-    expect(readTargetRepoDeclaration(sample).declared).toBe(false);
+    const samplePath = allPlanFiles().find(
+      (p) => !readTargetRepoDeclaration(read(p)).declared,
+    );
+    // The corpus having NO undeclared plan is not a pass — there would be
+    // nothing to mutate, and the pin would be vacuous rather than satisfied.
+    expect(
+      samplePath,
+      "no undeclared plan on disk: this control has nothing to mutate",
+    ).toBeDefined();
+    const sample = read(samplePath!);
     const mutated = sample.replace(
       /^status:/m,
       `target_repo: ${OTHER_TOOLKIT_REPO}\nstatus:`,
