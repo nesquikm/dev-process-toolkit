@@ -112,18 +112,18 @@ describe("AC-STE-542.5 — URLs become their own row kind; path rows byte-identi
       ["specs/design/frs/STE-542/mock.png"],
     );
     try {
-      // (a) The path side is UNCHANGED — deep-equal against the whole literal
-      // row object, so an added key, a dropped key or a shifted `line` fails.
-      // This is the ONLY key-set-closure pin that exists for
-      // DesignReferenceRow: every shipped assertion in
-      // tests/gate-check-design-references-resolve.test.ts is field-by-field
-      // `.toBe(...)` (or `toEqual([])` on an empty-result leg) and would stay
-      // green against a widened row.
+      // (a) The path side is deep-equalled against the whole literal row
+      // object, so an added key, a dropped key or a shifted `line` fails.
+      // STE-542 froze this line as the only key-set-closure pin on
+      // DesignReferenceRow; STE-596 crossed it deliberately to add `caption`
+      // (the row's key set is closed HERE, so a widening cannot land unseen)
+      // and AC-STE-596.4 now carries a sibling whole-row `toEqual`.
       expect(scanDesignReferences(fx.root)).toEqual([
         {
           path: "specs/design/frs/STE-542/mock.png",
           file: "specs/frs/STE-542.md",
           line: lineOf(fr, "mock.png"),
+          caption: "Login mockup",
           resolves: true,
         },
       ]);
