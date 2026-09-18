@@ -219,7 +219,42 @@ observed status; operators fix either by transitioning the ticket to
      Empty array or absent key ⇒ no `labels` field is forwarded; the
      create call lands without labels and Linear's per-team default
      labelling applies.
-   - `mcp__linear__save_issue(team=<resolved>, project=<resolved>, title, description=<rendered template>, labels=<resolved or omitted>)` (create: omit `id`).
+   - **Pre-create idempotency probe (single-shot fast path) — the decision
+     is a command, not prose.** Before the create call fires, run these four
+     steps in order, passing the milestone container
+     (`--linear-milestone <milestone id>`, when it is already known)
+     identically to both commands. This is the same fast path in an
+     undeclared and a shared-mode (`repo_tag` declared) repository; only
+     what `query` prints and what `decide` refuses differ.
+
+     1. `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts query <projectRoot> --title <title> [--linear-milestone <id>]`
+        — prints ONE JSON line: the `mcp__linear__list_issues` arguments
+        object itself (`team`, `project`, `label` = the binding's
+        `repo_tag` when one is declared, `fields`, `limit`). It reads
+        `### Linear`.`repo_tag` (a free-form sub-section field, parsed like
+        `default_labels`) from the binding itself (no tag is ever
+        passed by hand) and refuses, non-zero, a tag the create would not
+        forward.
+     2. `mcp__linear__list_issues` with exactly those arguments, following
+        the `cursor` page by page until `pageInfo.hasNextPage: false`.
+     3. Save every returned page verbatim as a JSON file, then
+        `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts decide <projectRoot> <page.json>... --title <title> [--linear-milestone <id>] --attempt fast`
+        — prints ONE JSON line `{ outcome, key?, reason?, capability?, createPayload? }`.
+     4. Act on `outcome` and nothing else: `reused` → return `key`, no
+        write; `refused` → stop and surface `tracker_idempotency_uncertain`
+        with `reason`; `create` → the `mcp__linear__save_issue` create
+        below, from the printed `createPayload`. A `dpt-receipt:` line,
+        printed in a shared repository, names the receipt the decision
+        wrote.
+
+     **The cap.** A page set whose last page still reports
+     `hasNextPage: true` after cursor pagination has reached the cap: the
+     ticket has NOT been proven absent, and `decide` refuses it as
+     uncertainty rather than a miss.
+   - `mcp__linear__save_issue(team=<resolved>, project=<resolved>, title, description=<rendered template>, labels=<resolved or omitted>)` (create: omit `id`),
+     carrying the `createPayload`'s `labels` and, when present, its
+     `milestone` — so the new ticket lands already inside its milestone
+     container and a retry can find it. Create only on a `create` decision.
    - Capture the returned issue ID.
 2. Else:
    - `mcp__linear__save_issue(id=ticket_id_or_null, title, description=<rendered template>)` (update: pass `id`). `team` / `project` /
@@ -280,34 +315,46 @@ Idempotent binding from a Linear issue to a project milestone named by the local
 > - `team` — the team bound in `### Linear`;
 > - `project` — the project bound in `### Linear`;
 > - `label` — the repo tag, when `### Linear`.`repo_tag` is declared (a
->   free-form `### Linear` sub-section field, parsed like `default_labels`);
-> - `projectMilestone` — when the milestone container is already known.
+>   free-form `### Linear` sub-section field, parsed like `default_labels`).
 >
-
-> **Reference implementation.** The structured-conjunct build, the
-> normalized compare, the foreign-repo-tag stop and the page-cap refusal
-> are implemented executably in
-> `adapters/_shared/src/create_idempotency_probe.ts`, which carries a
-> command-line front door. This blockquote is the contract the LLM
-> executes; that module is the same contract in code. Nothing grades the
-> agreement, so a reader changing one should open the other.
+> The milestone container is never a search argument: `decide` checks each
+> candidate's milestone id client-side against `--linear-milestone`.
+>
+> **Every retry attempt runs the same four steps.** For attempt `N` of
+> three (`retry-1`, `retry-2`, `retry-3`), after that attempt's wait:
+>
+> 1. `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts query <projectRoot> --title <title> [--linear-milestone <id>]`;
+> 2. `mcp__linear__list_issues` with the printed arguments, cursor-paginated
+>    to `hasNextPage: false`;
+> 3. save the page(s), then
+>    `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts decide <projectRoot> <page.json>... --title <title> [--linear-milestone <id>] --attempt retry-<N>`;
+> 4. act on `outcome`: `reused` → return `key`; `miss` (attempts 1-2 only)
+>    → wait and run the next attempt; `refused` → stop with
+>    `tracker_idempotency_uncertain`; `create` (attempt 3 only, no
+>    `repo_tag` declared) → one `mcp__linear__save_issue` create from the
+>    printed `createPayload`, plus the warning row below.
+>
+> In a shared repository a create decision authorises one create call: a
+> create that times out again goes back through `decide`, never straight
+> to a second create.
 >
 > **The parameters narrow the page; the client decides the join.** A
-> non-empty page is NOT a hit. Compare each candidate's `title` — trimmed
-> and inner-whitespace-collapsed — against `title` with a client-side
-> normalized exact compare, and join only on that.
+> non-empty page is NOT a hit. `decide` compares each candidate's `title`
+> against `title` under the ONE normalizer, `normalizeTitleForCompare`
+> (trim, collapse ASCII space runs, fold en/em dashes and NBSP, drop a
+> heading anchor), and joins only on that — never re-derive it by hand.
 >
-> **A normalized match carrying a DIFFERENT repo tag is a sibling repo's
-> ticket, not this run's.** On a shared board two repos' FRs live in one
-> project, so a title match across the tag boundary is a mis-binding
-> dressed as a resume. Do not return it, and do not create beside it:
-> stop, surface `tracker_idempotency_uncertain` naming BOTH issue ids and
-> BOTH repo tags, and let the operator decide.
+> **A candidate that fails a conjunct the arguments carried refuses the
+> page.** `list_issues` filtered on this repository's tag never returns a
+> sibling's differently-tagged issue, so one on the page means the page came
+> from some other search: `decide` refuses it as `page-violates-query` with
+> `tracker_idempotency_uncertain`. Re-run the listing `query` printed, and
+> never join or create beside it.
 >
-> **A page that reaches the cap is uncertainty, not a miss.** If the result
-> page hits the documented cap before reporting the end of the collection,
-> the ticket has NOT been proven absent — do not create on it, surface
-> `tracker_idempotency_uncertain` instead.
+> **A page that reaches the cap is uncertainty, not a miss.** The cap is
+> reached when the last page still reports `hasNextPage: true` after
+> cursor pagination; the ticket has NOT been proven absent — do not create
+> on it, surface `tracker_idempotency_uncertain` instead.
 >
 > **If all three attempts miss, the fall-through splits on the repo tag.**
 >
