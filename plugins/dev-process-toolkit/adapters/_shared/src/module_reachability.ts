@@ -448,7 +448,7 @@ export interface UnreachablePinMove {
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
     value: 124,
-    commit: "uncommitted",
+    commit: "72b853f",
     rationale:
       "M_947c79/STE-603: probe #25's module " +
       "`task_tracking_workspace_binding_present.ts` gained an " +
