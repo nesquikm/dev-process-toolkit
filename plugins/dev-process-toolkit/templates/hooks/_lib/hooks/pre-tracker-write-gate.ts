@@ -195,7 +195,7 @@ export function acceptedShape(module: string, args: string): string {
 
 /** The plain-invocation rule every receipt refusal states (§3). */
 const PLAIN_RULE =
-  "as ONE plain command — no `cd … &&`, `;`, `|`, redirection such as `2>&1`, or `$`, backtick or backslash inside double quotes (a title that needs them goes in a file passed with `--title-file <path>`); the plugin path may be spelled `${CLAUDE_PLUGIN_ROOT}/…`, `\"${CLAUDE_PLUGIN_ROOT}/…\"`, `\"${CLAUDE_PLUGIN_ROOT}\"/…` or absolute. A receipt announced by any other command shape is ignored";
+  "as ONE plain command — no `cd … &&`, `;`, `|`, redirection such as `2>&1`, `~`, a variable other than the plugin root (`$VAR`), command substitution (`$(…)`), or `$`, backtick or backslash inside double quotes (a title that needs them goes in a file passed with `--title-file <path>`); the plugin path may be spelled `${CLAUDE_PLUGIN_ROOT}/…`, `\"${CLAUDE_PLUGIN_ROOT}/…\"`, `\"${CLAUDE_PLUGIN_ROOT}\"/…` or absolute. A receipt announced by any other command shape is ignored";
 
 // ---------------------------------------------------------------------------
 // §2 — classification of the call
@@ -280,9 +280,15 @@ interface ParsedLine {
   blocks: ContentBlock[];
 }
 
+/**
+ * A line's content blocks — objects only. A `null`, number or string element
+ * is no block: passing it through would throw in a walk, and a thrown gate
+ * refuses, which would break the undeclared silence (AC-STE-607.1).
+ */
 function blocksOf(raw: unknown): ContentBlock[] {
   const content = (raw as { message?: { content?: unknown } })?.message?.content;
-  return Array.isArray(content) ? (content as ContentBlock[]) : [];
+  if (!Array.isArray(content)) return [];
+  return content.filter((b): b is ContentBlock => b !== null && typeof b === "object" && !Array.isArray(b));
 }
 
 function parseLines(lines: string[]): Array<ParsedLine | null> {
@@ -765,8 +771,24 @@ function neverRan(p: ParsedLine, b: ContentBlock): boolean {
   return (
     text.startsWith("PreToolUse:") ||
     text.startsWith("The user doesn't want to proceed") ||
-    text.startsWith("<tool_use_error>InputValidationError")
+    text.startsWith("<tool_use_error>InputValidationError") ||
+    trackerRejected(text)
   );
+}
+
+/** A 4xx status the tracker answered with — 408 (Request Timeout) excluded: that one proves nothing. */
+const TRACKER_4XX = /\b(?:error|status(?:\s+code)?|http)\b[:\s]*4(?!08)\d\d\b/i;
+/** Words that make any answer ambiguous: the request may have been processed. */
+const MAY_HAVE_RUN = /time[ds]?[\s-]*out|\b5\d\d\b|interrupt|aborted|reset/i;
+
+/**
+ * A definite rejection by the tracker: the result names a 4xx status (the
+ * request was refused before anything was written — a validation error, a
+ * forbidden field, a missing project), and nothing in it suggests the request
+ * may have run anyway. A timeout, a 5xx and an interrupt stay lost (§4).
+ */
+function trackerRejected(text: string): boolean {
+  return TRACKER_4XX.test(text) && !MAY_HAVE_RUN.test(text);
 }
 
 interface LostCreate {
@@ -880,7 +902,7 @@ function gateCreate(
   if (lost) {
     return refuse(
       `${where}: an earlier create of "${shape.title}" (${lost.id}) may have made the ticket — ${lost.why} — so no create receipt authorises another create of it; a fresh \`--attempt fast\` search can miss a ticket the tracker has not indexed yet.${note}`,
-      `run ${DECIDE_CMD} --attempt retry-<N> (${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt retry-<N>")}) to search for it: a \`reused\` decision writes a reuse receipt that lets you write to that ticket. When retry-3 still misses, a person decides.`,
+      `run ${DECIDE_CMD} --attempt retry-<N> (${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt retry-<N>")}) to search for it: a \`reused\` decision writes a reuse receipt that lets you write to that ticket. When retry-3 still misses, ask the operator with AskUserQuestion to search the tracker for the ticket by hand: if it exists, save it as <ticket.json> and run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json>")} to write to it; if it does not, the operator creates it by hand — no receipt in this session authorises another create of it.`,
     );
   }
 
@@ -901,7 +923,7 @@ function gateCreate(
   if (matching.length > 0) {
     return refuse(
       `${where}: its create receipt (${matching[matching.length - 1].path}) is spent — another create took it, and a create that timed out may still have made the ticket.${note}`,
-      `run ${DECIDE_CMD} --attempt retry-<N> (${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt retry-<N>")}) to search for the ticket that create may have made: a \`reused\` decision writes a reuse receipt that lets you write to that ticket. In a shared repository a retry never authorises another create; when retry-3 still misses, a person decides.`,
+      `run ${DECIDE_CMD} --attempt retry-<N> (${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt retry-<N>")}) to search for the ticket that create may have made: a \`reused\` decision writes a reuse receipt that lets you write to that ticket. In a shared repository a retry never authorises another create. When retry-3 still misses, ask the operator with AskUserQuestion to search the tracker for the ticket by hand: if it exists, save it as <ticket.json> and run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json>")} to write to it; if it does not, the operator creates it by hand — no receipt in this session authorises another create of it.`,
     );
   }
   if (seen.length > 0) {

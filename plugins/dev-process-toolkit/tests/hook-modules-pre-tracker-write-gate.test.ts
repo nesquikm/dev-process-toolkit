@@ -2601,3 +2601,94 @@ describe("M_947c79 review 2 — the archived FRs and the hooks reference state w
     expect(t).toMatch(/may have made the ticket/);
   });
 });
+
+// ===========================================================================
+// M_947c79 pre-PR /spec-review, round 3. Each case drives the real hook file
+// and was measured red on 5742f2e before its fix landed.
+// ===========================================================================
+
+describe("M_947c79 review 3 — a definite tracker rejection is not a lost create (AC-STE-607.3)", () => {
+  /** decide fast → create (result given) → decide fast again → the corrected create. */
+  async function afterFirst(result: string): Promise<Run> {
+    const w = makeWorld();
+    const s = new Session();
+    const first = realRun(DECIDE, decideArgv(w.be, savePage(w.scratch, EMPTY_JIRA_PAGE), "BE rejected once"));
+    expect(first.code).toBe(0);
+    s.bash(first.command, first.out);
+    s.mcp(JIRA("createJiraIssue"), jiraCreate({ title: "BE rejected once", labels: ["wrong"] }), result, true);
+    const second = realRun(DECIDE, decideArgv(w.be, savePage(w.scratch, EMPTY_JIRA_PAGE), "BE rejected once"));
+    expect(second.out).toContain(RECEIPT_ANNOUNCEMENT_PREFIX);
+    s.bash(second.command, second.out);
+    return runHook(JIRA("createJiraIssue"), jiraCreate({ title: "BE rejected once" }), { cwd: w.be, transcript: s.save(w.scratch) });
+  }
+
+  for (const text of [
+    "Error: 400 Bad Request: Field 'labels' cannot be set. It is not on the appropriate screen, or unknown.",
+    "Request failed with status code 422",
+    "HTTP 403 Forbidden",
+  ]) {
+    test(`a create rejected with "${text.slice(0, 32)}…" made nothing: a fresh receipt authorises the corrected create → exit 0`, async () => {
+      expectPermit(await afterFirst(text));
+    }, 30_000);
+  }
+
+  for (const text of ["Error: 504 Gateway Timeout", "HTTP 408", "Error: 400 Bad Request (upstream timed out)"]) {
+    test(`CONTROL — "${text}" proves nothing: the fresh create is still refused → exit 2`, async () => {
+      expectRefusal(await afterFirst(text), /may have (made|created)/i);
+    }, 30_000);
+  }
+
+  test("every lost-create refusal names a concrete action, never a bare \"a person decides\"", async () => {
+    const r = await afterFirst("Error: 504 Gateway Timeout");
+    expectRefusal(
+      r,
+      /AskUserQuestion/,
+      `bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/${CONFIRM}" confirm`,
+      /--attempt retry-/,
+    );
+    expect(r.stderr).not.toMatch(/a person decides\./);
+  }, 30_000);
+});
+
+describe("M_947c79 review 3 — a malformed transcript never breaks the undeclared silence (AC-STE-607.1)", () => {
+  function malformed(s: Session): void {
+    s.lines.push(JSON.stringify({ type: "assistant", message: { role: "assistant", content: [null, 7, "text", { type: "text", text: "hi" }] } }));
+    s.lines.push(JSON.stringify({ type: "user", message: { role: "user", content: [null] } }));
+  }
+
+  test("null and non-object content blocks in an UNDECLARED repository → exit 0, empty stdout and stderr", async () => {
+    const root = tempDir("undeclared-null");
+    declareJira(root, null);
+    gitInit(root);
+    const s = new Session();
+    malformed(s);
+    s.bash(`bun run "${join(ADAPTERS_SRC, DECIDE)}" decide "${root}" /tmp/p.json --title T --attempt fast`, "{}");
+    expectSilent(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: root, transcript: s.save(tempDir("null-scratch")) }));
+  }, 30_000);
+
+  test("the same malformed blocks beside a real `decide` in a DECLARED repository: its receipt still authorises the create → exit 0", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    malformed(s);
+    const d = realRun(DECIDE, decideArgv(w.be, savePage(w.scratch, EMPTY_JIRA_PAGE), "BE beside nulls"));
+    s.bash(d.command, d.out);
+    malformed(s);
+    expectPermit(
+      await runHook(JIRA("createJiraIssue"), jiraCreate({ title: "BE beside nulls" }), { cwd: w.be, transcript: s.save(w.scratch) }),
+    );
+  }, 30_000);
+});
+
+describe("M_947c79 review 3 — the refusal and the FR name what the grammar rejects and what it cannot see", () => {
+  test("the plain-invocation rule names bare `$VAR`, `$(…)` and `~`", async () => {
+    const w = makeWorld();
+    const r = await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: new Session().save(w.scratch) });
+    expectRefusal(r, "$VAR", "$(…)", "`~`");
+  }, 30_000);
+
+  test("STE-607 records the Bun-environment tampering class as a residual with a named follow-up", () => {
+    const t = readFileSync(join(REPO_ROOT, "specs/frs/archive/STE-607.md"), "utf-8");
+    for (const needle of ["bunfig.toml", "preload", "PATH"]) expect(t, needle).toContain(needle);
+    expect(t).toMatch(/follow-up[^.\n]*Bun('s)? config/i);
+  });
+});
