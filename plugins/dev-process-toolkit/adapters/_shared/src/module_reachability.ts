@@ -448,7 +448,7 @@ export interface UnreachablePinMove {
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
     value: 125,
-    commit: "uncommitted",
+    commit: "6e4632b",
     rationale:
       "M_947c79/STE-602: the shared-declaration reader `workspace_binding.ts` " +
       "gained an `import.meta.main` front door, so it became reachable and " +
