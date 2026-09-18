@@ -106,6 +106,13 @@ the session at all: no transcript, an unreadable one, or stdin they cannot parse
   gate, and a spec-only commit is carved out. When no stack marker resolves it
   says so and exits 0 rather than guessing.
 
+One more gate reads receipts, not a `Skill` tool_use:
+
+- `pre-tracker-write-gate` — fires on a tracker write tool (Jira or Linear) —
+  blocks shared-container tracker writes that skipped the deciding commands,
+  and writes from a toolkit older than the declared `min_dpt_version` floor.
+  Silent where this CLAUDE.md declares no shared tracker container.
+
 Full manual: `docs/hooks-reference.md` inside the installed dev-process-toolkit
 plugin — not a path in this repository. Open it from the plugin cache
 (`~/.claude/plugins/cache/dev-process-toolkit/dev-process-toolkit/<version>/docs/hooks-reference.md`)

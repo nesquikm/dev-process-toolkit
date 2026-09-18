@@ -26,6 +26,59 @@ import { join } from "node:path";
 import { acPrefix } from "./ac_prefix";
 import { stripLinearACFences } from "../../linear/src/format_description";
 import type { FRSpec, Provider } from "./provider";
+import { classifyTicket, normalizeContainerPage } from "./container_ownership";
+import { readWorkspaceBinding } from "./workspace_binding";
+
+/**
+ * STE-605 — optional ownership context. With it, a `sibling` or `container`
+ * key refuses before any write, and in a shared repository an `unowned`
+ * ticket is claimed: its labels are written as the union of its current
+ * labels (read from `pages`) and this repository's tag, on the same sync.
+ */
+export interface ImportOwnershipContext {
+  projectRoot: string;
+  /** Parsed container page JSON (the read the ticket's labels come from). */
+  pages: unknown[];
+}
+
+/**
+ * The ownership context for ONE fetched ticket (Jira `getJiraIssue`, Linear
+ * `get_issue`) — the join path of `/implement` 0.b′ and `/spec-write` § 0a
+ * (STE-606). Passing it to `importFromTracker` is what tags an ADOPTED
+ * unowned ticket with this repository's `repo_tag` on the import's own sync;
+ * without it the adoption is recorded locally and never on the ticket.
+ */
+export function ticketImportOwnership(projectRoot: string, ticket: unknown): ImportOwnershipContext {
+  return { projectRoot, pages: [{ issues: [ticket] }] };
+}
+
+/** Returns the label set to write on the sync, or undefined to leave labels untouched. Throws on refusal. */
+function ownershipLabels(trackerKey: string, trackerId: string, ctx: ImportOwnershipContext): string[] | undefined {
+  if (trackerKey !== "jira" && trackerKey !== "linear") {
+    throw new Error(`importFromTracker: tracker "${trackerKey}" has no container pages; cannot check ownership of ${trackerId}`);
+  }
+  const binding = readWorkspaceBinding(join(ctx.projectRoot, "CLAUDE.md"), trackerKey);
+  // Strict when shared: a page lacking `labels` must refuse, never read as
+  // "no labels" — the claim below writes the union, and an empty read would
+  // replace the ticket's real labels with the tag alone.
+  const ticket = ctx.pages
+    .flatMap((p) => normalizeContainerPage(p, trackerKey, binding.shared))
+    .find((t) => t.key === trackerId);
+  if (ticket === undefined) {
+    if (binding.shared) {
+      throw new Error(`importFromTracker: ${trackerId} is not on the pages read; its labels cannot be merged — refusing`);
+    }
+    return undefined;
+  }
+  const cls = classifyTicket(ticket, binding);
+  if (cls === "sibling" || cls === "container") {
+    throw new Error(`importFromTracker: ${trackerId} is a ${cls} ticket; refusing to import it`);
+  }
+  if (cls === "unowned" && binding.repoTag !== undefined) {
+    return [...ticket.labels, binding.repoTag];
+  }
+  return undefined;
+}
 
 export async function importFromTracker(
   trackerKey: string,
@@ -33,7 +86,9 @@ export async function importFromTracker(
   provider: Provider,
   specsDir: string,
   promptMilestone: () => Promise<string>,
+  ownership?: ImportOwnershipContext,
 ): Promise<string> {
+  const claimLabels = ownership === undefined ? undefined : ownershipLabels(trackerKey, trackerId, ownership);
   const metadata = await provider.getMetadata(`${trackerKey}:${trackerId}`);
   const milestone = await promptMilestone();
 
@@ -75,6 +130,7 @@ export async function importFromTracker(
       created_at: createdAt,
     },
     body,
+    ...(claimLabels !== undefined ? { labels: claimLabels } : {}),
   };
   // M18 STE-60 AC-STE-60.3 — use Provider.filenameFor for FR creation.
   const path = join(specsDir, "frs", provider.filenameFor(spec));

@@ -4,6 +4,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { AdapterDriver, TicketStatusSummary } from "./tracker_provider";
+import * as trackerProviderModule from "./tracker_provider";
 import {
   TrackerProvider,
   TrackerReleaseLockPreconditionError,
@@ -690,5 +691,85 @@ describe("UpsertMetadataInput labels widening (STE-155 AC-STE-155.5 dependency)"
       project: "DST",
     });
     expect(id).toBe("LIN-NEW");
+  });
+});
+
+// STE-606 AC-STE-606.4 — one routing table (`claimRoute`) drives claimLock and
+// the Claim runbook. Moves, each named: before STE-606 `isClaimable` accepted
+// `done` and `completed`, so claimLock re-opened and re-assigned a finished
+// ticket. MOVED: done → `already-released` (was `claimed`); MOVED: completed →
+// `already-released` (was `claimed`). No pre-existing case in this file
+// asserted a done/completed claim, so the moves land as the new cases below;
+// every other route (unstarted/backlog/cancelled → claim, in_progress ×
+// assignee) is unchanged and re-asserted as a control.
+// `claimRoute` is read off the module namespace (`trackerProviderModule`) so a
+// missing export reds only these cases, not the whole file.
+
+type ClaimRouteFn = (status: string, assignee: string | null, currentUser: string) => unknown;
+function claimRouteOf(): ClaimRouteFn {
+  const fn = (trackerProviderModule as Record<string, unknown>)["claimRoute"];
+  expect(typeof fn, "tracker_provider.ts exports no claimRoute").toBe("function");
+  return fn as ClaimRouteFn;
+}
+const routeKind = (r: unknown): unknown =>
+  typeof r === "string" ? r : (r as { kind?: unknown } | null)?.kind;
+
+describe("claimRoute — the one routing table (STE-606 AC-STE-606.4)", () => {
+  const ME = "user@example.com";
+  test("MOVED: done → already-released", () => {
+    expect(routeKind(claimRouteOf()("done", null, ME))).toBe("already-released");
+  });
+  test("MOVED: completed → already-released", () => {
+    expect(routeKind(claimRouteOf()("completed", ME, ME))).toBe("already-released");
+  });
+  test("in_progress with another assignee → taken-elsewhere", () => {
+    expect(routeKind(claimRouteOf()("in_progress", "other@example.com", ME))).toBe("taken-elsewhere");
+  });
+  test("in_progress with me → already-ours", () => {
+    expect(routeKind(claimRouteOf()("in_progress", ME, ME))).toBe("already-ours");
+  });
+  test("control: backlog, unstarted and cancelled → claim", () => {
+    for (const s of ["backlog", "unstarted", "cancelled"]) {
+      expect(routeKind(claimRouteOf()(s, null, ME))).toBe("claim");
+    }
+  });
+});
+
+describe("TrackerProvider.claimLock — done/completed are released, not re-claimed (STE-606 AC-STE-606.4)", () => {
+  for (const terminal of ["done", "completed"] as const) {
+    test(`MOVED: ${terminal} → already-released with zero driver writes (was: claimed with transition + assignee)`, async () => {
+      const { driver, calls } = makeStub({
+        async getTicketStatus() {
+          return { status: terminal, assignee: "other@example.com" };
+        },
+      });
+      const p = new TrackerProvider({
+        driver,
+        currentUser: "user@example.com",
+        resolveTrackerRef: async () => "LIN-1234",
+      });
+      const result = await p.claimLock("fr_01HZ7XJFKP0000000000000B03", "feat/test");
+      expect(result.kind as string).toBe("already-released");
+      expect(calls.filter((c) => c.startsWith("transitionStatus"))).toEqual([]);
+      expect(calls.filter((c) => c.startsWith("upsertTicketMetadata"))).toEqual([]);
+      expect(calls.filter((c) => c.startsWith("pushAcToggle"))).toEqual([]);
+    });
+  }
+
+  test("control: backlog → claimed, with the transition and the assignee write", async () => {
+    const { driver, calls } = makeStub({
+      async getTicketStatus() {
+        return { status: "backlog", assignee: null };
+      },
+    });
+    const p = new TrackerProvider({
+      driver,
+      currentUser: "user@example.com",
+      resolveTrackerRef: async () => "LIN-1234",
+    });
+    const result = await p.claimLock("fr_01HZ7XJFKP0000000000000B03", "feat/test");
+    expect(result.kind).toBe("claimed");
+    expect(calls).toContain("transitionStatus(LIN-1234,in_progress)");
+    expect(calls.some((c) => c.startsWith("upsertTicketMetadata(LIN-1234,") && c.includes("user@example.com"))).toBe(true);
   });
 });

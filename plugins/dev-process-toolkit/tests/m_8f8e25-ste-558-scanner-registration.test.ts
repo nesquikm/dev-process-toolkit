@@ -863,10 +863,17 @@ describe("AC-STE-558.7 — the pin moved at most once, and only downward", () =>
   test("the pin is at or below where it stood, and the frozen history survives", () => {
     expect(ORDERED_UNREACHABLE_PIN).toBeLessThanOrEqual(PIN_ENTERING_STE558);
     const values = ORDERED_UNREACHABLE_PIN_LEDGER.map((m) => m.value);
-    // AT MOST ONE new entry: a change that moved the pin twice, or rewrote
-    // history to make a raise look like a lowering, fails here.
+    // AT MOST ONE new entry FOR STE-558: a change that moved the pin twice,
+    // or rewrote history to make a raise look like a lowering, fails here.
+    // PIN MOVE (M_947c79): moves recorded by LATER FRs are allowed beyond that
+    // one, each only when its own rationale names an FR in LATER_MOVES — so an
+    // extra entry nobody accounts for still reds this leg.
+    const LATER_MOVES = ["STE-602", "STE-603", "STE-605"];
+    const laterEntries = ORDERED_UNREACHABLE_PIN_LEDGER.filter((m) =>
+      LATER_MOVES.some((fr) => m.rationale.includes(fr)),
+    ).length;
     expect(values.length).toBeGreaterThanOrEqual(LEDGER_LENGTH_ENTERING);
-    expect(values.length).toBeLessThanOrEqual(LEDGER_LENGTH_ENTERING + 1);
+    expect(values.length).toBeLessThanOrEqual(LEDGER_LENGTH_ENTERING + 1 + laterEntries);
     expect(values.slice(values.length - LEDGER_LENGTH_ENTERING)).toEqual([
       ...FROZEN_LEDGER_VALUES,
     ]);

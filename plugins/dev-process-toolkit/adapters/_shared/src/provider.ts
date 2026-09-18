@@ -27,7 +27,8 @@ export interface SyncResult {
 }
 
 export interface LockResult {
-  kind: "claimed" | "already-ours" | "taken-elsewhere";
+  /** `already-released` (STE-606) is tracker-only: `LocalProvider` never returns it. */
+  kind: "claimed" | "already-ours" | "taken-elsewhere" | "already-released";
   branch: string | null;
   message: string;
 }
@@ -35,6 +36,12 @@ export interface LockResult {
 export interface FRSpec {
   frontmatter: Record<string, unknown>;
   body: string;
+  /**
+   * STE-605 — the ticket's full label set to write on this sync (a
+   * read-merge-write union, never a set that drops a label). Absent ⇒ the
+   * sync leaves labels untouched.
+   */
+  labels?: string[];
 }
 
 /**

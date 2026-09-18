@@ -319,12 +319,27 @@ describe("AC-STE-595.4 — registered repo-level, probes green, the file-run com
     expect(statSync(shim).mode & 0o100, `${shim} lacks the user exec bit`).not.toBe(0);
   });
 
-  test("REGRESSION: the plugin's hooks/hooks.json is byte-unchanged against main and never names the hook", () => {
+  // PIN MOVE (M_947c79/STE-607): "byte-unchanged against main" forbade EVERY
+  // later hook, not just this one — STE-607 legitimately adds a PreToolUse
+  // group for its tracker-write gate. The regression this guards is that the
+  // stdin-spawn hook stays repo-level and never enters the plugin's
+  // hooks.json, and that no hook main registers is lost: both are asserted.
+  test("REGRESSION: the plugin's hooks/hooks.json keeps every hook main registers and never names the hook", () => {
     const git = (args: string[]) => Bun.spawnSync(["git", ...args], { cwd: pluginRoot });
     expect(git(["rev-parse", "--verify", "--quiet", "main"]).exitCode, "control: main resolves").toBe(0);
     const onMain = git(["show", "main:plugins/dev-process-toolkit/hooks/hooks.json"]);
     expect(onMain.exitCode, "control: hooks.json exists on main").toBe(0);
-    expect(Buffer.compare(Buffer.from(onMain.stdout), readFileSync(HOOKS_JSON)), "hooks.json differs from main").toBe(0);
+    type Group = { matcher?: string; hooks: { command: string }[] };
+    const commands = (json: string): string[] => {
+      const hooks = (JSON.parse(json) as { hooks: Record<string, Group[]> }).hooks;
+      return Object.entries(hooks).flatMap(([event, groups]) =>
+        groups.flatMap((g) => g.hooks.map((h) => `${event}|${g.matcher ?? ""}|${h.command}`)),
+      );
+    };
+    const now = new Set(commands(readFileSync(HOOKS_JSON, "utf-8")));
+    const before = commands(onMain.stdout.toString());
+    expect(before.length, "control: main registers hooks").toBeGreaterThan(0);
+    for (const c of before) expect(now.has(c), `hooks.json lost a hook main registers: ${c}`).toBe(true);
     expect(readFileSync(HOOKS_JSON, "utf-8")).not.toMatch(/stdin[_-]?spawn/i);
   });
 

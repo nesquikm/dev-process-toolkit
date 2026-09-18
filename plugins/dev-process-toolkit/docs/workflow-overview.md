@@ -153,6 +153,8 @@ flowchart TD
 
 The PR has a hook of its own: `pre-pr-spec-review` blocks a `gh pr create` Bash call unless `/dev-process-toolkit:spec-review` ran as a Skill tool_use in this session. It exits 2 like the commit-side pair, and it grades this session's transcript — a review done by hand, or in an earlier session, does not clear it. See [`docs/hooks-reference.md`](hooks-reference.md).
 
+Tracker writes have one too: `pre-tracker-write-gate` blocks shared-container tracker writes that skipped the deciding commands — a create with no matching receipt for this session, or a write on a ticket this repository does not own — and writes from a toolkit older than the declared `min_dpt_version` floor. It fires only where the repository's CLAUDE.md declares its tracker container as shared; where nothing is declared it is silent. It demands receipts, not a Skill tool_use, and exits 2 like the rest. See [`docs/hooks-reference.md`](hooks-reference.md).
+
 ```mermaid
 flowchart TD
     classDef skill fill:#e1f5e1,stroke:#2e7d32,stroke-width:2px,color:#000

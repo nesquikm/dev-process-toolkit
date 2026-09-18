@@ -127,9 +127,22 @@ the `mcp_server:` from `adapters/<tracker>.md` frontmatter). Never hard-code
 the vendor name in skill prose — the runbook abstracts over the per-tracker
 concrete pattern via the active adapter's `## Tool surface` table.
 
+0. **Require ownership first (STE-606).** A claim runs only on a ticket the
+   ownership decision found `owned`, or `unowned` and adopted by the
+   operator's explicit answer to the adopt question. Run
+   `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/ticket_ownership.ts decide <projectRoot> <ticket.json>`
+   on the fetched ticket; on `foreign-project`, `foreign-repo` or
+   `container` STOP without writing. After the operator confirms (and
+   answers `Adopt <KEY>` for an `unowned` ticket), run
+   `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/ticket_ownership.ts confirm <projectRoot> <KEY> <ticket.json> [--adopt]`;
+   in a shared repository it writes the `binding` receipt that the
+   tracker-write hook requires before the claim's transition. A ticket that
+   is not ours never reaches the routing below.
 1. **Read state + assignee.** Call `mcp__<tracker>__get_issue(<id>)`. Capture
    `status`, `assigneeId` / `assignee`, and `updatedAt`.
-2. **Decision routing (four-way):**
+2. **Decision routing (four-way)** — the table `claimRoute(status, assignee,
+   currentUser)` in `adapters/_shared/src/tracker_provider.ts`, the same
+   function `TrackerProvider.claimLock` routes through:
    - `status == status_mapping[in_progress]` AND `assignee != currentUser`
      ⇒ STOP with `taken-elsewhere`. Surface an NFR-10 canonical-shape
      refusal naming the holding assignee + branch. Do not
@@ -138,8 +151,8 @@ concrete pattern via the active adapter's `## Tool surface` table.
      ⇒ `already-ours`. The claim is already held; resume the run without
      writing. Bookkeeping (the post-claim `updatedAt` recording for drift
      detection) still fires (see § 0.2 above).
-   - `status == status_mapping[done]` ⇒ `already-released` (idempotent
-     terminal). The work shipped; don't re-open the ticket. Skip
+   - `status == status_mapping[done]` or completed ⇒ `already-released` (idempotent
+     terminal, zero writes). The work shipped; don't re-open the ticket. Skip
      the run.
    - Otherwise (`Backlog`, `Unstarted`, `Cancelled`, etc.) ⇒ proceed to
      step 3 to perform the actual claim.

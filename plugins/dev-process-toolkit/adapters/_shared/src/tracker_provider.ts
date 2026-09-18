@@ -18,7 +18,8 @@
 //       providers (cross-tracker reconciliation is out of scope per §8.11).
 //   - claimLock(id, branch): reads status via getTicketStatus; if
 //       in_progress + other assignee → taken-elsewhere; if in_progress +
-//       current user → already-ours; else transitionStatus('in_progress')
+//       current user → already-ours; done/completed → already-released
+//       (STE-606, via claimRoute); else transitionStatus('in_progress')
 //       and upsertTicketMetadata({assignee}) (AC-46.3).
 //   - releaseLock(id): transitionStatus('done') — Phase 4 completion path.
 //       An explicit-release variant (status='unstarted') is deferred to
@@ -181,7 +182,28 @@ function isStrictlyAfter(post: string, pre: string): boolean {
 }
 
 function isClaimable(s: TicketStatus): boolean {
-  return s === "unstarted" || s === "backlog" || s === "cancelled" || s === "done" || s === "completed";
+  return s === "unstarted" || s === "backlog" || s === "cancelled";
+}
+
+function isReleased(s: TicketStatus): boolean {
+  return s === "done" || s === "completed";
+}
+
+/** STE-606 AC-STE-606.4 — the route `claimRoute` picks for a ticket's pre-claim state. */
+export type ClaimRoute = "claim" | "already-released" | "already-ours" | "taken-elsewhere" | "not-claimable";
+
+/**
+ * STE-606 AC-STE-606.4 — the one routing table behind both
+ * `TrackerProvider.claimLock` and docs/implement-tracker-mode.md § Claim
+ * runbook: in progress with another assignee → `taken-elsewhere`; in
+ * progress with me → `already-ours`; done or completed → `already-released`
+ * (zero writes); backlog / unstarted / cancelled → `claim`. A status outside
+ * the canonical set routes to `not-claimable`.
+ */
+export function claimRoute(status: TicketStatus, assignee: string | null, currentUser: string): ClaimRoute {
+  if (isInProgress(status)) return assignee === currentUser ? "already-ours" : "taken-elsewhere";
+  if (isReleased(status)) return "already-released";
+  return isClaimable(status) ? "claim" : "not-claimable";
 }
 
 export class TrackerProvider implements Provider {
@@ -247,6 +269,7 @@ export class TrackerProvider implements Provider {
     await this.driver.upsertTicketMetadata(ticketId, {
       title: String(spec.frontmatter["title"] ?? ""),
       description: spec.body,
+      ...(spec.labels !== undefined ? { labels: spec.labels } : {}),
     });
     return {
       kind: "ok",
@@ -276,17 +299,27 @@ export class TrackerProvider implements Provider {
       };
     }
     const summary = await this.driver.getTicketStatus(trackerRef);
-    if (isInProgress(summary.status)) {
-      if (summary.assignee === this.currentUser) {
-        return { kind: "already-ours", branch, message: `Lock already held by ${this.currentUser}` };
-      }
+    const route = claimRoute(summary.status, summary.assignee, this.currentUser);
+    if (route === "already-ours") {
+      return { kind: "already-ours", branch, message: `Lock already held by ${this.currentUser}` };
+    }
+    if (route === "taken-elsewhere") {
       return {
         kind: "taken-elsewhere",
         branch: null,
         message: `Ticket ${trackerRef} is in_progress with assignee ${summary.assignee ?? "<unassigned>"}`,
       };
     }
-    if (!isClaimable(summary.status)) {
+    if (route === "already-released") {
+      return {
+        kind: "already-released",
+        branch: null,
+        message: `Ticket ${trackerRef} status=${summary.status} is already released; not re-claimed`,
+      };
+    }
+    if (route === "not-claimable") {
+      // A non-canonical status is never claimed; it surfaces as `taken-elsewhere`
+      // so callers keep a single refusal branch.
       return {
         kind: "taken-elsewhere",
         branch: null,

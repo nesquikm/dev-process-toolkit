@@ -58,6 +58,14 @@ export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
     "applicability derives from the declared `## Verification` block (`run_cmd` / `e2e_cmd`), read via `readVerificationConfig`; an absent block declares nothing and yields the unconditional gate section in managed and unmanaged trees alike.",
   identity_mode_conditional:
     "applicability derives from the declared tracker `mode:`, read via `readTaskTrackingSection`.",
+  container_ownership:
+    "the orphan listing's front door reads the tracker binding through `readWorkspaceBinding`; applicability is the declared tracker `mode:` and `repo_tag`, and an undeclared tree lists every candidate in managed and unmanaged trees alike.",
+  create_idempotency_probe:
+    "the create decision's front door reads the tracker binding (mode + sub-section) through `readWorkspaceBinding`; applicability is the declared tracker `mode:`, and an undeclared tree decides exactly as before in managed and unmanaged trees alike.",
+  workspace_binding:
+    "the shared-declaration reader's front door: applicability derives from the declared tracker `mode:` (read via `readTaskTrackingSection`) and the active sub-section's own keys; an undeclared tree answers `shared:false` in managed and unmanaged trees alike.",
+  import:
+    "the tracker import reads the binding only when handed container pages (the ownership check); applicability is the declared tracker `mode:` and `repo_tag`, and without pages the import is unchanged in managed and unmanaged trees alike.",
   orchestration_config:
     "applicability derives from the presence of the `## Orchestration` section it parses; absent section or file returns defaults even in unmanaged trees.",
   plan_identity_mode_conditional:
@@ -74,10 +82,14 @@ export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
     "applicability derives from the presence of the `## Task Tracking` section it parses.",
   task_tracking_workspace_binding_present:
     "applicability derives from the declared tracker `mode:` (vacuous on absent section or `mode: none`).",
+  ticket_ownership:
+    "the ownership decision's front door reads the tracker binding through `readWorkspaceBinding`; applicability is the declared tracker `mode:` (and `repo_tag` for the shared verdicts), and an undeclared tree still gets the project comparison in managed and unmanaged trees alike.",
   toolkit_managed:
     "IS the shared managed-ness predicate — the one module every other in-scope module is required to route through.",
   tracker_config_shape:
     "applicability derives from `specs/tracker-config.yaml`; CLAUDE.md is read only for the declared `mode:` short-circuit and the adapter cross-check.",
+  tracker_local_reconciliation_drift:
+    "probe #49's front door reads the tracker binding through `readWorkspaceBinding`; applicability is the declared tracker `mode:` (vacuous in `mode: none`), and the shared-only rows fire only on a declared `repo_tag`.",
   tracker_project_milestone_attached:
     "applicability derives from the declared tracker `mode:` and the per-FR `tracker:` blocks it walks.",
 };

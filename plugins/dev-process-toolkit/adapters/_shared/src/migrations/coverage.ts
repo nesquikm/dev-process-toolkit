@@ -197,7 +197,7 @@ function semverTuple(v: string): [number, number, number] | null {
 }
 
 /** -1 | 0 | 1, or null when either side is not a bare/`v`-prefixed semver. */
-function compareSemver(a: string, b: string): number | null {
+export function compareSemver(a: string, b: string): number | null {
   const ta = semverTuple(a);
   const tb = semverTuple(b);
   if (ta === null || tb === null) return null;

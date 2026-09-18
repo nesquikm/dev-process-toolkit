@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.87.0] — 2026-09-18 — "Owned"
+
+### Added
+
+- A shared tracker container is declared once and read by code (STE-602)
+- Setup declares a shared container and leaves a stop paragraph older clients obey (STE-603)
+- A hook refuses shared-container tracker writes that skipped the deciding commands (STE-607)
+
+### Fixed
+
+- Creating a ticket in a shared container is decided by code on Jira and Linear (STE-604)
+- The orphan list offers only this repository's tickets and names who filed the rest (STE-605)
+- Implement confirms a ticket is this repository's before importing or claiming it (STE-606)
+
+Total test count at release: 14279 tests, 0 failures, 0 errors.
+
 ## [2.86.0] — 2026-09-18 — "Right Tree"
 
 ### Added

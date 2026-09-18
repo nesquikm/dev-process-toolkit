@@ -447,6 +447,52 @@ export interface UnreachablePinMove {
  */
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
+    value: 122,
+    commit: "8b28f34",
+    rationale:
+      "M_947c79/STE-605: probe #49's module " +
+      "`tracker_local_reconciliation_drift.ts` gained an `import.meta.main` " +
+      "front door, and row 49 of `skills/gate-check/SKILL.md` now orders it " +
+      "with `bun run`, so both ordered references on that row " +
+      "(`skills/gate-check/SKILL.md:128` -> " +
+      "`tracker_local_reconciliation_drift.ts` and, transitively through its " +
+      "import, `reconcile_tracker_local.ts`) stopped naming a module nothing " +
+      "runnable reaches. Exactly those two references left the set and none " +
+      "entered it. Measured by the awaited `runModuleReachabilityProbe` " +
+      "(124 -> 122, diffed record by record against a checkout of dd17cf6), " +
+      "not carried from the FR.",
+  },
+  {
+    value: 124,
+    commit: "dcc3045",
+    rationale:
+      "M_947c79/STE-603: probe #25's module " +
+      "`task_tracking_workspace_binding_present.ts` gained an " +
+      "`import.meta.main` front door, and row 25 of " +
+      "`skills/gate-check/SKILL.md` now orders it with `bun run`, so its one " +
+      "ordered reference (`skills/gate-check/SKILL.md:80`) stopped naming a " +
+      "module nothing runnable reaches. Exactly that reference left the set " +
+      "and none entered it. Measured by the awaited " +
+      "`runModuleReachabilityProbe` (125 -> 124, diffed record by record " +
+      "against a checkout of c4c1fed), not carried from the FR.",
+  },
+  {
+    value: 125,
+    commit: "b9a4a0c",
+    rationale:
+      "M_947c79/STE-602: the shared-declaration reader `workspace_binding.ts` " +
+      "gained an `import.meta.main` front door, so it became reachable and " +
+      "its two ordered references (`skills/spec-write/SKILL.md:107`, " +
+      "`docs/spec-write-tracker-mode.md:23`) stopped naming a module nothing " +
+      "runnable reaches. The other two are TRANSITIVE: the front door's floor " +
+      "check reuses the exported `compareSemver`, which pulls " +
+      "`migrations/coverage.ts` into the reachable set and clears its ordered " +
+      "references at `skills/gate-check/SKILL.md:155` and " +
+      "`skills/ship-milestone/SKILL.md:141`. Measured by the awaited " +
+      "`runModuleReachabilityProbe` (129 -> 125, diffed record by record " +
+      "against a checkout of 41f7e60), not carried from the FR.",
+  },
+  {
     value: 129,
     commit: "a2b5e59",
     rationale:

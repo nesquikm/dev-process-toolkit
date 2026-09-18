@@ -118,3 +118,28 @@ export function checkoutIdPath(projectRoot: string): string {
 export function smokeRunLedgerPath(projectRoot: string, runId: string): string {
   return join(dptRoot(projectRoot), "ledger", `smoke-run-${runId}.jsonl`);
 }
+
+/** A session id is path-safe when it is one non-dot path segment of `[A-Za-z0-9._-]`. */
+function assertPathSafeSessionId(sessionId: string): void {
+  if (
+    typeof sessionId !== "string" ||
+    !/^[A-Za-z0-9._-]+$/.test(sessionId) ||
+    sessionId === "." ||
+    sessionId === ".."
+  ) {
+    throw new Error(`receiptsDir: session id ${JSON.stringify(sessionId)} is not path-safe`);
+  }
+}
+
+/**
+ * Tracker-write receipts: `<projectRoot>/.dpt/ledger/receipts/<sessionId>` (STE-602).
+ *
+ * The ONLY composer of the receipts path (AC-STE-602.7). It sits under
+ * `ledger/` so the CLOSED `.dpt/.gitignore` rule set already ignores it — no
+ * fourth rule, no nested ignore file. Throws on an empty or path-unsafe
+ * session id rather than composing an escaping path.
+ */
+export function receiptsDir(projectRoot: string, sessionId: string): string {
+  assertPathSafeSessionId(sessionId);
+  return join(dptRoot(projectRoot), "ledger", "receipts", sessionId);
+}
