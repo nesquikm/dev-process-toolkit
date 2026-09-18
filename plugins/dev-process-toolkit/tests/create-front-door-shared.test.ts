@@ -47,6 +47,7 @@ import {
 } from "../adapters/_shared/src/module_reachability";
 import {
   RECEIPT_ANNOUNCEMENT_PREFIX,
+  parseReceiptAnnouncement,
   readSessionReceipts,
 } from "../adapters/_shared/src/tracker_receipts";
 import { claudeMd, makeSpanFixture, pluginManifest } from "./_span_fixture";
@@ -120,7 +121,7 @@ function receiptAnnouncements(run: Run): string[] {
   return run.stdout
     .split("\n")
     .filter((l) => l.startsWith(RECEIPT_ANNOUNCEMENT_PREFIX))
-    .map((l) => l.slice(RECEIPT_ANNOUNCEMENT_PREFIX.length).trim());
+    .map((l) => parseReceiptAnnouncement(l)!.path);
 }
 
 let pageSeq = 0;

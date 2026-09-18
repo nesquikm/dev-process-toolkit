@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { RECEIPT_ANNOUNCEMENT_PREFIX, writeReceipt } from "../../../adapters/_shared/src/tracker_receipts";
+import { announceReceipt, writeReceipt } from "../../../adapters/_shared/src/tracker_receipts";
 
 // STE-607 — `pre-tracker-write-gate.sh` integration test.
 //
@@ -217,7 +217,7 @@ describe("STE-607 — pre-tracker-write-gate.sh: end-to-end via stdin payload", 
             {
               tool_use_id: "toolu_607_shim_1",
               type: "tool_result",
-              content: `{"outcome":"create","reason":"proven-absent"}\n${RECEIPT_ANNOUNCEMENT_PREFIX}${path}`,
+              content: `{"outcome":"create","reason":"proven-absent"}\n${announceReceipt(path)}`,
             },
           ],
         },

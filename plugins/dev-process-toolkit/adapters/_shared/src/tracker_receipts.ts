@@ -8,14 +8,41 @@
 // A missing `.dpt/.gitignore` is created through `writeDptGitignore`; an
 // existing one (canonical or hand-edited) is never rewritten.
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { receiptsDir } from "./dpt_paths";
 import { dptGitignorePath, writeDptGitignore } from "./setup/dpt_gitignore";
 
 /** The line prefix a receipt write is announced with. */
 export const RECEIPT_ANNOUNCEMENT_PREFIX = "dpt-receipt: ";
+
+/** The digest token that closes an announcement line: ` sha256:<64 hex>` over the receipt file's bytes. */
+export const RECEIPT_DIGEST_PREFIX = "sha256:";
+
+/** The sha256 hex digest of a receipt file's bytes. */
+export function receiptDigest(bytes: string | Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+/**
+ * The one announcement line a deciding command prints for a receipt it wrote:
+ * `dpt-receipt: <absolute path> sha256:<digest>`. The digest binds the
+ * announcement to the bytes the command wrote, so a file rewritten after its
+ * announcement no longer matches it (STE-607 review, AC-STE-607.7).
+ */
+export function announceReceipt(path: string): string {
+  const abs = resolve(path);
+  return `${RECEIPT_ANNOUNCEMENT_PREFIX}${abs} ${RECEIPT_DIGEST_PREFIX}${receiptDigest(readFileSync(abs))}`;
+}
+
+/** Parse one announcement line into its path and digest (null digest when the line carries none). */
+export function parseReceiptAnnouncement(line: string): { path: string; digest: string | null } | null {
+  if (!line.startsWith(RECEIPT_ANNOUNCEMENT_PREFIX)) return null;
+  const rest = line.slice(RECEIPT_ANNOUNCEMENT_PREFIX.length).trim();
+  const m = /^(.*\S)\s+sha256:([0-9a-f]{64})$/.exec(rest);
+  return m ? { path: m[1]!, digest: m[2]! } : { path: rest, digest: null };
+}
 
 export interface ReceiptInput {
   kind: string;

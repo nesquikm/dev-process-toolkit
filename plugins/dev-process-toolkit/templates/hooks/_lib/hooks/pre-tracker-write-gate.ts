@@ -15,7 +15,7 @@
 // The stdin entry is guarded by `import.meta.main`, so importing this module
 // for its constants has no side effect.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { emitNFR10, parseHookPayload, readTranscriptLines, type HookPayload } from "../session.ts";
 import {
@@ -24,7 +24,10 @@ import {
   type WorkspaceBinding,
 } from "../../../../adapters/_shared/src/workspace_binding.ts";
 import { receiptsDir } from "../../../../adapters/_shared/src/dpt_paths.ts";
-import { RECEIPT_ANNOUNCEMENT_PREFIX } from "../../../../adapters/_shared/src/tracker_receipts.ts";
+import {
+  parseReceiptAnnouncement,
+  receiptDigest,
+} from "../../../../adapters/_shared/src/tracker_receipts.ts";
 import { normalizeTitleForCompare } from "../../../../adapters/_shared/src/create_idempotency_probe.ts";
 import { readTrackedBindings } from "../../../../adapters/_shared/src/ticket_ownership.ts";
 import { resolveInterviewAnswer } from "../../../../adapters/_shared/src/auto_answers.ts";
@@ -295,8 +298,81 @@ function resultText(content: unknown): string {
   return "";
 }
 
-function runsAnnouncingModule(command: string): boolean {
-  return RECEIPT_ANNOUNCING_MODULES.some((m) => new RegExp(`(^|[\\s"'/])${m.replace(/\./g, "\\.")}(["'\\s]|$)`).test(command));
+/** This hook's own plugin root: the deciding modules it trusts are ITS plugin's, never a same-named file elsewhere. */
+const OWN_PLUGIN_ROOT = resolve(import.meta.dir, "..", "..", "..", "..");
+
+/** The documented spellings of the plugin root in a command, resolved to this hook's own root. */
+const PLUGIN_ROOT_VARS = ["${CLAUDE_PLUGIN_ROOT}", "$CLAUDE_PLUGIN_ROOT"];
+
+/**
+ * Split a Bash command into words under a deliberately small shell grammar,
+ * or null when the command uses anything beyond it: unquoted metacharacters
+ * (`;` `&` `|` `<` `>` `(` `)` `#` `*` `?` `~` `!` `{` `}` `[` `]` `\`),
+ * command or variable substitution, or a newline. A command that could run a
+ * second program — an `echo` chained after the real one, a comment carrying a
+ * module name — is thereby not a deciding command at all.
+ */
+export function simpleCommandWords(command: string): string[] | null {
+  const words: string[] = [];
+  let cur: string | null = null;
+  let i = 0;
+  while (i < command.length) {
+    const ch = command[i]!;
+    if (ch === " " || ch === "\t") {
+      if (cur !== null) words.push(cur);
+      cur = null;
+      i++;
+    } else if (ch === "'") {
+      const end = command.indexOf("'", i + 1);
+      if (end < 0) return null;
+      const body = command.slice(i + 1, end);
+      if (body.includes("\n")) return null;
+      cur = (cur ?? "") + body;
+      i = end + 1;
+    } else if (ch === '"') {
+      const end = command.indexOf('"', i + 1);
+      if (end < 0) return null;
+      const body = command.slice(i + 1, end);
+      if (/[$`\\\n]/.test(body)) return null;
+      cur = (cur ?? "") + body;
+      i = end + 1;
+    } else if (/[A-Za-z0-9_./:=@%+,-]/.test(ch)) {
+      cur = (cur ?? "") + ch;
+      i++;
+    } else {
+      return null;
+    }
+  }
+  if (cur !== null) words.push(cur);
+  return words;
+}
+
+function realpathOr(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/**
+ * The deciding module a Bash command RUNS, or null. The command must be one
+ * `bun [run] <module path> …` invocation under `simpleCommandWords`, and the
+ * module path must be this plugin's own file — a same-named file elsewhere, a
+ * module mentioned in an argument, or a comment naming one runs nothing here.
+ */
+export function invokedDecidingModule(command: string): string | null {
+  let text = command.trim();
+  for (const v of PLUGIN_ROOT_VARS) text = text.split(`${v}/`).join(`${OWN_PLUGIN_ROOT}/`);
+  const words = simpleCommandWords(text);
+  if (!words || words[0] !== "bun") return null;
+  const target = words[1] === "run" ? words[2] : words[1];
+  if (target === undefined || !target.startsWith("/")) return null;
+  const actual = realpathOr(target);
+  for (const m of RECEIPT_ANNOUNCING_MODULES) {
+    if (actual === realpathOr(join(OWN_PLUGIN_ROOT, "adapters", "_shared", "src", m))) return m;
+  }
+  return null;
 }
 
 /**
@@ -321,12 +397,32 @@ export interface Announcement {
   receiptPath: string;
   /** Index of the transcript line carrying the announcing tool_result. */
   line: number;
+  /**
+   * False when the file's bytes no longer hash to the digest its command
+   * announced: rewritten after the announcement, so it authorises nothing.
+   * An unreadable file stays intact here and is counted as unparseable later.
+   */
+  intact: boolean;
+}
+
+/** Whether the receipt file still carries the bytes its announcement hashed. */
+function stillAnnounced(path: string, digest: string): boolean {
+  let bytes: Uint8Array;
+  try {
+    bytes = readFileSync(path);
+  } catch {
+    return true; // unreadable: ignored and counted by the caller (§6)
+  }
+  return receiptDigest(bytes) === digest;
 }
 
 /**
  * Every receipt root announced in this session by a deciding command: a
- * `dpt-receipt: <path>` line inside the non-error tool_result of a `Bash`
- * tool_use whose command runs a module in `RECEIPT_ANNOUNCING_MODULES`.
+ * `dpt-receipt: <path> sha256:<digest>` line inside the non-error tool_result
+ * of a `Bash` tool_use that RAN a module in `RECEIPT_ANNOUNCING_MODULES`
+ * (`invokedDecidingModule`). No other command can print such a line into
+ * that tool_result, so a replayed `echo` of a spent receipt's announcement is
+ * not an announcement at all.
  */
 export function announcedReceipts(lines: string[], sessionId: string): Announcement[] {
   const announcingBash = new Set<string>();
@@ -335,15 +431,15 @@ export function announcedReceipts(lines: string[], sessionId: string): Announcem
     for (const b of contentBlocks(line)) {
       if (b.type === "tool_use" && b.name === "Bash" && typeof b.id === "string") {
         const cmd = b.input?.command;
-        if (typeof cmd === "string" && runsAnnouncingModule(cmd)) announcingBash.add(b.id);
+        if (typeof cmd === "string" && invokedDecidingModule(cmd) !== null) announcingBash.add(b.id);
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
         if (b.is_error === true || !announcingBash.has(b.tool_use_id)) continue;
         for (const l of resultText(b.content).split("\n")) {
-          if (!l.startsWith(RECEIPT_ANNOUNCEMENT_PREFIX)) continue;
-          const receiptPath = l.slice(RECEIPT_ANNOUNCEMENT_PREFIX.length).trim();
-          if (!receiptPath.startsWith("/")) continue;
+          const a = parseReceiptAnnouncement(l);
+          if (!a || a.digest === null || !a.path.startsWith("/")) continue;
+          const receiptPath = resolve(a.path);
           const root = receiptRootOf(receiptPath, sessionId);
-          if (root !== null) out.push({ root, receiptPath: resolve(receiptPath), line: idx });
+          if (root !== null) out.push({ root, receiptPath, line: idx, intact: stillAnnounced(receiptPath, a.digest) });
         }
       }
     }
@@ -535,31 +631,48 @@ function readCreateReceipt(path: string, sessionId: string, adapter: WorkspaceAd
   return p ? receiptShape(adapter, p as Record<string, unknown>) : null;
 }
 
-/** Every create tool_use in the transcript for `adapter`, in order. */
-function priorCreates(
+/**
+ * The create tool_uses ordered BEFORE the gated call, in transcript order
+ * (line, then position within an assistant message).
+ *
+ * Claude Code writes a tool_use to the transcript BEFORE its PreToolUse hook
+ * runs (measured on a live transcript), so the gated call — and every parallel
+ * sibling of its assistant turn — is already there, run or not. Receipts are
+ * allocated in this order whether or not a create has run yet: two creates in
+ * one turn cannot both take one receipt, however their hooks interleave. The
+ * gated call's own tool_use never spends (it is where the walk stops); when it
+ * is absent from the transcript it is taken to come after every other create.
+ */
+function createsBefore(
   lines: string[],
   adapter: WorkspaceAdapterKey,
-  pendingId: string | undefined,
+  gatedId: string | undefined,
 ): Array<{ line: number; shape: CreateShape }> {
-  // Claude Code writes a tool_use to the transcript BEFORE its PreToolUse hook
-  // runs (measured on a live transcript), so the call being gated — and any
-  // not-yet-run parallel sibling — is already there. Only a create that RAN
-  // spends a receipt: one whose paired tool_result exists, whatever it says.
-  const ran = new Set<string>();
-  for (const line of lines) {
-    for (const b of contentBlocks(line)) {
-      if (b.type === "tool_result" && typeof b.tool_use_id === "string") ran.add(b.tool_use_id);
-    }
-  }
   const out: Array<{ line: number; shape: CreateShape }> = [];
-  lines.forEach((line, idx) => {
-    for (const b of contentBlocks(line)) {
-      if (typeof b.id !== "string" || b.id === pendingId || !ran.has(b.id)) continue;
+  for (let idx = 0; idx < lines.length; idx++) {
+    for (const b of contentBlocks(lines[idx]!)) {
+      if (gatedId !== undefined && b.id === gatedId) return out;
       const c = createCallIn(b, adapter);
       if (c) out.push({ line: idx, shape: callShape(adapter, c.input) });
     }
-  });
+  }
   return out;
+}
+
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** A Linear project slug (`<name>-<12 hex>`) or its bare slug id. */
+const LINEAR_SLUG_SHAPE = /^(?:[a-z0-9]+(?:-[a-z0-9]+)*-)?[0-9a-f]{12}$/;
+
+/**
+ * §4 — a create's container named by an opaque id the declaration cannot be
+ * compared with: a Linear team or project UUID, a Linear project slug, or a
+ * numeric Jira project id. Returns the offending value, or null.
+ */
+function opaqueContainer(adapter: WorkspaceAdapterKey, c: CreateShape): string | null {
+  if (adapter === "jira") return /^\d+$/.test(c.project) ? c.project : null;
+  if (UUID_SHAPE.test(c.team)) return c.team;
+  if (UUID_SHAPE.test(c.project) || LINEAR_SLUG_SHAPE.test(c.project)) return c.project;
+  return null;
 }
 
 function gateCreate(
@@ -578,7 +691,16 @@ function gateCreate(
     );
   }
   const binding = declared.filter((d) => bindsContainer(call.adapter, d.binding, shape));
-  if (binding.length === 0) return 0; // §3 — no declared target binds this container
+  if (binding.length === 0) {
+    // §4 — an id or slug cannot be told apart from a declared container, so it
+    // is refused as unresolvable; a plainly named other container is not ours.
+    const opaque = opaqueContainer(call.adapter, shape);
+    if (opaque === null) return 0; // §3 — no declared target binds this container
+    return refuse(
+      `${call.tool} names its container by the id "${opaque}", which cannot be resolved against the declared targets ${declared.map((d) => `${d.root} (${d.binding.team ? `team ${d.binding.team}, ` : ""}project ${d.binding.project ?? "none"})`).join(", ")}.${note}`,
+      `name the ${call.adapter === "jira" ? "project by its key" : "team and project by the names the declaration uses"}, as the createPayload ${DECIDE_CMD} printed does, then retry.`,
+    );
+  }
   let target = binding[0];
   if (binding.length > 1) {
     const tagged = binding.filter((d) => d.binding.repoTag && shape.labels.includes(d.binding.repoTag));
@@ -594,12 +716,12 @@ function gateCreate(
 
   const seen: CreateReceiptSeen[] = [];
   for (const a of announcements) {
-    if (a.root !== target.root) continue;
+    if (a.root !== target.root || !a.intact) continue;
     const r = readCreateReceipt(a.receiptPath, sessionId, call.adapter);
     if (r) seen.push({ line: a.line, path: a.receiptPath, shape: r, spent: false });
   }
   // §4 — each receipt authorises exactly ONE create tool_use after its announcement.
-  for (const c of priorCreates(transcript, call.adapter, call.toolUseId)) {
+  for (const c of createsBefore(transcript, call.adapter, call.toolUseId)) {
     const hit = seen.find((r) => !r.spent && r.line < c.line && createMismatch(call.adapter, c.shape, r.shape, tag) === null);
     if (hit) hit.spent = true;
   }
@@ -609,8 +731,8 @@ function gateCreate(
   const where = `${call.tool} in ${target.root}`;
   if (matching.length > 0) {
     return refuse(
-      `${where}: its create receipt (${matching[matching.length - 1].path}) is spent — a create already ran after it, and a timed-out create may still have made the ticket.${note}`,
-      `run ${DECIDE_CMD} --attempt retry-<N> again for a fresh receipt, then retry.`,
+      `${where}: its create receipt (${matching[matching.length - 1].path}) is spent — another create took it, and a create that timed out may still have made the ticket.${note}`,
+      `run ${DECIDE_CMD} --attempt retry-<N> to search for the ticket that create may have made: a \`reused\` decision writes a reuse receipt that lets you write to that ticket. In a shared repository a retry never authorises another create; when retry-3 still misses, a person decides.`,
     );
   }
   if (seen.length > 0) {
@@ -680,18 +802,51 @@ function namesKey(text: string, key: string): boolean {
   return new RegExp(`(^|[^A-Za-z0-9-])${key.replace(/[-]/g, "\\-")}(?![0-9A-Za-z])`).test(text);
 }
 
-/** Keys a create tool_use of this session returned in its paired, non-error tool_result. */
+/**
+ * The ONE key a create's result names as created: the top-level `key` (Jira)
+ * or `identifier` (Linear), or the same field of a top-level `issue`. Every
+ * other key the result echoes — a parent Epic, a linked sibling — was not
+ * created by this call. A result that is not JSON falls back to the first key
+ * carrying the create's own Jira project prefix, and otherwise names nothing.
+ */
+function createdKeyOf(text: string, call: TrackerCall): string | null {
+  const pick = (o: unknown): string | null => {
+    if (!o || typeof o !== "object") return null;
+    const r = o as Record<string, unknown>;
+    for (const f of ["key", "identifier"]) {
+      const v = r[f];
+      if (typeof v === "string" && TICKET_KEY.test(v)) return v.toUpperCase();
+    }
+    return null;
+  };
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown> | null;
+    return pick(parsed) ?? pick(parsed?.issue);
+  } catch {
+    const project = callShape(call.adapter, call.input).project;
+    if (call.adapter !== "jira" || project === "") return null;
+    for (const m of text.matchAll(/[A-Za-z][A-Za-z0-9]*-\d+/g)) {
+      if (keyPrefix(m[0]).toUpperCase() === project.toUpperCase()) return m[0].toUpperCase();
+    }
+    return null;
+  }
+}
+
+/** Keys a create tool_use of this session returned as created in its paired, non-error tool_result. */
 function createdKeys(parsed: Array<ParsedLine | null>, adapter: WorkspaceAdapterKey): Set<string> {
-  const creates = new Set<string>();
+  const creates = new Map<string, TrackerCall>();
   const out = new Set<string>();
   for (const p of parsed) {
     if (!p) continue;
     for (const b of p.blocks) {
       if (b.type === "tool_use") {
-        if (typeof b.id === "string" && createCallIn(b, adapter)) creates.add(b.id);
+        const c = createCallIn(b, adapter);
+        if (typeof b.id === "string" && c) creates.set(b.id, c);
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
-        if (b.is_error === true || !creates.has(b.tool_use_id)) continue;
-        for (const m of resultText(b.content).matchAll(/[A-Za-z][A-Za-z0-9]*-\d+/g)) out.add(m[0].toUpperCase());
+        const c = creates.get(b.tool_use_id);
+        if (b.is_error === true || !c) continue;
+        const key = createdKeyOf(resultText(b.content).trim(), c);
+        if (key !== null) out.add(key);
       }
     }
   }
@@ -766,7 +921,7 @@ function owns(ctx: OwnershipContext, root: string, key: string): boolean {
   if (trackedIds(ctx, root).has(key)) return true;
   if (ctx.created.has(key)) return true;
   for (const a of ctx.announcements) {
-    if (a.root !== root) continue;
+    if (a.root !== root || !a.intact) continue;
     const r = readSessionReceipt(a.receiptPath, ctx.sessionId, ctx.adapter);
     if (!r) continue;
     if (r.kind === "reuse") {
@@ -868,7 +1023,7 @@ function bindsCall(call: TrackerCall, d: DeclaredTarget): boolean {
   if (isCreate(call.tool, call.input) || isContainer(call.tool, call.input)) {
     const shape = callShape(call.adapter, call.input);
     if (shape.project === "" && shape.team === "") return true;
-    return bindsContainer(call.adapter, d.binding, shape);
+    return bindsContainer(call.adapter, d.binding, shape) || opaqueContainer(call.adapter, shape) !== null;
   }
   const keys = subjectKeys(call);
   if (keys.length === 0) return true;
@@ -913,14 +1068,22 @@ function unreadableInputsNote(payload: HookPayload, transcript: string[] | null,
     return ` The session transcript (${payload.transcript_path || "no transcript_path"}) is unreadable, so no announced receipt roots or session-created keys were counted.`;
   }
   let unparseable = 0;
+  let rewritten = 0;
   for (const a of announcements) {
+    if (!a.intact) {
+      rewritten++;
+      continue;
+    }
     try {
       JSON.parse(readFileSync(a.receiptPath, "utf-8"));
     } catch {
       unparseable++;
     }
   }
-  return unparseable > 0 ? ` ${unparseable} announced receipt file(s) failed to parse and were ignored.` : "";
+  const notes: string[] = [];
+  if (unparseable > 0) notes.push(` ${unparseable} announced receipt file(s) failed to parse and were ignored.`);
+  if (rewritten > 0) notes.push(` ${rewritten} announced receipt file(s) changed after their announcement and were ignored.`);
+  return notes.join("");
 }
 
 export function run(stdin: string): ExitCode {
