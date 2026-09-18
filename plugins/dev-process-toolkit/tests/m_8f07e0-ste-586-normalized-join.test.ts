@@ -649,14 +649,16 @@ describe("AC-STE-586.14 — the Linear mint front door", () => {
     `milestoneUuid=${EXISTING_UUID}`,
     `milestoneId=${EXISTING_LINEAR_ID}`,
     `plan=specs/plan/${EXISTING_LINEAR_ID}.md`,
+    // Amended by AC-STE-608.8: the front door reports the act it performed.
+    "outcome=created",
   ];
 
-  test("the four expected lines are the ones the module header documents", () => {
+  test("the five expected lines are the ones the module header documents", () => {
     const src = readFileSync(LINEAR_MODULE, "utf-8");
-    expect(EXPECTED_LINES.map((l) => src.includes(`//   ${l}\n`))).toEqual([true, true, true, true]);
+    expect(EXPECTED_LINES.map((l) => src.includes(`//   ${l}\n`))).toEqual([true, true, true, true, true]);
   });
 
-  test("spawned, it exits 0 and prints exactly those four lines", () => {
+  test("spawned, it exits 0 and prints exactly those five lines", () => {
     const run = spawnSync(
       "bun",
       [

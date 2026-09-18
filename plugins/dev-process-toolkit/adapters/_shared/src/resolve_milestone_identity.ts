@@ -45,9 +45,33 @@
 // Ordering contract (preserved verbatim from the prose it replaces): the
 // dispatcher runs BEFORE any plan or FR file is written, because the
 // tracker-less branch determines the plan filename.
+//
+// STE-608 — the per-mode `switch` above is the path WITHOUT an enumerated
+// listing. When the caller hands the tracker modes the container listing it
+// enumerated (`rows`) or a `joinKey`, neither `resolveMilestoneIdentity` nor
+// `milestoneAllocationGateSpec` creates anything: both consult the ONE
+// decision (`decideMilestoneMint`), a join derives its id from the listed key,
+// and a create is left to the approved mint (`expect` = the gate's decision).
+// The module's CLI is the decision front door (bottom of this file): it
+// decides from a saved raw listing and writes one `milestone-decision`
+// receipt, which the pre-tracker-write gate reads before any container create.
 
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { adoptOrMintMilestoneId, type MilestoneMinter } from "./adopt_or_mint_milestone_id";
-import { milestoneIdFromEpicKey } from "./milestone_token";
+import { checkVersionFloor, nfr10Message, runningDptVersion } from "./dpt_version";
+import { mergeMilestoneLabel } from "./attach_project_milestone";
+import { announceReceipt, printable, writeReceipt } from "./tracker_receipts";
+import { readWorkspaceBinding } from "./workspace_binding";
+import {
+  decideMilestoneMint,
+  type JiraDecisionRow,
+  type LinearDecisionRow,
+  type MilestoneMintDecision,
+  milestoneIdFromEpicKey,
+  milestoneIdFromLinearMilestone,
+} from "./milestone_token";
 import {
   mintMilestoneLinear,
   type MintMilestoneLinearProvider,
@@ -115,6 +139,16 @@ export interface ResolveMilestoneIdentityInput {
    * measures nothing.
    */
   minter?: MilestoneMinter;
+  /**
+   * STE-608 — the container listing the session enumerated (Jira Epics or
+   * Linear milestones). When present on a tracker mode, the gate spec decides
+   * create-or-join through `decideMilestoneMint` before anything is written.
+   */
+  rows?: readonly JiraDecisionRow[] | readonly LinearDecisionRow[];
+  /** STE-608 — the existing container's key, in place of `title`, to join by key. */
+  joinKey?: string;
+  /** STE-608 — whether the repository's tracker binding is shared. */
+  shared?: boolean;
 }
 
 /** A resolved milestone identity. `id` is present on the `none` branch only. */
@@ -123,6 +157,8 @@ export interface MilestoneIdentity {
   milestoneId: string;
   /** The full minted `fr_`-prefixed id, written to plan frontmatter. `mode: none` only. */
   id?: string;
+  /** STE-608 — `"joined"` when the identity came from joining a listed container by key. */
+  outcome?: "joined";
 }
 
 /**
@@ -139,10 +175,70 @@ export const MILESTONE_ALLOCATION_GATE_SITE = "milestone-allocation";
 export interface MilestoneAllocationGateSpec {
   /** Always {@link MILESTONE_ALLOCATION_GATE_SITE} — identical across modes. */
   gateSite: string;
-  /** The `defaultValue` slot: the resolved milestone token, and nothing else. */
-  defaultValue: string;
+  /**
+   * The `defaultValue` slot: the resolved milestone token, and nothing else.
+   * STE-608 AC-STE-608.6 — `undefined` exactly when the default is forbidden
+   * (a title join in a shared container), so the auto-approve marker cannot
+   * apply it and `requireOrRefuse` refuses instead.
+   */
+  defaultValue: string | undefined;
   /** The full identity, so the `mode: none` `id` reaches plan frontmatter. */
   identity: MilestoneIdentity;
+  /**
+   * STE-608 — the decision the gate approves, handed to the mint as its
+   * `expect`. Present exactly when the input carried the enumerated `rows`.
+   */
+  decision?: MilestoneMintDecision;
+}
+
+/** STE-608 — a listed row as the gate sentence reads it (Jira rows may carry a status name). */
+type GateSentenceRow = { readonly key?: string; readonly id?: string; readonly statusName?: string; readonly statusCategory?: string };
+
+/** STE-608 — the rows a tracker-mode decision reads, with exactly one of a title or a join key. */
+function decideFromListing(
+  mode: "jira" | "linear",
+  project: string,
+  rows: readonly JiraDecisionRow[] | readonly LinearDecisionRow[],
+  pick: { joinKey: string } | { title: string | undefined },
+): MilestoneMintDecision {
+  return mode === "jira"
+    ? decideMilestoneMint({ mode, project, rows: rows as readonly JiraDecisionRow[], ...pick })
+    : decideMilestoneMint({ mode, project, rows: rows as readonly LinearDecisionRow[], ...pick });
+}
+
+/** STE-608 — the milestone id a joined container's listed key derives. */
+function joinedMilestoneId(mode: "jira" | "linear", key: string): string {
+  return mode === "jira" ? milestoneIdFromEpicKey(key) : milestoneIdFromLinearMilestone(key);
+}
+
+/**
+ * STE-608 AC-STE-608.6 — the ONE home of the gate sentence and the default
+ * rule, read by both the decision front door and `milestoneAllocationGateSpec`.
+ * A create names the container kind, the title and the project; a join names
+ * the key, the container's current title and status, and that nothing is
+ * created. The default is forbidden exactly on a title join in a shared
+ * container.
+ */
+export function milestoneGateSentence(input: {
+  mode: "jira" | "linear";
+  project: string;
+  title?: string;
+  decision: MilestoneMintDecision;
+  rows: readonly GateSentenceRow[];
+  shared: boolean;
+}): { gate: string; forbidden: boolean } {
+  const { mode, project, decision } = input;
+  const kind = mode === "jira" ? "Epic" : "project milestone";
+  let gate: string;
+  if (decision.act === "join") {
+    const row = mode === "jira" ? input.rows.find((r) => r.key === decision.key) : undefined;
+    const status = mode === "jira" ? `status ${row?.statusName ?? row?.statusCategory ?? "unknown"}` : "no status listed";
+    gate = `join the existing ${kind} ${decision.key} "${decision.name}" (${status}) in project ${project} via ${decision.via}; nothing is created.`;
+  } else {
+    gate = `create a new ${kind} "${input.title ?? ""}" in project ${project}.`;
+  }
+  const forbidden = decision.act === "join" && decision.via === "title" && input.shared;
+  return { gate, forbidden };
 }
 
 /**
@@ -156,6 +252,32 @@ export interface MilestoneAllocationGateSpec {
 export async function resolveMilestoneIdentity(
   input: ResolveMilestoneIdentityInput,
 ): Promise<MilestoneIdentity> {
+  // STE-608 AC-STE-608.2 — a join KEY on a tracker mode joins the listed row
+  // it names and never compares a title. `decideMilestoneMint` refuses a key
+  // naming no listed row (an absent listing lists nothing), so a join key can
+  // never fall through to the create below.
+  //
+  // STE-608 AC-STE-608.7 — with an enumerated listing, resolving is a READ:
+  // the listing decides, a join derives its id from the listed key, and a
+  // create is refused here — it runs only through the approved mint (with the
+  // gate's decision as its `expect`), never inside identity resolution.
+  if ((input.joinKey !== undefined || input.rows !== undefined) && (input.mode === "jira" || input.mode === "linear")) {
+    const project = input.project ?? "";
+    const pick = input.joinKey !== undefined ? { joinKey: input.joinKey } : { title: input.title };
+    const decision = decideFromListing(input.mode, project, input.rows ?? [], pick);
+    if (decision.act !== "join") {
+      throw new Error(
+        [
+          input.joinKey !== undefined
+            ? `Refusing: join key ${JSON.stringify(input.joinKey)} in project ${JSON.stringify(project)} did not decide a join, and resolving never creates.`
+            : `Refusing: the listing for project ${JSON.stringify(project)} decided a create of ${JSON.stringify(input.title ?? "")}, and resolving never creates.`,
+          "Remedy: ask the milestone-allocation gate with milestoneAllocationGateSpec's decision, then pass that approved decision to the mint as its expect.",
+          `Context: mode=${input.mode}, phase=resolve-milestone-identity, act=${decision.act}`,
+        ].join("\n"),
+      );
+    }
+    return { milestoneId: joinedMilestoneId(input.mode, decision.key), outcome: "joined" };
+  }
   switch (input.mode) {
     case "linear": {
       // TRACKER-FIRST. The identity is whatever the tracker allocated, derived
@@ -218,22 +340,332 @@ export async function resolveMilestoneIdentity(
  * Build the inputs for the ONE milestone-allocation `requireOrRefuse` call
  * (AC-STE-440.4).
  *
- * The dispatcher sits INSIDE the gate call's `defaultValue` computation, not
- * around it: `gateSite` is mode-independent and `defaultValue` is exactly the
- * resolved milestone token, so the three modes are indistinguishable at the
+ * `gateSite` is mode-independent, so the modes are indistinguishable at the
  * gate except for the value they recommend. The caller passes `defaultValue`
  * into `requireOrRefuse`'s `defaultValue` slot (marker present ⇒ default-apply
  * and emit `milestone_allocation_default_applied`; marker absent + non-tty ⇒
  * `RequiresInputRefusedError`) and writes `identity.id`, when present, into the
  * plan's frontmatter.
+ *
+ * Two shapes, and only the second mints before the gate:
+ *
+ *   - WITH an enumerated listing (`rows`, tracker modes — STE-608): the gate
+ *     approves the ONE decision and NOTHING is created here. A join's
+ *     `defaultValue` is the id its listed key derives (`undefined` when the
+ *     default is forbidden — a title join in a shared container); a create's
+ *     is the act `"create"`, with an empty `identity.milestoneId`, because the
+ *     id does not exist until the approved mint runs with `decision` as its
+ *     `expect`.
+ *   - WITHOUT a listing: the dispatcher sits INSIDE the `defaultValue`
+ *     computation — `resolveMilestoneIdentity`, whose `linear` branch mints
+ *     the tracker milestone — and `defaultValue` is the resolved token.
  */
 export async function milestoneAllocationGateSpec(
   input: ResolveMilestoneIdentityInput,
 ): Promise<MilestoneAllocationGateSpec> {
+  // STE-608 AC-STE-608.1 — with an enumerated listing, the gate approves the
+  // ONE decision. Nothing is created here: a join derives its id from the
+  // listed key, and a create's id does not exist until the approved mint runs.
+  if (input.rows !== undefined && (input.mode === "jira" || input.mode === "linear")) {
+    const project = input.project ?? "";
+    const pick = input.joinKey !== undefined ? { joinKey: input.joinKey } : { title: input.title };
+    const decision = decideFromListing(input.mode, project, input.rows, pick);
+    const { forbidden } = milestoneGateSentence({
+      mode: input.mode,
+      project,
+      title: input.title,
+      decision,
+      rows: input.rows as readonly GateSentenceRow[],
+      shared: input.shared === true,
+    });
+    if (decision.act === "join") {
+      const milestoneId = joinedMilestoneId(input.mode, decision.key);
+      return {
+        gateSite: MILESTONE_ALLOCATION_GATE_SITE,
+        defaultValue: forbidden ? undefined : milestoneId,
+        identity: { milestoneId },
+        decision,
+      };
+    }
+    // A create has no milestone id before the approved mint allocates one;
+    // the default the gate recommends is the act itself.
+    return { gateSite: MILESTONE_ALLOCATION_GATE_SITE, defaultValue: "create", identity: { milestoneId: "" }, decision };
+  }
   const identity = await resolveMilestoneIdentity(input);
   return {
     gateSite: MILESTONE_ALLOCATION_GATE_SITE,
     defaultValue: identity.milestoneId,
     identity,
   };
+}
+
+// ------------------------------------------------------- the decision front door
+//
+// STE-608 AC-STE-608.5 —
+//   bun run adapters/_shared/src/resolve_milestone_identity.ts \
+//     <projectRoot> <mode> <project> <listingFile> --title <title> | --join-key <key>
+//
+// Decides create-or-join from the RAW listing the session saved (a Jira
+// `searchJiraIssuesUsingJql` page, or a Linear `list_milestones` answer),
+// prints the decision one field per line, and writes exactly one
+// `milestone-decision` receipt under <projectRoot>. Everything is decided
+// first and written last: every refusal exits 1 with an NFR-10 message on
+// stderr, nothing on stdout and nothing on disk.
+
+/** A refusal the front door exits 1 on; its message is NFR-10 three-line. */
+class FrontDoorRefusal extends Error {
+  constructor(verdict: string, remedy: string, context: string) {
+    super(nfr10Message(verdict, remedy, context));
+    this.name = "FrontDoorRefusal";
+  }
+}
+
+const FRONT_DOOR_USAGE =
+  "resolve_milestone_identity.ts <projectRoot> <jira|linear> <project> <listingFile> --title <title> | --join-key <key>";
+
+interface FrontDoorArgs {
+  projectRoot: string;
+  mode: "jira" | "linear";
+  project: string;
+  listingFile: string;
+  title?: string;
+  joinKey?: string;
+}
+
+function parseFrontDoorArgs(argv: readonly string[]): FrontDoorArgs {
+  const context = `argc=${argv.length}, usage=${FRONT_DOOR_USAGE}`;
+  if (argv.length !== 6) {
+    throw new FrontDoorRefusal(
+      `Refusing: incomplete or extra arguments — the decision needs a project root, a mode, a project, a listing file and exactly one of --title or --join-key.`,
+      `run ${FRONT_DOOR_USAGE}`,
+      context,
+    );
+  }
+  const [projectRoot, mode, project, listingFile, flag, value] = argv as [string, string, string, string, string, string];
+  if (mode !== "jira" && mode !== "linear") {
+    throw new FrontDoorRefusal(
+      `Refusing: unknown mode "${mode}" — only jira and linear list milestone containers to decide against.`,
+      `pass mode jira or linear.`,
+      `mode=${mode}, ${context}`,
+    );
+  }
+  if ((flag !== "--title" && flag !== "--join-key") || value === "" || projectRoot === "" || project === "" || listingFile === "") {
+    throw new FrontDoorRefusal(
+      `Refusing: incomplete arguments — expected a non-empty --title or --join-key after the listing file (got ${flag}).`,
+      `run ${FRONT_DOOR_USAGE}`,
+      context,
+    );
+  }
+  return {
+    projectRoot: resolve(projectRoot),
+    mode,
+    project,
+    listingFile,
+    ...(flag === "--title" ? { title: value } : { joinKey: value }),
+  };
+}
+
+interface ReadListing {
+  sha256: string;
+  rowKeys: string[];
+  jiraRows?: (JiraDecisionRow & { statusName?: string })[];
+  linearRows?: LinearDecisionRow[];
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function readListingFile(args: FrontDoorArgs): ReadListing {
+  const context = `mode=${args.mode}, project=${args.project}, listing=${args.listingFile}`;
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(args.listingFile);
+  } catch (e) {
+    throw new FrontDoorRefusal(
+      `Refusing: the listing file ${args.listingFile} cannot be read (${(e as NodeJS.ErrnoException).code ?? (e as Error).message}).`,
+      `save the tracker's listing answer to a readable file and pass its path.`,
+      context,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(bytes.toString("utf-8"));
+  } catch (e) {
+    throw new FrontDoorRefusal(
+      `Refusing: the listing file ${args.listingFile} is not JSON (${(e as Error).message}).`,
+      `save the tracker's raw JSON answer, unedited, and pass its path.`,
+      context,
+    );
+  }
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const shape = (what: string): FrontDoorRefusal =>
+    new FrontDoorRefusal(
+      `Refusing: the listing file ${args.listingFile} is not a recognised ${args.mode} listing — ${what}.`,
+      args.mode === "jira"
+        ? `save the raw searchJiraIssuesUsingJql answer ({ issues: [...] }) for project ${args.project}'s Epics.`
+        : `save the raw list_milestones answer ({ milestones: [...] }) for project ${args.project}.`,
+      context,
+    );
+
+  if (args.mode === "linear") {
+    if (!isObject(parsed) || !Array.isArray(parsed.milestones)) throw shape("it has no `milestones` array");
+    const rows: LinearDecisionRow[] = [];
+    for (const m of parsed.milestones as unknown[]) {
+      if (!isObject(m) || typeof m.id !== "string" || m.id === "" || typeof m.name !== "string") {
+        throw shape("a milestone row carries no string `id` and `name`");
+      }
+      rows.push({ id: m.id, name: m.name });
+    }
+    return { sha256, rowKeys: rows.map((r) => r.id!), linearRows: rows };
+  }
+
+  if (!isObject(parsed) || !Array.isArray(parsed.issues)) throw shape("it has no `issues` array");
+  const token = parsed.nextPageToken;
+  // A page that does not SAY it is the last one has not proven the container
+  // absent: `isLast` must be the boolean `true`, as `create_idempotency_probe`
+  // requires of the same Jira search answer.
+  if (parsed.isLast !== true || (token !== undefined && token !== null && token !== "")) {
+    throw new FrontDoorRefusal(
+      `Refusing: the listing file ${args.listingFile} is not the last page of the Epic search (isLast=${String(parsed.isLast)}, nextPageToken=${token === undefined || token === null ? "absent" : "present"}) — a later page may hold the container this decision would miss.`,
+      `page the search to the end and save one listing holding every Epic, then decide again.`,
+      context,
+    );
+  }
+  const rows: (JiraDecisionRow & { statusName?: string })[] = [];
+  for (const issue of parsed.issues as unknown[]) {
+    if (!isObject(issue) || typeof issue.key !== "string" || issue.key === "" || !isObject(issue.fields)) {
+      throw shape("an issue row carries no `key` and `fields`");
+    }
+    const key = issue.key;
+    const f = issue.fields;
+    if (typeof f.summary !== "string") throw shape(`issue ${key} carries no string \`summary\``);
+    const projectKey = isObject(f.project) && typeof f.project.key === "string" ? f.project.key : undefined;
+    if (projectKey !== args.project || !key.startsWith(`${args.project}-`)) {
+      throw new FrontDoorRefusal(
+        `Refusing: issue ${key} is keyed outside project ${args.project} (project ${projectKey ?? "absent"}) — the file is not that project's Epic listing.`,
+        `enumerate project ${args.project}'s Epics only, save that answer, and decide again.`,
+        `${context}, row=${key}`,
+      );
+    }
+    const typeName = isObject(f.issuetype) && typeof f.issuetype.name === "string" ? f.issuetype.name : undefined;
+    if (typeName !== "Epic") {
+      throw new FrontDoorRefusal(
+        `Refusing: issue ${key} is ${typeName === undefined ? "listed with no issue type" : `a ${typeName}, not an Epic`} — the file is not project ${args.project}'s Epic listing.`,
+        `enumerate project ${args.project}'s Epics with the issuetype field, save that answer, and decide again.`,
+        `${context}, row=${key}, issuetype=${typeName ?? "absent"}`,
+      );
+    }
+    const status = isObject(f.status) ? f.status : undefined;
+    const category = status && isObject(status.statusCategory) && typeof status.statusCategory.key === "string"
+      ? status.statusCategory.key
+      : undefined;
+    const labels = Array.isArray(f.labels) ? (f.labels as unknown[]).filter((l): l is string => typeof l === "string") : undefined;
+    rows.push({
+      key,
+      name: f.summary,
+      ...(category !== undefined ? { statusCategory: category } : {}),
+      ...(status && typeof status.name === "string" ? { statusName: status.name } : {}),
+      ...(labels !== undefined ? { labels } : {}),
+    });
+  }
+  return { sha256, rowKeys: rows.map((r) => r.key), jiraRows: rows };
+}
+
+/** Decide, then write the one receipt, then return the lines to print. */
+function runDecisionFrontDoor(argv: readonly string[]): string[] {
+  const args = parseFrontDoorArgs(argv);
+  const listing = readListingFile(args);
+
+  // The shared flag and the floor: each reader's own refusal propagates, so an
+  // unreadable or refused declaration is never read as unshared.
+  const binding = readWorkspaceBinding(join(args.projectRoot, "CLAUDE.md"), args.mode);
+  const floor = checkVersionFloor(binding, runningDptVersion());
+  if (!floor.ok) throw new Error(floor.message);
+
+  const pick = args.joinKey !== undefined ? { joinKey: args.joinKey } : { title: args.title };
+  const decision = decideFromListing(
+    args.mode,
+    args.project,
+    args.mode === "jira" ? listing.jiraRows! : listing.linearRows!,
+    pick,
+  );
+
+  const rowCount = listing.rowKeys.length;
+  const listingLine =
+    args.mode === "jira"
+      ? `${rowCount} rows, ${listing.jiraRows!.filter((r) => r.statusCategory === "done").length} closed excluded`
+      : `${rowCount} rows, closed rule not applicable (Linear milestones carry no status)`;
+
+  const milestoneId = decision.act === "join" ? joinedMilestoneId(args.mode, decision.key) : "";
+  const { gate, forbidden } = milestoneGateSentence({
+    mode: args.mode,
+    project: args.project,
+    title: args.title,
+    decision,
+    rows: listing.jiraRows ?? [],
+    shared: binding.shared,
+  });
+
+  const act = decision.act;
+  const via = decision.act === "join" ? decision.via : "";
+  const key = decision.act === "join" ? decision.key : "";
+  const lines = [
+    `act=${act}`,
+    `via=${via}`,
+    `key=${key}`,
+    `milestoneId=${milestoneId}`,
+    `listing=${listingLine}`,
+    `gate=${gate}`,
+    `default=${forbidden ? "forbidden" : "allowed"}`,
+  ];
+  // STE-608 AC-STE-608.9 — a Jira join prints the computed label value: the
+  // Epic's labels as listed plus the milestone label, or `unchanged`.
+  const observedLabels = decision.act === "join" && args.mode === "jira" ? decision.labels : undefined;
+  if (observedLabels !== undefined) {
+    const merged = mergeMilestoneLabel(observedLabels, milestoneId);
+    lines.push(`labels=${merged === null ? "unchanged" : JSON.stringify(merged)}`);
+  }
+  const printed = lines.map(printable);
+
+  // Decided — write last.
+  const path = writeReceipt(args.projectRoot, {
+    kind: "milestone-decision",
+    adapter: args.mode,
+    container: args.project,
+    subject: args.joinKey ?? args.title ?? "",
+    decision: act,
+    evidence: {
+      act,
+      via,
+      key,
+      milestoneId,
+      ...(args.joinKey !== undefined ? { joinKey: args.joinKey } : { title: args.title }),
+      ...(decision.act === "create" && decision.excluded ? { excluded: decision.excluded } : {}),
+      ...(observedLabels !== undefined ? { labels: observedLabels } : {}),
+      shared: binding.shared,
+      default: forbidden ? "forbidden" : "allowed",
+      listing: { file: resolve(args.listingFile), sha256: listing.sha256, rowKeys: listing.rowKeys },
+    },
+  });
+  return [...printed, announceReceipt(path)];
+}
+
+if (import.meta.main) {
+  try {
+    const lines = runDecisionFrontDoor(process.argv.slice(2));
+    process.stdout.write(`${lines.join("\n")}\n`);
+    process.exit(0);
+  } catch (e) {
+    const message = (e as Error).message ?? String(e);
+    const text = /^Remedy:/m.test(message) && /^Context:/m.test(message)
+      ? message
+      : nfr10Message(
+          `Refusing: ${message}`,
+          `fix the input named above and run the decision again.`,
+          `helper=resolve_milestone_identity, phase=milestone-decision-front-door`,
+        );
+    process.stderr.write(`${text.split("\n").map(printable).join("\n")}\n`);
+    process.exit(1);
+  }
 }

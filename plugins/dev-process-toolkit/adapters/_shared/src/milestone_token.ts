@@ -209,3 +209,241 @@ export function matchMilestoneTitle<T extends { readonly name: string }>(rows: r
   const wanted = normalizeMilestoneTitle(title);
   return rows.filter((row) => normalizeMilestoneTitle(row.name) === wanted);
 }
+
+/**
+ * STE-608 — one listed Jira Epic, as the decision reads it. `statusCategory`
+ * is Jira's `status.statusCategory.key` (`new` | `indeterminate` | `done`).
+ */
+export interface JiraDecisionRow {
+  readonly key: string;
+  readonly name: string;
+  readonly statusCategory?: string;
+  readonly labels?: readonly string[];
+}
+
+/** STE-608 — one listed Linear project milestone, as the decision reads it. */
+export interface LinearDecisionRow {
+  readonly id?: string;
+  readonly name: string;
+}
+
+/**
+ * STE-608 AC-STE-608.1 — the decision's input. The mode, the project, the
+ * rows the session ENUMERATED, and exactly one of a human title or a join
+ * key. There is deliberately no provider and no path field: the decision
+ * reads what it is handed and nothing else.
+ */
+export type MilestoneMintDecisionInput =
+  | {
+      readonly mode: "jira";
+      readonly project: string;
+      readonly rows: readonly JiraDecisionRow[];
+      readonly title?: string;
+      readonly joinKey?: string;
+    }
+  | {
+      readonly mode: "linear";
+      readonly project: string;
+      readonly rows: readonly LinearDecisionRow[];
+      readonly title?: string;
+      readonly joinKey?: string;
+    };
+
+/**
+ * The act a mint performs. A create names every closed key the title leg
+ * excluded; a join names how it was found, the container key and its title.
+ */
+export type MilestoneMintDecision =
+  | { readonly act: "create"; readonly excluded?: readonly string[] }
+  | {
+      readonly act: "join";
+      readonly via: "key" | "title";
+      readonly key: string;
+      readonly name: string;
+      /** STE-608 AC-STE-608.9 — Jira only: the joined Epic's labels as listed. */
+      readonly labels?: readonly string[];
+    };
+
+function decisionRefusal(verdict: string, remedy: string, context: string): Error {
+  return new Error([`Refusing: ${verdict}`, `Remedy: ${remedy}`, `Context: ${context}`].join("\n"));
+}
+
+/**
+ * STE-608 AC-STE-608.1 — the ONE pure decision both mints and the gate spec
+ * consult: create, or join by key, or join by title. No I/O, no provider.
+ * Throws an NFR-10 refusal when the input or the listing cannot decide.
+ */
+export function decideMilestoneMint(input: MilestoneMintDecisionInput): MilestoneMintDecision {
+  const { mode, project } = input;
+  const title = input.title !== undefined && input.title !== "" ? input.title : undefined;
+  const joinKey = input.joinKey !== undefined && input.joinKey !== "" ? input.joinKey : undefined;
+  const context = `mode=${mode}, project=${project}, phase=milestone-mint-decision`;
+
+  if ((title === undefined) === (joinKey === undefined)) {
+    const both = title !== undefined;
+    throw decisionRefusal(
+      both
+        ? `to decide a milestone mint in project ${project} from both a title and a join key — the two can name different containers.`
+        : `to decide a milestone mint in project ${project} without a title or a join key — there is nothing to create or join.`,
+      "pass exactly one: the human title (to create, or join by title) or the existing container's key (to join by key).",
+      `${context}, title=${title === undefined ? "absent" : "present"}, join_key=${joinKey === undefined ? "absent" : "present"}`,
+    );
+  }
+
+  const rows = mode === "jira"
+    ? input.rows.map((r) => ({
+        key: r.key as string | undefined,
+        name: r.name,
+        closed: r.statusCategory === "done",
+        labels: Array.isArray(r.labels) ? (r.labels as readonly string[]) : undefined,
+      }))
+    : input.rows.map((r) => ({ key: r.id, name: r.name, closed: false, labels: undefined as readonly string[] | undefined }));
+
+  // STE-608 AC-STE-608.9 — a Jira join carries the joined Epic's labels as
+  // listed; the label merge cannot be computed from a set that was never read.
+  const join = (hit: (typeof rows)[number], via: "key" | "title"): MilestoneMintDecision => {
+    if (mode !== "jira") return { act: "join", via, key: hit.key!, name: hit.name };
+    if (hit.labels === undefined) {
+      throw decisionRefusal(
+        `to join Epic ${hit.key} in project ${project} — its listed row carries no labels field, so the milestone label merge cannot be computed from an unread set.`,
+        "enumerate the project's Epics again with each row's labels field, then decide again.",
+        `${context}, via=${via}, key=${hit.key}, labels=absent`,
+      );
+    }
+    return { act: "join", via, key: hit.key!, name: hit.name, labels: hit.labels };
+  };
+
+  if (mode === "jira") {
+    const unknown = input.rows.filter((r) => typeof r.statusCategory !== "string" || r.statusCategory === "");
+    if (unknown.length > 0) {
+      throw decisionRefusal(
+        `to decide a milestone mint in project ${project} — ${unknown.length} listed row(s) carry no status, so the listing cannot tell open from closed: ${unknown.map((r) => r.key ?? "<no identifier>").join(", ")}.`,
+        "enumerate the project's Epics again with each row's status category (status.statusCategory.key), then decide again.",
+        `${context}, rows=${rows.length}, rows_without_status=${unknown.length}`,
+      );
+    }
+  }
+
+  if (joinKey !== undefined) {
+    let hits: typeof rows;
+    if (mode === "jira") {
+      hits = rows.filter((r) => r.key === joinKey);
+    } else if (/^M_/.test(joinKey)) {
+      hits = rows.filter((r) => {
+        try {
+          return r.key !== undefined && milestoneIdFromLinearMilestone(r.key) === joinKey;
+        } catch {
+          return false;
+        }
+      });
+    } else {
+      hits = rows.filter((r) => r.key !== undefined && r.key.toLowerCase() === joinKey.toLowerCase());
+    }
+    if (hits.length === 0) {
+      throw decisionRefusal(
+        `to join milestone container ${joinKey} in project ${project} — no listed row carries that key.`,
+        "check the key against the container listing, or enumerate the project again — a join by key never falls through to create.",
+        `${context}, via=key, join_key=${joinKey}, rows=${rows.length}`,
+      );
+    }
+    if (hits.length > 1) {
+      throw decisionRefusal(
+        `to join milestone container ${joinKey} in project ${project} — ${hits.length} listed rows derive that key: ${hits.map((h) => h.key).join(", ")}.`,
+        "join by the full milestone identifier instead of the short token.",
+        `${context}, via=key, join_key=${joinKey}`,
+      );
+    }
+    const hit = hits[0]!;
+    if (hit.closed) {
+      throw decisionRefusal(
+        `to join milestone container ${hit.key} in project ${project} — it is closed (status category done).`,
+        `reopen ${hit.key} in the tracker first, then decide again — a join never lands in a closed container.`,
+        `${context}, via=key, join_key=${joinKey}, status_category=done`,
+      );
+    }
+    return join(hit, "key");
+  }
+
+  const matches = matchMilestoneTitle(rows, title!);
+  const excluded = matches.filter((r) => r.closed).map((r) => r.key!);
+  const open = matches.filter((r) => !r.closed);
+  if (open.length === 0) return excluded.length > 0 ? { act: "create", excluded } : { act: "create" };
+  if (open.length > 1) {
+    const candidates = open.map((r) => `${r.key ?? "<no identifier>"} "${r.name}"`).join(", ");
+    throw decisionRefusal(
+      `to decide milestone "${title}" in project ${project} — ${open.length} existing containers normalize to the same title: ${candidates}.`,
+      "rename one of them in the tracker so their titles no longer normalize equal, or join a specific one by its key instead of by title.",
+      `${context}, via=title, normalized=${normalizeMilestoneTitle(title!)}`,
+    );
+  }
+  const hit = open[0]!;
+  if (hit.key === undefined) {
+    throw decisionRefusal(
+      `to join milestone "${title}" in project ${project} — the matching row carries no identifier.`,
+      "enumerate the project's milestones with their identifiers, then decide again.",
+      `${context}, via=title`,
+    );
+  }
+  return join(hit, "title");
+}
+
+/** STE-608 — what a mint's find leg enumerated: the decision input without its title or join key. */
+export type MilestoneMintListing =
+  | { readonly mode: "jira"; readonly project: string; readonly rows: readonly JiraDecisionRow[] }
+  | { readonly mode: "linear"; readonly project: string; readonly rows: readonly LinearDecisionRow[] };
+
+/**
+ * STE-608 AC-STE-608.1 + AC-STE-608.8 — a mint's find leg under an APPROVED
+ * decision, shared by both mints. Consults `decideMilestoneMint` (a join by key
+ * decides by that key, anything else by the title) and compares the verdict
+ * with the approval:
+ *
+ *   - the key the mint binds — an approved join the listing confirms, or an
+ *     approved create whose own earlier attempt landed (`createAttempted`: a
+ *     hit on a RETRY is this call's create surviving a timeout, AC-STE-522.10);
+ *   - `{ mismatch }` — the listing decides an act the approval never saw (a
+ *     join on the first attempt of a create, another key, or no join at all).
+ *     PERMANENT — re-listing returns the same page — so the mint returns it
+ *     out of the retry and refuses once, with zero writes;
+ *   - `null` — an approved create the listing agrees with: go create.
+ */
+export function reconcileApprovedMint(
+  listing: MilestoneMintListing,
+  title: string,
+  expected: MilestoneMintDecision,
+  createAttempted: boolean,
+): string | { mismatch: string | null } | null {
+  const decision = decideMilestoneMint(
+    expected.act === "join" && expected.via === "key" ? { ...listing, joinKey: expected.key } : { ...listing, title },
+  );
+  if (decision.act === "join") {
+    if (expected.act === "create") return createAttempted ? decision.key : { mismatch: decision.key };
+    return decision.key === expected.key ? decision.key : { mismatch: decision.key };
+  }
+  return expected.act === "join" ? { mismatch: null } : null;
+}
+
+/**
+ * STE-608 AC-STE-608.8 — the NFR-10 refusal both mints raise on a
+ * `reconcileApprovedMint` mismatch. `container` is what the mint makes
+ * (`milestone Epic`), `noun` the short name the find leg reports (`Epic`).
+ */
+export function approvedMintMismatchRefusal(args: {
+  mode: "jira" | "linear";
+  phase: string;
+  container: string;
+  noun: string;
+  title: string;
+  project: string;
+  expected: MilestoneMintDecision;
+  found: string | null;
+}): Error {
+  const { mode, phase, container, noun, title, project, expected, found } = args;
+  const approved = expected.act === "join" ? `join ${expected.key}` : "create";
+  const yielded = found === null ? `no joinable ${noun}` : `existing ${noun} ${found}`;
+  return decisionRefusal(
+    `to mint ${container} "${title}" in project ${project} — the approved act was ${approved}, but the find leg yielded ${yielded}.`,
+    "re-run the mint decision against the current listing and approve the act it names — a mint never performs an act other than the approved one.",
+    `mode=${mode}, phase=${phase}, expect=${expected.act}, found=${found ?? "none"}`,
+  );
+}

@@ -66,6 +66,8 @@ export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
     "the shared-declaration reader's front door: applicability derives from the declared tracker `mode:` (read via `readTaskTrackingSection`) and the active sub-section's own keys; an undeclared tree answers `shared:false` in managed and unmanaged trees alike.",
   import:
     "the tracker import reads the binding only when handed container pages (the ownership check); applicability is the declared tracker `mode:` and `repo_tag`, and without pages the import is unchanged in managed and unmanaged trees alike.",
+  next_free_milestone_number:
+    "the explicit-`M<N>` door's front door reads the declared tracker `mode:` through `readTaskTrackingSection` to refuse a typed number in tracker mode; applicability is that mode, and a tree with no `## Task Tracking` section keeps today's door in managed and unmanaged trees alike.",
   orchestration_config:
     "applicability derives from the presence of the `## Orchestration` section it parses; absent section or file returns defaults even in unmanaged trees.",
   plan_identity_mode_conditional:
@@ -76,6 +78,8 @@ export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
     "applicability derives from the declared `## Release Files` block its front door parses; an absent block already refuses with `MissingReleaseFilesBlockError`, so managed-ness would only add a second gate that refuses trees the block itself declares in scope.",
   release_surface_agreement:
     "applicability derives from the declared `changelog_ci_owned` docs flag, read via `readDocsConfig` — the same reader `release_config` consults before it skips the CHANGELOG entry; managed-ness would gate the grader differently from the writer it must agree with.",
+  resolve_milestone_identity:
+    "the milestone decision's front door reads the tracker binding through `readWorkspaceBinding` for the `shared` flag and the version floor; applicability is the tracker mode its caller passes, and an undeclared tree decides as unshared in managed and unmanaged trees alike.",
   setup_output_completeness:
     "applicability derives from the declared tracker `mode:` (any value other than `none`).",
   task_tracking_canonical_keys:

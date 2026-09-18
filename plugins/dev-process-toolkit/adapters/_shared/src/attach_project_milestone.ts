@@ -956,6 +956,17 @@ export function milestoneLabel(canonicalName: string): string {
 }
 
 /**
+ * STE-608 AC-STE-608.9 — the ONE label merge both Jira front doors print. The
+ * Epic's labels as listed, original order kept, plus the milestone label
+ * (`milestoneLabel`, never composed here). Returns `null` when the label is
+ * already present — the write is then a no-op and is not made.
+ */
+export function mergeMilestoneLabel(listed: readonly string[], milestoneId: string): string[] | null {
+  const label = milestoneLabel(milestoneId);
+  return listed.includes(label) ? null : [...listed, label];
+}
+
+/**
  * M97 (STE-363 + STE-364) — normalize an adapter's milestone-binding
  * strategy. `object` (Linear) is the default when the provider declares
  * none; `label` (Jira legacy) and `epic` (Jira Epic-first) must be declared

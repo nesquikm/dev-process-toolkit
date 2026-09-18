@@ -499,6 +499,11 @@ describe("AC-STE-443.3 — mode: linear is untouched; only mode: jira grows the 
   test("GUARD — mode: linear stays silent across the whole provenance spread", async () => {
     // GUARD-adjacent, but not vacuous: it pins the exact widening risk. Every
     // one of these plans WOULD raise a row under jira.
+    //
+    // Amended by AC-STE-608.16: the DATED plans all predate
+    // LINEAR_TRACKER_KEY_EPOCH and stay silent, but the untracked `M120.md` is
+    // `fresh` at any epoch, so the linear arm STE-608 adds now yields exactly
+    // one error row for it.
     const p = makeProject({
       mode: "linear",
       plans: [
@@ -511,7 +516,10 @@ describe("AC-STE-443.3 — mode: linear is untouched; only mode: jira grows the 
     try {
       const report = await runPlanIdentityModeConditionalProbe(p.root);
       expect(report.mode).toBe("linear");
-      expect(report.violations).toEqual([]);
+      expect(report.violations.length).toBe(1);
+      expect(report.violations[0]!.file).toContain("M120.md");
+      expect(report.violations[0]!.severity).toBe("error");
+      expect(blobOf(report.violations)).not.toMatch(/M3\.md|M118\.md|M119\.md/);
     } finally {
       p.cleanup();
     }
