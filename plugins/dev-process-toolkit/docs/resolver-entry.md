@@ -45,8 +45,11 @@ before any write:
 4. When the verdict is `unowned`, ask the adopt question (`Adopt <KEY>` / `Skip <KEY>`);
    Skip exits cleanly.
 5. Run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/ticket_ownership.ts" confirm <projectRoot> <KEY> <ticket.json>`
-   (`--adopt` after an Adopt). Only a zero exit reaches `importFromTracker`
-   (or, for `/implement`, the hit path's 0.c claim).
+   (`--adopt` after an Adopt). Only a zero exit reaches
+   `importFromTracker(…, ticketImportOwnership(<projectRoot>, <ticket JSON>))`
+   (or, for `/implement`, the hit path's 0.c claim). The ownership context is
+   what writes this repository's `repo_tag` onto an adopted ticket, as the union
+   with its current labels, on the import's own sync.
 
 ## Ambiguity & disambiguation
 
