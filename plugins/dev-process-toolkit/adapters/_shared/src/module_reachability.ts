@@ -447,6 +447,20 @@ export interface UnreachablePinMove {
  */
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
+    value: 124,
+    commit: "uncommitted",
+    rationale:
+      "M_947c79/STE-603: probe #25's module " +
+      "`task_tracking_workspace_binding_present.ts` gained an " +
+      "`import.meta.main` front door, and row 25 of " +
+      "`skills/gate-check/SKILL.md` now orders it with `bun run`, so its one " +
+      "ordered reference (`skills/gate-check/SKILL.md:80`) stopped naming a " +
+      "module nothing runnable reaches. Exactly that reference left the set " +
+      "and none entered it. Measured by the awaited " +
+      "`runModuleReachabilityProbe` (125 -> 124, diffed record by record " +
+      "against a checkout of 3093529), not carried from the FR.",
+  },
+  {
     value: 125,
     commit: "6e4632b",
     rationale:

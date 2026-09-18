@@ -927,10 +927,17 @@ describe("AC-STE-602.10 — the front door makes workspace_binding.ts reachable"
     expect(graph.reachable("adapters/_shared/src/workspace_binding.ts")).toBe(true);
   });
 
-  test("the ledger head names STE-602, sits below 129, and equals the awaited measurement", async () => {
+  // PIN MOVE (M_947c79/STE-603): later FRs prepend their own moves, so this
+  // FR's entry is FOUND by its rationale rather than assumed to be the head.
+  // It must still be one entry, sit directly on the 129 it lowered, and the
+  // head must still equal the awaited measurement.
+  test("the ledger records one STE-602 lowering from 129, and the head equals the awaited measurement", async () => {
+    const mine = ORDERED_UNREACHABLE_PIN_LEDGER.filter((m) => m.rationale.includes("STE-602"));
+    expect(mine.length, "exactly one ledger entry names STE-602").toBe(1);
+    const at = ORDERED_UNREACHABLE_PIN_LEDGER.indexOf(mine[0]!);
+    expect(ORDERED_UNREACHABLE_PIN_LEDGER[at + 1]!.value, "it lowered the 129 entry").toBe(129);
+    expect(mine[0]!.value, "the pin may only fall — a raise is forbidden").toBeLessThan(129);
     const head = ORDERED_UNREACHABLE_PIN_LEDGER[0]!;
-    expect(head.rationale).toContain("STE-602");
-    expect(head.value, "the pin may only fall — a raise is forbidden").toBeLessThan(129);
     const report = await runModuleReachabilityProbe(repoRoot);
     expect(
       report.orderedUnreachable,

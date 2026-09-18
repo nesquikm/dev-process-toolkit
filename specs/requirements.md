@@ -243,7 +243,7 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 - Auto-migration on plugin upgrade — `/setup --migrate` is explicit user invocation only; `none` mode projects stay on `none`
 - Multi-ticket per branch / stacked diffs — single active ticket per branch; adapters fail with a clear "multiple ticket IDs detected" message rather than guess
 - Custom-field discovery beyond the AC field — only Jira's AC custom-field GID is auto-discovered; other custom fields (priority, story points, sprint) are ignored
-- Cross-repo / monorepo per-package ticket binding — one repo, one tracker project, one mode; out for this release (flagged in technical-spec future considerations)
+- Monorepo per-package ticket binding — one repo still binds one tracker mode; shared tracker containers (several repos in one tracker project or Jira space) are supported through the `repo_tag` / `min_dpt_version` declaration, but splitting one repo's tickets across per-package projects stays out of scope
 - Self-hosted tracker support (self-hosted Jira, GitLab, etc.) — the plugin relies on official cloud MCPs; self-hosted may or may not work via the Atlassian MCP, explicitly not tested or supported
 - Bundling MCP servers — the plugin documents and guides install but does not ship MCP server code
 - OAuth flow implementation — the plugin guides the user (prints sign-in URLs, instructs steps) but does not perform token exchange itself
