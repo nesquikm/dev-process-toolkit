@@ -447,6 +447,22 @@ export interface UnreachablePinMove {
  */
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
+    value: 122,
+    commit: "uncommitted",
+    rationale:
+      "M_947c79/STE-605: probe #49's module " +
+      "`tracker_local_reconciliation_drift.ts` gained an `import.meta.main` " +
+      "front door, and row 49 of `skills/gate-check/SKILL.md` now orders it " +
+      "with `bun run`, so both ordered references on that row " +
+      "(`skills/gate-check/SKILL.md:128` -> " +
+      "`tracker_local_reconciliation_drift.ts` and, transitively through its " +
+      "import, `reconcile_tracker_local.ts`) stopped naming a module nothing " +
+      "runnable reaches. Exactly those two references left the set and none " +
+      "entered it. Measured by the awaited `runModuleReachabilityProbe` " +
+      "(124 -> 122, diffed record by record against a checkout of deb5ef7), " +
+      "not carried from the FR.",
+  },
+  {
     value: 124,
     commit: "72b853f",
     rationale:

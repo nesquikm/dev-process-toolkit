@@ -39,7 +39,31 @@ export interface ReconcileItem {
   id: string;
   details: string;
   side: ReconcileSide;
+  /** STE-605 — present only on tracker orphans of the classified-ticket path. */
+  ownerClass?: string;
+  /** STE-605 — the ticket creator's display name; classified-ticket path only. */
+  owner?: string;
 }
+
+/**
+ * STE-605 — one tracker ticket already classified by `container_ownership.ts`
+ * (`classifyTicket`). Passed in place of the bare ids `provider.listActiveFRs()`
+ * returns; this module never classifies by itself.
+ */
+export interface ClassifiedTrackerTicket {
+  key: string;
+  ownerClass: string;
+  owner: string;
+}
+
+export interface ReconcileOptions {
+  /** When given, replaces `provider.listActiveFRs()` as the tracker's FR set. */
+  tickets?: ClassifiedTrackerTicket[];
+}
+
+// Classes never offered as tracker orphans: containers in every mode,
+// siblings (which only exist in a shared repository).
+const NEVER_ORPHAN_CLASSES: ReadonlySet<string> = new Set(["container", "sibling"]);
 
 export interface ReconcileTrackerLocalResult {
   trackerOrphans: ReconcileItem[];
@@ -76,15 +100,18 @@ export interface LocalFRBinding {
 export async function reconcileTrackerLocal(
   provider: Provider,
   specsDir: string,
+  options: ReconcileOptions = {},
 ): Promise<ReconcileTrackerLocalResult> {
   if (provider.mode === "none") {
     return { trackerOrphans: [], localOrphans: [], milestoneMismatches: [] };
   }
 
+  const classified = options.tickets;
   const [trackerFRs, trackerMilestones] = await Promise.all([
-    provider.listActiveFRs(),
+    classified === undefined ? provider.listActiveFRs() : Promise.resolve(classified.map((t) => t.key)),
     provider.listMilestones(),
   ]);
+  const classOf = new Map((classified ?? []).map((t) => [t.key, t] as const));
 
   const local = readLocalFRBindings(specsDir);
   const localPlanMilestones = readLocalPlanMilestones(specsDir);
@@ -102,11 +129,24 @@ export async function reconcileTrackerLocal(
   const trackerOrphans: ReconcileItem[] = [];
   for (const trackerId of trackerFRs) {
     if (boundTrackerIds.has(trackerId)) continue;
+    const ticket = classOf.get(trackerId);
+    if (ticket === undefined) {
+      trackerOrphans.push({
+        kind: "tracker-orphan",
+        id: trackerId,
+        details: `Tracker active FR ${trackerId} has no local file under ${specsDir}/frs/.`,
+        side: "tracker",
+      });
+      continue;
+    }
+    if (NEVER_ORPHAN_CLASSES.has(ticket.ownerClass)) continue;
     trackerOrphans.push({
       kind: "tracker-orphan",
       id: trackerId,
-      details: `Tracker active FR ${trackerId} has no local file under ${specsDir}/frs/.`,
+      details: `Tracker active FR ${trackerId} (class ${ticket.ownerClass}, owner ${ticket.owner}) has no local file under ${specsDir}/frs/.`,
       side: "tracker",
+      ownerClass: ticket.ownerClass,
+      owner: ticket.owner,
     });
   }
 

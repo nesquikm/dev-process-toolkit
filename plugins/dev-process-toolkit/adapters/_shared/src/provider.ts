@@ -35,6 +35,12 @@ export interface LockResult {
 export interface FRSpec {
   frontmatter: Record<string, unknown>;
   body: string;
+  /**
+   * STE-605 — the ticket's full label set to write on this sync (a
+   * read-merge-write union, never a set that drops a label). Absent ⇒ the
+   * sync leaves labels untouched.
+   */
+  labels?: string[];
 }
 
 /**
