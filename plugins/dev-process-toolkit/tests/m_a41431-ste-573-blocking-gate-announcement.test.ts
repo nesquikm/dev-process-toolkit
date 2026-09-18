@@ -150,7 +150,16 @@ function independentBlockingScan(hooksDir: string): string[] {
   for (const name of readdirSync(hooksDir).sort()) {
     if (!name.endsWith(".ts")) continue;
     const lines = read(join(hooksDir, name)).split("\n");
-    const callsRequire = lines.some((l) => l.includes("requireSkillToolUse("));
+    // Spelled out here rather than imported from `_blocking_gates.ts`: this
+    // scan earns its keep by being written independently of the module it
+    // checks, and sharing the list would make the two agree by construction.
+    // STE-598 added the second refusing helper — a gate with two satisfying
+    // doors cannot call `requireSkillToolUse`, which refuses as soon as the
+    // first door misses.
+    const callsRequire = lines.some(
+      (l) =>
+        l.includes("requireSkillToolUse(") || l.includes("requireTddEvidence("),
+    );
     if (callsRequire && exitsBlockingLineWise(lines)) found.push(name);
   }
   return found;

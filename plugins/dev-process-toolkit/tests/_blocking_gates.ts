@@ -58,8 +58,21 @@ const HOOKS_SUBPATH = ["templates", "hooks", "_lib", "hooks"] as const;
  * sibling differs only by its prefix: a substring test written against the
  * shared tail would sweep in the reminder hooks and quietly inflate the set,
  * which reads exactly like a working derivation until someone counts.
+ *
+ * STE-598 made this a SET rather than one name, and the reason matters. A gate
+ * whose requirement has two satisfying doors cannot ask `requireSkillToolUse`:
+ * that helper emits its refusal the moment the first door misses, before the
+ * second has been asked. So a second refusing helper shipped, and a derivation
+ * keyed to one name went blind to a gate that still refuses — the same silence
+ * this module exists to break, arriving through the helper instead of the gate.
+ *
+ * These are HELPER names, not gate names, so the no-gate-name invariant above
+ * is intact: nothing here says which skill or which hook. The residual, recorded
+ * rather than hidden: a THIRD refusing helper would need an edit here. What
+ * forces that edit is an entry point whose refusal cannot be expressed by
+ * either existing helper — the same condition that produced this one.
  */
-const DEMAND_CALL = "requireSkillToolUse";
+const DEMAND_CALLS = ["requireSkillToolUse", "requireTddEvidence"] as const;
 
 /**
  * The refusal: an exit that can leave a non-zero status.
@@ -97,8 +110,10 @@ const BLOCKING_EXIT = /process\.exit\([^)]*[1-9][^)]*\)/;
  * call is a second gate — is not obviously right either, so the limit is
  * recorded here rather than guessed at in code.
  */
-const DEMAND_ARGS =
-  /requireSkillToolUse\s*\(\s*(["'`])([^"'`]+)\1\s*,\s*(["'`])([^"'`]+)\3/;
+const DEMAND_ARGS = new RegExp(
+  `(?:${DEMAND_CALLS.join("|")})` +
+    `\\s*\\(\\s*(["'\`])([^"'\`]+)\\1\\s*,\\s*(["'\`])([^"'\`]+)\\3`,
+);
 
 /** Does this source both demand a Skill and refuse when it is missing? */
 function isBlockingSource(source: string): boolean {
@@ -106,7 +121,10 @@ function isBlockingSource(source: string): boolean {
   // call on the raw text while grading the exit on the dense one is the
   // asymmetry that lets a wrapped call name pass one clause and fail the other.
   const dense = source.replace(/\s+/g, "");
-  return dense.includes(`${DEMAND_CALL}(`) && BLOCKING_EXIT.test(dense);
+  return (
+    DEMAND_CALLS.some((call) => dense.includes(`${call}(`)) &&
+    BLOCKING_EXIT.test(dense)
+  );
 }
 
 /**

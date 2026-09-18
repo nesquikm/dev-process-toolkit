@@ -1,9 +1,15 @@
 // STE-290 — Pre-commit /tdd orchestrator enforcement (per-hook entrypoint).
 // STE-295 AC.1 — carve-out: spec-only commits skip the /tdd requirement.
 // STE-360 AC.1 — carve-out: /setup's Bun zero-match placeholder test is exempt.
+// STE-597 — a commit is recognised in three shapes (bare, `cd <dir> && git
+//   commit`, `git -C <dir> commit`), and every git query and layout lookup runs
+//   in the repository the commit WRITES TO rather than the hook process's own
+//   directory. A target that cannot be resolved exits 0 with an NFR-10
+//   `Reminder:` naming it — never a refusal.
 //
-// Refusing hook: on `git commit*`, runs `git diff --cached --name-only` to
-// find staged files, then asks `classifyStagedPaths` for a verdict:
+// Refusing hook: on a recognised commit, runs `git diff --cached --name-only`
+// in that resolved repository to find staged files, then asks
+// `classifyStagedPaths` for a verdict:
 //   - "spec-only"     → exit 0 (carve-out: pure spec/plan/requirements commit)
 //   - "no-fr"         → exit 0 (no FR-related paths; STE-290 didn't flag)
 //   - "stack-unknown" → exit 0 + an NFR-10 `Reminder:` on stderr (STE-548: no
@@ -29,7 +35,7 @@
 import {
   emitNFR10,
   parseHookPayload,
-  requireSkillToolUse,
+  requireTddEvidence,
 } from "../session.ts";
 import {
   buildLayoutPredicates,
@@ -37,6 +43,7 @@ import {
   type LayoutPredicates,
   type StackLayoutEntry,
 } from "../../../../adapters/_shared/src/stack_layout.ts";
+import { resolveCommitTargetFromPayload } from "../../../../adapters/_shared/src/commit_target_repo.ts";
 
 // ---------------------------------------------------------------------------
 // Pure classifier — exported for unit tests (AC-STE-295.1).
@@ -115,7 +122,10 @@ export type StagedClassification =
  *
  * `projectRoot` is OPTIONAL and only selects WHICH stack's conventions apply;
  * it defaults to walking up from the process cwd to the first stack marker (or
- * the enclosing `.git` checkout root, whichever comes first).
+ * the enclosing `.git` checkout root, whichever comes first). Since STE-597 the
+ * shipped entrypoint never takes that default — it resolves the repository the
+ * commit writes to and passes it — so the process-cwd leg is an API
+ * convenience for callers that have no payload, not the hook's reading.
  */
 export function classifyStagedPaths(
   paths: string[],
@@ -172,35 +182,49 @@ export function classifyStagedPathsForEntry(
 // Git plumbing — one spawn/collect helper shared by every `git` call below.
 // ---------------------------------------------------------------------------
 
-/** Run `git <args>` in cwd; capture stdout, discard stderr, report exit code. */
-async function gitOut(
-  args: string[],
-): Promise<{ exitCode: number; stdout: string }> {
-  const proc = Bun.spawn(["git", ...args], {
-    stdout: "pipe",
-    stderr: "ignore",
-  });
-  const stdout = await new Response(proc.stdout).text();
-  const exitCode = await proc.exited;
-  return { exitCode, stdout };
+interface GitResult {
+  exitCode: number;
+  stdout: string;
+  /**
+   * True when the subprocess could not be RUN at all — `git` missing from the
+   * hook's PATH, or `cwd` gone between resolution and the spawn. Distinct from a
+   * non-zero exit, which means git ran and disagreed.
+   */
+  spawnFailed: boolean;
 }
 
 /**
- * The project root the STE-548 advisory should NAME — not `process.cwd()`.
+ * Run `git <args>` in `cwd`; capture stdout, discard stderr, report exit code.
  *
- * `resolveStackLayout` walks UP from the cwd to the first stack marker or the
- * enclosing `.git`, and the paths it classifies come back from `git diff
- * --cached` relative to the CHECKOUT ROOT. So on a commit made from a
- * subdirectory the cwd is neither the root the search covered nor the directory
- * the remedy asks for a marker in, and naming it tells the operator about the
- * wrong project. On the `stack-unknown` path no marker resolved anywhere between
- * the cwd and the checkout root, which makes the checkout root precisely where
- * the walk stopped. Falls back to the cwd when git cannot answer.
+ * STE-597 — `cwd` is REQUIRED at every call site. It used to be the hook
+ * process's own directory, which is the one thing here that has nothing to do
+ * with where the commit lands: the same staged set produced opposite verdicts
+ * depending on which tree the calling session happened to sit in.
+ *
+ * STE-597 (FINDING B) — a spawn that throws is REPORTED, not propagated. Every
+ * other failure mode in this file emits a worded NFR-10 block and exits 0; an
+ * uncaught `Bun.spawn` made the one remaining mode a raw stack trace and a
+ * non-zero exit, which on a PreToolUse hook is an unexplained interruption.
  */
-async function advisoryProjectRoot(): Promise<string> {
-  const { exitCode, stdout } = await gitOut(["rev-parse", "--show-toplevel"]);
-  const root = stdout.trim();
-  return exitCode === 0 && root.length > 0 ? root : process.cwd();
+async function gitOut(args: string[], cwd: string): Promise<GitResult> {
+  const failed: GitResult = { exitCode: -1, stdout: "", spawnFailed: true };
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn(["git", ...args], {
+      cwd,
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+  } catch {
+    return failed;
+  }
+  try {
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    return { exitCode, stdout, spawnFailed: false };
+  } catch {
+    return failed;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -217,23 +241,23 @@ const PLACEHOLDER_MARKER = "Bun zero-match workaround";
  * a deletion). Reads the INDEX (`git show :<path>`), not the worktree, so a
  * marker-less file renamed to the placeholder basename stays tdd-required.
  */
-async function isExemptPlaceholder(path: string): Promise<boolean> {
+async function isExemptPlaceholder(
+  path: string,
+  repoRoot: string,
+): Promise<boolean> {
   if (path.split("/").pop() !== PLACEHOLDER_BASENAME) {
     return false;
   }
   // Deletion leg: `git rm`-ed placeholders have no staged blob to grep.
-  const status = await gitOut([
-    "diff",
-    "--cached",
-    "--name-status",
-    "--",
-    path,
-  ]);
+  const status = await gitOut(
+    ["diff", "--cached", "--name-status", "--", path],
+    repoRoot,
+  );
   if (status.stdout.trimStart().startsWith("D")) {
     return true;
   }
   // Marker leg: grep the staged blob for the workaround marker comment.
-  const show = await gitOut(["show", `:${path}`]);
+  const show = await gitOut(["show", `:${path}`], repoRoot);
   return show.exitCode === 0 && show.stdout.includes(PLACEHOLDER_MARKER);
 }
 
@@ -247,29 +271,76 @@ if (import.meta.main) {
   if (!payload) {
     process.exit(0);
   }
-  const cmd = payload.tool_input?.command ?? "";
-  if (!/^git commit\b/.test(cmd)) {
+  // STE-597 — recognise the commit in all three shapes (bare, `cd`-prefixed,
+  // `-C`) and resolve the tree it WRITES TO. The retired `/^git commit\b/`
+  // matcher refused the careful path and waved the careless one through. Same
+  // front door as the sibling gate-check hook, deliberately.
+  const target = resolveCommitTargetFromPayload(payload);
+  if (!target.isCommit) {
     process.exit(0);
   }
+  if (target.repoRoot === null) {
+    // AC-STE-597.4 — ADVISORY, never a refusal, and it NAMES what it could not
+    // determine. The same shape the STE-548 stack-unknown leg already uses: not
+    // knowing where the commit lands is the toolkit's limitation, not the
+    // operator's mistake.
+    emitNFR10(
+      "Reminder",
+      `${target.unresolved}, so the /tdd guard could not tell whether this ` +
+        `commit stages a source file and its test.`,
+      "run the commit with a literal directory (for example `git -C " +
+        "/path/to/repo commit`), or run /dev-process-toolkit:tdd yourself when " +
+        "this commit carries an FR.",
+      "dev-process-toolkit:tdd",
+      "pre-commit-tdd-orchestrator",
+    );
+    process.exit(0);
+  }
+  // Every git query and every layout lookup below is anchored HERE, not at the
+  // hook process's cwd (AC-STE-597.2).
+  const repoRoot = target.repoRoot;
 
   // Collect staged files via filesystem call (no $CLAUDE_STAGED_FILES env var).
-  const { stdout: stagedRaw } = await gitOut(["diff", "--cached", "--name-only"]);
-  const staged = stagedRaw.split("\n").filter((l) => l.length > 0);
+  const stagedResult = await gitOut(["diff", "--cached", "--name-only"], repoRoot);
+  if (stagedResult.spawnFailed) {
+    // AC-STE-597.4 (FINDING B) — ADVISORY, never a refusal, and it NAMES what
+    // could not be done. A toolchain the guard cannot run is the toolkit's
+    // problem, not the operator's mistake, and a stack trace is not a sentence.
+    emitNFR10(
+      "Reminder",
+      `\`git\` could not be run in ${repoRoot}, so the /tdd guard could not read ` +
+        `the staged files and could not tell whether this commit stages a ` +
+        `source file and its test.`,
+      "check that `git` is on the PATH this hook runs with and that " +
+        `${repoRoot} still exists, then commit again; or run ` +
+        "/dev-process-toolkit:tdd yourself when this commit carries an FR.",
+      "dev-process-toolkit:tdd",
+      "pre-commit-tdd-orchestrator",
+    );
+    process.exit(0);
+  }
+  const staged = stagedResult.stdout.split("\n").filter((l) => l.length > 0);
 
   // ONE resolution, reused below: the verdict and the STE-360 subtraction must
   // read the same stack, or a placeholder could be exempted under one layout
   // while the requirement was raised under another.
-  const entry = resolveStackLayout(process.cwd());
+  const entry = resolveStackLayout(repoRoot);
   const verdict = classifyStagedPathsForEntry(staged, entry);
   if (verdict === "stack-unknown") {
     // STE-548 — ADVISORY, never a refusal (AC-STE-548.4). Not knowing the stack
     // is the toolkit's limitation, not the operator's mistake, so the commit
-    // proceeds; the line names WHICH project so the reminder is actionable —
-    // the root the verdict was computed against, which is not the cwd when the
-    // commit is made from a subdirectory.
+    // proceeds; the line names WHICH project so the reminder is actionable.
+    //
+    // That name MUST be the checkout root, never a cwd: `resolveStackLayout`
+    // walked up to it, `git diff --cached` reported paths relative to it, and it
+    // is the directory the remedy asks for a marker in. Naming a subdirectory
+    // would tell the operator about the wrong project. Before STE-597 that took
+    // a `git rev-parse --show-toplevel` round trip to recover from the cwd;
+    // `target.repoRoot` now IS that root, so the lookup was deleted rather than
+    // left to re-derive a value already in hand.
     emitNFR10(
       "Reminder",
-      `no stack marker was identified for ${await advisoryProjectRoot()}, so the /tdd guard ` +
+      `no stack marker was identified for ${repoRoot}, so the /tdd guard ` +
         `could not tell whether this commit stages a source file and its test.`,
       "add a recognised stack marker at the project root (for example " +
         "`package.json`, `pubspec.yaml`, `pyproject.toml`, `go.mod`), or run " +
@@ -292,15 +363,19 @@ if (import.meta.main) {
   // narrowing of a state the classifier has ruled out, not an unchecked guess.
   const { isTest } = predicatesFor(entry!);
   const required = staged.filter((p) => isTddRequiredPath(p, isTest));
-  const exemptFlags = await Promise.all(required.map(isExemptPlaceholder));
+  const exemptFlags = await Promise.all(required.map((p) => isExemptPlaceholder(p, repoRoot)));
   if (required.length > 0 && exemptFlags.every(Boolean)) {
     process.exit(0);
   }
 
-  const { found } = requireSkillToolUse(
+  // STE-598 — EITHER door satisfies: the per-FR orchestrator's Skill tool_use,
+  // or a red-before proof covering the very paths that raised the requirement.
+  // `required` is that set, so a proof for some other file cannot open the door.
+  const { found } = requireTddEvidence(
     "dev-process-toolkit:tdd",
     "pre-commit-tdd-orchestrator",
     payload,
+    required,
   );
   process.exit(found ? 0 : 2);
 }
