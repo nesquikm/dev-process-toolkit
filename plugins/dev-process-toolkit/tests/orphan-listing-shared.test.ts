@@ -26,7 +26,8 @@ import {
 } from "../adapters/_shared/src/module_reachability";
 import type { AdapterDriver, UpsertMetadataInput } from "../adapters/_shared/src/tracker_provider";
 import { TrackerProvider } from "../adapters/_shared/src/tracker_provider";
-import { RECEIPT_ANNOUNCEMENT_PREFIX, readSessionReceipts } from "../adapters/_shared/src/tracker_receipts";
+import { RECEIPT_ANNOUNCEMENT_PREFIX,
+  parseReceiptAnnouncement, readSessionReceipts } from "../adapters/_shared/src/tracker_receipts";
 import {
   BE_TAG,
   BE_TICKETS,
@@ -301,7 +302,7 @@ describe("AC-STE-605.4 — consent", () => {
     run.stdout
       .split("\n")
       .filter((l) => l.startsWith(RECEIPT_ANNOUNCEMENT_PREFIX))
-      .map((l) => l.slice(RECEIPT_ANNOUNCEMENT_PREFIX.length).trim());
+      .map((l) => parseReceiptAnnouncement(l)!.path);
 
   for (const key of ["GF-102", "GF-121"]) {
     test(`shared: ${key} (${key === "GF-102" ? "ours" : "unowned"}) gets an import receipt naming it`, async () => {

@@ -710,7 +710,7 @@ async function runDecideCommand(args: DecideArgs): Promise<string> {
   // one writes nothing at all.
   if (binding.shared && (out.outcome === "create" || out.outcome === "reused")) {
     const { resolve } = await import("node:path");
-    const { writeReceipt, RECEIPT_ANNOUNCEMENT_PREFIX } = await import("./tracker_receipts");
+    const { writeReceipt, announceReceipt } = await import("./tracker_receipts");
     const container = args.parentKey ?? args.milestoneLabel ?? args.linearMilestone ?? "";
     const path = writeReceipt(resolve(args.root), {
       kind: out.outcome === "create" ? "create" : "reuse",
@@ -720,7 +720,7 @@ async function runDecideCommand(args: DecideArgs): Promise<string> {
       decision: out.outcome,
       evidence: out.outcome === "create" ? { createPayload: out.createPayload } : { key: out.key },
     });
-    lines.push(`${RECEIPT_ANNOUNCEMENT_PREFIX}${resolve(path)}`);
+    lines.push(announceReceipt(path));
   }
   return lines.join("\n");
 }

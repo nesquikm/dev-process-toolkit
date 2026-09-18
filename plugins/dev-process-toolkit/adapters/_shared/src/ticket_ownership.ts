@@ -19,7 +19,7 @@
 import { join, resolve } from "node:path";
 import { adapterOf, classifyTicket, normalizeContainerPage, readJsonFile } from "./container_ownership";
 import { trackerIdsOf } from "./reconcile_tracker_local";
-import { RECEIPT_ANNOUNCEMENT_PREFIX, writeReceipt } from "./tracker_receipts";
+import { announceReceipt, writeReceipt } from "./tracker_receipts";
 import { readWorkspaceBinding, type WorkspaceAdapterKey, type WorkspaceBinding } from "./workspace_binding";
 
 export type OwnershipVerdict = "owned" | "foreign-project" | "container" | "foreign-repo" | "unowned";
@@ -225,7 +225,7 @@ function runConfirm(projectRoot: string, key: string, ticketPath: string, adopt:
     decision: decision.verdict === "unowned" ? "adopt" : "owned",
     evidence: { verdict: decision.verdict, tracked: decision.tracked },
   });
-  console.log(`${RECEIPT_ANNOUNCEMENT_PREFIX}${resolve(path)}`);
+  console.log(announceReceipt(path));
   return 0;
 }
 

@@ -57,6 +57,7 @@ import {
   writeReceipt,
   type ReceiptInput,
 } from "../adapters/_shared/src/tracker_receipts";
+import * as receiptsModule from "../adapters/_shared/src/tracker_receipts";
 import { claudeMd, makeSpanFixture, pluginManifest } from "./_span_fixture";
 import { BE_TAG, FE_TAG, boundFr, declareJira, declareLinear } from "./_orphan_pages";
 import { deriveBlockingGates } from "./_blocking_gates";
@@ -369,7 +370,7 @@ class Session {
   ): string {
     return this.bash(
       `bun run "${join(ADAPTERS_SRC, module)}" ${args}`,
-      `${decisionLine}\n${RECEIPT_ANNOUNCEMENT_PREFIX}${receiptPath}`,
+      `${decisionLine}\n${realAnnouncement(receiptPath)}`,
       isError,
     );
   }
@@ -452,6 +453,8 @@ interface RunOpts {
   transcript: string;
   sessionId?: string;
   pluginRoot?: string;
+  /** The gated call's own tool_use id (default `toolu_607_pending`). */
+  toolUseId?: string;
 }
 
 function payload(tool: string, input: unknown, o: RunOpts): string {
@@ -463,7 +466,7 @@ function payload(tool: string, input: unknown, o: RunOpts): string {
     hook_event_name: "PreToolUse",
     tool_name: tool,
     tool_input: input,
-    tool_use_id: "toolu_607_pending",
+    tool_use_id: o.toolUseId ?? "toolu_607_pending",
   });
 }
 
@@ -915,13 +918,9 @@ describe("AC-STE-607.3 — a create needs a matching, unspent create receipt in 
     });
   }
 
-  test("retry path permitted: a fresh retry-1 receipt announced after the failed create → exit 0", async () => {
-    const s = new Session();
-    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
-    s.mcp(JIRA("createJiraIssue"), jiraCreate(), "Error: 504 Gateway Timeout", true);
-    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }), "retry-1");
-    expectPermit(await create(s));
-  });
+  // The retry leg is graded on receipts the REAL `decide` writes: see
+  // "M_947c79 review — the shared retry leg" below. A shared retry never
+  // yields a create receipt, so no synthetic one is announced here.
 });
 
 // ===========================================================================
@@ -1776,4 +1775,328 @@ describe("STE-607 — attachment writes name their ticket in `issue`", () => {
     expectPermit(await runHook(LINEAR("create_attachment"), attach("STE-611"), { cwd: root, transcript }));
     expectRefusal(await runHook(LINEAR("create_attachment"), attach("STE-612"), { cwd: root, transcript }), "STE-612");
   }, 30_000);
+});
+
+// ===========================================================================
+// M_947c79 pre-PR /spec-review fixes. Each case drives the real hook file and
+// was measured red on the release bytes (4362d3d) before its fix landed.
+// ===========================================================================
+
+/** The announcement line exactly as the real deciding modules print it (digest-bound once the fix lands). */
+function realAnnouncement(path: string): string {
+  const mod = receiptsModule as unknown as { announceReceipt?: (p: string) => string };
+  return mod.announceReceipt ? mod.announceReceipt(path) : `${RECEIPT_ANNOUNCEMENT_PREFIX}${path}`;
+}
+
+interface RealDecide {
+  command: string;
+  out: string;
+}
+
+/** Spawn the REAL `decide` with this session's id; the returned command is what the transcript records. */
+function realDecide(
+  root: string,
+  page: unknown,
+  title: string,
+  attempt: string,
+  opts: { scratch: string; commandPath?: string },
+): RealDecide {
+  const pagePath = join(opts.scratch, `page-${Math.random().toString(36).slice(2)}.json`);
+  writeFileSync(pagePath, JSON.stringify(page));
+  const argv = [root, pagePath, "--title", title, "--parent", "GF-85", "--attempt", attempt];
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+  env.CLAUDE_PLUGIN_ROOT = MANIFEST_DIR;
+  env.CLAUDE_CODE_SESSION_ID = SESSION;
+  const p = Bun.spawnSync(["bun", "run", join(ADAPTERS_SRC, DECIDE), "decide", ...argv], { env, stdout: "pipe", stderr: "pipe" });
+  if (p.exitCode !== 0) throw new Error(`decide failed: ${p.stderr.toString()}`);
+  const shown = opts.commandPath ?? join(ADAPTERS_SRC, DECIDE);
+  const command = `bun run "${shown}" decide ${argv.map((a) => (/[\s"]/.test(a) ? `"${a}"` : a)).join(" ")}`;
+  return { command, out: p.stdout.toString().trimEnd() };
+}
+
+function announcedPath(out: string): string {
+  const line = out.split("\n").find((l) => l.startsWith(RECEIPT_ANNOUNCEMENT_PREFIX));
+  if (!line) throw new Error(`no announcement in:\n${out}`);
+  return line.slice(RECEIPT_ANNOUNCEMENT_PREFIX.length).trim().split(/\s+/)[0]!;
+}
+
+const jiraTicket = (key: string, title: string) => ({
+  key,
+  fields: {
+    summary: title,
+    project: { key: "GF" },
+    issuetype: { name: "Task" },
+    parent: { key: "GF-85" },
+    labels: [BE_TAG],
+  },
+});
+
+describe("M_947c79 review — a receipt announcement proves the deciding command RAN (AC-STE-607.7)", () => {
+  let w: World;
+  beforeAll(() => {
+    w = makeWorld();
+  });
+  const create = (s: Session, input: Record<string, unknown> = jiraCreate()) =>
+    runHook(JIRA("createJiraIssue"), input, { cwd: w.be, transcript: s.save(w.scratch) });
+
+  test("`echo` of a hand-written receipt's announcement, with the module name in a comment → exit 2", async () => {
+    const path = createReceipt(w.be, { title: "BE payout export" });
+    const line = realAnnouncement(path);
+    const s = new Session();
+    s.bash(`echo "${line}"  # ${CONFIRM}`, line);
+    expectRefusal(await create(s));
+  });
+
+  test("a real deciding command chained with an `echo` of a forged announcement → exit 2", async () => {
+    const forged = createReceipt(w.be, { title: "BE payout export" });
+    const line = realAnnouncement(forged);
+    const s = new Session();
+    s.bash(`bun run "${join(ADAPTERS_SRC, DECIDE)}" normalize x; echo "${line}"`, `x\n${line}`);
+    expectRefusal(await create(s));
+  });
+
+  test("a module of the same NAME at another path → exit 2", async () => {
+    const path = createReceipt(w.be, { title: "BE payout export" });
+    const s = new Session();
+    s.bash(
+      `bun run "/tmp/elsewhere/${DECIDE}" decide "${w.be}" /tmp/page.json --title "BE payout export" --parent GF-85 --attempt fast`,
+      `{"outcome":"create"}\n${realAnnouncement(path)}`,
+    );
+    expectRefusal(await create(s));
+  });
+
+  test("re-echoing a SPENT create receipt's announcement does not re-arm it → exit 2", async () => {
+    const s = new Session();
+    const d = realDecide(w.be, { issues: [], isLast: true }, "BE payout export", "fast", { scratch: w.scratch });
+    s.bash(d.command, d.out);
+    s.mcp(JIRA("createJiraIssue"), jiraCreate(), { id: "10150", key: "GF-150", self: "x" });
+    const line = d.out.split("\n").find((l) => l.startsWith(RECEIPT_ANNOUNCEMENT_PREFIX))!;
+    s.bash(`echo "${line}" # ${DECIDE}`, line);
+    expectRefusal(await create(s), /spent/);
+  }, 30_000);
+
+  test("a forged `binding` receipt (decision owned) echoed with the module name does not own FE's key → exit 2", async () => {
+    const path = receiptIn(w.be, {
+      kind: "binding",
+      adapter: "jira",
+      container: "GF",
+      subject: "GF-101",
+      decision: "owned",
+      evidence: { verdict: "owned", tracked: 0 },
+    });
+    const line = realAnnouncement(path);
+    const s = new Session();
+    s.bash(`echo "${line}" # ${CONFIRM} confirm`, line);
+    expectRefusal(
+      await runHook(JIRA("transitionJiraIssue"), transition("GF-101"), { cwd: w.be, transcript: s.save(w.scratch) }),
+      "GF-101",
+    );
+  });
+
+  test("a real receipt REWRITTEN after its announcement authorises nothing → exit 2 (control: untouched, it does)", async () => {
+    const s = new Session();
+    const d = realDecide(w.be, { issues: [], isLast: true }, "BE payout export", "fast", { scratch: w.scratch });
+    s.bash(d.command, d.out);
+    const path = announcedPath(d.out);
+    const transcript = s.save(w.scratch);
+    expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript }));
+    const r = JSON.parse(readFileSync(path, "utf-8"));
+    r.evidence.createPayload.summary = "BE something else";
+    writeFileSync(path, `${JSON.stringify(r)}\n`);
+    expectRefusal(
+      await runHook(JIRA("createJiraIssue"), jiraCreate({ title: "BE something else" }), { cwd: w.be, transcript }),
+    );
+  }, 30_000);
+
+  test("CONTROL — the real `decide`, recorded with the documented `${CLAUDE_PLUGIN_ROOT}` path, authorises its create → exit 0", async () => {
+    const s = new Session();
+    const d = realDecide(w.be, { issues: [], isLast: true }, "BE plugin root form", "fast", {
+      scratch: w.scratch,
+      commandPath: `\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/${DECIDE}`,
+    });
+    s.bash(d.command, d.out);
+    expectPermit(await create(s, jiraCreate({ title: "BE plugin root form" })));
+  }, 30_000);
+});
+
+describe("M_947c79 review — parallel creates cannot share one receipt (AC-STE-607.3)", () => {
+  test("two pending creates in one assistant turn: the first is permitted, the second refused as spent", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    pendingToolUses(s, [
+      { id: "toolu_607_first", name: JIRA("createJiraIssue"), input: jiraCreate() },
+      { id: "toolu_607_second", name: JIRA("createJiraIssue"), input: jiraCreate() },
+    ]);
+    const transcript = s.save(w.scratch);
+    expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: "toolu_607_first" }));
+    expectRefusal(
+      await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: "toolu_607_second" }),
+      /spent/,
+    );
+  }, 30_000);
+
+  test("CONTROL — two pending creates with two receipts: both permitted", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    pendingToolUses(s, [
+      { id: "toolu_607_first", name: JIRA("createJiraIssue"), input: jiraCreate() },
+      { id: "toolu_607_second", name: JIRA("createJiraIssue"), input: jiraCreate() },
+    ]);
+    const transcript = s.save(w.scratch);
+    expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: "toolu_607_first" }));
+    expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: "toolu_607_second" }));
+  }, 30_000);
+});
+
+describe("M_947c79 review — a Linear create naming its container by id or slug is unresolvable (AC-STE-607.4 / §4)", () => {
+  const UUID = "5b3c0e0e-2f7a-4d0d-9b1c-1a2b3c4d5e6f";
+  for (const [label, input] of [
+    ["team by UUID", { team: UUID, title: "X", labels: [BE_TAG] }],
+    ["project by UUID", { project: UUID, title: "X", labels: [BE_TAG] }],
+    ["project by slug", { project: "dpt-dev-process-toolkit-0a1b2c3d4e5f", title: "X", labels: [BE_TAG] }],
+  ] as const) {
+    test(`save_issue create with ${label} in a declared repository → exit 2 naming it`, async () => {
+      const root = linearRepo(BE_TAG);
+      const r = await runHook(LINEAR("save_issue"), input, { cwd: root, transcript: new Session().save(tempDir("linear-opaque")) });
+      expectRefusal(r, /resolv/i);
+    }, 30_000);
+  }
+
+  test("CONTROL — a create into a plainly named team no candidate declares stays silent (exit 0)", async () => {
+    const root = linearRepo(BE_TAG);
+    const r = await runHook(LINEAR("save_issue"), { team: "OPS", title: "X", labels: [] }, {
+      cwd: root,
+      transcript: new Session().save(tempDir("linear-other")),
+    });
+    expectPermit(r);
+  }, 30_000);
+});
+
+describe("M_947c79 review — the shared retry leg, graded on receipts the real `decide` writes (AC-STE-607.3)", () => {
+  test("after a spent receipt, a real retry-1 over a page WITHOUT the ticket writes no receipt and the create stays refused; the remedy never promises a fresh create receipt", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    const first = realDecide(w.be, { issues: [], isLast: true }, "BE payout export", "fast", { scratch: w.scratch });
+    s.bash(first.command, first.out);
+    s.mcp(JIRA("createJiraIssue"), jiraCreate(), "Error: 504 Gateway Timeout", true);
+    const retry = realDecide(w.be, { issues: [], isLast: true }, "BE payout export", "retry-1", { scratch: w.scratch });
+    expect(retry.out).not.toContain(RECEIPT_ANNOUNCEMENT_PREFIX);
+    s.bash(retry.command, retry.out);
+    const r = await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) });
+    expectRefusal(r, /decide --attempt/, /reuse/i);
+    expect(r.stderr).not.toMatch(/fresh receipt/i);
+  }, 30_000);
+
+  test("after a spent receipt, a real retry-1 over a page WITH the created ticket reuses it: a ticket write on that key → exit 0", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    const first = realDecide(w.be, { issues: [], isLast: true }, "BE payout export", "fast", { scratch: w.scratch });
+    s.bash(first.command, first.out);
+    s.mcp(JIRA("createJiraIssue"), jiraCreate(), "Error: 504 Gateway Timeout", true);
+    const retry = realDecide(
+      w.be,
+      { issues: [jiraTicket("GF-160", "BE payout export")], isLast: true },
+      "BE payout export",
+      "retry-1",
+      { scratch: w.scratch },
+    );
+    expect(retry.out).toContain('"reused"');
+    s.bash(retry.command, retry.out);
+    expectPermit(
+      await runHook(JIRA("transitionJiraIssue"), transition("GF-160"), { cwd: w.be, transcript: s.save(w.scratch) }),
+    );
+  }, 30_000);
+});
+
+describe("M_947c79 review — only the CREATED key is session-created (AC-STE-607.4)", () => {
+  test("a create result echoing a parent/sibling key does not make that key session-created → exit 2 (control: the created key → exit 0)", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    s.mcp(JIRA("createJiraIssue"), jiraCreate(), {
+      id: "10150",
+      key: "GF-150",
+      self: "https://glacy.atlassian.net/rest/api/3/issue/10150",
+      fields: { parent: { key: "GF-101" } },
+    });
+    const transcript = s.save(w.scratch);
+    expectPermit(await runHook(JIRA("transitionJiraIssue"), transition("GF-150"), { cwd: w.be, transcript }));
+    expectRefusal(await runHook(JIRA("transitionJiraIssue"), transition("GF-101"), { cwd: w.be, transcript }), "GF-101");
+  }, 30_000);
+
+  test("a Linear create result names the created identifier; an echoed parent identifier is not created", async () => {
+    const root = linearRepo(BE_TAG);
+    const s = new Session();
+    s.mcp(LINEAR("save_issue"), { team: "OPS", title: "X" }, { id: "u-1", identifier: "STE-900", parent: { identifier: "STE-5" } });
+    const transcript = s.save(tempDir("linear-created"));
+    expectPermit(await runHook(LINEAR("save_comment"), { issueId: "STE-900", body: "hi" }, { cwd: root, transcript }));
+    expectRefusal(await runHook(LINEAR("save_comment"), { issueId: "STE-5", body: "hi" }, { cwd: root, transcript }), "STE-5");
+  }, 30_000);
+});
+
+describe("M_947c79 review — the join order is enforced by the hook on the REAL `confirm` (AC-STE-606.3)", () => {
+  /** Spawn the real `ticket_ownership.ts confirm` with this session's id; returns the transcript command and output. */
+  function realConfirm(root: string, key: string, ticket: unknown, adopt: boolean, scratch: string): RealDecide {
+    const t = join(scratch, `ticket-${key}-${Math.random().toString(36).slice(2)}.json`);
+    writeFileSync(t, JSON.stringify(ticket));
+    const argv = [root, key, t, ...(adopt ? ["--adopt"] : [])];
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+    env.CLAUDE_PLUGIN_ROOT = MANIFEST_DIR;
+    env.CLAUDE_CODE_SESSION_ID = SESSION;
+    const mod = join(ADAPTERS_SRC, CONFIRM);
+    const p = Bun.spawnSync(["bun", "run", mod, "confirm", ...argv], { env, stdout: "pipe", stderr: "pipe" });
+    if (p.exitCode !== 0) throw new Error(`confirm failed: ${p.stderr.toString()}`);
+    return { command: `bun run "${mod}" confirm ${argv.map((a) => `"${a}"`).join(" ")}`, out: p.stdout.toString().trimEnd() };
+  }
+  const unownedTicket = {
+    key: "GF-121",
+    fields: { summary: "Filed", labels: [], issuetype: { name: "Task" }, project: { key: "GF" }, status: { name: "To Do" }, creator: { displayName: "Someone" }, description: "Filed from the board." },
+  };
+  const importSync = { cloudId: CLOUD, issueIdOrKey: "GF-121", fields: { labels: [BE_TAG] } };
+
+  test("the import's sync write on an unowned ticket is refused before `confirm`, and permitted after an answered Adopt + the real `confirm --adopt`", async () => {
+    const w = makeWorld();
+    const before = new Session();
+    before.ask("GF-121", "Adopt", { answer: "Adopt GF-121" });
+    expectRefusal(
+      await runHook(JIRA("editJiraIssue"), importSync, { cwd: w.be, transcript: before.save(w.scratch) }),
+      "GF-121",
+    );
+    const after = new Session();
+    after.ask("GF-121", "Adopt", { answer: "Adopt GF-121" });
+    const c = realConfirm(w.be, "GF-121", unownedTicket, true, w.scratch);
+    after.bash(c.command, c.out);
+    expectPermit(await runHook(JIRA("editJiraIssue"), importSync, { cwd: w.be, transcript: after.save(w.scratch) }));
+  }, 30_000);
+});
+
+describe("M_947c79 review — surfaces describe what shipped", () => {
+  const read = (rel: string) => readFileSync(join(REPO_ROOT, rel), "utf-8");
+  test("specs/technical-spec.md Schema L names the sub-section keys, the refusal classes and the receipt store", () => {
+    const t = read("specs/technical-spec.md");
+    const i = t.indexOf("### Schema L");
+    const schemaL = t.slice(i, t.indexOf("\n### ", i + 1));
+    for (const needle of ["repo_tag", "min_dpt_version", "RepoTagBindingError", "FIRST_GATED_DPT_VERSION", ".dpt/ledger/receipts/<session>/", "sha256:"]) {
+      expect(schemaL, needle).toContain(needle);
+    }
+  });
+  test("README's hooks-reference link text names the receipt-demanding gate", () => {
+    const line = read("README.md").split("\n").find((l) => l.includes("docs/hooks-reference.md)"))!;
+    expect(line).toContain("pre-tracker-write-gate");
+  });
+  test("adapters/linear.md states that `save_issue.labels` replaces the set and `addLabels` appends", () => {
+    const t = read("plugins/dev-process-toolkit/adapters/linear.md");
+    expect(t).not.toContain("append-only on update per the MCP contract");
+    expect(t).toMatch(/`save_issue\.labels` REPLACES the full label set/);
+    expect(t).toContain("`addLabels`");
+  });
+  test("the hooks reference states the digest-bound, single-invocation announcement and the shared retry semantics", () => {
+    const t = read("plugins/dev-process-toolkit/docs/hooks-reference.md");
+    expect(t).toContain("dpt-receipt: <path> sha256:<digest>");
+    expect(t).toMatch(/never authorises another create/);
+  });
 });

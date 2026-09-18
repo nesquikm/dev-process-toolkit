@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { readLocalFRBindings } from "./reconcile_tracker_local";
 import { readTaskTrackingSection } from "./resolver_config";
-import { RECEIPT_ANNOUNCEMENT_PREFIX, writeReceipt } from "./tracker_receipts";
+import { announceReceipt, writeReceipt } from "./tracker_receipts";
 import { readWorkspaceBinding, type WorkspaceAdapterKey, type WorkspaceBinding } from "./workspace_binding";
 
 export interface ContainerTicket {
@@ -240,7 +240,7 @@ function runConsent(projectRoot: string, key: string, pagePaths: string[]): numb
     decision: "import",
     evidence: { class: cls, labels: ticket.labels, hasBackLink: ticket.hasBackLink },
   });
-  console.log(`${RECEIPT_ANNOUNCEMENT_PREFIX}${resolve(path)}`);
+  console.log(announceReceipt(path));
   return 0;
 }
 
