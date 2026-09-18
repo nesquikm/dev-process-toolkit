@@ -448,7 +448,7 @@ export interface UnreachablePinMove {
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
     value: 121,
-    commit: "uncommitted",
+    commit: "da7218b",
     rationale:
       "M_685ff6/STE-608: the milestone-identity decision module " +
       "`resolve_milestone_identity.ts` gained an `import.meta.main` front " +
