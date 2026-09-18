@@ -58,6 +58,8 @@ export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
     "applicability derives from the declared `## Verification` block (`run_cmd` / `e2e_cmd`), read via `readVerificationConfig`; an absent block declares nothing and yields the unconditional gate section in managed and unmanaged trees alike.",
   identity_mode_conditional:
     "applicability derives from the declared tracker `mode:`, read via `readTaskTrackingSection`.",
+  workspace_binding:
+    "the shared-declaration reader's front door: applicability derives from the declared tracker `mode:` (read via `readTaskTrackingSection`) and the active sub-section's own keys; an undeclared tree answers `shared:false` in managed and unmanaged trees alike.",
   orchestration_config:
     "applicability derives from the presence of the `## Orchestration` section it parses; absent section or file returns defaults even in unmanaged trees.",
   plan_identity_mode_conditional:

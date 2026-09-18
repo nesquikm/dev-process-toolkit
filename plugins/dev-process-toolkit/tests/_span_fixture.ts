@@ -135,3 +135,55 @@ export function makeSpanFixture(milestone: string): SpanFixture {
     },
   };
 }
+
+// ------------------------------------------------------------ STE-602 helpers
+
+export interface ClaudeMdFixtureOpts {
+  /** The active tracker mode; also selects the `### Jira` / `### Linear` sub-section. */
+  mode: "jira" | "linear";
+  project?: string;
+  team?: string;
+  defaultLabels?: string[];
+  repoTag?: string;
+  minDptVersion?: string;
+  /** Free text appended verbatim to the end of the tracker sub-section. */
+  paragraph?: string;
+}
+
+/**
+ * Write `<root>/CLAUDE.md` with a `## Task Tracking` section whose active
+ * tracker sub-section carries the given keys. Absent options omit their line.
+ */
+export function claudeMd(root: string, opts: ClaudeMdFixtureOpts): void {
+  const lines = [
+    "# Fixture Project",
+    "",
+    "## Task Tracking",
+    "",
+    `mode: ${opts.mode}`,
+    `mcp_server: ${opts.mode === "jira" ? "atlassian" : "linear"}`,
+    "",
+    opts.mode === "jira" ? "### Jira" : "### Linear",
+    "",
+  ];
+  if (opts.team !== undefined) lines.push(`team: ${opts.team}`);
+  if (opts.project !== undefined) lines.push(`project: ${opts.project}`);
+  if (opts.defaultLabels !== undefined) {
+    lines.push(`default_labels: [${opts.defaultLabels.join(", ")}]`);
+  }
+  if (opts.repoTag !== undefined) lines.push(`repo_tag: ${opts.repoTag}`);
+  if (opts.minDptVersion !== undefined) lines.push(`min_dpt_version: ${opts.minDptVersion}`);
+  if (opts.paragraph !== undefined) lines.push("", opts.paragraph);
+  lines.push("", "## Verification", "", "run_cmd: none", "");
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, "CLAUDE.md"), lines.join("\n"));
+}
+
+/** Write `<dir>/.claude-plugin/plugin.json` declaring `version`. */
+export function pluginManifest(dir: string, version: string): void {
+  mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+  writeFileSync(
+    join(dir, ".claude-plugin", "plugin.json"),
+    JSON.stringify({ name: "dev-process-toolkit", version }, null, 2) + "\n",
+  );
+}

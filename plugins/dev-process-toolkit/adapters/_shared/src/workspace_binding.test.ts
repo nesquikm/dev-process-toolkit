@@ -46,6 +46,7 @@ describe("readWorkspaceBinding — happy path", () => {
       expect(readWorkspaceBinding(ctx.path, "linear")).toEqual({
         team: "STE",
         project: "DPT — Dev Process Toolkit",
+        shared: false,
       });
     } finally {
       ctx.cleanup();
@@ -65,7 +66,7 @@ describe("readWorkspaceBinding — happy path", () => {
     ].join("\n");
     const ctx = makeProject(body);
     try {
-      expect(readWorkspaceBinding(ctx.path, "jira")).toEqual({ project: "ENG" });
+      expect(readWorkspaceBinding(ctx.path, "jira")).toEqual({ project: "ENG", shared: false });
     } finally {
       ctx.cleanup();
     }
@@ -89,6 +90,7 @@ describe("readWorkspaceBinding — happy path", () => {
         team: "STE",
         project: "DPT",
         defaultLabels: ["feature", "m31"],
+        shared: false,
       });
     } finally {
       ctx.cleanup();
@@ -112,6 +114,7 @@ describe("readWorkspaceBinding — happy path", () => {
         team: "STE",
         project: "DPT",
         defaultLabels: [],
+        shared: false,
       });
     } finally {
       ctx.cleanup();
@@ -121,13 +124,13 @@ describe("readWorkspaceBinding — happy path", () => {
 
 describe("readWorkspaceBinding — vacuity / missing", () => {
   test("CLAUDE.md does not exist → {}", () => {
-    expect(readWorkspaceBinding("/nonexistent/path/CLAUDE.md", "linear")).toEqual({});
+    expect(readWorkspaceBinding("/nonexistent/path/CLAUDE.md", "linear")).toEqual({ shared: false });
   });
 
   test("section absent (mode-none canonical form) → {}", () => {
     const ctx = makeProject("# Project\n\nNo task tracking here.\n");
     try {
-      expect(readWorkspaceBinding(ctx.path, "linear")).toEqual({});
+      expect(readWorkspaceBinding(ctx.path, "linear")).toEqual({ shared: false });
     } finally {
       ctx.cleanup();
     }
@@ -145,7 +148,7 @@ describe("readWorkspaceBinding — vacuity / missing", () => {
     ].join("\n");
     const ctx = makeProject(body);
     try {
-      expect(readWorkspaceBinding(ctx.path, "jira")).toEqual({});
+      expect(readWorkspaceBinding(ctx.path, "jira")).toEqual({ shared: false });
     } finally {
       ctx.cleanup();
     }
@@ -163,7 +166,7 @@ describe("readWorkspaceBinding — vacuity / missing", () => {
     ].join("\n");
     const ctx = makeProject(body);
     try {
-      expect(readWorkspaceBinding(ctx.path, "linear")).toEqual({});
+      expect(readWorkspaceBinding(ctx.path, "linear")).toEqual({ shared: false });
     } finally {
       ctx.cleanup();
     }
@@ -190,6 +193,7 @@ describe("readWorkspaceBinding — boundary parsing", () => {
       expect(readWorkspaceBinding(ctx.path, "linear")).toEqual({
         team: "STE",
         project: "DPT",
+        shared: false,
       });
     } finally {
       ctx.cleanup();
@@ -214,8 +218,9 @@ describe("readWorkspaceBinding — boundary parsing", () => {
       expect(readWorkspaceBinding(ctx.path, "linear")).toEqual({
         team: "STE",
         project: "DPT",
+        shared: false,
       });
-      expect(readWorkspaceBinding(ctx.path, "jira")).toEqual({ project: "ENG" });
+      expect(readWorkspaceBinding(ctx.path, "jira")).toEqual({ project: "ENG", shared: false });
     } finally {
       ctx.cleanup();
     }
@@ -240,10 +245,12 @@ describe("readWorkspaceBinding — boundary parsing", () => {
       expect(readWorkspaceBinding(ctx.path, "linear")).toEqual({
         team: "STE",
         project: "DPT — Dev Process Toolkit",
+        shared: false,
       });
       expect(readWorkspaceBinding(ctx.path, "jira")).toEqual({
         project: "ENG",
         defaultLabels: ["legacy"],
+        shared: false,
       });
     } finally {
       ctx.cleanup();
@@ -305,7 +312,7 @@ describe("readWorkspaceBinding — boundary parsing", () => {
     const ctx = makeProject(body);
     try {
       // empty value is omitted (caller gates on absence — probe #25 will fail)
-      expect(readWorkspaceBinding(ctx.path, "linear")).toEqual({ project: "DPT" });
+      expect(readWorkspaceBinding(ctx.path, "linear")).toEqual({ project: "DPT", shared: false });
     } finally {
       ctx.cleanup();
     }
@@ -323,7 +330,7 @@ describe("readWorkspaceBinding — boundary parsing", () => {
     ].join("\n");
     const ctx = makeProject(body);
     try {
-      expect(readWorkspaceBinding(ctx.path, "linear")).toEqual({ project: "DPT" });
+      expect(readWorkspaceBinding(ctx.path, "linear")).toEqual({ project: "DPT", shared: false });
     } finally {
       ctx.cleanup();
     }
@@ -344,6 +351,7 @@ describe("readWorkspaceBinding — boundary parsing", () => {
       expect(readWorkspaceBinding(ctx.path, "linear")).toEqual({
         team: "STE",
         project: "DPT — Dev Process Toolkit",
+        shared: false,
       });
     } finally {
       ctx.cleanup();

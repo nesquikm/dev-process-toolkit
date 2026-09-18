@@ -233,7 +233,10 @@ const lowerTheHead = (source: string): string => {
   if (!source.includes(anchor)) throw new Error("the ledger declaration moved — anchor not found");
   return source.replace(
     anchor,
-    `${anchor}\n  {\n    value: 128,\n    commit: "0000low",\n` +
+    // PIN MOVE (M_947c79/STE-602): the lowering is ONE BELOW THE LIVE HEAD,
+    // not a fixed 128 — with the head at 125 a fixed 128 is a RAISE, and the
+    // DOWN leg would grade the wrong direction.
+    `${anchor}\n  {\n    value: ${ORDERED_UNREACHABLE_PIN - 1},\n    commit: "0000low",\n` +
       `    rationale: "a mutation: a well-formed lowering nothing measured",\n  },`,
   );
 };
@@ -270,10 +273,15 @@ describe("AC-STE-557.1 — the pin is derived from the ledger head, not written 
 // ===========================================================================
 
 describe("AC-STE-557.2 — the ledger records the moves git records", () => {
-  /** Taken from `git log -L 479,479:<module>` at b0761df, newest first. */
-  const MEASURED = [129, 130, 131, 133, 136, 137, 139, 142, 146] as const;
+  /**
+   * Taken from `git log -L 479,479:<module>` at b0761df, newest first — plus
+   * every move prepended through the ledger since. PIN MOVE (M_947c79/STE-602):
+   * 125 is the first move made THROUGH the ledger rather than recovered from
+   * git, measured by the awaited probe; the list grows by exactly that entry.
+   */
+  const MEASURED = [125, 129, 130, 131, 133, 136, 137, 139, 142, 146] as const;
 
-  test("nine moves, in the measured order", () => {
+  test("ten moves, in the measured order", () => {
     expect(ORDERED_UNREACHABLE_PIN_LEDGER.map((m) => m.value)).toEqual([...MEASURED]);
   });
 

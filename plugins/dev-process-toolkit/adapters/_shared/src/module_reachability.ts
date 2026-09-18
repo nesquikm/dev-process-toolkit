@@ -447,6 +447,22 @@ export interface UnreachablePinMove {
  */
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
+    value: 125,
+    commit: "uncommitted",
+    rationale:
+      "M_947c79/STE-602: the shared-declaration reader `workspace_binding.ts` " +
+      "gained an `import.meta.main` front door, so it became reachable and " +
+      "its two ordered references (`skills/spec-write/SKILL.md:107`, " +
+      "`docs/spec-write-tracker-mode.md:23`) stopped naming a module nothing " +
+      "runnable reaches. The other two are TRANSITIVE: the front door's floor " +
+      "check reuses the exported `compareSemver`, which pulls " +
+      "`migrations/coverage.ts` into the reachable set and clears its ordered " +
+      "references at `skills/gate-check/SKILL.md:155` and " +
+      "`skills/ship-milestone/SKILL.md:141`. Measured by the awaited " +
+      "`runModuleReachabilityProbe` (129 -> 125, diffed record by record " +
+      "against a checkout of ac1f3cb), not carried from the FR.",
+  },
+  {
     value: 129,
     commit: "5017488",
     rationale:

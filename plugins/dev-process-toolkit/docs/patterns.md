@@ -433,8 +433,8 @@ A one-time migration helper for projects that picked up the drift before the con
 
 | Sub-section | Required keys | Optional keys |
 |-------------|---------------|---------------|
-| `### Linear` | `team:` (string, e.g., `STE`), `project:` (string, e.g., `DPT — Dev Process Toolkit`) | `default_labels:` (inline YAML array, e.g., `[feature, m31]`) |
-| `### Jira` | `project:` (string, the Jira project key) | `default_labels:` |
+| `### Linear` | `team:` (string, e.g., `STE`), `project:` (string, e.g., `DPT — Dev Process Toolkit`) | `default_labels:` (inline YAML array, e.g., `[feature, m31]`), `repo_tag:`, `min_dpt_version:` |
+| `### Jira` | `project:` (string, the Jira project key) | `default_labels:`, `repo_tag:`, `min_dpt_version:` |
 
 Parser rules:
 - A sub-section starts at its `### Linear` / `### Jira` heading and ends at the next `##` or `###` heading or EOF (greedy).
@@ -443,6 +443,21 @@ Parser rules:
 - Sub-sections present without an active adapter (e.g., `### Jira` while `mode: linear`) are tolerated — vacuous.
 - The sub-section is mode-aware: `mode: none` MUST NOT carry any sub-section; the gate-check probe is vacuous in mode-none.
 - Em-dash and other UTF-8 chars are preserved byte-for-byte (`DPT — Dev Process Toolkit` round-trips correctly through Linear MCP — verified by adapter tests).
+
+**Shared tracker container declaration.** A repository that shares one Jira project or one Linear project with other repositories declares it with two optional keys of the ACTIVE sub-section. They are never top-level keys: probe #21 closes the top level.
+- `repo_tag: <lowercase-kebab>` is this repository's ownership label. Its presence IS the declaration that the container is shared. The same value must also appear in `default_labels`, so every create forwards it.
+- `min_dpt_version: <X.Y.Z>` is the lowest toolkit version allowed to write into the shared container.
+
+The reader returns `{ team?, project?, defaultLabels?, repoTag?, minDptVersion?, shared }`. `shared` is always present, and is `true` exactly when a non-empty `repo_tag` is declared. An absent key and an empty `repo_tag:` value (with no floor) are one declaration: undeclared, with the pre-declaration return plus `shared: false`. A malformed declaration is a typed NFR-10 refusal, never a silent drop. The refusal cases:
+1. a tag that is not lowercase-kebab;
+2. a tag missing from `default_labels` — raised as `RepoTagBindingError`;
+3. a floor that is not strict `X.Y.Z` (no `v`, no pre-release suffix);
+4. one key without the other;
+5. either key written twice (never last-wins);
+6. a floor below `FIRST_GATED_DPT_VERSION`;
+7. a CLAUDE.md that exists but cannot be read.
+
+The front door `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/workspace_binding.ts <projectRoot>` prints the binding as one JSON line, then `running=<version> floor=<ok|refused>`. Nothing declared prints `shared:false`, and a malformed declaration exits 1 with the refusal on stderr.
 
 The shared parser is `readWorkspaceBinding(claudeMdPath, "linear" | "jira")` from `adapters/_shared/src/workspace_binding.ts`. Adapter `upsert_ticket_metadata` implementations consume the binding on create (Linear: project required-on-create per silent-landing trap; Jira: project required-on-create per Jira API).
 
