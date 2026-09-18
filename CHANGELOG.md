@@ -20,7 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The orphan list offers only this repository's tickets and names who filed the rest (STE-605)
 - Implement confirms a ticket is this repository's before importing or claiming it (STE-606)
 
-Total test count at release: 14219 tests, 0 failures, 0 errors.
+Total test count at release: 14243 tests, 0 failures, 0 errors.
 
 ## [2.86.0] — 2026-09-18 — "Right Tree"
 
