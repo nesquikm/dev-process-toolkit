@@ -241,6 +241,10 @@ observed status; operators fix either by transitioning the ticket to
      3. Save every returned page verbatim as a JSON file, then
         `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts decide <projectRoot> <page.json>... --title <title> [--linear-milestone <id>] --attempt fast`
         — prints ONE JSON line `{ outcome, key?, reason?, capability?, createPayload? }`.
+        Run it as ONE plain command (no `cd … &&`, `;`, pipe or redirection):
+        in a shared repository the tracker-write gate ignores the receipt of
+        any other shape. A title with a backtick, `$` or `\` goes in a file
+        passed as `--title-file <path>` in place of `--title <title>`.
      4. Act on `outcome` and nothing else: `reused` → return `key`, no
         write; `refused` → stop and surface `tracker_idempotency_uncertain`
         with `reason`; `create` → the `mcp__linear__save_issue` create
