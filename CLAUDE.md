@@ -23,7 +23,9 @@ plugins/dev-process-toolkit/             → The plugin
 ├── hooks/                               → hooks.json — SessionEnd / Stop capture wiring PLUS the blocking
                                            PreToolUse gates: pre-commit-gate-check and
                                            pre-commit-tdd-orchestrator block `git commit`,
-                                           pre-pr-spec-review blocks `gh pr create`
+                                           pre-pr-spec-review blocks `gh pr create`,
+                                           pre-tracker-write-gate blocks shared-container
+                                           tracker writes that skipped the deciding commands
 ├── scripts/                             → Migration helpers named by /upgrade and by probe remedies
 ├── docs/                                → Methodology, skill anatomy, adaptation guide, patterns
 └── examples/                            → Per-stack configs (typescript-node, bun-typescript, flutter-dart, kotlin, python, plugin — `plugin` is this repo's own stack)
