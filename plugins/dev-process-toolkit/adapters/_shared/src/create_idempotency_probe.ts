@@ -422,12 +422,19 @@ export const LINEAR_QUERY_LIMIT = 250;
 interface QueryArgs {
   root: string;
   title: string;
+  /** `--title-file <path>`: the title is the file's text, one trailing newline dropped. */
+  titleFile?: string;
   parentKey?: string;
   milestoneLabel?: string;
   linearMilestone?: string;
 }
 
-/** Parse `<root> --title <t> [container]`. The tag is never an argument. */
+/**
+ * Parse `<root> (--title <t> | --title-file <path>) [container]`. The tag is
+ * never an argument. `--title-file` carries a title a plain command cannot
+ * quote — one with a backtick, `$` or `\` — so the invocation stays the one
+ * plain command the tracker-write gate accepts (STE-607 review 2).
+ */
 function parseQueryArgs(argv: readonly string[]): QueryArgs | null {
   const [root, ...flags] = argv;
   if (!root || root.startsWith("--")) return null;
@@ -437,12 +444,26 @@ function parseQueryArgs(argv: readonly string[]): QueryArgs | null {
     const value = flags[i + 1];
     if (value === undefined) return null;
     if (flag === "--title") out.title = value;
+    else if (flag === "--title-file") out.titleFile = value;
     else if (flag === "--parent") out.parentKey = value;
     else if (flag === "--milestone-label") out.milestoneLabel = value;
     else if (flag === "--linear-milestone") out.linearMilestone = value;
     else return null; // --tag / --repo-tag included: the binding owns the tag.
   }
-  return out.title === undefined ? null : (out as QueryArgs);
+  if ((out.title === undefined) === (out.titleFile === undefined)) return null; // exactly one
+  if (out.titleFile !== undefined) out.title = "";
+  return out as QueryArgs;
+}
+
+/** Read `--title-file` into `title`; the file's one trailing newline is not part of the title. */
+async function resolveTitleFile<T extends QueryArgs>(args: T): Promise<T> {
+  if (args.titleFile === undefined) return args;
+  const { readFileSync } = await import("node:fs");
+  const title = readFileSync(args.titleFile, "utf-8").replace(/\r?\n$/, "");
+  if (title.trim() === "" || /[\r\n]/.test(title)) {
+    throw new Error(`--title-file ${args.titleFile}: the title must be one non-empty line.`);
+  }
+  return { ...args, title };
 }
 
 /**
@@ -728,14 +749,22 @@ async function runDecideCommand(args: DecideArgs): Promise<string> {
 if (import.meta.main) {
   const [sub, ...rest] = process.argv.slice(2);
   if (sub === "normalize" && rest.length >= 1) {
-    console.log(normalizeTitleForCompare(rest[0]!));
+    // Only a receipt write may start a line with `dpt-receipt:` — never an
+    // echoed argument (STE-607 review 2).
+    const { printable, RECEIPT_ANNOUNCEMENT_PREFIX } = await import("./tracker_receipts");
+    const out = printable(normalizeTitleForCompare(rest[0]!));
+    if (out.trimStart().startsWith(RECEIPT_ANNOUNCEMENT_PREFIX.trim())) {
+      console.error(`normalize: a title cannot start with "${RECEIPT_ANNOUNCEMENT_PREFIX.trim()}"; refusing`);
+      process.exit(2);
+    }
+    console.log(out);
     process.exit(0);
   }
   if (sub === "query") {
     const args = parseQueryArgs(rest);
     if (args) {
       try {
-        console.log(await runQueryCommand(args));
+        console.log(await runQueryCommand(await resolveTitleFile(args)));
         process.exit(0);
       } catch (e) {
         console.error(e instanceof Error ? e.message : String(e));
@@ -747,7 +776,7 @@ if (import.meta.main) {
     const args = parseDecideArgs(rest);
     if (args) {
       try {
-        console.log(await runDecideCommand(args));
+        console.log(await runDecideCommand(await resolveTitleFile(args)));
         process.exit(0);
       } catch (e) {
         console.error(e instanceof Error ? e.message : String(e));
@@ -773,8 +802,8 @@ if (import.meta.main) {
   }
   console.error(
     "usage: bun create_idempotency_probe.ts normalize <title>\n" +
-      "       bun create_idempotency_probe.ts query <projectRoot> --title <t> [--parent <EpicKey> | --milestone-label <label> | --linear-milestone <id>]\n" +
-      "       bun create_idempotency_probe.ts decide <projectRoot> <page.json>... --title <t> [container] --attempt <fast|retry-1|retry-2|retry-3>\n" +
+      "       bun create_idempotency_probe.ts query <projectRoot> (--title <t> | --title-file <path>) [--parent <EpicKey> | --milestone-label <label> | --linear-milestone <id>]\n" +
+      "       bun create_idempotency_probe.ts decide <projectRoot> <page.json>... (--title <t> | --title-file <path>) [container] --attempt <fast|retry-1|retry-2|retry-3>\n" +
       "       bun create_idempotency_probe.ts jql <projectKey> <title> [parentKey] [repoTag]",
   );
   process.exit(2);

@@ -36,6 +36,17 @@ export function announceReceipt(path: string): string {
   return `${RECEIPT_ANNOUNCEMENT_PREFIX}${abs} ${RECEIPT_DIGEST_PREFIX}${receiptDigest(readFileSync(abs))}`;
 }
 
+/**
+ * Text a deciding module prints that came from a page, a ticket or an
+ * argument, flattened onto one line: CR, LF, the Unicode line separators and
+ * every other control character become a space. Only `announceReceipt` may
+ * start a line with `dpt-receipt:`, so nothing a tracker or the model supplied
+ * can print one (STE-607 review 2, AC-STE-607.7).
+ */
+export function printable(text: string): string {
+  return text.replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029]/g, " ");
+}
+
 /** Parse one announcement line into its path and digest (null digest when the line carries none). */
 export function parseReceiptAnnouncement(line: string): { path: string; digest: string | null } | null {
   if (!line.startsWith(RECEIPT_ANNOUNCEMENT_PREFIX)) return null;

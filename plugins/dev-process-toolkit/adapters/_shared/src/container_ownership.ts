@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { readLocalFRBindings } from "./reconcile_tracker_local";
 import { readTaskTrackingSection } from "./resolver_config";
-import { announceReceipt, writeReceipt } from "./tracker_receipts";
+import { announceReceipt, printable, writeReceipt } from "./tracker_receipts";
 import { readWorkspaceBinding, type WorkspaceAdapterKey, type WorkspaceBinding } from "./workspace_binding";
 
 export interface ContainerTicket {
@@ -131,7 +131,7 @@ export function adapterOf(projectRoot: string): WorkspaceAdapterKey {
 }
 
 function cell(s: string): string {
-  return s.replace(/\|/g, "\\|").replace(/\n/g, " ");
+  return printable(s).replace(/\|/g, "\\|");
 }
 
 export interface OrphanTicket extends ContainerTicket {
@@ -202,12 +202,12 @@ function runList(projectRoot: string, pagePaths: string[]): number {
   const listing = listOrphans(projectRoot, pages);
   const rows: string[] = ["| Key | Class | Owner | Toolkit-written | Title |", "|---|---|---|---|---|"];
   for (const t of listing.orphans) {
-    rows.push(`| ${t.key} | ${t.cls} | ${cell(t.owner)} | ${t.hasBackLink ? "yes" : "no"} | ${cell(t.title)} |`);
+    rows.push(`| ${cell(t.key)} | ${t.cls} | ${cell(t.owner)} | ${t.hasBackLink ? "yes" : "no"} | ${cell(t.title)} |`);
   }
   console.log(rows.join("\n"));
   console.log(listing.summary);
   for (const t of listing.orphans) {
-    if (t.offerable) console.log(`options: Import ${t.key} | Skip ${t.key}`);
+    if (t.offerable) console.log(printable(`options: Import ${t.key} | Skip ${t.key}`));
   }
   return 0;
 }
@@ -223,12 +223,12 @@ function runConsent(projectRoot: string, key: string, pagePaths: string[]): numb
   const binding = readWorkspaceBinding(join(projectRoot, "CLAUDE.md"), adapter);
   const ticket = pages.flatMap((p) => normalizeContainerPage(p, adapter, binding.shared)).find((t) => t.key === key);
   if (ticket === undefined) {
-    console.error(`consent: ${key} is not on the pages read; refusing`);
+    console.error(printable(`consent: ${key} is not on the pages read; refusing`));
     return 1;
   }
   const cls = classifyTicket(ticket, binding);
   if (!OFFERABLE.has(cls)) {
-    console.error(`consent: ${key} is a ${cls} ticket; refusing`);
+    console.error(printable(`consent: ${key} is a ${cls} ticket; refusing`));
     return 1;
   }
   if (!binding.shared) return 0;
@@ -257,7 +257,7 @@ if (import.meta.main) {
     );
     process.exit(2);
   } catch (e) {
-    console.error((e as Error).message);
+    console.error(printable((e as Error).message));
     process.exit(1);
   }
 }

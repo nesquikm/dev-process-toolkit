@@ -19,7 +19,7 @@
 import { join, resolve } from "node:path";
 import { adapterOf, classifyTicket, normalizeContainerPage, readJsonFile } from "./container_ownership";
 import { trackerIdsOf } from "./reconcile_tracker_local";
-import { announceReceipt, writeReceipt } from "./tracker_receipts";
+import { announceReceipt, printable, writeReceipt } from "./tracker_receipts";
 import { readWorkspaceBinding, type WorkspaceAdapterKey, type WorkspaceBinding } from "./workspace_binding";
 
 export type OwnershipVerdict = "owned" | "foreign-project" | "container" | "foreign-repo" | "unowned";
@@ -205,15 +205,15 @@ function runConfirm(projectRoot: string, key: string, ticketPath: string, adopt:
   const binding = readWorkspaceBinding(join(root, "CLAUDE.md"), adapter);
   const decision = decideTicketOwnership({ projectRoot: root, ticket: readTicket(ticketPath), binding });
   if (decision.key !== key) {
-    console.error(`confirm: ticket file is ${decision.key}, not ${key}; refusing`);
+    console.error(printable(`confirm: ticket file is ${decision.key}, not ${key}; refusing`));
     return 1;
   }
   if (REFUSED_VERDICTS.has(decision.verdict)) {
-    console.error(`confirm: ${key} is ${decision.verdict}: ${decision.reason}`);
+    console.error(printable(`confirm: ${key} is ${decision.verdict}: ${decision.reason}`));
     return 1;
   }
   if (decision.verdict === "unowned" && !adopt) {
-    console.error(`confirm: ${key} is unowned; confirm requires --adopt after the adopt question`);
+    console.error(printable(`confirm: ${key} is unowned; confirm requires --adopt after the adopt question`));
     return 1;
   }
   if (!binding.shared) return 0;
@@ -241,7 +241,7 @@ if (import.meta.main) {
     );
     process.exit(2);
   } catch (e) {
-    console.error((e as Error).message);
+    console.error(printable((e as Error).message));
     process.exit(1);
   }
 }
