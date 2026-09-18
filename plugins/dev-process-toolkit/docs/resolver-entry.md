@@ -27,9 +27,26 @@ through the `fallthrough` branch of `resolveFRArgument` per NFR-18.
 |--------|----------------------------|---------------------------|------------------------------|
 | `ulid` | Open the FR via `Provider.filenameFor(spec)` for editing | Proceed to `Provider.claimLock(ulid, branch)` | Archive via `git mv` + frontmatter flip |
 | `tracker-id` or `url`, find-by-tracker-ref hit | Open that existing FR for editing. **No network call.** Single-pattern direct-filename lookup at `specs/frs/<tracker-id>.md` (+ `archive/` when `includeArchive`). Filename ↔ frontmatter disagreement returns null. **Mode-aware:** tracker mode uses `findFRPathByTrackerRef` (path-returning; tracker-mode FRs have no `id:` line so `findFRByTrackerRef` cannot match). `mode: none` uses `findFRByTrackerRef` (ULID-returning). | Proceed to `Provider.claimLock(<id>, branch)` on the resolved ID — tracker ID in tracker mode, ULID in `mode: none`. | Archive via `git mv` + frontmatter flip on the resolved FR (O(1) direct-filename lookup). |
-| `tracker-id` or `url`, find-by-tracker-ref miss | Run `importFromTracker` — mints the new FR file with tracker ACs auto-accepted (**no per-AC bidirectional prompts**). The file lands at `specs/frs/<Provider.filenameFor(spec)>`. | Run `importFromTracker` then `Provider.claimLock` on the new identity. | **Refuse** with NFR-10 shape: `"No local FR mapped to <tracker>:<id>. Archival never auto-imports. To dismiss the tracker ticket, close it in the tracker directly."` Non-zero exit, no side effects. |
+| `tracker-id` or `url`, find-by-tracker-ref miss | Tracker mode: first run the § 0a ownership sequence — `decide`, then the confirmation — and only then run `importFromTracker` — mints the new FR file with tracker ACs auto-accepted (**no per-AC bidirectional prompts**). The file lands at `specs/frs/<Provider.filenameFor(spec)>`. | Tracker mode: run `decide` and the confirmation at 0.b′ (§ 0a), then `importFromTracker`, then `Provider.claimLock` on the new identity. | **Refuse** with NFR-10 shape: `"No local FR mapped to <tracker>:<id>. Archival never auto-imports. To dismiss the tracker ticket, close it in the tracker directly."` Non-zero exit, no side effects. |
 | `milestone` (STE-202 AC-STE-202.3) | Free-form-argument contract — milestone code (e.g., `M13`, `M54`). | Read the milestone plan file at `specs/plan/<milestone>.md` and run the milestone-scope flow per `skills/implement/SKILL.md` § Invocation forms. | Run the milestone-group archival flow per `skills/spec-archive/SKILL.md` § Process step 3 (or the plan-only branch when the FR set is empty). |
 | `fallthrough` | Handle per the free-form-argument contract (`all`, `requirements`, `technical-spec`, `testing-spec`, `plan`). Literal `FR-<N>` arguments land here. | Handle per the free-form-argument contract (GitHub issue number, task description). Literal `FR-<N>` arguments land here. Milestone codes are routed through `milestone` above (no longer fall through). | Handle per the free-form-argument contract (anchor `{#M3}`, heading text). Literal `FR-<N>` arguments land here. Milestone codes route through `milestone` above. |
+
+## § 0a Ownership sequence (tracker mode, before `importFromTracker`)
+
+`/spec-write` § 0a **Miss** and `/implement` 0.b′ run these steps, in order,
+before any write:
+
+1. Fetch the ticket read-only (`getJiraIssue` / `get_issue`) and save it as `<ticket.json>`.
+2. Run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/ticket_ownership.ts" decide <projectRoot> <ticket.json>`.
+   A refused verdict (`container`, `foreign-project`, `foreign-repo`) exits with
+   zero tracker writes and zero files.
+3. Print the mandatory confirmation `Operating on ticket <ID>: <title> — proceed? [y/N]`
+   (`docs/ticket-binding.md` § Mandatory confirmation); anything but yes exits cleanly.
+4. When the verdict is `unowned`, ask the adopt question (`Adopt <KEY>` / `Skip <KEY>`);
+   Skip exits cleanly.
+5. Run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/ticket_ownership.ts" confirm <projectRoot> <KEY> <ticket.json>`
+   (`--adopt` after an Adopt). Only a zero exit reaches `importFromTracker`
+   (or, for `/implement`, the hit path's 0.c claim).
 
 ## Ambiguity & disambiguation
 

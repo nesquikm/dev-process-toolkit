@@ -98,9 +98,26 @@ Remedy: rename the branch to match the adapter's regex, or pass the
 ticket ID explicitly (e.g., /implement <ID>).
 ```
 
+## Ownership decision (tracker mode, before the prompt)
+
+Before the confirmation below, `/implement` and `/spec-write` fetch the
+resolved ticket read-only, save it as `<ticket.json>`, and run:
+
+```bash
+bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/ticket_ownership.ts" decide <projectRoot> <ticket.json>
+```
+
+A refused verdict (`container`, `foreign-project`, `foreign-repo`) exits
+with zero tracker writes and zero files — the prompt is never shown. An
+`owned` verdict goes straight to the prompt; an `unowned` verdict adds the
+adopt question (`Adopt <KEY>` / `Skip <KEY>`) after it, and Skip exits
+cleanly. Only after the operator says yes (and, for `unowned`, Adopt) does
+the skill run `confirm <projectRoot> <KEY> <ticket.json>` (`--adopt` after
+an Adopt), and only then import or claim.
+
 ## Mandatory confirmation
 
-After resolving the ID, **every** mutating skill prints:
+After resolving the ID and deciding ownership, **every** mutating skill prints:
 
 ```
 Operating on ticket <ID>: <title> — proceed? [y/N]
@@ -115,7 +132,7 @@ exits the skill cleanly with zero side effects.
 
 | Skill | When binding runs | Side-effect guard |
 |-------|-------------------|-------------------|
-| `/implement` | Pre-flight (step 0.1, before any AC extraction) | No `pull_acs` before the user confirms. |
+| `/implement` | Step 0.b′ — `decide`, then the confirmation, before import and claim (0.c); a branch-name-resolved ticket runs the same pair before 0.c | No `importFromTracker`, `claimLock` or `pull_acs` before the user confirms. |
 | `/spec-write` | Pre-flight when the user opens an FR that maps to a ticket | No `upsert_ticket_metadata` before confirm. |
 | `/gate-check` | Pre-flight before the re-fetch for `updatedAt` | No `push_ac_toggle` before confirm. |
 | `/pr` | Pre-flight before status transition | No `transition_status` before confirm. |

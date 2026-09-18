@@ -177,21 +177,24 @@ export function listOrphans(projectRoot: string, pages: unknown[]): OrphanListin
   return { orphans, counts, complete, summary };
 }
 
+/** Read and parse one saved JSON file; a failure is prefixed with `label` and names the file. */
+export function readJsonFile(path: string, label: string): unknown {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf-8");
+  } catch (e) {
+    throw new Error(`${label}: cannot read ${path}: ${(e as Error).message}`);
+  }
+  try {
+    return JSON.parse(text) as unknown;
+  } catch (e) {
+    throw new Error(`${label}: ${path} is not JSON: ${(e as Error).message}`);
+  }
+}
+
 /** Read and parse every page before anything is listed; a failure names the file. */
 export function readPages(pagePaths: string[]): unknown[] {
-  return pagePaths.map((p) => {
-    let text: string;
-    try {
-      text = readFileSync(p, "utf-8");
-    } catch (e) {
-      throw new Error(`container page: cannot read ${p}: ${(e as Error).message}`);
-    }
-    try {
-      return JSON.parse(text) as unknown;
-    } catch (e) {
-      throw new Error(`container page: ${p} is not JSON: ${(e as Error).message}`);
-    }
-  });
+  return pagePaths.map((p) => readJsonFile(p, "container page"));
 }
 
 function runList(projectRoot: string, pagePaths: string[]): number {

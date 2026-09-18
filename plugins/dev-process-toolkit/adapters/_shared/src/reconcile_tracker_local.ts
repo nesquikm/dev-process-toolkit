@@ -235,24 +235,33 @@ export function readLocalFRBindings(specsDir: string): LocalFRBinding[] {
     } catch {
       continue;
     }
-    let fm: Record<string, unknown>;
-    try {
-      fm = parseFrontmatter(content, { lenient: true });
-    } catch {
-      fm = {};
-    }
-    const tracker = fm["tracker"];
-    const trackerIds: string[] = [];
-    if (tracker && typeof tracker === "object") {
-      for (const value of Object.values(tracker as Record<string, unknown>)) {
-        if (typeof value === "string" && value.length > 0) {
-          trackerIds.push(value);
-        }
-      }
-    }
-    out.push({ filename: entry.name, trackerIds });
+    out.push({ filename: entry.name, trackerIds: trackerIdsOf(content) });
   }
   return out;
+}
+
+/**
+ * The tracker ids an FR file's `tracker:` frontmatter binds — the one reading
+ * of a binding, shared by the working-tree walk above and by readers that
+ * must parse a file's COMMITTED bytes instead (STE-606's ownership decision).
+ */
+export function trackerIdsOf(content: string): string[] {
+  let fm: Record<string, unknown>;
+  try {
+    fm = parseFrontmatter(content, { lenient: true });
+  } catch {
+    fm = {};
+  }
+  const tracker = fm["tracker"];
+  const trackerIds: string[] = [];
+  if (tracker && typeof tracker === "object") {
+    for (const value of Object.values(tracker as Record<string, unknown>)) {
+      if (typeof value === "string" && value.length > 0) {
+        trackerIds.push(value);
+      }
+    }
+  }
+  return trackerIds;
 }
 
 function readLocalPlanMilestones(specsDir: string): string[] {
