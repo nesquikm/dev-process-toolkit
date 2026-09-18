@@ -62,11 +62,12 @@ NFR-10 canonical shape during `/setup`.
 | `pull_acs` | `mcp__atlassian__getJiraIssue` | Branches on `jira_ac_field`: read the custom-field value (custom-field path) or the issue's description body (description path) and parse `## Acceptance Criteria` bullets. |
 | `push_ac_toggle` | `mcp__atlassian__editJiraIssue` | Branches on `jira_ac_field`: write back the toggled custom-field value or rewrite the description's `## Acceptance Criteria` section atomically. Pass `contentFormat: "markdown"` to round-trip markdown without ADF conversion. |
 | `transition_status` | `mcp__atlassian__transitionJiraIssue` | Resolve transition id via `getTransitionsForJiraIssue` + `status_mapping`. Primary match is `to.name`; fallback is `to.statusCategory.key` (canonical category). |
-| `upsert_ticket_metadata` | `mcp__atlassian__createJiraIssue` (new) / `mcp__atlassian__editJiraIssue` (existing) | Body MUST include the back-link to `specs/frs/<TICKET-ID>.md`. On create, `project` is required (Jira API requirement) — sourced from the call argument or `### Jira`.project in CLAUDE.md; reject with NFR-10 canonical shape if neither supplies a value. `team` does not apply to Jira and is silently dropped if forwarded. **Labels:** when `### Jira`.default_labels is populated (free-form sub-section field, parsed as inline-YAML array per `docs/patterns.md`) **or** the call argument carries `labels`, forward every entry into `createJiraIssue.additional_fields.labels` (the only Jira-MCP path for setting labels — there is no top-level `labels` parameter, see the `mcp__atlassian__createJiraIssue` schema). Empty array or missing key ⇒ no `labels` field is set. **Update path** (`editJiraIssue`): labels are not modified — `defaultLabels` applies only on create per the workspace-binding rule. Default issue type is `Task`; override via `jira_issue_type:` in `### Jira`. Pass `contentFormat: "markdown"` so the rendered description body keeps its markdown shape. |
+| `upsert_ticket_metadata` | `mcp__atlassian__createJiraIssue` (new) / `mcp__atlassian__editJiraIssue` (existing) | Body MUST include the back-link to `specs/frs/<TICKET-ID>.md`. On create, `project` is required (Jira API requirement) — sourced from the call argument or `### Jira`.project in CLAUDE.md; reject with NFR-10 canonical shape if neither supplies a value. `team` does not apply to Jira and is silently dropped if forwarded. **Labels:** when `### Jira`.default_labels is populated (free-form sub-section field, parsed as inline-YAML array per `docs/patterns.md`) **or** the call argument carries `labels`, forward every entry into `createJiraIssue.additional_fields.labels` (the only Jira-MCP path for setting labels — there is no top-level `labels` parameter, see the `mcp__atlassian__createJiraIssue` schema). Empty array or missing key ⇒ no `labels` field is set. **Update path** (`editJiraIssue`): labels are not modified — `defaultLabels` applies only on create per the workspace-binding rule. The one exception is the claim on import in a shared repository: importing an `unowned` ticket sends `labels` as the union of the ticket's current labels (read off the saved container page) and this repository's ownership tag, never a set that drops a label (`docs/spec-write-tracker-mode.md` § Orphan listing). Default issue type is `Task`; override via `jira_issue_type:` in `### Jira`. Pass `contentFormat: "markdown"` so the rendered description body keeps its markdown shape. |
 | `list_project_statuses` | `mcp__atlassian__getJiraIssueTypeMetaWithFields` (company-managed) / `mcp__atlassian__getTransitionsForJiraIssue` (team-managed) | Two-path status-vocabulary fetch dispatched on project style — probe order, output contract, project-key sourcing, and NFR-10 guard are documented in § `list_project_statuses` under Operations. Used by `/setup` Step Nb (STE-303) to seed `specs/tracker-config.yaml` with the workspace-bound status vocabulary. Pure read; no mutation. |
 | `addCommentToJiraIssue` | `mcp__atlassian__addCommentToJiraIssue` | Available on the live MCP surface (smoke-test #5 enumerated tool list) for callers that need to post a markdown comment. Pass `contentFormat: "markdown"`. No /implement-internal caller today. |
 | Project visibility probe | `mcp__atlassian__getVisibleJiraProjects` | Called by `/setup` step 7b before any other Jira operation; refuses with NFR-10 canonical shape when the configured `project` key is not visible to the authenticated principal. |
 | `listMilestones` (optional driver method) | `mcp__atlassian__searchJiraIssuesUsingJql` | Enumerate milestone Epics via `issuetype = Epic` (primary leg) and union the grandfathered `milestone-<M-token>` labels (legacy leg). Both legs paginate with client-side union-grammar filters, dedupe, and return bare `M_<epic-key>` / `M<N>` tokens. Best-effort: any failure ⇒ `[]`. Pure read; see § Milestone Listing below. |
+| `list_active_frs` | `mcp__atlassian__searchJiraIssuesUsingJql` | The orphan-listing read: JQL `project = <KEY> AND statusCategory != Done` with `fields: [key, summary, issuetype, labels, description, creator, project]`, paginated with `nextPageToken` until the response carries `isLast: true`. Save every page verbatim as a JSON file; the saved pages feed the front doors — `container_ownership.ts` (`list` / `consent`, see `docs/spec-write-tracker-mode.md` § Orphan listing) and probe #49's `tracker_local_reconciliation_drift.ts` — which classify each ticket by its labels and refuse a page lacking `labels` or `description` in shared mode. Pure read; no mutation. |
 
 > **No `deleteJiraIssue` tool.** The MCP surface does not expose issue
 > deletion. `/spec-archive` for Jira transitions the ticket to `Done` (or a
@@ -292,6 +293,33 @@ the canonical form (no round-trip loop).
      create call fires, look for a ticket this FR already minted on a prior
      run (resume / retry) and return that id without writing.
 
+     **The decision is a command, not prose.** Run these four steps in order,
+     with the milestone container flag (`--parent <EpicKey>` for an
+     Epic-keyed milestone, `--milestone-label <label>` for a grandfathered
+     numeric one) passed identically to both commands:
+
+     1. `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts query <projectRoot> --title <title> [container]`
+        — prints ONE JSON line `{ "jql": …, "fields": [...] }`. It reads
+        `### Jira`.`repo_tag` (a free-form sub-section field, parsed like
+        `default_labels`) from the binding itself (no tag is ever passed
+        by hand) and refuses, non-zero, a tag the create would not forward.
+     2. `mcp__atlassian__searchJiraIssuesUsingJql` with exactly that `jql`
+        and those `fields` — no edits to either.
+     3. Save every returned page verbatim as a JSON file, then
+        `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts decide <projectRoot> <page.json>... --title <title> [container] --attempt fast`
+        — prints ONE JSON line `{ outcome, key?, reason?, capability?, createPayload? }`.
+        Run it as ONE plain command (no `cd … &&`, `;`, pipe or redirection):
+        in a shared repository the tracker-write gate ignores the receipt of
+        any other shape. A title with a backtick, `$` or `\` goes in a file
+        passed as `--title-file <path>` in place of `--title <title>`.
+     4. Act on `outcome` and nothing else: `reused` → return `key`, no
+        write; `refused` → stop and surface `tracker_idempotency_uncertain`
+        with `reason`; `create` → the create call below, from the printed
+        `createPayload`. A `dpt-receipt:` line, printed in a
+        shared repository, names the receipt the decision wrote.
+
+     The prose that follows is the contract those commands implement.
+
      **Never order `summary = <title>`.** Jira ACCEPTS `=` on `summary` and
      answers zero rows — a silent always-miss, not a syntax error, so nothing
      in the response tells you the probe was broken. Measured read-only
@@ -309,6 +337,8 @@ the canonical form (no round-trip loop).
      - `project = <projectKey>`;
      - the container — `parent = <EpicKey>` for an Epic-keyed milestone,
        `labels = "milestone-<M-token>"` for a grandfathered numeric one;
+     - `issuetype != Epic` — a same-titled Epic is a milestone container,
+       never an FR to join;
      - `labels = "<repo_tag>"` when `### Jira`.repo_tag is declared (a
        free-form sub-section field, parsed like `default_labels`);
      - `summary ~ "\"<title>\""` — the quoted-phrase form. Without the
@@ -316,9 +346,10 @@ the canonical form (no round-trip loop).
 
      **The query narrows the page; the client decides the join.** `~` is a
      text match, never an identity test, so a non-empty page is NOT a hit.
-     Compare each candidate's summary against `title` with a client-side
-     normalized exact compare — trim, collapse inner whitespace — and join
-     only on that. This is the shape § Milestone Listing already ships twice:
+     `decide` compares each candidate's summary against `title` under the
+     ONE normalizer, `normalizeTitleForCompare` (trim, collapse ASCII space
+     runs, fold en/em dashes and NBSP, drop a heading anchor), and joins
+     only on that — never re-derive the compare by hand. This is the shape § Milestone Listing already ships twice:
      broad JQL then a client-side name filter (Epic leg), broad
      `labels IS NOT EMPTY` then a client-side exact-anchored label match
      (label leg). The binding path further down already concedes the
@@ -326,17 +357,20 @@ the canonical form (no round-trip loop).
      join" — the create path simply never inherited it.
 
      **A page that reaches the cap is uncertainty, not a miss.** Mirror the
-     milestone listing's `MILESTONE_PAGE_CAP` treatment: if the result page
-     hits the documented cap before reporting `isLast`, the ticket has NOT
-     been proven absent. Do not create on it — surface
+     milestone listing's `MILESTONE_PAGE_CAP` treatment: if the last page
+     still reports `isLast: false`, the ticket has NOT been proven absent. Do not create on it — surface
      `tracker_idempotency_uncertain` and let the operator decide.
-   - **A normalized match carrying a DIFFERENT repo tag is a sibling repo's
-     ticket, not this run's.** On a shared board two repos' FRs live in one
-     project, so a title match across the tag boundary is a mis-binding
-     dressed as a resume. Do not return it, and do not create beside it:
-     stop, surface `tracker_idempotency_uncertain` naming BOTH issue keys and
-     BOTH repo tags, and let the operator decide.
-   - `mcp__atlassian__createJiraIssue(projectKey=<from CLAUDE.md ### Jira>, summary=title, description=<rendered template>, issuetype=<resolved type>, contentFormat: "markdown")`.
+   - **A candidate that fails a conjunct the query carried refuses the
+     page.** A tracker that honours its own filter never returns another
+     repository's differently-tagged ticket, an Epic, or a ticket outside the
+     container, so one on the page means the page came from some other
+     search. `decide` refuses it as `page-violates-query` with
+     `tracker_idempotency_uncertain`: re-run the search `query` printed, and
+     never join or create beside it.
+   - `mcp__atlassian__createJiraIssue(projectKey=<from CLAUDE.md ### Jira>, summary=title, description=<rendered template>, issuetype=<resolved type>, contentFormat: "markdown")`,
+     carrying the `createPayload`'s `labels` and, when present, its `parent`
+     — so the new ticket lands already inside its milestone container and a
+     retry's narrowed query can find it. Create only on a `create` decision.
    - **Network-error retry path (Gateway-Timeout idempotency hardening).**
      If the create call returns a network-error response
      (Gateway-Timeout / 504 / connection reset / equivalent) instead of a
@@ -353,14 +387,22 @@ the canonical form (no round-trip loop).
      | 3       | 4 seconds         | Same narrowed JQL probe, same client-side compare |
 
 
-     **Reference implementation.** The narrow-then-compare join, the
-     normalization rules, the foreign-repo-tag stop and the page-cap
-     refusal are implemented executably in
-     `adapters/_shared/src/create_idempotency_probe.ts`, which carries a
-     command-line front door (`normalize`, `jql`). This prose is the
-     contract the LLM executes; that module is the same contract in code,
-     and the two are meant to agree. Nothing grades the agreement, so a
-     reader changing one should open the other.
+     **Every retry attempt runs the same four steps.** For attempt `N` of
+     three (`retry-1`, `retry-2`, `retry-3`), after that attempt's wait:
+
+     1. `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts query <projectRoot> --title <title> [container]`;
+     2. `mcp__atlassian__searchJiraIssuesUsingJql` with the printed `jql` and `fields`;
+     3. save the page(s), then
+        `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts decide <projectRoot> <page.json>... --title <title> [container] --attempt retry-<N>`;
+     4. act on `outcome`: `reused` → return `key`; `miss` (attempts 1-2
+        only) → wait and run the next attempt; `refused` → stop with
+        `tracker_idempotency_uncertain`; `create` (attempt 3 only, no
+        `repo_tag` declared) → one `mcp__atlassian__createJiraIssue` from
+        the printed `createPayload`, plus the warning row below.
+
+     In a shared repository a create decision authorises one create call:
+     a create that times out again goes back through `decide`, never
+     straight to a second create.
 
      Three attempts total; the schedule is `1s + 2s + 4s` (cumulative ~7s
      of additional latency on the timeout path only). The single-shot probe

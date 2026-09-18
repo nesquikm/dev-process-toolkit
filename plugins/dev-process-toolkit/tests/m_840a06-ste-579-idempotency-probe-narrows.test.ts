@@ -89,6 +89,11 @@ interface IdempotencyCandidate {
   id: string;
   title: string;
   labels: readonly string[];
+  // STE-604 — the fields a query-honouring tracker stamps on every page row,
+  // so the decision can validate each candidate against the query it ran.
+  project?: string;
+  parent?: string | null;
+  issuetype?: string;
 }
 
 interface IdempotencySearchResult {
@@ -117,7 +122,9 @@ type IdempotencyOutcome =
       kind: "refused";
       id: null;
       capability: "tracker_idempotency_uncertain";
-      reason: "foreign-repo-tag" | "page-cap";
+      // STE-604 — `foreign-repo-tag` became unreachable on a tracker that
+      // honours its filter; `page-violates-query` replaces it.
+      reason: "foreign-repo-tag" | "page-cap" | "page-violates-query" | "retry-miss-shared";
     };
 
 interface ProbeModule {
@@ -139,13 +146,77 @@ async function probeModule(): Promise<ProbeModule> {
   return (await import(MODULE_SPECIFIER)) as unknown as ProbeModule;
 }
 
+/**
+ * STE-604 — does `c` satisfy every conjunct the search carried? A real tracker
+ * never returns a row that fails its own filter: project, container (Epic
+ * parent or numeric milestone label), `issuetype != Epic`, and the repo tag.
+ */
+function honoursQuery(c: IdempotencyCandidate, params: IdempotencySearchParams): boolean {
+  if (c.project !== undefined && c.project !== params.projectKey) return false;
+  if (params.parentKey !== undefined && c.parent !== undefined && c.parent !== params.parentKey) {
+    return false;
+  }
+  if (params.milestoneLabel && !c.labels.includes(params.milestoneLabel)) return false;
+  if (params.repoTag && !c.labels.includes(params.repoTag)) return false;
+  if (c.issuetype === "Epic") return false;
+  return true;
+}
+
+/** STE-604 — the fields the tracker stamps on a returned row (the query's own values). */
+function stampRow(c: IdempotencyCandidate, params: IdempotencySearchParams): IdempotencyCandidate {
+  return {
+    project: params.projectKey,
+    parent: params.parentKey ?? null,
+    issuetype: "Task",
+    ...c,
+  };
+}
+
+/**
+ * The search double. STE-604: it HONOURS its search parameters — it drops
+ * every candidate that fails project, container or tag, as the tracker it
+ * stands in for does. Before STE-604 it ignored them and handed a `glacy-be`
+ * ticket to a search filtered on `glacy-fe`, which is how the foreign-tag
+ * stop was graded green against a tracker that does not exist.
+ */
 function recorder(result: IdempotencySearchResult) {
   const searches: IdempotencySearchParams[] = [];
   const creates: { projectKey: string; title: string }[] = [];
   const deps: IdempotencyDeps = {
     async search(params) {
       searches.push(params);
-      return result;
+      return {
+        ...result,
+        candidates: result.candidates
+          .filter((c) => honoursQuery(c, params))
+          .map((c) => stampRow(c, params)),
+      };
+    },
+    async create(params) {
+      creates.push(params);
+      return { id: "GF-FRESH" };
+    },
+  };
+  return { searches, creates, deps };
+}
+
+/**
+ * STE-604 — a CONJUNCT-IGNORING fake, named as such. It returns its page
+ * verbatim whatever the search asked for, stamping each row with the fields
+ * it actually carries. This is the only way a differently-tagged candidate
+ * reaches the decision — the page was not produced by the query the probe
+ * built — so the decision must read it as `page-violates-query`.
+ */
+function conjunctIgnoringFake(result: IdempotencySearchResult) {
+  const searches: IdempotencySearchParams[] = [];
+  const creates: { projectKey: string; title: string }[] = [];
+  const deps: IdempotencyDeps = {
+    async search(params) {
+      searches.push(params);
+      return {
+        ...result,
+        candidates: result.candidates.map((c) => stampRow(c, params)),
+      };
     },
     async create(params) {
       creates.push(params);
@@ -393,8 +464,12 @@ describe("AC-STE-579.3 — linear.md stops joining on the relevance query", () =
 
 describe("AC-STE-579.4 — foreign repo_tag never mints", () => {
   test("refusal path: a container hit carrying a DIFFERENT repo_tag issues zero creates", async () => {
+    // STE-604 — re-expressed. A tracker that honours its `labels = "glacy-fe"`
+    // conjunct never returns a `glacy-be` row, so this case can only arise
+    // from a CONJUNCT-IGNORING search — and the decision reads it as exactly
+    // that: the page violates the query, not "a sibling's ticket".
     const { runCreateIdempotencyProbe } = await probeModule();
-    const rec = recorder({
+    const rec = conjunctIgnoringFake({
       candidates: [{ id: "GB-83", title: TITLE, labels: ["glacy-be"] }],
       capped: false,
     });
@@ -405,8 +480,27 @@ describe("AC-STE-579.4 — foreign repo_tag never mints", () => {
     expect(rec.creates).toHaveLength(0);
     expect(outcome.kind).toBe("refused");
     expect(outcome.capability).toBe("tracker_idempotency_uncertain");
-    expect((outcome as { reason: string }).reason).toBe("foreign-repo-tag");
+    expect((outcome as { reason: string }).reason).toBe("page-violates-query");
     expect(outcome.id).toBeNull();
+  });
+
+  test("STE-604: the recorder honours its query — it DROPS a candidate that fails the tag", async () => {
+    // The same page through the query-honouring recorder: the `glacy-be` row
+    // fails `labels = "glacy-fe"` and never reaches the decision, so the run
+    // proves the ticket absent and creates exactly once. This is the tracker
+    // that exists; the refusal above needs the fake that ignores conjuncts.
+    const { runCreateIdempotencyProbe } = await probeModule();
+    const rec = recorder({
+      candidates: [{ id: "GB-83", title: TITLE, labels: ["glacy-be"] }],
+      capped: false,
+    });
+    const outcome = await runCreateIdempotencyProbe(
+      { ...CONTAINER, title: TITLE, repoTag: "glacy-fe", defaultLabels: ["glacy-fe"] },
+      rec.deps,
+    );
+    expect(rec.searches).toHaveLength(1);
+    expect(outcome.kind).toBe("created");
+    expect(rec.creates).toHaveLength(1);
   });
 
   test("success path: a container hit carrying the SAME repo_tag also issues zero creates", async () => {
@@ -438,7 +532,8 @@ describe("AC-STE-579.4 — foreign repo_tag never mints", () => {
     const { runCreateIdempotencyProbe } = await probeModule();
     // A page carrying BOTH a foreign-tag exact match and an unrelated same-tag
     // issue: the foreign match is the one that matters and it stops the run.
-    const rec = recorder({
+    // STE-604 — only a conjunct-ignoring search can hand back that page.
+    const rec = conjunctIgnoringFake({
       candidates: [
         { id: "GB-83", title: TITLE, labels: ["glacy-be"] },
         { id: "GF-11", title: "Something else entirely", labels: ["glacy-fe"] },

@@ -20,6 +20,16 @@
             "timeout": 5000
           }
         ]
+      },
+      {
+        "matcher": "^mcp__.+__(createJiraIssue|editJiraIssue|transitionJiraIssue|addCommentToJiraIssue|addWorklogToJiraIssue|createIssueLink|save_issue|save_milestone|save_comment|delete_comment|create_attachment|create_attachment_from_upload|delete_attachment|share_issue|unshare_issue|save_project|create_issue_label|save_issue_label|retire_issue_label|restore_issue_label|save_project_label|retire_project_label|restore_project_label|save_status_update|delete_status_update|save_document)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/templates/hooks/process/pre-tracker-write-gate.sh",
+            "timeout": 5000
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
