@@ -470,7 +470,42 @@ function payload(tool: string, input: unknown, o: RunOpts): string {
   });
 }
 
+/**
+ * Hook processes this suite runs at once. Unbounded, the undeclared matrix
+ * launched 78 `bun` processes together; under a full-suite run they sat in
+ * uninterruptible wait for up to 29 s and starved every test running beside
+ * them past bun's 5000 ms per-test default — the five "unreadable inputs"
+ * reds of the round-2 review (measured; the hook itself runs in ~30-130 ms).
+ */
+const HOOK_SPAWN_LIMIT = 6;
+let hooksInFlight = 0;
+let peakHooksInFlight = 0;
+
+/** Run `fn` over `items` with at most `limit` in flight, results in input order. */
+async function mapBounded<T, R>(items: readonly T[], limit: number, fn: (t: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
 async function runRaw(stdin: string, pluginRoot?: string): Promise<Run> {
+  hooksInFlight += 1;
+  peakHooksInFlight = Math.max(peakHooksInFlight, hooksInFlight);
+  try {
+    return await spawnHook(stdin, pluginRoot);
+  } finally {
+    hooksInFlight -= 1;
+  }
+}
+
+async function spawnHook(stdin: string, pluginRoot?: string): Promise<Run> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
   delete env.CLAUDE_PROJECT_DIR;
@@ -678,9 +713,13 @@ describe("AC-STE-607.1 — undeclared repositories see no change", () => {
       cases.push({ label: `${tool} / mode: none`, tool, full, cwd: modeNone });
       cases.push({ label: `${tool} / tracker mode, no tag`, tool, full, cwd: tracker });
     }
-    const runs = await Promise.all(
-      cases.map((c) => runHook(c.full, sampleInput(c.tool), { cwd: c.cwd, transcript })),
+    peakHooksInFlight = 0;
+    const runs = await mapBounded(cases, HOOK_SPAWN_LIMIT, (c) =>
+      runHook(c.full, sampleInput(c.tool), { cwd: c.cwd, transcript }),
     );
+    // The suite never floods the machine: the cause of the round-2 5000 ms reds.
+    expect(peakHooksInFlight).toBeLessThanOrEqual(HOOK_SPAWN_LIMIT);
+    expect(peakHooksInFlight).toBeGreaterThan(1); // positive control: the cases really ran concurrently
     const failures = runs
       .map((r, i) => ({ r, c: cases[i]! }))
       .filter(({ r }) => r.exitCode !== 0 || r.stdout !== "" || r.stderr !== "")
@@ -1296,7 +1335,7 @@ describe("AC-STE-607.7 — unreadable inputs", () => {
     } finally {
       chmodSync(file, 0o644);
     }
-  });
+  }, 30_000);
 
   test("a malformed declaration → exit 2 carrying the reader's own text", async () => {
     const root = tempDir("malformed-decl");
@@ -1307,7 +1346,7 @@ describe("AC-STE-607.7 — unreadable inputs", () => {
       transcript: new Session().save(w.scratch),
     });
     expectRefusal(r, /min_dpt_version/);
-  });
+  }, 30_000);
 
   test("an unreadable transcript: a tracked key still passes, a session-created key is refused naming the transcript", async () => {
     const missing = join(w.scratch, "no-such-transcript.jsonl");
@@ -1316,7 +1355,7 @@ describe("AC-STE-607.7 — unreadable inputs", () => {
       await runHook(JIRA("transitionJiraIssue"), transition("GF-150"), { cwd: w.be, transcript: missing }),
       /transcript/i,
     );
-  });
+  }, 30_000);
 
   test("a receipt file that fails to parse is ignored and counted in the refusal", async () => {
     const dir = receiptsDir(w.be, SESSION);
@@ -1334,7 +1373,7 @@ describe("AC-STE-607.7 — unreadable inputs", () => {
     } finally {
       rmSync(garbage, { force: true });
     }
-  });
+  }, 30_000);
 
   test("an unresolvable subject (numeric issue id) in a declared repository → exit 2 naming it", async () => {
     const r = await runHook(JIRA("transitionJiraIssue"), transition("10234"), {
@@ -1342,7 +1381,7 @@ describe("AC-STE-607.7 — unreadable inputs", () => {
       transcript: new Session().save(w.scratch),
     });
     expectRefusal(r, "10234", /resolv/i);
-  });
+  }, 30_000);
 });
 
 describe("AC-STE-607.7 — forgery controls: only a listed deciding command's own output announces", () => {
@@ -1539,6 +1578,82 @@ describe("AC-STE-607.9 — inside the 5000 ms timeout on a large session", () =>
     expectPermit(r);
     expect(elapsed).toBeLessThan(5000);
   }, 60_000);
+});
+
+describe("AC-STE-607.9 — the round-2 slow paths are the hook's own fast paths", () => {
+  /** The hook's OWN wall time on one call: the fastest of three spawns, so machine load cannot pass for a slow hook. */
+  async function hookMs(tool: string, input: unknown, o: RunOpts): Promise<{ ms: number; r: Run }> {
+    let best = Infinity;
+    let last: Run | undefined;
+    for (let i = 0; i < 3; i++) {
+      const t0 = performance.now();
+      last = await runHook(tool, input, o);
+      best = Math.min(best, performance.now() - t0);
+    }
+    return { ms: best, r: last! };
+  }
+
+  test("each of the five unreadable-input refusals finishes well inside a second (measured times recorded)", async () => {
+    const w = makeWorld();
+    const unreadable = tempDir("t-locked");
+    declareJira(unreadable, BE_TAG);
+    gitInit(unreadable);
+    const malformed = tempDir("t-malformed");
+    claudeMd(malformed, { mode: "jira", project: "GF", defaultLabels: [BE_TAG], repoTag: BE_TAG });
+    gitInit(malformed);
+    const dir = receiptsDir(w.be, SESSION);
+    mkdirSync(dir, { recursive: true });
+    const garbage = join(dir, "zz-garbage-t.json");
+    writeFileSync(garbage, "{ not a receipt");
+    const bad = new Session();
+    bad.announceDecide(w.be, garbage);
+    const empty = new Session().save(w.scratch);
+    const lockedFile = join(unreadable, "CLAUDE.md");
+    chmodSync(lockedFile, 0o000);
+    const cases: Array<[string, () => Promise<{ ms: number; r: Run }>]> = [
+      ["unreadable CLAUDE.md", () => hookMs(JIRA("transitionJiraIssue"), transition("GF-111"), { cwd: unreadable, transcript: empty })],
+      ["malformed declaration", () => hookMs(JIRA("transitionJiraIssue"), transition("GF-111"), { cwd: malformed, transcript: empty })],
+      ["unreadable transcript", () => hookMs(JIRA("transitionJiraIssue"), transition("GF-150"), { cwd: w.be, transcript: join(w.scratch, "none.jsonl") })],
+      ["unparseable receipt", () => hookMs(JIRA("createJiraIssue"), jiraCreate({ title: "Only garbage" }), { cwd: w.be, transcript: bad.save(w.scratch) })],
+      ["numeric issue id", () => hookMs(JIRA("transitionJiraIssue"), transition("10234"), { cwd: w.be, transcript: empty })],
+    ];
+    const measured: string[] = [];
+    try {
+      for (const [label, run] of cases) {
+        const { ms, r } = await run();
+        expectRefusal(r);
+        measured.push(`${label} ${ms.toFixed(0)} ms`);
+        expect(ms, label).toBeLessThan(1000);
+      }
+    } finally {
+      chmodSync(lockedFile, 0o644);
+      rmSync(garbage, { force: true });
+      console.log(`AC-STE-607.9 unreadable-input paths: ${measured.join(", ")} (fastest of 3 spawns; budget 1000 ms)`);
+    }
+  }, 60_000);
+
+  test("an exception inside the gate refuses (exit 2) instead of exiting 1, which Claude Code lets through", async () => {
+    const m = (await import(MODULE_PATH)) as { exitCodeFor: (stdin: string, gate: (s: string) => 0 | 1 | 2) => 0 | 1 | 2 };
+    const writes: string[] = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    (process.stderr as { write: unknown }).write = (chunk: unknown) => {
+      writes.push(String(chunk));
+      return true;
+    };
+    let code: number;
+    try {
+      code = m.exitCodeFor("{}", () => {
+        throw new Error("boom in the gate");
+      });
+    } finally {
+      (process.stderr as { write: unknown }).write = orig;
+    }
+    expect(code).toBe(2);
+    expect(writes.join("")).toContain("Refusing:");
+    expect(writes.join("")).toContain("boom in the gate");
+    // Control: a gate that returns passes its code through untouched.
+    expect(m.exitCodeFor("{}", () => 0)).toBe(0);
+  });
 });
 
 // ===========================================================================
@@ -2098,5 +2213,391 @@ describe("M_947c79 review — surfaces describe what shipped", () => {
     const t = read("plugins/dev-process-toolkit/docs/hooks-reference.md");
     expect(t).toContain("dpt-receipt: <path> sha256:<digest>");
     expect(t).toMatch(/never authorises another create/);
+  });
+});
+
+// ===========================================================================
+// M_947c79 pre-PR /spec-review, round 2. Each case drives the real hook file
+// (and, where a forgery or a legitimate command is at stake, the REAL deciding
+// module) and was measured red on acce9cf before its fix landed.
+// ===========================================================================
+
+/** Quote one argv word for the recorded Bash command, the way a model would. */
+function shellWord(a: string): string {
+  return /^[A-Za-z0-9_./:=@%+,-]+$/.test(a) ? a : `'${a.replace(/'/g, `'"'"'`)}'`;
+}
+
+interface RealRun extends RealDecide {
+  code: number;
+  err: string;
+}
+
+/**
+ * Spawn a REAL deciding module with this session's id. `shown` is the module
+ * path as the transcript's command spells it (default: the absolute path,
+ * double-quoted); `prefix` precedes `bun` in the recorded command.
+ */
+function realRun(
+  mod: string,
+  argv: string[],
+  opts: { shown?: string; prefix?: string } = {},
+): RealRun {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+  env.CLAUDE_PLUGIN_ROOT = MANIFEST_DIR;
+  env.CLAUDE_CODE_SESSION_ID = SESSION;
+  const p = Bun.spawnSync(["bun", "run", join(ADAPTERS_SRC, mod), ...argv], { env, stdout: "pipe", stderr: "pipe" });
+  const shown = opts.shown ?? `"${join(ADAPTERS_SRC, mod)}"`;
+  return {
+    command: `${opts.prefix ?? ""}bun run ${shown} ${argv.map(shellWord).join(" ")}`,
+    out: p.stdout.toString().trimEnd(),
+    code: p.exitCode ?? -1,
+    err: p.stderr.toString(),
+  };
+}
+
+function savePage(scratch: string, page: unknown): string {
+  const p = join(scratch, `page-${Math.random().toString(36).slice(2)}.json`);
+  writeFileSync(p, JSON.stringify(page));
+  return p;
+}
+
+const EMPTY_JIRA_PAGE = { issues: [], isLast: true };
+
+/** A real `decide --attempt <attempt>` over `page` for `title` under GF-85, as argv. */
+function decideArgv(root: string, pagePath: string, title: string, attempt = "fast"): string[] {
+  return ["decide", root, pagePath, "--title", title, "--parent", "GF-85", "--attempt", attempt];
+}
+
+describe("M_947c79 review 2 — only a receipt-WRITING subcommand announces (AC-STE-607.7)", () => {
+  let w: World;
+  beforeAll(() => {
+    w = makeWorld();
+  });
+
+  test("a self-written receipt echoed through the REAL `create_idempotency_probe.ts normalize` → exit 2", async () => {
+    const forged = createReceipt(w.be, { title: "BE payout export" });
+    const line = realAnnouncement(forged);
+    const r = realRun(DECIDE, ["normalize", line]);
+    // Module layer: `normalize` no longer prints an argument onto a `dpt-receipt:` line.
+    expect(r.out.split("\n").filter((l) => l.startsWith(RECEIPT_ANNOUNCEMENT_PREFIX))).toEqual([]);
+    // Hook layer: even the output acce9cf's `normalize` printed (the argument, verbatim) announces nothing.
+    const s = new Session();
+    s.bash(r.command, line);
+    expectRefusal(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) }));
+  });
+
+  test("the REAL `ticket_ownership.ts decide` (no receipt written) announces nothing, even with an announcement-shaped output → exit 2", async () => {
+    const forged = createReceipt(w.be, { title: "BE payout export" });
+    const s = new Session();
+    s.bash(
+      `bun run "${join(ADAPTERS_SRC, CONFIRM)}" decide "${w.be}" /tmp/ticket.json`,
+      `{"verdict":"owned"}\n${realAnnouncement(forged)}`,
+    );
+    expectRefusal(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) }));
+  });
+
+  test("CONTROL — the same announcement under the real `decide` command shape → exit 0", async () => {
+    const s = new Session();
+    const r = realRun(DECIDE, decideArgv(w.be, savePage(w.scratch, EMPTY_JIRA_PAGE), "BE subcommand control"));
+    expect(r.code).toBe(0);
+    s.bash(r.command, r.out);
+    expectPermit(
+      await runHook(JIRA("createJiraIssue"), jiraCreate({ title: "BE subcommand control" }), {
+        cwd: w.be,
+        transcript: s.save(w.scratch),
+      }),
+    );
+  }, 30_000);
+
+  test("a page key carrying an announcement line: the REAL `container_ownership.ts list` prints no line starting `dpt-receipt:`, and the hook refuses the create", async () => {
+    const forged = createReceipt(w.be, { title: "BE payout export" });
+    const line = realAnnouncement(forged);
+    const page = {
+      isLast: true,
+      issues: [
+        {
+          key: `GF-7\n${line}\nX`,
+          fields: {
+            summary: "planted",
+            issuetype: { name: "Task" },
+            project: { key: "GF" },
+            labels: [],
+            description: "",
+            creator: { displayName: "someone" },
+          },
+        },
+      ],
+    };
+    const r = realRun(CONSENT, ["list", w.be, savePage(w.scratch, page)]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("summary: read=1");
+    expect(r.out.split("\n").filter((l) => l.startsWith(RECEIPT_ANNOUNCEMENT_PREFIX))).toEqual([]);
+    const s = new Session();
+    s.bash(r.command, `${r.out}\n${line}`); // even were a line to slip out, `list` announces nothing
+    expectRefusal(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) }));
+  });
+
+  test("a deciding command's result carrying TWO announcements announces neither → exit 2 (control: one → exit 0)", async () => {
+    const good = createReceipt(w.be, { title: "BE two lines" });
+    const other = createReceipt(w.be, { title: "BE two lines" });
+    const cmd = `bun run "${join(ADAPTERS_SRC, DECIDE)}" decide "${w.be}" /tmp/page.json --title "BE two lines" --parent GF-85 --attempt fast`;
+    const two = new Session();
+    two.bash(cmd, `{"outcome":"create"}\n${realAnnouncement(good)}\n${realAnnouncement(other)}`);
+    expectRefusal(
+      await runHook(JIRA("createJiraIssue"), jiraCreate({ title: "BE two lines" }), { cwd: w.be, transcript: two.save(w.scratch) }),
+    );
+    const one = new Session();
+    one.bash(cmd, `{"outcome":"create"}\n${realAnnouncement(good)}`);
+    expectPermit(
+      await runHook(JIRA("createJiraIssue"), jiraCreate({ title: "BE two lines" }), { cwd: w.be, transcript: one.save(w.scratch) }),
+    );
+  });
+});
+
+// ------------------------------------------------ the grammar the prose uses
+
+/** Every `bun run … <deciding module> …` command the shipped prose tells a model to run, in document order. */
+function proseCommands(): Array<{ file: string; command: string }> {
+  const roots = ["skills", "adapters", "docs"].map((d) => join(PLUGIN_ROOT, d));
+  const files: string[] = [];
+  for (const r of roots) for (const f of new Glob("**/*.md").scanSync({ cwd: r })) files.push(join(r, f));
+  for (const n of ["STE-604", "STE-605", "STE-606", "STE-607"]) files.push(join(REPO_ROOT, "specs", "frs", "archive", `${n}.md`));
+  files.sort();
+  const out: Array<{ file: string; command: string }> = [];
+  const re = /bun run [^`\n]*?(?:create_idempotency_probe|container_ownership|ticket_ownership)\.ts[^`\n]*/g;
+  for (const f of files) {
+    for (const m of readFileSync(f, "utf-8").matchAll(re)) out.push({ file: f.slice(REPO_ROOT.length + 1), command: m[0].trim() });
+  }
+  return out;
+}
+
+/** Fill the prose placeholders with concrete words; an unknown placeholder is left for the caller to catch. */
+function instantiate(shape: string): string {
+  return shape
+    .replace(/\s*;$/, "")
+    .replace(/\[--parent <EpicKey> \| --milestone-label <label> \| --linear-milestone <id>\]/g, "--parent GF-85")
+    .replace(/\[container(?: flags)?\]/g, "--parent GF-85")
+    .replace(/\[--linear-milestone <id>\]/g, "--linear-milestone m-1")
+    .replace(/<fast\|retry-1\|retry-2\|retry-3>/g, "fast")
+    .replace(/<fast\|retry-N>/g, "fast")
+    .replace(/retry-<N>/g, "retry-1")
+    .replace(/<projectRoot>/g, "/tmp/proj")
+    .replace(/<page\.json>\.\.\./g, "/tmp/page.json")
+    .replace(/<ticket\.json>/g, "/tmp/ticket.json")
+    .replace(/<(?:title|t)>/g, '"A title"')
+    .replace(/<(?:KEY|key)>/g, "GF-1")
+    .replace(/<path>/g, "/tmp/title.txt")
+    .replace(/\[--adopt\]/g, "--adopt");
+}
+
+const WRITING_SUBCOMMAND: Record<string, string> = { [DECIDE]: "decide", [CONSENT]: "consent", [CONFIRM]: "confirm" };
+
+describe("M_947c79 review 2 — the accepted command grammar is the one the prose teaches (AC-STE-607.7)", () => {
+  test("every prose command that writes a receipt is accepted; every other prose command announces nothing", async () => {
+    const { invokedDecidingModule } = (await import(MODULE_PATH)) as { invokedDecidingModule: (c: string) => string | null };
+    const cmds = proseCommands();
+    const wrong: string[] = [];
+    const seen = new Set<string>();
+    for (const { file, command } of cmds) {
+      const concrete = instantiate(command);
+      if (/[<>[\]]/.test(concrete)) {
+        wrong.push(`${file}: unhandled placeholder in ${command}`);
+        continue;
+      }
+      const mod = Object.keys(WRITING_SUBCOMMAND).find((m) => command.includes(m))!;
+      const sub = concrete.slice(concrete.indexOf(mod) + mod.length).replace(/^"?\s*/, "").split(/\s+/)[0];
+      const writes = sub === WRITING_SUBCOMMAND[mod];
+      const got = invokedDecidingModule(concrete);
+      if (writes) seen.add(mod);
+      if (got !== (writes ? mod : null)) wrong.push(`${file}: ${command} → ${got}`);
+    }
+    expect(wrong).toEqual([]);
+    // Positive control: the extraction really reached every writing front door, in every spelling family.
+    expect([...seen].sort()).toEqual(Object.keys(WRITING_SUBCOMMAND).sort());
+    expect(cmds.length).toBeGreaterThanOrEqual(20);
+    expect(cmds.some((c) => c.command.includes('"${CLAUDE_PLUGIN_ROOT}/'))).toBe(true);
+    expect(cmds.some((c) => c.command.includes("run ${CLAUDE_PLUGIN_ROOT}/"))).toBe(true);
+  });
+
+  test("no prose spells a deciding module by a relative path the gate cannot resolve", () => {
+    const cmds = proseCommands();
+    const isRelative = (c: string) => /bun run "?adapters\//.test(c);
+    // Positive controls: the grader flags the pre-amendment spelling, and the scan reaches the archived FRs.
+    expect(isRelative("bun run adapters/_shared/src/create_idempotency_probe.ts decide")).toBe(true);
+    expect(cmds.some((c) => c.file.endsWith("specs/frs/archive/STE-604.md"))).toBe(true);
+    expect(cmds.filter((c) => isRelative(c.command))).toEqual([]);
+  });
+
+  test("the hooks.json quoting style `\"${CLAUDE_PLUGIN_ROOT}\"/adapters/…` on the REAL `decide` authorises its create → exit 0", async () => {
+    const w = makeWorld();
+    const r = realRun(DECIDE, decideArgv(w.be, savePage(w.scratch, EMPTY_JIRA_PAGE), "BE hooks quoting"), {
+      shown: `"\${CLAUDE_PLUGIN_ROOT}"/adapters/_shared/src/${DECIDE}`,
+    });
+    expect(r.code).toBe(0);
+    const s = new Session();
+    s.bash(r.command, r.out);
+    expectPermit(
+      await runHook(JIRA("createJiraIssue"), jiraCreate({ title: "BE hooks quoting" }), { cwd: w.be, transcript: s.save(w.scratch) }),
+    );
+  }, 30_000);
+
+  test("a title with a backtick, `$` and `\\` goes through `--title-file` on the REAL `decide` → exit 0", async () => {
+    const w = makeWorld();
+    const title = "Make `x` cost $5 \\ less";
+    const titleFile = join(w.scratch, "title.txt");
+    writeFileSync(titleFile, `${title}\n`);
+    const r = realRun(DECIDE, [
+      "decide", w.be, savePage(w.scratch, EMPTY_JIRA_PAGE), "--title-file", titleFile, "--parent", "GF-85", "--attempt", "fast",
+    ]);
+    if (r.code !== 0) throw new Error(`decide --title-file failed (${r.code}): ${r.err}`);
+    expect(JSON.parse(r.out.split("\n")[0]!).createPayload.summary).toBe(title);
+    const s = new Session();
+    s.bash(r.command, r.out);
+    expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate({ title }), { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 30_000);
+
+  test("the refusal states the plain-invocation rule, shows the accepted shape, and names a real `decide` run in a rejected shape", async () => {
+    const w = makeWorld();
+    const r = realRun(DECIDE, decideArgv(w.be, savePage(w.scratch, EMPTY_JIRA_PAGE), "BE cd prefix"), {
+      prefix: `cd "${w.be}" && `,
+    });
+    expect(r.code).toBe(0);
+    const s = new Session();
+    s.bash(r.command, r.out);
+    const refusal = await runHook(JIRA("createJiraIssue"), jiraCreate({ title: "BE cd prefix" }), {
+      cwd: w.be,
+      transcript: s.save(w.scratch),
+    });
+    expectRefusal(
+      refusal,
+      `bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/${DECIDE}" decide`,
+      /one plain command/i,
+      "--title-file",
+      /not a plain invocation/i,
+      `cd "${w.be}" &&`,
+    );
+  }, 30_000);
+
+  test("the ticket refusal shows the accepted `confirm` and `consent` shapes", async () => {
+    const w = makeWorld();
+    expectRefusal(
+      await runHook(JIRA("transitionJiraIssue"), transition("GF-101"), { cwd: w.be, transcript: new Session().save(w.scratch) }),
+      `bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/${CONFIRM}" confirm`,
+      `bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/${CONSENT}" consent`,
+      /one plain command/i,
+    );
+  });
+});
+
+describe("M_947c79 review 2 — container names compare case-insensitively (§3)", () => {
+  test("a Jira create into `gf` (declared `GF`) with no receipt → exit 2 (control: `OPS` stays silent)", async () => {
+    const w = makeWorld();
+    const transcript = new Session().save(w.scratch);
+    expectRefusal(await runHook(JIRA("createJiraIssue"), { ...jiraCreate(), projectKey: "gf" }, { cwd: w.be, transcript }));
+    expectSilent(await runHook(JIRA("createJiraIssue"), { ...jiraCreate(), projectKey: "OPS" }, { cwd: w.be, transcript }));
+  }, 30_000);
+
+  test("a Linear create into team `ste` / project `dpt` (declared `STE`/`DPT`) with no receipt → exit 2", async () => {
+    const root = linearRepo(BE_TAG);
+    const transcript = new Session().save(tempDir("linear-case"));
+    expectRefusal(await runHook(LINEAR("save_issue"), { team: "ste", title: "X", labels: [BE_TAG] }, { cwd: root, transcript }));
+    expectRefusal(await runHook(LINEAR("save_issue"), { project: "dpt", title: "X", labels: [BE_TAG] }, { cwd: root, transcript }));
+  }, 30_000);
+
+  test("CONTROL — a create into `gf` matching a `GF` create receipt → exit 0", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    expectPermit(
+      await runHook(JIRA("createJiraIssue"), { ...jiraCreate(), projectKey: "gf" }, { cwd: w.be, transcript: s.save(w.scratch) }),
+    );
+  }, 30_000);
+});
+
+describe("M_947c79 review 2 — after a create that may have made the ticket, only the retry path proceeds (AC-STE-607.3)", () => {
+  /** decide fast → create (result given) → decide fast AGAIN over an index-lagged empty page → the gated create. */
+  async function reRun(firstResult: { content: unknown; isError: boolean; extra?: Record<string, unknown> }, secondTitle = "BE lagged") {
+    const w = makeWorld();
+    const s = new Session();
+    const first = realRun(DECIDE, decideArgv(w.be, savePage(w.scratch, EMPTY_JIRA_PAGE), "BE lagged"));
+    expect(first.code).toBe(0);
+    s.bash(first.command, first.out);
+    const id = s.toolUse(JIRA("createJiraIssue"), jiraCreate({ title: "BE lagged" }));
+    s.toolResult(id, firstResult.content, firstResult.isError, firstResult.extra ?? {});
+    const second = realRun(DECIDE, decideArgv(w.be, savePage(w.scratch, EMPTY_JIRA_PAGE), secondTitle));
+    expect(second.out).toContain(RECEIPT_ANNOUNCEMENT_PREFIX); // an honest search missed: a fresh create receipt was minted
+    s.bash(second.command, second.out);
+    return runHook(JIRA("createJiraIssue"), jiraCreate({ title: secondTitle }), { cwd: w.be, transcript: s.save(w.scratch) });
+  }
+
+  test("a create that timed out, then an honest `decide --attempt fast` that missed (index lag) → the second create is refused, naming the retry path", async () => {
+    const r = await reRun({ content: "Error: 504 Gateway Timeout", isError: true });
+    expectRefusal(r, /may have (made|created)/i, /--attempt retry-/);
+  }, 30_000);
+
+  test("an interrupted create is treated the same → exit 2", async () => {
+    const r = await reRun({
+      content: "[Request interrupted by user for tool use]",
+      isError: true,
+      extra: { toolDenialKind: "interrupted" },
+    });
+    expectRefusal(r, /may have (made|created)/i);
+  }, 30_000);
+
+  test("CONTROL — the first create was refused by this very hook (it never ran): the fresh receipt authorises the create → exit 0", async () => {
+    const r = await reRun({
+      content: `PreToolUse:mcp__atlassian__createJiraIssue hook error: ["\${CLAUDE_PLUGIN_ROOT}"/templates/hooks/process/${HOOK}.sh]: Refusing: no create receipt.\nRemedy: run decide.\nContext: mode=hook, ticket=unbound, skill=none, hook=${HOOK}\n`,
+      isError: true,
+      extra: { toolDenialKind: "permission-rule" },
+    });
+    expectPermit(r);
+  }, 30_000);
+
+  test("CONTROL — a hook refusal recorded WITHOUT `toolDenialKind` (an older client) is read from its text → exit 0", async () => {
+    const r = await reRun({
+      content: `PreToolUse:mcp__atlassian__createJiraIssue hook error: [x]: Refusing: no create receipt.\n`,
+      isError: true,
+    });
+    expectPermit(r);
+  }, 30_000);
+
+  test("CONTROL — the first create was rejected by the user (it never ran) → exit 0", async () => {
+    const r = await reRun({
+      content: "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+      isError: true,
+      extra: { toolDenialKind: "user-rejected" },
+    });
+    expectPermit(r);
+  }, 30_000);
+
+  test("CONTROL — a timed-out create of ANOTHER title does not block this one → exit 0", async () => {
+    expectPermit(await reRun({ content: "Error: 504 Gateway Timeout", isError: true }, "BE unrelated"));
+  }, 30_000);
+});
+
+describe("M_947c79 review 2 — the archived FRs and the hooks reference state what shipped", () => {
+  const read = (rel: string) => readFileSync(join(REPO_ROOT, rel), "utf-8");
+  test("STE-605 and STE-606 front doors print the digest-bound announcement", () => {
+    for (const f of ["specs/frs/archive/STE-605.md", "specs/frs/archive/STE-606.md"]) {
+      expect(read(f), f).toContain("dpt-receipt: <path> sha256:<digest>");
+    }
+  });
+  test("STE-607 restricts the announcing invocation to the receipt-writing subcommand", () => {
+    const t = read("specs/frs/archive/STE-607.md");
+    expect(t).toMatch(/`create_idempotency_probe\.ts decide`, `container_ownership\.ts consent`, `ticket_ownership\.ts confirm`/);
+    expect(t).toContain("--title-file");
+  });
+  test("docs/hooks-reference.md documents the accepted grammar, the title-file route and the timed-out-create rule", () => {
+    const t = read("plugins/dev-process-toolkit/docs/hooks-reference.md");
+    for (const needle of [
+      `bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts" decide`,
+      `"\${CLAUDE_PLUGIN_ROOT}"/adapters/_shared/src/`,
+      "--title-file",
+      "normalize",
+    ]) {
+      expect(t, needle).toContain(needle);
+    }
+    expect(t).toMatch(/may have made the ticket/);
   });
 });

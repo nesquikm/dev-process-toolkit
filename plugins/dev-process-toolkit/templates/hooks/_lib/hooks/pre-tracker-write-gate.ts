@@ -169,15 +169,33 @@ export const UNGATED_WRITE_TOOLS: Readonly<Record<string, string>> = {
 };
 
 /**
- * §3 — the deciding modules whose Bash output may announce a receipt root. A
- * later deciding command appends its module here and nowhere else; a module
- * writing receipts the gate must not trust is never listed.
+ * §3 — the deciding modules whose Bash output may announce a receipt root,
+ * each with the ONE subcommand that writes a receipt. Only that subcommand
+ * announces: a module's other subcommands print model- or tracker-supplied
+ * text (`normalize <title>` echoes its argument, `list` prints page keys), so
+ * they must never stand in for a receipt write. A later deciding command adds
+ * its module and subcommand here and nowhere else; a module writing receipts
+ * the gate must not trust is never listed.
  */
-export const RECEIPT_ANNOUNCING_MODULES: readonly string[] = [
-  "create_idempotency_probe.ts",
-  "container_ownership.ts",
-  "ticket_ownership.ts",
-];
+export const RECEIPT_WRITING_SUBCOMMANDS: Readonly<Record<string, string>> = {
+  "create_idempotency_probe.ts": "decide",
+  "container_ownership.ts": "consent",
+  "ticket_ownership.ts": "confirm",
+};
+
+export const RECEIPT_ANNOUNCING_MODULES: readonly string[] = Object.keys(RECEIPT_WRITING_SUBCOMMANDS);
+
+/**
+ * The accepted invocation of a deciding module, as every refusal shows it:
+ * `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/<module>" <subcommand> …`.
+ */
+export function acceptedShape(module: string, args: string): string {
+  return `bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/${module}" ${RECEIPT_WRITING_SUBCOMMANDS[module]} ${args}`;
+}
+
+/** The plain-invocation rule every receipt refusal states (§3). */
+const PLAIN_RULE =
+  "as ONE plain command — no `cd … &&`, `;`, `|`, redirection such as `2>&1`, or `$`, backtick or backslash inside double quotes (a title that needs them goes in a file passed with `--title-file <path>`); the plugin path may be spelled `${CLAUDE_PLUGIN_ROOT}/…`, `\"${CLAUDE_PLUGIN_ROOT}/…\"`, `\"${CLAUDE_PLUGIN_ROOT}\"/…` or absolute. A receipt announced by any other command shape is ignored";
 
 // ---------------------------------------------------------------------------
 // §2 — classification of the call
@@ -301,8 +319,17 @@ function resultText(content: unknown): string {
 /** This hook's own plugin root: the deciding modules it trusts are ITS plugin's, never a same-named file elsewhere. */
 const OWN_PLUGIN_ROOT = resolve(import.meta.dir, "..", "..", "..", "..");
 
-/** The documented spellings of the plugin root in a command, resolved to this hook's own root. */
+/** The documented spellings of the plugin root in a command, expanded to this hook's own root. */
 const PLUGIN_ROOT_VARS = ["${CLAUDE_PLUGIN_ROOT}", "$CLAUDE_PLUGIN_ROOT"];
+
+/** The plugin-root variable spelled at `command[i]`, or null. `$CLAUDE_PLUGIN_ROOTX` is another variable. */
+function pluginRootVarAt(command: string, i: number): string | null {
+  for (const v of PLUGIN_ROOT_VARS) {
+    if (!command.startsWith(v, i)) continue;
+    if (v.startsWith("${") || !/[A-Za-z0-9_]/.test(command[i + v.length] ?? "")) return v;
+  }
+  return null;
+}
 
 /**
  * Split a Bash command into words under a deliberately small shell grammar,
@@ -310,15 +337,22 @@ const PLUGIN_ROOT_VARS = ["${CLAUDE_PLUGIN_ROOT}", "$CLAUDE_PLUGIN_ROOT"];
  * (`;` `&` `|` `<` `>` `(` `)` `#` `*` `?` `~` `!` `{` `}` `[` `]` `\`),
  * command or variable substitution, or a newline. A command that could run a
  * second program — an `echo` chained after the real one, a comment carrying a
- * module name — is thereby not a deciding command at all.
+ * module name — is thereby not a deciding command at all. The one variable
+ * allowed is the plugin root (`${CLAUDE_PLUGIN_ROOT}` / `$CLAUDE_PLUGIN_ROOT`,
+ * bare or inside double quotes), expanded to `pluginRoot`: the spelling every
+ * skill, adapter doc and hooks.json uses.
  */
-export function simpleCommandWords(command: string): string[] | null {
+export function simpleCommandWords(command: string, pluginRoot: string = OWN_PLUGIN_ROOT): string[] | null {
   const words: string[] = [];
   let cur: string | null = null;
   let i = 0;
   while (i < command.length) {
     const ch = command[i]!;
-    if (ch === " " || ch === "\t") {
+    const rootVar = ch === "$" ? pluginRootVarAt(command, i) : null;
+    if (rootVar !== null) {
+      cur = (cur ?? "") + pluginRoot;
+      i += rootVar.length;
+    } else if (ch === " " || ch === "\t") {
       if (cur !== null) words.push(cur);
       cur = null;
       i++;
@@ -330,12 +364,22 @@ export function simpleCommandWords(command: string): string[] | null {
       cur = (cur ?? "") + body;
       i = end + 1;
     } else if (ch === '"') {
-      const end = command.indexOf('"', i + 1);
-      if (end < 0) return null;
-      const body = command.slice(i + 1, end);
-      if (/[$`\\\n]/.test(body)) return null;
+      let body = "";
+      let j = i + 1;
+      for (; j < command.length && command[j] !== '"'; j++) {
+        const v = command[j] === "$" ? pluginRootVarAt(command, j) : null;
+        if (v !== null) {
+          body += pluginRoot;
+          j += v.length - 1;
+        } else if (/[$`\\\n]/.test(command[j]!)) {
+          return null;
+        } else {
+          body += command[j];
+        }
+      }
+      if (j >= command.length) return null;
       cur = (cur ?? "") + body;
-      i = end + 1;
+      i = j + 1;
     } else if (/[A-Za-z0-9_./:=@%+,-]/.test(ch)) {
       cur = (cur ?? "") + ch;
       i++;
@@ -356,23 +400,38 @@ function realpathOr(path: string): string {
 }
 
 /**
- * The deciding module a Bash command RUNS, or null. The command must be one
- * `bun [run] <module path> …` invocation under `simpleCommandWords`, and the
- * module path must be this plugin's own file — a same-named file elsewhere, a
- * module mentioned in an argument, or a comment naming one runs nothing here.
+ * The deciding module a Bash command RUNS to write a receipt, or null. The
+ * command must be one `bun [run] <module path> <subcommand> …` invocation
+ * under `simpleCommandWords`, the module path must be this plugin's own file
+ * — a same-named file elsewhere, a module mentioned in an argument, or a
+ * comment naming one runs nothing here — and the subcommand must be the
+ * module's receipt-writing one (`RECEIPT_WRITING_SUBCOMMANDS`).
  */
 export function invokedDecidingModule(command: string): string | null {
-  let text = command.trim();
-  for (const v of PLUGIN_ROOT_VARS) text = text.split(`${v}/`).join(`${OWN_PLUGIN_ROOT}/`);
-  const words = simpleCommandWords(text);
+  const words = simpleCommandWords(command.trim());
   if (!words || words[0] !== "bun") return null;
-  const target = words[1] === "run" ? words[2] : words[1];
+  const at = words[1] === "run" ? 2 : 1;
+  const target = words[at];
   if (target === undefined || !target.startsWith("/")) return null;
   const actual = realpathOr(target);
   for (const m of RECEIPT_ANNOUNCING_MODULES) {
-    if (actual === realpathOr(join(OWN_PLUGIN_ROOT, "adapters", "_shared", "src", m))) return m;
+    if (actual !== realpathOr(join(OWN_PLUGIN_ROOT, "adapters", "_shared", "src", m))) continue;
+    return words[at + 1] === RECEIPT_WRITING_SUBCOMMANDS[m] ? m : null;
   }
   return null;
+}
+
+/**
+ * A Bash command that names a deciding module's receipt-writing subcommand
+ * but is NOT accepted by `invokedDecidingModule` — chained, redirected,
+ * `cd`-prefixed, or quoted beyond the grammar. Its receipt is ignored, so the
+ * refusal names it instead of leaving the model to repeat the same shape.
+ */
+function rejectedDecidingCommand(command: string): boolean {
+  if (invokedDecidingModule(command) !== null) return false;
+  return Object.entries(RECEIPT_WRITING_SUBCOMMANDS).some(([m, sub]) =>
+    new RegExp(`${m.replace(/\./g, "\\.")}\\W*\\s+${sub}\\b`).test(command),
+  );
 }
 
 /**
@@ -405,6 +464,13 @@ export interface Announcement {
   intact: boolean;
 }
 
+/** The session's announcements, plus the deciding commands whose shape the gate ignored. */
+export interface AnnouncementScan {
+  announcements: Announcement[];
+  /** Bash commands naming a receipt-writing subcommand in a shape `invokedDecidingModule` rejects. */
+  rejected: string[];
+}
+
 /** Whether the receipt file still carries the bytes its announcement hashed. */
 function stillAnnounced(path: string, digest: string): boolean {
   let bytes: Uint8Array;
@@ -419,32 +485,44 @@ function stillAnnounced(path: string, digest: string): boolean {
 /**
  * Every receipt root announced in this session by a deciding command: a
  * `dpt-receipt: <path> sha256:<digest>` line inside the non-error tool_result
- * of a `Bash` tool_use that RAN a module in `RECEIPT_ANNOUNCING_MODULES`
- * (`invokedDecidingModule`). No other command can print such a line into
- * that tool_result, so a replayed `echo` of a spent receipt's announcement is
- * not an announcement at all.
+ * of a `Bash` tool_use that RAN a receipt-writing subcommand of a module in
+ * `RECEIPT_ANNOUNCING_MODULES` (`invokedDecidingModule`). No other command
+ * can print such a line into that tool_result, so a replayed `echo` of a spent
+ * receipt's announcement is not an announcement at all. A receipt-writing run
+ * writes exactly one receipt, so a result carrying more than one announcement
+ * line announces none of them.
  */
 export function announcedReceipts(lines: string[], sessionId: string): Announcement[] {
+  return scanAnnouncements(lines, sessionId).announcements;
+}
+
+export function scanAnnouncements(lines: string[], sessionId: string): AnnouncementScan {
   const announcingBash = new Set<string>();
   const out: Announcement[] = [];
+  const rejected: string[] = [];
   lines.forEach((line, idx) => {
     for (const b of contentBlocks(line)) {
       if (b.type === "tool_use" && b.name === "Bash" && typeof b.id === "string") {
         const cmd = b.input?.command;
-        if (typeof cmd === "string" && invokedDecidingModule(cmd) !== null) announcingBash.add(b.id);
+        if (typeof cmd !== "string") continue;
+        if (invokedDecidingModule(cmd) !== null) announcingBash.add(b.id);
+        else if (rejectedDecidingCommand(cmd)) rejected.push(cmd);
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
         if (b.is_error === true || !announcingBash.has(b.tool_use_id)) continue;
-        for (const l of resultText(b.content).split("\n")) {
-          const a = parseReceiptAnnouncement(l);
-          if (!a || a.digest === null || !a.path.startsWith("/")) continue;
-          const receiptPath = resolve(a.path);
-          const root = receiptRootOf(receiptPath, sessionId);
-          if (root !== null) out.push({ root, receiptPath, line: idx, intact: stillAnnounced(receiptPath, a.digest) });
-        }
+        const found = resultText(b.content)
+          .split("\n")
+          .map((l) => parseReceiptAnnouncement(l))
+          .filter((a): a is { path: string; digest: string | null } => a !== null);
+        if (found.length !== 1) continue;
+        const a = found[0]!;
+        if (a.digest === null || !a.path.startsWith("/") || !sessionId) continue;
+        const receiptPath = resolve(a.path);
+        const root = receiptRootOf(receiptPath, sessionId);
+        if (root !== null) out.push({ root, receiptPath, line: idx, intact: stillAnnounced(receiptPath, a.digest) });
       }
     }
   });
-  return out;
+  return { announcements: out, rejected };
 }
 
 export function candidateRoots(payload: HookPayload, announcements: Announcement[]): string[] {
@@ -503,7 +581,8 @@ function readSessionReceipt(
 // §4 — creates: a matching, unspent `create` receipt in the target
 // ---------------------------------------------------------------------------
 
-const DECIDE_CMD = "create_idempotency_probe.ts decide";
+const DECIDE_MODULE = "create_idempotency_probe.ts";
+const DECIDE_CMD = `${DECIDE_MODULE} decide`;
 
 /** §2 — a `createJiraIssue` whose type is not Epic, or a `save_issue` without `id`. */
 export function isCreate(tool: string, input: Record<string, unknown>): boolean {
@@ -578,9 +657,19 @@ function receiptShape(adapter: WorkspaceAdapterKey, p: Record<string, unknown>):
   };
 }
 
+/**
+ * Container names compare case-insensitively: Jira project keys and Linear
+ * team keys are matched by the trackers without regard to case, so `gf` is
+ * `GF` and must not slip through as an undeclared container (§3).
+ */
+function sameName(a: string | undefined, b: string | undefined): boolean {
+  return (a ?? "").toUpperCase() === (b ?? "").toUpperCase();
+}
+
 function bindsContainer(adapter: WorkspaceAdapterKey, b: WorkspaceBinding, c: CreateShape): boolean {
-  if (adapter === "jira") return b.project === c.project;
-  return (c.project !== "" && b.project === c.project) || (c.team !== "" && b.team === c.team);
+  if (adapter === "jira") return b.project !== undefined && sameName(b.project, c.project);
+  return (c.project !== "" && b.project !== undefined && sameName(b.project, c.project)) ||
+    (c.team !== "" && b.team !== undefined && sameName(b.team, c.team));
 }
 
 /** The first mismatch between a create call and a receipt's payload, or null on a match. */
@@ -595,9 +684,9 @@ function createMismatch(
   // same team (the old either-or check let it through).
   const projectDiffers =
     adapter === "jira"
-      ? call.project !== receipt.project
-      : (call.project !== "" || receipt.project !== "") && call.project !== receipt.project;
-  const teamDiffers = adapter === "linear" && call.team !== "" && receipt.team !== "" && call.team !== receipt.team;
+      ? !sameName(call.project, receipt.project)
+      : (call.project !== "" || receipt.project !== "") && !sameName(call.project, receipt.project);
+  const teamDiffers = adapter === "linear" && call.team !== "" && receipt.team !== "" && !sameName(call.team, receipt.team);
   if (projectDiffers || teamDiffers) {
     return `project "${call.project}" differs from the receipt's "${receipt.project}"`;
   }
@@ -610,7 +699,7 @@ function createMismatch(
     return `labels [${call.labels.join(", ")}] miss ${missing.map((l) => `"${l}"`).join(", ")} (the repo tag${missing.length > 1 || missing[0] !== tag ? " and milestone label" : ""})`;
   }
   const kind = adapter === "jira" ? "parent" : "milestone";
-  if (call.container !== receipt.container) {
+  if (!sameName(call.container, receipt.container)) {
     return `${kind} "${call.container || "none"}" differs from the receipt's "${receipt.container || "none"}"`;
   }
   return null;
@@ -657,6 +746,75 @@ function createsBefore(
     }
   }
   return out;
+}
+
+/** `toolDenialKind` values Claude Code records on a tool call that never ran. */
+const NEVER_RAN_DENIALS: ReadonlySet<string> = new Set(["permission-rule", "automode-blocked", "automode-unavailable", "user-rejected"]);
+
+/**
+ * Whether an error tool_result proves its call never reached the tracker: a
+ * PreToolUse hook or permission denial, a user rejection, or an input the
+ * harness refused to send. Claude Code writes these records; the model cannot.
+ * A timeout, a server error or an interrupt proves nothing: the create may
+ * have made the ticket.
+ */
+function neverRan(p: ParsedLine, b: ContentBlock): boolean {
+  const kind = p.raw.toolDenialKind;
+  if (typeof kind === "string") return NEVER_RAN_DENIALS.has(kind);
+  const text = resultText(b.content).trimStart();
+  return (
+    text.startsWith("PreToolUse:") ||
+    text.startsWith("The user doesn't want to proceed") ||
+    text.startsWith("<tool_use_error>InputValidationError")
+  );
+}
+
+interface LostCreate {
+  id: string;
+  shape: CreateShape;
+  why: string;
+}
+
+/**
+ * §4 — create tool_uses of an EARLIER turn than the gated call whose outcome is
+ * unknown: an error result that does not prove the call never ran (a timeout,
+ * a 5xx, an interrupt), or no result at all. Such a create may have made its
+ * ticket, and a tracker search can lag its index, so an honest re-run of
+ * `decide --attempt fast` can miss it (the GF-90/GF-91 double create). Parallel
+ * siblings of the gated call are pending, not lost.
+ */
+function lostCreates(parsed: Array<ParsedLine | null>, adapter: WorkspaceAdapterKey, gatedId: string | undefined): LostCreate[] {
+  const gatedLine = gatedId === undefined ? -1 : parsed.findIndex((p) => p?.blocks.some((b) => b.id === gatedId) ?? false);
+  const creates = new Map<string, { line: number; shape: CreateShape }>();
+  const outcome = new Map<string, string | null>(); // id → why it is lost, or null when it is settled
+  parsed.forEach((p, idx) => {
+    if (!p) return;
+    for (const b of p.blocks) {
+      if (b.type === "tool_use" && typeof b.id === "string" && b.id !== gatedId) {
+        const c = createCallIn(b, adapter);
+        if (c) creates.set(b.id, { line: idx, shape: callShape(adapter, c.input) });
+      } else if (b.type === "tool_result" && typeof b.tool_use_id === "string" && creates.has(b.tool_use_id)) {
+        const lost = b.is_error === true && !neverRan(p, b);
+        outcome.set(b.tool_use_id, lost ? `its result was an error: ${resultText(b.content).trim().split("\n")[0]!.slice(0, 120)}` : null);
+      }
+    }
+  });
+  const out: LostCreate[] = [];
+  for (const [id, c] of creates) {
+    if (gatedLine >= 0 && c.line >= gatedLine) continue;
+    const why = outcome.has(id) ? outcome.get(id)! : gatedLine >= 0 ? "it has no result" : null;
+    if (why !== null) out.push({ id, shape: c.shape, why });
+  }
+  return out;
+}
+
+/** The same ticket: title (normalized), project and container — labels aside. */
+function sameTicket(a: CreateShape, b: CreateShape): boolean {
+  return (
+    normalizeTitleForCompare(a.title) === normalizeTitleForCompare(b.title) &&
+    sameName(a.project, b.project) &&
+    sameName(a.container, b.container)
+  );
 }
 
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -713,6 +871,18 @@ function gateCreate(
     target = tagged[0];
   }
   const tag = target.binding.repoTag ?? "";
+  const where = `${call.tool} in ${target.root}`;
+
+  // §4 — after a create whose outcome is unknown, no create receipt — fresh or
+  // not — authorises another create of that ticket: only the retry path, which
+  // finds it and reuses it, proceeds.
+  const lost = lostCreates(parseLines(transcript), call.adapter, call.toolUseId).find((c) => sameTicket(c.shape, shape));
+  if (lost) {
+    return refuse(
+      `${where}: an earlier create of "${shape.title}" (${lost.id}) may have made the ticket — ${lost.why} — so no create receipt authorises another create of it; a fresh \`--attempt fast\` search can miss a ticket the tracker has not indexed yet.${note}`,
+      `run ${DECIDE_CMD} --attempt retry-<N> (${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt retry-<N>")}) to search for it: a \`reused\` decision writes a reuse receipt that lets you write to that ticket. When retry-3 still misses, a person decides.`,
+    );
+  }
 
   const seen: CreateReceiptSeen[] = [];
   for (const a of announcements) {
@@ -728,23 +898,22 @@ function gateCreate(
   const matching = seen.filter((r) => createMismatch(call.adapter, shape, r.shape, tag) === null);
   if (matching.some((r) => !r.spent)) return 0;
 
-  const where = `${call.tool} in ${target.root}`;
   if (matching.length > 0) {
     return refuse(
       `${where}: its create receipt (${matching[matching.length - 1].path}) is spent — another create took it, and a create that timed out may still have made the ticket.${note}`,
-      `run ${DECIDE_CMD} --attempt retry-<N> to search for the ticket that create may have made: a \`reused\` decision writes a reuse receipt that lets you write to that ticket. In a shared repository a retry never authorises another create; when retry-3 still misses, a person decides.`,
+      `run ${DECIDE_CMD} --attempt retry-<N> (${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt retry-<N>")}) to search for the ticket that create may have made: a \`reused\` decision writes a reuse receipt that lets you write to that ticket. In a shared repository a retry never authorises another create; when retry-3 still misses, a person decides.`,
     );
   }
   if (seen.length > 0) {
     const last = seen[seen.length - 1];
     return refuse(
       `${where}: the call does not match its create receipt (${last.path}): ${createMismatch(call.adapter, shape, last.shape, tag)}.${note}`,
-      `send the payload ${DECIDE_CMD} decided, or run ${DECIDE_CMD} again for this one, then retry.`,
+      `send the payload ${DECIDE_CMD} decided, or run ${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt fast")} again for this one ${PLAIN_RULE}, then retry.`,
     );
   }
   return refuse(
     `${where}: no create receipt announced by ${DECIDE_CMD} in this session authorises it.${note}`,
-    `run ${DECIDE_CMD} in ${target.root} for this ticket, then retry.`,
+    `run ${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt fast")} in ${target.root} for this ticket ${PLAIN_RULE}, then retry.`,
   );
 }
 
@@ -753,7 +922,6 @@ function gateCreate(
 // ---------------------------------------------------------------------------
 
 const TICKET_KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
-const CONFIRM_CMD = "ticket_ownership.ts confirm";
 
 /** §2 — the container class; every non-create, non-container call is a `ticket` call. */
 export function isContainer(tool: string, input: Record<string, unknown>): boolean {
@@ -795,7 +963,8 @@ function keyPrefix(key: string): string {
 
 function bindsKey(adapter: WorkspaceAdapterKey, b: WorkspaceBinding, key: string): boolean {
   const prefix = keyPrefix(key);
-  return adapter === "jira" ? b.project === prefix : b.team === prefix;
+  const declared = adapter === "jira" ? b.project : b.team;
+  return declared !== undefined && sameName(declared, prefix);
 }
 
 function namesKey(text: string, key: string): boolean {
@@ -978,7 +1147,7 @@ function gateTicket(
   const targetRoots = [...new Set(inScope.flatMap((k) => k.targets.map((t) => t.root)))].join(", ");
   return refuse(
     `${call.tool} on ${named.join(", ")}: ${isLink ? "neither side is" : "the ticket is not"} owned by the declared target ${targetRoots} — no tracked FR file binds it, this session did not create it, and no reuse, binding or consented import receipt names it.${note}`,
-    `run ${CONFIRM_CMD} (or container_ownership.ts consent after an answered import question) in ${targetRoots} for ${named.join(", ")}, then retry.`,
+    `run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json> [--adopt]")} (or, after an answered import question, ${acceptedShape("container_ownership.ts", "<projectRoot> <KEY> <page.json>...")}) in ${targetRoots} for ${named.join(", ")} ${PLAIN_RULE}, then retry.`,
   );
 }
 
@@ -1063,7 +1232,8 @@ function checkFloors(call: TrackerCall, declared: DeclaredTarget[]): ExitCode {
  * transcript (no announced roots, no session-created keys) and the count of
  * announced receipt files that failed to parse and were ignored.
  */
-function unreadableInputsNote(payload: HookPayload, transcript: string[] | null, announcements: Announcement[]): string {
+function unreadableInputsNote(payload: HookPayload, transcript: string[] | null, scan: AnnouncementScan): string {
+  const { announcements } = scan;
   if (transcript === null) {
     return ` The session transcript (${payload.transcript_path || "no transcript_path"}) is unreadable, so no announced receipt roots or session-created keys were counted.`;
   }
@@ -1083,6 +1253,12 @@ function unreadableInputsNote(payload: HookPayload, transcript: string[] | null,
   const notes: string[] = [];
   if (unparseable > 0) notes.push(` ${unparseable} announced receipt file(s) failed to parse and were ignored.`);
   if (rewritten > 0) notes.push(` ${rewritten} announced receipt file(s) changed after their announcement and were ignored.`);
+  if (scan.rejected.length > 0) {
+    const last = scan.rejected[scan.rejected.length - 1]!;
+    notes.push(
+      ` ${scan.rejected.length} Bash command(s) ran a deciding subcommand in a shape that is not a plain invocation, so any receipt they wrote was ignored — the latest: \`${last.length > 240 ? `${last.slice(0, 240)}…` : last}\`.`,
+    );
+  }
   return notes.join("");
 }
 
@@ -1097,7 +1273,8 @@ export function run(stdin: string): ExitCode {
   const lines = transcript ?? [];
   // One pass over the transcript for announcements, shared by candidate
   // resolution and every gate below (no session id → nothing announced).
-  const announcements = sessionId ? announcedReceipts(lines, sessionId) : [];
+  const scan = scanAnnouncements(lines, sessionId);
+  const announcements = scan.announcements;
   const declarations = readDeclarations(candidateRoots(payload, announcements), call.adapter);
   for (const d of declarations) {
     if (d.ok) continue;
@@ -1112,14 +1289,32 @@ export function run(stdin: string): ExitCode {
   const floor = checkFloors(call, declared);
   if (floor !== 0) return floor;
 
-  const note = unreadableInputsNote(payload, transcript, announcements);
+  const note = unreadableInputsNote(payload, transcript, scan);
   if (isCreate(call.tool, call.input)) return gateCreate(call, sessionId, lines, announcements, declared, note);
   if (!isContainer(call.tool, call.input)) return gateTicket(call, sessionId, lines, announcements, declared, note);
   return remindContainer(call, declared);
 }
 
+/**
+ * The entry's exit code. An exception inside the gate refuses (exit 2) naming
+ * it: Claude Code treats any exit but 2 — a crash's exit 1 included — as
+ * non-blocking, so a gate that threw would let the very write it exists to
+ * check go through (fail-open).
+ */
+export function exitCodeFor(stdin: string, gate: (stdin: string) => ExitCode = run): ExitCode {
+  try {
+    return gate(stdin);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.split("\n")[0] : String(e);
+    return refuse(
+      `the tracker-write gate failed while checking this call (${msg}), so the write is not known to be safe.`,
+      `report the error; a person may perform the write by hand once it is confirmed to belong to this repository.`,
+    );
+  }
+}
+
 if (import.meta.main) {
-  const code = run(await Bun.stdin.text());
+  const code = exitCodeFor(await Bun.stdin.text());
   // 0 permit, 1 Reminder (non-blocking), 2 refusal — every refuse(…) above.
   process.exit(code satisfies 0 | 1 | 2);
 }
