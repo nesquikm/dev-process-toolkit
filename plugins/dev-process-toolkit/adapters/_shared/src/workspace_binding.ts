@@ -60,7 +60,7 @@ const REPO_TAG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 const SECTION_HEADING = "## Task Tracking";
 
-function locateSubsection(lines: string[], adapterKey: WorkspaceAdapterKey): string[] | null {
+export function locateSubsection(lines: string[], adapterKey: WorkspaceAdapterKey): string[] | null {
   const sectionStart = lines.findIndex((l) => l === SECTION_HEADING);
   if (sectionStart < 0) return null;
   let sectionEnd = lines.length;

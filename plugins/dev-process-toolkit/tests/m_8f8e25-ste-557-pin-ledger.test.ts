@@ -279,9 +279,9 @@ describe("AC-STE-557.2 — the ledger records the moves git records", () => {
    * 125 is the first move made THROUGH the ledger rather than recovered from
    * git, measured by the awaited probe; the list grows by exactly that entry.
    */
-  const MEASURED = [125, 129, 130, 131, 133, 136, 137, 139, 142, 146] as const;
+  const MEASURED = [124, 125, 129, 130, 131, 133, 136, 137, 139, 142, 146] as const;
 
-  test("ten moves, in the measured order", () => {
+  test("eleven moves, in the measured order", () => {
     expect(ORDERED_UNREACHABLE_PIN_LEDGER.map((m) => m.value)).toEqual([...MEASURED]);
   });
 
