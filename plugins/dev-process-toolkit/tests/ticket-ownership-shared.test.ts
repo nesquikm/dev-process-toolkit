@@ -41,6 +41,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importFromTracker } from "../adapters/_shared/src/import";
+import * as importModule from "../adapters/_shared/src/import";
 import {
   ORDERED_UNREACHABLE_PIN,
   ORDERED_UNREACHABLE_PIN_LEDGER,
@@ -49,7 +50,8 @@ import {
 import { renderSharedTrackerSentinel } from "../adapters/_shared/src/setup/tracker_binding_write";
 import type { AdapterDriver, TicketStatusSummary, UpsertMetadataInput } from "../adapters/_shared/src/tracker_provider";
 import { TrackerProvider } from "../adapters/_shared/src/tracker_provider";
-import { RECEIPT_ANNOUNCEMENT_PREFIX, readSessionReceipts } from "../adapters/_shared/src/tracker_receipts";
+import { RECEIPT_ANNOUNCEMENT_PREFIX,
+  parseReceiptAnnouncement, readSessionReceipts } from "../adapters/_shared/src/tracker_receipts";
 import {
   BE_TAG,
   boundFr,
@@ -181,7 +183,7 @@ function expectBindingReceipt(root: string, key: string, ticketPath: string, ado
   expect(run.code, `confirm ${key} failed\nstdout=${run.stdout}\nstderr=${run.stderr}`).toBe(0);
   const line = run.stdout.split("\n").find((l) => l.startsWith(RECEIPT_ANNOUNCEMENT_PREFIX));
   expect(line, `no receipt line\n${run.stdout}`).toBeDefined();
-  expect(existsSync(line!.slice(RECEIPT_ANNOUNCEMENT_PREFIX.length).trim())).toBe(true);
+  expect(existsSync(parseReceiptAnnouncement(line!)!.path)).toBe(true);
   const receipts = receiptsOf(root).filter((r) => r.subject === key);
   expect(receipts.length).toBe(1);
   expect(receipts[0]!.kind).toBe("binding");
@@ -401,7 +403,7 @@ describe("AC-STE-606.2 — verdicts permit", () => {
 
 class RecordingDriver implements AdapterDriver {
   readonly trackerKey = "jira";
-  writes: { op: string; ticketId: string | null; receiptBefore: boolean }[] = [];
+  writes: { op: string; ticketId: string | null; receiptBefore: boolean; labels?: string[] }[] = [];
   constructor(
     readonly root: string,
     readonly key: string,
@@ -418,8 +420,13 @@ class RecordingDriver implements AdapterDriver {
   async transitionStatus(ticketId: string): Promise<void> {
     this.writes.push({ op: "transitionStatus", ticketId, receiptBefore: this.receiptPresent() });
   }
-  async upsertTicketMetadata(ticketId: string | null, _meta: UpsertMetadataInput): Promise<string> {
-    this.writes.push({ op: "upsertTicketMetadata", ticketId, receiptBefore: this.receiptPresent() });
+  async upsertTicketMetadata(ticketId: string | null, meta: UpsertMetadataInput): Promise<string> {
+    this.writes.push({
+      op: "upsertTicketMetadata",
+      ticketId,
+      receiptBefore: this.receiptPresent(),
+      ...(meta.labels !== undefined ? { labels: [...meta.labels] } : {}),
+    });
     return ticketId ?? "GF-NEW";
   }
   async getTicketStatus(): Promise<TicketStatusSummary> {
@@ -449,7 +456,7 @@ async function joinOnMiss(root: string, key: string, ticket: unknown, adopt: boo
     currentUser: "be-dev",
     resolveTrackerRef: async (s: string) => s.replace(/^jira:/, ""),
   });
-  await importFromTracker("jira", key, provider, join(root, "specs"), async () => "M_GF_85");
+  await importFromTracker("jira", key, provider, join(root, "specs"), async () => "M_GF_85", ticketImportOwnershipOf(root, ticket) as never);
   return { verdict, imported: true };
 }
 
@@ -483,34 +490,10 @@ describe("AC-STE-606.3 — the join path", () => {
     });
   });
 
-  test("a ticket id taken from the branch name gets the same verdicts as one passed as an argument", async () => {
-    await withSharedGitRoots((_fe, be) => {
-      const tickets = [
-        jiraTicket({ key: "GF-111", labels: [BE_TAG] }),
-        jiraTicket({ key: "GF-101", labels: [FE_TAG] }),
-        jiraTicket({ key: "GF-121", labels: [] }),
-        jiraTicket({ key: "GB-41", labels: [BE_TAG], project: "GB" }),
-      ];
-      const byKey = new Map(tickets.map((t) => [t["key"] as string, t]));
-      const expected: Record<string, string> = {
-        "GF-111": "owned",
-        "GF-101": "foreign-repo",
-        "GF-121": "unowned",
-        "GB-41": "foreign-project",
-      };
-      for (const [key, want] of Object.entries(expected)) {
-        const argVerdict = verdictOf(be, byKey.get(key));
-        git(be, ["checkout", "-q", "-b", `feat/${key.toLowerCase()}-${key}-work`]);
-        const branch = git(be, ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
-        const fromBranch = /[A-Z][A-Z0-9]{1,9}-[0-9]+/.exec(branch)?.[0];
-        expect(fromBranch).toBe(key);
-        const branchVerdict = verdictOf(be, byKey.get(fromBranch!));
-        expect(argVerdict).toBe(want);
-        expect(branchVerdict).toBe(argVerdict);
-        git(be, ["checkout", "-q", "main"]);
-      }
-    });
-  });
+  // The branch-name clause is graded on the PRODUCTION resolver
+  // (`branch_ticket_resolution.ts`) in "M_947c79 review — AC-STE-606.3 on
+  // production code" below; the ordering is enforced in a shared repository by
+  // the STE-607 hook, graded on the real `confirm` in its suite.
 });
 
 // ===========================================================================
@@ -853,5 +836,80 @@ describe("STE-606 hardening — the batch read slices bytes, not characters", ()
         expect(verdictOf(be, jiraTicket({ key, labels: [], project: "GB" }))).toBe("owned");
       }
     });
+  });
+});
+
+// ===========================================================================
+// M_947c79 pre-PR /spec-review — AC-STE-606.3 graded on production code, and
+// an adopted ticket is tagged on its import sync.
+// ===========================================================================
+
+/** The documented ownership context for a single fetched ticket (import.ts), or null when it is not exported. */
+function ticketImportOwnershipOf(root: string, ticket: unknown): unknown {
+  const fn = (importModule as unknown as Record<string, unknown>)["ticketImportOwnership"];
+  return typeof fn === "function" ? (fn as (r: string, t: unknown) => unknown)(root, ticket) : null;
+}
+
+describe("M_947c79 review — AC-STE-606.3 on production code", () => {
+  test("a ticket id resolved from the branch name by the PRODUCTION resolver gets the same verdict as the argument", async () => {
+    await withSharedGitRoots((_fe, be) => {
+      const tickets = [
+        jiraTicket({ key: "GF-111", labels: [BE_TAG] }),
+        jiraTicket({ key: "GF-101", labels: [FE_TAG] }),
+        jiraTicket({ key: "GF-121", labels: [] }),
+        jiraTicket({ key: "GB-41", labels: [BE_TAG], project: "GB" }),
+      ];
+      for (const t of tickets) {
+        const key = t["key"] as string;
+        const branch = `feat/${key}-payout-work`;
+        git(be, ["checkout", "-q", "-b", branch]);
+        const run = spawnModule(join(PLUGIN_ROOT, "adapters", "_shared", "src", "branch_ticket_resolution.ts"), [be, branch], env());
+        expect(run.code, run.stderr).toBe(0);
+        const m = /^ticket-resolution: (\S+) (\S+)$/m.exec(run.stdout);
+        const resolved = { tier: m?.[1], ticketId: m?.[2] };
+        expect(resolved.tier).toBe("branch-id");
+        expect(resolved.ticketId).toBe(key);
+        expect(verdictOf(be, t)).toBe(verdictOf(be, tickets.find((x) => x["key"] === resolved.ticketId)));
+        git(be, ["checkout", "-q", "main"]);
+      }
+    });
+  });
+
+  test("an ADOPTED unowned ticket imported with the documented ownership context is tagged on its sync: labels = its labels ∪ the repo tag", async () => {
+    await withSharedGitRoots(async (_fe, be) => {
+      const ticket = jiraTicket({ key: "GF-121", labels: ["milestone-7"] });
+      const ownership = ticketImportOwnershipOf(be, ticket);
+      expect(ownership, "import.ts must export ticketImportOwnership(projectRoot, ticket)").not.toBeNull();
+      const driver = new RecordingDriver(be, "GF-121");
+      const provider = new TrackerProvider({
+        driver,
+        currentUser: "be-dev",
+        resolveTrackerRef: async (x: string) => x.replace(/^jira:/, ""),
+      });
+      await importFromTracker("jira", "GF-121", provider, join(be, "specs"), async () => "M_GF_85", ownership as never);
+      const sync = driver.writes.find((w) => w.op === "upsertTicketMetadata");
+      expect(sync?.labels).toEqual(["milestone-7", BE_TAG]);
+    });
+  });
+
+  test("CONTROL — an owned (tagged) ticket's sync leaves its labels alone", async () => {
+    await withSharedGitRoots(async (_fe, be) => {
+      const ticket = jiraTicket({ key: "GF-140", labels: [BE_TAG] });
+      const driver = new RecordingDriver(be, "GF-140");
+      const provider = new TrackerProvider({
+        driver,
+        currentUser: "be-dev",
+        resolveTrackerRef: async (x: string) => x.replace(/^jira:/, ""),
+      });
+      await importFromTracker("jira", "GF-140", provider, join(be, "specs"), async () => "M_GF_85", ticketImportOwnershipOf(be, ticket) as never);
+      expect(driver.writes.find((w) => w.op === "upsertTicketMetadata")?.labels).toBeUndefined();
+    });
+  });
+
+  test("the documented import calls in /implement 0.b′, /spec-write § 0a and resolver-entry § 0a pass ticketImportOwnership", () => {
+    for (const rel of ["skills/implement/SKILL.md", "skills/spec-write/SKILL.md", "docs/resolver-entry.md"]) {
+      const text = readFileSync(join(PLUGIN_ROOT, rel), "utf-8");
+      expect(text, rel).toMatch(/importFromTracker\([^)]*ticketImportOwnership\(/);
+    }
   });
 });

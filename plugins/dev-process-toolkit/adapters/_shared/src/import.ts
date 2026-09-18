@@ -41,6 +41,17 @@ export interface ImportOwnershipContext {
   pages: unknown[];
 }
 
+/**
+ * The ownership context for ONE fetched ticket (Jira `getJiraIssue`, Linear
+ * `get_issue`) — the join path of `/implement` 0.b′ and `/spec-write` § 0a
+ * (STE-606). Passing it to `importFromTracker` is what tags an ADOPTED
+ * unowned ticket with this repository's `repo_tag` on the import's own sync;
+ * without it the adoption is recorded locally and never on the ticket.
+ */
+export function ticketImportOwnership(projectRoot: string, ticket: unknown): ImportOwnershipContext {
+  return { projectRoot, pages: [{ issues: [ticket] }] };
+}
+
 /** Returns the label set to write on the sync, or undefined to leave labels untouched. Throws on refusal. */
 function ownershipLabels(trackerKey: string, trackerId: string, ctx: ImportOwnershipContext): string[] | undefined {
   if (trackerKey !== "jira" && trackerKey !== "linear") {
