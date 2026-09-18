@@ -730,12 +730,16 @@ describe("AC-STE-605.11 — surfaces and budgets", () => {
   });
 
   test("reachability: row 49's two references are reachable; the new pin is one prepended ledger entry naming STE-605 (no raise)", async () => {
-    const head = ORDERED_UNREACHABLE_PIN_LEDGER[0]!;
-    const previous = ORDERED_UNREACHABLE_PIN_LEDGER[1]!;
+    // Amended by AC-STE-608.12: later FRs prepend their own moves, so this
+    // FR's entry is FOUND by its rationale rather than read at position 0.
+    const mine = ORDERED_UNREACHABLE_PIN_LEDGER.filter((m) => m.rationale.includes("M_947c79/STE-605"));
+    expect(mine.length, "exactly one ledger entry is STE-605's").toBe(1);
+    const at = ORDERED_UNREACHABLE_PIN_LEDGER.indexOf(mine[0]!);
+    const previous = ORDERED_UNREACHABLE_PIN_LEDGER[at + 1]!;
     expect(previous.value).toBe(124);
     expect(previous.commit).toBe("72b853f");
-    expect(head.rationale).toContain("STE-605");
-    expect(head.value).toBeLessThan(previous.value);
+    expect(mine[0]!.value).toBeLessThan(previous.value);
+    const head = ORDERED_UNREACHABLE_PIN_LEDGER[0]!;
     expect(ORDERED_UNREACHABLE_PIN).toBe(head.value);
     const report = await runModuleReachabilityProbe(REPO_ROOT);
     expect(typeof report.orderedUnreachable).toBe("number");

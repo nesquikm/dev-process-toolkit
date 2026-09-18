@@ -447,6 +447,19 @@ export interface UnreachablePinMove {
  */
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
+    value: 121,
+    commit: "uncommitted",
+    rationale:
+      "M_685ff6/STE-608: the milestone-identity decision module " +
+      "`resolve_milestone_identity.ts` gained an `import.meta.main` front " +
+      "door, so it became reachable and its one ordered reference " +
+      "(`skills/spec-write/SKILL.md:177` at the branch base) stopped naming a " +
+      "module nothing runnable reaches. Exactly that reference left the set " +
+      "and none entered it. Measured by the awaited " +
+      "`runModuleReachabilityProbe` (122 -> 121, diffed record by record " +
+      "against a checkout of 2c99778), not carried from the FR.",
+  },
+  {
     value: 122,
     commit: "6a90eda",
     rationale:

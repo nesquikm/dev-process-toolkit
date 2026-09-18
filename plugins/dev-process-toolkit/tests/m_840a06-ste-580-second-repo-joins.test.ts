@@ -55,8 +55,8 @@ const read = (p: string) => readFileSync(p, "utf-8");
 const SPLIT_LINES_AT_HEAD = 358;
 /** Measured at HEAD: `body.split("\n")[176].length`. The append only grows it. */
 const LINE_177_LEN_AT_HEAD = 9675;
-/** Measured at HEAD: sixteen `<dir>/<file>.ts` paths already on line 177. */
-const MODULE_PATHS_ON_LINE_177_AT_HEAD = 16;
+/** Measured at HEAD: sixteen `<dir>/<file>.ts` paths on line 177. Re-measured by AC-STE-608.11: eighteen, the two decision front door commands naming a module that now carries a front door. */
+const MODULE_PATHS_ON_LINE_177_AT_HEAD = 18;
 /** The HEAD tail of line 177. The clause is appended AFTER this sentence. */
 const HEAD_TAIL = "no Epic is ever created off the Jira path.";
 
@@ -202,13 +202,14 @@ describe("AC-STE-580.2 — the join is BY KEY and NEVER BY NAME", () => {
     );
   });
 
-  test("the clause says the join is NEVER by name", () => {
-    const clause = appendedClause();
-    expect(
-      clause,
-      "five of this project's milestones carry a renamed form while the most recent " +
-        "carries the bare title the mint writes — names are unsafe to join on",
-    ).toMatch(/(never|not|no)\b[^.]{0,80}\bby (the )?(name|summary|title)/i);
+  // Amended by AC-STE-608.11: "The join is by key and never by name" sat beside
+  // a join call that matched by normalized title only, so the sentence is
+  // retired. What survives is the ORDER: a join is made by key, through the
+  // decision front door's `--join-key` form.
+  test("the join is ORDERED by key through the front door's --join-key, and the false 'never by name' claim is gone", () => {
+    const line = line177();
+    expect(line).toContain("--join-key");
+    expect(line).not.toContain("The join is by key and never by name");
   });
 });
 
@@ -249,10 +250,10 @@ describe("AC-STE-580.3 — no module path, no new STE token, no raised pin", () 
     ).toBeNull();
   });
 
-  test("line 177's module-path count is unmoved at 16", () => {
+  test("line 177's module-path count is 18, re-measured by AC-STE-608.11", () => {
     expect(
       (line177().match(MODULE_PATH_RE) ?? []).length,
-      "the append must not add a seventeenth module path, and must not delete one either",
+      "the append must not add a module path, and must not delete one either; only AC-STE-608.11's two front door commands moved it",
     ).toBe(MODULE_PATHS_ON_LINE_177_AT_HEAD);
   });
 

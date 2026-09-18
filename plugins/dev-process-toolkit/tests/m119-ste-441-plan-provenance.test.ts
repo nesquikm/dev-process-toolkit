@@ -847,9 +847,17 @@ describe("AC-STE-441.1 — the provenance check is scoped to sequential plans in
   });
 
   test("TRACKER mode never consults provenance — a fresh sequential plan is fine there", async () => {
+    // Amended by AC-STE-608.15: `M119.md` used to be left UNTRACKED, and an
+    // untracked sequential plan is exactly what the new `mode: linear` arm
+    // errors on. This test is about the tracker-less MINT epoch, so both plans
+    // are committed after it and before LINEAR_TRACKER_KEY_EPOCH; the Linear
+    // arm has its own suite (m_685ff6-ste-608-linear-provenance).
     const p = makeProject({
       mode: "linear",
-      plans: [{ name: "M119.md" }, { name: "M120.md", committedAt: ONE_SECOND_AFTER_EPOCH }],
+      plans: [
+        { name: "M119.md", committedAt: ONE_SECOND_AFTER_EPOCH },
+        { name: "M120.md", committedAt: ONE_SECOND_AFTER_EPOCH },
+      ],
     });
     try {
       const report = await runPlanIdentityModeConditionalProbe(p.root);

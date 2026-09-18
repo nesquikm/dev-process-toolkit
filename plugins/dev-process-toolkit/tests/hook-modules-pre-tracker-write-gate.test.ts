@@ -46,6 +46,7 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1257,9 +1258,11 @@ describe("AC-STE-607.6 — min_dpt_version against the hook's own manifest", () 
 // ===========================================================================
 
 describe("AC-STE-607.7 — RECEIPT_ANNOUNCING_MODULES", () => {
-  test("holds exactly the three deciding modules", async () => {
+  // Amended by AC-STE-608.10: the milestone decision front door is appended, last.
+  test("holds exactly the three deciding modules plus the milestone decision front door, appended last", async () => {
     const { RECEIPT_ANNOUNCING_MODULES } = await hookModule();
-    expect([...RECEIPT_ANNOUNCING_MODULES].sort()).toEqual([CONSENT, DECIDE, CONFIRM].sort());
+    expect([...RECEIPT_ANNOUNCING_MODULES].sort()).toEqual([CONSENT, DECIDE, CONFIRM, "resolve_milestone_identity.ts"].sort());
+    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 1]).toBe("resolve_milestone_identity.ts");
   });
 });
 
@@ -1488,42 +1491,44 @@ describe("AC-STE-607.7 — forgery controls: only a listed deciding command's ow
 });
 
 // ===========================================================================
-// AC-STE-607.8 — container writes are named, not gated
+// AC-STE-607.8 — amended by AC-STE-608.10: container writes are DECIDED, not
+// reminded. The Reminder (exit 1) of M_947c79 no longer exists; a container
+// call in a declared target with no milestone-decision receipt is refused
+// naming the decision front door. The decided-rule legs live under
+// "AC-STE-608.10" at the foot of this file.
 // ===========================================================================
 
-describe("AC-STE-607.8 — container writes exit 1 with a Reminder in a declared target", () => {
-  function expectReminder(r: Run, kind: RegExp): void {
-    if (r.exitCode !== 1) throw new Error(`expected exit 1 (reminder), got:\n${show(r)}`);
-    expect(r.stdout).toBe("");
-    expect(r.stderr).toMatch(/^Reminder:/m);
-    expect(r.stderr).not.toContain("Refusing:");
-    expect(r.stderr).toContain(GATING_MILESTONE);
-    expect(r.stderr).toMatch(kind);
-  }
-
-  test("an Epic create in a declared Jira target → exit 1, Reminder naming its kind and M_685ff6", async () => {
+describe("AC-STE-607.8 (amended by AC-STE-608.10) — container writes in a declared target are decided, never reminded", () => {
+  test("an Epic create in a declared Jira target with no decision receipt → exit 2 naming the decision front door, never exit 1", async () => {
     const w = makeWorld();
     const r = await runHook(JIRA("createJiraIssue"), jiraCreate({ type: "Epic", parent: null, title: "M_GF_95 Payouts" }), {
       cwd: w.be,
       transcript: new Session().save(w.scratch),
     });
-    expectReminder(r, /milestone|epic/i);
+    expectRefusal(r, "resolve_milestone_identity.ts");
+    expect(r.stderr).not.toMatch(/^Reminder:/m);
   }, 30_000);
 
-  test("save_milestone and save_issue_label in a declared Linear target → exit 1, Reminder naming the kind", async () => {
+  test("save_milestone and save_issue_label in a declared Linear target with no receipt → exit 2, never a Reminder", async () => {
     const root = linearRepo(BE_TAG);
     const transcript = new Session().save(tempDir("linear-scratch"));
-    expectReminder(
+    for (const r of [
       await runHook(LINEAR("save_milestone"), { project: "DPT", name: "M_x" }, { cwd: root, transcript }),
-      /milestone/i,
-    );
-    expectReminder(
-      await runHook(LINEAR("save_issue_label"), { name: BE_TAG, team: "STE" }, { cwd: root, transcript }),
-      /label/i,
-    );
+      await runHook(LINEAR("save_issue_label"), { name: "some-label", team: "STE" }, { cwd: root, transcript }),
+    ]) {
+      expectRefusal(r, "resolve_milestone_identity.ts");
+      expect(r.stderr).not.toMatch(/^Reminder:/m);
+    }
   }, 30_000);
 
-  test("the same three calls in undeclared targets → exit 0, silent", async () => {
+  test("the Reminder text no longer exists in the hook", () => {
+    const src = readFileSync(MODULE_PATH, "utf-8");
+    expect(src).not.toContain("so this one is named, not refused");
+    expect(src).not.toMatch(/emitNFR10\(\s*"Reminder"/);
+    expect(src).not.toContain("remindContainer");
+  });
+
+  test("(control) the same three calls in undeclared targets → exit 0, silent", async () => {
     const jira = tempDir("undeclared-epic");
     declareJira(jira, null);
     gitInit(jira);
@@ -2691,4 +2696,389 @@ describe("M_947c79 review 3 — the refusal and the FR name what the grammar rej
     for (const needle of ["bunfig.toml", "preload", "PATH"]) expect(t, needle).toContain(needle);
     expect(t).toMatch(/follow-up[^.\n]*Bun('s)? config/i);
   });
+});
+
+// ===========================================================================
+// AC-STE-608.10 (M_685ff6) — container calls in a declared target are DECIDED
+// against a `milestone-decision` receipt written by the decision front door
+// (`resolve_milestone_identity.ts`). Every leg below is driven through the
+// hook's SHELL entry, `templates/hooks/process/pre-tracker-write-gate.sh`,
+// with a recorded tool payload on stdin; receipts come from the REAL front
+// door, announced in the transcript by the command that ran it.
+// ===========================================================================
+
+const RESOLVE = "resolve_milestone_identity.ts";
+const SH_ENTRY_REL = join("templates", "hooks", "process", `${HOOK}.sh`);
+
+/**
+ * A plugin root for the shell entry: the fixture manifest (so the floor reads
+ * MANIFEST_VERSION) beside symlinks to this plugin's real `templates` and
+ * `adapters`, so `${CLAUDE_PLUGIN_ROOT}/templates/…` resolves to the real hook.
+ */
+let SH_ROOT = "";
+function shRoot(): string {
+  if (SH_ROOT === "") {
+    SH_ROOT = tempDir("sh-root");
+    pluginManifest(SH_ROOT, MANIFEST_VERSION);
+    symlinkSync(join(PLUGIN_ROOT, "templates"), join(SH_ROOT, "templates"));
+    symlinkSync(join(PLUGIN_ROOT, "adapters"), join(SH_ROOT, "adapters"));
+  }
+  return SH_ROOT;
+}
+
+async function spawnSh(stdin: string): Promise<Run> {
+  hooksInFlight += 1;
+  peakHooksInFlight = Math.max(peakHooksInFlight, hooksInFlight);
+  try {
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+    delete env.CLAUDE_PROJECT_DIR;
+    env.CLAUDE_PLUGIN_ROOT = shRoot();
+    env.CLAUDE_CODE_SESSION_ID = SESSION;
+    const proc = Bun.spawn(["bash", join(shRoot(), SH_ENTRY_REL)], {
+      cwd: NEUTRAL_CWD,
+      env,
+      stdin: new Response(stdin).body,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+    return { exitCode: await proc.exited, stdout, stderr };
+  } finally {
+    hooksInFlight -= 1;
+  }
+}
+
+function runSh(tool: string, input: unknown, o: RunOpts): Promise<Run> {
+  return spawnSh(payload(tool, input, o));
+}
+
+interface Resolved {
+  command: string;
+  out: string;
+  receipt: string;
+}
+
+/** Spawn the REAL decision front door; `session` defaults to this suite's. */
+function realResolve(root: string, argv: string[], scratch: string, listing: unknown, session = SESSION): Resolved {
+  const listingPath = join(scratch, `listing-${Math.random().toString(36).slice(2)}.json`);
+  writeFileSync(listingPath, JSON.stringify(listing));
+  const full = [root, argv[0]!, argv[1]!, listingPath, ...argv.slice(2)];
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+  env.CLAUDE_PLUGIN_ROOT = MANIFEST_DIR;
+  env.CLAUDE_CODE_SESSION_ID = session;
+  const p = Bun.spawnSync(["bun", "run", join(ADAPTERS_SRC, RESOLVE), ...full], { env, stdout: "pipe", stderr: "pipe" });
+  if (p.exitCode !== 0) throw new Error(`the decision front door failed (exit ${p.exitCode}): ${p.stderr.toString()}`);
+  const out = p.stdout.toString().trimEnd();
+  return {
+    command: `bun run "${join(ADAPTERS_SRC, RESOLVE)}" ${full.map((a) => (/^[A-Za-z0-9_./:=@%+,-]+$/.test(a) ? a : `"${a}"`)).join(" ")}`,
+    out,
+    receipt: announcedPath(out),
+  };
+}
+
+const epicRow = (key: string, summary: string, labels: string[] = []) => ({
+  key,
+  fields: {
+    summary,
+    status: { name: "In Progress", statusCategory: { key: "indeterminate" } },
+    labels,
+    issuetype: { name: "Epic" },
+    project: { key: "GF" },
+  },
+});
+
+const EPIC_CREATE = (title: string) => jiraCreate({ type: "Epic", parent: null, title });
+
+describe("AC-STE-608.10 — the hook announces the decision front door's receipts", () => {
+  test("resolve_milestone_identity.ts is APPENDED to RECEIPT_ANNOUNCING_MODULES", async () => {
+    const { RECEIPT_ANNOUNCING_MODULES } = await hookModule();
+    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 1]).toBe(RESOLVE);
+    expect(RECEIPT_ANNOUNCING_MODULES.slice(0, 3)).toEqual([DECIDE, CONSENT, CONFIRM]);
+  });
+});
+
+describe("AC-STE-608.10 (a) — an Epic create needs a create decision for the same project and a byte-equal title", () => {
+  test("permit: a create receipt for GF + \"BE Payouts\" → exit 0", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    s.bash(d.command, d.out);
+    expectPermit(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 30_000);
+
+  test("forbid: no receipt, a title differing by one byte, a join receipt, another project → exit 2 naming the front door", async () => {
+    const w = makeWorld();
+    const none = new Session().save(w.scratch);
+    const create = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    const drift = new Session();
+    drift.bash(create.command, create.out);
+    const join_ = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, { issues: [epicRow("GF-85", "BE Payouts")], isLast: true });
+    const joined = new Session();
+    joined.bash(join_.command, join_.out);
+    const nex = realResolve(w.be, ["jira", "NEX", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    const other = new Session();
+    other.bash(nex.command, nex.out);
+    const cases: Array<[string, unknown, string]> = [
+      ["no receipt", EPIC_CREATE("BE Payouts"), none],
+      ["title drift (case)", EPIC_CREATE("BE payouts"), drift.save(w.scratch)],
+      ["title drift (trailing space)", EPIC_CREATE("BE Payouts "), drift.save(w.scratch)],
+      ["join receipt", EPIC_CREATE("BE Payouts"), joined.save(w.scratch)],
+      ["other project", EPIC_CREATE("BE Payouts"), other.save(w.scratch)],
+    ];
+    const runs = await mapBounded(cases, HOOK_SPAWN_LIMIT, ([, input, transcript]) =>
+      runSh(JIRA("createJiraIssue"), input, { cwd: w.be, transcript }),
+    );
+    runs.forEach((r, i) => {
+      try {
+        expectRefusal(r, RESOLVE);
+      } catch (e) {
+        throw new Error(`${cases[i]![0]}: ${(e as Error).message}`);
+      }
+    });
+    expect(peakHooksInFlight).toBeLessThanOrEqual(HOOK_SPAWN_LIMIT);
+  }, 60_000);
+
+  test("forbid: a milestone-decision receipt announced by any other command is ignored → exit 2", async () => {
+    const w = makeWorld();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    const s = new Session();
+    s.bash(`bun run "${join(ADAPTERS_SRC, "mint_milestone_epic.ts")}" GF "BE Payouts" GF-300`, d.out);
+    expectRefusal(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }), RESOLVE);
+  }, 30_000);
+
+  test("forbid: a receipt from another session, or from another repository, does not satisfy → exit 2", async () => {
+    const w = makeWorld();
+    const otherSession = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE, OTHER_SESSION);
+    const s1 = new Session();
+    s1.bash(otherSession.command, otherSession.out);
+    const elsewhere = tempDir("other-repo");
+    declareJira(elsewhere, null);
+    gitInit(elsewhere);
+    const otherRepo = realResolve(elsewhere, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    const s2 = new Session();
+    s2.bash(otherRepo.command, otherRepo.out);
+    const runs = await mapBounded([s1.save(w.scratch), s2.save(w.scratch)], HOOK_SPAWN_LIMIT, (transcript) =>
+      runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript }),
+    );
+    for (const r of runs) expectRefusal(r, RESOLVE);
+  }, 30_000);
+
+  test("forbid: an unreadable or malformed receipt counts as absent → exit 2", async () => {
+    const w = makeWorld();
+    const bad = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    const s1 = new Session();
+    s1.bash(bad.command, bad.out);
+    writeFileSync(bad.receipt, "{not json");
+    const r1 = await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s1.save(w.scratch) });
+    expectRefusal(r1, RESOLVE);
+
+    const locked = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    const s2 = new Session();
+    s2.bash(locked.command, locked.out);
+    chmodSync(locked.receipt, 0o000);
+    cleanups.push(() => chmodSync(locked.receipt, 0o644));
+    const r2 = await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s2.save(w.scratch) });
+    expectRefusal(r2, RESOLVE);
+  }, 30_000);
+});
+
+describe("AC-STE-608.10 (b) — save_milestone", () => {
+  test("permit: save_milestone without id under a create receipt on the same project and name → exit 0", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("lin-608");
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: [] });
+    const s = new Session();
+    s.bash(d.command, d.out);
+    expectPermit(await runSh(LINEAR("save_milestone"), { project: "DPT", name: "Payouts" }, { cwd: root, transcript: s.save(scratch) }));
+  }, 30_000);
+
+  test("forbid: no receipt, another name, or an `id` (no flow edits a milestone) → exit 2", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("lin-608-forbid");
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: [] });
+    const s = new Session();
+    s.bash(d.command, d.out);
+    const withReceipt = s.save(scratch);
+    const cases: Array<[unknown, string]> = [
+      [{ project: "DPT", name: "Payouts" }, new Session().save(scratch)],
+      [{ project: "DPT", name: "Payouts II" }, withReceipt],
+      [{ project: "DPT", name: "Payouts", id: "550e8400-e29b-41d4-a716-446655440000" }, withReceipt],
+    ];
+    const runs = await mapBounded(cases, HOOK_SPAWN_LIMIT, ([input, transcript]) =>
+      runSh(LINEAR("save_milestone"), input, { cwd: root, transcript }),
+    );
+    for (const r of runs) expectRefusal(r, RESOLVE);
+  }, 30_000);
+});
+
+describe("AC-STE-608.10 (c) — save_project", () => {
+  test("forbid: save_project in a declared target → exit 2, even beside a create receipt", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("lin-608-project");
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: [] });
+    const s = new Session();
+    s.bash(d.command, d.out);
+    expectRefusal(await runSh(LINEAR("save_project"), { name: "DPT", team: "STE" }, { cwd: root, transcript: s.save(scratch) }), RESOLVE, /project/i);
+  }, 30_000);
+});
+
+describe("AC-STE-608.10 (d) — a label write on a joined Epic is a read-merge", () => {
+  test("permit: labels keep every listed label plus the milestone label → exit 0; forbid: the SET that clobbers → exit 2", async () => {
+    const w = makeWorld();
+    const d = realResolve(w.be, ["jira", "GF", "--join-key", "GF-85"], w.scratch, { issues: [epicRow("GF-85", "Payouts", ["team-x"])], isLast: true });
+    const s = new Session();
+    s.bash(d.command, d.out);
+    const transcript = s.save(w.scratch);
+    const edit = (labels: string[]) => ({ cloudId: CLOUD, issueIdOrKey: "GF-85", fields: { labels } });
+    const [merged, clobber, noMilestone] = await mapBounded(
+      [edit(["team-x", "milestone-M_GF_85"]), edit(["milestone-M_GF_85"]), edit(["team-x"])],
+      HOOK_SPAWN_LIMIT,
+      (input) => runSh(JIRA("editJiraIssue"), input, { cwd: w.be, transcript }),
+    );
+    expectPermit(merged!);
+    expectRefusal(clobber!, RESOLVE);
+    expectRefusal(noMilestone!, RESOLVE);
+  }, 30_000);
+
+  test("a label write on an Epic this session created stays under the STE-607 ownership rule → exit 0", async () => {
+    const w = makeWorld();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    s.mcp(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { key: "GF-300", id: "10300" });
+    expectPermit(
+      await runSh(JIRA("editJiraIssue"), { cloudId: CLOUD, issueIdOrKey: "GF-300", fields: { labels: ["milestone-M_GF_300"] } }, {
+        cwd: w.be,
+        transcript: s.save(w.scratch),
+      }),
+    );
+  }, 30_000);
+});
+
+describe("AC-STE-608.10 (f) — every other container kind is refused, except the repo's own tag label", () => {
+  const LABEL_ID = "5d3f0f5e-0000-4000-8000-000000000003";
+  const refused: Array<[string, Record<string, unknown>, RegExp]> = [
+    ["create_issue_label", { name: "some-label", team: "STE" }, /label/i],
+    ["save_issue_label", { id: LABEL_ID, name: BE_TAG, team: "STE" }, /label/i],
+    ["save_issue_label", { name: "some-label", team: "STE" }, /label/i],
+    ["retire_issue_label", { id: LABEL_ID }, /label/i],
+    ["restore_issue_label", { id: LABEL_ID }, /label/i],
+    ["save_project_label", { name: "some-project-label" }, /label/i],
+    ["retire_project_label", { id: LABEL_ID }, /label/i],
+    ["restore_project_label", { id: LABEL_ID }, /label/i],
+    ["save_status_update", { project: "DPT", body: "On track." }, /status update/i],
+    ["delete_status_update", { id: "5d3f0f5e-0000-4000-8000-000000000004" }, /status update/i],
+    ["save_document", { project: "DPT", title: "Notes", content: "Body." }, /document/i],
+  ];
+
+  test("forbid: each kind exits 2 naming the kind and the decision front door", async () => {
+    const root = linearRepo(BE_TAG);
+    const transcript = new Session().save(tempDir("lin-608-kinds"));
+    const runs = await mapBounded(refused, HOOK_SPAWN_LIMIT, ([tool, input]) => runSh(LINEAR(tool), input, { cwd: root, transcript }));
+    runs.forEach((r, i) => {
+      const [tool, , kind] = refused[i]!;
+      try {
+        expectRefusal(r, RESOLVE, kind);
+      } catch (e) {
+        throw new Error(`${tool}: ${(e as Error).message}`);
+      }
+    });
+    expect(peakHooksInFlight).toBeLessThanOrEqual(HOOK_SPAWN_LIMIT);
+  }, 60_000);
+
+  test("permit: create_issue_label whose name equals the target's repo_tag → exit 0", async () => {
+    const root = linearRepo(BE_TAG);
+    const transcript = new Session().save(tempDir("lin-608-tag"));
+    expectPermit(await runSh(LINEAR("create_issue_label"), { name: BE_TAG, team: "STE" }, { cwd: root, transcript }));
+  }, 30_000);
+
+  test("(control) undeclared targets: every AC-STE-608.10 payload stays silent", async () => {
+    const linear = linearRepo(null);
+    const jira = tempDir("undeclared-608");
+    declareJira(jira, null);
+    gitInit(jira);
+    const transcript = new Session().save(tempDir("undeclared-608-scratch"));
+    const calls: Array<[string, unknown, string]> = [
+      [JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), jira],
+      [JIRA("editJiraIssue"), { cloudId: CLOUD, issueIdOrKey: "GF-85", fields: { labels: ["milestone-M_GF_85"] } }, jira],
+      [LINEAR("save_milestone"), { project: "DPT", name: "Payouts", id: "550e8400-e29b-41d4-a716-446655440000" }, linear],
+      [LINEAR("save_project"), { name: "DPT", team: "STE" }, linear],
+      ...refused.map(([tool, input]) => [LINEAR(tool), input, linear] as [string, unknown, string]),
+    ];
+    const runs = await mapBounded(calls, HOOK_SPAWN_LIMIT, ([tool, input, cwd]) => runSh(tool, input, { cwd, transcript }));
+    runs.forEach((r, i) => {
+      try {
+        expectSilent(r);
+      } catch (e) {
+        throw new Error(`${calls[i]![0]}: ${(e as Error).message}`);
+      }
+    });
+  }, 60_000);
+});
+
+// ===========================================================================
+// STE-608 mutation review — two holes the first-round legs could not trip.
+// M9: the "announced by any other command" leg announced through a module the
+// grammar never accepts, so dropping the module check left it green. These
+// legs announce the SAME real receipt through a command the grammar DOES
+// accept (a real deciding module), which only the module check can refuse.
+// M10: no leg shared one create decision between two creates, so a decision
+// that was never spent left every leg green.
+// ===========================================================================
+
+describe("AC-STE-608.10 hardening — only the decision front door's own run announces a milestone decision", () => {
+  test("forbid: the real receipt announced by an ACCEPTED deciding module (ticket_ownership.ts confirm) → exit 2", async () => {
+    const w = makeWorld();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    const s = new Session();
+    s.bash(`bun run "${join(ADAPTERS_SRC, CONFIRM)}" confirm "${w.be}" GF-1 /tmp/ticket.json`, d.out);
+    expectRefusal(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }), RESOLVE);
+  }, 30_000);
+
+  test("control: the same receipt announced by the front door's own run → exit 0", async () => {
+    const w = makeWorld();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    expectPermit(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 30_000);
+});
+
+describe("AC-STE-608.10 hardening — one create decision authorises ONE container create", () => {
+  test("two pending Epic creates on one decision: the first is permitted, the second refused as spent", async () => {
+    const w = makeWorld();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    pendingToolUses(s, [
+      { id: "toolu_608_first", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
+      { id: "toolu_608_second", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
+    ]);
+    const transcript = s.save(w.scratch);
+    const [first, second] = await mapBounded(["toolu_608_first", "toolu_608_second"], HOOK_SPAWN_LIMIT, (toolUseId) =>
+      runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript, toolUseId }),
+    );
+    expectPermit(first!);
+    expectRefusal(second!, /spent/, RESOLVE);
+  }, 30_000);
+
+  test("control: two decisions, two pending Epic creates → both permitted", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    for (let i = 0; i < 2; i++) {
+      const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+      s.bash(d.command, d.out);
+    }
+    pendingToolUses(s, [
+      { id: "toolu_608_first", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
+      { id: "toolu_608_second", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
+    ]);
+    const transcript = s.save(w.scratch);
+    const runs = await mapBounded(["toolu_608_first", "toolu_608_second"], HOOK_SPAWN_LIMIT, (toolUseId) =>
+      runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript, toolUseId }),
+    );
+    for (const r of runs) expectPermit(r);
+  }, 30_000);
 });

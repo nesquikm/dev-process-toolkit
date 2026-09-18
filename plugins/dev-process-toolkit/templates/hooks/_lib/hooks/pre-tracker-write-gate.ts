@@ -30,6 +30,7 @@ import {
 } from "../../../../adapters/_shared/src/tracker_receipts.ts";
 import { normalizeTitleForCompare } from "../../../../adapters/_shared/src/create_idempotency_probe.ts";
 import { readTrackedBindings } from "../../../../adapters/_shared/src/ticket_ownership.ts";
+import { milestoneLabel } from "../../../../adapters/_shared/src/attach_project_milestone.ts";
 import { resolveInterviewAnswer } from "../../../../adapters/_shared/src/auto_answers.ts";
 import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shared/src/dpt_version.ts";
 
@@ -174,23 +175,40 @@ export const UNGATED_WRITE_TOOLS: Readonly<Record<string, string>> = {
  * announces: a module's other subcommands print model- or tracker-supplied
  * text (`normalize <title>` echoes its argument, `list` prints page keys), so
  * they must never stand in for a receipt write. A later deciding command adds
- * its module and subcommand here and nowhere else; a module writing receipts
- * the gate must not trust is never listed.
+ * its module and subcommand here — and, only when it has no subcommand, its
+ * argv check to `NO_SUBCOMMAND_ARGV`; a module writing receipts the gate must
+ * not trust is never listed.
+ *
+ * `null` marks a module with NO subcommand (STE-608): its whole CLI is the one
+ * receipt-writing front door, so its argv is checked by `NO_SUBCOMMAND_ARGV`
+ * instead. A module listed with a subcommand never announces without it.
  */
-export const RECEIPT_WRITING_SUBCOMMANDS: Readonly<Record<string, string>> = {
+export const RECEIPT_WRITING_SUBCOMMANDS: Readonly<Record<string, string | null>> = {
   "create_idempotency_probe.ts": "decide",
   "container_ownership.ts": "consent",
   "ticket_ownership.ts": "confirm",
+  "resolve_milestone_identity.ts": null,
 };
 
 export const RECEIPT_ANNOUNCING_MODULES: readonly string[] = Object.keys(RECEIPT_WRITING_SUBCOMMANDS);
 
 /**
+ * The argv a subcommand-less deciding module is accepted with, after the
+ * module path: the decision front door's exact
+ * `<projectRoot> <jira|linear> <project> <listingFile> --title|--join-key <v>`.
+ */
+const NO_SUBCOMMAND_ARGV: Readonly<Record<string, (args: string[]) => boolean>> = {
+  "resolve_milestone_identity.ts": (a) =>
+    a.length === 6 && (a[1] === "jira" || a[1] === "linear") && (a[4] === "--title" || a[4] === "--join-key"),
+};
+
+/**
  * The accepted invocation of a deciding module, as every refusal shows it:
- * `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/<module>" <subcommand> …`.
+ * `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/<module>" [<subcommand>] …`.
  */
 export function acceptedShape(module: string, args: string): string {
-  return `bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/${module}" ${RECEIPT_WRITING_SUBCOMMANDS[module]} ${args}`;
+  const sub = RECEIPT_WRITING_SUBCOMMANDS[module];
+  return `bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/${module}" ${sub ? `${sub} ` : ""}${args}`;
 }
 
 /** The plain-invocation rule every receipt refusal states (§3). */
@@ -230,8 +248,8 @@ export function identifyTrackerCall(payload: HookPayload): TrackerCall | null {
 // Exit codes and the one refusal shape
 // ---------------------------------------------------------------------------
 
-/** 0 permits silently, 1 permits with a Reminder (§5), 2 refuses. */
-type ExitCode = 0 | 1 | 2;
+/** 0 permits silently, 2 refuses. */
+type ExitCode = 0 | 2;
 
 /** Every refusal goes through here: one NFR-10 `Refusing` block on stderr, exit 2. */
 function refuse(what: string, remedy: string): 2 {
@@ -422,7 +440,9 @@ export function invokedDecidingModule(command: string): string | null {
   const actual = realpathOr(target);
   for (const m of RECEIPT_ANNOUNCING_MODULES) {
     if (actual !== realpathOr(join(OWN_PLUGIN_ROOT, "adapters", "_shared", "src", m))) continue;
-    return words[at + 1] === RECEIPT_WRITING_SUBCOMMANDS[m] ? m : null;
+    const sub = RECEIPT_WRITING_SUBCOMMANDS[m];
+    if (sub === null) return NO_SUBCOMMAND_ARGV[m]?.(words.slice(at + 1)) === true ? m : null;
+    return words[at + 1] === sub ? m : null;
   }
   return null;
 }
@@ -436,7 +456,7 @@ export function invokedDecidingModule(command: string): string | null {
 function rejectedDecidingCommand(command: string): boolean {
   if (invokedDecidingModule(command) !== null) return false;
   return Object.entries(RECEIPT_WRITING_SUBCOMMANDS).some(([m, sub]) =>
-    new RegExp(`${m.replace(/\./g, "\\.")}\\W*\\s+${sub}\\b`).test(command),
+    new RegExp(`${m.replace(/\./g, "\\.")}\\W*\\s+${sub === null ? "\\S" : `${sub}\\b`}`).test(command),
   );
 }
 
@@ -459,6 +479,8 @@ function receiptRootOf(path: string, sessionId: string): string | null {
 
 export interface Announcement {
   root: string;
+  /** The deciding module whose run printed this announcement (`RECEIPT_ANNOUNCING_MODULES`). */
+  module: string;
   receiptPath: string;
   /** Index of the transcript line carrying the announcing tool_result. */
   line: number;
@@ -503,7 +525,7 @@ export function announcedReceipts(lines: string[], sessionId: string): Announcem
 }
 
 export function scanAnnouncements(lines: string[], sessionId: string): AnnouncementScan {
-  const announcingBash = new Set<string>();
+  const announcingBash = new Map<string, string>(); // tool_use id → the deciding module it ran
   const out: Announcement[] = [];
   const rejected: string[] = [];
   lines.forEach((line, idx) => {
@@ -511,7 +533,8 @@ export function scanAnnouncements(lines: string[], sessionId: string): Announcem
       if (b.type === "tool_use" && b.name === "Bash" && typeof b.id === "string") {
         const cmd = b.input?.command;
         if (typeof cmd !== "string") continue;
-        if (invokedDecidingModule(cmd) !== null) announcingBash.add(b.id);
+        const module = invokedDecidingModule(cmd);
+        if (module !== null) announcingBash.set(b.id, module);
         else if (rejectedDecidingCommand(cmd)) rejected.push(cmd);
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
         if (b.is_error === true || !announcingBash.has(b.tool_use_id)) continue;
@@ -524,7 +547,9 @@ export function scanAnnouncements(lines: string[], sessionId: string): Announcem
         if (a.digest === null || !a.path.startsWith("/") || !sessionId) continue;
         const receiptPath = resolve(a.path);
         const root = receiptRootOf(receiptPath, sessionId);
-        if (root !== null) out.push({ root, receiptPath, line: idx, intact: stillAnnounced(receiptPath, a.digest) });
+        if (root !== null) {
+          out.push({ root, module: announcingBash.get(b.tool_use_id)!, receiptPath, line: idx, intact: stillAnnounced(receiptPath, a.digest) });
+        }
       }
     }
   });
@@ -600,12 +625,36 @@ export function isCreate(tool: string, input: Record<string, unknown>): boolean 
   return false;
 }
 
-/** The create call a transcript tool_use block made for `adapter`, or null. */
-function createCallIn(b: ContentBlock, adapter: WorkspaceAdapterKey): TrackerCall | null {
+/** The tracker call a transcript tool_use block made for `adapter` that `accept` admits, or null. */
+function trackerCallIn(
+  b: ContentBlock,
+  adapter: WorkspaceAdapterKey,
+  accept: (tool: string, input: Record<string, unknown>) => boolean,
+): TrackerCall | null {
   if (b.type !== "tool_use" || typeof b.name !== "string") return null;
   const c = identifyTrackerCall({ tool_name: b.name, tool_input: b.input } as unknown as HookPayload);
-  return c && c.adapter === adapter && isCreate(c.tool, c.input) ? c : null;
+  return c && c.adapter === adapter && accept(c.tool, c.input) ? c : null;
 }
+
+/** The ticket create call a transcript tool_use block made for `adapter`, or null. */
+function createCallIn(b: ContentBlock, adapter: WorkspaceAdapterKey): TrackerCall | null {
+  return trackerCallIn(b, adapter, isCreate);
+}
+
+/**
+ * Which tool_uses count as creates for the spending walk (`createsBefore`) and
+ * the lost-create walk (`lostCreates`), and the shape each is compared by: the
+ * ticket creates of §4, or the milestone-container creates of STE-608.
+ */
+interface CreateKind {
+  pick: (b: ContentBlock, adapter: WorkspaceAdapterKey) => TrackerCall | null;
+  shape: (c: TrackerCall) => CreateShape;
+}
+
+const TICKET_CREATES: CreateKind = {
+  pick: createCallIn,
+  shape: (c) => callShape(c.adapter, c.input),
+};
 
 function asKey(v: unknown): string {
   if (typeof v === "string") return v;
@@ -742,13 +791,14 @@ function createsBefore(
   lines: string[],
   adapter: WorkspaceAdapterKey,
   gatedId: string | undefined,
+  kind: CreateKind = TICKET_CREATES,
 ): Array<{ line: number; shape: CreateShape }> {
   const out: Array<{ line: number; shape: CreateShape }> = [];
   for (let idx = 0; idx < lines.length; idx++) {
     for (const b of contentBlocks(lines[idx]!)) {
       if (gatedId !== undefined && b.id === gatedId) return out;
-      const c = createCallIn(b, adapter);
-      if (c) out.push({ line: idx, shape: callShape(adapter, c.input) });
+      const c = kind.pick(b, adapter);
+      if (c) out.push({ line: idx, shape: kind.shape(c) });
     }
   }
   return out;
@@ -805,7 +855,12 @@ interface LostCreate {
  * `decide --attempt fast` can miss it (the GF-90/GF-91 double create). Parallel
  * siblings of the gated call are pending, not lost.
  */
-function lostCreates(parsed: Array<ParsedLine | null>, adapter: WorkspaceAdapterKey, gatedId: string | undefined): LostCreate[] {
+function lostCreates(
+  parsed: Array<ParsedLine | null>,
+  adapter: WorkspaceAdapterKey,
+  gatedId: string | undefined,
+  kind: CreateKind = TICKET_CREATES,
+): LostCreate[] {
   const gatedLine = gatedId === undefined ? -1 : parsed.findIndex((p) => p?.blocks.some((b) => b.id === gatedId) ?? false);
   const creates = new Map<string, { line: number; shape: CreateShape }>();
   const outcome = new Map<string, string | null>(); // id → why it is lost, or null when it is settled
@@ -813,8 +868,8 @@ function lostCreates(parsed: Array<ParsedLine | null>, adapter: WorkspaceAdapter
     if (!p) return;
     for (const b of p.blocks) {
       if (b.type === "tool_use" && typeof b.id === "string" && b.id !== gatedId) {
-        const c = createCallIn(b, adapter);
-        if (c) creates.set(b.id, { line: idx, shape: callShape(adapter, c.input) });
+        const c = kind.pick(b, adapter);
+        if (c) creates.set(b.id, { line: idx, shape: kind.shape(c) });
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string" && creates.has(b.tool_use_id)) {
         const lost = b.is_error === true && !neverRan(p, b);
         outcome.set(b.tool_use_id, lost ? `its result was an error: ${resultText(b.content).trim().split("\n")[0]!.slice(0, 120)}` : null);
@@ -1023,7 +1078,11 @@ function createdKeyOf(text: string, call: TrackerCall): string | null {
   }
 }
 
-/** Keys a create tool_use of this session returned as created in its paired, non-error tool_result. */
+/**
+ * Keys a create tool_use of this session — a ticket create, or an Epic create
+ * the milestone decision permitted — returned as created in its paired,
+ * non-error tool_result.
+ */
 function createdKeys(parsed: Array<ParsedLine | null>, adapter: WorkspaceAdapterKey): Set<string> {
   const creates = new Map<string, TrackerCall>();
   const out = new Set<string>();
@@ -1031,7 +1090,7 @@ function createdKeys(parsed: Array<ParsedLine | null>, adapter: WorkspaceAdapter
     if (!p) continue;
     for (const b of p.blocks) {
       if (b.type === "tool_use") {
-        const c = createCallIn(b, adapter);
+        const c = createCallIn(b, adapter) ?? MILESTONE_CREATES.pick(b, adapter);
         if (typeof b.id === "string" && c) creates.set(b.id, c);
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
         const c = creates.get(b.tool_use_id);
@@ -1174,12 +1233,17 @@ function gateTicket(
 }
 
 // ---------------------------------------------------------------------------
-// §5 — containers: named, not gated, in this milestone
+// §5 — containers: decided against a `milestone-decision` receipt (STE-608)
 // ---------------------------------------------------------------------------
 
-const CONTAINER_GATE_MILESTONE = "M_685ff6";
+/** The decision front door: the ONE module whose receipts decide a container write. */
+const RESOLVE_MODULE = "resolve_milestone_identity.ts";
 
-/** §5 — the kind a container call writes, for the Reminder. */
+function frontDoor(what: "--title <title>" | "--join-key <key>"): string {
+  return acceptedShape(RESOLVE_MODULE, `<projectRoot> <jira|linear> <project> <listing.json> ${what}`);
+}
+
+/** §5 — the kind a container call writes, named in its refusal. */
 function containerKind(tool: string): string {
   if (tool === "createJiraIssue" || tool === "save_milestone") return "milestone";
   if (tool === "save_project") return "project";
@@ -1188,16 +1252,230 @@ function containerKind(tool: string): string {
   return "document";
 }
 
-function remindContainer(call: TrackerCall, declared: DeclaredTarget[]): 1 {
-  const kind = containerKind(call.tool);
-  emitNFR10(
-    "Reminder",
-    `${call.tool} is a ${kind} write into a shared container declared by ${declared.map((d) => d.root).join(", ")}; container writes are gated from ${CONTAINER_GATE_MILESTONE}, so this one is named, not refused.`,
-    `confirm this ${kind} belongs to this repository before relying on it.`,
-    "none",
-    HOOK_NAME,
+/** A container create the front door can decide: an Epic create, or a `save_milestone` without `id`. */
+function isMilestoneCreate(tool: string, input: Record<string, unknown>): boolean {
+  if (tool === "createJiraIssue") return !isCreate(tool, input);
+  return tool === "save_milestone" && (input.id === undefined || input.id === null || input.id === "");
+}
+
+/** The milestone-container creates, for the shared spending and lost-create walks (one decision, one create). */
+const MILESTONE_CREATES: CreateKind = {
+  pick: (b, adapter) => trackerCallIn(b, adapter, isMilestoneCreate),
+  shape: (c) => {
+    const i = c.input;
+    const text = (v: unknown) => (typeof v === "string" ? v : "");
+    return c.adapter === "jira"
+      ? { project: text(i.projectKey), team: "", title: text(i.summary), labels: [], container: "" }
+      : { project: text(i.project), team: "", title: text(i.name), labels: [], container: "" };
+  },
+};
+
+interface MilestoneDecision {
+  line: number;
+  path: string;
+  project: string;
+  act: "create" | "join";
+  key: string;
+  /** The `--title` the decision was made for; null on a join by key. */
+  title: string | null;
+  milestoneId: string;
+  /** The Epic's labels as listed (Jira joins only). */
+  labels: string[];
+}
+
+/**
+ * The `milestone-decision` receipts of this session in `roots`, in transcript
+ * order — each announced by a run of the decision front door itself. A receipt
+ * of that kind announced by any other deciding module, rewritten after its
+ * announcement, unreadable, malformed, or written for another session or
+ * adapter counts as absent.
+ */
+function milestoneDecisions(
+  announcements: Announcement[],
+  roots: ReadonlySet<string>,
+  sessionId: string,
+  adapter: WorkspaceAdapterKey,
+): MilestoneDecision[] {
+  const out: MilestoneDecision[] = [];
+  for (const a of announcements) {
+    if (a.module !== RESOLVE_MODULE || !a.intact || !roots.has(a.root)) continue;
+    const r = readSessionReceipt(a.receiptPath, sessionId, adapter);
+    if (!r || r.kind !== "milestone-decision" || typeof r.container !== "string") continue;
+    const ev = r.evidence && typeof r.evidence === "object" ? (r.evidence as Record<string, unknown>) : null;
+    if (!ev || (ev.act !== "create" && ev.act !== "join")) continue;
+    out.push({
+      line: a.line,
+      path: a.receiptPath,
+      project: r.container,
+      act: ev.act,
+      key: typeof ev.key === "string" ? ev.key : "",
+      title: typeof ev.title === "string" ? ev.title : null,
+      milestoneId: typeof ev.milestoneId === "string" ? ev.milestoneId : "",
+      labels: stringList(ev.labels),
+    });
+  }
+  return out;
+}
+
+/** A create decision for the same project and a byte-equal title (AC-STE-608.10 a/b). */
+function decides(d: MilestoneDecision, c: CreateShape): boolean {
+  return d.act === "create" && sameName(d.project, c.project) && d.title === c.title;
+}
+
+function gateMilestoneCreate(
+  call: TrackerCall,
+  sessionId: string,
+  transcript: string[],
+  announcements: Announcement[],
+  targets: DeclaredTarget[],
+  where: string,
+  note: string,
+): ExitCode {
+  const want = MILESTONE_CREATES.shape(call);
+  const name = call.adapter === "jira" ? "Epic" : "project milestone";
+  const lost = lostCreates(parseLines(transcript), call.adapter, call.toolUseId, MILESTONE_CREATES).find((c) =>
+    sameTicket(c.shape, want),
   );
-  return 1;
+  if (lost) {
+    return refuse(
+      `${where}: an earlier create of the ${name} "${want.title}" (${lost.id}) may have made it — ${lost.why} — so no decision authorises another create of it.${note}`,
+      `list project ${want.project}'s containers again, save that listing, and run ${frontDoor("--title <title>")} ${PLAIN_RULE}: a listing that holds the ${name} decides a join, and nothing is created. If it still misses, ask the operator with AskUserQuestion to search the tracker by hand.`,
+    );
+  }
+  const roots = new Set(targets.map((t) => t.root));
+  const seen = milestoneDecisions(announcements, roots, sessionId, call.adapter).map((d) => ({ ...d, spent: false }));
+  // One create decision authorises ONE container create after its announcement.
+  for (const c of createsBefore(transcript, call.adapter, call.toolUseId, MILESTONE_CREATES)) {
+    const hit = seen.find((d) => !d.spent && d.line < c.line && decides(d, c.shape));
+    if (hit) hit.spent = true;
+  }
+  const matching = seen.filter((d) => decides(d, want));
+  if (matching.some((d) => !d.spent)) return 0;
+  if (matching.length > 0) {
+    return refuse(
+      `${where}: its create decision (${matching[matching.length - 1]!.path}) is spent — another create of the ${name} "${want.title}" took it, and that create may have made it.${note}`,
+      `list project ${want.project}'s containers again and run ${frontDoor("--title <title>")} ${PLAIN_RULE}: a listing holding the ${name} decides a join; a create decision authorises one create only.`,
+    );
+  }
+  const last = seen[seen.length - 1];
+  const why = last
+    ? `the latest milestone decision (${last.path}) is a ${last.act}${last.act === "join" ? ` of ${last.key}` : ` of "${last.title}" in project ${last.project}`}, not a create of "${want.title}" in project ${want.project}`
+    : `no milestone-decision receipt announced by ${RESOLVE_MODULE} in this session decides it`;
+  return refuse(
+    `${where}: the ${name} create of "${want.title}" in project ${want.project} is not decided — ${why}.${note}`,
+    `save project ${want.project}'s container listing and run ${frontDoor("--title <title>")} in ${[...roots].join(", ")} with this exact title ${PLAIN_RULE}; a create decision permits this create, a join decision names the existing key to use instead.`,
+  );
+}
+
+/**
+ * §5 — a `container` call in a declared target, decided (AC-STE-608.10): an
+ * Epic create or a `save_milestone` without `id` needs a create decision; no
+ * toolkit flow edits a milestone, writes a project, or retires, restores or
+ * renames a label; the one other permitted write is a `create_issue_label`
+ * of the target's own `repo_tag`.
+ */
+function gateContainer(
+  call: TrackerCall,
+  sessionId: string,
+  transcript: string[],
+  announcements: Announcement[],
+  declared: DeclaredTarget[],
+  note: string,
+): ExitCode {
+  const kind = containerKind(call.tool);
+  const shape = callShape(call.adapter, call.input);
+  let targets = declared;
+  if (shape.project !== "" || shape.team !== "") {
+    targets = declared.filter((d) => bindsContainer(call.adapter, d.binding, shape));
+    if (targets.length === 0) {
+      const opaque = opaqueContainer(call.adapter, shape);
+      if (opaque === null) return 0; // §3 — no declared target binds this container
+      return refuse(
+        `${call.tool} names its container by the id "${opaque}", which cannot be resolved against the declared targets ${declared.map((d) => d.root).join(", ")}.${note}`,
+        `name the ${call.adapter === "jira" ? "project by its key" : "team and project by the names the declaration uses"} and decide the ${kind} with ${frontDoor("--title <title>")}, then retry.`,
+      );
+    }
+  }
+  const where = `${call.tool} (a ${kind} write) in ${targets.map((t) => t.root).join(", ")}`;
+  const decideRemedy = `milestone containers are decided by ${frontDoor("--title <title>")} (or \`--join-key <key>\` to take an existing one) ${PLAIN_RULE}`;
+
+  if (isMilestoneCreate(call.tool, call.input)) {
+    return gateMilestoneCreate(call, sessionId, transcript, announcements, targets, where, note);
+  }
+  if (call.tool === "save_milestone") {
+    return refuse(
+      `${where}: a save_milestone with an id edits an existing milestone, and no toolkit flow edits one.${note}`,
+      `to use an existing milestone, join it — ${frontDoor("--join-key <key>")} writes nothing to it; to make a new one, ${decideRemedy}.`,
+    );
+  }
+  if (call.tool === "save_project") {
+    return refuse(
+      `${where}: no toolkit flow writes a project.${note}`,
+      `leave the project to a person in the tracker; ${decideRemedy}.`,
+    );
+  }
+  if (call.tool === "create_issue_label") {
+    const name = typeof call.input.name === "string" ? call.input.name : "";
+    if (name !== "" && targets.some((t) => t.binding.repoTag === name)) return 0;
+    return refuse(
+      `${where}: create_issue_label "${name}" is not a declared target's repo tag (${targets.map((t) => t.binding.repoTag ?? "none").join(", ")}), and no toolkit flow creates any other label.${note}`,
+      `create only this repository's own tag label (name = its repo_tag); ${decideRemedy}.`,
+    );
+  }
+  if (/^(retire|restore)_/.test(call.tool) || (/label/.test(call.tool) && call.input.id !== undefined)) {
+    return refuse(
+      `${where}: a label retire, restore or rename is always refused — it can strip a sibling repository's tag from every ticket.${note}`,
+      `leave the label to a person in the tracker; ${decideRemedy}.`,
+    );
+  }
+  return refuse(
+    `${where}: no toolkit flow performs a ${kind} write.${note}`,
+    `leave the ${kind} to a person in the tracker; ${decideRemedy}.`,
+  );
+}
+
+/**
+ * AC-STE-608.10 (d) — an `editJiraIssue` writing `labels` on an Epic a
+ * `milestone-decision` receipt records as joined is a read-merge: the payload
+ * keeps every label that receipt listed plus the milestone label, or it is the
+ * SET that clobbers a sibling's labels. Null when the rule does not apply (the
+ * call then stays under the ownership rule of §4).
+ */
+function gateJoinedLabels(
+  call: TrackerCall,
+  sessionId: string,
+  announcements: Announcement[],
+  declared: DeclaredTarget[],
+  note: string,
+): ExitCode | null {
+  if (call.adapter !== "jira" || call.tool !== "editJiraIssue") return null;
+  const fields = call.input.fields;
+  if (!fields || typeof fields !== "object" || !("labels" in (fields as Record<string, unknown>))) return null;
+  const keys = subjectKeys(call);
+  if (keys.length !== 1) return null;
+  const key = keys[0]!;
+  const targets = declared.filter((d) => bindsKey(call.adapter, d.binding, key));
+  if (targets.length === 0) return null;
+  const roots = new Set(targets.map((t) => t.root));
+  const joins = milestoneDecisions(announcements, roots, sessionId, call.adapter).filter(
+    (d) => d.act === "join" && d.key.toUpperCase() === key,
+  );
+  const join = joins[joins.length - 1];
+  if (!join) return null;
+  let milestone: string | null;
+  try {
+    milestone = milestoneLabel(join.milestoneId);
+  } catch {
+    milestone = null;
+  }
+  const labels = stringList((fields as Record<string, unknown>).labels);
+  const required = milestone === null ? join.labels : [...join.labels, milestone];
+  const missing = required.filter((l) => !labels.includes(l));
+  if (milestone !== null && missing.length === 0) return 0;
+  return refuse(
+    `editJiraIssue on ${key}, an Epic joined by ${join.path}: the labels [${labels.join(", ")}] ${milestone === null ? `cannot be checked — the receipt names no milestone id` : `drop ${missing.map((l) => `"${l}"`).join(", ")}`}; a labels write replaces the whole set, so it would clobber the labels the listing showed.${note}`,
+    `send the \`labels=\` value ${frontDoor("--join-key <key>")} printed for ${key} — every listed label plus the milestone label — or run it again on a fresh listing ${PLAIN_RULE}, then retry.`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1313,8 +1591,10 @@ export function run(stdin: string): ExitCode {
 
   const note = unreadableInputsNote(payload, transcript, scan);
   if (isCreate(call.tool, call.input)) return gateCreate(call, sessionId, lines, announcements, declared, note);
-  if (!isContainer(call.tool, call.input)) return gateTicket(call, sessionId, lines, announcements, declared, note);
-  return remindContainer(call, declared);
+  if (isContainer(call.tool, call.input)) return gateContainer(call, sessionId, lines, announcements, declared, note);
+  const joined = gateJoinedLabels(call, sessionId, announcements, declared, note);
+  if (joined !== null) return joined;
+  return gateTicket(call, sessionId, lines, announcements, declared, note);
 }
 
 /**
@@ -1337,6 +1617,6 @@ export function exitCodeFor(stdin: string, gate: (stdin: string) => ExitCode = r
 
 if (import.meta.main) {
   const code = exitCodeFor(await Bun.stdin.text());
-  // 0 permit, 1 Reminder (non-blocking), 2 refusal — every refuse(…) above.
-  process.exit(code satisfies 0 | 1 | 2);
+  // 0 permit, 2 refusal — every refuse(…) above.
+  process.exit(code satisfies 0 | 2);
 }

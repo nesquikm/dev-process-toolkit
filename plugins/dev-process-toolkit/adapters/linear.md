@@ -84,8 +84,8 @@ minted calls the mint with `{ join: true }`. Its find leg compares titles after
 normalizing whitespace and case: exactly one match joins that milestone, two or
 more refuse and name every candidate with its identifier, and no match — or a
 provider carrying no `listMilestones` — refuses instead of creating. A join
-never creates. Without `{ join: true }` the same normalized match still joins,
-and only a genuine miss mints.
+never creates. The toolkit makes every other mint with the approved decision of
+`resolve_milestone_identity.ts` as `expect`, so it performs that act or refuses; only a bare mint with neither option still finds by title.
 
 The milestone KEEPS the human title — it is never renamed to the canonical form.
 That is deliberate and is why the binding above matches by KEY: once the identity
