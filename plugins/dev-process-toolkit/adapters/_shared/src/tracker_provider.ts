@@ -247,6 +247,7 @@ export class TrackerProvider implements Provider {
     await this.driver.upsertTicketMetadata(ticketId, {
       title: String(spec.frontmatter["title"] ?? ""),
       description: spec.body,
+      ...(spec.labels !== undefined ? { labels: spec.labels } : {}),
     });
     return {
       kind: "ok",

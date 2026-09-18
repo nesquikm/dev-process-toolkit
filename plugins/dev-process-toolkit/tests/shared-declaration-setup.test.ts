@@ -865,13 +865,18 @@ describe("AC-STE-603.10 — budgets and the reachability pin", () => {
     expect(graph.reachable(rel)).toBe(true);
   });
 
-  test("the ledger head names STE-603, sits below 125, and equals the awaited measurement", async () => {
-    const head = ORDERED_UNREACHABLE_PIN_LEDGER[0]!;
-    expect(head.rationale).toContain("STE-603");
-    expect(head.value, "the pin may only fall — a raise is forbidden").toBeLessThan(125);
-    const previous = ORDERED_UNREACHABLE_PIN_LEDGER[1]!;
+  // PIN MOVE (M_947c79/STE-605): later FRs prepend their own moves, so this
+  // FR's entry is FOUND by its rationale; it must still sit directly on the
+  // STE-602 entry at 125, and the head must equal the awaited measurement.
+  test("the ledger records one STE-603 lowering from 125, and the head equals the awaited measurement", async () => {
+    const mine = ORDERED_UNREACHABLE_PIN_LEDGER.filter((m) => m.rationale.includes("M_947c79/STE-603"));
+    expect(mine.length, "exactly one ledger entry is STE-603's").toBe(1);
+    const at = ORDERED_UNREACHABLE_PIN_LEDGER.indexOf(mine[0]!);
+    expect(mine[0]!.value, "the pin may only fall — a raise is forbidden").toBeLessThan(125);
+    const previous = ORDERED_UNREACHABLE_PIN_LEDGER[at + 1]!;
     expect(previous.value).toBe(125);
     expect(previous.rationale).toContain("STE-602");
+    const head = ORDERED_UNREACHABLE_PIN_LEDGER[0]!;
     const report = await runModuleReachabilityProbe(repoRoot);
     expect(
       report.orderedUnreachable,
