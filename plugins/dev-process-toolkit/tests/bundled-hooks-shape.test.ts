@@ -128,20 +128,30 @@ describe("AC-STE-289.1 / AC-STE-289.6 — bundled hooks.json shape", () => {
     expect(parsed.hooks).not.toBeNull();
   });
 
-  test("hooks.json carries exactly 4 total hook entries", () => {
+  // STE-607 pin move (1 of 3): total 4 → 5 — `pre-tracker-write-gate` joins
+  // PreToolUse (UserPromptSubmit unchanged at 1).
+  test("hooks.json carries exactly 5 total hook entries", () => {
     const parsed = readHooksJson();
     const pre = flattenEvent(parsed.hooks?.PreToolUse);
     const ups = flattenEvent(parsed.hooks?.UserPromptSubmit);
-    expect(pre.length + ups.length).toBe(4);
+    expect(pre.length + ups.length).toBe(5);
   });
 
-  test("PreToolUse has 3 hooks under matcher `Bash`", () => {
+  // STE-607 pin move (2 of 3): PreToolUse 3 → 4 entries.
+  // STE-607 pin move (3 of 3): the matcher is no longer uniformly `Bash` — the
+  // three commit/PR gates stay under `Bash`; the fourth entry,
+  // `pre-tracker-write-gate`, sits under the tracker-write MCP matcher
+  // (`^mcp__.+__(…)$`, graded in tests/hook-modules-pre-tracker-write-gate.test.ts).
+  test("PreToolUse has 4 hooks: 3 under matcher `Bash`, 1 (`pre-tracker-write-gate`) under an `mcp__` matcher", () => {
     const parsed = readHooksJson();
     const pre = flattenEvent(parsed.hooks?.PreToolUse);
-    expect(pre.length).toBe(3);
-    for (const entry of pre) {
-      expect(entry.matcher).toBe("Bash");
-    }
+    expect(pre.length).toBe(4);
+    const bash = pre.filter((e) => e.matcher === "Bash");
+    const other = pre.filter((e) => e.matcher !== "Bash");
+    expect(bash.length).toBe(3);
+    expect(other.length).toBe(1);
+    expect(other[0]!.command.endsWith("/pre-tracker-write-gate.sh")).toBe(true);
+    expect(other[0]!.matcher.startsWith("^mcp__")).toBe(true);
   });
 
   test("UserPromptSubmit has 1 hook under matcher `*`", () => {

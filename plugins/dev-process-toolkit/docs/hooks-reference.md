@@ -6,7 +6,7 @@ This is the user manual for the **plugin-bundled, harness-auto-discovered Proces
 
 ## How the harness loads these hooks
 
-The Claude Code harness **auto-discovers** the plugin-bundled hook registration at session start. There is no `/setup` step, no user-settings.json mutation, no per-project opt-in. The 5 hooks fire across every project where the `dev-process-toolkit` plugin is enabled at user scope.
+The Claude Code harness **auto-discovers** the plugin-bundled hook registration at session start. There is no `/setup` step, no user-settings.json mutation, no per-project opt-in. The 6 hooks fire across every project where the `dev-process-toolkit` plugin is enabled at user scope.
 
 Per the Claude Code plugins reference (`code.claude.com/docs/en/plugins-reference.md#hooks` + `#environment-variables`):
 
@@ -15,7 +15,7 @@ Per the Claude Code plugins reference (`code.claude.com/docs/en/plugins-referenc
 3. At hook-fire time, the literal token `${CLAUDE_PLUGIN_ROOT}` is substituted inline against the plugin's runtime path on the user's machine — the plugin cache directory, not any dev-clone path.
 4. Plugin hooks fire in **every project** where the plugin is enabled (user scope). No per-project opt-in mechanism; opt-out is `claude plugin disable dev-process-toolkit` per the harness contract.
 
-**Install shape.** The hook entries live in `<plugin-root>/hooks/hooks.json` as six `command`-type entries registering the five distinct scripts — `session-token-ledger` is wired twice, once under `SessionEnd` and once under `Stop` — each whose `command` field is the literal inline form `"${CLAUDE_PLUGIN_ROOT}"/templates/hooks/process/<name>.sh` with `timeout: 5000`. The plugin owns the script bodies; updates propagate automatically when the plugin updates (no user action needed).
+**Install shape.** The hook entries live in `<plugin-root>/hooks/hooks.json` as seven `command`-type entries registering the six distinct scripts — `session-token-ledger` is wired twice, once under `SessionEnd` and once under `Stop` — each whose `command` field is the literal inline form `"${CLAUDE_PLUGIN_ROOT}"/templates/hooks/process/<name>.sh` with `timeout: 5000`. The plugin owns the script bodies; updates propagate automatically when the plugin updates (no user action needed).
 
 **NFR-10 refusal shape.** On a contract miss, hooks exit non-zero and write a 3-line structured refusal to stderr in the canonical NFR-10 shape emitted by `templates/hooks/_lib/session.ts`:
 
@@ -27,7 +27,7 @@ Context: mode=hook, ticket=unbound, skill=<skill>, hook=<hook>
 
 Advisory (non-blocking) hooks substitute `Reminder:` for `Refusing:` and exit 0.
 
-**Exit-code contract (Claude Code 2.1.x).** The 3 Refusing hooks emit blocking refusals via `exit 2`, per the empirically-verified Claude Code 2.1.141 hook contract:
+**Exit-code contract (Claude Code 2.1.x).** The 4 Refusing hooks emit blocking refusals via `exit 2`, per the empirically-verified Claude Code 2.1.141 hook contract:
 - `exit 0` → tool call proceeds (no stderr surfaced).
 - `exit 2` → tool call **blocked**; harness surfaces stderr to the model as feedback context.
 - any other non-zero (including `exit 1`) → advisory; harness shows stderr to operator only and proceeds with the tool call.
@@ -42,7 +42,7 @@ The Claude Code harness surfaces this stderr block back to the model, which then
 
 Because the hooks ship bundled inside the plugin, editing them in place is not the override path — plugin updates would overwrite a forked `hooks/hooks.json` and the harness only honors `${CLAUDE_PLUGIN_ROOT}` expansion inside the plugin's own registration surface. Operators have two override paths:
 
-1. **Disable the plugin's bundled hook entirely.** Run `claude plugin disable dev-process-toolkit` (per the harness contract) to stop all 5 hooks from firing. There is no per-hook on/off; the registration is plugin-scoped.
+1. **Disable the plugin's bundled hook entirely.** Run `claude plugin disable dev-process-toolkit` (per the harness contract) to stop all 6 hooks from firing. There is no per-hook on/off; the registration is plugin-scoped.
 2. **Copy-and-override into the operator's own `.claude/`.** Snapshot-copy the seeded script (e.g., `cp ~/.claude/plugins/cache/dev-process-toolkit/dev-process-toolkit/<version>/templates/hooks/process/<name>.sh ~/.claude/hooks/<name>.sh`), edit the copy, then register the copy as a hook entry in the operator's own user-scoped `~/.claude/settings.json` (referencing the local path directly — `${CLAUDE_PLUGIN_ROOT}` does NOT expand outside the plugin's `hooks/hooks.json`). Disable the plugin's bundled version to avoid the original firing alongside the fork. Plugin updates no longer touch the operator's fork; re-snapshot manually for upstream changes.
 
 The copy-and-override path is intentionally heavier than the prior install-side model offered. It reflects the harness contract: plugin-bundled registrations are owned by the plugin, and operator customization lives in operator-scoped settings against operator-managed script paths.
@@ -128,6 +128,21 @@ Empirical research via the `claude-code-guide` agent confirmed the contract: `${
   Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:tdd, hook=pre-commit-tdd-orchestrator
   ```
 - **Override pattern:** Disable the plugin or copy-and-override — snapshot-copy the seeded script into `~/.claude/hooks/pre-commit-tdd-orchestrator.sh`, edit (e.g., tighten or loosen the "FR-related staged" heuristic, allow-list certain commit types like `docs:` or `chore:`), and register the local absolute path in the operator's `~/.claude/settings.json`.
+
+### pre-tracker-write-gate
+
+- **Name:** `pre-tracker-write-gate`
+- **Event:** `PreToolUse`
+- **Matcher:** `^mcp__.+__(<names>)$`, generated from the one list `TRACKER_WRITE_TOOLS` in the hook module, so every server name matches (`atlassian`, `linear`, `claude_ai_Linear`, …). It fires on Jira and Linear tracker write tools only — reads never reach it.
+- **Requirement:** Blocks tracker writes into a **shared container** — a Jira project or Linear team/project the target repository's CLAUDE.md declares as shared — that skipped the deciding commands. It demands receipts, not a `Skill` tool_use: a `create` needs an unspent `create` receipt for this session whose payload matches the call; a `ticket` write needs a subject the target owns (bound by a tracked FR file, created in this session, or named by a `reuse` / `binding` / `import` receipt, the last two backed by an answered consent). Receipts count only when a deciding module announced them (`dpt-receipt: <path>`) in this session's transcript. It also refuses any write from a toolkit older than a declared `min_dpt_version` floor, a malformed declaration, and a subject or container it cannot resolve. Container writes (milestone, project, label, status update, document) are named with an exit-1 `Reminder:`, not refused, until M_685ff6.
+- **Silent where nothing is declared:** with no declared shared target the hook exits 0 with no stdout and no stderr — byte-identical to a session with no hook at all. Unparseable stdin also exits 0.
+- **NFR-10 refusal shape on miss** (exit 2; the reason names the tool, the subject or container, the target root and the command that would have authorised the write):
+  ```
+  Refusing: <tool> <what was missing, and where>
+  Remedy: <the deciding command to run, or the fix to make>
+  Context: mode=hook, ticket=unbound, skill=none, hook=pre-tracker-write-gate
+  ```
+- **Override pattern:** Disable the plugin or copy-and-override — snapshot-copy the seeded script into `~/.claude/hooks/pre-tracker-write-gate.sh`, edit, and register the local absolute path in the operator's `~/.claude/settings.json`. Removing the shared-container declaration from the repository's CLAUDE.md also silences it for that repository.
 
 ### session-token-ledger
 

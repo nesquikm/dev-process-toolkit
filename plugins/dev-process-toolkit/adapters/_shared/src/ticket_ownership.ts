@@ -42,14 +42,14 @@ export const REFUSED_VERDICTS: ReadonlySet<OwnershipVerdict> = new Set<Ownership
   "foreign-repo",
 ]);
 
-interface TrackedBindings {
+export interface TrackedBindings {
   ids: Set<string>;
   count: number;
   gitError?: string;
 }
 
 /** FR bindings from files `git ls-files` lists under specs/frs/ and specs/frs/archive/. */
-function readTrackedBindings(projectRoot: string): TrackedBindings {
+export function readTrackedBindings(projectRoot: string): TrackedBindings {
   const proc = Bun.spawnSync(["git", "-C", projectRoot, "ls-files", "-z", "--", "specs/frs"], {
     stdout: "pipe",
     stderr: "pipe",

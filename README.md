@@ -177,7 +177,9 @@ dev-process-toolkit/
 │       ├── hooks/                   # hooks.json — the SessionEnd / Stop capture wiring PLUS the
 │       │                            #   blocking PreToolUse gates: pre-commit-gate-check and
 │       │                            #   pre-commit-tdd-orchestrator block `git commit`,
-│       │                            #   pre-pr-spec-review blocks `gh pr create`
+│       │                            #   pre-pr-spec-review blocks `gh pr create`,
+│       │                            #   pre-tracker-write-gate blocks shared-container
+│       │                            #   tracker writes that skipped the deciding commands
 │       ├── scripts/                 # Migration helpers invoked by /upgrade and probe remedies
 │       ├── tests/                   # The `bun test` gate root — Pattern 9 regression fixture + capture/verify scripts + MCP/project fixtures
 │       └── examples/                # Per-stack configs (typescript-node, bun-typescript, flutter-dart, kotlin, python, plugin)
