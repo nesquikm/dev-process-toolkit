@@ -300,11 +300,17 @@ export function probeRowKeys(stdout: string, kind: string): string[] {
   return [...keys].sort();
 }
 
-/** Every file under `root`, relative path -> bytes. */
+/**
+ * Every file under `root` (the working tree), relative path -> bytes. `.git`
+ * is skipped: the claims graded here are about the working tree, and git's own
+ * background maintenance creates and removes lock files under `.git` while a
+ * walk is in flight (a measured ENOENT flake in the STE-606 join-path test).
+ */
 export function snapshotTree(root: string): Map<string, string> {
   const out = new Map<string, string>();
   const walk = (dir: string) => {
     for (const name of readdirSync(dir)) {
+      if (name === ".git") continue;
       const p = join(dir, name);
       if (statSync(p).isDirectory()) walk(p);
       else out.set(relative(root, p), readFileSync(p, "utf-8"));

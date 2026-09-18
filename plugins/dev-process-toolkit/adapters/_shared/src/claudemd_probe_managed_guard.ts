@@ -82,6 +82,8 @@ export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
     "applicability derives from the presence of the `## Task Tracking` section it parses.",
   task_tracking_workspace_binding_present:
     "applicability derives from the declared tracker `mode:` (vacuous on absent section or `mode: none`).",
+  ticket_ownership:
+    "the ownership decision's front door reads the tracker binding through `readWorkspaceBinding`; applicability is the declared tracker `mode:` (and `repo_tag` for the shared verdicts), and an undeclared tree still gets the project comparison in managed and unmanaged trees alike.",
   toolkit_managed:
     "IS the shared managed-ness predicate — the one module every other in-scope module is required to route through.",
   tracker_config_shape:

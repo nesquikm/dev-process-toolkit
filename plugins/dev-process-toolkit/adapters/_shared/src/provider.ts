@@ -27,7 +27,8 @@ export interface SyncResult {
 }
 
 export interface LockResult {
-  kind: "claimed" | "already-ours" | "taken-elsewhere";
+  /** `already-released` (STE-606) is tracker-only: `LocalProvider` never returns it. */
+  kind: "claimed" | "already-ours" | "taken-elsewhere" | "already-released";
   branch: string | null;
   message: string;
 }
