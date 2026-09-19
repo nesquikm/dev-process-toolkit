@@ -403,7 +403,8 @@ describe("AC-STE-540.2 — post-write verify derives the read-back identifier ba
     // class unretried (attach_project_milestone.ts:398).
     expect(rec.sleeps).toEqual([]);
     expect(d.upsertTicketMetadataCalls).toBe(1);
-    expect(d.getIssueCalls).toBe(1);
+    // Amended by AC-STE-611.4: the attach's first read of the ticket, then one verify.
+    expect(d.getIssueCalls).toBe(2);
   });
 
   test("the milestone-id remedy is its OWN, not the object remedy by fallthrough", () => {
@@ -468,7 +469,7 @@ describe("AC-STE-540.2 — post-write verify derives the read-back identifier ba
 // ───────────────────────────────────────────────────────────────────────
 
 describe("AC-STE-540.3 — a numeric M<N> token keeps the shipped match-by-name path", () => {
-  test("found-by-name: call ORDER is exactly listMilestones → upsertTicketMetadata → getIssue", async () => {
+  test("found-by-name: call ORDER is exactly getIssue → listMilestones → upsertTicketMetadata → getIssue", async () => {
     const d = makeObjectDouble({
       milestones: [
         { name: "Unrelated milestone", id: OTHER_UUID },
@@ -480,7 +481,8 @@ describe("AC-STE-540.3 — a numeric M<N> token keeps the shipped match-by-name 
     const result = await attach(d.provider, PROJECT, NUMERIC_CANONICAL, TICKET, {
       sleep: rec.sleep,
     });
-    expect(d.calls).toEqual(["listMilestones", "upsertTicketMetadata", "getIssue"]);
+    // Amended by AC-STE-611.4: the ticket is read before the enumeration.
+    expect(d.calls).toEqual(["getIssue", "listMilestones", "upsertTicketMetadata", "getIssue"]);
     // The NAME is written, never an identifier.
     expect(d.upsertArgs).toEqual([NUMERIC_CANONICAL]);
     expect(UUID_SHAPE_RE.test(d.upsertArgs[0]!)).toBe(false);
@@ -490,7 +492,7 @@ describe("AC-STE-540.3 — a numeric M<N> token keeps the shipped match-by-name 
     expect(rec.sleeps).toEqual([]);
   });
 
-  test("miss: call ORDER is listMilestones → saveMilestone → upsertTicketMetadata → getIssue", async () => {
+  test("miss: call ORDER is getIssue → listMilestones → saveMilestone → upsertTicketMetadata → getIssue", async () => {
     // POSITIVE CONTROL for AC.5's `saveMilestoneCalls === 0`: the same double
     // implementation increments this counter here, so a zero there is real.
     const d = makeObjectDouble({
@@ -501,7 +503,9 @@ describe("AC-STE-540.3 — a numeric M<N> token keeps the shipped match-by-name 
     });
     const rec = sleepRecorder();
     const result = await attach(d.provider, PROJECT, "M31 — New", TICKET, { sleep: rec.sleep });
+    // Amended by AC-STE-611.4: the ticket is read before the enumeration.
     expect(d.calls).toEqual([
+      "getIssue",
       "listMilestones",
       "saveMilestone",
       "upsertTicketMetadata",
@@ -527,7 +531,8 @@ describe("AC-STE-540.3 — a numeric M<N> token keeps the shipped match-by-name 
     const result = await attach(d.provider, PROJECT, NUMERIC_CANONICAL, TICKET, {
       sleep: rec.sleep,
     });
-    expect(d.calls).toEqual(["listMilestones", "upsertTicketMetadata", "getIssue"]);
+    // Amended by AC-STE-611.4: the ticket is read before the enumeration.
+    expect(d.calls).toEqual(["getIssue", "listMilestones", "upsertTicketMetadata", "getIssue"]);
     expect(d.upsertArgs).toEqual([NUMERIC_CANONICAL]);
     expect(d.saveMilestoneCalls).toBe(0);
     expect(result.capability).toBeNull();
@@ -870,6 +875,9 @@ describe("STE-540 control — the sleep recorder records when the backoff really
   /** A minimal object-binding provider whose upsert fails `failures` times. */
   function flakyProvider(canonical: string, row: { name: string; id?: string }, failures: number) {
     let upsertCalls = 0;
+    // Amended by AC-STE-611.4: the attach reads the ticket before it writes,
+    // so the ticket reads as unbound until an upsert has landed.
+    let landed = false;
     return {
       counts: () => upsertCalls,
       provider: {
@@ -882,11 +890,12 @@ describe("STE-540 control — the sleep recorder records when the backoff really
           // MilestoneAttachmentError is known-permanent — so a plain Error is
           // treated as possibly-transient and retried.
           if (upsertCalls <= failures) throw new Error("504 Gateway Timeout");
+          landed = true;
           return "ok";
         },
         getIssue: async (): Promise<{
           projectMilestone?: { name: string; id?: string } | null;
-        }> => ({ projectMilestone: row }),
+        }> => ({ projectMilestone: landed ? row : null }),
       },
       canonical,
     };
@@ -977,6 +986,9 @@ describe("STE-540 — the name fallback cannot silently bind the wrong milestone
   test("CONTROL: the same fallback on the RIGHT milestone succeeds", async () => {
     // Without this the leg above could pass on a fallback that always fails.
     let upserts = 0;
+    // Amended by AC-STE-611.4: the attach reads the ticket before it writes,
+    // so the ticket reads as unbound until the name write has landed.
+    let landed = false;
     const provider = {
       milestoneBinding: "object" as const,
       listMilestones: async (): Promise<{ name: string; id?: string }[]> => [
@@ -986,10 +998,11 @@ describe("STE-540 — the name fallback cannot silently bind the wrong milestone
       upsertTicketMetadata: async (_t: string, meta: { milestone?: string }): Promise<string> => {
         upserts += 1;
         if (meta.milestone && UUID_SHAPE_RE.test(meta.milestone)) throw new Error("id not accepted");
+        landed = true;
         return "ok";
       },
       getIssue: async (): Promise<{ projectMilestone?: { name: string; id?: string } | null }> => ({
-        projectMilestone: { name: HUMAN_TITLE, id: MILESTONE_UUID },
+        projectMilestone: landed ? { name: HUMAN_TITLE, id: MILESTONE_UUID } : null,
       }),
     };
     const rec = sleepRecorder();

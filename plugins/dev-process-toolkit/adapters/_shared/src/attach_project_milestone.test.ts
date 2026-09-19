@@ -175,7 +175,7 @@ describe("silent no-op detection", () => {
 });
 
 describe("idempotent: re-attach already-bound ticket", () => {
-  test("ticket already at correct milestone → re-runs ops without throwing", async () => {
+  test("ticket already at correct milestone → one read, no write, no throw", async () => {
     const stub: Stub = {
       milestones: [{ name: "M31 — Tracker Workflow Hardening" }],
       attached: "M31 — Tracker Workflow Hardening", // already bound
@@ -183,8 +183,9 @@ describe("idempotent: re-attach already-bound ticket", () => {
     };
     const p = makeProvider(stub);
     await attachProjectMilestone(p, "DPT", "M31 — Tracker Workflow Hardening", "STE-117");
-    // Verify the attach call still fires (Linear no-ops on same milestone).
-    expect(stub.calls).toContain('upsertTicketMetadata(STE-117,{"milestone":"M31 — Tracker Workflow Hardening"})');
+    // Amended by AC-STE-611.4: the attach reads the ticket first, and a ticket
+    // already bound is left alone — one read, no enumeration, no write.
+    expect(stub.calls).toEqual(["getIssue(STE-117)"]);
     // Final state matches.
     expect(stub.attached).toBe("M31 — Tracker Workflow Hardening");
   });
@@ -657,7 +658,9 @@ interface FlakyStub {
   forceFinalAttach?: string | null;
   calls: string[];
   upsertErrors: Error[];
-  getIssueErrors: Error[];
+  // Amended by AC-STE-611.4: a `null` entry lets a later read fail while an
+  // earlier one (the attach's first read of the ticket) succeeds.
+  getIssueErrors: Array<Error | null>;
 }
 
 function makeFlakyProvider(stub: FlakyStub) {
@@ -756,7 +759,8 @@ describe("STE-362 AC-STE-362.1 — transient-only retry wrapper (object branch)"
     // Fast-path attempt + one retry attempt.
     expect(countCalls(stub.calls, "upsertTicketMetadata")).toBe(2);
     // Attempt 1 died at the attach, so only the retry reached the verify.
-    expect(countCalls(stub.calls, "getIssue")).toBe(1);
+    // Amended by AC-STE-611.4: plus the attach's first read of the ticket.
+    expect(countCalls(stub.calls, "getIssue")).toBe(2);
     expect(stub.attached).toBe(NAME);
   });
 
@@ -768,7 +772,9 @@ describe("STE-362 AC-STE-362.1 — transient-only retry wrapper (object branch)"
       attached: null,
       calls: [],
       upsertErrors: [],
-      getIssueErrors: [new Error("ECONNRESET: connection reset by peer")],
+      // Amended by AC-STE-611.4: the first read is the attach's read of the
+      // ticket; the reset lands on the second, the verify.
+      getIssueErrors: [null, new Error("ECONNRESET: connection reset by peer")],
     };
     const rec = sleepRecorder();
     const result = await attachWithOpts(makeFlakyProvider(stub), "DPT", NAME, "STE-362", {
@@ -777,7 +783,8 @@ describe("STE-362 AC-STE-362.1 — transient-only retry wrapper (object branch)"
     expect(result.capability).toBeNull();
     expect(rec.sleeps).toEqual([1000]);
     expect(countCalls(stub.calls, "upsertTicketMetadata")).toBe(2);
-    expect(countCalls(stub.calls, "getIssue")).toBe(2);
+    // Amended by AC-STE-611.4: the first read, the failed verify, the verify.
+    expect(countCalls(stub.calls, "getIssue")).toBe(3);
   });
 
   test("two transient failures walk the schedule (1s then 2s) before succeeding", async () => {
@@ -856,7 +863,8 @@ describe("STE-362 AC-STE-362.1 — transient-only retry wrapper (object branch)"
     expect(err).not.toBeNull();
     expect(rec.sleeps).toEqual([]);
     expect(countCalls(stub.calls, "upsertTicketMetadata")).toBe(1);
-    expect(countCalls(stub.calls, "getIssue")).toBe(1);
+    // Amended by AC-STE-611.4: the attach's first read, then one verify.
+    expect(countCalls(stub.calls, "getIssue")).toBe(2);
   });
 
   test("clean success adds no latency — zero sleeps, exactly one attach + one verify", async () => {
@@ -874,7 +882,8 @@ describe("STE-362 AC-STE-362.1 — transient-only retry wrapper (object branch)"
     expect(result.capability).toBeNull();
     expect(rec.sleeps).toEqual([]);
     expect(countCalls(stub.calls, "upsertTicketMetadata")).toBe(1);
-    expect(countCalls(stub.calls, "getIssue")).toBe(1);
+    // Amended by AC-STE-611.4: the attach's first read, then one verify.
+    expect(countCalls(stub.calls, "getIssue")).toBe(2);
   });
 });
 
@@ -895,7 +904,8 @@ describe("STE-362 AC-STE-362.1 — retry wrapper covers the label branch (Jira)"
     expect(rec.sleeps).toEqual([1000]);
     expect(countCalls(stub.calls, "addLabel")).toBe(2);
     // Attempt 1 died at addLabel, so only the retry reached the verify.
-    expect(countCalls(stub.calls, "getIssue")).toBe(1);
+    // Amended by AC-STE-611.4: plus the attach's first read of the ticket.
+    expect(countCalls(stub.calls, "getIssue")).toBe(2);
     expect(stub.labels).toContain("milestone-M97");
     // Existing labels never clobbered across retries.
     expect(stub.labels).toContain("spec-driven");
@@ -922,7 +932,8 @@ describe("STE-362 AC-STE-362.1 — retry wrapper covers the label branch (Jira)"
     expect(err!.binding).toBe("label");
     expect(rec.sleeps).toEqual([]);
     expect(countCalls(stub.calls, "addLabel")).toBe(1);
-    expect(countCalls(stub.calls, "getIssue")).toBe(1);
+    // Amended by AC-STE-611.4: the attach's first read, then one verify.
+    expect(countCalls(stub.calls, "getIssue")).toBe(2);
   });
 });
 

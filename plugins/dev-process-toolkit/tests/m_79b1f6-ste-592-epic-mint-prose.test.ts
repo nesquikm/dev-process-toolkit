@@ -639,6 +639,9 @@ describe("AC-STE-592.5 — the STE-580 suite stays green, its constants unedited
       "const MODULE_PATHS_ON_LINE_177_AT_HEAD = 16;",
       "  test(\"line 177's module-path count is unmoved at 16\", () => {",
       "      \"the append must not add a seventeenth module path, and must not delete one either\",",
+      // Re-measured by AC-STE-611.2: the known-positive `listEpics` control count.
+      "      `${ATTACH_HELPER_REL} carries 7 \\`listEpics\\` lines at HEAD — if this is not 7, the ` +",
+      "    ).toBe(7);",
     ];
     for (const l of removed) {
       expect([...RETIRED_TEST, ...REMEASURED], `an unexpected removal: ${JSON.stringify(l)}`).toContain(l);

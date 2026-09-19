@@ -482,7 +482,8 @@ function parseFrontDoorArgs(argv: readonly string[]): FrontDoorArgs {
   };
 }
 
-interface ReadListing {
+/** A tracker listing file, parsed and proven complete (STE-608; reused by STE-611's attach front door). */
+export interface ReadListing {
   sha256: string;
   rowKeys: string[];
   jiraRows?: (JiraDecisionRow & { statusName?: string })[];
@@ -493,7 +494,14 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
-function readListingFile(args: FrontDoorArgs): ReadListing {
+/**
+ * Read, parse and shape-check one saved tracker listing: a raw Jira Epic search
+ * page that PROVES it is the last one, or a Linear `{ milestones: [...] }`
+ * answer. Every failure throws an NFR-10 refusal whose parts are flattened.
+ * Exported so the attach front door (STE-611) parses the same format through
+ * the same code rather than a second parser.
+ */
+export function readListingFile(args: Pick<FrontDoorArgs, "mode" | "project" | "listingFile">): ReadListing {
   const context = `mode=${args.mode}, project=${args.project}, listing=${args.listingFile}`;
   let bytes: Buffer;
   try {

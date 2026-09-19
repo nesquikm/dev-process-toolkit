@@ -569,7 +569,8 @@ describe("AC-STE-523.7 — numeric token under milestoneBinding:'label' is untou
     expect(d.addLabelCalls).toBe(1);
     expect(d.labelWrites).toEqual([NUMERIC_LABEL]);
     expect(d.labels).toEqual([...SEED_LABELS, NUMERIC_LABEL]);
-    expect(d.getIssueCalls).toBe(1);
+    // Amended by AC-STE-611.4: the attach's first read of the ticket, then one verify.
+    expect(d.getIssueCalls).toBe(2);
     expect(result.capability).toBeNull();
     expect(result.createdName).toBeUndefined();
     expect(result.epicKey).toBeUndefined();

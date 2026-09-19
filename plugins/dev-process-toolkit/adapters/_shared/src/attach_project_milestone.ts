@@ -1,15 +1,23 @@
 // attach_project_milestone — STE-118 AC-STE-118.3.
 //
 // Binds a tracker ticket to a project milestone matching the local plan-file
-// heading. Idempotent: re-running on an already-bound ticket replays steps
-// 1+4 without side effects (Linear `save_issue` with the same milestone is
-// a no-op when the binding matches).
+// heading. Idempotent: re-running on an already-bound ticket reads the ticket
+// and stops there — no enumeration, no write (see "Order of work" below).
 //
 // Verify round-trip: after the attach call, `getIssue` is called to confirm
 // `projectMilestone.name` byte-equals the requested name. Mismatch → raise
 // `MilestoneAttachmentError` (NFR-10 canonical shape) — closes the silent
 // no-op trap (FR-67 pattern: Linear MCP echoes success but the binding
 // silently dropped if param names drift).
+//
+// Order of work (STE-611): the ticket is read FIRST — a ticket the reader
+// (`milestoneBindingPresent`) already accepts is left alone, with no
+// enumeration and no write. Only then does `resolveAttachTarget`, the ONE
+// find leg, enumerate and decide the surface (parent Epic / milestone label /
+// milestone object); `attachProjectMilestone` writes and verifies what it
+// decided. The same find leg backs the CLI front door at the bottom of this
+// file, which resolves a target from a saved listing before the ticket exists
+// and writes one `attach-target` receipt.
 //
 // The join is TOKEN-shaped rather than binding-shaped: since STE-540 the
 // `object` (Linear) branch routes on the leading milestone token's kind just
@@ -39,14 +47,18 @@
 //     never a mint (minting would allocate a fresh key that can never
 //     sanitize back to the token).
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync } from "node:fs";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { nfr10Message } from "./dpt_version";
 import {
   isMilestoneToken,
   milestoneIdFromEpicKey,
   milestoneIdFromLinearMilestone,
+  normalizeMilestoneTitle,
   parseMilestoneToken,
 } from "./milestone_token";
 import { parsePlanHeading } from "./plan_heading";
+import { announceReceipt, oneLine, printable, receiptDigest, writeReceipt } from "./tracker_receipts";
 
 export class MilestoneAttachmentError extends Error {
   readonly expected: string;
@@ -148,6 +160,33 @@ export function isMilestonePermanentRefusal(
 }
 
 /**
+ * STE-611 AC-STE-611.5 — the `Remedy:` line of `MilestoneEpicNotFoundError`.
+ * The configured project is sanitized FORWARD with the same function that
+ * derives milestone ids from Epic keys (`GF` → `M_GF_`); a token that does not
+ * start with that prefix names an Epic in ANOTHER project, whose only fixes
+ * are setting the parent by hand or archiving the FR before a repoint — never
+ * creating an Epic here. A same-project miss (or a project that does not
+ * sanitize) keeps the pre-STE-611 remedy byte-for-byte.
+ */
+function epicNotFoundRemedy(token: string, epicKey: string, project: string): string {
+  let prefix: string | null = null;
+  try {
+    prefix = `${milestoneIdFromEpicKey(project)}_`;
+  } catch {
+    prefix = null;
+  }
+  if (prefix !== null && !token.startsWith(prefix)) {
+    // The token was sanitized from a Jira key (`-` → `_`); a person sets a KEY,
+    // so name the likely key, never the sanitized form.
+    const likelyKey = epicKey.replace(/_(\d+)$/, "-$1");
+    return (
+      `Remedy: the token "${token}" does not start with "${prefix}", so its Epic lives in another project than the configured project "${project}" — do not create an Epic here; pick one — (a) set the ticket's parent by hand in the tracker to that Epic, the one whose key sanitizes to "${token}" (most likely "${likelyKey}"); (b) if the configured project is being repointed, archive the FR before the repoint so no attach runs across projects. Never hand-edit the token to a key in the configured project.\n`
+    );
+  }
+  return `Remedy: pick one — (a) confirm the Epic "${epicKey}" still exists and is visible in project "${project}" (restore it if it was archived/deleted, or fix the project the adapter is searching); (b) if the Epic lives in a different project, point the attach at that project; (c) if the Epic is gone for good, re-derive the milestone id from an Epic that does exist (mint the Epic yourself, then re-run /spec-write so the plan heading carries the new \`M_<epic-key>\` token). Never hand-edit the token to a key that has no Epic.\n`;
+}
+
+/**
  * STE-521 AC-STE-521.6 / AC-STE-521.7 — an Epic-KEYED milestone whose Epic is
  * not in the project is a REFUSAL, never a mint. The token was derived FROM an
  * Epic that already exists (`GF-78` → `M_GF_78`), so a newly minted Epic gets
@@ -170,7 +209,7 @@ export class MilestoneEpicNotFoundError extends MilestonePermanentRefusalError {
   constructor(token: string, epicKey: string, project: string) {
     super(
       `MilestoneEpicNotFoundError: refusing to attach — no Epic in project "${project}" has a key that sanitizes to the milestone token "${token}" (the attach looked for the Epic key "${epicKey}"). The token was derived from an Epic that already exists, so creating one would mint a SECOND Epic under a key that can never match the token.\n` +
-        `Remedy: pick one — (a) confirm the Epic "${epicKey}" still exists and is visible in project "${project}" (restore it if it was archived/deleted, or fix the project the adapter is searching); (b) if the Epic lives in a different project, point the attach at that project; (c) if the Epic is gone for good, re-derive the milestone id from an Epic that does exist (mint the Epic yourself, then re-run /spec-write so the plan heading carries the new \`M_<epic-key>\` token). Never hand-edit the token to a key that has no Epic.\n` +
+        epicNotFoundRemedy(token, epicKey, project) +
         `Context: token="${token}", epicKey="${epicKey}", project="${project}", binding=epic, helper=attachProjectMilestone`,
     );
     this.name = "MilestoneEpicNotFoundError";
@@ -568,21 +607,39 @@ async function attachViaMilestoneLabel(
   return { capability };
 }
 
-export async function attachProjectMilestone(
+/**
+ * STE-611 AC-STE-611.1 — the binding surface an attach lands on, as the find
+ * leg decided it. `parent` carries the milestone Epic's key; `label` is the
+ * milestone label surface (`degraded` when the `epic` binding's availability
+ * probe sent it there — the attach then reports `milestone_epic_unsupported`);
+ * `object` is a Linear milestone object — `id`/`name` present exactly on the
+ * identifier-keyed arm, absent on a grandfathered numeric name that matched by
+ * name; `object-create` is a grandfathered numeric Linear name with no match,
+ * which the attach auto-creates (resolving itself creates nothing).
+ */
+export type AttachTarget =
+  | { surface: "parent"; key: string }
+  | { surface: "label"; degraded?: true }
+  | { surface: "object"; id?: string; name?: string }
+  | { surface: "object-create" };
+
+/**
+ * STE-611 AC-STE-611.1 — the attach's find leg, lifted out whole so there is
+ * ONE place that decides which Epic / milestone / label a milestone name binds
+ * to. `attachProjectMilestone` obtains its target only through this function;
+ * everything here is a READ (enumeration + availability probe) — no write op is
+ * called. Throws the permanent refusals the attach throws, unchanged in class
+ * and text, each raised OUTSIDE `retryTransient` so a refusal does not pay the
+ * backoff schedule. The enumeration of the `epic` binding still runs inside the
+ * STE-375 AC-STE-375.5 transient retry, as it did in the attach.
+ */
+export async function resolveAttachTarget(
   provider: MilestoneOps,
   project: string,
   milestoneName: string,
-  ticketId: string,
   opts?: AttachProjectMilestoneOptions,
-): Promise<AttachProjectMilestoneResult> {
+): Promise<AttachTarget> {
   const sleep = opts?.sleep ?? defaultSleep;
-
-  // STE-198 AC-STE-198.1 (b): adapter declares no project_milestone capability.
-  // Short-circuits BEFORE the retry wrapper — no backoff leg, no tracker call
-  // (AC-STE-362.4 vacuity).
-  if (provider.supports && !provider.supports("project_milestone")) {
-    return { capability: "milestone_attach_skipped_adapter_limit" };
-  }
 
   // STE-375 AC-STE-375.1 — `epic` binding (Jira milestone-as-Epic). ONE
   // routing decision with FOUR outcomes, taken on the leading milestone token
@@ -617,13 +674,7 @@ export async function attachProjectMilestone(
     // degraded provider needs only `addLabel`. Probe absent ⇒ assume
     // available (same posture as the optional `supports` probe).
     if (provider.epicBindingAvailable && !(await provider.epicBindingAvailable(project))) {
-      return attachViaMilestoneLabel(
-        provider,
-        milestoneName,
-        ticketId,
-        sleep,
-        "milestone_epic_unsupported",
-      );
+      return { surface: "label", degraded: true };
     }
     // STE-523 AC-STE-523.1 — route on the milestone token's KIND, not on the
     // declared binding alone. The READER (`milestoneBindingPresent`, epic
@@ -646,7 +697,7 @@ export async function attachProjectMilestone(
     const parsedToken = parseMilestoneToken(milestoneToken);
     // ── OUTCOME 2: numeric token → the milestone LABEL surface.
     if (parsedToken?.kind === "numeric") {
-      return attachViaMilestoneLabel(provider, milestoneName, ticketId, sleep, null);
+      return { surface: "label" };
     }
     // ── OUTCOME 3: a name that CLAIMS a token parsing as neither kind.
     // STE-523 AC-STE-523.6 — the third case. With the routing above, a token
@@ -706,23 +757,16 @@ export async function attachProjectMilestone(
     };
     // STE-375 AC-STE-375.5 — the find leg retries as ONE unit on transient
     // failure (STE-362 canonical schedule). It was a find-OR-CREATE unit
-    // until STE-522 moved minting out; the retry shape is kept because the
-    // enumeration and the idempotency read-back still have to advance
-    // together, and a mint that landed server-side in a separate step is
-    // found by this leg on the next attach rather than duplicated.
-    const { epicKey, alreadyBound } = await retryTransient<{
-      epicKey: string | null;
-      alreadyBound: boolean;
-    }>(async () => {
+    // until STE-522 moved minting out, and its idempotency read-back left it
+    // with STE-611 (the attach now reads the ticket FIRST, before any
+    // enumeration). The retry shape is kept so a transient enumeration failure
+    // re-reads the whole listing, and a mint that landed server-side in a
+    // separate step is found by this leg on the next attach rather than
+    // duplicated.
+    const epicKey = await retryTransient<string | null>(async () => {
       const epics = await listEpics(project);
       const found = epics.find(matchesMilestoneEpic);
-      if (found) {
-        // STE-375 AC-STE-375.2 — idempotency pre-check: when the ticket's
-        // `parent` already equals the milestone Epic's key, the attach is a
-        // no-op — the parent is not rewritten and no second Epic is created.
-        const current = await provider.getIssue(ticketId);
-        return { epicKey: found.key, alreadyBound: (current.parent ?? null) === found.key };
-      }
+      if (found) return found.key;
       // A MISS on either arm, signalled out of the retry round-trip as a
       // sentinel and thrown below, so neither refusal pays the transient
       // backoff schedule. STE-521 AC-STE-521.6 / AC-STE-521.7 made the
@@ -733,7 +777,7 @@ export async function attachProjectMilestone(
       // place that can run the create in the order that makes the resulting
       // key derivable into a milestone id. The two misses differ only in what
       // the refusal can name, so they carry different errors below.
-      return { epicKey: null, alreadyBound: false };
+      return null;
     }, sleep);
     // `epicKey: null` is the miss sentinel the round-trip above threads out —
     // now emitted on BOTH arms, so the verdict routes on which match was run.
@@ -747,18 +791,7 @@ export async function attachProjectMilestone(
       }
       throw new MilestoneEpicUnmintedError(milestoneName, project);
     }
-    if (alreadyBound) {
-      return { capability: null, epicKey };
-    }
-    // Parent set + read-back verify (epic binding — the parent key must
-    // byte-equal the milestone Epic's key).
-    await writeAndVerify(provider, ticketId, sleep, {
-      write: () => setParent(ticketId, epicKey),
-      expected: epicKey,
-      read: (fresh) => fresh.parent ?? null,
-      binding: "epic",
-    });
-    return { capability: null, epicKey };
+    return { surface: "parent", key: epicKey };
   }
 
   // STE-329 AC-STE-329.3 — `label` binding (Jira create-on-write). Mirror the
@@ -767,7 +800,7 @@ export async function attachProjectMilestone(
   // creates a milestone object — listMilestones / saveMilestone /
   // upsertTicketMetadata are not called on this branch.
   if (provider.milestoneBinding === "label") {
-    return attachViaMilestoneLabel(provider, milestoneName, ticketId, sleep, null);
+    return { surface: "label" };
   }
 
   const existing = await provider.listMilestones(project);
@@ -817,7 +850,90 @@ export async function attachProjectMilestone(
     if (!foundById) {
       throw new MilestoneObjectNotFoundError(objectToken, milestoneName, project);
     }
-    const milestoneIdentifier = foundById.id;
+    return { surface: "object", id: foundById.id, name: foundById.name };
+  }
+
+  // STE-198 AC-STE-198.1 (a) / AC-STE-198.3: a grandfathered numeric name with
+  // no match is the auto-create branch — the attach creates, this only says so.
+  return existing.some((m) => m.name === milestoneName)
+    ? { surface: "object" }
+    : { surface: "object-create" };
+}
+
+export async function attachProjectMilestone(
+  provider: MilestoneOps,
+  project: string,
+  milestoneName: string,
+  ticketId: string,
+  opts?: AttachProjectMilestoneOptions,
+): Promise<AttachProjectMilestoneResult> {
+  const sleep = opts?.sleep ?? defaultSleep;
+
+  // STE-198 AC-STE-198.1 (b): adapter declares no project_milestone capability.
+  // Short-circuits BEFORE the retry wrapper — no backoff leg, no tracker call
+  // (AC-STE-362.4 vacuity).
+  if (provider.supports && !provider.supports("project_milestone")) {
+    return { capability: "milestone_attach_skipped_adapter_limit" };
+  }
+
+  // STE-611 AC-STE-611.4 — bound first. The ticket is read BEFORE any
+  // enumeration, and a ticket the reader already accepts for the declared
+  // binding is left alone: no enumeration of either tracker, no write. The
+  // question asked is the archival assertion's own (`milestoneBindingPresent`),
+  // so an FR whose parent Epic lives in another project (a legacy `GB-40`
+  // parent for `M_GB_40` under a repointed `GF`) is a no-op here rather than a
+  // refusal from an enumeration of the wrong project. The read rides the same
+  // transient retry every other attach read does.
+  const current = await retryTransient(() => provider.getIssue(ticketId), sleep);
+  const declaredBinding = resolveMilestoneBinding(provider);
+  if (milestoneBindingPresent(current, milestoneName, declaredBinding)) {
+    const epicKeyed =
+      declaredBinding === "epic" &&
+      parseMilestoneToken(leadingMilestoneToken(milestoneName))?.kind === "epic";
+    return epicKeyed && current.parent ? { capability: null, epicKey: current.parent } : { capability: null };
+  }
+
+  // STE-611 AC-STE-611.1 — the target comes from the one find leg; this
+  // function only writes (and verifies) what that leg decided.
+  const target = await resolveAttachTarget(provider, project, milestoneName, { sleep });
+
+  if (target.surface === "label") {
+    return attachViaMilestoneLabel(
+      provider,
+      milestoneName,
+      ticketId,
+      sleep,
+      target.degraded ? "milestone_epic_unsupported" : null,
+    );
+  }
+
+  if (target.surface === "parent") {
+    const epicKey = target.key;
+    // `resolveAttachTarget` refused unless `setParent` is present.
+    const setParent = provider.setParent!;
+    // STE-375 AC-STE-375.2 — idempotency pre-check: when the ticket's
+    // `parent` already equals the milestone Epic's key, the attach is a
+    // no-op — the parent is not rewritten and no second Epic is created.
+    // Answered from the bound-first read above (AC-STE-611.4) — the pre-key
+    // human-title arm is the one that reaches here already parented.
+    if ((current.parent ?? null) === epicKey) {
+      return { capability: null, epicKey };
+    }
+    // Parent set + read-back verify (epic binding — the parent key must
+    // byte-equal the milestone Epic's key).
+    await writeAndVerify(provider, ticketId, sleep, {
+      write: () => setParent(ticketId, epicKey),
+      expected: epicKey,
+      read: (fresh) => fresh.parent ?? null,
+      binding: "epic",
+    });
+    return { capability: null, epicKey };
+  }
+
+  if (target.surface === "object" && target.id !== undefined) {
+    const milestoneIdentifier = target.id;
+    const foundName = target.name!;
+    const objectToken = leadingMilestoneToken(milestoneName);
     // AC-STE-540.2 — the write sends the IDENTIFIER (`Milestone name or ID`),
     // and the verify re-derives the token from the READ-BACK identifier: a
     // name-only verify accepts a silent swap that kept the name and changed
@@ -853,7 +969,7 @@ export async function attachProjectMilestone(
         try {
           await provider.upsertTicketMetadata(ticketId, { milestone: milestoneIdentifier });
         } catch {
-          await provider.upsertTicketMetadata(ticketId, { milestone: foundById.name });
+          await provider.upsertTicketMetadata(ticketId, { milestone: foundName });
         }
       },
       expected: objectToken,
@@ -864,9 +980,8 @@ export async function attachProjectMilestone(
     return { capability: null };
   }
 
-  const found = existing.find((m) => m.name === milestoneName);
   let createdName: string | undefined;
-  if (!found) {
+  if (target.surface === "object-create") {
     // STE-198 AC-STE-198.1 (a) / AC-STE-198.3: auto-create branch.
     await provider.saveMilestone(project, { name: milestoneName });
     createdName = milestoneName;
@@ -1089,4 +1204,303 @@ export function planFileHeadingToMilestoneName(planFilePath: string): string {
     );
   }
   return name;
+}
+
+// ---------------------------------------------------------------------------
+// STE-611 AC-STE-611.2 — the front door.
+//
+//   bun run attach_project_milestone.ts <projectRoot> <jira|linear> <project> <planFile> <listingFile>
+//
+// Resolves the container a feature request's ticket will attach to BEFORE the
+// ticket exists, through `resolveAttachTarget` alone (no second find leg),
+// against a saved listing in the STE-608 decision front door's format, parsed
+// by that front door's own `readListingFile`. Prints `surface=` (plus `key=` /
+// `id=` when the surface has one) and writes one `attach-target` receipt under
+// <projectRoot>. Everything is decided first and written last: every refusal
+// exits 1 with an NFR-10 message on stderr, nothing on stdout, nothing on disk.
+
+const ATTACH_FRONT_DOOR_USAGE =
+  "attach_project_milestone.ts <projectRoot> <jira|linear> <project> <planFile> <listingFile>";
+
+/** An NFR-10 refusal whose three parts are each flattened BEFORE the lines are joined. */
+function attachRefusal(verdict: string, remedy: string, context: string): Error {
+  return new Error(nfr10Message(oneLine(verdict), oneLine(remedy), oneLine(context)));
+}
+
+/**
+ * Any refusal's text as exactly three flattened lines. A message already in
+ * NFR-10 shape (a permanent refusal, a listing refusal) is split on its first
+ * `Remedy:` and last `Context:` and each part flattened, so a newline carried
+ * in from argv, a plan heading or a listing can never start a line of its own.
+ */
+function refusalText(message: string): string {
+  const r = message.indexOf("\nRemedy: ");
+  const c = message.lastIndexOf("\nContext: ");
+  if (r !== -1 && c > r) {
+    return nfr10Message(
+      oneLine(message.slice(0, r)),
+      oneLine(message.slice(r + "\nRemedy: ".length, c)),
+      oneLine(message.slice(c + "\nContext: ".length)),
+    );
+  }
+  return nfr10Message(
+    oneLine(`Refusing: ${message}`),
+    "fix the input named above and resolve the attach target again.",
+    "helper=attach_project_milestone, phase=attach-target-front-door",
+  );
+}
+
+/**
+ * How the attach target's binding was proven (STE-611 AC.7): not a shared
+ * repository, no existing container joined, the plan committed at HEAD, or a
+ * named decision receipt of this session.
+ */
+export type AttachProvenance =
+  | { kind: "unshared" }
+  | { kind: "not-applicable" }
+  | { kind: "committed" }
+  | { kind: "decided"; receipt: string; sha256: string };
+
+/**
+ * STE-611 AC-STE-611.7 — close the zero-write join. Runs only in a repository
+ * declaring `repo_tag`, and only when the resolver bound an EXISTING container
+ * (an Epic key, or a Linear milestone id). A plan committed at the target
+ * repository's HEAD passes (continuing work across sessions); a plan absent
+ * from HEAD passes only on a `milestone-decision` receipt of THIS session that
+ * joined the resolved key or created the resolved container's listed title.
+ * A git failure other than "path absent" refuses — never read as committed.
+ */
+async function assertAttachProvenance(input: {
+  projectRoot: string;
+  mode: "jira" | "linear";
+  project: string;
+  planFile: string;
+  milestoneName: string;
+  target: AttachTarget;
+  listing: {
+    jiraRows?: ReadonlyArray<{ key: string; name: string }>;
+    linearRows?: ReadonlyArray<{ id?: string; name: string }>;
+  };
+}): Promise<AttachProvenance> {
+  const { projectRoot, mode, project, planFile, milestoneName, target, listing } = input;
+  const { readWorkspaceBinding } = await import("./workspace_binding");
+  const binding = readWorkspaceBinding(join(projectRoot, "CLAUDE.md"), mode);
+  if (!binding.shared) return { kind: "unshared" };
+
+  let resolvedKey: string;
+  let listedTitle: string | undefined;
+  if (target.surface === "parent") {
+    resolvedKey = target.key;
+    listedTitle = listing.jiraRows?.find((r) => r.key === target.key)?.name;
+  } else if (target.surface === "object" && target.id !== undefined) {
+    resolvedKey = target.id;
+    listedTitle = listing.linearRows?.find((r) => r.id === target.id)?.name ?? target.name;
+  } else {
+    return { kind: "not-applicable" }; // no existing container is bound — nothing is joined.
+  }
+
+  const ctx = `mode=${mode}, project=${project}, key=${resolvedKey}, milestone=${milestoneName}, plan=${planFile}, repo_tag=${binding.repoTag ?? ""}`;
+
+  // Is the plan committed at the target repository's HEAD?
+  const { runGit } = await import("./target_repo");
+  const git = (cwd: string, args: string[]): { ok: boolean; out: string; err: string } => {
+    try {
+      const p = runGit(cwd, args, { timeoutMs: 10_000 });
+      return { ok: !p.error && p.status === 0, out: p.stdout?.toString("utf-8") ?? "", err: (p.stderr?.toString("utf-8") ?? p.error?.message ?? "").trim() };
+    } catch (e) {
+      return { ok: false, out: "", err: (e as Error).message };
+    }
+  };
+  const headUnreadable = (why: string): Error =>
+    attachRefusal(
+      `Refusing: the attach target ${resolvedKey} cannot be proven decided — the HEAD commit of the target repository ${projectRoot} cannot be read through git (${why}), so whether the plan ${planFile} is committed there is unknown.`,
+      `run the attach front door against a git repository with at least one commit, or decide the container first through resolve_milestone_identity.ts (--join-key ${resolvedKey} or --title <title>) in this session.`,
+      ctx,
+    );
+  const top = git(projectRoot, ["rev-parse", "--show-toplevel"]);
+  if (!top.ok) throw headUnreadable(top.err || "not a git repository");
+  const toplevel = top.out.trim();
+  const head = git(toplevel, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
+  if (!head.ok) throw headUnreadable(head.err || "no HEAD commit");
+  let planAbs = resolve(planFile);
+  try {
+    planAbs = realpathSync(planAbs);
+  } catch {
+    /* read above; keep the resolved path */
+  }
+  const rel = relative(toplevel, planAbs);
+  let committed = false;
+  if (rel !== "" && !rel.startsWith("..") && !isAbsolute(rel)) {
+    const tree = git(toplevel, ["ls-tree", "--full-tree", "--name-only", "HEAD", "--", rel.split(sep).join("/")]);
+    if (!tree.ok) throw headUnreadable(tree.err || "ls-tree failed");
+    committed = tree.out.trim() !== "";
+  }
+  if (committed) return { kind: "committed" };
+
+  // Absent from HEAD — this session must have decided the container. The
+  // decision's PATH and DIGEST are recorded in the attach-target receipt: this
+  // command reads receipt files from disk and cannot tell a file the decision
+  // front door wrote from one written by hand, so the hook — which sees the
+  // transcript — honours a "decided" attach target only when that decision
+  // receipt was announced, intact, by resolve_milestone_identity.ts itself.
+  const sessionId = process.env.CLAUDE_CODE_SESSION_ID ?? "";
+  let decidedBy: { receipt: string; sha256: string } | null = null;
+  if (sessionId !== "") {
+    const { receiptsDir } = await import("./dpt_paths");
+    let dir: string | null = null;
+    let names: string[] = [];
+    try {
+      dir = receiptsDir(projectRoot, sessionId);
+      names = readdirSync(dir).filter((n) => n.endsWith(".json")).sort();
+    } catch {
+      names = []; // an unreadable or absent receipt directory counts as absent
+    }
+    for (const name of names) {
+      const file = join(dir!, name);
+      let bytes: string;
+      let r: Record<string, unknown>;
+      try {
+        bytes = readFileSync(file, "utf-8");
+        r = JSON.parse(bytes) as Record<string, unknown>;
+      } catch {
+        continue; // unreadable or malformed counts as absent
+      }
+      if (r === null || typeof r !== "object" || r.v !== 1 || r.sessionId !== sessionId) continue;
+      if (r.kind !== "milestone-decision" || r.adapter !== mode || r.container !== project) continue;
+      const ev = r.evidence as Record<string, unknown> | undefined;
+      if (ev === null || typeof ev !== "object") continue;
+      const matches =
+        ev.act === "join"
+          ? typeof ev.key === "string" && ev.key === resolvedKey
+          : ev.act === "create" &&
+              typeof ev.title === "string" &&
+              listedTitle !== undefined &&
+              // The one title normalizer the decision itself joins on.
+              normalizeMilestoneTitle(ev.title) === normalizeMilestoneTitle(listedTitle);
+      if (matches) {
+        decidedBy = { receipt: resolve(file), sha256: receiptDigest(bytes) };
+        break;
+      }
+    }
+  }
+  if (decidedBy !== null) return { kind: "decided", ...decidedBy };
+
+  throw attachRefusal(
+    `Refusing: the milestone ${milestoneName} was bound without a decision — it resolves to the existing container ${resolvedKey} in project ${project}, its plan ${planFile} is not committed at HEAD, and this session holds no milestone-decision receipt that joined ${resolvedKey} or created "${listedTitle ?? ""}".`,
+    `decide the container first through resolve_milestone_identity.ts <projectRoot> ${mode} ${project} <listingFile> --join-key ${resolvedKey} [--sibling <path>] (or --title <title> to create), then resolve the attach target again.`,
+    `${ctx}, session=${sessionId === "" ? "unset" : sessionId}`,
+  );
+}
+
+/** Decide, then write the one receipt, then return the lines to print. */
+async function runAttachFrontDoor(argv: readonly string[]): Promise<string[]> {
+  const context = `argc=${argv.length}, usage=${ATTACH_FRONT_DOOR_USAGE}`;
+  if (argv.length !== 5 || argv.some((a) => a === "")) {
+    throw attachRefusal(
+      "Refusing: incomplete or extra arguments — the attach target needs a project root, a mode, a project, a plan file and a listing file.",
+      `run ${ATTACH_FRONT_DOOR_USAGE}`,
+      context,
+    );
+  }
+  const [rootArg, mode, project, planFile, listingFile] = argv as [string, string, string, string, string];
+  if (mode !== "jira" && mode !== "linear") {
+    throw attachRefusal(
+      `Refusing: unknown mode "${mode}" — only jira and linear bind a milestone container to resolve.`,
+      "pass mode jira or linear.",
+      `mode=${mode}, ${context}`,
+    );
+  }
+  const projectRoot = resolve(rootArg);
+
+  let milestoneName: string;
+  try {
+    milestoneName = planFileHeadingToMilestoneName(planFile);
+  } catch (e) {
+    throw attachRefusal(
+      `Refusing: the plan file ${planFile} yields no milestone name (${(e as NodeJS.ErrnoException).code ?? (e as Error).message}).`,
+      "pass the path of the milestone's plan file (specs/plan/<milestone>.md) carrying its `## <token> — <title>` heading.",
+      `mode=${mode}, project=${project}, plan=${planFile}`,
+    );
+  }
+
+  // The STE-608 listing parser — imported lazily: that module imports this
+  // one, and the front door is the only consumer here.
+  const { readListingFile } = await import("./resolve_milestone_identity");
+  const listing = readListingFile({ mode, project, listingFile });
+
+  let listed = false;
+  const provider: MilestoneOps =
+    mode === "jira"
+      ? {
+          milestoneBinding: "epic",
+          listEpics: async () => {
+            listed = true;
+            return listing.jiraRows!.map((r) => ({ key: r.key, name: r.name }));
+          },
+          // Present only to satisfy the epic-ops guard; the resolver never writes.
+          setParent: async () => {
+            throw new Error("attach front door: setParent is never called by the resolver");
+          },
+          listMilestones: async () => [],
+          saveMilestone: async () => {},
+          upsertTicketMetadata: async (t) => t,
+          getIssue: async () => ({}),
+        }
+      : {
+          milestoneBinding: "object",
+          listMilestones: async () => {
+            listed = true;
+            return listing.linearRows!.map((r) => ({ name: r.name, ...(r.id !== undefined ? { id: r.id } : {}) }));
+          },
+          saveMilestone: async () => {},
+          upsertTicketMetadata: async (t) => t,
+          getIssue: async () => ({}),
+        };
+
+  // A permanent refusal propagates with its own NFR-10 text.
+  const target = await resolveAttachTarget(provider, project, milestoneName, { sleep: async () => {} });
+
+  // STE-611 AC-STE-611.7 — provenance: in a shared repository, a resolved
+  // existing container is bound only by a plan already committed at HEAD or by
+  // a decision this session made. Decided before anything is written.
+  const provenance = await assertAttachProvenance({ projectRoot, mode, project, planFile, milestoneName, target, listing });
+
+  const lines = [`surface=${target.surface}`];
+  if (target.surface === "parent") lines.push(`key=${target.key}`);
+  if (target.surface === "object" && target.id !== undefined) lines.push(`id=${target.id}`);
+  lines.push(`milestone=${milestoneName}`);
+  lines.push(`listing=${listed ? `${listing.rowKeys.length} rows` : "not read"}`);
+  const printed = lines.map(printable);
+
+  // Decided — write last.
+  const path = writeReceipt(projectRoot, {
+    kind: "attach-target",
+    adapter: mode,
+    container: project,
+    subject: milestoneName,
+    decision: target.surface,
+    evidence: {
+      surface: target.surface,
+      ...(target.surface === "parent" ? { key: target.key } : {}),
+      ...(target.surface === "object" && target.id !== undefined ? { id: target.id } : {}),
+      ...(target.surface === "object" && target.name !== undefined ? { name: target.name } : {}),
+      milestoneName,
+      planFile: resolve(planFile),
+      listing: { file: resolve(listingFile), sha256: listing.sha256, rowKeys: listing.rowKeys, read: listed },
+      provenance,
+    },
+  });
+  return [...printed, announceReceipt(path)];
+}
+
+if (import.meta.main) {
+  try {
+    const lines = await runAttachFrontDoor(process.argv.slice(2));
+    process.stdout.write(`${lines.join("\n")}\n`);
+    process.exit(0);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    process.stderr.write(`${refusalText(message).split("\n").map(printable).join("\n")}\n`);
+    process.exit(1);
+  }
 }

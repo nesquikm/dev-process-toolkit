@@ -59,6 +59,7 @@ import {
   type ReceiptInput,
 } from "../adapters/_shared/src/tracker_receipts";
 import * as receiptsModule from "../adapters/_shared/src/tracker_receipts";
+import { milestoneIdFromEpicKey, milestoneIdFromLinearMilestone } from "../adapters/_shared/src/milestone_token";
 import { claudeMd, makeSpanFixture, pluginManifest } from "./_span_fixture";
 import { BE_TAG, FE_TAG, boundFr, declareJira, declareLinear } from "./_orphan_pages";
 import { deriveBlockingGates } from "./_blocking_gates";
@@ -895,18 +896,24 @@ describe("AC-STE-607.3 — a create needs a matching, unspent create receipt in 
 
   test("BE createJiraIssue with a matching, announced create receipt → exit 0", async () => {
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
     expectPermit(await create(s));
   });
 
   test("a title differing only by the normalizer's drift (double space) still matches → exit 0", async () => {
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     s.announceDecide(w.be, createReceipt(w.be, { title: "BE ledger sync" }), "fast", "BE ledger sync");
     expectPermit(await create(s, jiraCreate({ title: "BE  ledger sync" })));
   });
 
   test("parent read from `additional_fields.parent` matches as the `parent` argument does → exit 0", async () => {
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     s.announceDecide(w.be, createReceipt(w.be, { title: "BE refund hook" }), "fast", "BE refund hook");
     expectPermit(await create(s, jiraCreate({ title: "BE refund hook", parentVia: "additional" })));
   });
@@ -1110,17 +1117,19 @@ describe("AC-STE-607.5 — receipts are read from the TARGET repository", () => 
   });
 
   /** A session rooted in FE that ran BE's deciding command. */
-  function feSessionWithBeReceipt(announced: boolean): string {
+  function feSessionWithBeReceipt(announced: boolean, attachTarget = false): string {
     const path = createReceipt(w.be, { title: "BE payout export" });
     const s = new Session();
+    if (attachTarget) withAttachTarget(s, w.be, { scratch: w.scratch }); // the target is BE, whatever the cwd
     if (announced) s.announceDecide(w.be, path);
     return s.save(w.scratch);
   }
 
   test("session rooted in FE, BE's receipt announced, create carrying BE's tag → exit 0", async () => {
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
     const r = await runHook(JIRA("createJiraIssue"), jiraCreate(), {
       cwd: w.fe,
-      transcript: feSessionWithBeReceipt(true),
+      transcript: feSessionWithBeReceipt(true, true),
     });
     expectPermit(r);
   });
@@ -1149,7 +1158,8 @@ describe("AC-STE-607.5 — receipts are read from the TARGET repository", () => 
 
   test("a cwd outside any git repository with an announced declared root is gated (mismatch → 2, match → 0)", async () => {
     const outside = tempDir("nogit");
-    const transcript = feSessionWithBeReceipt(true);
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    const transcript = feSessionWithBeReceipt(true, true);
     expectRefusal(
       await runHook(JIRA("createJiraIssue"), jiraCreate({ title: "Something else" }), { cwd: outside, transcript }),
       /title/i,
@@ -1177,6 +1187,8 @@ describe("AC-STE-607.5 — receipts are read from the TARGET repository", () => 
 
     test("receipt written in the worktree root and announced → create exit 0", async () => {
       const s = new Session();
+      // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+      withAttachTarget(s, wt, { scratch: w.scratch });
       s.announceDecide(wt, createReceipt(wt, { title: "BE payout export" }));
       expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: wt, transcript: s.save(w.scratch) }));
     });
@@ -1240,6 +1252,8 @@ describe("AC-STE-607.6 — min_dpt_version against the hook's own manifest", () 
   test("a floor EQUAL to the manifest version leaves the receipt rules in charge (match → 0, no receipt → 2)", async () => {
     const w = makeWorld({ beFloor: MANIFEST_VERSION });
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
     expectPermit(
       await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) }),
@@ -1261,8 +1275,12 @@ describe("AC-STE-607.7 — RECEIPT_ANNOUNCING_MODULES", () => {
   // Amended by AC-STE-608.10: the milestone decision front door is appended, last.
   test("holds exactly the three deciding modules plus the milestone decision front door, appended last", async () => {
     const { RECEIPT_ANNOUNCING_MODULES } = await hookModule();
-    expect([...RECEIPT_ANNOUNCING_MODULES].sort()).toEqual([CONSENT, DECIDE, CONFIRM, "resolve_milestone_identity.ts"].sort());
-    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 1]).toBe("resolve_milestone_identity.ts");
+    // Amended by AC-STE-611.3: the attach front door is appended after it.
+    expect([...RECEIPT_ANNOUNCING_MODULES].sort()).toEqual(
+      [CONSENT, DECIDE, CONFIRM, "resolve_milestone_identity.ts", "attach_project_milestone.ts"].sort(),
+    );
+    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 2]).toBe("resolve_milestone_identity.ts");
+    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 1]).toBe("attach_project_milestone.ts");
   });
 });
 
@@ -1272,6 +1290,8 @@ describe("AC-STE-607.7 — unreadable inputs", () => {
   beforeAll(() => {
     w = makeWorld();
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
     permitTranscript = s.save(w.scratch);
   });
@@ -1285,6 +1305,7 @@ describe("AC-STE-607.7 — unreadable inputs", () => {
   });
 
   test("permit twin: the readable manifest lets the matching create through", async () => {
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt. (see beforeAll)
     expectPermit(await permitCall(MANIFEST_DIR));
   });
 
@@ -1447,6 +1468,8 @@ describe("AC-STE-607.7 — forgery controls: only a listed deciding command's ow
   test("CONTROL — the same receipt announced by the deciding command → exit 0", async () => {
     const path = createReceipt(w.be, { title: "BE payout export" });
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     s.announceDecide(w.be, path);
     expectPermit(await create(s));
   });
@@ -1479,6 +1502,8 @@ describe("AC-STE-607.7 — forgery controls: only a listed deciding command's ow
     expect(out).toContain(RECEIPT_ANNOUNCEMENT_PREFIX);
     const decision = JSON.parse(out.split("\n")[0]!) as { createPayload: Record<string, unknown> };
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     s.bash(command.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" "), out);
     const cp = decision.createPayload;
     const r = await runHook(
@@ -1552,6 +1577,8 @@ describe("AC-STE-607.9 — inside the 5000 ms timeout on a large session", () =>
   test("5,000-line transcript with 200 receipts → the matching create exits 0 inside 5000 ms (measured time recorded)", async () => {
     const w = makeWorld();
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     const RECEIPTS = 200;
     for (let i = 0; i < RECEIPTS; i++) {
       const title = `BE task ${i}`;
@@ -1797,6 +1824,8 @@ describe("STE-607 audit — the gated call itself, floors per target, Linear pro
   test("the pending create's own tool_use, already in the transcript, does not spend its receipt → exit 0 (control: a create that RAN does)", async () => {
     const w = makeWorld();
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
     pendingToolUses(s, [
       { id: "toolu_607_pending", name: JIRA("createJiraIssue"), input: jiraCreate() },
@@ -1805,6 +1834,7 @@ describe("STE-607 audit — the gated call itself, floors per target, Linear pro
     expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) }));
 
     const ran = new Session();
+    withAttachTarget(ran, w.be, { scratch: w.scratch });
     ran.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
     ran.mcp(JIRA("createJiraIssue"), jiraCreate(), "Gateway Timeout", true);
     pendingToolUses(ran, [{ id: "toolu_607_pending", name: JIRA("createJiraIssue"), input: jiraCreate() }]);
@@ -1847,6 +1877,8 @@ describe("STE-607 audit — the gated call itself, floors per target, Linear pro
       milestone: "ms-1",
     });
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, root, { mode: "linear", scratch });
     s.announce(DECIDE, `decide "${root}" /tmp/page.json --title "BE payout export" --linear-milestone ms-1 --attempt fast`, receiptIn(root, {
       kind: "create", adapter: "linear", container: "ms-1", subject: "BE payout export", decision: "create",
       evidence: { createPayload: payloadFor("DPT") },
@@ -1875,10 +1907,13 @@ describe("STE-607 audit — a receipt names its own session", () => {
     const misfiled = join(dir, "misfiled-from-other-session.json");
     copyFileSync(foreign, misfiled);
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     s.announceDecide(w.be, misfiled);
     expectRefusal(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) }));
 
     const own = new Session();
+    withAttachTarget(own, w.be, { scratch: w.scratch });
     own.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
     expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: own.save(w.scratch) }));
   }, 30_000);
@@ -2016,6 +2051,8 @@ describe("M_947c79 review — a receipt announcement proves the deciding command
 
   test("a real receipt REWRITTEN after its announcement authorises nothing → exit 2 (control: untouched, it does)", async () => {
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     const d = realDecide(w.be, { issues: [], isLast: true }, "BE payout export", "fast", { scratch: w.scratch });
     s.bash(d.command, d.out);
     const path = announcedPath(d.out);
@@ -2031,6 +2068,8 @@ describe("M_947c79 review — a receipt announcement proves the deciding command
 
   test("CONTROL — the real `decide`, recorded with the documented `${CLAUDE_PLUGIN_ROOT}` path, authorises its create → exit 0", async () => {
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     const d = realDecide(w.be, { issues: [], isLast: true }, "BE plugin root form", "fast", {
       scratch: w.scratch,
       commandPath: `\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/${DECIDE}`,
@@ -2044,6 +2083,8 @@ describe("M_947c79 review — parallel creates cannot share one receipt (AC-STE-
   test("two pending creates in one assistant turn: the first is permitted, the second refused as spent", async () => {
     const w = makeWorld();
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
     pendingToolUses(s, [
       { id: "toolu_607_first", name: JIRA("createJiraIssue"), input: jiraCreate() },
@@ -2060,6 +2101,8 @@ describe("M_947c79 review — parallel creates cannot share one receipt (AC-STE-
   test("CONTROL — two pending creates with two receipts: both permitted", async () => {
     const w = makeWorld();
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
     s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
     pendingToolUses(s, [
@@ -2304,6 +2347,8 @@ describe("M_947c79 review 2 — only a receipt-WRITING subcommand announces (AC-
 
   test("CONTROL — the same announcement under the real `decide` command shape → exit 0", async () => {
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     const r = realRun(DECIDE, decideArgv(w.be, savePage(w.scratch, EMPTY_JIRA_PAGE), "BE subcommand control"));
     expect(r.code).toBe(0);
     s.bash(r.command, r.out);
@@ -2348,11 +2393,14 @@ describe("M_947c79 review 2 — only a receipt-WRITING subcommand announces (AC-
     const other = createReceipt(w.be, { title: "BE two lines" });
     const cmd = `bun run "${join(ADAPTERS_SRC, DECIDE)}" decide "${w.be}" /tmp/page.json --title "BE two lines" --parent GF-85 --attempt fast`;
     const two = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(two, w.be, { scratch: w.scratch });
     two.bash(cmd, `{"outcome":"create"}\n${realAnnouncement(good)}\n${realAnnouncement(other)}`);
     expectRefusal(
       await runHook(JIRA("createJiraIssue"), jiraCreate({ title: "BE two lines" }), { cwd: w.be, transcript: two.save(w.scratch) }),
     );
     const one = new Session();
+    withAttachTarget(one, w.be, { scratch: w.scratch });
     one.bash(cmd, `{"outcome":"create"}\n${realAnnouncement(good)}`);
     expectPermit(
       await runHook(JIRA("createJiraIssue"), jiraCreate({ title: "BE two lines" }), { cwd: w.be, transcript: one.save(w.scratch) }),
@@ -2441,6 +2489,8 @@ describe("M_947c79 review 2 — the accepted command grammar is the one the pros
     });
     expect(r.code).toBe(0);
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     s.bash(r.command, r.out);
     expectPermit(
       await runHook(JIRA("createJiraIssue"), jiraCreate({ title: "BE hooks quoting" }), { cwd: w.be, transcript: s.save(w.scratch) }),
@@ -2458,6 +2508,8 @@ describe("M_947c79 review 2 — the accepted command grammar is the one the pros
     if (r.code !== 0) throw new Error(`decide --title-file failed (${r.code}): ${r.err}`);
     expect(JSON.parse(r.out.split("\n")[0]!).createPayload.summary).toBe(title);
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     s.bash(r.command, r.out);
     expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate({ title }), { cwd: w.be, transcript: s.save(w.scratch) }));
   }, 30_000);
@@ -2513,6 +2565,8 @@ describe("M_947c79 review 2 — container names compare case-insensitively (§3)
   test("CONTROL — a create into `gf` matching a `GF` create receipt → exit 0", async () => {
     const w = makeWorld();
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
     expectPermit(
       await runHook(JIRA("createJiraIssue"), { ...jiraCreate(), projectKey: "gf" }, { cwd: w.be, transcript: s.save(w.scratch) }),
@@ -2525,6 +2579,8 @@ describe("M_947c79 review 2 — after a create that may have made the ticket, on
   async function reRun(firstResult: { content: unknown; isError: boolean; extra?: Record<string, unknown> }, secondTitle = "BE lagged") {
     const w = makeWorld();
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt. (every leg of this helper)
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     const first = realRun(DECIDE, decideArgv(w.be, savePage(w.scratch, EMPTY_JIRA_PAGE), "BE lagged"));
     expect(first.code).toBe(0);
     s.bash(first.command, first.out);
@@ -2617,6 +2673,8 @@ describe("M_947c79 review 3 — a definite tracker rejection is not a lost creat
   async function afterFirst(result: string): Promise<Run> {
     const w = makeWorld();
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt. (every leg of this helper)
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     const first = realRun(DECIDE, decideArgv(w.be, savePage(w.scratch, EMPTY_JIRA_PAGE), "BE rejected once"));
     expect(first.code).toBe(0);
     s.bash(first.command, first.out);
@@ -2674,6 +2732,8 @@ describe("M_947c79 review 3 — a malformed transcript never breaks the undeclar
   test("the same malformed blocks beside a real `decide` in a DECLARED repository: its receipt still authorises the create → exit 0", async () => {
     const w = makeWorld();
     const s = new Session();
+    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+    withAttachTarget(s, w.be, { scratch: w.scratch });
     malformed(s);
     const d = realRun(DECIDE, decideArgv(w.be, savePage(w.scratch, EMPTY_JIRA_PAGE), "BE beside nulls"));
     s.bash(d.command, d.out);
@@ -2806,7 +2866,9 @@ const EPIC_CREATE = (title: string) => jiraCreate({ type: "Epic", parent: null, 
 describe("AC-STE-608.10 — the hook announces the decision front door's receipts", () => {
   test("resolve_milestone_identity.ts is APPENDED to RECEIPT_ANNOUNCING_MODULES", async () => {
     const { RECEIPT_ANNOUNCING_MODULES } = await hookModule();
-    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 1]).toBe(RESOLVE);
+    // Amended by AC-STE-611.3: the attach front door is appended after it.
+    expect(RECEIPT_ANNOUNCING_MODULES.indexOf(RESOLVE)).toBe(RECEIPT_ANNOUNCING_MODULES.indexOf("attach_project_milestone.ts") - 1);
+    expect(RECEIPT_ANNOUNCING_MODULES.indexOf(RESOLVE)).toBe(3);
     expect(RECEIPT_ANNOUNCING_MODULES.slice(0, 3)).toEqual([DECIDE, CONSENT, CONFIRM]);
   });
 });
@@ -3095,4 +3157,394 @@ describe("AC-STE-608.10 hardening — one create decision authorises ONE contain
     );
     for (const r of runs) expectPermit(r);
   }, 30_000);
+});
+
+// ===========================================================================
+// AC-STE-611.3 / .6 (M_685ff6) — an FR create in a shared repository needs an
+// `attach-target` receipt from the attach front door
+// (`attach_project_milestone.ts <projectRoot> <mode> <project> <planFile>
+// <listingFile>`), announced by that front door's own run, from this session,
+// in the target repository, resolving a surface in the create's project; a
+// payload that names a parent must name the key the receipt resolved. Every
+// leg runs through the shell entry with a recorded payload on stdin; receipts
+// come from the REAL front door. RED on 3170dfc: the front door does not exist
+// (a `bun run` of the module prints nothing) and the hook permits the create.
+// ===========================================================================
+
+const ATTACH = "attach_project_milestone.ts";
+const GF_85_PAGE = { issues: [epicRow("GF-85", "Payouts")], isLast: true };
+
+interface Attached {
+  command: string;
+  exitCode: number;
+  out: string;
+  err: string;
+  receipt: string | null;
+}
+
+/** Spawn the REAL attach front door; never throws — the caller grades the outcome. */
+function realAttach(
+  root: string,
+  project: string,
+  plan: string,
+  scratch: string,
+  listing: unknown,
+  session = SESSION,
+  mode: "jira" | "linear" = "jira",
+): Attached {
+  const listingPath = join(scratch, `attach-listing-${Math.random().toString(36).slice(2)}.json`);
+  writeFileSync(listingPath, JSON.stringify(listing));
+  const full = [root, mode, project, plan, listingPath];
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+  env.CLAUDE_PLUGIN_ROOT = MANIFEST_DIR;
+  env.CLAUDE_CODE_SESSION_ID = session;
+  const p = Bun.spawnSync(["bun", "run", join(ADAPTERS_SRC, ATTACH), ...full], { env, stdout: "pipe", stderr: "pipe" });
+  const out = p.stdout.toString().trimEnd();
+  const line = out.split("\n").find((l) => l.startsWith(RECEIPT_ANNOUNCEMENT_PREFIX));
+  return {
+    command: `bun run "${join(ADAPTERS_SRC, ATTACH)}" ${full.map((a) => (/^[A-Za-z0-9_./:=@%+,-]+$/.test(a) ? a : `"${a}"`)).join(" ")}`,
+    exitCode: p.exitCode ?? -1,
+    out,
+    err: p.stderr.toString(),
+    receipt: line ? line.slice(RECEIPT_ANNOUNCEMENT_PREFIX.length).trim().split(/\s+/)[0]! : null,
+  };
+}
+
+/** A real front-door run that must have resolved; returns it for the transcript. */
+function attached(
+  root: string,
+  project: string,
+  plan: string,
+  scratch: string,
+  listing: unknown,
+  session = SESSION,
+  mode: "jira" | "linear" = "jira",
+): Attached {
+  const a = realAttach(root, project, plan, scratch, listing, session, mode);
+  if (a.exitCode !== 0 || a.receipt === null) {
+    throw new Error(`the attach front door did not resolve (exit ${a.exitCode}):\n${a.out}\n${a.err}`);
+  }
+  return a;
+}
+
+/** Write `specs/plan/<token>.md` with a canonical heading; commit it when asked (continuing work). */
+function planIn(root: string, token: string, title: string, commit: boolean): string {
+  mkdirSync(join(root, "specs", "plan"), { recursive: true });
+  const p = join(root, "specs", "plan", `${token}.md`);
+  writeFileSync(p, `---\nmilestone: ${token}\nstatus: active\narchived_at: null\n---\n\n## ${token} — ${title} {#${token}}\n\nBody.\n`);
+  if (commit) {
+    git(root, "add", "-A");
+    git(root, "commit", "-q", "-m", `plan ${token}`);
+  }
+  return p;
+}
+
+/** BE with its M_GF_85 plan committed, and a session that resolved it through the real front door. */
+function attachedWorld(session = SESSION): { w: World; a: Attached } {
+  const w = makeWorld();
+  const plan = planIn(w.be, "M_GF_85", "Payouts", true);
+  return { w, a: attached(w.be, "GF", plan, w.scratch, GF_85_PAGE, session) };
+}
+
+/** The Linear milestone the attach-target legs resolve; its plan token derives from this id (`M_550e84`). */
+const LINEAR_ATTACH_MILESTONE = "550e8400-e29b-41d4-a716-446655440000";
+
+/**
+ * Since AC-STE-611.3 an FR create in a declared target needs, beside its create
+ * receipt, an `attach-target` receipt. The legs that grade the CREATE-receipt
+ * rule call this so they keep grading only that rule: it commits the milestone's
+ * plan in `root` (only that path — whatever else sits in the index stays
+ * staged), runs the REAL attach front door with this session's id, and records
+ * its Bash tool_use + tool_result in `s` at the current position (so callers run
+ * it before the create's own tool_use). Jira resolves Epic `key` (default
+ * GF-85, the parent `jiraCreate` sends) from plan `M_<key>`; Linear resolves
+ * LINEAR_ATTACH_MILESTONE from the plan its id derives.
+ */
+function withAttachTarget(
+  s: Session,
+  root: string,
+  opts: { project?: string; mode?: "jira" | "linear"; key?: string; scratch?: string } = {},
+): Attached {
+  const mode = opts.mode ?? "jira";
+  const scratch = opts.scratch ?? tempDir("611-attach");
+  let project: string;
+  let token: string;
+  let listing: unknown;
+  if (mode === "jira") {
+    const key = opts.key ?? "GF-85";
+    project = opts.project ?? key.split("-")[0]!;
+    token = milestoneIdFromEpicKey(key);
+    const row = epicRow(key, "Payouts");
+    listing = { issues: [{ ...row, fields: { ...row.fields, project: { key: project } } }], isLast: true };
+  } else {
+    project = opts.project ?? "DPT";
+    token = milestoneIdFromLinearMilestone(LINEAR_ATTACH_MILESTONE);
+    listing = { milestones: [{ id: LINEAR_ATTACH_MILESTONE, name: "Payouts" }] };
+  }
+  const plan = join(root, "specs", "plan", `${token}.md`);
+  if (!existsSync(plan)) {
+    planIn(root, token, "Payouts", false);
+    git(root, "add", "--", plan);
+    git(root, "commit", "-q", "-m", `plan ${token}`, "--", plan);
+  }
+  const a = attached(root, project, plan, scratch, listing, SESSION, mode);
+  s.bash(a.command, a.out);
+  return a;
+}
+
+describe("AC-STE-611.3 — the hook announces the attach front door's receipts", () => {
+  test("attach_project_milestone.ts is APPENDED to RECEIPT_ANNOUNCING_MODULES", async () => {
+    const { RECEIPT_ANNOUNCING_MODULES } = await hookModule();
+    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 1]).toBe(ATTACH);
+    expect(RECEIPT_ANNOUNCING_MODULES.slice(0, 4)).toEqual([DECIDE, CONSENT, CONFIRM, RESOLVE]);
+  });
+});
+
+describe("AC-STE-611.3 — an FR create in a shared repository needs an attach-target receipt", () => {
+  test("permit: an attach-target receipt resolving GF-85 plus a matching create receipt → exit 0", async () => {
+    const { w, a } = attachedWorld();
+    const s = new Session();
+    s.bash(a.command, a.out);
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    expectPermit(await runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 30_000);
+
+  test("forbid: a matching create receipt but no attach-target receipt → exit 2, NFR-10 naming the front door", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    const r = await runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) });
+    expectRefusal(r, ATTACH, /Context:/);
+  }, 30_000);
+
+  test("forbid: an unreadable or a rewritten attach-target receipt counts as absent → exit 2", async () => {
+    const one = attachedWorld();
+    const s1 = new Session();
+    s1.bash(one.a.command, one.a.out);
+    s1.announceDecide(one.w.be, createReceipt(one.w.be, { title: "BE payout export" }));
+    chmodSync(one.a.receipt!, 0o000);
+    cleanups.push(() => chmodSync(one.a.receipt!, 0o644));
+
+    const two = attachedWorld();
+    const s2 = new Session();
+    s2.bash(two.a.command, two.a.out);
+    s2.announceDecide(two.w.be, createReceipt(two.w.be, { title: "BE payout export" }));
+    writeFileSync(two.a.receipt!, "{not json");
+
+    const runs = await mapBounded(
+      [
+        { w: one.w, transcript: s1.save(one.w.scratch) },
+        { w: two.w, transcript: s2.save(two.w.scratch) },
+      ],
+      HOOK_SPAWN_LIMIT,
+      (c) => runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: c.w.be, transcript: c.transcript }),
+    );
+    for (const r of runs) expectRefusal(r, ATTACH);
+  }, 60_000);
+
+  test("forbid: an attach-target receipt from ANOTHER session does not satisfy → exit 2", async () => {
+    const { w, a } = attachedWorld(OTHER_SESSION);
+    const s = new Session();
+    s.bash(a.command, a.out);
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    expectRefusal(await runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) }), ATTACH);
+  }, 30_000);
+
+  test("forbid: the payload's parent differs from the key the receipt resolved → exit 2", async () => {
+    const { w, a } = attachedWorld();
+    const s = new Session();
+    s.bash(a.command, a.out);
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export", parent: "GF-89" }));
+    const r = await runSh(JIRA("createJiraIssue"), jiraCreate({ parent: "GF-89" }), { cwd: w.be, transcript: s.save(w.scratch) });
+    expectRefusal(r, "GF-85", "GF-89");
+  }, 30_000);
+
+  test("forgery: an attach-target receipt announced by any other module, or by the front door with extra argv, is ignored → exit 2", async () => {
+    const { w, a } = attachedWorld();
+    const forged = new Session();
+    forged.bash(`bun run "${join(ADAPTERS_SRC, "mint_milestone_epic.ts")}" GF "Payouts" GF-300`, a.out);
+    forged.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    const extra = new Session();
+    extra.bash(`${a.command} --force`, a.out);
+    extra.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    const runs = await mapBounded([forged.save(w.scratch), extra.save(w.scratch)], HOOK_SPAWN_LIMIT, (transcript) =>
+      runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript }),
+    );
+    for (const r of runs) expectRefusal(r, ATTACH);
+  }, 30_000);
+
+  test("forbid: a Linear save_issue without `id` in a shared repository needs one too → exit 2", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("611-linear");
+    const path = receiptIn(root, {
+      kind: "create",
+      adapter: "linear",
+      container: "",
+      subject: "A new ticket",
+      decision: "create",
+      evidence: { createPayload: { team: "STE", project: "DPT", title: "A new ticket", labels: [BE_TAG] } },
+    });
+    const s = new Session();
+    s.announce(DECIDE, `decide "${root}" /tmp/page.json --title "A new ticket" --attempt fast`, path);
+    const input = { team: "STE", project: "DPT", title: "A new ticket", labels: [BE_TAG] };
+    expectRefusal(await runSh(LINEAR("save_issue"), input, { cwd: root, transcript: s.save(scratch) }), ATTACH);
+  }, 30_000);
+
+  test("(control) no repo_tag: the Jira FR create and the Linear save_issue both exit 0 with empty output", async () => {
+    const jira = tempDir("611-undeclared-jira");
+    declareJira(jira, null);
+    gitInit(jira);
+    const linear = linearRepo(null);
+    const transcript = new Session().save(tempDir("611-undeclared-scratch"));
+    const runs = await mapBounded(
+      [
+        { tool: JIRA("createJiraIssue"), input: jiraCreate(), cwd: jira },
+        { tool: LINEAR("save_issue"), input: { team: "STE", project: "DPT", title: "A new ticket", labels: [] }, cwd: linear },
+      ],
+      HOOK_SPAWN_LIMIT,
+      (c) => runSh(c.tool, c.input, { cwd: c.cwd, transcript }),
+    );
+    for (const r of runs) expectSilent(r);
+  }, 30_000);
+});
+
+describe("AC-STE-611.6 — the stranding scenario, through the hook", () => {
+  test("repo_tag, bound to GF, plan M_GB_40: the front door exits 1 naming GB with no receipt, and the FR create is refused", async () => {
+    const w = makeWorld();
+    const plan = planIn(w.be, "M_GB_40", "Payouts", true);
+    const a = realAttach(w.be, "GF", plan, w.scratch, GF_85_PAGE);
+    expect(a.exitCode).toBe(1);
+    expect(a.out).toBe("");
+    expect(a.err).toContain("GB");
+    expect(a.receipt).toBeNull();
+    const s = new Session();
+    s.bash(a.command, a.err, true);
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export", parent: "GB-40" }));
+    const r = await runSh(JIRA("createJiraIssue"), jiraCreate({ parent: "GB-40" }), { cwd: w.be, transcript: s.save(w.scratch) });
+    expectRefusal(r, ATTACH);
+  }, 30_000);
+
+  test("(control) bound to GB: the target resolves to GB-40, the receipt is written and the hook permits the create", async () => {
+    const root = tempDir("611-gb");
+    claudeMd(root, { mode: "jira", project: "GB", defaultLabels: [BE_TAG], repoTag: BE_TAG, minDptVersion: "2.87.0" });
+    gitInit(root);
+    const plan = planIn(root, "M_GB_40", "Payouts", true);
+    const scratch = tempDir("611-gb-scratch");
+    const gbEpic = { ...epicRow("GB-40", "Payouts"), fields: { ...epicRow("GB-40", "Payouts").fields, project: { key: "GB" } } };
+    const a = attached(root, "GB", plan, scratch, { issues: [gbEpic], isLast: true });
+    expect(a.out.split("\n")).toContain("key=GB-40");
+    const create = receiptIn(root, {
+      kind: "create",
+      adapter: "jira",
+      container: "GB-40",
+      subject: "BE payout export",
+      decision: "create",
+      evidence: { createPayload: { project: "GB", summary: "BE payout export", labels: [BE_TAG], parent: "GB-40" } },
+    });
+    const s = new Session();
+    s.bash(a.command, a.out);
+    s.announce(DECIDE, `decide "${root}" /tmp/page.json --title "BE payout export" --parent GB-40 --attempt fast`, create);
+    const r = await runSh(JIRA("createJiraIssue"), { ...jiraCreate({ parent: "GB-40" }), projectKey: "GB" }, { cwd: root, transcript: s.save(scratch) });
+    expectPermit(r);
+  }, 30_000);
+
+  test("join path: a plan whose Epic FE minted resolves to GF-85 after a decided join, and BE's create proceeds", async () => {
+    const w = makeWorld();
+    const d = realResolve(w.be, ["jira", "GF", "--join-key", "GF-85", "--sibling", siblingWithPlan(w)], w.scratch, GF_85_PAGE);
+    const plan = planIn(w.be, "M_GF_85", "Payouts", false); // written this session, after the decision
+    const a = attached(w.be, "GF", plan, w.scratch, GF_85_PAGE);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    s.bash(a.command, a.out);
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    expectPermit(await runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 60_000);
+});
+
+// ===========================================================================
+// STE-611 AUDIT hardening — the zero-write-join closure is only as strong as
+// the decision it relies on. The attach front door reads decision receipts
+// from disk; only the hook can see whether one was ANNOUNCED by the decision
+// front door's own run. A decision FILE written by hand must not launder a
+// real attach-target receipt into a permitted create.
+// ===========================================================================
+
+describe("AC-STE-611.7 hardening — an attach-target receipt counts only if its decision was announced", () => {
+  function forgedDecision(root: string, key: string): string {
+    const dir = receiptsDir(root, SESSION);
+    mkdirSync(dir, { recursive: true });
+    const p = join(dir, `forged-${Math.random().toString(36).slice(2)}.json`);
+    writeFileSync(
+      p,
+      `${JSON.stringify({
+        v: 1,
+        kind: "milestone-decision",
+        sessionId: SESSION,
+        root,
+        adapter: "jira",
+        container: "GF",
+        subject: "Payouts",
+        decision: "join",
+        evidence: { act: "join", via: "key", key, joinKey: key, milestoneId: "M_GF_85" },
+        createdAt: new Date().toISOString(),
+      })}\n`,
+    );
+    return p;
+  }
+
+  test("forbid: a hand-written decision file satisfies the front door, but the hook refuses the create", async () => {
+    const w = makeWorld();
+    forgedDecision(w.be, "GF-85");
+    const plan = planIn(w.be, "M_GF_85", "Payouts", false);
+    const a = attached(w.be, "GF", plan, w.scratch, GF_85_PAGE); // the front door is fooled by the file
+    const s = new Session();
+    s.bash(a.command, a.out);
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    expectRefusal(await runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) }), RESOLVE);
+  }, 60_000);
+
+  test("(control) the same flow with the decision announced by the real decision front door → exit 0", async () => {
+    const w = makeWorld();
+    const d = realResolve(w.be, ["jira", "GF", "--join-key", "GF-85", "--sibling", siblingWithPlan(w)], w.scratch, GF_85_PAGE);
+    const plan = planIn(w.be, "M_GF_85", "Payouts", false);
+    const a = attached(w.be, "GF", plan, w.scratch, GF_85_PAGE);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    s.bash(a.command, a.out);
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    expectPermit(await runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 60_000);
+
+  test("(control) a plan committed at HEAD needs no decision → exit 0", async () => {
+    const { w, a } = attachedWorld();
+    const s = new Session();
+    s.bash(a.command, a.out);
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    expectPermit(await runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 60_000);
+});
+
+describe("AC-STE-611.7 / .3 hardening — the legs the audit found unpinned", () => {
+  test("a decided JOIN of a different key does not prove the resolved container: the front door refuses", () => {
+    const w = makeWorld();
+    const listing = { issues: [epicRow("GF-99", "Other"), epicRow("GF-85", "Payouts")], isLast: true };
+    const d = realResolve(w.be, ["jira", "GF", "--join-key", "GF-99", "--sibling", siblingWithPlan(w, "M_GF_99")], w.scratch, listing);
+    expect(d.receipt).toBeTruthy();
+    const plan = planIn(w.be, "M_GF_85", "Payouts", false);
+    const a = realAttach(w.be, "GF", plan, w.scratch, listing);
+    expect(a.exitCode, `${a.out}\n${a.err}`).toBe(1);
+    expect(a.err).toMatch(/without a decision/i);
+    expect(a.receipt).toBeNull();
+  }, 60_000);
+
+  test("an attach-target receipt resolved in ANOTHER repository does not satisfy a create in this one", async () => {
+    const w = makeWorld();
+    const plan = planIn(w.fe, "M_GF_85", "Payouts", true);
+    const a = attached(w.fe, "GF", plan, w.scratch, GF_85_PAGE);
+    const s = new Session();
+    s.bash(a.command, a.out);
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    expectRefusal(await runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) }), ATTACH);
+  }, 60_000);
 });
