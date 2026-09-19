@@ -51,11 +51,12 @@ import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { nfr10Message } from "./dpt_version";
 import {
+  governingDecision,
   isMilestoneToken,
   milestoneIdFromEpicKey,
   milestoneIdFromLinearMilestone,
-  normalizeMilestoneTitle,
   parseMilestoneToken,
+  type DecisionFacts,
 } from "./milestone_token";
 import { parsePlanHeading } from "./plan_heading";
 import { announceReceipt, oneLine, printable, receiptDigest, writeReceipt } from "./tracker_receipts";
@@ -1307,11 +1308,13 @@ export type AttachProvenance =
  * declaring `repo_tag`, and only when the resolver bound an EXISTING container
  * (an Epic key, or a Linear milestone id). A plan committed at the target
  * repository's HEAD passes (continuing work across sessions); a plan absent
- * from HEAD passes only on a `milestone-decision` receipt of THIS session that
- * joined the resolved key or created the resolved container's listed title. A
- * create decision proves the container only when this session's create call
- * returned its key; this command cannot see the transcript, so the tracker-write
- * hook enforces that half (M_685ff6 review).
+ * from HEAD passes only on the GOVERNING `milestone-decision` receipt of THIS
+ * session for that container — the latest one (`governingDecision`, the rule
+ * the hook applies) that joined the resolved key or decided the resolved
+ * container's listed title by the one title normalizer. A governing join must
+ * name the resolved key. A create decision proves the container only when this
+ * session's create call returned its key; this command cannot see the
+ * transcript, so the tracker-write hook enforces that half (M_685ff6 review).
  * A git failure other than "path absent" refuses — never read as committed.
  */
 async function assertAttachProvenance(input: {
@@ -1399,6 +1402,10 @@ async function assertAttachProvenance(input: {
     } catch {
       names = []; // an unreadable or absent receipt directory counts as absent
     }
+    // Every valid decision of this session for this container, oldest first
+    // (by `createdAt`, then file name), so the one governing rule the hook
+    // applies picks the same receipt here (M_685ff6 review r2).
+    const decisions: Array<DecisionFacts & { file: string; bytes: string; createdAt: string }> = [];
     for (const name of names) {
       const file = join(dir!, name);
       let bytes: string;
@@ -1413,18 +1420,29 @@ async function assertAttachProvenance(input: {
       if (r.kind !== "milestone-decision" || r.adapter !== mode || r.container !== project) continue;
       const ev = r.evidence as Record<string, unknown> | undefined;
       if (ev === null || typeof ev !== "object") continue;
-      const matches =
-        ev.act === "join"
-          ? typeof ev.key === "string" && ev.key === resolvedKey
-          : ev.act === "create" &&
-              typeof ev.title === "string" &&
-              listedTitle !== undefined &&
-              // The one title normalizer the decision itself joins on.
-              normalizeMilestoneTitle(ev.title) === normalizeMilestoneTitle(listedTitle);
-      if (matches) {
-        decidedBy = { receipt: resolve(file), sha256: receiptDigest(bytes) };
-        break;
-      }
+      if (ev.act !== "create" && ev.act !== "join") continue;
+      decisions.push({
+        act: ev.act,
+        key: typeof ev.key === "string" ? ev.key : "",
+        title: typeof ev.title === "string" ? ev.title : null,
+        name: typeof ev.name === "string" ? ev.name : null,
+        file,
+        bytes,
+        createdAt: typeof r.createdAt === "string" ? r.createdAt : "",
+      });
+    }
+    decisions.sort((x, y) =>
+      x.createdAt !== y.createdAt ? (x.createdAt < y.createdAt ? -1 : 1) : x.file < y.file ? -1 : x.file > y.file ? 1 : 0,
+    );
+    const governing = governingDecision(decisions, {
+      key: resolvedKey,
+      ...(listedTitle !== undefined ? { title: listedTitle } : {}),
+    });
+    // A governing join must name the resolved key; a governing create is
+    // recorded as it is — the hook honours it only when this session's create
+    // call returned the resolved key.
+    if (governing !== undefined && (governing.act === "create" || governing.key.toUpperCase() === resolvedKey.toUpperCase())) {
+      decidedBy = { receipt: resolve(governing.file), sha256: receiptDigest(governing.bytes) };
     }
   }
   if (decidedBy !== null) return { kind: "decided", ...decidedBy };
