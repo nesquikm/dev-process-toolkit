@@ -611,14 +611,23 @@ describe("AC-STE-592.5 — the STE-580 suite stays green, its constants unedited
   // its "NEVER by name" pin encoded a sentence STE-608 retires. Every line the
   // diff against main removes must belong to that one test, and every added
   // line must sit inside the amended test, so no other edit rides along.
-  test("the suite is unedited against main, except the one AC-STE-608.11 amendment", () => {
+  // Diffed against a FIXED commit, never against the moving `main` ref: `main`
+  // is the pre-amendment tree only while the amending branch is unmerged, so a
+  // diff against it holds for exactly one commit and reds the moment the branch
+  // merges. 2c99778 is main immediately before M_685ff6 (the last tree carrying
+  // the suite unamended); history is never rewritten, so the base cannot move.
+  const PRE_AMENDMENT_BASE = "2c99778c01ef4c810c94653e8e25fe91c4a79fa3";
+  test("the suite is unedited since the pre-M_685ff6 base, except the one AC-STE-608.11 amendment", () => {
     const git = (args: string[]) => Bun.spawnSync(["git", ...args], { cwd: pluginRoot });
-    expect(git(["rev-parse", "--verify", "--quiet", "main"]).exitCode, "control: main resolves").toBe(0);
     expect(
-      git(["cat-file", "-e", `main:plugins/dev-process-toolkit/${STE_580_SUITE_REL}`]).exitCode,
-      "control: the suite exists on main, so the diff below is not against nothing",
+      git(["cat-file", "-e", `${PRE_AMENDMENT_BASE}^{commit}`]).exitCode,
+      "control: the fixed base resolves (a shallow clone without it cannot grade this clause)",
     ).toBe(0);
-    const diff = git(["diff", "-U0", "main", "--", STE_580_SUITE_REL]).stdout.toString();
+    expect(
+      git(["cat-file", "-e", `${PRE_AMENDMENT_BASE}:plugins/dev-process-toolkit/${STE_580_SUITE_REL}`]).exitCode,
+      "control: the suite exists at the base, so the diff below is not against nothing",
+    ).toBe(0);
+    const diff = git(["diff", "-U0", PRE_AMENDMENT_BASE, "--", STE_580_SUITE_REL]).stdout.toString();
     const removed = diff.split("\n").filter((l) => l.startsWith("-") && !l.startsWith("---")).map((l) => l.slice(1));
     const added = diff.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++")).map((l) => l.slice(1));
     const RETIRED_TEST = [
