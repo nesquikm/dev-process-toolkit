@@ -19,7 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The sibling release gate refuses whenever it cannot prove the sibling is idle (STE-609)
 - A feature request's milestone container is found before its ticket is created (STE-611)
 
-Total test count at release: 14821 tests, 0 failures, 0 errors.
+Total test count at release: 14835 tests, 0 failures, 0 errors.
 
 ## [2.87.0] — 2026-09-18 — "Owned"
 
