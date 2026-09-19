@@ -256,7 +256,7 @@ describe("AC-STE-539.2 — both halves come back, the id derived from the identi
     // The literal pair. `milestoneUuid` is the value the double RETURNED from
     // `createMilestone` — the mint takes no uuid argument, so there is no
     // input it could be echoing.
-    expect(result).toEqual({ milestoneUuid: UUID, milestoneId: MILESTONE_ID });
+    expect(result).toEqual({ milestoneUuid: UUID, milestoneId: MILESTONE_ID, outcome: "created" });
 
     // And the relation between the two halves. Neither assertion alone is
     // enough: the literal can drift, and this one alone is tautological — a
@@ -273,7 +273,7 @@ describe("AC-STE-539.2 — both halves come back, the id derived from the identi
       sleep: sleepRecorder().sleep,
     });
 
-    expect(result).toEqual({ milestoneUuid: OTHER_UUID, milestoneId: OTHER_MILESTONE_ID });
+    expect(result).toEqual({ milestoneUuid: OTHER_UUID, milestoneId: OTHER_MILESTONE_ID, outcome: "created" });
     expect(result.milestoneId).toBe(milestoneIdFromLinearMilestone(result.milestoneUuid));
   });
 });
@@ -443,7 +443,7 @@ describe("AC-STE-539.5 — the retry carries find-before-create, and never dupli
     expect(d.listMilestonesCalls).toBe(0);
     expect(d.milestones.length).toBe(1);
     expect(rec.sleeps).toEqual([]);
-    expect(result).toEqual({ milestoneUuid: UUID, milestoneId: MILESTONE_ID });
+    expect(result).toEqual({ milestoneUuid: UUID, milestoneId: MILESTONE_ID, outcome: "created" });
   });
 
   test("leg 5 — a name hit carrying no identifier refuses rather than blind-creating", async () => {
@@ -741,7 +741,7 @@ describe("AC-STE-539.6 — nextFreeMilestoneNumber is never called on this path"
     });
 
     expect(createCalls).toBe(1);
-    expect(result).toEqual({ milestoneUuid: UUID, milestoneId: MILESTONE_ID });
+    expect(result).toEqual({ milestoneUuid: UUID, milestoneId: MILESTONE_ID, outcome: "created" });
   });
 });
 

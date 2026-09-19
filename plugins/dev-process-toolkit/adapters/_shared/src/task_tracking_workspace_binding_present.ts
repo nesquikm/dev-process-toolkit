@@ -15,17 +15,29 @@
 //   - Linear: `team:` AND `project:` non-empty in `### Linear`;
 //   - Jira: `project:` non-empty in `### Jira` (team is N/A).
 //
-// STE-603 — when the sub-section declares a `repo_tag`, three more legs:
-//   (a) a reader refusal is a violation carrying the reader's own text;
-//   (b) the shared-container stop paragraph absent, present twice, or not
-//       byte-equal to `renderSharedTrackerSentinel` for the declared tag/floor;
-//   (c) the running toolkit version below `min_dpt_version`.
-// A stop paragraph with no declaration is also a violation. With neither a
-// declaration nor a paragraph, the output is unchanged.
+// Legs past the required keys:
+//   STE-603 — when the sub-section declares a `repo_tag`:
+//     (a) a reader refusal is a violation carrying the reader's own text;
+//     (b) the shared-container stop paragraph absent, present twice, or not
+//         byte-equal to `renderSharedTrackerSentinel` for the declared tag/floor;
+//     (c) the running toolkit version below `min_dpt_version`.
+//   A stop paragraph with no declaration is also a violation. With neither a
+//   declaration nor a paragraph, those legs add nothing.
+//   STE-612 — (d) the key-prefix leg, under `mode: jira` only: each active FR
+//     whose tracker key's project prefix is not the bound project, and each
+//     active Epic-keyed plan outside the bound project's Epic-token prefix
+//     (`epicTokenPrefix`, the STE-611 forward-sanitization expression), is a
+//     violation naming the repoint command. Under Linear, or with no bound
+//     project, the leg does not run and the report lists it in `skipped` —
+//     never counted as passed. The repoint command's row 7 applies the same
+//     two exported checks (`foreignJiraKeyProject`, `epicTokenOutside`).
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { checkVersionFloor, nfr10Message, runningDptVersion } from "./dpt_version";
+import { parseFrontmatter } from "./frontmatter";
+import { oneLine } from "./tracker_receipts";
+import { milestoneIdFromEpicKey, PLAN_FILENAME_RE, parseMilestoneToken } from "./milestone_token";
 import { renderSharedTrackerSentinel, SHARED_TRACKER_MARKER } from "./setup/tracker_binding_write";
 import {
   locateSubsection,
@@ -44,6 +56,8 @@ export interface TaskTrackingWorkspaceBindingViolation {
 
 export interface TaskTrackingWorkspaceBindingReport {
   violations: TaskTrackingWorkspaceBindingViolation[];
+  /** Legs that did not run here — listed so a skip is never read as a pass. */
+  skipped?: string[];
 }
 
 const SECTION_HEADING = "## Task Tracking";
@@ -236,7 +250,133 @@ export async function runTaskTrackingWorkspaceBindingPresentProbe(
     );
   }
 
-  return { violations };
+  const skipped: string[] = [];
+  if (adapterKey !== "jira") skipped.push(KEY_PREFIX_SKIP);
+  else if (!binding.project) skipped.push(`${KEY_PREFIX_LEG} (no bound project)`);
+  else violations.push(...keyPrefixViolations(projectRoot, binding.project, resolved.mode));
+
+  // A leg that did not run is listed, never counted as passed (STE-612).
+  return { violations, skipped };
+}
+
+const KEY_PREFIX_LEG = "key-prefix leg";
+const KEY_PREFIX_SKIP = `${KEY_PREFIX_LEG} (Jira only)`;
+const REPOINT = "plugins/dev-process-toolkit/adapters/_shared/src/repoint_tracker_binding.ts";
+
+/** The regular `.md` files directly under `dir` (never a sub-directory such as `archive/`), sorted by name. */
+export function mdFiles(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith(".md"))
+    .map((e) => e.name)
+    .sort();
+}
+
+/**
+ * The Epic-token prefix of Jira project `project`: `milestoneIdFromEpicKey(project)`
+ * + `_` (STE-611's forward sanitization). `null` when the key does not sanitize
+ * to a well-formed id — then no Epic token lies inside the project.
+ */
+export function epicTokenPrefix(project: string): string | null {
+  try {
+    return `${milestoneIdFromEpicKey(project)}_`;
+  } catch {
+    return null;
+  }
+}
+
+/** True when `token` is an Epic-keyed milestone token outside the Epic-token prefix `prefix` (see `epicTokenPrefix`). */
+export function epicTokenOutside(token: string, prefix: string | null): boolean {
+  return parseMilestoneToken(token)?.kind === "epic" && (prefix === null || !token.startsWith(prefix));
+}
+
+/**
+ * The `tracker.jira` key of an FR; `undefined` when it has none or its
+ * frontmatter does not parse. Only this key is graded: another tracker's key
+ * (`linear: STE-1`) is Jira-shaped but belongs to no Jira project.
+ */
+export function jiraKeyOf(content: string): string | undefined {
+  const fm = frontmatterOf(content);
+  const tracker = fm?.["tracker"];
+  if (tracker === null || tracker === undefined || typeof tracker !== "object") return undefined;
+  const key = (tracker as Record<string, unknown>)["jira"];
+  return typeof key === "string" && key.length > 0 ? key : undefined;
+}
+
+/** `jiraKeyOf`, for an FR that is not `status: archived`. */
+export function activeJiraKeyOf(content: string): string | undefined {
+  return frontmatterOf(content)?.["status"] === "archived" ? undefined : jiraKeyOf(content);
+}
+
+function frontmatterOf(content: string): Record<string, unknown> | undefined {
+  try {
+    return parseFrontmatter(content, { lenient: true });
+  } catch {
+    return undefined;
+  }
+}
+
+/** The project prefix of Jira-shaped tracker key `key` when it is not `project`; `undefined` when inside it or not Jira-shaped. */
+export function foreignJiraKeyProject(key: string, project: string): string | undefined {
+  const m = /^([A-Za-z][A-Za-z0-9_]*)-\d+$/.exec(key);
+  return m !== null && m[1] !== project ? m[1] : undefined;
+}
+
+/** 1-based line of the first line containing `needle`, else 1. */
+function lineOf(content: string, needle: string): number {
+  const i = content.split("\n").findIndex((l) => l.includes(needle));
+  return i >= 0 ? i + 1 : 1;
+}
+
+/** STE-612 — active FR keys and active Epic-keyed plan tokens outside the bound Jira project. */
+function keyPrefixViolations(
+  projectRoot: string,
+  project: string,
+  mode: string,
+): TaskTrackingWorkspaceBindingViolation[] {
+  const prefix = epicTokenPrefix(project);
+  const out: TaskTrackingWorkspaceBindingViolation[] = [];
+  const push = (abs: string, line: number, rawReason: string): void => {
+    // A filename or key may carry a newline; nothing it supplies starts a line.
+    const rel = oneLine(relative(projectRoot, abs));
+    const reason = oneLine(rawReason);
+    out.push({
+      file: abs,
+      line,
+      reason,
+      note: `${rel}:${line} — ${reason}`,
+      message: nfr10Message(
+        `task_tracking_workspace_binding_present: ${reason}`,
+        `the bound project was changed without the repoint command — restore \`project:\` and run \`bun run ${REPOINT} <projectRoot> jira ${project} --projects <file> --containers <file>\`, or archive the FR / plan before repointing.`,
+        `file=${rel}, mode=${mode}, leg=key-prefix, project=${project}, probe=task_tracking_workspace_binding_present`,
+      ),
+    });
+  };
+
+  const frsDir = join(projectRoot, "specs", "frs");
+  for (const name of mdFiles(frsDir)) {
+    const abs = join(frsDir, name);
+    const content = readFileSync(abs, "utf-8");
+    const key = activeJiraKeyOf(content);
+    const foreign = key === undefined ? undefined : foreignJiraKeyProject(key, project);
+    if (key === undefined || foreign === undefined) continue;
+    push(abs, lineOf(content, key), `active FR tracker key "${key}" is in project "${foreign}", not the bound Jira project "${project}"`);
+  }
+
+  const planDir = join(projectRoot, "specs", "plan");
+  for (const name of mdFiles(planDir)) {
+    if (!PLAN_FILENAME_RE.test(name)) continue;
+    const token = name.slice(0, -".md".length);
+    if (!epicTokenOutside(token, prefix)) continue;
+    const abs = join(planDir, name);
+    const content = readFileSync(abs, "utf-8");
+    push(
+      abs,
+      lineOf(content, token),
+      `active Epic-keyed plan "${token}" does not start with "${prefix ?? `M_${project}_`}", the bound Jira project "${project}"`,
+    );
+  }
+  return out;
 }
 
 if (import.meta.main) {

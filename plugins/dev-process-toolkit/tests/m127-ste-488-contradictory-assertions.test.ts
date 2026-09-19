@@ -265,9 +265,24 @@ const PROBE_MODULES = {
 // What actually keeps the pass correct is that it runs on the `mode: none` arm
 // alone. A scope limit defended by a false reason is the kind of comment that
 // survives until someone widens the scope trusting it.
+// ── Re-record #3, M_685ff6/STE-608 (`planIdentity` only; `identity` untouched).
+//
+// AC-STE-608.15 adds probe #73's `mode: linear` provenance arm, dated against
+// the new `LINEAR_TRACKER_KEY_EPOCH`, and factors the per-mode arms into one
+// shared row builder. Like M138's, this edit CHANGES BEHAVIOUR, in exactly the
+// respect the FR names: an untracked or post-epoch sequential plan under
+// `mode: linear` is now an error row. Evidence, per the protocol above: main's
+// copies of the module's five behavioural suites (gate-check-plan-identity-
+// mode-conditional, m119-ste-441, m120-ste-443, m126-ste-481, m137-plan-
+// narrative-provenance) run against the OLD module give 173 pass / 0 fail /
+// 513 `expect()` calls; against the NEW module, 170 pass / 3 fail / 513, and
+// the three failures are exactly the named amendments: AC-STE-443.3's GUARD
+// (named by AC-STE-608.16), AC-STE-481.4 and AC-STE-441.1 (both fixtures held an
+// untracked sequential plan under `mode: linear`). Every `mode: jira` and
+// `mode: none` leg passed unchanged.
 const PROBE_MODULE_SHA256 = {
   identity: "ea2ca90d8e00c119bea9cd02c30d23b58f7a4a076ed7557800cb1db0e6d63326",
-  planIdentity: "88939b7ddade4a40e1ecbb2b1fbcd85fef5ed1678bccd41a94686e05b0a0aad2",
+  planIdentity: "09dd77c384e9854ff58994c11b7bdcfba6e236d9e553c7b2aab579ba66011124",
 } as const;
 
 /** The two canonical probe sentences the retired assertions demanded verbatim. */

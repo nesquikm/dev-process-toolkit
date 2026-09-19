@@ -249,7 +249,7 @@ flowchart TD
 | Auto-approve marker byte-grep | /spec-write, /deps | PRESENT→default y; ABSENT+non-tty→refuse | sole decider, no inference |
 | resolveMilestoneIdentity dispatch | /spec-write plan alloc, **all three modes** | one call routes by mode; `mode: none` cannot return `M<N>` | unknown mode → throw, never a sequential fallback |
 | └ Key-derived milestone id | dispatcher's **all three** branches | milestone identifier → `M_<6-hex>`; Epic key → `M_<epic-key>`; minted ULID tail → `M_<short-ULID>` | collision-free by construction; allocator bypassed on every branch |
-| nextFreeMilestoneNumber explicit-`M<N>` check | its own CLI front door, off the dispatcher | max(active∪archived∪changelog∪tracker∪branches)+1 | hand-typed token collides → NFR-10 refusal |
+| nextFreeMilestoneNumber explicit-`M<N>` check | its own CLI front door, off the dispatcher | max(active∪archived∪changelog∪tracker∪branches)+1 | hand-typed token collides → NFR-10 refusal; under `mode: jira` / `mode: linear` any typed token is a tracker-mode refusal (NFR-10) whose Remedy names the decision front door `resolve_milestone_identity.ts` |
 | Post-write FR self-checks | /spec-write | frontmatter / guessed-id / short-ULID scans | shape error / placeholder → halt |
 | Risk scan (llm-review) | /spec-write Step 6 | per high-severity risk | resolve or accept before hand-off |
 | Deps Socratic mgmt flows | /deps add/edit/delete/sync | one prompt per step | DepsManifestShapeError (NFR-10) |

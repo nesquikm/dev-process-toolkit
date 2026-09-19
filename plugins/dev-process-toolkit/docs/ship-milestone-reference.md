@@ -157,17 +157,31 @@ Both shapes preserve the canonical `Context: milestone=M<N>, unshipped=<count>, 
 
 ## Refusal #4 sibling gate decision matrix
 
-The skill's pre-flight refusal #4 runs the sibling gate before any file is written. It asks one question: does a sibling repository declared in `spans_repos:` still hold active FRs bound to this milestone? It never asks whether the sibling has shipped, because two repositories that each waited for the other to ship would deadlock. `--partial` is the only escape.
+The skill's pre-flight refusal #4 runs the sibling gate before any file is written. It classifies each sibling repository declared in `spans_repos:` into one closed set of states, read from the sibling's git state — every worktree, local branch and remote-tracking ref, without fetching — and releases without `--partial` only when every sibling is `idle`. It never asks whether the sibling has shipped, because two repositories that each waited for the other to ship would deadlock; two idle repositories that declare each other both pass. `--partial` is the only escape.
+
+Every refusal is exit 1 with the three-line refusal on stderr, empty stdout and nothing written. A held sibling's verdict names the milestone, the sibling, its declared path and its state; its remedy is the state's own and also names `--partial`.
 
 | State | Outcome |
 |-------|---------|
-| Sibling busy, no `--partial` | Refuse: exit 1, three-line refusal on stderr naming the milestone, sibling, count and FR ids; nothing written. |
-| Sibling busy, `--partial` | Ship; step 7 also stamps `ship_partial: true`; the footer is measured as in the rows below — `Spans: <repo>@pending`, or `<repo>@v<X.Y.Z>` once the sibling's plan carries a stamp. |
-| Sibling holds zero active FRs, unstamped | Ship; footer `<repo>@pending`. |
-| Sibling plan stamped `v<X.Y.Z>` (live or archived path) | Ship; footer `<repo>@v<X.Y.Z>`. |
-| Sibling unlocatable on this machine | Ship; one `not checked` line on stderr; footer `<repo>@pending`; probe #63 later reports it as a note, never a violation. |
+| `idle` — located, a git repository, toolkit-managed, bound to this repository's tracker project, holds the `M<N>` plan and at least one FR bound to it, none active | Ship; footer `<repo>@pending` while the sibling's plan is unstamped, `<repo>@v<X.Y.Z>` once it carries a stamp (live or archived path). |
+| `busy` — an FR bound to `M<N>` is active in some worktree, local branch or remote-tracking ref and archived in none | Refuse, naming each active FR id with the source that holds it. Remedy: finish the sibling's active FRs. |
+| `not-started` — the sibling holds the plan but no FR bound to `M<N>` | Refuse. Remedy: bind at least one FR to the milestone in the sibling and finish it. |
+| `no-plan` — the sibling holds no `specs/plan/M<N>.md` | Refuse. Remedy: add the plan to the sibling. |
+| `unlocatable` — the declared path does not exist; a relative path resolves against the main worktree root | Refuse. Remedy: correct the path under `spans_repos:`, or check the sibling out there. |
+| `not-a-repository` — the path exists but is not a git checkout | Refuse. Remedy: point the path at the sibling's git checkout. |
+| `not-toolkit-managed` — a git checkout with no toolkit-managed CLAUDE.md | Refuse. Remedy: run `/dev-process-toolkit:setup` in the sibling, or point the path at the toolkit-managed checkout. |
+| `different-container` — the sibling binds another tracker project (tracker modes only; not applicable under `mode: none`) | Refuse. Remedy: bind the sibling to this repository's tracker project, or drop it from `spans_repos:`. |
+| `unreadable` — a git read of the sibling failed, or its CLAUDE.md tracker declaration refuses | Refuse, carrying the reader's own text. Remedy: repair the sibling so every worktree, branch, remote-tracking ref and its tracker declaration can be read. |
+| `one-sided` — the sibling's plan does not name this repository back under its own `spans_repos:` (or declares none) | Refuse. Remedy: run `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/spans_repos.ts <planFile> M<N> --declare <siblingPath>`, which writes both sides; if the sibling's declaration names another repository, correct it first. |
+| Shared repository (`repo_tag` declared), neither `--children` nor `--offer` | Refuse, naming both flags. |
+| `--children` listing missing, unreadable, malformed, not proved the last page, `children=0`, or omitting one of this repository's own FR tickets bound to `M<N>` | Refuse as incomplete: a release needs the milestone's whole child list. |
+| A child carrying neither this repository's tag nor a declared sibling's tag | Refuse without `--partial`, naming each such child key and its labels. |
+| `--offer` (the offer surfaces) | Every sibling state is still graded; the children check is skipped and one stderr line says `children=not checked (offer)`. |
+| Sibling busy, `--partial` | Ship; step 7 also stamps `ship_partial: true`; the footer is measured as in the `idle` row — `Spans: <repo>@pending`, or `<repo>@v<X.Y.Z>` once the sibling's plan carries a stamp. |
+| Any other held state, `--partial` | Ship, stamped `ship_partial: true`, footer measured the same way; an `unlocatable` sibling also prints one `not checked` line on stderr, and probe #63 later reports it as a note, never a violation. |
 | `--partial` on a plan declaring no sibling | Refuse: there is no second half to leave pending. |
-| Malformed `spans_repos:` declaration | Refuse, carrying the reader's own refusal text. |
+| Malformed `spans_repos:` declaration — locally, or in the sibling's own plan | Refuse, carrying the reader's own refusal text. |
+| A declaration in which zero entries, or two or more, resolve to this repository | Refuse, naming each entry and what it resolved to. |
 
 ## Refusal summary (NFR-10 canonical shapes)
 
@@ -177,7 +191,7 @@ All refusals carry the three-line shape: one-line verdict / `Remedy: <action>` /
 2. `working tree has uncommitted changes outside the release files: <list>`
 3. `cannot tag release with <F> test failure(s)`
 4. `/docs <flag> failed; cannot proceed with release` — `<flag>` names which of the two step-5 invocations failed
-5. `M<N> spans a sibling that still holds active work — <sibling>: <count> active FRs (<ids>)` — the skill's pre-flight refusal #4; its states are in the decision matrix above
+5. `M<N> spans a sibling that still holds active work — <sibling> is busy: <count> active FRs (<id> in <source>; …)`, or `M<N> spans a sibling that cannot be proved idle — <sibling> at <path> is <state>: <reason>` — the skill's pre-flight refusal #4; its states are in the decision matrix above
 
 ## `## Release Files` block schema
 

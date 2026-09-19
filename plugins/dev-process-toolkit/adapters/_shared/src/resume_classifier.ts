@@ -26,6 +26,7 @@ import { parseFrontmatter } from "./frontmatter";
 import { readPlanTaskState, type PlanStatus } from "./plan_task_state";
 import {
   classifyActivePlans,
+  heldSiblings,
   leadingToken,
   milestoneFrBinding,
   spanningSiblingState,
@@ -36,6 +37,7 @@ import {
   runNeedsTechnicalReviewConsistencyProbe,
 } from "./needs_technical_review_consistency";
 import { MAX_CONCURRENT_WORKERS } from "./target_repo";
+import { oneLine } from "./tracker_receipts";
 
 // ===========================================================================
 // Vocabulary.
@@ -92,8 +94,8 @@ export interface ResumeClassification {
   /** NFR-10 messages from `needs_technical_review_consistency` for its FRs. */
   readonly reviewConsistencyViolations: readonly string[];
   /**
-   * `<token> (<name>: <n> active FRs)` entries from `classifyActivePlans` for
-   * THIS milestone — a declared sibling repo still holds active work, so the
+   * `<token> (<name>: <state>)` entries from `classifyActivePlans` for
+   * THIS milestone — a declared sibling repo is not proved idle, so the
    * milestone waits: no `/implement`, no ship tail. Empty when nothing waits.
    * `classifyResume` always sets it; OPTIONAL only so a hand-built fixture
    * classification (e.g. `continuation_offer`'s chain-shape fixture) keeps
@@ -124,10 +126,10 @@ export interface FrResumeClassification {
   /** NFR-10 messages from the shipped consistency probe naming THIS FR. */
   readonly reviewConsistencyViolations: readonly string[];
   /**
-   * `<token> (<name>: <n> active FRs)` entries from `spanningSiblingState` — the
+   * `<token> (<name>: <state>)` entries from `spanningSiblingState` — the
    * predicate `classifyActivePlans` is built on — read only when this is the
-   * last LOCAL active FR. Non-empty means a declared sibling repo still holds
-   * work, so this FR does not close the milestone and the chain stops at `/pr`.
+   * last LOCAL active FR. Non-empty means a declared sibling repo is not proved
+   * idle, so this FR does not close the milestone and the chain stops at `/pr`.
    * `classifyResume` always sets it; OPTIONAL only so a hand-built fixture
    * classification keeps meaning "nothing awaited" — absent reads as empty.
    */
@@ -371,10 +373,11 @@ async function classifyMilestoneResume(
   // predicate `classifyFrResume` asks, over its own archived body.
   const awaitingSiblings =
     taskState.planStatus === "archived" && !stamped && !parked
-      ? (
-          await spanningSiblingState(projectRoot, planBody, milestone)
-        ).busy
-      : active.awaitingSiblings.filter((entry) => leadingToken(entry) === milestone);
+      ? heldSiblings(
+          milestone,
+          (await spanningSiblingState(projectRoot, planBody, milestone)).siblings,
+        )
+      : active.held.filter((entry) => leadingToken(entry) === milestone);
 
   // Precedence is deliberate and each step is load-bearing:
   //   a real ship stamp beats a stale review flag (the work is done and out);
@@ -503,13 +506,16 @@ async function classifyFrResume(
   // is the one that classification is built on: one predicate, one rendering.
   const lastActiveFr = remainingActiveFrIds.length === 0;
   const awaitingSiblings = lastActiveFr
-    ? (
-        await spanningSiblingState(
-          projectRoot,
-          await readPlanBody(projectRoot, milestone, "active"),
-          milestone,
-        )
-      ).busy
+    ? heldSiblings(
+        milestone,
+        (
+          await spanningSiblingState(
+            projectRoot,
+            await readPlanBody(projectRoot, milestone, "active"),
+            milestone,
+          )
+        ).siblings,
+      )
     : [];
 
   return {
@@ -644,8 +650,8 @@ function reviewPassPlacement(route: ResumeRoute): StepPlacement {
  * chain carries on through `/spec-archive` (see the `ResumeSkill` member: a
  * single-FR `/implement` leaves `status: active` behind) and `/ship-milestone`.
  *
- * A spanning milestone whose declared sibling still holds active FRs is the
- * one exception: the last LOCAL FR does not close it, so the chain stops at
+ * A spanning milestone whose declared sibling is not proved idle (STE-609) is
+ * the one exception: the last LOCAL FR does not close it, so the chain stops at
  * `/pr` exactly as it does while a local sibling remains.
  *
  * The shipped route rules apply unchanged: `reduced` has no toolkit ceremony to
@@ -743,7 +749,7 @@ function frBranchReason(c: FrResumeClassification): string {
   if (c.lastActiveFr && (c.awaitingSiblings ?? []).length > 0) {
     return (
       `${c.fr} is the last active FR of ${c.milestone} in this repo, but a declared sibling ` +
-      `repo still holds active FRs, so the chain stops at the PR — the ship ceremony ` +
+      `repo is not provably idle (${(c.awaitingSiblings ?? []).join("; ")}), so the chain stops at the PR — the ship ceremony ` +
       `belongs to the run that closes the milestone.`
     );
   }
@@ -813,6 +819,54 @@ function parkedRefusal(c: ResumeClassification): string {
   );
 }
 
+/** Held-sibling entries joined for one line — a name never breaks the line. */
+function heldOnOneLine(held: readonly string[]): string {
+  return oneLine(held.join(", "));
+}
+
+/**
+ * THE refusal for a resume whose spanning sibling is held (STE-609): the
+ * empty chain of a waiting milestone names its cause — the sibling and its
+ * state, as `heldSiblings` rendered them from `spanningSiblingState` — and the
+ * `--partial` way out. Exported so the `/deliver` front door raises the same
+ * words instead of a renderer's "missing field" refusal.
+ */
+export function heldResumeRefusal(milestone: string, held: readonly string[]): string {
+  const named = heldOnOneLine(held);
+  return nfr10Refusal(
+    `milestone ${milestone} is held by a declared sibling repository — ${named} — ` +
+      "so there is no chain to deliver while it waits.",
+    "finish or start the sibling's work first, or ship this repository's half alone " +
+      `with \`/ship-milestone ${milestone} --partial\`.`,
+    `milestone=${milestone}, chain=empty, held=${JSON.stringify(named)}`,
+  );
+}
+
+/**
+ * The one advisory line an FR-scope record carries when a held sibling stopped
+ * its chain at `/pr` (STE-609); `null` when no sibling is held.
+ */
+export function heldResumeAdvisory(
+  c: ResumeClassification | FrResumeClassification,
+): string | null {
+  const held = c.awaitingSiblings ?? [];
+  if (held.length === 0) return null;
+  return (
+    `the chain stops at /pr because a declared sibling repository is held — ` +
+    `${heldOnOneLine(held)} — the ship ceremony belongs to the run that closes the milestone.`
+  );
+}
+
+/** An empty chain claims and spawns nothing: it refuses, naming what held it. */
+function emptyChainRefusal(milestone: string, held: readonly string[]): string {
+  if (held.length > 0) return heldResumeRefusal(milestone, held);
+  return nfr10Refusal(
+    `the resume chain for ${milestone} is empty, so there is nothing to claim and no worker to spawn.`,
+    "confirm the proposed chain, or edit it to at least one step.",
+    `milestone=${milestone}, chain=empty`,
+  );
+}
+
 /**
  * Everything a resume run does AFTER it knows which plan to show — one home for
  * both scopes.
@@ -832,6 +886,7 @@ function dispatchResume(
   input: RunResumeInput,
   plan: ResumePlan,
   claim: () => void,
+  held: readonly string[] = [],
 ): ResumeRunOutcome {
   const answer = input.gate.present(plan);
 
@@ -849,6 +904,12 @@ function dispatchResume(
 
   const chain =
     answer.decision === "edit" && answer.chain !== undefined ? answer.chain : plan.chain;
+
+  // Before any claim and any spawn: an empty chain is a refusal, never a
+  // claimed milestone with a worker carrying nothing (STE-609).
+  if (chain.length === 0) {
+    throw new ResumeRefusedError(emptyChainRefusal(input.milestone, held));
+  }
 
   claim();
   for (const step of chain) {
@@ -875,8 +936,11 @@ export async function runResume(input: RunResumeInput): Promise<ResumeRunOutcome
   if (c.state === "shipped") throw new ResumeRefusedError(shippedRefusal(c));
   if (c.state === "parked") throw new ResumeRefusedError(parkedRefusal(c));
 
-  return dispatchResume(input, renderResumePlan(c), () =>
-    input.tracker.claimMilestone(input.milestone),
+  return dispatchResume(
+    input,
+    renderResumePlan(c),
+    () => input.tracker.claimMilestone(input.milestone),
+    c.awaitingSiblings ?? [],
   );
 }
 
@@ -907,5 +971,5 @@ async function runFrResume(
     } else {
       input.tracker.claimMilestone(input.milestone);
     }
-  });
+  }, c.awaitingSiblings ?? []);
 }

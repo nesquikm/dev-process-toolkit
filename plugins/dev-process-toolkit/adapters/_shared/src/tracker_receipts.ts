@@ -47,6 +47,17 @@ export function printable(text: string): string {
   return text.replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029]/g, " ");
 }
 
+/**
+ * The ONE "collapse onto one line" rule for text a gate prints that came from
+ * a repository, a tracker or an argument: every run of control characters and
+ * Unicode line separators becomes one space, then the ends are trimmed. A
+ * sibling repository's filenames are untrusted input (a filename may carry a
+ * newline), so nothing it supplies can start a line of a refusal.
+ */
+export function oneLine(text: string): string {
+  return text.replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029]+/g, " ").trim();
+}
+
 /** Parse one announcement line into its path and digest (null digest when the line carries none). */
 export function parseReceiptAnnouncement(line: string): { path: string; digest: string | null } | null {
   if (!line.startsWith(RECEIPT_ANNOUNCEMENT_PREFIX)) return null;

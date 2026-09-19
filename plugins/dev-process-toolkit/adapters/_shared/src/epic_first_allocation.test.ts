@@ -418,6 +418,9 @@ describe("AC-STE-377.4 RETIRED (M139/STE-541) — the allocator's M_<key> exclus
   test("no Epic is created off the Jira path: object binding never touches createEpic", async () => {
     const MILESTONE_NAME = "M102 — Sequential milestone";
     const calls: string[] = [];
+    // Amended by AC-STE-611.4: the attach reads the ticket before it writes,
+    // so the ticket reads as unbound until the upsert has landed.
+    let landed = false;
     const provider: MilestoneOps = {
       async listMilestones() {
         calls.push("listMilestones");
@@ -428,11 +431,12 @@ describe("AC-STE-377.4 RETIRED (M139/STE-541) — the allocator's M_<key> exclus
       },
       async upsertTicketMetadata() {
         calls.push("upsertTicketMetadata");
+        landed = true;
         return "STE-901";
       },
       async getIssue() {
         calls.push("getIssue");
-        return { projectMilestone: { name: MILESTONE_NAME } };
+        return { projectMilestone: landed ? { name: MILESTONE_NAME } : null };
       },
       createEpic: async () => {
         calls.push("createEpic");

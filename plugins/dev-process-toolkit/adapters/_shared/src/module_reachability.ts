@@ -447,6 +447,33 @@ export interface UnreachablePinMove {
  */
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
+    value: 120,
+    commit: "5c96d49",
+    rationale:
+      "M_685ff6/STE-612: the tracker-binding repoint front door " +
+      "`repoint_tracker_binding.ts` imports `tracker_config.ts`, so that " +
+      "module became reachable and its one ordered reference " +
+      "(`skills/gate-check/SKILL.md:139` at a1f0722) stopped naming a module " +
+      "nothing runnable reaches. Exactly that reference left the set and none " +
+      "entered it; three `docs/setup-reference.md` records moved two lines " +
+      "down with the new section 0c prose and are the same records. Measured by " +
+      "the awaited `runModuleReachabilityProbe` (121 -> 120, diffed record by " +
+      "record against a checkout of a1f0722), not carried from the FR.",
+  },
+  {
+    value: 121,
+    commit: "da7218b",
+    rationale:
+      "M_685ff6/STE-608: the milestone-identity decision module " +
+      "`resolve_milestone_identity.ts` gained an `import.meta.main` front " +
+      "door, so it became reachable and its one ordered reference " +
+      "(`skills/spec-write/SKILL.md:177` at the branch base) stopped naming a " +
+      "module nothing runnable reaches. Exactly that reference left the set " +
+      "and none entered it. Measured by the awaited " +
+      "`runModuleReachabilityProbe` (122 -> 121, diffed record by record " +
+      "against a checkout of ca235fb), not carried from the FR.",
+  },
+  {
     value: 122,
     commit: "8b28f34",
     rationale:

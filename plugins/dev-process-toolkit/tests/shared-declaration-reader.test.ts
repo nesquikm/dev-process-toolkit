@@ -103,7 +103,7 @@ function writeManifest(dir: string, version: string): void {
 }
 
 function withFixture<T>(body: (f: { a: string; b: string }) => T): T {
-  const f = spanFixture.makeSpanFixture("M_947c79");
+  const f = spanFixture.makeSpanFixture("M_947c79", { repositories: false });
   try {
     return body(f);
   } finally {
@@ -112,7 +112,7 @@ function withFixture<T>(body: (f: { a: string; b: string }) => T): T {
 }
 
 async function withFixtureAsync<T>(body: (f: { a: string; b: string }) => Promise<T>): Promise<T> {
-  const f = spanFixture.makeSpanFixture("M_947c79");
+  const f = spanFixture.makeSpanFixture("M_947c79", { repositories: false });
   try {
     return await body(f);
   } finally {

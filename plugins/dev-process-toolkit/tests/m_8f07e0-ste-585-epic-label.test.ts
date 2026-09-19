@@ -134,7 +134,7 @@ describe("AC-STE-585.1 — the mint writes the milestone label on the Epic it cr
     expect(r.addLabelCalls()).toEqual([{ op: "addLabel", ticketId: EPIC_KEY, label: LABEL }]);
     // The label is written on the key the create allocated — so after it.
     expect(r.calls.map((c) => c.op)).toEqual(["createEpic", "addLabel"]);
-    expect(result).toEqual({ epicKey: EPIC_KEY, milestoneId: MILESTONE_ID, labelled: true });
+    expect(result).toEqual({ epicKey: EPIC_KEY, milestoneId: MILESTONE_ID, labelled: true, outcome: "created" });
     expect(r.sleeps).toEqual([]);
   });
 
@@ -143,7 +143,7 @@ describe("AC-STE-585.1 — the mint writes the milestone label on the Epic it cr
     const result = await mintMilestoneEpic(r.provider as never, "DPT", TITLE, { sleep: r.sleep });
 
     expect(r.addLabelCalls()).toEqual([{ op: "addLabel", ticketId: "DPT-500", label: "milestone-M_DPT_500" }]);
-    expect(result).toEqual({ epicKey: "DPT-500", milestoneId: "M_DPT_500", labelled: true });
+    expect(result).toEqual({ epicKey: "DPT-500", milestoneId: "M_DPT_500", labelled: true, outcome: "created" });
   });
 });
 
@@ -153,7 +153,7 @@ describe("AC-STE-585.2 — a failed label write never fails the mint, and is nev
 
     const result = await mintMilestoneEpic(r.provider as never, PROJECT, TITLE, { sleep: r.sleep });
 
-    expect(result).toEqual({ epicKey: EPIC_KEY, milestoneId: MILESTONE_ID, labelled: false });
+    expect(result).toEqual({ epicKey: EPIC_KEY, milestoneId: MILESTONE_ID, labelled: false, outcome: "created" });
     expect(r.addLabelCalls()).toEqual([{ op: "addLabel", ticketId: EPIC_KEY, label: LABEL }]);
     expect(r.addLabelCalls().length).toBe(1);
     // A plain Error IS transient to retryTransient — a label write inside the
@@ -170,7 +170,7 @@ describe("AC-STE-585.3 — a provider carrying only createEpic still mints", () 
 
     const result = await mintMilestoneEpic(r.provider as never, PROJECT, TITLE, { sleep: r.sleep });
 
-    expect(result).toEqual({ epicKey: EPIC_KEY, milestoneId: MILESTONE_ID, labelled: false });
+    expect(result).toEqual({ epicKey: EPIC_KEY, milestoneId: MILESTONE_ID, labelled: false, outcome: "created" });
     expect(r.createCalls().length).toBe(1);
     expect(r.sleeps).toEqual([]);
   });
@@ -205,7 +205,7 @@ describe("AC-STE-585.5 — a found Epic is labelled, not re-created", () => {
 
     expect(r.createCalls()).toEqual([]);
     expect(r.addLabelCalls()).toEqual([{ op: "addLabel", ticketId: EPIC_KEY, label: LABEL }]);
-    expect(result).toEqual({ epicKey: EPIC_KEY, milestoneId: MILESTONE_ID, labelled: true });
+    expect(result).toEqual({ epicKey: EPIC_KEY, milestoneId: MILESTONE_ID, labelled: true, outcome: "joined" });
   });
 });
 
@@ -380,7 +380,11 @@ describe("AC-STE-585.11 — the front door prints the label and writes nothing",
       expect(lines.filter((l) => existing.includes(l))).toEqual(existing);
       // Exactly one added line: the label.
       expect(lines.filter((l) => l.startsWith("label="))).toEqual([`label=${LABEL}`]);
-      expect(lines.length).toBe(5);
+      // Amended by AC-STE-608.8: the front door also reports the act it performed.
+      expect(lines.filter((l) => l.startsWith("outcome="))).toEqual(["outcome=created"]);
+      // Amended by AC-STE-608.9: the create's computed label set, from an empty set.
+      expect(lines.filter((l) => l.startsWith("labels="))).toEqual([`labels=${JSON.stringify([LABEL])}`]);
+      expect(lines.length).toBe(7);
 
       // It writes nothing: the working directory it ran in is still empty.
       expect(readdirSync(cwd)).toEqual([]);

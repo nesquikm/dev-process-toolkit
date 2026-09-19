@@ -289,7 +289,10 @@ describe("AC-STE-524.1 — after a non-throwing attach the gate re-asks its own 
     // Ordering is the subject: pre-check read, the attach's write + its own
     // read-back, and then the gate's OWN re-read — after the write, not before.
     const shape = d.calls.map((c) => c.replace(/\(.*/, ""));
+    // Amended by AC-STE-611.4: the attach reads the ticket before it
+    // enumerates, so its own first read follows the gate's pre-check read.
     expect(shape).toEqual([
+      "getIssue",
       "getIssue",
       "listMilestones",
       "upsertTicketMetadata",
@@ -874,7 +877,9 @@ describe("AC-STE-524.9 — every added path converts to a refusal, never a throw
     // Calls 1 (pre-check) and 2 (the attach's read-back) succeed; the gate's
     // OWN re-read is the third and it dies. Before this FR that third call was
     // never made and the gate sailed past on a non-throwing attach.
-    const d = makeDouble({ milestones: [{ name: OBJ_CANONICAL }], getIssueFailsOnCall: 3 });
+    // Amended by AC-STE-611.4: the attach now reads the ticket first, so the
+    // gate's own re-read is the FOURTH call (pre-check, attach read, verify).
+    const d = makeDouble({ milestones: [{ name: OBJ_CANONICAL }], getIssueFailsOnCall: 4 });
     const res = await assertMilestoneBindingAtArchive(d.provider, OBJ_PROJECT, frPath, {
       projectRoot: root,
       mode: "linear",
@@ -884,7 +889,8 @@ describe("AC-STE-524.9 — every added path converts to a refusal, never a throw
     expect(res.token).toBe(MILESTONE_LABEL_ARCHIVE_REFUSED);
     expect(res.detail).toContain(OBJ_TICKET);
     expect(res.detail).toMatch(/Remedy:/);
-    expect(d.count("getIssue")).toBe(3);
+    // Amended by AC-STE-611.4: pre-check, the attach's first read, verify, re-read.
+    expect(d.count("getIssue")).toBe(4);
   });
 
   test("the pre-check read throwing still refuses (unchanged), with no attach attempted", async () => {
@@ -1332,7 +1338,8 @@ const routeDrivers: { scenario: string; run: () => Promise<GateResult> }[] = [
     scenario: "5. the post-attach RE-READ failed",
     run: async () => {
       const { root, frPath } = makeObjectRepo();
-      const d = makeDouble({ milestones: [{ name: OBJ_CANONICAL }], getIssueFailsOnCall: 3 });
+      // Amended by AC-STE-611.4: the gate's re-read is the fourth call now.
+      const d = makeDouble({ milestones: [{ name: OBJ_CANONICAL }], getIssueFailsOnCall: 4 });
       const res = await assertMilestoneBindingAtArchive(d.provider, OBJ_PROJECT, frPath, {
         projectRoot: root,
         mode: "linear",
