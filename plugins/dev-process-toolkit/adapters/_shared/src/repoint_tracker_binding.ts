@@ -1,6 +1,6 @@
 // repoint_tracker_binding — STE-612.
 //
-// `/setup --resume-tracker-binding` re-points a repository's tracker binding
+// /setup's repoint flag (§ 0c) re-points a repository's tracker binding
 // at another project of the same tracker. `docs/setup-reference.md` § 0c lists
 // the preconditions for that flip; this module decides rows 1 to 7 in code
 // from the tracker listings the session saves to files and passes in, then
