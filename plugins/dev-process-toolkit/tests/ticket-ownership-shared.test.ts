@@ -248,7 +248,7 @@ function archivedBoundFr(root: string, key: string): void {
 }
 
 function withRoots<T>(body: (fe: string, be: string) => T | Promise<T>): Promise<T> {
-  const fx = makeSpanFixture("M_GF_85");
+  const fx = makeSpanFixture("M_GF_85", { repositories: false });
   return Promise.resolve()
     .then(() => body(realpathSync(fx.a), realpathSync(fx.b)))
     .finally(() => fx.cleanup());

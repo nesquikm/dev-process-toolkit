@@ -6,7 +6,8 @@
 // token in frontmatter AND ≥ 1 ARCHIVED FR (`specs/frs/archive/*.md`) does.
 //
 // Severity: warning (NotesOnly) — `violations` is ALWAYS empty; hits render a
-// single NOTES row. Pure file reads — no git, no network, no LLM judgment.
+// single NOTES row. File reads, plus read-only git reads of a declared
+// `spans_repos:` sibling (STE-609, never a fetch) — no network, no LLM judgment.
 //
 //   - `ship_state: parked` on the active plan → excluded from the ship-ready
 //     row AND from shipReadyMilestones (both consumers — /gate-check and
@@ -17,18 +18,29 @@
 //   - zero bound FRs (fresh / plan-only) → never flagged.
 //   - `specs/plan/` absent or empty → vacuous.
 //   - a plan that would otherwise be ship-ready and declares `spans_repos:`
-//     is read through `resolveSpansRepos`: a declared sibling that still holds
-//     active FRs demotes it to the `awaiting-sibling milestones:` row (never
-//     ship-ready), and an unlocatable sibling adds a `sibling-unlocatable
-//     milestones:` row while the verdict stands. A malformed declaration
-//     propagates its `SpansReposError` refusal.
+//     is read through `spanningSiblingState`: any declared sibling not proved
+//     `idle` holds it out of ship-ready (STE-609) — an unlocatable one on the
+//     `sibling-unlocatable milestones:` row, every other held state on the
+//     `awaiting-sibling milestones: <token> (<sibling>: <state>)` row. A
+//     malformed declaration propagates its `SpansReposError` refusal.
 
+import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 // Union grammar: `M<N>` and `M_<epic-key>` active plans are both walked.
 import { PLAN_FILENAME_RE, compareMilestoneTokens } from "./milestone_token";
 import { normalizeFrontmatterSource } from "./frontmatter";
 import { SpansReposError, resolveSpansRepos } from "./spans_repos";
+import { readTaskTrackingSection } from "./resolver_config";
+import { isToolkitManaged } from "./toolkit_managed";
+import { parseWorktreePorcelain, runGit } from "./target_repo";
+import { oneLine } from "./tracker_receipts";
+import {
+  type WorkspaceAdapterKey,
+  type WorkspaceBinding,
+  WorkspaceBindingError,
+  readWorkspaceBinding,
+} from "./workspace_binding";
 
 export interface ActivePlanShipReadyReport {
   /** Always empty — the probe is warning-only by contract (NotesOnly). */
@@ -121,15 +133,23 @@ function idsBoundTo(rows: readonly FrBindingRow[], milestone: string): string[] 
 export interface Classification {
   shipReady: string[]; // sorted via compareMilestoneTokens
   parked: string[]; // sorted via compareMilestoneTokens
-  /** `<token> (<name>: <n> active FRs)` — a declared sibling still holds work. */
+  /**
+   * `<token> (<name>: <state>)` — a declared sibling is located but not idle
+   * (STE-609: every state of the closed set but `idle` and `unlocatable`).
+   */
   awaitingSiblings: string[]; // sorted via compareMilestoneTokens
   /** `<token> (<name> at <declaredPath>)` — a declared sibling cannot be located. */
   unlocatableSiblings: string[]; // sorted via compareMilestoneTokens
+  /**
+   * ADDITIVE (STE-609): `<token> (<name>: <state>)` for EVERY non-idle declared
+   * sibling, unlocatable included — the milestones held out of ship-ready.
+   */
+  held: string[]; // sorted via compareMilestoneTokens
 }
 
 /**
  * The milestone token a rendered sibling entry leads with —
- * `M7 (glacy-app-be: 1 active FRs)` → `M7`. The entry is rendered in this
+ * `M7 (glacy-app-be: busy)` → `M7`. The entry is rendered in this
  * module, so its parse lives here too rather than in each consumer.
  */
 export function leadingToken(entry: string): string {
@@ -147,6 +167,276 @@ export interface BusySibling {
   name: string;
   /** Ids of the sibling's active FRs bound to the milestone. */
   activeFrIds: string[];
+  /** ADDITIVE (STE-609): each active id with every source that holds it. */
+  activeFrs: SiblingActiveFr[];
+}
+
+// ---------------------------------------------------------------------------
+// STE-609: the sibling is read from git, not from one working tree.
+// ---------------------------------------------------------------------------
+
+/** One active FR of a sibling, with every source that holds it active. */
+export interface SiblingActiveFr {
+  id: string;
+  /** e.g. `worktree /abs/path`, `branch feature-x`, `remote-tracking origin/x`. */
+  sources: string[];
+}
+
+/** What the git reader found for one sibling and one milestone. */
+export interface SiblingFrRead {
+  /** Active ids (held active somewhere, archived nowhere), sorted by id. */
+  active: SiblingActiveFr[];
+  /** Ids held under `specs/frs/archive/` bound to the milestone in any source, sorted. */
+  archivedIds: string[];
+  /**
+   * Every copy of the milestone's plan (live or archived path) the sources
+   * hold, in read order: each worktree's working tree first, then every ref.
+   */
+  plans: Array<{ source: string; body: string }>;
+}
+
+/**
+ * A git command failed while reading a sibling. The caller reports the
+ * sibling as `unreadable` — never as idle.
+ */
+export class SiblingReadError extends Error {
+  constructor(
+    readonly command: string,
+    readonly detail: string,
+  ) {
+    super(`${command} failed: ${detail}`);
+    this.name = "SiblingReadError";
+  }
+}
+
+/** Refs per `git grep` invocation: a batch size, not a cap — every ref is read. */
+const GIT_GREP_REF_BATCH = 100;
+
+/**
+ * Run git in `cwd` through the shared non-interactive runner (`runGit`: no
+ * prompt, location variables scrubbed, a timeout — and never a fetch here).
+ * Returns stdout as a Buffer; throws `SiblingReadError` on any failure.
+ * `okStatuses` lists extra exit codes that are not a failure when stderr is
+ * empty (git grep exits 1 on "no match").
+ */
+function siblingGit(
+  cwd: string,
+  args: readonly string[],
+  opts: { input?: string; okStatuses?: readonly number[] } = {},
+): Buffer {
+  const command = `git ${args.join(" ")}`.slice(0, 200);
+  const proc = runGit(cwd, args, { input: opts.input, timeoutMs: 30_000 });
+  const stderr = oneLine(proc.stderr?.toString("utf-8") ?? "");
+  if (proc.error) throw new SiblingReadError(command, oneLine(proc.error.message));
+  if (proc.status === 0) return proc.stdout;
+  if (proc.status !== null && opts.okStatuses?.includes(proc.status) && stderr === "") {
+    return proc.stdout;
+  }
+  throw new SiblingReadError(
+    command,
+    stderr === "" ? `exit ${proc.status ?? `signal ${proc.signal}`}` : stderr,
+  );
+}
+
+/** Collapse control characters so a detail stays on one refusal line. */
+
+/** Is `root` (or an ancestor) marked as a git checkout? */
+function hasGitMarker(root: string): boolean {
+  let dir = resolve(root);
+  for (;;) {
+    if (existsSync(join(dir, ".git"))) return true;
+    const parent = dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
+  }
+}
+
+/** Where an FR file sits relative to `specs/frs/`: its id and archive status, or null. */
+function frPathKind(path: string): { id: string; archived: boolean } | null {
+  const m = /^specs\/frs\/(archive\/)?([^/]+)\.md$/.exec(path);
+  return m ? { id: m[2]!, archived: m[1] !== undefined } : null;
+}
+
+/** A human label for a ref: `branch <short>` or `remote-tracking <short>`. */
+function refLabel(ref: string): string {
+  if (ref.startsWith("refs/heads/")) return `branch ${ref.slice("refs/heads/".length)}`;
+  if (ref.startsWith("refs/remotes/")) return `remote-tracking ${ref.slice("refs/remotes/".length)}`;
+  return ref;
+}
+
+/**
+ * Read a sibling's FRs bound to `milestone` from git (AC-STE-609.4): every
+ * worktree's working tree (`git worktree list --porcelain`), every local
+ * branch and every remote-tracking ref — without fetching. An id is active
+ * when some source holds it under `specs/frs/` bound to the milestone and no
+ * source holds it under `specs/frs/archive/` bound to it.
+ *
+ * A sibling outside any git checkout is read from its working tree alone (the
+ * pre-STE-609 reading; whether such a sibling may release is a separate
+ * question). Any git failure inside a checkout throws `SiblingReadError`.
+ */
+export async function readSiblingFrsFromGit(
+  root: string,
+  milestone: string,
+): Promise<SiblingFrRead> {
+  /** id → sources holding it active; ids archived anywhere. */
+  const activeSources = new Map<string, Set<string>>();
+  const archived = new Set<string>();
+  const addRows = (rows: readonly FrBindingRow[], isArchived: boolean, source: string): void => {
+    for (const id of idsBoundTo(rows, milestone)) {
+      if (isArchived) archived.add(id);
+      else {
+        const set = activeSources.get(id) ?? new Set<string>();
+        set.add(source);
+        activeSources.set(id, set);
+      }
+    }
+  };
+  const plans: Array<{ source: string; body: string }> = [];
+  // A sibling's working tree is read STRICTLY: an absent directory or plan is
+  // "none there", but any other read failure (a permission error, a file that
+  // vanished mid-read) is a SiblingReadError, so it classifies `unreadable`
+  // and can never collapse into an empty, idle-looking read.
+  const readWorkingTree = async (dir: string, source: string): Promise<void> => {
+    const frsDir = join(dir, "specs", "frs");
+    addRows(await readFrDirStrict(frsDir), false, source);
+    addRows(await readFrDirStrict(join(frsDir, "archive")), true, source);
+    for (const rel of planRelPaths(milestone)) {
+      const body = await readFileStrict(join(dir, rel));
+      if (body !== null) plans.push({ source, body });
+    }
+  };
+
+  let inRepo = true;
+  try {
+    siblingGit(root, ["rev-parse", "--git-common-dir"]);
+  } catch (error) {
+    if (!(error instanceof SiblingReadError) || hasGitMarker(root)) throw error;
+    inRepo = false;
+  }
+  if (!inRepo) {
+    await readWorkingTree(root, `working tree ${root}`);
+  } else {
+    // Leg 1: every worktree's working tree (uncommitted work included).
+    const worktrees = parseWorktreePorcelain(
+      siblingGit(root, ["worktree", "list", "--porcelain"]).toString("utf-8"),
+    )
+      .filter((entry) => !entry.bare)
+      .map((entry) => entry.path);
+    for (const wt of worktrees) await readWorkingTree(wt, `worktree ${wt}`);
+
+    // Leg 2: every local branch and remote-tracking ref, one `git grep` per
+    // batch of refs for the token, then a frontmatter read of each hit.
+    const refs = siblingGit(root, [
+      "for-each-ref",
+      "--format=%(refname)",
+      "refs/heads",
+      "refs/remotes",
+    ])
+      .toString("utf-8")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l !== "" && !l.endsWith("/HEAD"));
+    const hits: Array<{ ref: string; path: string }> = [];
+    for (let i = 0; i < refs.length; i += GIT_GREP_REF_BATCH) {
+      const batch = refs.slice(i, i + GIT_GREP_REF_BATCH);
+      const out = siblingGit(
+        root,
+        ["grep", "-l", "-I", "-F", "--no-color", "-e", milestone, ...batch, "--", "specs/frs", "specs/plan"],
+        { okStatuses: [1] },
+      ).toString("utf-8");
+      for (const line of out.split("\n")) {
+        if (line === "") continue;
+        // Ref names cannot contain `:`, so the first one splits ref from path.
+        const at = line.indexOf(":");
+        if (at < 0) continue;
+        const ref = line.slice(0, at);
+        const path = line.slice(at + 1);
+        if (frPathKind(path) !== null || planRelPaths(milestone).includes(path)) hits.push({ ref, path });
+      }
+    }
+    if (hits.length > 0) {
+      const blobs = catFileBatch(root, hits.map((h) => `${h.ref}:${h.path}`));
+      hits.forEach((hit, i) => {
+        const kind = frPathKind(hit.path);
+        if (kind === null) {
+          plans.push({ source: refLabel(hit.ref), body: blobs[i]! });
+          return;
+        }
+        const bound = scanFrontmatterField(blobs[i]!, "milestone") === milestone;
+        if (bound) addRows([{ id: kind.id, milestone }], kind.archived, refLabel(hit.ref));
+      });
+    }
+  }
+
+  const active = [...activeSources.entries()]
+    .filter(([id]) => !archived.has(id))
+    .map(([id, sources]) => ({ id, sources: [...sources] }))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return { active, archivedIds: [...archived].sort(), plans };
+}
+
+/** The two repo-relative paths a plan for `milestone` can live at: live, then archived. */
+function planRelPaths(milestone: string): string[] {
+  return [`specs/plan/${milestone}.md`, `specs/plan/archive/${milestone}.md`];
+}
+
+/** A file's text, null when it does not exist; any other failure is a SiblingReadError. */
+async function readFileStrict(file: string): Promise<string | null> {
+  try {
+    return await readFile(file, "utf-8");
+  } catch (error) {
+    if (isAbsent(error)) return null;
+    throw new SiblingReadError(`read ${file}`, errorCode(error));
+  }
+}
+
+/** `readFrDir` for a sibling: an absent directory is empty, any other failure throws. */
+async function readFrDirStrict(dir: string): Promise<FrBindingRow[]> {
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    if (isAbsent(error)) return [];
+    throw new SiblingReadError(`list ${dir}`, errorCode(error));
+  }
+  const rows: FrBindingRow[] = [];
+  for (const e of entries.filter((x) => x.isFile() && x.name.endsWith(".md")).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    const content = await readFileStrict(join(dir, e.name));
+    if (content === null) throw new SiblingReadError(`read ${join(dir, e.name)}`, "vanished while being read");
+    rows.push({ id: basename(e.name, ".md"), milestone: scanFrontmatterField(content, "milestone") });
+  }
+  return rows;
+}
+
+function isAbsent(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+function errorCode(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : error instanceof Error ? error.message : String(error);
+}
+
+/** Read each `<rev>:<path>` object's content with one `git cat-file --batch`. */
+function catFileBatch(root: string, specs: readonly string[]): string[] {
+  const out = siblingGit(root, ["cat-file", "--batch"], { input: `${specs.join("\n")}\n` });
+  const contents: string[] = [];
+  let pos = 0;
+  for (const spec of specs) {
+    const nl = out.indexOf(0x0a, pos);
+    if (nl < 0) throw new SiblingReadError("git cat-file --batch", `truncated output at ${spec}`);
+    const header = out.subarray(pos, nl).toString("utf-8");
+    const m = /^\S+ (\S+) (\d+)$/.exec(header);
+    if (!m || m[1] !== "blob") {
+      throw new SiblingReadError("git cat-file --batch", `${spec}: ${oneLine(header)}`);
+    }
+    const size = Number(m[2]);
+    contents.push(out.subarray(nl + 1, nl + 1 + size).toString("utf-8"));
+    pos = nl + 1 + size + 1; // the content is followed by one LF
+  }
+  return contents;
 }
 
 /** A spanning milestone's declared siblings, rendered once for every consumer. */
@@ -162,6 +452,11 @@ export interface SpanningSiblingState {
   /** `<token> (<name> at <declaredPath>)` — a declared sibling cannot be located. */
   unlocatable: string[];
   /**
+   * ADDITIVE (STE-609): `<token> (<name>: unreadable)` — a git read of the
+   * sibling failed, so it cannot be proved idle.
+   */
+  unreadable: string[];
+  /**
    * ADDITIVE (STE-589): every non-self declared sibling, in declaration order,
    * from the SAME resolution — `root` is `null` when it cannot be located.
    */
@@ -176,35 +471,190 @@ export interface DeclaredSibling {
   declaredPath: string;
   /** Absolute root of the sibling, or `null` when it cannot be located. */
   root: string | null;
+  /** ADDITIVE (STE-609): the sibling's state, from the one classification. */
+  state: SiblingStateName;
+  /** ADDITIVE (STE-609): why an `unreadable` sibling is unreadable; absent otherwise. */
+  reason?: string;
 }
 
 /**
- * THE sibling predicate: which of `milestone`'s declared `spans_repos:` siblings
- * still hold active FRs, and which cannot be located. One home, two consumers —
- * `classifyActivePlans` below and the FR-scoped resume classifier — so "a
- * sibling is busy" has one answer and one rendering in both scopes. An
- * undeclared plan resolves to two empty lists; a malformed declaration throws
- * `SpansReposError`, exactly as `resolveSpansRepos` does.
+ * The closed sibling-state set (STE-609). A located sibling is `idle` only
+ * when it is a git repository, is toolkit-managed, binds the same tracker
+ * project as this repository (tracker modes), holds a plan for the milestone,
+ * has at least one FR bound to the milestone, and has no active one.
+ */
+export type SiblingStateName =
+  | "idle"
+  | "busy"
+  | "not-started"
+  | "no-plan"
+  | "unlocatable"
+  | "not-a-repository"
+  | "not-toolkit-managed"
+  | "different-container"
+  | "unreadable";
+
+/** The tracker adapter key `root`'s CLAUDE.md declares, or null (mode none / absent). */
+function trackerAdapterKey(root: string): WorkspaceAdapterKey | null {
+  const mode = readTaskTrackingSection(join(root, "CLAUDE.md")).mode;
+  return mode === "linear" || mode === "jira" ? mode : null;
+}
+
+/** First line of a (possibly multi-line NFR-10) message, collapsed. */
+function firstLine(text: string): string {
+  return oneLine(text.split("\n", 1)[0] ?? "");
+}
+
+/**
+ * The container facts of a located sibling, before its FRs are read:
+ * `not-a-repository`, `not-toolkit-managed`, `unreadable` (a declaration the
+ * workspace-binding reader refuses) or `different-container`; `null` when none
+ * applies. `different-container` is decided by `readWorkspaceBinding` on both
+ * roots and does not apply when this repository runs `mode: none`.
+ */
+function siblingContainerState(
+  projectRoot: string,
+  root: string,
+): { state: SiblingStateName; reason?: string } | null {
+  try {
+    siblingGit(root, ["rev-parse", "--git-common-dir"]);
+  } catch (error) {
+    if (!(error instanceof SiblingReadError)) throw error;
+    if (!hasGitMarker(root)) return { state: "not-a-repository" };
+    return { state: "unreadable", reason: error.message };
+  }
+  if (!isToolkitManaged(root)) return { state: "not-toolkit-managed" };
+  const adapter = trackerAdapterKey(projectRoot);
+  if (adapter === null) return null;
+  let own: WorkspaceBinding;
+  try {
+    own = readWorkspaceBinding(join(projectRoot, "CLAUDE.md"), adapter);
+  } catch (error) {
+    if (!(error instanceof WorkspaceBindingError)) throw error;
+    return { state: "unreadable", reason: `this repository's declaration: ${firstLine(error.message)}` };
+  }
+  let theirs: WorkspaceBinding;
+  try {
+    theirs = readWorkspaceBinding(join(root, "CLAUDE.md"), adapter);
+  } catch (error) {
+    if (!(error instanceof WorkspaceBindingError)) throw error;
+    return { state: "unreadable", reason: firstLine(error.message) };
+  }
+  if (trackerAdapterKey(root) !== adapter || (theirs.project ?? "") !== (own.project ?? "")) {
+    return {
+      state: "different-container",
+      reason: `bound to ${trackerAdapterKey(root) ?? "no tracker"} project "${theirs.project ?? ""}", this repository to ${adapter} project "${own.project ?? ""}"`,
+    };
+  }
+  return null;
+}
+
+/**
+ * THE sibling predicate: the one classification of each of `milestone`'s
+ * declared `spans_repos:` siblings into the closed `SiblingStateName` set
+ * (STE-609) — located or not, a git repository, toolkit-managed, in the same
+ * tracker container, then its FRs read from git (every worktree, local branch
+ * and remote-tracking ref). Every consumer — `classifyActivePlans`, both resume
+ * scopes, refusal #4 — reads `siblings[].state` from here and never
+ * re-derives it; `busy`, `unlocatable` and `unreadable` are renderings of the
+ * same pass. An undeclared plan resolves to empty lists; a malformed
+ * declaration throws `SpansReposError`, exactly as `resolveSpansRepos` does.
  */
 export async function spanningSiblingState(
   projectRoot: string,
   planBody: string,
   milestone: string,
 ): Promise<SpanningSiblingState> {
-  const siblings = (
+  const resolved = (
     await resolveSpansRepos({ planBody, milestone, invokingRepo: projectRoot })
   ).filter((s) => !s.self);
-  const busySiblings = siblings
-    .filter((s) => s.binding !== null && s.binding.activeFrIds.length > 0)
-    .map((s) => ({ name: s.name, activeFrIds: [...s.binding!.activeFrIds] }));
+  const siblings: DeclaredSibling[] = [];
+  const busySiblings: BusySibling[] = [];
+  for (const { name, declaredPath, root } of resolved) {
+    if (root === null) {
+      siblings.push({ name, declaredPath, root, state: "unlocatable" });
+      continue;
+    }
+    const container = siblingContainerState(projectRoot, root);
+    if (container !== null) {
+      siblings.push({ name, declaredPath, root, ...container });
+      continue;
+    }
+    // The sibling is read from git — every worktree, local branch and
+    // remote-tracking ref (STE-609) — never from one working tree alone.
+    let read: SiblingFrRead;
+    try {
+      read = await readSiblingFrsFromGit(root, milestone);
+    } catch (error) {
+      if (!(error instanceof SiblingReadError)) throw error;
+      siblings.push({ name, declaredPath, root, state: "unreadable", reason: error.message });
+      continue;
+    }
+    if (read.active.length > 0) {
+      busySiblings.push({
+        name,
+        activeFrIds: read.active.map((fr) => fr.id),
+        activeFrs: read.active,
+      });
+      siblings.push({ name, declaredPath, root, state: "busy" });
+      continue;
+    }
+    // The plan is read from every source too — any worktree, local branch or
+    // remote-tracking ref — so a plan held only off the located checkout is
+    // still a plan (STE-609).
+    if (read.plans.length === 0) {
+      siblings.push({ name, declaredPath, root, state: "no-plan" });
+      continue;
+    }
+    // The sibling's OWN declaration must resolve from its own root: a
+    // declaration pasted verbatim reads every entry as self there, so the other
+    // half could never be graded. Classified here, once, so every surface —
+    // refusal #4, probe #75, the close offer, both resume scopes — holds it.
+    const own = read.plans.find((p) => p.source === `worktree ${root}`) ?? read.plans[0]!;
+    try {
+      await resolveSpansRepos({ planBody: own.body, milestone, invokingRepo: root });
+    } catch (error) {
+      if (!(error instanceof SpansReposError)) throw error;
+      siblings.push({
+        name,
+        declaredPath,
+        root,
+        state: "unreadable",
+        reason: `its own spans_repos: (${own.source}) refuses — ${firstLine(error.message)}`,
+      });
+      continue;
+    }
+    if (read.archivedIds.length === 0) {
+      siblings.push({ name, declaredPath, root, state: "not-started" });
+      continue;
+    }
+    siblings.push({ name, declaredPath, root, state: "idle" });
+  }
   return {
     busy: busySiblings.map((s) => `${milestone} (${s.name}: ${s.activeFrIds.length} active FRs)`),
     busySiblings,
     unlocatable: siblings
-      .filter((s) => s.root === null)
+      .filter((s) => s.state === "unlocatable")
       .map((s) => `${milestone} (${s.name} at ${s.declaredPath})`),
-    siblings: siblings.map(({ name, declaredPath, root }) => ({ name, declaredPath, root })),
+    unreadable: heldSiblings(
+      milestone,
+      siblings.filter((s) => s.state === "unreadable"),
+    ),
+    siblings,
   };
+}
+
+/**
+ * THE held rendering (STE-609): `<token> (<name>: <state>)` for every declared
+ * sibling whose state — read from `spanningSiblingState(...).siblings[].state`,
+ * never re-derived — is not `idle`. Every surface that holds a spanning
+ * milestone (probe #75, the close-offer CLI, both resume scopes) renders
+ * through this one function.
+ */
+export function heldSiblings(milestone: string, siblings: readonly DeclaredSibling[]): string[] {
+  return siblings
+    .filter((s) => s.state !== "idle")
+    .map((s) => `${milestone} (${oneLine(s.name)}: ${s.state})`);
 }
 
 /** Walk active plans and classify each one; shared core of every export. */
@@ -218,6 +668,7 @@ export async function classifyActivePlans(projectRoot: string): Promise<Classifi
     parked: [],
     awaitingSiblings: [],
     unlocatableSiblings: [],
+    held: [],
   };
   if (planFiles.length === 0) return out;
 
@@ -245,15 +696,23 @@ export async function classifyActivePlans(projectRoot: string): Promise<Classifi
     }
     // Ship-ready ⇔ zero active FRs bound AND ≥ 1 archived FR bound.
     if (!activeFrTokens.has(token) && archivedFrTokens.has(token)) {
-      // A spanning milestone waits for every declared sibling: one holding
-      // active FRs demotes it; one that cannot be located is reported, but
-      // does not block the local verdict. Undeclared plans resolve to [].
-      const { busy, unlocatable } = await spanningSiblingState(projectRoot, content, token);
-      if (busy.length > 0) {
-        out.awaitingSiblings.push(...busy);
+      // A spanning milestone waits for every declared sibling: any sibling
+      // not proved `idle` holds it out of ship-ready (STE-609). An unlocatable
+      // one keeps its own row; every other held state renders awaiting-sibling.
+      // Undeclared plans resolve to [].
+      const { siblings, unlocatable } = await spanningSiblingState(projectRoot, content, token);
+      const held = heldSiblings(token, siblings);
+      if (held.length > 0) {
+        out.held.push(...held);
+        out.awaitingSiblings.push(
+          ...heldSiblings(
+            token,
+            siblings.filter((s) => s.state !== "unlocatable"),
+          ),
+        );
+        out.unlocatableSiblings.push(...unlocatable);
         continue;
       }
-      out.unlocatableSiblings.push(...unlocatable);
       out.shipReady.push(token);
     }
   }
@@ -262,13 +721,14 @@ export async function classifyActivePlans(projectRoot: string): Promise<Classifi
   out.parked.sort(compareMilestoneTokens);
   out.awaitingSiblings.sort(byLeadingToken);
   out.unlocatableSiblings.sort(byLeadingToken);
+  out.held.sort(byLeadingToken);
   return out;
 }
 
 /**
  * Shared predicate: bare milestone tokens of every active plan that is
  * ship-ready (zero active FRs, ≥ 1 archived FR, not parked, not stamped, and
- * no declared `spans_repos:` sibling still holding active FRs), sorted via
+ * every declared `spans_repos:` sibling proved `idle`), sorted via
  * compareMilestoneTokens.
  *
  * Call sites: `/gate-check` probe #75 (via runActivePlanShipReadyProbe) and
@@ -341,12 +801,14 @@ export async function runActivePlanShipReadyProbe(
 // re-deriving the classification in prose. Imported by tests,
 // `import.meta.main` is false and this block never runs — keeping the module
 // free of side effects at import. Prints one ship-ready milestone per line;
-// empty stdout means none.
+// empty stdout means none. Each held spanning milestone (STE-609) prints one
+// `held: <token> (<sibling>: <state>)` line on stderr — exit 0, stdout untouched.
 if (import.meta.main) {
   const projectRoot = process.argv[2] ?? process.cwd();
   try {
-    const shipReady = await shipReadyMilestones(projectRoot);
+    const { shipReady, held } = await classifyActivePlans(projectRoot);
     if (shipReady.length > 0) console.log(shipReady.join("\n"));
+    for (const entry of held) console.error(`held: ${entry}`);
   } catch (e) {
     // A malformed `spans_repos:` on an otherwise ship-ready plan is a refusal,
     // not a crash: its NFR-10 message goes to stderr and stdout stays EMPTY,

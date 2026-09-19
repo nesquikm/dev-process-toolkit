@@ -103,6 +103,10 @@ const spansToB = (fx: SpanFixture): Record<string, string> => ({
 function buildBusy(fx: SpanFixture): void {
   fx.planA(spansToB(fx));
   fx.archivedFr(fx.a, A_FR, MILESTONE);
+  // Amended by AC-STE-609.10: B holds its own plan for the milestone, so once
+  // its FR is archived it is `idle` — a sibling with no plan is `no-plan` and
+  // holds the release.
+  fx.planB({ [A_NAME]: relative(fx.b, fx.a), [B_NAME]: "." });
   fx.activeFr(fx.b, B_FR, MILESTONE);
 }
 
@@ -169,7 +173,8 @@ function classifyActivePlans(root: string): Promise<ActivePlanClassification> {
   return (fn as (r: string) => Promise<ActivePlanClassification>)(root);
 }
 
-const AWAITING_ROW_RE = /^awaiting-sibling milestones: M_GF_78 \(glacy-app-be: 1 active FRs?\)$/;
+// Amended by AC-STE-609.6: the row renders `<token> (<sibling>: <state>)`.
+const AWAITING_ROW_RE = /^awaiting-sibling milestones: M_GF_78 \(glacy-app-be: busy\)$/;
 const UNLOCATABLE_ROW_RE = /^sibling-unlocatable milestones: M_GF_78 /;
 
 // ===========================================================================
@@ -279,8 +284,10 @@ describe("AC-STE-584.3 — the nudge resumes after B's FR is archived", () => {
 // AC-STE-584.4 — unlocatable degrades with the verdict intact.
 // ===========================================================================
 
-describe("AC-STE-584.4 — an unlocatable sibling keeps the verdict and adds a note", () => {
-  test("B's entry points at a missing path: still [M_GF_78], plus a sibling-unlocatable row naming the entry", async () => {
+// Amended by AC-STE-609.6: an unlocatable sibling is no longer ship-ready; it
+// keeps its sibling-unlocatable row.
+describe("AC-STE-584.4 — an unlocatable sibling holds the milestone and keeps its note", () => {
+  test("B's entry points at a missing path: [] (not ship-ready), plus a sibling-unlocatable row naming the entry", async () => {
     const fx = makeSpanFixture(MILESTONE);
     try {
       const missing = relative(fx.a, join(fx.b, "no-such-repo"));
@@ -288,10 +295,10 @@ describe("AC-STE-584.4 — an unlocatable sibling keeps the verdict and adds a n
       fx.archivedFr(fx.a, A_FR, MILESTONE);
       fx.activeFr(fx.b, B_FR, MILESTONE); // present in B, but B is never located
 
-      await expect(shipReadyMilestones(fx.a)).resolves.toEqual([MILESTONE]);
+      await expect(shipReadyMilestones(fx.a)).resolves.toEqual([]); // Amended by AC-STE-609.6
       const report = await runActivePlanShipReadyProbe(fx.a);
       expect(report.violations).toEqual([]);
-      expect(report.notes.some((n) => n.startsWith("ship-ready milestones:"))).toBe(true);
+      expect(report.notes.some((n) => n.startsWith("ship-ready milestones:"))).toBe(false); // Amended by AC-STE-609.6
       const rows = report.notes.filter((n) => UNLOCATABLE_ROW_RE.test(n));
       expect(rows).toHaveLength(1);
       expect(rows[0]).toContain(`${B_NAME} at ${missing}`);
@@ -467,7 +474,7 @@ describe("AC-STE-584.10 — classifyActivePlans is exported with four compareMil
         archiveInA(token);
         fx.activeFr(fx.b, `B-${token}`, token);
       }
-      // Sibling unlocatable — verdict intact: M6, M12.
+      // Sibling unlocatable — held, with its own row: M6, M12. (Amended by AC-STE-609.6)
       for (const token of ["M6", "M12"]) {
         writePlan(fx.a, token, { [A_NAME]: ".", [B_NAME]: missing });
         archiveInA(token);
@@ -484,7 +491,7 @@ describe("AC-STE-584.10 — classifyActivePlans is exported with four compareMil
       }
 
       const expected = {
-        shipReady: ["M6", "M9", "M10", "M12"],
+        shipReady: ["M9", "M10"], // Amended by AC-STE-609.6: M6 and M12 are held
         parked: ["M5", "M13"],
         awaitingSiblings: ["M7", "M11", MILESTONE],
         unlocatableSiblings: ["M6", "M12"],

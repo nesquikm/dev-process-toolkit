@@ -24,7 +24,8 @@
 //     `./toolkit_managed` — the single implementation of that question — never
 //     by a second copy of its heading vocabulary.
 
-import { existsSync, statSync } from "node:fs";
+import { type SpawnSyncReturns, spawnSync } from "node:child_process";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 
@@ -271,6 +272,128 @@ export function defaultRepoProbe(invokingRepo: string = process.cwd()): RepoProb
  */
 export function sameRepo(a: string, b: string): boolean {
   return a === b || resolve(a) === resolve(b);
+}
+
+/**
+ * The realpath of `path`'s git common directory, or null when `path` is not
+ * inside a git work tree (git absent, failing, or the path missing). Git runs
+ * non-interactively and never throws out of here; a relative
+ * `--git-common-dir` is resolved against `path` before the realpath.
+ */
+function gitCommonDir(path: string): string | null {
+  try {
+    const out = gitStdout(path, ["rev-parse", "--git-common-dir"])?.trim();
+    if (out === undefined || out === "") return null;
+    return realpathSync(resolve(path, out));
+  } catch {
+    return null;
+  }
+}
+
+/** Env keys that would point git at a repository other than the one at `cwd`. */
+const GIT_LOCATION_ENV = [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_COMMON_DIR",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_PREFIX",
+  "GIT_NAMESPACE",
+];
+
+/**
+ * THE non-interactive git runner (STE-609): git in `cwd` with stdin from
+ * `input` or ignored, no terminal prompt, no pager, a timeout, and every
+ * location variable (`GIT_DIR`, `GIT_WORK_TREE`, …) scrubbed so the answer is
+ * about the repository at `cwd` — not whichever one an enclosing hook points
+ * at. Returns the raw spawn result; callers decide what a failure means.
+ */
+export function runGit(
+  cwd: string,
+  args: readonly string[],
+  opts: { input?: string; timeoutMs: number },
+): SpawnSyncReturns<Buffer> {
+  const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat" };
+  for (const key of GIT_LOCATION_ENV) delete env[key];
+  return spawnSync("git", [...args], {
+    cwd,
+    env,
+    input: opts.input,
+    stdio: [opts.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+    timeout: opts.timeoutMs,
+    maxBuffer: 256 * 1024 * 1024,
+  });
+}
+
+/** Run git through `runGit` and return its stdout, or null on any failure. Never throws. */
+function gitStdout(cwd: string, args: readonly string[]): string | null {
+  try {
+    const proc = runGit(cwd, args, { timeoutMs: 10_000 });
+    if (proc.error || proc.status !== 0) return null;
+    return proc.stdout.toString("utf-8");
+  } catch {
+    return null;
+  }
+}
+
+/** One entry of `git worktree list --porcelain`: its path and whether it is bare. */
+export interface WorktreeEntry {
+  path: string;
+  bare: boolean;
+}
+
+/**
+ * Parse `git worktree list --porcelain` output into its entries, in order
+ * (the first is the main worktree, or the bare common directory). An entry
+ * whose first line is not `worktree <path>` is dropped.
+ */
+export function parseWorktreePorcelain(out: string): WorktreeEntry[] {
+  return out
+    .replace(/\r\n?/g, "\n")
+    .split("\n\n")
+    .map((entry) => entry.split("\n").filter((line) => line !== ""))
+    .filter((lines) => lines[0]?.startsWith("worktree ") === true)
+    .map((lines) => ({
+      path: lines[0]!.slice("worktree ".length),
+      bare: lines.some((line) => line.trim() === "bare"),
+    }));
+}
+
+/**
+ * The main worktree root of the repository `path` is in — the first entry of
+ * `git worktree list --porcelain` (STE-609). Null when there is none: a bare
+ * common directory (its first entry is marked `bare`), a path outside any git
+ * work tree, or any git failure. Callers then fall back to `path` itself.
+ */
+export function mainWorktreeRoot(path: string): string | null {
+  const out = gitStdout(path, ["worktree", "list", "--porcelain"]);
+  if (out === null) return null;
+  const first = parseWorktreePorcelain(out)[0];
+  if (first === undefined || first.bare || first.path === "") return null;
+  return first.path;
+}
+
+/**
+ * Do two paths name the same REPOSITORY (STE-609)? Two worktrees of one
+ * repository, or a symlink to a checkout, compare equal; two separate clones
+ * do not. Outside a git work tree it falls back to realpath equality. A path
+ * that does not exist compares unequal to everything and never throws.
+ * `sameRepo` above keeps its resolved-path comparison for routing.
+ */
+export function sameRepository(a: string, b: string): boolean {
+  let ra: string;
+  let rb: string;
+  try {
+    ra = realpathSync(a);
+    rb = realpathSync(b);
+  } catch {
+    return false;
+  }
+  const ca = gitCommonDir(ra);
+  const cb = gitCommonDir(rb);
+  if (ca !== null && cb !== null) return ca === cb;
+  return ra === rb;
 }
 
 /** The routing every undeclared plan gets — today's behaviour, unchanged. */

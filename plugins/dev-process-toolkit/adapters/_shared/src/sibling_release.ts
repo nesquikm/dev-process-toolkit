@@ -8,9 +8,10 @@
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { spanningSiblingState } from "./active_plan_ship_ready";
+import { type DeclaredSibling, spanningSiblingState } from "./active_plan_ship_ready";
 import { parseFrontmatter } from "./frontmatter";
 import { SPANS_REPOS_KEY, SpansReposError } from "./spans_repos";
+import { oneLine } from "./tracker_receipts";
 
 /**
  * The bare version (`1.4.0`) a `shipped_in:` value records, or `null` when it
@@ -42,14 +43,21 @@ export interface SiblingShipGateResult {
    * the gate refuses, since a refused run makes no commit to carry it.
    */
   readonly footer: string[];
-  /** One line per sibling that could not be located, so was not checked. */
+  /**
+   * One line per sibling that could not be located, so was not checked. A
+   * release reaches these only under `--partial`: without it such a sibling
+   * refuses (STE-609).
+   */
   readonly unchecked: string[];
 }
 
 /**
- * Refusal #4: refuse a release while a declared sibling still holds active FRs
- * bound to `milestone`, unless `partial` is set. The predicate is THE sibling
- * predicate, `spanningSiblingState` — never "the sibling has not shipped".
+ * Refusal #4: refuse a release while any declared sibling is not proved `idle`
+ * (STE-609: busy, not-started, no-plan, unlocatable, not-a-repository,
+ * not-toolkit-managed, different-container or unreadable), or while a
+ * sibling's own `spans_repos:` declaration refuses from its root — unless
+ * `partial` is set. The predicate is THE sibling predicate,
+ * `spanningSiblingState` — never "the sibling has not shipped".
  */
 export async function siblingShipGate(input: {
   projectRoot: string;
@@ -96,16 +104,33 @@ export async function siblingShipGate(input: {
       (s) =>
         `/ship-milestone: sibling ${s.name} at ${s.declaredPath} could not be located — not checked for active FRs bound to ${milestone}`,
     );
-  if (busy.length > 0 && !partial) {
-    const holding = busySiblings
-      .map((s) => `${s.name}: ${s.activeFrIds.length} active FRs (${s.activeFrIds.join(", ")})`)
-      .join("; ");
+  // Only `idle` releases without --partial (STE-609): every other state from
+  // the one classification refuses, naming EVERY held sibling with its state
+  // and a remedy of its own. The state is READ here, never re-derived. A busy
+  // sibling names each active id with every source that holds it (a worktree,
+  // a local branch or a remote-tracking ref) and keeps the sibling-wait verdict
+  // prefix; it never hides another held sibling of the same span.
+  const held = siblings.filter((s) => s.state !== "idle");
+  if (held.length > 0 && !partial) {
+    const byName = new Map(busySiblings.map((b) => [b.name, b]));
+    const described = held.map((s) => {
+      const b = byName.get(s.name);
+      if (s.state === "busy" && b) {
+        return `${s.name} is busy: ${b.activeFrIds.length} active FRs (${b.activeFrs
+          .map((fr) => `${fr.id} in ${fr.sources.join(", ")}`)
+          .join("; ")})`;
+      }
+      return `${s.name} at ${s.declaredPath} is ${s.state}${s.reason ? `: ${s.reason}` : ""}`;
+    });
+    const verdict = busy.length > 0
+      ? `${milestone} spans a sibling that still holds active work — ${described.join("; ")}`
+      : `${milestone} spans a sibling that cannot be proved idle — ${described.join("; ")}`;
     // Refused before any footer read: there is no commit for a footer to go on.
     return {
       refusal: shipRefusal(
-        `${milestone} spans a sibling that still holds active work — ${holding}`,
-        `finish the sibling's active FRs first, or pass --partial to ship this repository's half alone`,
-        `milestone=${milestone}`,
+        verdict,
+        `${[...new Set(held.map((s) => heldRemedy(s, milestone)))].join("; ")}; or pass --partial to ship this repository's half alone`,
+        `milestone=${milestone}, sibling=${held.map((s) => s.name).join(",")}, state=${held.map((s) => s.state).join(",")}`,
       ),
       footer: [],
       unchecked,
@@ -120,6 +145,30 @@ export async function siblingShipGate(input: {
     }),
   );
   return { refusal: null, footer, unchecked };
+}
+
+/** Refusal #4's remedy for one held (non-idle) sibling — one per state. */
+function heldRemedy(s: DeclaredSibling, milestone: string): string {
+  switch (s.state) {
+    case "busy":
+      return `finish sibling ${s.name}'s active FRs bound to ${milestone}`;
+    case "not-started":
+      return `start ${milestone} in sibling ${s.name}: bind at least one FR to it and finish it`;
+    case "no-plan":
+      return `add the plan specs/plan/${milestone}.md to sibling ${s.name}`;
+    case "unlocatable":
+      return `correct ${s.name}'s path under ${SPANS_REPOS_KEY}: (a relative path resolves against the main worktree root), or check the sibling out at ${s.declaredPath}`;
+    case "not-a-repository":
+      return `point ${s.name}'s path under ${SPANS_REPOS_KEY}: at the sibling's git checkout, not a plain directory`;
+    case "not-toolkit-managed":
+      return `run /dev-process-toolkit:setup in sibling ${s.name}, or point its path under ${SPANS_REPOS_KEY}: at the toolkit-managed checkout`;
+    case "different-container":
+      return `bind sibling ${s.name} to this repository's tracker project in its CLAUDE.md, or drop it from ${SPANS_REPOS_KEY}:`;
+    case "unreadable":
+      return `repair sibling ${s.name} so it can be read — every git worktree, branch and remote-tracking ref, and its CLAUDE.md tracker declaration`;
+    case "idle":
+      return "";
+  }
 }
 
 /**
@@ -157,9 +206,11 @@ export function refusalLine(refusal: string, label: "Refusing" | "Remedy" | "Con
  */
 function shipRefusal(verdict: string, remedy: string, context: string): string {
   return [
-    `/ship-milestone: ${verdict}`,
-    `Remedy: ${remedy}`,
-    `Context: ${context}, skill=ship-milestone`,
+    // Each line is flattened: its parts carry sibling-controlled text (FR ids
+    // from filenames, paths, reasons), which must never start a line of its own.
+    `/ship-milestone: ${oneLine(verdict)}`,
+    `Remedy: ${oneLine(remedy)}`,
+    `Context: ${oneLine(context)}, skill=ship-milestone`,
   ].join("\n");
 }
 
@@ -209,7 +260,8 @@ export async function readSiblingPlan(
 //
 // Refused: the refusal on stderr, empty stdout, exit 1. Otherwise: one
 // `Spans:` line per non-self sibling on stdout, one not-checked line per
-// unlocatable sibling on stderr, exit 0. Under `import` this block does not
+// unlocatable sibling on stderr (reachable only under --partial — without it
+// an unlocatable sibling refuses), exit 0. Under `import` this block does not
 // run, so the module stays side-effect free.
 // ---------------------------------------------------------------------------
 if (import.meta.main) {

@@ -103,7 +103,7 @@ function okList(run: Run): Run {
 }
 
 function withRoots<T>(body: (fe: string, be: string) => T | Promise<T>): Promise<T> {
-  const fx = makeSpanFixture("M_GF_85");
+  const fx = makeSpanFixture("M_GF_85", { repositories: false });
   return Promise.resolve()
     .then(() => body(fx.a, fx.b))
     .finally(() => fx.cleanup());

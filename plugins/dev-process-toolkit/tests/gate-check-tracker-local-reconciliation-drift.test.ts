@@ -228,7 +228,7 @@ function ranOverPages(run: Run): string {
 }
 
 async function withTwoRoots(body: (fe: string, be: string) => void | Promise<void>): Promise<void> {
-  const fx = makeSpanFixture("M_GF_85");
+  const fx = makeSpanFixture("M_GF_85", { repositories: false });
   try {
     await body(fx.a, fx.b);
   } finally {

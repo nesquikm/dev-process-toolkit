@@ -142,6 +142,9 @@ function buildArchivedSpan(
     extra: opts.extra,
   });
   fx.archivedFr(fx.a, A_FR, MILESTONE);
+  // Amended by AC-STE-609.10: B holds its own plan, so it is `busy` or `idle`
+  // by its FR alone — a sibling with no plan is `no-plan` and holds the release.
+  fx.planB({ [A_NAME]: relative(fx.b, fx.a), [B_NAME]: "." });
   if (opts.busy) fx.activeFr(fx.b, B_FR, MILESTONE);
   else fx.archivedFr(fx.b, B_FR, MILESTONE);
   return plan;
@@ -210,6 +213,38 @@ function expectSuiteGreen(suite: string): void {
   // Non-vacuity: a run that collected nothing exits 0 too.
   expect(out, `${suite} collected nothing`).toMatch(/\b[1-9]\d* pass\b/);
   expect(out).toMatch(/\b0 fail\b/);
+}
+
+/**
+ * Amended by AC-STE-609.10: STE-609 amends shipped verdicts in the suites this
+ * file pins as unedited, each amendment marked `Amended by AC-STE-609.<n>`. The
+ * pin now admits exactly those: every hunk of the diff against `ref` must add a
+ * line carrying the marker, and a hunk that does not is still an edit.
+ */
+function expectUneditedBeyondSte609(suite: string, ref: "main" | "HEAD"): void {
+  const tracked = spawnSync("git", ["cat-file", "-e", `${ref}:./${suite}`], {
+    cwd: PLUGIN_ROOT,
+    encoding: "utf-8",
+  });
+  expect(tracked.status, `${suite} is not tracked on ${ref}`).toBe(0);
+  const diff = spawnSync("git", ["diff", "-U0", ref, "--", suite], {
+    cwd: PLUGIN_ROOT,
+    encoding: "utf-8",
+  });
+  expect(diff.status, diff.stderr).toBe(0);
+  const unmarked = unmarkedHunks(diff.stdout);
+  expect(unmarked, `${suite} carries edits against ${ref} outside AC-STE-609 amendments`).toEqual([]);
+}
+
+/** The `@@` hunks of a unified diff that add no line carrying the STE-609 marker. */
+function unmarkedHunks(diff: string): string[] {
+  const hunks = diff.split(/^(?=@@ )/m).filter((h) => h.startsWith("@@ "));
+  return hunks.filter(
+    (h) =>
+      !h
+        .split("\n")
+        .some((l) => l.startsWith("+") && /Amended by AC-STE-609\.\d+/.test(l)),
+  ).map((h) => h.split("\n")[0]!);
 }
 
 /** The suite's working-tree bytes equal `ref`'s committed bytes. */
@@ -367,8 +402,9 @@ describe("AC-STE-590.2 — the previous milestone's live-plan busy/clear suites 
     "tests/m_8f07e0-ste-584-fr-scope-waits.test.ts",
   ];
   for (const suite of suites) {
-    test(`${suite} is unedited against main`, () => {
-      expectUnedited(suite, "main");
+    // Amended by AC-STE-609.10: unedited beyond STE-609's marked amendments.
+    test(`${suite} is unedited against main beyond STE-609's marked amendments`, () => {
+      expectUneditedBeyondSte609(suite, "main");
     });
     test(`${suite} is green`, () => {
       expectSuiteGreen(suite);
@@ -490,8 +526,9 @@ describe("AC-STE-590.5 — skills/ship-milestone/SKILL.md's ship-debt offer asks
     "tests/ship-milestone-shape.test.ts",
     "tests/m_79b1f6-ste-589-sibling-ship-gate.test.ts",
   ]) {
-    test(`${suite} is unedited against HEAD`, () => {
-      expectUnedited(suite, "HEAD");
+    // Amended by AC-STE-609.9: unedited beyond STE-609's marked amendments.
+    test(`${suite} is unedited against HEAD beyond STE-609's marked amendments`, () => {
+      expectUneditedBeyondSte609(suite, "HEAD");
     });
     test(`${suite} is green`, () => {
       expectSuiteGreen(suite);
@@ -530,6 +567,7 @@ describe("AC-STE-590.7 — a malformed spans_repos: on plan X leaves the verdict
   function buildY(fx: SpanFixture, busy: boolean): string {
     const y = writePlan(fx.a, "live", MILESTONE, { spans: spansToB(fx) });
     fx.archivedFr(fx.a, A_FR, MILESTONE);
+    fx.planB({ [A_NAME]: relative(fx.b, fx.a), [B_NAME]: "." }); // Amended by AC-STE-609.10
     if (busy) fx.activeFr(fx.b, B_FR, MILESTONE);
     else fx.archivedFr(fx.b, B_FR, MILESTONE);
     return y;
@@ -723,6 +761,7 @@ describe("AC-STE-590.4 behaviour — only a busy sibling's refusal carries the s
   async function refusalVerdicts(): Promise<Record<string, string>> {
     return withFixture(async (fx) => {
       const busyPlan = writePlan(fx.a, "live", MILESTONE, { spans: spansToB(fx) });
+      fx.planB({ [A_NAME]: relative(fx.b, fx.a), [B_NAME]: "." }); // Amended by AC-STE-609.10: B is busy, not no-plan
       fx.activeFr(fx.b, B_FR, MILESTONE);
       const malformedPlan = writePlan(fx.a, "live", OTHER, { spansRaw: MALFORMED_SPANS_LINE });
       const missingPlan = join(fx.a, "specs", "plan", "archive", "M_NOPE.md");

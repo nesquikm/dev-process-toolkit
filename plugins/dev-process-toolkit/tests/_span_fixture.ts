@@ -11,13 +11,28 @@
 //
 // Callers own teardown: build the fixture, run the body inside `try`, and call
 // `cleanup()` in `finally` so a throwing test body still removes both roots.
+//
+// Why REAL git repositories (AC-STE-609.10): the sibling release gate reads a
+// sibling from git — its worktrees, local branches and remote-tracking refs —
+// and only a git repository that is toolkit-managed and bound to the same
+// tracker project as this one can ever be `idle`. So each root is `git init`ed
+// with one commit holding a toolkit-managed CLAUDE.md bound to
+// FIXTURE_TRACKER_PROJECT. Plans and FRs written afterwards sit in the working
+// tree, uncommitted: the worktree leg reads them, exactly as before. Every git
+// call runs with GIT_ENV, so a developer's global git config cannot move a
+// verdict.
 
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 export interface SpanFixture {
-  /** Root A — the invoking repository. */
+  /**
+   * Root A — the invoking repository. Both roots are git repositories on
+   * `main` with one commit holding a toolkit-managed CLAUDE.md bound to
+   * FIXTURE_TRACKER_PROJECT (AC-STE-609.10).
+   */
   a: string;
   /** Root B — the sibling repository. */
   b: string;
@@ -80,18 +95,88 @@ function frBody(
   ].join("\n");
 }
 
-function makeRoot(label: string): string {
+/** The tracker project both fixture roots' CLAUDE.md bind to. */
+export const FIXTURE_TRACKER_PROJECT = "Span Fixture Project";
+/** The tracker team both fixture roots' CLAUDE.md bind to. */
+export const FIXTURE_TRACKER_TEAM = "STE";
+
+/**
+ * A hermetic environment for every git call a fixture makes: no global or
+ * system config, a fixed identity and fixed dates, no pager, no prompt.
+ */
+export const GIT_ENV: NodeJS.ProcessEnv = {
+  ...process.env,
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_SYSTEM: "/dev/null",
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_AUTHOR_NAME: "Span Fixture",
+  GIT_AUTHOR_EMAIL: "span-fixture@example.invalid",
+  GIT_COMMITTER_NAME: "Span Fixture",
+  GIT_COMMITTER_EMAIL: "span-fixture@example.invalid",
+  GIT_AUTHOR_DATE: "2026-09-10T00:00:00Z",
+  GIT_COMMITTER_DATE: "2026-09-10T00:00:00Z",
+  GIT_TERMINAL_PROMPT: "0",
+  GIT_PAGER: "cat",
+};
+
+/** Run git in `cwd` under GIT_ENV; throws with git's stderr on a non-zero exit. */
+export function git(cwd: string, ...args: string[]): string {
+  const proc = spawnSync("git", args, { cwd, env: GIT_ENV, encoding: "utf-8" });
+  if (proc.status !== 0) {
+    throw new Error(
+      `git ${args.join(" ")} failed in ${cwd} (exit ${proc.status}): ${proc.stderr ?? ""}`,
+    );
+  }
+  return proc.stdout ?? "";
+}
+
+/** Stage everything under `root` and commit it (empty commits allowed). */
+export function commitAll(root: string, message: string): void {
+  git(root, "add", "-A");
+  git(root, "commit", "-q", "--allow-empty", "-m", message);
+}
+
+/** Options for {@link makeSpanFixture}. */
+export interface SpanFixtureOptions {
+  /**
+   * `true` (the default): each root is a git repository with one commit
+   * holding a toolkit-managed CLAUDE.md. `false`: the pre-AC-STE-609.10 shape —
+   * plain directories holding only the spec skeleton — for suites that build
+   * their own CLAUDE.md or git state, or grade a root that is NOT a repository.
+   */
+  repositories?: boolean;
+}
+
+function makeRoot(label: string, repositories: boolean): string {
   const root = mkdtempSync(join(tmpdir(), `dpt-span-${label}-`));
-  mkdirSync(join(root, "specs", "plan"), { recursive: true });
-  mkdirSync(join(root, "specs", "frs", "archive"), { recursive: true });
+  try {
+    mkdirSync(join(root, "specs", "plan"), { recursive: true });
+    mkdirSync(join(root, "specs", "frs", "archive"), { recursive: true });
+    if (!repositories) return root;
+    git(root, "init", "-q", "-b", "main");
+    claudeMd(root, {
+      mode: "linear",
+      team: FIXTURE_TRACKER_TEAM,
+      project: FIXTURE_TRACKER_PROJECT,
+    });
+    git(root, "add", "CLAUDE.md");
+    git(root, "commit", "-q", "-m", "fixture: toolkit-managed root");
+  } catch (e) {
+    rmSync(root, { recursive: true, force: true });
+    throw e;
+  }
   return root;
 }
 
-export function makeSpanFixture(milestone: string): SpanFixture {
-  const a = makeRoot("a");
+export function makeSpanFixture(
+  milestone: string,
+  options: SpanFixtureOptions = {},
+): SpanFixture {
+  const repositories = options.repositories ?? true;
+  const a = makeRoot("a", repositories);
   let b: string;
   try {
-    b = makeRoot("b");
+    b = makeRoot("b", repositories);
   } catch (e) {
     rmSync(a, { recursive: true, force: true });
     throw e;

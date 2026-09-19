@@ -191,7 +191,7 @@ interface World {
  * are git repositories with their FR files in the index.
  */
 function makeWorld(opts: { beFloor?: string } = {}): World {
-  const span = makeSpanFixture("M_GF_85");
+  const span = makeSpanFixture("M_GF_85", { repositories: false });
   cleanups.push(() => span.cleanup());
   const fe = realpathSync(span.a);
   const be = realpathSync(span.b);
