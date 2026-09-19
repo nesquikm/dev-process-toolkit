@@ -549,7 +549,9 @@ describe("AC-STE-603.6 — every pre-existing fixture yields byte-identical viol
         try {
           const before = await old.runTaskTrackingWorkspaceBindingPresentProbe(ctx.root);
           const now = await runTaskTrackingWorkspaceBindingPresentProbe(ctx.root);
-          expect(now, name).toEqual(before);
+          // Amended by AC-STE-612.8: the report gains an additive `skipped` list
+          // (the Jira-only key-prefix leg); the violations stay identical.
+          expect(now.violations, name).toEqual(before.violations);
         } finally {
           ctx.cleanup();
         }

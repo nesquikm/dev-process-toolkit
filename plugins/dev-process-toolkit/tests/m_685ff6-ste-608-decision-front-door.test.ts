@@ -416,13 +416,19 @@ describe("AC-STE-608.12 — the front door makes resolve_milestone_identity.ts r
       (r) => r.module.endsWith("resolve_milestone_identity.ts") && r.refClass === "ordered" && !r.reachable,
     );
     expect(stranded).toEqual([]);
-    expect(report.orderedUnreachable).toBe(BASELINE_LIVE - BASELINE_FRONT_DOOR_REFS);
+    // Amended by STE-612: a later FR's lowering may take the count further
+    // down; this FR's own drop is graded by the ledger entry below.
+    expect(report.orderedUnreachable).toBeLessThanOrEqual(BASELINE_LIVE - BASELINE_FRONT_DOOR_REFS);
   }, 60_000);
 
   test("the ledger gains one lowering entry to the live count, and gradePinLedger returns ok", async () => {
-    const head = ORDERED_UNREACHABLE_PIN_LEDGER[0]!;
+    // Amended by STE-612: its own lowering (121 -> 120) now heads the ledger,
+    // so this FR's entry is found by its subject, not by position.
+    const i = ORDERED_UNREACHABLE_PIN_LEDGER.findIndex((m) => m.rationale.includes("resolve_milestone_identity.ts"));
+    expect(i).toBeGreaterThanOrEqual(0);
+    const head = ORDERED_UNREACHABLE_PIN_LEDGER[i]!;
     expect(head.value).toBe(BASELINE_LIVE - BASELINE_FRONT_DOOR_REFS);
-    expect(ORDERED_UNREACHABLE_PIN_LEDGER[1]!.value).toBe(BASELINE_LIVE);
+    expect(ORDERED_UNREACHABLE_PIN_LEDGER[i + 1]!.value).toBe(BASELINE_LIVE);
     expect(head.rationale).toContain("resolve_milestone_identity.ts");
     expect(head.commit.trim()).not.toBe("");
     expect(gradePinLedger(ORDERED_UNREACHABLE_PIN_LEDGER)).toEqual({ ok: true, refusals: [] });
