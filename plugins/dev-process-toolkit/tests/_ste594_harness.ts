@@ -207,6 +207,27 @@ if [ "$DELEGATE" = 1 ]; then
       exit 97 ;;
     esac
   done
+  if [ "$BASE" = smoke_run_ledger.ts ]; then
+    # A run ledger lands only inside this sandbox (M_685ff6 review): the
+    # project root is --project-root, or the cwd when none is given, and it
+    # must resolve under the sandbox root — any other directory is refused.
+    PR="$PWD"
+    PREV=""
+    for A in "$@"; do
+      [ "$PREV" = --project-root ] && PR="$A"
+      case "$A" in --project-root=*) PR="\${A#--project-root=}" ;; esac
+      PREV="$A"
+    done
+    PR_REAL=$(cd "$PR" 2>/dev/null && pwd -P) || PR_REAL=""
+    SB_REAL=$(cd ${sq(sb.root)} && pwd -P)
+    case "$PR_REAL/" in
+      "$SB_REAL"/*) ;;
+      *)
+        printf 'refused\t%s\t%s\n' "$$" "$*" >> "$CALLS"
+        echo "ste594 bun stub: refusing a run ledger outside the sandbox: \${PR}" >&2
+        exit 97 ;;
+    esac
+  fi
   exec ${sq(REAL_BUN)} ${sq(SRC_DIR)}/"$BASE" "$@"
 fi
 [ "$BASE" = smoke_run_ledger.ts ] && exit 0
