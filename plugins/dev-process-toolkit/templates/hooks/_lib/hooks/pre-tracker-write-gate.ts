@@ -179,15 +179,17 @@ export const UNGATED_WRITE_TOOLS: Readonly<Record<string, string>> = {
  * argv check to `NO_SUBCOMMAND_ARGV`; a module writing receipts the gate must
  * not trust is never listed.
  *
- * `null` marks a module with NO subcommand (STE-608): its whole CLI is the one
- * receipt-writing front door, so its argv is checked by `NO_SUBCOMMAND_ARGV`
- * instead. A module listed with a subcommand never announces without it.
+ * `null` marks a module with NO subcommand — the decision front door (STE-608)
+ * and the attach front door (STE-611): its whole CLI is the one receipt-writing
+ * front door, so its argv is checked by `NO_SUBCOMMAND_ARGV` instead. A module
+ * listed with a subcommand never announces without it.
  */
 export const RECEIPT_WRITING_SUBCOMMANDS: Readonly<Record<string, string | null>> = {
   "create_idempotency_probe.ts": "decide",
   "container_ownership.ts": "consent",
   "ticket_ownership.ts": "confirm",
   "resolve_milestone_identity.ts": null,
+  "attach_project_milestone.ts": null,
 };
 
 export const RECEIPT_ANNOUNCING_MODULES: readonly string[] = Object.keys(RECEIPT_WRITING_SUBCOMMANDS);
@@ -196,13 +198,16 @@ export const RECEIPT_ANNOUNCING_MODULES: readonly string[] = Object.keys(RECEIPT
  * The argv a subcommand-less deciding module is accepted with, after the
  * module path: the decision front door's exact
  * `<projectRoot> <jira|linear> <project> <listingFile> --title|--join-key <v>`,
- * optionally followed by exactly `--sibling <path>` (STE-610 AC-STE-610.4).
+ * optionally followed by exactly `--sibling <path>` (STE-610 AC-STE-610.4), and
+ * the attach front door's exact
+ * `<projectRoot> <jira|linear> <project> <planFile> <listingFile>` (STE-611).
  */
 const NO_SUBCOMMAND_ARGV: Readonly<Record<string, (args: string[]) => boolean>> = {
   "resolve_milestone_identity.ts": (a) =>
     (a.length === 6 || (a.length === 8 && a[6] === "--sibling")) &&
     (a[1] === "jira" || a[1] === "linear") &&
     (a[4] === "--title" || a[4] === "--join-key"),
+  "attach_project_milestone.ts": (a) => a.length === 5 && (a[1] === "jira" || a[1] === "linear"),
 };
 
 /**
@@ -611,6 +616,40 @@ function readSessionReceipt(
   return r && r.v === 1 && r.sessionId === sessionId && r.adapter === adapter ? r : null;
 }
 
+/** One front-door receipt: its announcement, its container, its evidence object. */
+interface FrontDoorReceipt {
+  announcement: Announcement;
+  container: string;
+  evidence: Record<string, unknown>;
+}
+
+/**
+ * The `kind` receipts of this session and adapter in `roots`, in transcript
+ * order, each announced by a run of `module` itself. A receipt of that kind
+ * announced by any other module, rewritten after its announcement,
+ * unreadable, or carrying no string container or no evidence object counts
+ * as absent. Shared by the decision front door's and the attach front door's
+ * readers, which differ only in the evidence they keep.
+ */
+function frontDoorReceipts(
+  announcements: Announcement[],
+  module: string,
+  kind: string,
+  roots: ReadonlySet<string>,
+  sessionId: string,
+  adapter: WorkspaceAdapterKey,
+): FrontDoorReceipt[] {
+  const out: FrontDoorReceipt[] = [];
+  for (const a of announcements) {
+    if (a.module !== module || !a.intact || !roots.has(a.root)) continue;
+    const r = readSessionReceipt(a.receiptPath, sessionId, adapter);
+    if (!r || r.kind !== kind || typeof r.container !== "string") continue;
+    const ev = r.evidence && typeof r.evidence === "object" ? (r.evidence as Record<string, unknown>) : null;
+    if (ev) out.push({ announcement: a, container: r.container, evidence: ev });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // §4 — creates: a matching, unspent `create` receipt in the target
 // ---------------------------------------------------------------------------
@@ -976,7 +1015,7 @@ function gateCreate(
     if (hit) hit.spent = true;
   }
   const matching = seen.filter((r) => createMismatch(call.adapter, shape, r.shape, tag) === null);
-  if (matching.some((r) => !r.spent)) return 0;
+  if (matching.some((r) => !r.spent)) return gateAttachTarget(call, shape, sessionId, announcements, target, note);
 
   if (matching.length > 0) {
     return refuse(
@@ -994,6 +1033,124 @@ function gateCreate(
   return refuse(
     `${where}: no create receipt announced by ${DECIDE_CMD} in this session authorises it.${note}`,
     `run ${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt fast")} in ${target.root} for this ticket ${PLAIN_RULE}, then retry.`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// §4 — creates: an `attach-target` receipt resolved the create's container (STE-611)
+// ---------------------------------------------------------------------------
+
+/** The attach front door: the ONE module whose receipts resolve an FR's milestone container. */
+const ATTACH_MODULE = "attach_project_milestone.ts";
+const ATTACH_SHAPE = acceptedShape(ATTACH_MODULE, "<projectRoot> <jira|linear> <project> <planFile> <listingFile>");
+
+interface AttachTarget {
+  path: string;
+  project: string;
+  surface: string;
+  /** The Epic key a `parent` surface resolved; "" for any other surface. */
+  key: string;
+  /** Whether its provenance holds (`provenanceHonoured`); an unproven target never permits. */
+  proven: boolean;
+}
+
+/**
+ * The `attach-target` receipts of this session in `root`, each announced by a
+ * run of the attach front door itself. A receipt of that kind announced by any
+ * other module, rewritten after its announcement, unreadable, malformed, or
+ * written for another session or adapter counts as absent.
+ */
+/**
+ * STE-611 AC.7 — an attach target proven by a DECISION counts only when that
+ * decision receipt was announced, intact and with the recorded digest, by the
+ * decision front door's own run in this transcript. The attach front door
+ * reads decision files from disk and cannot tell one written by hand; the
+ * transcript can. A plan committed at HEAD, or a target that joins no existing
+ * container, needs no decision. Anything else (absent, unshared in a declared
+ * target, malformed) counts as absent.
+ */
+function provenanceHonoured(provenance: unknown, announcements: Announcement[]): boolean {
+  if (provenance === null || typeof provenance !== "object") return false;
+  const p = provenance as Record<string, unknown>;
+  if (p.kind === "committed" || p.kind === "not-applicable") return true;
+  if (p.kind !== "decided" || typeof p.receipt !== "string" || typeof p.sha256 !== "string") return false;
+  const wanted = resolve(p.receipt);
+  return announcements.some((x) => {
+    if (x.module !== RESOLVE_MODULE || !x.intact || resolve(x.receiptPath) !== wanted) return false;
+    try {
+      return receiptDigest(readFileSync(x.receiptPath)) === p.sha256;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function attachTargets(
+  announcements: Announcement[],
+  root: string,
+  sessionId: string,
+  adapter: WorkspaceAdapterKey,
+): AttachTarget[] {
+  const out: AttachTarget[] = [];
+  for (const { announcement: a, container, evidence: ev } of frontDoorReceipts(
+    announcements,
+    ATTACH_MODULE,
+    "attach-target",
+    new Set([root]),
+    sessionId,
+    adapter,
+  )) {
+    if (typeof ev.surface !== "string" || ev.surface === "") continue;
+    out.push({
+      proven: provenanceHonoured(ev.provenance, announcements),
+      path: a.receiptPath,
+      project: container,
+      surface: ev.surface,
+      key: ev.surface === "parent" && typeof ev.key === "string" ? ev.key : "",
+    });
+  }
+  return out;
+}
+
+/**
+ * STE-611 — beside the create receipt, an FR create in a declared target needs
+ * an `attach-target` receipt of this session that resolved a surface in the
+ * create's project; a Jira payload naming a parent must name the key the
+ * receipt resolved. One resolved target serves every FR of its milestone, so
+ * the receipt is never spent.
+ */
+function gateAttachTarget(
+  call: TrackerCall,
+  shape: CreateShape,
+  sessionId: string,
+  announcements: Announcement[],
+  target: DeclaredTarget,
+  note: string,
+): ExitCode {
+  const where = `${call.tool} in ${target.root}`;
+  const project = shape.project !== "" ? shape.project : shape.team;
+  const all = attachTargets(announcements, target.root, sessionId, call.adapter).filter((t) => sameName(t.project, project));
+  const inProject = all.filter((t) => t.proven);
+  const parent = call.adapter === "jira" ? shape.container : "";
+  if (inProject.some((t) => parent === "" || sameName(t.key, parent))) return 0;
+  if (inProject.length > 0) {
+    const last = inProject[inProject.length - 1]!;
+    return refuse(
+      `${where}: the payload's parent "${parent}" differs from the key "${last.key || `none (surface ${last.surface})`}" the attach-target receipt (${last.path}) resolved.${note}`,
+      `send the parent ${ATTACH_MODULE} resolved, or run ${ATTACH_SHAPE} in ${target.root} for this milestone ${PLAIN_RULE}, then retry.`,
+    );
+  }
+  const unproven = all.filter((t) => !t.proven);
+  if (unproven.length > 0) {
+    const last = unproven[unproven.length - 1]!;
+    return refuse(
+      `${where}: the attach-target receipt (${last.path}) relied on a milestone decision that ${RESOLVE_MODULE} never announced in this session — a decision receipt must come from that front door's own run.${note}`,
+      `decide the milestone container with ${frontDoor("--join-key <key>")} (or \`--title <title>\` to create) ${PLAIN_RULE}, run ${ATTACH_SHAPE} again, then retry.`,
+    );
+  }
+  return refuse(
+    `${where}: no attach-target receipt announced by ${ATTACH_MODULE} in this session resolved the milestone container in project "${project}", so the ticket could be created where it cannot be attached.${note}`,
+    `run ${ATTACH_SHAPE} in ${target.root} for the FR's milestone ${PLAIN_RULE}; when it refuses, the FR is not created. Then retry.`,
   );
 }
 
@@ -1300,16 +1457,19 @@ function milestoneDecisions(
   adapter: WorkspaceAdapterKey,
 ): MilestoneDecision[] {
   const out: MilestoneDecision[] = [];
-  for (const a of announcements) {
-    if (a.module !== RESOLVE_MODULE || !a.intact || !roots.has(a.root)) continue;
-    const r = readSessionReceipt(a.receiptPath, sessionId, adapter);
-    if (!r || r.kind !== "milestone-decision" || typeof r.container !== "string") continue;
-    const ev = r.evidence && typeof r.evidence === "object" ? (r.evidence as Record<string, unknown>) : null;
-    if (!ev || (ev.act !== "create" && ev.act !== "join")) continue;
+  for (const { announcement: a, container, evidence: ev } of frontDoorReceipts(
+    announcements,
+    RESOLVE_MODULE,
+    "milestone-decision",
+    roots,
+    sessionId,
+    adapter,
+  )) {
+    if (ev.act !== "create" && ev.act !== "join") continue;
     out.push({
       line: a.line,
       path: a.receiptPath,
-      project: r.container,
+      project: container,
       act: ev.act,
       key: typeof ev.key === "string" ? ev.key : "",
       title: typeof ev.title === "string" ? ev.title : null,

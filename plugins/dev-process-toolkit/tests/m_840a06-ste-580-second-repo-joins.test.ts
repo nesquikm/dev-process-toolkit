@@ -362,9 +362,10 @@ describe("AC-STE-580.4 — a provider without `listEpics` is a refusal, not a mi
     // not a measurement: this proves the token is greppable and the cwd is right.
     expect(
       grepCount("listEpics", ATTACH_HELPER_REL),
-      `${ATTACH_HELPER_REL} carries 7 \`listEpics\` lines at HEAD — if this is not 7, the ` +
+      // Re-measured by AC-STE-611.2: the attach front door's listing-backed provider adds an eighth.
+      `${ATTACH_HELPER_REL} carries 8 \`listEpics\` lines — if this is not 8, the ` +
         "grep below is measuring nothing",
-    ).toBe(7);
+    ).toBe(8);
     expect(grepCount("listEpics", SPEC_WRITE_REL)).toBeGreaterThanOrEqual(1);
   });
 });

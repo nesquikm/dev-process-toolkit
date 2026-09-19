@@ -48,6 +48,8 @@ export const PROBE_ID = "claudemd_probe_managed_guard";
  * route it through `./toolkit_managed`.
  */
 export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
+  attach_project_milestone:
+    "the attach target's front door reads the tracker binding through `readWorkspaceBinding` for `repo_tag` alone (the provenance check); applicability is the tracker mode its caller passes, and an undeclared tree resolves exactly as before in managed and unmanaged trees alike.",
   bun_zero_match_placeholder:
     "applicability is `bun.lock`; CLAUDE.md is read only for the `## Testing Conventions` layout policy, not for managed-ness.",
   detect_runnability:
