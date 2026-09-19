@@ -458,25 +458,65 @@ export async function readActiveSpecsFromGit(root: string): Promise<ActiveSpecsR
       .split("\n")
       .map((l) => l.trim())
       .filter((l) => l !== "" && !l.endsWith("/HEAD"));
-    const pending: Array<{ kind: "plans" | "frs"; name: string; ref: string; path: string }> = [];
-    for (const ref of refs) {
-      const paths = siblingGit(root, ["ls-tree", "-r", "--name-only", ref, "--", "specs/frs", "specs/plan"])
+    // Batched (M_685ff6 review r2): three git processes whatever the number of
+    // refs — resolve each ref's four spec trees, read every DISTINCT tree once,
+    // then every distinct live blob once. Refs sharing a tree share its read.
+    const DIRS = [
+      { kind: "frs", archived: false, path: "specs/frs" },
+      { kind: "frs", archived: true, path: "specs/frs/archive" },
+      { kind: "plans", archived: false, path: "specs/plan" },
+      { kind: "plans", archived: true, path: "specs/plan/archive" },
+    ] as const;
+    const specs = refs.flatMap((ref) => DIRS.map((d) => ({ ref, dir: d, spec: `${ref}:${d.path}` })));
+    const trees = new Map<string, string>(); // spec -> tree id
+    if (specs.length > 0) {
+      const check = siblingGit(root, ["cat-file", "--batch-check"], { input: `${specs.map((x) => x.spec).join("\n")}\n` })
         .toString("utf-8")
         .split("\n")
         .filter((l) => l !== "");
-      for (const path of paths) {
-        const m = /^specs\/(frs|plan)\/(archive\/)?([^/]+\.md)$/.exec(path);
-        if (!m) continue;
-        const kind = m[1] === "frs" ? "frs" : "plans";
-        if (kind === "plans" && !isPlanName(m[3]!)) continue;
-        const name = basename(m[3]!, ".md");
-        if (m[2] !== undefined) archived[kind].add(name);
-        else pending.push({ kind, name, ref, path });
+      if (check.length !== specs.length) {
+        throw new SiblingReadError("git cat-file --batch-check", `answered ${check.length} of ${specs.length} lines`);
+      }
+      check.forEach((line, i) => {
+        const m = /^([0-9a-f]{40,64}) (\S+) \d+$/.exec(line);
+        if (m && m[2] === "tree") trees.set(specs[i]!.spec, m[1]!);
+        else if (!/ missing$/.test(line) && !(m && m[2] !== "tree")) {
+          throw new SiblingReadError("git cat-file --batch-check", `${specs[i]!.spec}: ${oneLine(line)}`);
+        }
+      });
+    }
+    const treeIds = [...new Set(trees.values())];
+    const entries = new Map<string, Array<{ name: string; blob: string }>>();
+    if (treeIds.length > 0) {
+      const objects = catFileObjects(root, treeIds);
+      treeIds.forEach((id, i) => {
+        const o = objects[i]!;
+        if (o.type !== "tree") throw new SiblingReadError("git cat-file --batch", `${id}: not a tree (${o.type})`);
+        entries.set(id, parseTreeObject(o.content, id.length / 2));
+      });
+    }
+    const pending: Array<{ kind: "plans" | "frs"; name: string; ref: string; blob: string }> = [];
+    for (const x of specs) {
+      const tree = trees.get(x.spec);
+      if (tree === undefined) continue;
+      for (const e of entries.get(tree) ?? []) {
+        if (!e.name.endsWith(".md")) continue;
+        if (x.dir.kind === "plans" && !isPlanName(e.name)) continue;
+        const name = basename(e.name, ".md");
+        if (x.dir.archived) archived[x.dir.kind].add(name);
+        else if (e.blob !== "") pending.push({ kind: x.dir.kind, name, ref: x.ref, blob: e.blob });
       }
     }
-    if (pending.length > 0) {
-      const blobs = catFileBatch(root, pending.map((p) => `${p.ref}:${p.path}`));
-      pending.forEach((p, i) => note(p.kind, p.name, blobs[i]!, refLabel(p.ref)));
+    const blobIds = [...new Set(pending.map((p) => p.blob))];
+    if (blobIds.length > 0) {
+      const objects = catFileObjects(root, blobIds);
+      const text = new Map<string, string>();
+      blobIds.forEach((id, i) => {
+        const o = objects[i]!;
+        if (o.type !== "blob") throw new SiblingReadError("git cat-file --batch", `${id}: not a blob (${o.type})`);
+        text.set(id, o.content.toString("utf-8"));
+      });
+      for (const p of pending) note(p.kind, p.name, text.get(p.blob)!, refLabel(p.ref));
     }
   }
 
@@ -485,6 +525,46 @@ export async function readActiveSpecsFromGit(root: string): Promise<ActiveSpecsR
       .filter((x) => !archived[kind].has(x.name))
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   return { plans: active("plans"), frs: active("frs") };
+}
+
+/** Read objects by id with one `git cat-file --batch`: each one's type and raw content. */
+function catFileObjects(root: string, ids: readonly string[]): Array<{ type: string; content: Buffer }> {
+  const out = siblingGit(root, ["cat-file", "--batch"], { input: `${ids.join("\n")}\n` });
+  const objects: Array<{ type: string; content: Buffer }> = [];
+  let pos = 0;
+  for (const id of ids) {
+    const nl = out.indexOf(0x0a, pos);
+    if (nl < 0) throw new SiblingReadError("git cat-file --batch", `truncated output at ${id}`);
+    const header = out.subarray(pos, nl).toString("utf-8");
+    const m = /^\S+ (\S+) (\d+)$/.exec(header);
+    if (!m) throw new SiblingReadError("git cat-file --batch", `${id}: ${oneLine(header)}`);
+    const size = Number(m[2]);
+    objects.push({ type: m[1]!, content: out.subarray(nl + 1, nl + 1 + size) });
+    pos = nl + 1 + size + 1; // the content is followed by one LF
+  }
+  return objects;
+}
+
+/**
+ * A raw git tree object's entries: `<mode> <name>\0<hash bytes>` repeated.
+ * `blob` is the hex id of a regular-file entry, "" for any other kind.
+ */
+function parseTreeObject(buf: Buffer, hashBytes: number): Array<{ name: string; blob: string }> {
+  const entries: Array<{ name: string; blob: string }> = [];
+  let pos = 0;
+  while (pos < buf.length) {
+    const sp = buf.indexOf(0x20, pos);
+    const nul = buf.indexOf(0x00, sp + 1);
+    if (sp < 0 || nul < 0 || nul + 1 + hashBytes > buf.length) {
+      throw new SiblingReadError("git cat-file --batch", "malformed tree object");
+    }
+    const mode = buf.subarray(pos, sp).toString("utf-8");
+    const name = buf.subarray(sp + 1, nul).toString("utf-8");
+    const hash = buf.subarray(nul + 1, nul + 1 + hashBytes).toString("hex");
+    entries.push({ name, blob: mode === "100644" || mode === "100755" ? hash : "" });
+    pos = nul + 1 + hashBytes;
+  }
+  return entries;
 }
 
 /** `.md` file names directly under `dir`, sorted; absent is empty, any other failure throws. */
