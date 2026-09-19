@@ -9,7 +9,14 @@
 import { readFileSync } from "node:fs";
 import { milestoneFrBinding } from "./active_plan_ship_ready";
 import { parseFrontmatter } from "./frontmatter";
-import { defaultRepoProbe, isUndeclaredScalar, sameRepo, type RepoProbe } from "./target_repo";
+import {
+  defaultRepoProbe,
+  isUndeclaredScalar,
+  mainWorktreeRoot,
+  sameRepository,
+  type RepoProbe,
+} from "./target_repo";
+import { oneLine } from "./tracker_receipts";
 
 /** The plan frontmatter key this module reads. */
 export const SPANS_REPOS_KEY = "spans_repos";
@@ -169,7 +176,7 @@ export function readSpansReposDeclaration(planBody: string): SpansReposDeclarati
  * Resolve every declared entry to a root, self flag and binding, one state per
  * entry in declaration order. An undeclared plan resolves to `[]`.
  *
- * Locating defers to the shared repo probe, same-repo to `sameRepo`, and the
+ * Locating defers to the shared repo probe, same-repo to `sameRepository`, and the
  * binding to `milestoneFrBinding` — each fact keeps its one home. The self
  * entry and an unlocatable entry carry no binding.
  */
@@ -179,16 +186,55 @@ export async function resolveSpansRepos(
   const { planBody, milestone, invokingRepo } = input;
   const declaration = readSpansReposDeclaration(planBody);
   if (!declaration.declared) return [];
-  const probe = input.probe ?? defaultRepoProbe(invokingRepo);
-  const states: SiblingState[] = [];
-  for (const { name, declaredPath } of declaration.entries) {
+  // A relative path resolves against the MAIN worktree root, so every
+  // checkout of the repository — a nested `.claude/worktrees/<name>` one
+  // included — locates the same sibling (STE-609). No main worktree (a bare
+  // common directory, no git) falls back to the invoking checkout.
+  const probe =
+    input.probe ?? defaultRepoProbe(mainWorktreeRoot(invokingRepo) ?? invokingRepo);
+  const located = declaration.entries.map(({ name, declaredPath }) => {
     const root = probe.locate(declaredPath);
-    const self = root !== null && sameRepo(root, invokingRepo);
+    const self = root !== null && sameRepository(root, invokingRepo);
+    return { name, declaredPath, root, self };
+  });
+  // Exactly one entry names the invoking repository (STE-609). Zero leaves
+  // the declaration with no home; two or more — a declaration pasted verbatim
+  // into the sibling — reads every entry as self and would ship with an empty
+  // sibling footer. Refused here so every reader refuses alike.
+  const selfCount = located.filter((s) => s.self).length;
+  if (selfCount !== 1) {
+    throw new SpansReposError(selfCountRefusal(located, selfCount, invokingRepo));
+  }
+  const states: SiblingState[] = [];
+  for (const { name, declaredPath, root, self } of located) {
     const binding =
       root !== null && !self ? await milestoneFrBinding(root, milestone) : null;
     states.push({ name, declaredPath, root, self, binding });
   }
   return states;
+}
+
+/** The refusal for a declaration with zero, or two or more, self entries. */
+function selfCountRefusal(
+  located: ReadonlyArray<{ name: string; declaredPath: string; root: string | null; self: boolean }>,
+  selfCount: number,
+  invokingRepo: string,
+): string {
+  const each = located
+    .map(
+      (s) =>
+        `\`${oneLine(s.name)}: ${oneLine(s.declaredPath)}\` resolved to ${s.root === null ? "no repository (unlocatable)" : `\`${oneLine(s.root)}\``}${s.self ? " (the invoking repository)" : ""}`,
+    )
+    .join("; ");
+  const what =
+    selfCount === 0
+      ? "no spans_repos entry names the invoking repository"
+      : `${selfCount} spans_repos entries name the invoking repository`;
+  return nfr10Refusal(
+    `${what} \`${oneLine(invokingRepo)}\` — exactly one must. ${each}.`,
+    "keep exactly one entry that resolves to this repository (`.` names it) and point every other entry at its sibling; a declaration copied from a sibling needs its paths rewritten relative to this repository.",
+    `spans_repos_self_entries=${selfCount}, entries=${located.length}, phase=spans-repos-resolve`,
+  );
 }
 
 /** One stdout line for one resolved entry, fields whitespace-separated. */

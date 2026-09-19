@@ -413,48 +413,50 @@ describe("AC-STE-589.2 — the busy refusal is the NFR-10 three-line house shape
 // ===========================================================================
 
 describe("AC-STE-589.3 — unlocatable, undeclared and malformed declarations", () => {
-  test("an unlocatable sibling does not refuse, and yields one not-checked line naming it", async () => {
+  // Amended by AC-STE-609.9 (superseding AC-STE-589.3's "an unlocatable
+  // sibling does not refuse"): only an idle sibling releases without --partial,
+  // and an unlocatable sibling cannot be proven idle.
+  test("an unlocatable sibling refuses, naming it and its state; --partial is the escape", async () => {
     await withFixture(async (fx) => {
       const plan = writePlan(fx.a, "live", MILESTONE, {
         spans: { [A_NAME]: ".", [B_NAME]: nowhere(fx, 0) },
         shippedIn: null,
       });
-      const result = await gateFrom(fx.a, plan);
-      expect(result.refusal).toBeNull();
-      expect(result.unchecked.length, JSON.stringify(result.unchecked)).toBe(1);
-      expect(result.unchecked[0]!).toContain(B_NAME);
-      expect(result.unchecked[0]!).toMatch(/not checked/i);
+      // Amended by AC-STE-609.9
+      const [verdict, remedy] = expectHouseShape((await gateFrom(fx.a, plan)).refusal);
+      expect(verdict!).toContain(B_NAME);
+      expect(verdict!).toMatch(/\bunlocatable\b/);
+      expect(remedy!).toContain("--partial");
     });
   });
 
-  test("every unlocatable sibling gets its own line; a located sibling gets none", async () => {
+  // Amended by AC-STE-609.9: each unlocatable sibling is named in the refusal.
+  test("every unlocatable sibling is named in the refusal", async () => {
     await withFixture(async (fx) => {
       const plan = writePlan(fx.a, "live", MILESTONE, {
         spans: { [A_NAME]: ".", [B_NAME]: nowhere(fx, 0), [C_NAME]: nowhere(fx, 1) },
         shippedIn: null,
       });
-      const result = await gateFrom(fx.a, plan);
-      expect(result.refusal).toBeNull();
-      expect(result.unchecked.length, JSON.stringify(result.unchecked)).toBe(2);
-      for (const name of [B_NAME, C_NAME]) {
-        expect(result.unchecked.filter((l) => l.includes(name)).length, name).toBe(1);
-      }
+      // Amended by AC-STE-609.9
+      const [verdict] = expectHouseShape((await gateFrom(fx.a, plan)).refusal);
+      for (const name of [B_NAME, C_NAME]) expect(verdict!, name).toContain(name);
     });
   });
 
-  test("front door: an all-unlocatable span exits 0 and is never a silent pass", async () => {
+  // Amended by AC-STE-609.9: the front door refuses an all-unlocatable span.
+  test("front door: an all-unlocatable span exits 1 with the refusal on stderr and empty stdout", async () => {
     await withFixture(async (fx) => {
       const plan = writePlan(fx.a, "live", MILESTONE, {
         spans: { [A_NAME]: ".", [B_NAME]: nowhere(fx, 0), [C_NAME]: nowhere(fx, 1) },
         shippedIn: null,
       });
       const inProcess = await gateFrom(fx.a, plan);
+      expectHouseShape(inProcess.refusal); // Amended by AC-STE-609.9
       const door = frontDoor(fx.a, plan);
-      expect(door.status, describeDoor(door)).toBe(0);
-      const errLines = nonEmptyLines(door.stderr);
-      expect(errLines.length, describeDoor(door)).toBe(2);
-      for (const line of errLines) expect(line).toMatch(/not checked/i);
-      expect([...errLines].sort()).toEqual([...inProcess.unchecked].sort());
+      // Amended by AC-STE-609.9
+      expect(door.status, describeDoor(door)).toBe(1);
+      expect(door.stdout, describeDoor(door)).toBe("");
+      expect(door.stderr.trimEnd()).toBe(inProcess.refusal!.trimEnd());
     });
   }, 30_000);
 
@@ -602,7 +604,15 @@ describe("AC-STE-589.5 — the front door, spawned as a subprocess", () => {
           shippedIn: null,
         });
         writePlan(fx.b, "archive", MILESTONE, { spans: spansBtoA(fx), shippedIn: "v1.4.0" });
-        // C is located and holds no plan for the milestone.
+        // Amended by AC-STE-609.10: both siblings are idle — each holds a plan
+        // and a finished FR (a sibling with neither is `no-plan` / `not-started`
+        // and holds the release). C's plan is unstamped, so its row is pending.
+        fx.archivedFr(fx.b, FR_DONE_B, MILESTONE);
+        writePlan(c, "live", MILESTONE, {
+          spans: { [A_NAME]: relative(c, fx.a), [C_NAME]: "." },
+          shippedIn: null,
+        });
+        other.archivedFr(c, "STE-9103", MILESTONE);
         const expected = [`Spans: ${B_NAME}@v1.4.0`, `Spans: ${C_NAME}@pending`];
 
         const inProcess = await gateFrom(fx.a, plan);
@@ -653,22 +663,29 @@ describe("AC-STE-589.6 — Spans: <name>@<value> reads the sibling plan's own st
     });
   }
 
-  test("a located sibling with no plan renders pending", async () => {
+  // Amended by AC-STE-609.10: a located sibling with no plan is `no-plan` —
+  // it refuses without --partial, and under --partial its row renders pending.
+  test("a located sibling with no plan refuses, and renders pending under --partial", async () => {
     await withFixture(async (fx) => {
       const plan = writePlan(fx.a, "live", MILESTONE, { spans: spansAtoB(fx), shippedIn: null });
-      const result = await gateFrom(fx.a, plan);
+      // Amended by AC-STE-609.10
+      const [verdict] = expectHouseShape((await gateFrom(fx.a, plan)).refusal);
+      expect(verdict!).toMatch(/\bno-plan\b/);
+      const result = await gateFrom(fx.a, plan, true);
       expect(result.refusal).toBeNull();
       expect(result.footer).toEqual([`Spans: ${B_NAME}@pending`]);
     });
   });
 
-  test("an unlocatable sibling renders pending", async () => {
+  // Amended by AC-STE-609.9: an unlocatable sibling refuses without --partial;
+  // under --partial its row renders pending.
+  test("an unlocatable sibling renders pending under --partial", async () => {
     await withFixture(async (fx) => {
       const plan = writePlan(fx.a, "live", MILESTONE, {
         spans: { [A_NAME]: ".", [B_NAME]: nowhere(fx, 0) },
         shippedIn: null,
       });
-      const result = await gateFrom(fx.a, plan);
+      const result = await gateFrom(fx.a, plan, true); // Amended by AC-STE-609.9
       expect(result.footer).toEqual([`Spans: ${B_NAME}@pending`]);
     });
   });

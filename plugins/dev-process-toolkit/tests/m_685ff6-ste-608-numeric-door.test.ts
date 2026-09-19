@@ -29,7 +29,7 @@ afterAll(() => {
 });
 
 function span(): SpanFixture {
-  const f = makeSpanFixture("M8");
+  const f = makeSpanFixture("M8", { repositories: false });
   fixtures.push(f);
   return f;
 }

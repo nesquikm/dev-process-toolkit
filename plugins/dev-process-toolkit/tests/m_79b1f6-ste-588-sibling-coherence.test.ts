@@ -240,8 +240,11 @@ function buildDisagreeUndeclared(fx: SpanFixture): void {
 /** AC.5 (b): B's plan declares a map whose only non-self entry locates a directory that is not A. */
 function buildDisagreeElsewhere(fx: SpanFixture): void {
   localStamped(fx);
+  // Amended by AC-STE-609.1: `A/specs` is inside A's work tree, so it IS A by
+  // `sameRepository`. The directory that is not A is now the temp dir holding
+  // both roots — outside every repository.
   writePlan(fx.b, "archive", MILESTONE, {
-    spans: { [A_NAME]: relative(fx.b, join(fx.a, "specs")), [B_NAME]: "." },
+    spans: { [A_NAME]: relative(fx.b, join(fx.a, "..")), [B_NAME]: "." },
     shippedIn: null,
   });
 }
