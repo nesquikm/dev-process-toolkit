@@ -16,7 +16,7 @@
 // for its constants has no side effect.
 
 import { readFileSync, realpathSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { emitNFR10, parseHookPayload, readTranscriptLines, type HookPayload } from "../session.ts";
 import {
   readWorkspaceBinding,
@@ -1015,7 +1015,10 @@ function gateCreate(
     if (hit) hit.spent = true;
   }
   const matching = seen.filter((r) => createMismatch(call.adapter, shape, r.shape, tag) === null);
-  if (matching.some((r) => !r.spent)) return gateAttachTarget(call, shape, sessionId, announcements, target, note);
+  if (matching.some((r) => !r.spent)) {
+    const created = createdKeys(parseLines(transcript), call.adapter);
+    return gateAttachTarget(call, shape, sessionId, announcements, created, target, note);
+  }
 
   if (matching.length > 0) {
     return refuse(
@@ -1050,8 +1053,16 @@ interface AttachTarget {
   surface: string;
   /** The Epic key a `parent` surface resolved; "" for any other surface. */
   key: string;
-  /** Whether its provenance holds (`provenanceHonoured`); an unproven target never permits. */
+  /** The Linear milestone id an `object` surface resolved; "" otherwise. */
+  id: string;
+  /** Every name the resolved container answers to: its listed name and the milestone name. */
+  names: string[];
+  /** The plan's milestone token (its file name), for the `label` surface's `milestone-<token>`. */
+  token: string;
+  /** Whether its provenance holds (`provenanceUnproven` is null); an unproven target never permits. */
   proven: boolean;
+  /** Why it is unproven, when it is. */
+  unproven: typeof NOT_ANNOUNCED | typeof NOT_CREATED | null;
 }
 
 /**
@@ -1069,24 +1080,51 @@ interface AttachTarget {
  * container, needs no decision. Anything else (absent, unshared in a declared
  * target, malformed) counts as absent.
  */
-function provenanceHonoured(provenance: unknown, announcements: Announcement[]): boolean {
-  if (provenance === null || typeof provenance !== "object") return false;
+const NOT_ANNOUNCED = "never-announced";
+const NOT_CREATED = "not-created";
+
+/** Null when the provenance holds; otherwise why not (`NOT_ANNOUNCED` or `NOT_CREATED`). */
+function provenanceUnproven(
+  provenance: unknown,
+  announcements: Announcement[],
+  resolvedKey: string,
+  created: ReadonlySet<string>,
+): typeof NOT_ANNOUNCED | typeof NOT_CREATED | null {
+  if (provenance === null || typeof provenance !== "object") return NOT_ANNOUNCED;
   const p = provenance as Record<string, unknown>;
-  if (p.kind === "committed" || p.kind === "not-applicable") return true;
-  if (p.kind !== "decided" || typeof p.receipt !== "string" || typeof p.sha256 !== "string") return false;
+  if (p.kind === "committed" || p.kind === "not-applicable") return null;
+  if (p.kind !== "decided" || typeof p.receipt !== "string" || typeof p.sha256 !== "string") return NOT_ANNOUNCED;
   const wanted = resolve(p.receipt);
-  return announcements.some((x) => {
-    if (x.module !== RESOLVE_MODULE || !x.intact || resolve(x.receiptPath) !== wanted) return false;
+  let why: typeof NOT_ANNOUNCED | typeof NOT_CREATED = NOT_ANNOUNCED;
+  for (const x of announcements) {
+    if (x.module !== RESOLVE_MODULE || !x.intact || resolve(x.receiptPath) !== wanted) continue;
+    let bytes: Buffer;
     try {
-      return receiptDigest(readFileSync(x.receiptPath)) === p.sha256;
+      bytes = readFileSync(x.receiptPath);
     } catch {
-      return false;
+      continue;
     }
-  });
+    if (receiptDigest(bytes) !== p.sha256) continue;
+    // A CREATE decision proves only a container this session created: the
+    // resolved key must be one a create call of this transcript returned.
+    // Otherwise a create decision would prove a silent join of a sibling's
+    // same-title container (M_685ff6 review).
+    let act: unknown;
+    try {
+      act = (JSON.parse(bytes.toString("utf-8")) as { evidence?: { act?: unknown } }).evidence?.act;
+    } catch {
+      continue;
+    }
+    if (act === "join") return null;
+    if (act === "create" && resolvedKey !== "" && created.has(resolvedKey.toUpperCase())) return null;
+    why = NOT_CREATED;
+  }
+  return why;
 }
 
 function attachTargets(
   announcements: Announcement[],
+  created: ReadonlySet<string>,
   root: string,
   sessionId: string,
   adapter: WorkspaceAdapterKey,
@@ -1101,48 +1139,109 @@ function attachTargets(
     adapter,
   )) {
     if (typeof ev.surface !== "string" || ev.surface === "") continue;
+    const key = ev.surface === "parent" && typeof ev.key === "string" ? ev.key : "";
+    const id = ev.surface === "object" && typeof ev.id === "string" ? ev.id : "";
+    const planFile = typeof ev.planFile === "string" ? ev.planFile : "";
+    const unproven = provenanceUnproven(ev.provenance, announcements, key || id, created);
     out.push({
-      proven: provenanceHonoured(ev.provenance, announcements),
+      proven: unproven === null,
+      unproven,
       path: a.receiptPath,
       project: container,
       surface: ev.surface,
-      key: ev.surface === "parent" && typeof ev.key === "string" ? ev.key : "",
+      key,
+      id,
+      names: [ev.name, ev.milestoneName].filter((n): n is string => typeof n === "string" && n !== ""),
+      token: planFile === "" ? "" : basename(planFile).replace(/\.md$/, ""),
     });
   }
   return out;
 }
 
 /**
+ * Whether the create's own milestone binding is one a proven target resolved.
+ * Jira: a parent must be the Epic key a `parent` target resolved; with no
+ * parent, the labels must carry `milestone-<token>` of a `label` target (a
+ * parentless create under an Epic-bound milestone would be stranded). Linear:
+ * a `milestone` argument must be a resolved target's id or one of its names;
+ * a Linear create that names no milestone is accepted on any proven target in
+ * the project — the named residual, since its payload carries nothing to bind.
+ */
+function bindsTarget(call: TrackerCall, shape: CreateShape, t: AttachTarget): boolean {
+  const container = shape.container;
+  if (call.adapter === "jira") {
+    if (container !== "") return t.surface === "parent" && sameName(t.key, container);
+    if (t.surface !== "label" || t.token === "") return false;
+    let label: string;
+    try {
+      label = milestoneLabel(t.token);
+    } catch {
+      return false;
+    }
+    return shape.labels.includes(label);
+  }
+  if (container === "") return true;
+  return (t.id !== "" && t.id === container) || t.names.some((n) => sameName(n, container));
+}
+
+/**
  * STE-611 — beside the create receipt, an FR create in a declared target needs
  * an `attach-target` receipt of this session that resolved a surface in the
- * create's project; a Jira payload naming a parent must name the key the
- * receipt resolved. One resolved target serves every FR of its milestone, so
- * the receipt is never spent.
+ * create's project AND bound the create's own milestone (`bindsTarget`). One
+ * resolved target serves every FR of its milestone, so the receipt is never
+ * spent.
  */
 function gateAttachTarget(
   call: TrackerCall,
   shape: CreateShape,
   sessionId: string,
   announcements: Announcement[],
+  created: ReadonlySet<string>,
   target: DeclaredTarget,
   note: string,
 ): ExitCode {
   const where = `${call.tool} in ${target.root}`;
   const project = shape.project !== "" ? shape.project : shape.team;
-  const all = attachTargets(announcements, target.root, sessionId, call.adapter).filter((t) => sameName(t.project, project));
+  const all = attachTargets(announcements, created, target.root, sessionId, call.adapter).filter((t) =>
+    sameName(t.project, project),
+  );
   const inProject = all.filter((t) => t.proven);
-  const parent = call.adapter === "jira" ? shape.container : "";
-  if (inProject.some((t) => parent === "" || sameName(t.key, parent))) return 0;
+  if (inProject.some((t) => bindsTarget(call, shape, t))) return 0;
   if (inProject.length > 0) {
     const last = inProject[inProject.length - 1]!;
+    const resolved =
+      last.surface === "parent"
+        ? `the Epic ${last.key} (send it as the parent)`
+        : last.surface === "label"
+          ? `the label surface of ${last.token} (carry the label ${(() => {
+              try {
+                return milestoneLabel(last.token);
+              } catch {
+                return `milestone-${last.token}`;
+              }
+            })()})`
+          : `the milestone ${last.id || last.names[0] || "(unnamed)"} (name it as the milestone)`;
+    const sent =
+      call.adapter === "jira"
+        ? shape.container === ""
+          ? `no parent and the labels [${shape.labels.join(", ")}]`
+          : `the parent "${shape.container}"`
+        : `the milestone "${shape.container}"`;
     return refuse(
-      `${where}: the payload's parent "${parent}" differs from the key "${last.key || `none (surface ${last.surface})`}" the attach-target receipt (${last.path}) resolved.${note}`,
-      `send the parent ${ATTACH_MODULE} resolved, or run ${ATTACH_SHAPE} in ${target.root} for this milestone ${PLAIN_RULE}, then retry.`,
+      `${where}: the payload carries ${sent}, which binds no milestone container an attach-target receipt of this session resolved — the latest (${last.path}) resolved ${resolved}.${note}`,
+      `bind the create to the container ${ATTACH_MODULE} resolved, or run ${ATTACH_SHAPE} in ${target.root} for this FR's milestone ${PLAIN_RULE}, then retry.`,
     );
   }
   const unproven = all.filter((t) => !t.proven);
   if (unproven.length > 0) {
     const last = unproven[unproven.length - 1]!;
+    const resolvedKey = last.key || last.id;
+    if (last.unproven === NOT_CREATED) {
+      return refuse(
+        `${where}: the attach-target receipt (${last.path}) resolved the existing container ${resolvedKey}, and the milestone decision it relies on is a CREATE — but no create call of this session returned ${resolvedKey}, so binding to it would be a join the operator never approved.${note}`,
+        `to join ${resolvedKey}, decide it with ${frontDoor("--join-key <key>")} (with \`--sibling <path>\` in a shared container) ${PLAIN_RULE}; to create your own container, create it through the decided create first. Then run ${ATTACH_SHAPE} again and retry.`,
+      );
+    }
     return refuse(
       `${where}: the attach-target receipt (${last.path}) relied on a milestone decision that ${RESOLVE_MODULE} never announced in this session — a decision receipt must come from that front door's own run.${note}`,
       `decide the milestone container with ${frontDoor("--join-key <key>")} (or \`--title <title>\` to create) ${PLAIN_RULE}, run ${ATTACH_SHAPE} again, then retry.`,
@@ -1244,23 +1343,43 @@ function createdKeyOf(text: string, call: TrackerCall): string | null {
  * non-error tool_result.
  */
 function createdKeys(parsed: Array<ParsedLine | null>, adapter: WorkspaceAdapterKey): Set<string> {
-  const creates = new Map<string, TrackerCall>();
+  const creates = new Map<string, { call: TrackerCall; milestone: boolean }>();
   const out = new Set<string>();
   for (const p of parsed) {
     if (!p) continue;
     for (const b of p.blocks) {
       if (b.type === "tool_use") {
-        const c = createCallIn(b, adapter) ?? MILESTONE_CREATES.pick(b, adapter);
-        if (typeof b.id === "string" && c) creates.set(b.id, c);
+        const ticket = createCallIn(b, adapter);
+        const c = ticket ?? MILESTONE_CREATES.pick(b, adapter);
+        if (typeof b.id === "string" && c) creates.set(b.id, { call: c, milestone: ticket === null });
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
         const c = creates.get(b.tool_use_id);
         if (b.is_error === true || !c) continue;
-        const key = createdKeyOf(resultText(b.content).trim(), c);
+        const text = resultText(b.content).trim();
+        const key = createdKeyOf(text, c.call) ?? (c.milestone && adapter === "linear" ? createdMilestoneIdOf(text) : null);
         if (key !== null) out.add(key);
       }
     }
   }
   return out;
+}
+
+/**
+ * The id a Linear `save_milestone` create returned — a UUID at the top level
+ * or under `milestone`/`projectMilestone` — upper-cased like every other
+ * created key. A result that is not JSON names nothing.
+ */
+function createdMilestoneIdOf(text: string): string | null {
+  try {
+    const r = JSON.parse(text) as Record<string, unknown> | null;
+    for (const o of [r, r?.milestone, r?.projectMilestone]) {
+      const id = o && typeof o === "object" ? (o as Record<string, unknown>).id : undefined;
+      if (typeof id === "string" && UUID_SHAPE.test(id)) return id.toUpperCase();
+    }
+  } catch {
+    /* not JSON */
+  }
+  return null;
 }
 
 /** The answer an `AskUserQuestion` tool_result selected, read from the harness's structured record. */
@@ -1441,6 +1560,8 @@ interface MilestoneDecision {
   milestoneId: string;
   /** The Epic's labels as listed (Jira joins only). */
   labels: string[];
+  /** The joined container's listed name (joins only); null when the receipt records none. */
+  name: string | null;
 }
 
 /**
@@ -1475,6 +1596,7 @@ function milestoneDecisions(
       title: typeof ev.title === "string" ? ev.title : null,
       milestoneId: typeof ev.milestoneId === "string" ? ev.milestoneId : "",
       labels: stringList(ev.labels),
+      name: typeof ev.name === "string" ? ev.name : null,
     });
   }
   return out;
@@ -1511,6 +1633,19 @@ function gateMilestoneCreate(
   for (const c of createsBefore(transcript, call.adapter, call.toolUseId, MILESTONE_CREATES)) {
     const hit = seen.find((d) => !d.spent && d.line < c.line && decides(d, c.shape));
     if (hit) hit.spent = true;
+  }
+  // The LATEST decision for this project and title governs (M_685ff6 review):
+  // a join decided after a create decision is the gate the operator answered
+  // last, so the earlier create no longer authorises anything.
+  const forTitle = seen.filter(
+    (d) => sameName(d.project, want.project) && (d.title === want.title || (d.act === "join" && d.name === want.title)),
+  );
+  const governing = forTitle[forTitle.length - 1];
+  if (governing && governing.act === "join") {
+    return refuse(
+      `${where}: the latest milestone decision for "${want.title}" in project ${want.project} (${governing.path}) joins the existing ${name} ${governing.key}, so no create of it is authorised — an earlier create decision is superseded.${note}`,
+      `use ${governing.key}: a join writes nothing to the container. To create a new ${name} instead, save a fresh listing and run ${frontDoor("--title <title>")} ${PLAIN_RULE}.`,
+    );
   }
   const matching = seen.filter((d) => decides(d, want));
   if (matching.some((d) => !d.spent)) return 0;
@@ -1614,6 +1749,12 @@ function gateJoinedLabels(
   if (call.adapter !== "jira" || call.tool !== "editJiraIssue") return null;
   const fields = call.input.fields;
   if (!fields || typeof fields !== "object" || !("labels" in (fields as Record<string, unknown>))) return null;
+  // Only a write whose SOLE effect is the labels set is a read-merge. Any other
+  // field, or any other top-level key (an `update` block), leaves the call to
+  // the ownership rule of §4 (M_685ff6 review: a superset must not carry a
+  // summary edit onto a sibling's Epic).
+  if (Object.keys(fields as Record<string, unknown>).some((k) => k !== "labels")) return null;
+  if (Object.keys(call.input).some((k) => k !== "cloudId" && k !== "issueIdOrKey" && k !== "fields")) return null;
   const keys = subjectKeys(call);
   if (keys.length !== 1) return null;
   const key = keys[0]!;

@@ -1308,7 +1308,10 @@ export type AttachProvenance =
  * (an Epic key, or a Linear milestone id). A plan committed at the target
  * repository's HEAD passes (continuing work across sessions); a plan absent
  * from HEAD passes only on a `milestone-decision` receipt of THIS session that
- * joined the resolved key or created the resolved container's listed title.
+ * joined the resolved key or created the resolved container's listed title. A
+ * create decision proves the container only when this session's create call
+ * returned its key; this command cannot see the transcript, so the tracker-write
+ * hook enforces that half (M_685ff6 review).
  * A git failure other than "path absent" refuses — never read as committed.
  */
 async function assertAttachProvenance(input: {

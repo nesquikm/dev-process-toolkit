@@ -433,6 +433,13 @@ class FrontDoorRefusal extends Error {
   }
 }
 
+/**
+ * The most rows one Linear `list_milestones` answer returns (measured: the 50
+ * newest, with no paging signal). A listing of exactly this many may be the
+ * window rather than the project.
+ */
+export const LINEAR_MILESTONE_WINDOW = 50;
+
 const FRONT_DOOR_USAGE =
   "resolve_milestone_identity.ts <projectRoot> <jira|linear> <project> <listingFile> --title <title> | --join-key <key> [--sibling <path>]";
 
@@ -639,10 +646,18 @@ async function runDecisionFrontDoor(argv: readonly string[]): Promise<string[]> 
   );
 
   const rowCount = listing.rowKeys.length;
+  // LIN-7 (M_685ff6 review): Linear's list_milestones answers at most
+  // LINEAR_MILESTONE_WINDOW rows and proves nothing about the rest, so a
+  // listing of exactly that many may be the window, not the project.
+  const possiblyCapped = args.mode === "linear" && rowCount === LINEAR_MILESTONE_WINDOW;
   const listingLine =
     args.mode === "jira"
       ? `${rowCount} rows, ${listing.jiraRows!.filter((r) => r.statusCategory === "done").length} closed excluded`
-      : `${rowCount} rows, closed rule not applicable (Linear milestones carry no status)`;
+      : `${rowCount} rows, closed rule not applicable (Linear milestones carry no status)${
+          possiblyCapped
+            ? `, possibly capped (list_milestones returns at most ${LINEAR_MILESTONE_WINDOW} milestones, so a same-title milestone past the window is unseen)`
+            : ""
+        }`;
 
   const milestoneId = decision.act === "join" ? joinedMilestoneId(args.mode, decision.key) : "";
 
@@ -672,7 +687,7 @@ async function runDecisionFrontDoor(argv: readonly string[]): Promise<string[]> 
   }
   const sibling = args.sibling !== undefined ? await verifyJoinSibling(args, milestoneId) : undefined;
 
-  const { gate, forbidden } = milestoneGateSentence({
+  const sentence = milestoneGateSentence({
     mode: args.mode,
     project: args.project,
     title: args.title,
@@ -681,6 +696,13 @@ async function runDecisionFrontDoor(argv: readonly string[]): Promise<string[]> 
     shared: binding.shared,
     ...(sibling !== undefined ? { sibling } : {}),
   });
+  // A create decided from a possibly capped listing has no safe default: the
+  // operator answers it, after searching the tracker for the title by hand.
+  const cappedCreate = possiblyCapped && decision.act === "create";
+  const gate = cappedCreate
+    ? `${sentence.gate} The listing holds exactly ${LINEAR_MILESTONE_WINDOW} milestones and may be capped: search project ${args.project} for "${args.title ?? ""}" past the first ${LINEAR_MILESTONE_WINDOW} before approving.`
+    : sentence.gate;
+  const forbidden = sentence.forbidden || cappedCreate;
 
   const act = decision.act;
   const via = decision.act === "join" ? decision.via : "";
@@ -716,9 +738,13 @@ async function runDecisionFrontDoor(argv: readonly string[]): Promise<string[]> 
       key,
       milestoneId,
       ...(args.joinKey !== undefined ? { joinKey: args.joinKey } : { title: args.title }),
+      // The joined container's listed name: the hook reads it to let a later
+      // join by key govern a create of that title (M_685ff6 review).
+      ...(decision.act === "join" ? { name: decision.name } : {}),
       ...(decision.act === "create" && decision.excluded ? { excluded: decision.excluded } : {}),
       ...(observedLabels !== undefined ? { labels: observedLabels } : {}),
       shared: binding.shared,
+      ...(possiblyCapped ? { possiblyCapped: true } : {}),
       ...(sibling !== undefined ? { sibling: { tag: sibling.tag, path: sibling.path, given: args.sibling } } : {}),
       default: forbidden ? "forbidden" : "allowed",
       listing: { file: resolve(args.listingFile), sha256: listing.sha256, rowKeys: listing.rowKeys },

@@ -441,3 +441,40 @@ describe("AC-STE-608.12 — the front door makes resolve_milestone_identity.ts r
     expect(Buffer.compare(readFileSync(join(REPO_ROOT, rel)), atBase)).toBe(0);
   });
 });
+
+// ===========================================================================
+// M_685ff6 pre-PR review (LIN-7) — a Linear listing of exactly 50 milestones
+// may be the list_milestones window, not the project. The front door flags it
+// "possibly capped" and a create decided from it carries default=forbidden, so
+// no auto-approval creates a duplicate of a milestone past the window. Chosen
+// over a refusal: a project holding more than 50 milestones (this repository's
+// holds ~140) must still be able to create. Red on 07655a75 (no flag, allowed).
+// ===========================================================================
+
+describe("M_685ff6 review — a 50-row Linear listing is flagged possibly capped", () => {
+  const rows = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, name: `Old ${i}` }));
+
+  test("50 rows, a create → listing= says possibly capped, gate= names the risk, default=forbidden", () => {
+    const root = linearRoot("unshared");
+    const out = ok(runDoor([root, "linear", "DPT", writeListing({ milestones: rows(50) }), "--title", "Payouts"]));
+    expect(out.get("act")).toBe("create");
+    expect(out.get("listing")).toContain("possibly capped");
+    expect(out.get("gate")).toMatch(/capped|past the first 50/i);
+    expect(out.get("default")).toBe("forbidden");
+  });
+
+  test("(control) 49 rows, the same create → no flag, default=allowed", () => {
+    const root = linearRoot("unshared");
+    const out = ok(runDoor([root, "linear", "DPT", writeListing({ milestones: rows(49) }), "--title", "Payouts"]));
+    expect(out.get("listing")).not.toContain("possibly capped");
+    expect(out.get("default")).toBe("allowed");
+  });
+
+  test("(control) a Jira listing of 50 rows is not flagged: its page proves isLast", () => {
+    const root = jiraRoot("unshared");
+    const issues = Array.from({ length: 50 }, (_, i) => epic(`GF-${100 + i}`, `Old ${i}`));
+    const out = ok(runDoor([root, "jira", "GF", writeListing({ issues, isLast: true }), "--title", "Payouts"]));
+    expect(out.get("listing")).not.toContain("possibly capped");
+  });
+});
