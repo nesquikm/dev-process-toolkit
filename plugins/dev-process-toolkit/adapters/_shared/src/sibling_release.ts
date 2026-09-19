@@ -182,11 +182,35 @@ function joinPages(listing: unknown, adapter: "jira" | "linear"): { page: unknow
   if (listing.length === 0) return { error: "it is an empty array of pages" };
   const issues: unknown[] = [];
   const cursors = new Set<string>();
+  const keys = new Set<string>();
+  let previousEnd: string | null = null;
   for (let i = 0; i < listing.length; i++) {
     const p = listing[i] as Record<string, unknown> | null;
     const n = i + 1;
     if (p === null || typeof p !== "object" || Array.isArray(p) || !Array.isArray(p["issues"])) {
       return { error: `page ${n} of ${listing.length} carries no issues array` };
+    }
+    // The pages chain (M_685ff6 review r2): each page after the first records
+    // the cursor it was requested with, and it is the previous page's end.
+    // The MCP answer does not carry it, so the session writes it as it saves
+    // each page — a dropped page then shows as a broken link.
+    if (i > 0) {
+      const requested = p["requestCursor"];
+      if (typeof requested !== "string" || requested === "") {
+        return { error: `page ${n} of ${listing.length} records no requestCursor — the cursor it was requested with` };
+      }
+      if (requested !== previousEnd) {
+        return {
+          error: `page ${n} was requested with ${oneLine(requested)}, but page ${i} ended at ${oneLine(previousEnd ?? "")} — a page between them is missing`,
+        };
+      }
+    }
+    for (const row of p["issues"] as unknown[]) {
+      const r = (row ?? {}) as Record<string, unknown>;
+      const key = typeof r["key"] === "string" ? r["key"] : typeof r["identifier"] === "string" ? r["identifier"] : null;
+      if (key === null) continue;
+      if (keys.has(key)) return { error: `the key ${oneLine(key)} appears on more than one page — a page is duplicated` };
+      keys.add(key);
     }
     const last = i === listing.length - 1;
     if (last) {
@@ -195,6 +219,11 @@ function joinPages(listing: unknown, adapter: "jira" | "linear"): { page: unknow
       }
     } else if (adapter === "jira") {
       if (p["isLast"] !== false) return { error: `page ${n} of ${listing.length} does not say more pages follow (\`isLast: false\`)` };
+      const token = p["nextPageToken"];
+      if (typeof token !== "string" || token === "") {
+        return { error: `page ${n} of ${listing.length} carries no nextPageToken for the page after it` };
+      }
+      previousEnd = token;
     } else {
       const info = p["pageInfo"] as { hasNextPage?: unknown; endCursor?: unknown } | undefined;
       if (info?.hasNextPage !== true || typeof info.endCursor !== "string" || info.endCursor === "") {
@@ -204,6 +233,7 @@ function joinPages(listing: unknown, adapter: "jira" | "linear"): { page: unknow
         return { error: `page ${n} repeats the endCursor ${oneLine(info.endCursor)} of an earlier page` };
       }
       cursors.add(info.endCursor);
+      previousEnd = info.endCursor;
     }
     issues.push(...(p["issues"] as unknown[]));
   }

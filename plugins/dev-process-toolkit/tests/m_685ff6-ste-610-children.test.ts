@@ -396,19 +396,24 @@ describe("AC-STE-610.6 hardening — a page must prove it is the last page", () 
 // ===========================================================================
 
 describe("M_685ff6 review — a paged child listing is read whole", () => {
-  const linearPage = (issues: Record<string, unknown>[], next: string | null): unknown => ({
+  // Amended by the M_685ff6 review r2: each page after the first records the
+  // cursor it was requested with (`requestCursor`), so the pages chain.
+  const linearPage = (issues: Record<string, unknown>[], next: string | null, requested?: string): unknown => ({
     issues,
     pageInfo: next === null ? { hasNextPage: false, endCursor: "end" } : { hasNextPage: true, endCursor: next },
+    ...(requested !== undefined ? { requestCursor: requested } : {}),
   });
-  const filler = (n: number): Record<string, unknown>[] =>
-    Array.from({ length: n }, (_, i) => linearIssue(`STE-9${String(i).padStart(4, "0")}`, [FOREIGN_TAG], OTHER_UUID));
+  // Amended by the M_685ff6 review r2: every page's filler carries its own
+  // keys (`from`), since a key on two pages now refuses as a duplicated page.
+  const filler = (n: number, from = 0): Record<string, unknown>[] =>
+    Array.from({ length: n }, (_, i) => linearIssue(`STE-9${String(from + i).padStart(4, "0")}`, [FOREIGN_TAG], OTHER_UUID));
 
   test("Linear: three cursor pages (250 + 250 + rest) holding the two children pass and print children=2", async () => {
     await withChildren("linear", (t) => {
       const pages = [
         linearPage([child("linear", "own", [TAG_A]), ...filler(249)], "c1"),
-        linearPage(filler(250), "c2"),
-        linearPage([child("linear", "sibling", [TAG_B]), ...filler(10)], null),
+        linearPage(filler(250, 249), "c2", "c1"),
+        linearPage([child("linear", "sibling", [TAG_B]), ...filler(10, 499)], null, "c2"),
       ];
       const r = gate(t, "--children", save(t, pages));
       expect(r.status, describeRun(r)).toBe(0);
@@ -420,7 +425,7 @@ describe("M_685ff6 review — a paged child listing is read whole", () => {
     await withChildren("jira", (t) => {
       const pages = [
         { issues: [child("jira", "own", [TAG_A])], isLast: false, nextPageToken: "t1" },
-        { issues: [child("jira", "sibling", [TAG_B])], isLast: true },
+        { issues: [child("jira", "sibling", [TAG_B])], isLast: true, requestCursor: "t1" },
       ];
       const r = gate(t, "--children", save(t, pages));
       expect(r.status, describeRun(r)).toBe(0);
@@ -430,7 +435,7 @@ describe("M_685ff6 review — a paged child listing is read whole", () => {
 
   test("Linear: pages whose LAST page still reports hasNextPage refuse", async () => {
     await withChildren("linear", (t) => {
-      const pages = [linearPage([child("linear", "own", [TAG_A])], "c1"), linearPage([child("linear", "sibling", [TAG_B])], "c2")];
+      const pages = [linearPage([child("linear", "own", [TAG_A])], "c1"), linearPage([child("linear", "sibling", [TAG_B])], "c2", "c1")];
       expectRefused(gate(t, "--children", save(t, pages)), "last page");
     });
   }, 30_000);
@@ -446,10 +451,12 @@ describe("M_685ff6 review — a paged child listing is read whole", () => {
     await withChildren("linear", (t) => {
       const pages = [
         linearPage([child("linear", "own", [TAG_A])], "c1"),
-        linearPage([child("linear", "own", [TAG_A])], "c1"),
-        linearPage([child("linear", "sibling", [TAG_B])], null),
+        linearPage([child("linear", "own", [TAG_A])], "c1", "c1"),
+        linearPage([child("linear", "sibling", [TAG_B])], null, "c1"),
       ];
-      expectRefused(gate(t, "--children", save(t, pages)), "c1");
+      // Amended by the M_685ff6 review r2: the repeated page is now caught at
+      // its repeated key, before its repeated cursor.
+      expectRefused(gate(t, "--children", save(t, pages)), LINEAR.ownKey);
     });
   }, 30_000);
 
@@ -468,5 +475,64 @@ describe("M_685ff6 review — refusal #4's prose says how to page a Linear listi
     expect(line).toContain("includeArchived: true");
     expect(line).toContain("endCursor");
     expect(line).toMatch(/until `hasNextPage` is false/);
+    // M_685ff6 review r2: each page after the first records its requestCursor.
+    expect(line).toContain("`requestCursor`");
   });
+});
+
+describe("M_685ff6 review r2 — paged child listings chain", () => {
+  const lp = (issues: Record<string, unknown>[], next: string | null, requested?: string): unknown => ({
+    issues,
+    pageInfo: next === null ? { hasNextPage: false, endCursor: "end" } : { hasNextPage: true, endCursor: next },
+    ...(requested !== undefined ? { requestCursor: requested } : {}),
+  });
+
+  test("Linear: a dropped middle page (page 3 requested with c2, page 1 ended at c1) refuses", async () => {
+    await withChildren("linear", (t) => {
+      const pages = [
+        lp([child("linear", "own", [TAG_A])], "c1"),
+        lp([child("linear", "sibling", [TAG_B])], null, "c2"),
+      ];
+      expectRefused(gate(t, "--children", save(t, pages)), "c1");
+    });
+  }, 30_000);
+
+  test("Linear: a page after the first that records no requestCursor refuses", async () => {
+    await withChildren("linear", (t) => {
+      const pages = [lp([child("linear", "own", [TAG_A])], "c1"), lp([child("linear", "sibling", [TAG_B])], null)];
+      expectRefused(gate(t, "--children", save(t, pages)), "requestCursor");
+    });
+  }, 30_000);
+
+  test("Jira: a duplicated page (the same keys twice, tokens chained) refuses, naming the key", async () => {
+    await withChildren("jira", (t) => {
+      const pages = [
+        { issues: [child("jira", "own", [TAG_A])], isLast: false, nextPageToken: "t1" },
+        { issues: [child("jira", "own", [TAG_A])], isLast: false, nextPageToken: "t2", requestCursor: "t1" },
+        { issues: [child("jira", "sibling", [TAG_B])], isLast: true, requestCursor: "t2" },
+      ];
+      expectRefused(gate(t, "--children", save(t, pages)), JIRA.ownKey);
+    });
+  }, 30_000);
+
+  test("Linear: a repeated endCursor with distinct keys (a page that did not advance) refuses", async () => {
+    await withChildren("linear", (t) => {
+      const pages = [
+        lp([child("linear", "own", [TAG_A])], "c1"),
+        lp([linearIssue("STE-97001", [FOREIGN_TAG], OTHER_UUID)], "c1", "c1"),
+        lp([child("linear", "sibling", [TAG_B])], null, "c1"),
+      ];
+      expectRefused(gate(t, "--children", save(t, pages)), "c1");
+    });
+  }, 30_000);
+
+  test("Jira: a non-last page with no nextPageToken refuses", async () => {
+    await withChildren("jira", (t) => {
+      const pages = [
+        { issues: [child("jira", "own", [TAG_A])], isLast: false },
+        { issues: [child("jira", "sibling", [TAG_B])], isLast: true, requestCursor: "t1" },
+      ];
+      expectRefused(gate(t, "--children", save(t, pages)), "nextPageToken");
+    });
+  }, 30_000);
 });
