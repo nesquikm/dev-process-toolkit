@@ -168,6 +168,48 @@ function pageProvesLast(page: unknown, adapter: "jira" | "linear"): boolean {
   return (j["pageInfo"] as { hasNextPage?: unknown } | undefined)?.hasNextPage === false;
 }
 
+/**
+ * A child listing may be the JSON array of every page the tracker returned,
+ * in order (M_685ff6 review: a Linear project past one 250-row page could
+ * never release). Joined into one page when each page but the last says it
+ * is not the last (Jira `isLast: false`; Linear `pageInfo.hasNextPage: true`
+ * with an `endCursor`, no cursor repeated) and the last proves it is. A
+ * single page object is returned as it is; a malformed array is the reason
+ * it cannot be joined.
+ */
+function joinPages(listing: unknown, adapter: "jira" | "linear"): { page: unknown } | { error: string } {
+  if (!Array.isArray(listing)) return { page: listing };
+  if (listing.length === 0) return { error: "it is an empty array of pages" };
+  const issues: unknown[] = [];
+  const cursors = new Set<string>();
+  for (let i = 0; i < listing.length; i++) {
+    const p = listing[i] as Record<string, unknown> | null;
+    const n = i + 1;
+    if (p === null || typeof p !== "object" || Array.isArray(p) || !Array.isArray(p["issues"])) {
+      return { error: `page ${n} of ${listing.length} carries no issues array` };
+    }
+    const last = i === listing.length - 1;
+    if (last) {
+      if (!pageProvesLast(p, adapter)) {
+        return { error: `its final page (page ${n}) does not prove it is the last page (Jira \`isLast: true\`, Linear \`pageInfo.hasNextPage: false\`)` };
+      }
+    } else if (adapter === "jira") {
+      if (p["isLast"] !== false) return { error: `page ${n} of ${listing.length} does not say more pages follow (\`isLast: false\`)` };
+    } else {
+      const info = p["pageInfo"] as { hasNextPage?: unknown; endCursor?: unknown } | undefined;
+      if (info?.hasNextPage !== true || typeof info.endCursor !== "string" || info.endCursor === "") {
+        return { error: `page ${n} of ${listing.length} does not say more pages follow (\`pageInfo.hasNextPage: true\` with its \`endCursor\`)` };
+      }
+      if (cursors.has(info.endCursor)) {
+        return { error: `page ${n} repeats the endCursor ${oneLine(info.endCursor)} of an earlier page` };
+      }
+      cursors.add(info.endCursor);
+    }
+    issues.push(...(p["issues"] as unknown[]));
+  }
+  return { page: { ...(listing[listing.length - 1] as Record<string, unknown>), issues } };
+}
+
 /** Refusal #4's remedy for one held (non-idle) sibling — one per state. */
 function heldRemedy(s: DeclaredSibling, milestone: string): string {
   switch (s.state) {
@@ -264,16 +306,19 @@ export function gradeChildren(input: {
   partial: boolean;
   source: string;
 }): ChildrenGrade {
-  const { listing, adapter, milestone, repoTag, declaredTags, ownKeys, partial, source } = input;
+  const { adapter, milestone, repoTag, declaredTags, ownKeys, partial, source } = input;
   const context = `milestone=${milestone}, listing=${source}, adapter=${adapter}`;
   const incomplete = (verdict: string, count: number | null): ChildrenGrade => ({
     refusal: shipRefusal(
       `${milestone}'s child listing cannot prove it is complete — ${verdict}`,
-      `save the complete, last page of ${milestone}'s children as the tracker returns them and pass it as --children <listingFile>`,
+      `save ${milestone}'s children as the tracker returns them — one page, or the JSON array of every page in order (Linear: page with \`cursor\` until \`hasNextPage\` is false, with \`includeArchived: true\`) — and pass it as --children <listingFile>`,
       context,
     ),
     count,
   });
+  const joined = joinPages(input.listing, adapter === "jira" ? "jira" : "linear");
+  if ("error" in joined) return incomplete(joined.error, null);
+  const listing = joined.page;
   // A Linear project's issues belong to the milestone only when their
   // milestone identifier derives to its token: the tracker has no such filter.
   let page = listing;

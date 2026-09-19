@@ -23,7 +23,7 @@
 // Real git roots (GIT_ENV), torn down in a `finally`; one child spawned at a time.
 
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
@@ -385,4 +385,88 @@ describe("AC-STE-610.6 hardening — a page must prove it is the last page", () 
       expect(r.status, describeRun(r)).toBe(0);
     });
   }, 30_000);
+});
+
+// ===========================================================================
+// M_685ff6 pre-PR review — a large Linear project pages its children. The
+// listing may be the JSON array of every cursor page, in order: each page but
+// the last says it is not (Linear `hasNextPage: true` with its `endCursor`,
+// Jira `isLast: false`) and the last proves it is. Red on 07655a75, where an
+// array is not a page at all and a project past one page can never release.
+// ===========================================================================
+
+describe("M_685ff6 review — a paged child listing is read whole", () => {
+  const linearPage = (issues: Record<string, unknown>[], next: string | null): unknown => ({
+    issues,
+    pageInfo: next === null ? { hasNextPage: false, endCursor: "end" } : { hasNextPage: true, endCursor: next },
+  });
+  const filler = (n: number): Record<string, unknown>[] =>
+    Array.from({ length: n }, (_, i) => linearIssue(`STE-9${String(i).padStart(4, "0")}`, [FOREIGN_TAG], OTHER_UUID));
+
+  test("Linear: three cursor pages (250 + 250 + rest) holding the two children pass and print children=2", async () => {
+    await withChildren("linear", (t) => {
+      const pages = [
+        linearPage([child("linear", "own", [TAG_A]), ...filler(249)], "c1"),
+        linearPage(filler(250), "c2"),
+        linearPage([child("linear", "sibling", [TAG_B]), ...filler(10)], null),
+      ];
+      const r = gate(t, "--children", save(t, pages));
+      expect(r.status, describeRun(r)).toBe(0);
+      expect(both(r)).toMatch(/(^|\s)children=2(\s|$)/m);
+    });
+  }, 30_000);
+
+  test("Jira: two pages (isLast false, then true) pass and print children=2", async () => {
+    await withChildren("jira", (t) => {
+      const pages = [
+        { issues: [child("jira", "own", [TAG_A])], isLast: false, nextPageToken: "t1" },
+        { issues: [child("jira", "sibling", [TAG_B])], isLast: true },
+      ];
+      const r = gate(t, "--children", save(t, pages));
+      expect(r.status, describeRun(r)).toBe(0);
+      expect(both(r)).toMatch(/(^|\s)children=2(\s|$)/m);
+    });
+  }, 30_000);
+
+  test("Linear: pages whose LAST page still reports hasNextPage refuse", async () => {
+    await withChildren("linear", (t) => {
+      const pages = [linearPage([child("linear", "own", [TAG_A])], "c1"), linearPage([child("linear", "sibling", [TAG_B])], "c2")];
+      expectRefused(gate(t, "--children", save(t, pages)), "last page");
+    });
+  }, 30_000);
+
+  test("Linear: a page claiming to be last in the middle of the array refuses", async () => {
+    await withChildren("linear", (t) => {
+      const pages = [linearPage([child("linear", "own", [TAG_A])], null), linearPage([child("linear", "sibling", [TAG_B])], null)];
+      expectRefused(gate(t, "--children", save(t, pages)), "page 1");
+    });
+  }, 30_000);
+
+  test("Linear: a page repeated (the same endCursor twice) refuses", async () => {
+    await withChildren("linear", (t) => {
+      const pages = [
+        linearPage([child("linear", "own", [TAG_A])], "c1"),
+        linearPage([child("linear", "own", [TAG_A])], "c1"),
+        linearPage([child("linear", "sibling", [TAG_B])], null),
+      ];
+      expectRefused(gate(t, "--children", save(t, pages)), "c1");
+    });
+  }, 30_000);
+
+  test("(control) an empty array of pages refuses", async () => {
+    await withChildren("linear", (t) => {
+      expectRefused(gate(t, "--children", save(t, [])));
+    });
+  }, 30_000);
+});
+
+describe("M_685ff6 review — refusal #4's prose says how to page a Linear listing", () => {
+  test("the refusal #4 line orders includeArchived and cursor paging to hasNextPage false", () => {
+    const skill = readFileSync(join(import.meta.dir, "..", "skills", "ship-milestone", "SKILL.md"), "utf-8");
+    const line = skill.split("\n").find((l) => l.startsWith("4. **Sibling not provably idle**")) ?? "";
+    expect(line).not.toBe("");
+    expect(line).toContain("includeArchived: true");
+    expect(line).toContain("endCursor");
+    expect(line).toMatch(/until `hasNextPage` is false/);
+  });
 });
