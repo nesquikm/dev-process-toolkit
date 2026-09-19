@@ -25,7 +25,7 @@ Remedy: <one-line remediation>
 Context: mode=hook, ticket=unbound, skill=<skill>, hook=<hook>
 ```
 
-Advisory (non-blocking) hooks substitute `Reminder:` for `Refusing:` and exit 0.
+Advisory (non-blocking) hooks substitute `Reminder:` for `Refusing:`. For the commit gates (`pre-commit-gate-check`, `pre-commit-tdd-orchestrator`) a `Reminder:` exits 1, never 0 — the harness shows no stderr on exit 0, so a Reminder there would be a silent allow; exit 1 is visible and the commit still proceeds.
 
 **Exit-code contract (Claude Code 2.1.x).** The 4 Refusing hooks emit blocking refusals via `exit 2`, per the empirically-verified Claude Code 2.1.141 hook contract:
 - `exit 0` → tool call proceeds (no stderr surfaced).
@@ -121,7 +121,7 @@ Empirical research via the `claude-code-guide` agent confirmed the contract: `${
   Remedy: run /dev-process-toolkit:tdd; or, for an audit-driven fix with no FR, run those tests against the pre-change bytes and record the red result in this session as a line reading `dpt-red-before-proof: <paths>` naming every staged test path it covers.
   Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:tdd, hook=pre-commit-tdd-orchestrator
   ```
-- **Advisory shape when no stack is identified (STE-548):** the staged-set verdict has four outcomes, not three — the spec-only carve-out, nothing to guard, requires the run, and *could not tell*. The fourth fires when no stack marker resolves from the commit's directory up to the enclosing checkout, and it is deliberately **not** a refusal: the hook emits a `Reminder:` block naming the checkout root and the fact that no stack was identified, then exits 0. A guard that blocked on its own ignorance would punish the operator for it, and would be disabled within a week. Before this, an unidentified project silently reused the TypeScript rules, so a Dart or Go commit reported the same clean exit as a commit with genuinely nothing to guard — a guard that never looked was byte-indistinguishable from one that passed.
+- **Advisory shape when no stack is identified (STE-548):** the staged-set verdict has four outcomes, not three — the spec-only carve-out, nothing to guard, requires the run, and *could not tell*. The fourth fires when no stack marker resolves from the commit's directory up to the enclosing checkout, and it is deliberately **not** a refusal: the hook emits a `Reminder:` block naming the checkout root and the fact that no stack was identified, then exits 1 so the notice is visible and the commit proceeds. A guard that blocked on its own ignorance would punish the operator for it, and would be disabled within a week. Before this, an unidentified project silently reused the TypeScript rules, so a Dart or Go commit reported the same clean exit as a commit with genuinely nothing to guard — a guard that never looked was byte-indistinguishable from one that passed.
   ```
   Reminder: no stack marker was identified for <checkout root>, so the /tdd guard could not tell whether this commit stages a source file and its test.
   Remedy: add a recognised stack marker at the project root (for example `package.json`, `pubspec.yaml`, `pyproject.toml`, `go.mod`), or run /dev-process-toolkit:tdd yourself when this commit carries an FR.
@@ -163,6 +163,49 @@ Empirical research via the `claude-code-guide` agent confirmed the contract: `${
 - **Matcher:** `*`
 - **Behavior:** Capture hook, not a gate (STE-344, M92). **Opt-in, default OFF (STE-379):** before anything else the hook reads the project's CLAUDE.md `## Token Stats` block and exits 0 with no write unless it says `enabled: true`, so a project that has not opted in accrues no ledger at all. When enabled it parses `transcript_path` + `session_id` from the stdin hook JSON via `parseHookPayload`, aggregates the session's per-`(attributionSkill, model)` token usage via `parseTranscriptTokenUsage`, and writes the rows to the git-ignored `<project>/.dpt/ledger/token-ledger.jsonl` (`writeSessionRows` — replaces any rows already recorded for the `session_id`, atomic temp-file + rename write). The path is composed via `ledgerPath()` from `adapters/_shared/src/dpt_paths.ts`, never hand-assembled. What makes it ignored is the `ledger/` rule in the toolkit-owned `.dpt/.gitignore` that `/setup` writes — sibling `.dpt/locks/` is deliberately **tracked**, so the ledger is ignored by an explicit rule rather than by a blanket exclusion of `.dpt/` (see `docs/layout-reference.md` § The `.dpt/` tree). **Fail-open by contract:** any parse/IO error exits `0` with no write and no stderr — there is no refusal shape, and the hook never blocks session teardown or dirties the tracked tree.
 - **Override pattern:** Disable the plugin, or copy-and-override — snapshot-copy `templates/hooks/process/session-token-ledger.sh` into `~/.claude/hooks/`, edit (e.g., change the ledger location or restrict to `SessionEnd` only), and register the local absolute path in the operator's `~/.claude/settings.json`.
+
+---
+
+## Recognised command shapes
+
+Both commit gates read a Bash command through one shared recogniser (`adapters/_shared/src/shell_invocations.ts`) and ask `resolveCommitTarget` whether it writes a commit, and where. Every shape that can carry a commit has one verdict from a closed vocabulary (STE-601):
+
+- **recognised** — the commit is found (`isCommit: true`) and its target resolves as the unwrapped command's would.
+- **unplaced** — a literal commit is present (`isCommit: true`) behind a wrapper the recogniser cannot model, so `repoRoot` is `null`, `unresolved` names the wrapper, and `candidateRoots` lists every literal directory it can see. The gate-check hook demands evidence; the /tdd hook shows a `Reminder:`.
+- **out of scope** — not a commit for these gates (`isCommit: false`), and no notice.
+- **advisory** — not a commit (`isCommit: false`), but the gate-check hook exits 1 with a `Reminder:` naming the subcommand, and the command proceeds.
+
+Each example below is runnable, and `tests/ste-601-shapes-table.test.ts` runs every one of them through `resolveCommitTarget` from checkout `/s/a`, with `/s/b` as the second checkout, and asserts the stated verdict. A row whose verdict drifts from the resolver's answer fails that test.
+
+| Shape | Example | Verdict |
+|---|---|---|
+| leading `NAME=value` assignments, one or more, quoted values included | `X=1 Y="a b" git -C /s/b commit -m x` | recognised |
+| `env` with `-i`, `-`, `-0`, `-v`, `-u NAME`, `--unset=NAME` and `NAME=value` operands | `env -i -u HOME --unset=PAGER X=1 git -C /s/b commit -m x` | recognised |
+| `env -C DIR` / `--chdir=DIR` / `--chdir DIR` | `env -C /s/b git commit -m x` | recognised — DIR is a directory change for the wrapped command only |
+| `env -S` / `--split-string` | `env -S 'git commit -m x'` | unplaced — the split string is not modelled |
+| `command` and `command -p` | `command -p git -C /s/b commit -m x` | recognised |
+| `command -v` / `command -V`, `type git`, `which git`, `hash git` | `command -v git` | out of scope — lookup, not execution |
+| `exec`, `nohup`, `time` (`-p`), `nice` (`-n N`, `-N`), `timeout` (its options, then a duration) | `nice -n 5 timeout -k 1 30 time -p nohup git -C /s/b commit -m x` | recognised |
+| `!` pipeline negation | `! git -C /s/b commit -m x` | recognised |
+| an argv0 whose final path segment is exactly `git` (`/usr/bin/git`, `/opt/homebrew/bin/git`, `./git`) | `/usr/bin/git -C /s/b commit -m x` | recognised — `gitk`, `git2` and `legit` are not git |
+| a single `&` and `\|&` | `sleep 0 & git -C /s/b commit -m x` | recognised — both are segment separators, like `;` |
+| `{ …; }` brace group | `{ git -C /s/b commit -m x; }` | recognised — a brace group does not scope the directory; a parenthesised subshell still does |
+| `if`/`then`/`elif`/`else`/`fi`, `while`/`until`/`do`/`done`, the header of a `for NAME in …;` loop | `cd /s/b && if true; then git commit -m x; fi` | recognised — reserved words are stripped and conditions are commands that run |
+| a function definition body (`f() { git commit; }`, `function f { … }`) | `f() { git -C /s/b commit -m x; }` | recognised — as if it runs (conservative) |
+| a commit inside a `case` arm | `case x in x) git commit -m x;; esac` | unplaced — "a case arm" |
+| `sh`/`bash`/`zsh`/`dash`/`ksh` with options (combined `-lc`/`-ec`/`-xc` included) and `-c STRING` | `bash -lc 'git -C /s/b commit -m x'` | recognised — STRING is read recursively, starting in the running directory |
+| `eval STRING` | `eval 'git -C /s/b commit -m x'` | recognised — read recursively like `-c` |
+| `-c "$CMD"` or `eval "$CMD"`, where the whole string is one unexpanded word | `bash -c "$CMD"` | out of scope — no literal commit exists in the command |
+| `$(…)` and backtick command substitutions | `x=$(git -C /s/b commit -m y)` | recognised — the commands inside run in the running directory; heredocs inside them are still skipped |
+| `xargs`, `find -exec`/`-execdir`/`-ok`, `parallel`, `watch`, `sudo` wrapping a git commit | `sudo git -C /s/b commit -m x` | unplaced — the wrapper is named, and `/s/b` is a candidate root |
+| `bash FILE`, `./FILE`, `source FILE`, `. FILE` | `bash f.sh` | out of scope — file contents are not read |
+| `ssh HOST 'git commit'` | `ssh h 'git commit -m x'` | out of scope — not a commit in any local checkout |
+| a quoted or backslash-escaped argv0 (`\git`, `"git"`, `'git'`) | `\git -C /s/b commit -m x` | recognised — quote removal runs before the argv0 match |
+| a `GIT_DIR=` or `GIT_WORK_TREE=` binding, as a prefix, an `env` operand or an in-command `export` | `GIT_DIR=/s/b/.git git commit -m x` | unplaced — recognised as a commit with its target unplaced ("GIT_DIR"); the literal value's checkout is in `candidateRoots` |
+| a backtick substitution holding an operator | `` echo `cd /s/b && git commit -m x` `` | recognised — the operator splits inside the substitution, which scopes its own directory |
+| `git merge` (not `--ff-only`, `--squash`, `--no-commit`, `--abort`, `--quit`); `git cherry-pick` and `git revert` (not `-n`, `--no-commit`, `--abort`, `--quit`, `--skip`); `git am` (not `--abort`, `--quit`, `--show-current-patch`); `git commit-tree` | `git -C /s/b merge --no-ff x` | recognised — each can write a commit object |
+| `git pull`, `git rebase` (not `--abort`, `--quit`), `git stash` (bare, `push`, `save`), writing `git notes` forms | `git pull` | advisory — the gate-check hook exits 1 with a `Reminder:` naming the subcommand; `git stash list`, `git stash show` and `git notes list` get no notice |
+| a git alias (`git ci`) | `git -c alias.ci=commit -C /s/b ci -m x` | recognised — resolved before classifying: `-c alias.NAME=VALUE` first, else `git config --get alias.NAME` in the target checkout; an alias that cannot be read is unplaced ("git alias") |
 
 ---
 

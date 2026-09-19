@@ -17,8 +17,14 @@
 // `isCommit` is still true and the evidence is still required. Inventing a
 // classification this hook does not perform today is out of scope.
 
-import { parseHookPayload, requireSkillToolUse } from "../session.ts";
+import { emitNFR10, oneLine, parseHookPayload, requireSkillToolUse } from "../session.ts";
 import { resolveCommitTargetFromPayload } from "../../../../adapters/_shared/src/commit_target_repo.ts";
+
+/** An NFR-10 `Reminder:`, then exit 1: visible and non-blocking (the sibling /tdd hook's idiom). */
+function remind(sentence: string, remedy: string): never {
+  emitNFR10("Reminder", sentence, remedy, "dev-process-toolkit:gate-check", "pre-commit-gate-check");
+  process.exit(1);
+}
 
 const stdin = await Bun.stdin.text();
 const payload = parseHookPayload(stdin);
@@ -27,7 +33,17 @@ if (!payload) {
 }
 // The SAME front door the sibling /tdd hook uses, so "is this a commit?" cannot
 // be answered one way here and another way there.
-if (!resolveCommitTargetFromPayload(payload).isCommit) {
+const target = resolveCommitTargetFromPayload(payload);
+if (!target.isCommit) {
+  // AC-STE-601.9 — `pull`, `rebase`, `stash` and the writing `notes` forms are
+  // out of scope for this gate but never silent. Exit 1, not 0: the harness
+  // shows no stderr on exit 0. Exit 1 is visible and lets the command proceed.
+  if (target.advisory !== null) {
+    remind(
+      `${target.advisory}.`,
+      "run /dev-process-toolkit:gate-check yourself if this changes what you are about to ship.",
+    );
+  }
   process.exit(0);
 }
 const { found } = requireSkillToolUse(
@@ -35,4 +51,12 @@ const { found } = requireSkillToolUse(
   "pre-commit-gate-check",
   payload,
 );
+// AC-STE-601.11 — an unplaced commit (`GIT_DIR=<B>/.git git commit`) still
+// needs the evidence, but the refusal names the checkouts it could write to, so
+// the operator sees WHICH repository the refused commit was aimed at.
+if (!found && target.repoRoot === null && target.candidateRoots.length > 0) {
+  process.stderr.write(
+    `Target: ${oneLine(target.unresolved ?? "unplaced")}; candidate checkouts: ${oneLine(target.candidateRoots.join(", "))}\n`,
+  );
+}
 process.exit(found ? 0 : 2);

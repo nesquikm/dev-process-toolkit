@@ -84,6 +84,20 @@ export function parseHookPayload(stdin: string): HookPayload | null {
 // ---------------------------------------------------------------------------
 
 /**
+ * Collapse every run of control characters and Unicode line separators to one
+ * space, then trim: the same rule as `oneLine` in `tracker_receipts.ts`, kept
+ * here because this file stays free of relative imports (its suites load it
+ * from a temp copy); a parity test pins the two together. A refusal quotes
+ * words the model wrote, and the transcript records hook stderr verbatim, so an
+ * embedded newline must never start a line of its own — a forged
+ * `dpt-receipt:` among them (STE-601 review).
+ */
+export function oneLine(text: string): string {
+  return text.replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029]+/g, " ").trim();
+}
+
+
+/**
  * Emit a 3-line NFR-10-shape block to stderr.
  *
  * Byte-stable substrings (per STE-286 §104):
@@ -99,8 +113,8 @@ export function emitNFR10(
   hook: string,
 ): void {
   const block =
-    `${verdict}: ${why}\n` +
-    `Remedy: ${how}\n` +
+    `${verdict}: ${oneLine(why)}\n` +
+    `Remedy: ${oneLine(how)}\n` +
     `Context: mode=hook, ticket=unbound, skill=${skill}, hook=${hook}\n`;
   process.stderr.write(block);
 }

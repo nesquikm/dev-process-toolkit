@@ -382,10 +382,10 @@ describe("AC-STE-548.3 — a recognised stack with nothing to guard stays quiet"
 // ===========================================================================
 
 describe("AC-STE-548.4 — advisory, never a refusal", () => {
-  test("an unidentifiable project with src+test staged and no /tdd evidence exits 0", async () => {
+  test("an unidentifiable project with src+test staged and no /tdd evidence exits 1", async () => {
     const fx = await makeRepo("ac4", SRC_AND_TEST, []);
     const r = await runHook(fx);
-    expect(r.exitCode).toBe(0);
+    expect(r.exitCode).toBe(1);
     expect(r.exitCode).not.toBe(2);
     expect(r.stderr).not.toContain("Refusing:");
   });

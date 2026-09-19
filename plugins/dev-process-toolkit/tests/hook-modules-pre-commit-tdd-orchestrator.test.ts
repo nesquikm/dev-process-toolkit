@@ -567,13 +567,13 @@ describe("AC-STE-597.2 — identical staged content, same branch: the verdict do
 });
 
 describe("AC-STE-597.4 — an unresolvable commit target is an advisory, never a refusal", () => {
-  test("`cd \"$REPO\" && git commit` → exit 0 + a canonical Reminder naming what could not be determined", async () => {
+  test("`cd \"$REPO\" && git commit` → exit 1 + a canonical Reminder naming what could not be determined", async () => {
     await buildAB();
     const r = await runModule(
       payloadFor('cd "$REPO" && git commit -m x', repoB, transcriptWithoutTddEvidence()),
       repoB,
     );
-    expect(r.exitCode).toBe(0);
+    expect(r.exitCode).toBe(1);
     expect(r.stderr).toContain("Reminder:");
     expect(r.stderr).toContain("Remedy:");
     expect(r.stderr).toContain("Context:");
@@ -646,7 +646,7 @@ async function initSubPackageRepo(
 }
 
 describe("AC-STE-597.2 — a checkout with no marker at its ROOT verdicts stack-unknown, and says so out loud", () => {
-  test("marker only in a sub-package + a test file staged → exit 0 AND a canonical Reminder naming the project", async () => {
+  test("marker only in a sub-package + a test file staged → exit 1 AND a canonical Reminder naming the project", async () => {
     const root = join(tmpRoot, "sub-pkg-markerless");
     await initSubPackageRepo(root, { rootMarker: false });
 
@@ -655,7 +655,7 @@ describe("AC-STE-597.2 — a checkout with no marker at its ROOT verdicts stack-
       root,
     );
 
-    expect(r.exitCode).toBe(0);
+    expect(r.exitCode).toBe(1);
     // Exit 0 on its own is indistinguishable from the bypass this FR closed.
     // These three lines are what makes it a verdict instead.
     expect(r.stderr).toContain("Reminder:");
@@ -1184,7 +1184,7 @@ describe("AC-STE-597.4 — a git subprocess that cannot RUN speaks NFR-10 instea
     expect(await real.exited).toBe(0);
   });
 
-  test("staged test file + no evidence + `git` unrunnable → exit 0 and a canonical Reminder, not a stack trace", async () => {
+  test("staged test file + no evidence + `git` unrunnable → exit 1 and a canonical Reminder, not a stack trace", async () => {
     await buildAB();
     const r = await runModuleWithoutGit(
       payloadFor(`git -C ${repoB} commit -m x`, repoB, transcriptWithoutTddEvidence()),
@@ -1193,7 +1193,7 @@ describe("AC-STE-597.4 — a git subprocess that cannot RUN speaks NFR-10 instea
 
     // Exit 1 here is the crash; exit 2 would be a refusal the hook has no
     // grounds for, because it never managed to look at anything.
-    expect(r.exitCode).toBe(0);
+    expect(r.exitCode).toBe(1);
 
     // The canonical three lines, byte-stable per STE-286 §104.
     expect(r.stderr).toContain("Reminder:");
@@ -1276,13 +1276,13 @@ describe("AC-STE-597.4 — a git subprocess that cannot RUN speaks NFR-10 instea
 // ---------------------------------------------------------------------------
 
 describe("AC-STE-597.4 — a `$(...)` target is an advisory, not silence (RED: today this hook says nothing)", () => {
-  test("`git -C $(pwd) commit` with a staged test file and no /tdd evidence → exit 0 + a Reminder naming the substitution", async () => {
+  test("`git -C $(pwd) commit` with a staged test file and no /tdd evidence → exit 1 + a Reminder naming the substitution", async () => {
     await buildAB();
     const r = await runModule(
       payloadFor("git -C $(pwd) commit -m x", repoB, transcriptWithoutTddEvidence()),
       repoB,
     );
-    expect(r.exitCode).toBe(0);
+    expect(r.exitCode).toBe(1);
     // The harm, stated as an assertion: the shipped hook prints nothing here.
     expect(r.stderr).toContain("Reminder:");
     expect(r.stderr).toContain("Remedy:");
