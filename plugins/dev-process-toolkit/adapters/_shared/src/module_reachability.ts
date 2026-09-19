@@ -448,7 +448,7 @@ export interface UnreachablePinMove {
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
     value: 120,
-    commit: "uncommitted",
+    commit: "049ce5f",
     rationale:
       "M_685ff6/STE-612: the tracker-binding repoint front door " +
       "`repoint_tracker_binding.ts` imports `tracker_config.ts`, so that " +
