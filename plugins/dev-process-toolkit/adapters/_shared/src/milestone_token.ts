@@ -198,6 +198,46 @@ export function normalizeMilestoneTitle(t: string): string {
   return normalizeTitleForCompare(t.normalize("NFC")).toLocaleLowerCase("en-US");
 }
 
+/** One milestone decision as both of its readers see it (the hook and the attach front door). */
+export interface DecisionFacts {
+  readonly act: "create" | "join";
+  /** The joined key; "" on a create. */
+  readonly key: string;
+  /** The `--title` it was decided for; null on a join by key. */
+  readonly title: string | null;
+  /** The joined container's listed name; null on a create or an older receipt. */
+  readonly name: string | null;
+}
+
+/**
+ * M_685ff6 review — whether a decision is ABOUT a container: a join of its
+ * key, or any decision whose title (or joined name) names its title by the ONE
+ * title normalizer the decision itself joins on. Both readers use this, so a
+ * case, whitespace or dash variant is the same title to each.
+ */
+export function decisionConcerns(d: DecisionFacts, target: { readonly key?: string; readonly title?: string }): boolean {
+  if (target.key !== undefined && target.key !== "" && d.act === "join" && d.key.toUpperCase() === target.key.toUpperCase()) {
+    return true;
+  }
+  if (target.title === undefined) return false;
+  const wanted = normalizeMilestoneTitle(target.title);
+  if (d.title !== null && normalizeMilestoneTitle(d.title) === wanted) return true;
+  return d.act === "join" && d.name !== null && normalizeMilestoneTitle(d.name) === wanted;
+}
+
+/**
+ * The decision that governs a container: the LATEST of `ordered` (oldest
+ * first) that concerns it. An operator who decides again has answered again,
+ * so the earlier answer no longer authorises anything.
+ */
+export function governingDecision<T extends DecisionFacts>(
+  ordered: readonly T[],
+  target: { readonly key?: string; readonly title?: string },
+): T | undefined {
+  for (let i = ordered.length - 1; i >= 0; i--) if (decisionConcerns(ordered[i]!, target)) return ordered[i];
+  return undefined;
+}
+
 /**
  * STE-586 — the ONE equality both mint find legs match on: the rows whose
  * `name` normalizes equal to `title`, BOTH sides through

@@ -3757,3 +3757,132 @@ describe("M_685ff6 review — docs/hooks-reference.md describes the shipped gate
     for (const m of [RESOLVE, ATTACH]) expect(d).toContain(`adapters/_shared/src/${m}" <projectRoot>`);
   });
 });
+
+// ===========================================================================
+// M_685ff6 pre-PR review, round 2. Red on c5224aba.
+// ===========================================================================
+
+describe("M_685ff6 review r2 — the attach front door takes the LATEST decision, as the hook does", () => {
+  test("decide create, then decide join --sibling, then attach an uncommitted plan → the FR create under the join is permitted", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    const early = realResolve(w.be, ["jira", "GF", "--title", "Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    s.bash(early.command, early.out);
+    const later = realResolve(
+      w.be,
+      ["jira", "GF", "--join-key", "GF-85", "--sibling", siblingWithPlan(w)],
+      w.scratch,
+      { issues: [epicRow("GF-85", "Payouts")], isLast: true },
+    );
+    s.bash(later.command, later.out);
+    const plan = planIn(w.be, "M_GF_85", "Payouts", false);
+    const a = attached(w.be, "GF", plan, w.scratch, GF_85_PAGE);
+    expect(JSON.parse(readFileSync(a.receipt!, "utf-8")).evidence.provenance.receipt).toBe(resolve(later.receipt));
+    s.bash(a.command, a.out);
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    expectPermit(await runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 60_000);
+});
+
+describe("M_685ff6 review r2 — the attach front door matches a created title by the ONE normalizer", () => {
+  test("create decided as \"payouts\", the Epic created as GF-85 and listed \"Payouts\" → the attach proves it and the FR create is permitted", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    s.bash(d.command, d.out);
+    s.mcp(JIRA("createJiraIssue"), EPIC_CREATE("payouts"), { key: "GF-85", id: "10085" });
+    const plan = planIn(w.be, "M_GF_85", "Payouts", false);
+    const a = realAttach(w.be, "GF", plan, w.scratch, GF_85_PAGE);
+    expect(a.exitCode, a.err).toBe(0);
+    s.bash(a.command, a.out);
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    expectPermit(await runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 60_000);
+});
+
+describe("M_685ff6 review r2 — the latest decision governs a title by the ONE title normalizer", () => {
+  const variants: Array<[string, string, string]> = [
+    ["case", "payouts", "Payouts"],
+    ["whitespace", "Payouts  Q3 ", "Payouts Q3"],
+    ["dash", "Payouts – Q3", "Payouts - Q3"],
+  ];
+  for (const [kind, created, joined] of variants) {
+    test(`${kind}: create "${created}" decided, then a join of "${joined}" → the Epic create of "${created}" is refused`, async () => {
+      const w = makeWorld();
+      const s = new Session();
+      const early = realResolve(w.be, ["jira", "GF", "--title", created], w.scratch, EMPTY_JIRA_PAGE);
+      s.bash(early.command, early.out);
+      const later = realResolve(
+        w.be,
+        ["jira", "GF", "--title", joined, "--sibling", siblingWithPlan(w)],
+        w.scratch,
+        { issues: [epicRow("GF-85", joined)], isLast: true },
+      );
+      s.bash(later.command, later.out);
+      const r = await runSh(JIRA("createJiraIssue"), EPIC_CREATE(created), { cwd: w.be, transcript: s.save(w.scratch) });
+      expectRefusal(r, "GF-85");
+    }, 60_000);
+  }
+
+  test("(control) create \"payouts\" decided, then a join of a DISTINCT title \"Payments\" → the Epic create of \"payouts\" is permitted", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    const early = realResolve(w.be, ["jira", "GF", "--title", "payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    s.bash(early.command, early.out);
+    const later = realResolve(
+      w.be,
+      ["jira", "GF", "--title", "Payments", "--sibling", siblingWithPlan(w)],
+      w.scratch,
+      { issues: [epicRow("GF-85", "Payments")], isLast: true },
+    );
+    s.bash(later.command, later.out);
+    expectPermit(
+      await runSh(JIRA("createJiraIssue"), EPIC_CREATE("payouts"), { cwd: w.be, transcript: s.save(w.scratch) }),
+    );
+  }, 60_000);
+});
+
+describe("M_685ff6 review r2 — a Linear milestone argument binds by id, by name only when unique", () => {
+  const ID_A = "550e8400-e29b-41d4-a716-446655440000";
+  const ID_B = "7a1c3f00-0000-4000-8000-000000000001";
+
+  function twoTargets(names: [string, string]): { root: string; scratch: string; s: Session } {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("r2-linear-case");
+    const listing = { milestones: [{ id: ID_A, name: names[0] }, { id: ID_B, name: names[1] }] };
+    const s = new Session();
+    for (const [id, name] of [[ID_A, names[0]], [ID_B, names[1]]] as const) {
+      const plan = planIn(root, milestoneIdFromLinearMilestone(id), name, true);
+      const a = attached(root, "DPT", plan, scratch, listing, SESSION, "linear");
+      s.bash(a.command, a.out);
+    }
+    return { root, scratch, s };
+  }
+
+  function decideFor(s: Session, root: string, milestone: string): Record<string, unknown> {
+    const payload = { team: "STE", project: "DPT", title: `BE export ${milestone}`, labels: [BE_TAG], milestone };
+    s.announce(DECIDE, `decide "${root}" /tmp/page.json --title "BE export ${milestone}" --linear-milestone ${milestone} --attempt fast`, receiptIn(root, {
+      kind: "create", adapter: "linear", container: milestone, subject: `BE export ${milestone}`, decision: "create",
+      evidence: { createPayload: payload },
+    }));
+    return payload;
+  }
+
+  test("two resolved milestones named \"Payouts\" and \"payouts\": a milestone argument \"PAYOUTS\" is ambiguous → exit 2", async () => {
+    const { root, scratch, s } = twoTargets(["Payouts", "payouts"]);
+    const payload = decideFor(s, root, "PAYOUTS");
+    expectRefusal(await runHook(LINEAR("save_issue"), payload, { cwd: root, transcript: s.save(scratch) }), /ambiguous|more than one/i);
+  }, 60_000);
+
+  test("(control) the same two milestones: the milestone's id binds it → exit 0", async () => {
+    const { root, scratch, s } = twoTargets(["Payouts", "payouts"]);
+    const payload = decideFor(s, root, ID_A);
+    expectPermit(await runHook(LINEAR("save_issue"), payload, { cwd: root, transcript: s.save(scratch) }));
+  }, 60_000);
+
+  test("(control) distinct names \"Payouts\" and \"Payments\": a case variant \"payouts\" binds the one it names → exit 0", async () => {
+    const { root, scratch, s } = twoTargets(["Payouts", "Payments"]);
+    const payload = decideFor(s, root, "payouts");
+    expectPermit(await runHook(LINEAR("save_issue"), payload, { cwd: root, transcript: s.save(scratch) }));
+  }, 60_000);
+});

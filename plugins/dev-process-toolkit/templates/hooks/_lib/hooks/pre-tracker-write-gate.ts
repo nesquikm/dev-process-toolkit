@@ -31,6 +31,7 @@ import {
 import { normalizeTitleForCompare } from "../../../../adapters/_shared/src/create_idempotency_probe.ts";
 import { readTrackedBindings } from "../../../../adapters/_shared/src/ticket_ownership.ts";
 import { milestoneLabel } from "../../../../adapters/_shared/src/attach_project_milestone.ts";
+import { governingDecision } from "../../../../adapters/_shared/src/milestone_token.ts";
 import { resolveInterviewAnswer } from "../../../../adapters/_shared/src/auto_answers.ts";
 import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shared/src/dpt_version.ts";
 
@@ -1206,6 +1207,19 @@ function gateAttachTarget(
     sameName(t.project, project),
   );
   const inProject = all.filter((t) => t.proven);
+  // Linear by name (M_685ff6 review r2): an id binds its milestone; a name
+  // binds only when ONE resolved milestone answers to it case-insensitively,
+  // so two milestones differing only in case cannot cross-bind.
+  if (call.adapter === "linear" && shape.container !== "" && !inProject.some((t) => t.id !== "" && t.id === shape.container)) {
+    const named = inProject.filter((t) => t.names.some((n) => sameName(n, shape.container)));
+    const distinct = new Set(named.map((t) => `${t.surface}:${t.id || t.token}`));
+    if (distinct.size > 1) {
+      return refuse(
+        `${where}: the milestone "${shape.container}" is ambiguous — it names more than one milestone an attach-target receipt of this session resolved (${[...distinct].join(", ")}), which differ only in case.${note}`,
+        `name the milestone by its id, as ${ATTACH_MODULE} printed it (\`id=\`), then retry.`,
+      );
+    }
+  }
   if (inProject.some((t) => bindsTarget(call, shape, t))) return 0;
   if (inProject.length > 0) {
     const last = inProject[inProject.length - 1]!;
@@ -1637,10 +1651,10 @@ function gateMilestoneCreate(
   // The LATEST decision for this project and title governs (M_685ff6 review):
   // a join decided after a create decision is the gate the operator answered
   // last, so the earlier create no longer authorises anything.
-  const forTitle = seen.filter(
-    (d) => sameName(d.project, want.project) && (d.title === want.title || (d.act === "join" && d.name === want.title)),
+  const governing = governingDecision(
+    seen.filter((d) => sameName(d.project, want.project)),
+    { title: want.title },
   );
-  const governing = forTitle[forTitle.length - 1];
   if (governing && governing.act === "join") {
     return refuse(
       `${where}: the latest milestone decision for "${want.title}" in project ${want.project} (${governing.path}) joins the existing ${name} ${governing.key}, so no create of it is authorised — an earlier create decision is superseded.${note}`,
