@@ -4,7 +4,7 @@
 // STE-597 — a commit is recognised in three shapes (bare, `cd <dir> && git
 //   commit`, `git -C <dir> commit`), and every git query and layout lookup runs
 //   in the repository the commit WRITES TO rather than the hook process's own
-//   directory. A target that cannot be resolved exits 0 with an NFR-10
+//   directory. A target that cannot be resolved exits 1 with an NFR-10
 //   `Reminder:` naming it — never a refusal.
 //
 // Refusing hook: on a recognised commit, runs `git diff --cached --name-only`
@@ -12,7 +12,7 @@
 // `classifyStagedPaths` for a verdict:
 //   - "spec-only"     → exit 0 (carve-out: pure spec/plan/requirements commit)
 //   - "no-fr"         → exit 0 (no FR-related paths; STE-290 didn't flag)
-//   - "stack-unknown" → exit 0 + an NFR-10 `Reminder:` on stderr (STE-548: no
+//   - "stack-unknown" → exit 1 + an NFR-10 `Reminder:` on stderr (STE-548: no
 //                        stack marker resolved, so the guard could not look).
 //   - "tdd-required"  → require a `dev-process-toolkit:tdd` Skill tool_use in
 //                        the session transcript (exit 2 on miss).
@@ -117,7 +117,7 @@ export type StagedClassification =
  *                        README/CHANGELOG). "Nothing to guard."
  *   - "stack-unknown" — STE-548: NO stack marker resolved, so nothing could be
  *                        classified. "Could not tell", which is not the same
- *                        claim as "nothing to guard" — hook exits 0 with an
+ *                        claim as "nothing to guard" — hook exits 1 with an
  *                        NFR-10 `Reminder:` naming the project.
  *
  * `projectRoot` is OPTIONAL and only selects WHICH stack's conventions apply;
@@ -202,9 +202,9 @@ interface GitResult {
  * depending on which tree the calling session happened to sit in.
  *
  * STE-597 (FINDING B) — a spawn that throws is REPORTED, not propagated. Every
- * other failure mode in this file emits a worded NFR-10 block and exits 0; an
- * uncaught `Bun.spawn` made the one remaining mode a raw stack trace and a
- * non-zero exit, which on a PreToolUse hook is an unexplained interruption.
+ * other failure mode in this file emits a worded NFR-10 block and exits 1 (a
+ * visible, non-blocking Reminder — STE-601); an uncaught `Bun.spawn` made the
+ * one remaining mode a raw stack trace, which is an unexplained interruption.
  */
 async function gitOut(args: string[], cwd: string): Promise<GitResult> {
   const failed: GitResult = { exitCode: -1, stdout: "", spawnFailed: true };
@@ -279,26 +279,48 @@ if (import.meta.main) {
   if (!target.isCommit) {
     process.exit(0);
   }
+
+  /**
+   * Every "could not tell" leg below: an NFR-10 `Reminder:`, then exit 1, not 0.
+   * The harness shows no stderr on exit 0, so a Reminder there is a silent
+   * allow; exit 1 is non-blocking and visible (AC-STE-601.7, AC-STE-601.16).
+   */
+  // A declaration, not an arrow: only a declared `never` narrows the caller.
+  function remind(sentence: string, remedy: string): never {
+    emitNFR10("Reminder", sentence, remedy, "dev-process-toolkit:tdd", "pre-commit-tdd-orchestrator");
+    process.exit(1);
+  }
+
   if (target.repoRoot === null) {
     // AC-STE-597.4 — ADVISORY, never a refusal, and it NAMES what it could not
     // determine. The same shape the STE-548 stack-unknown leg already uses: not
     // knowing where the commit lands is the toolkit's limitation, not the
     // operator's mistake.
-    emitNFR10(
-      "Reminder",
+    remind(
       `${target.unresolved}, so the /tdd guard could not tell whether this ` +
         `commit stages a source file and its test.`,
       "run the commit with a literal directory (for example `git -C " +
         "/path/to/repo commit`), or run /dev-process-toolkit:tdd yourself when " +
         "this commit carries an FR.",
-      "dev-process-toolkit:tdd",
-      "pre-commit-tdd-orchestrator",
     );
-    process.exit(0);
   }
   // Every git query and every layout lookup below is anchored HERE, not at the
   // hook process's cwd (AC-STE-597.2).
   const repoRoot = target.repoRoot;
+
+  // AC-STE-601.8 — a merge, cherry-pick, revert, am or commit-tree writes a
+  // commit whose content is NOT the staged set (only a `--continue` concludes
+  // one from the index), so the staged-set classifier below cannot speak for
+  // it. Say so, visibly, rather than grade the wrong subject.
+  if (!target.fromIndex) {
+    const sub = target.subcommand ?? "this git subcommand";
+    remind(
+      `\`git ${sub}\` writes a commit in ${repoRoot} from something other than ` +
+        `the staged files, so the /tdd guard could not tell whether it carries ` +
+        `a source file and its test.`,
+      "run /dev-process-toolkit:tdd yourself when this commit carries an FR.",
+    );
+  }
 
   // Collect staged files via filesystem call (no $CLAUDE_STAGED_FILES env var).
   const stagedResult = await gitOut(["diff", "--cached", "--name-only"], repoRoot);
@@ -306,18 +328,14 @@ if (import.meta.main) {
     // AC-STE-597.4 (FINDING B) — ADVISORY, never a refusal, and it NAMES what
     // could not be done. A toolchain the guard cannot run is the toolkit's
     // problem, not the operator's mistake, and a stack trace is not a sentence.
-    emitNFR10(
-      "Reminder",
+    remind(
       `\`git\` could not be run in ${repoRoot}, so the /tdd guard could not read ` +
         `the staged files and could not tell whether this commit stages a ` +
         `source file and its test.`,
       "check that `git` is on the PATH this hook runs with and that " +
         `${repoRoot} still exists, then commit again; or run ` +
         "/dev-process-toolkit:tdd yourself when this commit carries an FR.",
-      "dev-process-toolkit:tdd",
-      "pre-commit-tdd-orchestrator",
     );
-    process.exit(0);
   }
   const staged = stagedResult.stdout.split("\n").filter((l) => l.length > 0);
 
@@ -338,17 +356,13 @@ if (import.meta.main) {
     // a `git rev-parse --show-toplevel` round trip to recover from the cwd;
     // `target.repoRoot` now IS that root, so the lookup was deleted rather than
     // left to re-derive a value already in hand.
-    emitNFR10(
-      "Reminder",
+    remind(
       `no stack marker was identified for ${repoRoot}, so the /tdd guard ` +
         `could not tell whether this commit stages a source file and its test.`,
       "add a recognised stack marker at the project root (for example " +
         "`package.json`, `pubspec.yaml`, `pyproject.toml`, `go.mod`), or run " +
         "/dev-process-toolkit:tdd yourself when this commit carries an FR.",
-      "dev-process-toolkit:tdd",
-      "pre-commit-tdd-orchestrator",
     );
-    process.exit(0);
   }
   if (verdict !== "tdd-required") {
     process.exit(0);
