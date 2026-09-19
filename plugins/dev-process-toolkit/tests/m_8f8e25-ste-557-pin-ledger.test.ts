@@ -281,9 +281,9 @@ describe("AC-STE-557.2 — the ledger records the moves git records", () => {
    * PIN MOVE (M_685ff6/STE-608): 121, the decision front door made
    * `resolve_milestone_identity.ts` reachable from `spec-write/SKILL.md:177`.
    */
-  const MEASURED = [121, 122, 124, 125, 129, 130, 131, 133, 136, 137, 139, 142, 146] as const;
+  const MEASURED = [120, 121, 122, 124, 125, 129, 130, 131, 133, 136, 137, 139, 142, 146] as const;
 
-  test("thirteen moves, in the measured order", () => {
+  test("fourteen moves, in the measured order", () => {
     expect(ORDERED_UNREACHABLE_PIN_LEDGER.map((m) => m.value)).toEqual([...MEASURED]);
   });
 

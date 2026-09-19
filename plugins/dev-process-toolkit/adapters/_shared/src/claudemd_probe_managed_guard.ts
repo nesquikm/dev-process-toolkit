@@ -80,6 +80,8 @@ export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
     "applicability derives from the declared `## Release Files` block its front door parses; an absent block already refuses with `MissingReleaseFilesBlockError`, so managed-ness would only add a second gate that refuses trees the block itself declares in scope.",
   release_surface_agreement:
     "applicability derives from the declared `changelog_ci_owned` docs flag, read via `readDocsConfig` — the same reader `release_config` consults before it skips the CHANGELOG entry; managed-ness would gate the grader differently from the writer it must agree with.",
+  repoint_tracker_binding:
+    "the repoint command's front door reads the tracker binding through `readTaskTrackingSection` and `readWorkspaceBinding`; applicability is the declared tracker `mode:` (it refuses outright under `mode: none` or with no `## Task Tracking` section), identically in managed and unmanaged trees.",
   resolve_milestone_identity:
     "the milestone decision's front door reads the tracker binding through `readWorkspaceBinding` for the `shared` flag and the version floor; applicability is the tracker mode its caller passes, and an undeclared tree decides as unshared in managed and unmanaged trees alike.",
   setup_output_completeness:

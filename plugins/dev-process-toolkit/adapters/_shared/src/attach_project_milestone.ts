@@ -1251,6 +1251,47 @@ function refusalText(message: string): string {
 }
 
 /**
+ * The read-only `MilestoneOps` over one saved `--containers` listing (the
+ * STE-608 `readListingFile` shape): enumeration answers from the listing, and
+ * no write op is ever reached by `resolveAttachTarget`. Shared by the attach
+ * front door and the repoint command's row 7 (STE-612), so both resolve a
+ * container through the same provider and the one find leg. `onList` fires
+ * when the resolver enumerates.
+ */
+export function listingProvider(
+  mode: "jira" | "linear",
+  listing: { jiraRows?: { key: string; name: string }[]; linearRows?: { name: string; id?: string }[] },
+  onList: () => void = () => {},
+): MilestoneOps {
+  return mode === "jira"
+    ? {
+        milestoneBinding: "epic",
+        listEpics: async () => {
+          onList();
+          return listing.jiraRows!.map((r) => ({ key: r.key, name: r.name }));
+        },
+        // Present only to satisfy the epic-ops guard; the resolver never writes.
+        setParent: async () => {
+          throw new Error("attach front door: setParent is never called by the resolver");
+        },
+        listMilestones: async () => [],
+        saveMilestone: async () => {},
+        upsertTicketMetadata: async (t) => t,
+        getIssue: async () => ({}),
+      }
+    : {
+        milestoneBinding: "object",
+        listMilestones: async () => {
+          onList();
+          return listing.linearRows!.map((r) => ({ name: r.name, ...(r.id !== undefined ? { id: r.id } : {}) }));
+        },
+        saveMilestone: async () => {},
+        upsertTicketMetadata: async (t) => t,
+        getIssue: async () => ({}),
+      };
+}
+
+/**
  * How the attach target's binding was proven (STE-611 AC.7): not a shared
  * repository, no existing container joined, the plan committed at HEAD, or a
  * named decision receipt of this session.
@@ -1429,33 +1470,9 @@ async function runAttachFrontDoor(argv: readonly string[]): Promise<string[]> {
   const listing = readListingFile({ mode, project, listingFile });
 
   let listed = false;
-  const provider: MilestoneOps =
-    mode === "jira"
-      ? {
-          milestoneBinding: "epic",
-          listEpics: async () => {
-            listed = true;
-            return listing.jiraRows!.map((r) => ({ key: r.key, name: r.name }));
-          },
-          // Present only to satisfy the epic-ops guard; the resolver never writes.
-          setParent: async () => {
-            throw new Error("attach front door: setParent is never called by the resolver");
-          },
-          listMilestones: async () => [],
-          saveMilestone: async () => {},
-          upsertTicketMetadata: async (t) => t,
-          getIssue: async () => ({}),
-        }
-      : {
-          milestoneBinding: "object",
-          listMilestones: async () => {
-            listed = true;
-            return listing.linearRows!.map((r) => ({ name: r.name, ...(r.id !== undefined ? { id: r.id } : {}) }));
-          },
-          saveMilestone: async () => {},
-          upsertTicketMetadata: async (t) => t,
-          getIssue: async () => ({}),
-        };
+  const provider = listingProvider(mode, listing, () => {
+    listed = true;
+  });
 
   // A permanent refusal propagates with its own NFR-10 text.
   const target = await resolveAttachTarget(provider, project, milestoneName, { sleep: async () => {} });
