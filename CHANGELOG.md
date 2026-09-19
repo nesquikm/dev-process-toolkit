@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.88.0] — 2026-09-19 — "Honest Join"
+
+### Added
+
+- Joining a milestone declares the span in both plans, and a one-sided span is held (STE-610)
+- Re-pointing a repository at another tracker project is checked by code, not a checklist (STE-612)
+
+### Fixed
+
+- A milestone mint names the act it performs and never joins silently (STE-608)
+- The sibling release gate refuses whenever it cannot prove the sibling is idle (STE-609)
+- A feature request's milestone container is found before its ticket is created (STE-611)
+
+Total test count at release: 14790 tests, 0 failures, 0 errors.
+
 ## [2.87.0] — 2026-09-18 — "Owned"
 
 ### Added
