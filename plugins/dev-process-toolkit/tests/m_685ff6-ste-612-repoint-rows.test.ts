@@ -49,7 +49,7 @@ import {
   type Glade,
   type GladeOpts,
 } from "./_repoint_fixture";
-import { commitAll, makeSpanFixture } from "./_span_fixture";
+import { commitAll, git, makeSpanFixture } from "./_span_fixture";
 
 const T = 60_000;
 
@@ -764,6 +764,92 @@ describe("AC-STE-612.4 — row 7: no active plan or FR is left in the old contai
   test(
     "row 7 pass leg (Linear): active M_550e84 resolves to a listed milestone → PASS",
     linearRow7("550e8400-e29b-41d4-a716-446655440000"),
+    T,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// M_685ff6 pre-PR review — row 7 reads every ref, not one working tree. Active
+// work bound to the old project on an unmerged branch, a second worktree or a
+// remote-tracking ref refuses the flip; work archived on any ref does not.
+// The forbid legs were red on ef568b44 (rows 1-7 PASS, the flip written).
+// ---------------------------------------------------------------------------
+
+describe("M_685ff6 review — row 7 reads the git state (worktrees, branches, remote-tracking refs)", () => {
+  test(
+    "M_FY_40 and FY-101 active only on an unmerged branch → row 7 REFUSE naming the branch; nothing written",
+    withGlade({}, (g) => {
+      const before = readClaudeMd(g.a);
+      git(g.a, "checkout", "-q", "-b", "feat/fy40");
+      writePlan(g.a, "M_FY_40", "active", "Checkout");
+      writeFr(g.a, "FY-101", "M_FY_40", "active");
+      commitAll(g.a, "wip on branch");
+      git(g.a, "checkout", "-q", "main");
+      const r = runRepoint(g.args());
+      expect(verdict(r.stdout, 7), r.stdout).toBe("REFUSE");
+      expect(rowLine(r.stdout, 7)).toContain("M_FY_40");
+      expect(rowLine(r.stdout, 7)).toContain("FY-101");
+      expect(rowLine(r.stdout, 7)).toContain("feat/fy40");
+      expect(r.code).toBe(1);
+      expectNothingWritten(g.a, before);
+    }),
+    T,
+  );
+
+  test(
+    "an active FY-keyed FR only in a second worktree's uncommitted tree → row 7 REFUSE naming the worktree",
+    withGlade({}, (g) => {
+      const wtParent = mkdtempSync(join(tmpdir(), "dpt-review-wt-"));
+      const wt = join(wtParent, "glade-be-wt");
+      git(g.a, "worktree", "add", "-q", "-b", "feat/wt", wt);
+      writePlan(wt, "M_GK_80", "active");
+      writeFr(wt, "FY-7", "M_GK_80", "active");
+      const r = runRepoint(g.args());
+      expect(verdict(r.stdout, 7), r.stdout).toBe("REFUSE");
+      expect(rowLine(r.stdout, 7)).toContain("FY-7");
+      expect(r.code).toBe(1);
+      git(g.a, "worktree", "remove", "--force", wt);
+      rmSync(wtParent, { recursive: true, force: true });
+    }),
+    T,
+  );
+
+  test(
+    "(control) M_FY_40 live on a stale branch but archived on main (the squash-merged shape) → row 7 PASS",
+    withGlade({}, (g) => {
+      git(g.a, "checkout", "-q", "-b", "feat/fy40-stale");
+      writePlan(g.a, "M_FY_40", "active", "Checkout");
+      writeFr(g.a, "FY-101", "M_FY_40", "active");
+      commitAll(g.a, "wip on branch");
+      git(g.a, "checkout", "-q", "main");
+      writePlan(g.a, "M_FY_40", "archived", "Checkout");
+      writeFr(g.a, "FY-101", "M_FY_40", "archived");
+      commitAll(g.a, "archived on main");
+      const r = runRepoint(g.args());
+      expect(verdict(r.stdout, 7), rowLine(r.stdout, 7)).toBe("PASS");
+    }),
+    T,
+  );
+});
+
+describe("M_685ff6 review — row 7: an archive on a ref that is not checked out still counts", () => {
+  test(
+    "(control) M_FY_40 live on a stale branch, archived only on another branch, neither checked out → row 7 PASS",
+    withGlade({}, (g) => {
+      git(g.a, "checkout", "-q", "-b", "feat/fy40-stale");
+      writePlan(g.a, "M_FY_40", "active", "Checkout");
+      writeFr(g.a, "FY-101", "M_FY_40", "active");
+      commitAll(g.a, "wip on branch");
+      git(g.a, "checkout", "-q", "-b", "trunk-archived");
+      rmSync(join(g.a, "specs", "plan", "M_FY_40.md"));
+      rmSync(join(g.a, "specs", "frs", "FY-101.md"));
+      writePlan(g.a, "M_FY_40", "archived", "Checkout");
+      writeFr(g.a, "FY-101", "M_FY_40", "archived");
+      commitAll(g.a, "archived on the trunk branch");
+      git(g.a, "checkout", "-q", "main");
+      const r = runRepoint(g.args());
+      expect(verdict(r.stdout, 7), rowLine(r.stdout, 7)).toBe("PASS");
+    }),
     T,
   );
 });

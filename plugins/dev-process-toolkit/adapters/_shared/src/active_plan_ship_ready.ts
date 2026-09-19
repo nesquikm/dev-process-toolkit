@@ -380,6 +380,125 @@ export async function readSiblingFrsFromGit(
   return { active, archivedIds: [...archived].sort(), plans };
 }
 
+/** One active spec file the git state holds: where it is live, and one copy of its text. */
+export interface ActiveSpec {
+  /** The plan token or the FR id (the file name without `.md`). */
+  name: string;
+  /** Every source holding it live, e.g. `worktree /abs/path`, `branch feat/x`, `remote-tracking origin/x`. */
+  sources: string[];
+  /** Its text as the first source listed holds it. */
+  body: string;
+}
+
+/** Every active plan and FR a repository's git state holds (M_685ff6 review). */
+export interface ActiveSpecsRead {
+  plans: ActiveSpec[];
+  frs: ActiveSpec[];
+}
+
+/**
+ * Every active plan and FR in `root`'s git state — every worktree's working
+ * tree, every local branch and every remote-tracking ref, never a fetch — by
+ * the rule `readSiblingFrsFromGit` grades one milestone with: a file is
+ * active when some source holds it at its live path (`specs/plan/<token>.md`,
+ * `specs/frs/<id>.md`) without `status: archived`, and no source holds it
+ * archived (under `archive/`, or at the live path with `status: archived`).
+ * A repository outside any git checkout is read from its working tree alone.
+ * Any git or read failure throws `SiblingReadError` — never an empty read.
+ */
+export async function readActiveSpecsFromGit(root: string): Promise<ActiveSpecsRead> {
+  const live = { plans: new Map<string, ActiveSpec>(), frs: new Map<string, ActiveSpec>() };
+  const archived = { plans: new Set<string>(), frs: new Set<string>() };
+  const note = (kind: "plans" | "frs", name: string, body: string, source: string): void => {
+    if (scanFrontmatterField(body, "status") === "archived") {
+      archived[kind].add(name);
+      return;
+    }
+    const seen = live[kind].get(name);
+    if (seen) seen.sources.push(source);
+    else live[kind].set(name, { name, sources: [source], body });
+  };
+  const isPlanName = (file: string): boolean => PLAN_FILENAME_RE.test(file);
+
+  const readWorkingTree = async (dir: string, source: string): Promise<void> => {
+    for (const [kind, rel] of [
+      ["frs", join("specs", "frs")],
+      ["plans", join("specs", "plan")],
+    ] as const) {
+      const liveDir = join(dir, rel);
+      for (const name of await listMarkdownFilesStrict(liveDir)) {
+        if (kind === "plans" && !isPlanName(name)) continue;
+        const body = await readFileStrict(join(liveDir, name));
+        if (body === null) throw new SiblingReadError(`read ${join(liveDir, name)}`, "vanished while being read");
+        note(kind, basename(name, ".md"), body, source);
+      }
+      for (const name of await listMarkdownFilesStrict(join(liveDir, "archive"))) {
+        archived[kind].add(basename(name, ".md"));
+      }
+    }
+  };
+
+  let inRepo = true;
+  try {
+    siblingGit(root, ["rev-parse", "--git-common-dir"]);
+  } catch (error) {
+    if (!(error instanceof SiblingReadError) || hasGitMarker(root)) throw error;
+    inRepo = false;
+  }
+  if (!inRepo) {
+    await readWorkingTree(root, `working tree ${root}`);
+  } else {
+    const worktrees = parseWorktreePorcelain(siblingGit(root, ["worktree", "list", "--porcelain"]).toString("utf-8"))
+      .filter((entry) => !entry.bare)
+      .map((entry) => entry.path);
+    for (const wt of worktrees) await readWorkingTree(wt, `worktree ${wt}`);
+
+    const refs = siblingGit(root, ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"])
+      .toString("utf-8")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l !== "" && !l.endsWith("/HEAD"));
+    const pending: Array<{ kind: "plans" | "frs"; name: string; ref: string; path: string }> = [];
+    for (const ref of refs) {
+      const paths = siblingGit(root, ["ls-tree", "-r", "--name-only", ref, "--", "specs/frs", "specs/plan"])
+        .toString("utf-8")
+        .split("\n")
+        .filter((l) => l !== "");
+      for (const path of paths) {
+        const m = /^specs\/(frs|plan)\/(archive\/)?([^/]+\.md)$/.exec(path);
+        if (!m) continue;
+        const kind = m[1] === "frs" ? "frs" : "plans";
+        if (kind === "plans" && !isPlanName(m[3]!)) continue;
+        const name = basename(m[3]!, ".md");
+        if (m[2] !== undefined) archived[kind].add(name);
+        else pending.push({ kind, name, ref, path });
+      }
+    }
+    if (pending.length > 0) {
+      const blobs = catFileBatch(root, pending.map((p) => `${p.ref}:${p.path}`));
+      pending.forEach((p, i) => note(p.kind, p.name, blobs[i]!, refLabel(p.ref)));
+    }
+  }
+
+  const active = (kind: "plans" | "frs"): ActiveSpec[] =>
+    [...live[kind].values()]
+      .filter((x) => !archived[kind].has(x.name))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return { plans: active("plans"), frs: active("frs") };
+}
+
+/** `.md` file names directly under `dir`, sorted; absent is empty, any other failure throws. */
+async function listMarkdownFilesStrict(dir: string): Promise<string[]> {
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    if (isAbsent(error)) return [];
+    throw new SiblingReadError(`list ${dir}`, errorCode(error));
+  }
+  return entries.filter((e) => e.isFile() && e.name.endsWith(".md")).map((e) => e.name).sort();
+}
+
 /** The two repo-relative paths a plan for `milestone` can live at: live, then archived. */
 export function planRelPaths(milestone: string): string[] {
   return [`specs/plan/${milestone}.md`, `specs/plan/archive/${milestone}.md`];
