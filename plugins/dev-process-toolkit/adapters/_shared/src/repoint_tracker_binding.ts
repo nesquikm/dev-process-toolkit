@@ -39,9 +39,11 @@ import {
   planFileHeadingToMilestoneName,
   resolveAttachTarget,
 } from "./attach_project_milestone";
+import { readActiveSpecsFromGit, type ActiveSpecsRead } from "./active_plan_ship_ready";
 import { nfr10Message } from "./dpt_version";
 import { parseFrontmatter } from "./frontmatter";
 import { parseMilestoneToken } from "./milestone_token";
+import { parsePlanHeading } from "./plan_heading";
 import { readListingFile, type ReadListing } from "./resolve_milestone_identity";
 import { readTaskTrackingSection } from "./resolver_config";
 import { writeTrackerSubsection } from "./setup/tracker_binding_write";
@@ -426,18 +428,19 @@ function decideRow5(args: RepointArgs, peers: Input<string>[]): RowResult {
   );
 }
 
-/** Active FR files under `specs/frs/` (never `archive/`): id, `milestone:`, Jira key (`activeJiraKeyOf`, probe #25's own). */
-function activeFrs(root: string): Array<{ id: string; milestone: string; jiraKey: string | undefined }> {
-  const dir = join(root, "specs", "frs");
-  const out: Array<{ id: string; milestone: string; jiraKey: string | undefined }> = [];
-  for (const name of mdFiles(dir)) {
-    const content = readFileSync(join(dir, name), "utf-8");
-    const fm = parseFrontmatter(content, { lenient: true });
-    if (fm["status"] === "archived") continue;
-    const milestone = typeof fm["milestone"] === "string" ? (fm["milestone"] as string).trim() : "";
-    out.push({ id: name.slice(0, -3), milestone, jiraKey: activeJiraKeyOf(content) });
+/** Where a spec is live, for a row 7 line: nothing when this checkout's own tree holds it, else every source. */
+function whereLive(root: string, sources: readonly string[]): string {
+  const own = new Set([`worktree ${resolve(root)}`, `worktree ${realpathOr(root)}`]);
+  if (sources.some((src) => own.has(src))) return "";
+  return ` (on ${sources.join(", ")})`;
+}
+
+function realpathOr(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
   }
-  return out;
 }
 
 /**
@@ -451,20 +454,36 @@ function activeFrs(root: string): Array<{ id: string; milestone: string; jiraKey
  * `foreignJiraKeyProject`), so the probe and this row cannot disagree.
  */
 async function decideRow7(args: RepointArgs, listing: ReadListing): Promise<RowResult> {
-  const frs = activeFrs(args.projectRoot);
+  // Every source the repository holds work in (M_685ff6 review): a plan or FR
+  // active on an unmerged branch, a second worktree or a remote-tracking ref
+  // keeps creating in the old project after the flip, so it refuses too. A
+  // read failure refuses — never read as "no active work".
+  let specs: ActiveSpecsRead;
+  try {
+    specs = await readActiveSpecsFromGit(args.projectRoot);
+  } catch (e) {
+    return row(7, "REFUSE", `the repository's git state cannot be read (${firstLine(e)}), so active work on other branches or worktrees is unknown`);
+  }
+  const frs = specs.frs.map((f) => {
+    const fm = parseFrontmatter(f.body, { lenient: true });
+    const milestone = typeof fm["milestone"] === "string" ? (fm["milestone"] as string).trim() : "";
+    return { id: f.name, milestone, jiraKey: activeJiraKeyOf(f.body), where: whereLive(args.projectRoot, f.sources) };
+  });
   const provider = listingProvider(args.mode, listing);
   const newPrefix = args.mode === "jira" ? epicTokenPrefix(args.newProject) : undefined;
   const stranded: string[] = [];
-  for (const plan of planFiles(args.projectRoot, false)) {
+  for (const spec of specs.plans) {
+    const plan = { token: spec.name, where: whereLive(args.projectRoot, spec.sources) };
     let why: string | undefined;
     if (newPrefix !== undefined && epicTokenOutside(plan.token, newPrefix)) {
       why = `its container is outside ${args.newProject}`;
     } else {
       let name: string | undefined;
-      try {
-        name = planFileHeadingToMilestoneName(plan.path);
-      } catch (e) {
-        why = `has no milestone heading to resolve (${firstLine(e)})`;
+      const heading = parsePlanHeading(spec.body);
+      if (heading === null) {
+        why = `has no milestone heading to resolve (expected \`## ${plan.token} — <title>\`)`;
+      } else {
+        name = heading;
       }
       if (name !== undefined) {
         try {
@@ -475,13 +494,13 @@ async function decideRow7(args: RepointArgs, listing: ReadListing): Promise<RowR
       }
     }
     if (why === undefined) continue;
-    const bound = frs.filter((f) => f.milestone === plan.token).map((f) => f.id);
-    stranded.push(`plan ${plan.token} ${why}${bound.length > 0 ? `; active FRs ${bound.join(", ")}` : ""}`);
+    const bound = frs.filter((f) => f.milestone === plan.token).map((f) => `${f.id}${f.where}`);
+    stranded.push(`plan ${plan.token}${plan.where} ${why}${bound.length > 0 ? `; active FRs ${bound.join(", ")}` : ""}`);
   }
   if (args.mode === "jira") {
     for (const fr of frs) {
       if (fr.jiraKey !== undefined && foreignJiraKeyProject(fr.jiraKey, args.newProject) !== undefined) {
-        stranded.push(`active FR ${fr.id} is keyed ${fr.jiraKey}, not ${args.newProject}`);
+        stranded.push(`active FR ${fr.id}${fr.where} is keyed ${fr.jiraKey}, not ${args.newProject}`);
       }
     }
   }
