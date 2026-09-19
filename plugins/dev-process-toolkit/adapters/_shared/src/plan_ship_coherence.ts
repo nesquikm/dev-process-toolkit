@@ -37,7 +37,7 @@ import {
   refusalLine,
   siblingPlanPaths,
 } from "./sibling_release";
-import { sameRepo } from "./target_repo";
+import { sameRepository } from "./target_repo";
 
 const PROBE = "plan_ship_coherence";
 
@@ -253,7 +253,7 @@ async function gradeSiblingLeg(projectRoot: string, plan: ShippedPlan): Promise<
         milestone,
         invokingRepo: sibling.root,
       });
-      namesBack = back.some((s) => s.root !== null && sameRepo(s.root, projectRoot));
+      namesBack = back.some((s) => s.root !== null && sameRepository(s.root, projectRoot));
     } catch (e) {
       if (!(e instanceof SpansReposError)) throw e;
       namesBack = false;

@@ -86,7 +86,7 @@ async function render(input: RenderInput): Promise<string> {
 // ------------------------------------------------------------------ fixtures
 
 async function withRoots<T>(body: (f: { a: string; b: string }) => Promise<T>): Promise<T> {
-  const f = makeSpanFixture("M_947c79");
+  const f = makeSpanFixture("M_947c79", { repositories: false });
   try {
     return await body(f);
   } finally {

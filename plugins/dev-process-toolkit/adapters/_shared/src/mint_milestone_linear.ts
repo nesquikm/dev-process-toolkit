@@ -26,7 +26,15 @@
 
 import type { MilestoneOps } from "./attach_project_milestone";
 import { defaultSleep, retryTransient } from "./attach_project_milestone";
-import { matchMilestoneTitle, milestoneIdFromLinearMilestone, normalizeMilestoneTitle } from "./milestone_token";
+import { printable } from "./tracker_receipts";
+import {
+  approvedMintMismatchRefusal,
+  matchMilestoneTitle,
+  type MilestoneMintDecision,
+  milestoneIdFromLinearMilestone,
+  normalizeMilestoneTitle,
+  reconcileApprovedMint,
+} from "./milestone_token";
 
 /**
  * The ops a mint uses: the milestone creator, plus the OPTIONAL enumeration op
@@ -55,6 +63,12 @@ export interface MintMilestoneLinearOptions {
    * find leg with no normalized match refuses instead of minting.
    */
   join?: boolean;
+  /**
+   * STE-608 — the APPROVED decision. When present, the find leg consults
+   * `decideMilestoneMint` over the enumerated milestones instead of a bare
+   * title match, so a join by key binds that identifier whatever its title.
+   */
+  expect?: MilestoneMintDecision;
 }
 
 /** The pair a mint yields: the tracker's identifier, and the id derived from it. */
@@ -63,6 +77,13 @@ export interface MintedMilestoneLinear {
   milestoneUuid: string;
   /** `milestoneIdFromLinearMilestone(milestoneUuid)` (`M_550e84`). */
   milestoneId: string;
+  /**
+   * STE-608 — whether this call created the milestone or joined an existing
+   * one. `created` when this call's create ran (including a retry whose find
+   * leg found the create an earlier attempt of THIS call landed); `joined`
+   * when the find leg bound an existing milestone before any create.
+   */
+  readonly outcome: "created" | "joined";
 }
 
 /**
@@ -93,7 +114,10 @@ export async function mintMilestoneLinear(
   // enumerator cannot find. Refused here, before `retryTransient`: without
   // this guard the missing find leg would fall straight through to the create
   // a join must never make. Zero lists, zero creates, zero sleeps.
-  if (opts?.join && !listMilestones) {
+  // STE-608 — an APPROVED join (`expect` act join) is a find too: without
+  // this, a provider with no enumerator fell through both find branches to the
+  // single create below.
+  if ((opts?.join || opts?.expect?.act === "join") && !listMilestones) {
     throw new Error(
       [
         `Refusing: to join project milestone "${title}" in project ${project} — a join cannot look for the existing milestone because the provider carries no listMilestones operation.`,
@@ -141,9 +165,15 @@ export async function mintMilestoneLinear(
   // is equally permanent, so it too leaves the retry as a value and is refused
   // once, below. It is a GUARD in front of the single create, not a second
   // path around it.
+  // STE-608 — a hit found AFTER a create was attempted is that create landing
+  // server-side before a timeout: the act performed is still a create.
+  let createAttempted = false;
+  const expected = opts?.expect;
   const outcome = await retryTransient<
-    string | null | { ambiguous: { name: string; id?: string }[] } | { joinMiss: true }
+    string | null | { ambiguous: { name: string; id?: string }[] } | { joinMiss: true } | { mismatch: string | null }
   >(async () => {
+    // STE-608 — this paragraph describes the find leg WITHOUT an approved
+    // decision; with one (`expect`), the first branch below decides instead.
     // The find leg matches by NAME: at mint time no identifier exists to match
     // on. It runs on the FIRST attempt as well as on retries, which makes
     // minting IDEMPOTENT — re-running a mint after a crash, a resumed session,
@@ -155,7 +185,16 @@ export async function mintMilestoneLinear(
     // (`matchMilestoneTitle`), so a stray space or case difference joins the
     // existing milestone instead of minting a twin. The create below still
     // receives the RAW title.
-    if (listMilestones) {
+    if (listMilestones && expected) {
+      // STE-608 AC-STE-608.1 + .8 — with an approved decision the find leg is
+      // the ONE decision (`decideMilestoneMint`, via `reconcileApprovedMint`),
+      // never a local re-derivation: a join by key binds that identifier
+      // whatever its title, and any act other than the approved one leaves
+      // the retry as a mismatch, refused once below.
+      const rows = await listMilestones(project);
+      const found = reconcileApprovedMint({ mode: "linear", project, rows }, title, expected, createAttempted);
+      if (found !== null) return found;
+    } else if (listMilestones) {
       const matches = matchMilestoneTitle(await listMilestones(project), title);
       if (matches.length > 1) return { ambiguous: matches };
       if (matches.length === 1) return matches[0]!.id ?? null;
@@ -163,9 +202,23 @@ export async function mintMilestoneLinear(
     }
     // Step 1 — the name is the title, the only value that exists yet.
     // Step 2 — read the identifier back, verbatim.
+    createAttempted = true;
     return (await createMilestone(project, { name: title })).id;
   }, sleep);
 
+  if (outcome !== null && typeof outcome !== "string" && "mismatch" in outcome) {
+    throw approvedMintMismatchRefusal({
+      mode: "linear",
+      phase: "project-milestone-mint",
+      container: "project milestone",
+      noun: "milestone",
+      title,
+      project,
+      // A mismatch is only ever returned by the approved-decision find leg.
+      expected: expected!,
+      found: outcome.mismatch,
+    });
+  }
   if (outcome !== null && typeof outcome !== "string" && "joinMiss" in outcome) {
     throw new Error(
       [
@@ -175,7 +228,7 @@ export async function mintMilestoneLinear(
       ].join("\n"),
     );
   }
-  if (outcome !== null && typeof outcome !== "string") {
+  if (outcome !== null && typeof outcome !== "string" && "ambiguous" in outcome) {
     const candidates = outcome.ambiguous
       .map((m) => `${m.id ?? "<no identifier>"} "${m.name}"`)
       .join(", ");
@@ -201,7 +254,8 @@ export async function mintMilestoneLinear(
   // milestone three more times.
   const milestoneId = milestoneIdFromLinearMilestone(milestoneUuid);
 
-  return { milestoneUuid, milestoneId };
+  // A found identifier before any create is a join; anything else a create.
+  return { milestoneUuid, milestoneId, outcome: createAttempted ? "created" : "joined" };
 }
 
 // ---------------------------------------------------------------------------
@@ -222,6 +276,7 @@ export async function mintMilestoneLinear(
 //   milestoneUuid=550e8400-e29b-41d4-a716-446655440000
 //   milestoneId=M_550e84
 //   plan=specs/plan/M_550e84.md
+//   outcome=created
 //
 // `import.meta.main` is false on import, so the module stays side-effect free
 // for the route that consumes it.
@@ -255,12 +310,15 @@ if (import.meta.main) {
         project,
         title,
       );
-      console.log(`name=${sentName ?? ""}`);
+      console.log(printable(`name=${sentName ?? ""}`));
       console.log(`milestoneUuid=${minted.milestoneUuid}`);
       console.log(`milestoneId=${minted.milestoneId}`);
       console.log(`plan=specs/plan/${minted.milestoneId}.md`);
+      console.log(`outcome=${minted.outcome}`);
     } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
+      // One printable line per refusal line: echoed titles cannot start a new one.
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(message.split("\n").map(printable).join("\n"));
       process.exitCode = 1;
     }
   }

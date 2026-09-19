@@ -672,7 +672,8 @@ describe("AC-STE-521.10 — object and label bindings byte-unchanged", () => {
     expect(d.listMilestonesCalls).toBe(1);
     expect(d.saveMilestoneCalls).toBe(0);
     expect(d.upsertCalls).toBe(1);
-    expect(d.getIssueCalls).toBe(1);
+    // Amended by AC-STE-611.4: the attach's first read of the ticket, then one verify.
+    expect(d.getIssueCalls).toBe(2);
     expect(d.attached).toBe(OBJECT_NAME);
     expect(result.capability).toBeNull();
     expect(result.createdName).toBeUndefined();

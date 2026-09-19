@@ -17,8 +17,17 @@
 // `createEpic` op (AC-STE-522.8).
 
 import type { MilestoneOps } from "./attach_project_milestone";
-import { defaultSleep, milestoneLabel, retryTransient } from "./attach_project_milestone";
-import { matchMilestoneTitle, milestoneIdFromEpicKey, normalizeMilestoneTitle } from "./milestone_token";
+import { defaultSleep, mergeMilestoneLabel, milestoneLabel, retryTransient } from "./attach_project_milestone";
+import {
+  approvedMintMismatchRefusal,
+  type JiraDecisionRow,
+  matchMilestoneTitle,
+  type MilestoneMintDecision,
+  milestoneIdFromEpicKey,
+  normalizeMilestoneTitle,
+  reconcileApprovedMint,
+} from "./milestone_token";
+import { printable } from "./tracker_receipts";
 
 /**
  * The ops a mint uses: the Epic creator declared on `MilestoneOps`, plus the
@@ -41,6 +50,12 @@ export interface MintMilestoneEpicOptions {
    * leg with no normalized match refuses instead of minting.
    */
   join?: boolean;
+  /**
+   * STE-608 — the APPROVED decision. When present, the find leg consults
+   * `decideMilestoneMint` over the enumerated Epics instead of a bare title
+   * match: a join by key binds that key, and closed Epics are never joined.
+   */
+  expect?: MilestoneMintDecision;
 }
 
 /** The pair a mint yields: the tracker's key, and the id derived from it. */
@@ -54,6 +69,13 @@ export interface MintedMilestoneEpic {
    * Epic. `false` when the provider has no `addLabel` op or the write rejected.
    */
   readonly labelled: boolean;
+  /**
+   * STE-608 — whether this call created the Epic or joined an existing one.
+   * `created` when this call's create ran (including a retry whose find leg
+   * found the create an earlier attempt of THIS call landed); `joined` when
+   * the find leg bound an existing Epic before any create.
+   */
+  readonly outcome: "created" | "joined";
 }
 
 /**
@@ -82,7 +104,10 @@ export async function mintMilestoneEpic(
   // enumerator cannot find. Refused here, before `retryTransient`: without
   // this guard the missing find leg would fall straight through to the create
   // a join must never make. Zero lists, zero creates, zero sleeps.
-  if (opts?.join && !listEpics) {
+  // STE-608 — an APPROVED join (`expect` act join) is a find too: without
+  // this, a provider with no enumerator fell through both find branches to the
+  // single create below.
+  if ((opts?.join || opts?.expect?.act === "join") && !listEpics) {
     throw new Error(
       [
         `Refusing: to join milestone Epic "${title}" in project ${project} — a join cannot look for the existing Epic because the provider carries no listEpics operation.`,
@@ -126,9 +151,15 @@ export async function mintMilestoneEpic(
   // is equally permanent, so it too leaves the retry as a value and is refused
   // once, below. It is a GUARD in front of the single create, not a second
   // path around it.
+  // STE-608 — a hit found AFTER a create was attempted is that create landing
+  // server-side before a timeout: the act performed is still a create.
+  let createAttempted = false;
+  const expected = opts?.expect;
   const outcome = await retryTransient<
-    string | { ambiguous: { key: string; name: string }[] } | { joinMiss: true }
+    string | { ambiguous: { key: string; name: string }[] } | { joinMiss: true } | { mismatch: string | null }
   >(async () => {
+    // STE-608 — this paragraph describes the find leg WITHOUT an approved
+    // decision; with one (`expect`), the first branch below decides instead.
     // The find leg matches by NAME: at mint time no key exists to match on.
     // It runs on the FIRST attempt as well as on retries, which makes minting
     // IDEMPOTENT: re-running a mint — after a crash, a resumed session, an
@@ -141,7 +172,16 @@ export async function mintMilestoneEpic(
     // (`matchMilestoneTitle`), so a stray space or case difference joins the
     // existing Epic instead of minting a twin. The create below still receives
     // the RAW title.
-    if (listEpics) {
+    if (listEpics && expected) {
+      // STE-608 AC-STE-608.1 + .8 — with an approved decision the find leg is
+      // the ONE decision (`decideMilestoneMint`, via `reconcileApprovedMint`),
+      // never a local re-derivation: a join by key binds that key whatever
+      // its title, a Done Epic is never joined, and any act other than the
+      // approved one leaves the retry as a mismatch, refused once below.
+      const rows = (await listEpics(project)) as JiraDecisionRow[];
+      const found = reconcileApprovedMint({ mode: "jira", project, rows }, title, expected, createAttempted);
+      if (found !== null) return found;
+    } else if (listEpics) {
       const matches = matchMilestoneTitle(await listEpics(project), title);
       if (matches.length > 1) return { ambiguous: matches };
       if (matches.length === 1) return matches[0]!.key;
@@ -149,9 +189,23 @@ export async function mintMilestoneEpic(
     }
     // Step 1 — the summary is the title, the only value that exists yet.
     // Step 2 — read the key back, verbatim.
+    createAttempted = true;
     return (await createEpic(project, { name: title })).key;
   }, sleep);
 
+  if (typeof outcome !== "string" && "mismatch" in outcome) {
+    throw approvedMintMismatchRefusal({
+      mode: "jira",
+      phase: "milestone-epic-mint",
+      container: "milestone Epic",
+      noun: "Epic",
+      title,
+      project,
+      // A mismatch is only ever returned by the approved-decision find leg.
+      expected: expected!,
+      found: outcome.mismatch,
+    });
+  }
   if (typeof outcome !== "string" && "joinMiss" in outcome) {
     throw new Error(
       [
@@ -161,7 +215,7 @@ export async function mintMilestoneEpic(
       ].join("\n"),
     );
   }
-  if (typeof outcome !== "string") {
+  if (typeof outcome !== "string" && "ambiguous" in outcome) {
     const candidates = outcome.ambiguous.map((epic) => `${epic.key} "${epic.name}"`).join(", ");
     throw new Error(
       [
@@ -172,6 +226,9 @@ export async function mintMilestoneEpic(
     );
   }
   const epicKey = outcome;
+  // A key returned by the create itself, or found only after a create was
+  // attempted, is a create; a key found before any create is a join.
+  const performed: "created" | "joined" = createAttempted ? "created" : "joined";
 
   // Step 3 — derive the id from the key; refusals propagate. Deliberately
   // OUTSIDE the retry: a key that will not sanitize is permanent, and paying
@@ -195,7 +252,7 @@ export async function mintMilestoneEpic(
     }
   }
 
-  return { epicKey, milestoneId, labelled };
+  return { epicKey, milestoneId, labelled, outcome: performed };
 }
 
 // ---------------------------------------------------------------------------
@@ -216,6 +273,8 @@ export async function mintMilestoneEpic(
 //   milestoneId=M_GF_78
 //   plan=specs/plan/M_GF_78.md
 //   label=milestone-M_GF_78
+//   outcome=created
+//   labels=["milestone-M_GF_78"]
 //
 // The label, like the summary, is read off the argument the helper actually
 // sent to its recording `addLabel` — the door creates and writes nothing.
@@ -256,13 +315,18 @@ if (import.meta.main) {
         project,
         title,
       );
-      console.log(`summary=${sentSummary ?? ""}`);
+      console.log(printable(`summary=${sentSummary ?? ""}`));
       console.log(`epicKey=${minted.epicKey}`);
       console.log(`milestoneId=${minted.milestoneId}`);
       console.log(`plan=specs/plan/${minted.milestoneId}.md`);
-      console.log(`label=${sentLabel ?? ""}`);
+      console.log(printable(`label=${sentLabel ?? ""}`));
+      console.log(`outcome=${minted.outcome}`);
+      // STE-608 AC-STE-608.9 — a create's label value, computed from an empty set.
+      console.log(printable(`labels=${JSON.stringify(mergeMilestoneLabel([], minted.milestoneId))}`));
     } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
+      // One printable line per refusal line: echoed titles cannot start a new one.
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(message.split("\n").map(printable).join("\n"));
       process.exitCode = 1;
     }
   }

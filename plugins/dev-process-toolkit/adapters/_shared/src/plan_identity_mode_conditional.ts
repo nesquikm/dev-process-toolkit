@@ -6,27 +6,26 @@
 //                       `id: fr_<26-char ULID>` — the value `Provider.mintId()`
 //                       returned, verbatim, `fr_` prefix included.
 //   - mode: <tracker> → NO plan file may carry an `id:` line at all,
-//                       whatever its id shape. This is `linear`'s ONLY plan
-//                       rule, and every unknown tracker string's too.
+//                       whatever its id shape. This is every unknown tracker
+//                       string's ONLY plan rule.
 //   - mode: jira      → that id-absence rule, PLUS the sequential-`M<N>`
 //                       provenance arm, dated against `JIRA_EPIC_EPOCH`.
+//   - mode: linear    → that id-absence rule, PLUS the same provenance arm,
+//                       dated against `LINEAR_TRACKER_KEY_EPOCH`.
 //
-// ONE TRACKER ARM IS NOT ALL TRACKER ARMS. The second rule is keyed on the mode
-// STRING (`mode === "jira"`), never on the `isTracker` boolean, because that
-// boolean lumps together two modes with OPPOSITE dispositions toward the plans
-// already on disk. Under `mode: jira` a sequential `M<N>` plan written after
-// the Epic-first path landed is the WRONG shape, since that path made
-// `M_<KEY>` the derived name, and the provenance arm exists to say so. Under
-// `mode: linear` the tracker-first minter derives `M_<6-hex>` for anything NEW,
-// but every `M<N>` plan already committed is legitimate shipped history that
-// must stay green: no provenance rule is written for that mode, so none runs.
-// A rule keyed on the boolean would police both legs
-// identically and hard-fail every linear project on its own archived sequential
-// plans — this repository included, with a hundred-plus of them. An unknown
-// tracker string (`mode: github` from a hand-edited CLAUDE.md) therefore falls
-// through to id-absence only, which a `mode !== "linear"` inversion would not
-// give: the arm is opt-IN per mode, so a mode nobody has specified yet is never
-// policed by a rule nobody wrote for it.
+// ONE TRACKER ARM IS NOT ALL TRACKER ARMS. The provenance rule is keyed on the
+// mode STRING (`mode === "jira"`, `mode === "linear"`), never on the
+// `isTracker` boolean, because each mode began deriving tracker-keyed plan
+// names on a DIFFERENT date. Under `mode: jira` the Epic-first path made
+// `M_<KEY>` the derived name; under `mode: linear` the decision front door
+// derives `M_<6-hex>`. Each arm polices only what was written after its own
+// epoch, so every `M<N>` plan committed before it — this repository's
+// hundred-plus archived plans included — stays legitimate shipped history.
+// A rule keyed on the boolean would date both legs against one instant and
+// fail one of them on its own history. An unknown tracker string
+// (`mode: github` from a hand-edited CLAUDE.md) falls through to id-absence
+// only: each arm is opt-IN per mode, so a mode nobody has specified yet is
+// never policed by a rule nobody wrote for it.
 //
 // LEGACY COEXISTENCE. The mode-none `id:`-REQUIRED rule is keyed on the plan-id
 // SHAPE, not on the mode alone: a flat "every mode-none plan needs `id:`" rule
@@ -63,22 +62,18 @@
 // per VIOLATION and the report takes the maximum across its rows, so one
 // advisory never masks a hard failure and an advisory-only run stays green.
 //
-// TWO ARMS RUN THAT CLASSIFIER — `mode: none` and `mode: jira` — over one
-// machinery and two epochs; `mode: linear` runs neither, because no epoch was
-// ever fixed for it — its `M<N>` plans are shipped history whatever their date,
-// and dating them would redden trees whose operators did nothing wrong.
-// The arms diverge on exactly two things: the boundary
-// instant (`MINT_EPOCH` vs `JIRA_EPIC_EPOCH`) and what a `fresh` plan should
-// have been instead — a re-minted `M_<6-char>` under `none`, an Epic-derived
-// `M_<KEY>` under `jira`. Those two remedies ask the operator for genuinely
-// different work, so each is written out in full at its own call site and they
-// share nothing. Their `undecidable` advisories are the opposite case: a
-// severed object store admits ONE remedy whatever the tracker mode, and the two
-// rows were byte-identical in every field a reader could tell apart. That row
-// is therefore built once, by `undecidableProvenanceViolation`, with each arm
-// passing in only its verdict sentence and its epoch — a copy per arm is a copy
-// that drifts, leaving one mode's operator holding stale advice that no test
-// compares against the other's.
+// THREE ARMS RUN THAT CLASSIFIER — `mode: none`, `mode: jira` and
+// `mode: linear` — over one machinery and three epochs. The arms diverge on
+// exactly two things: the boundary instant (`MINT_EPOCH`, `JIRA_EPIC_EPOCH`,
+// `LINEAR_TRACKER_KEY_EPOCH`) and what a `fresh` plan should have been instead
+// — a re-minted `M_<6-char>` under `none`, an Epic-derived `M_<KEY>` under
+// `jira`, a front-door-minted `M_<6-hex>` under `linear`. Those per-mode parts
+// live in one `SequentialProvenanceArm` record each; the step from a
+// classification to a row is written once, in `sequentialProvenanceViolation`,
+// so the arms cannot drift apart in shape. Their `undecidable` advisories go
+// one step further: a severed object store admits ONE remedy whatever the
+// tracker mode, so that row is built by `undecidableProvenanceViolation` with
+// each arm passing in only its verdict sentence and its epoch.
 //
 // SIBLING MODULE, NOT AN EXTENSION of `identity_mode_conditional.ts`. That
 // module documents a deliberate scope-isolation boundary (FR-only walk, zero
@@ -179,6 +174,7 @@ export interface PlanIdentityModeViolation {
     | "no active kind: scaffolding plan beside an active minted plan"
     | "a minted M_<6-char Crockford> plan"
     | "an Epic-keyed M_<KEY> plan"
+    | "a tracker-minted M_<6-hex> plan"
     | "a discoverable introducing commit";
   actual: string;
   /**
@@ -350,6 +346,17 @@ export const MINT_EPOCH = "2026-07-26T00:00:00Z";
 // and `kind: legacy` clears any that does, so the residual risk is accepted
 // rather than designed away — but it is a several-hour window, not zero.
 export const JIRA_EPIC_EPOCH = "2026-08-05T00:00:00Z";
+
+// The linear tracker-key epoch: 2026-09-19T00:00:00Z, the release date of the
+// milestone that closed the explicit-`M<N>` door under tracker modes and routed
+// every new Linear milestone through the decision front door
+// (`resolve_milestone_identity.ts`), which derives `M_<6-hex>`. A THIRD epoch,
+// not a reuse of either earlier one: this repository runs `mode: linear` and
+// its newest sequential plan (M143) was introduced 2026-09-04, so any earlier
+// boundary would fail its own shipped history. Same boundary semantics as the
+// other two, inclusive at the instant: a linear plan whose introducing commit
+// is dated strictly BEFORE it is legacy and silent; at or after it is `fresh`.
+export const LINEAR_TRACKER_KEY_EPOCH = "2026-09-19T00:00:00Z";
 
 /** The complete provenance vocabulary — exactly four labels, nothing else. */
 export type PlanProvenanceClass = "fresh" | "legacy" | "undecidable" | "exempt";
@@ -617,7 +624,7 @@ function introducingCommitDate(projectRoot: string, rel: string): number | null 
 }
 
 /**
- * The `undecidable` advisory row, built once for BOTH provenance arms.
+ * The `undecidable` advisory row, built once for EVERY provenance arm.
  *
  * Shared because the two arms' undecidable rows were identical in every field a
  * reader could tell apart — same `expected`, same `actual`, same `warning`
@@ -632,10 +639,10 @@ function introducingCommitDate(projectRoot: string, rel: string): number | null 
  * the same caveat either way. So there is exactly one thing to say, and a copy
  * per arm would be a copy free to rot — no test compares the two.
  *
- * Deliberately NOT extended to the arms' `fresh` rows. Those ask for different
- * work (re-mint a ULID vs create a Jira Epic) and name different target shapes,
- * so a builder covering them would take every field as an argument and hide the
- * one distinction the arms exist to draw.
+ * The arms' `fresh` rows ask for different work (re-mint a ULID, create a Jira
+ * Epic, mint through the decision front door) and name different target
+ * shapes, so their prose stays per-arm in each `SequentialProvenanceArm`; only
+ * the row-building step is shared, in `sequentialProvenanceViolation`.
  */
 function undecidableProvenanceViolation(args: {
   projectRoot: string;
@@ -666,6 +673,108 @@ function undecidableProvenanceViolation(args: {
       { mode, file: rel, provenance: "undecidable", epoch },
     ),
   };
+}
+
+/**
+ * One provenance arm's per-mode parts — everything the arms disagree on. The
+ * machinery that turns a classification into a row is shared
+ * (`sequentialProvenanceViolation`); only these fields vary by mode.
+ */
+interface SequentialProvenanceArm {
+  /** The boundary instant this arm dates against. */
+  epoch: string;
+  /** The plan shape a `fresh` sequential plan should have been instead. */
+  expected: PlanIdentityModeViolation["expected"];
+  /** `actual` for a `fresh` row, given the token. */
+  freshActual: (token: string) => string;
+  /** The verdict sentence for a `fresh` row, given the plan's basename. */
+  freshReason: (name: string) => string;
+  /** The remedy for a `fresh` row, given the project-root-relative path. */
+  freshRemedy: (rel: string) => string;
+  /** The verdict sentence for an `undecidable` advisory, given the basename. */
+  undecidableReason: (name: string) => string;
+}
+
+const NONE_PROVENANCE_ARM: SequentialProvenanceArm = {
+  epoch: MINT_EPOCH,
+  expected: "a minted M_<6-char Crockford> plan",
+  freshActual: (token) => `sequential ${token} introduced at or after the mint epoch`,
+  freshReason: (name) =>
+    `tracker-less plan ${name} is a NEW sequential milestone — git introduces it at or after the mint epoch, so it cannot be a legacy plan`,
+  freshRemedy: (rel) =>
+    `re-mint this milestone and rename ${rel} to the M_<6-char Crockford> filename its minted id derives, recording that id verbatim in the frontmatter. If the plan genuinely predates minting and git provenance is misleading (a re-created tree, a squashed import), declare it with kind: legacy in the frontmatter instead`,
+  undecidableReason: (name) =>
+    `tracker-less plan ${name} has unreadable provenance — git cannot reach the commit that introduced it, so it can be neither cleared as legacy nor failed as new`,
+};
+
+const JIRA_PROVENANCE_ARM: SequentialProvenanceArm = {
+  epoch: JIRA_EPIC_EPOCH,
+  expected: "an Epic-keyed M_<KEY> plan",
+  freshActual: (token) => `sequential ${token} introduced at or after the jira Epic epoch`,
+  freshReason: (name) =>
+    `jira-mode plan ${name} is a NEW sequential milestone — git introduces it at or after the jira Epic epoch, so it cannot be a legacy plan`,
+  freshRemedy: (rel) =>
+    `create the milestone as a Jira Epic and rename ${rel} to the M_<KEY> filename that Epic derives. If the plan genuinely predates the Epic-first path and git provenance is misleading — a re-created tree, a squashed import, or a SHALLOW CLONE (which answers the provenance query with its boundary commit rather than failing, so every legacy plan in it reads as new) — declare it with kind: legacy in the frontmatter instead`,
+  undecidableReason: (name) =>
+    `jira-mode plan ${name} has unreadable provenance — git cannot reach the commit that introduced it, so it can be neither cleared as a legacy sequential plan nor failed as a new one that should have been an Epic-derived M_<KEY>`,
+};
+
+const LINEAR_PROVENANCE_ARM: SequentialProvenanceArm = {
+  epoch: LINEAR_TRACKER_KEY_EPOCH,
+  expected: "a tracker-minted M_<6-hex> plan",
+  freshActual: (token) => `sequential ${token} introduced at or after the linear tracker-key epoch`,
+  freshReason: (name) =>
+    `linear-mode plan ${name} is a NEW sequential milestone — git introduces it at or after the linear tracker-key epoch, so it cannot be a legacy plan`,
+  freshRemedy: (rel) =>
+    `mint the milestone through the decision front door (adapters/_shared/src/resolve_milestone_identity.ts), which creates or joins the Linear milestone, and rename ${rel} to the M_<6-hex> filename its identifier derives. If the plan genuinely predates the tracker-keyed path and git provenance is misleading — a re-created tree, a squashed import, or a SHALLOW CLONE (which answers the provenance query with its boundary commit rather than failing, so every legacy plan in it reads as new) — declare it with kind: legacy in the frontmatter instead`,
+  undecidableReason: (name) =>
+    `linear-mode plan ${name} has unreadable provenance — git cannot reach the commit that introduced it, so it can be neither cleared as a legacy sequential plan nor failed as a new one that should have been a tracker-minted M_<6-hex>`,
+};
+
+/**
+ * The provenance-to-row step, shared by every arm that dates sequential plans.
+ *
+ * `fresh` ⇒ an error row built from the arm's own expected shape and remedy;
+ * `undecidable` ⇒ the shared `undecidableProvenanceViolation` advisory, never
+ * silence; `legacy` and `exempt` ⇒ `null` — the upgrade-safety property each
+ * arm strikes on its own date. The caller scopes it to sequential tokens.
+ */
+function sequentialProvenanceViolation(
+  arm: SequentialProvenanceArm,
+  args: { projectRoot: string; file: string; rel: string; token: string; mode: string; content: string },
+): PlanIdentityModeViolation | null {
+  const { projectRoot, file, rel, token, mode, content } = args;
+  const provenance = classifyPlanProvenance(projectRoot, file, content, arm.epoch);
+  if (provenance === "fresh") {
+    const expected = arm.expected;
+    const actual = arm.freshActual(token);
+    return {
+      file,
+      line: 1,
+      expected,
+      actual,
+      severity: "error",
+      note: buildNote(file, 1, `expected ${expected}, actual ${actual}`, projectRoot),
+      message: buildMessage(arm.freshReason(basename(file)), arm.freshRemedy(rel), {
+        mode,
+        file: rel,
+        provenance,
+        epoch: arm.epoch,
+      }),
+    };
+  }
+  if (provenance === "undecidable") {
+    return undecidableProvenanceViolation({
+      projectRoot,
+      file,
+      rel,
+      token,
+      mode,
+      epoch: arm.epoch,
+      reason: arm.undecidableReason(basename(file)),
+    });
+  }
+  return null;
 }
 
 /**
@@ -758,67 +867,23 @@ export async function runPlanIdentityModeConditionalProbe(
         });
       }
 
-      // THE MODE STRING, NOT `isTracker`. See the header note: the boolean
-      // cannot express "jira but not linear", and the two modes disagree about
-      // whether a sequential `M<N>` plan is correct. Comparing the string is
-      // the only way the distinction lives in the CODE rather than in prose a
-      // future widening would read past.
+      // THE MODE STRING, NOT `isTracker`. Each provenance arm is opt-IN per
+      // named mode (`jira`, `linear`), so an unknown tracker string falls
+      // through to id-absence only and is never policed by a rule nobody
+      // wrote for it. Comparing the string keeps that in the CODE.
       //
       // Scoped to sequential tokens for the same reason the tracker-less arm
-      // is: an Epic-keyed `M_DST_49` is exactly what the Epic-first path
-      // DERIVES here, and a minted `M_<6-char>` never came from this producer —
-      // neither is the mis-naming this arm exists to catch, and skipping them
-      // also bounds the git cost to the plans that can actually fail.
+      // is: `M_<KEY>` / `M_<6-hex>` are exactly what the tracker paths DERIVE,
+      // so neither is the mis-naming this arm exists to catch, and skipping
+      // them also bounds the git cost to the plans that can actually fail.
       //
-      // Dated against `JIRA_EPIC_EPOCH`, never the tracker-less `MINT_EPOCH`:
-      // the two regimes began ten days apart and reusing the earlier instant
-      // would retroactively fail plans already committed under the old shape.
-      if (mode === "jira" && parseMilestoneToken(token)?.kind === "numeric") {
-        const provenance = classifyPlanProvenance(projectRoot, file, content, JIRA_EPIC_EPOCH);
-        if (provenance === "fresh") {
-          const expected = "an Epic-keyed M_<KEY> plan" as const;
-          const actual = `sequential ${token} introduced at or after the jira Epic epoch`;
-          violations.push({
-            file,
-            line: 1,
-            expected,
-            actual,
-            severity: "error",
-            note: buildNote(file, 1, `expected ${expected}, actual ${actual}`, projectRoot),
-            message: buildMessage(
-              `jira-mode plan ${basename(file)} is a NEW sequential milestone — git introduces it at or after the jira Epic epoch, so it cannot be a legacy plan`,
-              `create the milestone as a Jira Epic and rename ${rel} to the M_<KEY> filename that Epic derives. If the plan genuinely predates the Epic-first path and git provenance is misleading — a re-created tree, a squashed import, or a SHALLOW CLONE (which answers the provenance query with its boundary commit rather than failing, so every legacy plan in it reads as new) — declare it with kind: legacy in the frontmatter instead`,
-              { mode, file: rel, provenance, epoch: JIRA_EPIC_EPOCH },
-            ),
-          });
-        } else if (provenance === "undecidable") {
-          // Advisory, not a failure — the SAME bargain the tracker-less arm
-          // struck, and it must be struck again here rather than left to fall
-          // through as silence. The project IS a git repository but the
-          // introducing commit is unreachable, so the plan can be neither
-          // cleared as legacy nor failed as new. An error row would redden CI
-          // on a condition no rename fixes (the operator cannot un-sever an
-          // object store); dropping the row restores the blind spot the whole
-          // provenance design exists to close. `kind: legacy` is the only
-          // remedy fully under the operator's control, so the shared builder's
-          // prose names it rather than the Epic rename the `fresh` row asks
-          // for — that rename would be a real migration demanded on unreadable
-          // evidence, which is exactly why this row can be shared with the
-          // tracker-less arm while the `fresh` one above cannot.
-          violations.push(
-            undecidableProvenanceViolation({
-              projectRoot,
-              file,
-              rel,
-              token,
-              mode,
-              epoch: JIRA_EPIC_EPOCH,
-              reason: `jira-mode plan ${basename(file)} has unreadable provenance — git cannot reach the commit that introduced it, so it can be neither cleared as a legacy sequential plan nor failed as a new one that should have been an Epic-derived M_<KEY>`,
-            }),
-          );
-        }
-        // `legacy` and `exempt` produce nothing — the same upgrade-safety
-        // property the tracker-less arm buys, struck again on its own date.
+      // Each arm dates against its OWN epoch (`JIRA_EPIC_EPOCH`,
+      // `LINEAR_TRACKER_KEY_EPOCH`), never an earlier one: reusing an earlier
+      // instant would retroactively fail plans committed under the old shape.
+      const arm = mode === "jira" ? JIRA_PROVENANCE_ARM : mode === "linear" ? LINEAR_PROVENANCE_ARM : null;
+      if (arm !== null && parseMilestoneToken(token)?.kind === "numeric") {
+        const row = sequentialProvenanceViolation(arm, { projectRoot, file, rel, token, mode, content });
+        if (row !== null) violations.push(row);
       }
       continue;
     }
@@ -834,39 +899,8 @@ export async function runPlanIdentityModeConditionalProbe(
       // sequential `M<N>` plans are queried, which also bounds the git cost.
       if (parseMilestoneToken(token)?.kind !== "numeric") continue;
 
-      const provenance = classifyPlanProvenance(projectRoot, file, content);
-      if (provenance === "fresh") {
-        const expected = "a minted M_<6-char Crockford> plan" as const;
-        const actual = `sequential ${token} introduced at or after the mint epoch`;
-        violations.push({
-          file,
-          line: 1,
-          expected,
-          actual,
-          severity: "error",
-          note: buildNote(file, 1, `expected ${expected}, actual ${actual}`, projectRoot),
-          message: buildMessage(
-            `tracker-less plan ${basename(file)} is a NEW sequential milestone — git introduces it at or after the mint epoch, so it cannot be a legacy plan`,
-            `re-mint this milestone and rename ${rel} to the M_<6-char Crockford> filename its minted id derives, recording that id verbatim in the frontmatter. If the plan genuinely predates minting and git provenance is misleading (a re-created tree, a squashed import), declare it with kind: legacy in the frontmatter instead`,
-            { mode, file: rel, provenance, epoch: MINT_EPOCH },
-          ),
-        });
-      } else if (provenance === "undecidable") {
-        // Advisory, not a failure: the project IS a git repository but the
-        // introducing commit is unreachable. Failing would go red on plans the
-        // operator cannot fix; passing silently would restore the blind spot.
-        violations.push(
-          undecidableProvenanceViolation({
-            projectRoot,
-            file,
-            rel,
-            token,
-            mode,
-            epoch: MINT_EPOCH,
-            reason: `tracker-less plan ${basename(file)} has unreadable provenance — git cannot reach the commit that introduced it, so it can be neither cleared as legacy nor failed as new`,
-          }),
-        );
-      }
+      const row = sequentialProvenanceViolation(NONE_PROVENANCE_ARM, { projectRoot, file, rel, token, mode, content });
+      if (row !== null) violations.push(row);
       // `legacy` and `exempt` produce nothing — the upgrade-safety property.
       continue;
     }

@@ -84,8 +84,8 @@ minted calls the mint with `{ join: true }`. Its find leg compares titles after
 normalizing whitespace and case: exactly one match joins that milestone, two or
 more refuse and name every candidate with its identifier, and no match — or a
 provider carrying no `listMilestones` — refuses instead of creating. A join
-never creates. Without `{ join: true }` the same normalized match still joins,
-and only a genuine miss mints.
+never creates. The toolkit makes every other mint with the approved decision of
+`resolve_milestone_identity.ts` as `expect`, so it performs that act or refuses; only a bare mint with neither option still finds by title.
 
 The milestone KEEPS the human title — it is never renamed to the canonical form.
 That is deliberate and is why the binding above matches by KEY: once the identity
@@ -282,6 +282,7 @@ observed status; operators fix either by transitioning the ticket to
 
 Idempotent binding from a Linear issue to a project milestone named by the local plan-file milestone heading. What that heading's leading token *matches on* differs per arm — the identifier-keyed arm joins on the milestone's Linear identifier, never on its name (steps 2-4 below). Implemented by `attachProjectMilestone(provider, project, milestoneName, ticketId)` in `adapters/_shared/src/attach_project_milestone.ts`; called by `/implement` Phase 1 step 0.e when the adapter declares `project_milestone: true` (see frontmatter above). Procedure:
 
+0. **Read the ticket first** via `mcp__linear__get_issue(id=ticket_id)` (STE-611). When it is already bound to this milestone (`milestoneBindingPresent`), stop: no enumeration and no write. The steps below run only for an unbound ticket, and the container is found by `resolveAttachTarget` — the same find leg the attach front door runs before any create.
 1. List milestones in `project` via `mcp__linear__list_milestones`.
 2. **Numeric `M<N>` arm only** — if `milestone_name` is absent from the list, create it via `mcp__linear__save_milestone(project, name=milestone_name)`. On the identifier-keyed arm a token with no matching milestone is *refused* (`MilestoneObjectNotFoundError`), never created: a freshly minted milestone gets a fresh identifier that can never derive back to the token.
 3. Attach the ticket via `mcp__linear__save_issue(id=ticket_id, milestone=…)`. The tool schema documents this parameter as **"Milestone name or ID"** — both forms are accepted, and the arm decides which one is sent:

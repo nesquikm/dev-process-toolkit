@@ -34,7 +34,13 @@ import {
 } from "./deliver_argument";
 import { routeMilestone } from "./target_repo";
 import type { ResumeChainStep } from "./resume_classifier";
-import { classifyResume, resumeChain, stepLines } from "./resume_classifier";
+import {
+  classifyResume,
+  heldResumeAdvisory,
+  heldResumeRefusal,
+  resumeChain,
+  stepLines,
+} from "./resume_classifier";
 import { readOrchestrationConfig } from "./orchestration_config";
 import { runMergePolicy } from "./merge_policy_ratchet";
 import { classifyGate, relayRequired } from "./gate_class";
@@ -227,8 +233,9 @@ export interface DeliverDecisionInput {
 }
 
 /**
- * The one line a degraded naming decision rides on, and the only line in the
- * record that carries the word "advisory".
+ * The prefix of every advisory line appended after the record: a degraded
+ * naming decision, and (STE-609) the held-sibling reason an FR-scope chain
+ * stops at `/pr`.
  *
  * It opens with `#` rather than `advisory:` on purpose: every other line of the
  * record is `label: value`, and a ninth thing that parsed as a label would be
@@ -403,6 +410,7 @@ export async function decideDelivery(
 
   let state: string;
   let chain: readonly ResumeChainStep[];
+  let heldAdvisory: string | null = null;
   if (routing.fr === null) {
     const classification = await classifyResume(projectRoot, {
       scope: "milestone",
@@ -410,6 +418,11 @@ export async function decideDelivery(
     });
     state = classification.state;
     chain = resumeChain(classification, routed.route);
+    // A held sibling empties the chain: name that cause, not a missing field.
+    const held = classification.awaitingSiblings ?? [];
+    if (chain.length === 0 && held.length > 0) {
+      throw new DeliverDecisionError(heldResumeRefusal(routing.milestone, held));
+    }
   } else {
     const classification = await classifyResume(projectRoot, {
       scope: "fr",
@@ -418,6 +431,7 @@ export async function decideDelivery(
     });
     state = classification.state;
     chain = resumeChain(classification, routed.route);
+    heldAdvisory = heldResumeAdvisory(classification);
   }
 
   const configured = readOrchestrationConfig(projectRoot).mergePolicy;
@@ -446,7 +460,11 @@ export async function decideDelivery(
   // not a ninth field. Appended rather than logged, because the bytes returned
   // here are the bytes the confirm gate shows — an advisory printed anywhere
   // else is one the operator approving the gate never sees.
-  return remote.advisory === null ? record : `${record}\n${remote.advisory}`;
+  const advisories = [
+    ...(heldAdvisory === null ? [] : [`${ADVISORY_PREFIX}${heldAdvisory}`]),
+    ...(remote.advisory === null ? [] : [remote.advisory]),
+  ];
+  return [record, ...advisories].join("\n");
 }
 
 // Read-only CLI mirroring `active_plan_ship_ready.ts`: the delivery decision is

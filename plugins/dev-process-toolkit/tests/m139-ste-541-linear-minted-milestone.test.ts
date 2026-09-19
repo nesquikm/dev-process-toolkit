@@ -487,7 +487,11 @@ describe("AC-STE-541.2 — reachability comes from the front door, not from an i
 
     // DISCRIMINATING CONTROL (measured false on the authoring tree): a graph
     // that answered `true` for everything could not pass this pair.
-    expect(graph.hasEntryPoint(DISPATCHER_KEY)).toBe(false);
+    // Amended by AC-STE-608.12: the dispatcher gained its decision front door,
+    // so it now HAS an entry point (asserted), and the control moves to
+    // milestone_token.ts, which carries none.
+    expect(graph.hasEntryPoint(DISPATCHER_KEY)).toBe(true);
+    expect(graph.hasEntryPoint("adapters/_shared/src/milestone_token.ts")).toBe(false);
 
     // This FR removes the allocator's SOLE importer. Pinning the empty list
     // records that the front door — not an import — is what carries it.

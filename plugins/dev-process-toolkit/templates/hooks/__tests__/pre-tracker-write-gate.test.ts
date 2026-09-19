@@ -192,7 +192,46 @@ describe("STE-607 — pre-tracker-write-gate.sh: end-to-end via stdin payload", 
       if (prev === undefined) delete process.env.CLAUDE_CODE_SESSION_ID;
       else process.env.CLAUDE_CODE_SESSION_ID = prev;
     }
+    // Amended by AC-STE-611.3: in a declared repository an FR create also needs
+    // an attach-target receipt from the REAL attach front door. The plan is
+    // committed at HEAD (continuing work), so no milestone decision is needed.
+    mkdirSync(join(repo, "specs", "plan"), { recursive: true });
+    const plan = join(repo, "specs", "plan", "M_GF_85.md");
+    if (!existsSync(plan)) {
+      writeFileSync(plan, "---\nmilestone: M_GF_85\nstatus: active\narchived_at: null\n---\n\n## M_GF_85 — Payouts {#M_GF_85}\n");
+      git(repo, "add", "-A");
+      git(repo, "commit", "-q", "-m", "plan M_GF_85");
+    }
+    const listing = join(tmpRoot, "attach-listing.json");
+    writeFileSync(
+      listing,
+      JSON.stringify({
+        issues: [{ key: "GF-85", fields: { summary: "Payouts", project: { key: "GF" }, issuetype: { name: "Epic" }, status: { name: "In Progress", statusCategory: { key: "indeterminate" } }, labels: [] } }],
+        isLast: true,
+      }),
+    );
+    const attachModule = join(PLUGIN_ROOT, "adapters", "_shared", "src", "attach_project_milestone.ts");
+    const attach = Bun.spawnSync(["bun", "run", attachModule, repo, "jira", "GF", plan, listing], {
+      env: { ...process.env, CLAUDE_CODE_SESSION_ID: SESSION },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(attach.exitCode, attach.stderr.toString()).toBe(0);
     const transcript = writeTranscript([
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "toolu_611_shim_attach", name: "Bash", input: { command: `bun run "${attachModule}" ${repo} jira GF ${plan} ${listing}` } }],
+        },
+      },
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ tool_use_id: "toolu_611_shim_attach", type: "tool_result", content: attach.stdout.toString() }],
+        },
+      },
       {
         type: "assistant",
         message: {

@@ -204,7 +204,7 @@ function declareLinear(root: string, tag: string | null): void {
 
 /** A two-root fixture; `a` is the FE repository, `b` the BE one. */
 function withRoots<T>(body: (a: string, b: string) => T): T {
-  const fx = makeSpanFixture("M_GF_40");
+  const fx = makeSpanFixture("M_GF_40", { repositories: false });
   try {
     return body(fx.a, fx.b);
   } finally {

@@ -489,6 +489,7 @@ describe("AC-STE-591.6 front door — REGRESSION PIN of shipped behaviour", () =
   test("a clear span prints exactly the Spans: row on stdout, exit 0", async () => {
     await withSpan(async (fx) => {
       fx.planA({ [A_NAME]: ".", [B_NAME]: relative(fx.a, fx.b) });
+      fx.planB({ [A_NAME]: relative(fx.b, fx.a), [B_NAME]: "." }); // Amended by AC-STE-609.10: B idle, not no-plan
       fx.archivedFr(fx.b, B_FR, MILESTONE);
       const door = frontDoor(fx.a, join(fx.a, "specs", "plan", `${MILESTONE}.md`), MILESTONE);
       expect(door.status, describeDoor(door)).toBe(0);
@@ -501,7 +502,8 @@ describe("AC-STE-591.6 front door — REGRESSION PIN of shipped behaviour", () =
       fx.planA({ [A_NAME]: ".", [B_NAME]: relative(fx.a, fx.b) });
       writeFileSync(
         join(fx.b, "specs", "plan", `${MILESTONE}.md`),
-        `---\nmilestone: ${MILESTONE}\nstatus: active\narchived_at: null\nshipped_in: v1.2.3\n---\n\n# ${MILESTONE}\n`,
+        // Amended by AC-STE-610.5: B names A back, or it is one-sided and holds the release.
+        `---\nmilestone: ${MILESTONE}\nstatus: active\narchived_at: null\nshipped_in: v1.2.3\nspans_repos:\n  ${A_NAME}: ${relative(fx.b, fx.a)}\n  ${B_NAME}: .\n---\n\n# ${MILESTONE}\n`,
       );
       fx.archivedFr(fx.b, B_FR, MILESTONE);
       const door = frontDoor(fx.a, join(fx.a, "specs", "plan", `${MILESTONE}.md`), MILESTONE);
@@ -511,11 +513,18 @@ describe("AC-STE-591.6 front door — REGRESSION PIN of shipped behaviour", () =
   }, 30_000);
 
   test("two siblings print two rows, one per sibling", async () => {
-    const c = mkdtempSync(join(tmpdir(), "dpt-span-c-"));
+    // Amended by AC-STE-609.10: both siblings are idle — git repositories that
+    // are toolkit-managed, bound to the same project, each holding a plan and a
+    // finished FR. A bare directory is `not-a-repository` and an empty sibling
+    // `no-plan`; either holds the release.
+    const cFx = makeSpanFixture(MILESTONE);
+    const c = cFx.a;
     try {
-      mkdirSync(join(c, "specs", "plan"), { recursive: true });
-      mkdirSync(join(c, "specs", "frs", "archive"), { recursive: true });
       await withSpan(async (fx) => {
+        fx.planB({ [A_NAME]: relative(fx.b, fx.a), [B_NAME]: "." });
+        fx.archivedFr(fx.b, B_FR, MILESTONE);
+        cFx.planA({ [A_NAME]: relative(c, fx.a), [C_NAME]: "." });
+        cFx.archivedFr(c, "STE-9403", MILESTONE);
         fx.planA({
           [A_NAME]: ".",
           [B_NAME]: relative(fx.a, fx.b),
@@ -528,7 +537,7 @@ describe("AC-STE-591.6 front door — REGRESSION PIN of shipped behaviour", () =
         );
       });
     } finally {
-      rmSync(c, { recursive: true, force: true });
+      cFx.cleanup(); // Amended by AC-STE-609.10
     }
   }, 30_000);
 
@@ -568,7 +577,10 @@ describe("AC-STE-591.7 — templates/spec-templates/plan.md.template's spanning 
 
   test("the comment keeps its shipped declaration example", () => {
     const comment = spanningComment();
-    expect(comment).toContain("spans_repos:\n        glacy-app-fe: .\n        glacy-app-be: ../glacy-app-be");
+    // Amended by AC-STE-610.7: the example is placeholders, so a verbatim paste cannot resolve to self.
+    expect(comment).toContain(
+      "spans_repos:\n        <this-repo-tag>: .\n        <sibling-repo-tag>: ../<sibling-directory>",
+    );
   });
 });
 
@@ -668,6 +680,9 @@ describe("Stage C hardening — /pr's refusal path, its plan path, and a remedy 
   test("C3 (behaviour): on a live plan, the archived path cannot be read and the live path is gated", async () => {
     await withSpan(async (fx) => {
       fx.planA({ [A_NAME]: ".", [B_NAME]: relative(fx.a, fx.b) });
+      // Amended by AC-STE-609.10: B idle (its plan and a finished FR), so the live path passes.
+      fx.planB({ [A_NAME]: relative(fx.b, fx.a), [B_NAME]: "." });
+      fx.archivedFr(fx.b, B_FR, MILESTONE);
       const archived = frontDoor(fx.a, join(fx.a, "specs", "plan", "archive", `${MILESTONE}.md`), MILESTONE);
       expect(archived.status, describeDoor(archived)).toBe(1);
       expect(archived.stderr, describeDoor(archived)).toMatch(/cannot read the plan file/);

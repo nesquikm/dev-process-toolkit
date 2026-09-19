@@ -868,7 +868,7 @@ describe("AC-STE-558.7 — the pin moved at most once, and only downward", () =>
     // PIN MOVE (M_947c79): moves recorded by LATER FRs are allowed beyond that
     // one, each only when its own rationale names an FR in LATER_MOVES — so an
     // extra entry nobody accounts for still reds this leg.
-    const LATER_MOVES = ["STE-602", "STE-603", "STE-605"];
+    const LATER_MOVES = ["STE-602", "STE-603", "STE-605", "STE-612"];
     const laterEntries = ORDERED_UNREACHABLE_PIN_LEDGER.filter((m) =>
       LATER_MOVES.some((fr) => m.rationale.includes(fr)),
     ).length;

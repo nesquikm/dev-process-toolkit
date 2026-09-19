@@ -558,8 +558,8 @@ minted calls the mint with `{ join: true }`. Its find leg compares titles
 after normalizing whitespace and case: exactly one match joins that Epic, two
 or more refuse and name every candidate with its key, and no match — or a
 provider carrying no `listEpics` — refuses instead of creating. A join never
-creates. Without `{ join: true }` the same normalized match still joins, and
-only a genuine miss mints.
+creates. The toolkit makes every other mint with the approved decision of
+`resolve_milestone_identity.ts` as `expect`, so it performs that act or refuses; only a bare mint with neither option still finds by title.
 
 The mint surfaces NO capability row: it is a step of its own, not an attach
 outcome, and the attach that follows FINDS the Epic and returns `capability:
@@ -575,9 +575,10 @@ label such a milestone carries is the one the mint writes on the Epic itself.
 A grandfathered NUMERIC `M<N>` milestone under this same binding deliberately
 DOES take the label surface on the ticket, because that is where the reader's
 own grandfather clause looks for it; see the numeric note below.
-Idempotency pre-check: when the issue's `parent` already equals the Epic's
-key the attach is a no-op — the parent is not rewritten and no second Epic
-is created.
+Idempotency pre-check: the issue is read FIRST, before any Epic is listed
+(STE-611). When its binding is already present the attach is a no-op, with
+no enumeration and no write, even when that parent Epic lives in another
+project (a legacy `GB-40` parent under a repository now bound to `GF`).
 
 **Read-back verify.** Re-read the issue (`getJiraIssue`) and assert
 `parent = <epic-key>`. A mismatch surfaces the canonical binding-mismatch

@@ -870,7 +870,13 @@ describe("AC-STE-481.4 — probe #73 no longer papers over an unconsumed scaffol
       );
       const report = await runPlanIdentityModeConditionalProbe(project.root);
       expect(report.mode).toBe("linear");
-      expect(report.violations.map((v) => v.note)).toEqual([]);
+      // Amended by AC-STE-608.15: `M2.md` is UNTRACKED, and under `mode: linear`
+      // an untracked sequential plan is now the new provenance arm's one error
+      // row. That row is not the rule this test is about; every OTHER rule —
+      // the scaffold co-presence and single-active-plan policing — stays silent.
+      const provenance = report.violations.filter((v) => v.expected === "a tracker-minted M_<6-hex> plan");
+      expect(provenance.map((v) => v.file)).toEqual([join(project.specsDir, "plan", "M2.md")]);
+      expect(report.violations.filter((v) => !provenance.includes(v)).map((v) => v.note)).toEqual([]);
     } finally {
       project.cleanup();
     }

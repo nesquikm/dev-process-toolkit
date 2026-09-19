@@ -65,8 +65,8 @@ const STE_580_SUITE = join(pluginRoot, STE_580_SUITE_REL);
 
 /** Measured: `body.split("\n").length`. The rewrite is in place. */
 const SPLIT_LINES = 358;
-/** Measured: sixteen `<dir>/<file>.ts` paths on line 177. */
-const MODULE_PATHS_ON_LINE_177 = 16;
+/** Measured: sixteen `<dir>/<file>.ts` paths on line 177; re-measured by AC-STE-608.11 at eighteen (its two decision front door commands). */
+const MODULE_PATHS_ON_LINE_177 = 18;
 /** Measured: STE tokens in the file, and across skills/**\/*.md. */
 const STE_TOKENS_IN_FILE = 54;
 const STE_TOKENS_IN_SKILLS_TREE = 245;
@@ -426,11 +426,13 @@ describe("AC-STE-592.6 — line 177 and adapters/jira.md agree", () => {
 // ===========================================================================
 
 describe("Stage C hardening — line 177 does not contradict itself about the joining repo's mint call", () => {
-  test("PRESENCE: the first post-tail sentence naming `mintMilestoneEpic` names the join call, and no 'never issues a second' claim remains", () => {
+  // Amended by AC-STE-608.11: the sentence making `{ join: true }` the joining
+  // repo's ONLY mint call is retired — the joining repo now decides through the
+  // decision front door and joins by key. Neither the old contradiction nor the
+  // retired sentence may come back.
+  test("the retired 'only `mintMilestoneEpic` call is the join call' sentence is gone, and no 'never issues a second' claim remains", () => {
     const tail = afterTail();
-    const sentence = sentences(tail).find((s) => s.includes("mintMilestoneEpic"));
-    expect(sentence, "no post-tail sentence names mintMilestoneEpic").toBeDefined();
-    expect(sentence!).toMatch(/\bjoin\b/i);
+    expect(tail).not.toMatch(/its only `mintMilestoneEpic` call is the join call/);
     expect(tail).not.toMatch(/never issues a second `mintMilestoneEpic` call/);
   });
 });
@@ -441,15 +443,15 @@ describe("Stage C hardening — line 177 does not contradict itself about the jo
 // ===========================================================================
 
 describe("BEHAVIOUR — mintMilestoneEpic returns { epicKey, milestoneId, labelled }", () => {
-  test("a plain mint returns exactly the three keys, with the label landed", async () => {
+  test("a plain mint returns exactly the four keys (outcome added by AC-STE-608.8), with the label landed", async () => {
     const { result } = await mintResult();
-    expect(Object.keys(result).sort()).toEqual(["epicKey", "labelled", "milestoneId"]);
-    expect(result).toEqual({ epicKey: EPIC_KEY, milestoneId: MILESTONE_ID, labelled: true });
+    expect(Object.keys(result).sort()).toEqual(["epicKey", "labelled", "milestoneId", "outcome"]);
+    expect(result).toEqual({ epicKey: EPIC_KEY, milestoneId: MILESTONE_ID, labelled: true, outcome: "created" });
   });
 
-  test("CONTROL: a provider with no addLabel still returns three keys, with labelled false", async () => {
+  test("CONTROL: a provider with no addLabel still returns the four keys, with labelled false", async () => {
     const { result, fake } = await mintResult({ withAddLabel: false });
-    expect(Object.keys(result).sort()).toEqual(["epicKey", "labelled", "milestoneId"]);
+    expect(Object.keys(result).sort()).toEqual(["epicKey", "labelled", "milestoneId", "outcome"]);
     expect(result.labelled, "labelled is a measured flag, not a constant").toBe(false);
     expect(fake.count("addLabel")).toBe(0);
   });
@@ -492,7 +494,7 @@ describe("BEHAVIOUR — the label is `milestone-M_<key>`, written after the id i
 describe("BEHAVIOUR — a label write that throws never fails the mint", () => {
   test("a throwing addLabel leaves the mint successful with labelled false, never retried", async () => {
     const { result, fake } = await mintResult({ addLabelThrows: true });
-    expect(result).toEqual({ epicKey: EPIC_KEY, milestoneId: MILESTONE_ID, labelled: false });
+    expect(result).toEqual({ epicKey: EPIC_KEY, milestoneId: MILESTONE_ID, labelled: false, outcome: "created" });
     expect(fake.count("addLabel"), "tried once").toBe(1);
     expect(fake.count("createEpic"), "no second Epic").toBe(1);
     expect(fake.sleeps, "zero backoff: the label write sits outside the retry").toEqual([]);
@@ -585,7 +587,7 @@ describe("AC-STE-592.4 — no new STE token, no new module path, no raised pin (
     expect(total).toBe(STE_TOKENS_IN_SKILLS_TREE);
   });
 
-  test("line 177 carries exactly 16 module paths", () => {
+  test("line 177 carries exactly 18 module paths (re-measured by AC-STE-608.11)", () => {
     expect((line177().match(MODULE_PATH_RE) ?? []).length).toBe(MODULE_PATHS_ON_LINE_177);
   });
 
@@ -605,22 +607,57 @@ describe("AC-STE-592.4 — no new STE token, no new module path, no raised pin (
 // ===========================================================================
 
 describe("AC-STE-592.5 — the STE-580 suite stays green, its constants unedited (STRUCTURAL)", () => {
-  test("the suite is unedited against main", () => {
+  // Amended by AC-STE-608.11: the STE-580 suite carries ONE named amendment —
+  // its "NEVER by name" pin encoded a sentence STE-608 retires. Every line the
+  // diff against main removes must belong to that one test, and every added
+  // line must sit inside the amended test, so no other edit rides along.
+  test("the suite is unedited against main, except the one AC-STE-608.11 amendment", () => {
     const git = (args: string[]) => Bun.spawnSync(["git", ...args], { cwd: pluginRoot });
     expect(git(["rev-parse", "--verify", "--quiet", "main"]).exitCode, "control: main resolves").toBe(0);
     expect(
       git(["cat-file", "-e", `main:plugins/dev-process-toolkit/${STE_580_SUITE_REL}`]).exitCode,
       "control: the suite exists on main, so the diff below is not against nothing",
     ).toBe(0);
-    const diff = git(["diff", "--quiet", "main", "--", STE_580_SUITE_REL]);
-    expect(diff.exitCode, "exit 0 = no difference; exit 1 = edited").toBe(0);
+    const diff = git(["diff", "-U0", "main", "--", STE_580_SUITE_REL]).stdout.toString();
+    const removed = diff.split("\n").filter((l) => l.startsWith("-") && !l.startsWith("---")).map((l) => l.slice(1));
+    const added = diff.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++")).map((l) => l.slice(1));
+    const RETIRED_TEST = [
+      '  test("the clause says the join is NEVER by name", () => {',
+      "    const clause = appendedClause();",
+      "    expect(",
+      "      clause,",
+      '      "five of this project\'s milestones carry a renamed form while the most recent " +',
+      '        "carries the bare title the mint writes — names are unsafe to join on",',
+      "    ).toMatch(/(never|not|no)\\b[^.]{0,80}\\bby (the )?(name|summary|title)/i);",
+      "  });",
+    ];
+    // Also amended by AC-STE-608.11: its two decision front door commands add
+    // two module paths to line 177, so the ONE path-count constant (and the
+    // test that names it) is re-measured, as that AC allows. Nothing else moves.
+    const REMEASURED = [
+      "/** Measured at HEAD: sixteen `<dir>/<file>.ts` paths already on line 177. */",
+      "const MODULE_PATHS_ON_LINE_177_AT_HEAD = 16;",
+      "  test(\"line 177's module-path count is unmoved at 16\", () => {",
+      "      \"the append must not add a seventeenth module path, and must not delete one either\",",
+      // Re-measured by AC-STE-611.2: the known-positive `listEpics` control count.
+      "      `${ATTACH_HELPER_REL} carries 7 \\`listEpics\\` lines at HEAD — if this is not 7, the ` +",
+      "    ).toBe(7);",
+    ];
+    for (const l of removed) {
+      expect([...RETIRED_TEST, ...REMEASURED], `an unexpected removal: ${JSON.stringify(l)}`).toContain(l);
+    }
+    expect(added.join("\n")).toContain("Amended by AC-STE-608.11");
+    expect(
+      added.filter((l) => /const [A-Z0-9_]+ = /.test(l)),
+      "no constant is added or rewritten, except the re-measured path count",
+    ).toEqual(["const MODULE_PATHS_ON_LINE_177_AT_HEAD = 18;"]);
   });
 
   test("the suite's constants are still the ones it shipped with", () => {
     const body = read(STE_580_SUITE);
     expect(body).toContain("const SPLIT_LINES_AT_HEAD = 358;");
     expect(body).toContain("const LINE_177_LEN_AT_HEAD = 9675;");
-    expect(body).toContain("const MODULE_PATHS_ON_LINE_177_AT_HEAD = 16;");
+    expect(body).toContain("const MODULE_PATHS_ON_LINE_177_AT_HEAD = 18;");
     expect(body).toContain(`const HEAD_TAIL = "${STE_580_TAIL}";`);
   });
 

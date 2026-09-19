@@ -153,6 +153,7 @@ async function answer(root: string): Promise<StateAnswer> {
 const siblingBusy = (): Promise<StateAnswer> =>
   withFixture(async (fx) => {
     fx.planA({ [A_NAME]: ".", [B_NAME]: fx.b });
+    fx.planB({ [A_NAME]: fx.a, [B_NAME]: "." }); // Amended by AC-STE-609.10: B holds its plan
     fx.archivedFr(fx.a, A_FR, MILESTONE);
     fx.activeFr(fx.b, B_FR, MILESTONE);
     return answer(fx.a);
@@ -162,6 +163,9 @@ const siblingBusy = (): Promise<StateAnswer> =>
 const siblingClear = (): Promise<StateAnswer> =>
   withFixture(async (fx) => {
     fx.planA({ [A_NAME]: ".", [B_NAME]: fx.b });
+    // Amended by AC-STE-609.10: B holds its own plan, so with its FR archived it
+    // is `idle`; a sibling with no plan is `no-plan` and holds the release.
+    fx.planB({ [A_NAME]: fx.a, [B_NAME]: "." });
     fx.archivedFr(fx.a, A_FR, MILESTONE);
     fx.archivedFr(fx.b, B_FR, MILESTONE);
     return answer(fx.a);
@@ -215,9 +219,10 @@ describe("AC-STE-587.2 — five states give five answers on shipReadyMilestones(
     expect(spanNotes(clear.notes)).toEqual([]);
   });
 
-  test("sibling-unlocatable → [\"M_GF_78\"] plus a sibling-unlocatable note naming the sibling", async () => {
+  // Amended by AC-STE-609.6: an unlocatable sibling holds the milestone.
+  test("sibling-unlocatable → [] plus a sibling-unlocatable note naming the sibling", async () => {
     const unloc = await siblingUnlocatable();
-    expect(unloc.ready).toEqual([MILESTONE]);
+    expect(unloc.ready).toEqual([]);
     const row = unloc.notes.find((n) => n.startsWith(SIBLING_UNLOCATABLE_PREFIX));
     expect(row).toBeDefined();
     expect(row!).toContain(MILESTONE);
@@ -254,10 +259,9 @@ describe("AC-STE-587.2 — five states give five answers on shipReadyMilestones(
     expect(unloc.notes).not.toEqual(clear.notes);
     // The declaration is what makes B count: same busy tree, no key → ready.
     expect(undeclared.ready).not.toEqual(busy.ready);
-    // The unlocatable row is the ONLY thing separating it from clear.
-    expect(unloc.notes.filter((n) => !n.startsWith(SIBLING_UNLOCATABLE_PREFIX))).toEqual(
-      clear.notes,
-    );
+    // Amended by AC-STE-609.6: an unlocatable sibling is no longer ship-ready, so
+    // the ready answer separates it from clear, not only its row.
+    expect(unloc.ready).not.toEqual(clear.ready);
   });
 });
 

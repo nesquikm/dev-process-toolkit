@@ -40,11 +40,17 @@ const DELIVER_SKILL = join(pluginRoot, "skills", "deliver", "SKILL.md");
 const DELIVER_REF = join(pluginRoot, "docs", "deliver-reference.md");
 const IMPLEMENT_SKILL = join(pluginRoot, "skills", "implement", "SKILL.md");
 
-const ENTRY_RE = /^M_GF_78 \(glacy-app-be: 1 active FRs?\)$/;
+// Amended by AC-STE-609.6: an entry renders `<token> (<sibling>: <state>)`.
+const ENTRY_RE = /^M_GF_78 \(glacy-app-be: busy\)$/;
 
 /** Root A holds the last local active FR; root B's state is set per test. */
 function lastLocalFr(f: SpanFixture, spans: "declared" | "undeclared" | "unlocatable"): void {
-  if (spans === "declared") f.planA({ "glacy-app-fe": ".", "glacy-app-be": f.b });
+  if (spans === "declared") {
+    f.planA({ "glacy-app-fe": ".", "glacy-app-be": f.b });
+    // Amended by AC-STE-609.10: B holds its own plan, so it is `busy` or `idle`
+    // by its FRs alone — a sibling with no plan is `no-plan` and holds the release.
+    f.planB({ "glacy-app-fe": f.a, "glacy-app-be": "." });
+  }
   else if (spans === "unlocatable")
     f.planA({ "glacy-app-fe": ".", "glacy-app-be": join(f.b, "no-such-repo") });
   else f.planA({});
@@ -122,12 +128,16 @@ describe("controls: the ship tail survives every state that is not a busy siblin
     });
   });
 
-  test("unlocatable: a sibling that cannot be found does not block the local verdict", async () => {
+  // Amended by AC-STE-609.6: an unlocatable sibling is not idle, so the last
+  // local FR does not close the milestone — the chain stops at /pr.
+  test("unlocatable: a sibling that cannot be found holds the ship tail back", async () => {
     await withFixture(async (f) => {
       lastLocalFr(f, "unlocatable");
       const c = await frClassify(f);
-      expect(c.awaitingSiblings ?? []).toEqual([]);
-      expect(skills(c)).toContain("/ship-milestone");
+      // Amended by AC-STE-609.6
+      expect(c.awaitingSiblings ?? []).toHaveLength(1);
+      expect((c.awaitingSiblings ?? [])[0]).toContain("glacy-app-be");
+      expect(skills(c)).toEqual(["/implement", "/pr"]);
     });
   });
 

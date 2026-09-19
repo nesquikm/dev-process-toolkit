@@ -569,10 +569,11 @@ describe("AC-STE-583.9 — spans_repos.ts reuses the shipped homes", () => {
     expect(importedFrom(read(MODULE), "./frontmatter")).toContain("parseFrontmatter");
   });
 
-  test("imports defaultRepoProbe and sameRepo from ./target_repo", () => {
+  // Amended by AC-STE-609.1: the self flag is decided by `sameRepository`.
+  test("imports defaultRepoProbe and sameRepository from ./target_repo", () => {
     const names = importedFrom(read(MODULE), "./target_repo");
     expect(names).toContain("defaultRepoProbe");
-    expect(names).toContain("sameRepo");
+    expect(names).toContain("sameRepository");
   });
 
   test("imports milestoneFrBinding from ./active_plan_ship_ready", () => {

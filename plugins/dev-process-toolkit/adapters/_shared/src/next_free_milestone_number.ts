@@ -39,6 +39,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { NUMERIC_MILESTONE_NUMBER_SOURCE } from "./milestone_token";
+import { readTaskTrackingSection } from "./resolver_config";
 
 export interface MilestoneAvailability {
   next: number;
@@ -211,23 +212,61 @@ if (import.meta.main) {
     );
     process.exitCode = 1;
   } else {
-    const typed = Number(typedNumber);
-    const availability = await nextFreeMilestoneNumber(
-      specsDir,
-      join(specsDir, "..", "CHANGELOG.md"),
-    );
-    const refusal = explicitMilestoneCollisionRefusal(typed, availability);
-    if (refusal !== null) {
-      console.error(refusal);
+    // STE-608 AC-STE-608.13 — a NEW numeric milestone is refused in tracker
+    // mode: its identity comes from the tracker, through the decision front
+    // door. The mode is read from the CLAUDE.md beside <specsDir>; a file that
+    // cannot be read, or a `mode:` that is none of the three, refuses rather
+    // than falling through to `mode: none`. A missing file or section is
+    // `mode: none`, as everywhere else `readTaskTrackingSection` is used.
+    const claudeMdPath = join(specsDir, "..", "CLAUDE.md");
+    const typedId = `M${typedNumber}`;
+    let mode: string | undefined;
+    let modeRefusal: string | null = null;
+    try {
+      mode = readTaskTrackingSection(claudeMdPath)["mode"];
+    } catch (e) {
+      modeRefusal = [
+        `Refusing: to check typed milestone ${typedId} — the CLAUDE.md beside the specs directory could not be read, so the tracker mode is unknown.`,
+        `Remedy: make ${claudeMdPath} a readable file declaring \`## Task Tracking\` → \`mode:\`, then re-run.`,
+        `Context: mode=milestone-number-allocation, phase=explicit-M-token-check, typed=${typedId}, claude_md=${claudeMdPath}, error=${e instanceof Error ? e.message : String(e)}`,
+      ].join("\n");
+    }
+    if (modeRefusal === null && mode !== undefined && mode !== "none" && mode !== "jira" && mode !== "linear") {
+      modeRefusal = [
+        `Refusing: to check typed milestone ${typedId} — \`## Task Tracking\` declares a malformed mode ${JSON.stringify(mode)}; expected none, jira or linear.`,
+        `Remedy: set \`mode:\` in ${claudeMdPath} to one of none, jira, linear, then re-run.`,
+        `Context: mode=milestone-number-allocation, phase=explicit-M-token-check, typed=${typedId}, tracker_mode=${JSON.stringify(mode)}`,
+      ].join("\n");
+    }
+    if (modeRefusal === null && (mode === "jira" || mode === "linear")) {
+      modeRefusal = [
+        `Refusing: typed milestone ${typedId} under mode: ${mode} — a new numeric milestone is not minted in tracker mode; its identity comes from the tracker.`,
+        `Remedy: run the decision front door \`bun run adapters/_shared/src/resolve_milestone_identity.ts\` to mint (or join) the milestone through the ${mode} tracker instead of typing an M<N>.`,
+        `Context: mode=milestone-number-allocation, phase=explicit-M-token-check, typed=${typedId}, tracker_mode=${mode}`,
+      ].join("\n");
+    }
+    if (modeRefusal !== null) {
+      console.error(modeRefusal);
       process.exitCode = 1;
     } else {
-      console.log(`typed=M${typed}`);
-      console.log("verdict=free");
-      console.log(`next-free=M${availability.next}`);
-      // The SAME renderer the refusal uses, so the free verdict and the
-      // refused one can never disagree about what the scan saw.
-      for (const line of renderMilestoneSourceBreakdown(availability.sources)) {
-        console.log(line);
+      const typed = Number(typedNumber);
+      const availability = await nextFreeMilestoneNumber(
+        specsDir,
+        join(specsDir, "..", "CHANGELOG.md"),
+      );
+      const refusal = explicitMilestoneCollisionRefusal(typed, availability);
+      if (refusal !== null) {
+        console.error(refusal);
+        process.exitCode = 1;
+      } else {
+        console.log(`typed=M${typed}`);
+        console.log("verdict=free");
+        console.log(`next-free=M${availability.next}`);
+        // The SAME renderer the refusal uses, so the free verdict and the
+        // refused one can never disagree about what the scan saw.
+        for (const line of renderMilestoneSourceBreakdown(availability.sources)) {
+          console.log(line);
+        }
       }
     }
   }
