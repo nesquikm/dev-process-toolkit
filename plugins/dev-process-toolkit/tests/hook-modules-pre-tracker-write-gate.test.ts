@@ -2759,6 +2759,18 @@ interface Resolved {
   receipt: string;
 }
 
+/**
+ * AC-STE-610.4: in a shared repository a join names its sibling, and the
+ * sibling must hold a plan for the milestone. FE gets one, so BE's join can
+ * pass `--sibling <FE>`; returns FE's root for that flag.
+ */
+function siblingWithPlan(w: World, milestone = "M_GF_85"): string {
+  const dir = join(w.fe, "specs", "plan");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${milestone}.md`), `---\nmilestone: ${milestone}\nstatus: active\narchived_at: null\n---\n\n# ${milestone}\n`);
+  return w.fe;
+}
+
 /** Spawn the REAL decision front door; `session` defaults to this suite's. */
 function realResolve(root: string, argv: string[], scratch: string, listing: unknown, session = SESSION): Resolved {
   const listingPath = join(scratch, `listing-${Math.random().toString(36).slice(2)}.json`);
@@ -2814,7 +2826,8 @@ describe("AC-STE-608.10 (a) — an Epic create needs a create decision for the s
     const create = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
     const drift = new Session();
     drift.bash(create.command, create.out);
-    const join_ = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, { issues: [epicRow("GF-85", "BE Payouts")], isLast: true });
+    // Amended by AC-STE-610.4: a shared join names its sibling.
+    const join_ = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts", "--sibling", siblingWithPlan(w)], w.scratch, { issues: [epicRow("GF-85", "BE Payouts")], isLast: true });
     const joined = new Session();
     joined.bash(join_.command, join_.out);
     const nex = realResolve(w.be, ["jira", "NEX", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
@@ -2927,7 +2940,8 @@ describe("AC-STE-608.10 (c) — save_project", () => {
 describe("AC-STE-608.10 (d) — a label write on a joined Epic is a read-merge", () => {
   test("permit: labels keep every listed label plus the milestone label → exit 0; forbid: the SET that clobbers → exit 2", async () => {
     const w = makeWorld();
-    const d = realResolve(w.be, ["jira", "GF", "--join-key", "GF-85"], w.scratch, { issues: [epicRow("GF-85", "Payouts", ["team-x"])], isLast: true });
+    // Amended by AC-STE-610.4: a shared join names its sibling.
+    const d = realResolve(w.be, ["jira", "GF", "--join-key", "GF-85", "--sibling", siblingWithPlan(w)], w.scratch, { issues: [epicRow("GF-85", "Payouts", ["team-x"])], isLast: true });
     const s = new Session();
     s.bash(d.command, d.out);
     const transcript = s.save(w.scratch);

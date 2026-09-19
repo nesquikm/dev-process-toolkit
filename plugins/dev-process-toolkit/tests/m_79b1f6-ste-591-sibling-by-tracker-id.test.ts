@@ -502,7 +502,8 @@ describe("AC-STE-591.6 front door — REGRESSION PIN of shipped behaviour", () =
       fx.planA({ [A_NAME]: ".", [B_NAME]: relative(fx.a, fx.b) });
       writeFileSync(
         join(fx.b, "specs", "plan", `${MILESTONE}.md`),
-        `---\nmilestone: ${MILESTONE}\nstatus: active\narchived_at: null\nshipped_in: v1.2.3\n---\n\n# ${MILESTONE}\n`,
+        // Amended by AC-STE-610.5: B names A back, or it is one-sided and holds the release.
+        `---\nmilestone: ${MILESTONE}\nstatus: active\narchived_at: null\nshipped_in: v1.2.3\nspans_repos:\n  ${A_NAME}: ${relative(fx.b, fx.a)}\n  ${B_NAME}: .\n---\n\n# ${MILESTONE}\n`,
       );
       fx.archivedFr(fx.b, B_FR, MILESTONE);
       const door = frontDoor(fx.a, join(fx.a, "specs", "plan", `${MILESTONE}.md`), MILESTONE);
@@ -576,7 +577,10 @@ describe("AC-STE-591.7 — templates/spec-templates/plan.md.template's spanning 
 
   test("the comment keeps its shipped declaration example", () => {
     const comment = spanningComment();
-    expect(comment).toContain("spans_repos:\n        glacy-app-fe: .\n        glacy-app-be: ../glacy-app-be");
+    // Amended by AC-STE-610.7: the example is placeholders, so a verbatim paste cannot resolve to self.
+    expect(comment).toContain(
+      "spans_repos:\n        <this-repo-tag>: .\n        <sibling-repo-tag>: ../<sibling-directory>",
+    );
   });
 });
 

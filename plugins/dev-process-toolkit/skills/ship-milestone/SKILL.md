@@ -28,7 +28,7 @@ Unshipped archived milestone M<N> — ship it? [y/N]
 - `y` / `yes` (case-insensitive) — proceed with that milestone exactly as if `/ship-milestone M<N>` had been invoked; resolution takes the archive-fallback leg of Flow step 1.
 - **Decline** (anything else, default `N`) — move to the next candidate; once candidates are exhausted (or none existed), emit today's refusal text and exit code byte-identically — the offer changes nothing about the declined path.
 
-Before offering a candidate, run the sibling release gate on it: `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/sibling_release.ts <projectRoot> specs/plan/archive/M<N>.md M<N>`. Exit 0 ⇒ offer it. A candidate the gate refuses (exit 1) is not offered; name every such candidate on one held line, `Held by sibling gate: M<N>[, M<N>…]`, printed once before the first prompt (or before the refusal when all are held), so the omission is never silent.
+Before offering a candidate, run the sibling release gate on it: `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/sibling_release.ts <projectRoot> specs/plan/archive/M<N>.md M<N> --offer`. Exit 0 ⇒ offer it. A candidate the gate refuses (exit 1) is not offered; name every such candidate on one held line, `Held by sibling gate: M<N>[, M<N>…]`, printed once before the first prompt (or before the refusal when all are held), so the omission is never silent.
 
 ## Pre-flight refusals
 
@@ -88,7 +88,7 @@ Any of these fire before any file write and exit non-zero with an NFR-10-shape m
 
    **Keep that run's parsed `TestCount`.** It is the measured side of both the CHANGELOG closing line (step 4) and the write-boundary check that grades it — the same run, parsed once. Never run the gate a second time to measure the count: a second run costs the whole ceremony's wall time again to re-derive a number this one already produced, and two runs can disagree.
 
-4. **Sibling not provably idle**. A plan that declares `spans_repos:` has a copy in each sibling repository it names; refuse unless every declared sibling is provably `idle` — located, a git repository, toolkit-managed, bound to this repository's tracker project, holding the `M<N>` plan and at least one FR bound to it, with no active one in any worktree, local branch or remote-tracking ref. Run `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/sibling_release.ts <projectRoot> <planFile> <milestone> [--partial]`: exit 1 ⇒ refuse with its stderr verbatim; exit 0 ⇒ its stdout lines are the `Spans:` footer.
+4. **Sibling not provably idle**. A plan that declares `spans_repos:` has a copy in each sibling repository it names; refuse unless every declared sibling is provably `idle` — located, a git repository, toolkit-managed, bound to this repository's tracker project, holding the `M<N>` plan and at least one FR bound to it, with no active one in any worktree, local branch or remote-tracking ref. Run `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/sibling_release.ts <projectRoot> <planFile> <milestone> [--partial] [--children <listingFile>]`, `--children` required only in a repository declaring a shared container (`repo_tag`), `<listingFile>` the milestone's children as the tracker returns them (Jira: the milestone Epic's child issues; Linear: the project's issues): exit 1 ⇒ refuse with its stderr verbatim; exit 0 ⇒ its stdout lines are the `Spans:` footer.
 
    ```
    /ship-milestone: M<N> spans a sibling that still holds active work — <sibling> is busy: <count> active FRs (<id> in <source>; …)
@@ -96,7 +96,7 @@ Any of these fire before any file write and exit non-zero with an NFR-10-shape m
    Context: milestone=M<N>, sibling=<sibling>, state=busy, skill=ship-milestone
    ```
 
-   The predicate is the sibling's state — idle or not — never "the sibling has not shipped": two repositories that each waited for the other to ship would deadlock, and neither could ever release. `--partial` is the only escape — it ships this repository's half and leaves the sibling's pending; on a plan that declares no sibling it refuses, since there is no second half. Every other state refuses the same way, naming the sibling, its state and a remedy of its own: `busy`, `not-started`, `no-plan`, `unlocatable`, `not-a-repository`, `not-toolkit-managed`, `different-container` and `unreadable` — a sibling the gate cannot read is never taken for idle. Under `--partial` every state ships, and an `unlocatable` sibling still prints one `not checked` line on stderr; probe #63 grades it after the release.
+   The predicate is the sibling's state — idle or not — never "the sibling has not shipped": two repositories that each waited for the other to ship would deadlock, and neither could ever release. `--partial` is the only escape — it ships this repository's half and leaves the sibling's pending; on a plan that declares no sibling it refuses, since there is no second half. Every other state refuses the same way, naming the sibling, its state and a remedy of its own: `busy`, `not-started`, `no-plan`, `one-sided`, `unlocatable`, `not-a-repository`, `not-toolkit-managed`, `different-container` and `unreadable` — a sibling the gate cannot read is never taken for idle. Under `--partial` every state ships, and an `unlocatable` sibling still prints one `not checked` line on stderr; probe #63 grades it after the release.
 
 ## Flow
 

@@ -336,10 +336,12 @@ describe("AC-STE-608.6 — gate= names the act, default= follows the binding", (
 
   test("shared title-join forbidden; unshared title-join allowed; shared create allowed", () => {
     const joinable = () => writeListing({ issues: [epic("GF-85", "Payouts", { labels: [] })], isLast: true });
+    // Amended by AC-STE-610.4: a shared join now names its sibling. Without
+    // `--sibling` it refuses before any default is printed; the forbidden
+    // default itself stays graded in process (milestoneAllocationGateSpec) and,
+    // with `--sibling`, in the STE-610 join-sibling suite.
     const shared = jiraRoot("shared");
-    const sharedJoin = ok(runDoor([shared, "jira", "GF", joinable(), "--title", "Payouts"]));
-    expect(sharedJoin.get("act")).toBe("join");
-    expect(sharedJoin.get("default")).toBe("forbidden");
+    expectRefusal(runDoor([shared, "jira", "GF", joinable(), "--title", "Payouts"]), shared, "--sibling");
 
     const unshared = jiraRoot("unshared");
     const unsharedJoin = ok(runDoor([unshared, "jira", "GF", joinable(), "--title", "Payouts"]));
@@ -350,8 +352,8 @@ describe("AC-STE-608.6 — gate= names the act, default= follows the binding", (
     expect(sharedCreate.get("act")).toBe("create");
     expect(sharedCreate.get("default")).toBe("allowed");
 
-    const sharedLinearJoin = ok(runDoor([linearRoot("shared"), "linear", "DPT", writeListing({ milestones: [{ id: UUID_A, name: "Payouts" }] }), "--title", "Payouts"]));
-    expect(sharedLinearJoin.get("default")).toBe("forbidden");
+    const sharedLinear = linearRoot("shared");
+    expectRefusal(runDoor([sharedLinear, "linear", "DPT", writeListing({ milestones: [{ id: UUID_A, name: "Payouts" }] }), "--title", "Payouts"]), sharedLinear, "--sibling");
   });
 });
 

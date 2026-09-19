@@ -34,11 +34,13 @@ migration: none  # literal `none` (no consumer migration), or a migration-regist
 <!--
   Optional cross-repo key: `spans_repos` declares that one milestone's work also lives in a
   sibling repo. It is a nested map of repo name to path, relative to this repo's root, added to
-  the frontmatter above only when the milestone genuinely spans repos:
+  the frontmatter above only when the milestone genuinely spans repos. Write it with the
+  `--declare` command rather than by hand — `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/spans_repos.ts
+  <planFile> <milestone> --declare <siblingPath>` — which declares the span in both plans:
 
       spans_repos:
-        glacy-app-fe: .
-        glacy-app-be: ../glacy-app-be
+        <this-repo-tag>: .
+        <sibling-repo-tag>: ../<sibling-directory>
 
   A list, or an empty map, is refused loudly rather than read as "no other repos". Like `id:` and
   `kind:`, `spans_repos` is documented here and never scaffolded: a placeholder value shipped as

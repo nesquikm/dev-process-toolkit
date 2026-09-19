@@ -21,7 +21,7 @@ Before Step 1, check whether this branch archives a milestone without carrying i
 
 1. **Detect archive moves (tree-based).** Run `git diff main...HEAD --name-status` and look for paths added or renamed under `specs/plan/archive/` or `specs/frs/archive/`. Detection is over the merged tree, not commit messages — a squashed or reordered history cannot hide the move.
 2. **Check for a release marker.** Run `git log main..HEAD --oneline` and look for a `chore(release):` commit. If one is present, the release already rides this branch — suppress the prompt and proceed.
-3. **Prompt only when both hold** (archive moves present, no release marker). First run the sibling release gate on each affected milestone's archived plan: `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/sibling_release.ts <projectRoot> <planFile> M<N>`, `<planFile>` being `specs/plan/archive/M<N>.md` once archived, else `specs/plan/M<N>.md`. Then print the affected milestone(s) and prompt exactly:
+3. **Prompt only when both hold** (archive moves present, no release marker). First run the sibling release gate on each affected milestone's archived plan: `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/sibling_release.ts <projectRoot> <planFile> M<N> --offer`, `<planFile>` being `specs/plan/archive/M<N>.md` once archived, else `specs/plan/M<N>.md`. Then print the affected milestone(s) and prompt exactly:
 
    ```
    Milestone archive detected on this branch, but no release commit.
