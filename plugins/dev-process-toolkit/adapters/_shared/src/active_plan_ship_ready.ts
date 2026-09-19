@@ -33,7 +33,8 @@ import { normalizeFrontmatterSource } from "./frontmatter";
 import { SpansReposError, resolveSpansRepos } from "./spans_repos";
 import { readTaskTrackingSection } from "./resolver_config";
 import { isToolkitManaged } from "./toolkit_managed";
-import { parseWorktreePorcelain, runGit } from "./target_repo";
+import { parseWorktreePorcelain, runGit, sameRepository } from "./target_repo";
+import { trackerIdsOf } from "./reconcile_tracker_local";
 import { oneLine } from "./tracker_receipts";
 import {
   type WorkspaceAdapterKey,
@@ -87,6 +88,8 @@ interface FrBindingRow {
   id: string;
   /** The trimmed `milestone:` value, or null when the key is absent. */
   milestone: string | null;
+  /** The tracker keys its `tracker:` frontmatter binds (read by `readFrDir` only). */
+  trackerIds?: string[];
 }
 
 /**
@@ -108,6 +111,7 @@ async function readFrDir(dir: string): Promise<FrBindingRow[]> {
     rows.push({
       id: basename(file, ".md"),
       milestone: scanFrontmatterField(content, "milestone"),
+      trackerIds: trackerIdsOf(content),
     });
   }
   return rows;
@@ -377,7 +381,7 @@ export async function readSiblingFrsFromGit(
 }
 
 /** The two repo-relative paths a plan for `milestone` can live at: live, then archived. */
-function planRelPaths(milestone: string): string[] {
+export function planRelPaths(milestone: string): string[] {
   return [`specs/plan/${milestone}.md`, `specs/plan/archive/${milestone}.md`];
 }
 
@@ -480,7 +484,8 @@ export interface DeclaredSibling {
 /**
  * The closed sibling-state set (STE-609). A located sibling is `idle` only
  * when it is a git repository, is toolkit-managed, binds the same tracker
- * project as this repository (tracker modes), holds a plan for the milestone,
+ * project as this repository (tracker modes), holds a plan for the milestone
+ * whose `spans_repos:` names this repository back (else `one-sided`, STE-610),
  * has at least one FR bound to the milestone, and has no active one.
  */
 export type SiblingStateName =
@@ -492,10 +497,11 @@ export type SiblingStateName =
   | "not-a-repository"
   | "not-toolkit-managed"
   | "different-container"
-  | "unreadable";
+  | "unreadable"
+  | "one-sided";
 
 /** The tracker adapter key `root`'s CLAUDE.md declares, or null (mode none / absent). */
-function trackerAdapterKey(root: string): WorkspaceAdapterKey | null {
+export function trackerAdapterKey(root: string): WorkspaceAdapterKey | null {
   const mode = readTaskTrackingSection(join(root, "CLAUDE.md")).mode;
   return mode === "linear" || mode === "jira" ? mode : null;
 }
@@ -554,7 +560,8 @@ function siblingContainerState(
  * declared `spans_repos:` siblings into the closed `SiblingStateName` set
  * (STE-609) — located or not, a git repository, toolkit-managed, in the same
  * tracker container, then its FRs read from git (every worktree, local branch
- * and remote-tracking ref). Every consumer — `classifyActivePlans`, both resume
+ * and remote-tracking ref), its plan naming this repository back (STE-610).
+ * Every consumer — `classifyActivePlans`, both resume
  * scopes, refusal #4 — reads `siblings[].state` from here and never
  * re-derives it; `busy`, `unlocatable` and `unreadable` are renderings of the
  * same pass. An undeclared plan resolves to empty lists; a malformed
@@ -611,8 +618,9 @@ export async function spanningSiblingState(
     // half could never be graded. Classified here, once, so every surface —
     // refusal #4, probe #75, the close offer, both resume scopes — holds it.
     const own = read.plans.find((p) => p.source === `worktree ${root}`) ?? read.plans[0]!;
+    let back: Awaited<ReturnType<typeof resolveSpansRepos>>;
     try {
-      await resolveSpansRepos({ planBody: own.body, milestone, invokingRepo: root });
+      back = await resolveSpansRepos({ planBody: own.body, milestone, invokingRepo: root });
     } catch (error) {
       if (!(error instanceof SpansReposError)) throw error;
       siblings.push({
@@ -622,6 +630,12 @@ export async function spanningSiblingState(
         state: "unreadable",
         reason: `its own spans_repos: (${own.source}) refuses — ${firstLine(error.message)}`,
       });
+      continue;
+    }
+    // STE-610: the sibling's plan must name THIS repository back — a plan with
+    // no `spans_repos:` (resolving to no entries) is one-sided too.
+    if (!back.some((s) => s.root !== null && sameRepository(s.root, projectRoot))) {
+      siblings.push({ name, declaredPath, root, state: "one-sided" });
       continue;
     }
     if (read.archivedIds.length === 0) {
@@ -765,6 +779,17 @@ export async function milestoneFrBinding(
     activeFrIds: idsBoundTo(await readFrDir(frsDir), milestone),
     archivedFrIds: idsBoundTo(await readFrDir(join(frsDir, "archive")), milestone),
   };
+}
+
+/**
+ * STE-610: the tracker keys this repository's active and archived FR files
+ * bound to `milestone` carry — read from the same one walk as
+ * `milestoneFrBinding`, sorted and de-duplicated.
+ */
+export async function milestoneTrackerKeys(projectRoot: string, milestone: string): Promise<string[]> {
+  const frsDir = join(projectRoot, "specs", "frs");
+  const rows = [...(await readFrDir(frsDir)), ...(await readFrDir(join(frsDir, "archive")))];
+  return [...new Set(rows.filter((r) => r.milestone === milestone).flatMap((r) => r.trackerIds ?? []))].sort();
 }
 
 /**

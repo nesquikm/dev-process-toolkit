@@ -62,8 +62,9 @@ import { join, resolve } from "node:path";
 import { adoptOrMintMilestoneId, type MilestoneMinter } from "./adopt_or_mint_milestone_id";
 import { checkVersionFloor, nfr10Message, runningDptVersion } from "./dpt_version";
 import { mergeMilestoneLabel } from "./attach_project_milestone";
-import { announceReceipt, printable, writeReceipt } from "./tracker_receipts";
+import { announceReceipt, oneLine, printable, writeReceipt } from "./tracker_receipts";
 import { readWorkspaceBinding } from "./workspace_binding";
+import { verifySpan } from "./spans_repos";
 import {
   decideMilestoneMint,
   type JiraDecisionRow,
@@ -226,6 +227,8 @@ export function milestoneGateSentence(input: {
   decision: MilestoneMintDecision;
   rows: readonly GateSentenceRow[];
   shared: boolean;
+  /** STE-610 AC-STE-610.4 — the sibling a shared join was verified against (dry run). */
+  sibling?: { tag: string; path: string };
 }): { gate: string; forbidden: boolean } {
   const { mode, project, decision } = input;
   const kind = mode === "jira" ? "Epic" : "project milestone";
@@ -233,7 +236,8 @@ export function milestoneGateSentence(input: {
   if (decision.act === "join") {
     const row = mode === "jira" ? input.rows.find((r) => r.key === decision.key) : undefined;
     const status = mode === "jira" ? `status ${row?.statusName ?? row?.statusCategory ?? "unknown"}` : "no status listed";
-    gate = `join the existing ${kind} ${decision.key} "${decision.name}" (${status}) in project ${project} via ${decision.via}; nothing is created.`;
+    const withSibling = input.sibling === undefined ? "" : ` with sibling ${input.sibling.tag} at ${input.sibling.path}`;
+    gate = `join the existing ${kind} ${decision.key} "${decision.name}" (${status}) in project ${project} via ${decision.via}${withSibling}; nothing is created.`;
   } else {
     gate = `create a new ${kind} "${input.title ?? ""}" in project ${project}.`;
   }
@@ -403,7 +407,13 @@ export async function milestoneAllocationGateSpec(
 //
 // STE-608 AC-STE-608.5 —
 //   bun run adapters/_shared/src/resolve_milestone_identity.ts \
-//     <projectRoot> <mode> <project> <listingFile> --title <title> | --join-key <key>
+//     <projectRoot> <mode> <project> <listingFile> --title <title> | --join-key <key> [--sibling <path>]
+//
+// STE-610 AC-STE-610.4 — in a repository whose binding is shared, a join is
+// decided only with `--sibling <path>`: the span checks run as a dry run
+// (`verifySpan`, nothing written), and the sibling's tag and path join the
+// gate sentence and the receipt. An unshared repository refuses `--sibling`
+// and decides exactly as STE-608 did without it.
 //
 // Decides create-or-join from the RAW listing the session saved (a Jira
 // `searchJiraIssuesUsingJql` page, or a Linear `list_milestones` answer),
@@ -415,13 +425,16 @@ export async function milestoneAllocationGateSpec(
 /** A refusal the front door exits 1 on; its message is NFR-10 three-line. */
 class FrontDoorRefusal extends Error {
   constructor(verdict: string, remedy: string, context: string) {
-    super(nfr10Message(verdict, remedy, context));
+    // Each part is flattened BEFORE the lines are joined: a listing's keys and
+    // issue types are tracker-controlled text, and a newline in one must never
+    // start a line of its own (a forged `Remedy:` — or a `dpt-receipt:`).
+    super(nfr10Message(oneLine(verdict), oneLine(remedy), oneLine(context)));
     this.name = "FrontDoorRefusal";
   }
 }
 
 const FRONT_DOOR_USAGE =
-  "resolve_milestone_identity.ts <projectRoot> <jira|linear> <project> <listingFile> --title <title> | --join-key <key>";
+  "resolve_milestone_identity.ts <projectRoot> <jira|linear> <project> <listingFile> --title <title> | --join-key <key> [--sibling <path>]";
 
 interface FrontDoorArgs {
   projectRoot: string;
@@ -430,11 +443,13 @@ interface FrontDoorArgs {
   listingFile: string;
   title?: string;
   joinKey?: string;
+  sibling?: string;
 }
 
 function parseFrontDoorArgs(argv: readonly string[]): FrontDoorArgs {
   const context = `argc=${argv.length}, usage=${FRONT_DOOR_USAGE}`;
-  if (argv.length !== 6) {
+  const hasSibling = argv.length === 8;
+  if (argv.length !== 6 && !(hasSibling && argv[6] === "--sibling")) {
     throw new FrontDoorRefusal(
       `Refusing: incomplete or extra arguments — the decision needs a project root, a mode, a project, a listing file and exactly one of --title or --join-key.`,
       `run ${FRONT_DOOR_USAGE}`,
@@ -449,7 +464,8 @@ function parseFrontDoorArgs(argv: readonly string[]): FrontDoorArgs {
       `mode=${mode}, ${context}`,
     );
   }
-  if ((flag !== "--title" && flag !== "--join-key") || value === "" || projectRoot === "" || project === "" || listingFile === "") {
+  const sibling = hasSibling ? argv[7]! : undefined;
+  if ((flag !== "--title" && flag !== "--join-key") || value === "" || projectRoot === "" || project === "" || listingFile === "" || sibling === "") {
     throw new FrontDoorRefusal(
       `Refusing: incomplete arguments — expected a non-empty --title or --join-key after the listing file (got ${flag}).`,
       `run ${FRONT_DOOR_USAGE}`,
@@ -462,6 +478,7 @@ function parseFrontDoorArgs(argv: readonly string[]): FrontDoorArgs {
     project,
     listingFile,
     ...(flag === "--title" ? { title: value } : { joinKey: value }),
+    ...(sibling !== undefined ? { sibling } : {}),
   };
 }
 
@@ -572,8 +589,30 @@ function readListingFile(args: FrontDoorArgs): ReadListing {
   return { sha256, rowKeys: rows.map((r) => r.key), jiraRows: rows };
 }
 
+/**
+ * STE-610 AC-STE-610.4 — the sibling a shared join names, verified by the span
+ * checks as a dry run: nothing is written into either plan, and this side's
+ * plan does not exist yet, so none is graded. The milestone is the joined
+ * key's id — the token both plans are named after.
+ */
+async function verifyJoinSibling(
+  args: FrontDoorArgs,
+  milestoneId: string,
+): Promise<{ tag: string; path: string }> {
+  // A refusal is the span reader's own NFR-10 text; the front door's catch
+  // prints it verbatim, line by line through `printable`.
+  const v = await verifySpan({
+    invokingRepo: args.projectRoot,
+    planFile: null,
+    milestone: milestoneId,
+    siblingPath: args.sibling!,
+    dryRun: true,
+  });
+  return { tag: v.siblingTag, path: v.siblingRoot };
+}
+
 /** Decide, then write the one receipt, then return the lines to print. */
-function runDecisionFrontDoor(argv: readonly string[]): string[] {
+async function runDecisionFrontDoor(argv: readonly string[]): Promise<string[]> {
   const args = parseFrontDoorArgs(argv);
   const listing = readListingFile(args);
 
@@ -598,6 +637,33 @@ function runDecisionFrontDoor(argv: readonly string[]): string[] {
       : `${rowCount} rows, closed rule not applicable (Linear milestones carry no status)`;
 
   const milestoneId = decision.act === "join" ? joinedMilestoneId(args.mode, decision.key) : "";
+
+  // STE-610 AC-STE-610.4 — `--sibling` names a shared join's sibling, and
+  // nothing else: an unshared repository and a create both refuse it.
+  const ctx = `mode=${args.mode}, project=${args.project}, act=${decision.act}, shared=${binding.shared}`;
+  if (args.sibling !== undefined && !binding.shared) {
+    throw new FrontDoorRefusal(
+      `Refusing: --sibling names the sibling of a join in a shared repository, and ${args.projectRoot} declares no repo_tag — its binding is not shared.`,
+      `drop --sibling and decide again; an unshared repository joins without one.`,
+      ctx,
+    );
+  }
+  if (args.sibling !== undefined && decision.act !== "join") {
+    throw new FrontDoorRefusal(
+      `Refusing: --sibling names the sibling of a join, and the listing decided a create of "${args.title ?? ""}" — there is no joined milestone for the sibling to plan.`,
+      `drop --sibling to create, or pass --join-key <key> naming the container the sibling planned.`,
+      ctx,
+    );
+  }
+  if (decision.act === "join" && binding.shared && args.sibling === undefined) {
+    throw new FrontDoorRefusal(
+      `Refusing: the listing decided a join of ${decision.key} (${milestoneId}) in a shared repository, and no --sibling names the repository that planned it.`,
+      `pass --sibling <path> naming the sibling repository whose plan holds ${milestoneId}, or pass a distinct --title to create a new container instead.`,
+      `${ctx}, key=${decision.key}`,
+    );
+  }
+  const sibling = args.sibling !== undefined ? await verifyJoinSibling(args, milestoneId) : undefined;
+
   const { gate, forbidden } = milestoneGateSentence({
     mode: args.mode,
     project: args.project,
@@ -605,6 +671,7 @@ function runDecisionFrontDoor(argv: readonly string[]): string[] {
     decision,
     rows: listing.jiraRows ?? [],
     shared: binding.shared,
+    ...(sibling !== undefined ? { sibling } : {}),
   });
 
   const act = decision.act;
@@ -644,6 +711,7 @@ function runDecisionFrontDoor(argv: readonly string[]): string[] {
       ...(decision.act === "create" && decision.excluded ? { excluded: decision.excluded } : {}),
       ...(observedLabels !== undefined ? { labels: observedLabels } : {}),
       shared: binding.shared,
+      ...(sibling !== undefined ? { sibling: { tag: sibling.tag, path: sibling.path, given: args.sibling } } : {}),
       default: forbidden ? "forbidden" : "allowed",
       listing: { file: resolve(args.listingFile), sha256: listing.sha256, rowKeys: listing.rowKeys },
     },
@@ -653,7 +721,7 @@ function runDecisionFrontDoor(argv: readonly string[]): string[] {
 
 if (import.meta.main) {
   try {
-    const lines = runDecisionFrontDoor(process.argv.slice(2));
+    const lines = await runDecisionFrontDoor(process.argv.slice(2));
     process.stdout.write(`${lines.join("\n")}\n`);
     process.exit(0);
   } catch (e) {

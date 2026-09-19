@@ -5,13 +5,27 @@
 // finds the sibling's copy at either of its two homes — the live
 // `specs/plan/<M>.md` and the archived `specs/plan/archive/<M>.md` — and reads
 // its frontmatter through the shared parser, so CRLF and BOM fold once.
+//
+// It also holds refusal #4 (`siblingShipGate`, STE-589) and, for a repository
+// with a shared-container `repo_tag`, the grade of the milestone's tracker
+// children (`gradeChildren`, STE-610) — the undeclared side of a span, which
+// the plan's `spans_repos:` alone cannot see.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type DeclaredSibling, spanningSiblingState } from "./active_plan_ship_ready";
+import {
+  type DeclaredSibling,
+  milestoneTrackerKeys,
+  spanningSiblingState,
+  trackerAdapterKey,
+} from "./active_plan_ship_ready";
+import { normalizeContainerPage, readJsonFile } from "./container_ownership";
 import { parseFrontmatter } from "./frontmatter";
-import { SPANS_REPOS_KEY, SpansReposError } from "./spans_repos";
+import { milestoneIdFromLinearMilestone } from "./milestone_token";
+import { SPANS_REPOS_KEY, SpansReposError, readSpansReposDeclaration } from "./spans_repos";
+import { isToolkitManaged } from "./toolkit_managed";
 import { oneLine } from "./tracker_receipts";
+import { readWorkspaceBinding, type WorkspaceAdapterKey } from "./workspace_binding";
 
 /**
  * The bare version (`1.4.0`) a `shipped_in:` value records, or `null` when it
@@ -147,6 +161,13 @@ export async function siblingShipGate(input: {
   return { refusal: null, footer, unchecked };
 }
 
+/** Does the page itself say it is the last one? Absent or non-boolean signals do not. */
+function pageProvesLast(page: unknown, adapter: "jira" | "linear"): boolean {
+  const j = (page ?? {}) as Record<string, unknown>;
+  if (adapter === "jira") return j["isLast"] === true;
+  return (j["pageInfo"] as { hasNextPage?: unknown } | undefined)?.hasNextPage === false;
+}
+
 /** Refusal #4's remedy for one held (non-idle) sibling — one per state. */
 function heldRemedy(s: DeclaredSibling, milestone: string): string {
   switch (s.state) {
@@ -166,6 +187,8 @@ function heldRemedy(s: DeclaredSibling, milestone: string): string {
       return `bind sibling ${s.name} to this repository's tracker project in its CLAUDE.md, or drop it from ${SPANS_REPOS_KEY}:`;
     case "unreadable":
       return `repair sibling ${s.name} so it can be read — every git worktree, branch and remote-tracking ref, and its CLAUDE.md tracker declaration`;
+    case "one-sided":
+      return `declare this repository in sibling ${s.name}'s plan: run \`bun run \${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/spans_repos.ts <planFile> ${milestone} --declare <siblingPath>\` so its ${SPANS_REPOS_KEY}: names this repository back (if that plan's ${SPANS_REPOS_KEY}: names another repository instead, correct it there first)`;
     case "idle":
       return "";
   }
@@ -214,6 +237,114 @@ function shipRefusal(verdict: string, remedy: string, context: string): string {
   ].join("\n");
 }
 
+/** What the children check (STE-610) hands back to the front door. */
+export interface ChildrenGrade {
+  /** `null` when the listing is complete and every child is accounted for. */
+  readonly refusal: string | null;
+  /** The milestone's children read from the listing, or `null` when it could not be read. */
+  readonly count: number | null;
+}
+
+/**
+ * Grade the undeclared side of a shared-container release (STE-610): the
+ * milestone's children as the tracker listed them — a Jira Epic's child issues,
+ * or a Linear project's issues filtered to the milestone by identifier. The
+ * listing refuses when it is malformed, not the last page, empty, or missing
+ * any of `ownKeys` (this repository's FR tickets bound to the milestone are
+ * children by construction). A child carrying neither `repoTag` nor a
+ * `declaredTags` entry refuses unless `partial` is set.
+ */
+export function gradeChildren(input: {
+  listing: unknown;
+  adapter: WorkspaceAdapterKey;
+  milestone: string;
+  repoTag: string;
+  declaredTags: readonly string[];
+  ownKeys: readonly string[];
+  partial: boolean;
+  source: string;
+}): ChildrenGrade {
+  const { listing, adapter, milestone, repoTag, declaredTags, ownKeys, partial, source } = input;
+  const context = `milestone=${milestone}, listing=${source}, adapter=${adapter}`;
+  const incomplete = (verdict: string, count: number | null): ChildrenGrade => ({
+    refusal: shipRefusal(
+      `${milestone}'s child listing cannot prove it is complete — ${verdict}`,
+      `save the complete, last page of ${milestone}'s children as the tracker returns them and pass it as --children <listingFile>`,
+      context,
+    ),
+    count,
+  });
+  // A Linear project's issues belong to the milestone only when their
+  // milestone identifier derives to its token: the tracker has no such filter.
+  let page = listing;
+  const issues = (listing as { issues?: unknown } | null)?.issues;
+  if (adapter === "linear" && Array.isArray(issues)) {
+    page = {
+      ...(listing as Record<string, unknown>),
+      issues: issues.filter((row) => {
+        const id = (row as { projectMilestone?: { id?: unknown } } | null)?.projectMilestone?.id;
+        try {
+          return typeof id === "string" && milestoneIdFromLinearMilestone(id) === milestone;
+        } catch {
+          return false;
+        }
+      }),
+    };
+  }
+  let children: ReturnType<typeof normalizeContainerPage>;
+  try {
+    children = normalizeContainerPage(page, adapter, true);
+  } catch (error) {
+    return incomplete(`it is malformed: ${(error as Error).message}`, null);
+  }
+  // A release reads completeness from the page's OWN signal: a page that does
+  // not say it is the last one has not proved the child list complete (the
+  // rule create_idempotency_probe applies to the same MCP answers).
+  // pageProvesLast is strictly stronger than container_ownership's fail-open
+  // pageIsLast (which a missing signal passes), so it alone decides here.
+  if (!pageProvesLast(listing, adapter)) {
+    return incomplete("it does not prove it is the last page of the listing (Jira `isLast: true`, Linear `pageInfo.hasNextPage: false`)", null);
+  }
+  if (children.length === 0) {
+    return incomplete("children=0 — a release needs at least one archived FR, whose ticket is a child", 0);
+  }
+  const keys = new Set(children.map((c) => c.key));
+  const missing = ownKeys.filter((k) => !keys.has(k));
+  if (missing.length > 0) {
+    return incomplete(
+      `it omits this repository's own FR tickets bound to ${milestone}: ${missing.map(oneLine).join(", ")}`,
+      children.length,
+    );
+  }
+  const accounted = new Set([repoTag, ...declaredTags]);
+  const foreign = children.filter((c) => !c.labels.some((l) => accounted.has(l)));
+  if (foreign.length > 0 && !partial) {
+    return {
+      refusal: shipRefusal(
+        `${milestone} has children carrying neither this repository's tag nor a declared sibling's — ${foreign
+          .map((c) => `${oneLine(c.key)} (labels: ${c.labels.length > 0 ? c.labels.map(oneLine).join(", ") : "none"})`)
+          .join("; ")}`,
+        `declare each child's repository under ${SPANS_REPOS_KEY}: in the plan, move the child out of ${milestone}, or pass --partial to ship this repository's half alone`,
+        `${context}, children=${children.length}, unaccounted=${foreign.map((c) => oneLine(c.key)).join(",")}`,
+      ),
+      count: children.length,
+    };
+  }
+  return { refusal: null, count: children.length };
+}
+
+/**
+ * This repository's shared-container binding — its adapter and `repo_tag` —
+ * or `null` when it has none (not toolkit-managed, mode none, or no `repo_tag`).
+ */
+function sharedBinding(projectRoot: string): { adapter: WorkspaceAdapterKey; repoTag: string } | null {
+  if (!isToolkitManaged(projectRoot)) return null;
+  const adapter = trackerAdapterKey(projectRoot);
+  if (adapter === null) return null;
+  const binding = readWorkspaceBinding(join(projectRoot, "CLAUDE.md"), adapter);
+  return binding.shared && binding.repoTag !== undefined ? { adapter, repoTag: binding.repoTag } : null;
+}
+
 /** A sibling repository's plan for one milestone, as read from disk. */
 export interface SiblingPlan {
   /** Absolute path of the plan file that was read. */
@@ -257,12 +388,16 @@ export async function readSiblingPlan(
 // Front door (STE-589): refusal #4, as `/ship-milestone` orders it.
 //
 //   bun run adapters/_shared/src/sibling_release.ts <projectRoot> <planFile> <milestone> [--partial]
+//     [--children <listingFile> | --offer]
 //
 // Refused: the refusal on stderr, empty stdout, exit 1. Otherwise: one
 // `Spans:` line per non-self sibling on stdout, one not-checked line per
 // unlocatable sibling on stderr (reachable only under --partial — without it
-// an unlocatable sibling refuses), exit 0. Under `import` this block does not
-// run, so the module stays side-effect free.
+// an unlocatable sibling refuses), exit 0. In a repository with a `repo_tag`
+// (STE-610) a release run passes `--children` and an offer surface `--offer`;
+// one stderr line `children=<n>` or `children=not checked (offer)` follows.
+// Without a `repo_tag` neither flag is required or read. Under `import` this
+// block does not run, so the module stays side-effect free.
 // ---------------------------------------------------------------------------
 if (import.meta.main) {
   const [projectRoot, planFile, milestone, ...rest] = process.argv.slice(2);
@@ -277,6 +412,17 @@ if (import.meta.main) {
     process.exitCode = 1;
   } else {
     const planBody = await readFile(planFile, "utf-8").catch(() => null);
+    const partial = rest.includes("--partial");
+    const offer = rest.includes("--offer");
+    const at = rest.indexOf("--children");
+    const listingFile = at < 0 ? undefined : rest[at + 1] ?? "";
+    let shared: ReturnType<typeof sharedBinding> = null;
+    let bindingError: string | null = null;
+    try {
+      shared = sharedBinding(projectRoot);
+    } catch (error) {
+      bindingError = (error as Error).message;
+    }
     if (planBody === null) {
       console.error(
         shipRefusal(
@@ -286,19 +432,61 @@ if (import.meta.main) {
         ),
       );
       process.exitCode = 1;
+    } else if (bindingError !== null) {
+      console.error(
+        shipRefusal(
+          `refusal #4 cannot read this repository's shared-container binding: ${bindingError}`,
+          "repair the tracker sub-section of CLAUDE.md, then re-run",
+          `milestone=${milestone}, phase=sibling-ship-gate`,
+        ),
+      );
+      process.exitCode = 1;
+    } else if (shared !== null && listingFile === undefined && !offer) {
+      console.error(
+        shipRefusal(
+          `${milestone} is released from a shared tracker container, so refusal #4 must grade its children.`,
+          "a release passes --children <listingFile> (the milestone's children as the tracker returns them); an offer surface passes --offer",
+          `milestone=${milestone}, repo_tag=${shared.repoTag}, phase=sibling-ship-gate`,
+        ),
+      );
+      process.exitCode = 1;
     } else {
-      const result = await siblingShipGate({
-        projectRoot,
-        planBody,
-        milestone,
-        partial: rest.includes("--partial"),
-      });
-      if (result.refusal !== null) {
-        console.error(result.refusal);
+      const result = await siblingShipGate({ projectRoot, planBody, milestone, partial });
+      let children: ChildrenGrade | null = null;
+      if (result.refusal === null && shared !== null && listingFile !== undefined) {
+        let listing: unknown;
+        try {
+          listing = readJsonFile(listingFile, "child listing");
+        } catch (error) {
+          children = {
+            refusal: shipRefusal(
+              `${milestone}'s child listing cannot be read — ${(error as Error).message}`,
+              "save the milestone's children as the tracker returns them and pass that file as --children <listingFile>",
+              `milestone=${milestone}, listing=${listingFile}`,
+            ),
+            count: null,
+          };
+        }
+        children ??= gradeChildren({
+          listing,
+          adapter: shared.adapter,
+          milestone,
+          repoTag: shared.repoTag,
+          declaredTags: (readSpansReposDeclaration(planBody).entries ?? []).map((e) => e.name),
+          ownKeys: await milestoneTrackerKeys(projectRoot, milestone),
+          partial,
+          source: listingFile,
+        });
+      }
+      const refusal = result.refusal ?? children?.refusal ?? null;
+      if (refusal !== null) {
+        console.error(refusal);
         process.exitCode = 1;
       } else {
         for (const line of result.footer) console.log(line);
         for (const line of result.unchecked) console.error(line);
+        if (children !== null) console.error(`children=${children.count}`);
+        else if (shared !== null) console.error("children=not checked (offer)");
       }
     }
   }

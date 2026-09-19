@@ -109,6 +109,16 @@ export function normalizeContainerPage(json: unknown, adapter: WorkspaceAdapterK
   });
 }
 
+/**
+ * Is one saved page the last of its listing? A Jira page says so unless
+ * `isLast` is `false`; a Linear page unless `pageInfo.hasNextPage` is `true`.
+ */
+export function pageIsLast(page: unknown, adapter: WorkspaceAdapterKey): boolean {
+  const j = (page ?? {}) as Record<string, unknown>;
+  if (adapter === "jira") return j["isLast"] !== false;
+  return (j["pageInfo"] as { hasNextPage?: unknown } | undefined)?.hasNextPage !== true;
+}
+
 /** Classify one ticket against this repository's binding. */
 export function classifyTicket(ticket: ContainerTicket, binding: WorkspaceBinding): TicketClass {
   if (ticket.isContainer) return "container";
@@ -168,11 +178,7 @@ export function listOrphans(projectRoot: string, pages: unknown[]): OrphanListin
     else counts[cls] += 1;
     orphans.push({ ...t, cls, owner: t.creator ?? "unknown", offerable: OFFERABLE.has(cls) });
   }
-  const complete = pages.every((p) => {
-    const j = (p ?? {}) as Record<string, unknown>;
-    if (adapter === "jira") return j["isLast"] !== false;
-    return (j["pageInfo"] as { hasNextPage?: unknown } | undefined)?.hasNextPage !== true;
-  });
+  const complete = pages.every((p) => pageIsLast(p, adapter));
   const summary = `summary: read=${counts.read} ours=${counts.ours} sibling=${counts.sibling} (excluded) unowned=${counts.unowned} containers=${counts.containers} (excluded) bound=${counts.bound} complete=${complete}`;
   return { orphans, counts, complete, summary };
 }

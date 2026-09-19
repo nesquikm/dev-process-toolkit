@@ -195,11 +195,14 @@ export const RECEIPT_ANNOUNCING_MODULES: readonly string[] = Object.keys(RECEIPT
 /**
  * The argv a subcommand-less deciding module is accepted with, after the
  * module path: the decision front door's exact
- * `<projectRoot> <jira|linear> <project> <listingFile> --title|--join-key <v>`.
+ * `<projectRoot> <jira|linear> <project> <listingFile> --title|--join-key <v>`,
+ * optionally followed by exactly `--sibling <path>` (STE-610 AC-STE-610.4).
  */
 const NO_SUBCOMMAND_ARGV: Readonly<Record<string, (args: string[]) => boolean>> = {
   "resolve_milestone_identity.ts": (a) =>
-    a.length === 6 && (a[1] === "jira" || a[1] === "linear") && (a[4] === "--title" || a[4] === "--join-key"),
+    (a.length === 6 || (a.length === 8 && a[6] === "--sibling")) &&
+    (a[1] === "jira" || a[1] === "linear") &&
+    (a[4] === "--title" || a[4] === "--join-key"),
 };
 
 /**

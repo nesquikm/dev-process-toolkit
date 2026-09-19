@@ -172,6 +172,11 @@ Every refusal is exit 1 with the three-line refusal on stderr, empty stdout and 
 | `not-toolkit-managed` — a git checkout with no toolkit-managed CLAUDE.md | Refuse. Remedy: run `/dev-process-toolkit:setup` in the sibling, or point the path at the toolkit-managed checkout. |
 | `different-container` — the sibling binds another tracker project (tracker modes only; not applicable under `mode: none`) | Refuse. Remedy: bind the sibling to this repository's tracker project, or drop it from `spans_repos:`. |
 | `unreadable` — a git read of the sibling failed, or its CLAUDE.md tracker declaration refuses | Refuse, carrying the reader's own text. Remedy: repair the sibling so every worktree, branch, remote-tracking ref and its tracker declaration can be read. |
+| `one-sided` — the sibling's plan does not name this repository back under its own `spans_repos:` (or declares none) | Refuse. Remedy: run `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/spans_repos.ts <planFile> M<N> --declare <siblingPath>`, which writes both sides; if the sibling's declaration names another repository, correct it first. |
+| Shared repository (`repo_tag` declared), neither `--children` nor `--offer` | Refuse, naming both flags. |
+| `--children` listing missing, unreadable, malformed, not proved the last page, `children=0`, or omitting one of this repository's own FR tickets bound to `M<N>` | Refuse as incomplete: a release needs the milestone's whole child list. |
+| A child carrying neither this repository's tag nor a declared sibling's tag | Refuse without `--partial`, naming each such child key and its labels. |
+| `--offer` (the offer surfaces) | Every sibling state is still graded; the children check is skipped and one stderr line says `children=not checked (offer)`. |
 | Sibling busy, `--partial` | Ship; step 7 also stamps `ship_partial: true`; the footer is measured as in the `idle` row — `Spans: <repo>@pending`, or `<repo>@v<X.Y.Z>` once the sibling's plan carries a stamp. |
 | Any other held state, `--partial` | Ship, stamped `ship_partial: true`, footer measured the same way; an `unlocatable` sibling also prints one `not checked` line on stderr, and probe #63 later reports it as a note, never a violation. |
 | `--partial` on a plan declaring no sibling | Refuse: there is no second half to leave pending. |
