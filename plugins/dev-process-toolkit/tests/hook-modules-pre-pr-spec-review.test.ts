@@ -114,24 +114,28 @@ describe("AC-STE-290.2 — pre-pr-spec-review: empty / unparseable stdin fails o
 });
 
 describe("AC-STE-290.2 — pre-pr-spec-review: end-to-end skill detection on `gh pr create*`", () => {
-  test("gh pr create + Skill tool_use present → exit 0", async () => {
-    const transcript = writeTranscript([
-      {
-        type: "tool_use",
-        name: "Skill",
-        input: { skill: "dev-process-toolkit:spec-review" },
-      },
-    ]);
-    const stdin = JSON.stringify({
-      session_id: "s1",
-      transcript_path: transcript,
-      cwd: "/tmp",
-      hook_event_name: "PreToolUse",
-      tool_name: "Bash",
-      tool_input: { command: "gh pr create --title foo --body bar" },
-    });
-    const r = await runModule(stdin);
-    expect(r.exitCode).toBe(0);
+  // STE-615 AC.5 — the happy path now carries a FRONT-DOOR-WRITTEN RECEIPT.
+  //
+  // It used to sit in `/tmp`, a directory in no toolkit-managed checkout, where
+  // the transcript leg alone decides. That made "evidence present" a claim
+  // about the session rather than about the repository the PR is opened from,
+  // which is the whole of what this FR changes — so the case moves into a
+  // managed checkout, and its sibling below removes the receipt and exits 2.
+  test("gh pr create + Skill tool_use present + a receipt for that checkout → exit 0", async () => {
+    const repo = await managedRepo615("spr-615-permit");
+    writeGateReceipt615(repo, "spec-review", SID_615);
+    const r = await runModule(payload615(repo, vouchingTranscript615()));
+    expect({ code: r.exitCode, err: r.stderr }).toEqual({ code: 0, err: "" });
+  });
+
+  test("SIBLING — the SAME case with the receipt REMOVED exits 2", async () => {
+    const repo = await managedRepo615("spr-615-forbid");
+    writeGateReceipt615(repo, "spec-review", SID_615);
+    clearReceipts615(repo, SID_615);
+    const r = await runModule(payload615(repo, vouchingTranscript615()));
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("Refusing:");
+    expect(r.stderr).toContain(repo);
   });
 
   test("gh pr create + Skill tool_use missing → exit non-zero + NFR-10 stderr", async () => {
@@ -154,3 +158,56 @@ describe("AC-STE-290.2 — pre-pr-spec-review: end-to-end skill detection on `gh
     expect(r.stderr).toMatch(/spec-review/);
   });
 });
+
+// ---------------------------------------------------------------- STE-615.5
+//
+// The fixture the happy path above and its sibling share: a toolkit-managed
+// `git init` checkout, a spec-review Skill call stamped an hour back so it
+// opens a vouching window, and the announcements the front door printed when it
+// wrote the receipt. A receipt nobody announced is a file any Bash call could
+// have written, so the transcript has to carry the announcement too.
+
+import { mkdirSync as mkdirSync615 } from "node:fs";
+import {
+  announcementRecords as announcementRecords615,
+  clearReceipts as clearReceipts615,
+  forgetAnnouncements as forgetAnnouncements615,
+  mintedAnnouncements as mintedAnnouncements615,
+  writeGateReceipt as writeGateReceipt615,
+  writeManagedClaudeMd as writeManagedClaudeMd615,
+} from "./_gate_receipt_fixture";
+
+const SID_615 = "s1";
+
+async function managedRepo615(name: string): Promise<string> {
+  const dir = join(tmpRoot, name);
+  mkdirSync615(dir, { recursive: true });
+  await Bun.spawn(["git", "init", "-q", dir], { stdout: "pipe", stderr: "pipe" }).exited;
+  writeManagedClaudeMd615(dir);
+  forgetAnnouncements615();
+  return dir;
+}
+
+function vouchingTranscript615(): string {
+  return writeTranscript([
+    {
+      type: "tool_use",
+      id: "tu615",
+      timestamp: new Date(Date.now() - 3_600_000).toISOString(),
+      name: "Skill",
+      input: { skill: "dev-process-toolkit:spec-review" },
+    },
+    ...announcementRecords615(mintedAnnouncements615()).map((l) => JSON.parse(l) as unknown),
+  ]);
+}
+
+function payload615(repo: string, transcript: string): string {
+  return JSON.stringify({
+    session_id: SID_615,
+    transcript_path: transcript,
+    cwd: repo,
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "gh pr create --title foo --body bar" },
+  });
+}

@@ -112,6 +112,25 @@ export function isUnexpanded(word: string): boolean {
 }
 
 /**
+ * True when an argv0 names the program `name`: its final path segment is
+ * exactly that word, so `/usr/bin/git`, `./git` and a bare `git` all qualify
+ * while `gitk` and `mygit` do not.
+ *
+ * One rule, asked in one place, because every resolver over this reader asks it
+ * of its own program — the commit question of `git`, the request question of
+ * `gh` — and this module's own `-C` expansion asks it too. Three copies of the
+ * test is three chances for the siblings to disagree about what counts as an
+ * invocation, which is the drift the shared recogniser exists to prevent.
+ *
+ * Quote removal has already run by the time an argv0 reaches here, so `\git`
+ * and `"git"` are both the word `git`.
+ */
+export function argv0Is(word: string | undefined, name: string): boolean {
+  if (word === undefined) return false;
+  return word.slice(word.lastIndexOf("/") + 1) === name;
+}
+
+/**
  * A literal path read against a base directory: an absolute path stands alone,
  * a relative one needs a literal base and is null without one.
  */
@@ -424,8 +443,7 @@ function expandGitDirectories(
   literal: ReadonlySet<string>,
   roots: CheckoutRootLookup | undefined,
 ): string[] {
-  const argv0 = argv[0] ?? "";
-  if (argv0.slice(argv0.lastIndexOf("/") + 1) !== "git") return argv;
+  if (!argv0Is(argv[0], "git")) return argv;
   const out = argv.slice();
   let i = 1;
   while (i < out.length && (out[i] as string).startsWith("-")) {

@@ -257,14 +257,25 @@ describe("AC-STE-614.1 — an `is_error: true` result is not evidence, for all t
     // an empty `-C` that resolves to no checkout at all.
     const target = (): string => (hook === "pr" ? prCreate : commit(BE));
 
-    // BE's receipt ALONE, deliberately: these rows grade the TRANSCRIPT leg,
-    // and minting FE's as well would put two checkouts in one vouching window,
-    // where only the first counts (AC.16). That is the rule under test two
-    // describes down, not a fact about `is_error`, so the fixture keeps the one
-    // receipt the target actually needs.
+    // ONE receipt, in the checkout THIS row's target names: the commit rows aim
+    // at BE, and a bare `gh pr create` opens a request from FE, the session's
+    // own checkout. STE-614 left the PR gate reading the transcript leg alone
+    // because it could not yet name a repository; STE-615 gave it one, so it
+    // grades a receipt per checkout exactly as the commit gates do, and FE's
+    // receipt is what its target now needs.
+    //
+    // ONE and not both, deliberately: minting the other checkout's as well would
+    // put two checkouts in a single vouching window, where only the first counts
+    // (AC.16). That is the rule under test two describes down, not a fact about
+    // `is_error`, so the fixture keeps the one receipt the target actually needs.
+    //
+    // Front-door-written, via `setReceipts` → `writeGateReceipt`: a hand-rolled
+    // envelope here would keep these rows green after the front door broke.
+    const stageReceipt = (): void =>
+      setReceipts(hook === "pr" ? { fe: [SHORT_OF[hook]] } : { be: [SHORT_OF[hook]] });
 
     test(`${hook}: the only Skill call ended in an error → exit 2 saying so`, async () => {
-      setReceipts({ be: [SHORT_OF[hook]] });
+      stageReceipt();
       const tr = transcript([
         BASH_LINE,
         skillUse("tu1", SKILL_OF[hook], PAST),
@@ -277,26 +288,26 @@ describe("AC-STE-614.1 — an `is_error: true` result is not evidence, for all t
     }, T);
 
     test(`${hook}: PERMIT SIBLING — the same transcript with is_error FALSE is evidence`, async () => {
-      setReceipts({ be: [SHORT_OF[hook]] });
+      stageReceipt();
       const tr = transcript([BASH_LINE, ...okCall(hook)]);
       const r = await run(hook, target(), tr);
       expect({ hook, code: r.exitCode }).toEqual({ hook, code: 0 });
     }, T);
 
     test(`${hook}: PERMIT SIBLING — the same transcript with is_error ABSENT is evidence`, async () => {
-      setReceipts({ be: [SHORT_OF[hook]] });
+      stageReceipt();
       const tr = transcript([BASH_LINE, skillUse("tu1", SKILL_OF[hook], PAST), toolResult("tu1", null)]);
       expect((await run(hook, target(), tr)).exitCode).toBe(0);
     }, T);
 
     test(`${hook}: PERMIT SIBLING — a tool_use with NO paired result is evidence`, async () => {
-      setReceipts({ be: [SHORT_OF[hook]] });
+      stageReceipt();
       const tr = transcript([BASH_LINE, skillUse("tu1", SKILL_OF[hook], PAST)]);
       expect((await run(hook, target(), tr)).exitCode).toBe(0);
     }, T);
 
     test(`${hook}: PERMIT SIBLING — one denied call PLUS one successful call is evidence`, async () => {
-      setReceipts({ be: [SHORT_OF[hook]] });
+      stageReceipt();
       const tr = transcript([
         skillUse("tu1", SKILL_OF[hook], PAST),
         toolResult("tu1", true),

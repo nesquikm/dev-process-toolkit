@@ -2,6 +2,15 @@
 // the file name does not end in `.test.ts`, so `bun test` never runs it.
 //
 //   bun run tests/_command_traffic_replay.ts [--base <sha>]
+//   bun run tests/_command_traffic_replay.ts --pr-only
+//
+// AC-STE-615.7 adds the second form. `--pr-only` runs the PR legs ALONE: no
+// base-resolver `git archive`, no commit classification. The retired anchored
+// prefix `/^gh pr create\b/` is the "before" side and `resolvePrTargetFromPayload`
+// is the "after" side, so one pass over a multi-gigabyte corpus answers the
+// question instead of two classifications per command. Both differences are
+// printed as LISTS, not merely counted, because the AC asks for every command in
+// the difference to be hand-classified as a real creation or a mention.
 //
 // Reads every `*.jsonl` under `$CLAUDE_CONFIG_DIR/projects/` (default
 // `~/.claude/projects/`), extracts the distinct Bash `tool_use` commands, and
@@ -38,6 +47,7 @@ import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { resolveCommitTarget } from "../adapters/_shared/src/commit_target_repo";
+import { gitRemotesOf, resolvePrTargetFromPayload } from "../adapters/_shared/src/pr_target_repo";
 
 export const DEFAULT_BASE_SHA = "ff41e4e42506cd119bf2b8b2866f9654fc113aec";
 const RESOLVER_DIR = "plugins/dev-process-toolkit/adapters/_shared/src";
@@ -90,6 +100,72 @@ export function classifyCommand(
     advisory: r.advisory ?? null,
     repoRoots: Array.isArray(r.repoRoots) ? r.repoRoots : r.repoRoot === null ? [] : [r.repoRoot],
     unplaced: r.unplaced === true,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// AC-STE-615.7 — the PR legs.
+// ---------------------------------------------------------------------------
+
+/**
+ * THE RETIRED MATCHER, restated verbatim from the hook it was deleted from
+ * (`templates/hooks/_lib/hooks/pre-pr-spec-review.ts:16` at `ff41e4e4`):
+ *
+ *   if (!/^gh pr create\b/.test(cmd)) { ...permit... }
+ *
+ * It is copied rather than imported because the line no longer exists to import:
+ * this FR is what removes it. A replay that asked the NEW code for the OLD
+ * answer would compare the resolver with itself and measure nothing.
+ */
+export const RETIRED_PR_ANCHOR = /^gh pr create\b/;
+
+/** The part of a PR resolver's answer the replay compares. */
+export interface PrClassification {
+  isPr: boolean;
+  repoRoot: string | null;
+  repoRoots: string[];
+  /** The known-foreign slug, verbatim, or null. */
+  foreign: string | null;
+  /** Non-null exactly when the target could not be determined. */
+  unresolved: string | null;
+}
+
+/**
+ * `git remote -v` per checkout, asked at most ONCE per root.
+ *
+ * The corpus names the same handful of checkouts thousands of times over, and
+ * the listing is the only spawn the PR resolver makes. Without the memo a
+ * single pass would fork git once per slug-bearing command; with it the spawn
+ * count is bounded by the number of distinct roots, which is small.
+ *
+ * A root that does not exist on this machine answers `null` — ignorance, not an
+ * empty remote list — so it lands in `unresolved`, never in `known-foreign`.
+ */
+function memoisedRemotes(): (root: string) => string[] | null {
+  const seen = new Map<string, string[] | null>();
+  return (root) => {
+    if (!seen.has(root)) seen.set(root, gitRemotesOf(root));
+    return seen.get(root) ?? null;
+  };
+}
+
+/** Classify one command through the post-change PR resolver. */
+export function classifyPrCommand(
+  command: string,
+  sessionCwd = "/",
+  remotes: (root: string) => string[] | null = gitRemotesOf,
+): PrClassification {
+  const t = resolvePrTargetFromPayload(
+    { cwd: sessionCwd, tool_input: { command } },
+    selfRoot,
+    remotes,
+  );
+  return {
+    isPr: t.isPr,
+    repoRoot: t.repoRoot,
+    repoRoots: t.repoRoots,
+    foreign: t.foreign,
+    unresolved: t.unresolved,
   };
 }
 
@@ -224,7 +300,63 @@ function printList(title: string, cmds: string[]): void {
   for (const c of cmds) console.log(`- ${JSON.stringify(c)}`);
 }
 
+/**
+ * AC-STE-615.7 — the PR legs over an already-collected corpus.
+ *
+ * Deliberately NOT a second walk: it is handed the command map the one pass
+ * already built, and it loads no base resolver, because the "before" side is a
+ * three-token regex rather than a module.
+ */
+function reportPrOnly(commands: ReadonlyMap<string, string>, fileCount: number): void {
+  const remotes = memoisedRemotes();
+  let anchored = 0;
+  let resolver = 0;
+  let foreign = 0;
+  let unresolved = 0;
+  const newlyRecognised: string[] = [];
+  const noLongerRecognised: string[] = [];
+  const foreignCommands: string[] = [];
+  const unresolvedCommands: string[] = [];
+
+  for (const [cmd, cwd] of commands) {
+    const before = RETIRED_PR_ANCHOR.test(cmd);
+    const after = classifyPrCommand(cmd, cwd, remotes);
+    if (before) anchored++;
+    if (!after.isPr) {
+      if (before) noLongerRecognised.push(cmd);
+      continue;
+    }
+    resolver++;
+    if (!before) newlyRecognised.push(cmd);
+    // Foreign outranks unresolved in the resolver's own verdict, so the two
+    // tallies here are disjoint for the same reason the hook's two legs are.
+    if (after.foreign !== null) {
+      foreign++;
+      foreignCommands.push(cmd);
+    } else if (after.unresolved !== null) {
+      unresolved++;
+      unresolvedCommands.push(cmd);
+    }
+  }
+
+  console.log(
+    `\n## AC-STE-615.7 (PR creation over the corpus)` +
+      ` — ${commands.size} distinct commands, ${fileCount} transcript files`,
+  );
+  console.log(`anchored regex PR-creating: ${anchored}`);
+  console.log(`resolver PR-creating: ${resolver}`);
+  console.log(`newly recognised as PR creation: ${newlyRecognised.length}`);
+  console.log(`no longer recognised as PR creation: ${noLongerRecognised.length}`);
+  console.log(`known-foreign targets: ${foreign}`);
+  console.log(`unresolved targets: ${unresolved}`);
+  printList("newly recognised as PR creation", newlyRecognised);
+  printList("no longer recognised as PR creation", noLongerRecognised);
+  printList("known-foreign targets", foreignCommands);
+  printList("unresolved targets", unresolvedCommands);
+}
+
 async function main(argv: string[]): Promise<number> {
+  const prOnly = argv.includes("--pr-only");
   const base = argValue(argv, "--base") ?? DEFAULT_BASE_SHA;
   const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
   const projects = resolve(configDir, "projects");
@@ -240,6 +372,11 @@ async function main(argv: string[]): Promise<number> {
   const commands = new Map<string, string>();
   for (const f of files) await collectCommands(f, commands);
   console.log(`distinct commands: ${commands.size}`);
+
+  if (prOnly) {
+    reportPrOnly(commands, files.length);
+    return 0;
+  }
 
   const { resolver: baseResolver, cleanup } = await loadBaseResolver(base);
   try {

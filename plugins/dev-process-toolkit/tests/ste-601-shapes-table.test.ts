@@ -105,9 +105,21 @@ function withHome<T>(home: string, fn: () => T): T {
   }
 }
 
+/**
+ * A PR row — one graded by `resolvePrTargetFromPayload`, not by the commit
+ * resolver (STE-615 AC.6). Marked in the Verdict cell with the token `(PR)`,
+ * because the two resolvers disagree by design about the same command:
+ * `gh pr create` is `out of scope` for the commit gates and `recognised` for
+ * the PR gate, and one unmarked row cannot carry both answers.
+ */
+export function isPrRow(row: Row): boolean {
+  return row.verdict.includes("(pr)");
+}
+
 export function gradeRows(rows: Row[]): string[] {
   const bad: string[] = [];
   for (const row of rows) {
+    if (isPrRow(row)) continue;
     const t = withHome("/s", () =>
       resolveCommitTarget(row.example, "/s/a", ROOTS),
     ) as { isCommit: boolean; repoRoot: string | null; advisory?: string | null };
@@ -156,7 +168,9 @@ describe("AC-STE-601.12 — the Recognised command shapes table is graded by run
   test("CONTROL — mutating one verdict in a temp copy of the manual turns the grade red", () => {
     const dir = mkdtempSync(join(tmpdir(), "ste601-doc-"));
     try {
-      const i = rows.findIndex((r) => r.verdict.startsWith("recognised"));
+      // A COMMIT row: `gradeRows` skips PR rows, so mutating one would leave
+      // the grade empty and the control vacuously green (STE-615 AC.6).
+      const i = rows.findIndex((r) => r.verdict.startsWith("recognised") && !isPrRow(r));
       expect(i).toBeGreaterThanOrEqual(0);
       const target = rows[i]!;
       const lines = md.split("\n");
@@ -281,5 +295,108 @@ describe("AC-STE-613.8 — the shapes table carries the rows of STE-613 items 1 
     const only = parseShapesTable("## Recognised command shapes\n\n| Shape | Example | Verdict |\n|---|---|---|\n| x | `cd /s/b && git commit -m x` | recognised |\n");
     expect(only.length).toBe(1);
     for (const [, has] of needles) expect(has(only[0]!.example)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STE-615 AC.6 — the manual's PR rows are graded by running them through
+// `resolvePrTargetFromPayload`, in this same table-driven test.
+//
+// ROW LAYOUT (for the author of docs/hooks-reference.md): a PR row is an
+// ordinary row of the "Recognised command shapes" table whose Verdict cell
+// carries the token `(PR)`:
+//
+//   | `gh pr create` behind a `cd` | `cd /s/b && gh pr create` | recognised (PR) — targets `/s/b` |
+//   | `gh pr list` | `gh pr list` | out of scope (PR) — it reads, it creates nothing |
+//
+//   recognised (PR)   → isPr: true (and, when the verdict says "targets `/s/X`",
+//                       repoRoot === /s/X). Known-foreign and unresolved targets
+//                       are still PR CREATION, so they are `recognised` too; the
+//                       reason after the keyword says which.
+//   out of scope (PR) → isPr: false
+//
+// The commit grader above skips these rows, and this one grades only these.
+// ---------------------------------------------------------------------------
+
+export async function gradePrRows(rows: Row[]): Promise<string[]> {
+  const { resolvePrTargetFromPayload } = (await import(
+    "../adapters/_shared/src/pr_target_repo"
+  )) as {
+    resolvePrTargetFromPayload: (
+      payload: { cwd?: string; tool_input?: { command?: string } },
+      roots?: (dir: string) => string | null,
+    ) => { isPr: boolean; repoRoot: string | null };
+  };
+  const bad: string[] = [];
+  for (const row of rows) {
+    if (!isPrRow(row)) continue;
+    const t = withHome("/s", () =>
+      resolvePrTargetFromPayload({ cwd: "/s/a", tool_input: { command: row.example } }, ROOTS),
+    );
+    const named = /targets `?(\/s\/[a-z]+)`?/.exec(row.verdict)?.[1];
+    let ok: boolean;
+    if (row.verdict.startsWith("recognised")) ok = t.isPr && (named === undefined || t.repoRoot === named);
+    else if (row.verdict.startsWith("out of scope")) ok = !t.isPr;
+    else ok = false;
+    if (!ok) bad.push(`${row.verdict} ← ${row.example} (isPr=${t.isPr}, repoRoot=${t.repoRoot})`);
+  }
+  return bad;
+}
+
+describe("AC-STE-615.6 — the manual's PR rows are graded by running them", () => {
+  const rows = parseShapesTable(readFileSync(DOC, "utf8"));
+  const prRows = rows.filter(isPrRow);
+
+  test("the table carries at least 11 PR rows", () => {
+    expect(prRows.length).toBeGreaterThanOrEqual(11);
+  });
+
+  test("every PR row's verdict comes from the closed vocabulary", () => {
+    expect(prRows.length).toBeGreaterThan(0);
+    for (const row of prRows) {
+      expect(row.example.length).toBeGreaterThan(0);
+      expect(row.verdict).toMatch(/^(recognised|out of scope)/);
+    }
+    // Both verdicts are used: a table that only forbids, or only permits,
+    // grades one direction.
+    for (const v of ["recognised", "out of scope"]) {
+      expect({ v, used: prRows.some((r) => r.verdict.startsWith(v)) }).toEqual({ v, used: true });
+    }
+  });
+
+  test("every PR example resolves to its stated verdict", async () => {
+    expect(prRows.length).toBeGreaterThanOrEqual(11);
+    expect(await gradePrRows(prRows)).toEqual([]);
+  });
+
+  const needles: Array<[string, (ex: string) => boolean]> = [
+    ["a bare `gh pr create`", (ex) => /^gh pr create\b/.test(ex)],
+    ["a `cd` prefix", (ex) => /\bcd .*gh pr (create|new)\b/.test(ex)],
+    ["`-R` or `--repo`", (ex) => /gh .*(-R |--repo)/.test(ex)],
+    ["a `GH_REPO=` binding", (ex) => /GH_REPO=/.test(ex)],
+    ["gh's `new` alias", (ex) => /\bgh pr new\b/.test(ex)],
+    ["a command substitution", (ex) => /\$\(gh pr create/.test(ex)],
+    ["`--help`", (ex) => /gh pr create .*-{1,2}h(elp)?\b/.test(ex)],
+    ["`gh pr list`", (ex) => /\bgh pr list\b/.test(ex)],
+    ["`gh api …/pulls`", (ex) => /gh api .*pulls/.test(ex)],
+    ["`hub pull-request`", (ex) => /\bhub pull-request\b/.test(ex)],
+    ["`git push -o merge_request.create`", (ex) => /merge_request\.create/.test(ex)],
+  ];
+  for (const [label, has] of needles) {
+    test(`a PR row exemplifies ${label}`, () => {
+      expect({ label, present: prRows.some((r) => has(r.example)) }).toEqual({ label, present: true });
+    });
+  }
+
+  test("CONTROL — the PR grader is blind to the commit rows, and the commit grader to these", () => {
+    const only = parseShapesTable(
+      "## Recognised command shapes\n\n| Shape | Example | Verdict |\n|---|---|---|\n" +
+        "| bare | `gh pr create` | recognised (PR) |\n" +
+        "| bare commit | `git -C /s/b commit -m x` | recognised |\n",
+    );
+    expect(only.length).toBe(2);
+    expect(only.filter(isPrRow).length).toBe(1);
+    // The commit grader sees one row here, and it is the commit one.
+    expect(gradeRows(only)).toEqual([]);
   });
 });
