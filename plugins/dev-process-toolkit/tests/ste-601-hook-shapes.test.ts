@@ -7,10 +7,17 @@
 // processes.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  announcementRecords,
+  forgetAnnouncements,
+  mintedAnnouncements,
+  receiptsDirOf,
+  writeGateReceipt,
+} from "./_gate_receipt_fixture";
 import { git, makeSpanFixture, type SpanFixture } from "./_span_fixture";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
@@ -21,6 +28,8 @@ const WRAPPER = {
 type Hook = keyof typeof WRAPPER;
 
 const T = 300_000;
+/** An hour back: every receipt the fixture writes is newer than this. */
+const EARLY = new Date(Date.now() - 3_600_000).toISOString();
 
 let fx: SpanFixture;
 let A = "";
@@ -40,11 +49,32 @@ function stage(root: string, files: Record<string, string>): void {
   }
 }
 
-function transcript(name: string, skills: string[]): string {
+/**
+ * A transcript holding one Skill call per skill per stamp.
+ *
+ * STE-614 vouching — every Skill line carries the record `timestamp` a real
+ * transcript writes, because a call the guard cannot place in time opens no
+ * window and vouches for no receipt. Two stamps means two windows per skill,
+ * which is what a fixture needs to vouch for two checkouts: one gate run
+ * vouches for ONE checkout, so two checkouts take two runs.
+ */
+function transcript(
+  name: string,
+  skills: string[],
+  stamps: string[] = [EARLY],
+  announced: string[][] = [],
+): string {
   const file = join(scratch, `${name}.jsonl`);
-  const entries: unknown[] = [{ type: "tool_use", name: "Bash", input: { command: "ls" } }];
-  for (const skill of skills) entries.push({ type: "tool_use", name: "Skill", input: { skill } });
-  writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  const lines: string[] = [JSON.stringify({ type: "tool_use", name: "Bash", input: { command: "ls" } })];
+  stamps.forEach((stamp, i) => {
+    for (const skill of skills) {
+      lines.push(JSON.stringify({ type: "tool_use", timestamp: stamp, name: "Skill", input: { skill } }));
+    }
+    // A receipt is evidence only when this session ANNOUNCED it, and the window
+    // it belongs to is decided by where that announcement sits.
+    lines.push(...announcementRecords(announced[i] ?? [], `mint-${name}-${i}`));
+  });
+  writeFileSync(file, lines.join("\n") + "\n");
   return file;
 }
 
@@ -91,7 +121,36 @@ beforeAll(() => {
   stage(U, { "src/x.ts": "export const x = 1;\n", "src/x.test.ts": "// test\n" });
 
   NO_EVIDENCE = transcript("none", []);
-  EVIDENCE = transcript("both", ["dev-process-toolkit:gate-check", "dev-process-toolkit:tdd"]);
+
+  // STE-614 AC.5 / AC.13 — B is a toolkit-managed checkout, so "evidence
+  // present" now means the Skill call AND a gate receipt naming B, written by
+  // the shipped front door. Without these lines every `EVIDENCE` case below
+  // grades the transcript leg alone, which is the session-wide question this
+  // milestone exists to stop asking.
+  forgetAnnouncements();
+  writeGateReceipt(B, "gate-check", "s1");
+  writeGateReceipt(B, "tdd", "s1");
+  const ANNOUNCED_B = mintedAnnouncements();
+  // The session's own checkout A is a CANDIDATE root for an unplaced wrapper
+  // (STE-601 AC.7), and STE-614 grades the receipt leg against every candidate,
+  // so the wrapper rows need A's receipt as well as B's.
+  //
+  // STE-614 vouching — but not in B's window: one run vouches for one checkout.
+  // `MID` is taken between the two pairs of writes, so the transcript built
+  // below opens a window for B (from EARLY) and a second for A (from MID),
+  // which is what two honestly-run gates look like.
+  const MID = new Date().toISOString();
+  const beforeA = mintedAnnouncements().length;
+  writeGateReceipt(A, "gate-check", "s1");
+  writeGateReceipt(A, "tdd", "s1");
+  const ANNOUNCED_A = mintedAnnouncements().slice(beforeA);
+
+  EVIDENCE = transcript(
+    "both",
+    ["dev-process-toolkit:gate-check", "dev-process-toolkit:tdd"],
+    [EARLY, MID],
+    [ANNOUNCED_B, ANNOUNCED_A],
+  );
 
   NO_GIT_PATH = join(scratch, "bin-no-git");
   mkdirSync(NO_GIT_PATH);
@@ -372,6 +431,42 @@ describe("STE-601 review — no command word can start a line of a hook's stderr
       expect(quoted).toContain("dpt-receipt:");
     }, T);
   }
+});
+
+// ---------------------------------------------------------------- STE-614.13
+//
+// The receipt B carries is LOAD-BEARING IN THIS SUITE: the "with gate-check and
+// /tdd evidence → each proceeds" case above would still be green on the
+// session-wide rule this milestone retires, so the same command, the same
+// `EVIDENCE` transcript and B's receipts moved aside must exit 2.
+//
+// The receipts are MOVED, not rewritten: re-minting them here would place them
+// in A's vouching window rather than B's, so the restore puts back the very
+// files the front door wrote in `beforeAll`. Declared last so the removal
+// cannot reach a test that runs after it.
+describe("AC-STE-614.13 — B's receipt is load-bearing in this suite's proceeds case", () => {
+  test("SIBLING — the proceeds case with B's receipts moved aside exits 2 from both hooks", async () => {
+    const live = receiptsDirOf(B, "s1");
+    const stash = join(scratch, "b-receipts-stashed");
+    rmSync(stash, { recursive: true, force: true });
+    renameSync(live, stash);
+    try {
+      for (const hook of ["gate", "tdd"] as const) {
+        const r = await run(hook, `git -C ${B} commit -m x`, EVIDENCE);
+        expect({ hook, code: r.exitCode }).toEqual({ hook, code: 2 });
+        expect({ hook, names: r.stderr.includes(B) }).toEqual({ hook, names: true });
+      }
+    } finally {
+      renameSync(stash, live);
+    }
+  }, T);
+
+  test("CONTROL — with the receipts back, the same command proceeds past both hooks", async () => {
+    for (const hook of ["gate", "tdd"] as const) {
+      const r = await run(hook, `git -C ${B} commit -m x`, EVIDENCE);
+      expect({ hook, refused: r.exitCode === 2 }).toEqual({ hook, refused: false });
+    }
+  }, T);
 });
 
 describe("STE-601 review — the hooks' collapse rule is the receipt store's rule", () => {

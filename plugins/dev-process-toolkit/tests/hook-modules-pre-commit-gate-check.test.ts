@@ -386,8 +386,11 @@ describe("AC-STE-597.4 — an unresolvable target does NOT excuse gate-check evi
       gcPayload(UNRESOLVABLE_COMMIT, gcRepo, gcTranscriptWith()),
       gcRepo,
     );
-    expect(r.exitCode).toBe(0);
-    expect(r.stderr).toBe("");
+    // STE-614 AC.9 — an exit-0 Reminder would be a silent allow: a PreToolUse
+    // exit 0 surfaces no stderr at all, so the unresolved leg exits 1 instead.
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("Reminder:");
+    expect(r.stderr).toContain("$REPO");
   });
 
   test("CONTROL — an unresolvable NON-commit is still not a commit: exit 0 and silent", async () => {
@@ -612,5 +615,76 @@ describe("AC-STE-597.3 — a `$(...)` in the command does not hide the commit (R
     );
     expect(r.exitCode).toBe(0);
     expect(r.stderr).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------- STE-614.13
+//
+// The receipt is load-bearing IN THE SUITE THAT OWNS THE CASE: an
+// "evidence present, proceeds" case on a toolkit-managed checkout now carries a
+// front-door-written receipt, and its sibling with that receipt removed exits 2.
+
+import {
+  clearReceipts as clearReceipts614,
+  writeGateReceipt as writeGateReceipt614,
+  writeManagedClaudeMd as writeManagedClaudeMd614,
+  announcementRecords as announcementRecords614,
+  mintedAnnouncements as mintedAnnouncements614
+} from "./_gate_receipt_fixture";
+
+const SID_614 = "s1"; // the session id `gcPayload` puts in every payload
+
+async function managedGcRepo(name: string): Promise<string> {
+  const dir = join(tmpRoot, name);
+  mkdirSync(dir, { recursive: true });
+  await Bun.spawn(["git", "init", "-q", dir], { stdout: "pipe", stderr: "pipe" }).exited;
+  writeFileSync(join(dir, "package.json"), '{"name":"fixture","version":"0.0.0","private":true}\n');
+  writeManagedClaudeMd614(dir);
+  return dir;
+}
+
+/** A gate-check Skill tool_use with a timestamp, so it can vouch for a receipt. */
+function gcTranscriptWithVouching(): string {
+  return writeTranscript([
+    {
+      type: "assistant",
+      timestamp: new Date(Date.now() - 3_600_000).toISOString(),
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "tu1",
+            name: "Skill",
+            input: { skill: "dev-process-toolkit:gate-check" },
+          },
+        ],
+      },
+    },
+    { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu1", is_error: false }] } },
+    ...announcementRecords614(mintedAnnouncements614()).map((l) => JSON.parse(l) as unknown),
+  ]);
+}
+
+describe("AC-STE-614.13 — the receipt is load-bearing in this suite's proceeds case", () => {
+  test("evidence present AND a front-door-written receipt → exit 0, silent", async () => {
+    const repo = await managedGcRepo("gc-614-permit");
+    writeGateReceipt614(repo, "gate-check", SID_614);
+    const r = await runModule(
+      gcPayload(`git -C ${repo} commit -m x`, repo, gcTranscriptWithVouching()),
+      repo,
+    );
+    expect({ code: r.exitCode, err: r.stderr }).toEqual({ code: 0, err: "" });
+  });
+
+  test("SIBLING — the SAME case with the receipt REMOVED exits 2", async () => {
+    const repo = await managedGcRepo("gc-614-forbid");
+    writeGateReceipt614(repo, "gate-check", SID_614);
+    clearReceipts614(repo, SID_614);
+    const r = await runModule(
+      gcPayload(`git -C ${repo} commit -m x`, repo, gcTranscriptWithVouching()),
+      repo,
+    );
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("Refusing:");
   });
 });

@@ -68,8 +68,10 @@ export function parseReceiptAnnouncement(line: string): { path: string; digest: 
 
 export interface ReceiptInput {
   kind: string;
-  adapter: string;
-  container: string;
+  /** Null when the decision is not a tracker write — a gate run, say (STE-614). */
+  adapter: string | null;
+  /** Null for the same reason `adapter` is. */
+  container: string | null;
   subject: string;
   decision: string;
   evidence: unknown;

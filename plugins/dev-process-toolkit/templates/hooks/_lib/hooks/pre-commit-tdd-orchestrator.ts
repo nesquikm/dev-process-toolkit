@@ -34,6 +34,7 @@
 
 import {
   emitNFR10,
+  harnessAbsent,
   parseHookPayload,
   requireTddEvidence,
 } from "../session.ts";
@@ -44,6 +45,10 @@ import {
   type StackLayoutEntry,
 } from "../../../../adapters/_shared/src/stack_layout.ts";
 import { resolveCommitTargetFromPayload } from "../../../../adapters/_shared/src/commit_target_repo.ts";
+import {
+  checkoutRootOf,
+  gateEvidenceTarget,
+} from "../../../../adapters/_shared/src/gate_receipt.ts";
 
 // ---------------------------------------------------------------------------
 // Pure classifier — exported for unit tests (AC-STE-295.1).
@@ -268,7 +273,10 @@ async function isExemptPlaceholder(
 if (import.meta.main) {
   const stdin = await Bun.stdin.text();
   const payload = parseHookPayload(stdin);
-  if (!payload) {
+  // STE-614 AC.2 — the ONE fail-open leg, asked BEFORE any other verdict. The
+  // advisory `Reminder:` legs below all exit 1, which is stderr shown to an
+  // operator; with no harness there is no operator and no session to grade.
+  if (!payload || harnessAbsent(payload)) {
     process.exit(0);
   }
   // STE-597 — recognise the commit in all three shapes (bare, `cd`-prefixed,
@@ -385,11 +393,36 @@ if (import.meta.main) {
   // STE-598 — EITHER door satisfies: the per-FR orchestrator's Skill tool_use,
   // or a red-before proof covering the very paths that raised the requirement.
   // `required` is that set, so a proof for some other file cannot open the door.
+  // STE-614 AC.5 — `repoRoot` is non-null by here (the null leg reminded and
+  // exited above), and it is the checkout the /tdd receipt has to name: an FE
+  // /tdd run is not evidence about a commit aimed at BE.
+  // STE-614 NF-2 — door two carries its own scope, because a proof is a line an
+  // operator typed rather than a receipt a gate minted: nothing else places it.
+  // Both roots are realpath'd through the SAME lookup the receipt store keys on
+  // (`checkoutRootOf`), so a checkout reached through a symlink is one checkout
+  // for the proof exactly as it is for the receipt. A target git cannot place
+  // falls back to the resolved root rather than becoming `undefined` — an
+  // absent scope would silently restore the session-wide reading this closes.
+  const proofRoot = checkoutRootOf(repoRoot) ?? repoRoot;
+  const sessionRoot = payload.cwd ? checkoutRootOf(payload.cwd) : null;
+
   const { found } = requireTddEvidence(
     "dev-process-toolkit:tdd",
     "pre-commit-tdd-orchestrator",
     payload,
     required,
+    {
+      // Door one's repository leg: the same composer the sibling gate-check
+      // hook calls, so "which roots, and which vouching peers" is answered once
+      // for both gates. This commit is PLACED by here — the unresolved leg
+      // reminded and exited above — so it grades exactly `repoRoot`, with the
+      // session's own checkout counted as a peer.
+      ...gateEvidenceTarget("dev-process-toolkit:tdd", payload.session_id, {
+        roots: [repoRoot],
+        sessionRoot,
+      }),
+      proof: { targetRoot: proofRoot, sessionRoot },
+    },
   );
   process.exit(found ? 0 : 2);
 }

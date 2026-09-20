@@ -44,10 +44,11 @@ empty list.
 
 ## Side effects
 
-None. `/spec-review` is read-only in both modes. `allowed-tools: Read,
-Glob, Grep, Skill` is unchanged — the adapter `pull_acs` call is invoked via
-Claude's MCP tools, which are separate from `allowed-tools` (they live
-under the `mcp__*` namespace).
+None that grade anything. `/spec-review` reads in both modes; the one write it
+makes is its own gate receipt, which is why `allowed-tools: Read,
+Glob, Grep, Skill, Bash(bun run:*)` carries that one Bash arm — the adapter
+`pull_acs` call is invoked via Claude's MCP tools, which are separate from
+`allowed-tools` (they live under the `mcp__*` namespace).
 
 ## MCP call budget (NFR-8)
 

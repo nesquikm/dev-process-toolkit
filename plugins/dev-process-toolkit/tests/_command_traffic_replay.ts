@@ -13,6 +13,24 @@
 // directory is its own checkout) and no git aliases, so the replay does not
 // depend on which checkouts or aliases exist today. Only counts and command
 // lists reach stdout; no transcript text is written anywhere.
+//
+// AC-STE-614.15 adds three counts over the same corpus:
+//   * commit-bearing commands the post-change resolver leaves UNRESOLVED
+//     (`repoRoot === null`) — the leg that prints the exit-1 `Reminder:`;
+//   * commit-bearing commands naming SEVERAL checkouts (`repoRoots.length > 1`);
+//   * gate-check / tdd / spec-review Skill calls whose paired `tool_result`
+//     carried `is_error: true` — the NF-3 traffic, counted over TRANSCRIPTS
+//     rather than over commands.
+//
+// PAIRING RULE — the third count applies the rule `scanSkillCalls` implements in
+// `templates/hooks/_lib/session.ts:404-459`: a block is a Skill call when it is a
+// `tool_use` named `Skill` whose `input.skill` IS the needle (never a substring
+// match), and a `tool_result` retires the call whose `id` equals its
+// `tool_use_id` when it carries `is_error: true`. That function and its
+// `transcriptBlocks` reader are MODULE-PRIVATE, and the exported face,
+// `findSkillToolUse`, answers one boolean for one transcript rather than a
+// per-call count — so the rule could not be imported and is restated here,
+// deliberately field-for-field, as this file's only copy of it.
 
 import { spawnSync } from "node:child_process";
 import { createReadStream, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
@@ -29,13 +47,31 @@ export interface Classification {
   isCommit: boolean;
   repoRoot: string | null;
   advisory: string | null;
+  /** Every distinct checkout the command names. Empty on a base resolver without the field. */
+  repoRoots: string[];
+  /**
+   * True when the target could not be PLACED (an unexpandable word, an unplaced
+   * wrapper, `--git-dir`): the leg that prints the exit-1 Reminder. False on a
+   * base resolver that has no such field — which is honest, since the base has
+   * no Reminder leg either.
+   */
+  unplaced: boolean;
 }
 
 type Resolver = (command: string, sessionCwd: string, roots: (dir: string) => string | null, ...rest: never[]) => {
   isCommit: boolean;
   repoRoot: string | null;
   advisory?: string | null;
+  repoRoots?: string[];
+  unplaced?: boolean;
 };
+
+/** The three skills whose denied or failed calls AC-STE-614.15 counts. */
+export const GATE_SKILLS = [
+  "dev-process-toolkit:gate-check",
+  "dev-process-toolkit:tdd",
+  "dev-process-toolkit:spec-review",
+] as const;
 
 /** Every absolute directory is its own checkout; nothing else is inside one. */
 export const selfRoot = (dir: string): string | null => (isAbsolute(dir) ? dir : null);
@@ -48,7 +84,13 @@ export function classifyCommand(
   resolver: Resolver = resolveCommitTarget as unknown as Resolver,
 ): Classification {
   const r = (resolver as (...a: unknown[]) => ReturnType<Resolver>)(command, sessionCwd, selfRoot, noAliases);
-  return { isCommit: r.isCommit, repoRoot: r.repoRoot, advisory: r.advisory ?? null };
+  return {
+    isCommit: r.isCommit,
+    repoRoot: r.repoRoot,
+    advisory: r.advisory ?? null,
+    repoRoots: Array.isArray(r.repoRoots) ? r.repoRoots : r.repoRoot === null ? [] : [r.repoRoot],
+    unplaced: r.unplaced === true,
+  };
 }
 
 /** Load the base commit's resolver via `git archive`. Returns it plus a cleanup. */
@@ -111,6 +153,65 @@ async function collectCommands(file: string, into: Map<string, string>): Promise
   }
 }
 
+/** Per-skill tallies of Skill calls in the corpus (AC-STE-614.15, third count). */
+export type SkillCallTally = Record<string, { calls: number; errored: number }>;
+
+export function emptyTally(): SkillCallTally {
+  const t: SkillCallTally = {};
+  for (const s of GATE_SKILLS) t[s] = { calls: 0, errored: 0 };
+  return t;
+}
+
+/**
+ * Tally one transcript's gate-skill Skill calls and how many were retired by an
+ * `is_error: true` result, using the pairing rule named in this file's header.
+ *
+ * Pairing is per FILE: a `tool_result` belongs to the `tool_use` whose `id` it
+ * carries, and the two sit on different lines of the same transcript. A call
+ * with no `id` is unpairable and so can never be counted as errored.
+ */
+async function tallySkillCalls(file: string, into: SkillCallTally): Promise<void> {
+  const rl = createInterface({ input: createReadStream(file, { encoding: "utf8" }), crlfDelay: Infinity });
+  const callsById: Array<{ id: string | null; skill: string }> = [];
+  const erroredIds = new Set<string>();
+  for await (const line of rl) {
+    if (!line.includes('"tool_use"') && !line.includes('"tool_result"')) continue;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(line);
+    } catch {
+      continue; // a truncated line decides nothing, exactly as the guard does
+    }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const blocks: Array<Record<string, unknown>> = [raw as Record<string, unknown>];
+    const content = (raw as { message?: { content?: unknown } }).message?.content;
+    if (Array.isArray(content)) {
+      for (const b of content) if (b !== null && typeof b === "object" && !Array.isArray(b)) blocks.push(b as Record<string, unknown>);
+    }
+    for (const block of blocks) {
+      const input = block.input as { skill?: unknown } | undefined;
+      if (
+        block.type === "tool_use" &&
+        block.name === "Skill" &&
+        input !== null &&
+        typeof input === "object" &&
+        typeof input?.skill === "string" &&
+        (GATE_SKILLS as readonly string[]).includes(input.skill)
+      ) {
+        const id = typeof block.id === "string" && block.id !== "" ? block.id : null;
+        callsById.push({ id, skill: input.skill });
+      } else if (block.type === "tool_result" && block.is_error === true && typeof block.tool_use_id === "string") {
+        erroredIds.add(block.tool_use_id);
+      }
+    }
+  }
+  for (const call of callsById) {
+    const slot = into[call.skill]!;
+    slot.calls++;
+    if (call.id !== null && erroredIds.has(call.id)) slot.errored++;
+  }
+}
+
 function argValue(argv: string[], flag: string): string | undefined {
   const i = argv.indexOf(flag);
   if (i >= 0) return argv[i + 1];
@@ -151,6 +252,9 @@ async function main(argv: string[]): Promise<number> {
     const newlyResolved: string[] = [];
     const targetChanged: string[] = [];
     const stillUnresolvable: string[] = [];
+    // AC-STE-614.15 — the two command-side counts.
+    let unresolvedLeg = 0;
+    const multiCheckout: string[] = [];
     for (const [cmd, cwd] of commands) {
       const b = classifyCommand(cmd, cwd, baseResolver);
       const a = classifyCommand(cmd, cwd);
@@ -164,6 +268,17 @@ async function main(argv: string[]): Promise<number> {
         else if (b.repoRoot !== null && a.repoRoot !== null && a.repoRoot !== b.repoRoot) targetChanged.push(cmd);
       }
       if (a.isCommit && a.repoRoot === null) stillUnresolvable.push(cmd);
+      // AC-STE-614.15 — the exit-1 Reminder leg and the several-checkouts leg,
+      // both read off the POST-change resolver alone.
+      //
+      // The Reminder leg is `unplaced`, NOT `repoRoot === null`: a null root is
+      // also what a fully resolved MULTI-checkout command carries (it has
+      // `repoRoots`, and the gate refuses it by name rather than reminding),
+      // and what a directory that resolved into no checkout carries (exit 0,
+      // silent). Counting nulls made the recorded figure a superset of the
+      // multi-checkout figure beside it.
+      if (a.isCommit && a.unplaced) unresolvedLeg++;
+      if (a.isCommit && a.repoRoots.length > 1) multiCheckout.push(cmd);
     }
     console.log(`base: ${base}`);
     console.log(`commit-bearing before: ${before}`);
@@ -179,6 +294,24 @@ async function main(argv: string[]): Promise<number> {
     console.log(`still unresolvable after: ${stillUnresolvable.length}`);
     printList("newly resolved", newlyResolved);
     printList("target changed", targetChanged);
+
+    // --- AC-STE-614.15 ------------------------------------------------------
+    console.log(`\n## AC-STE-614.15 (out of ${commands.size} distinct commands, ${files.length} transcript files)`);
+    console.log(`commit-bearing in the unresolved leg (exit-1 Reminder): ${unresolvedLeg}`);
+    console.log(`commit-bearing naming several checkouts: ${multiCheckout.length}`);
+    printList("several checkouts", multiCheckout);
+
+    const tally = emptyTally();
+    for (const f of files) await tallySkillCalls(f, tally);
+    let calls = 0;
+    let errored = 0;
+    for (const s of GATE_SKILLS) {
+      const slot = tally[s]!;
+      calls += slot.calls;
+      errored += slot.errored;
+      console.log(`${s}: ${slot.calls} Skill tool_use, ${slot.errored} with an is_error result`);
+    }
+    console.log(`gate-skill Skill calls: ${calls}, of which errored/denied: ${errored}`);
   } finally {
     cleanup();
   }
