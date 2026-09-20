@@ -973,3 +973,64 @@ describe("AC-STE-614.7 review — each receipt state refuses with its OWN senten
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// M_85e846 review round: the FIXTURE'S OWN SHAPE is load-bearing.
+//
+// `announcementRecords` is how this file and five sibling suites tell the guard
+// "the front door announced these receipts". The front door prints EXACTLY ONE
+// `dpt-receipt:` line per run — `gate_receipt.ts` announces from a single
+// `console.log` — so a transcript result carrying two announcements is a shape
+// no real session can produce, and the one-announcement-per-result rule that
+// closes the replay leak refuses it, correctly.
+//
+// The helper once crammed every line into ONE result via `lines.join("\n")`.
+// Under that unfaithful shape thirteen PERMIT clauses went red against correct
+// code, and the obvious-but-wrong reading was "the new rule is too strict".
+// Without this clause an edit restoring the crammed shape re-defuses the rule
+// in silence: the PERMIT clauses red again and the next reader files the guard
+// as the defect instead of the fixture.
+// ---------------------------------------------------------------------------
+describe("M_85e846 review — the announcement fixture emits ONE pair per line", () => {
+  test("N lines → N tool_use/tool_result `${id}-${n}` pairs, and no result carries two announcements", () => {
+    const LINES = [
+      "dpt-receipt: /a/.dpt/ledger/receipts/s/one.json a1",
+      "dpt-receipt: /b/.dpt/ledger/receipts/s/two.json b2",
+      "dpt-receipt: /c/.dpt/ledger/receipts/s/three.json c3",
+    ];
+    interface Rec { message: { content: Array<Record<string, unknown>> } }
+    const parsed = (n: number): Rec[] =>
+      announcementRecords(LINES.slice(0, n), "pin").map((l) => JSON.parse(l) as Rec);
+
+    // Nothing announced announces nothing.
+    expect(announcementRecords([], "pin")).toEqual([]);
+
+    for (const n of [1, 2, 3]) {
+      const recs = parsed(n);
+      // One PAIR per line — not one call with an n-line result.
+      expect({ n, records: recs.length }).toEqual({ n, records: n * 2 });
+
+      const results = recs.map((r) => r.message.content[0]!).filter((c) => c.type === "tool_result");
+      expect({ n, results: results.length }).toEqual({ n, results: n });
+
+      for (const [i, line] of LINES.slice(0, n).entries()) {
+        const use = recs[i * 2]!.message.content[0]!;
+        const res = recs[i * 2 + 1]!.message.content[0]!;
+        expect({
+          useType: use.type, name: use.name, useId: use.id,
+          resType: res.type, resId: res.tool_use_id, isError: res.is_error, content: res.content,
+        }).toEqual({
+          useType: "tool_use", name: "Bash", useId: `pin-${i}`,
+          resType: "tool_result", resId: `pin-${i}`, isError: false, content: line,
+        });
+      }
+
+      // The cramming check, stated as its own fact: every result holds exactly
+      // ONE `dpt-receipt:` line. `lines.join("\n")` fails this at n >= 2.
+      for (const res of results) {
+        const carried = String(res.content).split("\n").filter((l) => l.startsWith("dpt-receipt: "));
+        expect({ n, announcementsInOneResult: carried.length }).toEqual({ n, announcementsInOneResult: 1 });
+      }
+    }
+  });
+});

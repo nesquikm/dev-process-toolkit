@@ -251,6 +251,20 @@ export interface EvidenceTarget {
     announcements: readonly ReceiptAnnouncement[],
   ): EvidenceMiss | null;
   /**
+   * Whether a Bash command RAN the receipt front door — ONE plain
+   * `bun [run] <the front door's own file> <gate skill>`.
+   *
+   * A VALUE, exactly like `receiptLeg` above and for the same reason: this file
+   * is loaded from a temp copy by its own suite, so it holds no relative import
+   * and cannot reach the front door's module by name. It therefore holds no
+   * reading of the command text either — the module that IS the front door
+   * answers whether a command ran it, with the same tokeniser the sibling
+   * tracker-write gate reads its own deciding modules with, so a command that
+   * merely mentions the module (an echo, a `#` comment, a `cd … &&` chain)
+   * announces nothing.
+   */
+  announcesReceipts(command: string): boolean;
+  /**
    * STE-614 NF-2 — where a red-before proof has to say it ran (see `ProofScope`).
    * Absent ⇒ the second door keeps its pre-STE-614 session-wide reading, which
    * is what every caller with no repository in hand wants.
@@ -433,14 +447,6 @@ interface SkillCall {
   line: number;
 }
 
-/**
- * ONE plain invocation of the receipt front door, as the gate skills order it.
- * Deliberately narrow: a command that merely mentions the module (an echo, a
- * heredoc) announces nothing, exactly as the sibling tracker-write gate reads
- * its own deciding modules.
- */
-const RECEIPT_FRONT_DOOR = /(^|\s)bun\s+run\s+\S*adapters\/_shared\/src\/gate_receipt\.ts["']?(\s|$)/;
-
 /** The text a `tool_result` carries, whether it is a string or content blocks. */
 function resultText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -492,7 +498,11 @@ function announcementsIn(text: string): Array<{ path: string; digest: string }> 
  * Fail-open (`found: true`) when the transcript is missing or unreadable, via
  * the ONE shared reader (`readTranscriptLines`).
  */
-function scanSkillCalls(skill: string, payload: HookPayload): SkillCallScan {
+function scanSkillCalls(
+  skill: string,
+  payload: HookPayload,
+  target?: EvidenceTarget,
+): SkillCallScan {
   const lines = readTranscriptLines(payload);
   if (lines === null) {
     // Fail-open: no transcript file ⇒ behave as if the hook fired outside
@@ -528,20 +538,27 @@ function scanSkillCalls(skill: string, payload: HookPayload): SkillCallScan {
       ) {
         erroredIds.add(block.tool_use_id);
       }
-      // The announcement half: a Bash call that ran the front door, and the
+      // The announcement half: a Bash call that RAN the front door (the target's
+      // own injected reading — see `EvidenceTarget.announcesReceipts`), and the
       // non-error result it printed its `dpt-receipt:` line into.
       if (block.type === "tool_use" && block.name === "Bash" && typeof block.id === "string") {
         const command = block.input === null || typeof block.input !== "object" ? undefined : block.input.command;
-        if (typeof command === "string" && RECEIPT_FRONT_DOOR.test(command)) minting.add(block.id);
+        if (target !== undefined && typeof command === "string" && target.announcesReceipts(command)) {
+          minting.add(block.id);
+        }
       } else if (
         block.type === "tool_result" &&
         block.is_error !== true &&
         typeof block.tool_use_id === "string" &&
         minting.has(block.tool_use_id)
       ) {
-        for (const announced of announcementsIn(resultText(block.content))) {
-          announcements.push({ ...announced, line: index });
-        }
+        // ONE run writes ONE receipt, so a result carrying anything other than
+        // exactly one announcement announces NONE of them — the sibling
+        // tracker-write gate's rule, and the reason a replayed line appended to
+        // a genuine run's output cannot ride along on it. Including the genuine
+        // line: a result someone added to cannot be told from one they did not.
+        const found = announcementsIn(resultText(block.content));
+        if (found.length === 1) announcements.push({ ...found[0]!, line: index });
       }
     }
   });
@@ -609,7 +626,7 @@ export function requireSkillToolUse(
   payload: HookPayload,
   target?: EvidenceTarget,
 ): { found: boolean } {
-  const scan = scanSkillCalls(skill, payload);
+  const scan = scanSkillCalls(skill, payload, target);
   if (scan.found) {
     // STE-614 AC.5 — the repository-scoped leg, demanded IN ADDITION to the
     // transcript leg and never instead of it. The transcript says the gate ran
@@ -857,7 +874,7 @@ export function requireTddEvidence(
 ): { found: boolean } {
   // Door one first, and via the NON-emitting check: `requireSkillToolUse`
   // would write its own refusal before door two had been asked.
-  const doorOne = scanSkillCalls(skill, payload);
+  const doorOne = scanSkillCalls(skill, payload, target);
   // STE-614 AC.5 — door one is session-wide, so a /tdd run in the session's own
   // checkout says nothing about a commit aimed at a second one; the receipt leg
   // is what places it. Door two is NOT graded against it: a red-before proof
