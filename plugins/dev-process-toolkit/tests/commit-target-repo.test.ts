@@ -968,34 +968,34 @@ describe("AC-STE-597.1 — the heredoc reading must not go blind: commits outsid
 // ---------------------------------------------------------------------------
 
 describe("AC-STE-597.1/4 — a `$(...)` substitution hides no commit (RED: today every one of these is invisible)", () => {
-  test("`git -C $(pwd) commit` is a COMMIT whose target cannot be determined", () => {
+  test("`git -C $(pwd) commit` is a COMMIT that resolves to the running directory's checkout (STE-613 amends this STE-597 pin)", () => {
     const t = resolveCommitTarget("git -C $(pwd) commit -m x", "/s/a", ROOTS);
     // The bypass, stated as the assertion that fails on the shipped bytes.
     expect(t.isCommit).toBe(true);
     expect(t.shape).toBe("dash-c");
-    expect(t.repoRoot).toBe(null);
+    expect(t.repoRoot).toBe("/s/a");
     // Never the session's repo: that would be a confident answer about a
     // repository the command did not name.
-    expect(t.repoRoot).not.toBe("/s/a");
-    expect(t.unresolved).toContain("$(pwd)");
+    expect(t.repoRoot).not.toBe(null);
+    expect(t.unresolved).toBe(null);
     // And it is unresolvable because the VALUE is unexpanded, not because the
     // parser lost count of the parentheses. A fix that consumed the `$(` but
     // left the depth counter unbalanced would produce an unbalanced-paren
     // diagnosis here, which is the right verdict for the wrong reason.
-    expect(t.unresolved).not.toContain("unbalanced");
+    expect(t.unresolved ?? "").not.toContain("unbalanced");
   });
 
-  test("`git -C $(git rev-parse --show-toplevel) commit` — the everyday idiom — is a commit too", () => {
+  test("`git -C $(git rev-parse --show-toplevel) commit` — the everyday idiom — is a commit that resolves to the checkout root (STE-613 amends this STE-597 pin)", () => {
     const cmd = "git -C $(git rev-parse --show-toplevel) commit -m x";
     const t = resolveCommitTarget(cmd, "/s/a", ROOTS);
     expect(t.isCommit).toBe(true);
     expect(t.shape).toBe("dash-c");
-    expect(t.repoRoot).toBe(null);
-    expect(t.unresolved).toContain("$(git rev-parse --show-toplevel)");
+    expect(t.repoRoot).toBe("/s/a");
+    expect(t.unresolved).toBe(null);
     // The inner `git` must not be mistaken for a second invocation, and the
     // inner `--show-toplevel` must not be parsed as a global option of the
     // outer one: the whole span is one word's worth of literal text.
-    expect(t.unresolved).not.toContain("unbalanced");
+    expect(t.unresolved ?? "").not.toContain("unbalanced");
   });
 
   test("`git -c user.name=$(whoami) commit` — a substitution in a GLOBAL OPTION's value", () => {
@@ -1039,14 +1039,14 @@ describe("AC-STE-597.1/4 — a `$(...)` substitution hides no commit (RED: today
     expect(t.unresolved).not.toContain("unbalanced");
   });
 
-  test("a substitution inside a GENUINE subshell leaves the subshell intact", () => {
+  test("a substitution inside a GENUINE subshell leaves the subshell intact, and resolves to the subshell's directory (STE-613 amends this pin)", () => {
     // Both readings are exercised at once: the `(` opens a scope, the `$(`
     // does not, and the commit is still found inside the scope.
     const t = resolveCommitTarget("(cd /s/b && git -C $(pwd) commit -m x)", "/s/a", ROOTS);
     expect(t.isCommit).toBe(true);
-    expect(t.repoRoot).toBe(null);
-    expect(t.unresolved).toContain("$(pwd)");
-    expect(t.unresolved).not.toContain("unbalanced");
+    expect(t.repoRoot).toBe("/s/b");
+    expect(t.unresolved).toBe(null);
+    expect(t.unresolved ?? "").not.toContain("unbalanced");
   });
 
   test("`echo $(git commit)` IS a commit (STE-601 amends this STE-597 pin: a substitution executes) — the tear cuts the other way too", () => {
@@ -1060,14 +1060,14 @@ describe("AC-STE-597.1/4 — a `$(...)` substitution hides no commit (RED: today
     expect(t.repoRoot).toBe("/s/a");
   });
 
-  test("the UNQUOTED spelling agrees with the QUOTED one, which already answered correctly", () => {
+  test("the UNQUOTED spelling agrees with the QUOTED one, and both resolve alike (STE-613 amends this pin)", () => {
     // `git -C "$(pwd)" commit` resolves today, because the quote hides the `(`
     // from the splitter. Two spellings of one command answering differently is
     // the defect restated; this clause pins them together.
     const quoted = resolveCommitTarget('git -C "$(pwd)" commit -m x', "/s/a", ROOTS);
     const unquoted = resolveCommitTarget("git -C $(pwd) commit -m x", "/s/a", ROOTS);
     expect(quoted.isCommit).toBe(true);
-    expect(quoted.repoRoot).toBe(null);
+    expect(quoted.repoRoot).toBe("/s/a");
     expect(unquoted.isCommit).toBe(quoted.isCommit);
     expect(unquoted.shape).toBe(quoted.shape);
     expect(unquoted.repoRoot).toBe(quoted.repoRoot);
@@ -1087,12 +1087,12 @@ describe("STE-597 ROUND 2 CONTROLS — the substitution fix must not become a ne
     expect(t.unresolved).toBe(null);
   });
 
-  test("CONTROL — `cd $(pwd)/sub && git commit` is commit-bearing and UNRESOLVED, never the session's repo", () => {
+  test("CONTROL — `cd $(pwd)/sub && git commit` is commit-bearing and resolves to the session's checkout (STE-613 amends this pin)", () => {
     const t = resolveCommitTarget("cd $(pwd)/sub && git commit -m x", "/s/a", ROOTS);
     expect(t.isCommit).toBe(true);
-    expect(t.repoRoot).toBe(null);
-    expect(t.repoRoot).not.toBe("/s/a");
-    expect(t.unresolved).toContain("$");
+    expect(t.repoRoot).toBe("/s/a");
+    expect(t.repoRoot).not.toBe(null);
+    expect(t.unresolved).toBe(null);
   });
 
   test("CONTROL — a GENUINE subshell keeps its scope: `(cd /s/b && git commit)` commits in /s/b", () => {
