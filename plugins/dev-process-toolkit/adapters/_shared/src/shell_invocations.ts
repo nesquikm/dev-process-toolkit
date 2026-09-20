@@ -16,6 +16,7 @@
 // builtins that change the shell's own `ShellFrame` — its directory and its
 // exports), and the `ReadingRules` switches a caller reads the stream under.
 
+import { realpathSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { homedir } from "node:os";
 
@@ -1585,4 +1586,137 @@ export function shellInvocations(
   roots?: CheckoutRootLookup,
 ): ShellInvocation[] {
   return readInvocations(command, sessionCwd, roots, FULL_READING).invocations;
+}
+
+// ---------------------------------------------------------------------------
+// The SMALL grammar — "did this command RUN that module?" (M_947c79, shared by
+// the M_85e846 review).
+//
+// The recogniser above answers "what would the shell run, and where", which is
+// the right question for placing a commit. A gate asking whether a Bash call
+// MINTED a receipt needs a stricter answer: not "a `bun` ran somewhere in
+// there" but "this command is one plain invocation of that exact file, and
+// nothing else could have printed into its result". So this reading refuses
+// everything the shell could branch on rather than modelling it, and both the
+// tracker-write gate and the gate-receipt front door read through it. Two
+// copies of it is how the two gates came to disagree about the one rule — the
+// second copy was a substring regex, and `echo bun run <module> …` announced a
+// receipt it never wrote.
+// ---------------------------------------------------------------------------
+
+/**
+ * This plugin's own root: a gate trusts ITS plugin's modules, never a
+ * same-named file elsewhere. `adapters/_shared/src` → `adapters/_shared` →
+ * `adapters` → the plugin root.
+ */
+export const OWN_PLUGIN_ROOT = resolve(import.meta.dir, "..", "..", "..");
+
+/** The documented spellings of the plugin root in a command, expanded to the caller's own root. */
+const PLUGIN_ROOT_VARS = ["${CLAUDE_PLUGIN_ROOT}", "$CLAUDE_PLUGIN_ROOT"];
+
+/** The plugin-root variable spelled at `command[i]`, or null. `$CLAUDE_PLUGIN_ROOTX` is another variable. */
+function pluginRootVarAt(command: string, i: number): string | null {
+  for (const v of PLUGIN_ROOT_VARS) {
+    if (!command.startsWith(v, i)) continue;
+    if (v.startsWith("${") || !/[A-Za-z0-9_]/.test(command[i + v.length] ?? "")) return v;
+  }
+  return null;
+}
+
+/**
+ * Split a Bash command into words under a deliberately small shell grammar,
+ * or null when the command uses anything beyond it: unquoted metacharacters
+ * (`;` `&` `|` `<` `>` `(` `)` `#` `*` `?` `~` `!` `{` `}` `[` `]` `\`),
+ * command or variable substitution, or a newline. A command that could run a
+ * second program — an `echo` chained after the real one, a comment carrying a
+ * module name — is thereby not a deciding command at all. The one variable
+ * allowed is the plugin root (`${CLAUDE_PLUGIN_ROOT}` / `$CLAUDE_PLUGIN_ROOT`,
+ * bare or inside double quotes), expanded to `pluginRoot`: the spelling every
+ * skill, adapter doc and hooks.json uses.
+ */
+export function simpleCommandWords(command: string, pluginRoot: string = OWN_PLUGIN_ROOT): string[] | null {
+  const words: string[] = [];
+  let cur: string | null = null;
+  let i = 0;
+  while (i < command.length) {
+    const ch = command[i]!;
+    const rootVar = ch === "$" ? pluginRootVarAt(command, i) : null;
+    if (rootVar !== null) {
+      cur = (cur ?? "") + pluginRoot;
+      i += rootVar.length;
+    } else if (ch === " " || ch === "\t") {
+      if (cur !== null) words.push(cur);
+      cur = null;
+      i++;
+    } else if (ch === "'") {
+      const end = command.indexOf("'", i + 1);
+      if (end < 0) return null;
+      const body = command.slice(i + 1, end);
+      if (body.includes("\n")) return null;
+      cur = (cur ?? "") + body;
+      i = end + 1;
+    } else if (ch === '"') {
+      let body = "";
+      let j = i + 1;
+      for (; j < command.length && command[j] !== '"'; j++) {
+        const v = command[j] === "$" ? pluginRootVarAt(command, j) : null;
+        if (v !== null) {
+          body += pluginRoot;
+          j += v.length - 1;
+        } else if (/[$`\\\n]/.test(command[j]!)) {
+          return null;
+        } else {
+          body += command[j];
+        }
+      }
+      if (j >= command.length) return null;
+      cur = (cur ?? "") + body;
+      i = j + 1;
+    } else if (/[A-Za-z0-9_./:=@%+,-]/.test(ch)) {
+      cur = (cur ?? "") + ch;
+      i++;
+    } else {
+      return null;
+    }
+  }
+  if (cur !== null) words.push(cur);
+  return words;
+}
+
+/**
+ * `path` through the filesystem's own eyes, or its absolute spelling when it
+ * cannot be resolved. Two spellings of one file must compare equal, or a
+ * checkout reached through a symlink would look like a same-named file
+ * somewhere this plugin does not own.
+ */
+export function realpathOr(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/** One plain `bun [run] <absolute module path> <args…>`, as a realpath plus its arguments. */
+export interface BunInvocation {
+  /** The module the command runs, realpath-resolved. */
+  module: string;
+  /** The words after the module path. */
+  args: string[];
+}
+
+/**
+ * The module an `bun [run] <absolute path> …` command RUNS, or null when the
+ * command is not one plain such invocation under `simpleCommandWords`.
+ *
+ * `bun <path>` with no `run` is accepted: Bun runs a file either way, so a gate
+ * that understood only the `run` spelling would refuse an honest caller.
+ */
+export function bunInvocation(command: string, pluginRoot?: string): BunInvocation | null {
+  const words = simpleCommandWords(command.trim(), pluginRoot);
+  if (words === null || words[0] !== "bun") return null;
+  const at = words[1] === "run" ? 2 : 1;
+  const target = words[at];
+  if (target === undefined || !target.startsWith("/")) return null;
+  return { module: realpathOr(target), args: words.slice(at + 1) };
 }

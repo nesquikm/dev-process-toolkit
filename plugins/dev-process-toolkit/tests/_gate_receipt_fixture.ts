@@ -95,12 +95,21 @@ export function forgetAnnouncements(): void {
 }
 
 /**
- * A transcript record pair announcing `lines`: the Bash call that ran the front
- * door, and its non-error result. This is the shape the guard reads.
+ * Transcript records announcing `lines`: for EACH line, the Bash call that ran
+ * the front door and its non-error result, as a `${id}-${n}` pair. This is the
+ * shape the guard reads.
+ *
+ * ONE PAIR PER LINE, never one result carrying several. The front door prints
+ * exactly one `dpt-receipt:` line per run (`gate_receipt.ts` announces from a
+ * single `console.log`), so a result holding two announcements is a shape no
+ * real session can produce. This helper used to cram every line into one
+ * result via `lines.join("\n")`, and that unfaithful shape is precisely what
+ * the one-announcement-per-result rule refuses — every PERMIT clause built on
+ * a multi-mint fixture went red against correct code. A fixture that cannot
+ * occur is not evidence about the guard; it is evidence about the fixture.
  */
 export function announcementRecords(lines: readonly string[], id = "bash-mint"): string[] {
-  if (lines.length === 0) return [];
-  return [
+  return lines.flatMap((line, n) => [
     JSON.stringify({
       type: "assistant",
       timestamp: new Date().toISOString(),
@@ -108,7 +117,7 @@ export function announcementRecords(lines: readonly string[], id = "bash-mint"):
         content: [
           {
             type: "tool_use",
-            id,
+            id: `${id}-${n}`,
             name: "Bash",
             input: { command: 'bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_receipt.ts" gate-check .' },
           },
@@ -117,9 +126,13 @@ export function announcementRecords(lines: readonly string[], id = "bash-mint"):
     }),
     JSON.stringify({
       type: "user",
-      message: { content: [{ type: "tool_result", tool_use_id: id, is_error: false, content: lines.join("\n") }] },
+      message: {
+        content: [
+          { type: "tool_result", tool_use_id: `${id}-${n}`, is_error: false, content: line },
+        ],
+      },
     }),
-  ];
+  ]);
 }
 
 /**

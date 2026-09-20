@@ -27,6 +27,7 @@ import { dirname, resolve } from "node:path";
 
 import { receiptsDir } from "./dpt_paths";
 import { nfr10Message } from "./dpt_version";
+import { bunInvocation, realpathOr } from "./shell_invocations";
 import { isToolkitManaged } from "./toolkit_managed";
 import { announceReceipt, oneLine, readSessionReceipts, receiptDigest, writeReceipt } from "./tracker_receipts";
 
@@ -57,6 +58,34 @@ export function isGateSkillName(name: string): name is GateSkillName {
 /** `dev-process-toolkit:<name>` — the full skill name, never the bare one. */
 export function gateSubject(name: GateSkillName): string {
   return `${GATE_SKILL_NAMESPACE}:${name}`;
+}
+
+/** This module's own file, as the filesystem sees it: the front door itself. */
+const OWN_FRONT_DOOR = realpathOr(resolve(import.meta.dir, "gate_receipt.ts"));
+
+/**
+ * Whether a Bash command RAN this front door — the question every `dpt-receipt:`
+ * line's provenance turns on, since the line is evidence only when the call that
+ * printed it is the call that wrote the receipt.
+ *
+ * Read, not pattern-matched, and read by the SAME grammar the sibling
+ * tracker-write gate reads its own deciding modules with (`bunInvocation`, on
+ * the shared `simpleCommandWords`): ONE plain `bun [run] <absolute path>
+ * <gate skill>` whose path realpaths to THIS file. So `echo bun run <front
+ * door> …`, a trailing `# …` comment naming it, a `cd … &&` chain that could
+ * print anything, and a same-named `gate_receipt.ts` somewhere this plugin does
+ * not own all run nothing here, and announce nothing.
+ *
+ * Scope, not reading, is what separates this from `invokedDecidingModule`: the
+ * gate receipt is deliberately NOT one of the tracker gate's
+ * `RECEIPT_ANNOUNCING_MODULES` (AC-STE-614.4), so it asks the same question
+ * about a different module.
+ */
+export function announcesGateReceipt(command: string): boolean {
+  const run = bunInvocation(command);
+  if (run === null || run.module !== OWN_FRONT_DOOR) return false;
+  const subcommand = run.args[0];
+  return subcommand !== undefined && isGateSkillName(subcommand);
 }
 
 /**
@@ -287,11 +316,22 @@ export interface GateEvidence {
 // so it vouches for nothing: a window with no start is not a bound at all.
 // ---------------------------------------------------------------------------
 
-/** One vouching window, `[start, end)`, in epoch milliseconds. */
+/**
+ * One vouching window, in epoch milliseconds AND in transcript lines.
+ *
+ * Both halves ship because both are read: the wall-clock bounds place a receipt
+ * FILE, and the line bounds place an ANNOUNCEMENT, which is what actually
+ * decides the claim (a timestamp inside a file is written by whoever wrote the
+ * file; a transcript line number is not).
+ */
 export interface VouchWindow {
   start: number;
   /** `Infinity` for the window the end of the transcript closes. */
   end: number;
+  /** Transcript line the vouching Skill call sits on. */
+  startLine: number;
+  /** Transcript line the next Skill call sits on, or `Infinity`. */
+  endLine: number;
 }
 
 /** What the transcript leg hands the receipt leg so it can place a receipt. */
@@ -542,10 +582,12 @@ export function gateReceiptEvidence(
   return { ok: false, reason: "not-vouched", claimant, named: null, ...here };
 }
 
-/** The two sentences a failed repository-scoped leg refuses with. */
+/** The two sentences a failed repository-scoped leg refuses with, and where. */
 export interface GateEvidenceMiss {
   why: string;
   how: string;
+  /** The checkout this miss is about, so a multi-root refusal can name them all. */
+  root: string;
 }
 
 /** What each miss sentence is composed from: the verdict, plus the words for it. */
@@ -731,7 +773,21 @@ export interface GateEvidenceWhere {
 export interface GateEvidenceTarget {
   /** The checkouts to grade, in the order the refusal will name them. */
   roots: string[];
-  receiptLeg(root: string, windows: readonly VouchWindow[]): GateEvidenceMiss | null;
+  receiptLeg(
+    root: string,
+    windows: readonly VouchWindow[],
+    announcements?: readonly ReceiptAnnouncement[],
+  ): GateEvidenceMiss | null;
+  /**
+   * Whether a Bash command RAN the receipt front door (`announcesGateReceipt`).
+   *
+   * Injected for the same reason `receiptLeg` is: `session.ts` is loaded from a
+   * temp copy by its own suite, so it carries no relative import and cannot
+   * reach this module by name. It therefore holds no reading of its own — which
+   * is what let a pattern there drift away from the sibling gate's tokeniser
+   * and re-open HS-1.
+   */
+  announcesReceipts(command: string): boolean;
 }
 
 /**
@@ -767,7 +823,11 @@ export function gateEvidenceTarget(
       : where.roots,
   );
   const peerRoots = uniqueRoots([...roots, ...(own === null ? [] : [own])]);
-  return { roots, receiptLeg: gateReceiptLeg(subject, sessionId, peerRoots) };
+  return {
+    roots,
+    receiptLeg: gateReceiptLeg(subject, sessionId, peerRoots),
+    announcesReceipts: announcesGateReceipt,
+  };
 }
 
 /** Distinct checkouts, keyed by realpath, each kept in the spelling first seen. */

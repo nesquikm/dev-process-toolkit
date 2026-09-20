@@ -418,6 +418,12 @@ export function gitAliasOf(dir: string, name: string): string | null | undefined
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
     timeout: 5000,
+    // Passed rather than left to default, exactly as `gitRemotesOf` does: under
+    // Bun an omitted `env` resolves `git` against the PATH the process STARTED
+    // with, so this lookup would run a different `git` than its own environment
+    // names — and the "unreadable" arm below would be unreachable from any test,
+    // because no test could make git un-findable.
+    env: process.env,
   });
   if (run.error !== undefined) return undefined;
   if (run.status === 0) return run.stdout.replace(/\n$/, "");
