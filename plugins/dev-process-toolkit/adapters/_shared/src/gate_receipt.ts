@@ -261,14 +261,44 @@ export function recordGateRun(skill: string, target: string): string {
  * sitting right there. The prose for each lives in ONE table (`MISS_PROSE`),
  * so a reason and the sentence it refuses with cannot drift apart.
  *
- * The same rule split the last leg three ways (M_85e846 review). A receipt no
- * run vouches for gets there three ways: another checkout's announcement took
- * the window (`not-vouched`), runs were seen and none of them places this
- * receipt (`outside-window`), or no command in the session was read as a run
- * of the front door at all (`nothing-announced`). Under one name the third
- * state borrowed the second's sentence and told the operator their receipt
- * predated a Skill call that had in fact run before it — a cause reconstructed
- * from a string instead of read from a value.
+ * The same rule split the last leg (M_85e846 review), and then split it again
+ * (review round 2) when the first split turned out to read its cause off a
+ * post-filter COUNT — `announced.length === 0` — which cannot say why the
+ * filter emptied any more than a sentence can. A receipt no run vouches for
+ * now gets there by EIGHT named states, each read from the value that decided
+ * it:
+ *
+ *   `not-vouched`                   another checkout's announcement took the
+ *                                   window this receipt falls in
+ *   `outside-window`                windows exist, and every announcement sits
+ *                                   before the first of them
+ *   `no-window`                     an announcement survived, and no standing
+ *                                   Skill call carries a timestamp, so there
+ *                                   is no window to place it in — NOT the same
+ *                                   fact as "the receipt came first"
+ *   `announcement-tampered`         a run announced a receipt and the file no
+ *                                   longer hashes to the announced digest.
+ *                                   Ranked FIRST of the drops: this is the one
+ *                                   state the digest binding exists to detect,
+ *                                   and reporting a detected forgery as
+ *                                   "nothing ran" sends the operator to re-run
+ *                                   the gate instead of to the rewritten file
+ *   `announcement-unreadable`       the announced file could not be read back
+ *   `announcement-foreign-store`    the announced path is a receipt of another
+ *                                   session's store
+ *   `run-announced-many`            a command WAS read as a front-door run and
+ *                                   its result carried more than one
+ *                                   announcement, so it announced none
+ *   `run-announced-none`            a command WAS read as a front-door run and
+ *                                   its result carried no announcement at all
+ *   `nothing-announced`             no command in this session was read as a
+ *                                   run of the front door — the ONE state that
+ *                                   sentence is true of
+ *
+ * The last five used to share `nothing-announced`'s sentence, a positive claim
+ * about COMMANDS that was true of exactly one of them; `no-window` used to
+ * share `outside-window`'s, telling the operator their announcement predated a
+ * Skill call it had in fact followed.
  */
 export type GateEvidenceReason =
   | "not-managed"
@@ -280,6 +310,12 @@ export type GateEvidenceReason =
   | "foreign-root"
   | "not-vouched"
   | "outside-window"
+  | "no-window"
+  | "announcement-tampered"
+  | "announcement-unreadable"
+  | "announcement-foreign-store"
+  | "run-announced-many"
+  | "run-announced-none"
   | "nothing-announced";
 
 export interface GateEvidence {
@@ -295,8 +331,8 @@ export interface GateEvidence {
   /**
    * On `not-vouched`: the checkout that took the window this receipt fell in.
    * Named in the refusal so the operator is told WHICH run their gate is being
-   * credited to. Null on every other reason — the runless states carry their
-   * own names (`outside-window`, `nothing-announced`) rather than a null here.
+   * credited to. Null on every other reason — each runless state carries its
+   * own name (see `GateEvidenceReason`) rather than a null here.
    */
   claimant: string | null;
   /**
@@ -361,6 +397,16 @@ export interface VouchContext {
    */
   announcements?: readonly ReceiptAnnouncement[];
   /**
+   * Every result the transcript leg READ as a front-door run and kept nothing
+   * from, because it did not carry exactly one `dpt-receipt:` line.
+   *
+   * Without this the leg sees only an empty `announcements` and cannot tell
+   * "no command in this session was read as a run of the front door" — a claim
+   * about COMMANDS — from "a command was read, and its OUTPUT failed the
+   * rule". Those are different things to fix, and a count cannot separate them.
+   */
+  misreadRuns?: readonly AnnouncementMisread[];
+  /**
    * Every OTHER checkout this session could have minted a receipt in — the
    * session's own root and the command's other targets. A window is claimed by
    * the earliest receipt written in it across all of them, so without the peers
@@ -374,6 +420,19 @@ export interface ReceiptAnnouncement {
   path: string;
   digest: string;
   /** Transcript line — the ordering key no file content can forge. */
+  line: number;
+}
+
+/**
+ * A result read as a front-door run that announced nothing — structurally the
+ * same shape `templates/hooks/_lib/session.ts` declares, for the same reason
+ * every other shape here is declared twice: that file carries no relative
+ * import and the two meet as values.
+ */
+export interface AnnouncementMisread {
+  /** How many `dpt-receipt:` lines the result carried — anything but 1. */
+  count: number;
+  /** Transcript line the result sits on. */
   line: number;
 }
 
@@ -393,29 +452,59 @@ function announcedRoot(path: string, sessionId: string): string | null {
 }
 
 /**
+ * Why one announcement did not survive the filter — a VALUE, recorded where the
+ * drop happens.
+ *
+ * Each name is one of `announcedRoots`'s three rejections. They used to be
+ * bare `continue`s, so the only trace a drop left was the output being shorter
+ * than the input, and the caller had nothing to read but `announced.length`.
+ */
+type AnnouncementDrop = "tampered" | "unreadable" | "foreign-store";
+
+/** What `announcedRoots` measured: what survived, and why the rest did not. */
+interface AnnouncedReading {
+  /** The roots this session announced a still-intact receipt for, in order. */
+  kept: Array<{ root: string; line: number }>;
+  /** One entry per announcement the filter rejected, with its cause. */
+  dropped: Array<{ drop: AnnouncementDrop; line: number }>;
+}
+
+/**
  * The roots this session ANNOUNCED a still-intact receipt for, in transcript
- * order. A file rewritten after its announcement no longer hashes to the
+ * order — AND, for every announcement that did not make it, the reason it did
+ * not. A file rewritten after its announcement no longer hashes to the
  * announced digest and stops counting, exactly as the sibling tracker-write
- * gate reads its own receipts.
+ * gate reads its own receipts; what is new is that it stops counting OUT LOUD.
  */
 function announcedRoots(
   announcements: readonly ReceiptAnnouncement[],
   sessionId: string,
-): Array<{ root: string; line: number }> {
-  const out: Array<{ root: string; line: number }> = [];
+): AnnouncedReading {
+  const kept: Array<{ root: string; line: number }> = [];
+  const dropped: Array<{ drop: AnnouncementDrop; line: number }> = [];
   for (const a of announcements) {
     const root = announcedRoot(a.path, sessionId);
-    if (root === null) continue;
+    if (root === null) {
+      dropped.push({ drop: "foreign-store", line: a.line });
+      continue;
+    }
     let bytes: Buffer;
     try {
       bytes = readFileSync(resolve(a.path));
     } catch {
+      dropped.push({ drop: "unreadable", line: a.line });
       continue;
     }
-    if (receiptDigest(bytes) !== a.digest) continue;
-    out.push({ root, line: a.line });
+    if (receiptDigest(bytes) !== a.digest) {
+      dropped.push({ drop: "tampered", line: a.line });
+      continue;
+    }
+    kept.push({ root, line: a.line });
   }
-  return out.sort((x, y) => x.line - y.line);
+  return {
+    kept: kept.sort((x, y) => x.line - y.line),
+    dropped: dropped.sort((x, y) => x.line - y.line),
+  };
 }
 
 /** One valid gate receipt, reduced to the two facts vouching asks about. */
@@ -512,8 +601,9 @@ function readGateStore(root: string, subject: string, sessionId: string): StoreR
  * can the store be found (`session-id-missing`, `store-unreadable`), does it
  * hold the right receipt (`no-receipt`, `wrong-subject`, `foreign-root`), and
  * does a gate run in this session account for it (`not-vouched` when another
- * checkout took the window, `outside-window` when runs were seen and none
- * places it, `nothing-announced` when no run was seen at all).
+ * checkout took the window, and one of the seven runless names when nothing
+ * places it — see `GateEvidenceReason` for the full set and why each is its
+ * own value).
  *
  * NEVER THROWS. An unreadable store, a path-unsafe session id, a `root` that has
  * since vanished: each is a `false` with a reason, not an exception. A
@@ -580,7 +670,8 @@ export function gateReceiptEvidence(
   // `all` is read for its side conditions only; the CLAIM is decided by the
   // announcements, because a store's contents are writable by any Bash call.
   void all;
-  const announced = announcedRoots(vouch.announcements ?? [], sessionId);
+  const reading = announcedRoots(vouch.announcements ?? [], sessionId);
+  const announced = reading.kept;
   let claimant: string | null = null;
   for (const window of vouch.windows) {
     const inside = announced.filter(
@@ -593,16 +684,43 @@ export function gateReceiptEvidence(
     }
     if (claimant === null) claimant = first.root;
   }
-  // Three states, three names, decided HERE in the value so that no caller has
-  // to reconstruct a cause from a sentence: the window was taken by another
-  // checkout (`not-vouched`), runs were seen but none places this receipt
-  // (`outside-window`), or nothing in this session was read as a run of the
-  // front door at all (`nothing-announced`).
+  // Eight states, eight names, each decided HERE by the VALUE that produced it
+  // — never by `announced.length`, which is a post-filter count and so cannot
+  // say why the filter emptied. Reading a cause off a count is the same mistake
+  // as reconstructing one from a string.
   if (claimant !== null) {
     return { ok: false, reason: "not-vouched", claimant, named: null, ...here };
   }
-  const reason = announced.length === 0 ? "nothing-announced" : "outside-window";
-  return { ok: false, reason, claimant: null, named: null, ...here };
+  const miss = (reason: GateEvidenceReason): GateEvidence => ({
+    ok: false,
+    reason,
+    claimant: null,
+    named: null,
+    ...here,
+  });
+  if (announced.length > 0) {
+    // An announcement SURVIVED and no window holds it. Two different facts:
+    // windows exist and it sits before the first of them (an order claim, true),
+    // or no standing Skill call could be placed in time so there is no window
+    // at all (no order to compare against — and the order claim would be false).
+    return miss(vouch.windows.length === 0 ? "no-window" : "outside-window");
+  }
+  // Nothing survived. WHY is read from `dropped`, in the order the operator
+  // needs to hear it: a DETECTED forgery first. A receipt rewritten after it
+  // was announced is the one thing the digest binding exists to catch, and
+  // folding it into "nothing ran" sends the operator to re-run the gate rather
+  // than to the file that changed underneath them.
+  const drops = new Set(reading.dropped.map((d) => d.drop));
+  if (drops.has("tampered")) return miss("announcement-tampered");
+  if (drops.has("unreadable")) return miss("announcement-unreadable");
+  if (drops.has("foreign-store")) return miss("announcement-foreign-store");
+  // No announcement reached the filter at all. Upstream, a result read as a
+  // front-door run that did not carry exactly one line announced nothing — and
+  // that is not the same session as one where no command was read as a run.
+  const misreads = vouch.misreadRuns ?? [];
+  if (misreads.some((m) => m.count > 1)) return miss("run-announced-many");
+  if (misreads.some((m) => m.count === 0)) return miss("run-announced-none");
+  return miss("nothing-announced");
 }
 
 /** The two sentences a failed repository-scoped leg refuses with, and where. */
@@ -630,6 +748,16 @@ interface MissWords {
 
 /** The closing every "the gate did not run here" leg shares. */
 const NOTHING_SHOWS = "so nothing shows the gate ran against that checkout.";
+
+/**
+ * The opening every "the receipt is there, no run accounts for it" leg shares.
+ *
+ * One spelling, so the seven runless sentences differ ONLY in the clause that
+ * says what was measured — which is the half a reader has to tell apart.
+ */
+const UNVOUCHED = (w: MissWords): string =>
+  `the ${w.subject} gate receipt under ${w.where} is not vouched for by any ` +
+  `${w.subject} Skill call in this session: `;
 
 /**
  * ONE sentence per named leg — the whole vocabulary of this refusal, in one
@@ -679,20 +807,79 @@ const MISS_PROSE: Readonly<
   // The receipt EXISTS and names this checkout; what is missing is a gate run
   // in this session that accounts for it. CLAIMED: the run it would have to
   // belong to is already spoken for by another checkout. Reached only with a
-  // claimant, because the two runless states below carry their own names now.
+  // claimant, because every runless state below carries its own name now.
   "not-vouched": (w) =>
-    `the ${w.subject} gate receipt under ${w.where} is not vouched for by any ` +
-    `${w.subject} Skill call in this session: the ${w.subject} run it would ` +
+    UNVOUCHED(w) +
+    `the ${w.subject} run it would ` +
     `have to belong to already recorded ${w.claimant ?? "another checkout"}, ` +
     `and one gate run vouches for one checkout, ${NOTHING_SHOWS}`,
 
-  // Runs WERE seen, and none of them falls in a window that would vouch for
-  // this receipt — the same fact as "the receipt came first", told from the
-  // side the operator can act on.
+  // An announcement SURVIVED, windows exist, and it sits before the first of
+  // them. The order claim below is only made HERE, where it was measured: a
+  // window it could have fallen in exists, and it does not.
   "outside-window": (w) =>
-    `the ${w.subject} gate receipt under ${w.where} is not vouched for by any ` +
-    `${w.subject} Skill call in this session: it was written before the first ` +
+    UNVOUCHED(w) +
+    `it was written before the first ` +
     `${w.subject} Skill call in this session, ${NOTHING_SHOWS}`,
+
+  // An announcement survived and there is no window at all, because no standing
+  // Skill call carries a stamp the transcript can place. Says THAT, and makes
+  // no claim about order: an empty window list is the absence of anything to
+  // compare against, not evidence that the receipt came first. Told as
+  // `outside-window`, this state accused an announcement made AFTER the call of
+  // predating it.
+  "no-window": (w) =>
+    UNVOUCHED(w) +
+    `a receipt was announced, and no ${w.subject} Skill call in this session ` +
+    `carries a timestamp the transcript can place it against, so no call ` +
+    `opened a window for it to fall in, ${NOTHING_SHOWS}`,
+
+  // THE TAMPER. A run announced a receipt and the file changed afterwards, so
+  // the announcement no longer stands for what is on disk. Ranked ahead of the
+  // other drops and never folded into "nothing ran": this is the one state the
+  // digest binding exists to detect, and the remedy is to look at the file, not
+  // to run the gate again.
+  "announcement-tampered": (w) =>
+    UNVOUCHED(w) +
+    `a run in this session DID announce a receipt, and the announced file no ` +
+    `longer hashes to the digest that run printed for it — it was rewritten ` +
+    `after it was announced, so the announcement no longer stands for the ` +
+    `bytes on disk, ${NOTHING_SHOWS}`,
+
+  // The announced file is gone or unreadable, so there are no bytes to check
+  // the announcement against. Not "nothing was announced": something was.
+  "announcement-unreadable": (w) =>
+    UNVOUCHED(w) +
+    `a run in this session DID announce a receipt, and the file it named could ` +
+    `not be read back, so its announcement could not be checked against any ` +
+    `bytes, ${NOTHING_SHOWS}`,
+
+  // The announced path is a receipt of a DIFFERENT session's store — reachable
+  // whenever the minting session id and the hook payload's disagree. Evidence
+  // filed for another session is not evidence about this one.
+  "announcement-foreign-store": (w) =>
+    UNVOUCHED(w) +
+    `the only receipt a run in this session announced is filed under another ` +
+    `session's receipt store, and a receipt kept for another session is not ` +
+    `evidence about this one, ${NOTHING_SHOWS}`,
+
+  // A command WAS read as a front-door run; its result carried several
+  // announcements, so it announced none of them. Saying "no command was read
+  // as a run" here is false of the session the operator just watched.
+  "run-announced-many": (w) =>
+    UNVOUCHED(w) +
+    `a command in this session was read as a run of the ${w.subject} receipt ` +
+    `front door, and its output carried more than one receipt announcement — ` +
+    `one run writes one receipt, so a result carrying several announces none ` +
+    `of them, ${NOTHING_SHOWS}`,
+
+  // A command WAS read as a front-door run, and its result carried no
+  // announcement at all — the run's output, not the session, is what failed.
+  "run-announced-none": (w) =>
+    UNVOUCHED(w) +
+    `a command in this session was read as a run of the ${w.subject} receipt ` +
+    `front door, and its output carried no announcement at all, so nothing in ` +
+    `the transcript binds a receipt to it, ${NOTHING_SHOWS}`,
 
   // The receipt exists and names this checkout, and NO run was seen at all.
   // Says only what was measured — that no command in this session read as a
@@ -776,9 +963,10 @@ export function gateReceiptLeg(
   root: string,
   windows: readonly VouchWindow[],
   announcements?: readonly ReceiptAnnouncement[],
+  misreadRuns?: readonly AnnouncementMisread[],
 ) => GateEvidenceMiss | null {
-  return (root, windows, announcements) =>
-    gateReceiptMiss(subject, root, sessionId, { windows, peerRoots, announcements });
+  return (root, windows, announcements, misreadRuns) =>
+    gateReceiptMiss(subject, root, sessionId, { windows, peerRoots, announcements, misreadRuns });
 }
 
 // ---------------------------------------------------------------------------
@@ -817,6 +1005,7 @@ export interface GateEvidenceTarget {
     root: string,
     windows: readonly VouchWindow[],
     announcements?: readonly ReceiptAnnouncement[],
+    misreadRuns?: readonly AnnouncementMisread[],
   ): GateEvidenceMiss | null;
   /**
    * Whether a Bash command RAN the receipt front door (`announcesGateReceipt`).

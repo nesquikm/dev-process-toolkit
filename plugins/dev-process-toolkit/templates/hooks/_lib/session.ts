@@ -225,6 +225,24 @@ export interface ReceiptAnnouncement {
 }
 
 /**
+ * A result that WAS read as a front-door run and still contributed no
+ * announcement, because it did not carry exactly one.
+ *
+ * Carried out rather than dropped. "Nothing in this session was read as a run
+ * of the front door" is a claim about COMMANDS, and it is false of a session
+ * where a command WAS read and its OUTPUT is what failed the rule. Without
+ * this record the receipt leg can only see an empty announcement list and has
+ * to guess which of the two happened — a cause read off a count, which is the
+ * defect this whole leg exists to stop making.
+ */
+export interface AnnouncementMisread {
+  /** How many `dpt-receipt:` lines the result carried — anything but 1. */
+  count: number;
+  /** Transcript line the result sits on. */
+  line: number;
+}
+
+/**
  * Where the action writes, and how to grade the repository-scoped leg there.
  *
  * The grading itself is a VALUE, not an import. This file is loaded from a temp
@@ -249,6 +267,7 @@ export interface EvidenceTarget {
     root: string,
     windows: readonly VouchWindow[],
     announcements: readonly ReceiptAnnouncement[],
+    misreads?: readonly AnnouncementMisread[],
   ): EvidenceMiss | null;
   /**
    * Whether a Bash command RAN the receipt front door — ONE plain
@@ -303,6 +322,7 @@ function firstReceiptMiss(
   windows: readonly VouchWindow[] | null,
   target?: EvidenceTarget,
   announcements: readonly ReceiptAnnouncement[] = [],
+  misreads: readonly AnnouncementMisread[] = [],
 ): EvidenceMiss | null {
   // `windows === null` is the fail-open state: no transcript was readable at
   // all, so there is nothing to grade a receipt against and nothing to refuse.
@@ -311,7 +331,7 @@ function firstReceiptMiss(
   }
   const misses: EvidenceMiss[] = [];
   for (const root of target.roots) {
-    const miss = target.receiptLeg(root, windows, announcements);
+    const miss = target.receiptLeg(root, windows, announcements, misreads);
     if (miss !== null) misses.push(miss);
   }
   const first = misses[0];
@@ -413,6 +433,17 @@ interface SkillCallScan {
    */
   announcements: ReceiptAnnouncement[];
   /**
+   * Every result that WAS read as a front-door run and announced nothing,
+   * because it did not carry exactly one `dpt-receipt:` line.
+   *
+   * The reason half of the line above: an empty `announcements` means one
+   * thing when this is empty too (no command was read as a run at all) and a
+   * different thing when it is not (a run WAS read; its output is what failed
+   * the rule). A refusal that cannot tell those apart is reading its cause off
+   * a count.
+   */
+  misreads: AnnouncementMisread[];
+  /**
    * The windows the standing calls opened, for the receipt leg to place
    * receipts in. `null` ONLY in the fail-open state (no readable transcript),
    * where there is nothing to place anything against.
@@ -507,7 +538,7 @@ function scanSkillCalls(
   if (lines === null) {
     // Fail-open: no transcript file ⇒ behave as if the hook fired outside
     // a Claude Code session.
-    return { found: true, denied: false, windows: null, announcements: [] };
+    return { found: true, denied: false, windows: null, announcements: [], misreads: [] };
   }
 
   const calls: SkillCall[] = [];
@@ -515,6 +546,7 @@ function scanSkillCalls(
   /** Bash `tool_use` ids whose command ran the receipt front door. */
   const minting = new Set<string>();
   const announcements: ReceiptAnnouncement[] = [];
+  const misreads: AnnouncementMisread[] = [];
 
   lines.forEach((line, index) => {
     const blocks = transcriptBlocks(line);
@@ -552,13 +584,21 @@ function scanSkillCalls(
         typeof block.tool_use_id === "string" &&
         minting.has(block.tool_use_id)
       ) {
-        // ONE run writes ONE receipt, so a result carrying anything other than
-        // exactly one announcement announces NONE of them — the sibling
-        // tracker-write gate's rule, and the reason a replayed line appended to
-        // a genuine run's output cannot ride along on it. Including the genuine
-        // line: a result someone added to cannot be told from one they did not.
+        // The rule is graded per RESULT, not per run: THIS result is kept only
+        // when IT carries exactly one announcement, and a result carrying any
+        // other number announces none of them. (One run writes one receipt is
+        // why the number is one; what is counted is one result's lines.) The
+        // sibling tracker-write gate's rule, and the reason a replayed line
+        // appended to a genuine run's output cannot ride along on it —
+        // including the genuine line: a result someone added to cannot be told
+        // from one they did not.
+        //
+        // A result that fails the rule is RECORDED rather than dropped: it was
+        // read as a front-door run, so "nothing was read as a run" is false of
+        // this session, and only a record says so.
         const found = announcementsIn(resultText(block.content));
         if (found.length === 1) announcements.push({ ...found[0]!, line: index });
+        else misreads.push({ count: found.length, line: index });
       }
     }
   });
@@ -587,7 +627,7 @@ function scanSkillCalls(
     }))
     .sort((a, b) => a.start - b.start);
 
-  return { found, denied: !found && calls.length > 0, windows, announcements };
+  return { found, denied: !found && calls.length > 0, windows, announcements, misreads };
 }
 
 /**
@@ -631,7 +671,7 @@ export function requireSkillToolUse(
     // STE-614 AC.5 — the repository-scoped leg, demanded IN ADDITION to the
     // transcript leg and never instead of it. The transcript says the gate ran
     // in this session; only the receipt says it ran against THIS checkout.
-    const miss = firstReceiptMiss(scan.windows, target, scan.announcements);
+    const miss = firstReceiptMiss(scan.windows, target, scan.announcements, scan.misreads);
     if (miss === null) {
       return { found: true };
     }
@@ -879,7 +919,7 @@ export function requireTddEvidence(
   // checkout says nothing about a commit aimed at a second one; the receipt leg
   // is what places it. Door two is NOT graded against it: a red-before proof
   // names the repository it covers (NF-2), so it carries its own scope.
-  const repoMiss = doorOne.found ? firstReceiptMiss(doorOne.windows, target, doorOne.announcements) : null;
+  const repoMiss = doorOne.found ? firstReceiptMiss(doorOne.windows, target, doorOne.announcements, doorOne.misreads) : null;
   if (doorOne.found && repoMiss === null) {
     return { found: true };
   }
