@@ -70,6 +70,35 @@ export interface CommitTarget {
   repoRoot: string | null;
   /** Non-null exactly when `repoRoot` is null: what could not be determined. */
   unresolved: string | null;
+  /**
+   * EVERY checkout the command was RESOLVED to write to (STE-614 AC.9): the
+   * one-element `[repoRoot]` when there is one, every distinct root when the
+   * command commits to several, and empty when the target is unresolved.
+   *
+   * Additive on purpose. `repoRoot` keeps its meaning — the single checkout, or
+   * null — because callers that can speak about one repository and no more (the
+   * /tdd hook's staged-set classification) must not be handed the first of two.
+   * A caller that grades a rule PER checkout reads this instead, and a
+   * multi-checkout command then stops being a hole: evidence has to hold in
+   * every root here, and the refusal names each one that lacks it.
+   *
+   * Empty is therefore the honest test for "unresolved", and the one the guards
+   * branch on: `repoRoot === null` is also true of the several-checkouts answer,
+   * which is fully resolved.
+   */
+  repoRoots: string[];
+  /**
+   * True when the command never named a directory the reader could resolve —
+   * an unexpanded word, a wrapper it cannot see through, `--git-dir`/`GIT_DIR`,
+   * or a subshell whose extent is unknown. The commit could land ANYWHERE.
+   *
+   * False for a directory that resolved but holds no checkout: that answer is
+   * known, not undetermined — the commit lands nowhere, git will say so, and
+   * there is no repository there for a repository-scoped rule to grade. Both
+   * answers carry a null `repoRoot` and an empty `repoRoots`, which is why the
+   * distinction needs a name of its own.
+   */
+  unplaced: boolean;
   /** Checkouts an unplaced commit could write to; empty on every other answer. */
   candidateRoots: string[];
   /**
@@ -534,6 +563,8 @@ const NO_COMMIT: CommitTarget = {
   shape: "none",
   repoRoot: null,
   unresolved: null,
+  repoRoots: [],
+  unplaced: false,
   candidateRoots: [],
   subcommand: null,
   fromIndex: false,
@@ -734,11 +765,24 @@ function verdict(
 
   const first = occurrences[0] as CommitOccurrence;
   /** The commit's answer: its checkout root, or what could not be determined (and where it might land). */
-  const answer = (repoRoot: string | null, unresolved: string | null, candidateRoots: string[] = []): CommitTarget => ({
+  const answer = (
+    repoRoot: string | null,
+    unresolved: string | null,
+    candidateRoots: string[] = [],
+    // STE-614 AC.9 — the resolved checkouts. Defaulted FROM `repoRoot` so every
+    // existing answer carries the same fact twice rather than disagreeing with
+    // itself; only the several-checkouts answer passes its own list.
+    repoRoots: string[] = repoRoot === null ? [] : [repoRoot],
+    // True only when the command never named a directory the reader could
+    // resolve — see the `unplaced` field's own documentation.
+    unplaced = false,
+  ): CommitTarget => ({
     isCommit: true,
     shape: first.shape,
     repoRoot,
     unresolved,
+    repoRoots,
+    unplaced,
     candidateRoots,
     subcommand: first.subcommand,
     fromIndex: first.fromIndex,
@@ -755,15 +799,26 @@ function verdict(
       "cannot resolve the commit's target repository from unbalanced " +
         "parentheses: the extent of the subshell, and so the directory the " +
         "commit runs in, is not determined by the command",
+      [],
+      [],
+      true,
     );
   }
 
   // Anything the command names but cannot pin to a checkout root.
   const unnameable: string[] = [];
   const resolvedRoots: string[] = [];
+  // STE-614 AC.9 — the two ways an answer is not a checkout root are different
+  // facts. A word, a wrapper or an option the reader could not turn into a
+  // DIRECTORY leaves the commit UNPLACED: it may land anywhere, so a guard has
+  // something to warn about. A directory that resolved and simply holds no
+  // checkout is a KNOWN answer — that commit lands nowhere and git itself will
+  // say so — and there is no repository there for any rule to grade.
+  let unplaced = false;
   for (const occurrence of occurrences) {
     if (occurrence.dir === null) {
       unnameable.push(occurrence.word ?? "the commit's target directory");
+      unplaced = true;
       continue;
     }
     const root = roots(occurrence.dir);
@@ -776,12 +831,23 @@ function verdict(
       null,
       `cannot resolve the commit's target repository from ${unique(unnameable).join(", ")}`,
       unique(candidates),
+      [],
+      unplaced,
     );
   }
 
   const distinct = unique(resolvedRoots);
   if (distinct.length > 1) {
-    return answer(null, `the command commits to more than one repository: ${distinct.join(", ")}`);
+    // `repoRoot` stays null — there is no ONE repository to name — but the
+    // checkouts are known, so a per-checkout rule grades all of them (STE-614
+    // AC.9). Before this, several checkouts read as "unresolved" and a commit
+    // into a second repository slipped past the first repository's evidence.
+    return answer(
+      null,
+      `the command commits to more than one repository: ${distinct.join(", ")}`,
+      [],
+      distinct,
+    );
   }
 
   return answer(distinct[0] as string, null);

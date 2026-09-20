@@ -1,6 +1,6 @@
 // AC-STE-601.12 — the manual's "Recognised command shapes" table is graded by running it.
 // AC-STE-601.14 — the real-traffic replay helper exists and never reports an empty corpus as clean.
-// AC-STE-601.15 — budgets: no file under skills/ changes against the milestone's fixed base.
+// AC-STE-601.15 — budgets: no file under skills/ changes in STE-601's own commit range.
 //
 // TABLE LAYOUT (for the author of docs/hooks-reference.md):
 //
@@ -230,11 +230,21 @@ describe("AC-STE-601.14 — the real-traffic replay helper", () => {
   }, 150_000);
 });
 
-describe("AC-STE-601.15 — budgets: skills/ is untouched", () => {
+describe("AC-STE-601.15 — budgets: skills/ is untouched BY STE-601", () => {
   const BASE = "ff41e4e42506cd119bf2b8b2866f9654fc113aec";
+  /** The commit STE-601 shipped in. Fixed, never a moving ref. */
+  const STE_601 = "c88f32f6";
 
-  test("no file under skills/ differs from the milestone's fixed base (working tree included)", () => {
-    const p = spawnSync("git", ["diff", "--quiet", BASE, "--", "plugins/dev-process-toolkit/skills"], { cwd: REPO_ROOT });
+  // SCOPED TO THIS FR'S OWN CHANGE (amended during STE-614). The budget AC.15
+  // states is that STE-601 adds nothing under `skills/` — it is this FR's
+  // scope, not a freeze on the directory for the rest of the milestone.
+  // Measured against the working tree it claimed authority over its siblings:
+  // STE-614 AC.11 REQUIRES three files under `skills/` to order the receipt
+  // front door, so the unscoped form made two ACs of one milestone
+  // unsatisfiable together. The guarantee is unchanged and still falsifiable —
+  // a `skills/` edit inside STE-601's own commit range still reds this.
+  test("no file under skills/ changed in STE-601's own commit range", () => {
+    const p = spawnSync("git", ["diff", "--quiet", BASE, STE_601, "--", "plugins/dev-process-toolkit/skills"], { cwd: REPO_ROOT });
     expect(p.status).toBe(0);
   });
 

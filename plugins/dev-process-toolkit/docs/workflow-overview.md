@@ -116,10 +116,10 @@ After the FR is GREEN, `/implement` runs the Phase 2 gate-check (deterministic k
 
 The loop is not advisory at its exit. Bundled hooks refuse the `git commit` itself, at the harness, before the Bash call runs:
 
-- `pre-commit-gate-check` blocks a `git commit` Bash call unless `/dev-process-toolkit:gate-check` ran as a Skill tool_use in this session.
-- `pre-commit-tdd-orchestrator` blocks a `git commit` whose staged set carries an FR file under `specs/frs/` — or any file the stack calls a test — unless `/dev-process-toolkit:tdd` ran as a Skill tool_use in this session. An all-spec staged set is carved out and passes; a source file on its own never fires it.
+- `pre-commit-gate-check` blocks a `git commit` Bash call unless `/dev-process-toolkit:gate-check` ran as a Skill tool_use in this session and left its receipt in the checkout being committed to.
+- `pre-commit-tdd-orchestrator` blocks a `git commit` whose staged set carries an FR file under `specs/frs/` — or any file the stack calls a test — unless `/dev-process-toolkit:tdd` ran as a Skill tool_use in this session and left its receipt in the checkout being committed to, or a red-before proof reading `dpt-red-before-proof: repo=<checkout root> <paths>` names that repository and covers every staged path that raised the requirement. An all-spec staged set is carved out and passes; a source file on its own never fires it.
 
-Both exit 2, so the tool call never happens, and both read the CURRENT session's transcript: running the equivalent commands by hand does not satisfy them. Full manual: [`docs/hooks-reference.md`](hooks-reference.md).
+Both exit 2, so the tool call never happens, and both read the CURRENT session's transcript: running the equivalent commands by hand does not satisfy them. The evidence is two things, not one — the Skill call plus the gate's receipt in the repository being committed to or PR'd — and it is demanded in every toolkit-managed checkout, shared tracker container or not. The transcript says the gate ran somewhere in this session; the receipt says which checkout, and one gate run vouches for one of them, so gating repository A clears no commit into repository B. Full manual: [`docs/hooks-reference.md`](hooks-reference.md).
 
 ```mermaid
 flowchart TD
