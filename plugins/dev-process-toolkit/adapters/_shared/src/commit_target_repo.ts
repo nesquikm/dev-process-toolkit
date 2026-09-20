@@ -24,6 +24,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import {
+  argv0Is,
   changeDirectory,
   type CheckoutRootLookup,
   FULL_READING,
@@ -341,12 +342,6 @@ function shapeOf(moved: boolean, dashCs: readonly string[] = []): Exclude<Commit
   return dashCs.length > 0 ? "dash-c" : moved ? "cd-prefixed" : "bare";
 }
 
-/** An argv0 is git when its final path segment is exactly `git` (`/usr/bin/git`, `./git`). */
-function isGitArgv0(word: string | undefined): boolean {
-  if (word === undefined) return false;
-  return word.slice(word.lastIndexOf("/") + 1) === "git";
-}
-
 /**
  * Read an argv as a git invocation: `git` with its global options skipped, and
  * the first non-option word as the subcommand. A command that merely MENTIONS a
@@ -354,7 +349,9 @@ function isGitArgv0(word: string | undefined): boolean {
  * because its own first word is not `git` or its subcommand is not a commit.
  */
 function parseGit(tokens: readonly string[]): GitInvocation | null {
-  if (!isGitArgv0(tokens[0])) return null;
+  // An argv0 is git when its final path segment is exactly `git` (`/usr/bin/git`,
+  // `./git`) — the shared reader's rule, asked of this module's own program.
+  if (!argv0Is(tokens[0], "git")) return null;
   const dashCs: string[] = [];
   let repoOption: string | null = null;
   let unexpandedGlobal: string | null = null;

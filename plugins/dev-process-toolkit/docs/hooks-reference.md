@@ -106,12 +106,25 @@ Empirical research via the `claude-code-guide` agent confirmed the contract: `${
 
 - **Name:** `pre-pr-spec-review`
 - **Event:** `PreToolUse`
-- **Matcher:** `Bash` (with command-pattern guard for `gh pr create*`)
-- **Requirement:** A `Skill(/dev-process-toolkit:spec-review)` `tool_use` MUST appear in the current session log before any `gh pr create` invocation. Enforces the "spec-review before PR" contract at the byte layer. The house rule is the same two-legged one as the commit gates — the Skill call **plus** the review's receipt in the repository the PR is raised from — and `/spec-review` already mints that receipt in the checkout it runs against; what this hook does not yet do is resolve the `gh pr create` target repository and grade the receipt leg against it, which lands under STE-615. Until it does, a PR raised from a session that reviewed a *different* checkout is caught by the commit gates on that checkout rather than here.
+- **Matcher:** `Bash`, with no command-pattern prefix guard at all. The hook reads every Bash command through the shared shell recogniser (`adapters/_shared/src/shell_invocations.ts`) and asks `resolvePrTarget` whether it creates a pull request, and from where — the PR rows of § Recognised command shapes list the shapes and their verdicts, and grade them by running them.
+- **Requirement:** A `Skill(/dev-process-toolkit:spec-review)` `tool_use` MUST appear in the current session log before any command that creates a pull request. Enforces the "spec-review before PR" contract at the byte layer. `gh pr create` and gh's `pr new` alias are **recognised** in every shape a shell can carry them — behind a `cd`, a parenthesised subshell, a `&&` chain or a newline, under a prefix assignment, `env`, `command` or a nested `bash -c`, and inside a `$(…)` substitution, `--dry-run` included — while `gh pr list`, `gh pr view`, `gh api …/pulls`, `hub pull-request`, GitLab's `git push -o merge_request.create` and a `--help` run create nothing and are out of scope. The house rule is the same two-legged one as the commit gates — the Skill call **plus** the review's receipt in the checkout the request **is opened from**, graded through the one shared composer `gateEvidenceTarget`. A request that names another repository outright (`-R` / `--repo`, else a `GH_REPO=` binding, else `GH_REPO` in the hook's own environment) whose slug matches no remote of that checkout is **known-foreign** and is refused with exit 2 even when the evidence holds, because a review of one repository is not evidence about another; a target the hook cannot place at all is not refused once the evidence holds — it exits 1 with a `Reminder:` naming what it could not resolve, and the request is opened.
 - **NFR-10 refusal shape on miss:**
   ```
   Refusing: required dev-process-toolkit:spec-review Skill tool_use not found in current session.
   Remedy: run /dev-process-toolkit:spec-review before retrying this action.
+  Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:spec-review, hook=pre-pr-spec-review
+  ```
+  The receipt clauses that close the first sentence are the same ones the table under § pre-commit-gate-check lists, with `dev-process-toolkit:spec-review` as the skill.
+- **NFR-10 refusal shape on a known-foreign target** (exit 2, asked before the evidence question, so it is the answer even when the evidence holds):
+  ```
+  Refusing: this request names the repository <slug>, which no remote of <local checkout> matches, so a dev-process-toolkit:spec-review run in this checkout is not evidence about it.
+  Remedy: open the request from the checkout of <slug> itself, and run /dev-process-toolkit:spec-review there first.
+  Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:spec-review, hook=pre-pr-spec-review
+  ```
+- **NFR-10 reminder shape on an unplaced target** (exit 1, only once the evidence holds; the request is opened either way):
+  ```
+  Reminder: cannot resolve the request's target repository from <what could not be resolved>.
+  Remedy: re-run the command naming the repository it opens a request into, and run /dev-process-toolkit:spec-review for that checkout if the gate has not seen it.
   Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:spec-review, hook=pre-pr-spec-review
   ```
 - **Override pattern:** Disable the plugin or copy-and-override — snapshot-copy the seeded script into `~/.claude/hooks/pre-pr-spec-review.sh`, edit (e.g., scope to specific repos or skip on docs-only branches), and register the local absolute path in the operator's `~/.claude/settings.json`.
@@ -199,7 +212,7 @@ Empirical research via the `claude-code-guide` agent confirmed the contract: `${
 
 ## Recognised command shapes
 
-Both commit gates read a Bash command through one shared recogniser (`adapters/_shared/src/shell_invocations.ts`) and ask `resolveCommitTarget` whether it writes a commit, and where. Every shape that can carry a commit has one verdict from a closed vocabulary (STE-601):
+All three blocking Bash gates read a command through one shared recogniser (`adapters/_shared/src/shell_invocations.ts`). The two commit gates ask `resolveCommitTarget` whether it writes a commit, and where; `pre-pr-spec-review` asks `resolvePrTarget` the other half of the same question — whether it opens a pull request, and from which checkout. One grammar, two questions, so a shape the commit gates see behind a `cd` or a subshell is a shape the PR gate sees there too. Every shape that can carry a commit has one verdict from a closed vocabulary (STE-601):
 
 - **recognised** — the commit is found (`isCommit: true`) and its target resolves as the unwrapped command's would.
 - **unplaced** — a literal commit is present (`isCommit: true`) behind a wrapper the recogniser cannot model, so `repoRoot` is `null`, `unresolved` names the wrapper, and `candidateRoots` lists every literal directory it can see. The gate-check hook demands evidence; the /tdd hook shows a `Reminder:`.
@@ -207,6 +220,8 @@ Both commit gates read a Bash command through one shared recogniser (`adapters/_
 - **advisory** — not a commit (`isCommit: false`), but the gate-check hook exits 1 with a `Reminder:` naming the subcommand, and the command proceeds.
 
 Each example below is runnable, and `tests/ste-601-shapes-table.test.ts` runs every one of them through `resolveCommitTarget` from checkout `/s/a`, with `/s/b` as the second checkout, and asserts the stated verdict. A row whose verdict drifts from the resolver's answer fails that test.
+
+The rows whose Verdict carries the token **`(PR)`** are the PR gate's, and the same test runs those through `resolvePrTargetFromPayload` instead. They are marked because the two resolvers disagree by design about the same command — `gh pr create` writes no commit and opens a request, so it is `out of scope` for the commit gates and `recognised` for the PR gate — and one unmarked row cannot carry both answers. A PR row's vocabulary is narrower: **recognised (PR)** is `isPr: true` (a known-foreign or unplaceable target is still a creation, so it is `recognised` too, and the reason after the keyword says which), and **out of scope (PR)** is `isPr: false`. The `-R` / `--repo` / `GH_REPO` rows below resolve to no single checkout in this fixture on purpose: the slug is matched against `git remote -v` run *in* the resolved checkout, and `/s/a` is not a real one, so the listing cannot run and the target is left unresolved rather than guessed.
 
 The directory-change rows (STE-613) follow the running directory through `cd` options, `builtin cd`, `command cd`, the `pushd`/`popd` stack, `~` and in-command bindings, and resolve the fixed computed directories. A directory the model cannot name is unplaced. The table's grader runs every row with `HOME=/s` and `CDPATH` unset, so one rule is graded in the resolver's own suite instead of here: when `CDPATH` is set and non-empty, a relative `cd` or `pushd` operand that does not begin with `.` or `..` is unplaced, naming `CDPATH`. The model reads a command as a straight sequence, as it always has for `cd`: a binding, `cd` or `pushd` inside an `if` branch or a pipeline element counts as if it ran.
 
@@ -257,6 +272,24 @@ The directory-change rows (STE-613) follow the running directory through `cd` op
 | `$(pwd)`, `` `pwd` ``, `$(pwd -P)`, `$(pwd -L)`, `$PWD`, `${PWD}` | `cd /s/b && git -C $(pwd) commit -m x` | recognised — the running directory, so the commit targets `/s/b` |
 | `$(git rev-parse --show-toplevel)` and `$(git -C DIR rev-parse --show-toplevel)` | `cd /s/b/sub && git -C $(git rev-parse --show-toplevel) commit -m x` | recognised — the checkout root of the running directory (or of DIR), so the commit targets `/s/b` |
 | any other substitution, such as `$(dirname $(pwd))` or `$(mktemp -d)` | `git -C $(dirname $(pwd)) commit -m x` | unplaced — only the fixed forms above resolve |
+| a bare `gh pr create` | `gh pr create --title x --body y` | recognised (PR) — the request is opened from the running directory's checkout, so it targets `/s/a` |
+| `gh pr create` behind a `cd` | `cd /s/b && gh pr create` | recognised (PR) — the directory model is the commit gates', so the request targets `/s/b` |
+| gh's `pr new` alias | `cd /s/b && gh pr new --fill` | recognised (PR) — `pr new` is gh's own alias for `pr create`, so it targets `/s/b` |
+| a parenthesised subshell | `(cd /s/b && gh pr create)` | recognised (PR) — the subshell scopes the directory, so the request targets `/s/b` |
+| a command substitution | `url=$(gh pr create --fill)` | recognised (PR) — the commands inside run in the running directory, so it targets `/s/a` |
+| `env -C DIR` | `env -C /s/b gh pr create` | recognised (PR) — DIR is a directory change for the wrapped command, so it targets `/s/b` |
+| a nested shell's `-c STRING` | `bash -lc 'cd /s/b && gh pr create'` | recognised (PR) — STRING is read recursively, so the request targets `/s/b` |
+| an argv0 whose final path segment is exactly `gh` | `/opt/homebrew/bin/gh pr create` | recognised (PR) — targets `/s/a`; `ghq` and `github` are not gh |
+| `-R OWNER/REPO` naming a repository | `gh -R org/be pr create` | recognised (PR) — the slug is matched against the checkout's remotes; a slug no remote matches is known-foreign and refused |
+| `--repo=OWNER/REPO` after the command words | `gh pr create --repo=org/be` | recognised (PR) — cobra parses flags wherever they fall, so both positions are read |
+| a `GH_REPO=` binding | `GH_REPO=org/be gh pr create` | recognised (PR) — gh's own precedence: `-R`/`--repo` first, then a bound `GH_REPO`, then the hook process's own |
+| `--dry-run` | `gh pr create --draft --dry-run` | recognised (PR) — targets `/s/a`; one character from the real thing, so waving it through would teach the bypass |
+| `gh pr create --help` | `gh pr create --help` | out of scope (PR) — help prints and nothing is created |
+| `gh pr list`, `gh pr view` | `gh pr list` | out of scope (PR) — they read a request, they create none |
+| `gh api …/pulls` | `gh api repos/o/r/pulls -f title=x` | out of scope (PR) — a different door, deliberately not modelled |
+| `hub pull-request` | `hub pull-request -m x` | out of scope (PR) — the argv0 is not gh |
+| GitLab's push option | `git push -o merge_request.create origin HEAD` | out of scope (PR) — not a gh request; also no commit, so the commit gates pass it too |
+| a mention of the command in text | `echo 'gh pr create' >> notes.md` | out of scope (PR) — the words are an argument to `echo`, not an invocation |
 
 ---
 
