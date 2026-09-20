@@ -177,6 +177,8 @@ Both commit gates read a Bash command through one shared recogniser (`adapters/_
 
 Each example below is runnable, and `tests/ste-601-shapes-table.test.ts` runs every one of them through `resolveCommitTarget` from checkout `/s/a`, with `/s/b` as the second checkout, and asserts the stated verdict. A row whose verdict drifts from the resolver's answer fails that test.
 
+The directory-change rows (STE-613) follow the running directory through `cd` options, `builtin cd`, `command cd`, the `pushd`/`popd` stack, `~` and in-command bindings, and resolve the fixed computed directories. A directory the model cannot name is unplaced. The table's grader runs every row with `HOME=/s` and `CDPATH` unset, so one rule is graded in the resolver's own suite instead of here: when `CDPATH` is set and non-empty, a relative `cd` or `pushd` operand that does not begin with `.` or `..` is unplaced, naming `CDPATH`. The model reads a command as a straight sequence, as it always has for `cd`: a binding, `cd` or `pushd` inside an `if` branch or a pipeline element counts as if it ran.
+
 | Shape | Example | Verdict |
 |---|---|---|
 | leading `NAME=value` assignments, one or more, quoted values included | `X=1 Y="a b" git -C /s/b commit -m x` | recognised |
@@ -206,6 +208,24 @@ Each example below is runnable, and `tests/ste-601-shapes-table.test.ts` runs ev
 | `git merge` (not `--ff-only`, `--squash`, `--no-commit`, `--abort`, `--quit`); `git cherry-pick` and `git revert` (not `-n`, `--no-commit`, `--abort`, `--quit`, `--skip`); `git am` (not `--abort`, `--quit`, `--show-current-patch`); `git commit-tree` | `git -C /s/b merge --no-ff x` | recognised — each can write a commit object |
 | `git pull`, `git rebase` (not `--abort`, `--quit`), `git stash` (bare, `push`, `save`), writing `git notes` forms | `git pull` | advisory — the gate-check hook exits 1 with a `Reminder:` naming the subcommand; `git stash list`, `git stash show` and `git notes list` get no notice |
 | a git alias (`git ci`) | `git -c alias.ci=commit -C /s/b ci -m x` | recognised — resolved before classifying: `-c alias.NAME=VALUE` first, else `git config --get alias.NAME` in the target checkout; an alias that cannot be read is unplaced ("git alias") |
+| `cd` options `-L`, `-P`, `-e`, `-@`, alone or combined (`-Pe`) | `cd -P /s/b && git commit -m x` | recognised — the options are skipped and the commit targets `/s/b` |
+| `cd --` ending option parsing | `cd -- /s/b && git commit -m x` | recognised — the operand after `--` is the directory |
+| `cd -` and a bare `cd` | `cd - && git commit -m x` | unplaced — the previous directory is not modelled |
+| `builtin cd` | `builtin cd /s/b && git commit -m x` | recognised — the same as `cd` |
+| `command cd` | `command cd /s/b && git commit -m x` | recognised — the same as `cd` |
+| `pushd DIR` | `pushd /s/b && git commit -m x` | recognised — moves to DIR and pushes the old directory on the modelled stack |
+| `popd` after a modelled `pushd` | `pushd /s/b && popd && git commit -m x` | recognised — returns to the previous directory, so the commit targets `/s/a` |
+| `pushd -n DIR` | `pushd -n /s/b && git commit -m x` | recognised — pushes without moving, so the commit targets `/s/a` |
+| `pushd` inside a parenthesised subshell | `(pushd /s/b) && git commit -m x` | recognised — the subshell restores the stack and the directory, so the commit targets `/s/a` |
+| `popd` with an empty modelled stack, `pushd +N`, `pushd -N`, `popd +N` | `popd && git commit -m x` | unplaced — the reason names the word |
+| `~` and `~/…` | `cd ~/b && git commit -m x` | recognised — `~` expands to the hook process's home directory, which runs as the session shell's user; with `HOME=/s` the commit targets `/s/b` |
+| `~user` | `cd ~other/x && git commit -m x` | unplaced — another user's home is not expanded |
+| an in-command `NAME=value` or `export NAME=value` segment, then `$NAME` in a later segment | `B=/s/b; git -C "$B" commit -m x` | recognised — the binding holds for later segments in the same scope, and a value may reference names already bound |
+| a prefix assignment `NAME=value cmd` | `B=/s/b git -C "$B" commit -m x` | unplaced — a prefix assignment binds nothing the same command's arguments can read |
+| a binding removed by `unset NAME`, built from another substitution, or used after the subshell that made it has closed | `R=$(mktemp -d); git -C "$R" commit -m x` | unplaced — the name stays unexpanded, and the reason names `$R` |
+| `$(pwd)`, `` `pwd` ``, `$(pwd -P)`, `$(pwd -L)`, `$PWD`, `${PWD}` | `cd /s/b && git -C $(pwd) commit -m x` | recognised — the running directory, so the commit targets `/s/b` |
+| `$(git rev-parse --show-toplevel)` and `$(git -C DIR rev-parse --show-toplevel)` | `cd /s/b/sub && git -C $(git rev-parse --show-toplevel) commit -m x` | recognised — the checkout root of the running directory (or of DIR), so the commit targets `/s/b` |
+| any other substitution, such as `$(dirname $(pwd))` or `$(mktemp -d)` | `git -C $(dirname $(pwd)) commit -m x` | unplaced — only the fixed forms above resolve |
 
 ---
 

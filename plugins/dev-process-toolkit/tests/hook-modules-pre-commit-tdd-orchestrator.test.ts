@@ -1275,24 +1275,21 @@ describe("AC-STE-597.4 — a git subprocess that cannot RUN speaks NFR-10 instea
 // not available either.
 // ---------------------------------------------------------------------------
 
-describe("AC-STE-597.4 — a `$(...)` target is an advisory, not silence (RED: today this hook says nothing)", () => {
-  test("`git -C $(pwd) commit` with a staged test file and no /tdd evidence → exit 1 + a Reminder naming the substitution", async () => {
+describe("AC-STE-597.4 — a `$(...)` target is never silence (STE-613: `$(pwd)` now resolves and refuses)", () => {
+  test("`git -C $(pwd) commit` with a staged test file and no /tdd evidence → exit 2 (STE-613: the target resolves and the staged test raises the requirement)", async () => {
     await buildAB();
     const r = await runModule(
       payloadFor("git -C $(pwd) commit -m x", repoB, transcriptWithoutTddEvidence()),
       repoB,
     );
-    expect(r.exitCode).toBe(1);
-    // The harm, stated as an assertion: the shipped hook prints nothing here.
-    expect(r.stderr).toContain("Reminder:");
+    expect(r.exitCode).toBe(2);
+    // STE-613: `$(pwd)` is the running directory, so the target resolves and
+    // this is an ordinary refusal of a staged test with no /tdd evidence.
+    expect(r.stderr).toContain("Refusing:");
     expect(r.stderr).toContain("Remedy:");
     expect(r.stderr).toContain("Context:");
-    // And it names the value it could not expand, so the operator knows which
-    // part of their own command defeated the guard.
-    expect(r.stderr).toContain("$(pwd)");
-    // Never a refusal: an unplaceable target is a gap in knowledge, not a
-    // violation.
-    expect(r.stderr).not.toContain("Refusing:");
+    // A resolved target is never the unresolved-target Reminder.
+    expect(r.stderr).not.toContain("Reminder:");
   });
 
   test("CONTROL — the RESOLVABLE sibling of that command still refuses, with no reminder", async () => {
@@ -1336,4 +1333,129 @@ describe("AC-STE-597.4 — a `$(...)` target is an advisory, not silence (RED: t
     expect(r.exitCode).toBe(0);
     expect(r.stderr).toBe("");
   });
+});
+
+// ---------------------------------------------------------------------------
+// AC-STE-613.6 — the wrong-tree defect, graded through the SHIPPED wrapper.
+//
+// Two makeSpanFixture checkouts: FE0 (the session's, nothing staged) and B,
+// which stages an FR file, a source file and its test behind a pyproject.toml
+// stack marker. Every spawn is SERIAL.
+// ---------------------------------------------------------------------------
+
+import { afterAll as afterAll613, beforeAll as beforeAll613 } from "bun:test";
+import { mkdirSync as mkdirSync613, mkdtempSync as mkdtempSync613, rmSync as rmSync613, writeFileSync as writeFileSync613 } from "node:fs";
+import { git as git613, makeSpanFixture as makeSpanFixture613, type SpanFixture as SpanFixture613 } from "./_span_fixture";
+
+describe("AC-STE-613.6 — cd options, builtin cd and pushd move the commit with them (hook e2e)", () => {
+  const WRAPPER613 = join(import.meta.dir, "..", "templates", "hooks", "process", "pre-commit-tdd-orchestrator.sh");
+  const PLUGIN613 = join(import.meta.dir, "..");
+  const T613 = 300_000;
+  let fx613: SpanFixture613;
+  let FE0 = "";
+  let B613 = "";
+  let scratch613 = "";
+  let noEvidence613 = "";
+  let evidence613 = "";
+
+  function stage613(root: string, files: Record<string, string>): void {
+    for (const [rel, body] of Object.entries(files)) {
+      const full = join(root, rel);
+      mkdirSync613(full.split("/").slice(0, -1).join("/"), { recursive: true });
+      writeFileSync613(full, body);
+      git613(root, "add", rel);
+    }
+  }
+
+  function transcript613(name: string, skills: string[]): string {
+    const file = join(scratch613, `${name}.jsonl`);
+    const entries: unknown[] = [{ type: "tool_use", name: "Bash", input: { command: "ls" } }];
+    for (const skill of skills) entries.push({ type: "tool_use", name: "Skill", input: { skill } });
+    writeFileSync613(file, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    return file;
+  }
+
+  async function run613(command: string, tr: string): Promise<{ exitCode: number; stderr: string }> {
+    const payload = JSON.stringify({
+      session_id: "s613",
+      transcript_path: tr,
+      cwd: FE0,
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command },
+    });
+    const proc = Bun.spawn(["/bin/bash", WRAPPER613], {
+      cwd: FE0,
+      env: { ...process.env, CLAUDE_PLUGIN_ROOT: PLUGIN613, CDPATH: "" },
+      stdin: new Response(payload).body,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+    return { exitCode: await proc.exited, stderr };
+  }
+
+  beforeAll613(() => {
+    fx613 = makeSpanFixture613("M_ste613");
+    FE0 = fx613.a;
+    B613 = fx613.b;
+    scratch613 = mkdtempSync613(join(tmpdir(), "ste613-hooks-"));
+    writeFileSync613(join(B613, "pyproject.toml"), '[project]\nname = "fixture"\nversion = "0.0.0"\n');
+    git613(B613, "add", "pyproject.toml");
+    git613(B613, "commit", "-q", "-m", "fixture: stack marker");
+    // FE0 carries the same stack marker, so a README-only staged set there is
+    // classified `no-fr` (exit 0) rather than `stack-unknown` (an exit-1 Reminder).
+    writeFileSync613(join(FE0, "pyproject.toml"), '[project]\nname = "fe0"\nversion = "0.0.0"\n');
+    git613(FE0, "add", "pyproject.toml");
+    git613(FE0, "commit", "-q", "-m", "fixture: stack marker");
+    fx613.activeFr(B613, "GF-99", "M_ste613");
+    git613(B613, "add", "specs/frs/GF-99.md");
+    stage613(B613, { "src/app.py": "def app():\n    return 1\n", "tests/test_app.py": "def test_app():\n    assert True\n" });
+    noEvidence613 = transcript613("none", []);
+    evidence613 = transcript613("tdd", ["dev-process-toolkit:tdd"]);
+  });
+
+  afterAll613(() => {
+    fx613?.cleanup();
+    if (scratch613) rmSync613(scratch613, { recursive: true, force: true });
+  });
+
+  const wrongTreeShapes = (): string[] => [
+    `pushd ${B613} && git commit -m x`,
+    `cd -P ${B613} && git commit -m x`,
+    `builtin cd ${B613} && git commit -m x`,
+    `cd -- ${B613} && git commit -m x`,
+  ];
+
+  test("with no evidence, each of the four shapes exits 2 naming B's staged paths (each exited 0 at HEAD)", async () => {
+    for (const cmd of wrongTreeShapes()) {
+      const r = await run613(cmd, noEvidence613);
+      expect({ cmd, exitCode: r.exitCode }).toEqual({ cmd, exitCode: 2 });
+      expect({ cmd, names: r.stderr.includes("test_app.py") }).toEqual({ cmd, names: true });
+    }
+  }, T613);
+
+  test("PERMIT — the same four commands with /tdd evidence present proceed (no exit 2)", async () => {
+    for (const cmd of wrongTreeShapes()) {
+      const r = await run613(cmd, evidence613);
+      expect({ cmd, exitCode: r.exitCode === 2 }).toEqual({ cmd, exitCode: false });
+    }
+  }, T613);
+
+  test("PERMIT — `pushd <FE0> && git commit` with only a README staged in FE0 exits 0 silently, no evidence", async () => {
+    stage613(FE0, { "README.md": "# fe0\n" });
+    try {
+      const r = await run613(`pushd ${FE0} && git commit -m x`, noEvidence613);
+      expect(r.exitCode).toBe(0);
+      expect(r.stderr).toBe("");
+    } finally {
+      git613(FE0, "reset", "-q", "--", "README.md");
+    }
+  }, T613);
+
+  test("CONTROL — the unchanged `cd <B> && git commit` exits 2 with no evidence", async () => {
+    const r = await run613(`cd ${B613} && git commit -m x`, noEvidence613);
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("test_app.py");
+  }, T613);
 });

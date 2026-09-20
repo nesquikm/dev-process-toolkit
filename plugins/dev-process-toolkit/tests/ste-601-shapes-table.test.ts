@@ -15,10 +15,11 @@
 //     (`` echo `cd /s/b && git commit` ``) when the command itself holds a
 //     backtick, and `\|` for a literal pipe. It is run through
 //     resolveCommitTarget(example, "/s/a") with /s/a and /s/b as the only two
-//     checkouts (/s/b/.git belongs to /s/b).
+//     checkouts (/s/b/.git belongs to /s/b), with HOME=/s and CDPATH unset.
 //   * Verdict — begins with one of: `recognised`, `unplaced`, `out of scope`,
 //     `advisory`. Text after the keyword (a reason) is allowed.
-//       recognised   → isCommit: true
+//       recognised   → isCommit: true (and, when the verdict says "targets `/s/X`",
+//                      repoRoot === /s/X)
 //       unplaced     → isCommit: true, repoRoot: null
 //       out of scope → isCommit: false, no advisory
 //       advisory     → isCommit: false, advisory set
@@ -86,13 +87,36 @@ export function parseShapesTable(markdown: string): Row[] {
   return rows;
 }
 
+/**
+ * Every row runs with HOME=/s and CDPATH unset, so `~/b` is the checkout /s/b
+ * and no row's verdict depends on the machine that grades it.
+ */
+function withHome<T>(home: string, fn: () => T): T {
+  const saved = { HOME: process.env.HOME, CDPATH: process.env.CDPATH };
+  process.env.HOME = home;
+  delete process.env.CDPATH;
+  try {
+    return fn();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
 export function gradeRows(rows: Row[]): string[] {
   const bad: string[] = [];
   for (const row of rows) {
-    const t = resolveCommitTarget(row.example, "/s/a", ROOTS) as { isCommit: boolean; repoRoot: string | null; advisory?: string | null };
+    const t = withHome("/s", () =>
+      resolveCommitTarget(row.example, "/s/a", ROOTS),
+    ) as { isCommit: boolean; repoRoot: string | null; advisory?: string | null };
     const adv = Boolean(t.advisory);
     let ok: boolean;
-    if (row.verdict.startsWith("recognised")) ok = t.isCommit;
+    // A verdict that NAMES its target (`… the commit targets `/s/b``) is graded
+    // on that target too, so a row cannot promise a checkout it never resolves to.
+    const named = /targets `?(\/s\/[a-z]+)`?/.exec(row.verdict)?.[1];
+    if (row.verdict.startsWith("recognised")) ok = t.isCommit && (named === undefined || t.repoRoot === named);
     else if (row.verdict.startsWith("unplaced")) ok = t.isCommit && t.repoRoot === null;
     else if (row.verdict.startsWith("out of scope")) ok = !t.isCommit && !adv;
     else if (row.verdict.startsWith("advisory")) ok = !t.isCommit && adv;
@@ -221,5 +245,31 @@ describe("AC-STE-601.15 — budgets: skills/ is untouched", () => {
       { cwd: REPO_ROOT },
     );
     expect(p.status).toBe(1);
+  });
+});
+
+describe("AC-STE-613.8 — the shapes table carries the rows of STE-613 items 1 to 6", () => {
+  const rows = parseShapesTable(readFileSync(DOC, "utf8"));
+  const needles: Array<[string, (ex: string) => boolean]> = [
+    ["item 1 — `cd -P`", (ex) => /\bcd -P\b/.test(ex)],
+    ["item 1 — `cd --`", (ex) => /\bcd -- /.test(ex)],
+    ["item 2 — `builtin cd`", (ex) => ex.includes("builtin cd ")],
+    ["item 2 — `command cd`", (ex) => ex.includes("command cd ")],
+    ["item 3 — `pushd`", (ex) => /\bpushd\b/.test(ex)],
+    ["item 3 — `popd`", (ex) => /\bpopd\b/.test(ex)],
+    ["item 4 — `~/`", (ex) => ex.includes("~/")],
+    ["item 5 — an in-command `NAME=` binding", (ex) => /(?:^|[;&]\s*)(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=[^\s;&|]*\s*(?:;|&&)/.test(ex)],
+    ["item 6 — `$(pwd)`", (ex) => ex.includes("$(pwd)")],
+    ["item 6 — `$(git rev-parse --show-toplevel)`", (ex) => ex.includes("rev-parse --show-toplevel")],
+  ];
+  for (const [label, has] of needles) {
+    test(`a row exemplifies ${label}`, () => {
+      expect({ label, present: rows.some((r) => has(r.example)) }).toEqual({ label, present: true });
+    });
+  }
+  test("CONTROL — the needles find nothing in a table without STE-613 rows", () => {
+    const only = parseShapesTable("## Recognised command shapes\n\n| Shape | Example | Verdict |\n|---|---|---|\n| x | `cd /s/b && git commit -m x` | recognised |\n");
+    expect(only.length).toBe(1);
+    for (const [, has] of needles) expect(has(only[0]!.example)).toBe(false);
   });
 });

@@ -17,6 +17,7 @@
 // exports), and the `ReadingRules` switches a caller reads the stream under.
 
 import { isAbsolute, resolve } from "node:path";
+import { homedir } from "node:os";
 
 // ---------------------------------------------------------------------------
 // Public vocabulary.
@@ -118,17 +119,71 @@ export function resolvePath(base: string | null, path: string): string | null {
   return isAbsolute(path) ? path : base === null ? null : resolve(base, path);
 }
 
-/** Apply a `cd` (or one `-C` step) to the running directory. */
-export function changeDirectory(cwd: RunningDirectory, argument: string | undefined): RunningDirectory {
-  if (argument === undefined || argument === "-") {
-    return { dir: null, word: argument ?? "cd", moved: true };
-  }
-  if (isUnexpanded(argument)) {
-    return { dir: null, word: argument, moved: true };
-  }
+/**
+ * Expand a leading `~` / `~/…` to the hook process's home, which runs as the
+ * same OS user as the session's shell. Read at call time so a test that sets
+ * HOME is honoured. `~user` is left as is (unexpanded).
+ */
+export function expandHome(word: string): string {
+  if (word !== "~" && !word.startsWith("~/")) return word;
+  const home = process.env.HOME || homedir();
+  return home + word.slice(1);
+}
+
+/** An unresolvable running directory naming the word that made it so. */
+function unresolvable(word: string): RunningDirectory {
+  return { dir: null, word, moved: true };
+}
+
+/**
+ * Apply a `cd` (or one `-C` step) to the running directory. Home expansion
+ * lives HERE, not in `expandDirectory`, because this is the one step every
+ * directory word ends in — including the raw `-C` chain `commit_target_repo`
+ * replays from an invocation's argv.
+ */
+export function changeDirectory(cwd: RunningDirectory, raw: string | undefined): RunningDirectory {
+  if (raw === undefined || raw === "-") return unresolvable(raw ?? "cd");
+  const argument = expandHome(raw);
+  if (isUnexpanded(argument)) return unresolvable(argument);
   const dir = resolvePath(cwd.dir, argument);
   if (dir === null) return { dir: null, word: cwd.word ?? argument, moved: true };
   return { dir, word: null, moved: true };
+}
+
+/** `cd`'s own options (`-L`, `-P`, `-e`, `-@`), alone or combined (`-Pe`). */
+const CD_OPTION = /^-[LPe@]+$/;
+
+/**
+ * The operand of a `cd` / `pushd` argv: its options are skipped and `--` ends
+ * them. Undefined when there is none (a bare `cd`).
+ */
+function directoryOperand(argv: readonly string[]): string | undefined {
+  let i = 1;
+  while (i < argv.length && CD_OPTION.test(argv[i] as string)) i++;
+  if (argv[i] === "--") i++;
+  return argv[i];
+}
+
+/**
+ * Apply a `cd` / `pushd` argv. With `CDPATH` set and non-empty in the
+ * resolver's environment, a relative operand not beginning with `.` or `..` is
+ * searched along it first, so its directory cannot be named.
+ */
+function changeDirectoryBuiltin(cwd: RunningDirectory, argv: readonly string[]): RunningDirectory {
+  const operand = directoryOperand(argv);
+  const cdpath = process.env.CDPATH;
+  if (
+    operand !== undefined &&
+    operand !== "-" &&
+    cdpath !== undefined &&
+    cdpath !== "" &&
+    !isUnexpanded(operand) &&
+    !isAbsolute(operand) &&
+    !/^\.\.?(\/|$)/.test(operand)
+  ) {
+    return unresolvable("the `CDPATH` search path");
+  }
+  return changeDirectory(cwd, operand);
 }
 
 /** A `NAME=value` binding (a command prefix, an `env` operand, an `export` operand). */
@@ -148,6 +203,276 @@ export interface ShellFrame {
    * later command in this shell runs under them (`export GIT_DIR=x; git commit`).
    */
   exported: readonly string[];
+  /**
+   * The modelled `pushd` directory stack BELOW the running directory, top last.
+   * `popd` returns to its top; a subshell restores it with the rest of the frame.
+   */
+  stack: readonly RunningDirectory[];
+  /**
+   * In-command shell variables (STE-613 item 5): NAME → its literal value, or
+   * null when it is bound to something the resolver cannot expand (a
+   * substitution, a loop variable, an unbound name). A name absent from the
+   * map is unbound. `exported` marks the names a child shell inherits.
+   */
+  vars: ReadonlyMap<string, ShellVariable>;
+}
+
+/** One in-command variable binding. */
+export interface ShellVariable {
+  value: string | null;
+  exported: boolean;
+}
+
+/** No word of the reading carries a quoted `$`: every reference may expand. */
+const NO_LITERALS: ReadonlySet<string> = new Set();
+
+/**
+ * Bind NAME to a value the resolver cannot expand, keeping whether a child
+ * shell inherits it.
+ */
+function forgetValue(vars: Map<string, ShellVariable>, name: string): void {
+  vars.set(name, { value: null, exported: vars.get(name)?.exported ?? false });
+}
+
+/** A `$NAME` / `${NAME}` reference inside a word. */
+const VARIABLE_REFERENCE = /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g;
+
+/**
+ * Expand the variable references of a DIRECTORY word against the frame's
+ * bindings. The word comes back unchanged — and so stays unexpanded, under the
+ * STE-597 rule — when any reference is unbound or bound to an unexpandable
+ * value, or when the word carried a quoted `$` (`'$B'`, `\$B`) the shell never
+ * expands (`literal`).
+ */
+export function expandVariables(word: string, vars: ShellFrame["vars"], literal: ReadonlySet<string>): string {
+  if (!word.includes("$") || literal.has(word)) return word;
+  let complete = true;
+  const out = word.replace(VARIABLE_REFERENCE, (ref, braced: string | undefined, bare: string | undefined) => {
+    const value = vars.get((braced ?? bare) as string)?.value ?? null;
+    if (value === null) complete = false;
+    return value ?? ref;
+  });
+  return complete && !isUnexpanded(out) ? out : word;
+}
+
+/** `$(pwd)`, `$(pwd -P)`, `$(pwd -L)`, `` `pwd` `` — the running directory. */
+const PWD_SPAN = /^(?:\$\(\s*pwd(?:\s+-[LP])?\s*\)|`\s*pwd(?:\s+-[LP])?\s*`)$/;
+/** `$(git rev-parse --show-toplevel)` / `$(git -C DIR rev-parse --show-toplevel)` — a checkout root. */
+const TOPLEVEL_SPAN = /^\$\(\s*git\s+(?:-C\s+([^\s$`~'"()]+)\s+)?rev-parse\s+--show-toplevel\s*\)$/;
+/** `$PWD` / `${PWD}` at the start of the rest of a word. */
+const PWD_VARIABLE = /^\$(?:\{PWD\}|PWD(?![A-Za-z0-9_]))/;
+
+/**
+ * Expand the FIXED computed directories of a directory word (STE-613 item 6):
+ * the running directory's own spellings, and the checkout root of the running
+ * directory (or of a literal DIR) through the injected root lookup. Only a
+ * substitution standing at the word's own level is read — one nested inside
+ * another (`$(dirname $(pwd))`) is part of that other, which stays as written
+ * and so unexpanded, like every other substitution. A `$PWD` the command itself
+ * bound is left to the variable expansion.
+ */
+export function expandFixedDirectories(
+  word: string,
+  frame: ShellFrame,
+  literal: ReadonlySet<string>,
+  roots: CheckoutRootLookup | undefined,
+): string {
+  const here = frame.cwd.dir;
+  if (here === null || literal.has(word) || !(word.includes("$") || word.includes("`"))) return word;
+  const fixed = (span: string): string | null => {
+    if (PWD_SPAN.test(span)) return here;
+    const top = roots === undefined ? null : TOPLEVEL_SPAN.exec(span);
+    if (top === null || roots === undefined) return null;
+    const target = top[1] === undefined ? here : resolvePath(here, top[1]);
+    return target === null ? null : roots(target);
+  };
+  let out = "";
+  let i = 0;
+  while (i < word.length) {
+    const ch = word[i] as string;
+    let end = -1;
+    if (ch === "$" && word[i + 1] === "(") end = readSubstitution(word, i);
+    else if (ch === "`") end = word.indexOf("`", i + 1) + 1 || word.length;
+    if (end > i) {
+      const span = word.slice(i, end);
+      out += fixed(span) ?? span;
+      i = end;
+      continue;
+    }
+    const variable = ch === "$" && !frame.vars.has("PWD") ? PWD_VARIABLE.exec(word.slice(i)) : null;
+    if (variable !== null) {
+      out += here;
+      i += variable[0].length;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+/**
+ * THE directory-word expander: its fixed computed directories, then its
+ * variables. Every directory word the walk reads (`cd` / `pushd` operands,
+ * `env -C` / `sudo -D` values, git `-C` values, assignment values) goes
+ * through it; a leading `~` is left to `changeDirectory`.
+ */
+function expandDirectory(
+  word: string,
+  frame: ShellFrame,
+  literal: ReadonlySet<string>,
+  roots: CheckoutRootLookup | undefined,
+): string {
+  // A quoted leading `~` is a directory literally named `~`: pin it as relative
+  // so `changeDirectory` never reads it as home (it stays unplaced, never wrong).
+  if (word.startsWith("~") && literal.has(word)) return `./${word}`;
+  return expandVariables(expandFixedDirectories(word, frame, literal, roots), frame.vars, literal);
+}
+
+/**
+ * Bind `NAME=value` words in order; a value that does not expand binds null. A
+ * fixed computed directory (`R=$(pwd)`) binds the directory at binding time.
+ */
+/**
+ * The longest bound value the model keeps. A binding may reference itself
+ * (`A=$A$A`), so a chain of them doubles the value at every step: 28 links
+ * exhausted the heap and threw inside the guard, measured on the shipped bytes.
+ * A gate that crashes is worse than one that says "I cannot tell", so a value
+ * past this length binds null — unresolvable, never a guess (STE-613 review).
+ */
+export const MAX_BOUND_VALUE = 4096;
+
+function bindAssignments(
+  frame: ShellFrame,
+  words: readonly string[],
+  literal: ReadonlySet<string>,
+  exported: boolean,
+  roots?: CheckoutRootLookup,
+): ShellFrame {
+  const vars = new Map(frame.vars);
+  for (const w of words) {
+    const eq = w.indexOf("=");
+    const name = w.slice(0, eq);
+    const raw = w.slice(eq + 1);
+    const value =
+      raw.includes("$") && literal.has(w)
+        ? null
+        : expandDirectory(raw, { ...frame, vars }, NO_LITERALS, roots);
+    const keep = value !== null && !isUnexpanded(value) && value.length <= MAX_BOUND_VALUE;
+    vars.set(name, { value: keep ? value : null, exported: exported || (vars.get(name)?.exported ?? false) });
+  }
+  return { ...frame, vars };
+}
+
+/** A shell variable name. */
+const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Builtins that set or remove a variable in ways the resolver does not model
+ * value-wise (`read B`, `declare B=…`, `local`, `printf -v B`): every name they
+ * mention becomes unexpandable. `unset` removes the binding outright.
+ */
+const VARIABLE_WRITERS: ReadonlySet<string> = new Set([
+  "read", "mapfile", "readarray", "getopts", "printf", "declare", "typeset", "local", "readonly", "let",
+]);
+
+/** Apply a segment's effect on the variable map, if it has one. */
+function applyVariableEffects(
+  frame: ShellFrame,
+  argv: readonly string[],
+  literal: ReadonlySet<string>,
+  roots?: CheckoutRootLookup,
+): ShellFrame {
+  const argv0 = argv[0] as string;
+  const operands = argv.slice(1);
+  if (argv0 === "export") {
+    const vars = new Map(frame.vars);
+    for (const a of operands) {
+      const known = vars.get(a);
+      if (NAME.test(a) && known !== undefined) vars.set(a, { ...known, exported: true });
+    }
+    return bindAssignments({ ...frame, vars }, operands.filter((a) => ASSIGNMENT.test(a)), literal, true, roots);
+  }
+  if (argv0 === "unset") {
+    const vars = new Map(frame.vars);
+    for (const a of operands) vars.delete(a);
+    return { ...frame, vars };
+  }
+  if (argv0 === "source" || argv0 === ".") {
+    // A sourced file may set anything: every binding stops being known.
+    const vars = new Map([...frame.vars].map(([k, v]) => [k, { ...v, value: null }] as const));
+    return { ...frame, vars };
+  }
+  if (VARIABLE_WRITERS.has(argv0)) {
+    const vars = new Map(frame.vars);
+    for (const a of operands) {
+      const name = a.replace(/[+]?=.*$/, "");
+      if (NAME.test(name)) forgetValue(vars, name);
+    }
+    return { ...frame, vars };
+  }
+  return frame;
+}
+
+/**
+ * Expand the `-C` values of a git argv's global options — directory words —
+ * and nothing else: a `-c` / `--git-dir` value stays as written (STE-597).
+ */
+function expandGitDirectories(
+  argv: string[],
+  frame: ShellFrame,
+  literal: ReadonlySet<string>,
+  roots: CheckoutRootLookup | undefined,
+): string[] {
+  const argv0 = argv[0] ?? "";
+  if (argv0.slice(argv0.lastIndexOf("/") + 1) !== "git") return argv;
+  const out = argv.slice();
+  let i = 1;
+  while (i < out.length && (out[i] as string).startsWith("-")) {
+    const token = out[i] as string;
+    if (token === "-C" && i + 1 < out.length) {
+      out[i + 1] = expandDirectory(out[i + 1] as string, frame, literal, roots);
+      i += 2;
+    } else if (token.startsWith("-C") && token.length > 2) {
+      if (!literal.has(token)) out[i] = `-C${expandDirectory(token.slice(2), frame, NO_LITERALS, roots)}`;
+      i += 1;
+    } else if (["-c", "--git-dir", "--work-tree", "--namespace"].includes(token)) i += 2;
+    else i += 1;
+  }
+  return out;
+}
+
+/** A `+N` / `-N` stack index: rotates a stack the resolver does not model. */
+const STACK_INDEX = /^[+-]\d+$/;
+
+/**
+ * `pushd DIR` moves and pushes; `pushd -n DIR` pushes without moving. A bare
+ * `pushd` (swap) and `pushd +N` / `-N` (rotate) are unresolvable.
+ */
+function pushDirectory(frame: ShellFrame, argv: readonly string[]): ShellFrame {
+  const noMove = argv.slice(1).includes("-n");
+  const rest = [argv[0] as string, ...argv.slice(1).filter((a) => a !== "-n")];
+  const operand = directoryOperand(rest);
+  if (operand === undefined || STACK_INDEX.test(operand)) {
+    return { ...frame, cwd: unresolvable(operand ?? "pushd") };
+  }
+  const target = changeDirectoryBuiltin(frame.cwd, rest);
+  if (noMove) return { ...frame, stack: [...frame.stack, target] };
+  return { ...frame, cwd: target, stack: [...frame.stack, frame.cwd] };
+}
+
+/**
+ * `popd` returns to the top of the modelled stack; `popd -n` drops it without
+ * moving. An empty modelled stack and `popd +N` / `-N` are unresolvable.
+ */
+function popDirectory(frame: ShellFrame, argv: readonly string[]): ShellFrame {
+  const operands = argv.slice(1).filter((a) => a !== "-n" && a !== "--");
+  const index = operands.find((a) => STACK_INDEX.test(a));
+  if (index !== undefined) return { ...frame, cwd: unresolvable(index) };
+  const top = frame.stack[frame.stack.length - 1];
+  if (top === undefined) return { ...frame, cwd: unresolvable("popd (an empty modelled directory stack)") };
+  const stack = frame.stack.slice(0, -1);
+  return argv.slice(1).includes("-n") ? { ...frame, stack } : { ...frame, cwd: top, stack };
 }
 
 /** A builtin that changes the running shell's own frame, keyed by argv0. */
@@ -160,12 +485,33 @@ export type ShellBuiltin = (frame: ShellFrame, argv: readonly string[]) => Shell
  * directory builtin (`pushd`, `popd`) is adding a row.
  */
 export const SHELL_BUILTINS: Readonly<Record<string, ShellBuiltin>> = {
-  cd: (frame, argv) => ({ ...frame, cwd: changeDirectory(frame.cwd, argv[1]) }),
+  cd: (frame, argv) => restampPwd({ ...frame, cwd: changeDirectoryBuiltin(frame.cwd, argv) }),
+  pushd: (frame, argv) => restampPwd(pushDirectory(frame, argv)),
+  popd: (frame, argv) => restampPwd(popDirectory(frame, argv)),
+  // `builtin cd` is `cd` (`command cd` is already stripped as a wrapper).
+  builtin: (frame, argv) => {
+    const row = argv[1] === "builtin" ? undefined : rowOf(SHELL_BUILTINS, argv[1]);
+    return row === undefined ? frame : row(frame, argv.slice(1));
+  },
   export: (frame, argv) => ({
     ...frame,
     exported: [...frame.exported, ...argv.slice(1).filter((a) => ASSIGNMENT.test(a))],
   }),
 };
+
+/**
+ * `PWD` is maintained by the shell, not by the command: a `cd`, `pushd` or
+ * `popd` re-stamps it, overriding an earlier `PWD=` a command wrote by hand.
+ * Dropping the manual binding hands `$PWD` back to the fixed-form reader, which
+ * answers with the directory the walk is actually in — measured against bash,
+ * which prints the `cd` target after `PWD=/elsewhere; cd /real` (STE-613 review).
+ */
+function restampPwd(frame: ShellFrame): ShellFrame {
+  if (!frame.vars.has("PWD")) return frame;
+  const vars = new Map(frame.vars);
+  vars.delete("PWD");
+  return { ...frame, vars };
+}
 
 /** A table row by key, never an inherited `Object.prototype` member (`constructor`). */
 function rowOf<T>(table: Readonly<Record<string, T>>, key: string | undefined): T | undefined {
@@ -188,7 +534,14 @@ function rowOf<T>(table: Readonly<Record<string, T>>, key: string | undefined): 
  * Modelling the boundary explicitly is what lets both be answered correctly.
  */
 type LexItem =
-  | { kind: "segment"; words: string[]; subs: Lexed[]; caseArm: boolean }
+  | {
+      kind: "segment";
+      words: string[];
+      subs: Lexed[];
+      caseArm: boolean;
+      /** Words that carry a QUOTED `$` (`'$B'`, `\$B`): never variable-expanded. */
+      literal: Set<string>;
+    }
   | { kind: "open" }
   | { kind: "close" };
 
@@ -351,6 +704,14 @@ function lex(
   let subs: Lexed[] = [];
   let word = "";
   let started = false;
+  /** True once the current word holds a `$` the shell will not expand. */
+  let quotedDollar = false;
+  /**
+   * True when the word's FIRST character is a quoted or escaped `~`: tilde
+   * expansion needs an unquoted leading `~`, so `"~/x"` names `./~/x`, never home.
+   */
+  let quotedTilde = false;
+  let literal = new Set<string>();
   let quote: '"' | "'" | null = null;
   let depth = 0;
   let balanced = true;
@@ -378,12 +739,16 @@ function lex(
 
   const pushSegment = (): void => {
     if (words.length > 0 || subs.length > 0) {
-      items.push({ kind: "segment", words, subs, caseArm: cases.length > 0 });
+      items.push({ kind: "segment", words, subs, caseArm: cases.length > 0, literal });
     }
     words = [];
     subs = [];
+    literal = new Set();
   };
   const endWord = (): void => {
+    if (started && (quotedDollar || quotedTilde)) literal.add(word);
+    quotedDollar = false;
+    quotedTilde = false;
     if (started) {
       if (cases.length > 0 && word === "esac" && (words.length === 0 || inPattern())) {
         // `esac` closes the innermost case, whether it follows `;;` or ends the last arm.
@@ -405,9 +770,10 @@ function lex(
   };
   const flush = (): void => {
     endWord();
-    if (words.length > 0) items.push({ kind: "segment", words, subs, caseArm: cases.length > 0 });
+    if (words.length > 0) items.push({ kind: "segment", words, subs, caseArm: cases.length > 0, literal });
     words = [];
     subs = [];
+    literal = new Set();
   };
 
   /**
@@ -463,7 +829,11 @@ function lex(
 
     if (quote === "'") {
       if (ch === "'") quote = null;
-      else word += ch;
+      else {
+        if (ch === "~" && word === "") quotedTilde = true;
+        word += ch;
+      }
+      if (ch === "$") quotedDollar = true;
       continue;
     }
     if (quote === '"') {
@@ -472,6 +842,7 @@ function lex(
         continue;
       }
       if (ch === "\\" && DQ_ESCAPABLE.has(text[i + 1] as string)) {
+        if (text[i + 1] === "$") quotedDollar = true;
         if (text[i + 1] !== "\n") word += text[i + 1] as string;
         i += 1;
         continue;
@@ -484,6 +855,7 @@ function lex(
         i = readBacktick(i);
         continue;
       }
+      if (ch === "~" && word === "") quotedTilde = true;
       word += ch;
       continue;
     }
@@ -492,6 +864,8 @@ function lex(
     if (ch === "\\") {
       if (i + 1 < text.length) {
         if (text[i + 1] !== "\n") {
+          if (text[i + 1] === "$") quotedDollar = true;
+          if (text[i + 1] === "~" && word === "") quotedTilde = true;
           word += text[i + 1] as string;
           started = true;
         }
@@ -1010,6 +1384,8 @@ interface WalkState {
   out: ShellInvocation[];
   /** False once any read scope's parentheses fail to pair. */
   balanced: boolean;
+  /** The injected checkout-root lookup, for `$(git rev-parse --show-toplevel)`. */
+  roots: CheckoutRootLookup | undefined;
 }
 
 /** What a nested reading inherits from the command that carries it. */
@@ -1039,7 +1415,7 @@ function walkString(text: string, frame: ShellFrame, carrier: Carrier, state: Wa
 }
 
 function walk(lexed: Lexed, start: ShellFrame, carrier: Carrier, state: WalkState): ShellFrame {
-  const { rules, out } = state;
+  const { rules, out, roots } = state;
   let frame = start;
   /** The frames the enclosing subshells will restore on their `)`. */
   const scopes: ShellFrame[] = [];
@@ -1071,7 +1447,16 @@ function walk(lexed: Lexed, start: ShellFrame, carrier: Carrier, state: WalkStat
     let words = item.words;
     if (rules.reservedWords) {
       words = words.slice(leadingReservedWords(words));
-      if (HEADER_WORDS.has(words[0] as string)) continue;
+      if (HEADER_WORDS.has(words[0] as string)) {
+        // `for NAME in …`: the loop variable takes a value per iteration.
+        const name = words[1];
+        if (name !== undefined && NAME.test(name)) {
+          const vars = new Map(frame.vars);
+          forgetValue(vars, name);
+          frame = { ...frame, vars };
+        }
+        continue;
+      }
     }
     const strippedList: Stripped[] = rules.wrappers
       ? stripWrappers(words)
@@ -1083,7 +1468,7 @@ function walk(lexed: Lexed, start: ShellFrame, carrier: Carrier, state: WalkStat
 
       // `env -C DIR` and `sudo -D DIR` move this command only, not the shell.
       let here = frame.cwd;
-      for (const d of stripped.chdirs) here = changeDirectory(here, d);
+      for (const d of stripped.chdirs) here = changeDirectory(here, expandDirectory(d, { ...frame, cwd: here }, item.literal, roots));
       const at: ShellFrame = { ...frame, cwd: here };
 
       // `watch CMD`, `env -S STRING`: a command string, read like a nested shell.
@@ -1091,12 +1476,24 @@ function walk(lexed: Lexed, start: ShellFrame, carrier: Carrier, state: WalkStat
         walkString(stripped.text, at, { level: down, chain: wrappers, caseArm, unplaced }, state);
         continue;
       }
-      if (argv.length === 0) continue;
+      if (argv.length === 0) {
+        // A segment of bare `NAME=value` words binds them for later segments.
+        if (stripped.wrappers.length === 0 && unplaced === null && stripped.assignments.length > 0) {
+          frame = bindAssignments(frame, stripped.assignments, item.literal, false, roots);
+        }
+        continue;
+      }
 
       const nested = rules.nestedShells ? nestedString(argv) : null;
       if (nested !== null) {
         const carried: Carrier = { level: down, chain: [...wrappers, argv[0] as string], caseArm, unplaced };
-        const after = walkString(nested.text, at, carried, state);
+        // A child shell (`sh -c`) sees only exported variables; a string the
+        // outer shell expanded (no quoted `$`) already carries the values.
+        const inherited =
+          nested.inPlace || !item.literal.has(nested.text)
+            ? at
+            : { ...at, vars: new Map([...at.vars].filter(([, v]) => v.exported)) };
+        const after = walkString(nested.text, inherited, carried, state);
         if (after !== null) {
           // Only `eval` runs in THIS shell, so only its frame — its `cd` AND its
           // `export`s — outlives it: `eval 'export GIT_DIR=x'; git commit`.
@@ -1108,7 +1505,7 @@ function walk(lexed: Lexed, start: ShellFrame, carrier: Carrier, state: WalkStat
       }
 
       out.push({
-        argv,
+        argv: unplaced === null ? expandGitDirectories(argv, at, item.literal, roots) : argv,
         dir: here.dir,
         unexpanded: here.dir === null ? here.word : null,
         wrappers,
@@ -1121,7 +1518,14 @@ function walk(lexed: Lexed, start: ShellFrame, carrier: Carrier, state: WalkStat
 
       // A builtin run by an unplaced wrapper runs in a child process, not this shell.
       const builtin = rowOf(SHELL_BUILTINS, argv[0]);
-      if (builtin !== undefined && unplaced === null) frame = builtin(frame, argv);
+      if (unplaced === null) {
+        if (builtin !== undefined) {
+          const expanded =
+            argv[0] === "export" ? argv : argv.map((w, k) => (k === 0 ? w : expandDirectory(w, frame, item.literal, roots)));
+          frame = builtin(frame, expanded);
+        }
+        frame = applyVariableEffects(frame, argv, item.literal, roots);
+      }
     }
   }
   return frame;
@@ -1140,19 +1544,19 @@ export interface InvocationReading {
 
 /**
  * Read a command under explicit `rules`. `roots` is the injected checkout-root
- * lookup; the grammar itself does not consult it yet, and it is threaded here
- * so readers that need a checkout (alias expansion, candidate roots) take the
- * same injected lookup the resolver does.
+ * lookup: the grammar consults it for `$(git rev-parse --show-toplevel)`, and
+ * it is threaded here so readers that need a checkout (alias expansion,
+ * candidate roots) take the same injected lookup the resolver does.
  */
 export function readInvocations(
   command: string,
   sessionCwd: string,
-  _roots: CheckoutRootLookup | undefined,
+  roots: CheckoutRootLookup | undefined,
   rules: ReadingRules = FULL_READING,
 ): InvocationReading {
   const { lexed } = lex(command, 0, false, 0);
-  const state: WalkState = { rules, out: [], balanced: lexed.balanced };
-  walk(lexed, { cwd: { dir: sessionCwd, word: null, moved: false }, exported: [] }, TOP_LEVEL, state);
+  const state: WalkState = { rules, out: [], balanced: lexed.balanced, roots };
+  walk(lexed, { cwd: { dir: sessionCwd, word: null, moved: false }, exported: [], stack: [], vars: new Map() }, TOP_LEVEL, state);
   return { invocations: state.out, balanced: state.balanced };
 }
 

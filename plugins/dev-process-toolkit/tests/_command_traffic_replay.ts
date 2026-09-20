@@ -147,6 +147,10 @@ async function main(argv: string[]): Promise<number> {
     const newlyRecognised: string[] = [];
     const newlyUnplaced: string[] = [];
     const newlyAdvised: string[] = [];
+    // AC-STE-613.7 — resolution delta over commands commit-bearing on both sides.
+    const newlyResolved: string[] = [];
+    const targetChanged: string[] = [];
+    const stillUnresolvable: string[] = [];
     for (const [cmd, cwd] of commands) {
       const b = classifyCommand(cmd, cwd, baseResolver);
       const a = classifyCommand(cmd, cwd);
@@ -155,6 +159,11 @@ async function main(argv: string[]): Promise<number> {
       if (a.isCommit && !b.isCommit) newlyRecognised.push(cmd);
       if (a.isCommit && a.repoRoot === null && !(b.isCommit && b.repoRoot === null)) newlyUnplaced.push(cmd);
       if (a.advisory !== null && b.advisory === null) newlyAdvised.push(cmd);
+      if (a.isCommit && b.isCommit) {
+        if (b.repoRoot === null && a.repoRoot !== null) newlyResolved.push(cmd);
+        else if (b.repoRoot !== null && a.repoRoot !== null && a.repoRoot !== b.repoRoot) targetChanged.push(cmd);
+      }
+      if (a.isCommit && a.repoRoot === null) stillUnresolvable.push(cmd);
     }
     console.log(`base: ${base}`);
     console.log(`commit-bearing before: ${before}`);
@@ -165,6 +174,11 @@ async function main(argv: string[]): Promise<number> {
     printList("newly recognised", newlyRecognised);
     printList("newly unplaced", newlyUnplaced);
     printList("newly advised", newlyAdvised);
+    console.log(`\nnewly resolved: ${newlyResolved.length}`);
+    console.log(`target changed: ${targetChanged.length}`);
+    console.log(`still unresolvable after: ${stillUnresolvable.length}`);
+    printList("newly resolved", newlyResolved);
+    printList("target changed", targetChanged);
   } finally {
     cleanup();
   }
