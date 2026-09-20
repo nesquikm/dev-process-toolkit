@@ -272,6 +272,16 @@ export function recordGateRun(skill: string, target: string): string {
  *                                   window this receipt falls in
  *   `outside-window`                windows exist, and every announcement sits
  *                                   before the first of them
+ *   `between-windows`               windows exist and an announcement sits
+ *                                   AFTER one of them and before the next, in
+ *                                   a hole no standing call covers — so the
+ *                                   order claim `outside-window` makes is FALSE
+ *                                   of it (M_85e846 review round 3)
+ *   `run-errored`                   a command WAS read as a front-door run and
+ *                                   the call came back errored, so it left no
+ *                                   result to read an announcement out of
+ *   `run-unresolved`                a command WAS read as a front-door run and
+ *                                   the transcript carries no result for it
  *   `no-window`                     an announcement survived, and no standing
  *                                   Skill call carries a timestamp, so there
  *                                   is no window to place it in — NOT the same
@@ -310,7 +320,10 @@ export type GateEvidenceReason =
   | "foreign-root"
   | "not-vouched"
   | "outside-window"
+  | "between-windows"
   | "no-window"
+  | "run-errored"
+  | "run-unresolved"
   | "announcement-tampered"
   | "announcement-unreadable"
   | "announcement-foreign-store"
@@ -344,6 +357,35 @@ export interface GateEvidence {
    * and one field holding either would make every reader ask which it holds.
    */
   named: string | null;
+  /**
+   * Every announced receipt FILE this session's transcript named that no longer
+   * hashes to the digest its own announcement carried.
+   *
+   * Carried on EVERY verdict, `ok: true` included, and that is the point
+   * (M_85e846 review round 3). A tamper detected alongside a genuine in-window
+   * announcement for the same checkout does not refuse — the gate really did
+   * run — but the signal was being thrown away with the permit, so a receipt
+   * rewritten under its own announcement was detected and never mentioned.
+   * Empty on every verdict reached before the announcements are read.
+   */
+  tampered: string[];
+  /**
+   * On `wrong-subject`: EVERY distinct other-skill subject this store holds a
+   * gate receipt for, and how many receipts that is. `named` is the first of
+   * them, kept because it is what the one-receipt sentence says.
+   *
+   * Carried out of the verdict rather than re-derived by the renderer: the
+   * sentence and the verdict must be counting the same read of the same
+   * directory, or the refusal is quoting a number nothing decided anything on.
+   */
+  namedAll: string[];
+  namedCount: number;
+  /**
+   * How many announcements were dropped for the CAUSE the reason names — the
+   * quantity `announcement-foreign-store` and its siblings were asserting
+   * without measuring. 0 for every reason that is not a drop.
+   */
+  droppedCount: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -407,6 +449,19 @@ export interface VouchContext {
    */
   misreadRuns?: readonly AnnouncementMisread[];
   /**
+   * Every front-door run the transcript leg read that left NO readable result
+   * at all — errored, or with no result written yet (see `IncompleteRun`).
+   *
+   * The third thing an empty `announcements` can mean, and the one that has no
+   * output to count: a misread run failed the one-line rule, an incomplete run
+   * never produced a line to fail it. Without this the leg fell through to
+   * "no command in this session was read as a run of the front door", which is
+   * false of a session where the operator watched the mint run and interrupted
+   * it — the COMMON path here, since the front door has five named exit-1
+   * refusals of its own.
+   */
+  incompleteRuns?: readonly IncompleteRun[];
+  /**
    * Every OTHER checkout this session could have minted a receipt in — the
    * session's own root and the command's other targets. A window is claimed by
    * the earliest receipt written in it across all of them, so without the peers
@@ -433,6 +488,19 @@ export interface AnnouncementMisread {
   /** How many `dpt-receipt:` lines the result carried — anything but 1. */
   count: number;
   /** Transcript line the result sits on. */
+  line: number;
+}
+
+/**
+ * A front-door run that left no readable result at all — structurally the same
+ * shape `templates/hooks/_lib/session.ts` declares, for the reason every other
+ * shape here is declared twice: that file carries no relative import and the
+ * two meet as values.
+ */
+export interface IncompleteRun {
+  /** `errored` — the call came back `is_error`. `unresolved` — no result yet. */
+  outcome: "errored" | "unresolved";
+  /** Transcript line: the result's for `errored`, the call's for `unresolved`. */
   line: number;
 }
 
@@ -465,8 +533,13 @@ type AnnouncementDrop = "tampered" | "unreadable" | "foreign-store";
 interface AnnouncedReading {
   /** The roots this session announced a still-intact receipt for, in order. */
   kept: Array<{ root: string; line: number }>;
-  /** One entry per announcement the filter rejected, with its cause. */
-  dropped: Array<{ drop: AnnouncementDrop; line: number }>;
+  /**
+   * One entry per announcement the filter rejected, with its cause AND the
+   * file it named. The path is carried because a report that says a receipt
+   * was rewritten and does not say WHICH sends the operator to a directory of
+   * receipts with no way to tell them apart.
+   */
+  dropped: Array<{ drop: AnnouncementDrop; line: number; path: string }>;
 }
 
 /**
@@ -481,22 +554,22 @@ function announcedRoots(
   sessionId: string,
 ): AnnouncedReading {
   const kept: Array<{ root: string; line: number }> = [];
-  const dropped: Array<{ drop: AnnouncementDrop; line: number }> = [];
+  const dropped: Array<{ drop: AnnouncementDrop; line: number; path: string }> = [];
   for (const a of announcements) {
     const root = announcedRoot(a.path, sessionId);
     if (root === null) {
-      dropped.push({ drop: "foreign-store", line: a.line });
+      dropped.push({ drop: "foreign-store", line: a.line, path: a.path });
       continue;
     }
     let bytes: Buffer;
     try {
       bytes = readFileSync(resolve(a.path));
     } catch {
-      dropped.push({ drop: "unreadable", line: a.line });
+      dropped.push({ drop: "unreadable", line: a.line, path: a.path });
       continue;
     }
     if (receiptDigest(bytes) !== a.digest) {
-      dropped.push({ drop: "tampered", line: a.line });
+      dropped.push({ drop: "tampered", line: a.line, path: a.path });
       continue;
     }
     kept.push({ root, line: a.line });
@@ -529,6 +602,18 @@ interface StoreReading {
   records: GateReceiptRecord[];
   /** The subject of a gate receipt for this checkout under ANOTHER skill. */
   otherSubject: string | null;
+  /**
+   * EVERY other-skill subject this store holds a gate receipt for, distinct and
+   * in the order first seen, and how many receipts that is.
+   *
+   * `otherSubject` alone is `??=` — the FIRST of however many — and the refusal
+   * built on it said "the only gate receipt this session holds", a singularity
+   * claim about a set nothing had counted (M_85e846 review round 3). The count
+   * is of RECEIPTS and the list is of SUBJECTS, because two receipts can name
+   * one skill and "the only receipt" would still be false.
+   */
+  otherSubjects: string[];
+  otherCount: number;
   /** The checkout a gate receipt for `subject` in this store was written FOR. */
   foreignRoot: string | null;
   /** Files in the directory the store's reader skipped as unreadable or malformed. */
@@ -540,6 +625,8 @@ interface StoreReading {
 const UNREADABLE_STORE: StoreReading = {
   records: [],
   otherSubject: null,
+  otherSubjects: [],
+  otherCount: 0,
   foreignRoot: null,
   skipped: 0,
   readable: false,
@@ -563,6 +650,8 @@ function readGateStore(root: string, subject: string, sessionId: string): StoreR
   const out: StoreReading = {
     records: [],
     otherSubject: null,
+    otherSubjects: [],
+    otherCount: 0,
     foreignRoot: null,
     skipped: read.skipped,
     readable: true,
@@ -581,7 +670,11 @@ function readGateStore(root: string, subject: string, sessionId: string): StoreR
     // about somewhere else.
     const here = realOrSelf(r.root) === real;
     if (r.subject !== subject) {
-      if (here && typeof r.subject === "string") out.otherSubject ??= r.subject;
+      if (here && typeof r.subject === "string") {
+        out.otherSubject ??= r.subject;
+        out.otherCount += 1;
+        if (!out.otherSubjects.includes(r.subject)) out.otherSubjects.push(r.subject);
+      }
       continue;
     }
     if (here) out.records.push({ root: real, at: Date.parse(String(r.createdAt)) });
@@ -616,7 +709,16 @@ export function gateReceiptEvidence(
   sessionId: string | undefined,
   vouch?: VouchContext,
 ): GateEvidence {
-  const blank = { store: null, skipped: 0, claimant: null, named: null };
+  const blank = {
+    store: null,
+    skipped: 0,
+    claimant: null,
+    named: null,
+    tampered: [] as string[],
+    namedAll: [] as string[],
+    namedCount: 0,
+    droppedCount: 0,
+  };
   if (!isToolkitManaged(root)) {
     return { ok: true, applies: false, reason: "not-managed", ...blank };
   }
@@ -631,7 +733,15 @@ export function gateReceiptEvidence(
     return { ok: false, applies: true, reason: "store-unreadable", ...blank };
   }
   const held = readGateStore(root, subject, sessionId);
-  const here = { applies: true as const, store: storeDir, skipped: held.skipped };
+  const here = {
+    applies: true as const,
+    store: storeDir,
+    skipped: held.skipped,
+    tampered: [] as string[],
+    namedAll: held.otherSubjects,
+    namedCount: held.otherCount,
+    droppedCount: 0,
+  };
   if (!held.readable) {
     return { ok: false, reason: "store-unreadable", claimant: null, named: null, ...here };
   }
@@ -647,11 +757,25 @@ export function gateReceiptEvidence(
     }
     return { ok: false, reason: "no-receipt", claimant: null, named: null, ...here };
   }
-  const vouched = { ok: true as const, reason: "receipt-found" as const, claimant: null, named: null, ...here };
+  /**
+   * The PERMIT, carrying whatever was detected on the way to it.
+   *
+   * A function rather than a constant because the permit is not the end of what
+   * there is to say: a forgery detected alongside a genuine vouch rides out on
+   * `tampered` instead of dying with the `return` (M_85e846 review round 3).
+   */
+  const vouched = (tampered: string[] = []): GateEvidence => ({
+    ok: true,
+    reason: "receipt-found",
+    claimant: null,
+    named: null,
+    ...here,
+    tampered,
+  });
   if (vouch === undefined) {
     // No transcript to place the receipt against — the pre-vouching reading,
     // kept for callers that hold no session (and for the fail-open leg).
-    return vouched;
+    return vouched();
   }
 
   // Every receipt this session could have written anywhere the guard can see,
@@ -672,6 +796,9 @@ export function gateReceiptEvidence(
   void all;
   const reading = announcedRoots(vouch.announcements ?? [], sessionId);
   const announced = reading.kept;
+  // EVERY detected rewrite, kept for the verdict to carry out whichever branch
+  // it leaves by. Read from the drop that recorded it, so it says which FILE.
+  const tampered = reading.dropped.filter((d) => d.drop === "tampered").map((d) => d.path);
   let claimant: string | null = null;
   for (const window of vouch.windows) {
     const inside = announced.filter(
@@ -680,7 +807,11 @@ export function gateReceiptEvidence(
     if (inside.length === 0) continue;
     const first = inside[0]!;
     if (first.root === real) {
-      return vouched;
+      // PERMITTED — and the tamper goes with it rather than being discarded
+      // here, which is the whole of HIGH-3. Refusing would be a false positive:
+      // a genuine announcement in this window vouches for this checkout, so the
+      // gate demonstrably ran against it.
+      return vouched(tampered);
     }
     if (claimant === null) claimant = first.root;
   }
@@ -689,21 +820,39 @@ export function gateReceiptEvidence(
   // say why the filter emptied. Reading a cause off a count is the same mistake
   // as reconstructing one from a string.
   if (claimant !== null) {
-    return { ok: false, reason: "not-vouched", claimant, named: null, ...here };
+    return { ok: false, reason: "not-vouched", claimant, named: null, ...here, tampered };
   }
-  const miss = (reason: GateEvidenceReason): GateEvidence => ({
+  const miss = (reason: GateEvidenceReason, droppedCount = 0): GateEvidence => ({
     ok: false,
     reason,
     claimant: null,
     named: null,
     ...here,
+    tampered,
+    droppedCount,
   });
+  /** How many announcements this exact drop accounts for — measured, not assumed. */
+  const countOf = (drop: AnnouncementDrop): number =>
+    reading.dropped.filter((d) => d.drop === drop).length;
   if (announced.length > 0) {
-    // An announcement SURVIVED and no window holds it. Two different facts:
-    // windows exist and it sits before the first of them (an order claim, true),
-    // or no standing Skill call could be placed in time so there is no window
-    // at all (no order to compare against — and the order claim would be false).
-    return miss(vouch.windows.length === 0 ? "no-window" : "outside-window");
+    // An announcement SURVIVED and no window holds it. THREE different facts,
+    // and the third used to be told as the first:
+    //
+    //   no windows at all      no standing Skill call could be placed in time,
+    //                          so there is no order to compare against;
+    //   before every window    it really does predate the first call — the one
+    //                          state the order claim is TRUE of;
+    //   in a HOLE              windows exist, the announcement came AFTER one
+    //                          of them opened, and it still sits in none.
+    //
+    // The hole is ordinary: `lineBounds` in the transcript leg takes a line
+    // from EVERY call while `windows` keeps only the standing, timed ones, so a
+    // second /gate-check that gets interrupted CLOSES the first window without
+    // opening a replacement. Told as `outside-window`, that state accused an
+    // announcement of predating a call it had in fact followed.
+    if (vouch.windows.length === 0) return miss("no-window");
+    const firstStart = Math.min(...vouch.windows.map((w) => w.startLine));
+    return miss(announced.some((a) => a.line >= firstStart) ? "between-windows" : "outside-window");
   }
   // Nothing survived. WHY is read from `dropped`, in the order the operator
   // needs to hear it: a DETECTED forgery first. A receipt rewritten after it
@@ -711,15 +860,22 @@ export function gateReceiptEvidence(
   // folding it into "nothing ran" sends the operator to re-run the gate rather
   // than to the file that changed underneath them.
   const drops = new Set(reading.dropped.map((d) => d.drop));
-  if (drops.has("tampered")) return miss("announcement-tampered");
-  if (drops.has("unreadable")) return miss("announcement-unreadable");
-  if (drops.has("foreign-store")) return miss("announcement-foreign-store");
+  if (drops.has("tampered")) return miss("announcement-tampered", countOf("tampered"));
+  if (drops.has("unreadable")) return miss("announcement-unreadable", countOf("unreadable"));
+  if (drops.has("foreign-store")) return miss("announcement-foreign-store", countOf("foreign-store"));
   // No announcement reached the filter at all. Upstream, a result read as a
   // front-door run that did not carry exactly one line announced nothing — and
   // that is not the same session as one where no command was read as a run.
   const misreads = vouch.misreadRuns ?? [];
   if (misreads.some((m) => m.count > 1)) return miss("run-announced-many");
   if (misreads.some((m) => m.count === 0)) return miss("run-announced-none");
+  // And the two states with no output at all to have failed a rule: the run
+  // errored, or the transcript has not answered it yet. Both are sessions in
+  // which a command WAS read as a run of the front door, so neither may be
+  // told with the one sentence that is true only when none was.
+  const incomplete = vouch.incompleteRuns ?? [];
+  if (incomplete.some((r) => r.outcome === "errored")) return miss("run-errored");
+  if (incomplete.some((r) => r.outcome === "unresolved")) return miss("run-unresolved");
   return miss("nothing-announced");
 }
 
@@ -744,6 +900,26 @@ interface MissWords {
   /** `GateEvidence.claimant` / `GateEvidence.named`, for the legs that use them. */
   claimant: string | null;
   named: string | null;
+  /**
+   * The QUANTITIES the two plural-aware sentences were making up (M_85e846
+   * review round 3). Both are OPTIONAL and both fall back to the one-item
+   * reading, so a caller that composes words by hand — every pre-existing
+   * suite does — renders exactly the sentence it rendered before.
+   *
+   * `namedAll` / `namedCount`: the distinct other-skill subjects this store
+   * holds a gate receipt for, and how many receipts that is (`wrong-subject`).
+   * `dropCount`: how many announcements were dropped for the reason being
+   * refused with (`announcement-foreign-store`).
+   */
+  namedAll?: readonly string[];
+  namedCount?: number;
+  dropCount?: number;
+}
+
+/** `a`, `a and b`, `a, b and c` — a list a person reads, not an array dump. */
+function inWords(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]!}`;
 }
 
 /** The closing every "the gate did not run here" leg shares. */
@@ -791,11 +967,23 @@ const MISS_PROSE: Readonly<
     `this session holds no ${w.subject} gate receipt for it under ${w.where}, ` +
     `${NOTHING_SHOWS}${w.skipped}`,
 
-  // The receipt that IS there names another gate. Saying "no receipt" would
+  // The receipt(s) that ARE there name another gate. Saying "no receipt" would
   // send the operator to a directory that has one in it.
-  "wrong-subject": (w) =>
-    `the only gate receipt this session holds for it under ${w.where} records ` +
-    `${w.named}, not ${w.subject}, ${NOTHING_SHOWS}${w.skipped}`,
+  //
+  // "The only" is said ONLY where it was counted (M_85e846 review round 3):
+  // `readGateStore` used to keep the FIRST other subject and nothing else, so
+  // this sentence claimed singularity about a set the code never sized, and an
+  // operator who had run /tdd AND /spec-review was told about one of them.
+  "wrong-subject": (w) => {
+    const others = w.namedAll ?? (w.named === null ? [] : [w.named]);
+    const count = w.namedCount ?? others.length;
+    return count > 1
+      ? `the ${count} gate receipts this session holds for it under ${w.where} ` +
+          `record ${inWords([...others])} — none of them ${w.subject} — ` +
+          `${NOTHING_SHOWS}${w.skipped}`
+      : `the only gate receipt this session holds for it under ${w.where} records ` +
+          `${w.named}, not ${w.subject}, ${NOTHING_SHOWS}${w.skipped}`;
+  },
 
   // A copied or relocated receipt: the file is in this store, but it was
   // written for somewhere else, and evidence about somewhere else is not
@@ -821,6 +1009,21 @@ const MISS_PROSE: Readonly<
     UNVOUCHED(w) +
     `it was written before the first ` +
     `${w.subject} Skill call in this session, ${NOTHING_SHOWS}`,
+
+  // An announcement survived, windows exist, and it sits in a HOLE between two
+  // of them: after one opened, before the next did, inside none. Its own
+  // sentence because `outside-window`'s order claim is FALSE here — the
+  // announcement came AFTER a Skill call, not before the first one — and the
+  // hole is an ordinary shape: a second /gate-check that gets interrupted
+  // contributes a line boundary that closes the previous window and, being
+  // retired, opens no replacement.
+  "between-windows": (w) =>
+    UNVOUCHED(w) +
+    `it was announced AFTER a ${w.subject} Skill call and BEFORE the next one, ` +
+    `in a stretch of the transcript that no vouching window covers: the call ` +
+    `that closed the previous window opened none of its own — it was retired ` +
+    `by an error or a denial, or the transcript could not place it in time — ` +
+    `${NOTHING_SHOWS}`,
 
   // An announcement survived and there is no window at all, because no standing
   // Skill call carries a stamp the transcript can place. Says THAT, and makes
@@ -857,11 +1060,20 @@ const MISS_PROSE: Readonly<
   // The announced path is a receipt of a DIFFERENT session's store — reachable
   // whenever the minting session id and the hook payload's disagree. Evidence
   // filed for another session is not evidence about this one.
+  //
+  // Plural-aware for the same reason `wrong-subject` is: `announcedRoots`
+  // pushes one `dropped` entry PER announcement, so "the only receipt a run in
+  // this session announced" was a count the code had, declined to read, and
+  // then asserted (M_85e846 review round 3).
   "announcement-foreign-store": (w) =>
     UNVOUCHED(w) +
-    `the only receipt a run in this session announced is filed under another ` +
-    `session's receipt store, and a receipt kept for another session is not ` +
-    `evidence about this one, ${NOTHING_SHOWS}`,
+    ((w.dropCount ?? 1) > 1
+      ? `all ${w.dropCount} of the receipts runs in this session announced are ` +
+        `filed under another session's receipt store, and a receipt kept for ` +
+        `another session is not evidence about this one, ${NOTHING_SHOWS}`
+      : `the only receipt a run in this session announced is filed under another ` +
+        `session's receipt store, and a receipt kept for another session is not ` +
+        `evidence about this one, ${NOTHING_SHOWS}`),
 
   // A command WAS read as a front-door run; its result carried several
   // announcements, so it announced none of them. Saying "no command was read
@@ -881,6 +1093,26 @@ const MISS_PROSE: Readonly<
     `front door, and its output carried no announcement at all, so nothing in ` +
     `the transcript binds a receipt to it, ${NOTHING_SHOWS}`,
 
+  // A command WAS read as a front-door run and the CALL came back errored —
+  // ESC during the mint, or one of the front door's five named exit-1
+  // refusals. That makes this the COMMON way an ordinary session reaches a
+  // runless verdict, and it was being told with the one sentence reserved for
+  // a session in which no command was read as a run at all.
+  "run-errored": (w) =>
+    UNVOUCHED(w) +
+    `a command in this session was read as a run of the ${w.subject} receipt ` +
+    `front door and that call came back errored, so the run left no result to ` +
+    `read an announcement out of — it did not finish, ${NOTHING_SHOWS}`,
+
+  // A command WAS read as a front-door run and the transcript carries no result
+  // for it at all. A PreToolUse hook fires while the session is still being
+  // written, so this is an ordinary state and not a damaged transcript.
+  "run-unresolved": (w) =>
+    UNVOUCHED(w) +
+    `a command in this session was read as a run of the ${w.subject} receipt ` +
+    `front door and the transcript carries no result for that call yet, so ` +
+    `nothing it printed can be read back, ${NOTHING_SHOWS}`,
+
   // The receipt exists and names this checkout, and NO run was seen at all.
   // Says only what was measured — that no command in this session read as a
   // run of the front door — and nothing about WHEN the receipt was written,
@@ -891,6 +1123,25 @@ const MISS_PROSE: Readonly<
     `no command in this session was read as a run of the ${w.subject} receipt ` +
     `front door, so no run announced a receipt for any checkout, ${NOTHING_SHOWS}`,
 };
+
+/**
+ * The command a refusal names, per gate. The FR's `Decision: the remedy` gives
+ * each gate its own spelling because each takes a different argument: only
+ * /gate-check accepts a checkout path. `/dev-process-toolkit:tdd <path>` is a
+ * command that skill cannot consume — its argument is an FR id — so a uniform
+ * `run /<subject> <root>` handed the operator something that does not run.
+ * The front-door command line is never printed here: a remedy that hands over
+ * the minting command invites a receipt with no gate behind it.
+ *
+ * At module scope so the PERMIT-path report (`gateReceiptNotes`) spells the
+ * remedy the same way the refusal does; nested inside `gateReceiptMiss` it was
+ * reachable from exactly one sentence.
+ */
+function remedyCommand(subject: string, root: string): string {
+  if (subject.endsWith(":tdd")) return `run /${subject} on the FR in ${root}`;
+  if (subject.endsWith(":spec-review")) return `run /${subject} in ${root}`;
+  return `run /${subject} ${root}`;
+}
 
 /**
  * Grade `root` for `subject`, and on a miss compose the refusal's own two
@@ -911,21 +1162,6 @@ export function gateReceiptMiss(
   if (evidence.ok) {
     return null;
   }
-/**
- * The command a refusal names, per gate. The FR's `Decision: the remedy` gives
- * each gate its own spelling because each takes a different argument: only
- * /gate-check accepts a checkout path. `/dev-process-toolkit:tdd <path>` is a
- * command that skill cannot consume — its argument is an FR id — so a uniform
- * `run /<subject> <root>` handed the operator something that does not run.
- * The front-door command line is never printed here: a remedy that hands over
- * the minting command invites a receipt with no gate behind it.
- */
-function remedyCommand(subject: string, root: string): string {
-  if (subject.endsWith(":tdd")) return `run /${subject} on the FR in ${root}`;
-  if (subject.endsWith(":spec-review")) return `run /${subject} in ${root}`;
-  return `run /${subject} ${root}`;
-}
-
   const words: MissWords = {
     subject,
     root,
@@ -936,6 +1172,9 @@ function remedyCommand(subject: string, root: string): string {
         : "",
     claimant: evidence.claimant,
     named: evidence.named,
+    namedAll: evidence.namedAll,
+    namedCount: evidence.namedCount,
+    dropCount: evidence.droppedCount,
   };
   return {
     why:
@@ -944,6 +1183,56 @@ function remedyCommand(subject: string, root: string): string {
     how: `${remedyCommand(subject, root)}, then retry this action.`,
     root,
   };
+}
+
+/**
+ * What a PERMITTED action at `root` is still owed a word about — the other half
+ * of `gateReceiptMiss`, and empty for almost every permit.
+ *
+ * ONE finding today: a receipt of this session that was REWRITTEN after its own
+ * announcement, in a session where a second, genuine announcement still vouches
+ * for the checkout. `gateReceiptEvidence` returns the permit from inside the
+ * window loop and used to discard `reading.dropped` with it, so the one state
+ * the digest binding exists to detect was measured and then dropped on the
+ * floor whenever the commit happened to be legitimate.
+ *
+ * PERMITTING STAYS CORRECT. The gate ran against this checkout and a surviving
+ * announcement proves it; turning a detected tamper into a refusal there would
+ * refuse a commit the gate really did cover. So the verdict is untouched and
+ * only the silence is fixed — and it stays silent when there is nothing to say,
+ * which is what keeps this from becoming noise on every permit.
+ */
+export function gateReceiptNotes(
+  subject: string,
+  root: string,
+  sessionId: string | undefined,
+  vouch?: VouchContext,
+): GateEvidenceMiss[] {
+  const evidence = gateReceiptEvidence(subject, root, sessionId, vouch);
+  // A REFUSED root already says this in its refusal (`announcement-tampered`),
+  // and saying it twice would read as two findings.
+  if (!evidence.ok || evidence.tampered.length === 0) {
+    return [];
+  }
+  const many = evidence.tampered.length > 1;
+  return [
+    {
+      why:
+        `this action writes to ${root}, a toolkit-managed checkout, and ` +
+        `${many ? `${evidence.tampered.length} ${subject} gate receipts` : `a ${subject} gate receipt`} ` +
+        `this session announced there ${many ? "were" : "was"} rewritten after ` +
+        `being announced: ${evidence.tampered.join(", ")} no longer ` +
+        `${many ? "hash" : "hashes"} to the digest the run that announced ` +
+        `${many ? "them" : "it"} printed. The action was NOT refused — another ` +
+        `announcement in this session still vouches for that checkout, so the ` +
+        `gate did run against it — but a receipt that changed underneath its own ` +
+        `announcement is a detected forgery, not a detail to find later.`,
+      how:
+        `read ${evidence.tampered[0]!} and account for the change; ` +
+        `${remedyCommand(subject, root)} if you cannot.`,
+      root,
+    },
+  ];
 }
 
 /**
@@ -964,9 +1253,41 @@ export function gateReceiptLeg(
   windows: readonly VouchWindow[],
   announcements?: readonly ReceiptAnnouncement[],
   misreadRuns?: readonly AnnouncementMisread[],
+  incompleteRuns?: readonly IncompleteRun[],
 ) => GateEvidenceMiss | null {
-  return (root, windows, announcements, misreadRuns) =>
-    gateReceiptMiss(subject, root, sessionId, { windows, peerRoots, announcements, misreadRuns });
+  return (root, windows, announcements, misreadRuns, incompleteRuns) =>
+    gateReceiptMiss(subject, root, sessionId, {
+      windows,
+      peerRoots,
+      announcements,
+      misreadRuns,
+      incompleteRuns,
+    });
+}
+
+/**
+ * The PERMIT-path report as the guards consume it — the same shape as
+ * `gateReceiptLeg`, asked on the other branch.
+ */
+export function gateReceiptNoteLeg(
+  subject: string,
+  sessionId: string | undefined,
+  peerRoots: readonly string[] = [],
+): (
+  root: string,
+  windows: readonly VouchWindow[],
+  announcements?: readonly ReceiptAnnouncement[],
+  misreadRuns?: readonly AnnouncementMisread[],
+  incompleteRuns?: readonly IncompleteRun[],
+) => GateEvidenceMiss[] {
+  return (root, windows, announcements, misreadRuns, incompleteRuns) =>
+    gateReceiptNotes(subject, root, sessionId, {
+      windows,
+      peerRoots,
+      announcements,
+      misreadRuns,
+      incompleteRuns,
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -1006,7 +1327,16 @@ export interface GateEvidenceTarget {
     windows: readonly VouchWindow[],
     announcements?: readonly ReceiptAnnouncement[],
     misreadRuns?: readonly AnnouncementMisread[],
+    incompleteRuns?: readonly IncompleteRun[],
   ): GateEvidenceMiss | null;
+  /** What a PERMITTED root is still owed a word about (`gateReceiptNotes`). */
+  receiptNotes(
+    root: string,
+    windows: readonly VouchWindow[],
+    announcements?: readonly ReceiptAnnouncement[],
+    misreadRuns?: readonly AnnouncementMisread[],
+    incompleteRuns?: readonly IncompleteRun[],
+  ): GateEvidenceMiss[];
   /**
    * Whether a Bash command RAN the receipt front door (`announcesGateReceipt`).
    *
@@ -1055,6 +1385,7 @@ export function gateEvidenceTarget(
   return {
     roots,
     receiptLeg: gateReceiptLeg(subject, sessionId, peerRoots),
+    receiptNotes: gateReceiptNoteLeg(subject, sessionId, peerRoots),
     announcesReceipts: announcesGateReceipt,
   };
 }

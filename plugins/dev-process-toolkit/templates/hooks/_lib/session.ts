@@ -99,12 +99,20 @@ export function oneLine(text: string): string {
 
 
 /**
- * Emit a 3-line NFR-10-shape block to stderr.
+ * Emit a 3-line NFR-10-shape block.
  *
  * Byte-stable substrings (per STE-286 §104):
  *   "<verdict>: <why>"
  *   "Remedy: <how>"
  *   "Context: mode=hook, ticket=unbound, skill=<skill>, hook=<hook>"
+ *
+ * STDERR by default, and STDOUT for the one thing a hook says while PERMITTING
+ * (M_85e846 review round 3). A PreToolUse hook that exits 0 surfaces no stderr
+ * at all, so a finding reported alongside a permitted action has to leave by
+ * the other channel or it is not reported at all — which is the defect: a
+ * DETECTED forgery thrown away because the commit was legitimately vouched for
+ * by a second announcement. The exit code is unchanged and the action still
+ * runs; only the words reach the operator.
  */
 export function emitNFR10(
   verdict: "Refusing" | "Reminder",
@@ -112,12 +120,14 @@ export function emitNFR10(
   how: string,
   skill: string,
   hook: string,
+  stream: "stderr" | "stdout" = "stderr",
 ): void {
   const block =
     `${verdict}: ${oneLine(why)}\n` +
     `Remedy: ${oneLine(how)}\n` +
     `Context: mode=hook, ticket=unbound, skill=${skill}, hook=${hook}\n`;
-  process.stderr.write(block);
+  if (stream === "stdout") process.stdout.write(block);
+  else process.stderr.write(block);
 }
 
 // ---------------------------------------------------------------------------
@@ -243,6 +253,33 @@ export interface AnnouncementMisread {
 }
 
 /**
+ * A front-door run that left NO READABLE RESULT AT ALL — the state
+ * `AnnouncementMisread` cannot express, because there is no output to count.
+ *
+ * Two ways an ordinary session reaches it, and they are different facts:
+ *
+ *   `errored`     the call came back with `is_error: true`. The operator hit
+ *                 ESC during the mint, or the front door exited 1 by one of its
+ *                 five named refusals — which makes this the COMMON way a real
+ *                 session gets here, not an exotic one.
+ *   `unresolved`  the transcript carries no `tool_result` for the call at all.
+ *                 The gate is still running, or the session ended first.
+ *
+ * Carried out rather than dropped, for the same reason `AnnouncementMisread` is
+ * (M_85e846 review round 3). Before this, the scanner recorded a result ONLY on
+ * its `is_error !== true` branch, so an interrupted mint contributed neither an
+ * announcement nor a misread and the leg fell through to "no command in this
+ * session was read as a run of the front door" — false of a session in which
+ * the operator watched the command run.
+ */
+export interface IncompleteRun {
+  /** WHY nothing could be read from it — a VALUE, never inferred from a count. */
+  outcome: "errored" | "unresolved";
+  /** Transcript line: the result's for `errored`, the call's for `unresolved`. */
+  line: number;
+}
+
+/**
  * Where the action writes, and how to grade the repository-scoped leg there.
  *
  * The grading itself is a VALUE, not an import. This file is loaded from a temp
@@ -268,7 +305,30 @@ export interface EvidenceTarget {
     windows: readonly VouchWindow[],
     announcements: readonly ReceiptAnnouncement[],
     misreads?: readonly AnnouncementMisread[],
+    incomplete?: readonly IncompleteRun[],
   ): EvidenceMiss | null;
+  /**
+   * What this root is owed a word about although it did NOT refuse — one
+   * NFR-10 pair per finding, empty when there is nothing to report.
+   *
+   * A SECOND question rather than a field on the miss, because it is asked on
+   * the other branch: `receiptLeg` answers "is this action refused?", and a
+   * permitted action has no miss to hang a finding on. The finding that made
+   * this necessary is a receipt of this session REWRITTEN after it was
+   * announced, in a session where a second, genuine announcement still vouches
+   * for the checkout — permitting is right there, and dropping the detected
+   * forgery on the floor is not.
+   *
+   * OPTIONAL, so every pre-existing target keeps its exact behaviour: a target
+   * that answers nothing reports nothing.
+   */
+  receiptNotes?(
+    root: string,
+    windows: readonly VouchWindow[],
+    announcements: readonly ReceiptAnnouncement[],
+    misreads?: readonly AnnouncementMisread[],
+    incomplete?: readonly IncompleteRun[],
+  ): EvidenceMiss[];
   /**
    * Whether a Bash command RAN the receipt front door — ONE plain
    * `bun [run] <the front door's own file> <gate skill>`.
@@ -323,6 +383,7 @@ function firstReceiptMiss(
   target?: EvidenceTarget,
   announcements: readonly ReceiptAnnouncement[] = [],
   misreads: readonly AnnouncementMisread[] = [],
+  incomplete: readonly IncompleteRun[] = [],
 ): EvidenceMiss | null {
   // `windows === null` is the fail-open state: no transcript was readable at
   // all, so there is nothing to grade a receipt against and nothing to refuse.
@@ -331,7 +392,7 @@ function firstReceiptMiss(
   }
   const misses: EvidenceMiss[] = [];
   for (const root of target.roots) {
-    const miss = target.receiptLeg(root, windows, announcements, misreads);
+    const miss = target.receiptLeg(root, windows, announcements, misreads, incomplete);
     if (miss !== null) misses.push(miss);
   }
   const first = misses[0];
@@ -346,6 +407,32 @@ function firstReceiptMiss(
     how: first.how,
     root: first.root,
   };
+}
+
+/**
+ * Everything the graded roots are owed a word about although none of them
+ * refused — in `target.roots` order, EVERY root, not just the first.
+ *
+ * The mirror of `firstReceiptMiss` on the other branch. A miss is collapsed to
+ * one sentence because there is one action to refuse; a report is not, because
+ * each finding names a different file and the operator has to look at all of
+ * them.
+ */
+function receiptReports(
+  windows: readonly VouchWindow[] | null,
+  target?: EvidenceTarget,
+  announcements: readonly ReceiptAnnouncement[] = [],
+  misreads: readonly AnnouncementMisread[] = [],
+  incomplete: readonly IncompleteRun[] = [],
+): EvidenceMiss[] {
+  if (target === undefined || windows === null || target.receiptNotes === undefined) {
+    return [];
+  }
+  const notes: EvidenceMiss[] = [];
+  for (const root of target.roots) {
+    notes.push(...target.receiptNotes(root, windows, announcements, misreads, incomplete));
+  }
+  return notes;
 }
 
 // ---------------------------------------------------------------------------
@@ -444,6 +531,12 @@ interface SkillCallScan {
    */
   misreads: AnnouncementMisread[];
   /**
+   * Every front-door run that left no readable result at all — errored, or
+   * still unresolved. The third thing an empty `announcements` can mean, and
+   * the one the leg used to be told nothing about (see `IncompleteRun`).
+   */
+  incomplete: IncompleteRun[];
+  /**
    * The windows the standing calls opened, for the receipt leg to place
    * receipts in. `null` ONLY in the fail-open state (no readable transcript),
    * where there is nothing to place anything against.
@@ -538,15 +631,31 @@ function scanSkillCalls(
   if (lines === null) {
     // Fail-open: no transcript file ⇒ behave as if the hook fired outside
     // a Claude Code session.
-    return { found: true, denied: false, windows: null, announcements: [], misreads: [] };
+    return {
+      found: true,
+      denied: false,
+      windows: null,
+      announcements: [],
+      misreads: [],
+      incomplete: [],
+    };
   }
 
   const calls: SkillCall[] = [];
   const erroredIds = new Set<string>();
-  /** Bash `tool_use` ids whose command ran the receipt front door. */
-  const minting = new Set<string>();
+  /**
+   * Bash `tool_use` ids whose command ran the receipt front door, and the line
+   * each call sits on.
+   *
+   * A MAP, not a set, because a run with no result has no result line to name
+   * and the CALL's line is the only thing there is to report it by.
+   */
+  const minting = new Map<string, number>();
+  /** Minting calls something in the transcript answered, however it answered. */
+  const resolved = new Set<string>();
   const announcements: ReceiptAnnouncement[] = [];
   const misreads: AnnouncementMisread[] = [];
+  const incomplete: IncompleteRun[] = [];
 
   lines.forEach((line, index) => {
     const blocks = transcriptBlocks(line);
@@ -576,14 +685,26 @@ function scanSkillCalls(
       if (block.type === "tool_use" && block.name === "Bash" && typeof block.id === "string") {
         const command = block.input === null || typeof block.input !== "object" ? undefined : block.input.command;
         if (target !== undefined && typeof command === "string" && target.announcesReceipts(command)) {
-          minting.add(block.id);
+          minting.set(block.id, index);
         }
       } else if (
         block.type === "tool_result" &&
-        block.is_error !== true &&
         typeof block.tool_use_id === "string" &&
         minting.has(block.tool_use_id)
       ) {
+        // Whatever it says, the transcript ANSWERED this call, so nothing below
+        // may report it as still running.
+        resolved.add(block.tool_use_id);
+        if (block.is_error === true) {
+          // The call came back errored — ESC during the mint, or one of the
+          // front door's five named exit-1 refusals. There is no output to read
+          // an announcement out of, and that is a fact about the RUN, not about
+          // whether a command was read as one. Recorded, for the same reason a
+          // misread result is: the leg cannot otherwise tell this session from
+          // one where the gate was never run.
+          incomplete.push({ outcome: "errored", line: index });
+          continue;
+        }
         // The rule is graded per RESULT, not per run: THIS result is kept only
         // when IT carries exactly one announcement, and a result carrying any
         // other number announces none of them. (One run writes one receipt is
@@ -602,6 +723,15 @@ function scanSkillCalls(
       }
     }
   });
+
+  // The runs nothing ever answered. A PreToolUse hook fires WHILE the session
+  // is being written, so a mint whose result has not been flushed yet is an
+  // ordinary state — and it is still not a session in which no command was read
+  // as a run of the front door.
+  for (const [id, line] of minting) {
+    if (!resolved.has(id)) incomplete.push({ outcome: "unresolved", line });
+  }
+  incomplete.sort((a, b) => a.line - b.line);
 
   // A call with no `id` is unpairable, so nothing can retire it.
   const standing = (call: SkillCall): boolean => call.id === null || !erroredIds.has(call.id);
@@ -627,7 +757,14 @@ function scanSkillCalls(
     }))
     .sort((a, b) => a.start - b.start);
 
-  return { found, denied: !found && calls.length > 0, windows, announcements, misreads };
+  return {
+    found,
+    denied: !found && calls.length > 0,
+    windows,
+    announcements,
+    misreads,
+    incomplete,
+  };
 }
 
 /**
@@ -671,8 +808,27 @@ export function requireSkillToolUse(
     // STE-614 AC.5 — the repository-scoped leg, demanded IN ADDITION to the
     // transcript leg and never instead of it. The transcript says the gate ran
     // in this session; only the receipt says it ran against THIS checkout.
-    const miss = firstReceiptMiss(scan.windows, target, scan.announcements, scan.misreads);
+    const miss = firstReceiptMiss(
+      scan.windows,
+      target,
+      scan.announcements,
+      scan.misreads,
+      scan.incomplete,
+    );
     if (miss === null) {
+      // PERMITTED, and still not necessarily silent. See `receiptNotes`: a
+      // detected forgery alongside a genuine vouch is permitted correctly and
+      // reported anyway. On STDOUT, because a PreToolUse exit 0 surfaces no
+      // stderr — the exit code is untouched and the action goes ahead.
+      for (const note of receiptReports(
+        scan.windows,
+        target,
+        scan.announcements,
+        scan.misreads,
+        scan.incomplete,
+      )) {
+        emitNFR10("Reminder", note.why, note.how, skill, hook, "stdout");
+      }
       return { found: true };
     }
     emitNFR10("Refusing", miss.why, miss.how, skill, hook);
@@ -919,8 +1075,27 @@ export function requireTddEvidence(
   // checkout says nothing about a commit aimed at a second one; the receipt leg
   // is what places it. Door two is NOT graded against it: a red-before proof
   // names the repository it covers (NF-2), so it carries its own scope.
-  const repoMiss = doorOne.found ? firstReceiptMiss(doorOne.windows, target, doorOne.announcements, doorOne.misreads) : null;
+  const repoMiss = doorOne.found
+    ? firstReceiptMiss(
+        doorOne.windows,
+        target,
+        doorOne.announcements,
+        doorOne.misreads,
+        doorOne.incomplete,
+      )
+    : null;
   if (doorOne.found && repoMiss === null) {
+    // Same permit-path report as `requireSkillToolUse`, for the same reason:
+    // the finding belongs to the receipt, not to the door it came through.
+    for (const note of receiptReports(
+      doorOne.windows,
+      target,
+      doorOne.announcements,
+      doorOne.misreads,
+      doorOne.incomplete,
+    )) {
+      emitNFR10("Reminder", note.why, note.how, skill, hook, "stdout");
+    }
     return { found: true };
   }
   if (findRedBeforeProof(payload, requiredPaths, target?.proof).found) {
