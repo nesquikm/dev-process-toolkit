@@ -260,6 +260,15 @@ export function recordGateRun(skill: string, target: string): string {
  * single "no receipt" would send the operator looking for a file that is
  * sitting right there. The prose for each lives in ONE table (`MISS_PROSE`),
  * so a reason and the sentence it refuses with cannot drift apart.
+ *
+ * The same rule split the last leg three ways (M_85e846 review). A receipt no
+ * run vouches for gets there three ways: another checkout's announcement took
+ * the window (`not-vouched`), runs were seen and none of them places this
+ * receipt (`outside-window`), or no command in the session was read as a run
+ * of the front door at all (`nothing-announced`). Under one name the third
+ * state borrowed the second's sentence and told the operator their receipt
+ * predated a Skill call that had in fact run before it — a cause reconstructed
+ * from a string instead of read from a value.
  */
 export type GateEvidenceReason =
   | "not-managed"
@@ -269,7 +278,9 @@ export type GateEvidenceReason =
   | "no-receipt"
   | "wrong-subject"
   | "foreign-root"
-  | "not-vouched";
+  | "not-vouched"
+  | "outside-window"
+  | "nothing-announced";
 
 export interface GateEvidence {
   /** False ONLY when the leg applies and is not satisfied. */
@@ -282,9 +293,10 @@ export interface GateEvidence {
   /** Files in that directory the store's reader skipped as unreadable or malformed. */
   skipped: number;
   /**
-   * On `not-vouched`: the checkout that took the window this receipt fell in,
-   * or null when the receipt fell in no window at all. Named in the refusal so
-   * the operator is told WHICH run their gate is being credited to.
+   * On `not-vouched`: the checkout that took the window this receipt fell in.
+   * Named in the refusal so the operator is told WHICH run their gate is being
+   * credited to. Null on every other reason — the runless states carry their
+   * own names (`outside-window`, `nothing-announced`) rather than a null here.
    */
   claimant: string | null;
   /**
@@ -499,7 +511,9 @@ function readGateStore(root: string, subject: string, sessionId: string): StoreR
  * ONE rule, read as named legs in order: does it apply at all (`not-managed`),
  * can the store be found (`session-id-missing`, `store-unreadable`), does it
  * hold the right receipt (`no-receipt`, `wrong-subject`, `foreign-root`), and
- * does a gate run in this session account for it (`not-vouched`).
+ * does a gate run in this session account for it (`not-vouched` when another
+ * checkout took the window, `outside-window` when runs were seen and none
+ * places it, `nothing-announced` when no run was seen at all).
  *
  * NEVER THROWS. An unreadable store, a path-unsafe session id, a `root` that has
  * since vanished: each is a `false` with a reason, not an exception. A
@@ -579,7 +593,16 @@ export function gateReceiptEvidence(
     }
     if (claimant === null) claimant = first.root;
   }
-  return { ok: false, reason: "not-vouched", claimant, named: null, ...here };
+  // Three states, three names, decided HERE in the value so that no caller has
+  // to reconstruct a cause from a sentence: the window was taken by another
+  // checkout (`not-vouched`), runs were seen but none places this receipt
+  // (`outside-window`), or nothing in this session was read as a run of the
+  // front door at all (`nothing-announced`).
+  if (claimant !== null) {
+    return { ok: false, reason: "not-vouched", claimant, named: null, ...here };
+  }
+  const reason = announced.length === 0 ? "nothing-announced" : "outside-window";
+  return { ok: false, reason, claimant: null, named: null, ...here };
 }
 
 /** The two sentences a failed repository-scoped leg refuses with, and where. */
@@ -654,15 +677,32 @@ const MISS_PROSE: Readonly<
     `${w.named}, not for ${w.root}, ${NOTHING_SHOWS}${w.skipped}`,
 
   // The receipt EXISTS and names this checkout; what is missing is a gate run
-  // in this session that accounts for it.
+  // in this session that accounts for it. CLAIMED: the run it would have to
+  // belong to is already spoken for by another checkout. Reached only with a
+  // claimant, because the two runless states below carry their own names now.
   "not-vouched": (w) =>
     `the ${w.subject} gate receipt under ${w.where} is not vouched for by any ` +
-    `${w.subject} Skill call in this session: ` +
-    (w.claimant === null
-      ? `it was written before the first ${w.subject} Skill call in this session`
-      : `the ${w.subject} run it would have to belong to already recorded ` +
-        `${w.claimant}, and one gate run vouches for one checkout`) +
-    `, ${NOTHING_SHOWS}`,
+    `${w.subject} Skill call in this session: the ${w.subject} run it would ` +
+    `have to belong to already recorded ${w.claimant ?? "another checkout"}, ` +
+    `and one gate run vouches for one checkout, ${NOTHING_SHOWS}`,
+
+  // Runs WERE seen, and none of them falls in a window that would vouch for
+  // this receipt — the same fact as "the receipt came first", told from the
+  // side the operator can act on.
+  "outside-window": (w) =>
+    `the ${w.subject} gate receipt under ${w.where} is not vouched for by any ` +
+    `${w.subject} Skill call in this session: it was written before the first ` +
+    `${w.subject} Skill call in this session, ${NOTHING_SHOWS}`,
+
+  // The receipt exists and names this checkout, and NO run was seen at all.
+  // Says only what was measured — that no command in this session read as a
+  // run of the front door — and nothing about WHEN the receipt was written,
+  // which is the claim the shared sentence used to make and get wrong. The
+  // remedy stays "run the skill": the front-door command line is never printed.
+  "nothing-announced": (w) =>
+    `the ${w.subject} gate receipt under ${w.where} is vouched for by nothing: ` +
+    `no command in this session was read as a run of the ${w.subject} receipt ` +
+    `front door, so no run announced a receipt for any checkout, ${NOTHING_SHOWS}`,
 };
 
 /**
