@@ -39,6 +39,7 @@ import {
   rowLine,
   rowLines,
   runRepoint,
+  linearStatuses,
   statusListing,
   verdict,
   writeFr,
@@ -424,9 +425,9 @@ describe("AC-STE-612.2 — row 3: the issue type is reconciled", () => {
         };
         const r = runRepoint([
           f.a, "linear", "New Proj",
-          "--projects", w("p.json", { projects: [{ id: "p-1", name: "New Proj" }] }),
+          "--projects", w("p.json", { projects: [{ id: "p-1", name: "New Proj" }], hasNextPage: false }),
           "--containers", w("c.json", { milestones: [] }),
-          "--statuses", w("s.json", statusListing(["Todo", "In Progress", "Done"])),
+          "--statuses", w("s.json", linearStatuses(["Todo", "In Progress", "Done"])),
         ]);
         expect(verdict(r.stdout, 3)).toBe("NOT-APPLICABLE");
       } finally {
@@ -587,7 +588,11 @@ describe("AC-STE-612.3 — row 6: no active numeric plan collides", () => {
     T,
   );
 
-  const linearRow6 = async (containerName: string): Promise<string> => {
+  const linearRow6 = async (
+    containerName: string,
+    extraRows: Array<{ id: string; name: string }> = [],
+    projects: unknown = { projects: [{ id: "p-1", name: "New Proj" }], hasNextPage: false },
+  ): Promise<string> => {
     const f = makeSpanFixture("M_ste612_l6");
     const lst = mkdtempSync(join(tmpdir(), "dpt-ste612-l6-"));
     try {
@@ -603,9 +608,9 @@ describe("AC-STE-612.3 — row 6: no active numeric plan collides", () => {
       };
       return runRepoint([
         f.a, "linear", "New Proj",
-        "--projects", w("p.json", { projects: [{ id: "p-1", name: "New Proj" }] }),
-        "--containers", w("c.json", { milestones: [{ id: "550e8400-e29b-41d4-a716-446655440000", name: containerName }] }),
-        "--statuses", w("s.json", statusListing(["Todo", "In Progress", "Done"])),
+        "--projects", w("p.json", projects),
+        "--containers", w("c.json", { milestones: [{ id: "550e8400-e29b-41d4-a716-446655440000", name: containerName }, ...extraRows] }),
+        "--statuses", w("s.json", linearStatuses(["Todo", "In Progress", "Done"])),
       ]).stdout;
     } finally {
       f.cleanup();
@@ -618,6 +623,31 @@ describe("AC-STE-612.3 — row 6: no active numeric plan collides", () => {
   }, T);
   test("row 6 pass leg (Linear): no milestone of that name → PASS", async () => {
     const out = await linearRow6("Something Else");
+    expect(verdict(out, 6)).toBe("PASS");
+  }, T);
+  // The measured list_milestones answer holds at most LINEAR_MILESTONE_WINDOW
+  // rows with no paging field: a full window proves nothing past it, so a
+  // collision there is unseen and the row cannot pass.
+  const liveWindow = (): Array<{ id: string; name: string }> =>
+    JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "live-shapes", "linear", "list_milestones.json"), "utf-8")).answer.milestones;
+  test("row 6 refuse leg (Linear): a full 50-row window with no colliding name → REFUSE, naming the window", async () => {
+    const out = await linearRow6("Something Else", liveWindow().slice(0, 49));
+    expect(verdict(out, 6)).toBe("REFUSE");
+    expect(out).toMatch(/^6 REFUSE .*50/m);
+  }, T);
+  // Row 1 (Linear): the measured list_projects answer pages at the top level.
+  test("row 1 (Linear): a list_projects page saying more follow (hasNextPage + cursor) → REFUSE; its last page → PASS (twin)", async () => {
+    const more = await linearRow6("Something Else", [], { projects: [{ id: "p-1", name: "New Proj" }], hasNextPage: true, cursor: "c2" });
+    expect(verdict(more, 1)).toBe("REFUSE");
+    const last = await linearRow6("Something Else");
+    expect(verdict(last, 1)).toBe("PASS");
+  }, T);
+  test("row 1 (Linear): an unrecorded shape (no hasNextPage, or the invented pageInfo) → REFUSE", async () => {
+    expect(verdict(await linearRow6("Something Else", [], { projects: [{ id: "p-1", name: "New Proj" }] }), 1)).toBe("REFUSE");
+    expect(verdict(await linearRow6("Something Else", [], { projects: [{ id: "p-1", name: "New Proj" }], pageInfo: { hasNextPage: false } }), 1)).toBe("REFUSE");
+  }, T);
+  test("row 6 pass leg (Linear): 49 rows with no colliding name → PASS (the window is not full)", async () => {
+    const out = await linearRow6("Something Else", liveWindow().slice(0, 48));
     expect(verdict(out, 6)).toBe("PASS");
   }, T);
 });
@@ -741,9 +771,9 @@ describe("AC-STE-612.4 — row 7: no active plan or FR is left in the old contai
       if (!resolves) expect(headSemanticsFlip(f.a, "linear", "New Proj").flipped).toBe(true); // pre-change sibling
       const r = runRepoint([
         f.a, "linear", "New Proj",
-        "--projects", w("p.json", { projects: [{ id: "p-1", name: "New Proj" }] }),
+        "--projects", w("p.json", { projects: [{ id: "p-1", name: "New Proj" }], hasNextPage: false }),
         "--containers", w("c.json", { milestones: [{ id: milestoneId, name: "Spans" }] }),
-        "--statuses", w("s.json", statusListing(["Todo", "In Progress", "Done"])),
+        "--statuses", w("s.json", linearStatuses(["Todo", "In Progress", "Done"])),
       ]);
       if (resolves) {
         expect(verdict(r.stdout, 7)).toBe("PASS");

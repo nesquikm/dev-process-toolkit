@@ -1102,8 +1102,37 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
     return lines.length > 0 ? lines : ["bytes differ"];
   }
 
-  test("skills/ship-milestone/SKILL.md is byte-identical to the kickoff", () => {
-    expect(byteDrift(kickoff(SHIP), readFileSync(join(REPO, SHIP), "utf-8"))).toEqual([]);
+  // The ship-milestone SKILL's ONE permitted line: a CLOSED, ENUMERATED entry,
+  // never a criterion. Line 91 told a model to chain Linear listing pages with
+  // `endCursor` until `hasNextPage` — Linear has never sent `endCursor` (measured
+  // 2026-09-21: list_issues answers `{issues, hasNextPage, cursor?}`, pinned in
+  // tests/fixtures/live-shapes/linear/list_issues.more.json), so a child
+  // following it records a cursor from a field that does not exist and the
+  // sibling check refuses the chain. It was false before this milestone; this
+  // milestone found it. Correcting a paging field adds no probe and no refusal
+  // to the ceremony. A third permitted line anywhere needs a fresh ruling.
+  const SHIP_PERMITTED_LINE = 91;
+
+  test("skills/ship-milestone/SKILL.md differs from the kickoff only on line 91, the sibling listing's paging instruction, rewritten in place", () => {
+    const now = readFileSync(join(REPO, SHIP), "utf-8");
+    const then = kickoff(SHIP);
+    expect(driftBeyond(then, now, [SHIP_PERMITTED_LINE])).toEqual([]);
+    const line = now.split("\n")[SHIP_PERMITTED_LINE - 1]!;
+    expect(line).toMatch(/^4\. \*\*Sibling not provably idle\*\*/);
+    expect(then.split("\n")[SHIP_PERMITTED_LINE - 1]).toMatch(/^4\. \*\*Sibling not provably idle\*\*/);
+    expect(line, "the corrected line names Linear's measured cursor field").toContain("top-level `cursor`");
+    expect(line, "and no longer tells a Linear child to follow `endCursor` at top level").not.toMatch(/previous page's `endCursor`/);
+  });
+
+  test("NEGATIVE CONTROL — a THIRD changed line in ship-milestone (any line but 91), or an added line, fails the guard", () => {
+    const now = readFileSync(join(REPO, SHIP), "utf-8");
+    const then = kickoff(SHIP);
+    const lines = now.split("\n");
+    const third = [...lines];
+    third[39] = `${third[39]} (edited)`;
+    expect(driftBeyond(then, third.join("\n"), [SHIP_PERMITTED_LINE])).toEqual(["line 40"]);
+    const added = [...lines.slice(0, 50), "an added line", ...lines.slice(50)];
+    expect(driftBeyond(then, added.join("\n"), [SHIP_PERMITTED_LINE])).toHaveLength(1);
   });
 
   test("NEGATIVE CONTROL — a ship-milestone sibling with one changed line fails the byte-identity guard", () => {

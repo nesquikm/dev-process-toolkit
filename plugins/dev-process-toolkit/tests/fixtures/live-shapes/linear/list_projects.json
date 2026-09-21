@@ -1,0 +1,30 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-21",
+    "method": "read-only-call",
+    "request": {
+      "team": "STE",
+      "limit": 2,
+      "fields": [
+        "id",
+        "name",
+        "status"
+      ]
+    },
+    "note": "measured live"
+  },
+  "answer": {
+    "projects": [
+      {
+        "id": "3e811102-7f34-4fdd-90ba-850a07d6b90b",
+        "name": "DPT — Dev Process Toolkit",
+        "status": {
+          "id": "e3a66f93-36a5-4f6c-a479-77e49f1b638c",
+          "name": "Backlog",
+          "type": "backlog"
+        }
+      }
+    ],
+    "hasNextPage": false
+  }
+}

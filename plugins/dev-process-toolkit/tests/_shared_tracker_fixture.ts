@@ -26,7 +26,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeMd, commitAll, git, GIT_ENV, makeSpanFixture } from "./_span_fixture";
-import { JiraDouble, LinearDouble, type TrackerDouble } from "./_tracker_doubles";
+import { JiraDouble, type JiraShape, LinearDouble, type TrackerDouble } from "./_tracker_doubles";
 
 export type Tracker = "jira" | "linear";
 export type FixtureShape = "coexist" | "span";
@@ -89,6 +89,8 @@ export interface SharedTrackerFixtureOptions {
   tracker: Tracker;
   shape: FixtureShape;
   pluginRoot?: string;
+  /** Which measured Jira answer shape the Jira double speaks (default plain). */
+  jiraShape?: JiraShape;
 }
 
 /** Hermetic env for a front-door spawn from `pluginRoot`. */
@@ -188,7 +190,7 @@ export function makeSharedTrackerFixture(opts: SharedTrackerFixtureOptions): Sha
     const tracker = opts.tracker;
     const project = tracker === "jira" ? JIRA_PROJECT : LINEAR_PROJECT;
     const team = tracker === "linear" ? LINEAR_TEAM : undefined;
-    const jira = tracker === "jira" ? new JiraDouble() : null;
+    const jira = tracker === "jira" ? new JiraDouble({}, opts.jiraShape ?? "plain") : null;
     const linear = tracker === "linear" ? new LinearDouble() : null;
     const double: TrackerDouble = (jira ?? linear)!;
 

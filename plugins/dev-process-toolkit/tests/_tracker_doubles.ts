@@ -21,6 +21,21 @@
 //      size is settable per scenario (`pageSize`) so a scenario can force a
 //      multi-page answer.
 //
+// Every answer has the MEASURED shape pinned under tests/fixtures/live-shapes/
+// (bound by tests/m_2306b6-ste-617-live-shape-pins.test.ts):
+//
+//   - Linear pages are top-level `{ issues, hasNextPage, cursor? }` — there is
+//     no `pageInfo`; a row carries exactly the requested `fields` plus `id`,
+//     its key is `id` (`STE-12`, no `identifier`), and its `team` and
+//     `project` are DISPLAY names (the `team` filter takes the key);
+//   - `list_milestones` rows are `{ id, name, description, progress, sortOrder }`;
+//   - a `save_issue` answer is the full measured issue record, keyed by `id`;
+//   - Jira answers come in the two shapes the same server flips between,
+//     chosen per double (`new JiraDouble(kindness, "wrapped")`): plain
+//     `{ issues, isLast, nextPageToken? }` rows / `{ id, key, self }` creates,
+//     or wrapped `{ context, issues: { nodes, pageInfo, … } }` for search, get
+//     and create alike.
+//
 // Linear's input schemas are closed (`additionalProperties: false`): an unknown
 // parameter throws naming it, judged against the parameter names recorded per
 // tool in `adapters/_shared/data/tracker-tool-inventory.json`.
@@ -121,6 +136,26 @@ export interface JiraIssue {
   creator: string;
   assignee: string | null;
 }
+
+/** The two Jira answer shapes one server was measured flipping between. */
+export type JiraShape = "plain" | "wrapped";
+export const JIRA_SHAPES: readonly JiraShape[] = ["plain", "wrapped"];
+
+const JIRA_EXPAND = "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations";
+
+/** The measured `context` block of a wrapped answer (values are fixture stand-ins). */
+const JIRA_CONTEXT = {
+  atlassianAccountId: "<account-id>",
+  cloudId: "fixture-cloud",
+  clientName: "localhost",
+  mcpClientName: "claude-code",
+  toolName: "",
+  endpoint: "v1:streamable-http",
+  sessionId: "fixture-session",
+  invocationId: "fixture-invocation",
+  env: "prod",
+  featureFlags: {},
+};
 
 const CATEGORY_NAME: Record<JiraIssue["status"]["category"], string> = {
   new: "To Do",
@@ -261,7 +296,11 @@ export class JiraDouble {
   failNextWrite = false;
   private seq = new Map<string, number>();
 
-  constructor(readonly kindness: Kindness = {}) {}
+  constructor(
+    readonly kindness: Kindness = {},
+    /** Which of the two measured Jira answer shapes this double speaks. */
+    readonly shape: JiraShape = "plain",
+  ) {}
 
   get writeCount(): number {
     return this.calls.filter((c) => c.kind === "write").length;
@@ -321,11 +360,19 @@ export class JiraDouble {
     const want = fields === undefined || fields.length === 0 ? Object.keys(all) : fields;
     const out: Record<string, unknown> = {};
     for (const f of want) if (f in all) out[f] = all[f];
-    return { key: i.key, id: String(10000 + this.issues.indexOf(i)), fields: out };
+    const id = String(10000 + this.issues.indexOf(i));
+    const row: Record<string, unknown> = { expand: JIRA_EXPAND, id, self: `https://fixture.invalid/rest/api/3/issue/${id}`, key: i.key, fields: out };
+    // A wrapped node carries its browse URL as well (measured).
+    return this.shape === "wrapped" ? { ...row, webUrl: `https://fixture.invalid/browse/${i.key}` } : row;
   }
 
-  /** `searchJiraIssuesUsingJql`. */
-  search(input: Record<string, unknown>): { issues: unknown[]; isLast: boolean; nextPageToken?: string } {
+  /** The wrapped envelope (`context` + `issues`) the measured wrapped answers carry. */
+  private wrap(toolName: string, issues: Record<string, unknown>): Record<string, unknown> {
+    return { issues, context: { ...JIRA_CONTEXT, toolName } };
+  }
+
+  /** `searchJiraIssuesUsingJql`, in this double's shape. */
+  search(input: Record<string, unknown>): Record<string, any> {
     this.checkParams("searchJiraIssuesUsingJql", input);
     this.calls.push({ tool: "searchJiraIssuesUsingJql", input, kind: "read" });
     const jql = String(input.jql ?? "");
@@ -343,36 +390,65 @@ export class JiraDouble {
     }
     fieldsCheck(input.fields);
     const fields = Array.isArray(input.fields) ? (input.fields as string[]) : undefined;
-    if (this.kindness.onePage) return { issues: hits.map((i) => this.row(i, fields)), isLast: true };
-    const page = hits.slice(offset, offset + size);
-    const more = offset + size < hits.length;
-    return {
-      issues: page.map((i) => this.row(i, fields)),
-      isLast: !more,
-      ...(more ? { nextPageToken: `page:${offset + size}:${jql}` } : {}),
-    };
+    const page = this.kindness.onePage ? hits : hits.slice(offset, offset + size);
+    const more = !this.kindness.onePage && offset + size < hits.length;
+    const token = more ? `page:${offset + size}:${jql}` : null;
+    const rows = page.map((i) => this.row(i, fields));
+    if (this.shape === "wrapped") {
+      return this.wrap("searchJiraIssuesUsingJql", {
+        nodes: rows,
+        ...(more ? { remainingCount: hits.length - offset - size } : {}),
+        webUrl: `https://fixture.invalid/issues?jql=${encodeURIComponent(jql)}`,
+        pageInfo: { hasNextPage: more, endCursor: token },
+      });
+    }
+    return { issues: rows, isLast: !more, ...(token === null ? {} : { nextPageToken: token }) };
   }
 
-  /** Every page of one query, following `nextPageToken` until `isLast`. */
-  searchAll(jql: string, fields: string[], maxResults = 100): Array<Record<string, unknown>> {
-    const pages: Array<Record<string, unknown>> = [];
-    let token: string | undefined;
+  /**
+   * The paging of one page THIS double emitted: whether it is the last, and
+   * the token for the next. Test-side only — the double knows its own shape;
+   * the toolkit reads pages through tracker_answer.ts.
+   */
+  pageMeta(page: Record<string, any>): { last: boolean; next: string | null; items: Record<string, unknown>[] } {
+    if (this.shape === "wrapped") {
+      return { last: !page.issues.pageInfo.hasNextPage, next: page.issues.pageInfo.endCursor, items: page.issues.nodes };
+    }
+    return { last: page.isLast === true, next: page.nextPageToken ?? null, items: page.issues };
+  }
+
+  /** An empty, complete search page in this double's shape. */
+  emptyPage(): Record<string, unknown> {
+    return this.shape === "wrapped"
+      ? this.wrap("searchJiraIssuesUsingJql", { nodes: [], webUrl: "https://fixture.invalid/issues", pageInfo: { hasNextPage: false, endCursor: null } })
+      : { issues: [], isLast: true };
+  }
+
+  /** Every page of one query, following the next-page token until the last. */
+  searchAll(jql: string, fields: string[], maxResults = 100): Array<Record<string, any>> {
+    const pages: Array<Record<string, any>> = [];
+    let token: string | null = null;
     for (let n = 0; n < 1000; n++) {
       const page = this.search({ cloudId: "fixture-cloud", jql, fields, maxResults, ...(token ? { nextPageToken: token } : {}) });
-      pages.push(page);
-      if (page.isLast) return pages;
-      token = page.nextPageToken;
+      // The session's saving step, as the docs order it: each page after the
+      // first carries the cursor it was fetched with, so the readers can prove
+      // the pages form one chain (tracker_answer.readTrackerListing).
+      pages.push(token ? { ...page, requestCursor: token } : page);
+      const meta = this.pageMeta(page);
+      if (meta.last) return pages;
+      token = meta.next;
     }
     throw new Error("Jira double: runaway paging");
   }
 
-  /** `getJiraIssue` — the raw answer the ownership decision reads. */
+  /** `getJiraIssue` — the raw answer the ownership decision reads, in this double's shape. */
   get(input: Record<string, unknown>): Record<string, unknown> {
     this.checkParams("getJiraIssue", input);
     this.calls.push({ tool: "getJiraIssue", input, kind: "read" });
     const i = this.find(String(input.issueIdOrKey ?? ""));
     if (!i) throw new Error(`Jira double 404: issue ${String(input.issueIdOrKey)} does not exist`);
-    return this.row(i, undefined);
+    const row = this.row(i, undefined);
+    return this.shape === "wrapped" ? this.wrap("getJiraIssue", { nodes: [row] }) : row;
   }
 
   /** Apply one gated write (bare tool name). Returns the tool's answer. */
@@ -406,7 +482,10 @@ export class JiraDouble {
         description: typeof input.description === "string" ? input.description : "",
         creator: "Toolkit Session",
       });
-      return { key: issue.key, id: String(10000 + this.issues.indexOf(issue)), self: `https://fixture.invalid/rest/api/3/issue/${issue.key}` };
+      const id = String(10000 + this.issues.indexOf(issue));
+      return this.shape === "wrapped"
+        ? this.wrap("createJiraIssue", { nodes: [this.row(issue, ["summary", "issuetype", "project", "description", "assignee", "status"])] })
+        : { id, key: issue.key, self: `https://fixture.invalid/rest/api/3/issue/${id}` };
     }
     const key = String(input.issueIdOrKey ?? "");
     const issue = this.find(key);
@@ -438,11 +517,13 @@ function fieldsCheck(fields: unknown): void {
 
 export interface LinearIssue {
   uuid: string;
+  /** The store's `STE-12` key; every answer carries it as top-level `id`. */
   identifier: string;
   title: string;
   description: string;
   labels: string[];
   project: string;
+  /** The team KEY the `team` filter takes; answers carry `LinearDouble.teamName(team)`. */
   team: string;
   projectMilestone: { id: string; name: string } | null;
   archivedAt: string | null;
@@ -465,6 +546,11 @@ const LINEAR_FIELD_ENUM = new Set([
   "createdBy", "createdById", "assignee", "assigneeId", "delegate", "delegateId", "project", "projectId", "parentId",
   "team", "teamId", "cycleId",
 ]);
+
+/** The default `list_issues` row, without `fields`: the measured row's keys. */
+const LINEAR_DEFAULT_ROW = ["title", "labels", "description", "createdBy", "project", "team", "projectMilestone", "status"];
+
+const FIXTURE_TIME = "2026-09-21T00:00:00.000Z";
 
 /** The real 50-row window of `list_milestones` (out of scope follow-up, reproduced faithfully). */
 export const LINEAR_MILESTONE_WINDOW = 50;
@@ -534,29 +620,62 @@ export class LinearDouble {
     return this.issues.find((i) => i.identifier.toUpperCase() === key.toUpperCase() || i.uuid === key);
   }
 
-  private row(i: LinearIssue, fields: string[] | undefined): Record<string, unknown> {
-    const all: Record<string, unknown> = {
+  /** The team's display name, as every measured answer carries `team` (the filter takes the key). */
+  static teamName(key: string): string {
+    return key === "STE" ? "Example Team Display Name" : `${key} Team Display Name`;
+  }
+
+  /** The full measured issue record (the `save_issue` answer's key set), keyed by `id`. */
+  private record(i: LinearIssue): Record<string, unknown> {
+    const project = this.projects.find((p) => p.name === i.project);
+    const state = i.state === "Done" ? "completed" : i.state === "In Progress" ? "started" : "unstarted";
+    return {
       id: i.identifier,
       uuid: i.uuid,
       title: i.title,
       description: i.description,
-      labels: [...i.labels],
-      project: i.project,
-      team: i.team,
       projectMilestone: i.projectMilestone,
+      priority: { value: 0, name: "No priority" },
+      url: `https://linear.app/fixture/issue/${i.identifier}`,
+      gitBranchName: `fixture/${i.identifier.toLowerCase()}`,
+      createdAt: FIXTURE_TIME,
+      updatedAt: FIXTURE_TIME,
       archivedAt: i.archivedAt,
-      createdBy: i.createdBy,
+      completedAt: null,
+      startedAt: null,
+      canceledAt: null,
+      dueDate: null,
+      slaStartedAt: null,
+      slaMediumRiskAt: null,
+      slaHighRiskAt: null,
+      slaBreachesAt: null,
       status: i.state,
+      statusType: state,
+      labels: [...i.labels],
+      attachments: [],
+      documents: [],
+      createdBy: i.createdBy,
+      createdById: "00000000-0000-4000-8000-0000000000c1",
       assignee: i.assignee,
+      assigneeId: i.assignee === null ? null : "00000000-0000-4000-8000-0000000000a1",
+      project: i.project,
+      projectId: project?.id ?? null,
+      team: LinearDouble.teamName(i.team),
+      teamId: `00000000-0000-4000-8000-${i.team.padStart(12, "0").slice(-12)}`,
     };
-    const want = fields === undefined || fields.length === 0 ? Object.keys(all) : ["id", ...fields];
-    const out: Record<string, unknown> = { identifier: i.identifier };
+  }
+
+  /** One `list_issues` row: exactly the requested `fields` plus `id` (measured); the default row without `fields`. */
+  private row(i: LinearIssue, fields: string[] | undefined): Record<string, unknown> {
+    const all = this.record(i);
+    const want = fields === undefined || fields.length === 0 ? LINEAR_DEFAULT_ROW : fields;
+    const out: Record<string, unknown> = { id: all.id };
     for (const f of want) if (f in all) out[f] = all[f];
     return out;
   }
 
-  /** `list_issues`: every filter applied, `query` a ranked superset, paged at `limit` with a cursor. */
-  listIssues(input: Record<string, unknown>): { issues: unknown[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } {
+  /** `list_issues`: every filter applied, `query` a ranked superset, paged at `limit` with a top-level cursor. */
+  listIssues(input: Record<string, unknown>): { issues: unknown[]; hasNextPage: boolean; cursor?: string } {
     this.checkParams("list_issues", input);
     this.calls.push({ tool: "list_issues", input, kind: "read" });
     if (Array.isArray(input.fields)) {
@@ -591,14 +710,16 @@ export class LinearDouble {
     }
     const fields = Array.isArray(input.fields) ? (input.fields as string[]) : undefined;
     if (this.kindness.onePage) {
-      return { issues: hits.map((i) => this.row(i, fields)), pageInfo: { hasNextPage: false, endCursor: null } };
+      return { issues: hits.map((i) => this.row(i, fields)), hasNextPage: false };
     }
     const page = hits.slice(offset, offset + size);
     const more = offset + size < hits.length;
-    return {
-      issues: page.map((i) => this.row(i, fields)),
-      pageInfo: { hasNextPage: more, endCursor: more ? `cursor:${offset + size}` : null },
-    };
+    return { issues: page.map((i) => this.row(i, fields)), hasNextPage: more, ...(more ? { cursor: `cursor:${offset + size}` } : {}) };
+  }
+
+  /** An empty, complete `list_issues` page. */
+  emptyPage(): Record<string, unknown> {
+    return { issues: [], hasNextPage: false };
   }
 
   /** Every page of one `list_issues` call, following the cursor. */
@@ -607,22 +728,28 @@ export class LinearDouble {
     let cursor: string | null = null;
     for (let n = 0; n < 1000; n++) {
       const page = this.listIssues({ ...input, ...(cursor ? { cursor } : {}) });
-      pages.push(page);
-      if (!page.pageInfo.hasNextPage) return pages;
-      cursor = page.pageInfo.endCursor;
+      // Each page after the first is saved with the cursor it was fetched with.
+      pages.push(cursor ? { ...page, requestCursor: cursor } : page);
+      if (!page.hasNextPage) return pages;
+      cursor = page.cursor ?? null;
     }
     throw new Error("Linear double: runaway paging");
   }
 
   /** `list_milestones`: newest first, at most the real 50-row window. */
-  listMilestones(input: Record<string, unknown>): { milestones: Array<{ id: string; name: string }> } {
+  listMilestones(input: Record<string, unknown>): { milestones: Array<Record<string, unknown>> } {
     this.checkParams("list_milestones", input);
     this.calls.push({ tool: "list_milestones", input, kind: "read" });
     const rows = this.milestones
       .filter((m) => m.project === input.project)
       .sort((x, y) => y.createdAt - x.createdAt)
       .slice(0, LINEAR_MILESTONE_WINDOW);
-    return { milestones: rows.map((m) => ({ id: m.id, name: m.name })) };
+    return { milestones: rows.map((m) => this.milestoneRow(m)) };
+  }
+
+  /** A `list_milestones` row (measured): `{ id, name, description, progress, sortOrder }`. */
+  private milestoneRow(m: LinearMilestone): Record<string, unknown> {
+    return { id: m.id, name: m.name, description: "", progress: 0, sortOrder: m.createdAt * 1000 };
   }
 
   /** `get_issue` — the raw answer the ownership decision reads. */
@@ -631,7 +758,7 @@ export class LinearDouble {
     this.calls.push({ tool: "get_issue", input, kind: "read" });
     const i = this.find(String(input.id ?? ""));
     if (!i) throw new Error(`get_issue: ${String(input.id)} not found`);
-    return this.row(i, undefined);
+    return this.record(i);
   }
 
   apply(tool: string, input: Record<string, unknown>): Record<string, unknown> {
@@ -647,9 +774,11 @@ export class LinearDouble {
 
   private perform(tool: string, input: Record<string, unknown>): Record<string, unknown> {
     if (tool === "save_milestone") {
-      if (typeof input.id === "string") return { id: input.id };
-      const ms = this.seedMilestone(String(input.project ?? ""), String(input.name ?? ""));
-      return { id: ms.id, name: ms.name };
+      // The measured create answer: `{ id, name, progress, sortOrder }`.
+      const found = typeof input.id === "string" ? this.milestones.find((m) => m.id === input.id) : undefined;
+      if (typeof input.id === "string" && found === undefined) return { id: input.id };
+      const ms = found ?? this.seedMilestone(String(input.project ?? ""), String(input.name ?? ""));
+      return { id: ms.id, name: ms.name, progress: 0, sortOrder: ms.createdAt * 1000 };
     }
     if (tool === "save_issue") {
       if (typeof input.id !== "string") {
@@ -664,14 +793,15 @@ export class LinearDouble {
           description: typeof input.description === "string" ? input.description : "",
           createdBy: "Toolkit Session",
         });
-        return { id: issue.uuid, identifier: issue.identifier, title: issue.title };
+        return this.record(issue);
       }
       const issue = this.find(input.id);
       if (!issue) throw new Error(`save_issue: ${input.id} not found`);
       if (Array.isArray(input.labels)) issue.labels = input.labels.map(String);
       if (typeof input.state === "string") issue.state = input.state;
       if (typeof input.assignee === "string") issue.assignee = input.assignee;
-      return { id: issue.uuid, identifier: issue.identifier };
+      // An update answers the same record as a create (measured).
+      return this.record(issue);
     }
     return { ok: true };
   }

@@ -10,11 +10,17 @@
 //   - `unowned`   — neither (hand-filed, or a client too old to tag).
 // The back-link line `Source: specs/frs/<key>.md` is NOT ownership evidence —
 // every toolkit version writes it — so it is only reported as a column.
+//
+// Pages are read through `tracker_answer.ts`, the one reader of tracker
+// answers: plain and wrapped Jira searches, and Linear's top-level
+// `hasNextPage` + `cursor` pages keyed by each row's `id`. An answer in any
+// other shape is refused, never read as an empty or a last page.
 
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { readLocalFRBindings } from "./reconcile_tracker_local";
 import { readTaskTrackingSection } from "./resolver_config";
+import { readTrackerListing, readTrackerPage, trackerItemKey } from "./tracker_answer";
 import { announceReceipt, printable, writeReceipt } from "./tracker_receipts";
 import { readWorkspaceBinding, type WorkspaceAdapterKey, type WorkspaceBinding } from "./workspace_binding";
 
@@ -60,15 +66,32 @@ function nameOf(v: unknown): string | null {
   return null;
 }
 
+/** Read one tracker answer as a page, or throw naming why it cannot be read. */
+function readPage(json: unknown, adapter: WorkspaceAdapterKey) {
+  const read = readTrackerPage(adapter, json);
+  if (!read.ok) throw new Error(`container page: ${read.reason} (adapter=${adapter})`);
+  return read.page;
+}
+
 /**
- * Read one saved page into tickets. When `shared`, ownership rests on
+ * Read one saved page into tickets: the page is read by the shared reader, its
+ * items by `normalizeContainerItems`. When `shared`, ownership rests on
  * `labels`, `description` and the creator, so each is required on every ticket.
  */
 export function normalizeContainerPage(json: unknown, adapter: WorkspaceAdapterKey, shared = false): ContainerTicket[] {
-  const issues = (json as { issues?: unknown } | null)?.issues;
-  if (!Array.isArray(issues)) throw new Error(`container page: no \`issues\` array (adapter=${adapter})`);
-  return issues.map((raw) => {
-    const row = raw as Record<string, unknown>;
+  return normalizeContainerItems(readPage(json, adapter).items, adapter, shared);
+}
+
+/**
+ * Read items the shared reader already returned — a page's items, or the one
+ * item of a fetched ticket — into tickets.
+ */
+export function normalizeContainerItems(
+  items: readonly Record<string, unknown>[],
+  adapter: WorkspaceAdapterKey,
+  shared = false,
+): ContainerTicket[] {
+  return items.map((row) => {
     if (adapter === "jira") {
       const key = str(row["key"]);
       const fields = (row["fields"] ?? {}) as Record<string, unknown>;
@@ -90,8 +113,10 @@ export function normalizeContainerPage(json: unknown, adapter: WorkspaceAdapterK
         hasBackLink: BACK_LINK_RE.test(description),
       };
     }
-    const key = str(row["identifier"]) ?? str(row["id"]);
-    if (key === undefined) refuseField("identifier", undefined);
+    // A Linear row's key is its top-level `id` (`STE-618`); an id that is not
+    // key-shaped (a uuid) names no ticket this repository could bind.
+    const key = trackerItemKey("linear", row) ?? undefined;
+    if (key === undefined) refuseField("id", undefined);
     const title = str(row["title"]);
     if (title === undefined) refuseField("title", key);
     if (shared) requireShared(row, ["labels", "description", "createdBy"], key);
@@ -110,13 +135,26 @@ export function normalizeContainerPage(json: unknown, adapter: WorkspaceAdapterK
 }
 
 /**
- * Is one saved page the last of its listing? A Jira page says so unless
- * `isLast` is `false`; a Linear page unless `pageInfo.hasNextPage` is `true`.
+ * Is one saved page the last of its listing? True only when the page PROVES
+ * nothing follows (the shared reader's `last`); a page that does not say so
+ * is not last, and an answer the reader cannot read throws naming why.
  */
 export function pageIsLast(page: unknown, adapter: WorkspaceAdapterKey): boolean {
-  const j = (page ?? {}) as Record<string, unknown>;
-  if (adapter === "jira") return j["isLast"] !== false;
-  return (j["pageInfo"] as { hasNextPage?: unknown } | undefined)?.hasNextPage !== true;
+  return readPage(page, adapter).last;
+}
+
+/**
+ * The container listing read as ONE chain (`readTrackerListing`): its tickets,
+ * and whether its final page proves nothing follows. A page the reader cannot
+ * read, a page after the first without the `requestCursor` it was fetched with
+ * (or one that does not match the previous page's `next`), a repeated cursor
+ * or a ticket on two pages throws naming why — a dropped middle page can never
+ * read as a whole listing.
+ */
+export function readContainerListing(pages: readonly unknown[], adapter: WorkspaceAdapterKey, shared = false): { tickets: ContainerTicket[]; last: boolean } {
+  const r = readTrackerListing(adapter, pages);
+  if (!r.ok) throw new Error(`container listing: ${r.reason} (adapter=${adapter})`);
+  return { tickets: normalizeContainerItems(r.items, adapter, shared), last: r.last };
 }
 
 /** Classify one ticket against this repository's binding. */
@@ -163,7 +201,7 @@ const OFFERABLE: ReadonlySet<TicketClass> = new Set<TicketClass>(["ours", "unown
 export function listOrphans(projectRoot: string, pages: unknown[]): OrphanListing {
   const adapter = adapterOf(projectRoot);
   const binding = readWorkspaceBinding(join(projectRoot, "CLAUDE.md"), adapter);
-  const tickets = pages.flatMap((p) => normalizeContainerPage(p, adapter, binding.shared));
+  const { tickets, last } = readContainerListing(pages, adapter, binding.shared);
   const bound = new Set(readLocalFRBindings(join(projectRoot, "specs")).flatMap((b) => b.trackerIds));
   const counts = { read: 0, ours: 0, sibling: 0, unowned: 0, containers: 0, bound: 0, candidate: 0 };
   const orphans: OrphanTicket[] = [];
@@ -178,7 +216,9 @@ export function listOrphans(projectRoot: string, pages: unknown[]): OrphanListin
     else counts[cls] += 1;
     orphans.push({ ...t, cls, owner: t.creator ?? "unknown", offerable: OFFERABLE.has(cls) });
   }
-  const complete = pages.every((p) => pageIsLast(p, adapter));
+  // Complete when the chain's final page proves nothing follows — never "every
+  // page is last", which no correct multi-page listing can be.
+  const complete = last;
   const summary = `summary: read=${counts.read} ours=${counts.ours} sibling=${counts.sibling} (excluded) unowned=${counts.unowned} containers=${counts.containers} (excluded) bound=${counts.bound} complete=${complete}`;
   return { orphans, counts, complete, summary };
 }

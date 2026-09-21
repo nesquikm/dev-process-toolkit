@@ -32,7 +32,7 @@ import {
   receiptFiles,
   runRepoint,
   SESSION_ID,
-  statusListing,
+  linearStatuses,
   writeMcpJson,
   writePlan,
   writeTrackerConfig,
@@ -185,9 +185,9 @@ describe("AC-STE-612.5 — the write changes one line, through one writer", () =
         };
         const r = runRepoint([
           f.a, "linear", "New Proj",
-          "--projects", w("p.json", { projects: [{ id: "p-1", name: "New Proj" }] }),
+          "--projects", w("p.json", { projects: [{ id: "p-1", name: "New Proj" }], hasNextPage: false }),
           "--containers", w("c.json", { milestones: [] }),
-          "--statuses", w("s.json", statusListing(["Todo", "In Progress", "Done"])),
+          "--statuses", w("s.json", linearStatuses(["Todo", "In Progress", "Done"])),
           "--team", "NEW",
         ]);
         expect(r.code, `${r.stdout}\n${r.stderr}`).toBe(0);
@@ -325,9 +325,9 @@ describe("AC-STE-612.7 — row 8 names stale branches and worktrees, and counts 
         };
         const r = runRepoint([
           f.a, "linear", "New Proj",
-          "--projects", w("p.json", { projects: [{ id: "p-1", name: "New Proj" }] }),
+          "--projects", w("p.json", { projects: [{ id: "p-1", name: "New Proj" }], hasNextPage: false }),
           "--containers", w("c.json", { milestones: [] }),
-          "--statuses", w("s.json", statusListing(["Todo", "In Progress", "Done"])),
+          "--statuses", w("s.json", linearStatuses(["Todo", "In Progress", "Done"])),
         ]);
         expect(r.code, `${r.stdout}\n${r.stderr}`).toBe(0);
         const line = r.stdout.split("\n").find((l) => /\b2\b/.test(l) && /archived plan/i.test(l)) ?? "";

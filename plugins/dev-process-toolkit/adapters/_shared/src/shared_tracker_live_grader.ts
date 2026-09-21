@@ -32,6 +32,7 @@ import { fileURLToPath } from "node:url";
 import { milestoneLabel } from "./attach_project_milestone";
 import { resolveInterviewAnswer } from "./auto_answers";
 import { normalizeTitleForCompare } from "./create_idempotency_probe";
+import { readTrackerItem, readTrackerPage } from "./tracker_answer";
 
 import {
   linearWorstCase,
@@ -176,6 +177,13 @@ export interface LiveVerdict {
   behaviourDigest: { digest: string; files: Record<string, string> };
   graderDigest: string;
   linearBudget: { declared: number; spent: number; created: string[] } | null;
+  /**
+   * The repoint inputs whose completeness the SESSION asserted rather than the
+   * tracker proved (Jira statuses and labels: no MCP tool lists them), read
+   * from the repoint receipt B's declaration announced. `[]` when every input
+   * was proven; null when the run made no repoint (S8 the named skip).
+   */
+  assertedCompleteness: string[] | null;
 }
 
 export interface GradeOptions {
@@ -307,28 +315,41 @@ const labelsOf = (v: unknown): string[] =>
 /** A Linear field given as a bare string or a `{ name }` object (a status, a project). */
 const stringOrName = (v: unknown): string => (typeof v === "string" ? v : str((v as { name?: unknown } | null)?.name));
 
+/** Linear's audit milestone reads: the listing and the per-key read, by bare tool name. */
+export interface AuditMilestoneReads {
+  list: string;
+  get: string;
+}
+
 /**
- * The fields the audit child asks the tracker for (the smoke skill's audit
- * fence passes exactly these; a test there pins its lists to this export):
- * Jira's `fields` of the nonce search and each read-back, Linear's `fields`
- * of `list_issues`. A test in the grader's suite derives, from the item
- * projection and the predicates, every answer field a predicate reads and
- * fails naming any this constant omits.
+ * What the audit child asks the tracker for (the smoke skill's audit fence
+ * passes exactly this; a test there pins its prompt to this export).
+ * `issue` — Jira's `fields` of the nonce search and each read-back, Linear's
+ * `fields` of `list_issues`. `milestone` — the reads that bring the milestone
+ * containers S3 grades into the audit: on Linear the shared project's
+ * `list_milestones` and a `get_milestone` per created milestone (neither takes
+ * a field list, so their answer is `AUDIT_ALWAYS_RETURNED`'s milestone
+ * fields); null on Jira, whose milestone is an Epic the issue search and
+ * read-backs already return. A test in the grader's suite derives, from the
+ * item projection and the predicates, every answer field a predicate reads on
+ * an audit item of each kind and fails naming any this contract omits.
  */
-export const AUDIT_REQUEST_FIELDS: Readonly<Record<SharedTrackerId, readonly string[]>> = {
-  jira: ["summary", "labels", "status", "parent", "issuetype", "project"],
-  linear: ["id", "title", "labels", "status", "project", "projectMilestone"],
+export const AUDIT_REQUEST_FIELDS: Readonly<Record<SharedTrackerId, { issue: readonly string[]; milestone: AuditMilestoneReads | null }>> = {
+  jira: { issue: ["summary", "labels", "status", "parent", "issuetype", "project"], milestone: null },
+  linear: { issue: ["id", "title", "labels", "status", "project", "projectMilestone"], milestone: { list: "list_milestones", get: "get_milestone" } },
 };
 
 /**
  * The answer fields every item carries without being asked: Jira's issue
  * `key` (outside `fields`), Linear's `id` (the list_issues tool documents
  * "`id` is always included"; with `fields` given it is the issue identifier,
- * `STE-618`, and no `identifier` field is returned — measured 2026-09-21).
+ * `STE-618`, and no `identifier` field is returned — measured 2026-09-21);
+ * and every field of a Linear milestone answer, which takes no field list
+ * (measured: tests/fixtures/live-shapes/linear/{list,get}_milestone*.json).
  */
-export const AUDIT_ALWAYS_RETURNED: Readonly<Record<SharedTrackerId, readonly string[]>> = {
-  jira: ["key"],
-  linear: ["id"],
+export const AUDIT_ALWAYS_RETURNED: Readonly<Record<SharedTrackerId, { issue: readonly string[]; milestone: readonly string[] | null }>> = {
+  jira: { issue: ["key"], milestone: null },
+  linear: { issue: ["id"], milestone: ["id", "name", "description", "progress", "sortOrder"] },
 };
 
 /**
@@ -361,9 +382,12 @@ const carries = (o: Record<string, unknown>, k: string): boolean =>
   Object.prototype.hasOwnProperty.call(o, k) && o[k] !== null && o[k] !== undefined && (k !== "labels" || Array.isArray(o[k]));
 
 /**
- * One raw tracker object projected to the fields the grader reads (no hosts,
- * emails or account ids). `absent` names each required answer field
- * (`REQUIRED_ANSWER_FIELDS`) the object lacked; it is present only when one is.
+ * One tracker item projected to the fields the grader reads (no hosts, emails
+ * or account ids). It takes an item tracker_answer.ts already read out of its
+ * answer (`readTrackerPage` / `readTrackerItem`: a Jira wrapped node, a plain
+ * issue, a Linear row), never a whole answer. `absent` names each required
+ * answer field (`REQUIRED_ANSWER_FIELDS`) the object lacked; it is present
+ * only when one is.
  */
 export function projectItem(tracker: SharedTrackerId, tool: string, o: Record<string, unknown>): TrackerItem {
   const kind = itemKindOf(tracker, tool) ?? "issue";
@@ -385,7 +409,9 @@ export function projectItem(tracker: SharedTrackerId, tool: string, o: Record<st
     };
     absent = REQUIRED_ANSWER_FIELDS.jira[kind].filter((k) => (k === "key" ? !carries(o, k) || str(o.key) === "" : !carries(f, k)));
   } else if (kind === "milestone") {
-    item = { key: str(o.id), summary: str(o.name), labels: [], status: str(o.status), parent: null, milestone: null, issueType: null, kind: "milestone", container: str(o.project) };
+    // A milestone answer is `{ id, name, description, progress, sortOrder }`
+    // (measured): it names no status and no project, so neither is read.
+    item = { key: str(o.id), summary: str(o.name), labels: [], status: "", parent: null, milestone: null, issueType: null, kind: "milestone", container: "" };
     absent = REQUIRED_ANSWER_FIELDS.linear.milestone.filter((k) => !carries(o, k));
   } else if (kind === "project") {
     // A project's status is `{ id, name, type }` (measured): its `type` is the
@@ -412,42 +438,50 @@ export function projectItem(tracker: SharedTrackerId, tool: string, o: Record<st
 }
 
 /**
- * A tracker answer's items and last-page flag, or null when the answer is not
- * JSON. A tool whose answer holds no tracker item (`itemKindOf`) projects to
- * no item, so a team, a user or a site read is never graded as an unkeyed issue.
+ * The key a listing tool's rows sit under, or undefined for a tool that
+ * answers one item: Jira's search answers `issues`; a Linear `list_<things>`
+ * answers `<things>` (list_issues → issues, list_milestones → milestones).
  */
-function projectAnswer(tracker: SharedTrackerId, tool: string, text: string): { items: TrackerItem[]; lastPage: boolean | null } | null {
+function listRowsKey(tool: string): string | undefined {
+  const bare = bareTool(tool);
+  if (bare === "searchJiraIssuesUsingJql") return "issues";
+  return bare.startsWith("list_") ? bare.slice("list_".length) : undefined;
+}
+
+/**
+ * One tracker answer projected: its items and last-page flag, or why it is
+ * unreadable. A listing is read by `readTrackerPage`, any other item answer by
+ * `readTrackerItem` (tracker_answer.ts, the one reader of the measured shapes),
+ * and each item they return is projected by `projectItem`. `lastPage` is true
+ * only for a page the reader PROVES last, false for one naming a next page, and
+ * null when it cannot say: a full `LINEAR_MILESTONE_WINDOW` of Linear
+ * milestones, the same rule resolve_milestone_identity.ts gates on. An answer
+ * in no observed shape is `unreadable`, never guessed at as a page or an item.
+ */
+type Projection = { ok: true; items: TrackerItem[]; lastPage: boolean | null } | { ok: false; reason: string };
+
+/**
+ * A tracker answer's projection, or null when the answer is not JSON. A tool
+ * whose answer holds no tracker item (`itemKindOf`) projects to no item, so a
+ * team, a user or a site read is never graded as an unkeyed issue.
+ */
+function projectAnswer(tracker: SharedTrackerId, tool: string, text: string): Projection | null {
   let v: unknown;
   try {
     v = JSON.parse(text);
   } catch {
     return null;
   }
-  if (itemKindOf(tracker, tool) === null) return { items: [], lastPage: null };
-  if (Array.isArray(v)) return { items: v.filter((x) => x && typeof x === "object").map((x) => projectItem(tracker, tool, x as Record<string, unknown>)), lastPage: null };
-  if (!v || typeof v !== "object") return null;
-  const o = v as Record<string, unknown>;
-  const list = Array.isArray(o.issues) ? o.issues : Array.isArray(o.milestones) ? o.milestones : Array.isArray(o.projects) ? o.projects : Array.isArray(o.nodes) ? o.nodes : null;
-  if (list !== null) {
-    // A page proves it is the last only by saying so (`isLast`, or a
-    // `hasNextPage` at the top level or under `pageInfo`). A page carrying a
-    // next-page token is not the last; one carrying no paging field at all is
-    // UNKNOWN (null), never complete.
-    const info = (o.pageInfo && typeof o.pageInfo === "object" ? o.pageInfo : {}) as Record<string, unknown>;
-    const lastPage =
-      typeof o.isLast === "boolean"
-        ? o.isLast
-        : typeof o.hasNextPage === "boolean"
-          ? !o.hasNextPage
-          : typeof info.hasNextPage === "boolean"
-            ? !info.hasNextPage
-            : o.nextPageToken || o.cursor
-              ? false
-              : null;
-    return { items: list.filter((x) => x && typeof x === "object").map((x) => projectItem(tracker, tool, x as Record<string, unknown>)), lastPage };
+  if (itemKindOf(tracker, tool) === null) return { ok: true, items: [], lastPage: null };
+  const rowsKey = listRowsKey(tool);
+  if (rowsKey !== undefined) {
+    const r = readTrackerPage(tracker, v, rowsKey);
+    if (!r.ok) return r;
+    const lastPage = r.page.last ? true : r.page.next !== null ? false : null;
+    return { ok: true, items: r.page.items.map((x) => projectItem(tracker, tool, x)), lastPage };
   }
-  if ("key" in o || "identifier" in o || "id" in o || "name" in o) return { items: [projectItem(tracker, tool, o)], lastPage: null };
-  return { items: [], lastPage: null };
+  const r = readTrackerItem(tracker, v);
+  return r.ok ? { ok: true, items: [projectItem(tracker, tool, r.item)], lastPage: null } : r;
 }
 
 /**
@@ -543,8 +577,15 @@ function parseSession(
       const exitCode = ex ? Number(ex[1]) : isError ? null : 0;
       result = { isError, text: rw(ex ? text.slice(ex[0].length) : text), exitCode, items: null, lastPage: null };
     } else if (!isError && isTrackerTool(u.name)) {
+      // An answer in no observed shape keeps no item, so every predicate that
+      // needs one fails closed; its text names why, never the raw answer.
       const a = projectAnswer(tracker, u.name, text);
-      result = a ? { isError, text: "", exitCode: null, items: a.items, lastPage: a.lastPage } : { isError, text: rw(text), exitCode: null, items: null, lastPage: null };
+      result =
+        a === null
+          ? { isError, text: rw(text), exitCode: null, items: null, lastPage: null }
+          : a.ok
+            ? { isError, text: "", exitCode: null, items: a.items, lastPage: a.lastPage }
+            : { isError, text: `unreadable tracker answer: ${a.reason}`, exitCode: null, items: null, lastPage: null };
     } else {
       result = { isError, text: rw(text), exitCode: null, items: null, lastPage: null };
     }
@@ -1314,10 +1355,36 @@ const relocatedCheckout: Predicate = (b, own) => {
  * created before the repoint; with none created, the legacy-key check has
  * nothing to check: not-observed.
  */
+/**
+ * The repoint receipt a successful repoint run announced (its own
+ * announcement, printed by the receipt's writer, naming bytes that exist in
+ * B's receipts), or null.
+ */
+function declarationReceipt(b: LiveBundle, own: BundleSession[]): { decl: ToolCall; receipt: BundleReceipt | null } | null {
+  for (const s of own) {
+    const i = s.calls.findIndex((c) => c.name === "Bash" && toolkitModuleRun(cmdOf(c))?.module === "repoint_tracker_binding.ts" && c.result.exitCode === 0 && !c.result.isError);
+    if (i === -1) continue;
+    const set = b.repos.B.receipts;
+    const a = announcements(s).find((x) => x.index === i);
+    const receipt = a && set.readable ? set.records.find((r) => r.kind === "repoint" && announces(a, r)) ?? null : null;
+    return { decl: s.calls[i]!, receipt };
+  }
+  return null;
+}
+
+/** The receipt's `assertedCompleteness`, or null when it is absent or not a list of input names. */
+const assertedInputs = (r: BundleReceipt | null): string[] | null => {
+  const v = r?.evidence.assertedCompleteness;
+  return Array.isArray(v) && v.every((x) => typeof x === "string") ? (v as string[]) : null;
+};
+
 const repoint: Predicate = (b, own) => {
   const runs = own.flatMap((s) => moduleRuns(s, "repoint_tracker_binding.ts"));
   const decl = runs.find((c) => c.result.exitCode === 0 && !c.result.isError);
   if (!decl) return fail("B's declaration (a successful repoint) is not recorded");
+  const declared = declarationReceipt(b, own);
+  if (!declared?.receipt) return fail("B's declaration announced no repoint receipt present in B's receipts");
+  if (assertedInputs(declared.receipt) === null) return fail("the repoint receipt does not record evidence.assertedCompleteness as a list of input names, so the verdict cannot say which inputs rested on the session's claim");
   const refusal = runs.find((c) => c.result.exitCode !== 0 && ms(c.at) < ms(decl.at));
   if (!refusal) return fail("no repoint refusal precedes B's declaration");
   const write = own.flatMap((s) => s.calls.filter(isTrackerWrite)).find((c) => ms(c.at) > ms(refusal.at) && ms(c.at) < ms(decl.at));
@@ -1969,8 +2036,12 @@ function unannouncedReceipts(b: LiveBundle): LiveFinding[] {
  * AC-STE-617.17 (MI-5) — every milestone-decision receipt's listing must equal
  * (as a key set) the answer of a tracker listing call recorded as its LAST
  * page, in the receipt's own session, before its writer's run announced it
- * (`RECEIPT_WRITERS`). A repository whose receipts cannot be read contributes
- * none (`readableReceipts`).
+ * (`RECEIPT_WRITERS`). "Last" is the reader's (tracker_answer.ts, via
+ * `projectAnswer`): a Jira page saying so, or a Linear `list_milestones`
+ * answer — which carries no paging field — holding fewer than
+ * `LINEAR_MILESTONE_WINDOW` rows; a full window is unknown, so a decision on
+ * it is unlisted. A repository whose receipts cannot be read contributes none
+ * (`readableReceipts`).
  */
 function unlistedDecisions(b: LiveBundle): LiveFinding[] {
   const out: LiveFinding[] = [];
@@ -2326,6 +2397,7 @@ export function gradeBundle(b: LiveBundle, o: GradeOptions): LiveVerdict {
     behaviourDigest: b.run.behaviourDigest,
     graderDigest: graderDigest(),
     linearBudget: budget,
+    assertedCompleteness: b.run.skips?.some((k) => k.id === "S8") ? null : assertedInputs(declarationReceipt(b, sessionsMarked(b, "S8"))?.receipt ?? null),
   };
 }
 

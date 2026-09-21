@@ -70,7 +70,7 @@ import {
   writePlanFile,
 } from "./_shared_tracker_fixture";
 import { claudeMd, commitAll, git, GIT_ENV } from "./_span_fixture";
-import { JiraDouble, LinearDouble, TransportError, readInventory } from "./_tracker_doubles";
+import { JiraDouble, type JiraShape, LinearDouble, TransportError, readInventory } from "./_tracker_doubles";
 
 export type { Tracker } from "./_shared_tracker_fixture";
 
@@ -129,6 +129,8 @@ export interface ScenarioResult {
 
 export interface RunScenarioOptions {
   pluginRoot: string;
+  /** The Jira double's answer shape — both measured shapes must pass every Jira scenario (default plain). */
+  jiraShape?: JiraShape;
   /** The harness block rule; `harnessBlocks` unless a negative control swaps it. */
   blockRule?: (r: ProcRun) => boolean;
 }
@@ -503,7 +505,7 @@ export class Ctx {
     const fedPages = o.feed === "first" ? pages.slice(0, 1) : pages;
     const pageFiles = fedPages.map((p, i) => this.file(`page-${i + 1}.json`, p));
     const last = fedPages[fedPages.length - 1] as Record<string, any> | undefined;
-    const lastFedIsLast = last === undefined ? false : this.tracker === "jira" ? last.isLast === true : last.pageInfo?.hasNextPage === false;
+    const lastFedIsLast = last === undefined ? false : this.tracker === "jira" ? this.jira.pageMeta(last).last : last.hasNextPage === false;
     const d = await this.door(
       `${ADAPTERS_SRC}/create_idempotency_probe.ts`,
       ["decide", root, ...pageFiles, "--title-file", titleFile, ...this.containerFlags(m), "--attempt", attempt],
@@ -539,7 +541,21 @@ export class Ctx {
 
   createdKey(w: WriteOutcome): string {
     this.check(w.result !== null, `expected the create to return a key, got none (blocked=${w.blocked}, transportError=${w.transportError})`);
-    return String(w.result!.key ?? w.result!.identifier);
+    return this.resultKey(w.result!);
+  }
+
+  /**
+   * The key a create answer carries: Jira `key` (a wrapped answer's one node),
+   * Linear `id` (`STE-12`, measured — no `identifier`).
+   */
+  resultKey(r: Record<string, any>): string {
+    if (this.tracker === "linear") return String(r.id);
+    return String(this.jira.shape === "wrapped" ? r.issues.nodes[0].key : r.key);
+  }
+
+  /** An empty, complete listing page in the double's shape. */
+  emptyPage(): Record<string, unknown> {
+    return this.tracker === "jira" ? this.jira.emptyPage() : this.linear.emptyPage();
   }
 
   /** attach (once per session+plan) → decide → create through the harness. */
@@ -561,7 +577,7 @@ export class Ctx {
     this.check(decision.outcome === "create", `decide for "${title}" in ${repo.name} should create, got ${JSON.stringify(decision)}`);
     const tool = this.tracker === "jira" ? "createJiraIssue" : "save_issue";
     const w = await this.write(repo, session, tool, input!, { cwd: o.cwd ?? repo.root });
-    return { w, decision, key: w.result ? String(w.result.key ?? w.result.identifier) : null, pageCount, fed, lastFedIsLast };
+    return { w, decision, key: w.result ? this.resultKey(w.result) : null, pageCount, fed, lastFedIsLast };
   }
 
   ticket(key: string): { key: string; title: string; labels: string[] } {
@@ -652,7 +668,7 @@ export class Ctx {
     const c = this.milestoneCreateInput(title);
     const w = await this.write(repo, session, c.tool, c.input, { cwd: repo.root });
     this.expectPermitted(w, `the container create of "${title}" under its create decision`);
-    const key = String(w.result!.key ?? w.result!.id);
+    const key = this.resultKey(w.result!);
     const m: MilestoneRef = { token: this.tracker === "jira" ? tokenOfEpic(key) : tokenOfLinearMilestone(key), key, title };
     writePlanFile(repo.root, m);
     commitAll(repo.root, `plan ${m.token}`);
@@ -913,7 +929,7 @@ async function mintAndJoin(ctx: Ctx): Promise<void> {
     ctx.jira.pageSize = 1;
     const page1 = ctx.jira.search({ cloudId: "fixture-cloud", jql: `project = ${JIRA_PROJECT} AND issuetype = Epic`, fields: ["summary", "project", "issuetype", "status", "labels"] });
     ctx.jira.pageSize = null;
-    ctx.check(page1.isLast === false, "the forced one-row page must not be the last");
+    ctx.check(ctx.jira.pageMeta(page1).last === false, "the forced one-row page must not be the last");
     const r = await ctx.resolveMilestone(b.root, sB, { title: "Delta Release" }, { listing: ctx.file("not-last.json", page1) });
     ctx.check(r.exitCode === 1, `a decision from a not-last listing page must refuse (exit 1), got exit ${r.exitCode}: ${r.stdout}`);
     ctx.eq(ctx.writes, writes0, "the double's write count after the not-last-page decision");
@@ -958,7 +974,7 @@ async function orphanListing(ctx: Ctx): Promise<void> {
   }
 
   ctx.step("an empty container yields the named empty outcome");
-  const empty = ctx.tracker === "jira" ? { issues: [], isLast: true } : { issues: [], pageInfo: { hasNextPage: false, endCursor: null } };
+  const empty = ctx.emptyPage();
   const e = await ctx.detector(a.root, [ctx.file("empty.json", empty)]);
   ctx.check(e.exitCode === 0 && /^info container-empty:/m.test(e.stdout), `an empty complete container must report "info container-empty", got exit ${e.exitCode}:\n${e.stdout}${e.stderr}`);
 
@@ -1393,7 +1409,7 @@ async function receiptIntegrity(ctx: Ctx): Promise<void> {
 
   const pageFor = async (title: string) => {
     const tf = ctx.file("title.txt", `${title}\n`);
-    const empty = ctx.tracker === "jira" ? { issues: [], isLast: true } : { issues: [], pageInfo: { hasNextPage: false, endCursor: null } };
+    const empty = ctx.emptyPage();
     return { tf, page: ctx.file("empty-page.json", empty) };
   };
   const decideAs = async (title: string, sessionId: string) => {
@@ -1728,8 +1744,16 @@ async function repoint(ctx: Ctx): Promise<void> {
 
   const projectsListing =
     ctx.tracker === "jira"
-      ? ctx.file("projects.json", { values: [newProject, oldProject].map((key, i) => ({ id: String(10001 + i), key, name: `Project ${key}` })), isLast: true })
-      : ctx.file("projects.json", { projects: [newProject, oldProject].map((name, i) => ({ id: `p-${i}`, name })) });
+      ? ctx.file("projects.json", {
+          // The measured getVisibleJiraProjects answer (complete iff isLast).
+          self: "https://fixture.invalid/rest/api/3/project/search?startAt=0",
+          maxResults: 50,
+          startAt: 0,
+          total: 2,
+          isLast: true,
+          values: [newProject, oldProject].map((key, i) => ({ id: String(10001 + i), key, name: `Project ${key}` })),
+        })
+      : ctx.file("projects.json", { projects: [newProject, oldProject].map((name, i) => ({ id: `p-${i}`, name })), hasNextPage: false });
   const containers = ctx.containerListing();
   const flags = (o: { projects?: string | null; containers?: string | null } = {}): string[] => {
     const out = [b.root, ctx.tracker, newProject];
@@ -1737,9 +1761,14 @@ async function repoint(ctx: Ctx): Promise<void> {
     const cont = o.containers === undefined ? containers : o.containers;
     if (proj !== null) out.push("--projects", proj);
     if (cont !== null) out.push("--containers", cont);
-    out.push("--statuses", ctx.file("statuses.json", { statuses: STATUSES.map((name, i) => ({ id: String(i + 1), name })) }));
+    // Linear: the measured list_issue_statuses answer, a bare array. Jira: no
+    // MCP tool lists a project's statuses, so the list is hand-assembled and
+    // claims its own completeness (`isLast: true`), which the row marks as asserted.
+    const statuses = STATUSES.map((name, i) => ({ id: String(i + 1), name }));
+    out.push("--statuses", ctx.file("statuses.json", ctx.tracker === "linear" ? statuses.map((st) => ({ ...st, type: "unstarted" })) : { statuses, isLast: true }));
     if (ctx.tracker === "jira") {
-      out.push("--issue-types", ctx.file("issue-types.json", { issueTypes: ["Epic", "Task", "Bug"].map((name, i) => ({ id: String(11100 + i), name })) }));
+      // The measured getJiraProjectIssueTypesMetadata answer (complete: startAt 0, `total` rows).
+      out.push("--issue-types", ctx.file("issue-types.json", { startAt: 0, maxResults: 50, total: 3, issueTypes: ["Epic", "Task", "Bug"].map((name, i) => ({ id: String(11100 + i), name })) }));
       const labels = [...new Set(ctx.jira.issues.filter((i) => i.project === JIRA_PROJECT).flatMap((i) => i.labels))];
       out.push("--labels", ctx.file("labels.json", { values: labels, isLast: true }));
     } else out.push("--team", LINEAR_TEAM);
@@ -1921,7 +1950,7 @@ export async function measureKnownDefectsReceipts(
     };
     const decideAs = async (title: string, sessionId: string) => {
       const tf = ctx.file("title.txt", `${title}\n`);
-      const page = ctx.file("empty-page.json", tracker === "jira" ? { issues: [], isLast: true } : { issues: [], pageInfo: { hasNextPage: false, endCursor: null } });
+      const page = ctx.file("empty-page.json", ctx.emptyPage());
       const args = ["decide", b.root, page, "--title-file", tf, ...flags, "--attempt", "fast"];
       const r = await ctx.door(`${ADAPTERS_SRC}/create_idempotency_probe.ts`, args, { sessionId });
       if (r.exitCode !== 0) throw new Error(`decide as ${sessionId} failed: ${r.stderr}`);
@@ -2487,7 +2516,7 @@ export async function runScenario(id: string, tracker: Tracker, opts: RunScenari
   let ctx: Ctx | null = null;
   const failures: string[] = [];
   try {
-    await withSharedTrackerFixture({ tracker, shape: def.shape, pluginRoot: opts.pluginRoot }, async (fx) => {
+    await withSharedTrackerFixture({ tracker, shape: def.shape, pluginRoot: opts.pluginRoot, jiraShape: opts.jiraShape }, async (fx) => {
       ctx = new Ctx(fx, opts.pluginRoot, opts.blockRule ?? harnessBlocks);
       await def.body(ctx);
     });

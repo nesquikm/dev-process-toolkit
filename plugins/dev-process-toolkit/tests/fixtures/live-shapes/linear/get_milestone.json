@@ -1,0 +1,18 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-21",
+    "method": "read-only-call",
+    "request": {
+      "project": "DPT — Dev Process Toolkit",
+      "query": "Proven Live"
+    },
+    "note": "measured live"
+  },
+  "answer": {
+    "id": "2306b61c-037f-455f-97f2-4997b8fb0b60",
+    "name": "Proven Live",
+    "description": "Shared-tracker programme, milestone 4 of 4. One offline two-…",
+    "progress": 25,
+    "sortOrder": 146244
+  }
+}

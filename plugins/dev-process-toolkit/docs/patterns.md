@@ -433,7 +433,7 @@ A one-time migration helper for projects that picked up the drift before the con
 
 | Sub-section | Required keys | Optional keys |
 |-------------|---------------|---------------|
-| `### Linear` | `team:` (string, e.g., `STE`), `project:` (string, e.g., `DPT — Dev Process Toolkit`) | `default_labels:` (inline YAML array, e.g., `[feature, m31]`), `repo_tag:`, `min_dpt_version:` |
+| `### Linear` | `team:` (the team's KEY — the prefix of its issue identifiers, e.g., `STE` — never its display name), `project:` (string, e.g., `DPT — Dev Process Toolkit`) | `default_labels:` (inline YAML array, e.g., `[feature, m31]`), `repo_tag:`, `min_dpt_version:` |
 | `### Jira` | `project:` (string, the Jira project key) | `default_labels:`, `repo_tag:`, `min_dpt_version:` |
 
 Parser rules:

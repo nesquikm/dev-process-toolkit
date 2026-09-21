@@ -845,6 +845,8 @@ describe("AC-STE-541.4 — the adoption notice is registered and owned by /spec-
       "m104-legacy-state",
       "mode-none-sequential-milestone",
       "verification-run-keys",
+      // M_2306b6 (2.90.0) — not this milestone's entry; M139 still ships none.
+      "linear-team-key",
     ]);
   });
 

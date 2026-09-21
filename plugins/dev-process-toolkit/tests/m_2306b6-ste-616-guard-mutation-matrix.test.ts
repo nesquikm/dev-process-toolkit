@@ -90,7 +90,7 @@ export const ROWS: MatrixRow[] = [
   { row: "q", guard: "the declaration reader treats an unreadable CLAUDE.md as undeclared", file: `${S}/workspace_binding.ts`, find: 'const code = (e as NodeJS.ErrnoException).code ?? "unknown";', replace: 'return { shared: false };\n    const code = (e as NodeJS.ErrnoException).code ?? "unknown";', pairs: both("S11"), signature: /CLAUDE\.md cannot be read/, clauses: ["AC.10"] },
   { row: "r", guard: "the hook's refusal exits 1 instead of 2", file: H, find: "process.exit(code satisfies 0 | 2);", replace: "process.exit(code === 2 ? 1 : code);", pairs: both("S7"), signature: /expected the hook to block the write \(exit 2\), got exit 1/, clauses: ["AC.9"] },
   { row: "s", guard: "the hook passes a create that names no project", file: H, find: 'if (shape.project === "" && shape.team === "") {', replace: 'if (shape.project === "" && shape.team === "") {\n    return 0;', pairs: both("S9"), signature: /naming no project/, clauses: ["AC.9"] },
-  { row: "t", guard: "a front door takes the not-last page of a listing as complete (the milestone decision, Jira)", file: `${S}/resolve_milestone_identity.ts`, find: 'parsed.isLast !== true || (token !== undefined && token !== null && token !== "")', replace: "false", pairs: [["S3", "jira"]], signature: /not-last listing page must refuse/, clauses: ["AC.6"] },
+  { row: "t", guard: "a front door takes the not-last page of a listing as complete (the milestone decision, Jira)", file: `${S}/resolve_milestone_identity.ts`, find: "if (!read.page.last) {", replace: "if (false) {", pairs: [["S3", "jira"]], signature: /not-last listing page must refuse/, clauses: ["AC.6"] },
   { row: "u", guard: "OVER-REFUSAL: the detector counts only its own repository's tag, so it flags the sibling's tickets", file: `${S}/container_ownership.ts`, find: "foreignLabels(ticket, binding).length > 0", replace: "false", pairs: both("S4"), signature: /class of the sibling's tagged ticket .*: expected "sibling", got "unowned"/, clauses: ["AC.7"] },
   { row: "v", guard: "OVER-REFUSAL: the sibling ship gate reads ANY active FR in the sibling as busy", file: `${S}/active_plan_ship_ready.ts`, find: "for (const id of idsBoundTo(rows, milestone)) {", replace: "for (const id of rows.map((row) => row.id)) {", pairs: both("S5"), signature: /different milestone token: A's release must pass/, clauses: ["AC.8"] },
   { row: "w", guard: "OVER-REFUSAL: the hook refuses a create made under a join receipt", file: H, find: 'if (act === "join") return null;', replace: 'if (act === "join") return NOT_CREATED;', pairs: both("S14"), signature: /the join path\): expected the hook to permit/, clauses: ["AC.9", "AC.18"] },
@@ -107,9 +107,9 @@ export const ROWS: MatrixRow[] = [
   { row: "ah", guard: "OVER-REFUSAL: the Linear arm dates a plan by its archive commit, so a pre-epoch archived plan fails", file: `${S}/plan_identity_mode_conditional.ts`, find: "`specs/plan/${token}.md`,", replace: "rel,", pairs: both("S16"), signature: /pre-epoch M8 plan/, clauses: ["AC.20"] },
   // Row (t)'s FR-create half, Jira: the door reads a final page that is not
   // the last as complete, so a decide fed only page 1 creates instead of
-  // refusing `page-cap`. (The Linear anchor `capped = page.pageInfo.hasNextPage;`
-  // is a separate site; one mutation per row.)
-  { row: "ai", guard: "the FR-create door takes a not-last page of its listing as complete (Jira)", file: `${S}/create_idempotency_probe.ts`, find: "capped = !page.isLast;", replace: "capped = false;", pairs: [["S1", "jira"], ["S2", "jira"]], signature: /from only the first page of its \d+-page listing/, clauses: ["AC.5"] },
+  // refusing `page-cap`. (Both trackers' pages now pass through one site, the
+  // shared reader's `last`; this row is graded on its Jira pairs.)
+  { row: "ai", guard: "the FR-create door takes a not-last page of its listing as complete (Jira)", file: `${S}/create_idempotency_probe.ts`, find: "return { items: r.items, capped: !r.last };", replace: "return { items: r.items, capped: false };", pairs: [["S1", "jira"], ["S2", "jira"]], signature: /from only the first page of its \d+-page listing/, clauses: ["AC.5"] },
 ];
 
 const GUARD_CLAUSES = ["AC.5", "AC.6", "AC.7", "AC.8", "AC.9", "AC.10", "AC.11", "AC.12", "AC.13", "AC.17", "AC.18", "AC.19", "AC.20", "AC.21", "AC.22"];
@@ -430,18 +430,26 @@ async function withAc7Listing(tracker: Tracker, body: (l: Ac7Listing) => Promise
 
 const pageIsLastOnDisk = (tracker: Tracker, path: string): boolean => {
   const p = JSON.parse(readFileSync(path, "utf-8"));
-  return tracker === "jira" ? p.isLast === true : p.pageInfo?.hasNextPage === false;
+  // The measured shapes: a plain Jira page's `isLast` (the matrix runs the
+  // plain double), a Linear page's top-level `hasNextPage`.
+  return tracker === "jira" ? p.isLast === true : p.hasNextPage === false;
 };
 
 describe("AC-STE-616.7 — the detector fixes, each red on the kickoff bytes (CLI spawned directly)", () => {
-  test(`AC-STE-616.7 pre-fix (a) — pages = [page 1 of a multi-page listing, not the last]: kickoff (${KICKOFF}) exits 0 with "warning container-partial"; current exits 1 naming that page`, async () => {
+  test(`AC-STE-616.7 pre-fix (a) — pages = [page 1 of a multi-page listing, not the last]: kickoff (${KICKOFF}) exits 0 (Jira: "warning container-partial"; Linear: graded silently); current exits 1 naming that page`, async () => {
     for (const t of ["jira", "linear"] as const) {
       await withAc7Listing(t, async (l) => {
         expect(l.multi.length, `${t}: the forced listing spans >= 2 pages`).toBeGreaterThanOrEqual(2);
         expect(pageIsLastOnDisk(t, l.multi[0]!), `${t}: page 1 is not the last`).toBe(false);
         const kick = await l.detect(kickoffCliCopy(), [l.multi[0]!]);
         expect(kick.stderr, `${t} kickoff: no load error`).not.toMatch(/SyntaxError|Cannot find module/);
-        expect({ exit: kick.exitCode, warning: /^warning container-partial:/m.test(kick.stdout) }, `${t} kickoff:\n${kick.stdout}${kick.stderr}`).toEqual({ exit: 0, warning: true });
+        // On the MEASURED Linear page (top-level `hasNextPage`, no `pageInfo`)
+        // the kickoff's fail-open pageIsLast reads page 1 as the last page, so
+        // it grades the incomplete listing silently: exit 0 with no partial
+        // row at all — the same defect, worse than the warning the invented
+        // `pageInfo` page used to draw. The Jira kickoff still warns.
+        const kickoffWarns = t === "jira";
+        expect({ exit: kick.exitCode, warning: /^warning container-partial:/m.test(kick.stdout) }, `${t} kickoff:\n${kick.stdout}${kick.stderr}`).toEqual({ exit: 0, warning: kickoffWarns });
         const now = await l.detect(PLUGIN_ROOT, [l.multi[0]!]);
         expect(now.exitCode, `${t} current:\n${now.stdout}${now.stderr}`).toBe(1);
         expect(now.stdout).toContain(`error container-partial: ${l.multi[0]} `);
@@ -450,14 +458,18 @@ describe("AC-STE-616.7 — the detector fixes, each red on the kickoff bytes (CL
     }
   }, 240_000);
 
-  test(`AC-STE-616.7 pre-fix (b) — pages = [every page of a complete multi-page listing; only the final page is last]: kickoff (${KICKOFF}) reports container-partial (false drift); current exits 0 and flags only the untagged ticket`, async () => {
+  test(`AC-STE-616.7 pre-fix (b) — pages = [every page of a complete multi-page listing; only the final page is last]: kickoff (${KICKOFF}) reports container-partial on Jira (false drift); current exits 0 and flags only the untagged ticket`, async () => {
     for (const t of ["jira", "linear"] as const) {
       await withAc7Listing(t, async (l) => {
         expect(l.multi.length, `${t}: the forced listing spans >= 2 pages`).toBeGreaterThanOrEqual(2);
         expect(l.multi.map((p) => pageIsLastOnDisk(t, p)), `${t}: earlier pages not last, the final page last`).toEqual([...l.multi.slice(0, -1).map(() => false), true]);
         const kick = await l.detect(kickoffCliCopy(), l.multi);
         expect(kick.stderr, `${t} kickoff: no load error`).not.toMatch(/SyntaxError|Cannot find module/);
-        expect(/container-partial/.test(kick.stdout), `${t} kickoff reads the complete listing as partial:\n${kick.stdout}`).toBe(true);
+        // The false drift is a Jira fact on the measured pages: the kickoff's
+        // Linear pageIsLast reads every measured page (no `pageInfo`) as last,
+        // so it cannot read a complete Linear listing as partial — its Linear
+        // defect is the silent pass pre-fix (a) grades.
+        expect(/container-partial/.test(kick.stdout), `${t} kickoff reads the complete listing as partial:\n${kick.stdout}`).toBe(t === "jira");
         const now = await l.detect(PLUGIN_ROOT, l.multi);
         expect(now.exitCode, `${t} current:\n${now.stdout}${now.stderr}`).toBe(0);
         expect(now.stdout).not.toContain("container-partial");
