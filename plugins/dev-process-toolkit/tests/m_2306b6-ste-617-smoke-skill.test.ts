@@ -16,10 +16,17 @@
 //   PREFLIGHT_ANSWERS — a directory of the tracker answers the operator
 //   session saved from its own MCP read calls before the fence runs:
 //     second-server-read.json   one read call on the second server name
-//                               (missing, not JSON, or a top-level "error" → refuse)
-//     jira-space-<KEY>.json     {"values":[{"key":"<KEY>",…}]}   (per space: shared, and repoint-from when given)
-//     jira-createmeta-<KEY>.json {"issueTypes":[{"name":"Epic"},{"name":"Task"},…]}
-//     linear-team.json          {"key":"<TEAM>",…}
+//                               (missing, not JSON, or a top-level "error" → refuse); measured
+//                               examples: getAccessibleAtlassianResources (Jira), list_teams (Linear)
+//     jira-space-<KEY>.json     the getVisibleJiraProjects(searchString: <KEY>) answer, verbatim:
+//                               {"values":[{"key":"<KEY>",…}],…}   (per space: shared, and repoint-from when given)
+//     jira-createmeta-<KEY>.json the getJiraProjectIssueTypesMetadata(projectIdOrKey: <KEY>) answer,
+//                               verbatim: {"issueTypes":[{"name":"Task"},{"name":"Epic"},…],…}
+//   Every stub below is built from a MEASURED shape in tests/fixtures/live-shapes/, never invented.
+//     linear-team.json          the mcp__linear__get_team(query: <LINEAR_TEAM>) answer, verbatim:
+//                               {"id":"<uuid>","name":"<display name>",…} — MEASURED, no `key`
+//                               field (tests/fixtures/live-shapes/linear/get_team.json); the
+//                               fence records its id as LINEAR_TEAM_ID in the pre-flight env
 // The version under test is `plugins/dev-process-toolkit/.claude-plugin/plugin.json`.
 // The old client defaults to the newest cached version whose hooks/hooks.json
 // names no `pre-tracker-write-gate`. The behaviour digest comes from
@@ -283,6 +290,11 @@ interface Sandbox {
 
 const FLOOR = "2.90.0";
 
+/** A MEASURED tracker answer (`tests/fixtures/live-shapes/<tracker>/<name>.json`, `{provenance, answer}`): never an invented shape. */
+function liveShape(tracker: "jira" | "linear", name: string): any {
+  return JSON.parse(readFileSync(join(pluginRoot, "tests", "fixtures", "live-shapes", tracker, `${name}.json`), "utf-8")).answer;
+}
+
 function writeJson(p: string, v: unknown): void {
   mkdirSync(dirname(p), { recursive: true });
   writeFileSync(p, JSON.stringify(v, null, 2));
@@ -351,14 +363,30 @@ function makeSandbox(tracker: "jira" | "linear"): Sandbox {
   const cache = join(sb.config, "plugins", "cache", "dev-process-toolkit", "dev-process-toolkit");
   cachedPlugin(join(cache, "2.86.0"), "2.86.0", false);
   cachedPlugin(join(cache, "2.89.0"), "2.89.0", true);
-  // The operator session's saved answers.
-  writeJson(join(sb.answers, "second-server-read.json"), { accountId: "redacted", ok: true });
+  // The operator session's saved answers — every one a MEASURED shape (tests/fixtures/live-shapes/).
+  // The second-server read: a bare array on Jira (getAccessibleAtlassianResources), a page object on Linear (list_teams).
+  writeJson(join(sb.answers, "second-server-read.json"), tracker === "jira" ? liveShape("jira", "getAccessibleAtlassianResources") : liveShape("linear", "list_teams"));
   for (const key of ["DST", "DST2"]) {
-    writeJson(join(sb.answers, `jira-space-${key}.json`), { values: [{ key, name: `Space ${key}` }] });
-    writeJson(join(sb.answers, `jira-createmeta-${key}.json`), { issueTypes: [{ name: "Epic" }, { name: "Task" }, { name: "Bug" }] });
+    writeJson(join(sb.answers, `jira-space-${key}.json`), jiraSpaceAnswer(key));
+    writeJson(join(sb.answers, `jira-createmeta-${key}.json`), liveShape("jira", "getJiraProjectIssueTypesMetadata"));
   }
-  writeJson(join(sb.answers, "linear-team.json"), { key: "STE", name: "Stellar" });
+  // The MEASURED get_team answer: an id and a display name, no key field.
+  writeJson(join(sb.answers, "linear-team.json"), liveShape("linear", "get_team"));
   return sb;
+}
+
+/** The measured getVisibleJiraProjects answer, its `values` rows keyed to the space under test. */
+function jiraSpaceAnswer(key: string): any {
+  const a = liveShape("jira", "getVisibleJiraProjects");
+  return { ...a, values: a.values.map((v: Record<string, unknown>) => ({ ...v, key })) };
+}
+
+/** The measured getJiraProjectIssueTypesMetadata answer with the named issue type removed. */
+function createmetaWithout(name: string): any {
+  const a = liveShape("jira", "getJiraProjectIssueTypesMetadata");
+  const issueTypes = a.issueTypes.filter((t: { name: string }) => t.name !== name);
+  expect(issueTypes.length, `control: the measured metadata offers ${name}`).toBe(a.issueTypes.length - 1);
+  return { ...a, issueTypes, total: issueTypes.length };
 }
 
 function throwaway(sb: Sandbox, tracker: string, side: "a" | "b"): string {
@@ -508,16 +536,16 @@ describe("AC.2 — pre-flight refusals: non-zero, three-line NFR-10 shape, zero 
     { name: "second-server-empty-object — the second server name answered {}", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => writeJson(join(sb.answers, "second-server-read.json"), {}) },
     { name: "second-server-null — the second server name answered null", tracker: "linear", env: { TRACKER: "linear" }, arrange: (sb) => writeJson(join(sb.answers, "second-server-read.json"), null) },
     { name: "second-server-empty-array — the second server name answered []", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => writeJson(join(sb.answers, "second-server-read.json"), []) },
-    { name: "jira-space-unreadable — the shared space does not answer a read", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => writeJson(join(sb.answers, "jira-space-DST.json"), { values: [] }) },
-    { name: "jira-no-epic — the shared space offers no Epic type", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => writeJson(join(sb.answers, "jira-createmeta-DST.json"), { issueTypes: [{ name: "Task" }] }) },
-    { name: "jira-no-task — the shared space offers no task type", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => writeJson(join(sb.answers, "jira-createmeta-DST.json"), { issueTypes: [{ name: "Epic" }] }) },
+    { name: "jira-space-unreadable — the shared space does not answer a read", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => writeJson(join(sb.answers, "jira-space-DST.json"), { ...jiraSpaceAnswer("DST"), values: [], total: 0 }) },
+    { name: "jira-no-epic — the shared space offers no Epic type", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => writeJson(join(sb.answers, "jira-createmeta-DST.json"), createmetaWithout("Epic")) },
+    { name: "jira-no-task — the shared space offers no task type", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => writeJson(join(sb.answers, "jira-createmeta-DST.json"), createmetaWithout("Task")) },
     {
       name: "jira-repoint-space-unreadable — the repoint-from space, given, does not answer a read",
       tracker: "jira",
       env: { TRACKER: "jira", JIRA_REPOINT_FROM: "DST2" },
       arrange: (sb) => rmSync(join(sb.answers, "jira-space-DST2.json")),
     },
-    { name: "linear-team-unresolved — --linear-team resolves to no team", tracker: "linear", env: { TRACKER: "linear", LINEAR_TEAM: "NOPE" } },
+    { name: "linear-team-unresolved — the team lookup answered an error", tracker: "linear", env: { TRACKER: "linear" }, arrange: (sb) => writeJson(join(sb.answers, "linear-team.json"), { error: "Team not found" }) },
   ];
   // The two OLD_CLIENT cases point at a plugin dir the arrange step writes.
   const oldClientDir: Record<string, string> = {
@@ -543,10 +571,12 @@ describe("AC.2 — pre-flight refusals: non-zero, three-line NFR-10 shape, zero 
       expect(r.code, `${r.out}\n${r.err}`).toBe(0);
     });
   });
-  test("PERMIT TWIN (audit item 5) — a non-empty array answer from the second server name is a usable read", () => {
-    withSandbox("linear", (sb) => {
-      writeJson(join(sb.answers, "second-server-read.json"), [{ id: "team-1", key: "STE" }]);
-      const r = runPreflight(sb, envFor(sb, { TRACKER: "linear" }));
+  test("PERMIT TWIN (audit item 5) — a non-empty array answer from the second server name (the measured getAccessibleAtlassianResources, a bare array) is a usable read", () => {
+    withSandbox("jira", (sb) => {
+      const answer = liveShape("jira", "getAccessibleAtlassianResources");
+      expect(Array.isArray(answer) && answer.length > 0, "control: the measured answer is a non-empty bare array").toBe(true);
+      writeJson(join(sb.answers, "second-server-read.json"), answer);
+      const r = runPreflight(sb, envFor(sb, { TRACKER: "jira" }));
       expect(r.code, `${r.out}\n${r.err}`).toBe(0);
     });
   });
@@ -2348,6 +2378,338 @@ describe("live-run item 5 — a privacy dry run over the bootstrap state refuses
     const lines = text.split("\n");
     const cut = [...lines.slice(0, f.openLine - 1), ...lines.slice(f.closeLine)].join("\n");
     expect(dryRunViolations(cut)).toEqual([`expected one fence tagged ${DRY_RUN_TAG}, found 0`]);
+  });
+});
+
+// ===========================================================================
+// Fourth audit (2026-09-21) — the Linear run-killers. Every tracker answer
+// below is a MEASURED shape from tests/fixtures/live-shapes/linear/, never an
+// invented one; every behavioural check is graded from a RUN of the fence.
+// ===========================================================================
+
+const BOOT_TAG = "# shared-tracker-smoke: bootstrap";
+const LABELS_TAG = "# shared-tracker-smoke: linear tag labels";
+const TAGS = { a: `shr-${FILL.nonce}-a`, b: `shr-${FILL.nonce}-b` };
+
+/** The check name a refusal's Context line carries. */
+const checkOf = (lines: string[]): string | null => /check=([a-z0-9-]+)/.exec(lines[2] ?? "")?.[1] ?? null;
+
+// --- defect 1: the pre-flight team check reads the answer get_team really gives
+
+describe("fourth audit, defect 1 — the Linear team pre-flight reads the MEASURED get_team answer (no key field)", () => {
+  test("CONTROL — the measured get_team answer has an id and no key field", () => {
+    const a = liveShape("linear", "get_team");
+    expect(typeof a.id).toBe("string");
+    expect(a.id.length).toBeGreaterThan(0);
+    expect("key" in a).toBe(false);
+  });
+  test("PERMIT — the measured answer passes, and the pre-flight env records LINEAR_TEAM_ID as the answer's id", () => {
+    withSandbox("linear", (sb) => {
+      const r = runPreflight(sb, envFor(sb, { TRACKER: "linear" }));
+      expect(r.code, `${r.out}\n${r.err}`).toBe(0);
+      const env = readFileSync(join(sb.tmp, "dpt-shared-linear-preflight.env"), "utf-8");
+      expect(env.split("\n")).toContain(`LINEAR_TEAM_ID=${liveShape("linear", "get_team").id}`);
+    });
+  });
+  test("TWIN — a Jira pre-flight records an empty LINEAR_TEAM_ID, even with one inherited from the operator's environment", () => {
+    withSandbox("jira", (sb) => {
+      const r = runPreflight(sb, envFor(sb, { TRACKER: "jira", LINEAR_TEAM_ID: "inherited-from-a-linear-leg" }));
+      expect(r.code, `${r.out}\n${r.err}`).toBe(0);
+      const env = readFileSync(join(sb.tmp, "dpt-shared-jira-preflight.env"), "utf-8");
+      expect(env.split("\n").filter((l) => l.startsWith("LINEAR_TEAM_ID="))).toEqual(["LINEAR_TEAM_ID=''"]);
+    });
+  });
+  test("the pre-flight prose names the tool whose answer linear-team.json is", () => {
+    expect(section(docText(), /^## Phase 1\b/)).toMatch(/`linear-team\.json`[^\n]*`mcp__linear__get_team\(query: <LINEAR_TEAM>\)`[^\n]*verbatim/);
+  });
+  const notKey: Array<[string, string]> = [
+    ["a display name", "Example Team"],
+    ["a lowercase key", "ste"],
+    ["an issue key", "STE-1"],
+  ];
+  for (const [what, team] of notKey) {
+    test(`REFUSAL — LINEAR_TEAM is ${what} (${JSON.stringify(team)}): linear-team-not-a-key, since the binding records the key`, () => {
+      withSandbox("linear", (sb) => {
+        const lines = expectRefusal(runPreflight(sb, envFor(sb, { TRACKER: "linear", LINEAR_TEAM: team })), sb, "linear");
+        expect(checkOf(lines)).toBe("linear-team-not-a-key");
+      });
+    });
+  }
+  const unresolved: Array<[string, (sb: Sandbox) => void]> = [
+    ["an error answer", (sb) => writeJson(join(sb.answers, "linear-team.json"), { error: "Team not found" })],
+    ["an error answer that also carries an id", (sb) => writeJson(join(sb.answers, "linear-team.json"), { ...liveShape("linear", "get_team"), error: "partial" })],
+    ["no saved answer", (sb) => rmSync(join(sb.answers, "linear-team.json"))],
+    ["an answer that is not JSON", (sb) => writeFileSync(join(sb.answers, "linear-team.json"), "Team STE not found\n")],
+    ["an empty object", (sb) => writeJson(join(sb.answers, "linear-team.json"), {})],
+    ["an empty id", (sb) => writeJson(join(sb.answers, "linear-team.json"), { ...liveShape("linear", "get_team"), id: "" })],
+    ["a non-string id", (sb) => writeJson(join(sb.answers, "linear-team.json"), { ...liveShape("linear", "get_team"), id: 7 })],
+    ["an array (a team listing, not a lookup)", (sb) => writeJson(join(sb.answers, "linear-team.json"), [liveShape("linear", "get_team")])],
+  ];
+  for (const [what, arrange] of unresolved) {
+    test(`REFUSAL — the team lookup is ${what}: linear-team-unresolved`, () => {
+      withSandbox("linear", (sb) => {
+        arrange(sb);
+        const lines = expectRefusal(runPreflight(sb, envFor(sb, { TRACKER: "linear" })), sb, "linear");
+        expect(checkOf(lines)).toBe("linear-team-unresolved");
+        expect(existsSync(join(sb.tmp, "dpt-shared-linear-preflight.env")), "a refused pre-flight writes no env").toBe(false);
+      });
+    });
+  }
+});
+
+// --- defect 2: the bootstrap writes team: on Linear -------------------------
+
+interface BootRun {
+  code: number;
+  err: string;
+  md: { A: string | null; B: string | null };
+}
+
+/** The bootstrap fence RUN under the stub, with the real binding writer; both CLAUDE.md files it left. */
+function runBootstrap(text: string, tracker: "jira" | "linear"): BootRun {
+  let res: BootRun = { code: -1, err: "", md: { A: null, B: null } };
+  withStub((sb) => {
+    const linear = tracker === "linear";
+    const plugin = join(sb.work, "plugins", "dev-process-toolkit");
+    // The toolkit checkout bootstrap copies the below-floor client from.
+    gitRepo(sb.work, { "plugins/dev-process-toolkit/.claude-plugin/plugin.json": JSON.stringify({ name: "dev-process-toolkit", version: FLOOR }) });
+    writeStubRunEnv(sb, { TRACKER: tracker, PLUGIN_TREE: plugin });
+    if (linear) writeFileSync(join(sb.tmp, "dpt-shared-linear-run.env"), readFileSync(join(sb.tmp, "dpt-shared-jira-run.env"), "utf-8"));
+    // The pre-flight records the team key it checked beside its id; the bootstrap reads both, never a retyped key.
+    writeFileSync(join(sb.tmp, `dpt-shared-${tracker}-preflight.env`), `FLOOR=${FLOOR}\n${linear ? `LINEAR_TEAM=STE\nLINEAR_TEAM_ID=${liveShape("linear", "get_team").id}\n` : "LINEAR_TEAM=''\n"}`);
+    if (linear) writeJson(join(sb.home, ".claude-st", "plugins", "marketplaces", "claude-plugins-official", "external_plugins", "linear", ".mcp.json"), { linear: { type: "http", url: "https://mcp.linear.invalid/mcp" } });
+    // The binding writer runs for real; every other bun call goes to the harness stub.
+    const harnessBun = join(sb.root, "bun-harness");
+    writeFileSync(harnessBun, readFileSync(join(sb.bin, "bun"), "utf-8"), { mode: 0o755 });
+    const q = (x: string) => `'${x.replace(/'/g, `'\\''`)}'`;
+    writeFileSync(
+      join(sb.bin, "bun"),
+      [
+        "#!/bin/bash",
+        'case "${1:-}" in',
+        "  */tracker_binding_write.ts)",
+        `    printf 'bun\\t%s\\t%s\\n' "$$" "$*" >> ${q(sb.calls)}`,
+        "    shift",
+        `    exec ${q(process.execPath)} ${q(join(pluginRoot, "adapters", "_shared", "src", "setup", "tracker_binding_write.ts"))} "$@" ;;`,
+        "esac",
+        `exec ${q(harnessBun)} "$@"`,
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    const body = oneFence(text, BOOT_TAG).body.replaceAll("<tracker>", tracker)
+      .replace(/^SHARED=.*$/m, `SHARED="${linear ? PROJECTS.SHARED : "DST"}"`)
+      .replace(/^PRE=.*$/m, `PRE="${linear ? PROJECTS.PRE : ""}"`);
+    const r = runStubScript(sb, rebaseIntoStub(body, sb), stubEnv(sb, GIT_ENV));
+    const md = (side: string) => {
+      const p = join(sb.root, side, "CLAUDE.md");
+      return existsSync(p) ? readFileSync(p, "utf-8") : null;
+    };
+    res = { code: r.exitCode, err: r.err, md: { A: md("A"), B: md("B") } };
+  });
+  return res;
+}
+
+/** The lines of CLAUDE.md's `### Linear` sub-section, or null when it has none. */
+function linearSubsection(md: string): string[] | null {
+  const lines = md.split("\n");
+  const i = lines.indexOf("### Linear");
+  if (i < 0) return null;
+  let j = i + 1;
+  while (j < lines.length && !/^#/.test(lines[j]!)) j++;
+  return lines.slice(i + 1, j);
+}
+
+function bootstrapTeamViolations(r: BootRun, tracker: "jira" | "linear"): string[] {
+  const v: string[] = [];
+  if (r.code !== 0) v.push(`the ${tracker} bootstrap exited ${r.code}`);
+  for (const side of ["A", "B"] as const) {
+    const md = r.md[side];
+    if (md === null) {
+      v.push(`${side} has no CLAUDE.md`);
+      continue;
+    }
+    if (tracker === "linear") {
+      const sub = linearSubsection(md);
+      const team = (sub ?? []).filter((l) => /^team\s*:/.test(l));
+      if (JSON.stringify(team) !== JSON.stringify(["team: STE"])) v.push(`${side}'s CLAUDE.md carries ${team.length ? team.join(" / ") : "no team:"} under ### Linear, not exactly team: STE`);
+    } else if (/^team\s*:/m.test(md)) v.push(`${side}'s CLAUDE.md carries a team: line on Jira`);
+  }
+  return v;
+}
+
+/** The document with the bootstrap fence's writer call handed no --team. */
+function withoutTeamFlag(text: string): string {
+  const f = oneFence(text, BOOT_TAG);
+  const m = f.body.replaceAll(' --team "${LINEAR_TEAM}"', "");
+  expect(m, "control: the bootstrap fence passes --team").not.toBe(f.body);
+  return text.replace(f.body, m);
+}
+
+describe("fourth audit, defect 2 (HIGH-1) — the bootstrap writes team: into both Linear declarations", () => {
+  test("the bootstrap never retypes LINEAR_TEAM: it reads the key the pre-flight checked, and the pre-flight records it", () => {
+    const text = docText();
+    expect(oneFence(text, BOOT_TAG).body).not.toMatch(/^LINEAR_TEAM=/m);
+    expect(text).toMatch(/printf 'LINEAR_TEAM=%q\\n'/);
+  });
+  test("RUN (linear): A's and B's CLAUDE.md each carry exactly team: STE under ### Linear", () => {
+    const r = runBootstrap(docText(), "linear");
+    expect(bootstrapTeamViolations(r, "linear"), r.err).toEqual([]);
+  }, 60_000);
+  test("RUN (jira) — TWIN: neither declaration carries a team: line (Jira takes no team)", () => {
+    const r = runBootstrap(docText(), "jira");
+    expect(bootstrapTeamViolations(r, "jira"), r.err).toEqual([]);
+  }, 60_000);
+  test("MUTATION / REFUSAL TWIN — a bootstrap whose writer is handed no --team refuses binding-team-missing in NFR-10 shape, and no declaration carries team:", () => {
+    const r = runBootstrap(withoutTeamFlag(docText()), "linear");
+    expect(r.code).not.toBe(0);
+    expectNfr10(r.err, true);
+    expect(r.err).toMatch(/check=binding-team-missing/);
+    expect(bootstrapTeamViolations(r, "linear").length).toBeGreaterThan(0);
+  }, 60_000);
+});
+
+// --- defect 3: both repo-tag labels exist before any child creates ----------
+
+function runLabelFence(text: string, tracker: "jira" | "linear", arrange: (answers: string) => void): { code: number; out: string; err: string } {
+  let res = { code: -1, out: "", err: "" };
+  withStub((sb) => {
+    writeStubRunEnv(sb, { TRACKER: tracker, LINEAR_TEAM: tracker === "linear" ? "STE" : "" });
+    writeFileSync(join(sb.tmp, `dpt-shared-${tracker}-run.env`), readFileSync(join(sb.tmp, "dpt-shared-jira-run.env"), "utf-8"));
+    const answers = join(sb.tmp, `dpt-shared-${tracker}-answers`);
+    mkdirSync(answers, { recursive: true });
+    arrange(answers);
+    const r = runStubScript(sb, rebaseIntoStub(oneFence(text, LABELS_TAG).body.replaceAll("<tracker>", tracker), sb), stubEnv(sb));
+    expect(readStubCalls(sb).filter((c) => c.kind === "claude"), "the label check starts no child").toEqual([]);
+    res = { code: r.exitCode, out: r.out, err: r.err };
+  });
+  return res;
+}
+
+/** The measured list_issue_labels page, holding `tag` among the team's other labels. */
+function labelsHolding(tag: string): unknown {
+  const page = liveShape("linear", "list_issue_labels.more");
+  return { ...page, labels: [...page.labels, { ...page.labels[0], id: "00000000-0000-4000-8000-000000000001", name: tag, description: null }] };
+}
+
+const bothLabels = (answers: string) => {
+  writeJson(join(answers, "labels-a.json"), labelsHolding(TAGS.a));
+  writeJson(join(answers, "labels-b.json"), labelsHolding(TAGS.b));
+};
+
+describe("fourth audit, defect 3 (HIGH-2) — both repo-tag labels exist on Linear before the first spawn", () => {
+  test("the label check sits after the bootstrap and before the privacy dry run", () => {
+    const text = docText();
+    const labels = oneFence(text, LABELS_TAG);
+    expect(oneFence(text, BOOT_TAG).openLine).toBeLessThan(labels.openLine);
+    expect(labels.openLine).toBeLessThan(oneFence(text, DRY_RUN_TAG).openLine);
+  });
+  test("PERMIT — the measured label page holding each tag passes", () => {
+    const r = runLabelFence(docText(), "linear", bothLabels);
+    expect(r.code, `${r.out}\n${r.err}`).toBe(0);
+  });
+  test("PERMIT — a Jira run checks nothing and passes with no answers saved (a Jira label needs no create)", () => {
+    const r = runLabelFence(docText(), "jira", () => {});
+    expect(r.code, `${r.out}\n${r.err}`).toBe(0);
+  });
+  const refusals: Array<[string, (answers: string) => void]> = [
+    ["A's tag is missing from the measured page (other labels only)", (a) => {
+      bothLabels(a);
+      writeJson(join(a, "labels-a.json"), liveShape("linear", "list_issue_labels.more"));
+    }],
+    ["B's page holds A's tag, not B's", (a) => {
+      bothLabels(a);
+      writeJson(join(a, "labels-b.json"), labelsHolding(TAGS.a));
+    }],
+    ["B's answer was never saved", (a) => {
+      bothLabels(a);
+      rmSync(join(a, "labels-b.json"));
+    }],
+    ["A's answer is not JSON", (a) => {
+      bothLabels(a);
+      writeFileSync(join(a, "labels-a.json"), "Error: team not found\n");
+    }],
+    ["A's answer is an error object", (a) => {
+      bothLabels(a);
+      writeJson(join(a, "labels-a.json"), { error: "unauthenticated" });
+    }],
+  ];
+  for (const [what, arrange] of refusals) {
+    test(`REFUSAL — ${what}: linear-tag-label-missing in NFR-10 shape`, () => {
+      const r = runLabelFence(docText(), "linear", arrange);
+      expect(r.code).not.toBe(0);
+      expectNfr10(r.err);
+      expect(r.err).toMatch(/check=linear-tag-label-missing/);
+    });
+  }
+  test("MUTATION — a check that only asks for a non-empty label page is red: it permits the page that lacks the tag", () => {
+    const text = docText();
+    const f = oneFence(text, LABELS_TAG);
+    const loose = f.body.replace(/jq -e [^\n]*labels-\$\{SIDE\}\.json"/, 'jq -e \'(.labels | length) > 0\' "${ANSWERS}/labels-${SIDE}.json"');
+    expect(loose, "control: the label check's jq line is found").not.toBe(f.body);
+    const r = runLabelFence(text.replace(f.body, loose), "linear", (a) => {
+      bothLabels(a);
+      writeJson(join(a, "labels-a.json"), liveShape("linear", "list_issue_labels.more"));
+    });
+    expect(r.code, "the loosened check lets a missing label through").toBe(0);
+  });
+
+  /** Phase 0's Linear writes-to line names both projects and both tag labels. */
+  function approvalLabelViolations(text: string): string[] {
+    const line = runPhase0Full("linear", undefined, text).out.split("\n").find((l) => l.startsWith("writes to:")) ?? "";
+    const v: string[] = [];
+    for (const want of ["dpt-shared-<nonce>", "dpt-shared-<nonce>-pre", "shr-<nonce>-a", "shr-<nonce>-b"]) if (!line.includes(want)) v.push(`the Linear approval text does not name ${want}`);
+    return v;
+  }
+  test("Phase 0's Linear approval text names the two labels the run creates, beside the two projects", () => {
+    expect(approvalLabelViolations(docText())).toEqual([]);
+  });
+  test("MUTATION — an approval text without the labels is red", () => {
+    const text = docText();
+    const f = oneFence(text, "# shared-tracker-smoke: phase 0 —");
+    const m = f.body.replace(/, and two issue labels[^"]*"/, '"');
+    expect(m, "control: the label clause is found").not.toBe(f.body);
+    expect(approvalLabelViolations(text.replace(f.body, m))).toEqual(["the Linear approval text does not name shr-<nonce>-a", "the Linear approval text does not name shr-<nonce>-b"]);
+  });
+
+  /** Phase 2 creates both labels with save_issue_label (never the deprecated create_issue_label) and saves each listing. */
+  function phase2LabelViolations(text: string): string[] {
+    const p2 = section(text, /^## Phase 2\b/);
+    const v: string[] = [];
+    for (const s of ["a", "b"]) {
+      if (!p2.includes(`mcp__linear__save_issue_label(name: "shr-<nonce>-${s}", teamId: <LINEAR_TEAM_ID>)`)) v.push(`Phase 2 does not create shr-<nonce>-${s} with mcp__linear__save_issue_label`);
+      if (!new RegExp(`mcp__linear__list_issue_labels\\(team: <LINEAR_TEAM>, name: shr-<nonce>-${s}\\)[^\\n]*labels-${s}\\.json`).test(p2)) v.push(`Phase 2 does not save shr-<nonce>-${s}'s listing as labels-${s}.json`);
+    }
+    if (/mcp__linear__create_issue_label\(/.test(p2)) v.push("Phase 2 calls the deprecated mcp__linear__create_issue_label");
+    return v;
+  }
+  test("Phase 2 creates both labels with save_issue_label and saves both listings before the first spawn", () => {
+    expect(phase2LabelViolations(docText())).toEqual([]);
+  });
+  test("MUTATION — Phase 2 prose calling create_issue_label is red", () => {
+    const text = docText();
+    const p2 = section(text, /^## Phase 2\b/);
+    const m = text.replace(p2, p2.replaceAll("mcp__linear__save_issue_label(", "mcp__linear__create_issue_label("));
+    expect(m).not.toBe(text);
+    expect(phase2LabelViolations(m)).toEqual([
+      "Phase 2 does not create shr-<nonce>-a with mcp__linear__save_issue_label",
+      "Phase 2 does not create shr-<nonce>-b with mcp__linear__save_issue_label",
+      "Phase 2 calls the deprecated mcp__linear__create_issue_label",
+    ]);
+  });
+  test("Phase 5 names that a Linear label cannot be deleted through the MCP, retires both with retire_issue_label, and says this is not graded", () => {
+    const p5 = section(docText(), /^## Phase 5\b/);
+    expect(p5).toMatch(/cannot be deleted/);
+    expect(p5).toContain("mcp__linear__retire_issue_label");
+    expect(p5).toMatch(/not graded/);
+  });
+});
+
+// --- defect 4 (MEDIUM-1): the other leg's untracked bundle trips pre-flight check 5
+
+describe("fourth audit, defect 4 (MEDIUM-1) — Phase 1 tells the operator to commit the other leg's bundle first", () => {
+  test("Phase 1 carries the sentence: commit the other tracker's evidence bundle before this pre-flight, since it refuses an untracked bundle", () => {
+    expect(section(docText(), /^## Phase 1\b/)).toMatch(/other tracker's leg already ran[^\n]*commit its evidence bundle[^\n]*outside the behaviour digest[^\n]*before this pre-flight[^\n]*refuses an untracked bundle/);
   });
 });
 

@@ -1,0 +1,18 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-21",
+    "method": "read-only-call",
+    "request": {
+      "query": "STE"
+    },
+    "note": "the team lookup: id (uuid), name (display name), icon, visibility — and NO key field; a successful answer to query=<KEY> is what proves the key resolves"
+  },
+  "answer": {
+    "id": "e1181251-2fe2-42b2-9a69-288a28732554",
+    "icon": "Shop",
+    "name": "Example Team Display Name",
+    "visibility": "public",
+    "createdAt": "2026-04-21T12:49:23.378Z",
+    "updatedAt": "2026-09-21T14:03:11.946Z"
+  }
+}

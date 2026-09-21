@@ -3137,6 +3137,32 @@ describe("AC-STE-608.10 (f) — every other container kind is refused, except th
     expect(peakHooksInFlight).toBeLessThanOrEqual(HOOK_SPAWN_LIMIT);
   }, 60_000);
 
+  // `create_issue_label` is DEPRECATED by the Linear MCP itself ("use
+  // `save_issue_label`, which can also update labels"), so a model following
+  // the MCP's own description creates the repo tag with `save_issue_label` and
+  // no `id`. The permit covers both tools; an `id` still means a rename and is
+  // refused, and any other name is still refused (the rows above).
+  test("permit: save_issue_label with NO id whose name equals the target's repo_tag → exit 0 (the MCP's non-deprecated create)", async () => {
+    const root = linearRepo(BE_TAG);
+    const transcript = new Session().save(tempDir("lin-608-save-tag"));
+    expectPermit(await runSh(LINEAR("save_issue_label"), { name: BE_TAG, teamId: "e1181251-2fe2-42b2-9a69-288a28732554" }, { cwd: root, transcript }));
+  }, 30_000);
+
+  // Only a PLAIN label: a label group (`isGroup: true`), or a label nested under
+  // a group (`parent`), named like the repo tag has no honest use and is refused.
+  for (const [label, input] of [
+    ["save_issue_label creating a label GROUP named the repo tag", { name: BE_TAG, teamId: "e1181251-2fe2-42b2-9a69-288a28732554", isGroup: true }],
+    ["save_issue_label nesting the repo tag under a parent group", { name: BE_TAG, teamId: "e1181251-2fe2-42b2-9a69-288a28732554", parent: "some-group" }],
+    ["create_issue_label creating a label GROUP named the repo tag", { name: BE_TAG, team: "STE", isGroup: true }],
+  ] as const) {
+    test(`forbid: ${label} → exit 2`, async () => {
+      const root = linearRepo(BE_TAG);
+      const transcript = new Session().save(tempDir("lin-608-group"));
+      const tool = label.startsWith("save") ? "save_issue_label" : "create_issue_label";
+      expectRefusal(await runSh(LINEAR(tool), { ...input }, { cwd: root, transcript }), RESOLVE, /label/i);
+    }, 30_000);
+  }
+
   test("permit: create_issue_label whose name equals the target's repo_tag → exit 0", async () => {
     const root = linearRepo(BE_TAG);
     const transcript = new Session().save(tempDir("lin-608-tag"));

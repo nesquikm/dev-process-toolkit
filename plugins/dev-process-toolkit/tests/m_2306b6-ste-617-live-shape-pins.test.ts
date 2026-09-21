@@ -107,7 +107,9 @@ function pinViolations(spec: PinSpec, answer: unknown, requestFields?: readonly 
 
 describe("CONTROL — the pins are measured answers, read OK by tracker_answer.ts", () => {
   const all = readdirSync(SHAPES_DIR).flatMap((t) => readdirSync(join(SHAPES_DIR, t)).map((f) => `${t}/${f}`));
-  test("every pin but the declared-unmeasured label create carries an answer with provenance", () => {
+  // Checks the ANSWER only; provenance ({measured_at, method, request}) is
+  // enforced per pin in m_2306b6-ste-617-tracker-answer.test.ts.
+  test("every pin but a declared-unmeasured one carries an answer", () => {
     const missing = all.filter((f) => {
       const raw = JSON.parse(readFileSync(join(SHAPES_DIR, f), "utf-8"));
       return !raw.answer && raw.provenance?.method !== "declared-unmeasured";
