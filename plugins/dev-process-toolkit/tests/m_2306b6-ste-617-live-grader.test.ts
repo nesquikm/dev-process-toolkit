@@ -3189,6 +3189,27 @@ describe("STE-618 follow-ups — the grader CLI's extract and grade", () => {
     return { args, out };
   }
 
+  // MEDIUM-C (fifth audit): the grader must not depend on the skill having
+  // refused first. A Linear extract with no --linear-team would leave the run's
+  // team null, and the team-conjunct check would degrade to a shape check.
+  test("REFUSE — a Linear extract with no --linear-team exits non-zero, naming the flag, and writes no bundle", () => {
+    withTmp("ste617-no-team-", (d) => {
+      const { args, out } = extractArgs(d, "linear");
+      const i = args.indexOf("--linear-team");
+      expect(i, "control: the permit form carries --linear-team").toBeGreaterThan(-1);
+      args.splice(i, 2);
+      const r = cli(args, d);
+      expect(r.code).not.toBe(0);
+      expect(r.err).toMatch(/--linear-team/);
+      expect(existsSync(join(out, "bundle.json"))).toBe(false);
+    });
+  });
+  test("REFUSE — a Linear bundle whose run records no team fails team-conjunct-inert, never a shape-only pass", () => {
+    const b = buildPassingBundle("linear");
+    b.run.linearTeam = null;
+    expect(findingsOf(grade(b), "team-conjunct-inert").some((f) => /no team/.test(f.detail))).toBe(true);
+  });
+
   for (const t of TRACKERS) {
     test(`${t}: extract prints NO bundle-hash — the plan row's hash is taken after grade writes verdict.json into the same directory`, () => {
       withTmp("ste618-cli-x-", (d) => {

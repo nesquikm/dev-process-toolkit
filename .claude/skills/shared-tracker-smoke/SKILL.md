@@ -22,17 +22,23 @@ Two repositories, `../dpt-shared-<tracker>-a` (A) and `../dpt-shared-<tracker>-b
 
 **Three client shapes, isolated by `--plugin-dir`.** Every child loads its plugin through `--plugin-dir`, which shadows the installed copy of the same plugin. The tree under test serves the normal scenarios. A scratch copy that differs only in its `plugin.json` version serves the below-floor client. The `--old-client` directory serves the old client. The intruder gets a plugin directory with no tracker-write hook registered. Isolation is graded, not assumed: the old client and the intruder carry no tracker-write hook, so a hook refusal in either session is `isolation-broken`.
 
-**Paths.** Every per-run scratch path is `/tmp/dpt-shared-<tracker>-…`. The run state lives in `/tmp/dpt-shared-<tracker>-run.env`, which every fence after Phase 0.5 sources. Substitute `<tracker>` before you write a fence to its file.
+**Paths.** Every per-run scratch path is `/tmp/dpt-shared-<tracker>-…`. The run state lives in `/tmp/dpt-shared-<tracker>-run.env`, which every fence after Phase 0.5 sources. Each such fence reads it only through the same run-state preamble, the lines between `# run-state preamble: begin` and `# run-state preamble: end`, byte-identical in every fence. The two lines above the preamble declare what that fence needs: `RUN_STATE_NEEDS` on every run, and `RUN_STATE_NEEDS_LINEAR` on a Linear run as well. The preamble refuses `run-state-missing` in the NFR-10 shape, before the fence does anything, when the run state is missing or unreadable, when its `TRACKER` is not exactly `jira` or `linear` and the tracker the fence was written for, or when a declared variable is empty. An empty path variable would otherwise mean "here" to `git -C` and `cd`, or "/" as a path prefix, so every variable a fence interpolates into such a place is declared. Substitute `<tracker>` before you write a fence to its file.
 
 ## Phase 0 — Pre-approval
 
-Nothing here calls a tracker. Run this fence from the toolkit checkout's top level, print its output, and wait for the operator to type approval. On a Jira run without `--jira-repoint-from` it prints `S8 skipped: repoint-space-not-given`. The numbers are derived by command, never typed: `spawnCeiling(tracker)` is the tracker's live steps plus the two audits.
+Nothing here calls a tracker. Run this fence from the toolkit checkout's top level, print its output, and wait for the operator to type approval. A tracker other than `jira` or `linear` refuses `tracker-unknown` before any plan is written. On a Jira run without `--jira-repoint-from` it prints `S8 skipped: repoint-space-not-given`. The numbers are derived by command, never typed: `spawnCeiling(tracker)` is the tracker's live steps plus the two audits.
 
 **The item counts are the tracker's own.** The registry holds a Linear issue budget but no Jira item count, so the fence derives both from the tracker items the § Phase 3 steps create on the expected path, listed once in `CREATES` below, and checks the Linear column against the registry's `LINEAR_ISSUE_BUDGET` (a drift refuses). The two trackers differ in one item: the S3 span milestone is an Epic on Jira, which is an issue, and a milestone on Linear, which is not. The S8 legacy item is not created on a Jira run without `--jira-repoint-from`. The worst case adds each live scenario's `worstCaseExtraIssues` from the registry — one item each for S6, S7 and S14, whose guards, if broken, would let one create through — so on Linear it equals `linearWorstCase()`.
 
 ```bash
 # shared-tracker-smoke: phase 0 — the plan the operator approves
 TRACKER="<tracker>"
+case "${TRACKER}" in
+  jira | linear) ;;
+  *)
+    printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=0, check=tracker-unknown, tracker=%s\n' "the tracker is ${TRACKER:-empty}, not jira or linear; no plan was written." "substitute <tracker> with jira or linear in this fence and run Phase 0 again." "${TRACKER:-unset}" >&2
+    exit 1 ;;
+esac
 JIRA_PROJECT="${JIRA_PROJECT:-DST}"
 JIRA_REPOINT_FROM="${JIRA_REPOINT_FROM:-}"
 LINEAR_TEAM="${LINEAR_TEAM:-STE}"
@@ -93,7 +99,7 @@ No approval, no run. There is no auto-approve path at this gate.
 
 ## Phase 0.5 — Clear this tracker's stale scratch
 
-Only this tracker's paths are touched, so a run on the other tracker in another terminal is unaffected. The fence then mints the run id and the nonce and writes the run state.
+Only this tracker's paths are touched, so a run on the other tracker in another terminal is unaffected. The fence then mints the run id and the nonce and writes the run state. It refuses, removing nothing, when the tracker is not `jira` or `linear` (`tracker-unknown`) or when Phase 0's approved plan is missing or carries no whole-number `SPAWN_CEILING` (`plan-missing`), since the run state would then carry no ceiling.
 
 **The working directory is checked before anything is removed.** Run from a subdirectory such as `plugins/dev-process-toolkit`, a `../dpt-shared-*` path lands inside the repository tree; that trap once broke `/conformance-loop`. So the fence first refuses unless the working directory is `git rev-parse --show-toplevel`, then checks every path it would remove, and removes nothing at all if any of them sits in, or resolves into, the toolkit checkout (a link into the tree included).
 
@@ -106,6 +112,13 @@ refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=0.5, check=%s, tracker=%s\n' "$2" "$3" "$1" "${TRACKER}" >&2
   exit 1
 }
+case "${TRACKER}" in
+  jira | linear) ;;
+  *) refuse tracker-unknown "the tracker is ${TRACKER:-empty}, not jira or linear; nothing was removed." "substitute <tracker> with jira or linear in this fence and run Phase 0.5 again." ;;
+esac
+# 0. The plan the operator approved, before any rm: without it the run state would carry no SPAWN_CEILING.
+grep -Eqx 'SPAWN_CEILING=[0-9]+' /tmp/dpt-shared-<tracker>-plan.env 2>/dev/null \
+  || refuse plan-missing "/tmp/dpt-shared-<tracker>-plan.env is missing, unreadable or holds no whole-number SPAWN_CEILING; nothing was removed and no run state was written." "run Phase 0, have the operator approve its plan, then run Phase 0.5 again."
 # 1. The cwd, before any rm.
 TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
 if [ -z "${TOPLEVEL}" ] || [ "$(pwd -P)" != "$(cd "${TOPLEVEL}" 2>/dev/null && pwd -P)" ]; then
@@ -168,7 +181,7 @@ Every refusal below comes before any spawn and before any tracker write, and eac
 - Jira: `jira-space-<KEY>.json`, the answer of `mcp__atlassian__getVisibleJiraProjects(searchString: <KEY>)` (`{"values":[…],…}`), and `jira-createmeta-<KEY>.json`, the answer of `mcp__atlassian__getJiraProjectIssueTypesMetadata(projectIdOrKey: <KEY>)` (`{"issueTypes":[…],…}`), each saved verbatim, for the shared space and, when given, the repoint-from space.
 - Linear: `linear-team.json`, the answer of `mcp__linear__get_team(query: <LINEAR_TEAM>)`, saved verbatim. It carries the team's `id` and display `name` but no `key` field, so the fence checks that `LINEAR_TEAM` is key-shaped and that the answer is an object with a non-empty string `id` and no `error`.
 
-The only `bun` the fence runs is the grader's read-only `digest`; it starts no `claude`. It reads its inputs from the environment: `TRACKER`, `JIRA_PROJECT`, `JIRA_REPOINT_FROM`, `LINEAR_TEAM`, `OLD_CLIENT`, `CLAUDE_CONFIG_DIR` and `PREFLIGHT_ANSWERS`. Run it from the toolkit checkout's top level. On success it writes the resolved old client, floor and digest, and on Linear the checked team key as `LINEAR_TEAM` and the team's id as `LINEAR_TEAM_ID` (both empty on Jira), to `/tmp/dpt-shared-<tracker>-preflight.env`, which Phase 2 appends to the run state. Phase 2's label creates take that id as `teamId`.
+The only `bun` the fence runs is the grader's read-only `digest`; it starts no `claude`. It reads its inputs from the environment: `TRACKER`, `JIRA_PROJECT`, `JIRA_REPOINT_FROM`, `LINEAR_TEAM`, `OLD_CLIENT`, `CLAUDE_CONFIG_DIR` and `PREFLIGHT_ANSWERS`. Run it from the toolkit checkout's top level. On success it writes the resolved old client, floor and digest, on Linear the checked team key as `LINEAR_TEAM` and the team's id as `LINEAR_TEAM_ID` (both empty on Jira), and the absolute answers directory it read as `PREFLIGHT_ANSWERS`, to `/tmp/dpt-shared-<tracker>-preflight.env`, which Phase 2 appends to the run state. Phase 2's project and label creates take that id as their team, and Phase 2 saves its own answers into that same directory, where § Linear containers reads them.
 
 **Between legs.** When the other tracker's leg already ran, commit its evidence bundle (a commit touching only that leg's bundle directory under `plugins/dev-process-toolkit/tests/fixtures/shared-tracker-live/`, which lies outside the behaviour digest) before this pre-flight, since the pre-flight refuses an untracked bundle (check 5).
 
@@ -288,32 +301,67 @@ fi
   printf 'DIGEST_AT_START=%s\n' "${DIGEST}"
   printf 'LINEAR_TEAM=%q\n' "$([ "${TRACKER}" = linear ] && echo "${LINEAR_TEAM}")"
   printf 'LINEAR_TEAM_ID=%q\n' "${LINEAR_TEAM_ID:-}"
+  # The answers directory this pre-flight read, so § Linear containers reads Phase 2's answers from the same place.
+  printf 'PREFLIGHT_ANSWERS=%q\n' "$(cd "${A}" && pwd -P)"
 } > "/tmp/dpt-shared-${TRACKER}-preflight.env"
 echo "pre-flight ok: tracker=${TRACKER} floor=${FLOOR} old_client=${OLD_CLIENT} (${OLD_V}) digest=${DIGEST}${LINEAR_TEAM_ID:+ linear_team_id=${LINEAR_TEAM_ID}}"
 ```
 
 ## Phase 2 — Bootstrap
 
-`../dpt-shared-<tracker>-a` and `-b` become git repositories. Each declaration — the repository's tag, the floor (the version under test) and the stop paragraph, and on Linear the team — is written by the M_947c79 declaration front door, `adapters/_shared/src/setup/tracker_binding_write.ts --shared <tag>` (plus `--team <LINEAR_TEAM>` on Linear); this document never writes a declaration line by hand. On Linear every create payload takes its team from the declaration's `team:`, so a declaration without it fails every create: the fence refuses `binding-team-missing` unless each CLAUDE.md carries exactly `team: <LINEAR_TEAM>` under `### Linear`. Jira takes no team. Each repository gets a wrapped MCP config; B's also registers the tracker server under a second name (`claude_ai_Atlassian` / `claude_ai_Linear`), and both repositories' settings allow the tools of both server names. A gets a trivial passing test command and a clean tree, so `/ship-milestone`'s refusals #1 to #3 cannot be the ones that fire in the sibling-busy scenario. The run nonce goes into every title the smoke writes, so no ticket from an earlier run can ever match.
+`../dpt-shared-<tracker>-a` and `-b` become git repositories. Each declaration — the repository's tag, the floor (the version under test) and the stop paragraph, and on Linear the team — is written by the M_947c79 declaration front door, `adapters/_shared/src/setup/tracker_binding_write.ts --shared <tag>` (plus `--team <LINEAR_TEAM>` on Linear); this document never writes a declaration line by hand. On Linear every create payload takes its team from the declaration's `team:`, so a declaration without it fails every create: the fence refuses `binding-team-missing` unless each CLAUDE.md carries exactly `team: <LINEAR_TEAM>` under `### Linear`. Jira takes no team. Before any write it also refuses `preflight-missing` when the pre-flight env is gone, and `container-unset` when the hand-typed `SHARED`, or on Linear `PRE`, is empty or still holds its `<…>` placeholder; whether those names are real projects in the team is § Linear containers' check. Each repository gets a wrapped MCP config; B's also registers the tracker server under a second name (`claude_ai_Atlassian` / `claude_ai_Linear`), and both repositories' settings allow the tools of both server names. A gets a trivial passing test command and a clean tree, so `/ship-milestone`'s refusals #1 to #3 cannot be the ones that fire in the sibling-busy scenario. The run nonce goes into every title the smoke writes, so no ticket from an earlier run can ever match.
 
-On Linear, create the two throwaway projects first, from this session: `dpt-shared-<nonce>` (shared) and `dpt-shared-<nonce>-pre` (B's pre-repoint project). Then create the two repo-tag labels in the team, also from this session: a Linear `save_issue` naming a label the team does not hold fails, so both must exist before any child creates. Call `mcp__linear__save_issue_label(name: "shr-<nonce>-a", teamId: <LINEAR_TEAM_ID>)` and `mcp__linear__save_issue_label(name: "shr-<nonce>-b", teamId: <LINEAR_TEAM_ID>)`, with no `id` (which makes each call a create) and `LINEAR_TEAM_ID` read from `/tmp/dpt-shared-<tracker>-preflight.env`; never the deprecated `create_issue_label`. Record every create. These are the run's first tracker writes, so write the marker `/tmp/dpt-shared-<tracker>-teardown-owed` right after them: from here on Phase 5 teardown is owed on every outcome. Then save, verbatim into the answers directory `/tmp/dpt-shared-<tracker>-answers`, `mcp__linear__list_issue_labels(team: <LINEAR_TEAM>, name: shr-<nonce>-a)` as `labels-a.json` and `mcp__linear__list_issue_labels(team: <LINEAR_TEAM>, name: shr-<nonce>-b)` as `labels-b.json`; § Linear tag labels checks them before the first spawn. Jira's bootstrap writes nothing to the tracker; there the first scenario spawn writes the marker (§ Phase 5).
+On Linear, create the two throwaway projects first, from this session, with `mcp__linear__save_project` and no `id` (which makes the call a create). Its schema requires, on a create, `name` and at least one team through `addTeams` or `setTeams`, each "Team name or ID"; pass the id the pre-flight resolved, `LINEAR_TEAM_ID` read from `/tmp/dpt-shared-<tracker>-preflight.env`, so the project lands in the team the declarations name. First call `mcp__linear__save_project(name: "dpt-shared-<nonce>", addTeams: ["<LINEAR_TEAM_ID>"])` (shared). That is the run's first tracker write, so write the marker right after it and before any second write, with `: > /tmp/dpt-shared-<tracker>-teardown-owed`: from here on Phase 5 teardown is owed on every outcome, even if a later create fails. Only then call `mcp__linear__save_project(name: "dpt-shared-<nonce>-pre", addTeams: ["<LINEAR_TEAM_ID>"])` (B's pre-repoint project). Then create the two repo-tag labels in the team, also from this session: a Linear `save_issue` naming a label the team does not hold fails, so both must exist before any child creates. Call `mcp__linear__save_issue_label(name: "shr-<nonce>-a", teamId: <LINEAR_TEAM_ID>)` and `mcp__linear__save_issue_label(name: "shr-<nonce>-b", teamId: <LINEAR_TEAM_ID>)`, with no `id` and the same `LINEAR_TEAM_ID`; never the deprecated `create_issue_label`. Record every create. Then save, verbatim, into the answers directory the pre-flight read (`PREFLIGHT_ANSWERS`, recorded in the pre-flight env and so in the run state; normally `/tmp/dpt-shared-<tracker>-answers`): `mcp__linear__get_project(query: dpt-shared-<nonce>)` as `project-shared.json`, `mcp__linear__get_project(query: dpt-shared-<nonce>-pre)` as `project-pre.json`, `mcp__linear__list_issue_labels(team: <LINEAR_TEAM>, name: shr-<nonce>-a)` as `labels-a.json` and `mcp__linear__list_issue_labels(team: <LINEAR_TEAM>, name: shr-<nonce>-b)` as `labels-b.json`. § Linear containers checks all four before the first spawn. Jira's bootstrap writes nothing to the tracker; there the first scenario spawn writes the marker (§ Phase 5).
 
 **Run it from a file.** Write the fence to a file and run `bash <file>`; never feed it to `bash`, `sh` or `zsh` through stdin.
 
 ```bash
 # shared-tracker-smoke: bootstrap
 set -e
-cat /tmp/dpt-shared-<tracker>-preflight.env >> /tmp/dpt-shared-<tracker>-run.env
-. /tmp/dpt-shared-<tracker>-run.env
+RUN_STATE_NEEDS="TRACKER NONCE TOPLEVEL ROOT_A ROOT_B PLUGIN_TREE PLUGIN_BELOW_FLOOR PLUGIN_INTRUDER"
+RUN_STATE_NEEDS_LINEAR=""
+# run-state preamble: begin — the same lines in every fence that reads the run state
+RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
+run_state_refuse() {
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
+  exit 1
+}
+{ [ -f "${RUN_ENV}" ] && [ -r "${RUN_ENV}" ]; } || run_state_refuse "the run state ${RUN_ENV} is missing or unreadable."
+. "${RUN_ENV}"
+case "${TRACKER:-}:<tracker>" in
+  jira:jira | linear:linear) ;;
+  *) run_state_refuse "the run state ${RUN_ENV} records TRACKER=${TRACKER:-unset}; it must be exactly jira or linear, and the tracker this fence was written for." ;;
+esac
+[ "${TRACKER}" != linear ] || RUN_STATE_NEEDS="${RUN_STATE_NEEDS} ${RUN_STATE_NEEDS_LINEAR}"
+for RUN_STATE_VAR in ${RUN_STATE_NEEDS}; do
+  [ -n "${!RUN_STATE_VAR:-}" ] || run_state_refuse "the run state ${RUN_ENV} records no ${RUN_STATE_VAR}, which this fence needs (${RUN_STATE_NEEDS})."
+done
+# run-state preamble: end
+refuse() {
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=bootstrap, check=%s, tracker=%s\n' "$2" "$3" "$1" "${TRACKER}" >&2
+  exit 1
+}
+PREFLIGHT_ENV="/tmp/dpt-shared-<tracker>-preflight.env"
+[ -r "${PREFLIGHT_ENV}" ] || refuse preflight-missing "the pre-flight env ${PREFLIGHT_ENV} is missing or unreadable; nothing was written." "run Phase 1 (pre-flight) for this run, then this bootstrap again."
+cat "${PREFLIGHT_ENV}" >> "${RUN_ENV}"
+. "${PREFLIGHT_ENV}"
 SHARED="<shared space key, or the shared Linear project name>"
 PRE="<the repoint-from space key, or B's pre-repoint Linear project name; empty on a Jira run without the flag>"
 # LINEAR_TEAM (the key the pre-flight checked) and LINEAR_TEAM_ID (the uuid its lookup answered) came with
 # the pre-flight env above — never retyped here, so the declarations' team: is the key the pre-flight proved.
 # It is written into both Linear declarations as team:, and recorded in the run state below.
 if [ "${TRACKER}" = linear ] && [ -z "${LINEAR_TEAM}" ]; then
-  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=bootstrap, check=linear-team-unset, tracker=%s\n' "LINEAR_TEAM is empty on a Linear run; nothing was written." "set LINEAR_TEAM to the --linear-team key the pre-flight resolved, then run the bootstrap again." "${TRACKER}" >&2
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=bootstrap, check=linear-team-unset, tracker=%s\n' "LINEAR_TEAM is empty on a Linear run; nothing was written." "the key comes from the pre-flight env, not from your shell: run Phase 1 (pre-flight) again for this Linear run so it records the key it checks, then this bootstrap again." "${TRACKER}" >&2
   exit 1
 fi
+# SHARED and PRE are typed by hand above and flow into both declarations: an empty or unfilled one refuses here,
+# before any write. That they name real projects in LINEAR_TEAM is checked by § Linear containers, from saved answers.
+case "${SHARED}" in
+  "" | *"<"* | *">"*) refuse container-unset "SHARED is ${SHARED:-empty}, not the shared container's key or name; nothing was written." "fill SHARED with the shared space key (Jira) or dpt-shared-${NONCE} (Linear), then run this bootstrap again." ;;
+esac
+case "${TRACKER}:${PRE}" in
+  linear: | *"<"* | *">"*) refuse container-unset "PRE is ${PRE:-empty}, not the pre-repoint container's key or name; nothing was written." "fill PRE with the --jira-repoint-from key, or leave it empty on a Jira run without the flag, or dpt-shared-${NONCE}-pre on Linear, then run this bootstrap again." ;;
+esac
 # --plugin-dir shadows plugin-loaded MCP servers, so each child gets a wrapped config.
 case "${TRACKER}" in
   jira)
@@ -346,7 +394,7 @@ for SIDE in A B; do
     bun "${WRITE_BINDING}" "${ROOT}" "${TRACKER}" --project "${PROJECT}" --shared "${TAG}" --team "${LINEAR_TEAM}"
     TEAM_LINES=$(awk '$0 == "### Linear" { inside = 1; next } inside && /^#/ { exit } inside && /^team[[:space:]]*:/' "${ROOT}/CLAUDE.md")
     if [ "${TEAM_LINES}" != "team: ${LINEAR_TEAM}" ]; then
-      printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=bootstrap, check=binding-team-missing, side=%s, tracker=%s\n' "${ROOT}/CLAUDE.md does not carry exactly team: ${LINEAR_TEAM} under ### Linear (found: ${TEAM_LINES:-none}); every Linear create from it would fail." "fix the binding write so both declarations carry team: ${LINEAR_TEAM}, then run Phase 0.5 and the bootstrap again; run § Phase 5 — Teardown first if you abandon the run, since Phase 2's creates made it owed." "${SIDE}" "${TRACKER}" >&2
+      printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=bootstrap, check=binding-team-missing, side=%s, tracker=%s\n' "${ROOT}/CLAUDE.md does not carry exactly team: ${LINEAR_TEAM} under ### Linear (found: ${TEAM_LINES:-none}); every Linear create from it would fail." "fix the binding write so both declarations carry team: ${LINEAR_TEAM}, then start the run again by the one legal path: § Phase 5 — Teardown (Phase 2's creates made it owed, and they carry this run's nonce), then Phase 0.5, Phase 1 (pre-flight) and Phase 2; never Phase 0.5 and the bootstrap alone, since Phase 0.5 deletes the pre-flight env and mints a new nonce." "${SIDE}" "${TRACKER}" >&2
       exit 1
     fi
   else
@@ -376,30 +424,60 @@ printf 'SHARED=%q\nPRE=%q\nLINEAR_TEAM=%q\n' "${SHARED}" "${PRE}" "${LINEAR_TEAM
 echo "bootstrapped: ${ROOT_A} ${ROOT_B} nonce=${NONCE}"
 ```
 
-### Linear tag labels — before the privacy dry run (operator, no child)
+### Linear containers — before the privacy dry run (operator, no child)
 
-Every child create on Linear carries its repository's tag label, and a `save_issue` naming a label the team does not hold fails. So, after bootstrap and before the privacy dry run, this fence reads the two label listings Phase 2 saved (`labels-a.json`, `labels-b.json` in `/tmp/dpt-shared-<tracker>-answers`) and refuses `linear-tag-label-missing` in the NFR-10 shape unless each answer's `labels[]` holds an entry whose `name` is exactly that side's tag. A missing or unreadable answer refuses the same way. On Jira it checks nothing: a Jira label needs no create. It starts no child and writes nothing to the tracker.
+Phase 2 creates four Linear containers: the two throwaway projects and the two repo-tag labels. All four are checked here, the same way, before any child starts. A project's name is typed by hand into the bootstrap as `SHARED` / `PRE` and flows into both declarations and every create payload; a `save_issue` naming a label the team does not hold fails. So, after bootstrap and before the privacy dry run, this fence reads the four answers Phase 2 saved in the answers directory the pre-flight read (`PREFLIGHT_ANSWERS`, which the pre-flight recorded and Phase 2 appended to the run state), and refuses in the NFR-10 shape:
+
+- `linear-project-unverified` unless `project-shared.json` and `project-pre.json` (the `mcp__linear__get_project` answers) each have a `name` exactly equal to the run state's `SHARED` / `PRE` and a `teams[]` entry whose `key` equals `LINEAR_TEAM`;
+- `linear-tag-label-missing` unless each of `labels-a.json` / `labels-b.json` holds, in `labels[]`, an entry whose `name` is exactly that side's tag.
+
+A missing, unreadable or error answer refuses the same way. It opens with the run-state preamble, so a missing run state, a `TRACKER` that is not exactly `jira` or `linear`, or an empty `NONCE`, `SHARED`, `PRE`, `LINEAR_TEAM` or `PREFLIGHT_ANSWERS` on a Linear run refuses as `run-state-missing`. Only a Jira run takes the no-check branch: Jira's bootstrap creates no container, and a Jira label needs no create. It starts no child and writes nothing to the tracker.
 
 **Run it from a file.** Write the fence to a file and run `bash <file>`; never feed it to `bash`, `sh` or `zsh` through stdin.
 
 ```bash
-# shared-tracker-smoke: linear tag labels — both repo-tag labels exist before any spawn
-. /tmp/dpt-shared-<tracker>-run.env
-refuse() {
-  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=tag-labels, check=%s, tracker=%s\n' "$2" "$3" "$1" "${TRACKER:-unset}" >&2
+# shared-tracker-smoke: linear containers — both projects and both repo-tag labels exist before any spawn
+RUN_STATE_NEEDS="TRACKER"
+RUN_STATE_NEEDS_LINEAR="NONCE SHARED PRE LINEAR_TEAM PREFLIGHT_ANSWERS"
+# run-state preamble: begin — the same lines in every fence that reads the run state
+RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
+run_state_refuse() {
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
   exit 1
 }
-if [ "${TRACKER}" != linear ]; then
-  echo "tag labels: not a Linear run; a Jira label needs no create, so nothing is checked"
+{ [ -f "${RUN_ENV}" ] && [ -r "${RUN_ENV}" ]; } || run_state_refuse "the run state ${RUN_ENV} is missing or unreadable."
+. "${RUN_ENV}"
+case "${TRACKER:-}:<tracker>" in
+  jira:jira | linear:linear) ;;
+  *) run_state_refuse "the run state ${RUN_ENV} records TRACKER=${TRACKER:-unset}; it must be exactly jira or linear, and the tracker this fence was written for." ;;
+esac
+[ "${TRACKER}" != linear ] || RUN_STATE_NEEDS="${RUN_STATE_NEEDS} ${RUN_STATE_NEEDS_LINEAR}"
+for RUN_STATE_VAR in ${RUN_STATE_NEEDS}; do
+  [ -n "${!RUN_STATE_VAR:-}" ] || run_state_refuse "the run state ${RUN_ENV} records no ${RUN_STATE_VAR}, which this fence needs (${RUN_STATE_NEEDS})."
+done
+# run-state preamble: end
+refuse() {
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=linear-containers, check=%s, tracker=%s\n' "$2" "$3" "$1" "${TRACKER}" >&2
+  exit 1
+}
+if [ "${TRACKER}" = jira ]; then
+  echo "linear containers: a Jira run; its bootstrap creates no container and a Jira label needs no create, so nothing is checked"
   exit 0
 fi
-ANSWERS="/tmp/dpt-shared-<tracker>-answers"
+ANSWERS="${PREFLIGHT_ANSWERS}"
+LEGAL_PATH="if the name or the team is wrong, the declarations already carry it: run § Phase 5 — Teardown (Phase 2's creates made it owed), then Phase 0.5, Phase 1 (pre-flight) and Phase 2 again"
+for PAIR in "shared:${SHARED}" "pre:${PRE}"; do
+  SIDE="${PAIR%%:*}"
+  NAME="${PAIR#*:}"
+  jq -e --arg n "${NAME}" --arg k "${LINEAR_TEAM}" 'type == "object" and (has("error") | not) and .name == $n and ([.teams[]? | select(type == "object" and .key == $k)] | length > 0)' "${ANSWERS}/project-${SIDE}.json" >/dev/null 2>&1 \
+    || refuse linear-project-unverified "the saved answer ${ANSWERS}/project-${SIDE}.json does not show a Linear project named ${NAME} in team ${LINEAR_TEAM} (missing, unreadable, an error, another name, or no teams[] entry with key ${LINEAR_TEAM}); no child was started." "when the project exists under that name in that team, save mcp__linear__get_project(query: ${NAME}) verbatim as project-${SIDE}.json and run this fence again; ${LEGAL_PATH}."
+done
 for SIDE in a b; do
   TAG="shr-${NONCE}-${SIDE}"
   jq -e --arg t "${TAG}" '(.labels | type == "array") and ([.labels[] | select(type == "object" and .name == $t)] | length > 0)' "${ANSWERS}/labels-${SIDE}.json" >/dev/null 2>&1 \
     || refuse linear-tag-label-missing "the Linear label ${TAG} is not in the saved listing ${ANSWERS}/labels-${SIDE}.json (missing, unreadable, or holding no label named ${TAG}); every create carrying it would fail, and no child was started." "create it with mcp__linear__save_issue_label(name: \"${TAG}\", teamId: <LINEAR_TEAM_ID>), save mcp__linear__list_issue_labels(team: ${LINEAR_TEAM}, name: ${TAG}) verbatim as labels-${SIDE}.json, and run this fence again; run § Phase 5 — Teardown if you abandon the run, since Phase 2's creates made it owed."
 done
-echo "tag labels ok: shr-${NONCE}-a and shr-${NONCE}-b exist in Linear team ${LINEAR_TEAM}"
+echo "linear containers ok: projects ${SHARED} and ${PRE}, labels shr-${NONCE}-a and shr-${NONCE}-b, all in Linear team ${LINEAR_TEAM}"
 ```
 
 ### Privacy dry run — before the first spawn (operator, no child)
@@ -412,7 +490,25 @@ Phase 6's `extract` refuses to write a bundle holding a home-directory path, an 
 
 ```bash
 # shared-tracker-smoke: privacy dry run — extract over the bootstrap state, before any spawn
-. /tmp/dpt-shared-<tracker>-run.env
+RUN_STATE_NEEDS="TRACKER TOPLEVEL DPT_SMOKE_RUN_ID NONCE ROOT_A ROOT_B DIGEST_AT_START SHARED PLUGIN_BELOW_FLOOR RUN_START_MS"
+RUN_STATE_NEEDS_LINEAR="PRE LINEAR_TEAM"
+# run-state preamble: begin — the same lines in every fence that reads the run state
+RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
+run_state_refuse() {
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
+  exit 1
+}
+{ [ -f "${RUN_ENV}" ] && [ -r "${RUN_ENV}" ]; } || run_state_refuse "the run state ${RUN_ENV} is missing or unreadable."
+. "${RUN_ENV}"
+case "${TRACKER:-}:<tracker>" in
+  jira:jira | linear:linear) ;;
+  *) run_state_refuse "the run state ${RUN_ENV} records TRACKER=${TRACKER:-unset}; it must be exactly jira or linear, and the tracker this fence was written for." ;;
+esac
+[ "${TRACKER}" != linear ] || RUN_STATE_NEEDS="${RUN_STATE_NEEDS} ${RUN_STATE_NEEDS_LINEAR}"
+for RUN_STATE_VAR in ${RUN_STATE_NEEDS}; do
+  [ -n "${!RUN_STATE_VAR:-}" ] || run_state_refuse "the run state ${RUN_ENV} records no ${RUN_STATE_VAR}, which this fence needs (${RUN_STATE_NEEDS})."
+done
+# run-state preamble: end
 refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=privacy-dry-run, check=%s, tracker=%s\n' "$2" "$3" "$1" "${TRACKER:-unset}" >&2
   exit 1
@@ -432,7 +528,7 @@ if bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/shared_trac
 else
   sed 's/^/  extract: /' "${DRY_ERR}"
   if grep -q 'holds personal data' "${DRY_ERR}"; then
-    refuse privacy-leak "the dry-run extract over the bootstrap state refused its bundle for personal data (the matches are listed above); no child was started." "make the grader rewrite what it names, or move the throwaway repositories, then run Phase 2 and this dry run again; on Linear run § Phase 5 — Teardown first, since Phase 2's project and label creates made it owed."
+    refuse privacy-leak "the dry-run extract over the bootstrap state refused its bundle for personal data (the matches are listed above); no child was started." "make the grader rewrite what it names (committed, since the pre-flight refuses a dirty tree), then start the run again by the legal path: on Linear § Phase 5 — Teardown first, since Phase 2's project and label creates made it owed, then Phase 0.5, Phase 1 (pre-flight), Phase 2 and this dry run; never Phase 2 alone, since the bootstrap cannot run over repositories it already made."
   fi
   refuse dry-run-failed "the dry-run extract over the bootstrap state failed (its error is listed above), so Phase 6 would fail too; no child was started." "fix what the extract names, then run this dry run again; on Linear run § Phase 5 — Teardown if you abandon the run, since Phase 2's project and label creates made it owed."
 fi
@@ -522,8 +618,26 @@ Ten keys are the same on every step and are written in the fence. The three belo
 
 ```bash
 # shared-tracker-smoke: scenario step — one child, one marker
+RUN_STATE_NEEDS="TRACKER TOPLEVEL DPT_SMOKE_RUN_ID SPAWN_CEILING ROOT_A ROOT_B PLUGIN_TREE PLUGIN_BELOW_FLOOR PLUGIN_INTRUDER OLD_CLIENT"
+RUN_STATE_NEEDS_LINEAR=""
+# run-state preamble: begin — the same lines in every fence that reads the run state
+RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
+run_state_refuse() {
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
+  exit 1
+}
+{ [ -f "${RUN_ENV}" ] && [ -r "${RUN_ENV}" ]; } || run_state_refuse "the run state ${RUN_ENV} is missing or unreadable."
+. "${RUN_ENV}"
+case "${TRACKER:-}:<tracker>" in
+  jira:jira | linear:linear) ;;
+  *) run_state_refuse "the run state ${RUN_ENV} records TRACKER=${TRACKER:-unset}; it must be exactly jira or linear, and the tracker this fence was written for." ;;
+esac
+[ "${TRACKER}" != linear ] || RUN_STATE_NEEDS="${RUN_STATE_NEEDS} ${RUN_STATE_NEEDS_LINEAR}"
+for RUN_STATE_VAR in ${RUN_STATE_NEEDS}; do
+  [ -n "${!RUN_STATE_VAR:-}" ] || run_state_refuse "the run state ${RUN_ENV} records no ${RUN_STATE_VAR}, which this fence needs (${RUN_STATE_NEEDS})."
+done
+# run-state preamble: end
 export CLAUDE_CONFIG_DIR=~/.claude-st
-. /tmp/dpt-shared-<tracker>-run.env
 DPT_SMOKE_LEG="shared-<tracker>"
 STEP_NAME="<step number>-<marker>"
 STEP_MARKER="<marker>"
@@ -572,7 +686,7 @@ MARKER_LINE="dpt-shared-tracker-scenario: ${STEP_MARKER}"
 [ "${STEP_CLIENT}" = tree ] || MARKER_LINE="${MARKER_LINE} client=${STEP_CLIENT}"
 # The ceiling, fail closed: an unset ceiling or an unreadable ledger refuses; it never reads as room to spawn.
 case "${SPAWN_CEILING:-}" in
-  "" | *[!0-9]*) refuse_step ceiling-unset "SPAWN_CEILING is ${SPAWN_CEILING:-unset}, not the whole number Phase 0 derived; nothing started." "rebuild the run state from Phase 0 and Phase 0.5 before any further step, and run § Phase 5 — Teardown now if a scenario child was already spawned." ;;
+  "" | *[!0-9]*) refuse_step ceiling-unset "SPAWN_CEILING is ${SPAWN_CEILING:-unset}, not the whole number Phase 0 derived; nothing started." "restore it from Phase 0's plan, which Phase 0.5 keeps: append the SPAWN_CEILING line of /tmp/dpt-shared-${TRACKER}-plan.env to the run state, then run this step again; never Phase 0.5 mid-run, which wipes the teardown-owed marker, the step logs and the answers. If that plan is gone too, run § Phase 5 — Teardown now if a scenario child was already spawned, then start a new run from Phase 0." ;;
 esac
 LEDGER_OUT=$(bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts" sessions --project-root "${TOPLEVEL}" --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}") \
   || refuse_step ledger-unreadable "the run ledger for run ${DPT_SMOKE_RUN_ID:-unset}, leg ${DPT_SMOKE_LEG}, could not be read; a failed read is not zero sessions, so nothing started." "fix what the ledger read names, then run § Phase 5 — Teardown now: it is owed once a scenario child was spawned."
@@ -630,12 +744,18 @@ Poll in bounded foreground calls until the child exits, then start the next step
 
 ```bash
 # shared-tracker-smoke: wait — bounded, foreground
+# The step fence removes its pidfile only when it aborts a launch, so a missing or empty pidfile means no
+# step is running: never read it as "exited".
 P=$(cat /tmp/dpt-shared-<tracker>-step.pid 2>/dev/null)
+if [ -z "${P}" ]; then
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=wait, check=step-pid-missing\n' "no step pidfile at /tmp/dpt-shared-<tracker>-step.pid: no step was launched, or its launch was aborted, so there is nothing to wait for." "read the step fence's last output: an ABORT line means run § Phase 5 — Teardown; otherwise launch the step again." >&2
+  exit 1
+fi
 for TRY in $(seq 1 20); do
-  kill -0 "${P}" 2>/dev/null || { echo "exited: ${P}"; break; }
+  kill -0 "${P}" 2>/dev/null || { echo "exited: ${P}"; exit 0; }
   sleep 15
 done
-kill -0 "${P}" 2>/dev/null && echo "still running: ${P} — poll again"
+echo "still running: ${P} — poll again"
 ```
 
 ### Before step 14 — archive A's span FR (operator, no child)
@@ -646,14 +766,32 @@ Step 10 leaves A's own S2 FR active in the span milestone. `/ship-milestone` ref
 
 ```bash
 # shared-tracker-smoke: S5 idle A — A's span FR, before step 14
-. /tmp/dpt-shared-<tracker>-run.env
+RUN_STATE_NEEDS="TRACKER ROOT_A PLUGIN_TREE"
+RUN_STATE_NEEDS_LINEAR=""
+# run-state preamble: begin — the same lines in every fence that reads the run state
+RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
+run_state_refuse() {
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
+  exit 1
+}
+{ [ -f "${RUN_ENV}" ] && [ -r "${RUN_ENV}" ]; } || run_state_refuse "the run state ${RUN_ENV} is missing or unreadable."
+. "${RUN_ENV}"
+case "${TRACKER:-}:<tracker>" in
+  jira:jira | linear:linear) ;;
+  *) run_state_refuse "the run state ${RUN_ENV} records TRACKER=${TRACKER:-unset}; it must be exactly jira or linear, and the tracker this fence was written for." ;;
+esac
+[ "${TRACKER}" != linear ] || RUN_STATE_NEEDS="${RUN_STATE_NEEDS} ${RUN_STATE_NEEDS_LINEAR}"
+for RUN_STATE_VAR in ${RUN_STATE_NEEDS}; do
+  [ -n "${!RUN_STATE_VAR:-}" ] || run_state_refuse "the run state ${RUN_ENV} records no ${RUN_STATE_VAR}, which this fence needs (${RUN_STATE_NEEDS})."
+done
+# run-state preamble: end
 SPAN_TOKEN="<the span milestone's token: the basename, without .md, of its plan file under specs/plan/>"
 refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=scenarios, check=%s, step=s5-idle-a, tracker=%s\n' "$2" "$3" "$1" "${TRACKER:-unset}" >&2
   exit 1
 }
 git -C "${ROOT_A}" rev-parse --git-dir >/dev/null 2>&1 \
-  || refuse a-not-a-repository "${ROOT_A} is not a git repository; nothing was archived." "re-run the bootstrap; this run cannot reach its S5 busy-sibling step."
+  || refuse a-not-a-repository "${ROOT_A} is not a git repository; nothing was archived." "this run cannot reach its S5 busy-sibling step; scenario children have already run, so the bootstrap cannot be re-run over this run: run § Phase 5 — Teardown now (it is owed), then Phase 6, which grades the missing scenario as not observed, and start a new run from Phase 0.5."
 FRS=()
 for F in "${ROOT_A}"/specs/frs/*.md; do
   [ -f "${F}" ] || continue
@@ -688,14 +826,32 @@ The S5 permit twin (step 15) needs B idle on the span milestone: no active FR bo
 
 ```bash
 # shared-tracker-smoke: S5 archive — B's span FR, between step 14 and step 15
-. /tmp/dpt-shared-<tracker>-run.env
+RUN_STATE_NEEDS="TRACKER ROOT_B PLUGIN_TREE"
+RUN_STATE_NEEDS_LINEAR=""
+# run-state preamble: begin — the same lines in every fence that reads the run state
+RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
+run_state_refuse() {
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
+  exit 1
+}
+{ [ -f "${RUN_ENV}" ] && [ -r "${RUN_ENV}" ]; } || run_state_refuse "the run state ${RUN_ENV} is missing or unreadable."
+. "${RUN_ENV}"
+case "${TRACKER:-}:<tracker>" in
+  jira:jira | linear:linear) ;;
+  *) run_state_refuse "the run state ${RUN_ENV} records TRACKER=${TRACKER:-unset}; it must be exactly jira or linear, and the tracker this fence was written for." ;;
+esac
+[ "${TRACKER}" != linear ] || RUN_STATE_NEEDS="${RUN_STATE_NEEDS} ${RUN_STATE_NEEDS_LINEAR}"
+for RUN_STATE_VAR in ${RUN_STATE_NEEDS}; do
+  [ -n "${!RUN_STATE_VAR:-}" ] || run_state_refuse "the run state ${RUN_ENV} records no ${RUN_STATE_VAR}, which this fence needs (${RUN_STATE_NEEDS})."
+done
+# run-state preamble: end
 SPAN_TOKEN="<the span milestone's token: the basename, without .md, of its plan file under specs/plan/>"
 refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=scenarios, check=%s, step=s5-archive, tracker=%s\n' "$2" "$3" "$1" "${TRACKER:-unset}" >&2
   exit 1
 }
 git -C "${ROOT_B}" rev-parse --git-dir >/dev/null 2>&1 \
-  || refuse b-not-a-repository "${ROOT_B} is not a git repository; nothing was archived." "re-run the bootstrap; this run cannot reach its S5 permit twin."
+  || refuse b-not-a-repository "${ROOT_B} is not a git repository; nothing was archived." "this run cannot reach its S5 permit twin; scenario children have already run, so the bootstrap cannot be re-run over this run: run § Phase 5 — Teardown now (it is owed), then Phase 6, which grades the missing scenario as not observed, and start a new run from Phase 0.5."
 FRS=()
 for F in "${ROOT_B}"/specs/frs/*.md; do
   [ -f "${F}" ] || continue
@@ -728,7 +884,25 @@ S11's step runs in `<B>/.s11/relocated`: a git worktree of B at another path, de
 
 ```bash
 # shared-tracker-smoke: S11 worktree — B's relocated checkout, before step 19
-. /tmp/dpt-shared-<tracker>-run.env
+RUN_STATE_NEEDS="TRACKER ROOT_B"
+RUN_STATE_NEEDS_LINEAR=""
+# run-state preamble: begin — the same lines in every fence that reads the run state
+RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
+run_state_refuse() {
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
+  exit 1
+}
+{ [ -f "${RUN_ENV}" ] && [ -r "${RUN_ENV}" ]; } || run_state_refuse "the run state ${RUN_ENV} is missing or unreadable."
+. "${RUN_ENV}"
+case "${TRACKER:-}:<tracker>" in
+  jira:jira | linear:linear) ;;
+  *) run_state_refuse "the run state ${RUN_ENV} records TRACKER=${TRACKER:-unset}; it must be exactly jira or linear, and the tracker this fence was written for." ;;
+esac
+[ "${TRACKER}" != linear ] || RUN_STATE_NEEDS="${RUN_STATE_NEEDS} ${RUN_STATE_NEEDS_LINEAR}"
+for RUN_STATE_VAR in ${RUN_STATE_NEEDS}; do
+  [ -n "${!RUN_STATE_VAR:-}" ] || run_state_refuse "the run state ${RUN_ENV} records no ${RUN_STATE_VAR}, which this fence needs (${RUN_STATE_NEEDS})."
+done
+# run-state preamble: end
 W="${ROOT_B}/.s11/relocated"
 refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=scenarios, check=%s, step=s11-worktree, tracker=%s\n' "$2" "$3" "$1" "${TRACKER:-unset}" >&2
@@ -738,7 +912,7 @@ refuse() {
 # plain rev-parse and turn the commit below into a commit to that foreign repository.
 B_TOP=$(git -C "${ROOT_B}" rev-parse --show-toplevel 2>/dev/null) || B_TOP=""
 [ -n "${B_TOP}" ] && [ "$(cd "${B_TOP}" && pwd -P)" = "$(cd "${ROOT_B}" && pwd -P)" ] \
-  || refuse b-not-a-repository "${ROOT_B} is not its own git repository (its top level is ${B_TOP:-none}); no worktree was made and nothing was committed." "re-run the bootstrap; S11 cannot run without B."
+  || refuse b-not-a-repository "${ROOT_B} is not its own git repository (its top level is ${B_TOP:-none}); no worktree was made and nothing was committed." "S11 cannot run without B; scenario children have already run, so the bootstrap cannot be re-run over this run: run § Phase 5 — Teardown now (it is owed), then Phase 6, which grades the missing scenario as not observed, and start a new run from Phase 0.5."
 [ ! -e "${W}" ] || refuse worktree-exists "${W} already exists; nothing was changed." "remove it with git -C ${ROOT_B} worktree remove --force ${W}, then run this fence again."
 if [ -n "$(git -C "${ROOT_B}" status --porcelain -- CLAUDE.md)" ]; then
   git -C "${ROOT_B}" add CLAUDE.md
@@ -763,8 +937,26 @@ Before running it, write to `/tmp/dpt-shared-<tracker>-created-keys.txt` every k
 
 ```bash
 # shared-tracker-smoke: audit — read-only, marker audit
+RUN_STATE_NEEDS="TRACKER TOPLEVEL DPT_SMOKE_RUN_ID SPAWN_CEILING NONCE ROOT_A PLUGIN_TREE"
+RUN_STATE_NEEDS_LINEAR=""
+# run-state preamble: begin — the same lines in every fence that reads the run state
+RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
+run_state_refuse() {
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
+  exit 1
+}
+{ [ -f "${RUN_ENV}" ] && [ -r "${RUN_ENV}" ]; } || run_state_refuse "the run state ${RUN_ENV} is missing or unreadable."
+. "${RUN_ENV}"
+case "${TRACKER:-}:<tracker>" in
+  jira:jira | linear:linear) ;;
+  *) run_state_refuse "the run state ${RUN_ENV} records TRACKER=${TRACKER:-unset}; it must be exactly jira or linear, and the tracker this fence was written for." ;;
+esac
+[ "${TRACKER}" != linear ] || RUN_STATE_NEEDS="${RUN_STATE_NEEDS} ${RUN_STATE_NEEDS_LINEAR}"
+for RUN_STATE_VAR in ${RUN_STATE_NEEDS}; do
+  [ -n "${!RUN_STATE_VAR:-}" ] || run_state_refuse "the run state ${RUN_ENV} records no ${RUN_STATE_VAR}, which this fence needs (${RUN_STATE_NEEDS})."
+done
+# run-state preamble: end
 export CLAUDE_CONFIG_DIR=~/.claude-st
-. /tmp/dpt-shared-<tracker>-run.env
 DPT_SMOKE_LEG="shared-<tracker>"
 AUDIT_PASS="<1 after the scenarios, 2 after teardown>"
 # The fields are the grader's contract: an answer without labels or project cannot be counted.
@@ -796,7 +988,7 @@ if [ "${TRACKER}" = linear ] && [ "${AUDIT_PASS}" = 2 ]; then
 fi
 # The ceiling, fail closed: an unset ceiling or an unreadable ledger refuses; it never reads as room to spawn.
 case "${SPAWN_CEILING:-}" in
-  "" | *[!0-9]*) refuse_audit ceiling-unset "SPAWN_CEILING is ${SPAWN_CEILING:-unset}, not the whole number Phase 0 derived; the audit was not started." "rebuild the run state from Phase 0 and Phase 0.5, and run § Phase 5 — Teardown now if it has not run: it is owed on every outcome." ;;
+  "" | *[!0-9]*) refuse_audit ceiling-unset "SPAWN_CEILING is ${SPAWN_CEILING:-unset}, not the whole number Phase 0 derived; the audit was not started." "restore it from Phase 0's plan, which Phase 0.5 keeps: append the SPAWN_CEILING line of /tmp/dpt-shared-${TRACKER}-plan.env to the run state, then run the audit again; never Phase 0.5 mid-run, which wipes the teardown-owed marker, the step logs and the created-key list. If that plan is gone too, run § Phase 5 — Teardown now if it has not run (it is owed on every outcome), then start a new run from Phase 0." ;;
 esac
 LEDGER_OUT=$(bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts" sessions --project-root "${TOPLEVEL}" --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}") \
   || refuse_audit ledger-unreadable "the run ledger for run ${DPT_SMOKE_RUN_ID:-unset}, leg ${DPT_SMOKE_LEG}, could not be read; a failed read is not zero sessions, so the audit was not started." "fix what the ledger read names, and run § Phase 5 — Teardown now if it has not run: it is owed on every outcome."
@@ -849,10 +1041,10 @@ fi
 
 ## Phase 5 — Teardown
 
-**When teardown is owed.** It is keyed on the first scenario spawn. Jira's bootstrap writes nothing to the tracker, so a trigger keyed on bootstrap would never fire there. The step fence writes the marker `/tmp/dpt-shared-<tracker>-teardown-owed` just before it appends the first ledger row and spawns. On Linear, Phase 2's project and label creates write the marker earlier, because they are that run's first tracker writes. Once the marker exists, teardown runs on every outcome: pass, fail, abort, a step or audit refusal (`spawn-overrun`, an unreadable ledger, an unset ceiling), a spawn-count mismatch, and the Linear free-issue-limit stop. `--keep` only skips the prompts. From this operator session:
+**When teardown is owed.** It is keyed on the first scenario spawn. Jira's bootstrap writes nothing to the tracker, so a trigger keyed on bootstrap would never fire there. The step fence writes the marker `/tmp/dpt-shared-<tracker>-teardown-owed` just before it appends the first ledger row and spawns. On Linear, Phase 2 writes the marker earlier, right after its first project create and before its second write, because that create is the run's first tracker write: a failure between Phase 2's first and fourth create still leaves teardown owed. Once the marker exists, teardown runs on every outcome: pass, fail, abort, a step or audit refusal (`spawn-overrun`, an unreadable ledger, an unset ceiling), a spawn-count mismatch, and the Linear free-issue-limit stop. `--keep` only skips the prompts. From this operator session:
 
 - **Jira:** transition every nonce item, Epics included, in the shared space and, when given, the repoint-from space, to Done.
-- **Linear:** complete both throwaway projects. No MCP tool archives or deletes a Linear issue; the closing summary names every issue the run created so the operator can archive them by hand. A Linear label cannot be deleted through the MCP either: after teardown, retire both tag labels, `shr-<nonce>-a` and `shr-<nonce>-b`, with `mcp__linear__retire_issue_label`. The label retirement is not graded: the second audit reads no label, so it stays outside the evidence.
+- **Linear:** complete both throwaway projects, `dpt-shared-<nonce>` and `dpt-shared-<nonce>-pre` (the run state's `SHARED` and `PRE`), each with `mcp__linear__save_project(id: <project name>, state: "completed")`. Complete whichever of them exists when Phase 2 stopped part-way. No MCP tool archives or deletes a Linear issue; the closing summary names every issue the run created so the operator can archive them by hand. A Linear label cannot be deleted through the MCP either: after teardown, retire both tag labels, `shr-<nonce>-a` and `shr-<nonce>-b`, with `mcp__linear__retire_issue_label(id: <label id>)`. That tool takes the label's `id` ("Label or label group ID"), never its name. Read each id from the listing Phase 2 saved in the answers directory (`PREFLIGHT_ANSWERS`): `jq -r --arg t shr-<nonce>-a '.labels[] | select(.name == $t) | .id' labels-a.json`, and the same for `-b` from `labels-b.json`. When a listing was never saved, take the id from that label's `save_issue_label` create answer, which Phase 2 recorded. The label retirement is not graded: the second audit reads no label, so it stays outside the evidence.
 
 Then run the § Phase 4 audit fence again with `AUDIT_PASS=2`: the second audit re-reads the nonce items and, on Linear, reads both throwaway projects back with one `mcp__linear__get_project` call each, by the names Phase 2 recorded in the run state (an issue listing never reads a project), and the grader fails the run as `teardown-incomplete` naming any item it still reads as open (Jira) or either project not completed (Linear). Teardown is therefore inside the evidence the release gate re-grades.
 
@@ -864,7 +1056,25 @@ The grader turns the ledgered sessions' transcripts, both audits included, into 
 
 ```bash
 # shared-tracker-smoke: extract and grade
-. /tmp/dpt-shared-<tracker>-run.env
+RUN_STATE_NEEDS="TRACKER TOPLEVEL DPT_SMOKE_RUN_ID NONCE ROOT_A ROOT_B DIGEST_AT_START PLUGIN_BELOW_FLOOR RUN_START_MS"
+RUN_STATE_NEEDS_LINEAR=""
+# run-state preamble: begin — the same lines in every fence that reads the run state
+RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
+run_state_refuse() {
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
+  exit 1
+}
+{ [ -f "${RUN_ENV}" ] && [ -r "${RUN_ENV}" ]; } || run_state_refuse "the run state ${RUN_ENV} is missing or unreadable."
+. "${RUN_ENV}"
+case "${TRACKER:-}:<tracker>" in
+  jira:jira | linear:linear) ;;
+  *) run_state_refuse "the run state ${RUN_ENV} records TRACKER=${TRACKER:-unset}; it must be exactly jira or linear, and the tracker this fence was written for." ;;
+esac
+[ "${TRACKER}" != linear ] || RUN_STATE_NEEDS="${RUN_STATE_NEEDS} ${RUN_STATE_NEEDS_LINEAR}"
+for RUN_STATE_VAR in ${RUN_STATE_NEEDS}; do
+  [ -n "${!RUN_STATE_VAR:-}" ] || run_state_refuse "the run state ${RUN_ENV} records no ${RUN_STATE_VAR}, which this fence needs (${RUN_STATE_NEEDS})."
+done
+# run-state preamble: end
 # SHARED, PRE and LINEAR_TEAM come from the run state bootstrap wrote, never retyped: a retyped value can
 # silently differ from the spaces the run actually used. An empty one refuses rather than degrading.
 if [ -z "${SHARED:-}" ]; then
@@ -904,7 +1114,25 @@ The STE-593 delete mode, on `pass` only, after extraction, handed exactly the ru
 
 ```bash
 # shared-tracker-smoke: session cleanup — pass only, after extraction
-. /tmp/dpt-shared-<tracker>-run.env
+RUN_STATE_NEEDS="TRACKER TOPLEVEL DPT_SMOKE_RUN_ID VERDICT_FILE"
+RUN_STATE_NEEDS_LINEAR=""
+# run-state preamble: begin — the same lines in every fence that reads the run state
+RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
+run_state_refuse() {
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
+  exit 1
+}
+{ [ -f "${RUN_ENV}" ] && [ -r "${RUN_ENV}" ]; } || run_state_refuse "the run state ${RUN_ENV} is missing or unreadable."
+. "${RUN_ENV}"
+case "${TRACKER:-}:<tracker>" in
+  jira:jira | linear:linear) ;;
+  *) run_state_refuse "the run state ${RUN_ENV} records TRACKER=${TRACKER:-unset}; it must be exactly jira or linear, and the tracker this fence was written for." ;;
+esac
+[ "${TRACKER}" != linear ] || RUN_STATE_NEEDS="${RUN_STATE_NEEDS} ${RUN_STATE_NEEDS_LINEAR}"
+for RUN_STATE_VAR in ${RUN_STATE_NEEDS}; do
+  [ -n "${!RUN_STATE_VAR:-}" ] || run_state_refuse "the run state ${RUN_ENV} records no ${RUN_STATE_VAR}, which this fence needs (${RUN_STATE_NEEDS})."
+done
+# run-state preamble: end
 SIDS=$(bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts" sessions --project-root "${TOPLEVEL}" --run "${DPT_SMOKE_RUN_ID}" --leg "shared-${TRACKER}")
 set --
 for SID in ${SIDS}; do

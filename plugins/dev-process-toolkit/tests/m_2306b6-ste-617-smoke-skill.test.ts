@@ -49,7 +49,7 @@ import { HARNESS_SKILL_RELATIVE_PATHS } from "../adapters/_shared/src/harness_ar
 import { runRequiresInputSentinelCoverageProbe } from "../adapters/_shared/src/requires_input_sentinel_coverage";
 import { scanCandidateCheckSkills } from "../adapters/_shared/src/scan_candidate_check_skills";
 import { AUDIT_REQUEST_FIELDS, parseMarker } from "../adapters/_shared/src/shared_tracker_live_grader";
-import { isSpawnFence, parseFences, type Fence } from "./_spawn_fences";
+import { classify as classifyLines, isSpawnFence, parseFences, type Fence } from "./_spawn_fences";
 import {
   baseEnv as stubEnv,
   flagValue,
@@ -490,7 +490,7 @@ describe("AC.2 — complete fixtures pass the pre-flight", () => {
 });
 
 describe("AC.2 — pre-flight refusals: non-zero, three-line NFR-10 shape, zero spawns, before any write", () => {
-  type Case = { name: string; tracker: "jira" | "linear"; env?: Record<string, string | undefined>; arrange?: (sb: Sandbox) => void; cwd?: (sb: Sandbox) => string; names?: (sb: Sandbox) => string };
+  type Case = { name: string; tracker: "jira" | "linear"; env?: Record<string, string | undefined>; arrange?: (sb: Sandbox) => void; cwd?: (sb: Sandbox) => string; names?: (sb: Sandbox) => string; check?: string };
   const cache = (sb: Sandbox) => join(sb.config, "plugins", "cache", "dev-process-toolkit", "dev-process-toolkit");
   const cases: Case[] = [
     { name: "cwd-not-toplevel — run from a subdirectory of the checkout", tracker: "jira", env: { TRACKER: "jira" }, cwd: (sb) => join(sb.toolkit, "plugins") },
@@ -546,6 +546,19 @@ describe("AC.2 — pre-flight refusals: non-zero, three-line NFR-10 shape, zero 
       arrange: (sb) => rmSync(join(sb.answers, "jira-space-DST2.json")),
     },
     { name: "linear-team-unresolved — the team lookup answered an error", tracker: "linear", env: { TRACKER: "linear" }, arrange: (sb) => writeJson(join(sb.answers, "linear-team.json"), { error: "Team not found" }) },
+    // Fifth audit, the standing rule: every precondition the fixture supplies has a row that omits it.
+    { name: "tracker-unknown — --tracker is neither jira nor linear", tracker: "jira", env: { TRACKER: "github" }, check: "tracker-unknown" },
+    { name: "second-server-silent — PREFLIGHT_ANSWERS is not given at all", tracker: "jira", env: { TRACKER: "jira", PREFLIGHT_ANSWERS: undefined }, check: "second-server-silent" },
+    { name: "trust-missing — CLAUDE_CONFIG_DIR is not given (the default config dir trusts nothing)", tracker: "jira", env: { TRACKER: "jira", CLAUDE_CONFIG_DIR: undefined }, check: "trust-missing" },
+    { name: "floor-unreadable — the plugin manifest under test is gone", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => {
+        // Committed, so the clean-tree check (5) passes and the manifest check (6) is the one that fires.
+        rmSync(join(sb.toolkit, "plugins", "dev-process-toolkit", ".claude-plugin", "plugin.json"));
+        sh(sb.toolkit, ["git", "-c", "commit.gpgsign=false", "commit", "-qam", "drop the manifest"], { HOME: sb.home });
+      },
+      check: "floor-unreadable",
+    },
+    { name: "jira-no-epic — the shared space's create metadata was never saved", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => rmSync(join(sb.answers, "jira-createmeta-DST.json")), check: "jira-no-epic" },
+    { name: "jira-space-unreadable — the shared space's answer was never saved", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => rmSync(join(sb.answers, "jira-space-DST.json")), check: "jira-space-unreadable" },
   ];
   // The two OLD_CLIENT cases point at a plugin dir the arrange step writes.
   const oldClientDir: Record<string, string> = {
@@ -562,6 +575,7 @@ describe("AC.2 — pre-flight refusals: non-zero, three-line NFR-10 shape, zero 
         const r = runPreflight(sb, envFor(sb, extra), c.cwd ? c.cwd(sb) : sb.toolkit);
         const lines = expectRefusal(r, sb, c.tracker);
         if (c.names) expect(lines.join("\n"), "the refusal names the untrusted path").toContain(c.names(sb));
+        if (c.check) expect(checkOf(lines), "the refusal is the named check").toBe(c.check);
       });
     });
   }
@@ -1377,7 +1391,10 @@ describe("audit items 6 + 7 — the step and audit fences refuse before spawning
     const start = f.body.indexOf("# The ceiling");
     const end = f.body.indexOf("LAUNCHED=0");
     expect(start > 0 && end > start, "the step fence's ceiling block is found").toBe(true);
-    const mutated = text.replace(f.body, `${f.body.slice(0, start)}${oldBody}\n${f.body.slice(end)}`);
+    // The run-state preamble also refuses an absent SPAWN_CEILING; the old fence had neither guard.
+    const oldFence = `${f.body.slice(0, start)}${oldBody}\n${f.body.slice(end)}`.replace(/^(RUN_STATE_NEEDS="[^"]*)\bSPAWN_CEILING /m, "$1");
+    expect(oldFence, "control: SPAWN_CEILING is dropped from the step fence's declared run state").not.toMatch(/^RUN_STATE_NEEDS="[^"]*\bSPAWN_CEILING\b/m);
+    const mutated = text.replace(f.body, oldFence);
     for (const over of [{ TOPLEVEL: "/nonexistent-ste617-toolkit" }, { SPAWN_CEILING: undefined }]) {
       withStub((sb) => {
         writeStubRunEnv(sb, over);
@@ -1537,6 +1554,57 @@ function runPhase0Full(tracker: "jira" | "linear", repointFrom: string | undefin
   }
 }
 
+describe("fifth audit, the standing rule — Phase 0 and Phase 0.5 refuse when a precondition is omitted", () => {
+  test("Phase 0 REFUSAL — a tracker that is neither jira nor linear writes no plan and refuses tracker-unknown in NFR-10 shape", () => {
+    const tmp = realpathSync(mkdtempSync(join(tmpdir(), "ste617-p0bad-")));
+    try {
+      const body = oneFence(docText(), "# shared-tracker-smoke: phase 0 —").body.replaceAll("<tracker>", "github").replaceAll("/tmp/", `${tmp}/`);
+      writeFileSync(join(tmp, "phase0.sh"), body);
+      const r = spawnSync("bash", [join(tmp, "phase0.sh")], { cwd: repoRoot, env: { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}` }, encoding: "utf-8" });
+      expect(r.status, `${r.stdout}\n${r.stderr}`).not.toBe(0);
+      expectNfr10(r.stderr);
+      expect(r.stderr).toMatch(/check=tracker-unknown/);
+      expect(existsSync(join(tmp, "dpt-shared-github-plan.env")), "no plan was written").toBe(false);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+  test("Phase 0 PERMIT TWIN — jira and linear each write a plan (runPhase0 asserts exit 0)", () => {
+    expect(runPhase0("jira", undefined).SPAWN_CEILING).toMatch(/^\d+$/);
+    expect(runPhase0("linear", undefined).SPAWN_CEILING).toMatch(/^\d+$/);
+  });
+  test("Phase 0.5 REFUSAL — no approved plan: plan-missing, nothing removed, no run state written", () => {
+    withPhase05(({ sb, toolkit, parent, stale, plan }) => {
+      rmSync(plan);
+      const r = runStubScript(sb, phase05Script(sb, toolkit), stubEnv(sb));
+      expect(r.exitCode, `${r.out}\n${r.err}`).not.toBe(0);
+      expectNfr10(r.err);
+      expect(r.err).toMatch(/check=plan-missing/);
+      expect(existsSync(join(parent, "dpt-shared-jira-a", "keep.txt"))).toBe(true);
+      expect(existsSync(stale)).toBe(true);
+      expect(existsSync(join(sb.tmp, "dpt-shared-jira-run.env"))).toBe(false);
+    });
+  });
+  test("Phase 0.5 REFUSAL — a plan with no whole-number SPAWN_CEILING: plan-missing", () => {
+    withPhase05(({ sb, toolkit, plan }) => {
+      writeFileSync(plan, "SPAWN_CEILING=NaN\n");
+      const r = runStubScript(sb, phase05Script(sb, toolkit), stubEnv(sb));
+      expect(r.exitCode).not.toBe(0);
+      expect(r.err).toMatch(/check=plan-missing/);
+    });
+  });
+  test("Phase 0.5 REFUSAL — <tracker> left unsubstituted: tracker-unknown, nothing removed", () => {
+    withPhase05(({ sb, toolkit, parent }) => {
+      const body = oneFence(docText(), "# shared-tracker-smoke: phase 0.5").body;
+      const r = runStubScript(sb, `cd ${JSON.stringify(toolkit)} || exit 97\n${rebaseIntoStub(body, sb)}\n`, stubEnv(sb));
+      expect(r.exitCode).not.toBe(0);
+      expectNfr10(r.err);
+      expect(r.err).toMatch(/check=tracker-unknown/);
+      expect(existsSync(join(parent, "dpt-shared-jira-a", "keep.txt"))).toBe(true);
+    });
+  });
+});
+
 describe("audit item 9 — Phase 0's expected and worst-case item counts are the tracker's own", () => {
   test("jira with --jira-repoint-from: 8 expected Jira items (the S3 Epic counted), 11 at worst (+ S6, S7, S14)", () => {
     const p = runPhase0("jira", "DST2");
@@ -1592,7 +1660,7 @@ function verdictPathsFromRun(text: string): VerdictPaths {
   let res: VerdictPaths = { out: null, verdict: null, phase6Read: null, phase7Read: null, dump: "" };
   withStub((sb) => {
     // SHARED as bootstrap writes it to the run state (Phase 6 reads it from there and refuses an empty one).
-    writeStubRunEnv(sb, { SHARED: "DST" });
+    writeStubRunEnv(sb, { SHARED: "DST", DIGEST_AT_START: "a".repeat(64), RUN_START_MS: "1" });
     const env = stubEnv(sb);
     const r6 = runStubScript(sb, rebaseIntoStub(oneFence(text, EXTRACT_TAG).body.replaceAll("<tracker>", "jira"), sb), env);
     const after6 = readStubCalls(sb).length;
@@ -2146,7 +2214,7 @@ describe("MEDIUM-G — LINEAR_TEAM is recorded in the run state at bootstrap and
   test("MUTATION — a Phase 6 that retypes LINEAR_TEAM over the run state's is red", () => {
     const text = docText();
     const f = oneFence(text, EXTRACT_TAG);
-    const m = text.replace(f.body, f.body.replace(/^(\. \/tmp\/dpt-shared-<tracker>-run\.env)$/m, '$1\nLINEAR_TEAM="<the --linear-team key on a Linear run; empty on Jira>"'));
+    const m = text.replace(f.body, f.body.replace(/^(# run-state preamble: end)$/m, '$1\nLINEAR_TEAM="<the --linear-team key on a Linear run; empty on Jira>"'));
     expect(m).not.toBe(text);
     expect(runPhase6Linear(m, { LINEAR_TEAM: "STE" }).team).not.toBe("STE");
   });
@@ -2192,7 +2260,7 @@ describe("MEDIUM-G extended — Phase 6 reads SHARED and PRE from the run state 
   test("MUTATION — a Phase 6 that retypes SHARED over the run state's is red", () => {
     const text = docText();
     const f = oneFence(text, EXTRACT_TAG);
-    const m = text.replace(f.body, f.body.replace(/^(\. \/tmp\/dpt-shared-<tracker>-run\.env)$/m, '$1\nSHARED="<shared space key, or the shared Linear project name>"'));
+    const m = text.replace(f.body, f.body.replace(/^(# run-state preamble: end)$/m, '$1\nSHARED="<shared space key, or the shared Linear project name>"'));
     expect(m).not.toBe(text);
     expect(runPhase6Spaces(m, "linear", { SHARED: "dpt-shared-n1", PRE: "dpt-shared-n1-pre" }).container).not.toBe("dpt-shared-n1");
   });
@@ -2388,7 +2456,7 @@ describe("live-run item 5 — a privacy dry run over the bootstrap state refuses
 // ===========================================================================
 
 const BOOT_TAG = "# shared-tracker-smoke: bootstrap";
-const LABELS_TAG = "# shared-tracker-smoke: linear tag labels";
+const CONTAINERS_TAG = "# shared-tracker-smoke: linear containers";
 const TAGS = { a: `shr-${FILL.nonce}-a`, b: `shr-${FILL.nonce}-b` };
 
 /** The check name a refusal's Context line carries. */
@@ -2569,19 +2637,44 @@ describe("fourth audit, defect 2 (HIGH-1) — the bootstrap writes team: into bo
   }, 60_000);
 });
 
-// --- defect 3: both repo-tag labels exist before any child creates ----------
+// --- defect 3, widened (fifth audit HIGH-A / HIGH-B / LOW-G): all four Linear containers are checked before any spawn
 
-function runLabelFence(text: string, tracker: "jira" | "linear", arrange: (answers: string) => void): { code: number; out: string; err: string } {
-  let res = { code: -1, out: "", err: "" };
+interface ContainersRun {
+  code: number;
+  out: string;
+  err: string;
+  calls: number;
+}
+
+/**
+ * The Linear containers fence RUN under the stub. The run state carries the
+ * answers directory as PREFLIGHT_ANSWERS, as the pre-flight records it (the
+ * fence reads its answers there, never from a hard-coded /tmp path). `over`
+ * edits the run state (undefined drops a line); `runEnv: false` writes none;
+ * `substitute: false` leaves `<tracker>` unfilled.
+ */
+function runContainersFence(
+  text: string,
+  tracker: "jira" | "linear",
+  arrange: (answers: string) => void,
+  opts: { over?: Record<string, string | undefined>; runEnv?: boolean; substitute?: boolean; answersDir?: (sb: StubSandbox) => string; extraRunEnv?: string } = {},
+): ContainersRun {
+  let res: ContainersRun = { code: -1, out: "", err: "", calls: 0 };
   withStub((sb) => {
-    writeStubRunEnv(sb, { TRACKER: tracker, LINEAR_TEAM: tracker === "linear" ? "STE" : "" });
-    writeFileSync(join(sb.tmp, `dpt-shared-${tracker}-run.env`), readFileSync(join(sb.tmp, "dpt-shared-jira-run.env"), "utf-8"));
-    const answers = join(sb.tmp, `dpt-shared-${tracker}-answers`);
+    const answers = opts.answersDir ? opts.answersDir(sb) : join(sb.root, "answers");
     mkdirSync(answers, { recursive: true });
+    writeStubRunEnv(sb, { TRACKER: tracker, LINEAR_TEAM: tracker === "linear" ? "STE" : "", ...PROJECTS, PREFLIGHT_ANSWERS: answers, ...(opts.over ?? {}) });
+    const jiraEnv = join(sb.tmp, "dpt-shared-jira-run.env");
+    const content = readFileSync(jiraEnv, "utf-8") + (opts.extraRunEnv ?? "");
+    rmSync(jiraEnv);
+    if (opts.runEnv !== false) writeFileSync(join(sb.tmp, `dpt-shared-${tracker}-run.env`), content);
     arrange(answers);
-    const r = runStubScript(sb, rebaseIntoStub(oneFence(text, LABELS_TAG).body.replaceAll("<tracker>", tracker), sb), stubEnv(sb));
-    expect(readStubCalls(sb).filter((c) => c.kind === "claude"), "the label check starts no child").toEqual([]);
-    res = { code: r.exitCode, out: r.out, err: r.err };
+    let body = oneFence(text, CONTAINERS_TAG).body;
+    if (opts.substitute !== false) body = body.replaceAll("<tracker>", tracker);
+    const r = runStubScript(sb, rebaseIntoStub(body, sb), stubEnv(sb));
+    const calls = readStubCalls(sb);
+    expect(calls.filter((c) => c.kind === "claude"), "the containers check starts no child").toEqual([]);
+    res = { code: r.exitCode, out: r.out, err: r.err, calls: calls.length };
   });
   return res;
 }
@@ -2592,66 +2685,144 @@ function labelsHolding(tag: string): unknown {
   return { ...page, labels: [...page.labels, { ...page.labels[0], id: "00000000-0000-4000-8000-000000000001", name: tag, description: null }] };
 }
 
+/** The measured get_project answer (status {id,name,type}; teams[] rows {id,name,key}) renamed, its one team keyed `key`. */
+function projectNamed(name: string, key = "STE"): any {
+  const a = liveShape("linear", "get_project");
+  return { ...a, name, teams: a.teams.map((t: Record<string, unknown>) => ({ ...t, key })) };
+}
+
 const bothLabels = (answers: string) => {
   writeJson(join(answers, "labels-a.json"), labelsHolding(TAGS.a));
   writeJson(join(answers, "labels-b.json"), labelsHolding(TAGS.b));
 };
+const bothProjects = (answers: string) => {
+  writeJson(join(answers, "project-shared.json"), projectNamed(PROJECTS.SHARED));
+  writeJson(join(answers, "project-pre.json"), projectNamed(PROJECTS.PRE));
+};
+const allContainers = (answers: string) => {
+  bothLabels(answers);
+  bothProjects(answers);
+};
 
-describe("fourth audit, defect 3 (HIGH-2) — both repo-tag labels exist on Linear before the first spawn", () => {
-  test("the label check sits after the bootstrap and before the privacy dry run", () => {
+describe("fifth audit — the measured get_project answer the containers check reads", () => {
+  test("CONTROL — status is {id,name,type}, and every teams[] row carries {id, name, key}", () => {
+    const a = liveShape("linear", "get_project");
+    expect(Object.keys(a.status).sort()).toEqual(["id", "name", "type"]);
+    expect(a.teams.length).toBeGreaterThan(0);
+    for (const t of a.teams) expect(Object.keys(t).sort()).toEqual(["id", "key", "name"]);
+  });
+});
+
+describe("fourth audit, defect 3 (HIGH-2), widened by the fifth audit's HIGH-B — all four Linear containers exist in LINEAR_TEAM before the first spawn", () => {
+  test("the containers check sits after the bootstrap and before the privacy dry run", () => {
     const text = docText();
-    const labels = oneFence(text, LABELS_TAG);
-    expect(oneFence(text, BOOT_TAG).openLine).toBeLessThan(labels.openLine);
-    expect(labels.openLine).toBeLessThan(oneFence(text, DRY_RUN_TAG).openLine);
+    const f = oneFence(text, CONTAINERS_TAG);
+    expect(oneFence(text, BOOT_TAG).openLine).toBeLessThan(f.openLine);
+    expect(f.openLine).toBeLessThan(oneFence(text, DRY_RUN_TAG).openLine);
+    expect(fencesTagged(text, "# shared-tracker-smoke: linear tag labels"), "one fence, one tag: the old label-only tag is gone").toEqual([]);
   });
-  test("PERMIT — the measured label page holding each tag passes", () => {
-    const r = runLabelFence(docText(), "linear", bothLabels);
+  test("PERMIT — the measured project answers and label pages holding each name pass", () => {
+    const r = runContainersFence(docText(), "linear", allContainers);
     expect(r.code, `${r.out}\n${r.err}`).toBe(0);
   });
-  test("PERMIT — a Jira run checks nothing and passes with no answers saved (a Jira label needs no create)", () => {
-    const r = runLabelFence(docText(), "jira", () => {});
+  test("PERMIT — a Jira run checks nothing and passes with no answers saved (Jira's bootstrap creates no container)", () => {
+    const r = runContainersFence(docText(), "jira", () => {});
     expect(r.code, `${r.out}\n${r.err}`).toBe(0);
   });
-  const refusals: Array<[string, (answers: string) => void]> = [
+  const labelRefusals: Array<[string, (answers: string) => void]> = [
     ["A's tag is missing from the measured page (other labels only)", (a) => {
-      bothLabels(a);
+      allContainers(a);
       writeJson(join(a, "labels-a.json"), liveShape("linear", "list_issue_labels.more"));
     }],
     ["B's page holds A's tag, not B's", (a) => {
-      bothLabels(a);
+      allContainers(a);
       writeJson(join(a, "labels-b.json"), labelsHolding(TAGS.a));
     }],
     ["B's answer was never saved", (a) => {
-      bothLabels(a);
+      allContainers(a);
       rmSync(join(a, "labels-b.json"));
     }],
     ["A's answer is not JSON", (a) => {
-      bothLabels(a);
+      allContainers(a);
       writeFileSync(join(a, "labels-a.json"), "Error: team not found\n");
     }],
     ["A's answer is an error object", (a) => {
-      bothLabels(a);
+      allContainers(a);
       writeJson(join(a, "labels-a.json"), { error: "unauthenticated" });
     }],
   ];
-  for (const [what, arrange] of refusals) {
+  for (const [what, arrange] of labelRefusals) {
     test(`REFUSAL — ${what}: linear-tag-label-missing in NFR-10 shape`, () => {
-      const r = runLabelFence(docText(), "linear", arrange);
+      const r = runContainersFence(docText(), "linear", arrange);
       expect(r.code).not.toBe(0);
       expectNfr10(r.err);
       expect(r.err).toMatch(/check=linear-tag-label-missing/);
     });
   }
+  const projectRefusals: Array<[string, (answers: string) => void]> = [
+    ["the shared project's answer was never saved", (a) => {
+      allContainers(a);
+      rmSync(join(a, "project-shared.json"));
+    }],
+    ["the pre-repoint project's answer was never saved", (a) => {
+      allContainers(a);
+      rmSync(join(a, "project-pre.json"));
+    }],
+    ["the shared project's answer names another project (SHARED was mistyped)", (a) => {
+      allContainers(a);
+      writeJson(join(a, "project-shared.json"), projectNamed("dpt-shared-shr0000abce"));
+    }],
+    ["the two answers are swapped", (a) => {
+      allContainers(a);
+      writeJson(join(a, "project-shared.json"), projectNamed(PROJECTS.PRE));
+      writeJson(join(a, "project-pre.json"), projectNamed(PROJECTS.SHARED));
+    }],
+    ["the pre-repoint project sits in another team (no teams[] key STE)", (a) => {
+      allContainers(a);
+      writeJson(join(a, "project-pre.json"), projectNamed(PROJECTS.PRE, "OTHER"));
+    }],
+    ["the shared project's teams[] is empty", (a) => {
+      allContainers(a);
+      writeJson(join(a, "project-shared.json"), { ...projectNamed(PROJECTS.SHARED), teams: [] });
+    }],
+    ["the shared project's answer is an error that also carries the name", (a) => {
+      allContainers(a);
+      writeJson(join(a, "project-shared.json"), { ...projectNamed(PROJECTS.SHARED), error: "partial" });
+    }],
+    ["the pre-repoint project's answer is not JSON", (a) => {
+      allContainers(a);
+      writeFileSync(join(a, "project-pre.json"), "Project not found\n");
+    }],
+  ];
+  for (const [what, arrange] of projectRefusals) {
+    test(`REFUSAL — ${what}: linear-project-unverified in NFR-10 shape`, () => {
+      const r = runContainersFence(docText(), "linear", arrange);
+      expect(r.code).not.toBe(0);
+      expectNfr10(r.err);
+      expect(r.err).toMatch(/check=linear-project-unverified/);
+    });
+  }
   test("MUTATION — a check that only asks for a non-empty label page is red: it permits the page that lacks the tag", () => {
     const text = docText();
-    const f = oneFence(text, LABELS_TAG);
+    const f = oneFence(text, CONTAINERS_TAG);
     const loose = f.body.replace(/jq -e [^\n]*labels-\$\{SIDE\}\.json"/, 'jq -e \'(.labels | length) > 0\' "${ANSWERS}/labels-${SIDE}.json"');
     expect(loose, "control: the label check's jq line is found").not.toBe(f.body);
-    const r = runLabelFence(text.replace(f.body, loose), "linear", (a) => {
-      bothLabels(a);
+    const r = runContainersFence(text.replace(f.body, loose), "linear", (a) => {
+      allContainers(a);
       writeJson(join(a, "labels-a.json"), liveShape("linear", "list_issue_labels.more"));
     });
     expect(r.code, "the loosened check lets a missing label through").toBe(0);
+  });
+  test("MUTATION — a project check that ignores the team is red: it permits a project in another team", () => {
+    const text = docText();
+    const f = oneFence(text, CONTAINERS_TAG);
+    const loose = f.body.replace(/ and \(\[\.teams\[\]\? \| select\(type == "object" and \.key == \$k\)\] \| length > 0\)/, "");
+    expect(loose, "control: the team clause is found").not.toBe(f.body);
+    const r = runContainersFence(text.replace(f.body, loose), "linear", (a) => {
+      allContainers(a);
+      writeJson(join(a, "project-pre.json"), projectNamed(PROJECTS.PRE, "OTHER"));
+    });
+    expect(r.code, "the loosened check lets a project in another team through").toBe(0);
   });
 
   /** Phase 0's Linear writes-to line names both projects and both tag labels. */
@@ -2697,11 +2868,129 @@ describe("fourth audit, defect 3 (HIGH-2) — both repo-tag labels exist on Line
       "Phase 2 calls the deprecated mcp__linear__create_issue_label",
     ]);
   });
-  test("Phase 5 names that a Linear label cannot be deleted through the MCP, retires both with retire_issue_label, and says this is not graded", () => {
-    const p5 = section(docText(), /^## Phase 5\b/);
-    expect(p5).toMatch(/cannot be deleted/);
-    expect(p5).toContain("mcp__linear__retire_issue_label");
-    expect(p5).toMatch(/not graded/);
+
+  /**
+   * HIGH-B — Phase 2 names the project tool and its team argument. The team
+   * argument is the one mcp__linear__save_project's schema requires on a create
+   * ("`name` and at least one team (via `addTeams` or `setTeams`)", each "Team
+   * name or ID"), handed the id the pre-flight resolved; and both projects'
+   * get_project answers are saved where the containers check reads them.
+   */
+  function phase2ProjectViolations(text: string): string[] {
+    const p2 = section(text, /^## Phase 2\b/);
+    const v: string[] = [];
+    for (const name of ["dpt-shared-<nonce>", "dpt-shared-<nonce>-pre"]) {
+      if (!p2.includes(`mcp__linear__save_project(name: "${name}", addTeams: ["<LINEAR_TEAM_ID>"])`)) v.push(`Phase 2 does not create ${name} with mcp__linear__save_project and its addTeams team argument`);
+    }
+    if (!/`addTeams` or `setTeams`/.test(p2)) v.push("Phase 2 does not cite the schema's team requirement (addTeams or setTeams)");
+    if (!/mcp__linear__get_project\(query: dpt-shared-<nonce>\)`? as `project-shared\.json`/.test(p2)) v.push("Phase 2 does not save the shared project's get_project answer as project-shared.json");
+    if (!/mcp__linear__get_project\(query: dpt-shared-<nonce>-pre\)`? as `project-pre\.json`/.test(p2)) v.push("Phase 2 does not save the pre-repoint project's get_project answer as project-pre.json");
+    return v;
+  }
+  test("HIGH-B — Phase 2 creates both projects with save_project and its team argument, and saves both get_project answers", () => {
+    expect(phase2ProjectViolations(docText())).toEqual([]);
+  });
+  test("HIGH-B MUTATION — Phase 2 prose that names no team argument for the projects is red", () => {
+    const text = docText();
+    const p2 = section(text, /^## Phase 2\b/);
+    const m = text.replace(p2, p2.replaceAll(', addTeams: ["<LINEAR_TEAM_ID>"])', ")"));
+    expect(m).not.toBe(text);
+    expect(phase2ProjectViolations(m)).toEqual([
+      "Phase 2 does not create dpt-shared-<nonce> with mcp__linear__save_project and its addTeams team argument",
+      "Phase 2 does not create dpt-shared-<nonce>-pre with mcp__linear__save_project and its addTeams team argument",
+    ]);
+  });
+
+  /** E — the teardown-owed marker is written right after the FIRST tracker write, before the second. */
+  function markerOrderViolations(text: string): string[] {
+    const p2 = section(text, /^## Phase 2\b/);
+    const writes = allIndexes(p2, /mcp__linear__save_(?:project|issue_label)\(/);
+    const marker = p2.search(/teardown-owed/);
+    if (writes.length < 4) return [`Phase 2 names ${writes.length} Linear creates, not four`];
+    if (marker < 0) return ["Phase 2 never writes the teardown-owed marker"];
+    const v: string[] = [];
+    if (!(writes[0]! < marker)) v.push("the marker is written before the first tracker write");
+    if (!(marker < writes[1]!)) v.push("the marker is written after the second tracker write: a failure between the first and the second create leaves a live project unflagged");
+    return v;
+  }
+  test("E — Phase 2 writes the teardown-owed marker right after its first create and before its second", () => {
+    expect(markerOrderViolations(docText())).toEqual([]);
+  });
+  test("E MUTATION — the marker written after all four creates is red", () => {
+    const text = docText();
+    const p2 = section(text, /^## Phase 2\b/);
+    const sentence = /That is the run's first tracker write, so write the marker[^.]*\.[^.]*\./.exec(p2)?.[0];
+    expect(sentence, "control: the marker sentence is found").toBeDefined();
+    const moved = p2.replace(sentence!, "").replace("Record every create.", `Record every create. ${sentence}`);
+    expect(markerOrderViolations(text.replace(p2, moved))).toEqual(["the marker is written after the second tracker write: a failure between the first and the second create leaves a live project unflagged"]);
+  });
+  test("E — Phase 5 says Linear's marker comes right after Phase 2's first project create", () => {
+    expect(section(docText(), /^## Phase 5\b/)).toMatch(/right after its first project create and before its second write/);
+  });
+
+  /** HIGH-B + LOW-F — Phase 5 names both projects, and retires each label by the id its saved listing carries. */
+  function phase5Violations(text: string): string[] {
+    const p5 = section(text, /^## Phase 5\b/);
+    const v: string[] = [];
+    for (const name of ["`dpt-shared-<nonce>`", "`dpt-shared-<nonce>-pre`"]) if (!p5.includes(name)) v.push(`Phase 5 does not name the project ${name}`);
+    if (!/cannot be deleted/.test(p5)) v.push("Phase 5 does not say a Linear label cannot be deleted through the MCP");
+    if (!/not graded/.test(p5)) v.push("Phase 5 does not say the label retirement is not graded");
+    if (!p5.includes("mcp__linear__retire_issue_label(id: <label id>)")) v.push("Phase 5 does not retire the labels by id");
+    if (/retire_issue_label\((?:name|query):/.test(p5)) v.push("Phase 5 retires a label by name");
+    if (!/labels-a\.json/.test(p5) || !/select\(\.name == \$t\) \| \.id/.test(p5)) v.push("Phase 5 does not say the id comes from the saved listing");
+    return v;
+  }
+  test("Phase 5 names both projects, retires both labels by id read from the saved listings, and says this is not graded", () => {
+    expect(phase5Violations(docText())).toEqual([]);
+  });
+  test("LOW-F MUTATION — Phase 5 retiring the labels by name is red", () => {
+    const text = docText();
+    const p5 = section(text, /^## Phase 5\b/);
+    const m = text.replace(p5, p5.replace("mcp__linear__retire_issue_label(id: <label id>)", "mcp__linear__retire_issue_label(name: shr-<nonce>-a)"));
+    expect(m).not.toBe(text);
+    expect(phase5Violations(m)).toEqual(["Phase 5 does not retire the labels by id", "Phase 5 retires a label by name"]);
+  });
+});
+
+describe("fifth audit HIGH-A — the containers fence fails closed on the run state", () => {
+  test("REFUSAL — no run state at all: run-state-missing, non-zero, NFR-10, nothing run", () => {
+    const r = runContainersFence(docText(), "linear", allContainers, { runEnv: false });
+    expect(r.code).not.toBe(0);
+    expectNfr10(r.err);
+    expect(r.err).toMatch(/check=run-state-missing/);
+    expect(r.out, "never the no-check branch").not.toMatch(/nothing is checked/);
+    expect(r.calls).toBe(0);
+  });
+  test("REFUSAL — `<tracker>` left unsubstituted: run-state-missing, never the Jira no-check branch", () => {
+    const r = runContainersFence(docText(), "linear", allContainers, { substitute: false });
+    expect(r.code).not.toBe(0);
+    expectNfr10(r.err);
+    expect(r.err).toMatch(/check=run-state-missing/);
+    expect(r.out).not.toMatch(/nothing is checked/);
+  });
+  for (const t of ["", "none", "Linear", "jira"]) {
+    test(`REFUSAL — a Linear run state whose TRACKER is ${JSON.stringify(t)}: run-state-missing, never the no-check branch`, () => {
+      const r = runContainersFence(docText(), "linear", allContainers, { over: { TRACKER: t === "" ? undefined : t } });
+      expect(r.code).not.toBe(0);
+      expectNfr10(r.err);
+      expect(r.err).toMatch(/check=run-state-missing/);
+      expect(r.out).not.toMatch(/nothing is checked/);
+    });
+  }
+});
+
+describe("fifth audit LOW-G — the containers fence reads its answers where the pre-flight read them", () => {
+  test("PERMIT — a redirected PREFLIGHT_ANSWERS passes the pre-flight, is recorded in its env, and passes the containers check", () => {
+    withSandbox("linear", (psb) => {
+      const pf = runPreflight(psb, envFor(psb, { TRACKER: "linear" }));
+      expect(pf.code, `${pf.out}\n${pf.err}`).toBe(0);
+      expect(psb.answers.startsWith(`${psb.tmp}/`), "control: the answers directory is NOT under the /tmp the fences name").toBe(false);
+      const pfEnv = readFileSync(join(psb.tmp, "dpt-shared-linear-preflight.env"), "utf-8");
+      expect(pfEnv.split("\n")).toContain(`PREFLIGHT_ANSWERS=${realpathSync(psb.answers)}`);
+      // The bootstrap appends the pre-flight env to the run state; the check then reads the redirected directory.
+      const r = runContainersFence(docText(), "linear", allContainers, { answersDir: () => psb.answers, over: { PREFLIGHT_ANSWERS: undefined }, extraRunEnv: pfEnv });
+      expect(r.code, `${r.out}\n${r.err}`).toBe(0);
+    });
   });
 });
 
@@ -2713,9 +3002,462 @@ describe("fourth audit, defect 4 (MEDIUM-1) — Phase 1 tells the operator to co
   });
 });
 
+// ===========================================================================
+// Fifth audit — the run-state preamble. Every fence that sources the run state
+// does so through ONE preamble, enforced here as one thing: the fences are
+// enumerated FROM THE DOCUMENT (every bash fence whose code sources a
+// `…-run.env`), never from a list typed here, so a fence added later is caught.
+//
+// ENFORCEMENT (byte-identical + structural): the lines from
+// `# run-state preamble: begin` to `# run-state preamble: end` are the same
+// bytes in every such fence; above them sit only the tag and comment lines, an
+// optional `set -e`, and exactly the two declaration lines `RUN_STATE_NEEDS=…`
+// and `RUN_STATE_NEEDS_LINEAR=…` immediately before the begin marker; and the
+// run state is sourced nowhere outside the preamble.
+// ===========================================================================
+
+const PREAMBLE_BEGIN = "# run-state preamble: begin";
+const PREAMBLE_END = "# run-state preamble: end";
+const RUN_STATE_SOURCE_RE = /^\s*(?:\.|source)\s+"?(?:[^"\s]*-run\.env|\$\{RUN_ENV\})"?\s*(?:$|[;&|])/;
+
+function codeLinesOf(f: Fence): string[] {
+  const kinds = classifyLines(f.lines);
+  return f.lines.filter((_, i) => kinds[i] === "code");
+}
+
+/** Every bash fence whose CODE sources the run state, read off the document. */
+function runStateFences(text: string): Fence[] {
+  return parseFences("shared-tracker-smoke", text).filter((f) => f.info === "bash" && codeLinesOf(f).some((l) => RUN_STATE_SOURCE_RE.test(l)));
+}
+
+const fenceTag = (f: Fence): string => f.lines.find((l) => l.trim().startsWith("# shared-tracker-smoke:"))?.trim().replace(/ — .*$/, "") ?? `fence at line ${f.openLine}`;
+
+function declaredNeeds(f: Fence): { all: string[]; linear: string[] } {
+  const pick = (name: string) => (new RegExp(`^${name}="([^"]*)"$`, "m").exec(f.body)?.[1] ?? "").split(/\s+/).filter(Boolean);
+  return { all: pick("RUN_STATE_NEEDS"), linear: pick("RUN_STATE_NEEDS_LINEAR") };
+}
+
+function preambleBlock(f: Fence): string | null {
+  const b = f.lines.indexOf(PREAMBLE_BEGIN.length ? f.lines.find((l) => l.startsWith(PREAMBLE_BEGIN)) ?? "\0" : "\0");
+  const e = f.lines.indexOf(PREAMBLE_END);
+  return b >= 0 && e > b ? f.lines.slice(b, e + 1).join("\n") : null;
+}
+
+function preambleViolations(text: string): string[] {
+  const fs = runStateFences(text);
+  if (fs.length === 0) return ["no fence sources the run state"];
+  const v: string[] = [];
+  const blocks = fs.map(preambleBlock);
+  const counts = new Map<string, number>();
+  for (const b of blocks) if (b !== null) counts.set(b, (counts.get(b) ?? 0) + 1);
+  const canonical = [...counts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? null;
+  fs.forEach((f, k) => {
+    const tag = fenceTag(f);
+    const begins = f.lines.filter((l) => l.startsWith(PREAMBLE_BEGIN)).length;
+    const ends = f.lines.filter((l) => l === PREAMBLE_END).length;
+    if (begins !== 1 || ends !== 1 || blocks[k] === null) {
+      v.push(`${tag}: sources the run state without exactly one run-state preamble`);
+      return;
+    }
+    if (blocks[k] !== canonical) v.push(`${tag}: its run-state preamble is not byte-identical to the others`);
+    const b = f.lines.findIndex((l) => l.startsWith(PREAMBLE_BEGIN));
+    const e = f.lines.indexOf(PREAMBLE_END);
+    if (!/^RUN_STATE_NEEDS="[^"]*"$/.test(f.lines[b - 2] ?? "") || !/^RUN_STATE_NEEDS_LINEAR="[^"]*"$/.test(f.lines[b - 1] ?? "")) v.push(`${tag}: the two declaration lines do not sit immediately above the preamble`);
+    const above = f.lines.slice(0, Math.max(0, b - 2)).filter((l) => l.trim() !== "" && !/^\s*#/.test(l) && !/^set -[eu]+$/.test(l.trim()));
+    if (above.length > 0) v.push(`${tag}: code runs before the run-state preamble: ${above[0]!.trim()}`);
+    const kinds = classifyLines(f.lines);
+    f.lines.forEach((l, i) => {
+      if (kinds[i] === "code" && (i < b || i > e) && RUN_STATE_SOURCE_RE.test(l)) v.push(`${tag}: sources the run state outside the preamble: ${l.trim()}`);
+    });
+  });
+  return v;
+}
+
+describe("fifth audit — every fence that reads the run state reads it through the one run-state preamble", () => {
+  test("the fences are enumerated from the document, and every one carries the byte-identical preamble", () => {
+    const fs = runStateFences(docText());
+    expect(fs.length, "the document holds fences that source the run state").toBeGreaterThan(0);
+    expect(preambleViolations(docText())).toEqual([]);
+  });
+  test("MUTATION — one fence whose preamble is replaced by a bare source line is red, and is still enumerated", () => {
+    const text = docText();
+    const f = oneFence(text, "# shared-tracker-smoke: S11 worktree");
+    const block = preambleBlock(f)!;
+    const m = text.replace(f.body, f.body.replace(block, ". /tmp/dpt-shared-<tracker>-run.env"));
+    expect(runStateFences(m).length, "the stripped fence is still found by what it does").toBe(runStateFences(text).length);
+    expect(preambleViolations(m)).toEqual(["# shared-tracker-smoke: S11 worktree: sources the run state without exactly one run-state preamble"]);
+  });
+  test("MUTATION — one byte changed in one fence's preamble is red", () => {
+    const text = docText();
+    const f = oneFence(text, "# shared-tracker-smoke: audit");
+    const m = text.replace(f.body, f.body.replace('case "${TRACKER:-}:<tracker>" in', 'case "${TRACKER:-}:<tracker>"  in'));
+    expect(m).not.toBe(text);
+    expect(preambleViolations(m)).toEqual(["# shared-tracker-smoke: audit: its run-state preamble is not byte-identical to the others"]);
+  });
+  test("MUTATION — an eleventh fence that sources the run state bare is caught without editing this test", () => {
+    const text = docText();
+    const extra = "\n```bash\n# shared-tracker-smoke: a later fence\n. /tmp/dpt-shared-<tracker>-run.env\ngit -C \"${ROOT_B}\" status\n```\n";
+    const m = text + extra;
+    expect(runStateFences(m).length).toBe(runStateFences(text).length + 1);
+    expect(preambleViolations(m)).toEqual(["# shared-tracker-smoke: a later fence: sources the run state without exactly one run-state preamble"]);
+  });
+  test("MUTATION — a fence that sources the run state a second time, after its preamble, is red", () => {
+    const text = docText();
+    const f = oneFence(text, "# shared-tracker-smoke: extract and grade");
+    const m = text.replace(f.body, f.body.replace(`${PREAMBLE_END}\n`, `${PREAMBLE_END}\n. /tmp/dpt-shared-<tracker>-run.env\n`));
+    expect(preambleViolations(m)).toEqual(["# shared-tracker-smoke: extract and grade: sources the run state outside the preamble: . /tmp/dpt-shared-<tracker>-run.env"]);
+  });
+});
+
+// --- omit-one rows: fences × declared variables, plus a missing run state and a bad TRACKER per fence
+
+/** A complete run state: every variable any fence declares. A declared variable missing here fails the row loudly. */
+function completeRunState(sb: StubSandbox, tracker: "jira" | "linear"): Record<string, string> {
+  return {
+    TRACKER: tracker,
+    NONCE: FILL.nonce,
+    TOPLEVEL: sb.work,
+    ROOT_A: join(sb.root, "A"),
+    ROOT_B: join(sb.root, "B"),
+    PLUGIN_TREE: join(sb.work, "plugins", "dev-process-toolkit"),
+    PLUGIN_BELOW_FLOOR: join(sb.root, "below"),
+    PLUGIN_INTRUDER: join(sb.root, "intruder"),
+    OLD_CLIENT: join(sb.root, "old"),
+    DPT_SMOKE_RUN_ID: RUN_ID,
+    SPAWN_CEILING: "28",
+    DIGEST_AT_START: "a".repeat(64),
+    RUN_START_MS: "1",
+    SHARED: tracker === "linear" ? PROJECTS.SHARED : "DST",
+    PRE: tracker === "linear" ? PROJECTS.PRE : "DST2",
+    LINEAR_TEAM: tracker === "linear" ? "STE" : "",
+    PREFLIGHT_ANSWERS: join(sb.root, "answers"),
+    VERDICT_FILE: join(sb.root, "verdict.json"),
+  };
+}
+
+/** The fence's hand-filled placeholder lines, filled; `<tracker>` substituted. */
+function filledFenceBody(f: Fence, tracker: string): string {
+  const fills: Record<string, string> = { STEP_NAME: "4-S1", STEP_MARKER: "S1", STEP_ROOT: "A", STEP_CLIENT: "tree", AUDIT_PASS: "1", SPAN_TOKEN: FILL.token, SHARED: "DST", PRE: "" };
+  return f.body.replaceAll("<tracker>", tracker).replace(/^([A-Z_]+)="<[^"\n]*>"$/gm, (_, k: string) => `${k}="${fills[k] ?? "x"}"`);
+}
+
+interface RunStateRow {
+  code: number;
+  out: string;
+  err: string;
+  calls: number;
+}
+
+function runRunStateFence(f: Fence, tracker: "jira" | "linear", edit: (vars: Record<string, string | undefined>) => void, runEnv = true): RunStateRow {
+  let res: RunStateRow = { code: -1, out: "", err: "", calls: 0 };
+  withStub((sb) => {
+    for (const d of ["A", "B"]) mkdirSync(join(sb.root, d), { recursive: true });
+    const vars: Record<string, string | undefined> = completeRunState(sb, tracker);
+    edit(vars);
+    if (runEnv) writeFileSync(join(sb.tmp, `dpt-shared-${tracker}-run.env`), `${Object.entries(vars).filter(([, v]) => v !== undefined).map(([k, v]) => `${k}=${v}`).join("\n")}\n`);
+    const r = runStubScript(sb, rebaseIntoStub(filledFenceBody(f, tracker), sb), stubEnv(sb, GIT_ENV));
+    res = { code: r.exitCode, out: r.out, err: r.err, calls: readStubCalls(sb).length };
+  });
+  return res;
+}
+
+function expectRunStateRefusal(r: RunStateRow, names?: string): void {
+  const dump = `exit=${r.code}\n--- stdout ---\n${r.out}\n--- stderr ---\n${r.err}`;
+  expect(r.code, dump).not.toBe(0);
+  expectNfr10(r.err);
+  expect(r.err, dump).toMatch(/check=run-state-missing/);
+  expect(r.calls, `no bun and no claude ran before the refusal\n${dump}`).toBe(0);
+  if (names) expect(r.err, dump).toContain(names);
+}
+
+describe("fifth audit — each fence refuses run-state-missing when one declared variable is omitted, the run state is missing, or TRACKER is wrong", () => {
+  const text = docText();
+  for (const f of runStateFences(text)) {
+    const tag = fenceTag(f);
+    const needs = declaredNeeds(f);
+    const trackers: Array<"jira" | "linear"> = needs.linear.length > 0 ? ["jira", "linear"] : ["jira"];
+    test(`${tag}: its declared run state is covered by the complete fixture`, () => {
+      withStub((sb) => {
+        const have = Object.keys(completeRunState(sb, "linear"));
+        expect([...needs.all, ...needs.linear].filter((n) => !have.includes(n)), "a declared variable the fixture does not supply").toEqual([]);
+      });
+      expect(needs.all, "TRACKER is always declared").toContain("TRACKER");
+    });
+    for (const tracker of trackers) {
+      test(`${tag} (${tracker}) PERMIT TWIN — the complete run state gets past the preamble`, () => {
+        const r = runRunStateFence(f, tracker, () => {});
+        expect(r.err, `exit=${r.code}\n${r.out}\n${r.err}`).not.toMatch(/check=run-state-missing/);
+      });
+      const omit = tracker === "linear" ? [...needs.all, ...needs.linear] : needs.all;
+      for (const name of omit) {
+        test(`${tag} (${tracker}) — ${name} omitted from the run state: refused`, () => {
+          expectRunStateRefusal(runRunStateFence(f, tracker, (v) => { delete v[name]; }), name);
+        });
+      }
+      test(`${tag} (${tracker}) — no run state at all: refused`, () => {
+        expectRunStateRefusal(runRunStateFence(f, tracker, () => {}, false));
+      });
+      const other = tracker === "jira" ? "linear" : "jira";
+      for (const bad of ["none", "bogus", other]) {
+        test(`${tag} (${tracker}) — the run state says TRACKER=${bad}: refused`, () => {
+          expectRunStateRefusal(runRunStateFence(f, tracker, (v) => { v.TRACKER = bad; }));
+        });
+      }
+    }
+  }
+});
+
+// --- the S11 shape, swept across every fence: a variable that means "here" or "/" when empty
+
+const ENV_GUARANTEED = new Set(["HOME"]);
+
+interface Site {
+  fence: string;
+  variable: string;
+  line: string;
+}
+
+/** `${X}` / `$X` references in `s` that could expand empty (a non-empty `:-`/`-`/`:=` default, or `:+`/`+`, is safe). */
+function mayBeEmptyRefs(s: string): string[] {
+  const out: string[] = [];
+  for (const m of s.matchAll(/\$\{(!|#)?([A-Za-z_][A-Za-z0-9_]*)(\[[^\]]*\])?([^}]*)\}/g)) {
+    if (m[1]) continue;
+    const op = m[4] ?? "";
+    if (/^:?[-=]./.test(op) || /^:?\+/.test(op)) continue;
+    out.push(m[2]!);
+  }
+  for (const m of s.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)/g)) out.push(m[1]!);
+  return out;
+}
+
+/** Every interpolation where an empty variable means "here" (git -C, cd, …) or "/" (a path prefix). */
+function dangerousSites(f: Fence): Site[] {
+  const tag = fenceTag(f);
+  const sites: Site[] = [];
+  const add = (seg: string, line: string) => { for (const v of mayBeEmptyRefs(seg)) sites.push({ fence: tag, variable: v, line: line.trim() }); };
+  for (const line of codeLinesOf(f)) {
+    for (const m of line.matchAll(/\bgit -C\s+("[^"]*"|\S+)/g)) add(m[1]!, line);
+    for (const m of line.matchAll(/(?:^|[;&|({]\s*|\bthen\s+|\bdo\s+|\$\(\s*)(?:cd|rm|mkdir|cp|mv|chmod)\b([^;&|)`]*)/g)) add(m[1]!, line);
+    for (const m of line.matchAll(/\bworktree add\b([^;&|)`]*)/g)) add(m[1]!, line);
+    for (const m of line.matchAll(/--(?:plugin-dir|project-root)\s+("[^"]*"|\S+)/g)) add(m[1]!, line);
+    for (const m of line.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)([%#][^}]*)?\}"?\//g)) sites.push({ fence: tag, variable: m[1]!, line: line.trim() });
+    for (const m of line.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)"?\//g)) sites.push({ fence: tag, variable: m[1]!, line: line.trim() });
+  }
+  return sites;
+}
+
+/** The variables a local variable is built from: every assignment's right-hand side, loop list, or read (none). */
+function assignments(f: Fence): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  const put = (k: string, refs: string[]) => map.set(k, [...(map.get(k) ?? []), ...refs]);
+  for (const line of codeLinesOf(f)) {
+    for (const m of line.matchAll(/(?:^|[\s;(])(?:local\s+|export\s+)?([A-Za-z_][A-Za-z0-9_]*)\+?=(.*)$/g)) put(m[1]!, mayBeEmptyRefs(m[2]!));
+    for (const m of line.matchAll(/\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+([^;]*)/g)) put(m[1]!, mayBeEmptyRefs(m[2]!));
+    for (const m of line.matchAll(/\bread\s+(?:-r\s+)?([A-Za-z_][A-Za-z0-9_]*)/g)) put(m[1]!, []);
+  }
+  return map;
+}
+
+/** The variables a site ultimately rests on that this fence never assigns: the ones something outside must supply. */
+function rootsOf(v: string, asg: Map<string, string[]>, seen = new Set<string>()): string[] {
+  if (seen.has(v)) return [];
+  seen.add(v);
+  const rhs = asg.get(v);
+  if (rhs === undefined) return [v];
+  return [...new Set(rhs.flatMap((r) => rootsOf(r, asg, seen)))];
+}
+
+function guardedIn(f: Fence, v: string): boolean {
+  const b = f.body;
+  return b.includes(`-n "\${${v}}"`) || b.includes(`-z "\${${v}}"`) || b.includes(`case "\${${v}:-}"`) || b.includes(`case "\${${v}}"`);
+}
+
+/** Violations: a dangerous site resting on a variable the fence neither declares (run-state fences) nor guards (the others). */
+function sweepViolations(text: string): { sites: Site[]; violations: string[] } {
+  const sites: Site[] = [];
+  const v: string[] = [];
+  const rs = new Set(runStateFences(text).map((f) => f.openLine));
+  for (const f of parseFences("shared-tracker-smoke", text).filter((x) => x.info === "bash")) {
+    const asg = assignments(f);
+    const declared = new Set([...declaredNeeds(f).all, ...declaredNeeds(f).linear]);
+    for (const s of dangerousSites(f)) {
+      sites.push(s);
+      for (const root of rootsOf(s.variable, asg)) {
+        if (ENV_GUARANTEED.has(root)) continue;
+        const ok = rs.has(f.openLine) ? declared.has(root) : guardedIn(f, root);
+        if (!ok) v.push(`${s.fence}: ${root} (via ${s.variable}) may be empty at: ${s.line}`);
+      }
+    }
+  }
+  return { sites, violations: [...new Set(v)] };
+}
+
+describe("fifth audit — the S11 shape swept across every fence: no path site rests on an undeclared, unguarded variable", () => {
+  test("every git -C / cd / rm / mkdir / cp / mv / chmod / worktree add / --plugin-dir / --project-root / path-prefix site rests on a declared or guarded variable", () => {
+    const { sites, violations } = sweepViolations(docText());
+    expect(sites.length, "control: the sweep finds sites").toBeGreaterThan(20);
+    expect(violations).toEqual([]);
+  });
+  test("CONTROL — the sweep sees S11's own git -C \"${ROOT_B}\" site, resting on its declared ROOT_B", () => {
+    const { sites } = sweepViolations(docText());
+    expect(sites.some((s) => s.fence === "# shared-tracker-smoke: S11 worktree" && s.variable === "ROOT_B" && /git -C "\$\{ROOT_B\}"/.test(s.line))).toBe(true);
+  });
+  test("MUTATION — an undeclared variable interpolated into git -C is red", () => {
+    const text = docText();
+    const f = oneFence(text, "# shared-tracker-smoke: S11 worktree");
+    const m = text.replace(f.body, f.body.replace(`${PREAMBLE_END}\n`, `${PREAMBLE_END}\ngit -C "\${ROOT_C}" status >/dev/null\n`));
+    expect(sweepViolations(m).violations).toEqual(['# shared-tracker-smoke: S11 worktree: ROOT_C (via ROOT_C) may be empty at: git -C "${ROOT_C}" status >/dev/null']);
+  });
+  test("MUTATION — a declared variable dropped from S11's declaration is red (W rests on ROOT_B)", () => {
+    const text = docText();
+    const f = oneFence(text, "# shared-tracker-smoke: S11 worktree");
+    const m = text.replace(f.body, f.body.replace('RUN_STATE_NEEDS="TRACKER ROOT_B"', 'RUN_STATE_NEEDS="TRACKER"'));
+    expect(m).not.toBe(text);
+    expect(sweepViolations(m).violations.some((x) => /S11 worktree: ROOT_B \(via W\)/.test(x))).toBe(true);
+  });
+});
+
+// --- S11, driven: ROOT_B empty, the operator standing in another git repository
+
+describe("fifth audit — S11 with ROOT_B empty never touches the repository the operator stands in", () => {
+  test("RUN — the operator's cwd is a git repository with an edited CLAUDE.md: refused run-state-missing, no commit there, no exclude line", () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "ste617-s11cwd-")));
+    try {
+      const tmp = join(root, "tmp");
+      const op = join(root, "operator");
+      mkdirSync(tmp, { recursive: true });
+      gitRepo(op, { "CLAUDE.md": "# operator\n" });
+      writeFileSync(join(op, "CLAUDE.md"), "# operator, edited and uncommitted\n");
+      writeFileSync(join(tmp, "dpt-shared-jira-run.env"), "TRACKER=jira\n");
+      const head = sh(op, ["git", "rev-parse", "HEAD"]).out;
+      const r = runOperatorFence(oneFence(docText(), S11_TAG).body, tmp, op);
+      expect(r.code).not.toBe(0);
+      expectNfr10(r.err);
+      expect(r.err).toMatch(/check=run-state-missing/);
+      expect(sh(op, ["git", "rev-parse", "HEAD"]).out, "no commit landed in the operator's repository").toBe(head);
+      expect(sh(op, ["git", "status", "--porcelain"]).out.trim(), "the operator's edit is left as it was").toBe("M CLAUDE.md");
+      expect(readFileSync(join(op, ".git", "info", "exclude"), "utf-8")).not.toContain("/.s11/");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// --- D: every refusal remedy names a path whose preconditions it does not destroy
+
+/**
+ * A remedy may not send the operator to re-run a step whose preconditions the
+ * path it names destroys. Phase 0.5 deletes the pre-flight env, wipes the
+ * answers, the step logs and the teardown-owed marker, and mints a new nonce;
+ * the bootstrap cannot run over repositories it already made. So: a remedy
+ * directing the operator to Phase 0.5 (a mention explaining what it deletes,
+ * wipes, mints or keeps is not a direction) either says never, or comes after § Phase 5 — Teardown and
+ * then names Phase 1 and Phase 2 (or "a new run from Phase 0.5"); no remedy
+ * re-runs the bootstrap after it wrote (outside the bootstrap, or below its
+ * first write); a remedy that runs Phase 2 names Phase 1 first. The Phase 0.5
+ * fence's own "run Phase 0.5 again" is legal: it refuses before removing anything.
+ */
+function remedyViolations(text: string): string[] {
+  const v: string[] = [];
+  for (const f of parseFences("shared-tracker-smoke", text).filter((x) => x.info === "bash")) {
+    const tag = fenceTag(f);
+    if (tag === "# shared-tracker-smoke: phase 0.5") continue;
+    const kinds = classifyLines(f.lines);
+    const firstWrite = f.lines.findIndex((l, i) => kinds[i] === "code" && /^\s*mkdir -p\b/.test(l));
+    f.lines.forEach((l, i) => {
+      if (kinds[i] !== "code") return;
+      for (const m of l.matchAll(/Phase 0\.5/g)) {
+        const before = l.slice(0, m.index!);
+        const after = l.slice(m.index! + m[0].length);
+        if (/never\b[^"]{0,40}$/.test(before)) continue;
+        // An explanation of what Phase 0.5 does is not a direction to run it.
+        if (/^ (?:deletes|wipes|mints|keeps|mid-run)\b/.test(after)) continue;
+        const teardownFirst = /§ Phase 5 — Teardown/.test(before);
+        const fullPath = /Phase 1\b/.test(after) && /Phase 2\b/.test(after);
+        if (!(teardownFirst && (fullPath || /a new run from $/.test(before)))) v.push(`${tag}: a remedy names Phase 0.5 without the legal path (Teardown, then Phase 0.5, Phase 1, Phase 2): ${l.trim().slice(0, 160)}`);
+      }
+      if (/re-run the bootstrap|(?:the|this) bootstrap again/.test(l)) {
+        const inBootBeforeWrite = tag === "# shared-tracker-smoke: bootstrap" && firstWrite >= 0 && i < firstWrite && !/Phase 0\.5 and the bootstrap/.test(l);
+        if (!inBootBeforeWrite) v.push(`${tag}: a remedy re-runs the bootstrap after it wrote: ${l.trim().slice(0, 160)}`);
+      }
+      for (const m of l.matchAll(/\b(?:run|then) Phase 2\b/g)) {
+        if (!/Phase 1\b/.test(l.slice(0, m.index!))) v.push(`${tag}: a remedy runs Phase 2 without Phase 1 first: ${l.trim().slice(0, 160)}`);
+      }
+      if (/set LINEAR_TEAM to/.test(l)) v.push(`${tag}: a remedy has the operator set LINEAR_TEAM in the shell, which the sourced state overrides: ${l.trim().slice(0, 160)}`);
+    });
+  }
+  return v;
+}
+
+describe("fifth audit D — every refusal remedy names a legal path out", () => {
+  test("no remedy re-runs a step whose preconditions its own path destroys", () => {
+    expect(remedyViolations(docText())).toEqual([]);
+  });
+  test("RUN — binding-team-missing's remedy names Teardown, then Phase 0.5, Phase 1 (pre-flight) and Phase 2", () => {
+    const r = runBootstrap(withoutTeamFlag(docText()), "linear");
+    expect(r.err).toMatch(/check=binding-team-missing/);
+    const remedy = r.err.split("\n").find((l) => l.startsWith("Remedy: ")) ?? "";
+    expect(remedy).toMatch(/§ Phase 5 — Teardown[^\n]*then Phase 0\.5, Phase 1 \(pre-flight\) and Phase 2/);
+  }, 60_000);
+  test("MUTATION — the old binding-team-missing remedy (Phase 0.5 and the bootstrap again) is red", () => {
+    const text = docText();
+    const f = oneFence(text, BOOT_TAG);
+    const old = f.body.replace(/"fix the binding write so both declarations carry team: \$\{LINEAR_TEAM\}, then start the run again[^"]*"/, '"fix the binding write so both declarations carry team: ${LINEAR_TEAM}, then run Phase 0.5 and the bootstrap again; run § Phase 5 — Teardown first if you abandon the run, since Phase 2\'s creates made it owed."');
+    expect(old, "control: the remedy is found").not.toBe(f.body);
+    const v = remedyViolations(text.replace(f.body, old));
+    expect(v.length).toBe(2);
+    expect(v.every((x) => x.startsWith("# shared-tracker-smoke: bootstrap:"))).toBe(true);
+  });
+  test("MUTATION — the old ceiling-unset remedy (rebuild from Phase 0 and Phase 0.5, then teardown) is red", () => {
+    const text = docText();
+    const f = oneFence(text, STEP_TAG);
+    const old = f.body.replace(/"restore it from Phase 0's plan[^"]*"/, '"rebuild the run state from Phase 0 and Phase 0.5 before any further step, and run § Phase 5 — Teardown now if a scenario child was already spawned."');
+    expect(old, "control: the remedy is found").not.toBe(f.body);
+    expect(remedyViolations(text.replace(f.body, old))).toHaveLength(1);
+  });
+});
+
 describe("no skipped, todo or conditional test forms in this suite", () => {
   test("the suite's own source carries none", () => {
     const src = readFileSync(import.meta.path, "utf-8");
     for (const f of ["test" + ".skip(", "test" + ".todo(", "test" + ".if(", "describe" + ".skip(", "it" + ".skip("]) expect(src.includes(f), f).toBe(false);
+  });
+});
+
+// --- the wait fence: a missing pidfile is not "exited" ----------------------
+//
+// The step fence removes the pidfile only on its abort path, so a missing (or
+// empty) pidfile means no step launched or its launch was aborted. The wait
+// fence used to read that as `exited:` and exit 0, telling the operator a step
+// had finished that never ran. It now refuses; a pidfile naming a finished
+// process is still reported exited (the permit twin).
+describe("the wait fence — a missing pidfile refuses, a finished process is exited", () => {
+  const WAIT_TAG = "# shared-tracker-smoke: wait";
+  const runWait = (arrange: (tmp: string) => void) => {
+    let res = { code: -1, out: "", err: "" };
+    withStub((sb) => {
+      arrange(sb.tmp);
+      const r = runStubScript(sb, rebaseIntoStub(oneFence(docText(), WAIT_TAG).body.replaceAll("<tracker>", "jira"), sb), stubEnv(sb));
+      res = { code: r.exitCode, out: r.out, err: r.err };
+    });
+    return res;
+  };
+  for (const [label, arrange] of [
+    ["no pidfile", (_t: string) => {}],
+    ["an empty pidfile", (t: string) => writeFileSync(join(t, "dpt-shared-jira-step.pid"), "")],
+  ] as const) {
+    test(`REFUSE — ${label}: non-zero, NFR-10 step-pid-missing, never "exited"`, () => {
+      const r = runWait(arrange);
+      expect(r.code).not.toBe(0);
+      expect(r.out).not.toMatch(/exited:/);
+      expect(r.err).toMatch(/check=step-pid-missing/);
+    });
+  }
+  test("PERMIT — a pidfile naming a finished process reports exited and exits 0", () => {
+    const done = Bun.spawnSync(["true"]);
+    expect(done.exitCode).toBe(0);
+    const r = runWait((t) => writeFileSync(join(t, "dpt-shared-jira-step.pid"), `${done.pid}\n`));
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toMatch(/^exited: \d+/m);
   });
 });
