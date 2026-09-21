@@ -265,8 +265,10 @@ export function recordGateRun(skill: string, target: string): string {
  * (review round 2) when the first split turned out to read its cause off a
  * post-filter COUNT — `announced.length === 0` — which cannot say why the
  * filter emptied any more than a sentence can. A receipt no run vouches for
- * now gets there by EIGHT named states, each read from the value that decided
- * it:
+ * now gets there by TWELVE named states, each read from the value that decided
+ * it — count them against the list below rather than trusting this number,
+ * which was accurate over three items, went stale at eight, and is exactly the
+ * kind of claim this module exists to stop making:
  *
  *   `not-vouched`                   another checkout's announcement took the
  *                                   window this receipt falls in
