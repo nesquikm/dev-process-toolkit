@@ -28,7 +28,9 @@ const answer = (tracker: string, name: string): any => structuredClone(shape(tra
 const refused = (r: { ok: boolean }) => expect(r.ok).toBe(false);
 
 describe("provenance is enforced, not a convention", () => {
-  const all = ["linear", "jira"].flatMap((t) => readdirSync(join(SHAPES, t)).map((f) => ({ t, f, s: JSON.parse(readFileSync(join(SHAPES, t, f), "utf-8")) as Shape })));
+  // Every tracker directory present, listed rather than hard-coded, so a third
+  // tracker's pins cannot sit outside the provenance check.
+  const all = readdirSync(SHAPES).flatMap((t) => readdirSync(join(SHAPES, t)).map((f) => ({ t, f, s: JSON.parse(readFileSync(join(SHAPES, t, f), "utf-8")) as Shape })));
   test("the pin set is not empty (a vacuous walk proves nothing)", () => {
     expect(all.length).toBeGreaterThanOrEqual(18);
   });

@@ -862,6 +862,46 @@ for (const t of TRACKERS) {
 // proves. The repoint receipt records which inputs rested on such a claim
 // (`evidence.assertedCompleteness`), and the verdict must carry it: a pass that
 // silently rests on an assertion is what this milestone removes.
+// An INERT guard: with no team in a repository's binding, the create
+// decision's team conjunct never enters its query, so the identifier-prefix
+// team rule cannot fire on the live run. A passing run used to IMPLY the guard
+// was live only because Linear rejects a create without `team` — an external
+// invariant. The grade now reads it directly: every Linear create decision's
+// recorded payload carries the run's team.
+describe("the Linear team conjunct is shown live, not inferred", () => {
+  const creates = (b: LiveBundle) => (["A", "B"] as const).flatMap((r) => {
+    const set = b.repos[r].receipts;
+    return set.readable ? set.records.filter((x) => x.kind === "create") : [];
+  });
+  test("PERMIT — every create decision of a passing Linear bundle carries the run's team", () => {
+    expect(codes(grade(buildPassingBundle("linear")))).not.toContain("team-conjunct-inert");
+  });
+  test("REFUSE — a create decision whose payload carries no team fails as team-conjunct-inert, naming its receipt", () => {
+    const b = buildPassingBundle("linear");
+    const r = creates(b)[0]!;
+    delete (r.evidence.createPayload as Record<string, unknown>).team;
+    const f = findingsOf(grade(b), "team-conjunct-inert");
+    expect(f.length).toBe(1);
+    expect(f[0]!.detail).toContain(r.path);
+  });
+  test("REFUSE — a create decision carrying another team's key fails too", () => {
+    const b = buildPassingBundle("linear");
+    (creates(b)[0]!.evidence.createPayload as Record<string, unknown>).team = "OPS";
+    expect(codes(grade(b))).toContain("team-conjunct-inert");
+  });
+  test("REFUSE — a Linear run with no create decision at all never showed the guard live", () => {
+    const b = buildPassingBundle("linear");
+    for (const r of ["A", "B"] as const) {
+      const set = b.repos[r].receipts;
+      if (set.readable) set.records = set.records.filter((x) => x.kind !== "create");
+    }
+    expect(findingsOf(grade(b), "team-conjunct-inert").some((f) => /never/.test(f.detail))).toBe(true);
+  });
+  test("a Jira run is never asked (Jira has no team)", () => {
+    expect(codes(grade(buildPassingBundle("jira")))).not.toContain("team-conjunct-inert");
+  });
+});
+
 describe("S8 — the verdict says which repoint inputs' completeness was asserted, not proven", () => {
   const repointReceipt = (b: LiveBundle) => {
     const set = b.repos.B.receipts;
@@ -1002,6 +1042,25 @@ describe("AC.17 — gated writes", () => {
     const b = buildPassingBundle("linear");
     addContainerWrite(b, session(b, "S1"), "create_issue_label", { name: TAG_A, teamId: "team-1" });
     expect(codes(grade(b))).not.toContain("ungated-write");
+  });
+  test("CONTAINER PERMIT — save_issue_label with NO id naming A's tag (the MCP's non-deprecated create) is not ungated-write", () => {
+    const b = buildPassingBundle("linear");
+    addContainerWrite(b, session(b, "S1"), "save_issue_label", { name: TAG_A, teamId: "team-1" });
+    expect(codes(grade(b))).not.toContain("ungated-write");
+  });
+  for (const [label, extra] of [["a label GROUP", { isGroup: true }], ["a label nested under a parent group", { parent: "some-group" }]] as const) {
+    test(`CONTAINER — save_issue_label creating ${label} named A's tag is ungated-write (only a plain label is permitted)`, () => {
+      const b = buildPassingBundle("linear");
+      const s = session(b, "S1");
+      addContainerWrite(b, s, "save_issue_label", { name: TAG_A, teamId: "team-1", ...extra });
+      expect(findingsOf(grade(b), "ungated-write").some((f) => f.session === s.sessionId)).toBe(true);
+    });
+  }
+  test("CONTAINER — save_issue_label with no id naming no repository tag is ungated-write", () => {
+    const b = buildPassingBundle("linear");
+    const s = session(b, "S1");
+    addContainerWrite(b, s, "save_issue_label", { name: "other-tag", teamId: "team-1" });
+    expect(findingsOf(grade(b), "ungated-write").some((f) => f.session === s.sessionId)).toBe(true);
   });
   test("CONTAINER PERMIT — a label create whose name is B's repository tag is not ungated-write", () => {
     const b = buildPassingBundle("linear");

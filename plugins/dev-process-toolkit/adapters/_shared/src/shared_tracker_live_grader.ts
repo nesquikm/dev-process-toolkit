@@ -1879,11 +1879,19 @@ const rootOfPath = (p: string): Root | null => (/^<([AB])>\//.exec(p)?.[1] as Ro
  * under §3 — is not permitted either: no scenario writes one, and a run that
  * did left the spaces it was sanctioned to touch.
  */
+/** A plain label create: not a label group and not nested under one (the hook refuses both). */
+const plainLabel = (c: ToolCall): boolean => c.input.isGroup !== true && (c.input.parent === undefined || c.input.parent === null || c.input.parent === "");
+
 const PERMITTED_CONTAINER_WRITES: ReadonlyArray<{ tool: string; permits: (c: ToolCall, b: LiveBundle) => boolean; reason: string }> = [
   {
     tool: "create_issue_label",
-    permits: (c, b) => typeof c.input.name === "string" && (["A", "B"] as const).some((r) => c.input.name === b.roots[r].tag),
-    reason: "a repository creating its own repo-tag label: the hook permits a label create whose name is a declared target's repo_tag, and no deciding command writes a receipt for it",
+    permits: (c, b) => plainLabel(c) && typeof c.input.name === "string" && (["A", "B"] as const).some((r) => c.input.name === b.roots[r].tag),
+    reason: "a repository creating its own repo-tag label: the hook permits a PLAIN label create (no group, no parent) whose name is a declared target's repo_tag, and no deciding command writes a receipt for it",
+  },
+  {
+    tool: "save_issue_label",
+    permits: (c, b) => (c.input.id === undefined || c.input.id === null || c.input.id === "") && plainLabel(c) && typeof c.input.name === "string" && (["A", "B"] as const).some((r) => c.input.name === b.roots[r].tag),
+    reason: "the same repo-tag label create through the tool the Linear MCP steers to (it marks create_issue_label deprecated): with no `id` save_issue_label creates, and the hook permits it on the same rule; with an `id` it is a rename, which no row permits",
   },
 ];
 
@@ -2364,6 +2372,34 @@ function teardownIncomplete(b: LiveBundle): LiveFinding[] {
   return out;
 }
 
+/**
+ * The Linear team conjunct, shown live rather than inferred. With no team in a
+ * repository's binding the create decision's query carries no team conjunct,
+ * so the identifier-prefix team rule cannot fire; a pass used to imply the
+ * guard was live only because Linear rejects a create without `team`, an
+ * invariant outside the toolkit. So every Linear create decision's recorded
+ * payload must carry the run's team (`--linear-team`), and a run that recorded
+ * no create decision never showed the guard live at all.
+ */
+function teamConjunctInert(b: LiveBundle): LiveFinding[] {
+  if (b.run.tracker !== "linear") return [];
+  const want = b.run.linearTeam;
+  const creates = (["A", "B"] as const).flatMap((r) => {
+    const set = b.repos[r].receipts;
+    return set.readable ? set.records.filter((x) => x.kind === "create" && x.adapter === "linear") : [];
+  });
+  if (creates.length === 0) return [{ code: "team-conjunct-inert", detail: "no Linear create decision is recorded, so the team conjunct was never shown live" }];
+  const out: LiveFinding[] = [];
+  for (const r of creates) {
+    const p = r.evidence.createPayload;
+    const team = p && typeof p === "object" ? (p as Record<string, unknown>).team : undefined;
+    if (typeof team !== "string" || team === "" || (want !== null && team !== want)) {
+      out.push({ code: "team-conjunct-inert", session: r.sessionId, detail: `${r.path}: the create decision's payload carries team ${JSON.stringify(team ?? null)}, not the run's team ${JSON.stringify(want)} — its query ran without the team conjunct` });
+    }
+  }
+  return out;
+}
+
 export function gradeBundle(b: LiveBundle, o: GradeOptions): LiveVerdict {
   const gw = gatedWrites(b);
   const budget = linearBudget(b);
@@ -2378,6 +2414,7 @@ export function gradeBundle(b: LiveBundle, o: GradeOptions): LiveVerdict {
     ...isolationBroken(b),
     ...teardownIncomplete(b),
     ...itemsOutsideSpaces(b),
+    ...teamConjunctInert(b),
     ...reg.findings,
   ];
   for (const s of b.unledgeredSessions ?? []) {

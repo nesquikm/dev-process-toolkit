@@ -1607,8 +1607,9 @@ function gateMilestoneCreate(
  * §5 — a `container` call in a declared target, decided (AC-STE-608.10): an
  * Epic create or a `save_milestone` without `id` needs a create decision; no
  * toolkit flow edits a milestone, writes a project, or retires, restores or
- * renames a label; the one other permitted write is a `create_issue_label`
- * of the target's own `repo_tag`.
+ * renames a label; the one other permitted write is a label create of the
+ * target's own `repo_tag` — `create_issue_label`, or `save_issue_label` with no
+ * `id` (the create the Linear MCP steers to; it marks the former deprecated).
  */
 function gateContainer(
   call: TrackerCall,
@@ -1650,11 +1651,19 @@ function gateContainer(
       `leave the project to a person in the tracker; ${decideRemedy}.`,
     );
   }
-  if (call.tool === "create_issue_label") {
+  // A label CREATE: `create_issue_label`, or `save_issue_label` with no `id` —
+  // the Linear MCP marks create_issue_label deprecated and steers a model to
+  // save_issue_label, so the permit must cover both or the recommended tool is
+  // refused. A save_issue_label WITH an id is a rename, refused below.
+  if (call.tool === "create_issue_label" || (call.tool === "save_issue_label" && (call.input.id === undefined || call.input.id === null || call.input.id === ""))) {
     const name = typeof call.input.name === "string" ? call.input.name : "";
-    if (name !== "" && targets.some((t) => t.binding.repoTag === name)) return 0;
+    // Only a PLAIN label: a label group, or a label nested under one, named like
+    // the repo tag has no honest use, so it falls to the refusal below.
+    const parent = call.input.parent;
+    const plain = call.input.isGroup !== true && (parent === undefined || parent === null || parent === "");
+    if (plain && name !== "" && targets.some((t) => t.binding.repoTag === name)) return 0;
     return refuse(
-      `${where}: create_issue_label "${name}" is not a declared target's repo tag (${targets.map((t) => t.binding.repoTag ?? "none").join(", ")}), and no toolkit flow creates any other label.${note}`,
+      `${where}: ${call.tool} "${name}" is not a declared target's repo tag (${targets.map((t) => t.binding.repoTag ?? "none").join(", ")}), and no toolkit flow creates any other label.${note}`,
       `create only this repository's own tag label (name = its repo_tag); ${decideRemedy}.`,
     );
   }

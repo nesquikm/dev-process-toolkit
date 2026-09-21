@@ -72,7 +72,7 @@ echo "tracker: ${TRACKER}"
 if [ "${TRACKER}" = jira ]; then
   echo "writes to: Jira space ${JIRA_PROJECT}${JIRA_REPOINT_FROM:+ and Jira space ${JIRA_REPOINT_FROM} (repoint-from)}"
 else
-  echo "writes to: Linear team ${LINEAR_TEAM} — two projects this run creates: dpt-shared-<nonce> (shared) and dpt-shared-<nonce>-pre (B's pre-repoint)"
+  echo "writes to: Linear team ${LINEAR_TEAM} — two projects this run creates: dpt-shared-<nonce> (shared) and dpt-shared-<nonce>-pre (B's pre-repoint), and two issue labels this run creates: shr-<nonce>-a and shr-<nonce>-b (the repo tags)"
 fi
 echo "throwaway repositories: ${PARENT}/dpt-shared-${TRACKER}-a ${PARENT}/dpt-shared-${TRACKER}-b"
 printf '%s\n' "${PLAN}" | sed 's/^/  /'
@@ -84,7 +84,7 @@ esac
 
 The operator is shown, and approves, all of:
 
-1. every container the run writes to — the Jira keys, the repoint-from space included when given, or the Linear team and the two project names the run creates;
+1. every container the run writes to — the Jira keys, the repoint-from space included when given, or the Linear team, the two project names the run creates and the two repo-tag labels it creates in that team (`shr-<nonce>-a`, `shr-<nonce>-b`);
 2. whether S8 runs or is skipped as `repoint-space-not-given`;
 3. `EXPECTED_ITEMS` and `WORST_CASE_ITEMS`, in the tracker's own unit (`ITEM_UNIT`): on Jira the issues the run creates, the S3 Epic included; on Linear the issues the free plan will be asked for, the worst case being `linearWorstCase()`;
 4. `EXPECTED_CHILDREN`, the number of children the run starts, and `SPAWN_CEILING`, the most it may ever start.
@@ -160,15 +160,17 @@ Every refusal below comes before any spawn and before any tracker write, and eac
 7. the behaviour digest cannot be computed;
 8. the tracker server registered under the second name does not answer one read call;
 9. on Jira, the shared space, or the repoint-from space when given, does not answer a read, or its create metadata offers no Epic or no task type;
-10. on Linear, `--linear-team` does not resolve to a team.
+10. on Linear, `--linear-team` is not a team key (`linear-team-not-a-key`: the binding records the key, never a display name), or the saved team lookup carries no team id (`linear-team-unresolved`).
 
 **The tracker answers come from this session, saved before the fence runs.** The fence cannot call MCP. Before running it, make these READ calls from this operator session and save each answer, verbatim, into the answers directory `/tmp/dpt-shared-<tracker>-answers`:
 
-- `second-server-read.json` — one read call on the second server name (`claude_ai_Atlassian` for Jira, `claude_ai_Linear` for Linear) that returns something, such as the accessible resources or the team list. If the call errors, save `{"error": "<the error text>"}`. An empty answer (`{}`, `[]`, `null`) is refused like an error: a read that returns nothing proves nothing.
-- Jira: `jira-space-<KEY>.json` (the project search answer, `{"values":[…]}`) and `jira-createmeta-<KEY>.json` (`{"issueTypes":[…]}`), for the shared space and, when given, the repoint-from space.
-- Linear: `linear-team.json`, the team lookup answer for `--linear-team`.
+- `second-server-read.json` — one read call on the second server name (`claude_ai_Atlassian` for Jira, `claude_ai_Linear` for Linear) that returns something: `getAccessibleAtlassianResources` on Jira (a bare array) or `list_teams` on Linear, saved verbatim. If the call errors, save `{"error": "<the error text>"}`. An empty answer (`{}`, `[]`, `null`) is refused like an error: a read that returns nothing proves nothing.
+- Jira: `jira-space-<KEY>.json`, the answer of `mcp__atlassian__getVisibleJiraProjects(searchString: <KEY>)` (`{"values":[…],…}`), and `jira-createmeta-<KEY>.json`, the answer of `mcp__atlassian__getJiraProjectIssueTypesMetadata(projectIdOrKey: <KEY>)` (`{"issueTypes":[…],…}`), each saved verbatim, for the shared space and, when given, the repoint-from space.
+- Linear: `linear-team.json`, the answer of `mcp__linear__get_team(query: <LINEAR_TEAM>)`, saved verbatim. It carries the team's `id` and display `name` but no `key` field, so the fence checks that `LINEAR_TEAM` is key-shaped and that the answer is an object with a non-empty string `id` and no `error`.
 
-The only `bun` the fence runs is the grader's read-only `digest`; it starts no `claude`. It reads its inputs from the environment: `TRACKER`, `JIRA_PROJECT`, `JIRA_REPOINT_FROM`, `LINEAR_TEAM`, `OLD_CLIENT`, `CLAUDE_CONFIG_DIR` and `PREFLIGHT_ANSWERS`. Run it from the toolkit checkout's top level. On success it writes the resolved old client, floor and digest to `/tmp/dpt-shared-<tracker>-preflight.env`, which Phase 2 appends to the run state.
+The only `bun` the fence runs is the grader's read-only `digest`; it starts no `claude`. It reads its inputs from the environment: `TRACKER`, `JIRA_PROJECT`, `JIRA_REPOINT_FROM`, `LINEAR_TEAM`, `OLD_CLIENT`, `CLAUDE_CONFIG_DIR` and `PREFLIGHT_ANSWERS`. Run it from the toolkit checkout's top level. On success it writes the resolved old client, floor and digest, and on Linear the checked team key as `LINEAR_TEAM` and the team's id as `LINEAR_TEAM_ID` (both empty on Jira), to `/tmp/dpt-shared-<tracker>-preflight.env`, which Phase 2 appends to the run state. Phase 2's label creates take that id as `teamId`.
+
+**Between legs.** When the other tracker's leg already ran, commit its evidence bundle (a commit touching only that leg's bundle directory under `plugins/dev-process-toolkit/tests/fixtures/shared-tracker-live/`, which lies outside the behaviour digest) before this pre-flight, since the pre-flight refuses an untracked bundle (check 5).
 
 **Run it from a file.** Write the fence to a file and run `bash <file>` with those variables in its environment; never feed it to `bash`, `sh` or `zsh` through stdin.
 
@@ -258,7 +260,8 @@ A="${PREFLIGHT_ANSWERS:-/nonexistent}"
 jq -e '(type == "object" and length > 0 and (has("error") | not)) or (type == "array" and length > 0)' "${A}/second-server-read.json" >/dev/null 2>&1 \
   || refuse second-server-silent "the tracker server under its second name gave no usable answer to one read call (${A}/second-server-read.json)." "authenticate the second server name in this session, repeat the read call, save its answer, and run the pre-flight again."
 
-# 9. / 10. the containers
+# 9. / 10. the containers (LINEAR_TEAM_ID is set only by a resolved Linear team, never inherited)
+LINEAR_TEAM_ID=""
 if [ "${TRACKER}" = jira ]; then
   for KEY in "${JIRA_PROJECT}" ${JIRA_REPOINT_FROM:+"${JIRA_REPOINT_FROM}"}; do
     jq -e --arg k "${KEY}" '[.values[]? | select(.key == $k)] | length > 0' "${A}/jira-space-${KEY}.json" >/dev/null 2>&1 \
@@ -269,8 +272,13 @@ if [ "${TRACKER}" = jira ]; then
       || refuse jira-no-task "the Jira space ${KEY} offers no task issue type." "use a space whose create metadata offers Epic and Task."
   done
 else
-  jq -e --arg k "${LINEAR_TEAM}" '.key == $k' "${A}/linear-team.json" >/dev/null 2>&1 \
-    || refuse linear-team-unresolved "--linear-team ${LINEAR_TEAM} does not resolve to a Linear team." "pass the key of a team this workspace holds."
+  # The binding records the team KEY (team: <KEY>), so a display name or an issue key refuses here.
+  printf '%s' "${LINEAR_TEAM}" | grep -Eqx '[A-Z][A-Z0-9]*' \
+    || refuse linear-team-not-a-key "--linear-team ${LINEAR_TEAM} is not a Linear team key (^[A-Z][A-Z0-9]*$); both declarations record the key as team:." "pass the team's key, such as STE, never its display name."
+  # linear-team.json is the mcp__linear__get_team(query: <LINEAR_TEAM>) answer: {id, name, …}, no key field.
+  jq -e 'type == "object" and (has("error") | not) and (.id | type == "string" and length > 0)' "${A}/linear-team.json" >/dev/null 2>&1 \
+    || refuse linear-team-unresolved "--linear-team ${LINEAR_TEAM} did not resolve: the saved mcp__linear__get_team answer (${A}/linear-team.json) carries no team id." "call mcp__linear__get_team(query: ${LINEAR_TEAM}) from this session, save its answer verbatim as linear-team.json, and run the pre-flight again; pass the key of a team this workspace holds."
+  LINEAR_TEAM_ID=$(jq -r '.id' "${A}/linear-team.json")
 fi
 
 {
@@ -278,15 +286,17 @@ fi
   printf 'OLD_CLIENT_VERSION=%s\n' "${OLD_V}"
   printf 'FLOOR=%s\n' "${FLOOR}"
   printf 'DIGEST_AT_START=%s\n' "${DIGEST}"
+  printf 'LINEAR_TEAM=%q\n' "$([ "${TRACKER}" = linear ] && echo "${LINEAR_TEAM}")"
+  printf 'LINEAR_TEAM_ID=%q\n' "${LINEAR_TEAM_ID:-}"
 } > "/tmp/dpt-shared-${TRACKER}-preflight.env"
-echo "pre-flight ok: tracker=${TRACKER} floor=${FLOOR} old_client=${OLD_CLIENT} (${OLD_V}) digest=${DIGEST}"
+echo "pre-flight ok: tracker=${TRACKER} floor=${FLOOR} old_client=${OLD_CLIENT} (${OLD_V}) digest=${DIGEST}${LINEAR_TEAM_ID:+ linear_team_id=${LINEAR_TEAM_ID}}"
 ```
 
 ## Phase 2 — Bootstrap
 
-`../dpt-shared-<tracker>-a` and `-b` become git repositories. Each declaration — the repository's tag, the floor (the version under test) and the stop paragraph — is written by the M_947c79 declaration front door, `adapters/_shared/src/setup/tracker_binding_write.ts --shared <tag>`; this document never writes a declaration line by hand. Each repository gets a wrapped MCP config; B's also registers the tracker server under a second name (`claude_ai_Atlassian` / `claude_ai_Linear`), and both repositories' settings allow the tools of both server names. A gets a trivial passing test command and a clean tree, so `/ship-milestone`'s refusals #1 to #3 cannot be the ones that fire in the sibling-busy scenario. The run nonce goes into every title the smoke writes, so no ticket from an earlier run can ever match.
+`../dpt-shared-<tracker>-a` and `-b` become git repositories. Each declaration — the repository's tag, the floor (the version under test) and the stop paragraph, and on Linear the team — is written by the M_947c79 declaration front door, `adapters/_shared/src/setup/tracker_binding_write.ts --shared <tag>` (plus `--team <LINEAR_TEAM>` on Linear); this document never writes a declaration line by hand. On Linear every create payload takes its team from the declaration's `team:`, so a declaration without it fails every create: the fence refuses `binding-team-missing` unless each CLAUDE.md carries exactly `team: <LINEAR_TEAM>` under `### Linear`. Jira takes no team. Each repository gets a wrapped MCP config; B's also registers the tracker server under a second name (`claude_ai_Atlassian` / `claude_ai_Linear`), and both repositories' settings allow the tools of both server names. A gets a trivial passing test command and a clean tree, so `/ship-milestone`'s refusals #1 to #3 cannot be the ones that fire in the sibling-busy scenario. The run nonce goes into every title the smoke writes, so no ticket from an earlier run can ever match.
 
-On Linear, create the two throwaway projects first, from this session: `dpt-shared-<nonce>` (shared) and `dpt-shared-<nonce>-pre` (B's pre-repoint project). Record every create. These are the run's first tracker writes, so write the marker `/tmp/dpt-shared-<tracker>-teardown-owed` right after them: from here on Phase 5 teardown is owed on every outcome. Jira's bootstrap writes nothing to the tracker; there the first scenario spawn writes the marker (§ Phase 5).
+On Linear, create the two throwaway projects first, from this session: `dpt-shared-<nonce>` (shared) and `dpt-shared-<nonce>-pre` (B's pre-repoint project). Then create the two repo-tag labels in the team, also from this session: a Linear `save_issue` naming a label the team does not hold fails, so both must exist before any child creates. Call `mcp__linear__save_issue_label(name: "shr-<nonce>-a", teamId: <LINEAR_TEAM_ID>)` and `mcp__linear__save_issue_label(name: "shr-<nonce>-b", teamId: <LINEAR_TEAM_ID>)`, with no `id` (which makes each call a create) and `LINEAR_TEAM_ID` read from `/tmp/dpt-shared-<tracker>-preflight.env`; never the deprecated `create_issue_label`. Record every create. These are the run's first tracker writes, so write the marker `/tmp/dpt-shared-<tracker>-teardown-owed` right after them: from here on Phase 5 teardown is owed on every outcome. Then save, verbatim into the answers directory `/tmp/dpt-shared-<tracker>-answers`, `mcp__linear__list_issue_labels(team: <LINEAR_TEAM>, name: shr-<nonce>-a)` as `labels-a.json` and `mcp__linear__list_issue_labels(team: <LINEAR_TEAM>, name: shr-<nonce>-b)` as `labels-b.json`; § Linear tag labels checks them before the first spawn. Jira's bootstrap writes nothing to the tracker; there the first scenario spawn writes the marker (§ Phase 5).
 
 **Run it from a file.** Write the fence to a file and run `bash <file>`; never feed it to `bash`, `sh` or `zsh` through stdin.
 
@@ -297,8 +307,9 @@ cat /tmp/dpt-shared-<tracker>-preflight.env >> /tmp/dpt-shared-<tracker>-run.env
 . /tmp/dpt-shared-<tracker>-run.env
 SHARED="<shared space key, or the shared Linear project name>"
 PRE="<the repoint-from space key, or B's pre-repoint Linear project name; empty on a Jira run without the flag>"
-LINEAR_TEAM="<the --linear-team key the pre-flight resolved on a Linear run; empty on Jira>"
-# The team is typed once, here, and recorded in the run state below; later phases read it from there.
+# LINEAR_TEAM (the key the pre-flight checked) and LINEAR_TEAM_ID (the uuid its lookup answered) came with
+# the pre-flight env above — never retyped here, so the declarations' team: is the key the pre-flight proved.
+# It is written into both Linear declarations as team:, and recorded in the run state below.
 if [ "${TRACKER}" = linear ] && [ -z "${LINEAR_TEAM}" ]; then
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=bootstrap, check=linear-team-unset, tracker=%s\n' "LINEAR_TEAM is empty on a Linear run; nothing was written." "set LINEAR_TEAM to the --linear-team key the pre-flight resolved, then run the bootstrap again." "${TRACKER}" >&2
   exit 1
@@ -330,7 +341,17 @@ for SIDE in A B; do
   mkdir -p "${ROOT}/specs/frs" "${ROOT}/specs/plan" "${ROOT}/.claude"
   git -C "${ROOT}" init -q -b main
   printf '# dpt-shared-%s-%s\n\n## Task Tracking\n\nmode: %s\nmcp_server: %s\n' "${TRACKER}" "${SIDE}" "${TRACKER}" "${SERVER}" > "${ROOT}/CLAUDE.md"
-  bun "${WRITE_BINDING}" "${ROOT}" "${TRACKER}" --project "${PROJECT}" --shared "${TAG}"
+  # On Linear every create takes its team from the declaration's team:, so the key goes in; Jira takes no team.
+  if [ "${TRACKER}" = linear ]; then
+    bun "${WRITE_BINDING}" "${ROOT}" "${TRACKER}" --project "${PROJECT}" --shared "${TAG}" --team "${LINEAR_TEAM}"
+    TEAM_LINES=$(awk '$0 == "### Linear" { inside = 1; next } inside && /^#/ { exit } inside && /^team[[:space:]]*:/' "${ROOT}/CLAUDE.md")
+    if [ "${TEAM_LINES}" != "team: ${LINEAR_TEAM}" ]; then
+      printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=bootstrap, check=binding-team-missing, side=%s, tracker=%s\n' "${ROOT}/CLAUDE.md does not carry exactly team: ${LINEAR_TEAM} under ### Linear (found: ${TEAM_LINES:-none}); every Linear create from it would fail." "fix the binding write so both declarations carry team: ${LINEAR_TEAM}, then run Phase 0.5 and the bootstrap again; run § Phase 5 — Teardown first if you abandon the run, since Phase 2's creates made it owed." "${SIDE}" "${TRACKER}" >&2
+      exit 1
+    fi
+  else
+    bun "${WRITE_BINDING}" "${ROOT}" "${TRACKER}" --project "${PROJECT}" --shared "${TAG}"
+  fi
   if [ "${SIDE}" = B ]; then
     jq -n --arg a "${SERVER}" --arg b "${SECOND}" --argjson s "${SERVER_JSON}" '{mcpServers: {($a): $s, ($b): $s}}' > "/tmp/dpt-shared-${TRACKER}-mcp-${SIDE}.json"
   else
@@ -355,9 +376,35 @@ printf 'SHARED=%q\nPRE=%q\nLINEAR_TEAM=%q\n' "${SHARED}" "${PRE}" "${LINEAR_TEAM
 echo "bootstrapped: ${ROOT_A} ${ROOT_B} nonce=${NONCE}"
 ```
 
+### Linear tag labels — before the privacy dry run (operator, no child)
+
+Every child create on Linear carries its repository's tag label, and a `save_issue` naming a label the team does not hold fails. So, after bootstrap and before the privacy dry run, this fence reads the two label listings Phase 2 saved (`labels-a.json`, `labels-b.json` in `/tmp/dpt-shared-<tracker>-answers`) and refuses `linear-tag-label-missing` in the NFR-10 shape unless each answer's `labels[]` holds an entry whose `name` is exactly that side's tag. A missing or unreadable answer refuses the same way. On Jira it checks nothing: a Jira label needs no create. It starts no child and writes nothing to the tracker.
+
+**Run it from a file.** Write the fence to a file and run `bash <file>`; never feed it to `bash`, `sh` or `zsh` through stdin.
+
+```bash
+# shared-tracker-smoke: linear tag labels — both repo-tag labels exist before any spawn
+. /tmp/dpt-shared-<tracker>-run.env
+refuse() {
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=tag-labels, check=%s, tracker=%s\n' "$2" "$3" "$1" "${TRACKER:-unset}" >&2
+  exit 1
+}
+if [ "${TRACKER}" != linear ]; then
+  echo "tag labels: not a Linear run; a Jira label needs no create, so nothing is checked"
+  exit 0
+fi
+ANSWERS="/tmp/dpt-shared-<tracker>-answers"
+for SIDE in a b; do
+  TAG="shr-${NONCE}-${SIDE}"
+  jq -e --arg t "${TAG}" '(.labels | type == "array") and ([.labels[] | select(type == "object" and .name == $t)] | length > 0)' "${ANSWERS}/labels-${SIDE}.json" >/dev/null 2>&1 \
+    || refuse linear-tag-label-missing "the Linear label ${TAG} is not in the saved listing ${ANSWERS}/labels-${SIDE}.json (missing, unreadable, or holding no label named ${TAG}); every create carrying it would fail, and no child was started." "create it with mcp__linear__save_issue_label(name: \"${TAG}\", teamId: <LINEAR_TEAM_ID>), save mcp__linear__list_issue_labels(team: ${LINEAR_TEAM}, name: ${TAG}) verbatim as labels-${SIDE}.json, and run this fence again; run § Phase 5 — Teardown if you abandon the run, since Phase 2's creates made it owed."
+done
+echo "tag labels ok: shr-${NONCE}-a and shr-${NONCE}-b exist in Linear team ${LINEAR_TEAM}"
+```
+
 ### Privacy dry run — before the first spawn (operator, no child)
 
-Phase 6's `extract` refuses to write a bundle holding a home-directory path, an email address, an account id or a tracker site host, and a bundle re-extracted after a fix changes its digest. A leak found only at Phase 6 therefore throws away the whole run. So, right after bootstrap and before the first scenario spawn, this fence runs the same `extract` over the bootstrap state, into a throwaway directory under `/tmp`, never into the fixtures tree. When it reports a privacy refusal it refuses in the NFR-10 shape, before any child starts and before any budget is spent. It also refuses when `extract` fails for any other reason, since Phase 6 would fail the same way. It starts no child and writes nothing to the tracker. On Linear, Phase 2's project creates have already made teardown owed, so a refusal sends the operator to § Phase 5 — Teardown.
+Phase 6's `extract` refuses to write a bundle holding a home-directory path, an email address, an account id or a tracker site host, and a bundle re-extracted after a fix changes its digest. A leak found only at Phase 6 therefore throws away the whole run. So, right after bootstrap and before the first scenario spawn, this fence runs the same `extract` over the bootstrap state, into a throwaway directory under `/tmp`, never into the fixtures tree. When it reports a privacy refusal it refuses in the NFR-10 shape, before any child starts and before any budget is spent. It also refuses when `extract` fails for any other reason, since Phase 6 would fail the same way. It starts no child and writes nothing to the tracker. On Linear, Phase 2's project and label creates have already made teardown owed, so a refusal sends the operator to § Phase 5 — Teardown.
 
 **What it cannot see.** This dry run checks the bootstrap state only: the ledger holds no session yet, so no child transcript and no tracker answer passes through it. A leak in a child's tool_result can only surface later. Phase 6's `extract` is the real privacy pass over the run; this dry run only catches what bootstrap alone would leak (the roots, the receipts, the git history).
 
@@ -385,9 +432,9 @@ if bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/shared_trac
 else
   sed 's/^/  extract: /' "${DRY_ERR}"
   if grep -q 'holds personal data' "${DRY_ERR}"; then
-    refuse privacy-leak "the dry-run extract over the bootstrap state refused its bundle for personal data (the matches are listed above); no child was started." "make the grader rewrite what it names, or move the throwaway repositories, then run Phase 2 and this dry run again; on Linear run § Phase 5 — Teardown first, since Phase 2's project creates made it owed."
+    refuse privacy-leak "the dry-run extract over the bootstrap state refused its bundle for personal data (the matches are listed above); no child was started." "make the grader rewrite what it names, or move the throwaway repositories, then run Phase 2 and this dry run again; on Linear run § Phase 5 — Teardown first, since Phase 2's project and label creates made it owed."
   fi
-  refuse dry-run-failed "the dry-run extract over the bootstrap state failed (its error is listed above), so Phase 6 would fail too; no child was started." "fix what the extract names, then run this dry run again; on Linear run § Phase 5 — Teardown if you abandon the run, since Phase 2's project creates made it owed."
+  refuse dry-run-failed "the dry-run extract over the bootstrap state failed (its error is listed above), so Phase 6 would fail too; no child was started." "fix what the extract names, then run this dry run again; on Linear run § Phase 5 — Teardown if you abandon the run, since Phase 2's project and label creates made it owed."
 fi
 ```
 
@@ -802,10 +849,10 @@ fi
 
 ## Phase 5 — Teardown
 
-**When teardown is owed.** It is keyed on the first scenario spawn. Jira's bootstrap writes nothing to the tracker, so a trigger keyed on bootstrap would never fire there. The step fence writes the marker `/tmp/dpt-shared-<tracker>-teardown-owed` just before it appends the first ledger row and spawns. On Linear, Phase 2's project creates write the marker earlier, because they are that run's first tracker writes. Once the marker exists, teardown runs on every outcome: pass, fail, abort, a step or audit refusal (`spawn-overrun`, an unreadable ledger, an unset ceiling), a spawn-count mismatch, and the Linear free-issue-limit stop. `--keep` only skips the prompts. From this operator session:
+**When teardown is owed.** It is keyed on the first scenario spawn. Jira's bootstrap writes nothing to the tracker, so a trigger keyed on bootstrap would never fire there. The step fence writes the marker `/tmp/dpt-shared-<tracker>-teardown-owed` just before it appends the first ledger row and spawns. On Linear, Phase 2's project and label creates write the marker earlier, because they are that run's first tracker writes. Once the marker exists, teardown runs on every outcome: pass, fail, abort, a step or audit refusal (`spawn-overrun`, an unreadable ledger, an unset ceiling), a spawn-count mismatch, and the Linear free-issue-limit stop. `--keep` only skips the prompts. From this operator session:
 
 - **Jira:** transition every nonce item, Epics included, in the shared space and, when given, the repoint-from space, to Done.
-- **Linear:** complete both throwaway projects. No MCP tool archives or deletes a Linear issue; the closing summary names every issue the run created so the operator can archive them by hand.
+- **Linear:** complete both throwaway projects. No MCP tool archives or deletes a Linear issue; the closing summary names every issue the run created so the operator can archive them by hand. A Linear label cannot be deleted through the MCP either: after teardown, retire both tag labels, `shr-<nonce>-a` and `shr-<nonce>-b`, with `mcp__linear__retire_issue_label`. The label retirement is not graded: the second audit reads no label, so it stays outside the evidence.
 
 Then run the § Phase 4 audit fence again with `AUDIT_PASS=2`: the second audit re-reads the nonce items and, on Linear, reads both throwaway projects back with one `mcp__linear__get_project` call each, by the names Phase 2 recorded in the run state (an issue listing never reads a project), and the grader fails the run as `teardown-incomplete` naming any item it still reads as open (Jira) or either project not completed (Linear). Teardown is therefore inside the evidence the release gate re-grades.
 
@@ -878,7 +925,7 @@ Print, in this order:
 
 1. **Verdict** — the outcome, and per scenario its outcome with the record references it was decided on. On a Jira run without `--jira-repoint-from`, the line `S8 skipped: repoint-space-not-given`.
 2. **Children** — sessions ledgered against `SPAWN_CEILING` and `EXPECTED_CHILDREN`. Any session whose transcript's cwd is one of the run's throwaway roots but which the ledger lacks is listed as `unledgered-session` and fails the run; it is never silently kept or deleted.
-3. **Tracker writes** — every item the run created, by key. On Linear, the budget declared and spent, and every issue created, for archiving by hand.
+3. **Tracker writes** — every item the run created, by key. On Linear, the budget declared and spent, and every issue created, for archiving by hand, and the two tag labels Phase 5 retired.
 4. **Teardown** — what Phase 5 closed, and anything the second audit still read as open.
 5. **Run artifacts** — the evidence bundle directory `plugins/dev-process-toolkit/tests/fixtures/shared-tracker-live/<tracker>-<date>-<nonce>/`, the verdict artifact, and the step logs under `/tmp/dpt-shared-<tracker>-*`. The `bundle-hash=` line Phase 6's grade printed is the hash the plan's Live proof row records; it is taken after the verdict is written into the bundle directory, so it covers the recorded verdict.
 6. **Session cleanup** — on `pass`, the deleted sessions. On `fail` or `abort` nothing was deleted; print the manual command, `bun plugins/dev-process-toolkit/adapters/_shared/src/smoke_session_cleanup.ts --config-dir <config dir> --project-root <toolkit root> --session <sid>… --delete`, with every ledgered id for leg `shared-<tracker>` written out.
