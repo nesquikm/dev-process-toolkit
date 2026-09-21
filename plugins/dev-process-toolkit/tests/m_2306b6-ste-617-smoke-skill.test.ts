@@ -1,0 +1,1528 @@
+// STE-617 (M_2306b6) — the maintainer-only skill `.claude/skills/shared-tracker-smoke/SKILL.md`:
+// where it lives, what the gate probes see of it, its pre-flight fence RUN with
+// `claude` and `bun` stubbed, and the static shape of its cleanup and summary.
+//
+// THE PRE-FLIGHT FENCE CONTRACT (AC-STE-617.2). The document holds exactly one
+// ```bash fence whose body carries the comment line
+//
+//     # shared-tracker-smoke: pre-flight
+//
+// It runs from the toolkit checkout's top level and reads its inputs from the
+// environment, never from a hard-coded operator path:
+//   TRACKER, JIRA_PROJECT, JIRA_REPOINT_FROM (optional), LINEAR_TEAM,
+//   OLD_CLIENT (optional plugin dir), CLAUDE_CONFIG_DIR (workspace trust in
+//   `$CLAUDE_CONFIG_DIR/.claude.json` under `projects["<abs path>"].hasTrustDialogAccepted`;
+//   the plugin cache under `$CLAUDE_CONFIG_DIR/plugins/cache/dev-process-toolkit/dev-process-toolkit/<ver>/`),
+//   PREFLIGHT_ANSWERS — a directory of the tracker answers the operator
+//   session saved from its own MCP read calls before the fence runs:
+//     second-server-read.json   one read call on the second server name
+//                               (missing, not JSON, or a top-level "error" → refuse)
+//     jira-space-<KEY>.json     {"values":[{"key":"<KEY>",…}]}   (per space: shared, and repoint-from when given)
+//     jira-createmeta-<KEY>.json {"issueTypes":[{"name":"Epic"},{"name":"Task"},…]}
+//     linear-team.json          {"key":"<TEAM>",…}
+// The version under test is `plugins/dev-process-toolkit/.claude-plugin/plugin.json`.
+// The old client defaults to the newest cached version whose hooks/hooks.json
+// names no `pre-tracker-write-gate`. The behaviour digest comes from
+// `bun …/shared_tracker_live_grader.ts digest <pluginRoot>`.
+//
+// A refusal exits non-zero with the three-line NFR-10 shape on stderr —
+// `/shared-tracker-smoke: …`, `Remedy: …`, `Context: … skill=shared-tracker-smoke…` —
+// having started no `claude` and run no `bun` but the read-only digest.
+// The complete fixture exits 0.
+
+import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+
+import { runAutoApproveMarkerProbe } from "../adapters/_shared/src/auto_approve_marker";
+import { HARNESS_SKILL_RELATIVE_PATHS } from "../adapters/_shared/src/harness_artifact_paths";
+import { runRequiresInputSentinelCoverageProbe } from "../adapters/_shared/src/requires_input_sentinel_coverage";
+import { scanCandidateCheckSkills } from "../adapters/_shared/src/scan_candidate_check_skills";
+import { isSpawnFence, parseFences, type Fence } from "./_spawn_fences";
+import {
+  baseEnv as stubEnv,
+  makeSandbox as makeStubSandbox,
+  readCalls as readStubCalls,
+  reap as reapStubSandbox,
+  rebase as rebaseIntoStub,
+  runScript as runStubScript,
+  type Sandbox as StubSandbox,
+} from "./_ste594_harness";
+import { readSpecFile } from "./_spec_tree";
+
+const pluginRoot = join(import.meta.dir, "..");
+const repoRoot = realpathSync(join(pluginRoot, "..", ".."));
+const DOC_REL = ".claude/skills/shared-tracker-smoke/SKILL.md";
+const DOC = join(repoRoot, DOC_REL);
+const MARKER = "<dpt:auto-approve>v1</dpt:auto-approve>";
+const PREFLIGHT_TAG = "# shared-tracker-smoke: pre-flight";
+
+function docText(): string {
+  expect(existsSync(DOC), `${DOC_REL} exists (STE-617 AC.1)`).toBe(true);
+  return readFileSync(DOC, "utf-8");
+}
+
+function fences(): Fence[] {
+  return parseFences("shared-tracker-smoke", docText());
+}
+
+function frontmatter(text: string): string {
+  const m = /^---\n([\s\S]*?)\n---\n/.exec(text.replace(/\r\n/g, "\n"));
+  expect(m, "the document opens with a frontmatter block").not.toBeNull();
+  return m![1]!;
+}
+
+/** The region under the first heading matching `re`, through the next heading of the same or a higher level. */
+function section(text: string, re: RegExp): string {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const i = lines.findIndex((l) => /^#{1,6}\s/.test(l) && re.test(l));
+  expect(i, `a heading matching ${re}`).toBeGreaterThanOrEqual(0);
+  const level = /^(#+)/.exec(lines[i]!)![1]!.length;
+  let j = i + 1;
+  while (j < lines.length && !(new RegExp(`^#{1,${level}}\\s`).test(lines[j]!))) j++;
+  return lines.slice(i, j).join("\n");
+}
+
+// ===========================================================================
+// AC.1 — the document, its discovery and the probes that scan it
+// ===========================================================================
+
+/**
+ * AC.1 — what the frontmatter must say, read from the frontmatter block only:
+ * the body names `disable-model-invocation: true` in prose too, so a scan of
+ * the whole document could not tell a frontmatter that dropped it.
+ */
+function frontmatterViolations(text: string): string[] {
+  const m = /^---\n([\s\S]*?)\n---\n/.exec(text.replace(/\r\n/g, "\n"));
+  if (!m) return ["the document opens with no frontmatter block"];
+  const fm = m[1]!;
+  const v: string[] = [];
+  if (!/^name:\s*shared-tracker-smoke\s*$/m.test(fm)) v.push("the frontmatter does not name shared-tracker-smoke");
+  if (!/^disable-model-invocation:\s*true\s*$/m.test(fm)) v.push("the frontmatter does not carry disable-model-invocation: true");
+  if (/^verify\s*:\s*['"]?(?:true|yes|on)['"]?\s*$/im.test(fm)) v.push("the frontmatter carries verify: true");
+  return v;
+}
+
+/** The skill-count line of the root CLAUDE.md against the SKILL.md files the two roots hold. */
+function skillCountViolations(claudeMd: string, shipped: number): string[] {
+  const said = [...claudeMd.matchAll(/(\d+) skills ship across the two roots/g)].map((m) => Number(m[1]));
+  if (said.length !== 1) return [`the root CLAUDE.md states the two-root skill count ${said.length} times, not once`];
+  return said[0] === shipped ? [] : [`the root CLAUDE.md says ${said[0]} skills ship across the two roots; the roots hold ${shipped}`];
+}
+
+function shippedSkillCount(): number {
+  const inRoot = (d: string) => (existsSync(d) ? readdirSync(d).filter((n) => existsSync(join(d, n, "SKILL.md"))).length : 0);
+  return inRoot(join(repoRoot, ".claude", "skills")) + inRoot(join(pluginRoot, "skills"));
+}
+
+/** The document with one frontmatter line changed; the edit must land inside the frontmatter block. */
+function withFrontmatter(text: string, edit: (fm: string) => string): string {
+  const fm = frontmatter(text);
+  const next = edit(fm);
+  expect(next, "the frontmatter edit changes the frontmatter").not.toBe(fm);
+  return text.replace(`---\n${fm}\n---\n`, `---\n${next}\n---\n`);
+}
+
+describe("AC.1 — the skill document and its frontmatter", () => {
+  test("it exists with disable-model-invocation: true and no verify: true", () => {
+    expect(frontmatterViolations(docText())).toEqual([]);
+  });
+  test("MUTATION — a copy whose frontmatter drops disable-model-invocation: true, or sets it false, is red (the body's prose mention does not satisfy it)", () => {
+    const text = docText();
+    const dropped = withFrontmatter(text, (fm) => fm.split("\n").filter((l) => !/^disable-model-invocation:/.test(l)).join("\n"));
+    expect(dropped.includes("disable-model-invocation: true"), "control: the body still names it in prose").toBe(true);
+    expect(frontmatterViolations(dropped)).toEqual(["the frontmatter does not carry disable-model-invocation: true"]);
+    const flipped = withFrontmatter(text, (fm) => fm.replace(/^disable-model-invocation:\s*true\s*$/m, "disable-model-invocation: false"));
+    expect(frontmatterViolations(flipped)).toEqual(["the frontmatter does not carry disable-model-invocation: true"]);
+  });
+  test("MUTATION — a copy whose frontmatter adds verify: true is red; PERMIT TWIN — verify: true in the body is not frontmatter", () => {
+    const text = docText();
+    const added = withFrontmatter(text, (fm) => `${fm}\nverify: true`);
+    expect(frontmatterViolations(added)).toEqual(["the frontmatter carries verify: true"]);
+    const inBody = text.replace("\n# /shared-tracker-smoke\n", "\n# /shared-tracker-smoke\n\nverify: true\n");
+    expect(inBody, "control: the body edit landed").not.toBe(text);
+    expect(frontmatterViolations(inBody)).toEqual([]);
+  });
+  test("implementation-time discovery still finds no candidate check skill", () => {
+    docText();
+    expect(scanCandidateCheckSkills(repoRoot)).toEqual([]);
+  });
+  test("runAutoApproveMarkerProbe reports zero violations naming the document", async () => {
+    docText();
+    const r = await runAutoApproveMarkerProbe(repoRoot);
+    expect(r.violations.filter((v) => v.file.includes("shared-tracker-smoke") || v.note.includes("shared-tracker-smoke"))).toEqual([]);
+  });
+  test("runRequiresInputSentinelCoverageProbe reports zero violations naming the document", async () => {
+    docText();
+    const r = await runRequiresInputSentinelCoverageProbe(repoRoot);
+    expect(r.violations.filter((v) => v.file.includes("shared-tracker-smoke") || v.note.includes("shared-tracker-smoke"))).toEqual([]);
+  });
+
+  /** Remove the marker from the first column-0 bash fence holding a heredoc `claude -p` spawn. */
+  function dropOneMarker(text: string): { text: string; fenceLine: number } {
+    const lines = text.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      if (!/^```bash\s*$/.test(lines[i]!)) continue;
+      let j = i + 1;
+      while (j < lines.length && !/^```\s*$/.test(lines[j]!)) j++;
+      const body = lines.slice(i + 1, j);
+      const joined = body.join("\n");
+      if (/\bclaude\s+-p\b/.test(joined) && /<<\s*['"]?[A-Za-z_]/.test(joined) && body.some((l) => l.trim() === MARKER)) {
+        const kept = [...lines.slice(0, i + 1), ...body.filter((l) => l.trim() !== MARKER), ...lines.slice(j)];
+        return { text: kept.join("\n"), fenceLine: i + 1 };
+      }
+      i = j;
+    }
+    return { text, fenceLine: -1 };
+  }
+
+  test("the document is INSIDE the auto-approve probe's scan set: a scratch copy with one heredoc spawn fence's marker removed yields exactly one violation naming it", async () => {
+    const text = docText();
+    const scratch = realpathSync(mkdtempSync(join(tmpdir(), "ste617-aam-")));
+    try {
+      const target = join(scratch, DOC_REL);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, text);
+      const clean = await runAutoApproveMarkerProbe(scratch);
+      expect(clean.violations, "control: the unmutated copy is clean").toEqual([]);
+      const { text: mutated, fenceLine } = dropOneMarker(text);
+      expect(fenceLine, "the document holds a column-0 heredoc `claude -p` spawn fence carrying the marker").toBeGreaterThan(0);
+      writeFileSync(target, mutated);
+      const r = await runAutoApproveMarkerProbe(scratch);
+      expect(r.violations.length).toBe(1);
+      expect(r.violations[0]!.file.endsWith(DOC_REL)).toBe(true);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+  test("the root CLAUDE.md skill count reads 30, derived from both roots", () => {
+    docText();
+    const claude = readFileSync(join(repoRoot, "CLAUDE.md"), "utf-8");
+    expect(shippedSkillCount(), "the two roots hold 30 SKILL.md files").toBe(30);
+    expect(skillCountViolations(claude, shippedSkillCount())).toEqual([]);
+    expect(claude).not.toContain("29 skills ship across the two roots");
+  });
+  test("MUTATION — a CLAUDE.md copy saying 31, or 29, skills ship across the two roots is red", () => {
+    const claude = readFileSync(join(repoRoot, "CLAUDE.md"), "utf-8");
+    for (const n of ["31", "29"]) {
+      const m = claude.replace("30 skills ship across the two roots", `${n} skills ship across the two roots`);
+      expect(m, "control: the edit landed").not.toBe(claude);
+      expect(skillCountViolations(m, shippedSkillCount())).toEqual([`the root CLAUDE.md says ${n} skills ship across the two roots; the roots hold 30`]);
+    }
+  });
+});
+
+// ===========================================================================
+// AC.4 — the harness artifact registry
+// ===========================================================================
+
+describe("AC.4 — the document is a registered harness document", () => {
+  test("HARNESS_SKILL_RELATIVE_PATHS names it", () => {
+    expect([...HARNESS_SKILL_RELATIVE_PATHS]).toContain(DOC_REL);
+  });
+  test("`bun harness_artifact_paths.ts` exits 0 over all three documents", () => {
+    const r = spawnSync(process.execPath, [join(pluginRoot, "adapters", "_shared", "src", "harness_artifact_paths.ts")], { cwd: repoRoot, encoding: "utf-8" });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/^artifact-paths: ok scanned=\d+/m);
+  });
+  test("AC.16 — `bun harness_artifact_paths.ts ignore-scan` exits 0: the committed bundle is named only as a directory", () => {
+    const r = spawnSync(process.execPath, [join(pluginRoot, "adapters", "_shared", "src", "harness_artifact_paths.ts"), "ignore-scan"], { cwd: repoRoot, encoding: "utf-8" });
+    expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
+  });
+});
+
+// ===========================================================================
+// AC.5 — no hand-written declaration line
+// ===========================================================================
+
+/** Lines that hand-write a declaration field: after list, quote and backtick decoration, the line starts `repo_tag:` or `min_dpt_version:`. */
+function handWrittenDeclarationLines(text: string): string[] {
+  return text
+    .split("\n")
+    .filter((l) => /^(?:repo_tag|min_dpt_version):/.test(l.replace(/^[\s>*+-]*(?:\d+\.\s*)?`?/, "")));
+}
+
+describe("AC.5 — the document hand-writes no repo_tag: or min_dpt_version: line", () => {
+  test("the document carries none", () => {
+    expect(handWrittenDeclarationLines(docText())).toEqual([]);
+  });
+  test("CONTROL — a mutated copy carrying either line fails; a prose mention mid-sentence does not", () => {
+    const text = docText();
+    expect(handWrittenDeclarationLines(`${text}\nrepo_tag: shr-live-a\n`)).toEqual(["repo_tag: shr-live-a"]);
+    expect(handWrittenDeclarationLines(`${text}\n  min_dpt_version: 2.90.0\n`)).toEqual(["  min_dpt_version: 2.90.0"]);
+    expect(handWrittenDeclarationLines(`${text}\n- \`repo_tag: x\`\n`).length).toBe(1);
+    expect(handWrittenDeclarationLines("The front door writes the `repo_tag:` field for you.\n")).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// AC.2 — the pre-flight fence, run with claude and bun stubbed
+// ===========================================================================
+
+function preflightFence(): Fence {
+  const hits = fences().filter((f) => f.info === "bash" && f.lines.some((l) => l.trim() === PREFLIGHT_TAG));
+  expect(hits.length, `exactly one bash fence carries \`${PREFLIGHT_TAG}\``).toBe(1);
+  return hits[0]!;
+}
+
+interface Sandbox {
+  root: string;
+  bin: string;
+  calls: string;
+  toolkit: string;
+  config: string;
+  answers: string;
+  home: string;
+  tmp: string;
+}
+
+const FLOOR = "2.90.0";
+
+function writeJson(p: string, v: unknown): void {
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, JSON.stringify(v, null, 2));
+}
+
+function cachedPlugin(dir: string, version: string, withHook: boolean): string {
+  writeJson(join(dir, ".claude-plugin", "plugin.json"), { name: "dev-process-toolkit", version });
+  writeJson(join(dir, "hooks", "hooks.json"), {
+    hooks: {
+      PreToolUse: [
+        { matcher: "Bash", hooks: [{ type: "command", command: '"${CLAUDE_PLUGIN_ROOT}"/templates/hooks/process/pre-commit-gate-check.sh' }] },
+        ...(withHook ? [{ matcher: "^mcp__.+__(createJiraIssue)$", hooks: [{ type: "command", command: '"${CLAUDE_PLUGIN_ROOT}"/templates/hooks/process/pre-tracker-write-gate.sh' }] }] : []),
+      ],
+    },
+  });
+  return dir;
+}
+
+function makeSandbox(tracker: "jira" | "linear"): Sandbox {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "ste617-pf-")));
+  const sb: Sandbox = {
+    root,
+    bin: join(root, "bin"),
+    calls: join(root, "calls.log"),
+    toolkit: join(root, "work", "dev-process-toolkit"),
+    config: join(root, "config"),
+    answers: join(root, "answers"),
+    home: join(root, "home"),
+    tmp: join(root, "tmp"),
+  };
+  for (const d of [sb.bin, sb.toolkit, sb.config, sb.answers, sb.home, sb.tmp]) mkdirSync(d, { recursive: true });
+  writeFileSync(join(sb.bin, "claude"), `#!/bin/bash\nprintf 'claude\\t%s\\n' "$*" >> ${JSON.stringify(sb.calls)}\nexit 0\n`, { mode: 0o755 });
+  writeFileSync(
+    join(sb.bin, "bun"),
+    [
+      "#!/bin/bash",
+      `printf 'bun\\t%s\\n' "$*" >> ${JSON.stringify(sb.calls)}`,
+      'case "$*" in',
+      "  *shared_tracker_live_grader.ts*digest*)",
+      '    if [ -n "${STUB_DIGEST_FAIL:-}" ]; then',
+      "      printf 'Refusing: digest-unavailable: the plugin root is not a git checkout and no tracked-file list was given.\\n' >&2",
+      "      exit 1",
+      "    fi",
+      `    printf '{"digest":"%s","files":{}}\\n' "${"a".repeat(64)}"`,
+      "    exit 0 ;;",
+      "esac",
+      "exit 0",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  // The toolkit checkout: clean, with the version under test and the gate hook.
+  const plugin = join(sb.toolkit, "plugins", "dev-process-toolkit");
+  cachedPlugin(plugin, FLOOR, true);
+  writeFileSync(join(plugin, "adapters_placeholder.txt"), "tree under test\n");
+  mkdirSync(join(plugin, "adapters", "_shared", "src"), { recursive: true });
+  writeFileSync(join(plugin, "adapters", "_shared", "src", "shared_tracker_live_grader.ts"), "// never executed: bun is stubbed\n");
+  const genv = { ...process.env, HOME: sb.home, GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@localhost", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@localhost" };
+  for (const args of [["init", "-q"], ["add", "-A"], ["-c", "commit.gpgsign=false", "commit", "-qm", "init"]]) {
+    const r = spawnSync("git", ["-c", "init.defaultBranch=main", ...args], { cwd: sb.toolkit, env: genv, encoding: "utf-8" });
+    if (r.status !== 0) throw new Error(`sandbox git ${args.join(" ")}: ${r.stderr}`);
+  }
+  // Workspace trust for both throwaway paths.
+  writeJson(join(sb.config, ".claude.json"), { projects: { [throwaway(sb, tracker, "a")]: { hasTrustDialogAccepted: true }, [throwaway(sb, tracker, "b")]: { hasTrustDialogAccepted: true } } });
+  // The plugin cache: 2.86.0 lacks the hook (the old client), 2.89.0 carries it.
+  const cache = join(sb.config, "plugins", "cache", "dev-process-toolkit", "dev-process-toolkit");
+  cachedPlugin(join(cache, "2.86.0"), "2.86.0", false);
+  cachedPlugin(join(cache, "2.89.0"), "2.89.0", true);
+  // The operator session's saved answers.
+  writeJson(join(sb.answers, "second-server-read.json"), { accountId: "redacted", ok: true });
+  for (const key of ["DST", "DST2"]) {
+    writeJson(join(sb.answers, `jira-space-${key}.json`), { values: [{ key, name: `Space ${key}` }] });
+    writeJson(join(sb.answers, `jira-createmeta-${key}.json`), { issueTypes: [{ name: "Epic" }, { name: "Task" }, { name: "Bug" }] });
+  }
+  writeJson(join(sb.answers, "linear-team.json"), { key: "STE", name: "Stellar" });
+  return sb;
+}
+
+function throwaway(sb: Sandbox, tracker: string, side: "a" | "b"): string {
+  return join(dirname(sb.toolkit), `dpt-shared-${tracker}-${side}`);
+}
+
+function envFor(sb: Sandbox, extra: Record<string, string | undefined>): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v === undefined) continue;
+    if (/DPT|SMOKE|TRACKER|JIRA|LINEAR|OLD_CLIENT|PREFLIGHT|CLAUDE_CONFIG_DIR|STUB_/i.test(k)) continue;
+    env[k] = v;
+  }
+  env.HOME = sb.home;
+  env.PATH = `${sb.bin}:${process.env.PATH ?? ""}`;
+  env.CLAUDE_CONFIG_DIR = sb.config;
+  env.PREFLIGHT_ANSWERS = sb.answers;
+  env.JIRA_PROJECT = "DST";
+  env.LINEAR_TEAM = "STE";
+  for (const [k, v] of Object.entries(extra)) {
+    if (v === undefined) delete env[k];
+    else env[k] = v;
+  }
+  return env;
+}
+
+interface Run {
+  code: number;
+  out: string;
+  err: string;
+  calls: Array<{ kind: string; args: string }>;
+}
+
+function runPreflight(sb: Sandbox, env: Record<string, string>, cwd = sb.toolkit, fenceBody = preflightFence().body): Run {
+  const body = fenceBody.replaceAll(repoRoot, sb.toolkit).replaceAll("/tmp/", `${sb.tmp}/`);
+  const file = join(sb.root, `preflight-${Math.random().toString(36).slice(2)}.sh`);
+  writeFileSync(file, body);
+  const which = spawnSync("bash", ["-c", "command -v claude; command -v bun"], { env, cwd, encoding: "utf-8" });
+  expect(which.stdout.trim().split("\n"), "SAFETY: the stubs must shadow the real claude and bun").toEqual([join(sb.bin, "claude"), join(sb.bin, "bun")]);
+  const r = spawnSync("bash", [file], { env, cwd, encoding: "utf-8", timeout: 60_000 });
+  const calls = existsSync(sb.calls)
+    ? readFileSync(sb.calls, "utf-8").split("\n").filter(Boolean).map((l) => {
+        const [kind = "", ...rest] = l.split("\t");
+        return { kind, args: rest.join("\t") };
+      })
+    : [];
+  return { code: r.status ?? -1, out: r.stdout ?? "", err: r.stderr ?? "", calls };
+}
+
+function expectRefusal(r: Run, sb: Sandbox, tracker: string): string[] {
+  const dump = `exit=${r.code}\n--- stdout ---\n${r.out}\n--- stderr ---\n${r.err}`;
+  expect(r.code, dump).not.toBe(0);
+  expect(r.calls.filter((c) => c.kind === "claude"), "no child was started").toEqual([]);
+  expect(r.calls.filter((c) => c.kind === "bun" && !/shared_tracker_live_grader\.ts["']?\s+digest\b/.test(c.args)), "no bun run but the read-only digest").toEqual([]);
+  expect(existsSync(throwaway(sb, tracker, "a")) || existsSync(throwaway(sb, tracker, "b")), "nothing was bootstrapped").toBe(false);
+  const lines = r.err.replace(/\n+$/, "").split("\n").filter((l) => l.trim() !== "");
+  expect(lines.length, dump).toBe(3);
+  expect(lines[0]!).toMatch(/^\/shared-tracker-smoke: /);
+  expect(lines[1]!).toMatch(/^Remedy: /);
+  expect(lines[2]!).toMatch(/^Context: .*skill=shared-tracker-smoke/);
+  return lines;
+}
+
+function withSandbox(tracker: "jira" | "linear", f: (sb: Sandbox) => void): void {
+  const sb = makeSandbox(tracker);
+  try {
+    f(sb);
+  } finally {
+    rmSync(sb.root, { recursive: true, force: true });
+  }
+}
+
+describe("AC.2 — the pre-flight fence is found and sits before every spawn", () => {
+  test("exactly one bash fence carries the pre-flight tag, and it opens before the first spawn fence", () => {
+    const pf = preflightFence();
+    const firstSpawn = fences().find(isSpawnFence);
+    expect(firstSpawn, "the document holds spawn fences").toBeDefined();
+    expect(pf.openLine).toBeLessThan(firstSpawn!.openLine);
+    expect(pf.body).not.toMatch(/^\s*claude\s+-p\b/m);
+  });
+});
+
+describe("AC.2 — complete fixtures pass the pre-flight", () => {
+  const cases: Array<[string, "jira" | "linear", Record<string, string | undefined>]> = [
+    ["jira with --jira-repoint-from DST2", "jira", { TRACKER: "jira", JIRA_REPOINT_FROM: "DST2" }],
+    ["jira without --jira-repoint-from (S8 a named skip)", "jira", { TRACKER: "jira" }],
+    ["linear", "linear", { TRACKER: "linear" }],
+    ["jira with OLD_CLIENT given explicitly (a hook-less 2.86.0)", "jira", { TRACKER: "jira", OLD_CLIENT: "__CACHE__/2.86.0" }],
+  ];
+  for (const [name, tracker, extra] of cases) {
+    test(`complete fixture — ${name} — exits 0 having started no child`, () => {
+      withSandbox(tracker, (sb) => {
+        const cache = join(sb.config, "plugins", "cache", "dev-process-toolkit", "dev-process-toolkit");
+        const e = Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, v?.replace("__CACHE__", cache)]));
+        const r = runPreflight(sb, envFor(sb, e));
+        expect(r.code, `exit=${r.code}\n${r.out}\n${r.err}`).toBe(0);
+        expect(r.calls.filter((c) => c.kind === "claude")).toEqual([]);
+      });
+    });
+  }
+});
+
+describe("AC.2 — pre-flight refusals: non-zero, three-line NFR-10 shape, zero spawns, before any write", () => {
+  type Case = { name: string; tracker: "jira" | "linear"; env?: Record<string, string | undefined>; arrange?: (sb: Sandbox) => void; cwd?: (sb: Sandbox) => string; names?: (sb: Sandbox) => string };
+  const cache = (sb: Sandbox) => join(sb.config, "plugins", "cache", "dev-process-toolkit", "dev-process-toolkit");
+  const cases: Case[] = [
+    { name: "cwd-not-toplevel — run from a subdirectory of the checkout", tracker: "jira", env: { TRACKER: "jira" }, cwd: (sb) => join(sb.toolkit, "plugins") },
+    { name: "tracker-absent — --tracker not given", tracker: "jira", env: { TRACKER: undefined } },
+    { name: "tracker-none — --tracker none", tracker: "jira", env: { TRACKER: "none" } },
+    { name: "repoint-from-equals-project — --jira-repoint-from DST with --jira-project DST", tracker: "jira", env: { TRACKER: "jira", JIRA_REPOINT_FROM: "DST" } },
+    {
+      name: "trust-missing-a — the A throwaway path is untrusted (named)",
+      tracker: "jira",
+      env: { TRACKER: "jira" },
+      arrange: (sb) => writeJson(join(sb.config, ".claude.json"), { projects: { [throwaway(sb, "jira", "b")]: { hasTrustDialogAccepted: true } } }),
+      names: (sb) => throwaway(sb, "jira", "a"),
+    },
+    {
+      name: "trust-missing-b — the B throwaway path is untrusted (named)",
+      tracker: "linear",
+      env: { TRACKER: "linear" },
+      arrange: (sb) => writeJson(join(sb.config, ".claude.json"), { projects: { [throwaway(sb, "linear", "a")]: { hasTrustDialogAccepted: true } } }),
+      names: (sb) => throwaway(sb, "linear", "b"),
+    },
+    { name: "tree-dirty — an untracked file in the toolkit checkout", tracker: "linear", env: { TRACKER: "linear" }, arrange: (sb) => writeFileSync(join(sb.toolkit, "stray.txt"), "wip\n") },
+    { name: "old-client-none — no cached version lacks the hook", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => rmSync(join(cache(sb), "2.86.0"), { recursive: true, force: true }) },
+    {
+      name: "old-client-not-below-floor — OLD_CLIENT is at the floor",
+      tracker: "jira",
+      env: { TRACKER: "jira" },
+      arrange: (sb) => {
+        cachedPlugin(join(sb.root, "oc-floor"), FLOOR, false);
+      },
+    },
+    {
+      name: "old-client-has-hook — OLD_CLIENT carries the tracker-write hook",
+      tracker: "linear",
+      env: { TRACKER: "linear" },
+      arrange: (sb) => {
+        cachedPlugin(join(sb.root, "oc-hooked"), "2.86.0", true);
+      },
+    },
+    { name: "digest-unavailable — the behaviour digest cannot be computed", tracker: "jira", env: { TRACKER: "jira", STUB_DIGEST_FAIL: "1" } },
+    { name: "second-server-silent — no answer from the second server name", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => rmSync(join(sb.answers, "second-server-read.json")) },
+    { name: "second-server-error — the second server name answered an error", tracker: "linear", env: { TRACKER: "linear" }, arrange: (sb) => writeJson(join(sb.answers, "second-server-read.json"), { error: "unauthenticated" }) },
+    // Audit item 5 — a read that returns nothing proves nothing.
+    { name: "second-server-empty-object — the second server name answered {}", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => writeJson(join(sb.answers, "second-server-read.json"), {}) },
+    { name: "second-server-null — the second server name answered null", tracker: "linear", env: { TRACKER: "linear" }, arrange: (sb) => writeJson(join(sb.answers, "second-server-read.json"), null) },
+    { name: "second-server-empty-array — the second server name answered []", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => writeJson(join(sb.answers, "second-server-read.json"), []) },
+    { name: "jira-space-unreadable — the shared space does not answer a read", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => writeJson(join(sb.answers, "jira-space-DST.json"), { values: [] }) },
+    { name: "jira-no-epic — the shared space offers no Epic type", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => writeJson(join(sb.answers, "jira-createmeta-DST.json"), { issueTypes: [{ name: "Task" }] }) },
+    { name: "jira-no-task — the shared space offers no task type", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => writeJson(join(sb.answers, "jira-createmeta-DST.json"), { issueTypes: [{ name: "Epic" }] }) },
+    {
+      name: "jira-repoint-space-unreadable — the repoint-from space, given, does not answer a read",
+      tracker: "jira",
+      env: { TRACKER: "jira", JIRA_REPOINT_FROM: "DST2" },
+      arrange: (sb) => rmSync(join(sb.answers, "jira-space-DST2.json")),
+    },
+    { name: "linear-team-unresolved — --linear-team resolves to no team", tracker: "linear", env: { TRACKER: "linear", LINEAR_TEAM: "NOPE" } },
+  ];
+  // The two OLD_CLIENT cases point at a plugin dir the arrange step writes.
+  const oldClientDir: Record<string, string> = {
+    "old-client-not-below-floor — OLD_CLIENT is at the floor": "oc-floor",
+    "old-client-has-hook — OLD_CLIENT carries the tracker-write hook": "oc-hooked",
+  };
+  for (const c of cases) {
+    test(`refusal — ${c.name}`, () => {
+      withSandbox(c.tracker, (sb) => {
+        c.arrange?.(sb);
+        const extra = { ...(c.env ?? {}) };
+        const oc = oldClientDir[c.name];
+        if (oc) extra.OLD_CLIENT = join(sb.root, oc);
+        const r = runPreflight(sb, envFor(sb, extra), c.cwd ? c.cwd(sb) : sb.toolkit);
+        const lines = expectRefusal(r, sb, c.tracker);
+        if (c.names) expect(lines.join("\n"), "the refusal names the untrusted path").toContain(c.names(sb));
+      });
+    });
+  }
+  test("PERMIT TWIN — the same sandbox with every precondition met exits 0 (the refusals key on one variable each)", () => {
+    withSandbox("jira", (sb) => {
+      const r = runPreflight(sb, envFor(sb, { TRACKER: "jira", JIRA_REPOINT_FROM: "DST2" }));
+      expect(r.code, `${r.out}\n${r.err}`).toBe(0);
+    });
+  });
+  test("PERMIT TWIN (audit item 5) — a non-empty array answer from the second server name is a usable read", () => {
+    withSandbox("linear", (sb) => {
+      writeJson(join(sb.answers, "second-server-read.json"), [{ id: "team-1", key: "STE" }]);
+      const r = runPreflight(sb, envFor(sb, { TRACKER: "linear" }));
+      expect(r.code, `${r.out}\n${r.err}`).toBe(0);
+    });
+  });
+});
+
+// ===========================================================================
+// AC.15 / AC.16 / AC.18 — the document's cleanup, bundle and summary lines
+// ===========================================================================
+
+const CLEANUP_TAG = "# shared-tracker-smoke: session cleanup";
+const EXTRACT_TAG = "# shared-tracker-smoke: extract and grade";
+
+/** The fences that name `smoke_session_cleanup.ts … --delete` on a code line (an echoed manual command included). */
+function cleanupFencesIn(text: string): Fence[] {
+  return parseFences("shared-tracker-smoke", text).filter((f) => f.lines.some((l) => !/^\s*#/.test(l) && /smoke_session_cleanup\.ts/.test(l) && /--delete\b/.test(l)));
+}
+
+/**
+ * AC.15 — the session cleanup fence, read as structure rather than as words
+ * present. Each violation is tagged with the property it breaks:
+ *   gate:  the one executed `--delete` runs only in the then-branch of
+ *          `if [ "${OUTCOME}" = "pass" ]`, OUTCOME read from the verdict
+ *          artifact; the other branch deletes nothing and prints the command;
+ *   order: the cleanup fence opens after the fence that extracts the bundle;
+ *   ids:   the `--delete` is handed `"$@"`, built as one `--session` per id
+ *          read from the run ledger for leg shared-<tracker>; no window flags.
+ */
+function cleanupViolations(text: string): string[] {
+  const all = cleanupFencesIn(text);
+  if (all.length !== 1) return [`count: ${all.length} fences call smoke_session_cleanup.ts --delete, not one`];
+  const f = all[0]!;
+  const v: string[] = [];
+  const code = f.lines.map((l, i) => ({ l, i })).filter(({ l }) => !/^\s*#/.test(l));
+  const runs = code.filter(({ l }) => /smoke_session_cleanup\.ts/.test(l) && /--delete\b/.test(l) && !/^\s*echo\b/.test(l));
+  if (runs.length !== 1) return [...v, `gate: ${runs.length} executed --delete lines, not one`];
+  const del = runs[0]!;
+  // gate — the nearest unclosed `if` above the delete, with no else/elif/fi in between, compares OUTCOME to pass.
+  let depth = 0;
+  let opener: string | null = null;
+  for (let i = del.i - 1; i >= 0; i--) {
+    const l = f.lines[i]!.trim();
+    if (/^fi\b/.test(l)) depth++;
+    else if (/^(?:else|elif)\b/.test(l) && depth === 0) break;
+    else if (/^if\b/.test(l)) {
+      if (depth === 0) {
+        opener = l;
+        break;
+      }
+      depth--;
+    }
+  }
+  if (opener === null) v.push("gate: the --delete is not inside an if branch; it runs on any outcome");
+  else if (!/^if \[ "\$\{OUTCOME\}" = "?pass"? \]; then$/.test(opener)) v.push(`gate: the --delete's branch is not the pass verdict: ${opener}`);
+  if (!code.some(({ l }) => /^OUTCOME=\$\(.*smoke_verdict\.ts["']?\s+outcome\b.*--artifact\b/.test(l.trim()))) v.push("gate: OUTCOME is not read from the verdict artifact");
+  const elseAt = code.find(({ i, l }) => i > del.i && /^\s*else\b/.test(l));
+  const fiAt = code.find(({ i, l }) => i > del.i && /^\s*fi\b/.test(l));
+  if (!elseAt || !fiAt) v.push("gate: no other branch keeps the sessions and prints the manual command");
+  else if (!f.lines.slice(elseAt.i + 1, fiAt.i).some((l) => /^\s*echo\b.*smoke_session_cleanup\.ts.*--delete\b/.test(l))) v.push("gate: the other branch does not print the manual cleanup command");
+  // order
+  const extract = parseFences("shared-tracker-smoke", text).find((x) => x.lines.some((l) => l.trim().startsWith(EXTRACT_TAG)));
+  if (!extract) v.push("order: no fence extracts the evidence bundle");
+  else if (f.openLine <= extract.openLine) v.push("order: session cleanup comes before the fence that extracts the evidence bundle");
+  // ids
+  const sids = code.find(({ l }) => /^\s*SIDS=\$\(/.test(l));
+  if (!sids || !/smoke_run_ledger\.ts["']?\s+sessions\b[^\n]*--leg\s+["']?shared-\$\{TRACKER\}/.test(sids.l)) v.push("ids: SIDS is not read from the run ledger for leg shared-<tracker>");
+  if (!/for SID in \$\{SIDS\}; do\s*\n\s*set -- "\$@" --session "\$\{SID\}"/.test(f.body)) v.push("ids: the ledger's ids are not turned into one --session each");
+  if (!/"\$@"/.test(del.l)) v.push("ids: the --delete is not handed the ledger's --session ids");
+  if (/--since\b|--until\b|--manual\b/.test(f.body)) v.push("ids: the cleanup falls back to window inference");
+  return v;
+}
+
+const tagged = (vs: string[], tag: string) => vs.filter((x) => x.startsWith(`${tag}:`));
+
+/** The document with the cleanup fence's body replaced by `edit(body)`; the edit must change it. */
+function withCleanupBody(text: string, edit: (body: string) => string): string {
+  const f = oneFence(text, CLEANUP_TAG);
+  const next = edit(f.body);
+  expect(next, "the cleanup-fence edit changes the fence").not.toBe(f.body);
+  return text.replace(f.body, next);
+}
+
+describe("AC.15 — session cleanup runs on pass only, after extraction, handed the ledger's ids", () => {
+  test("exactly one fence calls smoke_session_cleanup.ts --delete", () => {
+    expect(cleanupFencesIn(docText()).length).toBe(1);
+  });
+  test("it is handed --session ids read from the run ledger for leg shared-<tracker>, never window inference", () => {
+    const f = cleanupFencesIn(docText())[0]!;
+    expect(f.body).toMatch(/smoke_run_ledger\.ts["']?\s+sessions\b[^\n]*--leg\s+["']?(?:shared-|\$\{?[A-Z_]+)/);
+    expect(tagged(cleanupViolations(docText()), "ids")).toEqual([]);
+  });
+  test("it deletes only on a pass verdict", () => {
+    expect(tagged(cleanupViolations(docText()), "gate")).toEqual([]);
+  });
+  test("it comes after the fence that extracts the evidence bundle", () => {
+    expect(tagged(cleanupViolations(docText()), "order")).toEqual([]);
+  });
+  test("the closing summary prints the manual cleanup command and names unledgered-session", () => {
+    const s = section(docText(), /closing/i);
+    expect(s).toContain("smoke_session_cleanup");
+    expect(s).toMatch(/--delete\b/);
+    expect(s).toContain("unledgered-session");
+  });
+  test("PERMIT TWIN — the shipped cleanup fence has no violation at all", () => {
+    expect(cleanupViolations(docText())).toEqual([]);
+  });
+  test("MUTATION — cleanup on any outcome (the pass test widened to any non-empty outcome) is red, though the words outcome and pass are still there", () => {
+    const m = withCleanupBody(docText(), (b) => b.replace('if [ "${OUTCOME}" = "pass" ]; then', 'if [ -n "${OUTCOME}" ]; then'));
+    const body = oneFence(m, CLEANUP_TAG).body;
+    expect(/\boutcome\b/.test(body) && /["']?pass["']?/.test(body), "control: a presence scan still finds both words").toBe(true);
+    expect(tagged(cleanupViolations(m), "gate")).toEqual(['gate: the --delete\'s branch is not the pass verdict: if [ -n "${OUTCOME}" ]; then']);
+  });
+  test("MUTATION — cleanup with the pass gate removed (the delete unconditional, no kept branch) is red", () => {
+    const m = withCleanupBody(docText(), (b) => {
+      const lines = b.split("\n");
+      const i = lines.findIndex((l) => /^if \[ "\$\{OUTCOME\}" = "pass" \]; then$/.test(l));
+      const j = lines.findIndex((l, k) => k > i && /^fi$/.test(l));
+      expect(i >= 0 && j > i, "the pass branch is found").toBe(true);
+      const del = lines.slice(i + 1, j).find((l) => /smoke_session_cleanup\.ts/.test(l) && !/^\s*echo\b/.test(l))!.trim();
+      return [...lines.slice(0, i), del, ...lines.slice(j + 1)].join("\n");
+    });
+    expect(tagged(cleanupViolations(m), "gate")).toEqual([
+      "gate: the --delete is not inside an if branch; it runs on any outcome",
+      "gate: no other branch keeps the sessions and prints the manual command",
+    ]);
+  });
+  test("MUTATION — the cleanup fence moved before the extract-and-grade fence is red", () => {
+    const text = docText();
+    const f = oneFence(text, CLEANUP_TAG);
+    const x = oneFence(text, EXTRACT_TAG);
+    const lines = text.split("\n");
+    const block = lines.slice(f.openLine - 1, f.closeLine);
+    const rest = [...lines.slice(0, f.openLine - 1), ...lines.slice(f.closeLine)];
+    const m = [...rest.slice(0, x.openLine - 1), ...block, "", ...rest.slice(x.openLine - 1)].join("\n");
+    expect(oneFence(m, CLEANUP_TAG).openLine, "control: the cleanup fence now opens first").toBeLessThan(oneFence(m, EXTRACT_TAG).openLine);
+    expect(cleanupViolations(m)).toEqual(["order: session cleanup comes before the fence that extracts the evidence bundle"]);
+  });
+  test("MUTATION — a --delete not handed the ledger's session ids, or handed a window instead, is red", () => {
+    const noIds = withCleanupBody(docText(), (b) => b.replace(/(smoke_session_cleanup\.ts"[^\n]*?) "\$@" --delete/, "$1 --delete"));
+    expect(cleanupViolations(noIds)).toEqual(["ids: the --delete is not handed the ledger's --session ids"]);
+    const windowed = withCleanupBody(docText(), (b) =>
+      b
+        .replace(/^SIDS=\$\(.*$/m, 'SIDS=""')
+        .replace(/(smoke_session_cleanup\.ts"[^\n]*?) "\$@" --delete/, '$1 --since "${RUN_START_MS}" --delete'),
+    );
+    expect(tagged(cleanupViolations(windowed), "ids")).toEqual([
+      "ids: SIDS is not read from the run ledger for leg shared-<tracker>",
+      "ids: the --delete is not handed the ledger's --session ids",
+      "ids: the cleanup falls back to window inference",
+    ]);
+    const otherLeg = withCleanupBody(docText(), (b) => b.replace('--leg "shared-${TRACKER}"', '--leg "${TRACKER}"'));
+    expect(cleanupViolations(otherLeg)).toEqual(["ids: SIDS is not read from the run ledger for leg shared-<tracker>"]);
+  });
+});
+
+const BUNDLE_MENTION = /tests\/fixtures\/shared-tracker-live\/[^\s`'")\]]*/g;
+
+/** The numbered closing-accounting item whose bold label matches `label`, or null. */
+function closingItem(text: string, label: RegExp): string | null {
+  return section(text, /^## Phase 8\b/).split("\n").find((l) => /^\d+\.\s+\*\*/.test(l) && label.test(l)) ?? null;
+}
+
+/** AC.16 — every mention of the bundle root ends at a directory, and the closing accounting's run artifacts list the bundle directory. */
+function bundleNamingViolations(text: string): string[] {
+  const v: string[] = [];
+  const hits = [...text.matchAll(BUNDLE_MENTION)].map((m) => m[0]);
+  for (const h of hits.filter((x) => !x.endsWith("/"))) v.push(`a mention names a file inside the bundle directory: ${h}`);
+  const item = closingItem(text, /\*\*Run artifacts\*\*/);
+  if (item === null) v.push("the closing accounting has no Run artifacts item");
+  else if (!/`[^`]*tests\/fixtures\/shared-tracker-live\/<tracker>-<date>-<nonce>\/`/.test(item)) v.push("the closing accounting's run artifacts do not list the evidence bundle directory");
+  return v;
+}
+
+describe("AC.16 — the evidence bundle is named only as a directory", () => {
+  test("every mention of tests/fixtures/shared-tracker-live/ ends at a directory, never a file inside it", () => {
+    const hits = [...docText().matchAll(BUNDLE_MENTION)].map((m) => m[0]);
+    expect(hits.length, "the document names the bundle directory").toBeGreaterThan(0);
+    expect(bundleNamingViolations(docText())).toEqual([]);
+  });
+  test("MUTATION — a copy naming a FILE inside the bundle directory is red", () => {
+    const text = docText();
+    const dir = "`plugins/dev-process-toolkit/tests/fixtures/shared-tracker-live/<tracker>-<date>-<nonce>/` before any cleanup";
+    expect(text.includes(dir), "Phase 6 names the bundle directory").toBe(true);
+    const m = text.replace(dir, "`plugins/dev-process-toolkit/tests/fixtures/shared-tracker-live/<tracker>-<date>-<nonce>/bundle.json` before any cleanup");
+    expect(bundleNamingViolations(m)).toEqual(["a mention names a file inside the bundle directory: tests/fixtures/shared-tracker-live/<tracker>-<date>-<nonce>/bundle.json"]);
+  });
+  test("MUTATION — a copy whose closing accounting omits the bundle is red, though the document still names the directory elsewhere", () => {
+    const text = docText();
+    const item = closingItem(text, /\*\*Run artifacts\*\*/)!;
+    const m = text.replace(item, item.replace(/the evidence bundle directory `[^`]*`, /, ""));
+    expect(m, "control: the edit landed").not.toBe(text);
+    expect([...m.matchAll(BUNDLE_MENTION)].length, "control: other mentions of the directory remain").toBeGreaterThan(0);
+    expect(bundleNamingViolations(m)).toEqual(["the closing accounting's run artifacts do not list the evidence bundle directory"]);
+  });
+});
+
+/** AC.14 — the closing accounting's tracker-writes item lists every Linear issue the run created. */
+function closingLinearIssueViolations(text: string): string[] {
+  const item = closingItem(text, /\*\*Tracker writes\*\*/);
+  if (item === null) return ["the closing accounting has no Tracker writes item"];
+  return /\bOn Linear\b[^\n]*\bevery issue (?:the run )?created\b/.test(item) ? [] : ["the closing accounting's Tracker writes item does not list every Linear issue the run created"];
+}
+
+describe("AC.14 — the closing summary lists every Linear issue the run created", () => {
+  test("the closing accounting's Tracker writes item lists every created Linear issue", () => {
+    expect(closingLinearIssueViolations(docText())).toEqual([]);
+  });
+  test("MUTATION — a copy whose closing summary drops the created-issue listing is red, though Phase 5 still promises it", () => {
+    const text = docText();
+    const item = closingItem(text, /\*\*Tracker writes\*\*/)!;
+    const m = text.replace(item, item.replace(", and every issue created, for archiving by hand", ""));
+    expect(m, "control: the edit landed").not.toBe(text);
+    expect(section(m, /^## Phase 5\b/), "control: Phase 5's promise is untouched").toMatch(/closing summary names every issue the run created/);
+    expect(closingLinearIssueViolations(m)).toEqual(["the closing accounting's Tracker writes item does not list every Linear issue the run created"]);
+    const gone = text.replace(`${item}\n`, "");
+    expect(closingLinearIssueViolations(gone)).toEqual(["the closing accounting has no Tracker writes item"]);
+  });
+});
+
+const SKIP_LINE = "S8 skipped: repoint-space-not-given";
+
+/**
+ * AC.18 — the skip line, from the Phase 0 fence RUN and from the closing
+ * accounting: a Jira run without the flag prints it; a Jira run with the flag,
+ * and a Linear run, print no repoint-space-not-given at all; the closing
+ * accounting's verdict item carries it.
+ */
+function skipLineViolations(text: string): string[] {
+  const v: string[] = [];
+  const without = runPhase0Full("jira", undefined, text);
+  if (!without.out.split("\n").includes(SKIP_LINE)) v.push("Phase 0 on a Jira run without the flag does not print the skip line");
+  const withFlag = runPhase0Full("jira", "DST2", text);
+  if (/repoint-space-not-given/.test(withFlag.out)) v.push("Phase 0 on a Jira run given the flag prints repoint-space-not-given");
+  if (/repoint-space-not-given/.test(runPhase0Full("linear", undefined, text).out)) v.push("Phase 0 on a Linear run prints repoint-space-not-given");
+  const verdict = closingItem(text, /\*\*Verdict\*\*/);
+  if (verdict === null || !verdict.includes(`\`${SKIP_LINE}\``)) v.push("the closing accounting's verdict item does not carry the skip line");
+  return v;
+}
+
+describe("AC.18 — the repoint skip is printed in Phase 0 and in the closing summary", () => {
+  test("Phase 0 names repoint-space-not-given", () => {
+    expect(section(docText(), /phase 0\b/i)).toContain("repoint-space-not-given");
+    const r = runPhase0Full("jira", undefined);
+    expect(r.out.split("\n"), "the fence, run without the flag, prints the line").toContain(SKIP_LINE);
+  });
+  test("the closing summary names repoint-space-not-given", () => {
+    expect(section(docText(), /closing/i)).toContain("repoint-space-not-given");
+    expect(skipLineViolations(docText())).toEqual([]);
+  });
+  test("WITH-FLAG TWIN — a Jira run given --jira-repoint-from prints no repoint-space-not-given line and plans S8=run; a Linear run prints none either", () => {
+    const r = runPhase0Full("jira", "DST2");
+    expect(r.plan.S8).toBe("run");
+    expect(r.out).not.toMatch(/repoint-space-not-given/);
+    expect(r.out.split("\n")).toContain("S8 runs");
+    expect(runPhase0Full("linear", undefined).out).not.toMatch(/repoint-space-not-given/);
+  });
+  test("MUTATION — a copy whose Phase 0 fence drops the skip line is red, though Phase 0's prose still names it", () => {
+    const text = docText();
+    const f = oneFence(text, "# shared-tracker-smoke: phase 0 —");
+    const line = `  jira:) echo "${SKIP_LINE}" ;;`;
+    expect(f.lines, "the fence prints the skip line from the case arm").toContain(line);
+    const m = text.replace(f.body, f.body.replace(`${line}\n`, ""));
+    expect(section(m, /phase 0\b/i), "control: the prose still names it").toContain("repoint-space-not-given");
+    expect(skipLineViolations(m)).toEqual(["Phase 0 on a Jira run without the flag does not print the skip line"]);
+  });
+  test("MUTATION — a copy whose Phase 0 fence prints the skip line on every run is red on the with-flag twin", () => {
+    const text = docText();
+    const f = oneFence(text, "# shared-tracker-smoke: phase 0 —");
+    const i = f.body.indexOf('case "${TRACKER}:${JIRA_REPOINT_FROM}" in');
+    const j = f.body.indexOf("esac", i);
+    expect(i > 0 && j > i, "the skip case is found").toBe(true);
+    const m = text.replace(f.body, `${f.body.slice(0, i)}echo "${SKIP_LINE}"${f.body.slice(j + "esac".length)}`);
+    expect(skipLineViolations(m)).toEqual(["Phase 0 on a Jira run given the flag prints repoint-space-not-given", "Phase 0 on a Linear run prints repoint-space-not-given"]);
+  });
+  test("MUTATION — a copy whose closing summary drops the skip line is red", () => {
+    const text = docText();
+    const item = closingItem(text, /\*\*Verdict\*\*/)!;
+    const m = text.replace(item, item.replace(/ On a Jira run without `--jira-repoint-from`, the line `S8 skipped: repoint-space-not-given`\./, ""));
+    expect(m, "control: the edit landed").not.toBe(text);
+    expect(skipLineViolations(m)).toEqual(["the closing accounting's verdict item does not carry the skip line"]);
+  });
+});
+
+// ===========================================================================
+// AC.19 — the Falsifiability section is recorded
+// ===========================================================================
+
+describe("AC.19 — the FR records its falsifiability measurements", () => {
+  test("STE-617.md carries a Falsifiability section naming every behavioural AC (1..18)", () => {
+    const body = section(readSpecFile(repoRoot, "specs/frs", "STE-617.md").body, /^## Falsifiability\s*$/);
+    const missing = Array.from({ length: 18 }, (_, i) => i + 1).filter((n) => !new RegExp(`\\bAC(?:-STE-617)?\\.${n}\\b`).test(body));
+    expect(missing).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// Adversarial audit (2026-09-21) — the document must let a live run pass its
+// own grader (`shared_tracker_live_grader.ts`). Each check is a pure function
+// of the document text, so every one is also run on a mutated copy that lacks
+// the fix and shown to go red.
+// ===========================================================================
+
+interface StepRow {
+  nums: number[];
+  marker: string;
+  root: string;
+  client: string;
+  prompt: string;
+  raw: string;
+}
+
+/** The Phase 3 step table, one entry per row (a `4–5` row carries both numbers). */
+function stepRows(text: string): StepRow[] {
+  const rows: StepRow[] = [];
+  for (const raw of section(text, /^## Phase 3\b/).split("\n")) {
+    const m = /^\|\s*(\d+)(?:\s*[–-]\s*(\d+))?\s*\|/.exec(raw);
+    if (!m) continue;
+    const cells = raw.split("|").slice(1, -1).map((c) => c.trim());
+    const a = Number(m[1]);
+    const b = m[2] ? Number(m[2]) : a;
+    rows.push({ nums: Array.from({ length: b - a + 1 }, (_, i) => a + i), marker: cells[1]!, root: cells[2]!, client: cells[3]!, prompt: cells.slice(4).join("|"), raw });
+  }
+  return rows;
+}
+
+function rowsOf(text: string, marker: string, root?: string): StepRow[] {
+  return stepRows(text).filter((r) => r.marker === marker && (root === undefined || r.root === root));
+}
+
+/** The document with one row's prompt cell replaced — the mutation a check must catch. */
+function withRowPrompt(text: string, marker: string, root: string, prompt: string): string {
+  const hits = rowsOf(text, marker, root);
+  expect(hits.length, `exactly one ${marker} row rooted in ${root}`).toBe(1);
+  const r = hits[0]!;
+  const cells = r.raw.split("|");
+  const head = cells.slice(0, 5).join("|");
+  return text.replace(r.raw, `${head}| ${prompt} |`);
+}
+
+function fencesTagged(text: string, tag: string): Fence[] {
+  return parseFences("shared-tracker-smoke", text).filter((f) => f.info === "bash" && f.lines.some((l) => l.trim().startsWith(tag)));
+}
+
+function oneFence(text: string, tag: string): Fence {
+  const hits = fencesTagged(text, tag);
+  expect(hits.length, `exactly one bash fence tagged \`${tag}\``).toBe(1);
+  return hits[0]!;
+}
+
+const allIndexes = (s: string, re: RegExp): number[] => [...s.matchAll(new RegExp(re.source, `${re.flags.replace("g", "")}g`))].map((m) => m.index!);
+
+/** Every command in `cmds` appears once before the evidence and once after it. */
+function refusedThenPermitted(prompt: string, cmds: RegExp[], evidence: RegExp, who: string): string[] {
+  const ev = prompt.search(evidence);
+  if (ev < 0) return [`${who}: the prompt never has the child create B's gate evidence (${evidence})`];
+  const v: string[] = [];
+  for (const c of cmds) {
+    const at = allIndexes(prompt, c);
+    if (!at.some((i) => i < ev)) v.push(`${who}: ${c} is not attempted before B's evidence`);
+    if (!at.some((i) => i > ev)) v.push(`${who}: ${c} is not attempted again after B's evidence`);
+  }
+  return v;
+}
+
+const GIT_ENV = { GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@localhost", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@localhost" };
+
+function sh(cwd: string, cmd: string[], env: Record<string, string> = {}): { code: number; out: string; err: string } {
+  const r = spawnSync(cmd[0]!, cmd.slice(1), { cwd, env: { ...process.env, ...GIT_ENV, ...env }, encoding: "utf-8" });
+  return { code: r.status ?? -1, out: r.stdout ?? "", err: r.stderr ?? "" };
+}
+
+function gitRepo(dir: string, files: Record<string, string>): void {
+  mkdirSync(dir, { recursive: true });
+  sh(dir, ["git", "-c", "init.defaultBranch=main", "init", "-q"]);
+  for (const [p, body] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, p)), { recursive: true });
+    writeFileSync(join(dir, p), body);
+  }
+  sh(dir, ["git", "add", "-A"]);
+  sh(dir, ["git", "-c", "commit.gpgsign=false", "commit", "-qm", "chore: seed"]);
+}
+
+/** Run a non-spawning operator fence from a file, /tmp rebased into `tmp`, with real git and bun. */
+function runOperatorFence(body: string, tmp: string, cwd: string): { code: number; out: string; err: string } {
+  expect(body, "an operator fence starts no child").not.toMatch(/\bclaude\s+-p\b/);
+  const file = join(tmp, `fence-${Math.random().toString(36).slice(2)}.sh`);
+  writeFileSync(file, body.replaceAll("<tracker>", "jira").replaceAll("/tmp/", `${tmp}/`));
+  return sh(cwd, ["bash", file], { PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}` });
+}
+
+function expectNfr10(err: string, tail = false): void {
+  // `tail`: a failed command's own stderr may come first; the refusal is the last three lines.
+  const all = err.replace(/\n+$/, "").split("\n").filter((l) => l.trim() !== "");
+  const lines = tail ? all.slice(-3) : all;
+  expect(lines.length, err).toBe(3);
+  expect(lines[0]!).toMatch(/^\/shared-tracker-smoke: /);
+  expect(lines[1]!).toMatch(/^Remedy: /);
+  expect(lines[2]!).toMatch(/^Context: .*skill=shared-tracker-smoke/);
+}
+
+// --- item 1: S14 matches the grader's S14 predicate and order ---------------
+
+function s14Violations(text: string): string[] {
+  const v: string[] = [];
+  const b = rowsOf(text, "S14", "B");
+  const a = rowsOf(text, "S14", "A");
+  const join = rowsOf(text, "S3", "B");
+  const s2 = rowsOf(text, "S2");
+  if (b.length !== 1 || a.length !== 1 || join.length !== 1 || s2.length !== 1) return [`expected one S14/B, one S14/A, one S3/B and one S2 row; found ${b.length}, ${a.length}, ${join.length}, ${s2.length}`];
+  const pb = b[0]!.prompt;
+  if (!/attach_project_milestone\.ts/.test(pb)) v.push("B's S14 step runs no attach_project_milestone.ts");
+  if (/decide the join|--join-key|resolve_milestone_identity/i.test(pb)) v.push("B's S14 step decides a join itself (the join is S3's, after A's held release)");
+  if (/\bcreate it\b/i.test(pb) || !/creates nothing/i.test(pb)) v.push("B's S14 step does not forbid every create after its refused attach");
+  const pa = a[0]!.prompt;
+  if (!/sibling_release\.ts/.test(pa)) v.push("A's S14 step runs no sibling_release.ts");
+  if (!/names A back/.test(pa)) v.push("A's S14 step is not placed before B's plan names A back");
+  if (!(b[0]!.nums[0]! < a[0]!.nums[0]! && a[0]!.nums[0]! < join[0]!.nums[0]!)) v.push("order: B's refused attach, then A's held release, then B's join (S3) is not kept");
+  if (!(s2[0]!.nums.at(-1)! > join[0]!.nums[0]!)) v.push("S2's create in B does not follow B's join");
+  if (!/S14's permit twin/.test(s2[0]!.prompt)) v.push("S2's B create is not named as S14's permit twin (S14 spends no extra issue)");
+  if (!/spans_repos\.ts\b.*--declare <A>/.test(join[0]!.prompt)) v.push("B's join step never makes B's plan name A back");
+  return v;
+}
+
+describe("audit item 1 — S14's steps are the grader's S14 predicate, in its order", () => {
+  test("the document's S14 steps: B's attach refused with nothing created, A's release held one-sided, then S3's join, then S2's create", () => {
+    expect(s14Violations(docText())).toEqual([]);
+  });
+  test("MUTATION — the old step 7 (decide the join and create it) is red", () => {
+    const old = withRowPrompt(docText(), "S14", "B", "Plan a new FR in A's milestone container before B has decided a join, then decide the join by key and create it.");
+    expect(s14Violations(old).some((x) => /decides a join/.test(x))).toBe(true);
+    expect(s14Violations(old).some((x) => /forbid every create/.test(x))).toBe(true);
+  });
+  test("MUTATION — A's release step without the before-the-back-reference clause is red", () => {
+    const m = withRowPrompt(docText(), "S14", "A", "Run `sibling_release.ts` for the span milestone.");
+    expect(s14Violations(m)).toContain("A's S14 step is not placed before B's plan names A back");
+  });
+});
+
+// --- item 2: S5's permit twin is set up (B's FR archived, committed) ---------
+
+const S5_ARCHIVE_TAG = "# shared-tracker-smoke: S5 archive";
+
+function s5Violations(text: string): string[] {
+  const v: string[] = [];
+  const s5 = rowsOf(text, "S5", "A");
+  if (s5.length !== 2) return [`expected two S5 rows rooted in A, found ${s5.length}`];
+  const [busy, twin] = s5 as [StepRow, StepRow];
+  const hits = fencesTagged(text, S5_ARCHIVE_TAG);
+  if (hits.length !== 1) return [...v, `expected one fence tagged ${S5_ARCHIVE_TAG}, found ${hits.length}`];
+  const f = hits[0]!;
+  if (!/\bROOT_B\b/.test(f.body) || !/commit\b[^\n]*archive/i.test(f.body)) v.push("the archive fence makes no archive commit in B");
+  if (!new RegExp(`step ${busy.nums[0]}\\b[^\\n]*step ${twin.nums[0]}\\b`).test(f.region)) v.push(`the archive fence is not placed between step ${busy.nums[0]} and step ${twin.nums[0]}`);
+  const phase4 = text.split("\n").findIndex((l) => /^## Phase 4\b/.test(l)) + 1;
+  if (!(f.openLine < phase4)) v.push("the archive fence sits after Phase 3");
+  if (!/archived/i.test(twin.prompt)) v.push("the S5 permit twin's step does not say B's FR is archived first");
+  return v;
+}
+
+function archiveOutcome(root: string): string[] {
+  const v: string[] = [];
+  if (!existsSync(join(root, "specs", "frs", "archive", "fr-s2.md"))) v.push("fr-s2.md is not under specs/frs/archive/");
+  else if (!/^status: archived$/m.test(readFileSync(join(root, "specs", "frs", "archive", "fr-s2.md"), "utf-8"))) v.push("the archived FR does not read status: archived");
+  if (existsSync(join(root, "specs", "frs", "fr-s2.md"))) v.push("fr-s2.md is still active");
+  if (!existsSync(join(root, "specs", "frs", "fr-s1.md"))) v.push("an FR bound to another milestone was moved");
+  if (!/archive/i.test(sh(root, ["git", "log", "-1", "--format=%s"]).out)) v.push("B's last commit is not an archive commit (the grader requires one before the twin)");
+  if (sh(root, ["git", "status", "--porcelain", "--", "specs/frs"]).out.trim() !== "") v.push("the archive is not committed");
+  return v;
+}
+
+function withArchiveSandbox(f: (t: { tmp: string; b: string; body: string }) => void, body = oneFence(docText(), S5_ARCHIVE_TAG).body): void {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "ste617-s5-")));
+  try {
+    const tmp = join(root, "tmp");
+    const b = join(root, "B");
+    mkdirSync(tmp, { recursive: true });
+    gitRepo(b, { "CLAUDE.md": "# B\n" });
+    const fr = (ms: string) => `---\ntitle: x\nmilestone: ${ms}\nstatus: active\narchived_at: null\n---\n\n# x\n`;
+    mkdirSync(join(b, "specs", "frs"), { recursive: true });
+    writeFileSync(join(b, "specs", "frs", "fr-s2.md"), fr("M_span01"));
+    writeFileSync(join(b, "specs", "frs", "fr-s1.md"), fr("M_other9"));
+    writeFileSync(join(tmp, "dpt-shared-jira-run.env"), `TRACKER=jira\nROOT_B=${b}\nPLUGIN_TREE=${pluginRoot}\n`);
+    f({ tmp, b, body: body.replace(/^SPAN_TOKEN=.*$/m, 'SPAN_TOKEN="M_span01"') });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+describe("audit item 2 — S5's permit twin is set up: B's span FR archived and committed between the two S5 steps", () => {
+  test("the document places the archive fence between the busy step and the permit twin", () => {
+    expect(s5Violations(docText())).toEqual([]);
+  });
+  test("run: the archive fence archives B's active FR bound to the span token, commits it with an archive subject, leaves other FRs", () => {
+    withArchiveSandbox(({ tmp, b, body }) => {
+      const r = runOperatorFence(body, tmp, b);
+      expect(r.code, `${r.out}\n${r.err}`).toBe(0);
+      expect(archiveOutcome(b)).toEqual([]);
+    });
+  });
+  test("REFUSAL twin — no active FR bound to the span token: refused in NFR-10 shape, no commit made", () => {
+    withArchiveSandbox(({ tmp, b, body }) => {
+      rmSync(join(b, "specs", "frs", "fr-s2.md"));
+      const head = sh(b, ["git", "rev-parse", "HEAD"]).out;
+      const r = runOperatorFence(body, tmp, b);
+      expect(r.code).not.toBe(0);
+      expectNfr10(r.err);
+      expect(sh(b, ["git", "rev-parse", "HEAD"]).out).toBe(head);
+    });
+  });
+  test("MUTATION — an archive fence that never commits is red (the grader needs B's archive commit)", () => {
+    const body = oneFence(docText(), S5_ARCHIVE_TAG).body.split("\n").filter((l) => !/\bcommit\b/.test(l) || /^\s*#/.test(l)).join("\n");
+    withArchiveSandbox(({ tmp, b, body: mutated }) => {
+      runOperatorFence(mutated, tmp, b);
+      expect(archiveOutcome(b).some((x) => /archive commit|not committed/.test(x))).toBe(true);
+    }, body);
+  });
+  test("MUTATION — a document with no archive fence is red", () => {
+    const text = docText();
+    const f = oneFence(text, S5_ARCHIVE_TAG);
+    const lines = text.split("\n");
+    const cut = [...lines.slice(0, f.openLine - 1), ...lines.slice(f.closeLine)].join("\n");
+    expect(s5Violations(cut).length).toBeGreaterThan(0);
+  });
+});
+
+// --- item 3: S12 and S17 create B's gate evidence inside their sessions -----
+
+const GATE_EVIDENCE = /\/dev-process-toolkit:gate-check <B>[^|]*gate_receipt\.ts gate-check <B>/;
+
+function s12s17Violations(text: string): string[] {
+  const v: string[] = [];
+  const s12 = rowsOf(text, "S12", "A");
+  const s17 = rowsOf(text, "S17", "A");
+  if (s12.length !== 1 || s17.length !== 1) return [`expected one S12 and one S17 row rooted in A, found ${s12.length} and ${s17.length}`];
+  v.push(...refusedThenPermitted(s12[0]!.prompt, [/git -C <B> commit\b/, /cd <B> && gh pr create\b/], GATE_EVIDENCE, "S12"));
+  v.push(...refusedThenPermitted(s17[0]!.prompt, [/git -C <B> merge --no-ff feature-s17\b/, /git -C <B> ci\b/], GATE_EVIDENCE, "S17"));
+  if (!/\/dev-process-toolkit:spec-review <B>/.test(s12[0]!.prompt)) v.push("S12: the PR into B has no spec-review evidence to meet after B's gate evidence");
+  if (!/no other git command that writes into <B>/.test(s17[0]!.prompt)) v.push("S17: the prompt does not forbid other writing git runs into B (the grader grades every one)");
+  const boot = oneFence(text, "# shared-tracker-smoke: bootstrap").body;
+  if (!/git -C "\$\{ROOT_B\}" config alias\.ci commit/.test(boot)) v.push("bootstrap does not configure the ci alias in B");
+  if (!/git -C "\$\{ROOT_B\}" branch feature-s17/.test(boot)) v.push("bootstrap does not create B's feature-s17 branch to merge");
+  return v;
+}
+
+describe("audit item 3 — S12 and S17 each create B's gate evidence between the refused and the permitted attempts", () => {
+  test("the document's S12 and S17 prompts, and bootstrap's alias and topic branch", () => {
+    expect(s12s17Violations(docText())).toEqual([]);
+  });
+  test("MUTATION — the old S12 prompt (no step creates B's evidence) is red", () => {
+    const m = withRowPrompt(docText(), "S12", "A", "Commit into B and open a PR into B from this session; after B's own gate evidence exists, do both again.");
+    expect(s12s17Violations(m).some((x) => /S12: the prompt never has the child create B's gate evidence/.test(x))).toBe(true);
+  });
+  test("MUTATION — the old S17 prompt is red, and so is a prompt whose aliased commit comes only after the evidence", () => {
+    const old = withRowPrompt(docText(), "S17", "A", "Run one `git -C <B> merge --no-ff` and one aliased commit into B; after B's evidence exists, repeat both.");
+    expect(s12s17Violations(old).some((x) => /^S17:/.test(x))).toBe(true);
+    const late = withRowPrompt(docText(), "S17", "A", "(1) Run `git -C <B> merge --no-ff feature-s17 -m m`. (2) Run `/dev-process-toolkit:gate-check <B>` (it runs `gate_receipt.ts gate-check <B>`). (3) Run `git -C <B> merge --no-ff feature-s17 -m m` and `git -C <B> ci --allow-empty -m c`. Run no other git command that writes into <B>.");
+    expect(s12s17Violations(late)).toContain("S17: /git -C <B> ci\\b/ is not attempted before B's evidence");
+  });
+  test("MUTATION — a bootstrap without the ci alias is red", () => {
+    const text = docText();
+    const m = text.replace(/^git -C "\$\{ROOT_B\}" config alias\.ci commit\n/m, "");
+    expect(m).not.toBe(text);
+    expect(s12s17Violations(m)).toContain("bootstrap does not configure the ci alias in B");
+  });
+});
+
+// --- item 4: S11 exercises the relocated checkout and the unreadable declaration
+
+const S11_TAG = "# shared-tracker-smoke: S11 worktree";
+
+function s11Violations(text: string): string[] {
+  const v: string[] = [];
+  const rows = rowsOf(text, "S11");
+  if (rows.length !== 1) return [`expected one S11 row, found ${rows.length}`];
+  const r = rows[0]!;
+  if (r.root !== "B-relocated") v.push(`S11's session is rooted in ${r.root}, not B's relocated worktree`);
+  const p = r.prompt;
+  const t = allIndexes(p, /\btransition\b/i);
+  const chmod = p.search(/chmod 000 CLAUDE\.md/);
+  if (chmod < 0) v.push("S11 never makes the worktree's declaration unreadable");
+  if (!(t.some((i) => i < chmod) && t.some((i) => i > chmod))) v.push("S11 does not attempt a write both with the declaration readable and with it unreadable");
+  if (!/with no front-door run/.test(p)) v.push("S11's writes are not unreceipted (a receipt would test something else)");
+  const step = oneFence(text, "# shared-tracker-smoke: scenario step").body;
+  if (!/B-relocated\) STEP_CWD="\$\{ROOT_B\}\/\.s11\/relocated"; STEP_MCP=B/.test(step)) v.push("the step fence cannot start a child in B's relocated worktree");
+  const setup = fencesTagged(text, S11_TAG);
+  if (setup.length !== 1) v.push(`expected one fence tagged ${S11_TAG}, found ${setup.length}`);
+  else {
+    if (!/worktree add/.test(setup[0]!.body)) v.push("the S11 setup fence makes no worktree");
+    if (!new RegExp(`before step ${r.nums[0]}\\b`, "i").test(setup[0]!.region)) v.push(`the S11 setup fence is not placed before step ${r.nums[0]}`);
+  }
+  if (!/pre-declaration[^\n]*AC-STE-616\.10/.test(section(text, /^## Phase 3\b/))) v.push("the pre-declaration half is dropped silently (it must be named, with its reason)");
+  return v;
+}
+
+function withS11Sandbox(f: (t: { tmp: string; b: string; body: string }) => void, body = oneFence(docText(), S11_TAG).body): void {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "ste617-s11-")));
+  try {
+    const tmp = join(root, "tmp");
+    const b = join(root, "B");
+    mkdirSync(tmp, { recursive: true });
+    gitRepo(b, { "CLAUDE.md": "# B\n\nproject: PRE\n" });
+    // S8's repoint rewrites the declaration and leaves it uncommitted.
+    writeFileSync(join(b, "CLAUDE.md"), "# B\n\nproject: SHARED\n");
+    writeFileSync(join(tmp, "dpt-shared-jira-run.env"), `TRACKER=jira\nROOT_B=${b}\n`);
+    f({ tmp, b, body });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function relocatedOutcome(b: string): string[] {
+  const w = join(b, ".s11", "relocated");
+  const v: string[] = [];
+  if (!existsSync(w)) return ["no relocated worktree"];
+  if (sh(w, ["git", "rev-parse", "--show-toplevel"]).out.trim() !== w) v.push("the worktree's top level is not its own path");
+  const common = sh(w, ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"]).out.trim();
+  if (common !== join(b, ".git")) v.push(`the worktree is not a worktree of B (common dir ${common})`);
+  if (readFileSync(join(w, "CLAUDE.md"), "utf-8") !== readFileSync(join(b, "CLAUDE.md"), "utf-8")) v.push("the worktree does not carry B's current declaration");
+  if (sh(b, ["git", "status", "--porcelain"]).out.trim() !== "") v.push("B's own tree is not clean after the setup");
+  return v;
+}
+
+describe("audit item 4 — S11 exercises the relocated checkout and the unreadable declaration, graded by writesRefused", () => {
+  test("the document's S11 step, its setup fence and the step fence's relocated root", () => {
+    expect(s11Violations(docText())).toEqual([]);
+  });
+  test("run: the setup fence makes a worktree of B at another path carrying B's CURRENT declaration, B's tree left clean", () => {
+    withS11Sandbox(({ tmp, b, body }) => {
+      const r = runOperatorFence(body, tmp, b);
+      expect(r.code, `${r.out}\n${r.err}`).toBe(0);
+      expect(relocatedOutcome(b)).toEqual([]);
+    });
+  });
+  test("REFUSAL twin — B is not its own repository but sits INSIDE another one: refused in NFR-10 shape, no worktree, nothing committed to the enclosing repository", () => {
+    withS11Sandbox(({ tmp, b, body }) => {
+      // Bun 1.3.14's rmSync fails on a git-created .git (ENOENT, which `force`
+      // swallows), leaving a partial repository behind; the system rm is reliable.
+      spawnSync("rm", ["-rf", join(b, ".git")]);
+      expect(existsSync(join(b, ".git")), "B's .git was not removed").toBe(false);
+      // The enclosing directory becomes a repository: a check that only asks
+      // "is there a git directory somewhere up the path" passes here, and would
+      // then commit B's declaration into this foreign repository.
+      const outer = dirname(b);
+      sh(outer, ["git", "init", "-q"]);
+      sh(outer, ["git", "-c", "user.email=f@example.invalid", "-c", "user.name=f", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "outer"]);
+      const before = sh(outer, ["git", "rev-list", "--count", "HEAD"]).out.trim();
+      const r = runOperatorFence(body, tmp, b);
+      expect(r.code).not.toBe(0);
+      expectNfr10(r.err);
+      expect(existsSync(join(b, ".s11", "relocated"))).toBe(false);
+      expect(sh(outer, ["git", "rev-list", "--count", "HEAD"]).out.trim(), "the enclosing repository gained a commit").toBe(before);
+    });
+  });
+  test("REFUSAL twin — B is not a git repository: refused in NFR-10 shape, no worktree", () => {
+    withS11Sandbox(({ tmp, b, body }) => {
+      // Bun 1.3.14's rmSync fails on a git-created .git (ENOENT, which `force`
+      // swallows), leaving a partial repository behind; the system rm is reliable.
+      spawnSync("rm", ["-rf", join(b, ".git")]);
+      expect(existsSync(join(b, ".git")), "B's .git was not removed").toBe(false);
+      const r = runOperatorFence(body, tmp, b);
+      expect(r.code).not.toBe(0);
+      expectNfr10(r.err);
+      expect(existsSync(join(b, ".s11", "relocated"))).toBe(false);
+    });
+  });
+  test("MUTATION — a setup fence that does not commit B's repointed declaration first is red (the worktree would read the stale one)", () => {
+    const body = oneFence(docText(), S11_TAG).body.split("\n").filter((l) => !/git -C "\$\{ROOT_B\}" (?:add CLAUDE\.md|-c commit\.gpgsign=false commit)/.test(l)).join("\n");
+    withS11Sandbox(({ tmp, b, body: mutated }) => {
+      runOperatorFence(mutated, tmp, b);
+      expect(relocatedOutcome(b).length).toBeGreaterThan(0);
+    }, body);
+  });
+  test("MUTATION — the old S11 step (A transitions B's S2 ticket; no worktree) is red", () => {
+    const m = withRowPrompt(docText(), "S11", "B-relocated", "Transition B's S2 ticket.");
+    expect(s11Violations(m).some((x) => /unreadable/.test(x))).toBe(true);
+  });
+});
+
+// --- item 6 + 7: the step and audit fences fail closed, and send the operator to teardown
+
+const RUN_ID = "11111111-2222-4333-8444-555555555555";
+
+function writeStubRunEnv(sb: StubSandbox, over: Record<string, string | undefined>): void {
+  const base: Record<string, string | undefined> = {
+    TRACKER: "jira",
+    TOPLEVEL: sb.work,
+    ROOT_A: join(sb.root, "A"),
+    ROOT_B: join(sb.root, "B"),
+    PLUGIN_TREE: join(sb.work, "plugins", "dev-process-toolkit"),
+    PLUGIN_BELOW_FLOOR: join(sb.root, "below"),
+    PLUGIN_INTRUDER: join(sb.root, "intruder"),
+    OLD_CLIENT: join(sb.root, "old"),
+    DPT_SMOKE_RUN_ID: RUN_ID,
+    NONCE: "shr0000abcd",
+    SPAWN_CEILING: "28",
+    ...over,
+  };
+  for (const d of ["A", "B"]) mkdirSync(join(sb.root, d), { recursive: true });
+  mkdirSync(join(sb.root, "B", ".s11", "relocated"), { recursive: true });
+  const lines = Object.entries(base).filter(([, v]) => v !== undefined).map(([k, v]) => `${k}=${v}`);
+  writeFileSync(join(sb.tmp, "dpt-shared-jira-run.env"), `${lines.join("\n")}\n`);
+}
+
+type SpawnKind = "step" | "audit";
+
+function spawnScript(sb: StubSandbox, kind: SpawnKind, text = docText()): string {
+  const tag = kind === "step" ? "# shared-tracker-smoke: scenario step" : "# shared-tracker-smoke: audit";
+  let body = oneFence(text, tag).body.replaceAll("<tracker>", "jira");
+  body = kind === "step"
+    ? body
+        .replace(/^STEP_NAME=.*$/m, 'STEP_NAME="4-S1"')
+        .replace(/^STEP_MARKER=.*$/m, 'STEP_MARKER="S1"')
+        .replace(/^STEP_ROOT=.*$/m, 'STEP_ROOT="A"')
+        .replace(/^STEP_CLIENT=.*$/m, 'STEP_CLIENT="tree"')
+    : body.replace(/^AUDIT_PASS=.*$/m, 'AUDIT_PASS="1"');
+  return rebaseIntoStub(body, sb);
+}
+
+function withStub(f: (sb: StubSandbox) => void): void {
+  const sb = makeStubSandbox("record");
+  try {
+    f(sb);
+  } finally {
+    reapStubSandbox(sb);
+  }
+}
+
+const OWED = (sb: StubSandbox) => join(sb.tmp, "dpt-shared-jira-teardown-owed");
+
+describe("audit items 6 + 7 — the step and audit fences refuse before spawning when the ledger or the ceiling cannot be trusted", () => {
+  const cases: Array<[string, Record<string, string | undefined>, RegExp]> = [
+    ["ledger-unreadable — the run ledger read fails (a failed read is not zero sessions)", { TOPLEVEL: "/nonexistent-ste617-toolkit" }, /ledger/i],
+    ["ceiling-unset — SPAWN_CEILING is absent from the run state", { SPAWN_CEILING: undefined }, /SPAWN_CEILING/],
+    ["ceiling-not-a-number — SPAWN_CEILING is not a whole number", { SPAWN_CEILING: "twenty" }, /SPAWN_CEILING/],
+    ["spawn-overrun — the ledger already holds the ceiling (CONTROL: it refused before the audit too)", { SPAWN_CEILING: "0" }, /spawn-overrun/],
+  ];
+  for (const kind of ["step", "audit"] as const) {
+    for (const [name, over, why] of cases) {
+      test(`${kind} fence refusal — ${name}: NFR-10, names Phase 5 teardown, no append, no child`, () => {
+        withStub((sb) => {
+          writeStubRunEnv(sb, over);
+          const r = runStubScript(sb, spawnScript(sb, kind), stubEnv(sb));
+          const dump = `exit=${r.exitCode}\n${r.out}\n${r.err}`;
+          expect(r.exitCode, dump).not.toBe(0);
+          const calls = readStubCalls(sb);
+          expect(calls.filter((c) => c.kind === "claude"), dump).toEqual([]);
+          expect(calls.filter((c) => c.kind === "bun" && /smoke_run_ledger\.ts["']?\s+append\b/.test(c.args)), dump).toEqual([]);
+          expectNfr10(r.err, true);
+          expect(r.err).toMatch(why);
+          expect(r.err, "a refusal sends the operator to teardown (audit item 7)").toMatch(/Phase 5/);
+          expect(existsSync(OWED(sb)), "a refused step writes no teardown-owed marker").toBe(false);
+        });
+      });
+    }
+    test(`${kind} fence PERMIT TWIN — a readable empty ledger under a numeric ceiling appends, then starts exactly one child`, () => {
+      withStub((sb) => {
+        writeStubRunEnv(sb, {});
+        const r = runStubScript(sb, spawnScript(sb, kind), stubEnv(sb));
+        expect(r.exitCode, `${r.out}\n${r.err}`).toBe(0);
+        const calls = readStubCalls(sb);
+        const claude = calls.filter((c) => c.kind === "claude");
+        expect(claude.length).toBe(1);
+        expect(claude[0]!.args).toMatch(/--session-id\s+[0-9a-f-]{36}/);
+        const append = calls.find((c) => c.kind === "bun" && /smoke_run_ledger\.ts["']?\s+append\b/.test(c.args));
+        expect(append && append.index < claude[0]!.index).toBe(true);
+        expect(r.out).toMatch(/^launched=1 live=1$/m);
+        if (kind === "step") expect(existsSync(OWED(sb)), "the step fence records that teardown is now owed").toBe(true);
+      });
+    });
+  }
+  test("MUTATION — the old ledger count (`| grep -c .`, no ceiling check) spawns on an unreadable ledger and on an unset ceiling", () => {
+    const text = docText();
+    const f = oneFence(text, "# shared-tracker-smoke: scenario step");
+    const oldBody = [
+      'LEDGERED=$(bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts" sessions --project-root "${TOPLEVEL}" --run "${DPT_SMOKE_RUN_ID}" --leg "${DPT_SMOKE_LEG}" | grep -c .)',
+      'if [ "${LEDGERED}" -ge "${SPAWN_CEILING}" ]; then',
+      '  echo "/shared-tracker-smoke: spawn-overrun" >&2',
+      "  exit 1",
+      "fi",
+    ].join("\n");
+    const start = f.body.indexOf("# The ceiling");
+    const end = f.body.indexOf("LAUNCHED=0");
+    expect(start > 0 && end > start, "the step fence's ceiling block is found").toBe(true);
+    const mutated = text.replace(f.body, `${f.body.slice(0, start)}${oldBody}\n${f.body.slice(end)}`);
+    for (const over of [{ TOPLEVEL: "/nonexistent-ste617-toolkit" }, { SPAWN_CEILING: undefined }]) {
+      withStub((sb) => {
+        writeStubRunEnv(sb, over);
+        runStubScript(sb, spawnScript(sb, "step", mutated), stubEnv(sb));
+        expect(readStubCalls(sb).filter((c) => c.kind === "claude").length, JSON.stringify(over)).toBe(1);
+      });
+    }
+  });
+});
+
+function teardownViolations(text: string): string[] {
+  const v: string[] = [];
+  const p5 = section(text, /^## Phase 5\b/);
+  if (/once bootstrap has made its first tracker write/.test(p5)) v.push("Phase 5 keys teardown on a bootstrap tracker write, which never happens on Jira");
+  if (!/first scenario spawn/.test(p5) || !/teardown-owed/.test(p5)) v.push("Phase 5 does not key teardown on the first scenario spawn (the teardown-owed marker)");
+  const step = oneFence(text, "# shared-tracker-smoke: scenario step").body;
+  const owed = step.search(/teardown-owed/);
+  const spawn = step.search(/^claude -p\b/m);
+  if (owed < 0 || !(owed < spawn)) v.push("the step fence does not record that teardown is owed before it spawns");
+  const cap = section(text, /^## Phase 3\b/).split("\n").filter((l) => /linear-free-issue-limit/.test(l));
+  if (cap.length === 0 || !cap.every((l) => /Phase 5/.test(l))) v.push("the Linear free-issue-limit stop does not send the operator to teardown");
+  for (const tag of ["# shared-tracker-smoke: scenario step", "# shared-tracker-smoke: audit"]) {
+    const b = oneFence(text, tag).body;
+    for (const l of b.split("\n").filter((x) => /spawn-overrun|spawn count mismatch/.test(x) && !/^\s*#/.test(x))) {
+      if (!/Phase 5/.test(l)) v.push(`${tag}: a spawn refusal does not name Phase 5 teardown: ${l.trim()}`);
+    }
+  }
+  return v;
+}
+
+describe("audit item 7 — teardown on every outcome, keyed on the first scenario spawn", () => {
+  test("the document keys teardown on the first scenario spawn and every stop names Phase 5", () => {
+    expect(teardownViolations(docText())).toEqual([]);
+  });
+  test("MUTATION — the old trigger sentence, and a free-issue-limit stop without teardown, are red", () => {
+    const text = docText();
+    const p5 = section(text, /^## Phase 5\b/);
+    const m1 = text.replace(p5, `${p5}\nTeardown runs on every outcome once bootstrap has made its first tracker write, abort included.\n`);
+    expect(teardownViolations(m1)).toContain("Phase 5 keys teardown on a bootstrap tracker write, which never happens on Jira");
+    const capLine = section(text, /^## Phase 3\b/).split("\n").find((l) => /linear-free-issue-limit/.test(l))!;
+    const m2 = text.replace(capLine, "On Linear the run never retries a create the free plan refused with a 400: the step ends there, and the grader aborts the leg as `linear-free-issue-limit`.");
+    expect(teardownViolations(m2)).toContain("the Linear free-issue-limit stop does not send the operator to teardown");
+  });
+});
+
+// --- item 8: Phase 0.5 checks the cwd before any rm, and never removes inside the toolkit
+
+function phase05Script(sb: StubSandbox, cwd: string, text = docText()): string {
+  const body = oneFence(text, "# shared-tracker-smoke: phase 0.5").body.replaceAll("<tracker>", "jira");
+  return `cd ${JSON.stringify(cwd)} || exit 97\n${rebaseIntoStub(body, sb)}\n`;
+}
+
+function withPhase05(f: (t: { sb: StubSandbox; toolkit: string; parent: string; stale: string; plan: string }) => void): void {
+  withStub((sb) => {
+    const toolkit = realpathSync(sb.work);
+    sh(toolkit, ["git", "-c", "init.defaultBranch=main", "init", "-q"]);
+    mkdirSync(join(toolkit, "plugins", "dev-process-toolkit"), { recursive: true });
+    const parent = dirname(toolkit);
+    for (const s of ["a", "b"]) {
+      mkdirSync(join(parent, `dpt-shared-jira-${s}`), { recursive: true });
+      writeFileSync(join(parent, `dpt-shared-jira-${s}`, "keep.txt"), "old run\n");
+    }
+    const stale = join(sb.tmp, "dpt-shared-jira-4-S1.log");
+    writeFileSync(stale, "stale\n");
+    const plan = join(sb.tmp, "dpt-shared-jira-plan.env");
+    writeFileSync(plan, "SPAWN_CEILING=28\n");
+    f({ sb, toolkit, parent, stale, plan });
+  });
+}
+
+describe("audit item 8 — Phase 0.5 refuses a wrong cwd before any rm, and never removes a path inside the toolkit", () => {
+  test("refusal — run from plugins/dev-process-toolkit: NFR-10, exit non-zero, NOTHING removed, no run state", () => {
+    withPhase05(({ sb, toolkit, parent, stale }) => {
+      const r = runStubScript(sb, phase05Script(sb, join(toolkit, "plugins", "dev-process-toolkit")), stubEnv(sb));
+      expect(r.exitCode, `${r.out}\n${r.err}`).not.toBe(0);
+      expectNfr10(r.err);
+      expect(existsSync(join(parent, "dpt-shared-jira-a", "keep.txt"))).toBe(true);
+      expect(existsSync(join(parent, "dpt-shared-jira-b", "keep.txt"))).toBe(true);
+      expect(existsSync(stale), "the stale scratch is not removed either").toBe(true);
+      expect(existsSync(join(sb.tmp, "dpt-shared-jira-run.env"))).toBe(false);
+      expect(readStubCalls(sb).filter((c) => c.kind === "claude")).toEqual([]);
+    });
+  });
+  test("refusal — a throwaway path that resolves INSIDE the toolkit checkout (a link into it): refused, nothing removed", () => {
+    withPhase05(({ sb, toolkit, parent }) => {
+      rmSync(join(parent, "dpt-shared-jira-a"), { recursive: true, force: true });
+      mkdirSync(join(toolkit, "inner"), { recursive: true });
+      writeFileSync(join(toolkit, "inner", "precious.txt"), "tracked work\n");
+      symlinkSync(join(toolkit, "inner"), join(parent, "dpt-shared-jira-a"));
+      const r = runStubScript(sb, phase05Script(sb, toolkit), stubEnv(sb));
+      expect(r.exitCode, `${r.out}\n${r.err}`).not.toBe(0);
+      expectNfr10(r.err);
+      expect(existsSync(join(toolkit, "inner", "precious.txt"))).toBe(true);
+      expect(lstatSync(join(parent, "dpt-shared-jira-a")).isSymbolicLink()).toBe(true);
+      expect(existsSync(join(parent, "dpt-shared-jira-b", "keep.txt")), "nothing at all is removed once one path refuses").toBe(true);
+    });
+  });
+  test("PERMIT TWIN — run from the top level: both throwaways and the stale scratch go, the plan stays, the run state is written", () => {
+    withPhase05(({ sb, toolkit, parent, stale, plan }) => {
+      const r = runStubScript(sb, phase05Script(sb, toolkit), stubEnv(sb));
+      expect(r.exitCode, `${r.out}\n${r.err}`).toBe(0);
+      expect(existsSync(join(parent, "dpt-shared-jira-a"))).toBe(false);
+      expect(existsSync(join(parent, "dpt-shared-jira-b"))).toBe(false);
+      expect(existsSync(stale)).toBe(false);
+      expect(existsSync(plan)).toBe(true);
+      expect(readFileSync(join(sb.tmp, "dpt-shared-jira-run.env"), "utf-8")).toMatch(/^ROOT_A=.*dpt-shared-jira-a$/m);
+    });
+  });
+  test("MUTATION — the old Phase 0.5 (rm first, no cwd check) removes the throwaways when run from a subdirectory", () => {
+    const text = docText();
+    const f = oneFence(text, "# shared-tracker-smoke: phase 0.5");
+    const old = [
+      "# shared-tracker-smoke: phase 0.5 — stale scratch out, run state in",
+      'TRACKER="<tracker>"',
+      "TOPLEVEL=$(git rev-parse --show-toplevel)",
+      'PARENT=$(dirname "${TOPLEVEL}")',
+      "for P in /tmp/dpt-shared-<tracker>-*; do",
+      '  case "${P}" in /tmp/dpt-shared-<tracker>-plan.env) ;; *) rm -rf "${P}" ;; esac',
+      "done",
+      'rm -rf "${PARENT}/dpt-shared-${TRACKER}-a" "${PARENT}/dpt-shared-${TRACKER}-b"',
+    ].join("\n");
+    const mutated = text.replace(f.body, old);
+    withPhase05(({ sb, toolkit, parent }) => {
+      runStubScript(sb, phase05Script(sb, join(toolkit, "plugins", "dev-process-toolkit"), mutated), stubEnv(sb));
+      expect(existsSync(join(parent, "dpt-shared-jira-a"))).toBe(false);
+    });
+  });
+});
+
+// --- item 9: Phase 0 prints tracker-appropriate item counts ----------------
+
+function runPhase0(tracker: "jira" | "linear", repointFrom: string | undefined, text = docText()): Record<string, string> {
+  return runPhase0Full(tracker, repointFrom, text).plan;
+}
+
+/** The Phase 0 fence run in a scratch /tmp: the plan it wrote and what it printed. */
+function runPhase0Full(tracker: "jira" | "linear", repointFrom: string | undefined, text = docText()): { plan: Record<string, string>; out: string } {
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), "ste617-p0-")));
+  try {
+    const body = oneFence(text, "# shared-tracker-smoke: phase 0 —").body.replaceAll("<tracker>", tracker).replaceAll("/tmp/", `${tmp}/`);
+    expect(body, "Phase 0 starts no child and writes no tracker").not.toMatch(/\bclaude\b/);
+    const file = join(tmp, "phase0.sh");
+    writeFileSync(file, body);
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !/JIRA|LINEAR|TRACKER/.test(k)) env[k] = v;
+    env.PATH = `${dirname(process.execPath)}:${process.env.PATH ?? ""}`;
+    if (repointFrom) env.JIRA_REPOINT_FROM = repointFrom;
+    const r = spawnSync("bash", [file], { cwd: repoRoot, env, encoding: "utf-8" });
+    expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
+    const plan = readFileSync(join(tmp, `dpt-shared-${tracker}-plan.env`), "utf-8");
+    return {
+      plan: Object.fromEntries(plan.split("\n").filter((l) => l.includes("=")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).replace(/^"|"$/g, "")])),
+      out: r.stdout,
+    };
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+describe("audit item 9 — Phase 0's expected and worst-case item counts are the tracker's own", () => {
+  test("jira with --jira-repoint-from: 8 expected Jira items (the S3 Epic counted), 11 at worst (+ S6, S7, S14)", () => {
+    const p = runPhase0("jira", "DST2");
+    expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS]).toEqual(["8", "11"]);
+    expect(p.ITEM_UNIT).toMatch(/Jira/);
+  });
+  test("jira without the flag: the S8 legacy item is not created — 7 expected, 10 at worst", () => {
+    const p = runPhase0("jira", undefined);
+    expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS, p.S8]).toEqual(["7", "10", "skipped"]);
+  });
+  test("linear: the registry's LINEAR_ISSUE_BUDGET and linearWorstCase() — no Epic, a milestone is not an issue", async () => {
+    const reg = await import("../adapters/_shared/src/shared_tracker_scenarios");
+    const p = runPhase0("linear", undefined);
+    expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS]).toEqual([String(reg.LINEAR_ISSUE_BUDGET), String(reg.linearWorstCase())]);
+    expect(p.ITEM_UNIT).toMatch(/Linear/);
+  });
+  test("MUTATION — the old Phase 0 (Linear numbers printed on every tracker) is red on a Jira run with the repoint space", () => {
+    const text = docText();
+    const f = oneFence(text, "# shared-tracker-smoke: phase 0 —");
+    const start = f.body.indexOf("PLAN=$(");
+    const end = f.body.indexOf("printf '%s\\n' \"${PLAN}\" > ");
+    expect(start > 0 && end > start, "Phase 0's PLAN block is found").toBe(true);
+    const old = `PLAN=$(TRACKER="\${TRACKER}" REPOINT="\${JIRA_REPOINT_FROM}" REGISTRY="\${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/shared_tracker_scenarios.ts" bun -e '
+const r = await import(process.env.REGISTRY);
+console.log(\`SPAWN_CEILING=\${r.spawnCeiling(process.env.TRACKER)}\`);
+console.log(\`EXPECTED_ITEMS=\${r.LINEAR_ISSUE_BUDGET}\`);
+console.log(\`WORST_CASE_ITEMS=\${r.linearWorstCase()}\`);
+')
+`;
+    const mutated = text.replace(f.body, `${f.body.slice(0, start)}${old}${f.body.slice(end)}`);
+    const p = runPhase0("jira", "DST2", mutated);
+    expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS]).not.toEqual(["8", "11"]);
+  });
+});
+
+describe("no skipped, todo or conditional test forms in this suite", () => {
+  test("the suite's own source carries none", () => {
+    const src = readFileSync(import.meta.path, "utf-8");
+    for (const f of ["test" + ".skip(", "test" + ".todo(", "test" + ".if(", "describe" + ".skip(", "it" + ".skip("]) expect(src.includes(f), f).toBe(false);
+  });
+});

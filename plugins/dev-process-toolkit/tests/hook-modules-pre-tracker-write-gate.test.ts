@@ -70,7 +70,7 @@ const ADAPTERS_SRC = join(PLUGIN_ROOT, "adapters", "_shared", "src");
 const HOOK = "pre-tracker-write-gate";
 const MODULE_PATH = join(PLUGIN_ROOT, "templates", "hooks", "_lib", "hooks", `${HOOK}.ts`);
 const HOOKS_JSON = join(PLUGIN_ROOT, "hooks", "hooks.json");
-const INVENTORY = join(PLUGIN_ROOT, "tests", "fixtures", "tracker-tool-inventory.json");
+const INVENTORY = join(PLUGIN_ROOT, "adapters", "_shared", "data", "tracker-tool-inventory.json");
 
 const SESSION = "s-607-main";
 const OTHER_SESSION = "s-607-other";

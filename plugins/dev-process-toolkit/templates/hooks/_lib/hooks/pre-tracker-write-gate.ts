@@ -85,7 +85,7 @@ export const TRACKER_WRITE_TOOLS: readonly string[] = [...ATLASSIAN_WRITE_TOOLS,
 /** The hooks.json PreToolUse matcher, generated from `TRACKER_WRITE_TOOLS`: any server spelling. */
 export const TRACKER_WRITE_MATCHER = `^mcp__.+__(${TRACKER_WRITE_TOOLS.join("|")})$`;
 
-/** §1 — inventory names that only read (tests/fixtures/tracker-tool-inventory.json, AC-STE-607.2). */
+/** §1 — inventory names that only read (adapters/_shared/data/tracker-tool-inventory.json, AC-STE-607.2). */
 export const TRACKER_READ_TOOLS: readonly string[] = [
   // atlassian
   "atlassianUserInfo",

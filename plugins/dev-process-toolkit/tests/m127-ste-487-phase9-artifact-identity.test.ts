@@ -563,10 +563,11 @@ describe("AC-STE-487.3 — the enumerating check covers both harness SKILLs", ()
     }
   }
 
-  test("both harness SKILLs are registered, and both files exist", () => {
+  test("all three harness SKILLs are registered, and every file exists (STE-617 AC.4 adds shared-tracker-smoke)", () => {
     expect([...HARNESS_SKILL_RELATIVE_PATHS()].sort()).toEqual(
       [
         ".claude/skills/conformance-loop/SKILL.md",
+        ".claude/skills/shared-tracker-smoke/SKILL.md",
         ".claude/skills/smoke-test/SKILL.md",
       ].sort(),
     );

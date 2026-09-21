@@ -55,6 +55,7 @@ const REPO_ROOT = join(import.meta.dir, "..", "..", "..", "..", "..");
 export const HARNESS_SKILL_RELATIVE_PATHS: readonly string[] = [
   ".claude/skills/smoke-test/SKILL.md",
   ".claude/skills/conformance-loop/SKILL.md",
+  ".claude/skills/shared-tracker-smoke/SKILL.md",
 ];
 
 /** The five Phase 9 lenient-assertion fixtures, in § Phase 9's own order. */
