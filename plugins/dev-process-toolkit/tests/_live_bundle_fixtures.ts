@@ -38,7 +38,11 @@
 //     file's bytes, and the receipt's fields), its commits (subject and
 //     committer time), its FR files' tracker bindings and its plans' tokens.
 //   * Absolute paths are rewritten: the two throwaway roots become `<A>` and
-//     `<B>`.
+//     `<B>`, the toolkit checkout `<toolkit>` and each config dir `<config>`.
+//   * An audit item read without an answer field a predicate needs carries
+//     `absent` (the missing answer fields); the grade aborts on it.
+//   * `answers` / `answersAt` — the sanctioned answers block of the session's
+//     first user message (only `tracker_orphan_import`), and when it was given.
 //
 // Receipt announcements: `dpt-receipt: <path> sha256:<hex>` on its own line
 // in the output of ONE plain Bash run of a toolkit module
@@ -78,6 +82,8 @@ export interface TrackerItem {
   issueType: string | null;
   kind: "issue" | "milestone" | "project";
   container: string;
+  /** The required answer fields the tracker's answer lacked; absent when it lacked none. */
+  absent?: string[];
 }
 
 export interface ToolResult {
@@ -105,6 +111,10 @@ export interface BundleSession {
   cwd: string;
   client: Client;
   calls: ToolCall[];
+  /** The first user message's answers block, for the keys the grader reads (`tracker_orphan_import`). */
+  answers?: Record<string, string>;
+  /** When that first user message was written. */
+  answersAt?: string;
 }
 
 export interface BundleReceipt {
@@ -170,6 +180,8 @@ export const START = "2026-09-21T10:00:00.000Z";
 export const HOOK_TRACKER = "pre-tracker-write-gate";
 export const HOOK_COMMIT = "pre-commit-gate-check";
 export const HOOK_PR = "pre-pr-spec-review";
+/** The literal auto-approve marker every child prompt opens with (the answers block is inert without it). */
+export const AUTO_APPROVE = "<dpt:auto-approve>v1</dpt:auto-approve>";
 export const LINEAR_CAP_TEXT =
   'Error: 400 invalid_request — "You\'ve exceeded the free issue limit for this workspace"';
 const MODULE = (m: string) => `"\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/${m}"`;
@@ -236,6 +248,14 @@ export interface BuildOptions {
   oldClientWrites?: number;
   /** Untagged items the intruder writes. Default 1. */
   intruderItems?: number;
+  /**
+   * How S13's operator consents to the intruder item's import: an answered
+   * AskUserQuestion ("ask"), or — the route a `claude -p` child has, where
+   * AskUserQuestion returns an error — the first user message's sanctioned
+   * answers block, `tracker_orphan_import: Import <KEY>` ("answers-block").
+   * Default "ask".
+   */
+  importConsent?: "ask" | "answers-block";
 }
 
 class Fx {
@@ -258,6 +278,7 @@ class Fx {
       jiraRepointFrom: opts.jiraRepointFrom === undefined ? "DST2" : opts.jiraRepointFrom,
       oldClientWrites: opts.oldClientWrites ?? 1,
       intruderItems: opts.intruderItems ?? 1,
+      importConsent: opts.importConsent ?? "ask",
     };
     this.container = tracker === "jira" ? "DST" : `DPT Shared ${NONCE}`;
     this.repointFrom = tracker === "jira" ? this.opts.jiraRepointFrom : `DPT Pre ${NONCE}`;
@@ -677,14 +698,20 @@ export function buildPassingBundle(tracker: Tracker, opts: BuildOptions = {}): L
 
   // --- S13: claim and import ownership ---------------------------------------
   const s13 = fx.session("S13", "B");
+  if (fx.opts.importConsent === "answers-block") {
+    s13.s.answers = { tracker_orphan_import: `Import ${U.key}` };
+    s13.s.answersAt = fx.tick();
+  }
   s13.toolRefused(toolName(tracker, "B", "transition"), transitionInput(s1a.key), `${s1a.key}: the ticket is not owned by the declared target <B>.`);
   s13.toolRefused(toolName(tracker, "B", "edit"), editInput(s1a.key, [TAG_A, TAG_B]), `${s1a.key}: the ticket is not owned by the declared target <B>.`);
   s13.bash(`bun run ${MODULE("container_ownership.ts")} list <B> <B>/.dpt/tmp/page-3.json`, listingText("B"));
-  s13.other(
-    "AskUserQuestion",
-    { questions: [{ question: `Import ${U.key} into ${nameB}?`, header: "Import", options: [{ label: `Import ${U.key}` }, { label: `Skip ${U.key}` }], multiSelect: false }] },
-    `User has answered your questions: "Import ${U.key} into ${nameB}?"="Import ${U.key}". You can now continue with the user's answers in mind.`,
-  );
+  if (fx.opts.importConsent === "ask") {
+    s13.other(
+      "AskUserQuestion",
+      { questions: [{ question: `Import ${U.key} into ${nameB}?`, header: "Import", options: [{ label: `Import ${U.key}` }, { label: `Skip ${U.key}` }], multiSelect: false }] },
+      `User has answered your questions: "Import ${U.key} into ${nameB}?"="Import ${U.key}". You can now continue with the user's answers in mind.`,
+    );
+  }
   const rImport = fx.receipt("B", s13.s, {
     kind: "import",
     adapter: tracker,
@@ -1021,10 +1048,12 @@ function rawItem(tracker: Tracker, name: string, i: TrackerItem): Record<string,
     };
   }
   if (/__(list_milestones|save_milestone|get_milestone)$/.test(name)) return { id: i.key, name: i.summary, project: i.container, status: i.status };
-  if (/__(get_project|save_project|list_projects)$/.test(name)) return { id: `proj-${HEX(i.key).slice(0, 8)}`, name: i.summary, status: { name: i.status } };
+  // A project's status is `{ id, name, type }`, its `type` the workflow category (measured live 2026-09-21).
+  if (/__(get_project|save_project|list_projects)$/.test(name)) return { id: `proj-${HEX(i.key).slice(0, 8)}`, name: i.summary, status: { id: "st-1", name: i.status, type: i.status.toLowerCase() } };
+  // A Linear issue's `id` IS its identifier (`STE-618`) and its uuid sits in `uuid`: there is no `identifier` field (measured live 2026-09-21).
   return {
-    id: HEX(i.key).slice(0, 8) + "-0000-4000-8000-000000000000",
-    identifier: i.key,
+    id: i.key,
+    uuid: HEX(i.key).slice(0, 8) + "-0000-4000-8000-000000000000",
     title: i.summary,
     labels: i.labels,
     status: i.status,
@@ -1150,7 +1179,8 @@ export function materialize(bundle: LiveBundle, base: string, o: MaterializeOpti
     const side: unknown[] = [];
     let uuid = 0;
     const u = () => `${s.sessionId.slice(0, 8)}-0000-4000-8000-${String(++uuid).padStart(12, "0")}`;
-    const first = s.calls[0]?.at ?? START;
+    const first = s.answersAt ?? s.calls[0]?.at ?? START;
+    const block = s.answers ? `<dpt:answers>v1\n${Object.entries(s.answers).map(([k, v]) => `${k}: ${v}`).join("\n")}\n</dpt:answers>\n` : "";
     main.push({
       ...base0,
       type: "user",
@@ -1158,7 +1188,7 @@ export function materialize(bundle: LiveBundle, base: string, o: MaterializeOpti
       uuid: u(),
       parentUuid: null,
       timestamp: first,
-      message: { role: "user", content: `Run the scenario step below.\n${markerLine(s.marker, s.client)}\nThen stop.` },
+      message: { role: "user", content: `${AUTO_APPROVE}\n${markerLine(s.marker, s.client)}\n${block}Run the scenario step below.\nThen stop.` },
     });
     for (const c of s.calls) {
       const id = c.ref.split(":")[1]!;

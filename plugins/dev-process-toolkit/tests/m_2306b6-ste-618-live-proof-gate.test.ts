@@ -1405,6 +1405,34 @@ describe("AUDIT 7 — the Spaces cell is validated on both trackers", () => {
   }
 });
 
+describe("AUDIT 8 — the grade and the gate agree on Linear items that carry no issue key", () => {
+  // One definition (the grader's keysOutsideSpaces) decides which items are
+  // space-keyed for both: projects and milestones read by name never are; an
+  // issue with no readable key always is, and is outside every space. So a
+  // bundle the grade passes cannot then fail the gate's not-live key check —
+  // a disagreement found only after the live run, whose fix would stale the proof.
+  const unkeyedIssue = (b: LiveBundle) => {
+    const s = b.sessions.find((x) => x.marker === "S4")!;
+    s.calls[0]!.result.items = [{ key: "", summary: "", labels: [], status: "", parent: null, milestone: null, issueType: null, kind: "issue", container: "" }];
+  };
+  const cases: Array<{ what: string; before?: (b: LiveBundle) => void; pass: boolean }> = [
+    { what: "the passing bundle, holding project and milestone items read by name", pass: true },
+    { what: "the same bundle plus one issue item with no readable key", before: unkeyedIssue, pass: false },
+  ];
+  for (const c of cases) {
+    test(`linear: ${c.what} — grade ${c.pass ? "pass" : "refuses"}, and the gate agrees`, async () => {
+      const b = buildPassingBundle("linear") as unknown as LiveBundle;
+      const items = b.sessions.flatMap((s) => s.calls).flatMap((x) => x.result.items ?? []);
+      expect(items.some((i) => i.kind === "project") && items.some((i) => i.kind === "milestone"), "control: project and milestone items are present").toBe(true);
+      c.before?.(b);
+      const graded = gradeBundle(b, { behaviourDigestNow: b.run.behaviourDigest.digest }).outcome;
+      const s = await setup(base().root, c.before ? { linear: { before: c.before } } : {});
+      const gate = (await grade(await shippedGate(), base().root, s.planPath)).trackers.linear;
+      expect({ grade: graded === "pass", gate: gate.outcome === "pass" }).toEqual({ grade: c.pass, gate: c.pass });
+    }, T);
+  }
+});
+
 // ===========================================================================
 // AC-STE-618.10 — every property fails on the sibling that lacks it
 // ===========================================================================

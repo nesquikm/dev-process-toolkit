@@ -44,7 +44,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 
-import { BUNDLE_FILE, behaviourDigest, bundleHash, gradeBundle, VERDICT_FILE, type BehaviourDigestResult, type LiveBundle, type LiveVerdict } from "./shared_tracker_live_grader";
+import { BUNDLE_FILE, behaviourDigest, bundleHash, gradeBundle, keysOutsideSpaces, VERDICT_FILE, type BehaviourDigestResult, type LiveBundle, type LiveVerdict } from "./shared_tracker_live_grader";
 
 // ---------------------------------------------------------------------------
 // property switches (AC-STE-618.10) — one `= true;` per region, nothing else
@@ -354,23 +354,16 @@ function outcomeOn(v: LiveVerdict, scope: readonly string[]): string {
 }
 
 /**
- * Item keys whose space prefix is not among the row's `Spaces`. Jira: every
- * item but projects (issues and Epic milestones carry `KEY-N`). Linear: every
- * issue (`TEAM-N`); projects and milestones carry names and ids, not team keys.
+ * Item keys whose space prefix is not among the row's `Spaces`, through the
+ * grader's ONE definition (`keysOutsideSpaces`): Jira — every item but
+ * projects (issues and Epics carry `KEY-N`); Linear — every issue (`TEAM-N`);
+ * projects and milestones carry names and ids, not team keys. An issue with
+ * no readable key is outside. The grade applies the same definition to the
+ * run's own spaces, so a bundle that grades pass cannot fail here on an item
+ * the grade never checked.
  */
-function keysOutside(t: LiveProofTracker, b: LiveBundle, spacesCell: string): string[] {
-  const spaces = new Set(spacesCell.split(/[,\s]+/).filter(Boolean).map((s) => s.toUpperCase()));
-  const out = new Set<string>();
-  for (const s of b.sessions ?? []) {
-    for (const c of s.calls ?? []) {
-      for (const i of c.result?.items ?? []) {
-        if (i.kind === "project" || (t === "linear" && i.kind !== "issue")) continue;
-        const m = /^([A-Za-z][A-Za-z0-9_]*)-\d+$/.exec(i.key);
-        if (!m || !spaces.has(m[1]!.toUpperCase())) out.add(i.key);
-      }
-    }
-  }
-  return [...out].sort();
+function keysOutside(_t: LiveProofTracker, b: LiveBundle, spacesCell: string): string[] {
+  return keysOutsideSpaces(b, spacesCell.split(/[,\s]+/).filter(Boolean));
 }
 
 function gradeRow(t: LiveProofTracker, rows: LiveProofRow[], ctx: TrackerContext): TrackerResult {

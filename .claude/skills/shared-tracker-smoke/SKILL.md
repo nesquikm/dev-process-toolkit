@@ -344,7 +344,43 @@ git -C "${ROOT_B}" checkout -q feature-s17
 git -C "${ROOT_B}" -c commit.gpgsign=false commit -q --allow-empty -m "chore: s17 topic"
 git -C "${ROOT_B}" checkout -q main
 git -C "${ROOT_B}" config alias.ci commit
+# The containers, for the privacy dry run and the second audit.
+printf 'SHARED=%q\nPRE=%q\n' "${SHARED}" "${PRE}" >> /tmp/dpt-shared-<tracker>-run.env
 echo "bootstrapped: ${ROOT_A} ${ROOT_B} nonce=${NONCE}"
+```
+
+### Privacy dry run — before the first spawn (operator, no child)
+
+Phase 6's `extract` refuses to write a bundle holding a home-directory path, an email address, an account id or a tracker site host, and a bundle re-extracted after a fix changes its digest. A leak found only at Phase 6 therefore throws away the whole run. So, right after bootstrap and before the first scenario spawn, this fence runs the same `extract` over the bootstrap state, into a throwaway directory under `/tmp`, never into the fixtures tree. When it reports a privacy refusal it refuses in the NFR-10 shape, before any child starts and before any budget is spent. It also refuses when `extract` fails for any other reason, since Phase 6 would fail the same way. It starts no child and writes nothing to the tracker. On Linear, Phase 2's project creates have already made teardown owed, so a refusal sends the operator to § Phase 5 — Teardown.
+
+**Run it from a file.** Write the fence to a file and run `bash <file>`; never feed it to `bash`, `sh` or `zsh` through stdin.
+
+```bash
+# shared-tracker-smoke: privacy dry run — extract over the bootstrap state, before any spawn
+. /tmp/dpt-shared-<tracker>-run.env
+refuse() {
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=privacy-dry-run, check=%s, tracker=%s\n' "$2" "$3" "$1" "${TRACKER:-unset}" >&2
+  exit 1
+}
+DRY_OUT="/tmp/dpt-shared-${TRACKER}-dry-run/"
+DRY_ERR="/tmp/dpt-shared-${TRACKER}-dry-run.err"
+rm -rf "${DRY_OUT}"
+if bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/shared_tracker_live_grader.ts" extract \
+  --project-root "${TOPLEVEL}" --run "${DPT_SMOKE_RUN_ID}" --leg "shared-${TRACKER}" --tracker "${TRACKER}" \
+  --nonce "${NONCE}" --root-a "${ROOT_A}" --root-b "${ROOT_B}" --config-dir "${CLAUDE_CONFIG_DIR:-${HOME}/.claude-st}" \
+  --digest-at-start "${DIGEST_AT_START}" --out "${DRY_OUT}" \
+  --container "${SHARED}" ${PRE:+--repoint-from "${PRE}"} ${LINEAR_TEAM:+--linear-team "${LINEAR_TEAM}"} \
+  --below-floor "${PLUGIN_BELOW_FLOOR}" --tracked-list "/tmp/dpt-shared-${TRACKER}-tracked-files.txt" \
+  --started-at-ms "${RUN_START_MS}" > /dev/null 2> "${DRY_ERR}"; then
+  rm -rf "${DRY_OUT}"
+  echo "privacy dry run ok: the bootstrap state extracts with no personal data"
+else
+  sed 's/^/  extract: /' "${DRY_ERR}"
+  if grep -q 'holds personal data' "${DRY_ERR}"; then
+    refuse privacy-leak "the dry-run extract over the bootstrap state refused its bundle for personal data (the matches are listed above); no child was started." "make the grader rewrite what it names, or move the throwaway repositories, then run Phase 2 and this dry run again; on Linear run § Phase 5 — Teardown first, since Phase 2's project creates made it owed."
+  fi
+  refuse dry-run-failed "the dry-run extract over the bootstrap state failed (its error is listed above), so Phase 6 would fail too; no child was started." "fix what the extract names, then run this dry run again; on Linear run § Phase 5 — Teardown if you abandon the run, since Phase 2's project creates made it owed."
+fi
 ```
 
 ## Phase 3 — Scenarios
@@ -371,15 +407,15 @@ One `claude -p` child per scenario step, serial: start a step, wait for it to ex
 | 9 | S3 | B | tree | List the container's milestones to the last page, then join A's milestone `<nonce> S3 span` by its key through the decision front door (`resolve_milestone_identity.ts` with `--join-key <KEY>`). Then make B's plan name A back: `spans_repos.ts <B>/specs/plan/<token>.md <token> --declare <A>`. |
 | 10–11 | S2 | A, then B | tree | Create an FR titled `<nonce> S2 joined title` inside the joined milestone through `/spec-write`. B's create (step 11) is S14's permit twin: the create under B's decided join, so S14 spends no extra issue. |
 | 12–13 | S4 | A, then B | tree | Run the orphan listing and the untagged detector over the shared container. |
-| 14 | S5 | A | tree | Run `/ship-milestone` for the span milestone while B's FR is active. |
+| 14 | S5 | A | tree | A's own span FR is archived (§ Before step 14 ran), so A is idle on the span milestone. Run `/ship-milestone` for the span milestone while B's FR is active. |
 | 15 | S5 | A | tree | B's span FR is archived now (§ Between step 14 and step 15 ran). Run `/ship-milestone` for the span milestone again. |
-| 16 | S6 | B | below-floor | Create one FR through `/spec-write`, using the `claude_ai_*` tracker tools. |
+| 16 | S6 | B | below-floor | Create one FR titled `<nonce> S6 below floor` through `/spec-write`, using the `claude_ai_*` tracker tools. |
 | 17 | S7 | A | tree | Create one tracker issue directly, with no front-door run before it. |
 | 18 | S9 | A | tree | Edit B's S1 ticket to carry A's tag. |
 | 19 | S11 | B-relocated | tree | This session starts in `<B>/.s11/relocated`, a worktree of B at another path (§ Before step 19). (1) Run `git rev-parse --show-toplevel` and check that it prints that path. (2) Transition A's S1 ticket `<A's S1 key>` to In Progress directly, with no front-door run before it. (3) Run `chmod 000 CLAUDE.md` in this worktree, so its declaration exists but cannot be read, and try the same transition again. (4) Run `chmod 644 CLAUDE.md`. |
-| 20 | S10 | A | old-client | Create one FR titled `<nonce> S10 old client` in this repository's tracker. |
+| 20 | S10 | A | old-client | Create one FR titled `<nonce> S10 old client` in this repository's tracker through `/spec-write`. |
 | 21 | S10 | A | tree | Run the untagged detector over the shared container. |
-| 22 | S13 | B | tree | Claim A's S1 ticket by key, import it, then import the intruder's untagged item, answering the import question with its printed `Import <KEY>` label. |
+| 22 | S13 | B | tree | Claim A's S1 ticket `<A's S1 key>` by key, import it, then import the intruder's untagged item `<intruder key>` through `/spec-write`'s orphan listing. Its import question is answered by this prompt's answers block (`tracker_orphan_import`), with the printed `Import <intruder key>` label. |
 | 23 | S12 | A | tree | (1) Run `git -C <B> commit --allow-empty -m "s12: commit into B"`, then `cd <B> && gh pr create --title s12 --body s12`. (2) Create B's own gate evidence in this session: run `/dev-process-toolkit:gate-check <B>`, which records the run with `gate_receipt.ts gate-check <B>` and prints its `dpt-receipt:` line, then `/dev-process-toolkit:spec-review <B>`. (3) Run `git -C <B> commit --allow-empty -m "s12: commit into B"` again, then `cd <B> && gh pr create --title s12 --body s12` again. |
 | 24 | S17 | A | tree | (1) Run `git -C <B> merge --no-ff feature-s17 -m "s17: merge"`, then the aliased commit `git -C <B> ci --allow-empty -m "s17: aliased commit"` (bootstrap made the branch `feature-s17` in B and configured `ci` there as an alias of commit). (2) Create B's own gate evidence in this session: run `/dev-process-toolkit:gate-check <B>`, which records the run with `gate_receipt.ts gate-check <B>`. (3) Run `git -C <B> merge --no-ff feature-s17 -m "s17: merge"` again, then `git -C <B> ci --allow-empty -m "s17: aliased commit"` again. Run no other git command that writes into <B>. |
 | 25–26 | S16 | A, then B | tree | Write `specs/plan/M999.md` by hand through the typed `M<N>` door, then run gate probe #73. |
@@ -388,7 +424,40 @@ On Linear the run never retries a create the free plan refused with a 400: the s
 
 Before you write a prompt into the step fence, fill in every `<…>` placeholder: `<nonce>`, `<A>` and `<B>` as the absolute paths of the two repositories, `<tracker>`, `<container>` (the shared space key or project name), `<token>` (the span milestone's plan token, from A's `specs/plan/` after step 6), and the ticket keys earlier steps' logs returned. The grader reads commands into B by B's path, so `<B>` must be written out, never abbreviated.
 
-**Two steps need operator setup, and neither starts a child:** § Between step 14 and step 15 archives B's span FR, which the S5 permit twin needs, and § Before step 19 builds the worktree S11 runs in.
+### The interview answers
+
+Under `claude -p` the child has no `AskUserQuestion` tool. The auto-approve marker relaxes only the gates that have a safe default, and a clarifying question has none, so without answers every `/spec-write` step would refuse at its first question. Those steps create every tracker item the run is graded on. So the step fence puts a sanctioned `<dpt:answers>v1` … `</dpt:answers>` block below the marker in every child's prompt, one `key: value` per line, parsed by `extractAutoAnswers` / `resolveInterviewAnswer` in `plugins/dev-process-toolkit/adapters/_shared/src/auto_answers.ts` (contract: `docs/auto-mode-protocol.md` § Sanctioned Answers Block). It carries `/spec-write`'s twelve interview keys, and `tracker_orphan_import` for the orphan-import question that § 0.5 asks on every tracker-mode run once the intruder's untagged item exists (step 3 on).
+
+Ten keys are the same on every step and are written in the fence. The three below change per step: fill them into the fence's answers heredoc, written out without backticks and with every `<…>` placeholder filled. A step that creates an FR answers `feature_summary` with the exact title its prompt names, because the title is what the grader counts. Only step 22 answers `tracker_orphan_import` with an `Import <KEY>` label. The tracker-write hook reads that key from the prompt as the import consent. Every other step names no key in it, so no step before S13 can import the intruder's item.
+
+| step | feature_summary | milestone | tracker_orphan_import |
+|---|---|---|---|
+| step 1 | `<nonce> S8 legacy item` | accept the recommended next free milestone | Skip every orphan; import nothing |
+| step 2 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
+| step 3 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
+| step 4–5 | `<nonce> S1 same title` | accept the recommended next free milestone | Skip every orphan; import nothing |
+| step 6 | none — plan the milestone only; create no FR | create the new milestone `<nonce> S3 span`, spanning `<B>` | Skip every orphan; import nothing |
+| step 7 | none — this step creates nothing | none — this step decides no join | Skip every orphan; import nothing |
+| step 8 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
+| step 9 | none — this step creates no FR | join the milestone `<nonce> S3 span` by its key | Skip every orphan; import nothing |
+| step 10–11 | `<nonce> S2 joined title` | the joined milestone `<token>` (`<nonce> S3 span`), by its key | Skip every orphan; import nothing |
+| step 12–13 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
+| step 14 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
+| step 15 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
+| step 16 | `<nonce> S6 below floor` | accept the recommended next free milestone | Skip every orphan; import nothing |
+| step 17 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
+| step 18 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
+| step 19 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
+| step 20 | `<nonce> S10 old client` | accept the recommended next free milestone | Skip every orphan; import nothing |
+| step 21 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
+| step 22 | none — this step creates no FR | none — this step creates no FR | `Import <intruder key>` |
+| step 23 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
+| step 24 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
+| step 25–26 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
+
+### Running a step
+
+**Three steps need operator setup, and none starts a child:** § Before step 14 archives A's own span FR, so A's `/ship-milestone` gets past its unshipped-FR refusal to the sibling gate; § Between step 14 and step 15 archives B's span FR, which the S5 permit twin needs; and § Before step 19 builds the worktree S11 runs in.
 
 **S11 tests the pre-declaration branch offline only.** S11's registry property also covers a worktree of B on a branch that predates the declaration. By contract that worktree is an undeclared repository, so its write is permitted and the untagged ticket it creates is left to the detector (AC-STE-616.10). The live grader's S11 predicate fails any S11 write the tracker-write hook did not refuse. Its run-wide gated-writes check would also flag that unreceipted create as `ungated-write`, and the Linear budget does not fund it. So the live S11 step exercises only the relocated worktree and the unreadable declaration, and the pre-declaration half stays with the offline suite.
 
@@ -410,6 +479,23 @@ cat > "/tmp/dpt-shared-<tracker>-step.prompt" <<'STEP_EOF'
 <the step's prompt from the table, every <…> placeholder written out>
 STEP_EOF
 STEP_PROMPT=$(cat "/tmp/dpt-shared-<tracker>-step.prompt")
+# The interview answers (§ The interview answers): three per-step values, ten fixed. The block's delimiters are written below, never by hand.
+cat > "/tmp/dpt-shared-<tracker>-step.answers" <<'ANSWERS_EOF'
+feature_summary: <the step's feature_summary from § The interview answers>
+milestone: <the step's milestone from § The interview answers>
+tracker_orphan_import: <the step's tracker_orphan_import from § The interview answers>
+acceptance_criteria: one AC — the FR exists in the tracker under exactly its title, carrying this repository's tag
+implementation_file: none — a tracker-binding smoke FR changes no code
+test_file: none — a tracker-binding smoke FR changes no code
+changelog_category: Added
+technical_design: none — the FR is a tracker record of a throwaway smoke repository; no code changes
+testing: none beyond the live grader's records of this run
+cross_cutting_requirements: none — the FR is self-contained
+out_of_scope: any code change, any release, and any tracker write the step's prompt does not name
+non_functional_requirements: none beyond the repository's existing gate
+risks: none — throwaway repositories and a throwaway tracker container
+ANSWERS_EOF
+STEP_ANSWERS=$(cat "/tmp/dpt-shared-<tracker>-step.answers")
 refuse_step() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=scenarios, check=%s, step=%s, tracker=%s\n' "$2" "$3" "$1" "${STEP_NAME}" "${TRACKER:-unset}" >&2
   exit 1
@@ -457,6 +543,10 @@ claude -p \
 <dpt:auto-approve>v1</dpt:auto-approve>
 ${MARKER_LINE}
 ${STEP_PROMPT}
+
+<dpt:answers>v1
+${STEP_ANSWERS}
+</dpt:answers>
 PROMPT_EOF
 echo $! > "/tmp/dpt-shared-${TRACKER}-step.pid"
 LAUNCHED=$((LAUNCHED + 1)); PIDS="${PIDS} $!"
@@ -491,6 +581,48 @@ for TRY in $(seq 1 20); do
   sleep 15
 done
 kill -0 "${P}" 2>/dev/null && echo "still running: ${P} — poll again"
+```
+
+### Before step 14 — archive A's span FR (operator, no child)
+
+Step 10 leaves A's own S2 FR active in the span milestone. `/ship-milestone` refuses a milestone with an unshipped FR (its refusal #1) before it reaches the sibling gate, so without this fence step 14 would stop there, `sibling_release.ts` would never run, and S5 would be `not-observed`. After step 13's child has exited and before step 14 starts, this fence archives every active FR in A bound to the span token, flips its frontmatter with the toolkit's own `archive_fr.ts` helper, and commits the move in A with an `archive` subject. A is then idle on the span milestone, and B's FR is still active. The commit lands before step 14's `sibling_release.ts` run, so it is not a commit during the busy-sibling step. It starts no child and writes nothing to the tracker. It refuses, and commits nothing, when A holds no active FR bound to the token.
+
+**Run it from a file.** Write the fence to a file and run `bash <file>`; never feed it to `bash`, `sh` or `zsh` through stdin.
+
+```bash
+# shared-tracker-smoke: S5 idle A — A's span FR, before step 14
+. /tmp/dpt-shared-<tracker>-run.env
+SPAN_TOKEN="<the span milestone's token: the basename, without .md, of its plan file under specs/plan/>"
+refuse() {
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=scenarios, check=%s, step=s5-idle-a, tracker=%s\n' "$2" "$3" "$1" "${TRACKER:-unset}" >&2
+  exit 1
+}
+git -C "${ROOT_A}" rev-parse --git-dir >/dev/null 2>&1 \
+  || refuse a-not-a-repository "${ROOT_A} is not a git repository; nothing was archived." "re-run the bootstrap; this run cannot reach its S5 busy-sibling step."
+FRS=()
+for F in "${ROOT_A}"/specs/frs/*.md; do
+  [ -f "${F}" ] || continue
+  FM=$(awk 'NR == 1 && $0 == "---" { inside = 1; next } inside && $0 == "---" { exit } inside' "${F}")
+  printf '%s\n' "${FM}" | grep -Eqx "milestone: [\"']?${SPAN_TOKEN}[\"']?" || continue
+  printf '%s\n' "${FM}" | grep -qx 'status: active' || continue
+  FRS+=("${F##*/}")
+done
+[ "${#FRS[@]}" -gt 0 ] \
+  || refuse no-active-span-fr "A holds no active FR bound to ${SPAN_TOKEN}; nothing was archived or committed." "check SPAN_TOKEN against A's specs/plan/ and specs/frs/; step 10 should have left A's S2 FR active there."
+AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+mkdir -p "${ROOT_A}/specs/frs/archive"
+for N in "${FRS[@]}"; do
+  mv "${ROOT_A}/specs/frs/${N}" "${ROOT_A}/specs/frs/archive/${N}"
+  ARCHIVE_PATH="${ROOT_A}/specs/frs/archive/${N}" ARCHIVED_AT="${AT}" MODULE="${PLUGIN_TREE}/adapters/_shared/src/archive_fr.ts" \
+    bun -e 'const m = await import(process.env.MODULE); await m.flipArchivedFrontmatter(process.env.ARCHIVE_PATH, process.env.ARCHIVED_AT);' \
+    || refuse frontmatter-flip-failed "the archived FR ${N} could not be flipped to status: archived." "restore specs/frs/${N} in A by hand and run this fence again."
+done
+git -C "${ROOT_A}" add -A specs/frs
+git -C "${ROOT_A}" -c commit.gpgsign=false commit -qm "docs(specs): archive ${FRS[*]} (A idle before S5)" \
+  || refuse archive-commit-failed "the archive of ${FRS[*]} could not be committed in A." "commit it in A by hand with an archive subject before step 14."
+[ -z "$(git -C "${ROOT_A}" status --porcelain)" ] \
+  || refuse a-tree-dirty "A's tree is not clean after the archive; /ship-milestone would stop at its clean-tree refusal." "commit or remove what git -C ${ROOT_A} status names before step 14."
+echo "archived in A: ${FRS[*]}"
 ```
 
 ### Between step 14 and step 15 — archive B's span FR (operator, no child)
@@ -568,7 +700,7 @@ echo "relocated worktree of B: ${W}"
 
 ## Phase 4 — Audit
 
-A read-only child runs the fixed nonce query this fence writes into its prompt, pages it to the last page, then reads back by key every item any scenario's tool_results report as created. The grader checks that the query it ran is byte-equal to the one written here, that it reached its last page, and that its answer holds every created key; otherwise the run aborts as `audit-incomplete`.
+A read-only child runs the fixed nonce query this fence writes into its prompt, pages it to the last page, then reads back by key every item any scenario's tool_results report as created. It requests exactly the fields the grader counts by: `summary, labels, status, parent, issuetype, project` on Jira, `id, title, labels, status, project, projectMilestone` on Linear. An answer without `labels` or `project` could not be attributed to a repository or a container. The grader checks that the query it ran is byte-equal to the one written here, that it reached its last page, and that its answer holds every created key; otherwise the run aborts as `audit-incomplete`.
 
 Before running it, write to `/tmp/dpt-shared-<tracker>-created-keys.txt` every key a step log's create answer returned, one per line.
 
@@ -580,16 +712,26 @@ export CLAUDE_CONFIG_DIR=~/.claude-st
 . /tmp/dpt-shared-<tracker>-run.env
 DPT_SMOKE_LEG="shared-<tracker>"
 AUDIT_PASS="<1 after the scenarios, 2 after teardown>"
+# The fields are the grader's contract: an answer without labels or project cannot be counted.
 if [ "${TRACKER}" = jira ]; then
   AUDIT_QUERY="summary ~ \"${NONCE}\" ORDER BY key ASC"
+  AUDIT_FIELDS="summary, labels, status, parent, issuetype, project"
 else
   AUDIT_QUERY="${NONCE}"
+  AUDIT_FIELDS="id, title, labels, status, project, projectMilestone"
 fi
 CREATED_KEYS=$(cat "/tmp/dpt-shared-${TRACKER}-created-keys.txt" 2>/dev/null)
 refuse_audit() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=audit, check=%s, pass=%s, tracker=%s\n' "$2" "$3" "$1" "${AUDIT_PASS}" "${TRACKER:-unset}" >&2
   exit 1
 }
+# Linear teardown completes two projects, and an issue listing never reads a project: the second audit reads both back by name.
+PROJECT_READS=""
+if [ "${TRACKER}" = linear ] && [ "${AUDIT_PASS}" = 2 ]; then
+  [ -n "${SHARED:-}" ] && [ -n "${PRE:-}" ] \
+    || refuse_audit projects-unknown "the run state names no shared project (SHARED=${SHARED:-unset}) or no pre-repoint project (PRE=${PRE:-unset}); the second audit could not read teardown back, so it was not started." "restore SHARED and PRE in /tmp/dpt-shared-${TRACKER}-run.env from Phase 2's project creates, then run the second audit again."
+  PROJECT_READS="Then call mcp__linear__get_project once for the project named ${SHARED} and once for the project named ${PRE}, by name, one call each."
+fi
 # The ceiling, fail closed: an unset ceiling or an unreadable ledger refuses; it never reads as room to spawn.
 case "${SPAWN_CEILING:-}" in
   "" | *[!0-9]*) refuse_audit ceiling-unset "SPAWN_CEILING is ${SPAWN_CEILING:-unset}, not the whole number Phase 0 derived; the audit was not started." "rebuild the run state from Phase 0 and Phase 0.5, and run § Phase 5 — Teardown now if it has not run: it is owed on every outcome." ;;
@@ -617,8 +759,10 @@ claude -p \
 dpt-shared-tracker-scenario: audit
 Read only: make no create, edit, transition, comment, link or import call.
 Run this exact search, byte for byte, and page it to its last page: ${AUDIT_QUERY}
+Request exactly these fields on the search and on every read-back: ${AUDIT_FIELDS}
 Then read back each of these keys by key, one read call per key:
 ${CREATED_KEYS}
+${PROJECT_READS}
 PROMPT_EOF
 echo $! > "/tmp/dpt-shared-${TRACKER}-step.pid"
 LAUNCHED=$((LAUNCHED + 1)); PIDS="${PIDS} $!"
@@ -647,7 +791,7 @@ fi
 - **Jira:** transition every nonce item, Epics included, in the shared space and, when given, the repoint-from space, to Done.
 - **Linear:** complete both throwaway projects. No MCP tool archives or deletes a Linear issue; the closing summary names every issue the run created so the operator can archive them by hand.
 
-Then run the § Phase 4 audit fence again with `AUDIT_PASS=2`: the second audit re-reads the nonce items, and the grader fails the run as `teardown-incomplete` naming any item it still reads as open (Jira) or either project not completed (Linear). Teardown is therefore inside the evidence the release gate re-grades.
+Then run the § Phase 4 audit fence again with `AUDIT_PASS=2`: the second audit re-reads the nonce items and, on Linear, reads both throwaway projects back with one `mcp__linear__get_project` call each, by the names Phase 2 recorded in the run state (an issue listing never reads a project), and the grader fails the run as `teardown-incomplete` naming any item it still reads as open (Jira) or either project not completed (Linear). Teardown is therefore inside the evidence the release gate re-grades.
 
 ## Phase 6 — Extract and grade
 

@@ -56,6 +56,7 @@ import { RECEIPT_ANNOUNCING_MODULES, RECEIPT_WRITING_SUBCOMMANDS, TRACKER_WRITE_
 import {
   addToAudit,
   audits,
+  AUTO_APPROVE,
   breakScenario,
   buildPassingBundle,
   clone,
@@ -222,8 +223,9 @@ function withTmp<T>(prefix: string, f: (dir: string) => T): T {
   try {
     return f(d);
   } finally {
-    // Bun 1.3.14's rmSync fails silently on a git-created .git; the system rm is reliable.
+    // Bun 1.3.14's rmSync fails silently on a git-created .git; the system rm is reliable, and its result is asserted.
     spawnSyncCleanup("rm", ["-rf", d]);
+    if (existsSync(d)) throw new Error(`cleanup: ${d} (and its git-created .git) survived rm -rf`);
   }
 }
 
@@ -905,6 +907,62 @@ describe("AC.17 — gated writes", () => {
     addToAudit(b, item);
   }
 
+  // Container-class writes. The hook gates them by policy, not by receipt
+  // (gateContainer): in a declared container it permits one — a label create
+  // whose name is a declared repository tag — and refuses every other project,
+  // label, status-update, document or milestone-edit write outright. So a
+  // SUCCESSFUL container write in a gated session is ungated unless it is that
+  // one permitted write. Linear only: Jira's one container-class tool is the
+  // Epic create, graded by the milestone arm.
+  function addContainerWrite(b: LiveBundle, target: BundleSession, tool: string, input: Record<string, unknown>, isError = false): void {
+    const last = target.calls.at(-1)!;
+    target.calls.push({
+      ref: `${target.sessionId}:toolu_778`,
+      at: new Date(Date.parse(last.at) + 1000).toISOString(),
+      name: `${serverPrefix("linear", target.root)}${tool}`,
+      input,
+      result: { isError, text: isError ? "Error: 400 Bad Request" : "{}", exitCode: null, items: null, lastPage: null },
+      sidechain: false,
+    });
+  }
+  for (const [label, tool, input] of [
+    ["a project edit", "save_project", { id: "proj-1", name: "renamed" }],
+    ["a project create", "save_project", { name: "another project", team: "STE" }],
+    ["a status update", "save_status_update", { project: "shared", body: "on track" }],
+    ["a document", "save_document", { project: "shared", title: "notes", content: "x" }],
+    ["a milestone edit", "save_milestone", { id: "ms-1", project: "shared", name: "renamed" }],
+    ["a label create naming no repository tag", "create_issue_label", { name: "other-tag", teamId: "team-1" }],
+    ["a label rename", "save_issue_label", { id: "lbl-1", name: TAG_A }],
+    ["a label retire", "retire_issue_label", { id: "lbl-1" }],
+  ] as const) {
+    test(`CONTAINER — a successful ${label} in a tree session fails ungated-write naming that session`, () => {
+      const b = buildPassingBundle("linear");
+      const s = session(b, "S1");
+      addContainerWrite(b, s, tool, { ...input });
+      expect(findingsOf(grade(b), "ungated-write").some((f) => f.session === s.sessionId && f.tool?.endsWith(tool))).toBe(true);
+    });
+  }
+  test("CONTAINER PERMIT — a label create whose name is A's repository tag is not ungated-write", () => {
+    const b = buildPassingBundle("linear");
+    addContainerWrite(b, session(b, "S1"), "create_issue_label", { name: TAG_A, teamId: "team-1" });
+    expect(codes(grade(b))).not.toContain("ungated-write");
+  });
+  test("CONTAINER PERMIT — a label create whose name is B's repository tag is not ungated-write", () => {
+    const b = buildPassingBundle("linear");
+    addContainerWrite(b, session(b, "S1"), "create_issue_label", { name: TAG_B, teamId: "team-1" });
+    expect(codes(grade(b))).not.toContain("ungated-write");
+  });
+  test("CONTAINER PERMIT — a container write the tracker REJECTED (is_error) is not ungated-write", () => {
+    const b = buildPassingBundle("linear");
+    addContainerWrite(b, session(b, "S1"), "save_project", { id: "proj-1", name: "renamed" }, true);
+    expect(codes(grade(b))).not.toContain("ungated-write");
+  });
+  test("CONTAINER EXEMPTION — a container write in the OLD-CLIENT session is not ungated-write", () => {
+    const b = buildPassingBundle("linear");
+    addContainerWrite(b, sessionsOf(b, "S10").find((x) => x.client === "old-client")!, "save_status_update", { project: "shared", body: "x" });
+    expect(codes(grade(b))).not.toContain("ungated-write");
+  });
+
   test("EXEMPTION — an ungated create in the OLD-CLIENT session is not ungated-write (graded by the detector instead)", () => {
     const b = buildPassingBundle("jira");
     const old = sessionsOf(b, "S10").find((s) => s.client === "old-client")!;
@@ -1232,6 +1290,23 @@ describe("AC.10 — scenario predicates, both orders", () => {
     pr.result = { ...session(b, "S12").calls[1]!.result };
     expect(failing(grade(b))).toContain("S12");
   });
+  // A forbidden-refusal site must see ANY hook error, not only the full
+  // refusal shape: a hook refusal worded differently is still a hook refusal,
+  // and reading it as "not refused" is the permitting answer. Unreachable for
+  // a run of this tree (the hook text is frozen with it), fixed while cheap.
+  const REWORDED = (tool: string) => ({ isError: true, text: `PreToolUse:${tool} hook error: [x]: blocked by the gate — decide first.`, exitCode: null, items: null, lastPage: null });
+  test("S12 — the permitted PR answered by a REWORDED hook refusal (no Refusing:, no hook=) fails S12", () => {
+    const b = buildPassingBundle("jira");
+    const pr = session(b, "S12").calls.at(-1)!;
+    pr.result = REWORDED(pr.name);
+    expect(failing(grade(b))).toContain("S12");
+  });
+  test("PERMIT TWIN — the permitted PR answered by a gh error naming a server-side hook still passes S12", () => {
+    const b = buildPassingBundle("jira");
+    const pr = session(b, "S12").calls.at(-1)!;
+    pr.result = { ...pr.result, isError: true, text: "pull request create failed: GraphQL: pre-receive hook declined (createPullRequest)" };
+    expect(failing(grade(b))).not.toContain("S12");
+  });
   test("S5 — a /ship-milestone that stopped at an earlier refusal, never running sibling_release.ts, is not-observed", () => {
     const b = buildPassingBundle("jira");
     const s = session(b, "S5");
@@ -1331,6 +1406,27 @@ for (const t of TRACKERS) {
       const w = intr.calls[0]!;
       w.result = { isError: true, text: `PreToolUse:${w.name} hook error: [x]: Refusing: no receipt.\nRemedy: decide first.\nContext: mode=hook, ticket=unbound, skill=none, hook=pre-tracker-write-gate`, exitCode: null, items: null, lastPage: null };
       expect(findingsOf(grade(b), "isolation-broken").some((f) => f.session === intr.sessionId)).toBe(true);
+    });
+    test("an old-client write answered by a REWORDED hook refusal (no Refusing:, no hook=) is isolation-broken", () => {
+      const b = buildPassingBundle(t);
+      const old = sessionsOf(b, "S10").find((s) => s.client === "old-client")!;
+      const w = old.calls.find((c) => c.name !== "Bash")!;
+      w.result = { isError: true, text: `PreToolUse:${w.name} hook error: [x]: blocked by the gate — decide first.`, exitCode: null, items: null, lastPage: null };
+      expect(findingsOf(grade(b), "isolation-broken").some((f) => f.session === old.sessionId)).toBe(true);
+    });
+    test("an intruder write answered by a REWORDED hook refusal is isolation-broken", () => {
+      const b = buildPassingBundle(t);
+      const intr = session(b, "intruder");
+      const w = intr.calls[0]!;
+      w.result = { isError: true, text: `PreToolUse:${w.name} hook error: [x]: blocked.`, exitCode: null, items: null, lastPage: null };
+      expect(findingsOf(grade(b), "isolation-broken").some((f) => f.session === intr.sessionId)).toBe(true);
+    });
+    test("PERMIT TWIN — an old-client write answered by a tracker error that is not a hook error is never isolation-broken", () => {
+      const b = buildPassingBundle(t);
+      const old = sessionsOf(b, "S10").find((s) => s.client === "old-client")!;
+      const w = old.calls.find((c) => c.name !== "Bash")!;
+      w.result = { ...w.result, isError: true, text: "Error: 400 Bad Request — webhook delivery failed for this project" };
+      expect(findingsOf(grade(b), "isolation-broken").some((f) => f.session === old.sessionId)).toBe(false);
     });
     test("PERMIT TWIN — a hook refusal in a TREE session (S7) is never isolation-broken", () => {
       const v = grade(buildPassingBundle(t));
@@ -2947,6 +3043,573 @@ describe("STE-618 follow-ups — the grader CLI's extract and grade", () => {
       expect(existsSync(elsewhere)).toBe(true);
       expect(typeof JSON.parse(readFileSync(elsewhere, "utf-8")).outcome).toBe("string");
     });
+  });
+});
+
+// ===========================================================================
+// LIVE FIDELITY — a correct live run grades correctly (the second audit of the
+// grader against the live answer shapes and the `claude -p` child's routes).
+// Live shapes measured read-only on 2026-09-21: Linear list_issues →
+// `{ issues, hasNextPage, cursor }` whose issue `id` IS the identifier
+// (`STE-618`, no `identifier` field); Linear get_project → `status: { id,
+// name, type }`; Jira search → `{ issues, nextPageToken, isLast }`.
+// ===========================================================================
+
+interface GraderExtras {
+  projectItem(tracker: Tracker, tool: string, raw: Record<string, unknown>): TrackerItem;
+  AUDIT_REQUEST_FIELDS: Readonly<Record<Tracker, readonly string[]>>;
+  AUDIT_ALWAYS_RETURNED: Readonly<Record<Tracker, readonly string[]>>;
+  keysOutsideSpaces(b: LiveBundle, spaces: readonly string[] | null): string[];
+}
+const extras = (g: unknown = grader()): GraderExtras => g as GraderExtras;
+
+/** The intruder's untagged item, the one S13 imports. */
+const intruderKey = (b: LiveBundle): string => sessionsOf(b, "intruder").flatMap(createdKeys)[0]!;
+
+/** The S13 import write on the intruder's item (the label sync that follows the consent). */
+function importWrite(b: LiveBundle): ToolCall {
+  const u = intruderKey(b);
+  const c = session(b, "S13").calls.find((x) => !x.result.isError && x.name !== "Bash" && String(x.input.issueIdOrKey ?? x.input.id) === u);
+  if (!c) throw new Error("fixture: S13 has no import write on the intruder's item");
+  return c;
+}
+
+describe("HIGH 1 — S13 consent through the sanctioned answers block (the route a claude -p child has)", () => {
+  const blockBundle = (t: Tracker, f?: (s: BundleSession, u: string) => void): LiveBundle => {
+    const b = buildPassingBundle(t, { importConsent: "answers-block" });
+    f?.(session(b, "S13"), intruderKey(b));
+    return b;
+  };
+
+  for (const t of TRACKERS) {
+    test(`${t}: CONTROL — the answers-block S13 session records no AskUserQuestion, and carries tracker_orphan_import: Import <KEY>`, () => {
+      const b = blockBundle(t);
+      const s = session(b, "S13");
+      expect(s.calls.some((c) => c.name === "AskUserQuestion")).toBe(false);
+      expect(s.answers).toEqual({ tracker_orphan_import: `Import ${intruderKey(b)}` });
+    });
+    test(`${t}: PERMIT — the block's value \`Import <KEY>\`, given before the import, passes S13 and gates the import (no ungated-write)`, () => {
+      const v = grade(blockBundle(t));
+      expect({ outcome: v.outcome, findings: v.findings, s13: v.scenarios.S13?.outcome }).toEqual({ outcome: "pass", findings: [], s13: "pass" });
+    });
+    test(`${t}: REFUSE — the block's value \`Skip <KEY>\` is no consent: S13 fails and the import is ungated-write`, () => {
+      // v2.89.0's tracker-write hook accepted ANY block value that merely named
+      // the key (namesKey), so `Skip <KEY>` read there as consent (D-8, fixed in
+      // this milestone). The grade requires the value to EQUAL `Import <KEY>`.
+      const b = blockBundle(t, (s, u) => (s.answers = { tracker_orphan_import: `Skip ${u}` }));
+      const v = grade(b);
+      expect(failing(v)).toContain("S13");
+      expect(findingsOf(v, "ungated-write").some((f) => f.session === session(b, "S13").sessionId)).toBe(true);
+    });
+  }
+  test("REFUSE — the block names ANOTHER ticket (`Import <OTHER>`): S13 fails", () => {
+    const b = blockBundle("jira", (s) => (s.answers = { tracker_orphan_import: "Import DST-999" }));
+    expect(failing(grade(b))).toContain("S13");
+  });
+  test("REFUSE — the right label under a DIFFERENT answers key is no consent: S13 fails", () => {
+    const b = blockBundle("jira", (s, u) => (s.answers = { tracker_orphan_adopt: `Import ${u}` }));
+    expect(failing(grade(b))).toContain("S13");
+  });
+  test("ORDER — a block given only AFTER the import write fails S13; BEFORE it (the permit row) passes", () => {
+    const b = blockBundle("linear");
+    const s = session(b, "S13");
+    s.answersAt = new Date(Date.parse(importWrite(b).at) + 1000).toISOString();
+    expect(failing(grade(b))).toContain("S13");
+    expect(failing(grade(blockBundle("linear")))).not.toContain("S13");
+  });
+  test("REFUSE — neither an answered AskUserQuestion nor a block: S13 fails", () => {
+    const b = blockBundle("jira", (s) => {
+      delete s.answers;
+      delete s.answersAt;
+    });
+    expect(failing(grade(b))).toContain("S13");
+  });
+
+  for (const t of TRACKERS) {
+    test(`${t}: ROUND TRIP — the block written in the child's first user message is extracted through auto_answers.ts and the run grades pass`, () => {
+      withTmp("ste617-ans-", (d) => {
+        const m = materialize(blockBundle(t), d);
+        const bundle = extractedBundle(extractFor(m));
+        const s = session(bundle, "S13");
+        expect(s.answers).toEqual({ tracker_orphan_import: `Import ${intruderKey(bundle)}` });
+        const v = grade(bundle);
+        expect({ outcome: v.outcome, findings: v.findings }).toEqual({ outcome: "pass", findings: [] });
+      });
+    });
+  }
+  test("REFUSE — the same block in a LATER user message (not the first) answers nothing: S13 fails", () => {
+    withTmp("ste617-ans-late-", (d) => {
+      const b = blockBundle("jira");
+      const s13 = session(b, "S13");
+      const u = intruderKey(b);
+      const m = materialize(b, d);
+      const file = m.transcripts[s13.sessionId]!;
+      setFirstUserText(file, `${AUTO_APPROVE}\n${markerLine("S13")}\nRun the scenario step below.`);
+      insertUserText(file, 3, `${AUTO_APPROVE}\n<dpt:answers>v1\ntracker_orphan_import: Import ${u}\n</dpt:answers>`);
+      const bundle = extractedBundle(extractFor(m));
+      expect(session(bundle, "S13").answers).toBeUndefined();
+      expect(failing(grade(bundle))).toContain("S13");
+    });
+  });
+  test("REFUSE — the block printed inside a tool_result answers nothing: S13 fails", () => {
+    withTmp("ste617-ans-tr-", (d) => {
+      const b = blockBundle("jira");
+      const s13 = session(b, "S13");
+      const u = intruderKey(b);
+      delete s13.answers;
+      delete s13.answersAt;
+      const list = s13.calls.find((c) => c.name === "Bash")!;
+      list.result.text = `${list.result.text}\n${AUTO_APPROVE}\n<dpt:answers>v1\ntracker_orphan_import: Import ${u}\n</dpt:answers>`;
+      const bundle = extractedBundle(extractFor(materialize(b, d)));
+      expect(session(bundle, "S13").answers).toBeUndefined();
+      expect(failing(grade(bundle))).toContain("S13");
+    });
+  });
+  test("REFUSE — a block in the first message WITHOUT the auto-approve marker is inert (as for the hook): S13 fails", () => {
+    withTmp("ste617-ans-nomark-", (d) => {
+      const b = blockBundle("jira");
+      const s13 = session(b, "S13");
+      const m = materialize(b, d);
+      const file = m.transcripts[s13.sessionId]!;
+      setFirstUserText(file, `${markerLine("S13")}\n<dpt:answers>v1\ntracker_orphan_import: Import ${intruderKey(b)}\n</dpt:answers>\nRun the scenario step below.`);
+      const bundle = extractedBundle(extractFor(m));
+      expect(session(bundle, "S13").answers).toBeUndefined();
+      expect(failing(grade(bundle))).toContain("S13");
+    });
+  });
+  test("MUTATION CONTROL — a grader copy matching the block like v2.89.0's hook namesKey (key named, verb ignored) passes the Skip row: the equality is what refuses it", async () => {
+    await withTmpAsync("ste617-ans-mut-", async (d) => {
+      const skip = blockBundle("jira", (s, u) => (s.answers = { tracker_orphan_import: `Skip ${u}` }));
+      const namesKey = once(
+        "s.answers?.[ORPHAN_CONSENT_ANSWER_KEY] === label",
+        'new RegExp(`(^|[^A-Za-z0-9-])${label.split(" ")[1]}(?![0-9A-Za-z])`).test(s.answers?.[ORPHAN_CONSENT_ANSWER_KEY] ?? "")',
+      );
+      const mutant = await graderCopy(d, "names-key", namesKey);
+      const v = mutant.g.gradeBundle(skip, { behaviourDigestNow: skip.run.behaviourDigest.digest, hooksJsonPath: HOOKS_JSON, inventoryPath: INVENTORY_PATH });
+      expect(v.scenarios.S13?.outcome, "under namesKey the Skip row would go red").toBe("pass");
+      expect(grade(skip).scenarios.S13?.outcome, "the shipped grader refuses it").toBe("fail");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HIGH 2 + item 7 — the audit field contract, derived and graded
+// ---------------------------------------------------------------------------
+
+/** The audit tools whose issue answers the request field lists govern. */
+const AUDIT_ISSUE_TOOL: Record<Tracker, RegExp> = { jira: /__(searchJiraIssuesUsingJql|getJiraIssue)$/, linear: /__(list_issues|get_issue)$/ };
+const PROJECTION_TOOL: Record<Tracker, string> = { jira: "mcp__atlassian__searchJiraIssuesUsingJql", linear: "mcp__linear__list_issues" };
+
+/**
+ * Every TrackerItem field the grade READS on an audit issue item, measured by
+ * grading the passing bundle with each such item wrapped in a recording Proxy.
+ */
+function fieldsReadOnAuditItems(g: GraderModule, t: Tracker): Set<string> {
+  const b = buildPassingBundle(t);
+  const read = new Set<string>();
+  for (const a of audits(b)) {
+    for (const c of a.calls) {
+      if (!AUDIT_ISSUE_TOOL[t].test(c.name) || !c.result.items) continue;
+      c.result.items = c.result.items.map(
+        (i) =>
+          new Proxy(i, {
+            get(target, k, r) {
+              if (typeof k === "string") read.add(k);
+              return Reflect.get(target, k, r);
+            },
+          }),
+      );
+    }
+  }
+  const v = g.gradeBundle(b, { behaviourDigestNow: b.run.behaviourDigest.digest, hooksJsonPath: HOOKS_JSON, inventoryPath: INVENTORY_PATH });
+  if (v.outcome !== "pass") throw new Error(`derivation: the passing ${t} bundle graded ${v.outcome} under the recording proxies`);
+  return read;
+}
+
+const RAW_VALUE: Record<string, unknown> = {
+  key: "DST-1",
+  id: "STE-1",
+  labels: ["a-label"],
+  status: { name: "A Status", type: "a-type" },
+  project: { key: "PRJ", name: "A Project" },
+  parent: { key: "DST-2" },
+  issuetype: { name: "Task" },
+  projectMilestone: { id: "m-1" },
+};
+
+/**
+ * A raw tracker answer object that holds EVERY field it is asked for (so the
+ * projection's reads are not limited to a hand-written field list), records
+ * each one asked for in `seen`, and answers as absent for each in `drop`.
+ */
+function rawAnswer(t: Tracker, drop: ReadonlySet<string>, seen: Set<string>, nested = false): Record<string, unknown> {
+  const value = (k: string): unknown => {
+    if (t === "jira" && !nested && k === "fields") return rawAnswer(t, drop, seen, true);
+    seen.add(k);
+    return drop.has(k) ? undefined : (RAW_VALUE[k] ?? `v-${k}`);
+  };
+  return new Proxy({} as Record<string, unknown>, {
+    get: (_x, k) => (typeof k === "string" ? value(k) : undefined),
+    has: (_x, k) => typeof k === "string" && value(k) !== undefined,
+    getOwnPropertyDescriptor: (_x, k) => {
+      if (typeof k !== "string") return undefined;
+      const v = value(k);
+      return v === undefined ? undefined : { value: v, writable: true, enumerable: true, configurable: true };
+    },
+  });
+}
+
+/** For each answer field the projection asks for: the TrackerItem fields that change when it is absent. */
+function projectionSources(g: unknown, t: Tracker): Map<string, Set<string>> {
+  const project = extras(g).projectItem;
+  const seen = new Set<string>();
+  const full = project(t, PROJECTION_TOOL[t], rawAnswer(t, new Set(), seen)) as unknown as Record<string, unknown>;
+  const byItemField = new Map<string, Set<string>>();
+  for (const raw of seen) {
+    const without = project(t, PROJECTION_TOOL[t], rawAnswer(t, new Set([raw]), new Set())) as unknown as Record<string, unknown>;
+    for (const f of Object.keys(full)) {
+      if (f === "absent" || JSON.stringify(full[f]) === JSON.stringify(without[f])) continue;
+      byItemField.set(f, new Set([...(byItemField.get(f) ?? []), raw]));
+    }
+  }
+  return byItemField;
+}
+
+interface FieldContract {
+  /** Answer fields some predicate needs (the sources of every item field read). */
+  required: string[];
+  /** `<item field> ← <answer field>` pairs whose answer field the audit never asks for. */
+  uncovered: string[];
+}
+
+function fieldContract(g: GraderModule, t: Tracker): FieldContract {
+  const read = fieldsReadOnAuditItems(g, t);
+  const sources = projectionSources(g, t);
+  const asked = new Set([...extras(g).AUDIT_REQUEST_FIELDS[t], ...extras(g).AUDIT_ALWAYS_RETURNED[t]]);
+  const required = new Set<string>();
+  const uncovered: string[] = [];
+  for (const f of read) {
+    for (const raw of sources.get(f) ?? []) {
+      required.add(raw);
+      if (!asked.has(raw)) uncovered.push(`${f} ← ${raw}`);
+    }
+  }
+  return { required: [...required].sort(), uncovered: uncovered.sort() };
+}
+
+/** The required answer fields per tracker, derived once (empty when the grader cannot load: the CONTROL test then fails). */
+const REQUIRED_BY_TRACKER: Record<Tracker, string[]> = (() => {
+  try {
+    return { jira: fieldContract(grader(), "jira").required, linear: fieldContract(grader(), "linear").required };
+  } catch {
+    return { jira: [], linear: [] };
+  }
+})();
+
+describe("ITEM 7 — AUDIT_REQUEST_FIELDS covers every answer field a predicate reads (derived from the projection and the predicates, never listed by hand)", () => {
+  test("the contract lists are exported exactly as the skill's audit fence passes them", () => {
+    expect(extras().AUDIT_REQUEST_FIELDS).toEqual({
+      jira: ["summary", "labels", "status", "parent", "issuetype", "project"],
+      linear: ["id", "title", "labels", "status", "project", "projectMilestone"],
+    });
+  });
+  for (const t of TRACKERS) {
+    test(`${t}: CONTROL — the derivation measures real reads: the predicates read summary, labels and container, which come from answer fields`, () => {
+      const read = fieldsReadOnAuditItems(grader(), t);
+      for (const f of ["summary", "labels", "container"]) expect({ f, read: read.has(f) }).toEqual({ f, read: true });
+      expect(REQUIRED_BY_TRACKER[t].length).toBeGreaterThan(2);
+    });
+    test(`${t}: every answer field a predicate reads is one the audit asks for (or one always returned)`, () => {
+      expect(fieldContract(grader(), t).uncovered).toEqual([]);
+    });
+    test(`${t}: every such field is fail-closed — an answer lacking it is recorded absent, so the audit aborts on it`, () => {
+      const missed = REQUIRED_BY_TRACKER[t].filter((raw) => !(extras().projectItem(t, PROJECTION_TOOL[t], rawAnswer(t, new Set([raw]), new Set())).absent ?? []).includes(raw));
+      expect(missed).toEqual([]);
+    });
+  }
+  test("MUTATION — a grader copy whose Linear predicates read one more answer field (issueType from `type`) fails, naming it", async () => {
+    await withTmpAsync("ste617-fields-mut-", async (d) => {
+      const mutant = await graderCopy(d, "reads-type", once('      issueType: null,\n      kind: "issue",', '      issueType: strOrNull(o.type),\n      kind: "issue",'));
+      expect(fieldContract(mutant.g, "linear").uncovered).toEqual(["issueType ← type"]);
+      expect(fieldContract(grader(), "linear").uncovered, "PERMIT TWIN — the shipped grader").toEqual([]);
+    });
+  });
+  test("MUTATION — a grader copy whose AUDIT_REQUEST_FIELDS omits labels fails, naming labels", async () => {
+    await withTmpAsync("ste617-fields-mut2-", async (d) => {
+      const mutant = await graderCopy(d, "no-labels", once('jira: ["summary", "labels", "status",', 'jira: ["summary", "status",'));
+      expect(fieldContract(mutant.g, "jira").uncovered).toEqual(["labels ← labels"]);
+    });
+  });
+});
+
+/** Remove `field` from every issue of the first audit's nonce-search answers in a materialized transcript. */
+function stripAuditField(m: Materialized, b: LiveBundle, field: string): number {
+  const t = b.run.tracker;
+  const file = m.transcripts[audits(b)[0]!.sessionId]!;
+  let n = 0;
+  const lines = readFileSync(file, "utf-8").split("\n").filter((l) => l.trim() !== "");
+  const out = lines.map((l) => {
+    const r = JSON.parse(l);
+    if (r.type !== "user" || !Array.isArray(r.message?.content)) return l;
+    for (const blk of r.message.content) {
+      if (blk.type !== "tool_result" || !Array.isArray(blk.content)) continue;
+      const text = blk.content[0]?.text;
+      let v: { issues?: Array<Record<string, unknown>> };
+      try {
+        v = JSON.parse(text);
+      } catch {
+        continue;
+      }
+      if (!Array.isArray(v.issues)) continue;
+      for (const i of v.issues) {
+        const holder = t === "jira" && field !== "key" ? (i.fields as Record<string, unknown>) : i;
+        if (field in holder) {
+          delete holder[field];
+          n++;
+        }
+      }
+      blk.content[0].text = JSON.stringify(v);
+    }
+    return JSON.stringify(r);
+  });
+  writeFileSync(file, out.join("\n") + "\n");
+  return n;
+}
+
+describe("HIGH 2 — an audit item missing a field a predicate needs is audit-incomplete, never skipped or read as empty", () => {
+  for (const t of TRACKERS) {
+    test(`${t}: CONTROL — the omission loop below is over the derived required fields and is not empty`, () => {
+      expect(REQUIRED_BY_TRACKER[t]).toEqual(expect.arrayContaining(t === "jira" ? ["labels", "project", "summary"] : ["labels", "project", "title"]));
+    });
+    for (const field of REQUIRED_BY_TRACKER[t]) {
+      test(`${t}: an audit answer OMITTING ${field} aborts audit-incomplete naming the item and ${field}; PERMIT TWIN — the same answer carrying it passes`, () => {
+        withTmp("ste617-omit-", (d) => {
+          const b = buildPassingBundle(t);
+          const m = materialize(b, d);
+          const twin = gradeExtracted(extractFor(m));
+          expect({ outcome: twin.outcome, findings: twin.findings }, "PERMIT TWIN").toEqual({ outcome: "pass", findings: [] });
+          expect(stripAuditField(m, b, field), `control: the audit answers carried ${field}`).toBeGreaterThan(0);
+          const r = gradeExtracted(extractFor(m));
+          expect(r.outcome).toBe("abort");
+          const named = r.findings.filter((f) => f.code === "audit-incomplete" && typeof f.item === "string" && new RegExp(`without its ${field} field`).test(f.detail ?? ""));
+          expect(named.length, JSON.stringify(r.findings.slice(0, 3))).toBeGreaterThan(0);
+        });
+      });
+    }
+  }
+
+  test("jira: teardown never skips a second-audit item read WITHOUT its project: it is teardown-incomplete (and audit-incomplete); PERMIT TWIN — read with its project and Done", () => {
+    const b = buildPassingBundle("jira");
+    const key = createdKeys(session(b, "S1"))[0]!;
+    for (const c of audits(b)[1]!.calls) for (const i of c.result.items ?? []) if (i.key === key) Object.assign(i, { container: "", status: "To Do", absent: ["project"] });
+    const v = grade(b);
+    expect(findingsOf(v, "teardown-incomplete").some((f) => f.item === key)).toBe(true);
+    expect(findingsOf(v, "audit-incomplete").some((f) => f.item === key && /project/.test(f.detail ?? ""))).toBe(true);
+    const twin = buildPassingBundle("jira");
+    expect(codes(grade(twin))).not.toContain("teardown-incomplete");
+  });
+  test("jira: S8's duplicate-title check counts an audit item read WITHOUT its project as in the shared space: S8 fails; PERMIT TWIN — the same item proven in another space passes S8", () => {
+    const mk = (container: string, absent?: string[]) => {
+      const b = buildPassingBundle("jira");
+      const legacy = createdKeys(session(b, "S8"))[0]!;
+      const orig = audits(b)[0]!.calls.flatMap((c) => c.result.items ?? []).find((i) => i.key === legacy)!;
+      addToAudit(b, { ...orig, key: "DST-191", container, ...(absent ? { absent } : {}) });
+      return b;
+    };
+    expect(failing(grade(mk("", ["project"])))).toContain("S8");
+    expect(failing(grade(mk("OTHER")))).not.toContain("S8");
+  });
+  test("S1: an FR item read WITHOUT its labels is not counted as untagged: S1 is not-observed naming the labels, the run aborts audit-incomplete; PERMIT TWIN — labelled, S1 passes", () => {
+    const b = buildPassingBundle("jira");
+    const k = createdKeys(sessionsOf(b, "S1").find((s) => s.root === "B")!)[0]!;
+    editAuditItem(b, k, (i) => Object.assign(i, { labels: [], absent: ["labels"] }));
+    const v = grade(b);
+    expect(v.scenarios.S1?.outcome).toBe("not-observed");
+    expect(v.scenarios.S1?.reason ?? "").toMatch(/labels/);
+    expect(v.outcome).toBe("abort");
+    expect(grade(buildPassingBundle("jira")).scenarios.S1?.outcome).toBe("pass");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HIGH 3 — Linear teardown reads get_project answers
+// ---------------------------------------------------------------------------
+
+describe("HIGH 3 — Linear teardown: a get_project answer is a project item, read as completed by its status type", () => {
+  test("ROUND TRIP — a passing Linear run whose second audit carries two get_project answers extracts both as completed project items and passes", () => {
+    withTmp("ste617-proj-rt-", (d) => {
+      const b = buildPassingBundle("linear");
+      const m = materialize(b, d);
+      const bundle = extractedBundle(extractFor(m));
+      const projects = audits(bundle)[1]!.calls.filter((c) => /__get_project$/.test(c.name)).flatMap((c) => c.result.items ?? []);
+      expect(projects.map((p) => ({ kind: p.kind, key: p.key, status: p.status }))).toEqual([
+        { kind: "project", key: b.run.container, status: "completed" },
+        { kind: "project", key: b.run.repointFrom!, status: "completed" },
+      ]);
+      expect(gradeExtracted({ ok: true, bundle }).outcome).toBe("pass");
+    });
+  });
+  test("a completed project whose team RENAMED its completed state (name Shipped, type completed) is completed; PERMIT/REFUSE — type started is not", () => {
+    const g = extras();
+    const done = g.projectItem("linear", "mcp__linear__get_project", { id: "p1", name: "P", status: { id: "s", name: "Shipped", type: "completed" } });
+    const open = g.projectItem("linear", "mcp__linear__get_project", { id: "p1", name: "P", status: { id: "s", name: "Completed", type: "started" } });
+    expect({ done: done.status, open: open.status, kind: done.kind }).toEqual({ done: "completed", open: "started", kind: "project" });
+    const b = buildPassingBundle("linear");
+    for (const c of audits(b)[1]!.calls) for (const i of c.result.items ?? []) if (i.kind === "project" && i.key === b.run.container) i.status = open.status;
+    expect(findingsOf(grade(b), "teardown-incomplete").some((f) => f.item === b.run.container)).toBe(true);
+  });
+  test("a project missing from the second audit still fails teardown-incomplete naming it; a project answer without its status is audit-incomplete", () => {
+    const b = buildPassingBundle("linear");
+    const a2 = audits(b)[1]!;
+    a2.calls = a2.calls.filter((c) => !(c.result.items ?? []).some((i) => i.kind === "project" && i.key === b.run.repointFrom));
+    expect(findingsOf(grade(b), "teardown-incomplete").some((f) => f.item === b.run.repointFrom)).toBe(true);
+    const bare = extras().projectItem("linear", "mcp__linear__get_project", { id: "p1", name: "P" });
+    expect(bare.absent).toEqual(["status"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HIGH 4 — recorded paths to the toolkit tree and the config dir are rewritten
+// ---------------------------------------------------------------------------
+
+describe("HIGH 4 — <toolkit> and <config> path tokens, anchored like the root rewrite", () => {
+  const TOOLKIT = "/Users/alice/workspace/dev-process-toolkit";
+  const CONFIG = "/Users/alice/.claude-st";
+  function extractWithText(text: string): { bundle: LiveBundle | null; violations: PrivacyViolation[] } {
+    return withTmp("ste617-tok-", (d) => {
+      const b = buildPassingBundle("jira");
+      const c = session(b, "S4").calls[0]!;
+      c.result.text = `${c.result.text}\n${text}`;
+      const m = materialize(b, d);
+      const x = (grader().extractBundle as unknown as (o: Record<string, unknown>) => Extracted)({
+        configDirs: [m.configDir, CONFIG],
+        toolkitRoot: TOOLKIT,
+        ledgerSessionIds: m.ledger,
+        roots: { A: { path: m.roots.A, tag: TAG_A }, B: { path: m.roots.B, tag: TAG_B } },
+        run: m.run,
+        synthetic: true,
+      });
+      const bundle = extractedBundle(x);
+      return { bundle, violations: grader().privacyViolations(bundle) };
+    });
+  }
+  test("PERMIT — a recorded path under the toolkit root and one under a config dir are rewritten, and the bundle is clean", () => {
+    const r = extractWithText(`read ${TOOLKIT}/plugins/dev-process-toolkit/adapters/_shared/src/x.ts\nlog ${CONFIG}/projects/p/s.jsonl`);
+    expect(r.violations).toEqual([]);
+    const text = JSON.stringify(r.bundle);
+    expect(text).toContain("<toolkit>/plugins/dev-process-toolkit/adapters/_shared/src/x.ts");
+    expect(text).toContain("<config>/projects/p/s.jsonl");
+  });
+  test("REFUSE — a path under /Users/<name> outside every known root is still refused", () => {
+    const r = extractWithText(`read /Users/alice/Documents/secret.txt`);
+    expect(r.violations.map((v) => v.value)).toContain("/Users/alice");
+  });
+  test("REFUSE — a sibling path only SHARING the toolkit root's prefix is not rewritten, so it is refused", () => {
+    const r = extractWithText(`read ${TOOLKIT}-scratch/notes.txt`);
+    expect(JSON.stringify(r.bundle)).not.toContain("<toolkit>-scratch");
+    expect(r.violations.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MEDIUM 5 — S17's read-only git runs
+// ---------------------------------------------------------------------------
+
+describe("MEDIUM 5 — S17: read-only git runs into B are not commit-writing runs; writing ones still are", () => {
+  /** The passing bundle with one successful, unrefused git run into B recorded BEFORE B's evidence. */
+  function withRunBefore(command: string): LiveBundle {
+    const b = buildPassingBundle("jira");
+    const s = session(b, "S17");
+    const first = s.calls[0]!;
+    s.calls.unshift({
+      ref: `${s.sessionId}:toolu_900`,
+      at: new Date(Date.parse(first.at) - 1000).toISOString(),
+      name: "Bash",
+      input: { command, description: "run" },
+      result: { isError: false, text: "", exitCode: 0, items: null, lastPage: null },
+      sidechain: false,
+    });
+    return b;
+  }
+  const READS = [
+    "git -C <B> ls-files",
+    "git -C <B> worktree list",
+    "git -C <B> show-ref",
+    "git -C <B> merge-base HEAD feature-s17",
+    "git -C <B> cat-file -t HEAD",
+    "git -C <B> rev-parse HEAD",
+    "git -C <B> log -1 --format=%s",
+    "git -C <B> status --porcelain",
+    "git -C <B> diff --stat",
+    "git -C <B> branch --list",
+    "git -C <B> config --get alias.ci",
+  ];
+  const WRITES = [
+    "git -C <B> cherry-pick 1a2b3c4",
+    "git -C <B> revert --no-edit HEAD",
+    "git -C <B> reset --hard HEAD~1",
+    "git -C <B> checkout -b s17-other",
+    "git -C <B> branch -D feature-s17",
+    "git -C <B> branch s17-new",
+    "git -C <B> tag v9",
+    "git -C <B> config alias.co commit",
+    "git -C <B> update-ref refs/heads/x HEAD",
+    "git -C <B> worktree add ../wt",
+    "git -C <B> status; git -C <B> commit --allow-empty -m x",
+  ];
+  for (const cmd of READS) {
+    test(`PERMIT — \`${cmd}\` before B's evidence, unrefused, leaves S17 passing`, () => {
+      expect(failing(grade(withRunBefore(cmd)))).not.toContain("S17");
+    });
+  }
+  for (const cmd of WRITES) {
+    test(`REFUSE — \`${cmd}\` before B's evidence, unrefused, fails S17`, () => {
+      expect(failing(grade(withRunBefore(cmd)))).toContain("S17");
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// ITEM 6 — the grade and the live-proof gate agree on unkeyed and non-issue items
+// ---------------------------------------------------------------------------
+
+describe("ITEM 6 — a read of a team, a user or a site projects to no item, so it cannot pass the grade and fail the gate", () => {
+  const READS: Record<Tracker, { name: string; answer: Record<string, unknown> }> = {
+    jira: { name: "mcp__atlassian__atlassianUserInfo", answer: { account_id: "557058:f58131cb-b67d-43c7-b30d-6b58d40bd077", email: "ops@acme-sandbox.io", name: "Ops" } },
+    linear: { name: "mcp__linear__get_team", answer: { id: "e1181251-2fe2-42b2-9a69-288a28732554", name: "Sandbox", key: "STE" } },
+  };
+  for (const t of TRACKERS) {
+    test(`${t}: ROUND TRIP — ${READS[t].name} in a scenario session extracts to no item; the run passes and no key sits outside the run's spaces`, () => {
+      withTmp("ste617-nonitem-", (d) => {
+        const b = buildPassingBundle(t);
+        const s = session(b, "S4");
+        const first = s.calls[0]!;
+        s.calls.unshift({ ref: `${s.sessionId}:toolu_901`, at: new Date(Date.parse(first.at) - 1000).toISOString(), name: READS[t].name, input: {}, result: { isError: false, text: JSON.stringify(READS[t].answer), exitCode: null, items: null, lastPage: null }, sidechain: false });
+        const bundle = extractedBundle(extractFor(materialize(b, d)));
+        const call = session(bundle, "S4").calls.find((c) => c.name === READS[t].name)!;
+        expect(call.result.items).toEqual([]);
+        expect(grader().privacyViolations(bundle)).toEqual([]);
+        expect(extras().keysOutsideSpaces(bundle, t === "jira" ? ["DST", "DST2"] : ["STE"])).toEqual([]);
+        expect(grade(bundle).outcome).toBe("pass");
+      });
+    });
+  }
+  test("linear: an issue item with no readable key fails the grade as item-outside-spaces (the gate calls it not-live); PERMIT TWIN — projects and milestones read by name are never space-keyed", () => {
+    const b = buildPassingBundle("linear");
+    expect(b.sessions.flatMap((s) => s.calls).flatMap((c) => c.result.items ?? []).some((i) => i.kind === "project"), "control: the bundle holds project items").toBe(true);
+    expect(b.sessions.flatMap((s) => s.calls).flatMap((c) => c.result.items ?? []).some((i) => i.kind === "milestone"), "control: the bundle holds milestone items").toBe(true);
+    expect(extras().keysOutsideSpaces(b, ["STE"])).toEqual([]);
+    expect(codes(grade(b))).not.toContain("item-outside-spaces");
+    const s = session(b, "S4");
+    s.calls[0]!.result.items = [{ key: "", summary: "", labels: [], status: "", parent: null, milestone: null, issueType: null, kind: "issue", container: "" }];
+    expect(extras().keysOutsideSpaces(b, ["STE"])).toEqual(["(no key)"]);
+    expect(findingsOf(grade(b), "item-outside-spaces").map((f) => f.item)).toEqual(["(no key)"]);
+  });
+  test("jira: an item key outside the run's spaces fails item-outside-spaces; PERMIT TWIN — the repoint-from space is the run's", () => {
+    const b = buildPassingBundle("jira");
+    expect(codes(grade(b)), "the passing bundle holds DST2 items and passes").not.toContain("item-outside-spaces");
+    session(b, "S4").calls[0]!.result.items = [{ key: "OPS-7", summary: "x", labels: [], status: "To Do", parent: null, milestone: null, issueType: "Task", kind: "issue", container: "OPS" }];
+    expect(findingsOf(grade(b), "item-outside-spaces").map((f) => f.item)).toEqual(["OPS-7"]);
   });
 });
 
