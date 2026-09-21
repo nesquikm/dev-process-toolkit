@@ -4,9 +4,14 @@
 //
 // THE SPAWN SET IS DERIVED on every run by `tests/_spawn_fences.ts`, never
 // hand-counted. It holds every fenced `claude -p` COMMAND line in
-// `.claude/skills/conformance-loop/SKILL.md` and
-// `.claude/skills/smoke-test/SKILL.md`. Echo text, Remedy prose and heredoc
-// bodies are never spawns.
+// `.claude/skills/conformance-loop/SKILL.md`,
+// `.claude/skills/smoke-test/SKILL.md` and (STE-617 AC.3)
+// `.claude/skills/shared-tracker-smoke/SKILL.md` — every document in
+// `DOC_IDS`. Echo text, Remedy prose and heredoc bodies are never spawns.
+//
+// STE-617 AC.3 adds one clause for the shared-tracker document: every append
+// records leg `shared-<tracker>` (a literal `shared-…` value, or a variable
+// the fence assigns a `shared-…` value to).
 //
 // THE CONTRACT each spawn must meet, per logical command line (backslash
 // continuations joined):
@@ -40,7 +45,9 @@ import {
 import {
   allFences,
   classify,
+  DOC_IDS,
   isSpawnFence,
+  missingDocs,
   KILL0_RE,
   label,
   parseFences,
@@ -112,8 +119,28 @@ function pairSpawns(f: Fence): Pairing[] {
   return out;
 }
 
-function synthetic(lines: string[]): Fence {
-  return { doc: "smoke-test", openLine: 1, closeLine: lines.length + 2, info: "bash", lines, body: lines.join("\n"), region: "" };
+function synthetic(lines: string[], doc: DocId = "smoke-test"): Fence {
+  return { doc, openLine: 1, closeLine: lines.length + 2, info: "bash", lines, body: lines.join("\n"), region: "" };
+}
+
+/** The `--leg` value an append carries, quotes stripped, or null. */
+function appendLegValue(text: string): string | null {
+  const m = /(?:^|\s)--leg(?:=|\s+)("[^"]*"|'[^']*'|\S+)/.exec(text);
+  return m ? m[1]!.replace(/^["']|["']$/g, "") : null;
+}
+
+/**
+ * STE-617 AC.3 — the leg is `shared-<tracker>`: a literal starting `shared-`,
+ * or `${VAR}` / `$VAR` where the fence assigns VAR a value starting `shared-`
+ * (plain, quoted, or as a `${VAR:-shared-…}` default).
+ */
+function legIsShared(value: string | null, f: Fence): boolean {
+  if (value === null) return false;
+  if (/^shared-\S+$/.test(value)) return true;
+  const v = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/.exec(value)?.[1];
+  if (v === undefined) return false;
+  const assign = new RegExp(`(?:^|[\\s;&|(])(?:export\\s+)?${v}=["']?(?:\\$\\{${v}:-)?shared-`, "m");
+  return assign.test(f.body);
 }
 
 const MINT = 'SID=$(uuidgen | tr "[:upper:]" "[:lower:]")';
@@ -179,6 +206,33 @@ describe("the pairing contract — CONTROLS (the matcher discriminates)", () => 
   });
 });
 
+describe("STE-617 AC.3 — the shared-tracker document's appends — CONTROLS", () => {
+  const SHARED_APPEND = APPEND.replace("--leg linear", '--leg "${LEG}"');
+  test("a shared-tracker-smoke spawn with no --session-id is flagged", () => {
+    const [p] = pairSpawns(synthetic([MINT, 'LEG="shared-${TRACKER}"', SHARED_APPEND, "claude -p /x < /dev/null > /tmp/l 2>&1 &"], "shared-tracker-smoke"));
+    expect(p!.sessionVar).toBeNull();
+  });
+  test("a shared-tracker-smoke spawn with no append before it is flagged", () => {
+    const [p] = pairSpawns(synthetic([MINT, ...SPAWN], "shared-tracker-smoke"));
+    expect(p!.append).toBeNull();
+  });
+  test("leg `shared-<tracker>` passes, spelled as a literal or as a variable the fence assigns", () => {
+    const lit = synthetic([MINT, APPEND.replace("--leg linear", "--leg shared-jira"), ...SPAWN], "shared-tracker-smoke");
+    expect(legIsShared(appendLegValue(pairSpawns(lit)[0]!.append!.text), lit)).toBe(true);
+    const viaVar = synthetic([MINT, 'LEG="shared-${TRACKER}"', SHARED_APPEND, ...SPAWN], "shared-tracker-smoke");
+    expect(legIsShared(appendLegValue(pairSpawns(viaVar)[0]!.append!.text), viaVar)).toBe(true);
+    const viaDefault = synthetic([MINT, 'LEG="${LEG:-shared-<tracker>}"', SHARED_APPEND, ...SPAWN], "shared-tracker-smoke");
+    expect(legIsShared(appendLegValue(pairSpawns(viaDefault)[0]!.append!.text), viaDefault)).toBe(true);
+  });
+  test("a smoke-test leg (`linear`), or a variable never assigned a shared- value, is flagged", () => {
+    const plain = synthetic([MINT, APPEND, ...SPAWN], "shared-tracker-smoke");
+    expect(legIsShared(appendLegValue(pairSpawns(plain)[0]!.append!.text), plain)).toBe(false);
+    const unassigned = synthetic([MINT, 'LEG="linear"', SHARED_APPEND, ...SPAWN], "shared-tracker-smoke");
+    expect(legIsShared(appendLegValue(pairSpawns(unassigned)[0]!.append!.text), unassigned)).toBe(false);
+    expect(legIsShared(null, plain)).toBe(false);
+  });
+});
+
 // ===========================================================================
 // AC-STE-594.1 — the site set, derived and anchored.
 // ===========================================================================
@@ -237,7 +291,11 @@ describe("AC-STE-594.1 — the spawn set is parsed, never hand-counted", () => {
 const ALL_PAIRINGS = SPAWN_FENCES.map((f) => ({ f, pairings: pairSpawns(f) }));
 
 describe("AC-STE-594.1 — spawn literals and paired appends, counted per document", () => {
-  for (const doc of ["conformance-loop", "smoke-test"] as DocId[]) {
+  test("CONTROL — the document table names all three driver documents (STE-617 AC.3), and every one exists", () => {
+    expect([...DOC_IDS].sort()).toEqual(["conformance-loop", "shared-tracker-smoke", "smoke-test"]);
+    expect(missingDocs(), "driver documents absent from disk").toEqual([]);
+  });
+  for (const doc of DOC_IDS) {
     test(`${doc}: every claude -p spawn literal has its own paired ledger append`, () => {
       const rows = ALL_PAIRINGS.filter((x) => x.f.doc === doc).flatMap((x) =>
         x.pairings.map((p) => ({ where: `${label(x.f)} body L${p.spawn.start + 1}`, p })),
@@ -275,6 +333,13 @@ for (const { f, pairings } of ALL_PAIRINGS) {
         expect(text).toMatch(/(?:^|\s)--run(?:=|\s+)\S/);
         expect(text).toMatch(/(?:^|\s)--leg(?:=|\s+)\S/);
       });
+
+      if (f.doc === "shared-tracker-smoke") {
+        test("STE-617 AC.3 — the append records leg `shared-<tracker>`", () => {
+          const leg = appendLegValue(p.append?.text ?? "");
+          expect(legIsShared(leg, f), `leg ${JSON.stringify(leg)} is not shared-<tracker> at ${where}`).toBe(true);
+        });
+      }
     });
   }
 }

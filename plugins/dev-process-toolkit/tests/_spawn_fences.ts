@@ -1,7 +1,8 @@
 // Shared parsing for the M_4df444 / STE-595 suites.
 //
-// Two jobs, both over the two project-local driver documents
-// (`.claude/skills/conformance-loop/SKILL.md`, `.claude/skills/smoke-test/SKILL.md`):
+// Two jobs, over the three project-local driver documents
+// (`.claude/skills/conformance-loop/SKILL.md`, `.claude/skills/smoke-test/SKILL.md`,
+// and — STE-617 AC.3 — `.claude/skills/shared-tracker-smoke/SKILL.md`):
 //
 //   1. Derive the SPAWN SITES by parsing, fence-aware. A spawn site is a fenced
 //      block holding a `claude -p` COMMAND line: the line's first word, after an
@@ -20,15 +21,26 @@
 //      RECORDED pids (the pidfiles the fence already writes) still answer
 //      `kill -0` AND pass the `ps -p <pid> -o comm=` identity check.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const pluginRoot = join(import.meta.dir, "..");
 export const repoRoot = join(pluginRoot, "..", "..");
 export const LOOP_DOC = join(repoRoot, ".claude", "skills", "conformance-loop", "SKILL.md");
 export const SMOKE_DOC = join(repoRoot, ".claude", "skills", "smoke-test", "SKILL.md");
+export const SHARED_DOC = join(repoRoot, ".claude", "skills", "shared-tracker-smoke", "SKILL.md");
 
-export type DocId = "conformance-loop" | "smoke-test";
+export type DocId = "conformance-loop" | "smoke-test" | "shared-tracker-smoke";
+
+/** Every driver document, by id — the ONE table a new document is added to. */
+export const DOC_PATHS: Readonly<Record<DocId, string>> = {
+  "conformance-loop": LOOP_DOC,
+  "smoke-test": SMOKE_DOC,
+  "shared-tracker-smoke": SHARED_DOC,
+};
+
+/** Every document id, in table order: suites iterate this, never a literal list. */
+export const DOC_IDS: readonly DocId[] = Object.keys(DOC_PATHS) as DocId[];
 export type LineKind = "code" | "prose" | "heredoc";
 
 export interface Fence {
@@ -49,7 +61,23 @@ export interface Fence {
 }
 
 export function readDoc(doc: DocId): string {
-  return readFileSync(doc === "conformance-loop" ? LOOP_DOC : SMOKE_DOC, "utf-8");
+  const path = DOC_PATHS[doc];
+  if (path === undefined) throw new Error(`readDoc: unknown document id ${JSON.stringify(doc)}`);
+  return readFileSync(path, "utf-8");
+}
+
+/**
+ * The document ids whose file is absent. The site sets below parse an absent
+ * document as empty so every suite still LOADS and fails by name; each suite
+ * that iterates `DOC_IDS` asserts this list is empty and that every document
+ * yields spawn sites, so an absent document is a loud red, never a quiet pass.
+ */
+export function missingDocs(): DocId[] {
+  return DOC_IDS.filter((d) => !existsSync(DOC_PATHS[d]));
+}
+
+function docOrEmpty(doc: DocId): string {
+  return existsSync(DOC_PATHS[doc]) ? readDoc(doc) : "";
 }
 
 export function label(f: Fence): string {
@@ -93,10 +121,7 @@ export function parseFences(doc: DocId, text: string): Fence[] {
 }
 
 export function allFences(): Fence[] {
-  return [
-    ...parseFences("conformance-loop", readDoc("conformance-loop")),
-    ...parseFences("smoke-test", readDoc("smoke-test")),
-  ];
+  return DOC_IDS.flatMap((doc) => parseFences(doc, docOrEmpty(doc)));
 }
 
 /**
@@ -196,12 +221,29 @@ export function phaseAFence(loopFences: readonly Fence[]): Fence | undefined {
   );
 }
 
-/** AC-STE-595.5 sites: /conformance-loop Phase A plus every /smoke-test spawn fence. */
+/**
+ * AC-STE-595.5 sites: /conformance-loop Phase A plus every /smoke-test spawn
+ * fence, plus (STE-617 AC.3) every /shared-tracker-smoke spawn fence.
+ */
 export function ruleSites(): Fence[] {
   const loop = parseFences("conformance-loop", readDoc("conformance-loop"));
   const smoke = parseFences("smoke-test", readDoc("smoke-test"));
+  const shared = parseFences("shared-tracker-smoke", docOrEmpty("shared-tracker-smoke"));
   const a = phaseAFence(loop);
-  return [...(a ? [a] : []), ...smoke.filter(isSpawnFence)];
+  return [...(a ? [a] : []), ...smoke.filter(isSpawnFence), ...shared.filter(isSpawnFence)];
+}
+
+/**
+ * STE-617 AC.3 — the fence ends with its live-child count: a CODE line
+ * printing `launched=<n> live=<n>` sits after the fence's LAST spawn line.
+ * Stricter than the STE-595 window rule, which only background fences meet.
+ */
+export function countLineAfterLastSpawn(f: Fence): boolean {
+  const spawns = spawnLineIndices(f);
+  if (spawns.length === 0) return false;
+  const last = spawns[spawns.length - 1]!;
+  const kinds = classify(f.lines);
+  return f.lines.some((l, i) => i > last && kinds[i] === "code" && COUNT_LINE_TEXT_RE.test(l));
 }
 
 /** AC-STE-595.6 sites: every fence, in either driver, that backgrounds a spawn and captures `$!`. */

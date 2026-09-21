@@ -92,11 +92,17 @@ interface RegistryScenario {
   invocations: readonly string[];
   live: boolean;
   offlineReason?: string;
+  /** STE-617 — children the live smoke starts for this id (0 when offline-only). */
+  liveSteps?: number;
+  /** STE-617 — Linear issues one broken refusal of this id could let through. */
+  worstCaseExtraIssues?: number;
 }
 interface RegistryModule {
   SHARED_TRACKER_SCENARIOS?: readonly RegistryScenario[];
   SHARED_TRACKER_SCENARIO_IDS?: readonly string[];
   LINEAR_ISSUE_BUDGET?: number;
+  spawnCeiling?: (tracker: "jira" | "linear") => number;
+  linearWorstCase?: () => number;
 }
 
 let registry: RegistryModule | null = null;
@@ -536,15 +542,25 @@ describe("the scenario registry — adapters/_shared/src/shared_tracker_scenario
     expect(s.map((x) => x.id)).toEqual(EXPECTED_IDS);
     expect([...(registry!.SHARED_TRACKER_SCENARIO_IDS ?? [])]).toEqual(EXPECTED_IDS);
   });
-  test("trackers per id: S15 is Jira only and offline-only with a written reason; every other id runs on both trackers and live", () => {
+  // STE-617 deviation row: S18 is offline-only too (its visibility is an exit
+  // code no tool record carries). This test pinned S18 live — a defect of
+  // STE-616 that STE-617 found — so it now names BOTH offline-only ids.
+  test("trackers per id: S15 (Jira only) and S18 (both trackers) are offline-only with a written reason; every other id runs on both trackers and live", () => {
     for (const s of registryScenarios()) {
       if (s.id === "S15") {
         expect({ id: s.id, trackers: [...s.trackers], live: s.live }).toEqual({ id: "S15", trackers: ["jira"], live: false });
         expect((s.offlineReason ?? "").trim().length, "S15's offline-only reason").toBeGreaterThan(0);
+      } else if (s.id === "S18") {
+        expect({ id: s.id, trackers: [...s.trackers].sort(), live: s.live }).toEqual({ id: "S18", trackers: ["jira", "linear"], live: false });
+        expect(s.offlineReason ?? "", "S18's offline-only reason names the exit code no tool record carries").toMatch(/exit[- ]code/i);
       } else {
         expect({ id: s.id, trackers: [...s.trackers].sort(), live: s.live }).toEqual({ id: s.id, trackers: ["jira", "linear"], live: true });
+        expect(s.offlineReason, `${s.id} is live, so it carries no offline reason`).toBeUndefined();
       }
     }
+  });
+  test("CONTROL — the offline-only set is exactly S15 and S18, derived from the registry rather than typed", () => {
+    expect(registryScenarios().filter((s) => !s.live).map((s) => s.id)).toEqual(["S15", "S18"]);
   });
   test("every id carries a one-line property", () => {
     for (const s of registryScenarios()) {
@@ -559,6 +575,76 @@ describe("the scenario registry — adapters/_shared/src/shared_tracker_scenario
   test("the Linear issue budget the live smoke may spend is seven (unchanged by S15..S18)", () => {
     registryScenarios();
     expect(registry!.LINEAR_ISSUE_BUDGET).toBe(7);
+  });
+});
+
+// ===========================================================================
+// STE-617 — the registry carries what the live ceiling and the Linear worst
+// case are DERIVED from (spec deviation row 2: nothing is typed twice).
+// ===========================================================================
+
+/**
+ * Children the live smoke starts per id. S10 counts three: the old client,
+ * the hook-less intruder (reserved marker `intruder`) and the detector run
+ * after them. S17 has its own session: one session carries one marker
+ * (AC-STE-617.6), so it cannot share S12's.
+ */
+const EXPECTED_LIVE_STEPS: Record<string, number> = {
+  S1: 2, S2: 2, S3: 2, S4: 2, S5: 2, S6: 1, S7: 1, S8: 2, S9: 1,
+  S10: 3, S11: 1, S12: 1, S13: 1, S14: 2, S15: 0, S16: 2, S17: 1, S18: 0,
+};
+
+/**
+ * Linear issues one broken refusal could let through: the below-floor write
+ * (S6), the unreceipted create (S7) and B's FR create before its join (S14).
+ * Every other id either creates nothing or is refused on an edit.
+ */
+const EXPECTED_WORST_CASE_EXTRA: Record<string, number> = {
+  S1: 0, S2: 0, S3: 0, S4: 0, S5: 0, S6: 1, S7: 1, S8: 0, S9: 0,
+  S10: 0, S11: 0, S12: 0, S13: 0, S14: 1, S15: 0, S16: 0, S17: 0, S18: 0,
+};
+
+describe("STE-617 — per-scenario live steps and worst-case allowances", () => {
+  test("every id carries a whole-number liveSteps; offline-only ids carry 0 and every live id at least 1", () => {
+    for (const s of registryScenarios()) {
+      const n = s.liveSteps;
+      expect({ id: s.id, integer: Number.isInteger(n) }).toEqual({ id: s.id, integer: true });
+      expect({ id: s.id, liveSteps: n }).toEqual({ id: s.id, liveSteps: s.live ? Math.max(1, n!) : 0 });
+    }
+  });
+  test("the live step counts per id are exactly the pinned table", () => {
+    expect(Object.fromEntries(registryScenarios().map((s) => [s.id, s.liveSteps]))).toEqual(EXPECTED_LIVE_STEPS);
+  });
+  test("every id carries a whole-number worstCaseExtraIssues of 0 or 1, exactly the pinned table", () => {
+    expect(Object.fromEntries(registryScenarios().map((s) => [s.id, s.worstCaseExtraIssues]))).toEqual(EXPECTED_WORST_CASE_EXTRA);
+  });
+  test("spawnCeiling(tracker) is the tracker's live steps plus the two audits — derived, per tracker", () => {
+    registryScenarios();
+    expect(typeof registry!.spawnCeiling, "the registry exports spawnCeiling(tracker)").toBe("function");
+    for (const t of ["jira", "linear"] as const) {
+      const steps = registryScenarios()
+        .filter((s) => s.live && s.trackers.includes(t))
+        .reduce((n, s) => n + (s.liveSteps ?? 0), 0);
+      expect({ tracker: t, ceiling: registry!.spawnCeiling!(t) }).toEqual({ tracker: t, ceiling: steps + 2 });
+    }
+    expect(registry!.spawnCeiling!("jira")).toBe(28);
+    expect(registry!.spawnCeiling!("linear")).toBe(28);
+  });
+  test("linearWorstCase() is the budget plus every live Linear id's allowance — ten", () => {
+    registryScenarios();
+    expect(typeof registry!.linearWorstCase, "the registry exports linearWorstCase()").toBe("function");
+    const extra = registryScenarios()
+      .filter((s) => s.live && s.trackers.includes("linear"))
+      .reduce((n, s) => n + (s.worstCaseExtraIssues ?? 0), 0);
+    expect(registry!.linearWorstCase!()).toBe(registry!.LINEAR_ISSUE_BUDGET! + extra);
+    expect(registry!.linearWorstCase!()).toBe(10);
+  });
+  test("CONTROL — the derivations move with the registry: an offline id's steps never count", () => {
+    // Offline ids carry 0 steps and 0 allowance, so flipping one live→offline
+    // could only lower a derived number, never leave a typed one standing.
+    for (const s of registryScenarios().filter((x) => !x.live)) {
+      expect({ id: s.id, steps: s.liveSteps, extra: s.worstCaseExtraIssues }).toEqual({ id: s.id, steps: 0, extra: 0 });
+    }
   });
 });
 

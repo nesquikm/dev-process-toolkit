@@ -23,7 +23,7 @@
 //
 // Linear's input schemas are closed (`additionalProperties: false`): an unknown
 // parameter throws naming it, judged against the parameter names recorded per
-// tool in `tests/fixtures/tracker-tool-inventory.json`.
+// tool in `adapters/_shared/data/tracker-tool-inventory.json`.
 //
 // Every call, read and write, is recorded, so a zero-write claim is a count.
 // Either double can land a create and then answer it with a transport error
@@ -36,7 +36,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const INVENTORY_PATH = join(import.meta.dir, "fixtures", "tracker-tool-inventory.json");
+export const INVENTORY_PATH = join(import.meta.dir, "..", "adapters", "_shared", "data", "tracker-tool-inventory.json");
 
 export class UnsupportedQueryError extends Error {
   constructor(readonly conjunct: string, jql: string) {
@@ -90,7 +90,7 @@ function recordedParameters(server: "atlassian" | "linear", tool: string): strin
   const params = readInventory().servers[server]?.parameters?.[tool];
   if (!Array.isArray(params) || params.length === 0) {
     throw new Error(
-      `the tool inventory fixture records no parameter names for ${server}.${tool}; extend tests/fixtures/tracker-tool-inventory.json in place`,
+      `the tool inventory fixture records no parameter names for ${server}.${tool}; extend adapters/_shared/data/tracker-tool-inventory.json in place`,
     );
   }
   return params;

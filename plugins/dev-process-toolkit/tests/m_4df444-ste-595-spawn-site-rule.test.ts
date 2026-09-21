@@ -26,12 +26,18 @@
 //     recipe, which prints `teardown_spawned_legs=`.
 // The behaviour itself is proven by RUNNING the fences, in
 // tests/m_4df444-ste-595-phase-a-fence-run.test.ts.
+//
+// STE-617 AC.3 widens both site sets to `.claude/skills/shared-tracker-smoke/SKILL.md`
+// (every spawn fence of it is a rule site), and adds one clause for that
+// document only: EVERY spawn fence, foreground ones included, ends with its
+// `launched=<n> live=<n>` line — a code line after the fence's last spawn.
 
 import { describe, expect, test } from "bun:test";
 
 import {
   classify,
   COUNT_LINE_TEXT_RE,
+  countLineAfterLastSpawn,
   countSites,
   countWindowLines,
   firstIdentityIndex,
@@ -40,6 +46,7 @@ import {
   isSpawnFence,
   KILL0_RE,
   label,
+  missingDocs,
   parseFences,
   phaseAFence,
   readDoc,
@@ -53,11 +60,12 @@ const RULE_SITES = ruleSites();
 const COUNT_SITES = countSites();
 const LOOP_FENCES = parseFences("conformance-loop", readDoc("conformance-loop"));
 const SMOKE_FENCES = parseFences("smoke-test", readDoc("smoke-test"));
+const SHARED_FENCES = missingDocs().includes("shared-tracker-smoke") ? [] : parseFences("shared-tracker-smoke", readDoc("shared-tracker-smoke"));
 const PHASE_A = phaseAFence(LOOP_FENCES);
 
-function syntheticFence(lines: string[]): Fence {
+function syntheticFence(lines: string[], doc: Fence["doc"] = "smoke-test"): Fence {
   return {
-    doc: "smoke-test",
+    doc,
     openLine: 1,
     closeLine: lines.length + 2,
     info: "bash",
@@ -127,6 +135,18 @@ describe("AC-STE-595.5 — each spawn site states the run-from-a-file rule", () 
   test("CONTROL: there is at least one rule site per driver", () => {
     expect(RULE_SITES.some((f) => f.doc === "conformance-loop")).toBe(true);
     expect(RULE_SITES.some((f) => f.doc === "smoke-test")).toBe(true);
+    expect(RULE_SITES.some((f) => f.doc === "shared-tracker-smoke"), "STE-617: the shared-tracker document's spawn fences are rule sites").toBe(true);
+  });
+
+  test("CONTROL: every driver document exists (an absent one would parse as empty)", () => {
+    expect(missingDocs()).toEqual([]);
+  });
+
+  test("CONTROL: every shared-tracker-smoke spawn fence is a rule site, backgrounded or not", () => {
+    const spawns = SHARED_FENCES.filter(isSpawnFence).map(label);
+    expect(spawns.length, "the shared-tracker document holds no spawn fence").toBeGreaterThan(0);
+    const sites = new Set(RULE_SITES.map(label));
+    expect(spawns.filter((l) => !sites.has(l))).toEqual([]);
   });
 
   for (const site of RULE_SITES) {
@@ -173,6 +193,37 @@ describe("AC-STE-595.6 — CONTROLS for the placement rule", () => {
     expect(c!.abortIndex).toBeNull();
   });
 });
+
+// ===========================================================================
+// STE-617 AC.3 — every shared-tracker-smoke spawn fence ends with its count.
+// ===========================================================================
+
+describe("STE-617 AC.3 — CONTROLS: a synthetic spawn lacking the rule or the count is caught", () => {
+  const spawn = ["claude -p x --session-id \"${SID}\" > /tmp/l 2>&1 &", "echo $! > /tmp/p"];
+  const count = ['echo "launched=${LAUNCHED} live=${LIVE}"'];
+  test("a fence whose last spawn is followed by the count line passes", () => {
+    expect(countLineAfterLastSpawn(syntheticFence([...spawn, ...count], "shared-tracker-smoke"))).toBe(true);
+  });
+  test("a fence with no count line is flagged", () => {
+    expect(countLineAfterLastSpawn(syntheticFence(spawn, "shared-tracker-smoke"))).toBe(false);
+  });
+  test("a count printed BEFORE the last spawn is flagged (order: count after, not before)", () => {
+    expect(countLineAfterLastSpawn(syntheticFence([...spawn, ...count, ...spawn], "shared-tracker-smoke"))).toBe(false);
+  });
+  test("a count line inside heredoc body text is not code, so it is flagged", () => {
+    expect(countLineAfterLastSpawn(syntheticFence([...spawn, "cat <<EOF", ...count, "EOF"], "shared-tracker-smoke"))).toBe(false);
+  });
+  test("a region without the run-from-a-file rule is flagged", () => {
+    const f = { ...syntheticFence([...spawn, ...count], "shared-tracker-smoke"), region: "Start the scenario child:" };
+    expect(statesRunFromFileRule(f.region)).toBe(false);
+  });
+});
+
+for (const site of SHARED_FENCES.filter(isSpawnFence)) {
+  test(`STE-617 AC.3 — ${label(site)} ends with its \`launched=<n> live=<n>\` line`, () => {
+    expect(countLineAfterLastSpawn(site), `no code line printing launched=…live= after the last spawn of ${label(site)}`).toBe(true);
+  });
+}
 
 for (const site of COUNT_SITES) {
   describe(`AC-STE-595.6 — ${label(site)} counts its live children`, () => {
