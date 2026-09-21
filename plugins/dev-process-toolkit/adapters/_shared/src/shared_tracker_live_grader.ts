@@ -30,6 +30,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { milestoneLabel } from "./attach_project_milestone";
+import { resolveInterviewAnswer } from "./auto_answers";
 import { normalizeTitleForCompare } from "./create_idempotency_probe";
 
 import {
@@ -62,6 +63,8 @@ export interface TrackerItem {
   issueType: string | null;
   kind: "issue" | "milestone" | "project";
   container: string;
+  /** The required answer fields the tracker's answer lacked (`REQUIRED_ANSWER_FIELDS`); absent when it lacked none. */
+  absent?: string[];
 }
 
 export interface ToolResult {
@@ -89,6 +92,15 @@ export interface BundleSession {
   cwd: string;
   client: Client;
   calls: ToolCall[];
+  /**
+   * The sanctioned answers block of the session's FIRST user message
+   * (auto_answers.ts, read with the key the tracker-write hook reads), kept
+   * only for the keys the grader reads (`GRADED_ANSWER_KEYS`); absent when
+   * the block answers none of them.
+   */
+  answers?: Record<string, string>;
+  /** The timestamp of the first user message that carried `answers`. */
+  answersAt?: string;
 }
 
 export interface BundleReceipt {
@@ -174,6 +186,8 @@ export interface GradeOptions {
 
 export interface ExtractOptions {
   configDirs: string[];
+  /** The toolkit checkout the run was driven from; a path under it is rewritten `<toolkit>`. */
+  toolkitRoot?: string;
   ledgerSessionIds: string[];
   roots: { A: { path: string; tag: string }; B: { path: string; tag: string } };
   run: RunMeta;
@@ -293,12 +307,72 @@ const labelsOf = (v: unknown): string[] =>
 /** A Linear field given as a bare string or a `{ name }` object (a status, a project). */
 const stringOrName = (v: unknown): string => (typeof v === "string" ? v : str((v as { name?: unknown } | null)?.name));
 
-/** One raw tracker object projected to the fields the grader reads (no hosts, emails or account ids). */
-function projectItem(tracker: SharedTrackerId, tool: string, o: Record<string, unknown>): TrackerItem {
+/**
+ * The fields the audit child asks the tracker for (the smoke skill's audit
+ * fence passes exactly these; a test there pins its lists to this export):
+ * Jira's `fields` of the nonce search and each read-back, Linear's `fields`
+ * of `list_issues`. A test in the grader's suite derives, from the item
+ * projection and the predicates, every answer field a predicate reads and
+ * fails naming any this constant omits.
+ */
+export const AUDIT_REQUEST_FIELDS: Readonly<Record<SharedTrackerId, readonly string[]>> = {
+  jira: ["summary", "labels", "status", "parent", "issuetype", "project"],
+  linear: ["id", "title", "labels", "status", "project", "projectMilestone"],
+};
+
+/**
+ * The answer fields every item carries without being asked: Jira's issue
+ * `key` (outside `fields`), Linear's `id` (the list_issues tool documents
+ * "`id` is always included"; with `fields` given it is the issue identifier,
+ * `STE-618`, and no `identifier` field is returned — measured 2026-09-21).
+ */
+export const AUDIT_ALWAYS_RETURNED: Readonly<Record<SharedTrackerId, readonly string[]>> = {
+  jira: ["key"],
+  linear: ["id"],
+};
+
+/**
+ * The answer fields an item of each kind must carry for the predicates to
+ * grade it: an item read without one is recorded in its `absent` list, and an
+ * audit item with an absent field aborts the run as `audit-incomplete`
+ * (`auditFieldsAbsent`) — never skipped, never read as empty. Jira fields are
+ * named as inside `fields` (`key` is top-level).
+ */
+const REQUIRED_ANSWER_FIELDS: Readonly<Record<SharedTrackerId, Readonly<Record<TrackerItem["kind"], readonly string[]>>>> = {
+  jira: { issue: ["key", "summary", "labels", "status", "issuetype", "project"], milestone: [], project: [] },
+  linear: { issue: ["id", "title", "labels", "status", "project"], milestone: ["id", "name"], project: ["name", "status"] },
+};
+
+/** The tools whose answers are tracker items, by kind. Any other tool's answer projects to no item. */
+const ISSUE_TOOL = /__(createJiraIssue|editJiraIssue|getJiraIssue|searchJiraIssuesUsingJql|transitionJiraIssue|save_issue|get_issue|list_issues)$/;
+const MILESTONE_TOOL = /__(list_milestones|save_milestone|get_milestone)$/;
+const PROJECT_TOOL = /__(get_project|save_project|list_projects)$/;
+
+/** The kind of item a tracker tool's answer holds, or null when it holds none (a team, a user, a site, a transition list). */
+function itemKindOf(tracker: SharedTrackerId, tool: string): TrackerItem["kind"] | null {
+  if (ISSUE_TOOL.test(tool)) return "issue";
+  if (tracker === "linear" && MILESTONE_TOOL.test(tool)) return "milestone";
+  if (tracker === "linear" && PROJECT_TOOL.test(tool)) return "project";
+  return null;
+}
+
+/** A field an answer carries: present and neither null nor undefined; labels must be a list. */
+const carries = (o: Record<string, unknown>, k: string): boolean =>
+  Object.prototype.hasOwnProperty.call(o, k) && o[k] !== null && o[k] !== undefined && (k !== "labels" || Array.isArray(o[k]));
+
+/**
+ * One raw tracker object projected to the fields the grader reads (no hosts,
+ * emails or account ids). `absent` names each required answer field
+ * (`REQUIRED_ANSWER_FIELDS`) the object lacked; it is present only when one is.
+ */
+export function projectItem(tracker: SharedTrackerId, tool: string, o: Record<string, unknown>): TrackerItem {
+  const kind = itemKindOf(tracker, tool) ?? "issue";
+  let item: TrackerItem;
+  let absent: string[];
   if (tracker === "jira") {
-    const f = (o.fields ?? {}) as Record<string, unknown>;
+    const f = (o.fields && typeof o.fields === "object" ? o.fields : {}) as Record<string, unknown>;
     const nameOf = (x: unknown) => strOrNull((x as { name?: unknown } | null)?.name);
-    return {
+    item = {
       key: str(o.key),
       summary: str(f.summary),
       labels: labelsOf(f.labels),
@@ -309,27 +383,39 @@ function projectItem(tracker: SharedTrackerId, tool: string, o: Record<string, u
       kind: "issue",
       container: str((f.project as { key?: unknown } | null)?.key),
     };
+    absent = REQUIRED_ANSWER_FIELDS.jira[kind].filter((k) => (k === "key" ? !carries(o, k) || str(o.key) === "" : !carries(f, k)));
+  } else if (kind === "milestone") {
+    item = { key: str(o.id), summary: str(o.name), labels: [], status: str(o.status), parent: null, milestone: null, issueType: null, kind: "milestone", container: str(o.project) };
+    absent = REQUIRED_ANSWER_FIELDS.linear.milestone.filter((k) => !carries(o, k));
+  } else if (kind === "project") {
+    // A project's status is `{ id, name, type }` (measured): its `type` is the
+    // workflow category (`completed`), whatever the team named the state.
+    const st = o.status as { type?: unknown } | null | undefined;
+    const status = st && typeof st === "object" && typeof st.type === "string" ? st.type : stringOrName(o.status ?? o.state);
+    item = { key: str(o.name), summary: str(o.name), labels: [], status, parent: null, milestone: null, issueType: null, kind: "project", container: str(o.name) };
+    absent = REQUIRED_ANSWER_FIELDS.linear.project.filter((k) => !carries(o, k));
+  } else {
+    item = {
+      key: str(o.id),
+      summary: str(o.title),
+      labels: labelsOf(o.labels),
+      status: stringOrName(o.status),
+      parent: null,
+      milestone: strOrNull((o.projectMilestone as { id?: unknown } | null)?.id),
+      issueType: null,
+      kind: "issue",
+      container: stringOrName(o.project),
+    };
+    absent = REQUIRED_ANSWER_FIELDS.linear.issue.filter((k) => !carries(o, k));
   }
-  if (/__(list_milestones|save_milestone|get_milestone)$/.test(tool)) {
-    return { key: str(o.id), summary: str(o.name), labels: [], status: str(o.status), parent: null, milestone: null, issueType: null, kind: "milestone", container: str(o.project) };
-  }
-  if (/__(get_project|save_project|list_projects)$/.test(tool)) {
-    return { key: str(o.name), summary: str(o.name), labels: [], status: stringOrName(o.status), parent: null, milestone: null, issueType: null, kind: "project", container: str(o.name) };
-  }
-  return {
-    key: str(o.identifier),
-    summary: str(o.title),
-    labels: labelsOf(o.labels),
-    status: stringOrName(o.status),
-    parent: null,
-    milestone: strOrNull((o.projectMilestone as { id?: unknown } | null)?.id),
-    issueType: null,
-    kind: "issue",
-    container: stringOrName(o.project),
-  };
+  return absent.length > 0 ? { ...item, absent } : item;
 }
 
-/** A tracker answer's items and last-page flag, or null when the answer is not a tracker object. */
+/**
+ * A tracker answer's items and last-page flag, or null when the answer is not
+ * JSON. A tool whose answer holds no tracker item (`itemKindOf`) projects to
+ * no item, so a team, a user or a site read is never graded as an unkeyed issue.
+ */
 function projectAnswer(tracker: SharedTrackerId, tool: string, text: string): { items: TrackerItem[]; lastPage: boolean | null } | null {
   let v: unknown;
   try {
@@ -337,10 +423,11 @@ function projectAnswer(tracker: SharedTrackerId, tool: string, text: string): { 
   } catch {
     return null;
   }
+  if (itemKindOf(tracker, tool) === null) return { items: [], lastPage: null };
   if (Array.isArray(v)) return { items: v.filter((x) => x && typeof x === "object").map((x) => projectItem(tracker, tool, x as Record<string, unknown>)), lastPage: null };
   if (!v || typeof v !== "object") return null;
   const o = v as Record<string, unknown>;
-  const list = Array.isArray(o.issues) ? o.issues : Array.isArray(o.milestones) ? o.milestones : Array.isArray(o.nodes) ? o.nodes : null;
+  const list = Array.isArray(o.issues) ? o.issues : Array.isArray(o.milestones) ? o.milestones : Array.isArray(o.projects) ? o.projects : Array.isArray(o.nodes) ? o.nodes : null;
   if (list !== null) {
     // A page proves it is the last only by saying so (`isLast`, or a
     // `hasNextPage` at the top level or under `pageInfo`). A page carrying a
@@ -362,6 +449,14 @@ function projectAnswer(tracker: SharedTrackerId, tool: string, text: string): { 
   if ("key" in o || "identifier" in o || "id" in o || "name" in o) return { items: [projectItem(tracker, tool, o)], lastPage: null };
   return { items: [], lastPage: null };
 }
+
+/**
+ * The answers-block key the tracker-write hook reads an orphan import's (and
+ * adopt's) consent from (`resolveInterviewAnswer(text, "tracker_orphan_import")`
+ * in pre-tracker-write-gate.ts). The only key the grader keeps.
+ */
+export const ORPHAN_CONSENT_ANSWER_KEY = "tracker_orphan_import";
+const GRADED_ANSWER_KEYS: readonly string[] = [ORPHAN_CONSENT_ANSWER_KEY];
 
 const POINTER = /^<persisted-output>[\s\S]*?Full output saved to: ([^\n]+)\n/;
 const EXIT_PREFIX = /^Exit code (\d+)\n?/;
@@ -388,8 +483,17 @@ function parseSession(
   const abort = (code: string, detail: string): SessionParse => ({ ok: false, finding: { code, session: sid, detail } });
   const first = main.find((r) => r.type === "user" && r.isMeta !== true);
   if (!first) return abort("no-marker", `session ${sid}: its transcript holds no user message`);
-  const mk = parseMarker(userMessageText(first));
+  const firstText = userMessageText(first);
+  const mk = parseMarker(firstText);
   if (!mk.ok) return abort("scenario-marker", `session ${sid}: ${mk.detail}`);
+  // The operator's answers are read from the first user message only, through
+  // auto_answers.ts (the parser the hook uses): a block in a later message or a
+  // tool_result answers nothing here.
+  const answers: Record<string, string> = {};
+  for (const k of GRADED_ANSWER_KEYS) {
+    const v = resolveInterviewAnswer(firstText, k);
+    if (typeof v === "string") answers[k] = rw(v);
+  }
   const cwd = cwdOf(main);
   const root = rootOf(cwd);
   if (root === null) return abort("session-outside-roots", `session ${sid}: its cwd is neither throwaway repository`);
@@ -446,7 +550,12 @@ function parseSession(
     }
     calls.push({ ref: `${sid}:${u.id}`, at: u.at, name: u.name, input: rewriteDeep(u.input, rw) as Record<string, unknown>, result, sidechain: u.sidechain });
   }
-  return { ok: true, session: { sessionId: sid, marker: mk.marker, root, cwd: rw(cwd), client: mk.client, calls } };
+  const session: BundleSession = { sessionId: sid, marker: mk.marker, root, cwd: rw(cwd), client: mk.client, calls };
+  if (Object.keys(answers).length > 0) {
+    session.answers = answers;
+    session.answersAt = str(first.timestamp);
+  }
+  return { ok: true, session };
 }
 
 function git(root: string, args: string[]): string | null {
@@ -558,7 +667,8 @@ function readRepo(rootPath: string, tag: Root, tracker: SharedTrackerId, rw: Rew
  * a tool_use with no tool_result, or cannot be mapped to exactly one scenario
  * aborts, naming it (and, for a file, the file relative to its project
  * directory). A receipts directory that is absent is recorded as unreadable,
- * never as empty.
+ * never as empty. Absolute paths are rewritten to `<A>`, `<B>`, `<toolkit>`
+ * (the checkout the run was driven from) and `<config>` (each config dir).
  */
 export function extractBundle(o: ExtractOptions): ExtractResult {
   const tracker = o.run.tracker;
@@ -579,7 +689,19 @@ export function extractBundle(o: ExtractOptions): ExtractResult {
       return parent === p ? p : join(real(parent), basename(p));
     }
   };
-  const pairs = ([["<A>", A], ["<A>", real(A)], ["<B>", B], ["<B>", real(B)]] as const).slice().sort((x, y) => y[1].length - x[1].length);
+  // The toolkit checkout (`<toolkit>`) and each config dir (`<config>`) are
+  // rewritten the same way, both spellings each: a recorded path to the tree
+  // the run was driven from, or to a transcript, is not personal data and must
+  // not make the privacy refusal throw the whole bundle away. Any other path
+  // under a home directory is still refused. Longest first, so a root nested
+  // in another known path gets its own token.
+  const known: Array<[string, string]> = [["<A>", A], ["<B>", B]];
+  if (o.toolkitRoot) known.push(["<toolkit>", o.toolkitRoot]);
+  for (const c of o.configDirs) known.push(["<config>", c]);
+  const pairs = known
+    .flatMap(([tok, p]) => [[tok, p.replace(/\/+$/, "")] as const, [tok, real(p).replace(/\/+$/, "")] as const])
+    .filter(([, p]) => p !== "")
+    .sort((x, y) => y[1].length - x[1].length);
   // Anchored at a path boundary, so a sibling path that only shares a root's
   // prefix (`<root>-scratch/…`) is never rewritten into the root token.
   const boundary = pairs.map(([tok, p]) => [tok, new RegExp(`${p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=/|$|[^\\w.-])`, "g")] as const);
@@ -839,6 +961,18 @@ function nextAt(s: BundleSession, c: ToolCall): number {
   return later.length > 0 ? Math.min(...later) : Number.POSITIVE_INFINITY;
 }
 
+/**
+ * Whether a call's tool_result is ANY PreToolUse hook error, whatever its
+ * wording. The sites where a hook refusal is FORBIDDEN (the permitted PR, the
+ * ungated clients' isolation) read this, never `hookRefusal`: a refusal worded
+ * differently still refused, and reading it as "not refused" would be the
+ * permitting answer. The sites where a refusal is REQUIRED keep `hookRefusal`'s
+ * full shape and the hook it names, which fails closed on a rewording.
+ */
+function anyHookError(c: ToolCall): boolean {
+  return c.result.isError && /\bPreToolUse:\S+ hook\b/.test(c.result.text);
+}
+
 /** The hook a refused call names, or null when its tool_result is not a hook refusal. */
 function hookRefusal(c: ToolCall): string | null {
   if (!c.result.isError || !/PreToolUse:\S+ hook error:/.test(c.result.text) || !/Refusing:/.test(c.result.text)) return null;
@@ -892,6 +1026,55 @@ const GIT_BUILTINS: ReadonlySet<string> = new Set([
   "rebase", "reflog", "remote", "reset", "restore", "rev-list", "rev-parse", "revert", "rm", "show", "show-ref", "stash",
   "status", "submodule", "switch", "symbolic-ref", "tag", "update-ref", "worktree", "write-tree",
 ]);
+/** Git subcommands that never write, whatever their arguments. */
+const GIT_READ_ONLY: ReadonlySet<string> = new Set([
+  "log", "status", "show", "diff", "rev-parse", "ls-files", "ls-tree", "show-ref", "merge-base", "cat-file", "rev-list",
+  "describe", "blame", "grep", "for-each-ref", "shortlog", "whatchanged", "var", "check-ignore", "check-attr", "name-rev", "cherry",
+]);
+/** Branch options that only list or show (anything else — a name, -d/-D/-m/-M/-c/-C, --set-upstream-to — may write). */
+const BRANCH_LIST_OPTIONS = /^(?:--list|-l|--show-current|-a|--all|-r|--remotes|-v|-vv|--verbose|--no-color|--color(?:=\S+)?|--format=\S+|--sort=\S+)$/;
+
+/**
+ * Whether a git command is read-only: its subcommand never writes
+ * (`GIT_READ_ONLY`), or it is the listing or reading form of a subcommand that
+ * can write — `branch` with only listing options (or none), `config` with
+ * `--get`/`--get-all`/`--get-regexp`/`--list` (or the `get`/`list` verbs),
+ * `worktree list`, `remote` with no verb or `-v`/`show`/`get-url`,
+ * `stash list|show`, `tag` with `-l`/`--list` or nothing, `reflog` with no
+ * verb or `show`. Anything else (commit, merge, cherry-pick, revert, am,
+ * commit-tree, reset, checkout, switch, update-ref, a bare `config k v`, an
+ * alias) is not read-only, and neither is a command holding more than one git
+ * invocation.
+ */
+function isReadOnlyGit(cmd: string): boolean {
+  // One git invocation only: `git status; git commit` is not a read.
+  if ((cmd.match(/\bgit\b/g) ?? []).length !== 1) return false;
+  const sub = gitSubcommand(cmd);
+  if (sub === null) return false;
+  if (GIT_READ_ONLY.has(sub)) return true;
+  const m = new RegExp(`\\bgit(?:\\s+-[Cc]\\s+\\S+)*\\s+${sub.replace(/[-]/g, "\\-")}\\b([^;&|]*)`).exec(cmd);
+  const args = (m?.[1] ?? "").trim().split(/\s+/).filter(Boolean);
+  const [verb] = args;
+  switch (sub) {
+    case "branch":
+      return args.every((a) => BRANCH_LIST_OPTIONS.test(a));
+    case "config":
+      return args.some((a) => /^(?:--get|--get-all|--get-regexp|--list|-l)$/.test(a)) || verb === "get" || verb === "list";
+    case "worktree":
+      return verb === "list";
+    case "remote":
+      return verb === undefined || verb === "-v" || verb === "--verbose" || verb === "show" || verb === "get-url";
+    case "stash":
+      return verb === "list" || verb === "show";
+    case "tag":
+      return verb === undefined || verb === "-l" || verb === "--list";
+    case "reflog":
+      return verb === undefined || verb === "show";
+    default:
+      return false;
+  }
+}
+
 const isMergeNoFf = (cmd: string): boolean => gitSubcommand(cmd) === "merge" && /\s--no-ff(?:\s|$)/.test(cmd);
 const isAliasedGitRun = (cmd: string): boolean => {
   const sub = gitSubcommand(cmd);
@@ -1002,6 +1185,9 @@ const sameTitle: Predicate = (b, own) => {
   const audit = [...auditItems(b).values()];
   for (const t of titles) {
     const items = audit.filter((i) => i.kind === "issue" && i.issueType !== "Epic" && i.summary === t);
+    // An item read without its labels is not untagged: it cannot be counted either way (`auditFieldsAbsent` aborts the run on it).
+    const unlabelled = items.find((i) => i.absent?.includes("labels"));
+    if (unlabelled) return notObserved(`the audit read ${unlabelled.key || "an item"} titled "${t}" without its labels, so its tag cannot be counted`);
     if (items.length !== 2) return fail(`the audit holds ${items.length} FR items titled "${t}", not two`);
     for (const tag of [b.roots.A.tag, b.roots.B.tag]) {
       const n = items.filter((i) => i.labels.includes(tag)).length;
@@ -1142,7 +1328,8 @@ const repoint: Predicate = (b, own) => {
   for (const k of legacyKeys) {
     const legacy = audit.get(k);
     if (!legacy) return fail(`the legacy key ${k} does not resolve in the audit`);
-    const dup = [...audit.values()].find((i) => i.key !== k && i.container === b.run.container && i.summary === legacy.summary);
+    // An item read without its container is not proven to be elsewhere: it counts as in the shared one.
+    const dup = [...audit.values()].find((i) => i.key !== k && (i.container === b.run.container || i.container === "") && i.summary === legacy.summary);
     if (dup) return fail(`${dup.key} in the shared container duplicates the legacy item's title`);
   }
   return PASS;
@@ -1178,15 +1365,17 @@ const hooksByRepo: Predicate = (b, own) => {
   for (const { c } of before(prs)) if (hookRefusal(c) !== "pre-pr-spec-review") return fail(`${c.ref}: the PR into B was not refused by the PR hook`);
   if (after(commits).length === 0 || after(prs).length === 0) return fail("no commit or no PR into B is recorded after B's evidence");
   for (const { s, c } of after(commits)) if (c.result.exitCode !== 0 || !landsInB(b, s, c)) return fail(`${c.ref}: the permitted commit did not land in B's history`);
-  for (const { c } of after(prs)) if (!c.result.isError || hookRefusal(c) !== null) return fail(`${c.ref}: the permitted PR's tool_result is not a gh error`);
+  for (const { c } of after(prs)) if (!c.result.isError || anyHookError(c)) return fail(`${c.ref}: the permitted PR's tool_result is not a gh error`);
   return PASS;
 };
 
 /**
  * S13 — B's claim transition AND its import sync on A's ticket are each
  * recorded and each hook-refused, and A's ticket is unchanged; the untagged
- * item's import follows the answered question. One of the two writes alone
- * is not the scenario.
+ * item's import follows the operator's consent to its printed `Import <KEY>`
+ * label — an answered AskUserQuestion, or the answers block of the session's
+ * first user message (`consentTimes`). One of the two writes alone is not the
+ * scenario.
  */
 const claimAndImport: Predicate = (b, own) => {
   const tagA = b.roots.A.tag;
@@ -1207,13 +1396,14 @@ const claimAndImport: Predicate = (b, own) => {
   // The untagged item S13 imports: each intruder item its session asks about or writes to.
   const consents = own.flatMap((s) => moduleRuns(s, "container_ownership.ts", "consent"));
   const importsOf = (u: string) => calls.filter((c) => (isTrackerWrite(c) && targetKey(c) === u) || (consents.includes(c) && cmdOf(c).includes(u)));
-  const askedAbout = (u: string) => calls.filter((c) => c.name === "AskUserQuestion" && c.result.text.includes(`="Import ${u}"`));
+  // Consent: an answered AskUserQuestion, or the answers block of a session's first user message (`consentTimes`).
+  const askedAbout = (u: string) => own.flatMap((s) => consentTimes(s, `Import ${u}`));
   const touched = intruders.filter((u) => importsOf(u).length > 0 || askedAbout(u).length > 0);
   if (touched.length === 0) return fail("no import of an untagged item is recorded");
   for (const u of touched) {
     const asked = askedAbout(u);
-    if (asked.length === 0) return fail(`no AskUserQuestion is answered with the printed "Import ${u}" label`);
-    const askAt = Math.min(...asked.map((c) => ms(c.at)));
+    if (asked.length === 0) return fail(`no consent to the printed "Import ${u}" label is recorded (an answered AskUserQuestion, or ${ORPHAN_CONSENT_ANSWER_KEY}: Import ${u} in the answers block)`);
+    const askAt = Math.min(...asked);
     const imports = importsOf(u);
     const syncs = imports.filter((c) => isTrackerWrite(c) && !c.result.isError);
     if (syncs.length === 0) return fail(`no import sync of ${u} succeeded`);
@@ -1280,8 +1470,7 @@ const newNumericMilestone: Predicate = (_b, own) => {
 const subcommandsAndAliases: Predicate = (b, own) => {
   const ev = gateEvidenceAt(b, own);
   if (ev === null) return fail("B's own gate evidence is never announced");
-  const READ_ONLY = /\bgit\b(?:\s+-C\s+\S+)*\s+(log|status|show|diff|rev-parse|config|branch|remote)\b/;
-  const runs = own.flatMap((s) => s.calls.filter((c) => c.name === "Bash" && /\bgit\b/.test(cmdOf(c)) && cmdOf(c).includes("<B>") && !READ_ONLY.test(cmdOf(c))).map((c) => ({ s, c })));
+  const runs = own.flatMap((s) => s.calls.filter((c) => c.name === "Bash" && /\bgit\b/.test(cmdOf(c)) && cmdOf(c).includes("<B>") && !isReadOnlyGit(cmdOf(c))).map((c) => ({ s, c })));
   const before = runs.filter(({ c }) => ms(c.at) < ms(ev));
   const after = runs.filter(({ c }) => ms(c.at) > ms(ev));
   for (const [side, xs] of [["before", before], ["after", after]] as const) {
@@ -1553,9 +1742,27 @@ function writeClass(c: ToolCall): WriteClass {
   return "ticket";
 }
 
+/**
+ * The times, in `s`, the operator consented to `label` (`Import DST-7`,
+ * `Adopt DST-7`): an answered AskUserQuestion whose answer is that label, or
+ * the first user message's answers block giving exactly that label under
+ * `ORPHAN_CONSENT_ANSWER_KEY` (the route a `claude -p` child has, where an
+ * AskUserQuestion comes back as an error). The block's value must EQUAL the
+ * label — the hook's `consentLines` rule since D-8, which before it accepted
+ * any value merely naming the key (so `Skip DST-7` read as consent). The hook
+ * reads a block from any operator message; the grade reads only the first.
+ */
+function consentTimes(s: BundleSession, label: string): number[] {
+  const out = s.calls.filter((c) => c.name === "AskUserQuestion" && !c.result.isError && c.result.text.includes(`="${label}"`)).map((c) => ms(c.at));
+  if (s.answers?.[ORPHAN_CONSENT_ANSWER_KEY] === label && s.answersAt !== undefined) out.push(ms(s.answersAt));
+  return out.filter((t) => !Number.isNaN(t));
+}
+
 /** Whether the question `label` answers (e.g. `Import DST-7`) was answered before call `index` of `s`. */
-const answeredBefore = (s: BundleSession, index: number, label: string): boolean =>
-  s.calls.slice(0, index).some((c) => c.name === "AskUserQuestion" && !c.result.isError && c.result.text.includes(`="${label}"`));
+const answeredBefore = (s: BundleSession, index: number, label: string): boolean => {
+  const at = s.calls[index] ? ms(s.calls[index]!.at) : Number.POSITIVE_INFINITY;
+  return consentTimes(s, label).some((t) => t < at);
+};
 
 const rootOfPath = (p: string): Root | null => (/^<([AB])>\//.exec(p)?.[1] as Root | undefined) ?? null;
 
@@ -1579,12 +1786,40 @@ const rootOfPath = (p: string): Root | null => (/^<([AB])>\//.exec(p)?.[1] as Ro
  *     `reuse` receipt's key, a `binding` receipt's subject (an adopt only after
  *     the answered `Adopt <KEY>`), an `import` receipt's subject after the
  *     answered `Import <KEY>`, or (a Jira labels-only edit) a join decision's key.
+ *   A consent (`Adopt <KEY>`, `Import <KEY>`) is an answered AskUserQuestion or
+ *   the first user message's answers block giving exactly that label, before
+ *   the announcing run (`answeredBefore`).
  * Other container writes (a project, a label, a status update, a document, a
- * milestone edit) are not gated by a receipt: the hook refuses them outright.
- * A session that made such writes against a repository whose receipts are
- * absent or unreadable aborts the run as `receipts-unreadable`, once per
+ * milestone edit) are not gated by a receipt: the hook refuses them outright,
+ * save the rows of `PERMITTED_CONTAINER_WRITES`. Each successful one no row
+ * permits is `ungated-write`, whatever the state of the receipts.
+ * A session that made receipt-gated writes against a repository whose receipts
+ * are absent or unreadable aborts the run as `receipts-unreadable`, once per
  * repository; those writes are never graded as receipted.
  */
+/**
+ * The container-class writes the tracker-write hook permits in a declared
+ * container, each with the reason the hook permits it (gateContainer). A
+ * successful container write in a gated session that no row permits is
+ * `ungated-write`. There is no receipt to ask for on any of these: the hook
+ * decides them by rule, so the grade applies the same rule. Rows, not a
+ * blanket exemption — an exemption with no written reason is how a class
+ * goes back to being invisible.
+ *
+ * The Epic / `save_milestone`-without-id create is not here: it is class
+ * `milestone-create`, graded against its `milestone-decision` receipt. A
+ * container write outside the run's containers — which the hook would pass
+ * under §3 — is not permitted either: no scenario writes one, and a run that
+ * did left the spaces it was sanctioned to touch.
+ */
+const PERMITTED_CONTAINER_WRITES: ReadonlyArray<{ tool: string; permits: (c: ToolCall, b: LiveBundle) => boolean; reason: string }> = [
+  {
+    tool: "create_issue_label",
+    permits: (c, b) => typeof c.input.name === "string" && (["A", "B"] as const).some((r) => c.input.name === b.roots[r].tag),
+    reason: "a repository creating its own repo-tag label: the hook permits a label create whose name is a declared target's repo_tag, and no deciding command writes a receipt for it",
+  },
+];
+
 function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFinding[] } {
   const tracker = b.run.tracker;
   const aborts: LiveFinding[] = [];
@@ -1602,6 +1837,17 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
 
   for (const s of b.sessions) {
     if (UNGATED_CLIENTS.includes(s.client)) continue;
+    for (const c of s.calls) {
+      if (!isTrackerWrite(c) || c.result.isError || writeClass(c) !== "container") continue;
+      if (PERMITTED_CONTAINER_WRITES.some((p) => bareTool(c.name) === p.tool && p.permits(c, b))) continue;
+      findings.push({
+        code: "ungated-write",
+        ...(SHARED_TRACKER_SCENARIO_IDS.includes(s.marker) ? { scenario: s.marker } : {}),
+        session: s.sessionId,
+        tool: c.name,
+        detail: `${c.ref}: a successful ${bareTool(c.name)} — a container write the tracker-write hook refuses in a declared container, and no PERMITTED_CONTAINER_WRITES row permits it`,
+      });
+    }
     const writes = s.calls.map((c, i) => ({ c, i })).filter(({ c }) => isTrackerWrite(c) && !c.result.isError && writeClass(c) !== "container");
     if (writes.length === 0) continue;
     if (!b.repos[s.root].receipts.readable) {
@@ -1795,6 +2041,74 @@ function auditIncomplete(b: LiveBundle): LiveFinding[] {
 }
 
 /**
+ * AC-STE-617.17, fail closed — an item either audit read without an answer
+ * field its kind requires (`REQUIRED_ANSWER_FIELDS`: a Jira issue's project,
+ * labels or status; a Linear issue's id, title, labels, status or project; a
+ * Linear project's name or status) aborts the run as `audit-incomplete`,
+ * naming the item and the field. Such an item is never skipped by a
+ * predicate, never counted as untagged, never read as in no container.
+ */
+function auditFieldsAbsent(b: LiveBundle): LiveFinding[] {
+  const out: LiveFinding[] = [];
+  sessionsMarked(b, "audit").forEach((audit, n) => {
+    const which = n === 0 ? "first audit" : n === 1 ? "second audit" : `audit #${n + 1}`;
+    for (const c of audit.calls) {
+      if (!isTrackerTool(c.name) || c.result.isError) continue;
+      for (const i of c.result.items ?? []) {
+        for (const field of i.absent ?? []) {
+          out.push({ code: "audit-incomplete", session: audit.sessionId, item: i.key || "(no key)", tool: c.name, detail: `${c.ref}: the ${which} read ${i.key || "an item"} without its ${field} field, so no predicate can grade it` });
+        }
+      }
+    }
+  });
+  return out;
+}
+
+/** Whether an item's key names a tracker space by its prefix (`DST-7`, `STE-9`): every Jira item but a project; a Linear issue. */
+const spaceKeyed = (tracker: SharedTrackerId, i: TrackerItem): boolean => (tracker === "jira" ? i.kind !== "project" : i.kind === "issue");
+
+/**
+ * The space-keyed item keys (`spaceKeyed`) in any answer of the bundle that
+ * are not `<SPACE>-<n>`, or whose space is not one of `spaces` (compared
+ * case-insensitively); with `spaces` null only the shape is checked. The ONE
+ * definition: the grade (`itemsOutsideSpaces`, the run's own spaces) and
+ * STE-618's live-proof gate (the plan row's `Spaces`) both call it, so a
+ * bundle the grade passes cannot fail the gate's not-live key check on an
+ * item the grade never looked at (a project or milestone read by name, or an
+ * unkeyed answer) — and an unkeyed issue fails both.
+ */
+export function keysOutsideSpaces(b: LiveBundle, spaces: readonly string[] | null): string[] {
+  const allowed = spaces === null ? null : new Set(spaces.map((x) => x.toUpperCase()));
+  const out = new Set<string>();
+  for (const s of b.sessions ?? []) {
+    for (const c of s.calls ?? []) {
+      for (const i of c.result?.items ?? []) {
+        if (!spaceKeyed(b.run.tracker, i)) continue;
+        const m = /^([A-Za-z][A-Za-z0-9_]*)-\d+$/.exec(i.key);
+        if (!m || (allowed !== null && !allowed.has(m[1]!.toUpperCase()))) out.add(i.key === "" ? "(no key)" : i.key);
+      }
+    }
+  }
+  return [...out].sort();
+}
+
+/** The run's own spaces: the Jira shared and repoint-from keys; the Linear team (null — shape only — when the run recorded none). */
+function runSpaces(b: LiveBundle): string[] | null {
+  if (b.run.tracker === "jira") return [b.run.container, ...(b.run.repointFrom ? [b.run.repointFrom] : [])];
+  return b.run.linearTeam ? [b.run.linearTeam] : null;
+}
+
+/** A space-keyed item whose key is unreadable or outside the run's spaces fails `item-outside-spaces`. */
+function itemsOutsideSpaces(b: LiveBundle): LiveFinding[] {
+  const spaces = runSpaces(b);
+  return keysOutsideSpaces(b, spaces).map((k) => ({
+    code: "item-outside-spaces",
+    item: k,
+    detail: `a ${b.run.tracker} answer names ${k}, which is not a key of the run's spaces (${spaces === null ? "any <SPACE>-<n>" : spaces.join(", ")})`,
+  }));
+}
+
+/**
  * A successful create whose answer names no key (no parsable answer, no item,
  * or an empty key) would vanish from audit completeness, the Linear budget and
  * teardown: the run aborts as `create-key-unreadable` naming the call.
@@ -1813,8 +2127,9 @@ function createKeyUnreadable(b: LiveBundle): LiveFinding[] {
 
 /**
  * The run-wide isolation check (AC-STE-617.12): neither the old client's
- * plugin set nor the intruder's carries the tracker-write hook, so a hook
- * refusal on any of their tracker writes means the isolation broke; and the
+ * plugin set nor the intruder's carries the tracker-write hook, so any
+ * PreToolUse hook error on one of their tracker writes, however it is worded,
+ * means the isolation broke; and the
  * intruder's items must be present in the first audit's read-back.
  */
 function isolationBroken(b: LiveBundle): LiveFinding[] {
@@ -1823,8 +2138,9 @@ function isolationBroken(b: LiveBundle): LiveFinding[] {
     if (!UNGATED_CLIENTS.includes(s.client)) continue;
     for (const c of s.calls) {
       if (!isTrackerTool(c.name)) continue;
+      if (!anyHookError(c)) continue;
       const hook = hookRefusal(c);
-      if (hook) out.push({ code: "isolation-broken", session: s.sessionId, tool: c.name, detail: `${c.ref}: a ${s.client} write was refused by the ${hook} hook, which its plugin set does not carry` });
+      out.push({ code: "isolation-broken", session: s.sessionId, tool: c.name, detail: `${c.ref}: a ${s.client} write was refused by ${hook ? `the ${hook} hook` : "a PreToolUse hook"}, which its plugin set does not carry` });
     }
   }
   if (sessionsMarked(b, "audit").length > 0) {
@@ -1936,8 +2252,10 @@ function toolRegistration(b: LiveBundle, hooksJsonPath: string, inventoryPath: s
  * page proven last). On Jira it must read back every item any session of the
  * run created, and every nonce item (Epics included) in the shared space and,
  * when given, the repoint-from space must read Done — a second audit that
- * read nothing proves nothing Done. On Linear both throwaway projects must be
- * read and read as completed. Each failure is `teardown-incomplete`. Once the
+ * read nothing proves nothing Done, and an item read without its container
+ * is never skipped as out of scope. On Linear both throwaway projects must be
+ * read (`get_project`, projected as `kind: "project"`) and read as completed
+ * (the status `type`, whatever the state is named). Each failure is `teardown-incomplete`. Once the
  * run's tracker writes exist (a successful create by any session), a bundle
  * with no second audit fails, naming the missing audit: a teardown never read
  * back is not proven. Before the first write, teardown is not owed and
@@ -1960,8 +2278,10 @@ function teardownIncomplete(b: LiveBundle): LiveFinding[] {
       if (!readKeys.has(k)) out.push({ code: "teardown-incomplete", session: second.sessionId, item: k, detail: `the second audit never read back ${k}, which the run created` });
     }
     for (const i of read.values()) {
-      if (i.kind === "project" || !scope.includes(i.container) || /^done$/i.test(i.status)) continue;
-      out.push({ code: "teardown-incomplete", item: i.key, detail: `the second audit still reads ${i.key} "${i.summary}" in ${i.container} as ${i.status}` });
+      // Only an item PROVEN to sit in another container is out of scope; one read
+      // without its container (or its status) is never skipped as Done.
+      if (i.kind === "project" || (i.container !== "" && !scope.includes(i.container)) || (i.status !== "" && /^done$/i.test(i.status))) continue;
+      out.push({ code: "teardown-incomplete", item: i.key, detail: `the second audit still reads ${i.key} "${i.summary}" in ${i.container || "(no container read)"} as ${i.status || "(no status read)"}` });
     }
     return out;
   }
@@ -1978,7 +2298,7 @@ export function gradeBundle(b: LiveBundle, o: GradeOptions): LiveVerdict {
   const budget = linearBudget(b);
   const lb = linearBudgetFindings(b, budget);
   const reg = toolRegistration(b, o.hooksJsonPath ?? DEFAULT_HOOKS_JSON, o.inventoryPath ?? DEFAULT_INVENTORY);
-  const aborts = [...spawnOverrun(b), ...missingSessions(b), ...noScenarios(b), ...pluginChanged(b, o.behaviourDigestNow), ...gw.aborts, ...lb.aborts, ...auditIncomplete(b), ...createKeyUnreadable(b), ...reg.aborts];
+  const aborts = [...spawnOverrun(b), ...missingSessions(b), ...noScenarios(b), ...pluginChanged(b, o.behaviourDigestNow), ...gw.aborts, ...lb.aborts, ...auditIncomplete(b), ...auditFieldsAbsent(b), ...createKeyUnreadable(b), ...reg.aborts];
   const findings: LiveFinding[] = [
     ...gw.findings,
     ...unannouncedReceipts(b),
@@ -1986,6 +2306,7 @@ export function gradeBundle(b: LiveBundle, o: GradeOptions): LiveVerdict {
     ...lb.findings,
     ...isolationBroken(b),
     ...teardownIncomplete(b),
+    ...itemsOutsideSpaces(b),
     ...reg.findings,
   ];
   for (const s of b.unledgeredSessions ?? []) {
@@ -2337,6 +2658,7 @@ function cliExtract(args: string[]): number {
   const ledgerSessionIds = legSessionIds(readRunLedger(smokeRunLedgerPath(projectRoot, run.runId)), run.runId, f.get("leg")!);
   const x = extractBundle({
     configDirs: [f.get("config-dir")!],
+    toolkitRoot: projectRoot,
     ledgerSessionIds,
     roots: { A: { path: f.get("root-a")!, tag: `shr-${nonce}-a` }, B: { path: f.get("root-b")!, tag: `shr-${nonce}-b` } },
     run,

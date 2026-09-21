@@ -37,9 +37,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { runAutoApproveMarkerProbe } from "../adapters/_shared/src/auto_approve_marker";
+import { AUTO_ANSWERS_OPEN, extractAutoAnswers, resolveInterviewAnswer } from "../adapters/_shared/src/auto_answers";
 import { HARNESS_SKILL_RELATIVE_PATHS } from "../adapters/_shared/src/harness_artifact_paths";
 import { runRequiresInputSentinelCoverageProbe } from "../adapters/_shared/src/requires_input_sentinel_coverage";
 import { scanCandidateCheckSkills } from "../adapters/_shared/src/scan_candidate_check_skills";
+import { AUDIT_REQUEST_FIELDS, parseMarker } from "../adapters/_shared/src/shared_tracker_live_grader";
 import { isSpawnFence, parseFences, type Fence } from "./_spawn_fences";
 import {
   baseEnv as stubEnv,
@@ -1617,6 +1619,577 @@ describe("STE-618 follow-up — Phase 6 writes verdict.json into the bundle dire
     const v = verdictPlacementViolations(verdictPathsFromRun(m));
     expect(v.filter((x) => x.startsWith("Phase 7 reads"))).toHaveLength(1);
     expect(v.filter((x) => !x.startsWith("Phase 7 reads"))).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// Live-run audit (2026-09-21, second pass) — five defects that would waste or
+// invalidate a live run. Each is graded from a RUN of the document's fences
+// under the STE-594 stubs (or real git for the operator fences), and each
+// check is shown red on a mutated copy of the document.
+// ===========================================================================
+
+const STEP_TAG = "# shared-tracker-smoke: scenario step";
+const AUDIT_TAG = "# shared-tracker-smoke: audit";
+const IDLE_A_TAG = "# shared-tracker-smoke: S5 idle A";
+const DRY_RUN_TAG = "# shared-tracker-smoke: privacy dry run";
+const FILL = { nonce: "shr0000abcd", token: "M_span01", intruder: "DST-3", aS1: "DST-4" };
+
+/**
+ * A stub sandbox whose `claude` also saves its stdin (the child's prompt) to
+ * `<envDir>/<pid>.stdin`, and whose `bun` answers the grader's `extract` as
+ * `STUB_EXTRACT` says (ok | privacy | fail); every other bun call goes to the
+ * STE-594 harness stub unchanged.
+ */
+function withCaptureStub(f: (sb: StubSandbox) => void): void {
+  withStub((sb) => {
+    const q = (x: string) => `'${x.replace(/'/g, `'\\''`)}'`;
+    writeFileSync(
+      join(sb.bin, "claude"),
+      ["#!/bin/bash", `printf 'claude\\t%s\\t%s\\n' "$$" "$*" >> ${q(sb.calls)}`, `cat > ${q(sb.envDir)}/"$$".stdin`, "exec -a claude /bin/sleep 1.594", ""].join("\n"),
+      { mode: 0o755 },
+    );
+    const harnessBun = join(sb.root, "bun-harness");
+    writeFileSync(harnessBun, readFileSync(join(sb.bin, "bun"), "utf-8"), { mode: 0o755 });
+    writeFileSync(
+      join(sb.bin, "bun"),
+      [
+        "#!/bin/bash",
+        'case "$*" in',
+        "  *shared_tracker_live_grader.ts*extract*)",
+        `    printf 'bun\\t%s\\t%s\\n' "$$" "$*" >> ${q(sb.calls)}`,
+        '    case "${STUB_EXTRACT:-ok}" in',
+        "      privacy) printf 'extract: refused to write the bundle — it holds personal data (1 match(es)):\\n  /Users/<name> at $.repos.A.commits[0].subject\\n' >&2; exit 1 ;;",
+        "      fail) printf 'extract: the plugin manifest under the tree cannot be read: ENOENT\\n' >&2; exit 1 ;;",
+        "      *) echo 'bundle: dry sessions=0'; exit 0 ;;",
+        "    esac ;;",
+        "esac",
+        `exec ${q(harnessBun)} "$@"`,
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    f(sb);
+  });
+}
+
+/** The prompt each `claude` the stub saw was handed, in order. */
+function childPrompts(sb: StubSandbox): string[] {
+  return readStubCalls(sb)
+    .filter((c) => c.kind === "claude")
+    .map((c) => {
+      const p = join(sb.envDir, `${c.pid}.stdin`);
+      return existsSync(p) ? readFileSync(p, "utf-8") : "";
+    });
+}
+
+// --- item 1: every step prompt carries a sanctioned answers block ----------
+
+/** `/spec-write`'s interview keys, read from their two sources, never typed here. */
+function specWriteInterviewKeys(): string[] {
+  const proto = readFileSync(join(pluginRoot, "docs", "auto-mode-protocol.md"), "utf-8");
+  const from = proto.indexOf("- `/spec-write` —");
+  const to = proto.indexOf("- `/setup` —", from);
+  expect(from >= 0 && to > from, "auto-mode-protocol.md names /spec-write's and /setup's consumer bullets").toBe(true);
+  const m = /interview keys a driver may supply\s+are ([\s\S]*?) —/.exec(proto.slice(from, to));
+  expect(m, "the /spec-write bullet lists the interview keys a driver may supply").not.toBeNull();
+  const content = [...m![1]!.matchAll(/`([a-z_]+)`/g)].map((x) => x[1]!);
+  const skill = readFileSync(join(pluginRoot, "skills", "spec-write", "SKILL.md"), "utf-8");
+  const literal = [...skill.matchAll(/resolveInterviewAnswer\(promptBody, "([a-z_]+)"\)/g)].map((x) => x[1]!);
+  return [...new Set([...content, ...literal])];
+}
+
+interface AnswerRow {
+  nums: number[];
+  feature_summary: string;
+  milestone: string;
+  tracker_orphan_import: string;
+}
+
+function answerRows(text: string): AnswerRow[] {
+  const out: AnswerRow[] = [];
+  // No answers table is no answers: the steps still run, and their prompts are graded.
+  if (!/^### The interview answers\b/m.test(text)) return out;
+  for (const raw of section(text, /^### The interview answers\b/).split("\n")) {
+    const m = /^\|\s*step (\d+)(?:\s*[–-]\s*(\d+))?\s*\|/.exec(raw);
+    if (!m) continue;
+    const cells = raw.split("|").slice(1, -1).map((c) => c.trim().replaceAll("`", ""));
+    const a = Number(m[1]);
+    const b = m[2] ? Number(m[2]) : a;
+    out.push({ nums: Array.from({ length: b - a + 1 }, (_, i) => a + i), feature_summary: cells[1]!, milestone: cells[2]!, tracker_orphan_import: cells[3]! });
+  }
+  return out;
+}
+
+function fillIn(s: string, sb: StubSandbox): string {
+  return s
+    .replaceAll("<nonce>", FILL.nonce)
+    .replaceAll("<token>", FILL.token)
+    .replaceAll("<intruder key>", FILL.intruder)
+    .replaceAll("<A's S1 key>", FILL.aS1)
+    .replaceAll("<KEY>", "DST-9")
+    .replaceAll("<container>", "DST")
+    .replaceAll("<tracker>", "jira")
+    .replaceAll("<A>", join(sb.root, "A"))
+    .replaceAll("<B>", join(sb.root, "B"))
+    .replaceAll("`", "");
+}
+
+const ANSWER_SLOT = (key: string) => new RegExp(`^${key}: <[^\\n]*>$`, "m");
+
+/** The step fence for step `n`, every placeholder filled from the step table and the answers table. */
+function stepFenceFor(text: string, n: number, sb: StubSandbox): string | string[] {
+  const row = stepRows(text).find((r) => r.nums.includes(n));
+  if (!row) return [`step ${n}: no step-table row`];
+  const ans = answerRows(text).find((r) => r.nums.includes(n));
+  const roots = row.root.split(/,\s*then\s*/);
+  const root = roots[Math.min(row.nums.indexOf(n), roots.length - 1)]!;
+  const client = row.client === "tree" || row.client === "below-floor" || row.client === "old-client" || row.client === "intruder" ? row.client : "tree";
+  let body = oneFence(text, STEP_TAG).body.replaceAll("<tracker>", "jira")
+    .replace(/^STEP_NAME=.*$/m, `STEP_NAME="${n}-${row.marker}"`)
+    .replace(/^STEP_MARKER=.*$/m, `STEP_MARKER="${row.marker}"`)
+    .replace(/^STEP_ROOT=.*$/m, `STEP_ROOT="${root}"`)
+    .replace(/^STEP_CLIENT=.*$/m, `STEP_CLIENT="${client}"`)
+    .replace(/^<the step's prompt from the table[^\n]*$/m, fillIn(row.prompt, sb));
+  for (const k of ["feature_summary", "milestone", "tracker_orphan_import"] as const) {
+    if (ans && ANSWER_SLOT(k).test(body)) body = body.replace(ANSWER_SLOT(k), `${k}: ${fillIn(ans[k], sb)}`);
+  }
+  return rebaseIntoStub(body, sb);
+}
+
+/** The /spec-write steps, from the step table: the steps whose prompt runs /spec-write. */
+function specWriteSteps(text: string): number[] {
+  return stepRows(text).filter((r) => /\/spec-write\b/.test(r.prompt)).flatMap((r) => r.nums);
+}
+
+/**
+ * Item 1 — each step's child prompt, as the step fence hands it over: a
+ * well-formed `<dpt:answers>v1` block below the marker, parsed by the real
+ * `auto_answers.ts`; every `/spec-write` interview key answered, non-empty,
+ * no placeholder left; a create step's `feature_summary` is the exact title
+ * its prompt names; only S13 answers the import question with an
+ * `Import <KEY>` label, and it names the intruder's key.
+ */
+function answersViolations(text: string, steps: number[]): string[] {
+  const keys = specWriteInterviewKeys();
+  const v: string[] = [];
+  for (const n of steps) {
+    withCaptureStub((sb) => {
+      writeStubRunEnv(sb, {});
+      const script = stepFenceFor(text, n, sb);
+      if (Array.isArray(script)) {
+        v.push(...script);
+        return;
+      }
+      const r = runStubScript(sb, script, stubEnv(sb));
+      const prompts = childPrompts(sb);
+      if (r.exitCode !== 0 || prompts.length !== 1) {
+        v.push(`step ${n}: the fence did not start exactly one child (exit ${r.exitCode}, ${prompts.length} children): ${r.err.trim()}`);
+        return;
+      }
+      const prompt = prompts[0]!;
+      const row = stepRows(text).find((x) => x.nums.includes(n))!;
+      const marker = parseMarker(prompt);
+      if (!marker.ok) v.push(`step ${n}: the grader cannot map the prompt to a scenario: ${marker.detail}`);
+      const got = extractAutoAnswers(prompt);
+      if (!got.present) {
+        v.push(`step ${n}: the prompt carries no well-formed answers block`);
+        return;
+      }
+      if (!(prompt.indexOf(MARKER) >= 0 && prompt.indexOf(MARKER) < prompt.indexOf(AUTO_ANSWERS_OPEN))) v.push(`step ${n}: the answers block is not below the marker`);
+      for (const k of keys) {
+        const a = got.answers[k];
+        if (a === undefined || a === "") v.push(`step ${n}: the block does not answer ${k}`);
+        else if (/<[^>]*>/.test(a)) v.push(`step ${n}: ${k} still carries a placeholder: ${a}`);
+      }
+      const title = /Create (?:one|an) FR titled `([^`]+)`/.exec(row.prompt)?.[1];
+      if (title !== undefined) {
+        if (got.answers.feature_summary !== fillIn(title, sb)) v.push(`step ${n}: feature_summary is "${got.answers.feature_summary}", not the title its prompt names ("${fillIn(title, sb)}")`);
+        if (/^none\b/i.test(got.answers.milestone ?? "")) v.push(`step ${n}: a create step answers milestone with none`);
+      }
+      const milestoneTitle = /Plan a milestone titled `([^`]+)`/.exec(row.prompt)?.[1];
+      if (milestoneTitle !== undefined && !(got.answers.milestone ?? "").includes(fillIn(milestoneTitle, sb))) v.push(`step ${n}: milestone does not name the milestone the step plans`);
+      const imp = resolveInterviewAnswer(prompt, "tracker_orphan_import");
+      if (row.marker === "S13") {
+        if (imp !== `Import ${FILL.intruder}`) v.push(`step ${n}: tracker_orphan_import is ${JSON.stringify(imp)}, not the printed label "Import ${FILL.intruder}"`);
+      } else if (typeof imp === "string" && (/^\s*import\b/i.test(imp) || /\b[A-Z][A-Z0-9]*-\d+\b/.test(imp))) {
+        v.push(`step ${n}: tracker_orphan_import "${imp}" would consent to an import outside S13`);
+      }
+    });
+  }
+  return v;
+}
+
+const ALL_STEPS = Array.from({ length: 26 }, (_, i) => i + 1);
+
+describe("live-run item 1 — every step prompt carries a sanctioned answers block that answers its interview", () => {
+  test("the interview keys come from auto-mode-protocol.md and /spec-write (twelve content keys plus tracker_orphan_import)", () => {
+    const keys = specWriteInterviewKeys();
+    expect(keys.length).toBe(13);
+    expect(keys).toContain("tracker_orphan_import");
+    expect(keys).toContain("feature_summary");
+  });
+  test("the /spec-write steps are 1, 4, 5, 6, 10, 11, 16, 20 and S13's step 22", () => {
+    expect(specWriteSteps(docText())).toEqual([1, 4, 5, 6, 10, 11, 16, 20, 22]);
+  });
+  test("RUN: each of the 26 step fences hands its child a well-formed block below the marker; /spec-write steps answer every key; only S13 imports, by the intruder's printed label", () => {
+    expect(answersViolations(docText(), ALL_STEPS)).toEqual([]);
+  }, 180_000);
+  test("MUTATION — a step fence without the answers block is red on every step (the marker alone answers nothing)", () => {
+    const text = docText();
+    const f = oneFence(text, STEP_TAG);
+    const m = text.replace(f.body, f.body.replace("\n<dpt:answers>v1\n${STEP_ANSWERS}\n</dpt:answers>\n", "\n"));
+    expect(m, "control: the edit landed").not.toBe(text);
+    expect(answersViolations(m, [4, 22])).toEqual(["step 4: the prompt carries no well-formed answers block", "step 22: the prompt carries no well-formed answers block"]);
+  }, 60_000);
+  test("MUTATION — an unterminated block (the close delimiter dropped) fails closed: red", () => {
+    const text = docText();
+    const f = oneFence(text, STEP_TAG);
+    const m = text.replace(f.body, f.body.replace("${STEP_ANSWERS}\n</dpt:answers>\n", "${STEP_ANSWERS}\n"));
+    expect(m).not.toBe(text);
+    expect(answersViolations(m, [10])).toEqual(["step 10: the prompt carries no well-formed answers block"]);
+  }, 60_000);
+  test("MUTATION — the block placed above the marker is red", () => {
+    const text = docText();
+    const f = oneFence(text, STEP_TAG);
+    const moved = f.body
+      .replace("\n<dpt:answers>v1\n${STEP_ANSWERS}\n</dpt:answers>\n", "\n")
+      .replace(`${MARKER}\n`, `<dpt:answers>v1\n\${STEP_ANSWERS}\n</dpt:answers>\n${MARKER}\n`);
+    const m = text.replace(f.body, moved);
+    expect(m).not.toBe(text);
+    expect(answersViolations(m, [5])).toEqual(["step 5: the answers block is not below the marker"]);
+  }, 60_000);
+  test("MUTATION — a fence whose block drops one interview key (risks) is red on a /spec-write step", () => {
+    const text = docText();
+    const f = oneFence(text, STEP_TAG);
+    const m = text.replace(f.body, f.body.replace(/^risks: .*\n/m, ""));
+    expect(m).not.toBe(text);
+    expect(answersViolations(m, [4])).toEqual(["step 4: the block does not answer risks"]);
+  }, 60_000);
+  test("MUTATION — S13's import answered Skip is red; a non-S13 step answered Import <intruder key> is red", () => {
+    const text = docText();
+    const s13 = answerRowLine(text, 22);
+    const skip = text.replace(s13, s13.replace("`Import <intruder key>`", "Skip every orphan; import nothing"));
+    expect(skip).not.toBe(text);
+    expect(answersViolations(skip, [22])).toEqual([`step 22: tracker_orphan_import is "Skip every orphan; import nothing", not the printed label "Import ${FILL.intruder}"`]);
+    const s1 = answerRowLine(text, 4);
+    const early = text.replace(s1, s1.replace(/Skip every orphan; import nothing \|$/, "`Import <intruder key>` |"));
+    expect(early).not.toBe(text);
+    expect(answersViolations(early, [4])).toEqual([`step 4: tracker_orphan_import "Import ${FILL.intruder}" would consent to an import outside S13`]);
+  }, 60_000);
+  test("MUTATION — a create step whose feature_summary is not its title is red (the grader counts FRs by title)", () => {
+    const text = docText();
+    const s1 = answerRowLine(text, 4);
+    const m = text.replace(s1, s1.replace("`<nonce> S1 same title`", "a same-title FR for S1"));
+    expect(m).not.toBe(text);
+    expect(answersViolations(m, [5])).toEqual([`step 5: feature_summary is "a same-title FR for S1", not the title its prompt names ("${FILL.nonce} S1 same title")`]);
+  }, 60_000);
+});
+
+function answerRowLine(text: string, n: number): string {
+  const line = section(text, /^### The interview answers\b/).split("\n").find((l) => {
+    const m = /^\|\s*step (\d+)(?:\s*[–-]\s*(\d+))?\s*\|/.exec(l);
+    return m !== null && Number(m[1]) <= n && n <= Number(m[2] ?? m[1]);
+  });
+  expect(line, `§ The interview answers has a row for step ${n}`).toBeDefined();
+  return line!;
+}
+
+// --- items 2 + 3: the audit prompt names its fields; the second Linear audit reads both projects
+
+/**
+ * The audit's requested fields are the grader's own contract, imported from
+ * it: the document's lists must EQUAL `AUDIT_REQUEST_FIELDS`, never a copy.
+ */
+const AUDIT_FIELDS_CONTRACT = AUDIT_REQUEST_FIELDS;
+
+const PROJECTS = { SHARED: "dpt-shared-shr0000abcd", PRE: "dpt-shared-shr0000abcd-pre" };
+
+/** The audit fence run for one tracker and pass: its exit, stderr, and the prompt its child was handed. */
+function runAudit(text: string, tracker: "jira" | "linear", pass: 1 | 2, over: Record<string, string | undefined> = {}): { code: number; err: string; prompt: string | null; appends: number } {
+  let res = { code: -1, err: "", prompt: null as string | null, appends: 0 };
+  withCaptureStub((sb) => {
+    writeStubRunEnv(sb, { TRACKER: tracker, ...PROJECTS, ...over });
+    // writeStubRunEnv names the jira run state; the fence reads the tracker's own.
+    const env = join(sb.tmp, "dpt-shared-jira-run.env");
+    writeFileSync(join(sb.tmp, `dpt-shared-${tracker}-run.env`), readFileSync(env, "utf-8"));
+    const body = oneFence(text, AUDIT_TAG).body.replaceAll("<tracker>", tracker).replace(/^AUDIT_PASS=.*$/m, `AUDIT_PASS="${pass}"`);
+    const r = runStubScript(sb, rebaseIntoStub(body, sb), stubEnv(sb));
+    const prompts = childPrompts(sb);
+    res = {
+      code: r.exitCode,
+      err: r.err,
+      prompt: prompts.length === 1 ? prompts[0]! : null,
+      appends: readStubCalls(sb).filter((c) => c.kind === "bun" && /smoke_run_ledger\.ts["']?\s+append\b/.test(c.args)).length,
+    };
+  });
+  return res;
+}
+
+function requestedFields(prompt: string): string[] | null {
+  const m = /^Request exactly these fields[^:\n]*: (.+)$/m.exec(prompt);
+  return m ? m[1]!.split(",").map((x) => x.trim()) : null;
+}
+
+function auditFieldViolations(text: string): string[] {
+  const v: string[] = [];
+  for (const tracker of ["jira", "linear"] as const) {
+    for (const pass of [1, 2] as const) {
+      const r = runAudit(text, tracker, pass);
+      if (r.prompt === null) {
+        v.push(`${tracker} audit ${pass}: no child was started (exit ${r.code}): ${r.err.trim()}`);
+        continue;
+      }
+      const got = requestedFields(r.prompt);
+      if (got === null) v.push(`${tracker} audit ${pass}: the prompt names no fields`);
+      else if (JSON.stringify(got) !== JSON.stringify(AUDIT_FIELDS_CONTRACT[tracker])) v.push(`${tracker} audit ${pass}: the prompt requests ${got.join(", ")}, not ${AUDIT_FIELDS_CONTRACT[tracker].join(", ")}`);
+    }
+  }
+  return v;
+}
+
+const GET_PROJECT_RE = /mcp__linear__get_project once for the project named (\S+) and once for the project named (\S+), by name/;
+
+function projectReadViolations(text: string): string[] {
+  const v: string[] = [];
+  const l2 = runAudit(text, "linear", 2);
+  const m = l2.prompt === null ? null : GET_PROJECT_RE.exec(l2.prompt);
+  if (m === null) v.push("the second Linear audit does not read the two throwaway projects back with mcp__linear__get_project");
+  else if (m[1] !== PROJECTS.SHARED || m[2] !== PROJECTS.PRE) v.push(`the second Linear audit reads ${m[1]} and ${m[2]}, not the shared and pre-repoint projects`);
+  for (const [t, p] of [["linear", 1], ["jira", 2], ["jira", 1]] as const) {
+    const r = runAudit(text, t, p);
+    if (r.prompt !== null && /get_project/.test(r.prompt)) v.push(`${t} audit ${p} reads a project; only the second Linear audit does`);
+  }
+  const boot = oneFence(text, "# shared-tracker-smoke: bootstrap").body;
+  if (!/^printf 'SHARED=%q\\nPRE=%q\\n' "\$\{SHARED\}" "\$\{PRE\}" >> \/tmp\/dpt-shared-<tracker>-run\.env$/m.test(boot)) v.push("bootstrap does not record SHARED and PRE in the run state the audit reads");
+  return v;
+}
+
+describe("live-run item 2 — the audit prompt requests exactly the fields the grader counts by", () => {
+  test("the grader's AUDIT_REQUEST_FIELDS names labels and project on both trackers (the fields an item is attributed by)", () => {
+    for (const t of ["jira", "linear"] as const) expect(AUDIT_REQUEST_FIELDS[t]).toEqual(expect.arrayContaining(["labels", "project"]));
+  });
+  test("RUN: both audits, on both trackers, request exactly the contract's fields", () => {
+    expect(auditFieldViolations(docText())).toEqual([]);
+  }, 60_000);
+  test("MUTATION — a Jira list without labels, or a Linear list without project, is red", () => {
+    const text = docText();
+    const f = oneFence(text, AUDIT_TAG);
+    const noLabels = text.replace(f.body, f.body.replace('AUDIT_FIELDS="summary, labels, status,', 'AUDIT_FIELDS="summary, status,'));
+    expect(noLabels).not.toBe(text);
+    expect(auditFieldViolations(noLabels)).toEqual([
+      `jira audit 1: the prompt requests summary, status, parent, issuetype, project, not ${AUDIT_FIELDS_CONTRACT.jira.join(", ")}`,
+      `jira audit 2: the prompt requests summary, status, parent, issuetype, project, not ${AUDIT_FIELDS_CONTRACT.jira.join(", ")}`,
+    ]);
+    const noProject = text.replace(f.body, f.body.replace("labels, status, project, projectMilestone", "labels, status, projectMilestone"));
+    expect(noProject).not.toBe(text);
+    expect(auditFieldViolations(noProject).filter((x) => x.startsWith("linear"))).toHaveLength(2);
+  }, 60_000);
+  test("MUTATION — an audit prompt that names no fields at all is red", () => {
+    const text = docText();
+    const f = oneFence(text, AUDIT_TAG);
+    const m = text.replace(f.body, f.body.replace(/^Request exactly these fields.*\n/m, ""));
+    expect(m).not.toBe(text);
+    expect(auditFieldViolations(m).filter((x) => /names no fields/.test(x))).toHaveLength(4);
+  }, 60_000);
+});
+
+describe("live-run item 3 — the second Linear audit reads both throwaway projects back", () => {
+  test("RUN: the second Linear audit calls get_project for the shared and the pre-repoint project by name; no other audit does", () => {
+    expect(projectReadViolations(docText())).toEqual([]);
+  }, 60_000);
+  test("REFUSAL — the second Linear audit with no pre-repoint project in the run state refuses in NFR-10 shape, before any append or child", () => {
+    const r = runAudit(docText(), "linear", 2, { PRE: undefined });
+    expect(r.code).not.toBe(0);
+    expect(r.prompt).toBeNull();
+    expect(r.appends).toBe(0);
+    expectNfr10(r.err, true);
+    expect(r.err).toMatch(/check=projects-unknown/);
+  });
+  test("MUTATION — an audit prompt without the project reads is red", () => {
+    const text = docText();
+    const f = oneFence(text, AUDIT_TAG);
+    const m = text.replace(f.body, f.body.replace("\n${PROJECT_READS}\nPROMPT_EOF", "\nPROMPT_EOF"));
+    expect(m).not.toBe(text);
+    expect(projectReadViolations(m)).toEqual(["the second Linear audit does not read the two throwaway projects back with mcp__linear__get_project"]);
+  }, 60_000);
+  test("MUTATION — a bootstrap that does not record the projects in the run state is red", () => {
+    const text = docText();
+    const m = text.replace(/^printf 'SHARED=%q\\nPRE=%q\\n'.*\n/m, "");
+    expect(m).not.toBe(text);
+    expect(projectReadViolations(m)).toContain("bootstrap does not record SHARED and PRE in the run state the audit reads");
+  }, 60_000);
+});
+
+// --- item 4: A is idle on the span milestone before the S5 busy step --------
+
+function withIdleASandbox(f: (t: { tmp: string; a: string }) => void): void {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "ste617-s5a-")));
+  try {
+    const tmp = join(root, "tmp");
+    const a = join(root, "A");
+    mkdirSync(tmp, { recursive: true });
+    const fr = (ms: string) => `---\ntitle: x\nmilestone: ${ms}\nstatus: active\narchived_at: null\n---\n\n# x\n`;
+    // Step 10 left A's S2 FR active in the span milestone; another FR sits elsewhere.
+    gitRepo(a, { "CLAUDE.md": "# A\n", "specs/frs/fr-s2.md": fr("M_span01"), "specs/frs/fr-s1.md": fr("M_other9") });
+    writeFileSync(join(tmp, "dpt-shared-jira-run.env"), `TRACKER=jira\nROOT_A=${a}\nPLUGIN_TREE=${pluginRoot}\n`);
+    f({ tmp, a });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+/** Active FRs in `root` bound to the span token: what /ship-milestone's refusal #1 counts. */
+function activeSpanFrs(root: string): string[] {
+  const dir = join(root, "specs", "frs");
+  return readdirSync(dir).filter((n) => n.endsWith(".md") && /^milestone: M_span01$/m.test(readFileSync(join(dir, n), "utf-8")) && /^status: active$/m.test(readFileSync(join(dir, n), "utf-8")));
+}
+
+/**
+ * Item 4 — what A looks like when step 14 starts: every operator fence the
+ * document places before step 14 is run over an A that step 10 left busy, and
+ * A must then hold no active FR on the span token (else /ship-milestone stops
+ * at refusal #1 and sibling_release.ts never runs), with the archive committed
+ * and the tree clean. The document side: the fence is placed before the busy
+ * step, and the grader's S5 order (B's archive before the permit twin) stays.
+ */
+function idleAViolations(text: string): string[] {
+  const v: string[] = [];
+  const s5 = rowsOf(text, "S5", "A");
+  if (s5.length !== 2) return [`expected two S5 rows rooted in A, found ${s5.length}`];
+  const busy = s5[0]!.nums[0]!;
+  const hits = fencesTagged(text, IDLE_A_TAG);
+  if (hits.length === 0) v.push(`no operator fence makes A idle on the span milestone before step ${busy}`);
+  else if (hits.length > 1) return [`expected one fence tagged ${IDLE_A_TAG}, found ${hits.length}`];
+  else {
+    const f = hits[0]!;
+    if (!new RegExp(`before step ${busy}\\b`, "i").test(f.region)) v.push(`the A-idle fence is not placed before step ${busy}`);
+    const b = fencesTagged(text, S5_ARCHIVE_TAG)[0];
+    if (b && !(f.openLine < b.openLine)) v.push("the A-idle fence comes after B's archive fence");
+  }
+  withIdleASandbox(({ tmp, a }) => {
+    for (const f of hits) {
+      const r = runOperatorFence(f.body.replace(/^SPAN_TOKEN=.*$/m, 'SPAN_TOKEN="M_span01"'), tmp, a);
+      if (r.code !== 0) v.push(`the A-idle fence failed: ${r.err.trim()}`);
+    }
+    const left = activeSpanFrs(a);
+    if (left.length > 0) v.push(`A still holds active span FRs at step ${busy} (${left.join(", ")}): /ship-milestone stops at refusal #1 before sibling_release.ts`);
+    else {
+      if (!/archive/i.test(sh(a, ["git", "log", "-1", "--format=%s"]).out)) v.push("A's archive is not committed with an archive subject");
+      if (sh(a, ["git", "status", "--porcelain"]).out.trim() !== "") v.push("A's tree is not clean at the busy step (refusal #3)");
+      if (!existsSync(join(a, "specs", "frs", "fr-s1.md"))) v.push("an FR bound to another milestone was moved");
+    }
+  });
+  return v;
+}
+
+describe("live-run item 4 — A is idle on the span milestone before the S5 busy step, so it reaches the sibling gate", () => {
+  test("RUN: the document's fences leave A with no active span FR, the archive committed, the tree clean, before step 14", () => {
+    expect(idleAViolations(docText())).toEqual([]);
+  });
+  test("the grader's S5 order is kept: B's archive fence still sits between the busy step and the permit twin", () => {
+    expect(s5Violations(docText())).toEqual([]);
+  });
+  test("REFUSAL twin — A holds no active FR bound to the span token: refused in NFR-10 shape, no commit made", () => {
+    withIdleASandbox(({ tmp, a }) => {
+      rmSync(join(a, "specs", "frs", "fr-s2.md"));
+      sh(a, ["git", "-c", "commit.gpgsign=false", "commit", "-qam", "chore: drop"]);
+      const head = sh(a, ["git", "rev-parse", "HEAD"]).out;
+      const r = runOperatorFence(oneFence(docText(), IDLE_A_TAG).body.replace(/^SPAN_TOKEN=.*$/m, 'SPAN_TOKEN="M_span01"'), tmp, a);
+      expect(r.code).not.toBe(0);
+      expectNfr10(r.err);
+      expect(sh(a, ["git", "rev-parse", "HEAD"]).out).toBe(head);
+    });
+  });
+  test("MUTATION — a document without the A-idle fence is red: A still holds its span FR at step 14", () => {
+    const text = docText();
+    const f = oneFence(text, IDLE_A_TAG);
+    const lines = text.split("\n");
+    const cut = [...lines.slice(0, f.openLine - 1), ...lines.slice(f.closeLine)].join("\n");
+    expect(idleAViolations(cut)).toEqual([
+      "no operator fence makes A idle on the span milestone before step 14",
+      "A still holds active span FRs at step 14 (fr-s2.md): /ship-milestone stops at refusal #1 before sibling_release.ts",
+    ]);
+  });
+  test("MUTATION — an A-idle fence that never commits is red", () => {
+    const text = docText();
+    const f = oneFence(text, IDLE_A_TAG);
+    const m = text.replace(f.body, f.body.split("\n").filter((l) => !/\bcommit\b/.test(l) || /^\s*#/.test(l)).join("\n"));
+    expect(idleAViolations(m).some((x) => /not committed|not clean/.test(x))).toBe(true);
+  });
+});
+
+// --- item 5: a privacy dry run after bootstrap, before the first spawn ------
+
+function runDryRun(text: string, stub: "ok" | "privacy" | "fail"): { code: number; out: string; err: string; extractOut: string | null; claude: number; appends: number; sbTmp: string } {
+  let res = { code: -1, out: "", err: "", extractOut: null as string | null, claude: 0, appends: 0, sbTmp: "" };
+  withCaptureStub((sb) => {
+    writeStubRunEnv(sb, { SHARED: "DST", PRE: "DST2", DIGEST_AT_START: "a".repeat(64), RUN_START_MS: "1" });
+    const body = oneFence(text, DRY_RUN_TAG).body.replaceAll("<tracker>", "jira");
+    const r = runStubScript(sb, rebaseIntoStub(body, sb), stubEnv(sb, { STUB_EXTRACT: stub }));
+    const calls = readStubCalls(sb);
+    const x = calls.find((c) => c.kind === "bun" && /shared_tracker_live_grader\.ts["']?\s+extract\b/.test(c.args));
+    res = {
+      code: r.exitCode,
+      out: r.out,
+      err: r.err,
+      extractOut: x ? flagValue(x.args, "out") : null,
+      claude: calls.filter((c) => c.kind === "claude").length,
+      appends: calls.filter((c) => c.kind === "bun" && /smoke_run_ledger\.ts["']?\s+append\b/.test(c.args)).length,
+      sbTmp: sb.tmp,
+    };
+  });
+  return res;
+}
+
+function dryRunViolations(text: string): string[] {
+  const v: string[] = [];
+  const hits = fencesTagged(text, DRY_RUN_TAG);
+  if (hits.length !== 1) return [`expected one fence tagged ${DRY_RUN_TAG}, found ${hits.length}`];
+  const boot = oneFence(text, "# shared-tracker-smoke: bootstrap");
+  const firstSpawn = parseFences("shared-tracker-smoke", text).find(isSpawnFence)!;
+  if (!(boot.openLine < hits[0]!.openLine && hits[0]!.openLine < firstSpawn.openLine)) v.push("the dry run is not between the bootstrap and the first spawn fence");
+  const leak = runDryRun(text, "privacy");
+  if (leak.code === 0) v.push("a privacy refusal from the dry-run extract does not refuse the run");
+  else if (!/check=privacy-leak/.test(leak.err)) v.push(`a privacy refusal is not refused as privacy-leak: ${leak.err.trim()}`);
+  if (leak.claude > 0 || leak.appends > 0) v.push("the dry run started a child or appended a ledger row");
+  const ok = runDryRun(text, "ok");
+  if (ok.code !== 0) v.push(`a clean dry run does not pass: ${ok.err.trim()}`);
+  if (ok.extractOut === null) v.push("the dry run makes no extract call");
+  else if (!ok.extractOut.startsWith(`${ok.sbTmp}/`) || /tests\/fixtures/.test(ok.extractOut)) v.push(`the dry run writes its bundle outside /tmp: ${ok.extractOut}`);
+  return v;
+}
+
+describe("live-run item 5 — a privacy dry run over the bootstrap state refuses before any spawn", () => {
+  test("the grader's privacy refusal says `holds personal data` — the phrase the dry run keys on", () => {
+    expect(readFileSync(join(pluginRoot, "adapters", "_shared", "src", "shared_tracker_live_grader.ts"), "utf-8")).toContain("it holds personal data");
+  });
+  test("RUN: placed after bootstrap and before the first spawn; a privacy refusal refuses, a clean extract passes, its bundle stays under /tmp", () => {
+    expect(dryRunViolations(docText())).toEqual([]);
+  });
+  test("REFUSAL — a privacy refusal: NFR-10 on stderr, check=privacy-leak, no child, no ledger append", () => {
+    const r = runDryRun(docText(), "privacy");
+    expect(r.code).not.toBe(0);
+    expectNfr10(r.err);
+    expect(r.err).toMatch(/check=privacy-leak/);
+    expect([r.claude, r.appends]).toEqual([0, 0]);
+    expect(r.out, "the grader's matches are shown to the operator").toMatch(/\/Users\/<name>/);
+  });
+  test("REFUSAL — an extract that fails for another reason refuses as dry-run-failed", () => {
+    const r = runDryRun(docText(), "fail");
+    expect(r.code).not.toBe(0);
+    expectNfr10(r.err);
+    expect(r.err).toMatch(/check=dry-run-failed/);
+  });
+  test("MUTATION — a dry run that ignores extract's exit is red; a document without the dry run is red", () => {
+    const text = docText();
+    const f = oneFence(text, DRY_RUN_TAG);
+    const ignored = text.replace(f.body, f.body.replace('2> "${DRY_ERR}"; then', '2> "${DRY_ERR}" || true; then'));
+    expect(ignored).not.toBe(text);
+    expect(dryRunViolations(ignored)).toEqual(["a privacy refusal from the dry-run extract does not refuse the run"]);
+    const lines = text.split("\n");
+    const cut = [...lines.slice(0, f.openLine - 1), ...lines.slice(f.closeLine)].join("\n");
+    expect(dryRunViolations(cut)).toEqual([`expected one fence tagged ${DRY_RUN_TAG}, found 0`]);
   });
 });
 
