@@ -15,7 +15,7 @@
 // The stdin entry is guarded by `import.meta.main`, so importing this module
 // for its constants has no side effect.
 
-import { readFileSync, realpathSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { emitNFR10, parseHookPayload, readTranscriptLines, type HookPayload } from "../session.ts";
 import {
@@ -34,6 +34,13 @@ import { milestoneLabel } from "../../../../adapters/_shared/src/attach_project_
 import { governingDecision } from "../../../../adapters/_shared/src/milestone_token.ts";
 import { resolveInterviewAnswer } from "../../../../adapters/_shared/src/auto_answers.ts";
 import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shared/src/dpt_version.ts";
+// The ONE reading of "which command ran which module" (M_85e846 review). Both
+// this gate and the gate-receipt front door reach it here; a second copy is how
+// the two gates came to disagree about the one rule.
+import { bunInvocation, realpathOr } from "../../../../adapters/_shared/src/shell_invocations.ts";
+
+/** Kept exported from here, where it was declared until the two gates started sharing it. */
+export { simpleCommandWords } from "../../../../adapters/_shared/src/shell_invocations.ts";
 
 export const HOOK_NAME = "pre-tracker-write-gate";
 
@@ -349,88 +356,12 @@ function resultText(content: unknown): string {
   return "";
 }
 
-/** This hook's own plugin root: the deciding modules it trusts are ITS plugin's, never a same-named file elsewhere. */
-const OWN_PLUGIN_ROOT = resolve(import.meta.dir, "..", "..", "..", "..");
-
-/** The documented spellings of the plugin root in a command, expanded to this hook's own root. */
-const PLUGIN_ROOT_VARS = ["${CLAUDE_PLUGIN_ROOT}", "$CLAUDE_PLUGIN_ROOT"];
-
-/** The plugin-root variable spelled at `command[i]`, or null. `$CLAUDE_PLUGIN_ROOTX` is another variable. */
-function pluginRootVarAt(command: string, i: number): string | null {
-  for (const v of PLUGIN_ROOT_VARS) {
-    if (!command.startsWith(v, i)) continue;
-    if (v.startsWith("${") || !/[A-Za-z0-9_]/.test(command[i + v.length] ?? "")) return v;
-  }
-  return null;
-}
-
 /**
- * Split a Bash command into words under a deliberately small shell grammar,
- * or null when the command uses anything beyond it: unquoted metacharacters
- * (`;` `&` `|` `<` `>` `(` `)` `#` `*` `?` `~` `!` `{` `}` `[` `]` `\`),
- * command or variable substitution, or a newline. A command that could run a
- * second program — an `echo` chained after the real one, a comment carrying a
- * module name — is thereby not a deciding command at all. The one variable
- * allowed is the plugin root (`${CLAUDE_PLUGIN_ROOT}` / `$CLAUDE_PLUGIN_ROOT`,
- * bare or inside double quotes), expanded to `pluginRoot`: the spelling every
- * skill, adapter doc and hooks.json uses.
+ * This hook's own plugin root: the deciding modules it trusts are ITS plugin's,
+ * never a same-named file elsewhere. Same root the shared reader computes from
+ * its own location, reached from this file instead.
  */
-export function simpleCommandWords(command: string, pluginRoot: string = OWN_PLUGIN_ROOT): string[] | null {
-  const words: string[] = [];
-  let cur: string | null = null;
-  let i = 0;
-  while (i < command.length) {
-    const ch = command[i]!;
-    const rootVar = ch === "$" ? pluginRootVarAt(command, i) : null;
-    if (rootVar !== null) {
-      cur = (cur ?? "") + pluginRoot;
-      i += rootVar.length;
-    } else if (ch === " " || ch === "\t") {
-      if (cur !== null) words.push(cur);
-      cur = null;
-      i++;
-    } else if (ch === "'") {
-      const end = command.indexOf("'", i + 1);
-      if (end < 0) return null;
-      const body = command.slice(i + 1, end);
-      if (body.includes("\n")) return null;
-      cur = (cur ?? "") + body;
-      i = end + 1;
-    } else if (ch === '"') {
-      let body = "";
-      let j = i + 1;
-      for (; j < command.length && command[j] !== '"'; j++) {
-        const v = command[j] === "$" ? pluginRootVarAt(command, j) : null;
-        if (v !== null) {
-          body += pluginRoot;
-          j += v.length - 1;
-        } else if (/[$`\\\n]/.test(command[j]!)) {
-          return null;
-        } else {
-          body += command[j];
-        }
-      }
-      if (j >= command.length) return null;
-      cur = (cur ?? "") + body;
-      i = j + 1;
-    } else if (/[A-Za-z0-9_./:=@%+,-]/.test(ch)) {
-      cur = (cur ?? "") + ch;
-      i++;
-    } else {
-      return null;
-    }
-  }
-  if (cur !== null) words.push(cur);
-  return words;
-}
-
-function realpathOr(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return resolve(path);
-  }
-}
+const OWN_PLUGIN_ROOT = resolve(import.meta.dir, "..", "..", "..", "..");
 
 /**
  * The deciding module a Bash command RUNS to write a receipt, or null. The
@@ -441,17 +372,13 @@ function realpathOr(path: string): string {
  * module's receipt-writing one (`RECEIPT_WRITING_SUBCOMMANDS`).
  */
 export function invokedDecidingModule(command: string): string | null {
-  const words = simpleCommandWords(command.trim());
-  if (!words || words[0] !== "bun") return null;
-  const at = words[1] === "run" ? 2 : 1;
-  const target = words[at];
-  if (target === undefined || !target.startsWith("/")) return null;
-  const actual = realpathOr(target);
+  const run = bunInvocation(command, OWN_PLUGIN_ROOT);
+  if (run === null) return null;
   for (const m of RECEIPT_ANNOUNCING_MODULES) {
-    if (actual !== realpathOr(join(OWN_PLUGIN_ROOT, "adapters", "_shared", "src", m))) continue;
+    if (run.module !== realpathOr(join(OWN_PLUGIN_ROOT, "adapters", "_shared", "src", m))) continue;
     const sub = RECEIPT_WRITING_SUBCOMMANDS[m];
-    if (sub === null) return NO_SUBCOMMAND_ARGV[m]?.(words.slice(at + 1)) === true ? m : null;
-    return words[at + 1] === sub ? m : null;
+    if (sub === null) return NO_SUBCOMMAND_ARGV[m]?.(run.args) === true ? m : null;
+    return run.args[0] === sub ? m : null;
   }
   return null;
 }

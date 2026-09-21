@@ -45,6 +45,33 @@ import {
   type SkipIdentities,
 } from "./skip_identities";
 
+/**
+ * The line a cut run leaves in its own output, so the bytes a counter parses
+ * carry the reason they are short rather than looking merely unparseable.
+ */
+export const TIMED_OUT_MARKER = "dpt-gate-run: the gate command did not finish";
+
+/**
+ * How long a gate run may take before it is cut. Generous — this project's own
+ * suite takes about seven minutes — but FINITE, because a runner really does
+ * hang: `bun test --reporter=junit` stalled at 0% CPU with no children twice on
+ * one machine, and an unbounded run turns that into a gate that never returns,
+ * blocking every commit and every release. A verdict beats a hang (M_85e846).
+ */
+export const GATE_RUN_TIMEOUT_MS = 20 * 60_000;
+
+/**
+ * The bound in force: `DPT_GATE_TIMEOUT_MS` when it names a positive number of
+ * milliseconds, else the default. A malformed value is not silently obeyed —
+ * a project whose suite legitimately runs longer raises it on purpose.
+ */
+export function gateRunTimeoutMs(): number {
+  const raw = process.env.DPT_GATE_TIMEOUT_MS;
+  if (raw === undefined) return GATE_RUN_TIMEOUT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : GATE_RUN_TIMEOUT_MS;
+}
+
 /** What one gate run observed. */
 export interface GateRunObservation {
   /**
@@ -180,6 +207,7 @@ export function runGateNamingSkips(
   projectRoot: string,
   stack: string,
   command: readonly string[],
+  timeoutMs: number = gateRunTimeoutMs(),
 ): GateRunObservation {
   const reportDir = mkdtempSync(join(tmpdir(), "dpt-gate-report-"));
   const reportPath = join(reportDir, "junit.xml");
@@ -192,9 +220,19 @@ export function runGateNamingSkips(
     // cwd or a captured stream can be forgotten, and a gate run in the wrong
     // directory measures another project's skips.
     const argv = identityCommand === null ? [...command] : ["/bin/sh", "-c", identityCommand];
-    const proc = Bun.spawnSync(argv, { cwd: projectRoot, stdout: "pipe", stderr: "pipe" });
-    const output = `${proc.stdout.toString()}\n${proc.stderr.toString()}`;
+    const proc = Bun.spawnSync(argv, { cwd: projectRoot, stdout: "pipe", stderr: "pipe", timeout: timeoutMs });
+    // A cut run has no exit code. SAY so in the bytes: a caller parsing counts
+    // out of a half-written summary would otherwise read the silence as a
+    // clean-but-unparseable run, which is the confident nothing this avoids.
+    const cut = proc.exitCode === null;
+    const minutes = Math.round(timeoutMs / 60_000);
+    const output =
+      `${proc.stdout.toString()}\n${proc.stderr.toString()}` +
+      (cut ? `\n${TIMED_OUT_MARKER} within ${minutes} minute(s) and was stopped.\n` : "");
 
+    // A cut run states it could not name its skips, rather than handing back
+    // the identities of a report that was still being written.
+    if (cut) return { output, identities: identityCommand === null ? null : { status: "unavailable" } };
     if (identityCommand === null) return { output, identities: null };
     // Anchored HERE, at the one place both halves of the ratchet run their
     // gate: the WRITE side and the READ side must divide out the same cwd or

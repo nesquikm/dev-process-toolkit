@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.89.0] — 2026-09-20 — "Provenance"
+
+### Changed
+
+- Gate evidence counts only in the repository it was produced for (STE-614). Every commit and pull request in a toolkit-managed checkout now needs a gate receipt inside that checkout, shared or not. A gate run for one repository no longer clears an action in another, and a skill call that was denied or failed no longer counts as a run. Sessions started before this release keep the old hooks until restarted.
+
+### Fixed
+
+- A commit behind a wrapper, keyword or nested shell is still a commit (STE-601)
+- Every way of changing directory moves the commit with it (STE-613)
+- The pull-request gate finds the repository a request is opened from (STE-615)
+
+Total test count at release: 15516 tests, 0 failures, 0 errors.
+
 ## [2.88.0] — 2026-09-19 — "Honest Join"
 
 ### Added

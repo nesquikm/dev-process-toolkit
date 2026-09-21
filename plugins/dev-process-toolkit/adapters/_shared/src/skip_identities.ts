@@ -240,7 +240,13 @@ const IDENTITY_SOURCES: Readonly<Record<string, IdentitySource>> = {
   bun: {
     label: "bun test --reporter=junit",
     compose: (reportPath: string): string =>
-      `bun test --reporter=junit --reporter-outfile=${shellQuote(reportPath)}`,
+      // `--timeout 30000` is load insurance, not a loosened gate: the same
+      // tests run, each with a deadline a busy machine cannot trip by itself.
+      // MEASURED (M_85e846): under the default 5-second deadline the full suite
+      // hit a storm of timeouts and then stalled at 0% CPU with no children,
+      // twice; with this deadline it completed in 380s, 0 fail. A run that
+      // cannot finish names no skips, so the ratchet it feeds goes blind.
+      `bun test --timeout 30000 --reporter=junit --reporter-outfile=${shellQuote(reportPath)}`,
   },
 };
 

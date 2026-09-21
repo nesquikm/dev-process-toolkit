@@ -25,7 +25,7 @@ Remedy: <one-line remediation>
 Context: mode=hook, ticket=unbound, skill=<skill>, hook=<hook>
 ```
 
-Advisory (non-blocking) hooks substitute `Reminder:` for `Refusing:` and exit 0.
+Advisory (non-blocking) hooks substitute `Reminder:` for `Refusing:`. For the commit gates (`pre-commit-gate-check`, `pre-commit-tdd-orchestrator`) a `Reminder:` exits 1, never 0 — the harness shows no stderr on exit 0, so a Reminder there would be a silent allow; exit 1 is visible and the commit still proceeds.
 
 **Exit-code contract (Claude Code 2.1.x).** The 4 Refusing hooks emit blocking refusals via `exit 2`, per the empirically-verified Claude Code 2.1.141 hook contract:
 - `exit 0` → tool call proceeds (no stderr surfaced).
@@ -36,7 +36,11 @@ STE-290 wired the layer to the real harness stdin `transcript_path` contract; ST
 
 The Claude Code harness surfaces this stderr block back to the model, which then either runs the missing skill or asks the operator to confirm a deliberate override.
 
-**Fail-open on missing session log.** Every hook reads the `transcript_path` field from the harness-supplied stdin JSON payload (per STE-290's empirically-verified 2026-05-14 hook contract; supersedes STE-285's never-set `$CLAUDE_SESSION_FILE` env-var assumption) to detect required `Skill` `tool_use` entries. If stdin is empty / unparseable / lacks `transcript_path` (e.g., commit made outside a Claude Code session, or a fresh session with no log yet), the hook exits 0 — non-Claude commits are never blocked. The fail-open trade-off is explicitly accepted (see STE-285 Risks table, carried forward to STE-289 / STE-290).
+**What counts as evidence — the Skill call PLUS its receipt in the repository.** From this milestone's release, a blocking gate reads TWO legs, and it demands both. The transcript leg is the `Skill` `tool_use` in the current session, unchanged. The repository leg is the gate's own **receipt in the repository being committed to or PR'd**: a gate run records itself in that checkout's `.dpt` receipt store, and a commit or PR into a toolkit-managed checkout is refused unless this session holds a receipt naming that same checkout. This applies in **every** toolkit-managed checkout — shared container or not, `repo_tag` declared or not. The transcript alone said only that the gate ran *somewhere in this session*, so a gate run in one checkout let a commit into a second one straight through; a receipt says *which checkout*, and one gate run vouches for exactly one of them. The receipt is minted by running the gate and by nothing else — no refusal here ever prints the front-door command that writes one, because a remedy handing back the minting command would invite a receipt with no gate behind it. The one and only way to satisfy the repository leg is to run the gate against that checkout.
+
+**A receipt counts only when this session announced it.** The file alone proves nothing: a receipt is an ordinary file, and any Bash call can write one. So the gate looks for the front door's own `dpt-receipt: <path> sha256:<digest>` line in the result of the Bash call that ran it, checks the file still hashes to that digest, and decides which checkout a gate run vouched for by where that announcement sits in the transcript — never by a timestamp inside the file. Measured before this rule landed: a hand-written receipt naming a checkout no gate had run against, stamped a millisecond earlier than the genuine one, won the window and its commit was permitted. A receipt nobody announced is not evidence, and a file rewritten after its announcement stops being evidence.
+
+**Fail-open on missing session log — the ONE fail-open leg.** Every hook reads the `transcript_path` field from the harness-supplied stdin JSON payload (per STE-290's empirically-verified 2026-05-14 hook contract; supersedes STE-285's never-set `$CLAUDE_SESSION_FILE` env-var assumption) to detect required `Skill` `tool_use` entries. The harness-absent case — stdin empty, stdin unparseable, no `transcript_path`, or a `transcript_path` naming a file that does not exist or cannot be read (e.g., a commit made outside a Claude Code session, or a fresh session with no log yet) — makes all three blocking hooks exit 0, **including on a toolkit-managed target holding no gate receipt**. Non-Claude commits are never blocked. This is the only leg on which a guard passes without evidence, and it is a decision, not an accident: it is asked once, by `harnessAbsent` in `templates/hooks/_lib/session.ts`, before any other verdict — ahead of the advisory `Reminder:` legs too, since with no harness there is no operator to read their stderr. The fail-open trade-off is explicitly accepted (see STE-285 Risks table, carried forward to STE-289 / STE-290 / STE-614).
 
 ## Override pattern
 
@@ -69,25 +73,58 @@ Empirical research via the `claude-code-guide` agent confirmed the contract: `${
 - **Name:** `pre-commit-gate-check`
 - **Event:** `PreToolUse`
 - **Matcher:** `Bash` (commit-bearing commands resolved by `resolveCommitTarget` — the bare, `cd`-prefixed and `-C` forms alike; STE-597)
-- **Requirement:** A `Skill(/dev-process-toolkit:gate-check)` `tool_use` MUST appear in the current session log before any `git commit` invocation. Enforces the "gate-check before commit" contract at the byte layer.
-- **NFR-10 refusal shape on miss:**
+- **Requirement:** A `Skill(/dev-process-toolkit:gate-check)` `tool_use` MUST appear in the current session log before any `git commit` invocation, **and** — when the commit's target checkout is toolkit-managed — this session MUST hold a `/gate-check` receipt in that repository's own receipt store. Enforces the "gate-check before commit" contract at the byte layer. An unplaced commit (`GIT_DIR=<B>/.git git commit`, or a wrapper the reader cannot see through) is graded against every checkout it could land in — the session's own plus each root the command names — and, once it passes, still draws a `Reminder:` naming the target it could not place.
+- **NFR-10 refusal shape on a missing Skill call:**
   ```
   Refusing: required dev-process-toolkit:gate-check Skill tool_use not found in current session.
   Remedy: run /dev-process-toolkit:gate-check before retrying this action.
   Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:gate-check, hook=pre-commit-gate-check
   ```
+- **NFR-10 refusal shape when the Skill call is there but the repository holds no receipt** (`<root>` is the checkout being committed to, `<store>` this session's receipt directory under it):
+  ```
+  Refusing: this action writes to <root>, a toolkit-managed checkout, and this session holds no dev-process-toolkit:gate-check gate receipt for it under <store>, so nothing shows the gate ran against that checkout.
+  Remedy: run /dev-process-toolkit:gate-check <root>, then retry this action.
+  Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:gate-check, hook=pre-commit-gate-check
+  ```
+  A receipt that IS there but belongs to another run reads differently, because sending the operator to look for a file sitting in front of them is the wrong remedy: `Refusing: … the dev-process-toolkit:gate-check gate receipt under <store> is not vouched for by any dev-process-toolkit:gate-check Skill call in this session: the dev-process-toolkit:gate-check run it would have to belong to already recorded <other checkout>, and one gate run vouches for one checkout, so nothing shows the gate ran against that checkout.` Same `Remedy:` line.
+
+  **Every state of the store refuses by its own name**, on the same `Refusing: this action writes to <root>, a toolkit-managed checkout, and …` opening and with the same `Remedy:` line, because "no receipt" about a directory that holds one sends the operator to fix the wrong thing:
+
+  | what the store holds | the clause it refuses with |
+  | --- | --- |
+  | nothing for this gate | `this session holds no <skill> gate receipt for it under <store>, so nothing shows …` |
+  | a receipt for a different gate | `the only gate receipt this session holds for it under <store> records <other skill>, not <skill>, so nothing shows …` |
+  | a receipt written for another checkout (copied, or a relocated tree) | `the <skill> gate receipt under <store> was written for <other checkout>, not for <root>, so nothing shows …` |
+  | a receipt for this checkout that no gate run in this session accounts for | the `is not vouched for …` clause above |
+  | a store this hook cannot read at all | `its <skill> gate receipt store under <store> could not be read, so nothing shows …` |
+  | the payload carries no `session_id` | `the hook payload carries no session_id — repository-scoped gate evidence is keyed by the session that produced it, so the <skill> receipt for that checkout could not be looked up.` |
+
+  Files in the directory that did not parse as a receipt — an unreadable one, a malformed one, an envelope of a version this toolkit does not read — are skipped by the store's reader and **counted in the refusal**: ` N file(s) there were skipped as unreadable or malformed.` closes the sentence. The same table drives the /tdd and (from STE-615) the PR gate, with their own skill names, because all three read one rule.
 - **Override pattern:** Disable the plugin (`claude plugin disable dev-process-toolkit`) or copy-and-override per the section above — snapshot-copy `~/.claude/plugins/cache/dev-process-toolkit/dev-process-toolkit/<version>/templates/hooks/process/pre-commit-gate-check.sh` into `~/.claude/hooks/pre-commit-gate-check.sh`, edit (e.g., relax the matcher or whitelist `--amend`), and register the local path in the operator's `~/.claude/settings.json` against an absolute path (no `${CLAUDE_PLUGIN_ROOT}` expansion outside plugin scope).
 
 ### pre-pr-spec-review
 
 - **Name:** `pre-pr-spec-review`
 - **Event:** `PreToolUse`
-- **Matcher:** `Bash` (with command-pattern guard for `gh pr create*`)
-- **Requirement:** A `Skill(/dev-process-toolkit:spec-review)` `tool_use` MUST appear in the current session log before any `gh pr create` invocation. Enforces the "spec-review before PR" contract at the byte layer.
+- **Matcher:** `Bash`, with no command-pattern prefix guard at all. The hook reads every Bash command through the shared shell recogniser (`adapters/_shared/src/shell_invocations.ts`) and asks `resolvePrTarget` whether it creates a pull request, and from where — the PR rows of § Recognised command shapes list the shapes and their verdicts, and grade them by running them.
+- **Requirement:** A `Skill(/dev-process-toolkit:spec-review)` `tool_use` MUST appear in the current session log before any command that creates a pull request. Enforces the "spec-review before PR" contract at the byte layer. `gh pr create` and gh's `pr new` alias are **recognised** in every shape a shell can carry them — behind a `cd`, a parenthesised subshell, a `&&` chain or a newline, under a prefix assignment, `env`, `command` or a nested `bash -c`, and inside a `$(…)` substitution, `--dry-run` included — while `gh pr list`, `gh pr view`, `gh api …/pulls`, `hub pull-request`, GitLab's `git push -o merge_request.create` and a `--help` run create nothing and are out of scope. The house rule is the same two-legged one as the commit gates — the Skill call **plus** the review's receipt in the checkout the request **is opened from**, graded through the one shared composer `gateEvidenceTarget`. A request that names another repository outright (`-R` / `--repo`, else a `GH_REPO=` binding, else `GH_REPO` in the hook's own environment) whose slug matches no remote of that checkout is **known-foreign** and is refused with exit 2 even when the evidence holds, because a review of one repository is not evidence about another; a target the hook cannot place at all is not refused once the evidence holds — it exits 1 with a `Reminder:` naming what it could not resolve, and the request is opened.
 - **NFR-10 refusal shape on miss:**
   ```
   Refusing: required dev-process-toolkit:spec-review Skill tool_use not found in current session.
   Remedy: run /dev-process-toolkit:spec-review before retrying this action.
+  Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:spec-review, hook=pre-pr-spec-review
+  ```
+  The receipt clauses that close the first sentence are the same ones the table under § pre-commit-gate-check lists, with `dev-process-toolkit:spec-review` as the skill.
+- **NFR-10 refusal shape on a known-foreign target** (exit 2, asked before the evidence question, so it is the answer even when the evidence holds):
+  ```
+  Refusing: this request names the repository <slug>, which no remote of <local checkout> matches, so a dev-process-toolkit:spec-review run in this checkout is not evidence about it.
+  Remedy: open the request from the checkout of <slug> itself, and run /dev-process-toolkit:spec-review there first.
+  Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:spec-review, hook=pre-pr-spec-review
+  ```
+- **NFR-10 reminder shape on an unplaced target** (exit 1, only once the evidence holds; the request is opened either way):
+  ```
+  Reminder: cannot resolve the request's target repository from <what could not be resolved>.
+  Remedy: re-run the command naming the repository it opens a request into, and run /dev-process-toolkit:spec-review for that checkout if the gate has not seen it.
   Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:spec-review, hook=pre-pr-spec-review
   ```
 - **Override pattern:** Disable the plugin or copy-and-override — snapshot-copy the seeded script into `~/.claude/hooks/pre-pr-spec-review.sh`, edit (e.g., scope to specific repos or skip on docs-only branches), and register the local absolute path in the operator's `~/.claude/settings.json`.
@@ -114,14 +151,21 @@ Empirical research via the `claude-code-guide` agent confirmed the contract: `${
 - **Requirement:** If FR-related files are staged (the predicate is `isTddRequiredPath` — `specs/frs/<id>.md` **or** any path the detected stack calls a test; a staged test file on its own fires it, and a staged source file on its own does not. An all-spec staged set is carved out ahead of that predicate and exits 0, so a spec-only commit never needs the run. Here "source" and "test" mean whatever the detected stack's layout says they mean, and a path matching the stack's test glob is a test wherever it lives — Dart sources under `lib/` with tests under `test/` or `integration_test/`; Python sources under `src/` with tests under `tests/` or `test/`; TypeScript/JavaScript sources under `src/` with tests under `__tests__/` or `tests/`; Kotlin/Java sources under `src/main/` with tests under `src/test/`; Go sources anywhere, paired with their `_test.go` siblings), the current session log MUST carry TDD evidence. Byte-checkable continuation of STE-283's TDD Orchestrator Contract: prevents the "Inline TDD Antipattern" where `/implement` writes tests + code itself instead of forking `/dev-process-toolkit:tdd`.
 - **Two satisfying doors (STE-598):** the requirement above is a DISJUNCTION, not a single token, and the trigger that raises it is unchanged. Either of these discharges it:
   1. a `Skill(/dev-process-toolkit:tdd)` `tool_use` in the current session log — the per-FR orchestrator, the original and still the default door; or
-  2. a **red-before proof**: one session line reading `` dpt-red-before-proof: <paths> `` that names **every** staged path which raised the requirement. The second door exists for audit-driven work that has no FR at all, and therefore cannot run the per-FR orchestrator honestly — before it, that shape of work was refused with no satisfiable remedy, and the only workaround was the antipattern the gate exists to stop. It is deliberately scoped: a proof naming some other test file covers nothing, and an empty required set is never "covered" by it. Both doors are read through the SAME transcript reader (`readTranscriptLines`) — no second discovery mechanism ships. The threat model is self-discipline, not an adversary: nothing stops an operator typing the marker without having run anything, exactly as nothing stops one invoking the orchestrator without meaning it.
-- **NFR-10 refusal shape when NEITHER door is open** (the staged paths that raised the requirement are named inline, singular or plural):
+  2. a **red-before proof**: one session line reading `` dpt-red-before-proof: repo=<checkout root> <paths> `` that names the checkout it covers and **every** staged path which raised the requirement. The `repo=` token is how a proof says which repository it is about — an absolute checkout root, matched by realpath, so a symlink to it is it and a sibling checkout is not. A claim carrying no `repo=` keeps the older reading and covers the session's own checkout only, so an honest proof typed in an FE session opens nothing for a commit aimed at BE. The second door exists for audit-driven work that has no FR at all, and therefore cannot run the per-FR orchestrator honestly — before it, that shape of work was refused with no satisfiable remedy, and the only workaround was the antipattern the gate exists to stop. It is deliberately scoped: a proof naming some other test file covers nothing, and an empty required set is never "covered" by it. Both doors are read through the SAME transcript reader (`readTranscriptLines`) — no second discovery mechanism ships. The threat model is self-discipline, not an adversary: nothing stops an operator typing the marker without having run anything, exactly as nothing stops one invoking the orchestrator without meaning it.
+- **NFR-10 refusal shape when NEITHER door is open** (the staged paths that raised the requirement are named inline, singular or plural; `<root>` is the checkout being committed to):
   ```
   Refusing: no TDD evidence for the staged test path <staged path>: neither a dev-process-toolkit:tdd Skill tool_use nor a red-before proof covering it was found in this session.
-  Remedy: run /dev-process-toolkit:tdd; or, for an audit-driven fix with no FR, run those tests against the pre-change bytes and record the red result in this session as a line reading `dpt-red-before-proof: <paths>` naming every staged test path it covers.
+  Remedy: run /dev-process-toolkit:tdd; or, for an audit-driven fix with no FR, run those tests against the pre-change bytes and record the red result in this session as a line reading `dpt-red-before-proof: repo=<root> <paths>` naming every staged test path it covers.
   Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:tdd, hook=pre-commit-tdd-orchestrator
   ```
-- **Advisory shape when no stack is identified (STE-548):** the staged-set verdict has four outcomes, not three — the spec-only carve-out, nothing to guard, requires the run, and *could not tell*. The fourth fires when no stack marker resolves from the commit's directory up to the enclosing checkout, and it is deliberately **not** a refusal: the hook emits a `Reminder:` block naming the checkout root and the fact that no stack was identified, then exits 0. A guard that blocked on its own ignorance would punish the operator for it, and would be disabled within a week. Before this, an unidentified project silently reused the TypeScript rules, so a Dart or Go commit reported the same clean exit as a commit with genuinely nothing to guard — a guard that never looked was byte-indistinguishable from one that passed.
+  When the orchestrator WAS called but every call for it ended in an error or a denial, the first line says that instead — `Refusing: no TDD evidence for <subject>: every dev-process-toolkit:tdd Skill tool_use in this session ended in an error or a denial, and no red-before proof covering them was found.` — because an operator who watched themself deny the call is not helped by being told it never happened.
+- **NFR-10 refusal shape when door one is open but the repository holds no receipt** (door two was asked first and covered nothing):
+  ```
+  Refusing: this action writes to <root>, a toolkit-managed checkout, and this session holds no dev-process-toolkit:tdd gate receipt for it under <store>, so nothing shows the gate ran against that checkout.
+  Remedy: run /dev-process-toolkit:tdd <root>, then retry this action.
+  Context: mode=hook, ticket=unbound, skill=dev-process-toolkit:tdd, hook=pre-commit-tdd-orchestrator
+  ```
+- **Advisory shape when no stack is identified (STE-548):** the staged-set verdict has four outcomes, not three — the spec-only carve-out, nothing to guard, requires the run, and *could not tell*. The fourth fires when no stack marker resolves from the commit's directory up to the enclosing checkout, and it is deliberately **not** a refusal: the hook emits a `Reminder:` block naming the checkout root and the fact that no stack was identified, then exits 1 so the notice is visible and the commit proceeds. A guard that blocked on its own ignorance would punish the operator for it, and would be disabled within a week. Before this, an unidentified project silently reused the TypeScript rules, so a Dart or Go commit reported the same clean exit as a commit with genuinely nothing to guard — a guard that never looked was byte-indistinguishable from one that passed.
   ```
   Reminder: no stack marker was identified for <checkout root>, so the /tdd guard could not tell whether this commit stages a source file and its test.
   Remedy: add a recognised stack marker at the project root (for example `package.json`, `pubspec.yaml`, `pyproject.toml`, `go.mod`), or run /dev-process-toolkit:tdd yourself when this commit carries an FR.
@@ -163,6 +207,89 @@ Empirical research via the `claude-code-guide` agent confirmed the contract: `${
 - **Matcher:** `*`
 - **Behavior:** Capture hook, not a gate (STE-344, M92). **Opt-in, default OFF (STE-379):** before anything else the hook reads the project's CLAUDE.md `## Token Stats` block and exits 0 with no write unless it says `enabled: true`, so a project that has not opted in accrues no ledger at all. When enabled it parses `transcript_path` + `session_id` from the stdin hook JSON via `parseHookPayload`, aggregates the session's per-`(attributionSkill, model)` token usage via `parseTranscriptTokenUsage`, and writes the rows to the git-ignored `<project>/.dpt/ledger/token-ledger.jsonl` (`writeSessionRows` — replaces any rows already recorded for the `session_id`, atomic temp-file + rename write). The path is composed via `ledgerPath()` from `adapters/_shared/src/dpt_paths.ts`, never hand-assembled. What makes it ignored is the `ledger/` rule in the toolkit-owned `.dpt/.gitignore` that `/setup` writes — sibling `.dpt/locks/` is deliberately **tracked**, so the ledger is ignored by an explicit rule rather than by a blanket exclusion of `.dpt/` (see `docs/layout-reference.md` § The `.dpt/` tree). **Fail-open by contract:** any parse/IO error exits `0` with no write and no stderr — there is no refusal shape, and the hook never blocks session teardown or dirties the tracked tree.
 - **Override pattern:** Disable the plugin, or copy-and-override — snapshot-copy `templates/hooks/process/session-token-ledger.sh` into `~/.claude/hooks/`, edit (e.g., change the ledger location or restrict to `SessionEnd` only), and register the local absolute path in the operator's `~/.claude/settings.json`.
+
+---
+
+## Recognised command shapes
+
+All three blocking Bash gates read a command through one shared recogniser (`adapters/_shared/src/shell_invocations.ts`). The two commit gates ask `resolveCommitTarget` whether it writes a commit, and where; `pre-pr-spec-review` asks `resolvePrTarget` the other half of the same question — whether it opens a pull request, and from which checkout. One grammar, two questions, so a shape the commit gates see behind a `cd` or a subshell is a shape the PR gate sees there too. Every shape that can carry a commit has one verdict from a closed vocabulary (STE-601):
+
+- **recognised** — the commit is found (`isCommit: true`) and its target resolves as the unwrapped command's would.
+- **unplaced** — a literal commit is present (`isCommit: true`) behind a wrapper the recogniser cannot model, so `repoRoot` is `null`, `unresolved` names the wrapper, and `candidateRoots` lists every literal directory it can see. The gate-check hook demands evidence; the /tdd hook shows a `Reminder:`.
+- **out of scope** — not a commit for these gates (`isCommit: false`), and no notice.
+- **advisory** — not a commit (`isCommit: false`), but the gate-check hook exits 1 with a `Reminder:` naming the subcommand, and the command proceeds.
+
+Each example below is runnable, and `tests/ste-601-shapes-table.test.ts` runs every one of them through `resolveCommitTarget` from checkout `/s/a`, with `/s/b` as the second checkout, and asserts the stated verdict. A row whose verdict drifts from the resolver's answer fails that test.
+
+The rows whose Verdict carries the token **`(PR)`** are the PR gate's, and the same test runs those through `resolvePrTargetFromPayload` instead. They are marked because the two resolvers disagree by design about the same command — `gh pr create` writes no commit and opens a request, so it is `out of scope` for the commit gates and `recognised` for the PR gate — and one unmarked row cannot carry both answers. A PR row's vocabulary is narrower: **recognised (PR)** is `isPr: true` (a known-foreign or unplaceable target is still a creation, so it is `recognised` too, and the reason after the keyword says which), and **out of scope (PR)** is `isPr: false`. The `-R` / `--repo` / `GH_REPO` rows below resolve to no single checkout in this fixture on purpose: the slug is matched against `git remote -v` run *in* the resolved checkout, and `/s/a` is not a real one, so the listing cannot run and the target is left unresolved rather than guessed.
+
+The directory-change rows (STE-613) follow the running directory through `cd` options, `builtin cd`, `command cd`, the `pushd`/`popd` stack, `~` and in-command bindings, and resolve the fixed computed directories. A directory the model cannot name is unplaced. The table's grader runs every row with `HOME=/s` and `CDPATH` unset, so one rule is graded in the resolver's own suite instead of here: when `CDPATH` is set and non-empty, a relative `cd` or `pushd` operand that does not begin with `.` or `..` is unplaced, naming `CDPATH`. The model reads a command as a straight sequence, as it always has for `cd`: a binding, `cd` or `pushd` inside an `if` branch or a pipeline element counts as if it ran.
+
+| Shape | Example | Verdict |
+|---|---|---|
+| leading `NAME=value` assignments, one or more, quoted values included | `X=1 Y="a b" git -C /s/b commit -m x` | recognised |
+| `env` with `-i`, `-`, `-0`, `-v`, `-u NAME`, `--unset=NAME` and `NAME=value` operands | `env -i -u HOME --unset=PAGER X=1 git -C /s/b commit -m x` | recognised |
+| `env -C DIR` / `--chdir=DIR` / `--chdir DIR` | `env -C /s/b git commit -m x` | recognised — DIR is a directory change for the wrapped command only |
+| `env -S` / `--split-string` | `env -S 'git commit -m x'` | unplaced — the split string is not modelled |
+| `command` and `command -p` | `command -p git -C /s/b commit -m x` | recognised |
+| `command -v` / `command -V`, `type git`, `which git`, `hash git` | `command -v git` | out of scope — lookup, not execution |
+| `exec`, `nohup`, `time` (`-p`), `nice` (`-n N`, `-N`), `timeout` (its options, then a duration) | `nice -n 5 timeout -k 1 30 time -p nohup git -C /s/b commit -m x` | recognised |
+| `!` pipeline negation | `! git -C /s/b commit -m x` | recognised |
+| an argv0 whose final path segment is exactly `git` (`/usr/bin/git`, `/opt/homebrew/bin/git`, `./git`) | `/usr/bin/git -C /s/b commit -m x` | recognised — `gitk`, `git2` and `legit` are not git |
+| a single `&` and `\|&` | `sleep 0 & git -C /s/b commit -m x` | recognised — both are segment separators, like `;` |
+| `{ …; }` brace group | `{ git -C /s/b commit -m x; }` | recognised — a brace group does not scope the directory; a parenthesised subshell still does |
+| `if`/`then`/`elif`/`else`/`fi`, `while`/`until`/`do`/`done`, the header of a `for NAME in …;` loop | `cd /s/b && if true; then git commit -m x; fi` | recognised — reserved words are stripped and conditions are commands that run |
+| a function definition body (`f() { git commit; }`, `function f { … }`) | `f() { git -C /s/b commit -m x; }` | recognised — as if it runs (conservative) |
+| a commit inside a `case` arm | `case x in x) git commit -m x;; esac` | unplaced — "a case arm" |
+| `sh`/`bash`/`zsh`/`dash`/`ksh` with options (combined `-lc`/`-ec`/`-xc` included) and `-c STRING` | `bash -lc 'git -C /s/b commit -m x'` | recognised — STRING is read recursively, starting in the running directory |
+| `eval STRING` | `eval 'git -C /s/b commit -m x'` | recognised — read recursively like `-c` |
+| `-c "$CMD"` or `eval "$CMD"`, where the whole string is one unexpanded word | `bash -c "$CMD"` | out of scope — no literal commit exists in the command |
+| `$(…)` and backtick command substitutions | `x=$(git -C /s/b commit -m y)` | recognised — the commands inside run in the running directory; heredocs inside them are still skipped |
+| `xargs`, `find -exec`/`-execdir`/`-ok`, `parallel`, `watch`, `sudo` wrapping a git commit | `sudo git -C /s/b commit -m x` | unplaced — the wrapper is named, and `/s/b` is a candidate root |
+| `bash FILE`, `./FILE`, `source FILE`, `. FILE` | `bash f.sh` | out of scope — file contents are not read |
+| `ssh HOST 'git commit'` | `ssh h 'git commit -m x'` | out of scope — not a commit in any local checkout |
+| a quoted or backslash-escaped argv0 (`\git`, `"git"`, `'git'`) | `\git -C /s/b commit -m x` | recognised — quote removal runs before the argv0 match |
+| a `GIT_DIR=` or `GIT_WORK_TREE=` binding, as a prefix, an `env` operand or an in-command `export` | `GIT_DIR=/s/b/.git git commit -m x` | unplaced — recognised as a commit with its target unplaced ("GIT_DIR"); the literal value's checkout is in `candidateRoots` |
+| a backtick substitution holding an operator | `` echo `cd /s/b && git commit -m x` `` | recognised — the operator splits inside the substitution, which scopes its own directory |
+| `git merge` (not `--ff-only`, `--squash`, `--no-commit`, `--abort`, `--quit`); `git cherry-pick` and `git revert` (not `-n`, `--no-commit`, `--abort`, `--quit`, `--skip`); `git am` (not `--abort`, `--quit`, `--show-current-patch`); `git commit-tree` | `git -C /s/b merge --no-ff x` | recognised — each can write a commit object |
+| `git pull`, `git rebase` (not `--abort`, `--quit`), `git stash` (bare, `push`, `save`), writing `git notes` forms | `git pull` | advisory — the gate-check hook exits 1 with a `Reminder:` naming the subcommand; `git stash list`, `git stash show` and `git notes list` get no notice |
+| a git alias (`git ci`) | `git -c alias.ci=commit -C /s/b ci -m x` | recognised — resolved before classifying: `-c alias.NAME=VALUE` first, else `git config --get alias.NAME` in the target checkout; an alias that cannot be read is unplaced ("git alias") |
+| `cd` options `-L`, `-P`, `-e`, `-@`, alone or combined (`-Pe`) | `cd -P /s/b && git commit -m x` | recognised — the options are skipped and the commit targets `/s/b` |
+| `cd --` ending option parsing | `cd -- /s/b && git commit -m x` | recognised — the operand after `--` is the directory |
+| `cd -` and a bare `cd` | `cd - && git commit -m x` | unplaced — the previous directory is not modelled |
+| `builtin cd` | `builtin cd /s/b && git commit -m x` | recognised — the same as `cd` |
+| `command cd` | `command cd /s/b && git commit -m x` | recognised — the same as `cd` |
+| `pushd DIR` | `pushd /s/b && git commit -m x` | recognised — moves to DIR and pushes the old directory on the modelled stack |
+| `popd` after a modelled `pushd` | `pushd /s/b && popd && git commit -m x` | recognised — returns to the previous directory, so the commit targets `/s/a` |
+| `pushd -n DIR` | `pushd -n /s/b && git commit -m x` | recognised — pushes without moving, so the commit targets `/s/a` |
+| `pushd` inside a parenthesised subshell | `(pushd /s/b) && git commit -m x` | recognised — the subshell restores the stack and the directory, so the commit targets `/s/a` |
+| `popd` with an empty modelled stack, `pushd +N`, `pushd -N`, `popd +N` | `popd && git commit -m x` | unplaced — the reason names the word |
+| `~` and `~/…` | `cd ~/b && git commit -m x` | recognised — `~` expands to the hook process's home directory, which runs as the session shell's user; with `HOME=/s` the commit targets `/s/b` |
+| `~user` | `cd ~other/x && git commit -m x` | unplaced — another user's home is not expanded |
+| an in-command `NAME=value` or `export NAME=value` segment, then `$NAME` in a later segment | `B=/s/b; git -C "$B" commit -m x` | recognised — the binding holds for later segments in the same scope, and a value may reference names already bound |
+| a prefix assignment `NAME=value cmd` | `B=/s/b git -C "$B" commit -m x` | unplaced — a prefix assignment binds nothing the same command's arguments can read |
+| a binding removed by `unset NAME`, built from another substitution, or used after the subshell that made it has closed | `R=$(mktemp -d); git -C "$R" commit -m x` | unplaced — the name stays unexpanded, and the reason names `$R` |
+| `$(pwd)`, `` `pwd` ``, `$(pwd -P)`, `$(pwd -L)`, `$PWD`, `${PWD}` | `cd /s/b && git -C $(pwd) commit -m x` | recognised — the running directory, so the commit targets `/s/b` |
+| `$(git rev-parse --show-toplevel)` and `$(git -C DIR rev-parse --show-toplevel)` | `cd /s/b/sub && git -C $(git rev-parse --show-toplevel) commit -m x` | recognised — the checkout root of the running directory (or of DIR), so the commit targets `/s/b` |
+| any other substitution, such as `$(dirname $(pwd))` or `$(mktemp -d)` | `git -C $(dirname $(pwd)) commit -m x` | unplaced — only the fixed forms above resolve |
+| a bare `gh pr create` | `gh pr create --title x --body y` | recognised (PR) — the request is opened from the running directory's checkout, so it targets `/s/a` |
+| `gh pr create` behind a `cd` | `cd /s/b && gh pr create` | recognised (PR) — the directory model is the commit gates', so the request targets `/s/b` |
+| gh's `pr new` alias | `cd /s/b && gh pr new --fill` | recognised (PR) — `pr new` is gh's own alias for `pr create`, so it targets `/s/b` |
+| a parenthesised subshell | `(cd /s/b && gh pr create)` | recognised (PR) — the subshell scopes the directory, so the request targets `/s/b` |
+| a command substitution | `url=$(gh pr create --fill)` | recognised (PR) — the commands inside run in the running directory, so it targets `/s/a` |
+| `env -C DIR` | `env -C /s/b gh pr create` | recognised (PR) — DIR is a directory change for the wrapped command, so it targets `/s/b` |
+| a nested shell's `-c STRING` | `bash -lc 'cd /s/b && gh pr create'` | recognised (PR) — STRING is read recursively, so the request targets `/s/b` |
+| an argv0 whose final path segment is exactly `gh` | `/opt/homebrew/bin/gh pr create` | recognised (PR) — targets `/s/a`; `ghq` and `github` are not gh |
+| `-R OWNER/REPO` naming a repository | `gh -R org/be pr create` | recognised (PR) — the slug is matched against the checkout's remotes; a slug no remote matches is known-foreign and refused |
+| `--repo=OWNER/REPO` after the command words | `gh pr create --repo=org/be` | recognised (PR) — cobra parses flags wherever they fall, so both positions are read |
+| a `GH_REPO=` binding | `GH_REPO=org/be gh pr create` | recognised (PR) — gh's own precedence: `-R`/`--repo` first, then a bound `GH_REPO`, then the hook process's own |
+| `--dry-run` | `gh pr create --draft --dry-run` | recognised (PR) — targets `/s/a`; one character from the real thing, so waving it through would teach the bypass |
+| `gh pr create --help` | `gh pr create --help` | out of scope (PR) — help prints and nothing is created |
+| `gh pr list`, `gh pr view` | `gh pr list` | out of scope (PR) — they read a request, they create none |
+| `gh api …/pulls` | `gh api repos/o/r/pulls -f title=x` | out of scope (PR) — a different door, deliberately not modelled |
+| `hub pull-request` | `hub pull-request -m x` | out of scope (PR) — the argv0 is not gh |
+| GitLab's push option | `git push -o merge_request.create origin HEAD` | out of scope (PR) — not a gh request; also no commit, so the commit gates pass it too |
+| a mention of the command in text | `echo 'gh pr create' >> notes.md` | out of scope (PR) — the words are an argument to `echo`, not an invocation |
 
 ---
 
