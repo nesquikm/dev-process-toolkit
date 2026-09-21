@@ -33,6 +33,8 @@ Children carry `context: fork` + `user-invocable: false` + an `agent:` field nam
 
 Read `specs/frs/<id>.md`. Extract the AC list (every `AC-<prefix>.<N>` line under `## Acceptance Criteria`). This is the batched input for the test-writer and the per-AC dispatch list for the implementer.
 
+Once that FR file is resolved, its checkout is the one this cycle runs for. Record the run against it, before any stage is dispatched, with `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_receipt.ts" tdd "<that checkout root>"`. If it refuses, stop and report its block verbatim — the commit gate reads that receipt in the repository the commit targets, so without it the commit is refused later with no explanation.
+
 ### 2. Stage RED — invoke `tdd-write-test` once with the batched AC list
 
 Pass the test-writer:

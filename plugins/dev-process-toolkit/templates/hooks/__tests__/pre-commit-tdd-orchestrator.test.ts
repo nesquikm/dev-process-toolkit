@@ -147,3 +147,108 @@ describe("AC-STE-290.5 — pre-commit-tdd-orchestrator.sh: end-to-end via stdin 
     expect(r.stderr).toMatch(/tdd/i);
   });
 });
+
+// ---------------------------------------------------------------- STE-614.13
+//
+// The shim's "evidence present, proceeds" case, graded where the receipt leg
+// applies: a TOOLKIT-MANAGED checkout. The /tdd Skill call alone no longer
+// carries a commit past this gate, so the proceeds case carries a
+// front-door-written receipt, and the sibling without it exits 2.
+//
+// The STE-290 happy case above is left byte-identical: its `repoDir` fixture
+// carries no toolkit-managed CLAUDE.md, and AC-STE-614.8 decides an unmanaged
+// target by the transcript leg alone. Making it managed would move the case
+// rather than grade it.
+
+import {
+  clearReceipts as clearReceipts614,
+  writeGateReceipt as writeGateReceipt614,
+  writeManagedClaudeMd as writeManagedClaudeMd614,
+  announcementRecords as announcementRecords614,
+  mintedAnnouncements as mintedAnnouncements614
+} from "../../../tests/_gate_receipt_fixture";
+
+const SID_614 = "s614t";
+
+/** A managed checkout staging the FR + source + test set the classifier calls tdd-required. */
+async function managedRepo614(name: string): Promise<string> {
+  const dir = join(tmpRoot, name);
+  mkdirSync(dir, { recursive: true });
+  await Bun.spawn(["git", "init", "-q", dir], { stdout: "pipe", stderr: "pipe" }).exited;
+  writeManagedClaudeMd614(dir);
+  writeFileSync(
+    join(dir, "package.json"),
+    '{"name":"fixture","version":"0.0.0","private":true}\n',
+  );
+  const files: Record<string, string> = {
+    "specs/frs/STE-614.md": "---\ntitle: x\nstatus: active\n---\n",
+    "src/foo.ts": "export const foo = 1;\n",
+    "src/foo.test.ts": "test('x', () => {});\n",
+  };
+  for (const [rel, body] of Object.entries(files)) {
+    const full = join(dir, rel);
+    mkdirSync(full.split("/").slice(0, -1).join("/"), { recursive: true });
+    writeFileSync(full, body);
+    await Bun.spawn(["git", "-C", dir, "add", rel], { stdout: "pipe", stderr: "pipe" }).exited;
+  }
+  return dir;
+}
+
+/** Stamped an hour back, so the receipt written after it falls inside the window it opens. */
+function vouchingTranscript614(): string {
+  return writeTranscript([
+    {
+      type: "tool_use",
+      id: "tu614",
+      timestamp: new Date(Date.now() - 3_600_000).toISOString(),
+      name: "Skill",
+      input: { skill: "dev-process-toolkit:tdd" },
+    },
+    ...announcementRecords614(mintedAnnouncements614()).map((l) => JSON.parse(l) as unknown),
+  ]);
+}
+
+async function runShimIn614(cwd: string, stdinPayload: string): Promise<RunResult> {
+  const proc = Bun.spawn(["bash", HOOK_PATH], {
+    cwd,
+    env: { ...process.env, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT },
+    stdin: new Response(stdinPayload).body,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  return { exitCode: await proc.exited, stdout, stderr };
+}
+
+function payload614(repo: string, transcript: string): string {
+  return JSON.stringify({
+    session_id: SID_614,
+    transcript_path: transcript,
+    cwd: repo,
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command: `git -C ${repo} commit -m x` },
+  });
+}
+
+describe("AC-STE-614.13 — the receipt is load-bearing in this shim suite's proceeds case", () => {
+  test("/tdd Skill call AND a front-door-written receipt for the target → exit 0, silent", async () => {
+    const repo = await managedRepo614("tdd-614-permit");
+    writeGateReceipt614(repo, "tdd", SID_614);
+    const r = await runShimIn614(repo, payload614(repo, vouchingTranscript614()));
+    expect({ code: r.exitCode, err: r.stderr }).toEqual({ code: 0, err: "" });
+  });
+
+  test("SIBLING — the SAME case with the receipt REMOVED exits 2", async () => {
+    const repo = await managedRepo614("tdd-614-forbid");
+    writeGateReceipt614(repo, "tdd", SID_614);
+    clearReceipts614(repo, SID_614);
+    const r = await runShimIn614(repo, payload614(repo, vouchingTranscript614()));
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("Refusing:");
+    expect(r.stderr).toContain(repo);
+  });
+});

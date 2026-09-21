@@ -92,19 +92,32 @@ commands by hand does not satisfy it. One of them accepts a second form of
 evidence, noted on its own line below. They fail open only when they cannot see
 the session at all: no transcript, an unreadable one, or stdin they cannot parse.
 
+**The evidence is the Skill call PLUS its receipt in the repository you are
+committing to or raising the PR from.** The transcript only says the gate ran
+somewhere in this session; the receipt says which checkout it ran against, and one
+gate run vouches for exactly one of them. So a commit gate refuses a commit into a
+toolkit-managed checkout that holds no receipt of its own for this session, even
+when the gate ran — in *every* toolkit-managed repository, shared tracker container
+or not. The only way to mint a receipt is to run the gate against that repository;
+no refusal will hand you a shortcut to one.
+
 - `pre-commit-gate-check` — fires on a `git commit` Bash call — requires
-  `/dev-process-toolkit:gate-check` in this session.
+  `/dev-process-toolkit:gate-check` in this session, and its receipt in the
+  checkout being committed to.
 - `pre-pr-spec-review` — fires on a `gh pr create` Bash call — requires
   `/dev-process-toolkit:spec-review` in this session.
 - `pre-commit-tdd-orchestrator` — fires on a `git commit` whose staged set carries
   an FR file under `specs/frs/` or any file your stack calls a test — requires
-  `/dev-process-toolkit:tdd` in this session, **or** a red-before proof: one line
-  in this session reading `` dpt-red-before-proof: <paths> `` naming every staged
-  path that raised the requirement. The second door is for audit-driven work with
-  no FR, which cannot run the per-FR orchestrator honestly; a proof naming some
-  other file does not open it. A staged source file on its own does not fire the
-  gate, and a spec-only commit is carved out. When no stack marker resolves it
-  says so and exits 0 rather than guessing.
+  `/dev-process-toolkit:tdd` in this session plus its receipt in the checkout being
+  committed to, **or** a red-before proof: one line in this session reading
+  `` dpt-red-before-proof: repo=<checkout root> <paths> `` naming the repository it
+  covers and every staged path that raised the requirement. The second door is for
+  audit-driven work with no FR, which cannot run the per-FR orchestrator honestly;
+  a proof naming some other file does not open it, and neither does one naming some
+  other repository — a claim with no `repo=` covers this session's own checkout
+  only. A staged source file on its own does not fire the gate, and a spec-only
+  commit is carved out. When no stack marker resolves it says so and exits 0 rather
+  than guessing.
 
 One more gate reads receipts, not a `Skill` tool_use:
 

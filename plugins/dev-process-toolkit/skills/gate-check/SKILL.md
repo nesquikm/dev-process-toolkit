@@ -1,12 +1,12 @@
 ---
 name: gate-check
 description: Run the project gate checks and report results. Use after completing any feature, before creating a PR, or to verify project health.
-argument-hint: '[--fix to auto-fix lint issues]'
+argument-hint: '[path to the checkout to grade] [--fix to auto-fix lint issues]'
 ---
 
 # Gate Check
 
-Run the project's gating checks and report a clear pass/fail for each. **Invoking this skill is itself the token the commit gate reads.** The `pre-commit-gate-check` hook greps the current session's transcript for a `Skill` `tool_use` of `dev-process-toolkit:gate-check`, so running the same typecheck, lint and tests by hand yields a green result the hook cannot see and the commit is still refused with `exit 2`.
+Run the project's gating checks and report a clear pass/fail for each — for ONE checkout: the one `$ARGUMENTS` names by path, or the session's working directory when no path is given. Resolve that checkout root first, run every command below with it as the working directory, and before any of them record the run against it with `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_receipt.ts" gate-check "<that checkout root>"` — if that refuses, stop and report its block verbatim rather than grading anything. **Invoking this skill is itself the token the commit gate reads.** The `pre-commit-gate-check` hook wants both halves: a `Skill` `tool_use` of `dev-process-toolkit:gate-check` in the current session's transcript AND that run's receipt inside the repository the commit targets, so running the same typecheck, lint and tests by hand yields a green result the hook cannot see and the commit is still refused with `exit 2`.
 
 ## Layout + Tracker Mode Probes
 

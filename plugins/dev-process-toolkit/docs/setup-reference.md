@@ -284,6 +284,8 @@ Procedure:
 
 Three bundled hooks block, and each checks the current session's transcript for a `Skill` `tool_use` of the skill it names — hand-running the equivalent commands does not satisfy them, and a miss exits 2 so the tool call never runs. `pre-commit-gate-check` blocks `git commit` without `/dev-process-toolkit:gate-check`; `pre-commit-tdd-orchestrator` blocks a `git commit` staging an FR file or any file the stack calls a test without `/dev-process-toolkit:tdd`; `pre-pr-spec-review` blocks `gh pr create` without `/dev-process-toolkit:spec-review`. The full manual is `docs/hooks-reference.md` in the plugin.
 
+The evidence the commit gates read is the Skill call **plus** its receipt in the repository being committed to or PR'd, in every toolkit-managed checkout a `/setup` bootstraps — shared tracker container or not, `repo_tag` declared or not. A gate run records itself in that checkout's receipt store, and a session that gated repository A does not thereby clear a commit into repository B: one gate run vouches for one checkout. So an operator working two bootstrapped repositories from one session runs the gate once per repository, and the only way to mint a receipt is to run the gate there.
+
 > **Canonical copy.** The `## Workflows` block in `templates/CLAUDE.md.template` is the source of truth for these chains — it is what ships into every bootstrapped project; the list above in `docs/setup-reference.md` is a copy kept for readers of this manual. Change the template first, then mirror the edit here: the two must name the same chains with the same steps in the same order, and a test compares them against each other.
 
 **Next steps**

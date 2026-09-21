@@ -567,13 +567,13 @@ describe("AC-STE-597.2 — identical staged content, same branch: the verdict do
 });
 
 describe("AC-STE-597.4 — an unresolvable commit target is an advisory, never a refusal", () => {
-  test("`cd \"$REPO\" && git commit` → exit 0 + a canonical Reminder naming what could not be determined", async () => {
+  test("`cd \"$REPO\" && git commit` → exit 1 + a canonical Reminder naming what could not be determined", async () => {
     await buildAB();
     const r = await runModule(
       payloadFor('cd "$REPO" && git commit -m x', repoB, transcriptWithoutTddEvidence()),
       repoB,
     );
-    expect(r.exitCode).toBe(0);
+    expect(r.exitCode).toBe(1);
     expect(r.stderr).toContain("Reminder:");
     expect(r.stderr).toContain("Remedy:");
     expect(r.stderr).toContain("Context:");
@@ -646,7 +646,7 @@ async function initSubPackageRepo(
 }
 
 describe("AC-STE-597.2 — a checkout with no marker at its ROOT verdicts stack-unknown, and says so out loud", () => {
-  test("marker only in a sub-package + a test file staged → exit 0 AND a canonical Reminder naming the project", async () => {
+  test("marker only in a sub-package + a test file staged → exit 1 AND a canonical Reminder naming the project", async () => {
     const root = join(tmpRoot, "sub-pkg-markerless");
     await initSubPackageRepo(root, { rootMarker: false });
 
@@ -655,7 +655,7 @@ describe("AC-STE-597.2 — a checkout with no marker at its ROOT verdicts stack-
       root,
     );
 
-    expect(r.exitCode).toBe(0);
+    expect(r.exitCode).toBe(1);
     // Exit 0 on its own is indistinguishable from the bypass this FR closed.
     // These three lines are what makes it a verdict instead.
     expect(r.stderr).toContain("Reminder:");
@@ -1184,7 +1184,7 @@ describe("AC-STE-597.4 — a git subprocess that cannot RUN speaks NFR-10 instea
     expect(await real.exited).toBe(0);
   });
 
-  test("staged test file + no evidence + `git` unrunnable → exit 0 and a canonical Reminder, not a stack trace", async () => {
+  test("staged test file + no evidence + `git` unrunnable → exit 1 and a canonical Reminder, not a stack trace", async () => {
     await buildAB();
     const r = await runModuleWithoutGit(
       payloadFor(`git -C ${repoB} commit -m x`, repoB, transcriptWithoutTddEvidence()),
@@ -1193,7 +1193,7 @@ describe("AC-STE-597.4 — a git subprocess that cannot RUN speaks NFR-10 instea
 
     // Exit 1 here is the crash; exit 2 would be a refusal the hook has no
     // grounds for, because it never managed to look at anything.
-    expect(r.exitCode).toBe(0);
+    expect(r.exitCode).toBe(1);
 
     // The canonical three lines, byte-stable per STE-286 §104.
     expect(r.stderr).toContain("Reminder:");
@@ -1275,24 +1275,21 @@ describe("AC-STE-597.4 — a git subprocess that cannot RUN speaks NFR-10 instea
 // not available either.
 // ---------------------------------------------------------------------------
 
-describe("AC-STE-597.4 — a `$(...)` target is an advisory, not silence (RED: today this hook says nothing)", () => {
-  test("`git -C $(pwd) commit` with a staged test file and no /tdd evidence → exit 0 + a Reminder naming the substitution", async () => {
+describe("AC-STE-597.4 — a `$(...)` target is never silence (STE-613: `$(pwd)` now resolves and refuses)", () => {
+  test("`git -C $(pwd) commit` with a staged test file and no /tdd evidence → exit 2 (STE-613: the target resolves and the staged test raises the requirement)", async () => {
     await buildAB();
     const r = await runModule(
       payloadFor("git -C $(pwd) commit -m x", repoB, transcriptWithoutTddEvidence()),
       repoB,
     );
-    expect(r.exitCode).toBe(0);
-    // The harm, stated as an assertion: the shipped hook prints nothing here.
-    expect(r.stderr).toContain("Reminder:");
+    expect(r.exitCode).toBe(2);
+    // STE-613: `$(pwd)` is the running directory, so the target resolves and
+    // this is an ordinary refusal of a staged test with no /tdd evidence.
+    expect(r.stderr).toContain("Refusing:");
     expect(r.stderr).toContain("Remedy:");
     expect(r.stderr).toContain("Context:");
-    // And it names the value it could not expand, so the operator knows which
-    // part of their own command defeated the guard.
-    expect(r.stderr).toContain("$(pwd)");
-    // Never a refusal: an unplaceable target is a gap in knowledge, not a
-    // violation.
-    expect(r.stderr).not.toContain("Refusing:");
+    // A resolved target is never the unresolved-target Reminder.
+    expect(r.stderr).not.toContain("Reminder:");
   });
 
   test("CONTROL — the RESOLVABLE sibling of that command still refuses, with no reminder", async () => {
@@ -1335,5 +1332,265 @@ describe("AC-STE-597.4 — a `$(...)` target is an advisory, not silence (RED: t
     );
     expect(r.exitCode).toBe(0);
     expect(r.stderr).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-STE-613.6 — the wrong-tree defect, graded through the SHIPPED wrapper.
+//
+// Two makeSpanFixture checkouts: FE0 (the session's, nothing staged) and B,
+// which stages an FR file, a source file and its test behind a pyproject.toml
+// stack marker. Every spawn is SERIAL.
+// ---------------------------------------------------------------------------
+
+import { afterAll as afterAll613, beforeAll as beforeAll613 } from "bun:test";
+import { mkdirSync as mkdirSync613, mkdtempSync as mkdtempSync613, renameSync as renameSync613, rmSync as rmSync613, writeFileSync as writeFileSync613 } from "node:fs";
+import { git as git613, makeSpanFixture as makeSpanFixture613, type SpanFixture as SpanFixture613 } from "./_span_fixture";
+import { receiptsDirOf as receiptsDirOf613, writeGateReceipt as writeGateReceipt613, announcementRecords as announcementRecords614, mintedAnnouncements as mintedAnnouncements614} from "./_gate_receipt_fixture";
+
+describe("AC-STE-613.6 — cd options, builtin cd and pushd move the commit with them (hook e2e)", () => {
+  const WRAPPER613 = join(import.meta.dir, "..", "templates", "hooks", "process", "pre-commit-tdd-orchestrator.sh");
+  const PLUGIN613 = join(import.meta.dir, "..");
+  const T613 = 300_000;
+  let fx613: SpanFixture613;
+  let FE0 = "";
+  let B613 = "";
+  let scratch613 = "";
+  let noEvidence613 = "";
+  let evidence613 = "";
+
+  function stage613(root: string, files: Record<string, string>): void {
+    for (const [rel, body] of Object.entries(files)) {
+      const full = join(root, rel);
+      mkdirSync613(full.split("/").slice(0, -1).join("/"), { recursive: true });
+      writeFileSync613(full, body);
+      git613(root, "add", rel);
+    }
+  }
+
+  // STE-614 vouching — a Skill call carries the record's `timestamp`, as every
+  // real transcript line does, because a call the guard cannot place in time
+  // opens no window and so vouches for no receipt. Stamped an hour back so the
+  // fixture's receipts, written after it, fall inside the window it opens.
+  function transcript613(name: string, skills: string[]): string {
+    const stamp = new Date(Date.now() - 3_600_000).toISOString();
+    const file = join(scratch613, `${name}.jsonl`);
+    const entries: unknown[] = [{ type: "tool_use", name: "Bash", input: { command: "ls" } }];
+    for (const skill of skills) {
+      entries.push({ type: "tool_use", timestamp: stamp, name: "Skill", input: { skill } });
+    }
+    // A receipt counts only when this session ANNOUNCED it (STE-614 review):
+    // the file alone is writable by any Bash call.
+    for (const line of announcementRecords614(mintedAnnouncements614())) {
+      entries.push(JSON.parse(line) as unknown);
+    }
+    writeFileSync613(file, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    return file;
+  }
+
+  async function run613(command: string, tr: string): Promise<{ exitCode: number; stderr: string }> {
+    const payload = JSON.stringify({
+      session_id: "s613",
+      transcript_path: tr,
+      cwd: FE0,
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command },
+    });
+    const proc = Bun.spawn(["/bin/bash", WRAPPER613], {
+      cwd: FE0,
+      env: { ...process.env, CLAUDE_PLUGIN_ROOT: PLUGIN613, CDPATH: "" },
+      stdin: new Response(payload).body,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+    return { exitCode: await proc.exited, stderr };
+  }
+
+  beforeAll613(() => {
+    fx613 = makeSpanFixture613("M_ste613");
+    FE0 = fx613.a;
+    B613 = fx613.b;
+    scratch613 = mkdtempSync613(join(tmpdir(), "ste613-hooks-"));
+    writeFileSync613(join(B613, "pyproject.toml"), '[project]\nname = "fixture"\nversion = "0.0.0"\n');
+    git613(B613, "add", "pyproject.toml");
+    git613(B613, "commit", "-q", "-m", "fixture: stack marker");
+    // FE0 carries the same stack marker, so a README-only staged set there is
+    // classified `no-fr` (exit 0) rather than `stack-unknown` (an exit-1 Reminder).
+    writeFileSync613(join(FE0, "pyproject.toml"), '[project]\nname = "fe0"\nversion = "0.0.0"\n');
+    git613(FE0, "add", "pyproject.toml");
+    git613(FE0, "commit", "-q", "-m", "fixture: stack marker");
+    fx613.activeFr(B613, "GF-99", "M_ste613");
+    git613(B613, "add", "specs/frs/GF-99.md");
+    stage613(B613, { "src/app.py": "def app():\n    return 1\n", "tests/test_app.py": "def test_app():\n    assert True\n" });
+    // STE-614 AC.5 / AC.13 — B613 is toolkit-managed, so the PERMIT case needs
+    // the /tdd receipt naming B613 alongside its Skill call. The transcript leg
+    // alone no longer places a commit in a second checkout. Minted BEFORE the
+    // transcripts are written, because a receipt is evidence only when the
+    // transcript carries its announcement (STE-614 review).
+    writeGateReceipt613(B613, "tdd", "s613");
+    noEvidence613 = transcript613("none", []);
+    evidence613 = transcript613("tdd", ["dev-process-toolkit:tdd"]);
+  });
+
+  afterAll613(() => {
+    fx613?.cleanup();
+    if (scratch613) rmSync613(scratch613, { recursive: true, force: true });
+  });
+
+  const wrongTreeShapes = (): string[] => [
+    `pushd ${B613} && git commit -m x`,
+    `cd -P ${B613} && git commit -m x`,
+    `builtin cd ${B613} && git commit -m x`,
+    `cd -- ${B613} && git commit -m x`,
+  ];
+
+  test("with no evidence, each of the four shapes exits 2 naming B's staged paths (each exited 0 at HEAD)", async () => {
+    for (const cmd of wrongTreeShapes()) {
+      const r = await run613(cmd, noEvidence613);
+      expect({ cmd, exitCode: r.exitCode }).toEqual({ cmd, exitCode: 2 });
+      expect({ cmd, names: r.stderr.includes("test_app.py") }).toEqual({ cmd, names: true });
+    }
+  }, T613);
+
+  test("PERMIT — the same four commands with /tdd evidence present proceed (no exit 2)", async () => {
+    for (const cmd of wrongTreeShapes()) {
+      const r = await run613(cmd, evidence613);
+      expect({ cmd, exitCode: r.exitCode === 2 }).toEqual({ cmd, exitCode: false });
+    }
+  }, T613);
+
+  test("PERMIT — `pushd <FE0> && git commit` with only a README staged in FE0 exits 0 silently, no evidence", async () => {
+    stage613(FE0, { "README.md": "# fe0\n" });
+    try {
+      const r = await run613(`pushd ${FE0} && git commit -m x`, noEvidence613);
+      expect(r.exitCode).toBe(0);
+      expect(r.stderr).toBe("");
+    } finally {
+      git613(FE0, "reset", "-q", "--", "README.md");
+    }
+  }, T613);
+
+  test("CONTROL — the unchanged `cd <B> && git commit` exits 2 with no evidence", async () => {
+    const r = await run613(`cd ${B613} && git commit -m x`, noEvidence613);
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("test_app.py");
+  }, T613);
+
+  // STE-614.13 — B613's receipt is load-bearing IN THIS SUITE: the PERMIT case
+  // above would still be green on the session-wide rule this milestone retires.
+  // The receipts are MOVED aside, not deleted and re-minted, so the restore puts
+  // back the very files the front door wrote in `beforeAll613` — a fresh mint
+  // would land in a different vouching window. Declared last in this describe so
+  // the removal cannot reach a case that runs after it.
+  test("SIBLING — the same four shapes with B's receipt moved aside exit 2", async () => {
+    const live = receiptsDirOf613(B613, "s613");
+    const stash = join(scratch613, "b613-receipts-stashed");
+    rmSync613(stash, { recursive: true, force: true });
+    renameSync613(live, stash);
+    try {
+      for (const cmd of wrongTreeShapes()) {
+        const r = await run613(cmd, evidence613);
+        expect({ cmd, exitCode: r.exitCode }).toEqual({ cmd, exitCode: 2 });
+        expect({ cmd, names: r.stderr.includes(B613) }).toEqual({ cmd, names: true });
+      }
+    } finally {
+      renameSync613(stash, live);
+    }
+  }, T613);
+
+  test("CONTROL — with the receipt back, the four shapes proceed again", async () => {
+    for (const cmd of wrongTreeShapes()) {
+      const r = await run613(cmd, evidence613);
+      expect({ cmd, refused: r.exitCode === 2 }).toEqual({ cmd, refused: false });
+    }
+  }, T613);
+});
+
+// ---------------------------------------------------------------- STE-614.13
+//
+// The /tdd hook's "evidence present, proceeds" case, on a toolkit-managed
+// checkout, now needs the receipt too — and its sibling without it exits 2.
+
+import {
+  clearReceipts as clearReceipts614,
+  writeGateReceipt as writeGateReceipt614,
+  writeManagedClaudeMd as writeManagedClaudeMd614,
+} from "./_gate_receipt_fixture";
+
+const SID_614 = "s614t";
+
+async function managedTddRepo(name: string): Promise<string> {
+  const dir = join(tmpRoot, name);
+  mkdirSync(dir, { recursive: true });
+  await Bun.spawn(["git", "init", "-q", dir], { stdout: "pipe", stderr: "pipe" }).exited;
+  writeFileSync(join(dir, "package.json"), '{"name":"fixture","version":"0.0.0","private":true}\n');
+  writeManagedClaudeMd614(dir);
+  const files: Record<string, string> = {
+    "specs/frs/STE-1.md": "---\ntitle: STE-1\nstatus: active\n---\n\n# STE-1\n",
+    "src/x.ts": "export const x = 1;\n",
+    "src/x.test.ts": "// test\n",
+  };
+  for (const [rel, body] of Object.entries(files)) {
+    const full = join(dir, rel);
+    mkdirSync(full.split("/").slice(0, -1).join("/"), { recursive: true });
+    writeFileSync(full, body);
+    await Bun.spawn(["git", "-C", dir, "add", rel], { stdout: "pipe", stderr: "pipe" }).exited;
+  }
+  return dir;
+}
+
+function tddVouchingTranscript(): string {
+  return writeTranscript([
+    {
+      type: "assistant",
+      timestamp: new Date(Date.now() - 3_600_000).toISOString(),
+      message: {
+        content: [
+          { type: "tool_use", id: "tu1", name: "Skill", input: { skill: "dev-process-toolkit:tdd" } },
+        ],
+      },
+    },
+    { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu1", is_error: false }] } },
+    // The receipts this session announced, after the call that vouches for them.
+    ...announcementRecords614(mintedAnnouncements614()).map((l) => JSON.parse(l) as unknown),
+  ]);
+}
+
+async function run614(repo: string, transcript: string): Promise<{ exitCode: number; stderr: string }> {
+  const payload = JSON.stringify({
+    session_id: SID_614,
+    transcript_path: transcript,
+    cwd: repo,
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command: `git -C ${repo} commit -m x` },
+  });
+  const proc = Bun.spawn(["bun", "run", MODULE_PATH], {
+    cwd: repo,
+    stdin: new Response(payload).body,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const stderr = await new Response(proc.stderr).text();
+  return { exitCode: await proc.exited, stderr };
+}
+
+describe("AC-STE-614.13 — the receipt is load-bearing in the /tdd suite's proceeds case", () => {
+  test("/tdd evidence present AND a front-door-written receipt → exit 0, silent", async () => {
+    const repo = await managedTddRepo("tdd-614-permit");
+    writeGateReceipt614(repo, "tdd", SID_614);
+    const r = await run614(repo, tddVouchingTranscript());
+    expect({ code: r.exitCode, err: r.stderr }).toEqual({ code: 0, err: "" });
+  });
+
+  test("SIBLING — the SAME case with the receipt REMOVED exits 2", async () => {
+    const repo = await managedTddRepo("tdd-614-forbid");
+    writeGateReceipt614(repo, "tdd", SID_614);
+    clearReceipts614(repo, SID_614);
+    const r = await run614(repo, tddVouchingTranscript());
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("Refusing:");
   });
 });
