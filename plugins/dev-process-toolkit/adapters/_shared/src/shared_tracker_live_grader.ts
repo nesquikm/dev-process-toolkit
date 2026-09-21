@@ -2379,11 +2379,14 @@ function teardownIncomplete(b: LiveBundle): LiveFinding[] {
  * guard was live only because Linear rejects a create without `team`, an
  * invariant outside the toolkit. So every Linear create decision's recorded
  * payload must carry the run's team (`--linear-team`), and a run that recorded
- * no create decision never showed the guard live at all.
+ * no create decision never showed the guard live at all. A run that records no
+ * team is refused here too, never graded by shape: the grader does not rely on
+ * `extract` (or the skill) having refused it first.
  */
 function teamConjunctInert(b: LiveBundle): LiveFinding[] {
   if (b.run.tracker !== "linear") return [];
   const want = b.run.linearTeam;
+  if (want === null || want === "") return [{ code: "team-conjunct-inert", detail: "the run records no team, so no create decision can be graded against the run's team" }];
   const creates = (["A", "B"] as const).flatMap((r) => {
     const set = b.repos[r].receipts;
     return set.readable ? set.records.filter((x) => x.kind === "create" && x.adapter === "linear") : [];
@@ -2393,7 +2396,7 @@ function teamConjunctInert(b: LiveBundle): LiveFinding[] {
   for (const r of creates) {
     const p = r.evidence.createPayload;
     const team = p && typeof p === "object" ? (p as Record<string, unknown>).team : undefined;
-    if (typeof team !== "string" || team === "" || (want !== null && team !== want)) {
+    if (typeof team !== "string" || team !== want) {
       out.push({ code: "team-conjunct-inert", session: r.sessionId, detail: `${r.path}: the create decision's payload carries team ${JSON.stringify(team ?? null)}, not the run's team ${JSON.stringify(want)} — its query ran without the team conjunct` });
     }
   }
@@ -2724,6 +2727,12 @@ function cliExtract(args: string[]): number {
   if (f === null || EXTRACT_REQUIRED.some((k) => !f.has(k))) return usage();
   const tracker = f.get("tracker")!;
   if (tracker !== "jira" && tracker !== "linear") return usage();
+  // The grader does not trust the skill to have refused first: a Linear run
+  // with no team would grade the team conjunct by shape only.
+  if (tracker === "linear" && !f.get("linear-team")) {
+    process.stderr.write("extract: a Linear run needs --linear-team <KEY> — without it the team conjunct cannot be graded against the run's team; nothing was written.\n");
+    return 1;
+  }
   const projectRoot = f.get("project-root")!;
   const nonce = f.get("nonce")!;
   const out = f.get("out")!;
