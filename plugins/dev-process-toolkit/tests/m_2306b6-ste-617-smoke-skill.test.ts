@@ -43,6 +43,7 @@ import { scanCandidateCheckSkills } from "../adapters/_shared/src/scan_candidate
 import { isSpawnFence, parseFences, type Fence } from "./_spawn_fences";
 import {
   baseEnv as stubEnv,
+  flagValue,
   makeSandbox as makeStubSandbox,
   readCalls as readStubCalls,
   reap as reapStubSandbox,
@@ -759,6 +760,25 @@ describe("AC.14 — the closing summary lists every Linear issue the run created
     expect(closingLinearIssueViolations(m)).toEqual(["the closing accounting's Tracker writes item does not list every Linear issue the run created"]);
     const gone = text.replace(`${item}\n`, "");
     expect(closingLinearIssueViolations(gone)).toEqual(["the closing accounting has no Tracker writes item"]);
+  });
+});
+
+function closingBundleHashViolations(text: string): string[] {
+  const item = closingItem(text, /\*\*Run artifacts\*\*/);
+  if (item === null) return ["the closing accounting has no Run artifacts item"];
+  return /`bundle-hash=`[^\n]*\bgrade\b/.test(item) ? [] : ["the closing accounting's Run artifacts item does not name the bundle-hash= line grade printed (the Live proof row's hash)"];
+}
+
+describe("STE-618 — the closing accounting names the hash the Live proof row records", () => {
+  test("the Run artifacts item names the bundle-hash= line that grade printed", () => {
+    expect(closingBundleHashViolations(docText())).toEqual([]);
+  });
+  test("MUTATION — a copy whose Run artifacts item drops the bundle-hash line is red", () => {
+    const text = docText();
+    const item = closingItem(text, /\*\*Run artifacts\*\*/)!;
+    const m = text.replace(item, item.replace(/ The `bundle-hash=`[^\n]*/, ""));
+    expect(m, "control: the edit landed").not.toBe(text);
+    expect(closingBundleHashViolations(m)).toEqual(["the closing accounting's Run artifacts item does not name the bundle-hash= line grade printed (the Live proof row's hash)"]);
   });
 });
 
@@ -1517,6 +1537,86 @@ console.log(\`WORST_CASE_ITEMS=\${r.linearWorstCase()}\`);
     const mutated = text.replace(f.body, `${f.body.slice(0, start)}${old}${f.body.slice(end)}`);
     const p = runPhase0("jira", "DST2", mutated);
     expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS]).not.toEqual(["8", "11"]);
+  });
+});
+
+// ===========================================================================
+// STE-618 follow-up — Phase 6 writes the verdict INTO the bundle directory
+// (`verdict.json`, the file the live-proof gate reads), and every later reader
+// of the verdict (Phase 6's echo, Phase 7's pass-only cleanup) reads that file.
+// Graded from a RUN of the two fences with `bun` stubbed (record mode).
+// ===========================================================================
+
+interface VerdictPaths {
+  out: string | null;
+  verdict: string | null;
+  phase6Read: string | null;
+  phase7Read: string | null;
+  dump: string;
+}
+
+/** Run Phase 6 then Phase 7 from `text` in one stub sandbox; the paths the recorded bun calls named. */
+function verdictPathsFromRun(text: string): VerdictPaths {
+  let res: VerdictPaths = { out: null, verdict: null, phase6Read: null, phase7Read: null, dump: "" };
+  withStub((sb) => {
+    writeStubRunEnv(sb, {});
+    const env = stubEnv(sb);
+    const r6 = runStubScript(sb, rebaseIntoStub(oneFence(text, EXTRACT_TAG).body.replaceAll("<tracker>", "jira"), sb), env);
+    const after6 = readStubCalls(sb).length;
+    const r7 = runStubScript(sb, rebaseIntoStub(oneFence(text, CLEANUP_TAG).body.replaceAll("<tracker>", "jira"), sb), env);
+    const calls = readStubCalls(sb).filter((c) => c.kind === "bun");
+    const grade = calls.find((c) => /shared_tracker_live_grader\.ts["']?\s+grade\b/.test(c.args));
+    const extract = calls.find((c) => /shared_tracker_live_grader\.ts["']?\s+extract\b/.test(c.args));
+    const reads = calls.filter((c) => /smoke_verdict\.ts["']?\s+outcome\b/.test(c.args));
+    res = {
+      out: extract ? flagValue(extract.args, "out") : null,
+      verdict: grade ? flagValue(grade.args, "verdict") : null,
+      phase6Read: reads.find((c) => c.index < after6) ? flagValue(reads.find((c) => c.index < after6)!.args, "artifact") : null,
+      phase7Read: reads.find((c) => c.index >= after6) ? flagValue(reads.find((c) => c.index >= after6)!.args, "artifact") : null,
+      dump: `phase6 exit=${r6.exitCode}\n${r6.out}\n${r6.err}\nphase7 exit=${r7.exitCode}\n${r7.out}\n${r7.err}\n${calls.map((c) => c.args).join("\n")}`,
+    };
+    res.dump += `\nsandbox work=${sb.work}`;
+    if (res.out !== null) res.out = res.out.replace(sb.work, "<work>");
+    if (res.verdict !== null) res.verdict = res.verdict.replace(sb.work, "<work>");
+    if (res.phase6Read !== null) res.phase6Read = res.phase6Read.replace(sb.work, "<work>");
+    if (res.phase7Read !== null) res.phase7Read = res.phase7Read.replace(sb.work, "<work>");
+  });
+  return res;
+}
+
+/** The violations: the verdict is not `<bundle dir>/verdict.json`, or a reader reads another file. */
+function verdictPlacementViolations(p: VerdictPaths): string[] {
+  const v: string[] = [];
+  if (p.out === null) return ["the Phase 6 run made no extract call"];
+  if (!/^<work>\/plugins\/dev-process-toolkit\/tests\/fixtures\/shared-tracker-live\/jira-\d{4}-\d{2}-\d{2}-shr0000abcd\/$/.test(p.out)) v.push(`the bundle directory is not under the toolkit's shared-tracker-live fixtures: ${p.out}`);
+  const want = `${p.out}verdict.json`;
+  if (p.verdict !== want) v.push(`grade writes the verdict to ${p.verdict}, not ${want}`);
+  if (p.phase6Read !== want) v.push(`Phase 6 reads the outcome from ${p.phase6Read}, not ${want}`);
+  if (p.phase7Read !== want) v.push(`Phase 7 reads the outcome from ${p.phase7Read}, not ${want}`);
+  return v;
+}
+
+describe("STE-618 follow-up — Phase 6 writes verdict.json into the bundle directory", () => {
+  test("RUN: grade writes <bundle dir>/verdict.json, and Phase 6's echo and Phase 7's cleanup read that same file", () => {
+    const p = verdictPathsFromRun(docText());
+    expect(verdictPlacementViolations(p), p.dump).toEqual([]);
+  });
+  test("MUTATION — a copy whose Phase 6 writes the verdict to /tmp is red", () => {
+    const text = docText();
+    const body = oneFence(text, EXTRACT_TAG).body;
+    const m = text.replace(body, body.replaceAll('"${BUNDLE_DIR}verdict.json"', '"/tmp/dpt-smoke-verdict-shared-${TRACKER}.json"'));
+    expect(m, "control: the edit landed").not.toBe(text);
+    const v = verdictPlacementViolations(verdictPathsFromRun(m));
+    expect(v.some((x) => /^grade writes the verdict to .*dpt-smoke-verdict-shared-jira\.json, not /.test(x)), JSON.stringify(v)).toBe(true);
+  });
+  test("MUTATION — a copy whose Phase 7 still reads the old /tmp artifact is red", () => {
+    const text = docText();
+    const body = oneFence(text, CLEANUP_TAG).body;
+    const m = text.replace(body, body.replace(/--artifact "[^"]*"/, '--artifact "/tmp/dpt-smoke-verdict-shared-${TRACKER}.json"'));
+    expect(m, "control: the edit landed").not.toBe(text);
+    const v = verdictPlacementViolations(verdictPathsFromRun(m));
+    expect(v.filter((x) => x.startsWith("Phase 7 reads"))).toHaveLength(1);
+    expect(v.filter((x) => !x.startsWith("Phase 7 reads"))).toEqual([]);
   });
 });
 
