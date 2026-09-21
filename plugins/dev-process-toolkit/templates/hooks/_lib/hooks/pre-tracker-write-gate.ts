@@ -1362,7 +1362,9 @@ function consentLines(parsed: Array<ParsedLine | null>, key: string, verb: "Impo
     if (text) {
       const v = resolveInterviewAnswer(text, "tracker_orphan_import");
       const values = Array.isArray(v) ? v : [v];
-      if (values.some((x) => typeof x === "string" && namesKey(x, key))) out.push(idx);
+      // Exactly the ask's rule: the value is consent only when it IS the label
+      // (D-8 — a value merely naming the key read `Skip <KEY>` as consent).
+      if (values.some((x) => x === label)) out.push(idx);
     }
   });
   return out;

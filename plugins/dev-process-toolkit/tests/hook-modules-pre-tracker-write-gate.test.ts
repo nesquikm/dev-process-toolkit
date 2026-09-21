@@ -356,6 +356,11 @@ class Session {
     );
   }
 
+  /** An operator user message carrying `t` as its text. */
+  userText(t: string): void {
+    this.lines.push(JSON.stringify({ type: "user", sessionId: SESSION, message: { role: "user", content: t } }));
+  }
+
   bash(command: string, output: string, isError = false): string {
     const id = this.toolUse("Bash", { command, description: "run" });
     this.toolResult(id, output, isError);
@@ -1083,6 +1088,43 @@ describe("AC-STE-607.4 — a ticket write needs a subject its target owns", () =
       const s = new Session();
       announce(s);
       s.ask(c.key, c.verb, { answer: `${c.verb} ${c.key}` });
+      expectRefusal(await act(s, c.key), c.key);
+    });
+
+    // D-8 (shipped in v2.89.0): the sanctioned answers block is the headless
+    // twin of the ask above, and it must be exactly as strict — the value is
+    // consent only when it EQUALS `<verb> <KEY>`. Before the fix this arm
+    // accepted any value that merely NAMED the key, so `Skip <KEY>` — the
+    // operator's refusal — was read as consent.
+    const answersBlock = (value: string, marker = true) =>
+      `${marker ? "<dpt:auto-approve>v1</dpt:auto-approve>\n" : ""}<dpt:answers>v1\ntracker_orphan_import: ${value}\n</dpt:answers>`;
+
+    test(`${c.kind} receipt with an answers block \`${c.verb} ${c.key}\` before the announcement → exit 0`, async () => {
+      const s = new Session();
+      s.userText(answersBlock(`${c.verb} ${c.key}`));
+      announce(s);
+      expectPermit(await act(s, c.key));
+    });
+
+    for (const [label, value, marker] of [
+      ["the decline value", `Skip ${c.key}`, true],
+      ["free text naming the key", `not ${c.key}, ask me later`, true],
+      ["the label quoted inside other text", `${c.verb} ${c.key}? not sure`, true],
+      ["consent to another key", `${c.verb} GF-999`, true],
+      ["the exact label without the auto-approve marker", `${c.verb} ${c.key}`, false],
+    ] as const) {
+      test(`${c.kind} receipt with an answers block of ${label} → exit 2`, async () => {
+        const s = new Session();
+        s.userText(answersBlock(value, marker));
+        announce(s);
+        expectRefusal(await act(s, c.key), c.key);
+      });
+    }
+
+    test(`${c.kind} receipt with the answers block positioned AFTER the announcement → exit 2`, async () => {
+      const s = new Session();
+      announce(s);
+      s.userText(answersBlock(`${c.verb} ${c.key}`));
       expectRefusal(await act(s, c.key), c.key);
     });
   }
