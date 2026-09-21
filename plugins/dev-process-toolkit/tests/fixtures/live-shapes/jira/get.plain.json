@@ -1,0 +1,71 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-11",
+    "method": "recorded-transcript",
+    "request": {
+      "cloudId": "96bffaef-cf5d-4dbf-a170-3d700df9bc83",
+      "issueIdOrKey": "GF-86",
+      "fields": [
+        "description",
+        "updated",
+        "labels",
+        "parent"
+      ],
+      "responseContentFormat": "markdown"
+    },
+    "note": "plain shape, recorded from the claude.ai Atlassian connector (the same server family flips shape; mcp__atlassian search is recorded both ways)"
+  },
+  "answer": {
+    "expand": "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations",
+    "id": "63185",
+    "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issue/63185",
+    "key": "GF-86",
+    "fields": {
+      "description": "## Requirement\n\nDetect the user's shopping country silently …",
+      "parent": {
+        "id": "63184",
+        "key": "GF-85",
+        "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issue/63184",
+        "fields": {
+          "summary": "Shopping country, detected silently or asked until answered",
+          "status": {
+            "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/status/11542",
+            "description": "",
+            "iconUrl": "https://example-site.invalid/images/icons/statuses/generic.png",
+            "name": "To Do",
+            "id": "11542",
+            "statusCategory": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/statuscategory/2",
+              "id": 2,
+              "key": "new",
+              "colorName": "blue-gray",
+              "name": "To Do"
+            }
+          },
+          "priority": {
+            "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/priority/3",
+            "iconUrl": "https://example-site.invalid/images/icons/priorities/medium_new.svg",
+            "name": "Medium",
+            "id": "3"
+          },
+          "issuetype": {
+            "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issuetype/11111",
+            "id": "11111",
+            "description": "Epics track collections of related bugs, stories, and tasks.",
+            "iconUrl": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/2/universal_avatar/view/type/issuetype/avatar/10307?size=medium",
+            "name": "Epic",
+            "subtask": false,
+            "avatarId": 10307,
+            "entityId": "a7820e35-d7b5-44b5-800f-be09a062ea6e",
+            "hierarchyLevel": 1
+          }
+        }
+      },
+      "updated": "2026-09-11T09:48:34.916+0200",
+      "labels": [
+        "milestone-M_GF_85",
+        "needs-technical-review"
+      ]
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-21",
+    "method": "read-only-call",
+    "request": {
+      "team": "STE"
+    },
+    "note": "a BARE ARRAY, no wrapper and no paging field; the tool takes only `team`, so no page can be missing"
+  },
+  "answer": [
+    {
+      "id": "b433922d-1b11-4fc5-b2e0-b79c24f1993a",
+      "type": "unstarted",
+      "name": "Todo"
+    },
+    {
+      "id": "9730b6f8-d430-4319-8361-15c53fab0454",
+      "type": "canceled",
+      "name": "Canceled"
+    },
+    {
+      "id": "69e2cc01-54d0-44ad-b262-554a0bb1c798",
+      "type": "backlog",
+      "name": "Backlog"
+    },
+    {
+      "id": "69dc7cab-647e-445b-b798-d9a93881d4d5",
+      "type": "completed",
+      "name": "Done"
+    },
+    {
+      "id": "4cb3b7df-7f22-4b28-a337-89db237d37f0",
+      "type": "started",
+      "name": "In Progress"
+    },
+    {
+      "id": "0f8d48c8-5efc-4387-a968-1af597a9862d",
+      "type": "duplicate",
+      "name": "Duplicate"
+    }
+  ]
+}

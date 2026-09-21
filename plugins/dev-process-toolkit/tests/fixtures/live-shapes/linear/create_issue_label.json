@@ -1,0 +1,7 @@
+{
+  "provenance": {
+    "method": "declared-unmeasured",
+    "reason": "measuring the answer needs a label write, and no session on this machine recorded one; the grader reads only its is_error, never its body",
+    "looked_in": "every transcript under the Claude config dir, 2026-09-21"
+  }
+}

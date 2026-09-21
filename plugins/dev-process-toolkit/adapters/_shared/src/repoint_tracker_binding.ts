@@ -65,6 +65,7 @@ import {
   type WorkspaceAdapterKey,
   type WorkspaceBinding,
 } from "./workspace_binding";
+import { readCompleteList, readTrackerPage, type CompleteListTool } from "./tracker_answer";
 
 export type RowVerdict = "PASS" | "REFUSE" | "NOT-APPLICABLE";
 
@@ -74,7 +75,23 @@ export interface RowResult {
   reason: string;
   /** Row 4 only: the tracker config's statuses, the snapshot the `repoint` receipt records. */
   statusSnapshot?: string[];
+  /**
+   * The inputs whose completeness this row relied on as ASSERTED by the
+   * session (an `isLast: true` the session wrote), not proven by the tracker —
+   * the receipt's `assertedCompleteness`. Absent when every input was proven.
+   */
+  asserted?: AssertedInput[];
 }
+
+/** An input no tracker tool lists, so its completeness can only be asserted by the session. */
+export type AssertedInput = "statuses" | "labels";
+
+/**
+ * Appended to every printed row line that relied on an asserted-complete
+ * input. Fixed and greppable: a reader can tell asserted from proven without
+ * the FR. A row reading only measured inputs never carries it.
+ */
+export const COMPLETENESS_ASSERTED_MARKER = "[completeness asserted by the session, not proven by the tracker]";
 
 export interface RepointArgs {
   projectRoot: string;
@@ -159,30 +176,54 @@ function namedRows(label: string, v: unknown, arrayKey: string, field: string): 
   return { ok: true, value: out };
 }
 
-/** A `{ <arrayKey>: [{ <field>: string }] }` listing file, reduced to that field's values. */
-function readNamedRows(flag: string, path: string | undefined, arrayKey: string, field: string): Input<string[]> {
-  const json = readJson(flag, path);
-  if (!json.ok) return json;
-  return namedRows(`${flag} ${path}`, json.value, arrayKey, field);
-}
-
-/** A paged Jira listing that is not its last page cannot prove absence. */
+/**
+ * A hand-assembled Jira listing (no Atlassian MCP tool lists a project's
+ * statuses or labels) must itself CLAIM `isLast: true`; a missing claim
+ * cannot prove absence. The claim is the session's assertion, never the
+ * tracker's proof — the row that relies on it carries the marker.
+ */
 function notLastPage(label: string, v: Record<string, unknown>): Input<never> | undefined {
   return v.isLast === true ? undefined : failed(`${label} is not the last page (isLast is not true)`);
 }
 
-/** `--projects`: Jira `{ values: [{ key }], isLast: true }`, Linear `{ projects: [{ name }] }`. */
-function readProjects(args: RepointArgs): Input<string[]> {
-  if (args.mode === "linear") return readNamedRows("--projects", args.projects, "projects", "name");
-  const json = readJson("--projects", args.projects);
+/**
+ * One measured list answer (`readCompleteList`, tracker_answer.ts), proven
+ * whole by the tracker or refused, reduced to each row's `field`.
+ */
+function readMeasuredList(flag: string, path: string | undefined, tool: CompleteListTool, field: string): Input<string[]> {
+  const json = readJson(flag, path);
   if (!json.ok) return json;
-  const label = `--projects ${args.projects}`;
-  const rows = namedRows(label, json.value, "values", "key");
-  if (!rows.ok) return rows;
-  return notLastPage(label, json.value as Record<string, unknown>) ?? rows;
+  const label = `${flag} ${path}`;
+  const read = readCompleteList(tool, json.value);
+  if (!read.ok) return failed(`${label} is not a ${tool.split(":")[1]} answer: ${read.reason}`);
+  if (!read.complete) return failed(`${label} does not prove it holds the whole list`);
+  return namedRows(label, { rows: read.items }, "rows", field);
 }
 
-/** `--labels` (Jira): `{ values: ["label", …], isLast: true }`. */
+/**
+ * `--projects`, both measured and read by the shared reader
+ * (`tracker_answer.ts`): Jira the getVisibleJiraProjects answer `{ …, isLast,
+ * values: [{ key }] }`, proven whole by `isLast`; Linear the list_projects
+ * answer `{ projects: [{ name }], hasNextPage, cursor? }`, proven its last page.
+ */
+function readProjects(args: RepointArgs): Input<string[]> {
+  if (args.mode === "linear") {
+    const json = readJson("--projects", args.projects);
+    if (!json.ok) return json;
+    const label = `--projects ${args.projects}`;
+    const read = readTrackerPage("linear", json.value, "projects");
+    if (!read.ok) return failed(`${label} is not a list_projects answer: ${read.reason}`);
+    if (!read.page.last) return failed(`${label} is not the last page (hasNextPage is true)`);
+    return namedRows(label, { projects: read.page.items }, "projects", "name");
+  }
+  return readMeasuredList("--projects", args.projects, "jira:getVisibleJiraProjects", "key");
+}
+
+/**
+ * `--labels` (Jira): `{ values: ["label", …], isLast: true }`, hand-assembled —
+ * no Atlassian MCP tool lists a project's labels, so its completeness is the
+ * session's assertion (row 6 carries COMPLETENESS_ASSERTED_MARKER).
+ */
 function readLabels(path: string | undefined): Input<string[]> {
   const json = readJson("--labels", path);
   if (!json.ok) return json;
@@ -385,9 +426,13 @@ async function decideRow2(args: RepointArgs, binding: Input<WorkspaceBinding>, p
   return row(2, "PASS", peers.length === 0 ? "peers=0 (not checked)" : `peers=${peers.length}, each bound to ${args.newProject} under a distinct tag`);
 }
 
-/** Row 3 (Jira): `jira_issue_type` declared, offered by `--issue-types`, and the same at every peer. */
+/**
+ * Row 3 (Jira): `jira_issue_type` declared, offered by `--issue-types` (the
+ * measured getJiraProjectIssueTypesMetadata answer, proven whole), and the
+ * same at every peer.
+ */
 function decideRow3(args: RepointArgs, peers: Input<string>[]): RowResult {
-  const types = readNamedRows("--issue-types", args.issueTypes, "issueTypes", "name");
+  const types = readMeasuredList("--issue-types", args.issueTypes, "jira:getJiraProjectIssueTypesMetadata", "name");
   if (!types.ok) return row(3, "REFUSE", types.reason);
   const own = subsectionValue(join(args.projectRoot, "CLAUDE.md"), "jira", "jira_issue_type");
   if (own === undefined) return row(3, "REFUSE", "this repository declares no jira_issue_type");
@@ -520,18 +565,41 @@ function decideRow1(args: RepointArgs): RowResult {
   return row(1, "PASS", `project ${args.newProject} is listed`);
 }
 
+/**
+ * `--statuses`: Linear the measured list_issue_statuses answer — a BARE array,
+ * the whole list (read by `tracker_answer.ts`); Jira a hand-assembled
+ * `{ statuses: [{ name }], isLast: true }` — no Atlassian MCP tool lists a
+ * project's statuses, so its completeness is asserted, never proven.
+ */
+function readStatuses(args: RepointArgs): Input<string[]> {
+  if (args.mode === "linear") return readMeasuredList("--statuses", args.statuses, "linear:list_issue_statuses", "name");
+  const json = readJson("--statuses", args.statuses);
+  if (!json.ok) return json;
+  const label = `--statuses ${args.statuses}`;
+  const rows = namedRows(label, json.value, "statuses", "name");
+  if (!rows.ok) return rows;
+  return notLastPage(label, json.value as Record<string, unknown>) ?? rows;
+}
+
+/** Mark a row that relied on an asserted-complete input: the marker on its line, the input on the row. */
+function assertedRow(r: RowResult, input: AssertedInput): RowResult {
+  return { ...r, reason: `${r.reason} ${COMPLETENESS_ASSERTED_MARKER}`, asserted: [input] };
+}
+
 /** Row 4: the tracker config covers the new project's statuses; the row carries the config's status snapshot. */
 function decideRow4(args: RepointArgs): RowResult {
-  const statuses = readNamedRows("--statuses", args.statuses, "statuses", "name");
+  const statuses = readStatuses(args);
   const config = readConfigStatuses(args.projectRoot);
   if (!statuses.ok) return row(4, "REFUSE", statuses.reason);
-  if (!config.ok) return row(4, "REFUSE", `${config.reason}; statuses missing: ${statuses.value.join(", ")}`);
+  // From here the row relies on the status list: asserted in Jira, proven in Linear.
+  const mark = (r: RowResult): RowResult => (args.mode === "jira" ? assertedRow(r, "statuses") : r);
+  if (!config.ok) return mark(row(4, "REFUSE", `${config.reason}; statuses missing: ${statuses.value.join(", ")}`));
   const missing = statuses.value.filter((s) => !config.value.includes(s));
   const r4 =
     missing.length > 0
       ? row(4, "REFUSE", `specs/tracker-config.yaml lacks ${args.newProject} statuses: ${missing.join(", ")}`)
       : row(4, "PASS", `config statuses ${config.value.join(", ")} cover ${args.newProject}'s ${statuses.value.join(", ")}`);
-  return { ...r4, statusSnapshot: [...config.value] };
+  return { ...mark(r4), statusSnapshot: [...config.value] };
 }
 
 /**
@@ -547,6 +615,12 @@ function decideRow6(args: RepointArgs, labels: Input<string[]> | undefined, cont
     key = (p) => milestoneLabel(p.token);
   } else {
     if (!containers.ok) return row(6, "REFUSE", containers.reason);
+    // A full list_milestones window proves nothing about the milestones past
+    // it (the shared reader's completeness, via readListingFile): a collision
+    // there would be unseen, so the row cannot pass on it.
+    if (!containers.value.complete) {
+      return row(6, "REFUSE", `--containers holds ${containers.value.rowKeys.length} milestones — a full list_milestones window, which proves nothing past it — so no collision can be ruled out`);
+    }
     taken = new Set((containers.value.linearRows ?? []).map((r) => r.name));
     key = (p) => {
       try {
@@ -558,10 +632,12 @@ function decideRow6(args: RepointArgs, labels: Input<string[]> | undefined, cont
   }
   const collide = numericPlans(args.projectRoot, false).filter((p) => taken.has(key(p)));
   const overlap = numericPlans(args.projectRoot, true).filter((p) => taken.has(key(p))).length;
+  // The Jira label list is hand-assembled: the row relies on its asserted completeness.
+  const mark = (r: RowResult): RowResult => (labels !== undefined ? assertedRow(r, "labels") : r);
   if (collide.length > 0) {
-    return row(6, "REFUSE", `active numeric plan(s) collide with ${args.newProject}: ${collide.map((p) => `${p.token} (${key(p)})`).join(", ")}`);
+    return mark(row(6, "REFUSE", `active numeric plan(s) collide with ${args.newProject}: ${collide.map((p) => `${p.token} (${key(p)})`).join(", ")}`));
   }
-  return row(6, "PASS", `no active numeric plan collides; overlap=${overlap} archived tokens (legacy history)`);
+  return mark(row(6, "PASS", `no active numeric plan collides; overlap=${overlap} archived tokens (legacy history)`));
 }
 
 /**
@@ -648,6 +724,9 @@ export function writeRepoint(args: RepointArgs, oldProject: string, rows: RowRes
         statusSnapshot,
         trackerConfig: join("specs", "tracker-config.yaml"),
         rows: rows.map((r) => ({ row: r.row, verdict: r.verdict })),
+        // Each input whose completeness the session asserted rather than the
+        // tracker proved (COMPLETENESS_ASSERTED_MARKER on its row line).
+        assertedCompleteness: rows.flatMap((r) => r.asserted ?? []),
       },
     });
   } catch (e) {

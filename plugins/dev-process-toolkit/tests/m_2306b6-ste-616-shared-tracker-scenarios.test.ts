@@ -70,6 +70,8 @@ import {
   parseJql,
   readInventory,
   type Kindness,
+  JIRA_SHAPES,
+  type JiraShape,
 } from "./_tracker_doubles";
 
 const PLUGIN_ROOT = REAL_PLUGIN_ROOT;
@@ -234,7 +236,8 @@ const FORBIDDEN_FORMS = ["." + "skip(", "." + "todo(", "test" + ".if("];
 
 const jiraPage = (d: JiraDouble, jql: string, extra: Record<string, unknown> = {}) =>
   d.search({ cloudId: "c", jql, fields: ["summary", "labels"], ...extra });
-const keysOf = (p: { issues: unknown[] }) => p.issues.map((i) => String((i as { key?: string; id?: string }).key ?? (i as { id?: string }).id));
+const keysOf = (p: { issues: unknown }) =>
+  (Array.isArray(p.issues) ? p.issues : (p.issues as { nodes: unknown[] }).nodes).map((i) => String((i as { key?: string; id?: string }).key ?? (i as { id?: string }).id));
 
 function jiraFilterHolds(k: Kindness): boolean {
   const d = new JiraDouble(k);
@@ -262,21 +265,25 @@ function textSupersetHolds(k: Kindness): boolean {
   return jHits === 1 && lHits === 1;
 }
 function pagingHolds(k: Kindness): boolean {
-  const j = new JiraDouble(k);
   const l = new LinearDouble(k);
-  for (let n = 1; n <= 3; n++) {
-    j.seed({ project: "SHR", summary: `Row ${n}` });
-    l.seed({ project: "P", title: `Row ${n}` });
-  }
-  j.pageSize = 2;
+  for (let n = 1; n <= 3; n++) l.seed({ project: "P", title: `Row ${n}` });
   l.pageSize = 2;
-  const j1 = jiraPage(j, "project = SHR");
+  // Linear pages at the top level (measured): `hasNextPage` + `cursor`, no `pageInfo`.
   const l1 = l.listIssues({ project: "P" });
-  if (j1.issues.length !== 2 || j1.isLast !== false || typeof j1.nextPageToken !== "string") return false;
-  if (l1.issues.length !== 2 || l1.pageInfo.hasNextPage !== true || typeof l1.pageInfo.endCursor !== "string") return false;
-  const j2 = jiraPage(j, "project = SHR", { nextPageToken: j1.nextPageToken });
-  const l2 = l.listIssues({ project: "P", cursor: l1.pageInfo.endCursor });
-  return j2.issues.length === 1 && j2.isLast === true && j2.nextPageToken === undefined && l2.issues.length === 1 && l2.pageInfo.hasNextPage === false && l2.pageInfo.endCursor === null;
+  if (l1.issues.length !== 2 || l1.hasNextPage !== true || typeof l1.cursor !== "string") return false;
+  const l2 = l.listIssues({ project: "P", cursor: l1.cursor });
+  if (l2.issues.length !== 1 || l2.hasNextPage !== false || l2.cursor !== undefined) return false;
+  // Jira pages in both measured shapes, read through the double's own paging.
+  for (const shape of JIRA_SHAPES) {
+    const j = new JiraDouble(k, shape);
+    for (let n = 1; n <= 3; n++) j.seed({ project: "SHR", summary: `Row ${n}` });
+    j.pageSize = 2;
+    const j1 = j.pageMeta(jiraPage(j, "project = SHR"));
+    if (j1.items.length !== 2 || j1.last !== false || typeof j1.next !== "string") return false;
+    const j2 = j.pageMeta(jiraPage(j, "project = SHR", { nextPageToken: j1.next }));
+    if (j2.items.length !== 1 || j2.last !== true || j2.next !== null) return false;
+  }
+  return true;
 }
 function archivedHiddenHolds(k: Kindness): boolean {
   const l = new LinearDouble(k);
@@ -824,17 +831,26 @@ describe("AC-STE-616.16 — no new probe, capability key or smoke leg", () => {
 
 const RESULTS: ScenarioResult[] = [];
 
+/**
+ * The answer shapes each tracker's double is run under: Jira was measured
+ * flipping between a plain and a wrapped answer on the same server, so every
+ * Jira scenario runs under both; Linear has one measured shape.
+ */
+const SHAPES_OF: Record<Tracker, readonly (JiraShape | null)[]> = { jira: JIRA_SHAPES, linear: [null] };
+
 describe("S1..S18 — two repositories on one tracker double, through the real front doors and hooks", () => {
   for (const [id, def] of Object.entries(SCENARIO_DEFS)) {
     for (const tracker of def.trackers) {
-      test(`${id} ${tracker} — ${def.title}`, async () => {
-        const r = await runScenario(id, tracker, { pluginRoot: PLUGIN_ROOT });
+      for (const jiraShape of SHAPES_OF[tracker]) {
+      test(`${id} ${tracker}${jiraShape === null ? "" : ` (${jiraShape})`} — ${def.title}`, async () => {
+        const r = await runScenario(id, tracker, { pluginRoot: PLUGIN_ROOT, ...(jiraShape === null ? {} : { jiraShape }) });
         const vacuity = vacuityErrors(EXPECTED_KINDS[id] ?? [], r);
         RESULTS.push({ ...r, ok: r.ok && vacuity.length === 0, failures: [...r.failures, ...vacuity.map((v) => `VACUOUS: ${v}`)] });
         expect(r.loadErrors, `${id} ${tracker}: a front door or hook could not load`).toEqual([]);
         expect(r.failures, `${id} ${tracker} failed (steps: ${r.steps.join(" → ")})`).toEqual([]);
         expect(vacuity, `${id} ${tracker} is vacuous`).toEqual([]);
       }, SCENARIO_TIMEOUT);
+      }
     }
   }
 });
@@ -850,7 +866,7 @@ export function summaryLine(tracker: Tracker, results: ReadonlyArray<Pick<Scenar
 describe("AC-STE-616.14 — the summary line", () => {
   test("each tracker's summary line reads pass=<every scenario of that tracker> fail=0 vacuous=0 (captured, then printed)", () => {
     for (const tracker of ["jira", "linear"] as const) {
-      const n = Object.values(SCENARIO_DEFS).filter((d) => d.trackers.includes(tracker)).length;
+      const n = Object.values(SCENARIO_DEFS).filter((d) => d.trackers.includes(tracker)).length * SHAPES_OF[tracker].length;
       const line = summaryLine(tracker, RESULTS);
       console.log(line);
       expect(line).toBe(`[${tracker}] scenarios pass=${n} fail=0 vacuous=0`);

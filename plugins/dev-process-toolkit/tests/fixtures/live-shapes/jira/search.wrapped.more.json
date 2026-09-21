@@ -1,0 +1,158 @@
+{
+  "provenance": {
+    "measured_at": "2026-08-20",
+    "method": "recorded-transcript",
+    "request": {
+      "cloudId": "96bffaef-cf5d-4dbf-a170-3d700df9bc83",
+      "jql": "project = GB ORDER BY created DESC",
+      "fields": [
+        "summary",
+        "status",
+        "created"
+      ],
+      "maxResults": 15
+    },
+    "note": "WRAPPED shape (context + issues.nodes + issues.pageInfo {hasNextPage, endCursor}); server see request; items truncated to the first 2 for size; every kept item is verbatim save the sanitiser"
+  },
+  "answer": {
+    "issues": {
+      "nodes": [
+        {
+          "expand": "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations",
+          "id": "61642",
+          "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issue/61642",
+          "key": "GB-31",
+          "fields": {
+            "summary": "Persist the feedback-banner dismissal per user",
+            "issuetype": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issuetype/11108",
+              "id": "11108",
+              "description": "",
+              "iconUrl": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/2/universal_avatar/view/type/issuetype/avatar/10315?size=medium",
+              "name": "Story",
+              "subtask": false,
+              "avatarId": 10315,
+              "entityId": "ae9ece23-2412-425f-b3d9-508e66f0b2a6",
+              "hierarchyLevel": 0
+            },
+            "created": "2026-08-17T12:10:10.085+0200",
+            "project": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/project/11154",
+              "id": "11154",
+              "key": "GB",
+              "name": "Glacy BE",
+              "projectTypeKey": "software",
+              "simplified": true,
+              "avatarUrls": {
+                "48x48": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10425",
+                "24x24": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10425?size=small",
+                "16x16": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10425?size=xsmall",
+                "32x32": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10425?size=medium"
+              }
+            },
+            "description": "Spec: `specs/frs/GB-31.md` · Plan: `specs/plan/M19.md`.\n\n> *…",
+            "assignee": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/user?accountId=<account-id>",
+              "accountId": "<account-id>",
+              "emailAddress": "<email>",
+              "avatarUrls": {
+                "48x48": "https://avatar.invalid/x.png",
+                "24x24": "https://avatar.invalid/x.png",
+                "16x16": "https://avatar.invalid/x.png",
+                "32x32": "https://avatar.invalid/x.png"
+              },
+              "displayName": "<person>",
+              "active": true,
+              "timeZone": "Europe/Prague",
+              "accountType": "atlassian"
+            },
+            "status": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/status/11541",
+              "description": "",
+              "iconUrl": "https://example-site.invalid/images/icons/statuses/generic.png",
+              "name": "Done",
+              "id": "11541",
+              "statusCategory": {
+                "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/statuscategory/3",
+                "id": 3,
+                "key": "done",
+                "colorName": "green",
+                "name": "Done"
+              }
+            }
+          },
+          "webUrl": "https://example-site.invalid/browse/GB-31"
+        },
+        {
+          "expand": "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations",
+          "id": "61436",
+          "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issue/61436",
+          "key": "GB-30",
+          "fields": {
+            "summary": "ChapterBlock union failures lose the reason clause in the Sl…",
+            "issuetype": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issuetype/11108",
+              "id": "11108",
+              "description": "",
+              "iconUrl": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/2/universal_avatar/view/type/issuetype/avatar/10315?size=medium",
+              "name": "Story",
+              "subtask": false,
+              "avatarId": 10315,
+              "entityId": "ae9ece23-2412-425f-b3d9-508e66f0b2a6",
+              "hierarchyLevel": 0
+            },
+            "created": "2026-08-13T16:27:37.212+0200",
+            "project": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/project/11154",
+              "id": "11154",
+              "key": "GB",
+              "name": "Glacy BE",
+              "projectTypeKey": "software",
+              "simplified": true,
+              "avatarUrls": {
+                "48x48": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10425",
+                "24x24": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10425?size=small",
+                "16x16": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10425?size=xsmall",
+                "32x32": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10425?size=medium"
+              }
+            },
+            "description": "Follow-up to GB-28. Low priority — a legibility regression o…",
+            "assignee": null,
+            "status": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/status/11538",
+              "description": "",
+              "iconUrl": "https://example-site.invalid/images/icons/statuses/generic.png",
+              "name": "To Do",
+              "id": "11538",
+              "statusCategory": {
+                "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/statuscategory/2",
+                "id": 2,
+                "key": "new",
+                "colorName": "blue-gray",
+                "name": "To Do"
+              }
+            }
+          },
+          "webUrl": "https://example-site.invalid/browse/GB-30"
+        }
+      ],
+      "remainingCount": 10,
+      "webUrl": "https://example-site.invalid/issues?jql=project%20%3D%20GB%20ORDER%20BY%20created%20DESC",
+      "pageInfo": {
+        "hasNextPage": true,
+        "endCursor": "CkljcmVhdGVkJmNyZWF0ZWQmT1JERVJfREVTQyNMb25nJk1UYzROREl4TVRjek1UTTJOZz09JVN0cmluZyZSMEk9JUludCZNVGM9EA8YgY7-8YE0IiJwcm9qZWN0ID0gR0IgT1JERVIgQlkgY3JlYXRlZCBERVNDKgJbXQ=="
+      }
+    },
+    "context": {
+      "atlassianAccountId": "<account-id>",
+      "cloudId": "96bffaef-cf5d-4dbf-a170-3d700df9bc83",
+      "clientName": "localhost",
+      "mcpClientName": "claude-code",
+      "toolName": "searchJiraIssuesUsingJql",
+      "endpoint": "v1:streamable-http",
+      "sessionId": "r7-4b95929d-748b-4c3c-ba3e-e7a8bb734d4c",
+      "invocationId": "30fd4b2a-d1a4-4ede-8f7a-50f05e247b70",
+      "env": "prod"
+    }
+  }
+}

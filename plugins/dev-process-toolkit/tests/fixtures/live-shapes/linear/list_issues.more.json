@@ -1,0 +1,58 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-21",
+    "method": "read-only-call",
+    "request": {
+      "team": "STE",
+      "project": "DPT — Dev Process Toolkit",
+      "limit": 2,
+      "fields": [
+        "id",
+        "title",
+        "labels",
+        "description",
+        "createdBy",
+        "project",
+        "team",
+        "projectMilestone",
+        "status"
+      ],
+      "query": "live proof"
+    },
+    "note": "a page with more after it: top-level hasNextPage true + cursor, no pageInfo"
+  },
+  "answer": {
+    "issues": [
+      {
+        "id": "STE-618",
+        "title": "The programme's release waits for a passing live proof",
+        "labels": [],
+        "description": "## Summary\n\nA live proof is only worth something if the rele…",
+        "createdBy": "<person>",
+        "project": "DPT — Dev Process Toolkit",
+        "team": "Example Team Display Name",
+        "projectMilestone": {
+          "id": "2306b61c-037f-455f-97f2-4997b8fb0b60",
+          "name": "Proven Live"
+        },
+        "status": "In Progress"
+      },
+      {
+        "id": "STE-398",
+        "title": "Widen AC_LINEAR_XML_RE to tolerate Linear's href attribute + add href test coverage",
+        "labels": [],
+        "description": "## Summary\n\nLinear's MCP now emits `<issue id=\"...\" href=\"..…",
+        "createdBy": "<person>",
+        "project": "DPT — Dev Process Toolkit",
+        "team": "Example Team Display Name",
+        "projectMilestone": {
+          "id": "971a85e2-c22b-4f52-b453-a7fe7e4f889a",
+          "name": "M110: Conformance hardening — Crucible"
+        },
+        "status": "Done"
+      }
+    ],
+    "hasNextPage": true,
+    "cursor": "04bcebd8-07c8-4c66-ba84-87140809f88f"
+  }
+}

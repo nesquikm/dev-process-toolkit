@@ -38,6 +38,7 @@ import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shar
 // this gate and the gate-receipt front door reach it here; a second copy is how
 // the two gates came to disagree about the one rule.
 import { bunInvocation, realpathOr } from "../../../../adapters/_shared/src/shell_invocations.ts";
+import { readTrackerItem, trackerItemKey } from "../../../../adapters/_shared/src/tracker_answer.ts";
 
 /** Kept exported from here, where it was declared until the two gates started sharing it. */
 export { simpleCommandWords } from "../../../../adapters/_shared/src/shell_invocations.ts";
@@ -1249,25 +1250,19 @@ function namesKey(text: string, key: string): boolean {
 }
 
 /**
- * The ONE key a create's result names as created: the top-level `key` (Jira)
- * or `identifier` (Linear), or the same field of a top-level `issue`. Every
- * other key the result echoes — a parent Epic, a linked sibling — was not
- * created by this call. A result that is not JSON falls back to the first key
- * carrying the create's own Jira project prefix, and otherwise names nothing.
+ * The ONE key a create's result names as created, read by the shared reader
+ * (`tracker_answer.ts`): a Jira create's `key` — plain, or the one node of a
+ * wrapped answer — or a Linear create's top-level `id` (`STE-619`; the
+ * measured answer carries no `identifier`). Every other key the result echoes
+ * — a parent Epic, a linked sibling — was not created by this call, and a
+ * JSON answer in no measured shape names nothing. A result that is not JSON
+ * falls back to the first key carrying the create's own Jira project prefix,
+ * and otherwise names nothing.
  */
 function createdKeyOf(text: string, call: TrackerCall): string | null {
-  const pick = (o: unknown): string | null => {
-    if (!o || typeof o !== "object") return null;
-    const r = o as Record<string, unknown>;
-    for (const f of ["key", "identifier"]) {
-      const v = r[f];
-      if (typeof v === "string" && TICKET_KEY.test(v)) return v.toUpperCase();
-    }
-    return null;
-  };
   try {
-    const parsed = JSON.parse(text) as Record<string, unknown> | null;
-    return pick(parsed) ?? pick(parsed?.issue);
+    const read = readTrackerItem(call.adapter, JSON.parse(text));
+    return read.ok ? trackerItemKey(call.adapter, read.item) : null;
   } catch {
     const project = callShape(call.adapter, call.input).project;
     if (call.adapter !== "jira" || project === "") return null;

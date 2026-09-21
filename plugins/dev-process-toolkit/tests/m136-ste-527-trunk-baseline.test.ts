@@ -882,13 +882,15 @@ describe("AC-STE-527.6 — the v1 records on disk are dropped and named", () => 
 
 /**
  * The transitive local imports a mutant copy of `skip_baseline.ts` needs.
- * `milestone_token.ts` gained `./create_idempotency_probe` under M_8f07e0 / STE-586.
+ * `milestone_token.ts` gained `./create_idempotency_probe` under M_8f07e0 / STE-586,
+ * which gained `./tracker_answer` under M_2306b6.
  */
 const MUTANT_DEPS = [
   "dpt_paths.ts",
   "branch_proposal.ts",
   "milestone_token.ts",
   "create_idempotency_probe.ts",
+  "tracker_answer.ts",
   "ulid.ts",
 ];
 

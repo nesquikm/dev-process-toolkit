@@ -12,15 +12,22 @@
 //
 // LISTING SHAPES (the raw MCP answers the session saves to files and passes in):
 //
-//   --projects     Jira  getVisibleJiraProjects      { values: [{ id, key, name }], isLast: true }
-//                  Linear list_projects              { projects: [{ id, name }] }
+//   --projects     Jira  getVisibleJiraProjects      { self, maxResults, startAt, total, isLast, values: [{ id, key, name }] }
+//                                                    (measured; complete iff isLast)
+//                  Linear list_projects              { projects: [{ id, name, status }], hasNextPage } (measured;
+//                                                    read by tracker_answer.ts and proven its last page)
 //   --containers   Jira  Epic search (STE-608)       { issues: [{ key, fields: { summary, project: { key },
 //                                                      issuetype: { name: "Epic" }, status: {...} } }], isLast: true }
-//                  Linear list_milestones (STE-608)  { milestones: [{ id, name }] }
+//                  Linear list_milestones (STE-608)  { milestones: [{ id, name, description, progress, sortOrder }] }
+//                                                    (measured; a full 50-row window is not complete)
 //                  — both parsed by `readListingFile` of resolve_milestone_identity.ts.
-//   --issue-types  Jira  getJiraProjectIssueTypesMetadata  { issueTypes: [{ id, name }] }
-//   --statuses     both  the project's status list    { statuses: [{ id, name }] }
-//   --labels       Jira  label search                 { values: ["label", ...], isLast: true }
+//   --issue-types  Jira  getJiraProjectIssueTypesMetadata  { startAt, maxResults, total, issueTypes: [{ id, name }] }
+//                                                    (measured; complete iff startAt 0 and `total` rows)
+//   --statuses     Linear list_issue_statuses        a BARE array [{ id, type, name }] (measured)
+//                  Jira  (no MCP tool lists them)    { statuses: [{ id, name }], isLast: true } — hand-assembled,
+//                                                    its completeness ASSERTED by the session
+//   --labels       Jira  (no MCP tool lists them)    { values: ["label", ...], isLast: true } — hand-assembled,
+//                                                    its completeness ASSERTED by the session
 //
 // Every git call runs under GIT_ENV (GIT_CONFIG_GLOBAL=/dev/null). Spawns are
 // synchronous, one at a time, so no concurrency cap is needed.
@@ -203,8 +210,16 @@ export function writeFr(
 
 // ------------------------------------------------------------------ listings
 
+/** A measured `getVisibleJiraProjects` answer listing `keys` (tests/fixtures/live-shapes/jira/getVisibleJiraProjects.json). */
 export function jiraProjects(keys: string[]): unknown {
-  return { values: keys.map((key, i) => ({ id: String(10001 + i), key, name: `Project ${key}` })), isLast: true };
+  return {
+    self: "https://fixture.invalid/rest/api/3/project/search?maxResults=50&startAt=0",
+    maxResults: 50,
+    startAt: 0,
+    total: keys.length,
+    isLast: true,
+    values: keys.map((key, i) => ({ id: String(10001 + i), key, name: `Project ${key}` })),
+  };
 }
 
 export function jiraEpics(project: string, keys: string[]): unknown {
@@ -223,12 +238,19 @@ export function jiraEpics(project: string, keys: string[]): unknown {
   };
 }
 
+/** A measured `getJiraProjectIssueTypesMetadata` answer offering `names`, complete (startAt 0, `total` rows). */
 export function jiraIssueTypes(names: string[]): unknown {
-  return { issueTypes: names.map((name, i) => ({ id: String(11100 + i), name })) };
+  return { startAt: 0, maxResults: 50, total: names.length, issueTypes: names.map((name, i) => ({ id: String(11100 + i), name })) };
 }
 
+/** A hand-assembled Jira status list claiming `isLast: true` — no Atlassian MCP tool lists a project's statuses. */
 export function statusListing(names: string[]): unknown {
-  return { statuses: names.map((name, i) => ({ id: String(i + 1), name })) };
+  return { statuses: names.map((name, i) => ({ id: String(i + 1), name })), isLast: true };
+}
+
+/** A measured Linear `list_issue_statuses` answer: a bare array (tests/fixtures/live-shapes/linear/list_issue_statuses.json). */
+export function linearStatuses(names: string[]): unknown {
+  return names.map((name, i) => ({ id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`, type: "unstarted", name }));
 }
 
 export function jiraLabels(labels: string[]): unknown {

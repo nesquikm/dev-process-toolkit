@@ -9,7 +9,8 @@
 // Behavior under test:
 //   - AC-STE-339.1 label-scan listing → deduped, ascending {name:"M<N>"}[]
 //   - AC-STE-339.4 label scope: only exact ^milestone-(M\d+)$ counts
-//   - AC-STE-339.2 paginate, no silent cap (isLast stop + capped log)
+//   - AC-STE-339.2 paginate, no silent cap (proven-last stop + capped log)
+//   - M_2306b6 each page is a raw answer in either measured Jira shape
 //   - AC-STE-339.3 fail-soft: a throwing/rejecting fetcher → []
 
 import { describe, expect, test } from "bun:test";
@@ -25,9 +26,11 @@ function pagedFetcher(pages: JiraSearchPage[]): (page: number) => Promise<JiraSe
   return async (page: number) => pages[page] ?? { issues: [], isLast: true };
 }
 
-/** Shorthand for an issue carrying a fixed label set. */
+/** Shorthand for a measured search row (`{ key, fields }`) carrying a fixed label set. */
+let rowSeq = 0;
 function issue(...labels: string[]) {
-  return { labels };
+  rowSeq += 1;
+  return { key: `GF-${rowSeq}`, fields: { labels } };
 }
 
 describe("listMilestones — label-scan listing (AC-STE-339.1)", () => {
@@ -118,7 +121,7 @@ describe("listMilestones — paginate, no silent cap (AC-STE-339.2)", () => {
   test("(a) accumulates across the page boundary until a page reports isLast:true", async () => {
     const calls: number[] = [];
     const pages: JiraSearchPage[] = [
-      { issues: [issue("milestone-M30")], isLast: false },
+      { issues: [issue("milestone-M30")], isLast: false, nextPageToken: "t-next" },
       { issues: [issue("milestone-M86")], isLast: true },
     ];
     const fetch = async (page: number) => {
@@ -137,7 +140,7 @@ describe("listMilestones — paginate, no silent cap (AC-STE-339.2)", () => {
     // A fetcher that NEVER sets isLast — without a cap it would loop forever.
     const fetch = async (_page: number): Promise<JiraSearchPage> => {
       fetched++;
-      return { issues: [issue("milestone-M7")], isLast: false };
+      return { issues: [issue("milestone-M7")], isLast: false, nextPageToken: "t-next" };
     };
     const logged: string[] = [];
     const got = await listMilestones(fetch, {
@@ -162,7 +165,7 @@ describe("listMilestones — paginate, no silent cap (AC-STE-339.2)", () => {
     let fetched = 0;
     const fetch = async (_page: number): Promise<JiraSearchPage> => {
       fetched++;
-      return { issues: [], isLast: false };
+      return { issues: [], isLast: false, nextPageToken: "t-next" };
     };
     const logged: string[] = [];
     await listMilestones(fetch, { log: (msg) => logged.push(msg) });
@@ -204,7 +207,7 @@ describe("listMilestones — fail-soft (AC-STE-339.3)", () => {
 
   test("a fetcher that rejects on a LATER page degrades to [] without throwing", async () => {
     const fetch = async (page: number): Promise<JiraSearchPage> => {
-      if (page === 0) return { issues: [issue("milestone-M30")], isLast: false };
+      if (page === 0) return { issues: [issue("milestone-M30")], isLast: false, nextPageToken: "t-next" };
       throw new Error("page 1 exploded");
     };
     const got = await listMilestones(fetch);
@@ -284,8 +287,9 @@ describe("listMilestones — M_<epic-key> label tolerance (AC-STE-376.3)", () =>
 // Contract under test: listMilestones gains an OPTIONAL second injected
 // fetcher, `opts.fetchEpicPage`, the seam over the `issuetype = Epic` JQL
 // (`searchJiraIssuesUsingJql`, paginated like the label leg). Each epic page
-// has the shape `{ epics: { key: string; summary?: string }[]; isLast?:
-// boolean }` (exported as `JiraEpicSearchPage` / `JiraEpicPageFetcher`).
+// is the raw `searchJiraIssuesUsingJql` answer (exported as
+// `JiraEpicSearchPage` / `JiraEpicPageFetcher`); the tests author epics as
+// `{ epics: [{ key, summary? }], isLast? }` and `rawEpicPage` renders them.
 //
 //   - CLIENT-SIDE NAME FILTER: only Epics whose summary leads with a
 //     milestone token under the shared union grammar (`M<N>` / `M_<key>`,
@@ -305,7 +309,16 @@ describe("listMilestones — M_<epic-key> label tolerance (AC-STE-376.3)", () =>
 //     solely for grandfathered milestones).
 // ---------------------------------------------------------------------------
 
+/** The epic leg's authoring shape here; `rawEpicPage` turns it into the measured raw answer the seam returns. */
 type EpicPage = { epics: { key: string; summary?: string }[]; isLast?: boolean };
+function rawEpicPage(p: EpicPage): unknown {
+  const last = p.isLast === true;
+  return {
+    issues: p.epics.map((e) => ({ key: e.key, fields: e.summary === undefined ? {} : { summary: e.summary } })),
+    isLast: last,
+    ...(last ? {} : { nextPageToken: "t-next" }),
+  };
+}
 
 // Cast keeps this file compiling against the pre-epic opts type; the current
 // implementation ignores the unknown `fetchEpicPage` key, so these tests
@@ -315,14 +328,14 @@ const listWithEpics = listMilestones as unknown as (
   opts?: {
     pageCap?: number;
     log?: (msg: string) => void;
-    fetchEpicPage?: (page: number) => Promise<EpicPage>;
+    fetchEpicPage?: (page: number) => Promise<unknown>;
   },
 ) => Promise<{ name: string }[]>;
 
 /** Epic-leg analogue of pagedFetcher: serves pages by index, defaulting to
  *  an empty terminal page. */
-function epicPagedFetcher(pages: EpicPage[]): (page: number) => Promise<EpicPage> {
-  return async (page: number) => pages[page] ?? { epics: [], isLast: true };
+function epicPagedFetcher(pages: EpicPage[]): (page: number) => Promise<unknown> {
+  return async (page: number) => rawEpicPage(pages[page] ?? { epics: [], isLast: true });
 }
 
 const EMPTY_LABEL_LEG = pagedFetcher([]);
@@ -413,9 +426,9 @@ describe("listMilestones — Epic-enumeration leg (AC-STE-375.3)", () => {
       { epics: [{ key: "DPT-500", summary: "M_DPT-500 — one" }], isLast: false },
       { epics: [{ key: "DPT-501", summary: "M_DPT-501 — two" }], isLast: true },
     ];
-    const fetchEpicPage = async (page: number): Promise<EpicPage> => {
+    const fetchEpicPage = async (page: number): Promise<unknown> => {
       calls.push(page);
-      return pages[page] ?? { epics: [], isLast: true };
+      return rawEpicPage(pages[page] ?? { epics: [], isLast: true });
     };
     const got = await listWithEpics(EMPTY_LABEL_LEG, { fetchEpicPage });
     const names = got.map((m) => m.name);
@@ -426,9 +439,9 @@ describe("listMilestones — Epic-enumeration leg (AC-STE-375.3)", () => {
 
   test("epic leg honors the page cap and logs the truncation (no silent cap)", async () => {
     let fetched = 0;
-    const fetchEpicPage = async (_page: number): Promise<EpicPage> => {
+    const fetchEpicPage = async (_page: number): Promise<unknown> => {
       fetched++;
-      return { epics: [{ key: "DPT-500", summary: "M_DPT-500 — loop" }], isLast: false };
+      return rawEpicPage({ epics: [{ key: "DPT-500", summary: "M_DPT-500 — loop" }], isLast: false });
     };
     const logged: string[] = [];
     const got = await listWithEpics(EMPTY_LABEL_LEG, {
@@ -448,7 +461,7 @@ describe("listMilestones — Epic-enumeration leg (AC-STE-375.3)", () => {
     const fetchLabelPage = pagedFetcher([
       { issues: [issue("milestone-M30")], isLast: true },
     ]);
-    const fetchEpicPage = async (_page: number): Promise<EpicPage> => {
+    const fetchEpicPage = async (_page: number): Promise<unknown> => {
       throw new Error("epic JQL boom");
     };
     let resolved: { name: string }[] | "threw" = "threw";
@@ -458,5 +471,49 @@ describe("listMilestones — Epic-enumeration leg (AC-STE-375.3)", () => {
       })(),
     ).resolves.toBeUndefined();
     expect(resolved).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M_2306b6 — each page is the RAW searchJiraIssuesUsingJql answer, read by the
+// shared reader (tracker_answer.ts) in either measured shape: plain
+// `{ issues, isLast, nextPageToken? }` or wrapped `{ context, issues: { nodes,
+// pageInfo } }`. A row is the measured `{ key, fields: { labels, summary } }`.
+// ---------------------------------------------------------------------------
+
+const measuredRow = (key: string, fields: Record<string, unknown>) => ({ expand: "", id: "1", self: "x", key, fields });
+const plainAnswer = (rows: unknown[], last = true) => ({ issues: rows, isLast: last, ...(last ? {} : { nextPageToken: "t-next" }) });
+const wrappedAnswer = (rows: unknown[], last = true) => ({
+  context: { toolName: "searchJiraIssuesUsingJql" },
+  issues: { nodes: rows, pageInfo: { hasNextPage: !last, endCursor: last ? null : "c-next" } },
+});
+const rawList = listMilestones as unknown as (
+  fetchPage: (page: number) => Promise<unknown>,
+  opts?: { pageCap?: number; log?: (msg: string) => void; fetchEpicPage?: (page: number) => Promise<unknown> },
+) => Promise<{ name: string }[]>;
+
+describe("listMilestones — raw answers in both measured Jira shapes (M_2306b6)", () => {
+  for (const [shape, answer] of [["plain", plainAnswer], ["wrapped", wrappedAnswer]] as const) {
+    test(`${shape}: the label leg reads each row's fields.labels, across a two-page scan`, async () => {
+      const pages = [answer([measuredRow("GF-1", { labels: ["milestone-M30"] })], false), answer([measuredRow("GF-2", { labels: ["milestone-M86", "x"] })])];
+      const got = await rawList(async (p) => pages[p]);
+      expect(got).toEqual([{ name: "M30" }, { name: "M86" }]);
+    });
+
+    test(`${shape}: the epic leg reads each row's key and fields.summary`, async () => {
+      const epics = answer([measuredRow("DPT-500", { summary: "M101 — Identity" }), measuredRow("DPT-7", { summary: "Checkout revamp" })]);
+      const got = await rawList(async () => plainAnswer([]), { fetchEpicPage: async () => epics });
+      expect(got).toEqual([{ name: "M_DPT_500" }]);
+    });
+  }
+
+  test("an answer in no measured shape (a page with no isLast) is a genuine failure: the scan degrades to []", async () => {
+    const got = await rawList(async () => ({ issues: [measuredRow("GF-1", { labels: ["milestone-M30"] })] }));
+    expect(got).toEqual([]);
+  });
+
+  test("twin: the same row on a page proving it is last is read", async () => {
+    const got = await rawList(async () => plainAnswer([measuredRow("GF-1", { labels: ["milestone-M30"] })]));
+    expect(got).toEqual([{ name: "M30" }]);
   });
 });

@@ -19,7 +19,8 @@ import {
   spanningSiblingState,
   trackerAdapterKey,
 } from "./active_plan_ship_ready";
-import { normalizeContainerPage, readJsonFile } from "./container_ownership";
+import { normalizeContainerItems, readJsonFile } from "./container_ownership";
+import { readTrackerListing } from "./tracker_answer";
 import { parseFrontmatter } from "./frontmatter";
 import { milestoneIdFromLinearMilestone } from "./milestone_token";
 import { SPANS_REPOS_KEY, SpansReposError, readSpansReposDeclaration } from "./spans_repos";
@@ -161,83 +162,27 @@ export async function siblingShipGate(input: {
   return { refusal: null, footer, unchecked };
 }
 
-/** Does the page itself say it is the last one? Absent or non-boolean signals do not. */
-function pageProvesLast(page: unknown, adapter: "jira" | "linear"): boolean {
-  const j = (page ?? {}) as Record<string, unknown>;
-  if (adapter === "jira") return j["isLast"] === true;
-  return (j["pageInfo"] as { hasNextPage?: unknown } | undefined)?.hasNextPage === false;
+/** A child listing read whole: every page's items, and whether its final page proves it is the last. */
+interface JoinedListing {
+  items: Record<string, unknown>[];
+  last: boolean;
 }
 
 /**
- * A child listing may be the JSON array of every page the tracker returned,
- * in order (M_685ff6 review: a Linear project past one 250-row page could
- * never release). Joined into one page when each page but the last says it
- * is not the last (Jira `isLast: false`; Linear `pageInfo.hasNextPage: true`
- * with an `endCursor`, no cursor repeated) and the last proves it is. A
- * single page object is returned as it is; a malformed array is the reason
- * it cannot be joined.
+ * A child listing may be one page, or the JSON array of every page the
+ * tracker returned, in order (M_685ff6 review: a Linear project past one
+ * 250-row page could never release). Every page is read by the shared reader
+ * (`tracker_answer.ts`), so the one rule for "not the last" is its canonical
+ * `next`: each page but the last must hand one, never one an earlier page
+ * handed, and page n>1 must record as its `requestCursor` exactly the `next`
+ * of page n-1. A page the reader cannot read, a broken chain or a key on two
+ * pages is the reason the listing cannot be joined. Whether the FINAL page
+ * proves it is the last is returned as `last`, for the caller to grade.
  */
-function joinPages(listing: unknown, adapter: "jira" | "linear"): { page: unknown } | { error: string } {
-  if (!Array.isArray(listing)) return { page: listing };
-  if (listing.length === 0) return { error: "it is an empty array of pages" };
-  const issues: unknown[] = [];
-  const cursors = new Set<string>();
-  const keys = new Set<string>();
-  let previousEnd: string | null = null;
-  for (let i = 0; i < listing.length; i++) {
-    const p = listing[i] as Record<string, unknown> | null;
-    const n = i + 1;
-    if (p === null || typeof p !== "object" || Array.isArray(p) || !Array.isArray(p["issues"])) {
-      return { error: `page ${n} of ${listing.length} carries no issues array` };
-    }
-    // The pages chain (M_685ff6 review r2): each page after the first records
-    // the cursor it was requested with, and it is the previous page's end.
-    // The MCP answer does not carry it, so the session writes it as it saves
-    // each page — a dropped page then shows as a broken link.
-    if (i > 0) {
-      const requested = p["requestCursor"];
-      if (typeof requested !== "string" || requested === "") {
-        return { error: `page ${n} of ${listing.length} records no requestCursor — the cursor it was requested with` };
-      }
-      if (requested !== previousEnd) {
-        return {
-          error: `page ${n} was requested with ${oneLine(requested)}, but page ${i} ended at ${oneLine(previousEnd ?? "")} — a page between them is missing`,
-        };
-      }
-    }
-    for (const row of p["issues"] as unknown[]) {
-      const r = (row ?? {}) as Record<string, unknown>;
-      const key = typeof r["key"] === "string" ? r["key"] : typeof r["identifier"] === "string" ? r["identifier"] : null;
-      if (key === null) continue;
-      if (keys.has(key)) return { error: `the key ${oneLine(key)} appears on more than one page — a page is duplicated` };
-      keys.add(key);
-    }
-    const last = i === listing.length - 1;
-    if (last) {
-      if (!pageProvesLast(p, adapter)) {
-        return { error: `its final page (page ${n}) does not prove it is the last page (Jira \`isLast: true\`, Linear \`pageInfo.hasNextPage: false\`)` };
-      }
-    } else if (adapter === "jira") {
-      if (p["isLast"] !== false) return { error: `page ${n} of ${listing.length} does not say more pages follow (\`isLast: false\`)` };
-      const token = p["nextPageToken"];
-      if (typeof token !== "string" || token === "") {
-        return { error: `page ${n} of ${listing.length} carries no nextPageToken for the page after it` };
-      }
-      previousEnd = token;
-    } else {
-      const info = p["pageInfo"] as { hasNextPage?: unknown; endCursor?: unknown } | undefined;
-      if (info?.hasNextPage !== true || typeof info.endCursor !== "string" || info.endCursor === "") {
-        return { error: `page ${n} of ${listing.length} does not say more pages follow (\`pageInfo.hasNextPage: true\` with its \`endCursor\`)` };
-      }
-      if (cursors.has(info.endCursor)) {
-        return { error: `page ${n} repeats the endCursor ${oneLine(info.endCursor)} of an earlier page` };
-      }
-      cursors.add(info.endCursor);
-      previousEnd = info.endCursor;
-    }
-    issues.push(...(p["issues"] as unknown[]));
-  }
-  return { page: { ...(listing[listing.length - 1] as Record<string, unknown>), issues } };
+function joinPages(listing: unknown, adapter: "jira" | "linear"): JoinedListing | { error: string } {
+  if (Array.isArray(listing) && listing.length === 0) return { error: "it is an empty array of pages" };
+  const r = readTrackerListing(adapter, Array.isArray(listing) ? listing : [listing]);
+  return r.ok ? { items: r.items, last: r.last } : { error: r.reason };
 }
 
 /** Refusal #4's remedy for one held (non-idle) sibling — one per state. */
@@ -320,8 +265,9 @@ export interface ChildrenGrade {
 /**
  * Grade the undeclared side of a shared-container release (STE-610): the
  * milestone's children as the tracker listed them — a Jira Epic's child issues,
- * or a Linear project's issues filtered to the milestone by identifier. The
- * listing refuses when it is malformed, not the last page, empty, or missing
+ * or a Linear project's issues filtered to the milestone by their
+ * project-milestone id. The listing refuses when it is malformed, not the last
+ * page, empty, or missing
  * any of `ownKeys` (this repository's FR tickets bound to the milestone are
  * children by construction). A child carrying neither `repoTag` nor a
  * `declaredTags` entry refuses unless `partial` is set.
@@ -348,37 +294,31 @@ export function gradeChildren(input: {
   });
   const joined = joinPages(input.listing, adapter === "jira" ? "jira" : "linear");
   if ("error" in joined) return incomplete(joined.error, null);
-  const listing = joined.page;
   // A Linear project's issues belong to the milestone only when their
   // milestone identifier derives to its token: the tracker has no such filter.
-  let page = listing;
-  const issues = (listing as { issues?: unknown } | null)?.issues;
-  if (adapter === "linear" && Array.isArray(issues)) {
-    page = {
-      ...(listing as Record<string, unknown>),
-      issues: issues.filter((row) => {
-        const id = (row as { projectMilestone?: { id?: unknown } } | null)?.projectMilestone?.id;
-        try {
-          return typeof id === "string" && milestoneIdFromLinearMilestone(id) === milestone;
-        } catch {
-          return false;
-        }
-      }),
-    };
-  }
-  let children: ReturnType<typeof normalizeContainerPage>;
+  const items =
+    adapter === "linear"
+      ? joined.items.filter((row) => {
+          const id = (row as { projectMilestone?: { id?: unknown } | null }).projectMilestone?.id;
+          try {
+            return typeof id === "string" && milestoneIdFromLinearMilestone(id) === milestone;
+          } catch {
+            return false;
+          }
+        })
+      : joined.items;
+  let children: ReturnType<typeof normalizeContainerItems>;
   try {
-    children = normalizeContainerPage(page, adapter, true);
+    children = normalizeContainerItems(items, adapter, true);
   } catch (error) {
     return incomplete(`it is malformed: ${(error as Error).message}`, null);
   }
-  // A release reads completeness from the page's OWN signal: a page that does
-  // not say it is the last one has not proved the child list complete (the
-  // rule create_idempotency_probe applies to the same MCP answers).
-  // pageProvesLast is strictly stronger than container_ownership's fail-open
-  // pageIsLast (which a missing signal passes), so it alone decides here.
-  if (!pageProvesLast(listing, adapter)) {
-    return incomplete("it does not prove it is the last page of the listing (Jira `isLast: true`, Linear `pageInfo.hasNextPage: false`)", null);
+  // A release reads completeness from the page's OWN signal, through the one
+  // rule every reader shares (`tracker_answer.ts`, which container_ownership's
+  // pageIsLast also reads): a final page that does not prove it is the last
+  // has not proved the child list complete.
+  if (!joined.last) {
+    return incomplete("its final page does not prove it is the last page of the listing (Jira `isLast: true` or wrapped `hasNextPage: false`, Linear `hasNextPage: false`)", null);
   }
   if (children.length === 0) {
     return incomplete("children=0 — a release needs at least one archived FR, whose ticket is a child", 0);

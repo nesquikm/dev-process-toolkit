@@ -1561,7 +1561,8 @@ interface VerdictPaths {
 function verdictPathsFromRun(text: string): VerdictPaths {
   let res: VerdictPaths = { out: null, verdict: null, phase6Read: null, phase7Read: null, dump: "" };
   withStub((sb) => {
-    writeStubRunEnv(sb, {});
+    // SHARED as bootstrap writes it to the run state (Phase 6 reads it from there and refuses an empty one).
+    writeStubRunEnv(sb, { SHARED: "DST" });
     const env = stubEnv(sb);
     const r6 = runStubScript(sb, rebaseIntoStub(oneFence(text, EXTRACT_TAG).body.replaceAll("<tracker>", "jira"), sb), env);
     const after6 = readStubCalls(sb).length;
@@ -1942,7 +1943,7 @@ function auditFieldViolations(text: string): string[] {
       }
       const got = requestedFields(r.prompt);
       if (got === null) v.push(`${tracker} audit ${pass}: the prompt names no fields`);
-      else if (JSON.stringify(got) !== JSON.stringify(AUDIT_FIELDS_CONTRACT[tracker])) v.push(`${tracker} audit ${pass}: the prompt requests ${got.join(", ")}, not ${AUDIT_FIELDS_CONTRACT[tracker].join(", ")}`);
+      else if (JSON.stringify(got) !== JSON.stringify(AUDIT_FIELDS_CONTRACT[tracker].issue)) v.push(`${tracker} audit ${pass}: the prompt requests ${got.join(", ")}, not ${AUDIT_FIELDS_CONTRACT[tracker].issue.join(", ")}`);
     }
   }
   return v;
@@ -1961,13 +1962,13 @@ function projectReadViolations(text: string): string[] {
     if (r.prompt !== null && /get_project/.test(r.prompt)) v.push(`${t} audit ${p} reads a project; only the second Linear audit does`);
   }
   const boot = oneFence(text, "# shared-tracker-smoke: bootstrap").body;
-  if (!/^printf 'SHARED=%q\\nPRE=%q\\n' "\$\{SHARED\}" "\$\{PRE\}" >> \/tmp\/dpt-shared-<tracker>-run\.env$/m.test(boot)) v.push("bootstrap does not record SHARED and PRE in the run state the audit reads");
+  if (!/^printf 'SHARED=%q\\nPRE=%q\\nLINEAR_TEAM=%q\\n' "\$\{SHARED\}" "\$\{PRE\}" "\$\{LINEAR_TEAM\}" >> \/tmp\/dpt-shared-<tracker>-run\.env$/m.test(boot)) v.push("bootstrap does not record SHARED and PRE in the run state the audit reads");
   return v;
 }
 
 describe("live-run item 2 — the audit prompt requests exactly the fields the grader counts by", () => {
   test("the grader's AUDIT_REQUEST_FIELDS names labels and project on both trackers (the fields an item is attributed by)", () => {
-    for (const t of ["jira", "linear"] as const) expect(AUDIT_REQUEST_FIELDS[t]).toEqual(expect.arrayContaining(["labels", "project"]));
+    for (const t of ["jira", "linear"] as const) expect(AUDIT_REQUEST_FIELDS[t].issue).toEqual(expect.arrayContaining(["labels", "project"]));
   });
   test("RUN: both audits, on both trackers, request exactly the contract's fields", () => {
     expect(auditFieldViolations(docText())).toEqual([]);
@@ -1978,8 +1979,8 @@ describe("live-run item 2 — the audit prompt requests exactly the fields the g
     const noLabels = text.replace(f.body, f.body.replace('AUDIT_FIELDS="summary, labels, status,', 'AUDIT_FIELDS="summary, status,'));
     expect(noLabels).not.toBe(text);
     expect(auditFieldViolations(noLabels)).toEqual([
-      `jira audit 1: the prompt requests summary, status, parent, issuetype, project, not ${AUDIT_FIELDS_CONTRACT.jira.join(", ")}`,
-      `jira audit 2: the prompt requests summary, status, parent, issuetype, project, not ${AUDIT_FIELDS_CONTRACT.jira.join(", ")}`,
+      `jira audit 1: the prompt requests summary, status, parent, issuetype, project, not ${AUDIT_FIELDS_CONTRACT.jira.issue.join(", ")}`,
+      `jira audit 2: the prompt requests summary, status, parent, issuetype, project, not ${AUDIT_FIELDS_CONTRACT.jira.issue.join(", ")}`,
     ]);
     const noProject = text.replace(f.body, f.body.replace("labels, status, project, projectMilestone", "labels, status, projectMilestone"));
     expect(noProject).not.toBe(text);
@@ -2015,10 +2016,167 @@ describe("live-run item 3 — the second Linear audit reads both throwaway proje
   }, 60_000);
   test("MUTATION — a bootstrap that does not record the projects in the run state is red", () => {
     const text = docText();
-    const m = text.replace(/^printf 'SHARED=%q\\nPRE=%q\\n'.*\n/m, "");
+    const m = text.replace(/^printf 'SHARED=%q\\nPRE=%q\\n.*\n/m, "");
     expect(m).not.toBe(text);
     expect(projectReadViolations(m)).toContain("bootstrap does not record SHARED and PRE in the run state the audit reads");
   }, 60_000);
+});
+
+// --- HIGH-E: the first Linear audit reads the milestones the grader grades S3 by
+
+/** The milestone-read line of an audit prompt: the listing tool, the project, the per-key read tool. */
+const MILESTONE_READ_RE = /^Then read the shared project's milestones: call mcp__linear__(\w+) once for the project named (\S+), and call mcp__linear__(\w+) once per created milestone id above \(project \S+, query the id\)\. These calls take no field list\.$/m;
+
+function milestoneReadViolations(text: string): string[] {
+  const v: string[] = [];
+  for (const tracker of ["jira", "linear"] as const) {
+    for (const pass of [1, 2] as const) {
+      const r = runAudit(text, tracker, pass);
+      if (r.prompt === null) {
+        v.push(`${tracker} audit ${pass}: no child was started (exit ${r.code}): ${r.err.trim()}`);
+        continue;
+      }
+      const m = MILESTONE_READ_RE.exec(r.prompt);
+      const want = pass === 1 ? AUDIT_FIELDS_CONTRACT[tracker].milestone : null;
+      if (want === null) {
+        if (m !== null || /list_milestones|get_milestone/.test(r.prompt)) v.push(`${tracker} audit ${pass}: the prompt reads milestones, which the contract does not ask of it`);
+      } else if (m === null) v.push(`${tracker} audit ${pass}: the prompt does not read the shared project's milestones`);
+      else {
+        if (JSON.stringify({ list: m[1], get: m[3] }) !== JSON.stringify(want)) v.push(`${tracker} audit ${pass}: the prompt reads milestones with ${m[1]} and ${m[3]}, not the contract's ${want.list} and ${want.get}`);
+        if (m[2] !== PROJECTS.SHARED) v.push(`${tracker} audit ${pass}: the prompt lists the milestones of ${m[2]}, not the shared project ${PROJECTS.SHARED}`);
+      }
+    }
+  }
+  return v;
+}
+
+describe("HIGH-E — the audit reads the milestones the grader's S3 predicate grades, exactly as AUDIT_REQUEST_FIELDS declares", () => {
+  test("CONTROL — the contract asks Linear's first audit for list_milestones and get_milestone, and Jira (whose milestone is an Epic issue) for none", () => {
+    expect(AUDIT_REQUEST_FIELDS.linear.milestone).toEqual({ list: "list_milestones", get: "get_milestone" });
+    expect(AUDIT_REQUEST_FIELDS.jira.milestone).toBeNull();
+  });
+  test("RUN: the first Linear audit's prompt reads the shared project's milestones with the contract's tools; no Jira audit and no second audit reads milestones", () => {
+    expect(milestoneReadViolations(docText())).toEqual([]);
+  }, 60_000);
+  test("REFUSAL — the first Linear audit with no shared project in the run state refuses in NFR-10 shape, before any append or child", () => {
+    const r = runAudit(docText(), "linear", 1, { SHARED: undefined });
+    expect(r.code).not.toBe(0);
+    expect(r.prompt).toBeNull();
+    expect(r.appends).toBe(0);
+    expectNfr10(r.err, true);
+    expect(r.err).toMatch(/check=projects-unknown/);
+  });
+  test("MUTATION — an audit prompt without the milestone reads is red; one naming another listing tool is red", () => {
+    const text = docText();
+    const f = oneFence(text, AUDIT_TAG);
+    const dropped = text.replace(f.body, f.body.replace("\n${MILESTONE_READS}\n", "\n"));
+    expect(dropped).not.toBe(text);
+    expect(milestoneReadViolations(dropped)).toEqual(["linear audit 1: the prompt does not read the shared project's milestones"]);
+    const other = text.replace(f.body, f.body.replace("call mcp__linear__list_milestones once", "call mcp__linear__list_projects once"));
+    expect(other).not.toBe(text);
+    expect(milestoneReadViolations(other)).toEqual(["linear audit 1: the prompt reads milestones with list_projects and get_milestone, not the contract's list_milestones and get_milestone"]);
+  }, 60_000);
+});
+
+// --- MEDIUM-G: LINEAR_TEAM lives in the run state; Phase 6 reads it, never a retyped value
+
+/** Run Phase 6 against a Linear run state; the exit, stderr and the extract call's --linear-team (null: no extract call). */
+function runPhase6Linear(text: string, over: Record<string, string | undefined>): { code: number; err: string; extracted: boolean; team: string | null } {
+  let res = { code: -1, err: "", extracted: false, team: null as string | null };
+  withStub((sb) => {
+    writeStubRunEnv(sb, { TRACKER: "linear", ...PROJECTS, DIGEST_AT_START: "a".repeat(64), RUN_START_MS: "1", ...over });
+    writeFileSync(join(sb.tmp, "dpt-shared-linear-run.env"), readFileSync(join(sb.tmp, "dpt-shared-jira-run.env"), "utf-8"));
+    const r = runStubScript(sb, rebaseIntoStub(oneFence(text, EXTRACT_TAG).body.replaceAll("<tracker>", "linear"), sb), stubEnv(sb));
+    const x = readStubCalls(sb).find((c) => c.kind === "bun" && /shared_tracker_live_grader\.ts["']?\s+extract\b/.test(c.args));
+    res = { code: r.exitCode, err: r.err, extracted: x !== undefined, team: x ? flagValue(x.args, "linear-team") : null };
+  });
+  return res;
+}
+
+describe("MEDIUM-G — LINEAR_TEAM is recorded in the run state at bootstrap and read from there by Phase 6", () => {
+  test("PERMIT — Phase 6 hands extract the team the run state records", () => {
+    const r = runPhase6Linear(docText(), { LINEAR_TEAM: "STE" });
+    expect({ extracted: r.extracted, team: r.team }, r.err).toEqual({ extracted: true, team: "STE" });
+  });
+  test("REFUSAL — a Linear run state with no LINEAR_TEAM refuses in NFR-10 shape before any extract, never an extract without --linear-team", () => {
+    for (const team of [undefined, ""]) {
+      const r = runPhase6Linear(docText(), { LINEAR_TEAM: team });
+      expect({ team, code: r.code === 0 ? 0 : 1, extracted: r.extracted }).toEqual({ team, code: 1, extracted: false });
+      expectNfr10(r.err, true);
+      expect(r.err).toMatch(/check=linear-team-unset/);
+    }
+  });
+  test("bootstrap records LINEAR_TEAM beside SHARED and PRE, and refuses an empty team on Linear before its first write", () => {
+    const boot = oneFence(docText(), "# shared-tracker-smoke: bootstrap").body;
+    expect(boot).toMatch(/^printf 'SHARED=%q\\nPRE=%q\\nLINEAR_TEAM=%q\\n' "\$\{SHARED\}" "\$\{PRE\}" "\$\{LINEAR_TEAM\}" >> \/tmp\/dpt-shared-<tracker>-run\.env$/m);
+    const refusal = boot.indexOf("check=linear-team-unset");
+    expect(refusal).toBeGreaterThan(-1);
+    expect(refusal, "the refusal precedes the first write").toBeLessThan(boot.indexOf("mkdir -p"));
+  });
+  test("MUTATION — a Phase 6 that retypes LINEAR_TEAM over the run state's is red", () => {
+    const text = docText();
+    const f = oneFence(text, EXTRACT_TAG);
+    const m = text.replace(f.body, f.body.replace(/^(\. \/tmp\/dpt-shared-<tracker>-run\.env)$/m, '$1\nLINEAR_TEAM="<the --linear-team key on a Linear run; empty on Jira>"'));
+    expect(m).not.toBe(text);
+    expect(runPhase6Linear(m, { LINEAR_TEAM: "STE" }).team).not.toBe("STE");
+  });
+});
+
+// --- MEDIUM-G, extended: SHARED and PRE are read from the run state too, never retyped
+
+/** Run Phase 6 on a run state; the extract call's --container and --repoint-from (null: no extract, or flag absent). */
+function runPhase6Spaces(text: string, tracker: "jira" | "linear", over: Record<string, string | undefined>): { code: number; err: string; extracted: boolean; container: string | null; repoint: string | null } {
+  let res = { code: -1, err: "", extracted: false, container: null as string | null, repoint: null as string | null };
+  withStub((sb) => {
+    writeStubRunEnv(sb, { TRACKER: tracker, ...PROJECTS, LINEAR_TEAM: tracker === "linear" ? "STE" : "", DIGEST_AT_START: "a".repeat(64), RUN_START_MS: "1", ...over });
+    if (tracker === "linear") writeFileSync(join(sb.tmp, "dpt-shared-linear-run.env"), readFileSync(join(sb.tmp, "dpt-shared-jira-run.env"), "utf-8"));
+    const r = runStubScript(sb, rebaseIntoStub(oneFence(text, EXTRACT_TAG).body.replaceAll("<tracker>", tracker), sb), stubEnv(sb));
+    const x = readStubCalls(sb).find((c) => c.kind === "bun" && /shared_tracker_live_grader\.ts["']?\s+extract\b/.test(c.args));
+    res = { code: r.exitCode, err: r.err, extracted: x !== undefined, container: x ? flagValue(x.args, "container") : null, repoint: x ? flagValue(x.args, "repoint-from") : null };
+  });
+  return res;
+}
+
+describe("MEDIUM-G extended — Phase 6 reads SHARED and PRE from the run state bootstrap wrote, never a retyped placeholder", () => {
+  test("PERMIT — Linear: extract gets the run state's shared and pre-repoint projects", () => {
+    const r = runPhase6Spaces(docText(), "linear", { SHARED: "dpt-shared-n1", PRE: "dpt-shared-n1-pre" });
+    expect({ extracted: r.extracted, container: r.container, repoint: r.repoint }, r.err).toEqual({ extracted: true, container: "dpt-shared-n1", repoint: "dpt-shared-n1-pre" });
+  });
+  test("PERMIT — Jira without the repoint flag: extract gets the shared space and no --repoint-from", () => {
+    const r = runPhase6Spaces(docText(), "jira", { SHARED: "DST", PRE: "" });
+    expect({ extracted: r.extracted, container: r.container, repoint: r.repoint }, r.err).toEqual({ extracted: true, container: "DST", repoint: null });
+  });
+  test("REFUSAL — an empty SHARED refuses in NFR-10 shape before any extract", () => {
+    for (const t of ["jira", "linear"] as const) {
+      const r = runPhase6Spaces(docText(), t, { SHARED: "", PRE: t === "linear" ? "p-pre" : "" });
+      expect({ t, code: r.code === 0 ? 0 : 1, extracted: r.extracted }).toEqual({ t, code: 1, extracted: false });
+      expectNfr10(r.err, true);
+      expect(r.err).toMatch(/check=shared-unset/);
+    }
+  });
+  test("REFUSAL — a Linear run state with no PRE refuses (the pre-repoint project always exists on Linear)", () => {
+    const r = runPhase6Spaces(docText(), "linear", { SHARED: "dpt-shared-n1", PRE: "" });
+    expect({ code: r.code === 0 ? 0 : 1, extracted: r.extracted }).toEqual({ code: 1, extracted: false });
+    expect(r.err).toMatch(/check=pre-unset/);
+  });
+  test("MUTATION — a Phase 6 that retypes SHARED over the run state's is red", () => {
+    const text = docText();
+    const f = oneFence(text, EXTRACT_TAG);
+    const m = text.replace(f.body, f.body.replace(/^(\. \/tmp\/dpt-shared-<tracker>-run\.env)$/m, '$1\nSHARED="<shared space key, or the shared Linear project name>"'));
+    expect(m).not.toBe(text);
+    expect(runPhase6Spaces(m, "linear", { SHARED: "dpt-shared-n1", PRE: "dpt-shared-n1-pre" }).container).not.toBe("dpt-shared-n1");
+  });
+});
+
+// --- MEDIUM-F: the early privacy dry run says what it cannot see
+
+describe("MEDIUM-F — the privacy dry run is named for what it checks: bootstrap only; Phase 6's extract is the real privacy pass", () => {
+  test("the dry run's prose says it sees no session and names Phase 6's extract as the privacy pass over the run", () => {
+    const sec = section(docText(), /^### Privacy dry run\b/);
+    expect(sec).toMatch(/checks the bootstrap state only/);
+    expect(sec).toMatch(/the ledger holds no session yet/);
+    expect(sec).toMatch(/Phase 6's `extract` is the real privacy pass/);
+  });
 });
 
 // --- item 4: A is idle on the span milestone before the S5 busy step --------

@@ -29,7 +29,12 @@
 //     tracker answer); `exitCode` (Bash only: 0 on success, <n> from the
 //     prefix; null for a hook refusal, which never ran); `items` (a tracker
 //     answer projected to key, summary, labels, status, parent, milestone,
-//     issue type, kind and container); `lastPage` (a listing answer only).
+//     issue type, kind and container); `lastPage` (a listing answer only:
+//     true when the answer PROVES it is the last page, false when it names a
+//     next page, null when it cannot say — a full 50-row Linear milestone
+//     window). Tracker answers are read only through tracker_answer.ts; an
+//     answer in no observed shape is recorded with `items: null` and a `text`
+//     naming why it is unreadable.
 //   * A hook refusal is the harness's `PreToolUse:<tool> hook error: [...]:
 //     Refusing: …` text with `is_error: true`; its Context line names the hook
 //     (`hook=pre-tracker-write-gate`, `pre-commit-gate-check`,
@@ -188,6 +193,17 @@ const MODULE = (m: string) => `"\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/${m}
 const HEX = (s: string) => createHash("sha256").update(s).digest("hex");
 
 export const title = (s: string) => `[${NONCE}] ${s}`;
+
+/**
+ * The fields the audit child requests on its issue search and read-backs, as
+ * the skill's audit fence writes them. The grader's suite asserts these equal
+ * the grader's `AUDIT_REQUEST_FIELDS` issue lists, so this is never a second
+ * definition that can drift.
+ */
+export const AUDIT_FIELDS: Readonly<Record<Tracker, readonly string[]>> = {
+  jira: ["summary", "labels", "status", "parent", "issuetype", "project"],
+  linear: ["id", "title", "labels", "status", "project", "projectMilestone"],
+};
 
 export function sid(n: number): string {
   const h = n.toString(16).padStart(12, "0");
@@ -522,7 +538,10 @@ export function buildPassingBundle(tracker: Tracker, opts: BuildOptions = {}): L
       container: shared,
       subject: "<B>/CLAUDE.md",
       decision: "repoint",
-      evidence: { oldProject: fx.repointFrom, newProject: shared },
+      // As repoint_tracker_binding.ts records it: Jira statuses and labels rest on
+      // the session's own completeness claim (no MCP tool lists them); every
+      // Linear input is proven by the tracker.
+      evidence: { oldProject: fx.repointFrom, newProject: shared, assertedCompleteness: tracker === "jira" ? ["statuses", "labels"] : [] },
     });
     const done = s8b.bash(cmd, `repointed ${fx.repointFrom} -> ${shared}\n${announcement(r)}`);
     fx.commit("B", "docs(claude): declare the shared tracker binding", done.at);
@@ -563,12 +582,13 @@ export function buildPassingBundle(tracker: Tracker, opts: BuildOptions = {}): L
     key: epicKey,
     summary: spanTitle,
     labels: tracker === "jira" ? [TAG_A] : [],
-    status: tracker === "jira" ? "To Do" : "Planned",
+    // A Linear milestone answer carries no status and no project (measured), so its projection reads neither.
+    status: tracker === "jira" ? "To Do" : "",
     parent: null,
     milestone: null,
     issueType: tracker === "jira" ? "Epic" : null,
     kind: tracker === "jira" ? "issue" : "milestone",
-    container: shared,
+    container: tracker === "jira" ? shared : "",
   };
   s3a.tool(
     toolName(tracker, "A", "createMilestone"),
@@ -769,8 +789,8 @@ export function buildPassingBundle(tracker: Tracker, opts: BuildOptions = {}): L
   const auditQuery = tracker === "jira" ? `summary ~ "${NONCE}" ORDER BY key ASC` : NONCE;
   const auditInput = (page: number) =>
     tracker === "jira"
-      ? { cloudId: "cloud-dst", jql: auditQuery, ...(page > 1 ? { nextPageToken: `page-${page}` } : {}) }
-      : { query: auditQuery, includeArchived: true, ...(page > 1 ? { cursor: `page-${page}` } : {}) };
+      ? { cloudId: "cloud-dst", jql: auditQuery, fields: [...AUDIT_FIELDS.jira], ...(page > 1 ? { nextPageToken: `page-${page}` } : {}) }
+      : { query: auditQuery, includeArchived: true, fields: [...AUDIT_FIELDS.linear], ...(page > 1 ? { cursor: `page-${page}` } : {}) };
   const auditItems = () => [...fx.items.values()].filter((t) => t.kind === "issue");
   const a1 = fx.session("audit", "A");
   const all = auditItems();
@@ -783,7 +803,8 @@ export function buildPassingBundle(tracker: Tracker, opts: BuildOptions = {}): L
   for (const c of fx.created) {
     const it = fx.items.get(c.key)!;
     const op = it.kind === "milestone" ? "getMilestone" : "get";
-    a1.tool(toolName(tracker, "A", op), tracker === "jira" ? { cloudId: "cloud-dst", issueIdOrKey: c.key } : { id: c.key }, [it]);
+    const input = tracker === "jira" ? { cloudId: "cloud-dst", issueIdOrKey: c.key, fields: [...AUDIT_FIELDS.jira] } : op === "getMilestone" ? { project: shared, query: c.key } : { id: c.key };
+    a1.tool(toolName(tracker, "A", op), input, [it]);
   }
 
   // --- audit 2: after teardown, every nonce item is Done / both projects completed
@@ -1025,51 +1046,196 @@ export interface MaterializeOptions {
   persistRefs?: string[];
   /** Persisted refs whose pointer FILE is not written. */
   dropPersistedFiles?: string[];
+  /** The Jira answer shape the transcripts record (`trackerAnswer`); default `plain`. */
+  jiraShape?: JiraShape;
 }
 
-const SITE_SELF = "https://acme-sandbox.atlassian.net/rest/api/3/issue/";
+const SITE = "https://acme-sandbox.atlassian.net";
+const SITE_SELF = `${SITE}/rest/api/3/issue/`;
+/** The Linear team's DISPLAY name: a row's `team` is a name, never the key (measured: tests/fixtures/live-shapes/linear/list_issues.*.json). */
+export const LINEAR_TEAM_DISPLAY_NAME = "Shared Smoke Team";
+const JIRA_EXPAND = "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations";
 
-function rawItem(tracker: Tracker, name: string, i: TrackerItem): Record<string, unknown> {
-  if (tracker === "jira") {
-    const id = `1${i.key.replace(/\D/g, "")}`;
-    return {
-      id,
-      key: i.key,
-      self: `${SITE_SELF}${id}`,
-      fields: {
-        summary: i.summary,
-        labels: i.labels,
-        status: { name: i.status },
-        parent: i.parent ? { key: i.parent } : null,
-        issuetype: { name: i.issueType },
-        project: { key: i.container },
-        reporter: { accountId: "5b10ac8d82e05b22cc7d4ef5", emailAddress: "ops@acme-sandbox.io", displayName: "Ops" },
-      },
-    };
-  }
-  if (/__(list_milestones|save_milestone|get_milestone)$/.test(name)) return { id: i.key, name: i.summary, project: i.container, status: i.status };
-  // A project's status is `{ id, name, type }`, its `type` the workflow category (measured live 2026-09-21).
-  if (/__(get_project|save_project|list_projects)$/.test(name)) return { id: `proj-${HEX(i.key).slice(0, 8)}`, name: i.summary, status: { id: "st-1", name: i.status, type: i.status.toLowerCase() } };
-  // A Linear issue's `id` IS its identifier (`STE-618`) and its uuid sits in `uuid`: there is no `identifier` field (measured live 2026-09-21).
+/**
+ * The tracker answers below are built in the MEASURED shapes, key for key: the
+ * pinned real answers under tests/fixtures/live-shapes/ (each with its
+ * provenance), and tests/m_2306b6-ste-617-live-shape-pins.test.ts fails when a
+ * built answer's top-level or item key set drifts from its pin. Jira answers
+ * come in either of the two shapes the same server was recorded sending:
+ * `plain` (`{ issues, isLast, nextPageToken? }`, an item `{ id, key, self, … }`)
+ * or `wrapped` (`{ context, issues: { nodes, pageInfo, webUrl } }`).
+ */
+function jiraIssue(i: TrackerItem, wrapped: boolean): Record<string, unknown> {
+  const id = `1${i.key.replace(/\D/g, "")}`;
   return {
-    id: i.key,
-    uuid: HEX(i.key).slice(0, 8) + "-0000-4000-8000-000000000000",
-    title: i.summary,
-    labels: i.labels,
-    status: i.status,
-    project: i.container,
-    projectMilestone: i.milestone ? { id: i.milestone } : null,
-    url: `https://linear.app/acme-ws/issue/${i.key}/x`,
-    creator: { email: "ops@acme-sandbox.io" },
+    expand: JIRA_EXPAND,
+    id,
+    self: `${SITE_SELF}${id}`,
+    key: i.key,
+    fields: {
+      summary: i.summary,
+      labels: i.labels,
+      status: { name: i.status },
+      parent: i.parent ? { key: i.parent } : null,
+      issuetype: { name: i.issueType },
+      project: { key: i.container },
+      reporter: { accountId: "5b10ac8d82e05b22cc7d4ef5", emailAddress: "ops@acme-sandbox.io", displayName: "Ops" },
+    },
+    ...(wrapped ? { webUrl: `${SITE}/browse/${i.key}` } : {}),
   };
 }
 
-function rawAnswer(tracker: Tracker, c: ToolCall): unknown {
-  const items = (c.result.items ?? []).map((i) => rawItem(tracker, c.name, i));
-  if (c.result.lastPage === null) return items[0] ?? { ok: true };
-  if (tracker === "jira") return { issues: items, isLast: c.result.lastPage, ...(c.result.lastPage ? {} : { nextPageToken: "page-2" }) };
-  if (/__list_milestones$/.test(c.name)) return { milestones: items, hasNextPage: !c.result.lastPage };
-  return { issues: items, hasNextPage: !c.result.lastPage, ...(c.result.lastPage ? {} : { cursor: "page-2" }) };
+/** A wrapped answer's `context` (its account id is what the projection must never carry into a bundle). */
+const jiraContext = (tool: string): Record<string, unknown> => ({
+  atlassianAccountId: "5b10ac8d82e05b22cc7d4ef5",
+  cloudId: "cloud-dst",
+  clientName: "localhost",
+  mcpClientName: "claude-code",
+  toolName: tool,
+  endpoint: "v1:streamable-http",
+  env: "prod",
+});
+
+const linearUuid = (key: string) => `${HEX(key).slice(0, 8)}-0000-4000-8000-000000000000`;
+
+/** Every field of a Linear issue the server can answer, by name (a `list_issues` row carries only those its `fields` asked for, plus `id`). */
+function linearIssueFields(i: TrackerItem): Record<string, unknown> {
+  return {
+    id: i.key,
+    uuid: linearUuid(i.key),
+    title: i.summary,
+    description: "Reported by ops@acme-sandbox.io.",
+    projectMilestone: i.milestone ? { id: i.milestone, name: "a milestone" } : null,
+    priority: { value: 0, name: "No priority" },
+    url: `https://linear.app/acme-ws/issue/${i.key}/x`,
+    gitBranchName: `ops/${i.key.toLowerCase()}-x`,
+    createdAt: START,
+    updatedAt: START,
+    archivedAt: null,
+    completedAt: null,
+    startedAt: null,
+    canceledAt: null,
+    dueDate: null,
+    slaStartedAt: null,
+    slaMediumRiskAt: null,
+    slaHighRiskAt: null,
+    slaBreachesAt: null,
+    status: i.status,
+    statusType: "unstarted",
+    labels: i.labels,
+    attachments: [],
+    documents: [],
+    createdBy: "Ops",
+    createdById: "2d5a2118-0000-4000-8000-000000000001",
+    assignee: null,
+    assigneeId: null,
+    project: i.container,
+    projectId: `proj-${HEX(i.container).slice(0, 8)}`,
+    team: LINEAR_TEAM_DISPLAY_NAME,
+    teamId: "e1181251-0000-4000-8000-000000000001",
+  };
+}
+
+/** The keys of a `save_issue` answer (create and update alike), measured. */
+const LINEAR_SAVE_ISSUE_KEYS = [
+  "id", "uuid", "title", "description", "projectMilestone", "priority", "url", "gitBranchName", "createdAt", "updatedAt",
+  "archivedAt", "completedAt", "startedAt", "canceledAt", "dueDate", "slaStartedAt", "slaMediumRiskAt", "slaHighRiskAt",
+  "slaBreachesAt", "status", "statusType", "labels", "attachments", "documents", "createdBy", "createdById", "assignee",
+  "assigneeId", "project", "projectId", "team", "teamId",
+] as const;
+
+const pick = (o: Record<string, unknown>, keys: readonly string[]) => Object.fromEntries(keys.filter((k) => k in o).map((k) => [k, o[k]]));
+
+function linearMilestone(i: TrackerItem, withDescription: boolean): Record<string, unknown> {
+  return { id: i.key, name: i.summary, ...(withDescription ? { description: "" } : {}), progress: 0, sortOrder: 1000 };
+}
+
+function linearProject(i: TrackerItem): Record<string, unknown> {
+  const id = `proj-${HEX(i.key).slice(0, 8)}`;
+  const team = { id: "e1181251-0000-4000-8000-000000000001", name: LINEAR_TEAM_DISPLAY_NAME, key: "STE" };
+  return {
+    id,
+    uuid: id,
+    icon: null,
+    color: "#bec2c8",
+    name: i.summary,
+    summary: "",
+    description: "",
+    url: `https://linear.app/acme-ws/project/${id}`,
+    resourceCount: 0,
+    createdAt: START,
+    updatedAt: START,
+    startedAt: null,
+    completedAt: null,
+    canceledAt: null,
+    startDate: null,
+    startDateResolution: null,
+    targetDate: null,
+    targetDateResolution: null,
+    priority: { value: 0, name: "No priority" },
+    labels: [],
+    initiatives: [],
+    lead: {},
+    leadTeam: team,
+    // A project's status is `{ id, name, type }`, its `type` the workflow category (measured live 2026-09-21).
+    status: { id: "st-1", name: i.status, type: i.status.toLowerCase() },
+    teams: [team],
+  };
+}
+
+export type JiraShape = "plain" | "wrapped";
+export const JIRA_SHAPES: readonly JiraShape[] = ["plain", "wrapped"];
+
+/**
+ * The raw answer the tracker sends for one recorded call, in the measured
+ * shape of its tool. A shape no measurement covers throws: a double never
+ * invents one.
+ */
+export function trackerAnswer(tracker: Tracker, c: ToolCall, jiraShape: JiraShape = "plain"): unknown {
+  const items = c.result.items ?? [];
+  const tool = c.name.split("__").at(-1)!;
+  if (tracker === "jira") {
+    const wrapped = jiraShape === "wrapped";
+    if (tool === "searchJiraIssuesUsingJql") {
+      const last = c.result.lastPage === true;
+      const rows = items.map((i) => jiraIssue(i, wrapped));
+      if (!wrapped) return { issues: rows, isLast: last, ...(last ? {} : { nextPageToken: "page-2" }) };
+      return {
+        context: jiraContext(tool),
+        issues: { nodes: rows, pageInfo: { hasNextPage: !last, endCursor: last ? null : "page-2" }, webUrl: `${SITE}/issues?jql=x`, ...(last ? {} : { remainingCount: 1 }) },
+      };
+    }
+    const one = items[0];
+    if (one === undefined) return { ok: true };
+    if (tool === "createJiraIssue" && !wrapped) {
+      const id = `1${one.key.replace(/\D/g, "")}`;
+      return { id, key: one.key, self: `${SITE_SELF}${id}` };
+    }
+    // getJiraIssue (measured both ways); editJiraIssue is answered like a read (unmeasured: no transcript recorded one).
+    return wrapped ? { context: jiraContext(tool), issues: { nodes: [jiraIssue(one, true)] } } : jiraIssue(one, false);
+  }
+  if (tool === "list_issues") {
+    const fields = c.input.fields;
+    if (!Array.isArray(fields) || fields.length === 0) throw new Error(`fixture: ${c.ref} — a list_issues call without \`fields\` has no measured row shape`);
+    const want = ["id", ...fields.map(String)];
+    const last = c.result.lastPage === true;
+    return { issues: items.map((i) => pick(linearIssueFields(i), want)), hasNextPage: !last, ...(last ? {} : { cursor: "page-2" }) };
+  }
+  if (tool === "list_milestones") {
+    // No paging field at all: fewer than the 50-row window is the whole list, so "not the last page" cannot be written.
+    if (c.result.lastPage !== true) throw new Error(`fixture: ${c.ref} — a list_milestones answer carries no paging field; only a complete (< 50 rows) listing can be built`);
+    return { milestones: items.map((i) => linearMilestone(i, true)) };
+  }
+  const one = items[0];
+  if (one === undefined) return { ok: true };
+  if (tool === "get_milestone") return linearMilestone(one, true);
+  if (tool === "save_milestone") return linearMilestone(one, false);
+  if (tool === "get_project" || tool === "save_project") return linearProject(one);
+  // save_issue (create and update) and get_issue, both measured: a fetched
+  // issue is the save answer plus its stateHistory (live-shapes/linear/get_issue.json).
+  const issue = pick(linearIssueFields(one), LINEAR_SAVE_ISSUE_KEYS);
+  if (tool === "get_issue") return { ...issue, stateHistory: [{ state: { id: "st-1", name: one.status, type: String(one.status).toLowerCase() }, startedAt: START, endedAt: null }] };
+  return issue;
 }
 
 export function markerLine(marker: string, client: Client = "tree"): string {
@@ -1209,7 +1375,7 @@ export function materialize(bundle: LiveBundle, base: string, o: MaterializeOpti
       } else if (c.result.isError || c.result.items === null) {
         content = sub(c.result.text);
       } else {
-        content = [{ type: "text", text: JSON.stringify(rawAnswer(tracker, c)) }];
+        content = [{ type: "text", text: JSON.stringify(trackerAnswer(tracker, c, o.jiraShape)) }];
       }
       if (persist.has(c.ref)) {
         const full = typeof content === "string" ? content : (content as Array<{ text: string }>)[0]!.text;

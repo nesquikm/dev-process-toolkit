@@ -1,0 +1,133 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-21",
+    "method": "read-only-call",
+    "request": {
+      "cloudId": "96bffaef-cf5d-4dbf-a170-3d700df9bc83",
+      "jql": "project = DST AND key = DST-77",
+      "fields": [
+        "summary",
+        "labels",
+        "status",
+        "issuetype",
+        "project",
+        "parent",
+        "description",
+        "creator"
+      ],
+      "maxResults": 50
+    },
+    "note": "plain shape, final page: isLast true, no nextPageToken"
+  },
+  "answer": {
+    "issues": [
+      {
+        "expand": "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations",
+        "id": "61587",
+        "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issue/61587",
+        "key": "DST-77",
+        "fields": {
+          "summary": "truncate — pure truncate(text: string, max: number) helper s…",
+          "issuetype": {
+            "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issuetype/10962",
+            "id": "10962",
+            "description": "Tasks track small, distinct pieces of work.",
+            "iconUrl": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/2/universal_avatar/view/type/issuetype/avatar/10318?size=medium",
+            "name": "Task",
+            "subtask": false,
+            "avatarId": 10318,
+            "entityId": "fcc6bc8c-0466-4531-85fc-035eb5cd6ec0",
+            "hierarchyLevel": 0
+          },
+          "parent": {
+            "id": "61586",
+            "key": "DST-76",
+            "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issue/61586",
+            "fields": {
+              "summary": "M_DST_76 — Truncate helper",
+              "status": {
+                "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/status/11327",
+                "description": "",
+                "iconUrl": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/",
+                "name": "Done",
+                "id": "11327",
+                "statusCategory": {
+                  "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/statuscategory/3",
+                  "id": 3,
+                  "key": "done",
+                  "colorName": "green",
+                  "name": "Done"
+                }
+              },
+              "priority": {
+                "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/priority/3",
+                "iconUrl": "https://example-site.invalid/images/icons/priorities/medium_new.svg",
+                "name": "Medium",
+                "id": "3"
+              },
+              "issuetype": {
+                "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issuetype/10963",
+                "id": "10963",
+                "description": "Epics track collections of related bugs, stories, and tasks.",
+                "iconUrl": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/2/universal_avatar/view/type/issuetype/avatar/10307?size=medium",
+                "name": "Epic",
+                "subtask": false,
+                "avatarId": 10307,
+                "entityId": "9a8d7f2e-9507-4b68-9d4a-8d06842b5308",
+                "hierarchyLevel": 1
+              }
+            }
+          },
+          "creator": {
+            "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/user?accountId=<account-id>",
+            "accountId": "<account-id>",
+            "emailAddress": "<email>",
+            "avatarUrls": {
+              "48x48": "https://avatar.invalid/x.png",
+              "24x24": "https://avatar.invalid/x.png",
+              "16x16": "https://avatar.invalid/x.png",
+              "32x32": "https://avatar.invalid/x.png"
+            },
+            "displayName": "<person>",
+            "active": true,
+            "timeZone": "Europe/Prague",
+            "accountType": "atlassian"
+          },
+          "project": {
+            "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/project/10953",
+            "id": "10953",
+            "key": "DST",
+            "name": "DPT Smoke Test",
+            "projectTypeKey": "software",
+            "simplified": true,
+            "avatarUrls": {
+              "48x48": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10417",
+              "24x24": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10417?size=small",
+              "16x16": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10417?size=xsmall",
+              "32x32": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10417?size=medium"
+            }
+          },
+          "description": "Provide a pure function `truncate(text: string, max: number)…",
+          "status": {
+            "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/status/11327",
+            "description": "",
+            "iconUrl": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/",
+            "name": "Done",
+            "id": "11327",
+            "statusCategory": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/statuscategory/3",
+              "id": 3,
+              "key": "done",
+              "colorName": "green",
+              "name": "Done"
+            }
+          },
+          "labels": [
+            "dpt-smoke"
+          ]
+        }
+      }
+    ],
+    "isLast": true
+  }
+}

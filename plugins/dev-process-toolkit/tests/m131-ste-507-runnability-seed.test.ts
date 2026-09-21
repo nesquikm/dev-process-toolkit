@@ -203,10 +203,12 @@ describe("AC-STE-507.3 — /upgrade carries a migration-registry entry", () => {
     expect(liveEntry().introduced_in).toBe(INTRODUCED_IN);
   });
 
-  test("it is APPENDED — last in the version-ordered list, after the 2.59.0 entry", () => {
+  test("it is APPENDED — after the 2.59.0 entry, and before any entry a later release appends", () => {
+    // It was last when it shipped (2.70.0); M_2306b6 appended `linear-team-key`
+    // (2.90.0) after it, so "last" is no longer the property — its order is.
     const ids = MIGRATIONS.map((e) => e.id);
-    expect(ids[ids.length - 1]).toBe(ENTRY_ID);
     expect(ids.indexOf(ENTRY_ID)).toBeGreaterThan(ids.indexOf(PREDECESSOR_ID));
+    expect(ids.slice(ids.indexOf(ENTRY_ID) + 1)).toEqual(["linear-team-key"]);
   });
 
   test("kind is `script`, and `apply` is present exactly BECAUSE of that", () => {

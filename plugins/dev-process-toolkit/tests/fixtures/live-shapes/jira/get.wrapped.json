@@ -1,0 +1,66 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-11",
+    "method": "recorded-transcript",
+    "request": {
+      "cloudId": "96bffaef-cf5d-4dbf-a170-3d700df9bc83",
+      "issueIdOrKey": "GB-41",
+      "fields": [
+        "summary",
+        "description",
+        "status"
+      ],
+      "responseContentFormat": "markdown"
+    },
+    "note": "WRAPPED shape, recorded from the claude.ai Atlassian connector (the same server family flips shape; mcp__atlassian search is recorded both ways)"
+  },
+  "answer": {
+    "issues": {
+      "nodes": [
+        {
+          "expand": "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations",
+          "id": "63515",
+          "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issue/63515",
+          "key": "GB-41",
+          "fields": {
+            "summary": "Shopping country — a profile field, its write, and silent IP…",
+            "description": "Server half of glacy-app-fe **GF-86** (shopping country). Sp…",
+            "status": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/status/11538",
+              "description": "",
+              "iconUrl": "https://example-site.invalid/images/icons/statuses/generic.png",
+              "name": "To Do",
+              "id": "11538",
+              "statusCategory": {
+                "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/statuscategory/2",
+                "id": 2,
+                "key": "new",
+                "colorName": "blue-gray",
+                "name": "To Do"
+              }
+            }
+          },
+          "webUrl": "https://example-site.invalid/browse/GB-41"
+        }
+      ]
+    },
+    "context": {
+      "atlassianAccountId": "<account-id>",
+      "cloudId": "96bffaef-cf5d-4dbf-a170-3d700df9bc83",
+      "clientName": "localhost",
+      "mcpClientName": "claude-code",
+      "toolName": "getJiraIssue",
+      "endpoint": "v1:streamable-http",
+      "sessionId": "r7-66e096aa-a3b9-4c4f-bbed-814dc1b3af40",
+      "invocationId": "ef8c8be6-a474-47e1-8b2a-ca3f09d1a31b",
+      "env": "prod",
+      "featureFlags": {
+        "mcp-app-v2-primary": false,
+        "analytics-jira-mcp-app": true,
+        "mcp-jira-instrumentation-phase-1": false,
+        "ken-4811-4724-jira-mcp-status-assignee-fields": false,
+        "jira-mcp-app-loading-skeleton-and-error-case": false
+      }
+    }
+  }
+}

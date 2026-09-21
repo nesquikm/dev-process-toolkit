@@ -49,6 +49,7 @@ import { symlinkSync as symlinkFs, writeFileSync as writeFs } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { SMOKE_OUTCOMES } from "../adapters/_shared/src/smoke_verdict";
+import { LINEAR_MILESTONE_WINDOW } from "../adapters/_shared/src/tracker_answer";
 // The hook's own lists, imported only to pin the grader's copies to them: the
 // writer map (the drift guard in "a receipt counts as announced only by its
 // writer") and the tracker-write tool set (the drift guard in "HARDENING 8").
@@ -67,8 +68,13 @@ import {
   LINEAR_CAP_TEXT,
   type LiveBundle,
   markerLine,
+  AUDIT_FIELDS,
+  JIRA_SHAPES,
+  type JiraShape,
   materialize,
+  materialize as materializeRecords,
   type Materialized,
+  type MaterializeOptions,
   NONCE,
   removeSessions,
   rewriteAssistantText,
@@ -93,6 +99,16 @@ const REGISTRY_PATH = join(pluginRoot, "adapters", "_shared", "src", "shared_tra
 const CLEANUP_PATH = join(pluginRoot, "adapters", "_shared", "src", "smoke_session_cleanup.ts");
 const HOOKS_JSON = join(pluginRoot, "hooks", "hooks.json");
 const TRACKERS: readonly Tracker[] = ["jira", "linear"];
+/**
+ * The extraction legs. Jira's server was recorded answering in two shapes
+ * (plain and wrapped) within days, so every materialized passing bundle must
+ * extract and pass under both; the legs parameterise one suite, never a fork.
+ */
+const LEGS: ReadonlyArray<{ t: Tracker; shape: JiraShape; name: string }> = [
+  { t: "jira", shape: "plain", name: "jira (plain answers)" },
+  { t: "jira", shape: "wrapped", name: "jira (wrapped answers)" },
+  { t: "linear", shape: "plain", name: "linear" },
+];
 
 // ===========================================================================
 // Dynamic loads
@@ -452,8 +468,9 @@ for (const t of TRACKERS) {
 // AC.6 / AC.7 / AC.8 — extraction from the on-disk records
 // ===========================================================================
 
-for (const t of TRACKERS) {
-  describe(`${t} — extraction from transcripts, receipts and git (round trip)`, () => {
+for (const { t, shape, name } of LEGS) {
+  describe(`${name} — extraction from transcripts, receipts and git (round trip)`, () => {
+    const materialize = (b: LiveBundle, base: string, o: MaterializeOptions = {}): Materialized => materializeRecords(b, base, { jiraShape: shape, ...o });
     test("the materialized passing bundle extracts and grades pass", () => {
       withTmp("ste617-rt-", (d) => {
         const m = materialize(buildPassingBundle(t), d);
@@ -839,6 +856,45 @@ for (const t of TRACKERS) {
 // ===========================================================================
 // AC.17 — the run-wide checks, each on a bundle differing by the one defect
 // ===========================================================================
+
+// The two repoint inputs no Atlassian MCP tool can list (Jira statuses and
+// labels) pass on a completeness the SESSION asserts, not one the tracker
+// proves. The repoint receipt records which inputs rested on such a claim
+// (`evidence.assertedCompleteness`), and the verdict must carry it: a pass that
+// silently rests on an assertion is what this milestone removes.
+describe("S8 — the verdict says which repoint inputs' completeness was asserted, not proven", () => {
+  const repointReceipt = (b: LiveBundle) => {
+    const set = b.repos.B.receipts;
+    if (!set.readable) throw new Error("fixture: B's receipts unreadable");
+    return set.records.find((r) => r.kind === "repoint")!;
+  };
+  test("Jira: the verdict names the asserted inputs from B's repoint receipt", () => {
+    const b = buildPassingBundle("jira");
+    expect(repointReceipt(b).evidence.assertedCompleteness).toEqual(["statuses", "labels"]);
+    const v = grade(b);
+    expect({ outcome: v.outcome, asserted: v.assertedCompleteness }).toEqual({ outcome: "pass", asserted: ["statuses", "labels"] });
+  });
+  test("Linear: every repoint input was proven by the tracker, so the verdict names none", () => {
+    const v = grade(buildPassingBundle("linear"));
+    expect({ outcome: v.outcome, asserted: v.assertedCompleteness }).toEqual({ outcome: "pass", asserted: [] });
+  });
+  test("REFUSE — a repoint receipt that does not record the field fails S8: it cannot say what the pass rested on", () => {
+    const b = buildPassingBundle("jira");
+    delete repointReceipt(b).evidence.assertedCompleteness;
+    const v = grade(b);
+    expect(failing(v)).toContain("S8");
+    expect(v.scenarios.S8?.reason).toMatch(/assertedCompleteness/);
+  });
+  test("REFUSE — a field that is not a list of input names fails S8 too", () => {
+    const b = buildPassingBundle("jira");
+    repointReceipt(b).evidence.assertedCompleteness = "statuses";
+    expect(failing(grade(b))).toContain("S8");
+  });
+  test("a Jira run with no repoint (S8 the named skip) carries no claim: null, not an empty list", () => {
+    const b = buildPassingBundle("jira", { jiraRepointFrom: null });
+    expect(grade(b).assertedCompleteness).toBeNull();
+  });
+});
 
 describe("AC.17 — gated writes", () => {
   test("a successful create with no preceding front-door run in its session fails ungated-write naming that session", () => {
@@ -2500,27 +2556,37 @@ describe("HARDENING 7 — missing records abort or fail, never read as fine", ()
       withTmp("ste617-h7e-ok-", (d) => expect(gradeExtracted(extractFor(materialize(bb, d))).outcome).toBe("pass"));
     });
   }
-  test("a page whose paging is under pageInfo.hasNextPage is read: false is the last page, true is not", () => {
+  test("a Linear page carrying `pageInfo` is a shape the server was never observed to send: unreadable, so the audit aborts audit-incomplete whatever it says; PERMIT TWIN — the measured top-level `hasNextPage` page passes", () => {
     const bb = buildPassingBundle("linear");
     const a1 = audits(bb)[0]!;
     const last = a1.calls.find((c) => c.result.lastPage === true && /__list_issues$/.test(c.name))!;
     const id = last.ref.split(":")[1]!;
-    for (const [hasNext, outcome] of [[false, "pass"], [true, "abort"]] as const) {
+    const edits: Array<[string, (ans: Record<string, unknown>) => void]> = [
+      ["paging moved under pageInfo.hasNextPage: false", (ans) => {
+        for (const k of ["hasNextPage", "cursor"]) delete ans[k];
+        ans.pageInfo = { hasNextPage: false, endCursor: null };
+      }],
+      ["pageInfo beside a top-level hasNextPage: false", (ans) => {
+        ans.pageInfo = { hasNextPage: false, endCursor: null };
+      }],
+    ];
+    for (const [why, edit] of edits) {
       withTmp("ste617-h7f-", (d) => {
         const m = materialize(bb, d);
         editTranscript(m.transcripts[a1.sessionId]!, (r) => {
           for (const blk of Array.isArray(r.message?.content) ? r.message.content : []) {
             if (blk.type !== "tool_result" || blk.tool_use_id !== id) continue;
             const ans = JSON.parse(blk.content[0].text);
-            for (const k of ["isLast", "hasNextPage", "nextPageToken", "cursor"]) delete ans[k];
-            ans.pageInfo = { hasNextPage: hasNext };
+            edit(ans);
             blk.content[0].text = JSON.stringify(ans);
           }
           return r;
         });
-        expect({ hasNext, outcome: gradeExtracted(extractFor(m)).outcome }).toEqual({ hasNext, outcome });
+        const r = gradeExtracted(extractFor(m));
+        expect({ why, outcome: r.outcome, has: codes(r).includes("audit-incomplete") }).toEqual({ why, outcome: "abort", has: true });
       });
     }
+    withTmp("ste617-h7f-ok-", (d) => expect(gradeExtracted(extractFor(materialize(bb, d))).outcome).toBe("pass"));
   });
   for (const [t, tool] of [["jira", "getJiraIssue"], ["linear", "get_issue"]] as const) {
     test(`${t}: an inventoried tool (${tool}) with NO classification is unclassified-tool, never a read; PERMIT TWIN — the shipped inventory classifies it`, () => {
@@ -2544,6 +2610,126 @@ function toolSetDrift(grader: readonly string[], hook: readonly string[]): strin
   const h = new Set(hook);
   return [...[...h].filter((x) => !g.has(x)).map((x) => `the hook gates ${x}; the grader does not treat it as a write`), ...[...g].filter((x) => !h.has(x)).map((x) => `the grader treats ${x} as a write; the hook does not gate it`)];
 }
+
+
+// ===========================================================================
+// MEASURED SHAPES — every tracker answer is read through tracker_answer.ts,
+// the one reader of the shapes measured live (tests/fixtures/live-shapes/):
+// Linear pages top-level `hasNextPage` + `cursor`, Linear list_milestones with
+// no paging field (fewer than LINEAR_MILESTONE_WINDOW rows is complete), Jira
+// plain and wrapped. An answer in no observed shape is recorded unreadable.
+// ===========================================================================
+
+/** Rewrite the answer of call `ref` in a materialized transcript. */
+function editAnswer(m: Materialized, sessionId: string, ref: string, f: (ans: any) => unknown): void {
+  const id = ref.split(":")[1]!;
+  let hit = 0;
+  editTranscript(m.transcripts[sessionId]!, (r) => {
+    for (const blk of Array.isArray(r.message?.content) ? r.message.content : []) {
+      if (blk.type !== "tool_result" || blk.tool_use_id !== id) continue;
+      blk.content[0].text = JSON.stringify(f(JSON.parse(blk.content[0].text)));
+      hit++;
+    }
+    return r;
+  });
+  if (hit !== 1) throw new Error(`fixture: ${ref} answered ${hit} times in its transcript`);
+}
+
+/** Pad S3 B's milestone listing (and its decision receipt's rowKeys) to `rows` rows. */
+function padS3Listing(b: LiveBundle, rows: number): ToolCall {
+  const s3b = sessionsOf(b, "S3").find((s) => s.root === "B")!;
+  const listing = s3b.calls.find((c) => /__list_milestones$/.test(c.name))!;
+  const set = b.repos.B.receipts;
+  if (!set.readable) throw new Error("fixture: B's receipts unreadable");
+  const receipt = set.records.find((r) => r.kind === "milestone-decision" && r.sessionId === s3b.sessionId)!;
+  const rowKeys = (receipt.evidence.listing as { rowKeys: string[] }).rowKeys;
+  for (let n = listing.result.items!.length; n < rows; n++) {
+    const key = `0ad0ad${n.toString(16).padStart(2, "0")}-7d2e-4f00-9a00-${n.toString(16).padStart(12, "0")}`;
+    listing.result.items!.push({ key, summary: `older milestone ${n}`, labels: [], status: "", parent: null, milestone: null, issueType: null, kind: "milestone", container: "" });
+    rowKeys.push(key);
+  }
+  return listing;
+}
+
+describe("MEASURED SHAPES — the grader reads tracker answers only through tracker_answer.ts", () => {
+  test("HIGH-B, PERMIT — a Linear list_milestones answer carries no paging field; with fewer than LINEAR_MILESTONE_WINDOW rows it is the whole list, so both S3 decisions are listed (no unlisted-decision)", () => {
+    withTmp("ste617-ms-", (d) => {
+      const b = buildPassingBundle("linear");
+      const m = materialize(b, d);
+      const listings = sessionsOf(b, "S3").flatMap((x) => x.calls.filter((c) => /__list_milestones$/.test(c.name)).map((c) => ({ file: m.transcripts[x.sessionId]!, id: c.ref.split(":")[1]! })));
+      const keysOf = ({ file, id }: { file: string; id: string }): string[] => {
+        for (const l of readFileSync(file, "utf-8").split("\n").filter((x) => x.trim())) {
+          for (const blk of JSON.parse(l).message?.content ?? []) if (blk.type === "tool_result" && blk.tool_use_id === id) return Object.keys(JSON.parse(blk.content[0].text));
+        }
+        return [];
+      };
+      expect(listings.map(keysOf), "CONTROL — each recorded milestone listing carries no paging field").toEqual([["milestones"], ["milestones"]]);
+      const r = gradeExtracted(extractFor(m));
+      expect({ outcome: r.outcome, unlisted: findingsOf(r, "unlisted-decision") }).toEqual({ outcome: "pass", unlisted: [] });
+      const listed = extractedBundle(extractFor(m)).sessions.filter((s) => s.marker === "S3").flatMap((s) => s.calls.filter((c) => /__list_milestones$/.test(c.name)));
+      expect(listed.map((c) => c.result.lastPage)).toEqual([true, true]);
+    });
+  });
+  test("HIGH-B, REFUSAL TWIN — a listing of exactly LINEAR_MILESTONE_WINDOW rows is not proven complete, so B's join decision is unlisted-decision; one row fewer is listed", () => {
+    for (const [rows, unlisted] of [[LINEAR_MILESTONE_WINDOW, true], [LINEAR_MILESTONE_WINDOW - 1, false]] as const) {
+      withTmp("ste617-ms-win-", (d) => {
+        const b = buildPassingBundle("linear");
+        padS3Listing(b, rows);
+        const r = gradeExtracted(extractFor(materialize(b, d)));
+        const s3b = sessionsOf(b, "S3").find((s) => s.root === "B")!.sessionId;
+        expect({ rows, unlisted: findingsOf(r, "unlisted-decision").some((f) => f.session === s3b) }).toEqual({ rows, unlisted });
+      });
+    }
+  });
+  for (const t of TRACKERS) {
+    test(`${t}: an answer in NO observed shape (a create answered as a bare array) is recorded unreadable — no items, its text naming why — so the create aborts create-key-unreadable; PERMIT TWIN — the measured create answer`, () => {
+      withTmp("ste617-unshaped-", (d) => {
+        const b = buildPassingBundle(t);
+        const s1 = session(b, "S1");
+        const c = createCallOf(s1);
+        const m = materialize(b, d);
+        editAnswer(m, s1.sessionId, c.ref, (ans) => [ans]);
+        const x = extractFor(m);
+        const bundle = extractedBundle(x);
+        const got = session(bundle, "S1").calls.find((y) => y.ref === c.ref)!;
+        expect({ items: got.result.items, lastPage: got.result.lastPage, isError: got.result.isError }).toEqual({ items: null, lastPage: null, isError: false });
+        expect(got.result.text).toMatch(/^unreadable tracker answer: /);
+        expect(grader().privacyViolations(bundle), "the unreadable answer's raw text never reaches the bundle").toEqual([]);
+        const r = gradeExtracted(x);
+        expect(r.outcome).toBe("abort");
+        expect(findingsOf(r, "create-key-unreadable").some((f) => (f.detail ?? "").startsWith(`${c.ref}:`))).toBe(true);
+      });
+      withTmp("ste617-unshaped-ok-", (d) => expect(gradeExtracted(extractFor(materialize(buildPassingBundle(t), d))).outcome).toBe("pass"));
+    });
+  }
+  test("linear: a listing whose rows sit under `nodes` (no observed Linear shape) is unreadable, so the audit's last page is unproven: audit-incomplete", () => {
+    withTmp("ste617-nodes-", (d) => {
+      const b = buildPassingBundle("linear");
+      const a1 = audits(b)[0]!;
+      const last = a1.calls.find((c) => c.result.lastPage === true && /__list_issues$/.test(c.name))!;
+      const m = materialize(b, d);
+      editAnswer(m, a1.sessionId, last.ref, (ans) => ({ nodes: ans.issues, hasNextPage: false }));
+      const r = gradeExtracted(extractFor(m));
+      expect({ outcome: r.outcome, has: codes(r).includes("audit-incomplete") }).toEqual({ outcome: "abort", has: true });
+    });
+  });
+  test("jira (wrapped): a wrapped search page whose issues.pageInfo says hasNextPage is not the last page: audit-incomplete; PERMIT TWIN — the same page saying false passes", () => {
+    const b = buildPassingBundle("jira");
+    const a1 = audits(b)[0]!;
+    const last = a1.calls.find((c) => c.result.lastPage === true && /__searchJiraIssuesUsingJql$/.test(c.name))!;
+    for (const [more, outcome] of [[true, "abort"], [false, "pass"]] as const) {
+      withTmp("ste617-wrapped-", (d) => {
+        const m = materialize(b, d, { jiraShape: "wrapped" });
+        editAnswer(m, a1.sessionId, last.ref, (ans) => {
+          expect(Object.keys(ans).sort(), "CONTROL — the recorded page is wrapped").toEqual(["context", "issues"]);
+          ans.issues.pageInfo = { hasNextPage: more, endCursor: more ? "page-3" : null };
+          return ans;
+        });
+        expect({ more, outcome: gradeExtracted(extractFor(m)).outcome }).toEqual({ more, outcome });
+      });
+    }
+  });
+});
 
 describe("HARDENING 8 — the grader's tracker-write tool set is the hook's", () => {
   test("DRIFT GUARD — TRACKER_WRITE_TOOL_NAMES equals the hook's TRACKER_WRITE_TOOLS", () => {
@@ -3052,13 +3238,16 @@ describe("STE-618 follow-ups — the grader CLI's extract and grade", () => {
 // Live shapes measured read-only on 2026-09-21: Linear list_issues →
 // `{ issues, hasNextPage, cursor }` whose issue `id` IS the identifier
 // (`STE-618`, no `identifier` field); Linear get_project → `status: { id,
-// name, type }`; Jira search → `{ issues, nextPageToken, isLast }`.
+// name, type }`; Jira search → `{ issues, nextPageToken, isLast }` or, on the
+// same server days apart, wrapped `{ context, issues: { nodes, pageInfo } }`.
+// The pinned answers live under tests/fixtures/live-shapes/ and are read only
+// through tracker_answer.ts (see MEASURED SHAPES above).
 // ===========================================================================
 
 interface GraderExtras {
   projectItem(tracker: Tracker, tool: string, raw: Record<string, unknown>): TrackerItem;
-  AUDIT_REQUEST_FIELDS: Readonly<Record<Tracker, readonly string[]>>;
-  AUDIT_ALWAYS_RETURNED: Readonly<Record<Tracker, readonly string[]>>;
+  AUDIT_REQUEST_FIELDS: Readonly<Record<Tracker, { issue: readonly string[]; milestone: { list: string; get: string } | null }>>;
+  AUDIT_ALWAYS_RETURNED: Readonly<Record<Tracker, { issue: readonly string[]; milestone: readonly string[] | null }>>;
   keysOutsideSpaces(b: LiveBundle, spaces: readonly string[] | null): string[];
 }
 const extras = (g: unknown = grader()): GraderExtras => g as GraderExtras;
@@ -3125,10 +3314,10 @@ describe("HIGH 1 — S13 consent through the sanctioned answers block (the route
     expect(failing(grade(b))).toContain("S13");
   });
 
-  for (const t of TRACKERS) {
-    test(`${t}: ROUND TRIP — the block written in the child's first user message is extracted through auto_answers.ts and the run grades pass`, () => {
+  for (const { t, shape, name } of LEGS) {
+    test(`${name}: ROUND TRIP — the block written in the child's first user message is extracted through auto_answers.ts and the run grades pass`, () => {
       withTmp("ste617-ans-", (d) => {
-        const m = materialize(blockBundle(t), d);
+        const m = materialize(blockBundle(t), d, { jiraShape: shape });
         const bundle = extractedBundle(extractFor(m));
         const s = session(bundle, "S13");
         expect(s.answers).toEqual({ tracker_orphan_import: `Import ${intruderKey(bundle)}` });
@@ -3196,20 +3385,31 @@ describe("HIGH 1 — S13 consent through the sanctioned answers block (the route
 // HIGH 2 + item 7 — the audit field contract, derived and graded
 // ---------------------------------------------------------------------------
 
-/** The audit tools whose issue answers the request field lists govern. */
-const AUDIT_ISSUE_TOOL: Record<Tracker, RegExp> = { jira: /__(searchJiraIssuesUsingJql|getJiraIssue)$/, linear: /__(list_issues|get_issue)$/ };
-const PROJECTION_TOOL: Record<Tracker, string> = { jira: "mcp__atlassian__searchJiraIssuesUsingJql", linear: "mcp__linear__list_issues" };
+type AuditKind = "issue" | "milestone";
+const AUDIT_KINDS: readonly AuditKind[] = ["issue", "milestone"];
+/** The audit tools whose answers each kind's field contract governs (Jira reads its Epic milestones as issues: no milestone read). */
+const AUDIT_TOOL: Record<AuditKind, Record<Tracker, RegExp | null>> = {
+  issue: { jira: /__(searchJiraIssuesUsingJql|getJiraIssue)$/, linear: /__(list_issues|get_issue)$/ },
+  milestone: { jira: null, linear: /__(list_milestones|get_milestone)$/ },
+};
+const PROJECTION_TOOL: Record<AuditKind, Record<Tracker, string | null>> = {
+  issue: { jira: "mcp__atlassian__searchJiraIssuesUsingJql", linear: "mcp__linear__list_issues" },
+  milestone: { jira: null, linear: "mcp__linear__list_milestones" },
+};
+/** The (tracker, kind) pairs the audit reads: every issue kind, and Linear's milestones. */
+const AUDITED: ReadonlyArray<[Tracker, AuditKind]> = TRACKERS.flatMap((t) => AUDIT_KINDS.filter((k) => AUDIT_TOOL[k][t] !== null).map((k) => [t, k] as [Tracker, AuditKind]));
 
 /**
- * Every TrackerItem field the grade READS on an audit issue item, measured by
+ * Every TrackerItem field the grade READS on an audit item of `kind`, measured by
  * grading the passing bundle with each such item wrapped in a recording Proxy.
  */
-function fieldsReadOnAuditItems(g: GraderModule, t: Tracker): Set<string> {
+function fieldsReadOnAuditItems(g: GraderModule, t: Tracker, kind: AuditKind = "issue"): Set<string> {
   const b = buildPassingBundle(t);
   const read = new Set<string>();
+  const tool = AUDIT_TOOL[kind][t]!;
   for (const a of audits(b)) {
     for (const c of a.calls) {
-      if (!AUDIT_ISSUE_TOOL[t].test(c.name) || !c.result.items) continue;
+      if (!tool.test(c.name) || !c.result.items) continue;
       c.result.items = c.result.items.map(
         (i) =>
           new Proxy(i, {
@@ -3260,13 +3460,14 @@ function rawAnswer(t: Tracker, drop: ReadonlySet<string>, seen: Set<string>, nes
 }
 
 /** For each answer field the projection asks for: the TrackerItem fields that change when it is absent. */
-function projectionSources(g: unknown, t: Tracker): Map<string, Set<string>> {
+function projectionSources(g: unknown, t: Tracker, kind: AuditKind = "issue"): Map<string, Set<string>> {
   const project = extras(g).projectItem;
+  const tool = PROJECTION_TOOL[kind][t]!;
   const seen = new Set<string>();
-  const full = project(t, PROJECTION_TOOL[t], rawAnswer(t, new Set(), seen)) as unknown as Record<string, unknown>;
+  const full = project(t, tool, rawAnswer(t, new Set(), seen)) as unknown as Record<string, unknown>;
   const byItemField = new Map<string, Set<string>>();
   for (const raw of seen) {
-    const without = project(t, PROJECTION_TOOL[t], rawAnswer(t, new Set([raw]), new Set())) as unknown as Record<string, unknown>;
+    const without = project(t, tool, rawAnswer(t, new Set([raw]), new Set())) as unknown as Record<string, unknown>;
     for (const f of Object.keys(full)) {
       if (f === "absent" || JSON.stringify(full[f]) === JSON.stringify(without[f])) continue;
       byItemField.set(f, new Set([...(byItemField.get(f) ?? []), raw]));
@@ -3282,10 +3483,18 @@ interface FieldContract {
   uncovered: string[];
 }
 
-function fieldContract(g: GraderModule, t: Tracker): FieldContract {
-  const read = fieldsReadOnAuditItems(g, t);
-  const sources = projectionSources(g, t);
-  const asked = new Set([...extras(g).AUDIT_REQUEST_FIELDS[t], ...extras(g).AUDIT_ALWAYS_RETURNED[t]]);
+/** The answer fields the audit's reads of `kind` hold: those it requests, and those always returned. */
+function askedFields(g: GraderModule, t: Tracker, kind: AuditKind): Set<string> {
+  const req = extras(g).AUDIT_REQUEST_FIELDS[t];
+  const always = extras(g).AUDIT_ALWAYS_RETURNED[t];
+  // A milestone read (list_milestones / get_milestone) takes no field list: it holds exactly the fields always returned.
+  return kind === "issue" ? new Set([...req.issue, ...always.issue]) : new Set(req.milestone === null ? [] : (always.milestone ?? []));
+}
+
+function fieldContract(g: GraderModule, t: Tracker, kind: AuditKind = "issue"): FieldContract {
+  const read = fieldsReadOnAuditItems(g, t, kind);
+  const sources = projectionSources(g, t, kind);
+  const asked = askedFields(g, t, kind);
   const required = new Set<string>();
   const uncovered: string[] = [];
   for (const f of read) {
@@ -3297,33 +3506,56 @@ function fieldContract(g: GraderModule, t: Tracker): FieldContract {
   return { required: [...required].sort(), uncovered: uncovered.sort() };
 }
 
-/** The required answer fields per tracker, derived once (empty when the grader cannot load: the CONTROL test then fails). */
-const REQUIRED_BY_TRACKER: Record<Tracker, string[]> = (() => {
-  try {
-    return { jira: fieldContract(grader(), "jira").required, linear: fieldContract(grader(), "linear").required };
-  } catch {
-    return { jira: [], linear: [] };
+/** The required answer fields per audited (tracker, kind), derived once (empty when the grader cannot load: the CONTROL test then fails). */
+const REQUIRED_BY: Record<string, string[]> = (() => {
+  const out: Record<string, string[]> = {};
+  for (const [t, k] of AUDITED) {
+    try {
+      out[`${t}:${k}`] = fieldContract(grader(), t, k).required;
+    } catch {
+      out[`${t}:${k}`] = [];
+    }
   }
+  return out;
 })();
 
+/** The measured key set of a pinned live answer's rows (tests/fixtures/live-shapes/<tracker>/<file>). */
+function pinnedKeys(tracker: Tracker, file: string, rows?: string): string[] {
+  const a = JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "live-shapes", tracker, file), "utf-8")).answer;
+  return Object.keys(rows ? a[rows][0] : a).sort();
+}
+
 describe("ITEM 7 — AUDIT_REQUEST_FIELDS covers every answer field a predicate reads (derived from the projection and the predicates, never listed by hand)", () => {
-  test("the contract lists are exported exactly as the skill's audit fence passes them", () => {
+  test("the contract is exported exactly as the skill's audit fence passes it: issue fields per tracker, and Linear's milestone reads", () => {
     expect(extras().AUDIT_REQUEST_FIELDS).toEqual({
-      jira: ["summary", "labels", "status", "parent", "issuetype", "project"],
-      linear: ["id", "title", "labels", "status", "project", "projectMilestone"],
+      jira: { issue: ["summary", "labels", "status", "parent", "issuetype", "project"], milestone: null },
+      linear: { issue: ["id", "title", "labels", "status", "project", "projectMilestone"], milestone: { list: "list_milestones", get: "get_milestone" } },
     });
   });
-  for (const t of TRACKERS) {
-    test(`${t}: CONTROL — the derivation measures real reads: the predicates read summary, labels and container, which come from answer fields`, () => {
-      const read = fieldsReadOnAuditItems(grader(), t);
-      for (const f of ["summary", "labels", "container"]) expect({ f, read: read.has(f) }).toEqual({ f, read: true });
-      expect(REQUIRED_BY_TRACKER[t].length).toBeGreaterThan(2);
+  test("the fixtures' audit inputs request exactly the contract's issue fields", () => {
+    for (const t of TRACKERS) expect({ t, fields: [...AUDIT_FIELDS[t]] }).toEqual({ t, fields: [...extras().AUDIT_REQUEST_FIELDS[t].issue] });
+  });
+  test("Linear's milestone fields always returned are measured: every one is a key of the pinned list_milestones row AND of the pinned get_milestone answer", () => {
+    const always = extras().AUDIT_ALWAYS_RETURNED.linear.milestone ?? [];
+    expect(always.length).toBeGreaterThan(0);
+    for (const [file, rows] of [["list_milestones.json", "milestones"], ["get_milestone.json", undefined]] as const) {
+      const keys = pinnedKeys("linear", file, rows);
+      expect({ file, missing: always.filter((f) => !keys.includes(f)) }).toEqual({ file, missing: [] });
+    }
+    expect(extras().AUDIT_ALWAYS_RETURNED.jira.milestone, "Jira reads its Epic milestones as issues").toBeNull();
+  });
+  for (const [t, k] of AUDITED) {
+    test(`${t} ${k}: CONTROL — the derivation measures real reads: the predicates read ${k === "issue" ? "summary, labels and container" : "summary and key"}, which come from answer fields`, () => {
+      const read = fieldsReadOnAuditItems(grader(), t, k);
+      for (const f of k === "issue" ? ["summary", "labels", "container"] : ["summary", "key"]) expect({ f, read: read.has(f) }).toEqual({ f, read: true });
+      expect(REQUIRED_BY[`${t}:${k}`]!.length).toBeGreaterThan(k === "issue" ? 2 : 1);
     });
-    test(`${t}: every answer field a predicate reads is one the audit asks for (or one always returned)`, () => {
-      expect(fieldContract(grader(), t).uncovered).toEqual([]);
+    test(`${t} ${k}: every answer field a predicate reads is one the audit asks for (or one always returned)`, () => {
+      expect(fieldContract(grader(), t, k).uncovered).toEqual([]);
     });
-    test(`${t}: every such field is fail-closed — an answer lacking it is recorded absent, so the audit aborts on it`, () => {
-      const missed = REQUIRED_BY_TRACKER[t].filter((raw) => !(extras().projectItem(t, PROJECTION_TOOL[t], rawAnswer(t, new Set([raw]), new Set())).absent ?? []).includes(raw));
+    test(`${t} ${k}: every such field is fail-closed — an answer lacking it is recorded absent, so the audit aborts on it`, () => {
+      const tool = PROJECTION_TOOL[k][t]!;
+      const missed = REQUIRED_BY[`${t}:${k}`]!.filter((raw) => !(extras().projectItem(t, tool, rawAnswer(t, new Set([raw]), new Set())).absent ?? []).includes(raw));
       expect(missed).toEqual([]);
     });
   }
@@ -3336,8 +3568,15 @@ describe("ITEM 7 — AUDIT_REQUEST_FIELDS covers every answer field a predicate 
   });
   test("MUTATION — a grader copy whose AUDIT_REQUEST_FIELDS omits labels fails, naming labels", async () => {
     await withTmpAsync("ste617-fields-mut2-", async (d) => {
-      const mutant = await graderCopy(d, "no-labels", once('jira: ["summary", "labels", "status",', 'jira: ["summary", "status",'));
+      const mutant = await graderCopy(d, "no-labels", once('jira: { issue: ["summary", "labels", "status",', 'jira: { issue: ["summary", "status",'));
       expect(fieldContract(mutant.g, "jira").uncovered).toEqual(["labels ← labels"]);
+    });
+  });
+  test("MUTATION — a grader copy whose Linear milestones are always returned WITHOUT `name` fails the milestone contract, naming summary ← name", async () => {
+    await withTmpAsync("ste617-fields-mut3-", async (d) => {
+      const mutant = await graderCopy(d, "ms-no-name", once('milestone: ["id", "name", "description", "progress", "sortOrder"]', 'milestone: ["id", "description", "progress", "sortOrder"]'));
+      expect(fieldContract(mutant.g, "linear", "milestone").uncovered).toEqual(["summary ← name"]);
+      expect(fieldContract(grader(), "linear", "milestone").uncovered, "PERMIT TWIN — the shipped grader").toEqual([]);
     });
   });
 });
@@ -3379,9 +3618,9 @@ function stripAuditField(m: Materialized, b: LiveBundle, field: string): number 
 describe("HIGH 2 — an audit item missing a field a predicate needs is audit-incomplete, never skipped or read as empty", () => {
   for (const t of TRACKERS) {
     test(`${t}: CONTROL — the omission loop below is over the derived required fields and is not empty`, () => {
-      expect(REQUIRED_BY_TRACKER[t]).toEqual(expect.arrayContaining(t === "jira" ? ["labels", "project", "summary"] : ["labels", "project", "title"]));
+      expect((REQUIRED_BY[`${t}:issue`] ?? [])).toEqual(expect.arrayContaining(t === "jira" ? ["labels", "project", "summary"] : ["labels", "project", "title"]));
     });
-    for (const field of REQUIRED_BY_TRACKER[t]) {
+    for (const field of (REQUIRED_BY[`${t}:issue`] ?? [])) {
       test(`${t}: an audit answer OMITTING ${field} aborts audit-incomplete naming the item and ${field}; PERMIT TWIN — the same answer carrying it passes`, () => {
         withTmp("ste617-omit-", (d) => {
           const b = buildPassingBundle(t);

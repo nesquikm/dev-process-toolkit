@@ -1,0 +1,92 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-10",
+    "method": "recorded-transcript",
+    "request": {
+      "cloudId": "96bffaef-cf5d-4dbf-a170-3d700df9bc83",
+      "issueIdOrKey": "GF-86",
+      "contentFormat": "markdown",
+      "responseContentFormat": "markdown",
+      "fields": "<elided>"
+    },
+    "note": "plain edit answer, recorded from the claude.ai Atlassian connector"
+  },
+  "answer": {
+    "expand": "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations",
+    "id": "63185",
+    "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issue/63185",
+    "key": "GF-86",
+    "fields": {
+      "summary": "Shopping country — silent detection, a chooser sheet that as…",
+      "issuetype": {
+        "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issuetype/11113",
+        "id": "11113",
+        "description": "",
+        "iconUrl": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/2/universal_avatar/view/type/issuetype/avatar/10318?size=medium",
+        "name": "Task",
+        "subtask": false,
+        "avatarId": 10318,
+        "entityId": "e56dc5d7-7a48-471b-b036-dc3b4450765c",
+        "hierarchyLevel": 0
+      },
+      "components": [],
+      "created": "2026-09-08T14:09:11.630+0200",
+      "description": "## Requirement\n\nDetect the user's shopping country silently …",
+      "project": {
+        "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/project/11155",
+        "id": "11155",
+        "key": "GF",
+        "name": "Glacy FE",
+        "projectTypeKey": "software",
+        "simplified": true,
+        "avatarUrls": {
+          "48x48": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10417",
+          "24x24": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10417?size=small",
+          "16x16": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10417?size=xsmall",
+          "32x32": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10417?size=medium"
+        }
+      },
+      "reporter": {
+        "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/user?accountId=<account-id>",
+        "accountId": "<account-id>",
+        "avatarUrls": {
+          "48x48": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/<account-id>/7c70405f-6693-46c8-a270-1794feb4c482/48",
+          "24x24": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/<account-id>/7c70405f-6693-46c8-a270-1794feb4c482/24",
+          "16x16": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/<account-id>/7c70405f-6693-46c8-a270-1794feb4c482/16",
+          "32x32": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/<account-id>/7c70405f-6693-46c8-a270-1794feb4c482/32"
+        },
+        "displayName": "<person>",
+        "active": true,
+        "timeZone": "Europe/Prague",
+        "accountType": "atlassian"
+      },
+      "priority": {
+        "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/priority/3",
+        "iconUrl": "https://example-site.invalid/images/icons/priorities/medium_new.svg",
+        "name": "Medium",
+        "id": "3"
+      },
+      "resolution": null,
+      "labels": [
+        "milestone-M_GF_85",
+        "needs-technical-review"
+      ],
+      "assignee": null,
+      "updated": "2026-09-10T15:04:49.778+0200",
+      "status": {
+        "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/status/11542",
+        "description": "",
+        "iconUrl": "https://example-site.invalid/images/icons/statuses/generic.png",
+        "name": "To Do",
+        "id": "11542",
+        "statusCategory": {
+          "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/statuscategory/2",
+          "id": 2,
+          "key": "new",
+          "colorName": "blue-gray",
+          "name": "To Do"
+        }
+      }
+    }
+  }
+}

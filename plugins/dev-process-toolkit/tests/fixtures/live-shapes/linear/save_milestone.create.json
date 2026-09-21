@@ -1,0 +1,17 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-10",
+    "method": "recorded-transcript",
+    "request": {
+      "project": "DPT — Dev Process Toolkit",
+      "name": "One Milestone, Two Homes"
+    },
+    "note": "a milestone create answer"
+  },
+  "answer": {
+    "id": "8f07e094-342f-4b79-814c-a60b88ee5aef",
+    "name": "One Milestone, Two Homes",
+    "progress": 0,
+    "sortOrder": 136958
+  }
+}

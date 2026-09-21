@@ -1,0 +1,57 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-21",
+    "method": "read-only-call",
+    "request": {
+      "team": "STE",
+      "project": "DPT — Dev Process Toolkit",
+      "limit": 250,
+      "fields": [
+        "id",
+        "title",
+        "labels",
+        "description",
+        "createdBy",
+        "project",
+        "team",
+        "projectMilestone",
+        "status"
+      ],
+      "query": "programme's release waits for a passing live proof"
+    },
+    "note": "the final page: top-level hasNextPage false, no cursor, no pageInfo; 75 rows answered, items truncated to the first 2 for size; every kept item is verbatim save the sanitiser"
+  },
+  "answer": {
+    "issues": [
+      {
+        "id": "STE-618",
+        "title": "The programme's release waits for a passing live proof",
+        "labels": [],
+        "description": "## Summary\n\nA live proof is only worth something if the rele…",
+        "createdBy": "<person>",
+        "project": "DPT — Dev Process Toolkit",
+        "team": "Example Team Display Name",
+        "projectMilestone": {
+          "id": "2306b61c-037f-455f-97f2-4997b8fb0b60",
+          "name": "Proven Live"
+        },
+        "status": "In Progress"
+      },
+      {
+        "id": "STE-584",
+        "title": "A spanning milestone waits for its sibling before it reads as ship-ready",
+        "labels": [],
+        "description": "## Requirement\n\nThe active-plan classification must become a…",
+        "createdBy": "<person>",
+        "project": "DPT — Dev Process Toolkit",
+        "team": "Example Team Display Name",
+        "projectMilestone": {
+          "id": "8f07e094-342f-4b79-814c-a60b88ee5aef",
+          "name": "One Milestone, Two Homes"
+        },
+        "status": "Done"
+      }
+    ],
+    "hasNextPage": false
+  }
+}

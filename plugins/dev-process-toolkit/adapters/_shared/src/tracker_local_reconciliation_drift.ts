@@ -38,7 +38,7 @@ import {
   foreignLabels,
   listOrphans,
   normalizeContainerPage,
-  pageIsLast,
+  readContainerListing,
   readPages,
 } from "./container_ownership";
 import { evaluatePlanOnlyEligibility } from "./plan_only_archival";
@@ -107,11 +107,11 @@ function readContainerView(projectRoot: string, pages: unknown[]): ContainerView
   const binding = readWorkspaceBinding(join(projectRoot, "CLAUDE.md"), adapter);
   // Strict when shared, at the point the tickets are built — never relying on
   // `listOrphans` below happening to refuse the same malformed page first.
-  const all = pages.flatMap((p) => normalizeContainerPage(p, adapter, binding.shared));
-  // STE-616 AC-STE-616.7 — a listing is complete when its LAST page says so;
-  // earlier pages of a multi-page listing are not-last by construction. An
-  // incomplete listing is refused, never graded as a warning.
-  if (!pageIsLast(pages[pages.length - 1], adapter)) {
+  // STE-616 AC-STE-616.7 — a listing is complete when it is one unbroken chain
+  // whose final page proves nothing follows (readContainerListing); a broken
+  // chain throws, and an incomplete listing is refused, never graded as a warning.
+  const { tickets: all, last } = readContainerListing(pages, adapter, binding.shared);
+  if (!last) {
     throw new Error(`container page ${pages.length} of ${pages.length} is not the last page of its listing; the listing is incomplete and was not graded.`);
   }
   const listing = listOrphans(projectRoot, pages);
@@ -400,7 +400,16 @@ if (import.meta.main) {
         }
       });
       const last = containerPages.length - 1;
-      if (!pageIsLast(containerPages[last], adapter)) {
+      let listing: { last: boolean };
+      try {
+        listing = readContainerListing(containerPages, adapter, binding.shared);
+      } catch (e) {
+        // Every page read on its own above, so what failed is the chain: a
+        // dropped, reordered or repeated page — the listing is incomplete.
+        console.log(`error container-partial: ${(e as Error).message}; the listing is incomplete and was not graded.`);
+        process.exit(1);
+      }
+      if (!listing.last) {
         console.log(`error container-partial: ${pagePaths[last]} is not the last page of its listing; the listing is incomplete and was not graded.`);
         process.exit(1);
       }

@@ -1,0 +1,66 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-21",
+    "method": "read-only-call",
+    "request": {
+      "cloudId": "96bffaef-cf5d-4dbf-a170-3d700df9bc83",
+      "projectIdOrKey": "DST"
+    },
+    "note": "issueTypes + total + startAt, and NO isLast: complete only when startAt is 0 and the list holds `total` rows"
+  },
+  "answer": {
+    "startAt": 0,
+    "maxResults": 50,
+    "total": 3,
+    "issueTypes": [
+      {
+        "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issuetype/10962",
+        "id": "10962",
+        "description": "Tasks track small, distinct pieces of work.",
+        "iconUrl": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/2/universal_avatar/view/type/issuetype/avatar/10318?size=medium",
+        "name": "Task",
+        "untranslatedName": "Task",
+        "subtask": false,
+        "hierarchyLevel": 0,
+        "scope": {
+          "type": "PROJECT",
+          "project": {
+            "id": "10953"
+          }
+        }
+      },
+      {
+        "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issuetype/10963",
+        "id": "10963",
+        "description": "Epics track collections of related bugs, stories, and tasks.",
+        "iconUrl": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/2/universal_avatar/view/type/issuetype/avatar/10307?size=medium",
+        "name": "Epic",
+        "untranslatedName": "Epic",
+        "subtask": false,
+        "hierarchyLevel": 1,
+        "scope": {
+          "type": "PROJECT",
+          "project": {
+            "id": "10953"
+          }
+        }
+      },
+      {
+        "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issuetype/10964",
+        "id": "10964",
+        "description": "Subtasks track small pieces of work that are part of a large…",
+        "iconUrl": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/2/universal_avatar/view/type/issuetype/avatar/10316?size=medium",
+        "name": "Subtask",
+        "untranslatedName": "Subtask",
+        "subtask": true,
+        "hierarchyLevel": -1,
+        "scope": {
+          "type": "PROJECT",
+          "project": {
+            "id": "10953"
+          }
+        }
+      }
+    ]
+  }
+}

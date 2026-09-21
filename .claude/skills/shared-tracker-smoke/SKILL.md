@@ -297,6 +297,12 @@ cat /tmp/dpt-shared-<tracker>-preflight.env >> /tmp/dpt-shared-<tracker>-run.env
 . /tmp/dpt-shared-<tracker>-run.env
 SHARED="<shared space key, or the shared Linear project name>"
 PRE="<the repoint-from space key, or B's pre-repoint Linear project name; empty on a Jira run without the flag>"
+LINEAR_TEAM="<the --linear-team key the pre-flight resolved on a Linear run; empty on Jira>"
+# The team is typed once, here, and recorded in the run state below; later phases read it from there.
+if [ "${TRACKER}" = linear ] && [ -z "${LINEAR_TEAM}" ]; then
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=bootstrap, check=linear-team-unset, tracker=%s\n' "LINEAR_TEAM is empty on a Linear run; nothing was written." "set LINEAR_TEAM to the --linear-team key the pre-flight resolved, then run the bootstrap again." "${TRACKER}" >&2
+  exit 1
+fi
 # --plugin-dir shadows plugin-loaded MCP servers, so each child gets a wrapped config.
 case "${TRACKER}" in
   jira)
@@ -344,14 +350,16 @@ git -C "${ROOT_B}" checkout -q feature-s17
 git -C "${ROOT_B}" -c commit.gpgsign=false commit -q --allow-empty -m "chore: s17 topic"
 git -C "${ROOT_B}" checkout -q main
 git -C "${ROOT_B}" config alias.ci commit
-# The containers, for the privacy dry run and the second audit.
-printf 'SHARED=%q\nPRE=%q\n' "${SHARED}" "${PRE}" >> /tmp/dpt-shared-<tracker>-run.env
+# The containers and the Linear team, for the privacy dry run, the audits and Phase 6.
+printf 'SHARED=%q\nPRE=%q\nLINEAR_TEAM=%q\n' "${SHARED}" "${PRE}" "${LINEAR_TEAM}" >> /tmp/dpt-shared-<tracker>-run.env
 echo "bootstrapped: ${ROOT_A} ${ROOT_B} nonce=${NONCE}"
 ```
 
 ### Privacy dry run — before the first spawn (operator, no child)
 
 Phase 6's `extract` refuses to write a bundle holding a home-directory path, an email address, an account id or a tracker site host, and a bundle re-extracted after a fix changes its digest. A leak found only at Phase 6 therefore throws away the whole run. So, right after bootstrap and before the first scenario spawn, this fence runs the same `extract` over the bootstrap state, into a throwaway directory under `/tmp`, never into the fixtures tree. When it reports a privacy refusal it refuses in the NFR-10 shape, before any child starts and before any budget is spent. It also refuses when `extract` fails for any other reason, since Phase 6 would fail the same way. It starts no child and writes nothing to the tracker. On Linear, Phase 2's project creates have already made teardown owed, so a refusal sends the operator to § Phase 5 — Teardown.
+
+**What it cannot see.** This dry run checks the bootstrap state only: the ledger holds no session yet, so no child transcript and no tracker answer passes through it. A leak in a child's tool_result can only surface later. Phase 6's `extract` is the real privacy pass over the run; this dry run only catches what bootstrap alone would leak (the roots, the receipts, the git history).
 
 **Run it from a file.** Write the fence to a file and run `bash <file>`; never feed it to `bash`, `sh` or `zsh` through stdin.
 
@@ -700,7 +708,7 @@ echo "relocated worktree of B: ${W}"
 
 ## Phase 4 — Audit
 
-A read-only child runs the fixed nonce query this fence writes into its prompt, pages it to the last page, then reads back by key every item any scenario's tool_results report as created. It requests exactly the fields the grader counts by: `summary, labels, status, parent, issuetype, project` on Jira, `id, title, labels, status, project, projectMilestone` on Linear. An answer without `labels` or `project` could not be attributed to a repository or a container. The grader checks that the query it ran is byte-equal to the one written here, that it reached its last page, and that its answer holds every created key; otherwise the run aborts as `audit-incomplete`.
+A read-only child runs the fixed nonce query this fence writes into its prompt, pages it to the last page, then reads back by key every item any scenario's tool_results report as created. It requests exactly the fields the grader counts by: `summary, labels, status, parent, issuetype, project` on Jira, `id, title, labels, status, project, projectMilestone` on Linear. An answer without `labels` or `project` could not be attributed to a repository or a container. On Linear the first audit also reads the shared project's milestones, with `list_milestones` and one `get_milestone` per created milestone id, since S3 is graded by the milestone containers the audit holds and an issue search never returns a milestone. Those two calls take no field list. On Jira a milestone is an Epic, which the issue search and read-backs already return. The grader's `AUDIT_REQUEST_FIELDS` declares all of this, and a test holds this fence's prompt equal to it. The grader checks that the query it ran is byte-equal to the one written here, that it reached its last page, and that its answer holds every created key; otherwise the run aborts as `audit-incomplete`.
 
 Before running it, write to `/tmp/dpt-shared-<tracker>-created-keys.txt` every key a step log's create answer returned, one per line.
 
@@ -725,6 +733,13 @@ refuse_audit() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=audit, check=%s, pass=%s, tracker=%s\n' "$2" "$3" "$1" "${AUDIT_PASS}" "${TRACKER:-unset}" >&2
   exit 1
 }
+# An issue search never returns a milestone: the first Linear audit lists the shared project's milestones (AUDIT_REQUEST_FIELDS.linear.milestone).
+MILESTONE_READS=""
+if [ "${TRACKER}" = linear ] && [ "${AUDIT_PASS}" = 1 ]; then
+  [ -n "${SHARED:-}" ] \
+    || refuse_audit projects-unknown "the run state names no shared project (SHARED=${SHARED:-unset}); the first audit could not read its milestones, so it was not started." "restore SHARED in /tmp/dpt-shared-${TRACKER}-run.env from Phase 2's project creates, then run the audit again."
+  MILESTONE_READS="Then read the shared project's milestones: call mcp__linear__list_milestones once for the project named ${SHARED}, and call mcp__linear__get_milestone once per created milestone id above (project ${SHARED}, query the id). These calls take no field list."
+fi
 # Linear teardown completes two projects, and an issue listing never reads a project: the second audit reads both back by name.
 PROJECT_READS=""
 if [ "${TRACKER}" = linear ] && [ "${AUDIT_PASS}" = 2 ]; then
@@ -762,6 +777,7 @@ Run this exact search, byte for byte, and page it to its last page: ${AUDIT_QUER
 Request exactly these fields on the search and on every read-back: ${AUDIT_FIELDS}
 Then read back each of these keys by key, one read call per key:
 ${CREATED_KEYS}
+${MILESTONE_READS}
 ${PROJECT_READS}
 PROMPT_EOF
 echo $! > "/tmp/dpt-shared-${TRACKER}-step.pid"
@@ -802,9 +818,20 @@ The grader turns the ledgered sessions' transcripts, both audits included, into 
 ```bash
 # shared-tracker-smoke: extract and grade
 . /tmp/dpt-shared-<tracker>-run.env
-SHARED="<shared space key, or the shared Linear project name — the same value as Phase 2>"
-PRE="<the repoint-from space key, or B's pre-repoint Linear project name; empty on a Jira run without the flag>"
-LINEAR_TEAM="<the --linear-team key on a Linear run; empty on Jira>"
+# SHARED, PRE and LINEAR_TEAM come from the run state bootstrap wrote, never retyped: a retyped value can
+# silently differ from the spaces the run actually used. An empty one refuses rather than degrading.
+if [ -z "${SHARED:-}" ]; then
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=extract, check=shared-unset, tracker=%s\n' "the run state records no SHARED; nothing was extracted." "restore SHARED in /tmp/dpt-shared-${TRACKER}-run.env from bootstrap, then run Phase 6 again." "${TRACKER}" >&2
+  exit 1
+fi
+if [ "${TRACKER}" = linear ] && [ -z "${PRE:-}" ]; then
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=extract, check=pre-unset, tracker=%s\n' "the run state records no PRE on a Linear run, whose pre-repoint project always exists; nothing was extracted." "restore PRE in /tmp/dpt-shared-${TRACKER}-run.env from bootstrap, then run Phase 6 again." "${TRACKER}" >&2
+  exit 1
+fi
+if [ "${TRACKER}" = linear ] && [ -z "${LINEAR_TEAM:-}" ]; then
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=extract, check=linear-team-unset, tracker=%s\n' "the run state records no LINEAR_TEAM on a Linear run; nothing was extracted." "restore LINEAR_TEAM in /tmp/dpt-shared-${TRACKER}-run.env from bootstrap, then run Phase 6 again." "${TRACKER}" >&2
+  exit 1
+fi
 BUNDLE_NAME="${TRACKER}-$(date -u +%Y-%m-%d)-${NONCE}"
 BUNDLE_DIR="${TOPLEVEL}/plugins/dev-process-toolkit/tests/fixtures/shared-tracker-live/${BUNDLE_NAME}/"
 bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/shared_tracker_live_grader.ts" extract \

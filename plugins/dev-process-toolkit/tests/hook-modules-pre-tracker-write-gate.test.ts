@@ -568,6 +568,10 @@ function expectRefusal(r: Run, ...needles: Array<string | RegExp>): void {
 
 const CLOUD = "glacy.atlassian.net";
 const JIRA = (t: string) => `mcp__atlassian__${t}`;
+
+/** A measured tracker answer, deep-copied from tests/fixtures/live-shapes/<tracker>/<name>.json. */
+const liveShape = (tracker: "jira" | "linear", name: string): Record<string, any> =>
+  structuredClone(JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "live-shapes", tracker, `${name}.json`), "utf-8")).answer);
 const LINEAR = (t: string) => `mcp__linear__${t}`;
 
 interface JiraCreate {
@@ -2235,13 +2239,37 @@ describe("M_947c79 review — only the CREATED key is session-created (AC-STE-60
     expectRefusal(await runHook(JIRA("transitionJiraIssue"), transition("GF-101"), { cwd: w.be, transcript }), "GF-101");
   }, 30_000);
 
-  test("a Linear create result names the created identifier; an echoed parent identifier is not created", async () => {
+  // The measured Linear create answer (tests/fixtures/live-shapes/linear/
+  // save_issue.create.json) keys the ticket by top-level `id` — `STE-619`, with
+  // no `identifier` — and echoes other keys only inside its prose fields.
+  test("a Linear create result (the measured shape) names the created `id`; a key echoed elsewhere is not created", async () => {
     const root = linearRepo(BE_TAG);
     const s = new Session();
-    s.mcp(LINEAR("save_issue"), { team: "OPS", title: "X" }, { id: "u-1", identifier: "STE-900", parent: { identifier: "STE-5" } });
+    const answer = { ...liveShape("linear", "save_issue.create"), id: "STE-900", description: "Follows STE-5." };
+    s.mcp(LINEAR("save_issue"), { team: "OPS", title: "X" }, answer);
     const transcript = s.save(tempDir("linear-created"));
     expectPermit(await runHook(LINEAR("save_comment"), { issueId: "STE-900", body: "hi" }, { cwd: root, transcript }));
     expectRefusal(await runHook(LINEAR("save_comment"), { issueId: "STE-5", body: "hi" }, { cwd: root, transcript }), "STE-5");
+  }, 30_000);
+
+  test("a wrapped Jira create result (the measured shape) names its one node's key as created (control: an echoed parent key is not)", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    const answer = liveShape("jira", "create.wrapped");
+    answer.issues.nodes[0].key = "GF-150";
+    answer.issues.nodes[0].fields.parent = { key: "GF-101" };
+    s.mcp(JIRA("createJiraIssue"), jiraCreate(), answer);
+    const transcript = s.save(w.scratch);
+    expectPermit(await runHook(JIRA("transitionJiraIssue"), transition("GF-150"), { cwd: w.be, transcript }));
+    expectRefusal(await runHook(JIRA("transitionJiraIssue"), transition("GF-101"), { cwd: w.be, transcript }), "GF-101");
+  }, 30_000);
+
+  test("CONTROL — a create result in no measured shape names nothing created (a Linear `identifier` with a uuid `id`)", async () => {
+    const root = linearRepo(BE_TAG);
+    const s = new Session();
+    s.mcp(LINEAR("save_issue"), { team: "OPS", title: "X" }, { id: "0884f88d-f761-4ccd-b360-5e40cac85451", identifier: "STE-900" });
+    const transcript = s.save(tempDir("linear-unmeasured"));
+    expectRefusal(await runHook(LINEAR("save_comment"), { issueId: "STE-900", body: "hi" }, { cwd: root, transcript }), "STE-900");
   }, 30_000);
 });
 
