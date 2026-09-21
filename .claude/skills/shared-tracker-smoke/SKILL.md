@@ -651,7 +651,7 @@ Then run the § Phase 4 audit fence again with `AUDIT_PASS=2`: the second audit 
 
 ## Phase 6 — Extract and grade
 
-The grader turns the ledgered sessions' transcripts, both audits included, into the evidence bundle, grades it and writes the verdict. The bundle is a projection, not a copy: only the fields the predicates read survive, absolute paths are rewritten relative to the run's roots, and the grader refuses to write a bundle holding an email address, an Atlassian account id, a tracker site host or a home-directory path. It is written to the directory `plugins/dev-process-toolkit/tests/fixtures/shared-tracker-live/<tracker>-<date>-<nonce>/` before any cleanup.
+The grader turns the ledgered sessions' transcripts, both audits included, into the evidence bundle, grades it and writes the verdict into the bundle directory as `verdict.json`, beside `bundle.json`: the release gate reads the recorded outcome and scenario set from there. The fence records its path in the run state as `VERDICT_FILE`, which Phase 7 reads. The bundle is a projection, not a copy: only the fields the predicates read survive, absolute paths are rewritten relative to the run's roots, and the grader refuses to write a bundle holding an email address, an Atlassian account id, a tracker site host or a home-directory path. It is written to the directory `plugins/dev-process-toolkit/tests/fixtures/shared-tracker-live/<tracker>-<date>-<nonce>/` before any cleanup.
 
 **Run it from a file.** Write the fence to a file and run `bash <file>`; never feed it to `bash`, `sh` or `zsh` through stdin.
 
@@ -671,8 +671,9 @@ bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/shared_tracker
   --below-floor "${PLUGIN_BELOW_FLOOR}" --tracked-list "/tmp/dpt-shared-${TRACKER}-tracked-files.txt" \
   --started-at-ms "${RUN_START_MS}"
 bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/shared_tracker_live_grader.ts" grade \
-  --bundle "${BUNDLE_DIR}" --verdict "/tmp/dpt-smoke-verdict-shared-${TRACKER}.json"
-echo "verdict: $(bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/smoke_verdict.ts" outcome --artifact "/tmp/dpt-smoke-verdict-shared-${TRACKER}.json")"
+  --bundle "${BUNDLE_DIR}" --verdict "${BUNDLE_DIR}verdict.json"
+echo "VERDICT_FILE=${BUNDLE_DIR}verdict.json" >> /tmp/dpt-shared-<tracker>-run.env
+echo "verdict: $(bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/smoke_verdict.ts" outcome --artifact "${BUNDLE_DIR}verdict.json")"
 ```
 
 The verdict is `pass` only when every applicable scenario passes; `not-observed` counts as a failure. The artifact lists each offline-only id as `offline-only` and, on a Jira run without `--jira-repoint-from`, S8 as `skipped` with reason `repoint-space-not-given`.
@@ -691,7 +692,7 @@ set --
 for SID in ${SIDS}; do
   set -- "$@" --session "${SID}"
 done
-OUTCOME=$(bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/smoke_verdict.ts" outcome --artifact "/tmp/dpt-smoke-verdict-shared-${TRACKER}.json")
+OUTCOME=$(bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/smoke_verdict.ts" outcome --artifact "${VERDICT_FILE}")
 if [ "${OUTCOME}" = "pass" ]; then
   bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/smoke_session_cleanup.ts" --config-dir "${CLAUDE_CONFIG_DIR:-${HOME}/.claude-st}" --project-root "${TOPLEVEL}" "$@" --delete
 else
@@ -708,5 +709,5 @@ Print, in this order:
 2. **Children** — sessions ledgered against `SPAWN_CEILING` and `EXPECTED_CHILDREN`. Any session whose transcript's cwd is one of the run's throwaway roots but which the ledger lacks is listed as `unledgered-session` and fails the run; it is never silently kept or deleted.
 3. **Tracker writes** — every item the run created, by key. On Linear, the budget declared and spent, and every issue created, for archiving by hand.
 4. **Teardown** — what Phase 5 closed, and anything the second audit still read as open.
-5. **Run artifacts** — the evidence bundle directory `plugins/dev-process-toolkit/tests/fixtures/shared-tracker-live/<tracker>-<date>-<nonce>/`, the verdict artifact, and the step logs under `/tmp/dpt-shared-<tracker>-*`.
+5. **Run artifacts** — the evidence bundle directory `plugins/dev-process-toolkit/tests/fixtures/shared-tracker-live/<tracker>-<date>-<nonce>/`, the verdict artifact, and the step logs under `/tmp/dpt-shared-<tracker>-*`. The `bundle-hash=` line Phase 6's grade printed is the hash the plan's Live proof row records; it is taken after the verdict is written into the bundle directory, so it covers the recorded verdict.
 6. **Session cleanup** — on `pass`, the deleted sessions. On `fail` or `abort` nothing was deleted; print the manual command, `bun plugins/dev-process-toolkit/adapters/_shared/src/smoke_session_cleanup.ts --config-dir <config dir> --project-root <toolkit root> --session <sid>… --delete`, with every ledgered id for leg `shared-<tracker>` written out.

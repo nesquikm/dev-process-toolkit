@@ -25,7 +25,7 @@
 // applicable to the tracker with no session is `not-observed`.
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -2103,10 +2103,26 @@ export function behaviourDigest(pluginRoot: string, opts: { trackedFiles?: reado
 // the committed evidence bundle (AC.16)
 // ---------------------------------------------------------------------------
 
-/** The one file a bundle directory holds. */
+/** The bundle's record file; the directory also holds `grade`'s `verdict.json`. */
 export const BUNDLE_FILE = "bundle.json";
+/** The verdict `grade` writes beside `bundle.json` by default; STE-618's live-proof gate reads the recorded outcome and scenario set from it. */
+export const VERDICT_FILE = "verdict.json";
+/** The committed bundle is exactly these two files; any other file in the directory is not part of it. */
+export const BUNDLE_FILES: readonly string[] = [BUNDLE_FILE, VERDICT_FILE];
 
 export type WriteBundleResult = { ok: true; path: string } | { ok: false; reason: "privacy"; violations: PrivacyViolation[] };
+
+/**
+ * Write through a sibling temp file and rename over the target (the house
+ * pattern, as `token_usage.ts` writes its ledger): an interrupted write leaves
+ * the old file or the new one, never a truncated file at the committed path.
+ */
+function atomicWrite(path: string, text: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, text);
+  renameSync(tmp, path);
+}
 
 /**
  * Write `b` to `<dir>/bundle.json`. A bundle holding any privacy pattern is
@@ -2115,10 +2131,44 @@ export type WriteBundleResult = { ok: true; path: string } | { ok: false; reason
 export function writeEvidenceBundle(b: LiveBundle, dir: string): WriteBundleResult {
   const violations = privacyViolations(b);
   if (violations.length > 0) return { ok: false, reason: "privacy", violations };
-  mkdirSync(dir, { recursive: true });
   const path = join(dir, BUNDLE_FILE);
-  writeFileSync(path, `${JSON.stringify(b, null, 2)}\n`);
+  atomicWrite(path, `${JSON.stringify(b, null, 2)}\n`);
   return { ok: true, path };
+}
+
+/**
+ * Write the verdict artifact `v` to `path` (in a live run, `<bundle dir>/verdict.json`,
+ * which is committed beside `bundle.json`). A verdict holding any privacy
+ * pattern is refused exactly as `writeEvidenceBundle` refuses a bundle:
+ * nothing touches the disk.
+ */
+export function writeVerdictFile(v: unknown, path: string): WriteBundleResult {
+  const violations = privacyViolations(v);
+  if (violations.length > 0) return { ok: false, reason: "privacy", violations };
+  atomicWrite(path, `${JSON.stringify(v, null, 2)}\n`);
+  return { ok: true, path };
+}
+
+/**
+ * The bundle's content hash — the ONE definition (STE-618): a SHA-256 over
+ * one line per file of `BUNDLE_FILES` (`bundle.json`, `verdict.json`), in that
+ * sorted order — `<sha256(file)>  <name>\n`, or `absent  <name>\n` when the
+ * file is missing. Nothing else in the directory counts, so a stray file (a
+ * `.DS_Store`, an ignored note) never makes a local tree and a clean clone
+ * disagree; one changed byte in either defined file always moves it. The
+ * plan's `### Live proof` row records it and `live_proof_gate.ts` recomputes it.
+ */
+export function bundleHash(dir: string): string {
+  const lines = [...BUNDLE_FILES].sort().map((name) => {
+    let bytes: Buffer;
+    try {
+      bytes = readFileSync(join(dir, name));
+    } catch {
+      return `absent  ${name}\n`;
+    }
+    return `${createHash("sha256").update(bytes).digest("hex")}  ${name}\n`;
+  });
+  return createHash("sha256").update(lines.join("")).digest("hex");
 }
 
 export interface BundleScan {
@@ -2128,10 +2178,12 @@ export interface BundleScan {
 }
 
 /**
- * Scan every `<root>/<bundle dir>/bundle.json`. Zero bundles — the root absent
- * or empty — is `no-bundles-yet`, never a pass; the release gate is what makes
- * zero a failure. Each violation's `where` names the file it was found in; a
- * file that is not JSON is scanned as text.
+ * Scan every `<root>/<bundle dir>/` file of `BUNDLE_FILES` — `bundle.json` and
+ * the committed `verdict.json` beside it. A directory holding either counts as
+ * one scanned bundle. Zero bundles — the root absent or empty — is
+ * `no-bundles-yet`, never a pass; the release gate is what makes zero a
+ * failure. Each violation's `where` names the file it was found in; a file
+ * that is not JSON is scanned as text.
  */
 export function scanCommittedBundles(root: string): BundleScan {
   let entries: string[];
@@ -2146,17 +2198,19 @@ export function scanCommittedBundles(root: string): BundleScan {
   let scanned = 0;
   const violations: PrivacyViolation[] = [];
   for (const name of entries) {
-    const file = join(root, name, BUNDLE_FILE);
-    if (!existsSync(file)) continue;
+    const present = BUNDLE_FILES.filter((f) => existsSync(join(root, name, f)));
+    if (present.length === 0) continue;
     scanned += 1;
-    const text = readFileSync(file, "utf-8");
-    let body: unknown = text;
-    try {
-      body = JSON.parse(text);
-    } catch {
-      // not JSON: the raw text is what gets scanned
+    for (const f of present) {
+      const text = readFileSync(join(root, name, f), "utf-8");
+      let body: unknown = text;
+      try {
+        body = JSON.parse(text);
+      } catch {
+        // not JSON: the raw text is what gets scanned
+      }
+      for (const v of privacyViolations(body)) violations.push({ ...v, where: `${name}/${f}:${v.where}` });
     }
-    for (const v of privacyViolations(body)) violations.push({ ...v, where: `${name}/${BUNDLE_FILE}:${v.where}` });
   }
   return { scanned, status: scanned === 0 ? "no-bundles-yet" : "scanned", violations };
 }
@@ -2171,7 +2225,7 @@ const USAGE = [
   "           --root-a <dir> --root-b <dir> --config-dir <dir> --digest-at-start <sha256> --out <bundle dir>",
   "           --container <key|name> [--repoint-from <key|name>] [--linear-team <key>]",
   "           --below-floor <plugin dir> --tracked-list <file> [--started-at-ms <ms>]",
-  "       shared_tracker_live_grader.ts grade --bundle <bundle dir> --verdict <file>",
+  "       shared_tracker_live_grader.ts grade --bundle <bundle dir> [--verdict <file>]   (default <bundle dir>/verdict.json)",
 ].join("\n");
 
 /** `--flag value` pairs; a flag outside `allowed`, a repeated flag or a flag with no value is a usage error (null). */
@@ -2304,24 +2358,37 @@ function cliExtract(args: string[]): number {
     return 1;
   }
   process.stdout.write(`bundle: ${w.path} sessions=${x.bundle.sessions.length}\n`);
+  // No hash here: `grade` writes verdict.json into this same directory, and the
+  // plan row's hash must cover it. `grade` prints the hash the row records.
   return 0;
 }
 
 /**
  * `grade` — grade `<bundle dir>/bundle.json` against the tree's behaviour
- * digest now and write the verdict artifact. A bundle dir holding only an
+ * digest now and write the verdict artifact (default `<bundle dir>/verdict.json`). A bundle dir holding only an
  * extraction abort writes that abort; one holding neither aborts as
- * `bundle-missing`. Exits 0 on pass, 1 otherwise.
+ * `bundle-missing`. A verdict holding personal data is refused through
+ * `writeVerdictFile` and not written. Exits 0 on pass, 1 otherwise.
  */
 function cliGrade(args: string[]): number {
   const f = parseFlags(args, ["bundle", "verdict"]);
-  if (f === null || !f.has("bundle") || !f.has("verdict")) return usage();
+  if (f === null || !f.has("bundle")) return usage();
   const dir = f.get("bundle")!;
-  const verdictPath = f.get("verdict")!;
+  // The default is the bundle directory's verdict.json: the file STE-618's live-proof gate reads the recorded outcome and scenario set from.
+  const verdictPath = f.get("verdict") ?? join(dir, VERDICT_FILE);
   const writeVerdict = (v: unknown, outcome: string): number => {
-    mkdirSync(dirname(verdictPath), { recursive: true });
-    writeFileSync(verdictPath, `${JSON.stringify(v, null, 2)}\n`);
+    // verdict.json is committed beside bundle.json, so it is privacy-refused like the bundle: a refused verdict is not written.
+    const w = writeVerdictFile(v, verdictPath);
+    if (!w.ok) {
+      process.stderr.write(`grade: refused to write the verdict (${outcome}) — it holds personal data (${w.violations.length} match(es)):\n`);
+      for (const x of w.violations) process.stderr.write(`  ${x.pattern} at ${x.where}\n`);
+      return 1;
+    }
     process.stdout.write(`verdict: ${outcome} → ${verdictPath}\n`);
+    // The plan's Live proof row records this hash (STE-618). It is taken AFTER
+    // verdict.json is written, so it covers the recorded verdict the gate reads:
+    // a hand-edited verdict then reads bundle-altered. The ONE definition computes it.
+    if (existsSync(join(dir, BUNDLE_FILE))) process.stdout.write(`bundle-hash=${bundleHash(dir)}\n`);
     return outcome === "pass" ? 0 : 1;
   };
   let bundle: LiveBundle;
@@ -2332,7 +2399,9 @@ function cliGrade(args: string[]): number {
       const abort = JSON.parse(readFileSync(join(dir, EXTRACT_ABORT_FILE), "utf-8")) as { outcome: string };
       return writeVerdict(abort, abort.outcome);
     } catch {
-      const detail = `no readable ${BUNDLE_FILE} under ${dir}: ${(e as Error).message}`;
+      // The directory's own name and the error code only: an absolute path here
+      // would be privacy-refused, and the abort's reason would never be saved.
+      const detail = `no readable ${BUNDLE_FILE} in bundle directory ${basename(dir)} (${(e as { code?: unknown }).code ?? "unreadable"})`;
       return writeVerdict({ outcome: "abort", findings: [{ code: "bundle-missing", detail }] }, "abort");
     }
   }

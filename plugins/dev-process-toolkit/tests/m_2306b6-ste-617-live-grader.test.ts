@@ -1614,6 +1614,68 @@ describe("AC.16 — committed evidence bundles are scanned, and zero is reported
   });
 });
 
+describe("AUDIT 8 — verdict.json sits in the committed bundle directory, so the privacy refusal and scan read it too", () => {
+  type VerdictWriter = (v: unknown, path: string) => { ok: boolean; violations?: PrivacyViolation[] };
+  function writeVerdictFile(): VerdictWriter {
+    const f = (grader() as unknown as { writeVerdictFile?: VerdictWriter }).writeVerdictFile;
+    if (typeof f !== "function") throw new Error("the grader exports no writeVerdictFile(v, path) — verdict.json has no privacy refusal");
+    return f;
+  }
+  const verdictWith = (text: string) => ({ outcome: "abort", findings: [{ code: "bundle-missing", detail: text }], scenarios: {} });
+
+  test("a verdict carrying an email is refused, nothing written", () => {
+    withTmp("ste618-verdict-priv-", (d) => {
+      const path = join(d, `jira-2026-09-21-${NONCE}`, "verdict.json");
+      const w = writeVerdictFile()(verdictWith("mailed ops@acme-sandbox.io"), path);
+      expect(w.ok).toBe(false);
+      expect(existsSync(path)).toBe(false);
+    });
+  });
+
+  test("PERMIT TWIN — the same verdict without the email is written", () => {
+    withTmp("ste618-verdict-ok-", (d) => {
+      const path = join(d, `jira-2026-09-21-${NONCE}`, "verdict.json");
+      const w = writeVerdictFile()(verdictWith("mailed ops at acme-sandbox"), path);
+      expect(w.ok).toBe(true);
+      expect(JSON.parse(readFileSync(path, "utf-8")).findings[0].detail).toBe("mailed ops at acme-sandbox");
+    });
+  });
+
+  test("grade writes its verdict through the same refusal: a verdict carrying an email (from the extract's abort record) is not written (exit 1, stderr names it); a clean abort record is its twin", () => {
+    withTmp("ste618-verdict-cli-", (d) => {
+      const run = (dir: string) => Bun.spawnSync([process.execPath, GRADER_PATH, "grade", "--bundle", dir], { cwd: d });
+      // No bundle.json, so grade copies the extract's abort record into the verdict.
+      const abortRecord = (detail: string) => JSON.stringify({ outcome: "abort", findings: [{ code: "transcript-missing", detail }] });
+      const leaky = join(d, "leaky");
+      mkdirSync(leaky, { recursive: true });
+      writeFileSync(join(leaky, "extract-abort.json"), abortRecord("session owned by ops@acme-sandbox.io has no transcript"));
+      const r = run(leaky);
+      expect(r.exitCode).toBe(1);
+      expect(existsSync(join(leaky, "verdict.json")), r.stdout.toString()).toBe(false);
+      expect(r.stderr.toString()).toMatch(/refused to write the verdict/);
+      const clean = join(d, "clean");
+      mkdirSync(clean, { recursive: true });
+      writeFileSync(join(clean, "extract-abort.json"), abortRecord("session owned by the operator has no transcript"));
+      const t = run(clean);
+      expect(t.exitCode).toBe(1);
+      expect(existsSync(join(clean, "verdict.json")), `twin: ${t.stderr.toString()}`).toBe(true);
+    });
+  });
+
+  test("scanCommittedBundles reports an email in a committed verdict.json, naming that file; a clean verdict.json is its twin", () => {
+    withTmp("ste618-verdict-scan-", (d) => {
+      const dir = join(d, `jira-2026-09-21-${NONCE}`);
+      expect(grader().writeEvidenceBundle(buildPassingBundle("jira"), dir).ok).toBe(true);
+      writeFileSync(join(dir, "verdict.json"), JSON.stringify(verdictWith("mailed ops at acme-sandbox")));
+      expect(grader().scanCommittedBundles(d).violations, "twin: a clean verdict.json reports nothing").toEqual([]);
+      writeFileSync(join(dir, "verdict.json"), JSON.stringify(verdictWith("mailed ops@acme-sandbox.io")));
+      const r = grader().scanCommittedBundles(d);
+      expect(r.violations.length).toBeGreaterThan(0);
+      expect(r.violations.every((v) => v.where.includes(`jira-2026-09-21-${NONCE}/verdict.json`)), JSON.stringify(r.violations)).toBe(true);
+    });
+  });
+});
+
 // ===========================================================================
 // AC.18 — the Jira repoint scenario is required or a named skip, never silent
 // ===========================================================================
@@ -2742,6 +2804,150 @@ describe("AC.8 VARIED — the artifact carries each field's varied value, and a 
       });
     }
   }
+});
+
+// ===========================================================================
+// STE-618 follow-ups — the command line prints what the live-proof gate reads.
+// `extract` prints the bundle's hash through the ONE `bundleHash(dir)`, and
+// `grade` writes its verdict to `<bundle dir>/verdict.json`, the file
+// live_proof_gate.ts reads the recorded outcome and scenario set from.
+// ===========================================================================
+
+describe("STE-618 follow-ups — the grader CLI's extract and grade", () => {
+  const SMOKE_VERDICT_PATH = join(pluginRoot, "adapters", "_shared", "src", "smoke_verdict.ts");
+  function cli(args: string[], cwd: string) {
+    const r = Bun.spawnSync([process.execPath, GRADER_PATH, ...args], { cwd });
+    return { code: r.exitCode, out: r.stdout.toString(), err: r.stderr.toString() };
+  }
+  function bundleHashOf(dir: string): string {
+    const f = (grader() as unknown as { bundleHash?: (d: string) => string }).bundleHash;
+    if (typeof f !== "function") throw new Error("the grader exports no bundleHash(dir)");
+    return f(dir);
+  }
+  /** A materialized synthetic run laid out the way `extract` reads it: a project root with a plugin manifest and the run ledger. */
+  function extractArgs(d: string, t: Tracker): { args: string[]; out: string } {
+    const m = materialize(buildPassingBundle(t), d);
+    const project = join(d, "project");
+    mkdirSync(join(project, "plugins", "dev-process-toolkit", ".claude-plugin"), { recursive: true });
+    writeFileSync(join(project, "plugins", "dev-process-toolkit", ".claude-plugin", "plugin.json"), `${JSON.stringify({ name: "dev-process-toolkit", version: m.run.pluginVersion })}\n`);
+    const ledger = join(project, ".dpt", "ledger", `smoke-run-${m.run.runId}.jsonl`);
+    mkdirSync(dirname(ledger), { recursive: true });
+    writeFileSync(ledger, m.ledger.map((s) => JSON.stringify({ run: m.run.runId, leg: `shared-${t}`, session_id: s, parent: null, spawned_at: m.run.startedAt })).join("\n") + "\n");
+    const tracked = join(d, "tracked.txt");
+    writeFileSync(tracked, "");
+    const out = join(d, "bundle-out");
+    const args = [
+      "extract",
+      "--project-root", project, "--run", m.run.runId, "--leg", `shared-${t}`, "--tracker", t, "--nonce", m.run.nonce,
+      "--root-a", m.roots.A, "--root-b", m.roots.B, "--config-dir", m.configDir,
+      "--digest-at-start", m.run.behaviourDigest.digest, "--out", out,
+      "--container", m.run.container, ...(m.run.repointFrom ? ["--repoint-from", m.run.repointFrom] : []),
+      ...(m.run.linearTeam ? ["--linear-team", m.run.linearTeam] : []),
+      "--below-floor", join(project, "plugins", "dev-process-toolkit"), "--tracked-list", tracked,
+    ];
+    return { args, out };
+  }
+
+  for (const t of TRACKERS) {
+    test(`${t}: extract prints NO bundle-hash — the plan row's hash is taken after grade writes verdict.json into the same directory`, () => {
+      withTmp("ste618-cli-x-", (d) => {
+        const { args, out } = extractArgs(d, t);
+        const r = cli(args, d);
+        expect(r.code, r.err).toBe(0);
+        expect(existsSync(join(out, "bundle.json")), "control: extract wrote the bundle").toBe(true);
+        expect(r.out, "a hash printed before verdict.json exists can never match the plan row").not.toMatch(/bundle-hash=/);
+      });
+    });
+    test(`${t}: grade prints bundle-hash=<64 hex> AFTER writing verdict.json — the hash the plan row records and the gate recomputes, covering the verdict`, () => {
+      withTmp("ste618-cli-xg-", (d) => {
+        const { args, out } = extractArgs(d, t);
+        expect(cli(args, d).code).toBe(0);
+        const before = bundleHashOf(out);
+        const g = cli(["grade", "--bundle", out], d);
+        expect([0, 1], g.err).toContain(g.code);
+        expect(existsSync(join(out, "verdict.json")), "control: grade wrote the verdict").toBe(true);
+        const lines = g.out.split("\n").filter((l) => l.startsWith("bundle-hash="));
+        expect(lines, g.out).toHaveLength(1);
+        expect(lines[0]).toBe(`bundle-hash=${bundleHashOf(out)}`);
+        expect(lines[0], "the printed hash must cover verdict.json, so a hand-edited recorded verdict reads bundle-altered").not.toBe(`bundle-hash=${before}`);
+      });
+    });
+  }
+
+  test("an extract that aborts prints no bundle-hash line (no bundle, no hash)", () => {
+    withTmp("ste618-cli-xa-", (d) => {
+      const { args } = extractArgs(d, "jira");
+      const i = args.indexOf("--config-dir");
+      const broken = [...args];
+      broken[i + 1] = join(d, "no-such-config-dir");
+      const r = cli(broken, d);
+      expect(r.code).not.toBe(0);
+      expect(r.out).not.toMatch(/bundle-hash=/);
+    });
+  });
+
+  test("grade with no --verdict writes <bundle dir>/verdict.json carrying the outcome and scenario set the gate reads; smoke_verdict reads its outcome", () => {
+    withTmp("ste618-cli-g-", (d) => {
+      const b = buildPassingBundle("linear");
+      const dir = join(d, "bundle");
+      const w = grader().writeEvidenceBundle(b, dir);
+      expect(w.ok).toBe(true);
+      expect(existsSync(join(dir, "verdict.json")), "control: no verdict before grade").toBe(false);
+      const r = cli(["grade", "--bundle", dir], d);
+      expect([0, 1], r.err).toContain(r.code);
+      const file = join(dir, "verdict.json");
+      expect(existsSync(file), `${r.out}\n${r.err}`).toBe(true);
+      const v = JSON.parse(readFileSync(file, "utf-8")) as LiveVerdict;
+      const now = grader().behaviourDigest(pluginRoot);
+      const expected = grader().gradeBundle(b, { behaviourDigestNow: now.ok ? now.digest : "" });
+      expect((SMOKE_OUTCOMES as readonly string[]).includes(v.outcome)).toBe(true);
+      expect(v.outcome).toBe(expected.outcome);
+      expect(Object.keys(v.scenarios).sort()).toEqual(Object.keys(expected.scenarios).sort());
+      expect(Object.keys(v.scenarios).length).toBeGreaterThan(0);
+      const read = Bun.spawnSync([process.execPath, SMOKE_VERDICT_PATH, "outcome", "--artifact", file], { cwd: d });
+      expect(read.stdout.toString().trim(), read.stderr.toString()).toBe(v.outcome);
+    });
+  });
+
+  test("REGRESSION PIN — the bundle and verdict writers leave no temp file behind, on a write and on a refused write (the atomicity itself is not test-observable: it shows only under a crash mid-write)", () => {
+    withTmp("ste618-atomic-", (d) => {
+      const dir = join(d, "bundle");
+      expect(grader().writeEvidenceBundle(buildPassingBundle("jira"), dir).ok).toBe(true);
+      expect(grader().writeVerdictFile({ outcome: "pass", findings: [], scenarios: {} }, join(dir, "verdict.json")).ok).toBe(true);
+      expect(grader().writeVerdictFile({ outcome: "abort", findings: [{ code: "x", detail: "ops@acme-sandbox.io" }] }, join(dir, "verdict.json")).ok).toBe(false);
+      expect(readdirSync(dir).sort()).toEqual(["bundle.json", "verdict.json"]);
+    });
+  });
+
+  test("an ABORT verdict is still written when the bundle directory sits under a home path: bundle-missing names only the directory's own name, never an absolute path", () => {
+    withTmp("ste618-cli-ab-", (d) => {
+      // A bundle directory under a /home/<name>-shaped path, holding no bundle.json.
+      const dir = join(d, "home", "alice", "jira-2026-09-21-n7k2q9");
+      mkdirSync(dir, { recursive: true });
+      const r = cli(["grade", "--bundle", dir], d);
+      expect(r.code, r.err).toBe(1);
+      const file = join(dir, "verdict.json");
+      expect(existsSync(file), `the abort verdict was not written:\n${r.err}`).toBe(true);
+      const v = JSON.parse(readFileSync(file, "utf-8")) as LiveVerdict;
+      expect(v.outcome).toBe("abort");
+      const f = v.findings.find((x) => x.code === "bundle-missing");
+      expect(f, JSON.stringify(v.findings)).toBeDefined();
+      expect(JSON.stringify(f)).toContain("jira-2026-09-21-n7k2q9");
+      expect(JSON.stringify(v)).not.toContain(d);
+    });
+  });
+
+  test("PERMIT TWIN — grade given --verdict <file> still writes exactly there", () => {
+    withTmp("ste618-cli-g2-", (d) => {
+      const dir = join(d, "bundle");
+      expect(grader().writeEvidenceBundle(buildPassingBundle("jira"), dir).ok).toBe(true);
+      const elsewhere = join(d, "elsewhere", "v.json");
+      const r = cli(["grade", "--bundle", dir, "--verdict", elsewhere], d);
+      expect([0, 1], r.err).toContain(r.code);
+      expect(existsSync(elsewhere)).toBe(true);
+      expect(typeof JSON.parse(readFileSync(elsewhere, "utf-8")).outcome).toBe("string");
+    });
+  });
 });
 
 describe("no skipped, todo or conditional test forms in this suite", () => {
