@@ -843,6 +843,8 @@ function measuredPopulation(committedAt: string): Project {
   return fx;
 }
 
+const POPULATION_TIMEOUT_MS = 60_000;
+
 describe("F11.5 — the grandfathering spares a MEASURED population, not an empty set", () => {
   test("BASELINE: the raw scanner really does fail 616 word caps over 319 real FRs", () => {
     // Measured 2026-09-01 against v2.75.0. Asserted as a FLOOR so a growing
@@ -859,6 +861,10 @@ describe("F11.5 — the grandfathering spares a MEASURED population, not an empt
     }
   });
 
+  // Each builds a git history of hundreds of FR files: about 2 s alone, measured
+  // 7.2 s inside the full suite on 2026-09-22, past bun's 5 s default, so a
+  // loaded run timed out and killed the test's own git child mid-flight. The
+  // timeout is the only change; every assertion is as it was.
   test("the whole pre-epoch population goes GREEN under the probe", () => {
     const fx = measuredPopulation(isoAt(epochMs() - ONE_YEAR));
     try {
@@ -876,7 +882,7 @@ describe("F11.5 — the grandfathering spares a MEASURED population, not an empt
     } finally {
       fx.cleanup();
     }
-  });
+  }, POPULATION_TIMEOUT_MS);
 
   test("the SAME population committed AFTER the epoch still fails — the arm is not a blanket amnesty", () => {
     const fx = measuredPopulation(isoAt(epochMs() + ONE_SECOND));
@@ -889,7 +895,7 @@ describe("F11.5 — the grandfathering spares a MEASURED population, not an empt
     } finally {
       fx.cleanup();
     }
-  });
+  }, POPULATION_TIMEOUT_MS);
 
   test("the four pre-existing rules are silent on this population BOTH sides of the epoch", () => {
     // Measured: the 447 archived FRs break `word_cap` 616 times and the four

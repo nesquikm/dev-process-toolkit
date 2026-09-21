@@ -3017,6 +3017,7 @@ describe("fourth audit, defect 4 (MEDIUM-1) — Phase 1 tells the operator to co
 // ===========================================================================
 
 const PREAMBLE_BEGIN = "# run-state preamble: begin";
+const PIDFILE_CLEAR = "rm -f /tmp/dpt-shared-<tracker>-step.pid";
 const PREAMBLE_END = "# run-state preamble: end";
 const RUN_STATE_SOURCE_RE = /^\s*(?:\.|source)\s+"?(?:[^"\s]*-run\.env|\$\{RUN_ENV\})"?\s*(?:$|[;&|])/;
 
@@ -3063,8 +3064,13 @@ function preambleViolations(text: string): string[] {
     const b = f.lines.findIndex((l) => l.startsWith(PREAMBLE_BEGIN));
     const e = f.lines.indexOf(PREAMBLE_END);
     if (!/^RUN_STATE_NEEDS="[^"]*"$/.test(f.lines[b - 2] ?? "") || !/^RUN_STATE_NEEDS_LINEAR="[^"]*"$/.test(f.lines[b - 1] ?? "")) v.push(`${tag}: the two declaration lines do not sit immediately above the preamble`);
-    const above = f.lines.slice(0, Math.max(0, b - 2)).filter((l) => l.trim() !== "" && !/^\s*#/.test(l) && !/^set -[eu]+$/.test(l.trim()));
+    // The one line permitted above the preamble, and REQUIRED there, in the two
+    // spawn fences: clearing the shared step pidfile before anything can refuse.
+    const spawns = tag === STEP_TAG || tag === AUDIT_TAG;
+    const isClear = (l: string) => l.startsWith(PIDFILE_CLEAR);
+    const above = f.lines.slice(0, Math.max(0, b - 2)).filter((l) => l.trim() !== "" && !/^\s*#/.test(l) && !/^set -[eu]+$/.test(l.trim()) && !(spawns && isClear(l)));
     if (above.length > 0) v.push(`${tag}: code runs before the run-state preamble: ${above[0]!.trim()}`);
+    if (spawns && !f.lines.slice(0, Math.max(0, b - 2)).some(isClear)) v.push(`${tag}: does not clear the step pidfile before its run-state preamble`);
     const kinds = classifyLines(f.lines);
     f.lines.forEach((l, i) => {
       if (kinds[i] === "code" && (i < b || i > e) && RUN_STATE_SOURCE_RE.test(l)) v.push(`${tag}: sources the run state outside the preamble: ${l.trim()}`);
@@ -3459,5 +3465,77 @@ describe("the wait fence — a missing pidfile refuses, a finished process is ex
     const r = runWait((t) => writeFileSync(join(t, "dpt-shared-jira-step.pid"), `${done.pid}\n`));
     expect(r.code, r.err).toBe(0);
     expect(r.out).toMatch(/^exited: \d+/m);
+  });
+});
+
+// --- a refusing spawn fence never leaves the previous step's pidfile -------
+//
+// The step and audit fences share one pidfile and never removed it on normal
+// completion, so when a later spawn fence REFUSED (at its preamble or later)
+// the wait fence read the previous step's dead pid and reported `exited`,
+// exit 0 — a step that never ran. Both spawn fences now remove the pidfile as
+// their first line, before the preamble can refuse. Omit-one row: a stale
+// pidfile present, the spawn fence refusing on a missing run state.
+describe("the spawn fences clear the pidfile before anything can refuse", () => {
+  for (const tag of [STEP_TAG, AUDIT_TAG]) {
+    test(`${tag}: stale pid + a refusal (no run state) → the wait fence refuses step-pid-missing, never "exited"`, () => {
+      let wait = { code: -1, out: "", err: "" };
+      withStub((sb) => {
+        const done = Bun.spawnSync(["true"]);
+        writeFileSync(join(sb.tmp, "dpt-shared-jira-step.pid"), `${done.pid}\n`);
+        const spawn = runStubScript(sb, rebaseIntoStub(oneFence(docText(), tag).body.replaceAll("<tracker>", "jira"), sb), stubEnv(sb));
+        expect(spawn.exitCode, "control: the spawn fence refused (no run state)").not.toBe(0);
+        const w = runStubScript(sb, rebaseIntoStub(oneFence(docText(), "# shared-tracker-smoke: wait").body.replaceAll("<tracker>", "jira"), sb), stubEnv(sb));
+        wait = { code: w.exitCode, out: w.out, err: w.err };
+      });
+      expect(wait.out).not.toMatch(/exited:/);
+      expect(wait.code).not.toBe(0);
+      expect(wait.err).toMatch(/check=step-pid-missing/);
+    });
+  }
+});
+describe("the pidfile clear is required in both spawn fences, and permitted nowhere else", () => {
+  test("the shipped document carries it in both, and the preamble rules are clean", () => {
+    expect(preambleViolations(docText())).toEqual([]);
+  });
+  test("MUTATION — dropping it from the scenario step fence reds", () => {
+    const t = docText();
+    const m = t.replace(/^rm -f \/tmp\/dpt-shared-<tracker>-step\.pid.*\n(?=(?:.*\n){0,3}.*RUN_STATE_NEEDS=)/m, "");
+    expect(m).not.toBe(t);
+    expect(preambleViolations(m).some((v) => /does not clear the step pidfile/.test(v))).toBe(true);
+  });
+  test("MUTATION — the same line above another fence's preamble is code before the preamble", () => {
+    const t = docText();
+    const m = t.replace("# shared-tracker-smoke: session cleanup", "# shared-tracker-smoke: session cleanup\nrm -f /tmp/dpt-shared-<tracker>-step.pid");
+    expect(m).not.toBe(t);
+    expect(preambleViolations(m).some((v) => /session cleanup: code runs before the run-state preamble/.test(v))).toBe(true);
+  });
+});
+
+// --- the audit child is told how to read back, and to run no other search ---
+describe("the audit prompt names its read-back tool and forbids any other search", () => {
+  const auditPromptViolations = (text: string): string[] => {
+    const body = oneFence(text, AUDIT_TAG).body;
+    const v: string[] = [];
+    if (!/AUDIT_READ_TOOL="mcp__linear__get_issue"/.test(body)) v.push("no Linear read-back tool");
+    if (!/AUDIT_READ_TOOL="mcp__atlassian__getJiraIssue"/.test(body)) v.push("no Jira read-back tool");
+    if (!/one \$\{AUDIT_READ_TOOL\} call per key, never a search/.test(body)) v.push("the read-back line names no tool");
+    if (!/^Run no other search/m.test(body)) v.push("no 'Run no other search' line");
+    return v;
+  };
+  test("the audit fence names get_issue on Linear, getJiraIssue on Jira, and 'Run no other search'", () => {
+    expect(auditPromptViolations(docText())).toEqual([]);
+  });
+  test("MUTATION — a prompt without 'Run no other search', or with an unnamed read-back, reds the same check", () => {
+    const t = docText();
+    expect(auditPromptViolations(t.replace(/^Run no other search.*\n/m, ""))).toContain("no 'Run no other search' line");
+    expect(auditPromptViolations(t.replace("one ${AUDIT_READ_TOOL} call per key, never a search", "one read call per key"))).toContain("the read-back line names no tool");
+  });
+});
+
+// --- Phase 0 tells the operator the ceiling has no slack --------------------
+describe("Phase 0 states that no child may be relaunched", () => {
+  test("the Phase 0 printout carries the no-relaunch line", () => {
+    expect(docText()).toMatch(/echo "no child may be relaunched: the spawn ceiling covers every step and both audits exactly/);
   });
 });

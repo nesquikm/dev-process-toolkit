@@ -82,6 +82,7 @@ else
 fi
 echo "throwaway repositories: ${PARENT}/dpt-shared-${TRACKER}-a ${PARENT}/dpt-shared-${TRACKER}-b"
 printf '%s\n' "${PLAN}" | sed 's/^/  /'
+echo "no child may be relaunched: the spawn ceiling covers every step and both audits exactly, with no slack, so a crashed or relaunched step costs the teardown audit its slot and the leg is lost (run § Phase 5 — Teardown and start a new run)"
 case "${TRACKER}:${JIRA_REPOINT_FROM}" in
   jira:) echo "S8 skipped: repoint-space-not-given" ;;
   *) echo "S8 runs" ;;
@@ -618,6 +619,7 @@ Ten keys are the same on every step and are written in the fence. The three belo
 
 ```bash
 # shared-tracker-smoke: scenario step — one child, one marker
+rm -f /tmp/dpt-shared-<tracker>-step.pid  # first, before anything can refuse: the wait fence must never read the previous step's pid
 RUN_STATE_NEEDS="TRACKER TOPLEVEL DPT_SMOKE_RUN_ID SPAWN_CEILING ROOT_A ROOT_B PLUGIN_TREE PLUGIN_BELOW_FLOOR PLUGIN_INTRUDER OLD_CLIENT"
 RUN_STATE_NEEDS_LINEAR=""
 # run-state preamble: begin — the same lines in every fence that reads the run state
@@ -744,8 +746,9 @@ Poll in bounded foreground calls until the child exits, then start the next step
 
 ```bash
 # shared-tracker-smoke: wait — bounded, foreground
-# The step fence removes its pidfile only when it aborts a launch, so a missing or empty pidfile means no
-# step is running: never read it as "exited".
+# Both spawn fences clear the pidfile as their first line, before anything can refuse, and write it only
+# when a child launches; so a missing or empty pidfile means no step is running (never launched, refused,
+# or aborted) and is never read as "exited" — and a refused step never leaves the previous step's pid.
 P=$(cat /tmp/dpt-shared-<tracker>-step.pid 2>/dev/null)
 if [ -z "${P}" ]; then
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=wait, check=step-pid-missing\n' "no step pidfile at /tmp/dpt-shared-<tracker>-step.pid: no step was launched, or its launch was aborted, so there is nothing to wait for." "read the step fence's last output: an ABORT line means run § Phase 5 — Teardown; otherwise launch the step again." >&2
@@ -937,6 +940,7 @@ Before running it, write to `/tmp/dpt-shared-<tracker>-created-keys.txt` every k
 
 ```bash
 # shared-tracker-smoke: audit — read-only, marker audit
+rm -f /tmp/dpt-shared-<tracker>-step.pid  # first, before anything can refuse: the wait fence must never read the previous step's pid
 RUN_STATE_NEEDS="TRACKER TOPLEVEL DPT_SMOKE_RUN_ID SPAWN_CEILING NONCE ROOT_A PLUGIN_TREE"
 RUN_STATE_NEEDS_LINEAR=""
 # run-state preamble: begin — the same lines in every fence that reads the run state
@@ -963,9 +967,11 @@ AUDIT_PASS="<1 after the scenarios, 2 after teardown>"
 if [ "${TRACKER}" = jira ]; then
   AUDIT_QUERY="summary ~ \"${NONCE}\" ORDER BY key ASC"
   AUDIT_FIELDS="summary, labels, status, parent, issuetype, project"
+  AUDIT_READ_TOOL="mcp__atlassian__getJiraIssue"
 else
   AUDIT_QUERY="${NONCE}"
   AUDIT_FIELDS="id, title, labels, status, project, projectMilestone"
+  AUDIT_READ_TOOL="mcp__linear__get_issue"
 fi
 CREATED_KEYS=$(cat "/tmp/dpt-shared-${TRACKER}-created-keys.txt" 2>/dev/null)
 refuse_audit() {
@@ -1013,8 +1019,9 @@ claude -p \
 dpt-shared-tracker-scenario: audit
 Read only: make no create, edit, transition, comment, link or import call.
 Run this exact search, byte for byte, and page it to its last page: ${AUDIT_QUERY}
+Run no other search: the grader compares every search in this session with the one above, and any other aborts the leg.
 Request exactly these fields on the search and on every read-back: ${AUDIT_FIELDS}
-Then read back each of these keys by key, one read call per key:
+Then read back each of these keys by key, one ${AUDIT_READ_TOOL} call per key, never a search:
 ${CREATED_KEYS}
 ${MILESTONE_READS}
 ${PROJECT_READS}
