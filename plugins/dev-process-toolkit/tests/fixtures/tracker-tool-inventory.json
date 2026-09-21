@@ -46,7 +46,186 @@
         "searchJiraIssuesUsingJql",
         "transitionJiraIssue",
         "updateConfluencePage"
-      ]
+      ],
+      "classification": {
+        "addCommentToJiraIssue": {
+          "class": "gated-write"
+        },
+        "addWorklogToJiraIssue": {
+          "class": "gated-write"
+        },
+        "atlassianUserInfo": {
+          "class": "read"
+        },
+        "createCompassComponent": {
+          "class": "out-of-scope",
+          "reason": "Compass catalog write; no Jira ticket or container is touched."
+        },
+        "createCompassComponentRelationship": {
+          "class": "out-of-scope",
+          "reason": "Compass catalog write; no Jira ticket or container is touched."
+        },
+        "createCompassCustomFieldDefinition": {
+          "class": "out-of-scope",
+          "reason": "Compass catalog write; no Jira ticket or container is touched."
+        },
+        "createConfluenceFooterComment": {
+          "class": "out-of-scope",
+          "reason": "Confluence comment; the toolkit binds no FR to Confluence content."
+        },
+        "createConfluenceInlineComment": {
+          "class": "out-of-scope",
+          "reason": "Confluence comment; the toolkit binds no FR to Confluence content."
+        },
+        "createConfluencePage": {
+          "class": "out-of-scope",
+          "reason": "Confluence page write; the toolkit binds no FR to Confluence content."
+        },
+        "createIssueLink": {
+          "class": "gated-write"
+        },
+        "createJiraIssue": {
+          "class": "gated-write"
+        },
+        "editJiraIssue": {
+          "class": "gated-write"
+        },
+        "fetch": {
+          "class": "read"
+        },
+        "getAccessibleAtlassianResources": {
+          "class": "read"
+        },
+        "getCompassComponent": {
+          "class": "read"
+        },
+        "getCompassComponents": {
+          "class": "read"
+        },
+        "getCompassCustomFieldDefinitions": {
+          "class": "read"
+        },
+        "getConfluenceCommentChildren": {
+          "class": "read"
+        },
+        "getConfluencePage": {
+          "class": "read"
+        },
+        "getConfluencePageDescendants": {
+          "class": "read"
+        },
+        "getConfluencePageFooterComments": {
+          "class": "read"
+        },
+        "getConfluencePageInlineComments": {
+          "class": "read"
+        },
+        "getConfluenceSpaces": {
+          "class": "read"
+        },
+        "getContentFormatGuide": {
+          "class": "read"
+        },
+        "getIssueLinkTypes": {
+          "class": "read"
+        },
+        "getJiraIssue": {
+          "class": "read"
+        },
+        "getJiraIssueRemoteIssueLinks": {
+          "class": "read"
+        },
+        "getJiraIssueTypeMetaWithFields": {
+          "class": "read"
+        },
+        "getJiraProjectIssueTypesMetadata": {
+          "class": "read"
+        },
+        "getPagesInConfluenceSpace": {
+          "class": "read"
+        },
+        "getTeamworkGraphContext": {
+          "class": "read"
+        },
+        "getTeamworkGraphObject": {
+          "class": "read"
+        },
+        "getTransitionsForJiraIssue": {
+          "class": "read"
+        },
+        "getVisibleJiraProjects": {
+          "class": "read"
+        },
+        "lookupJiraAccountId": {
+          "class": "read"
+        },
+        "search": {
+          "class": "read"
+        },
+        "searchConfluenceUsingCql": {
+          "class": "read"
+        },
+        "searchJiraIssuesUsingJql": {
+          "class": "read"
+        },
+        "transitionJiraIssue": {
+          "class": "gated-write"
+        },
+        "updateConfluencePage": {
+          "class": "out-of-scope",
+          "reason": "Confluence page write; the toolkit binds no FR to Confluence content."
+        }
+      },
+      "parameters": {
+        "searchJiraIssuesUsingJql": [
+          "cloudId",
+          "fields",
+          "jql",
+          "maxResults",
+          "nextPageToken",
+          "responseContentFormat",
+          "searchResultMode"
+        ],
+        "createJiraIssue": [
+          "additional_fields",
+          "assignee_account_id",
+          "cloudId",
+          "contentFormat",
+          "description",
+          "issueTypeName",
+          "parent",
+          "projectKey",
+          "responseContentFormat",
+          "summary",
+          "transition"
+        ],
+        "editJiraIssue": [
+          "cloudId",
+          "contentFormat",
+          "fields",
+          "issueIdOrKey",
+          "responseContentFormat"
+        ],
+        "transitionJiraIssue": [
+          "cloudId",
+          "fields",
+          "historyMetadata",
+          "issueIdOrKey",
+          "transition",
+          "update"
+        ],
+        "getJiraIssue": [
+          "cloudId",
+          "expand",
+          "failFast",
+          "fields",
+          "fieldsByKeys",
+          "issueIdOrKey",
+          "properties",
+          "responseContentFormat",
+          "updateHistory"
+        ]
+      }
     },
     "linear": {
       "prefix": "mcp__linear__",
@@ -118,7 +297,291 @@
         "submit_diff_review",
         "unshare_issue",
         "update_diff"
-      ]
+      ],
+      "classification": {
+        "create_attachment": {
+          "class": "gated-write"
+        },
+        "create_attachment_from_upload": {
+          "class": "gated-write"
+        },
+        "create_issue_label": {
+          "class": "gated-write"
+        },
+        "delete_attachment": {
+          "class": "gated-write"
+        },
+        "delete_comment": {
+          "class": "gated-write"
+        },
+        "delete_diff_comment": {
+          "class": "out-of-scope",
+          "reason": "Linear diff-review write; diffs carry no ticket ownership tag."
+        },
+        "delete_status_update": {
+          "class": "gated-write"
+        },
+        "extract_images": {
+          "class": "read"
+        },
+        "get_agent_skill": {
+          "class": "read"
+        },
+        "get_attachment": {
+          "class": "read"
+        },
+        "get_diff": {
+          "class": "read"
+        },
+        "get_diff_threads": {
+          "class": "read"
+        },
+        "get_document": {
+          "class": "read"
+        },
+        "get_issue": {
+          "class": "read"
+        },
+        "get_issue_status": {
+          "class": "read"
+        },
+        "get_milestone": {
+          "class": "read"
+        },
+        "get_notifications": {
+          "class": "read"
+        },
+        "get_project": {
+          "class": "read"
+        },
+        "get_release": {
+          "class": "read"
+        },
+        "get_release_note": {
+          "class": "read"
+        },
+        "get_status_updates": {
+          "class": "read"
+        },
+        "get_team": {
+          "class": "read"
+        },
+        "get_template": {
+          "class": "read"
+        },
+        "get_user": {
+          "class": "read"
+        },
+        "get_workspace": {
+          "class": "read"
+        },
+        "list_agent_skills": {
+          "class": "read"
+        },
+        "list_comments": {
+          "class": "read"
+        },
+        "list_cycles": {
+          "class": "read"
+        },
+        "list_diffs": {
+          "class": "read"
+        },
+        "list_documents": {
+          "class": "read"
+        },
+        "list_issue_labels": {
+          "class": "read"
+        },
+        "list_issue_statuses": {
+          "class": "read"
+        },
+        "list_issues": {
+          "class": "read"
+        },
+        "list_milestones": {
+          "class": "read"
+        },
+        "list_project_labels": {
+          "class": "read"
+        },
+        "list_projects": {
+          "class": "read"
+        },
+        "list_release_notes": {
+          "class": "read"
+        },
+        "list_release_pipelines": {
+          "class": "read"
+        },
+        "list_releases": {
+          "class": "read"
+        },
+        "list_teams": {
+          "class": "read"
+        },
+        "list_templates": {
+          "class": "read"
+        },
+        "list_users": {
+          "class": "read"
+        },
+        "mark_notification": {
+          "class": "out-of-scope",
+          "reason": "Linear notification state is per-user and touches no shared ticket."
+        },
+        "merge_diff": {
+          "class": "out-of-scope",
+          "reason": "Linear diff merge; acts on code review, not on a ticket or container."
+        },
+        "prepare_attachment_upload": {
+          "class": "out-of-scope",
+          "reason": "Only mints an upload URL; the attachment write itself (create_attachment_from_upload) is gated."
+        },
+        "resolve_diff_thread": {
+          "class": "out-of-scope",
+          "reason": "Linear diff-review write; diffs carry no ticket ownership tag."
+        },
+        "restore_issue_label": {
+          "class": "gated-write"
+        },
+        "restore_project_label": {
+          "class": "gated-write"
+        },
+        "retire_issue_label": {
+          "class": "gated-write"
+        },
+        "retire_project_label": {
+          "class": "gated-write"
+        },
+        "save_comment": {
+          "class": "gated-write"
+        },
+        "save_diff_comment": {
+          "class": "out-of-scope",
+          "reason": "Linear diff-review write; diffs carry no ticket ownership tag."
+        },
+        "save_document": {
+          "class": "gated-write"
+        },
+        "save_issue": {
+          "class": "gated-write"
+        },
+        "save_issue_label": {
+          "class": "gated-write"
+        },
+        "save_milestone": {
+          "class": "gated-write"
+        },
+        "save_project": {
+          "class": "gated-write"
+        },
+        "save_project_label": {
+          "class": "gated-write"
+        },
+        "save_release": {
+          "class": "out-of-scope",
+          "reason": "Linear release write; releases are not a container the toolkit mints or binds."
+        },
+        "save_release_note": {
+          "class": "out-of-scope",
+          "reason": "Linear release-note write; release notes are not a container the toolkit binds."
+        },
+        "save_status_update": {
+          "class": "gated-write"
+        },
+        "search_documentation": {
+          "class": "read"
+        },
+        "share_issue": {
+          "class": "gated-write"
+        },
+        "submit_diff_review": {
+          "class": "out-of-scope",
+          "reason": "Linear diff-review write; diffs carry no ticket ownership tag."
+        },
+        "unshare_issue": {
+          "class": "gated-write"
+        },
+        "update_diff": {
+          "class": "out-of-scope",
+          "reason": "Linear diff-review write; diffs carry no ticket ownership tag."
+        }
+      },
+      "parameters": {
+        "list_issues": [
+          "assignee",
+          "createdAt",
+          "cursor",
+          "cycle",
+          "delegate",
+          "fields",
+          "includeArchived",
+          "label",
+          "limit",
+          "orderBy",
+          "parentId",
+          "priority",
+          "project",
+          "query",
+          "release",
+          "state",
+          "team",
+          "updatedAt"
+        ],
+        "list_milestones": [
+          "project"
+        ],
+        "save_issue": [
+          "addLabels",
+          "addReleases",
+          "assignee",
+          "blockedBy",
+          "blocks",
+          "cycle",
+          "delegate",
+          "description",
+          "dueDate",
+          "duplicateOf",
+          "estimate",
+          "id",
+          "labels",
+          "links",
+          "milestone",
+          "parentId",
+          "patch",
+          "priority",
+          "project",
+          "relatedTo",
+          "removeBlockedBy",
+          "removeBlocks",
+          "removeLabels",
+          "removeRelatedTo",
+          "removeReleases",
+          "setReleases",
+          "slaBreachesAt",
+          "slaType",
+          "state",
+          "team",
+          "template",
+          "title"
+        ],
+        "save_milestone": [
+          "description",
+          "id",
+          "name",
+          "project",
+          "targetDate"
+        ],
+        "get_issue": [
+          "id",
+          "includeCustomerNeeds",
+          "includeRelations",
+          "includeReleases"
+        ]
+      }
     }
-  }
+  },
+  "parameters_captured_at": "2026-09-21",
+  "parameters_source": "Live MCP input schemas (additionalProperties: false) of the tools the STE-616 tracker doubles implement, captured for AC-STE-616.2; classification per tool for AC-STE-616.11."
 }

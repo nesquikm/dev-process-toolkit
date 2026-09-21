@@ -22,8 +22,8 @@
 // that does not exist, which is worse than the missing receipt it was told
 // about. So stdout carries a whole announcement or nothing at all.
 
-import { readFileSync, realpathSync, statSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 
 import { receiptsDir } from "./dpt_paths";
 import { nfr10Message } from "./dpt_version";
@@ -314,6 +314,7 @@ export function recordGateRun(skill: string, target: string): string {
  */
 export type GateEvidenceReason =
   | "not-managed"
+  | "declaration-unreadable"
   | "receipt-found"
   | "session-id-missing"
   | "store-unreadable"
@@ -686,6 +687,28 @@ function readGateStore(root: string, subject: string, sessionId: string): StoreR
 }
 
 /**
+ * True when `<root>/CLAUDE.md` EXISTS but cannot be read — the one state
+ * `isToolkitManaged` cannot tell apart from an unmanaged tree. Only a path with
+ * no directory entry at all (`ENOENT` from `lstat`) is ordinary unmanaged; any
+ * other `lstat` failure, a symlink loop, and a dangling link are all a
+ * declaration that exists and cannot be read. Never throws.
+ */
+function declarationUnreadable(root: string): boolean {
+  const path = join(root, "CLAUDE.md");
+  try {
+    lstatSync(path);
+  } catch (e) {
+    return (e as { code?: unknown }).code !== "ENOENT";
+  }
+  try {
+    readFileSync(path, "utf-8");
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+/**
  * Is there, in `root`'s store, a receipt of THIS session recording that
  * `subject` ran against THIS checkout?
  *
@@ -721,6 +744,14 @@ export function gateReceiptEvidence(
     namedCount: 0,
     droppedCount: 0,
   };
+  // A CLAUDE.md that EXISTS and cannot be read is not evidence of an unmanaged
+  // checkout: `isToolkitManaged` folds every read error into "not managed", and
+  // read that way an unreadable declaration waved the write through on no
+  // evidence at all (STE-616 AC-STE-616.13). Refused by name instead; an absent
+  // CLAUDE.md, or a readable one with no toolkit signal, stays unmanaged.
+  if (declarationUnreadable(root)) {
+    return { ok: false, applies: true, reason: "declaration-unreadable", ...blank };
+  }
   if (!isToolkitManaged(root)) {
     return { ok: true, applies: false, reason: "not-managed", ...blank };
   }
@@ -956,6 +987,14 @@ export const MISS_PROSE_FOR_TEST = (): typeof MISS_PROSE => MISS_PROSE;
 const MISS_PROSE: Readonly<
   Record<Exclude<GateEvidenceReason, "not-managed" | "receipt-found">, (w: MissWords) => string>
 > = {
+  // The declaration EXISTS and could not be read, so whether the checkout is
+  // toolkit-managed is unknown — and unknown is refused, never read as
+  // unmanaged. Mirrors the tracker-write guard's unreadable-declaration refusal.
+  "declaration-unreadable": (w) =>
+    `its declaration ${w.root}/CLAUDE.md exists but could not be read (unreadable), ` +
+    `so whether that checkout is toolkit-managed is unknown and it is not read ` +
+    `as unmanaged — fix the file's permissions so CLAUDE.md can be read.`,
+
   "session-id-missing": (w) =>
     `the hook payload carries no session_id — repository-scoped gate evidence ` +
     `is keyed by the session that produced it, so the ${w.subject} receipt for ` +
@@ -1180,7 +1219,9 @@ export function gateReceiptMiss(
   };
   return {
     why:
-      `this action writes to ${root}, a toolkit-managed checkout, and ` +
+      (evidence.reason === "declaration-unreadable"
+        ? `this action writes to ${root}, and `
+        : `this action writes to ${root}, a toolkit-managed checkout, and `) +
       MISS_PROSE[evidence.reason as keyof typeof MISS_PROSE](words),
     how: `${remedyCommand(subject, root)}, then retry this action.`,
     root,
