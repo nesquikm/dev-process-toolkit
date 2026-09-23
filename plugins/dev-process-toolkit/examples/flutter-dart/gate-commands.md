@@ -20,7 +20,7 @@ make codegen           # Code generation (Freezed, json_serializable, Retrofit, 
 
 ## Key Conventions
 
-- Always use `fvm flutter` / `fvm dart` (never bare `flutter`/`dart`)
+- Always use `fvm flutter` / `fvm dart` locally (never bare `flutter`/`dart`). The CI workflow is the one exception: `subosito/flutter-action` installs a single SDK there, so `.github/workflows/gate-check.yml` calls bare `flutter` by design
 - Never manually edit `*.g.dart` or `*.freezed.dart` files
 - Use `const` constructors for widgets
 - Use `tryEmit()` for safe state emission in cubits

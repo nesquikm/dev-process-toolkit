@@ -349,16 +349,24 @@ be expressed cleanly (GitHub has no native status enum), drop it from
 
 A typed `Provider` interface unifies ID lifecycle, tracker sync, and lock management behind a single contract. Adapters compose under `TrackerProvider`; the 4-op adapter surface (`pull_acs`, `push_ac_toggle`, `transition_status`, `upsert_ticket_metadata`) is the integration boundary.
 
-**TypeScript signatures** (from `adapters/_shared/src/provider.ts`, matching technical-spec.md §8.4 byte-for-byte):
+**TypeScript signatures** (from `adapters/_shared/src/provider.ts`, doc comments stripped — the source file is authoritative):
 
 ```typescript
+export interface IdentityMinter {
+  mintId(): string;                                    // pure local; offline-safe — LocalProvider only
+}
+
 export interface Provider {
-  mintId(): string;                                    // pure local; offline-safe
+  readonly mode: "none" | "tracker";
+  listMilestones(): Promise<{ name: string }[]>;
+  listActiveFRs(): Promise<string[]>;
   getMetadata(id: string): Promise<FRMetadata>;
   sync(spec: FRSpec): Promise<SyncResult>;
   getUrl(id: string, trackerKey?: string): string | null;
   claimLock(id: string, branch: string): Promise<LockResult>;
-  releaseLock(id: string): Promise<void>;
+  releaseLock(id: string): Promise<"transitioned" | "already-released">;
+  getTicketStatus(ticketId: string): Promise<{ status: string; assignee?: string | null }>;
+  filenameFor(spec: FRSpec): string;
 }
 ```
 

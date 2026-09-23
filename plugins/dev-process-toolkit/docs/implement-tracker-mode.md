@@ -140,7 +140,7 @@ concrete pattern via the active adapter's `## Tool surface` table.
    is not ours never reaches the routing below.
 1. **Read state + assignee.** Call `mcp__<tracker>__get_issue(<id>)`. Capture
    `status`, `assigneeId` / `assignee`, and `updatedAt`.
-2. **Decision routing (four-way)** — the table `claimRoute(status, assignee,
+2. **Decision routing (five-way)** — the table `claimRoute(status, assignee,
    currentUser)` in `adapters/_shared/src/tracker_provider.ts`, the same
    function `TrackerProvider.claimLock` routes through:
    - `status == status_mapping[in_progress]` AND `assignee != currentUser`
@@ -154,8 +154,12 @@ concrete pattern via the active adapter's `## Tool surface` table.
    - `status == status_mapping[done]` or completed ⇒ `already-released` (idempotent
      terminal, zero writes). The work shipped; don't re-open the ticket. Skip
      the run.
-   - Otherwise (`Backlog`, `Unstarted`, `Cancelled`, etc.) ⇒ proceed to
-     step 3 to perform the actual claim.
+   - `Backlog`, `Unstarted` or `Cancelled` ⇒ `claim`: proceed to step 3 to
+     perform the actual claim.
+   - Any other status (outside the canonical set — e.g. an in-review state)
+     ⇒ `not-claimable`. Nothing is written; `claimLock` surfaces it through
+     the `taken-elsewhere` refusal branch with the message
+     `Ticket <ref> status=<status> is not claimable`.
 3. **Transition to In Progress + assign current user.** Look up the active
    adapter's `transition_status` row in `adapters/<tracker>.md` § Tool
    surface. Invoke that MCP call with the resolved `status_mapping[in_progress]`
