@@ -25,7 +25,18 @@
 // The pre-change bytes (`ac1f3cb`) are extracted with `git show` for the
 // undeclared-parity leg (AC.7) and the old-client leg (AC.10).
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+
+
+// MEASURED (M_2306b6 audit round 1, M5): this suite spawns `bun run <module>` for
+// almost every test, and Bun's default per-test timeout is 5 s. Under the load of
+// the full 653-file gate a spawn that normally takes ~200 ms can exceed it; Bun
+// then kills the child, `exitCode` is null, and the run surfaced as `code = -1`
+// with an empty stderr — a failure that looked like the module crashing and was
+// diagnosable only by re-running. It is the same load-dependent 5 s timeout this
+// milestone already root-caused once (the word-cap population test). The budget
+// below is per test, not per suite, so it costs nothing on a healthy machine.
+setDefaultTimeout(60_000);
 import { Glob } from "bun";
 import {
   existsSync,
@@ -100,10 +111,17 @@ function runModule(args: string[], env: Record<string, string> = {}): Run {
     stdout: "pipe",
     stderr: "pipe",
   });
+  // `exitCode` is null when the child was KILLED BY A SIGNAL, and collapsing that
+  // into -1 with an empty stderr is why a `-1` here has been undiagnosable: the
+  // assertion printed nothing about the cause. The signal is surfaced in the
+  // stderr the assertions carry, so the next occurrence names itself instead of
+  // being re-run until it passes.
+  const signal = proc.signalCode ?? null;
+  const stderr = proc.stderr.toString();
   return {
     code: proc.exitCode ?? -1,
     stdout: proc.stdout.toString(),
-    stderr: proc.stderr.toString(),
+    stderr: signal === null ? stderr : `${stderr}\n[the child was killed by ${signal}; it did not exit on its own — this is a HARNESS or machine-load failure, not a module verdict]`,
   };
 }
 
