@@ -397,3 +397,62 @@ describe("R2 — DEFERRED: gate-check still claims a probe that does not run", (
     );
   });
 });
+
+// Ordered prose: a colon introduces its list, and nothing stands between them.
+//
+// MEASURED on this milestone's own repair commit (3a576fe), found by a reader
+// who was not its author. The R1 persistence sentence was spliced into
+// `spec-write/SKILL.md` AFTER "…MUST emit exactly one of the literal tokens …
+// whenever the spec-research subagent fires:" and BEFORE the three token
+// bullets that colon exists to introduce. A model executing the step therefore
+// read "must emit exactly one of the literal tokens: persist the block to a
+// file", with the bullets stranded behind a paragraph.
+//
+// The SIBLING is what makes it a defect rather than a taste: the deps-research
+// seed two paragraphs down — which the spliced sentence itself names as the
+// model to follow — puts the persist sentence with the seed's own prose and
+// lets its colon touch its bullets. Two adjacent instructions for one shape,
+// one right and one wrong, and the right one was the one being cited.
+//
+// The brainstorm arm was CHECKED and was never broken: its persist sentence
+// closes the seed paragraph, which is the same ordering. A fix applied to one
+// arm and not its twin is this milestone's most repeated defect, so the twin is
+// asserted here rather than assumed.
+describe("ordered prose — the token colon touches its token bullets", () => {
+  const skill = (name: string): string => readFileSync(join(import.meta.dir, "..", "skills", name, "SKILL.md"), "utf-8");
+
+  for (const [name, cue] of [
+    ["spec-write", "whenever the spec-research subagent fires:"],
+    ["spec-write", "whenever the deps-research subagent fires:"],
+  ] as const) {
+    test(`${name}: nothing stands between "${cue.slice(-28)}" and its first bullet`, () => {
+      const text = skill(name);
+      const at = text.indexOf(cue);
+      expect(at, `${name} carries the cue`).toBeGreaterThanOrEqual(0);
+      const after = text.slice(at + cue.length);
+      // Only blank space may separate the colon from what it introduces. The two
+      // sites render their lists differently — spec-research as bullets, deps as
+      // inline `⇒ **MUST emit …**` clauses — so the check accepts EITHER and
+      // rejects a paragraph, which is the actual defect shape.
+      expect(after, "the colon is followed by its list, not by a paragraph").toMatch(/^\s*(?:[-*]\s|[^\n]{0,80}⇒\s*\*\*MUST emit)/);
+    });
+  }
+
+  test("brainstorm: the persist sentence closes the seed paragraph and strands no list", () => {
+    const text = skill("brainstorm");
+    const at = text.indexOf("spec-research-result.txt");
+    expect(at, "brainstorm persists the block").toBeGreaterThanOrEqual(0);
+    const sentenceEnd = text.indexOf("\n", at);
+    const rest = text.slice(at, sentenceEnd);
+    expect(rest, "it is not sitting between a colon and a list").not.toMatch(/:\s*$/);
+  });
+
+  test("CONTROL — the check is not vacuous: a paragraph spliced after the cue is caught", () => {
+    const text = skill("spec-write");
+    const cue = "whenever the spec-research subagent fires:";
+    const mutated = text.replace(cue, `${cue} A sentence that does not belong here.`);
+    expect(mutated, "control: the splice applied").not.toBe(text);
+    const after = mutated.slice(mutated.indexOf(cue) + cue.length);
+    expect(after).not.toMatch(/^\s*(?:[-*]\s|[^\n]{0,80}⇒\s*\*\*MUST emit)/);
+  });
+});
