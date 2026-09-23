@@ -1199,6 +1199,114 @@ describe("AC.17 — unannounced receipts", () => {
     });
     expect(codes(grade(b))).not.toContain("unannounced-receipt");
   });
+  // AC-STE-617.20 (live leg 3, 2026-09-23). The document's spawn contract ORDERS
+  // every child to run modules from its client's ABSOLUTE path — SKILL.md § step
+  // prompt: `bun "${STEP_PLUGIN}/adapters/_shared/src/<name>.ts"`, because
+  // "$CLAUDE_PLUGIN_ROOT is empty inside a Bash call" — which the bundle redacts
+  // to `<toolkit>/plugins/dev-process-toolkit/…` for the tree client and to a
+  // `/tmp/…` path for the below-floor copy. The grader recognised ONLY the
+  // `${CLAUDE_PLUGIN_ROOT}` spelling, the one the document FORBIDS, so it
+  // discarded every announcement a compliant child could make and graded perfect
+  // compliance as forgery: leg 3 shasum'd two announced receipts byte-identical
+  // against disk and still drew 4× unannounced-receipt and 2× ungated-write.
+  //
+  // The commands below are REAL, lifted verbatim from leg 3's committed bundle.
+  // That is load-bearing rather than decorative: every pre-existing row here
+  // builds its input through the fixtures' `MODULE()` helper, which emits the
+  // `${CLAUDE_PLUGIN_ROOT}` spelling — the only spelling the predicate could
+  // accept. A suite written that way cannot fail, because every input it can
+  // construct is one the predicate was written to accept. Note also that a real
+  // command is UNQUOTED (`bun run <toolkit>/…`), so the shell grammar would read
+  // `<` as a redirect unless the token is spelled back as a plain word first.
+  const realRun = (module: string, sub: string, arg: string) =>
+    `bun run <toolkit>/plugins/dev-process-toolkit/adapters/_shared/src/${module} ${sub} <B> ${arg} --title "shr2a79c78c S8 legacy item"`;
+
+  test("a receipt announced by a REAL absolute-path module run (the spelling the document mandates) is not unannounced", () => {
+    const b = buildPassingBundle("jira");
+    const s = session(b, "S4");
+    const path = plantReceipt(b, s.sessionId);
+    s.calls.push({
+      ref: `${s.sessionId}:toolu_5e1`,
+      at: new Date(Date.parse(s.calls.at(-1)!.at) + 1000).toISOString(),
+      name: "Bash",
+      input: { command: realRun("create_idempotency_probe.ts", "decide", "<B>/.dpt/scratch/s8/probe-fast.json"), description: "run" },
+      result: { isError: false, text: `decision=create\ndpt-receipt: ${path} sha256:${sha256(path)}`, exitCode: 0, items: null, lastPage: null },
+      sidechain: false,
+    });
+    expect(codes(grade(b))).not.toContain("unannounced-receipt");
+  });
+
+  test("the BARE `bun <abs path>` form announces too — leg 3 recorded both it and `bun run <abs path>`", () => {
+    const b = buildPassingBundle("jira");
+    const s = session(b, "S4");
+    const path = plantReceipt(b, s.sessionId);
+    s.calls.push({
+      ref: `${s.sessionId}:toolu_5e4`,
+      at: new Date(Date.parse(s.calls.at(-1)!.at) + 1000).toISOString(),
+      name: "Bash",
+      // No `run` hop. Both forms occur in leg 3's records, so both are pinned:
+      // otherwise a later edit to the `words[1] === "run"` hop breaks the bare
+      // form silently, and only a live leg would find it.
+      input: { command: 'bun <toolkit>/plugins/dev-process-toolkit/adapters/_shared/src/create_idempotency_probe.ts decide <B> --title "shr2a79c78c S8 legacy item"', description: "run" },
+      result: { isError: false, text: `decision=create\ndpt-receipt: ${path} sha256:${sha256(path)}`, exitCode: 0, items: null, lastPage: null },
+      sidechain: false,
+    });
+    expect(codes(grade(b))).not.toContain("unannounced-receipt");
+  });
+
+  test("REFUSAL TWIN — the same real command with its module path removed announces nothing: still unannounced-receipt", () => {
+    const b = buildPassingBundle("jira");
+    const s = session(b, "S4");
+    const path = plantReceipt(b, s.sessionId);
+    s.calls.push({
+      ref: `${s.sessionId}:toolu_5e2`,
+      at: new Date(Date.parse(s.calls.at(-1)!.at) + 1000).toISOString(),
+      name: "Bash",
+      // Differs from the permit row in exactly one variable: the target is no
+      // longer a toolkit module directory. Everything else — plain single bun
+      // command, absolute path, same subcommand, same announcement — is equal.
+      input: { command: 'bun run <toolkit>/plugins/dev-process-toolkit/scripts/not_a_module.ts decide <B> --title "x"', description: "run" },
+      result: { isError: false, text: `decision=create\ndpt-receipt: ${path} sha256:${sha256(path)}`, exitCode: 0, items: null, lastPage: null },
+      sidechain: false,
+    });
+    expect(findingsOf(grade(b), "unannounced-receipt").some((f) => JSON.stringify(f).includes(path))).toBe(true);
+  });
+
+  test("REFUSAL TWIN — a module run from INSIDE a throwaway repository is not a run of the toolkit under test: still unannounced-receipt", () => {
+    const b = buildPassingBundle("jira");
+    const s = session(b, "S4");
+    const path = plantReceipt(b, s.sessionId);
+    s.calls.push({
+      ref: `${s.sessionId}:toolu_5e5`,
+      at: new Date(Date.parse(s.calls.at(-1)!.at) + 1000).toISOString(),
+      name: "Bash",
+      // CONSTRUCTED, not measured: leg 3 aborted at step 2 and recorded no such
+      // command. It is the case the suffix match would otherwise admit — a
+      // child that copied the adapters into its own repo and ran them there,
+      // which the step prompt forbids and which satisfies every other test
+      // (absolute, one plain bun, right suffix).
+      input: { command: 'bun run <B>/adapters/_shared/src/create_idempotency_probe.ts decide <B> --title "x"', description: "run" },
+      result: { isError: false, text: `decision=create\ndpt-receipt: ${path} sha256:${sha256(path)}`, exitCode: 0, items: null, lastPage: null },
+      sidechain: false,
+    });
+    expect(findingsOf(grade(b), "unannounced-receipt").some((f) => JSON.stringify(f).includes(path))).toBe(true);
+  });
+
+  test("REFUSAL TWIN — a relative module path is a path the child resolved itself, which the step prompt forbids: still unannounced-receipt", () => {
+    const b = buildPassingBundle("jira");
+    const s = session(b, "S4");
+    const path = plantReceipt(b, s.sessionId);
+    s.calls.push({
+      ref: `${s.sessionId}:toolu_5e3`,
+      at: new Date(Date.parse(s.calls.at(-1)!.at) + 1000).toISOString(),
+      name: "Bash",
+      input: { command: 'bun run adapters/_shared/src/create_idempotency_probe.ts decide <B> --title "x"', description: "run" },
+      result: { isError: false, text: `decision=create\ndpt-receipt: ${path} sha256:${sha256(path)}`, exitCode: 0, items: null, lastPage: null },
+      sidechain: false,
+    });
+    expect(findingsOf(grade(b), "unannounced-receipt").some((f) => JSON.stringify(f).includes(path))).toBe(true);
+  });
+
   test("an announcement ECHOED by a non-toolkit command announces nothing: still unannounced-receipt", () => {
     const b = buildPassingBundle("jira");
     const s = session(b, "S4");

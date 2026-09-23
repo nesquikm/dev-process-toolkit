@@ -967,9 +967,53 @@ const cmdOf = (c: ToolCall): string => (c.name === "Bash" ? String(c.input.comma
 
 /** What `${CLAUDE_PLUGIN_ROOT}` is read as when a recorded command is parsed: a placeholder word, never a real path. */
 const PLUGIN_ROOT_WORD = "/dpt-plugin-root";
-const MODULE_DIR = `${PLUGIN_ROOT_WORD}/adapters/_shared/src/`;
-/** The bundle's root tokens, spelled back as placeholder absolute paths so the shell grammar reads them as plain words. */
-const ROOT_WORDS: ReadonlyArray<readonly [string, string]> = [["<A>", "/dpt-root-a"], ["<B>", "/dpt-root-b"]];
+/**
+ * The toolkit's module directory, matched as a SUFFIX of the run target rather
+ * than under one hard-coded root (AC-STE-617.20, live leg 3, 2026-09-23).
+ *
+ * This used to be `${PLUGIN_ROOT_WORD}/adapters/_shared/src/` — a prefix test
+ * against the `${CLAUDE_PLUGIN_ROOT}` spelling. That spelling is the one the
+ * skill FORBIDS: its step prompt tells every child "$CLAUDE_PLUGIN_ROOT is
+ * empty inside a Bash call" and orders `bun "${STEP_PLUGIN}/adapters/_shared/
+ * src/<name>.ts"`, where `STEP_PLUGIN` is that step's client root, already
+ * expanded to an absolute path before the call is recorded. So the one form the
+ * grader recognised was one a compliant run is structurally incapable of
+ * producing, and every announcement was discarded: leg 3 announced two receipts
+ * whose bytes the operator shasum'd identical against disk and still drew
+ * 4x unannounced-receipt and 2x ungated-write. Perfect compliance, graded as
+ * forgery.
+ *
+ * A suffix is used rather than a list of the run's four client roots because a
+ * list is the same defect with a bigger table: it goes stale silently the next
+ * time a root is added. What the prefix was ever load-bearing FOR is unchanged
+ * and lives below — the command must be ONE plain `bun` invocation under
+ * `simpleCommandWords`, and its target must be ABSOLUTE, so a path the child
+ * resolved itself (which the step prompt forbids, since it would grade a
+ * version nobody is testing) is still not a module run. The prefix never
+ * provided forgery protection in any case: `${CLAUDE_PLUGIN_ROOT}` resolved to
+ * this same word whatever the real plugin root was.
+ *
+ * Recognising a run in an old-client or intruder session is harmless: their
+ * exemption from `ungated-write` and `unannounced-receipt` (AC-STE-617.17) is
+ * applied per SESSION, by `UNGATED_CLIENTS`, never by failing to parse.
+ */
+const MODULE_DIR_SUFFIX = "/adapters/_shared/src/";
+/**
+ * The bundle's tokens, spelled back as placeholder absolute paths so the shell
+ * grammar reads them as plain words. `<` and `>` are shell redirects, and a
+ * real recorded command is UNQUOTED (`bun run <toolkit>/plugins/…`), so without
+ * this the parse fails before any path test is reached. `<toolkit>` and
+ * `<config>` are here for that reason: they are the tree client's root and the
+ * old client's cache root as the redactor spells them.
+ */
+const ROOT_WORDS: ReadonlyArray<readonly [string, string]> = [
+  ["<A>", "/dpt-root-a"],
+  ["<B>", "/dpt-root-b"],
+  ["<toolkit>", "/dpt-toolkit-root"],
+  ["<config>", "/dpt-config-root"],
+];
+/** The two THROWAWAY REPOSITORY roots, as words — never a legitimate home for a toolkit module run. */
+const REPO_ROOT_WORDS: readonly string[] = ["/dpt-root-a", "/dpt-root-b"];
 
 /** One toolkit module run: the module file name and the words after it. */
 interface ModuleRun {
@@ -993,8 +1037,23 @@ function toolkitModuleRun(command: string): ModuleRun | null {
   if (words === null || words[0] !== "bun") return null;
   const at = words[1] === "run" ? 2 : 1;
   const target = words[at];
-  if (target === undefined || !target.startsWith(MODULE_DIR)) return null;
-  const module = target.slice(MODULE_DIR.length);
+  // Absolute only: the step prompt names each client's absolute path and
+  // forbids the child resolving one itself, so a relative target is not a run
+  // of the module under test even when it names the same file.
+  if (target === undefined || !target.startsWith("/")) return null;
+  // ...and not from inside a throwaway repository. A child that copied the
+  // adapters into its own repo and ran them there satisfies every test above —
+  // absolute, one plain `bun`, right suffix — and would announce receipts this
+  // grader honours, while the step prompt forbids exactly that ("never from a
+  // plugin cache, an installed copy, or a path you resolve yourself"). This is
+  // the one thing the old prefix protected that a suffix does not, so it is
+  // re-homed here rather than lost. It EXCLUDES rather than enumerates: `<A>`
+  // and `<B>` are structural — every bundle has exactly these two repo roots —
+  // so unlike a list of plugin roots it cannot go stale when a client is added.
+  if (REPO_ROOT_WORDS.some((w) => target.startsWith(`${w}/`))) return null;
+  const cut = target.lastIndexOf(MODULE_DIR_SUFFIX);
+  if (cut === -1) return null;
+  const module = target.slice(cut + MODULE_DIR_SUFFIX.length);
   return /^[\w.-]+\.ts$/.test(module) ? { module, args: words.slice(at + 1) } : null;
 }
 
