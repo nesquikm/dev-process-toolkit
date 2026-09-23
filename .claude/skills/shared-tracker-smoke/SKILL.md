@@ -184,6 +184,18 @@ for P in /tmp/dpt-shared-<tracker>-* "${PARENT}/dpt-shared-${TRACKER}-a" "${PARE
 done
 # 3. Only now, remove.
 for P in "${DOOMED[@]}"; do rm -rf "${P}"; done
+# The trust entry S11 seeds for B's relocated checkout names a path this fence just
+# deleted, so it is stale config debris from here on. Dropped for both sides; the ROOTS'
+# own entries are left alone, because the pre-flight requires them and the operator
+# accepted them by hand.
+CFG05="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
+if [ -f "${CFG05}/.claude.json" ]; then
+  TRUST_TMP05=$(mktemp)
+  jq --arg a "${PARENT}/dpt-shared-${TRACKER}-a/.s11/relocated" --arg b "${PARENT}/dpt-shared-${TRACKER}-b/.s11/relocated" \
+    'del(.projects[$a]) | del(.projects[$b])' "${CFG05}/.claude.json" > "${TRUST_TMP05}" \
+    && mv "${TRUST_TMP05}" "${CFG05}/.claude.json" \
+    || echo "warning: the stale relocated-checkout trust entries could not be removed from ${CFG05}/.claude.json" >&2
+fi
 {
   cat /tmp/dpt-shared-<tracker>-plan.env
   echo "TRACKER=${TRACKER}"
@@ -950,7 +962,15 @@ for N in "${FRS[@]}"; do
     bun -e 'const m = await import(process.env.MODULE); await m.flipArchivedFrontmatter(process.env.ARCHIVE_PATH, process.env.ARCHIVED_AT);' \
     || refuse frontmatter-flip-failed "the archived FR ${N} could not be flipped to status: archived." "restore specs/frs/${N} in A by hand and run this fence again."
 done
-git -C "${ROOT_A}" add -A specs/frs
+# Stage what the RUN legitimately leaves, so the clean-tree assertion below can stay
+# strict: `specs` (the plan step 6 wrote and the FRs just archived) and `.dpt` (the
+# receipts A's own front-door runs announced). Anything else dirty still refuses — the
+# assertion is unchanged, and a check that stopped checking would hide a real dirty tree.
+# Each path only if it exists: a run that wrote no receipt has no `.dpt`, and an
+# absent directory is not an error — `git add` would refuse the whole commit on it.
+for P in specs .dpt; do
+  if [ -e "${ROOT_A}/${P}" ]; then git -C "${ROOT_A}" add -A "${P}"; fi
+done
 git -C "${ROOT_A}" -c commit.gpgsign=false commit -qm "docs(specs): archive ${FRS[*]} (A idle before S5)" \
   || refuse archive-commit-failed "the archive of ${FRS[*]} could not be committed in A." "commit it in A by hand with an archive subject before step 14."
 [ -z "$(git -C "${ROOT_A}" status --porcelain)" ] \
@@ -1019,7 +1039,15 @@ for N in "${FRS[@]}"; do
     bun -e 'const m = await import(process.env.MODULE); await m.flipArchivedFrontmatter(process.env.ARCHIVE_PATH, process.env.ARCHIVED_AT);' \
     || refuse frontmatter-flip-failed "the archived FR ${N} could not be flipped to status: archived." "restore specs/frs/${N} in B by hand and run this fence again."
 done
-git -C "${ROOT_B}" add -A specs/frs
+# `specs`, not `specs/frs`: the grader reads each repository's plans from `git ls-files`,
+# and nothing else in the run ever stages B's plan — so B's plan was invisible at Phase 6
+# and S3's join had no common milestone token to find. Staging it here is bookkeeping the
+# run owes, not a change to what S3 proves.
+# Each path only if it exists: a run that wrote no receipt has no `.dpt`, and an
+# absent directory is not an error — `git add` would refuse the whole commit on it.
+for P in specs .dpt; do
+  if [ -e "${ROOT_B}/${P}" ]; then git -C "${ROOT_B}" add -A "${P}"; fi
+done
 git -C "${ROOT_B}" -c commit.gpgsign=false commit -qm "docs(specs): archive ${FRS[*]} (S5 permit twin)" \
   || refuse archive-commit-failed "the archive of ${FRS[*]} could not be committed in B." "commit it in B by hand with an archive subject before step 15."
 echo "archived in B: ${FRS[*]}"
@@ -1080,6 +1108,20 @@ COMMON=$(cd "${ROOT_B}" && cd "$(git rev-parse --git-common-dir)" && pwd -P)
 grep -qx '/.s11/' "${COMMON}/info/exclude" 2>/dev/null || printf '/.s11/\n' >> "${COMMON}/info/exclude"
 git -C "${ROOT_B}" worktree add -q --detach "${W}" HEAD 2>/dev/null \
   || refuse worktree-add-failed "git could not add the worktree ${W}." "run git -C ${ROOT_B} worktree add --detach ${W} HEAD by hand and read its error."
+# WORKSPACE TRUST for the relocated checkout. The pre-flight checks trust for the two
+# roots and tells the operator to accept the dialog there; this path does not exist until
+# now, so no dialog can ever have been accepted for it. Whether a headless child is
+# gated on trust for its working directory was NOT determined — seeding costs one jq write and removes
+# the question, and leaving it risks S11 landing not-observed, which by AC-STE-617.8
+# fails the whole run. Phase 0.5 drops the entry again when it clears this run's scratch.
+CFG="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
+mkdir -p "${CFG}"
+[ -f "${CFG}/.claude.json" ] || printf '{}\n' > "${CFG}/.claude.json"
+W_REAL=$(cd "${W}" && pwd -P)
+TRUST_TMP=$(mktemp)
+jq --arg p "${W_REAL}" '.projects[$p].hasTrustDialogAccepted = true' "${CFG}/.claude.json" > "${TRUST_TMP}" \
+  && mv "${TRUST_TMP}" "${CFG}/.claude.json" \
+  || refuse trust-seed-failed "workspace trust for ${W_REAL} could not be written to ${CFG}/.claude.json; the worktree exists." "fix what jq reported, or add .projects[\"${W_REAL}\"].hasTrustDialogAccepted = true by hand, before step 19."
 cmp -s "${ROOT_B}/CLAUDE.md" "${W}/CLAUDE.md" \
   || refuse worktree-declaration-differs "${W}/CLAUDE.md differs from B's current declaration." "commit B's CLAUDE.md, remove the worktree, and run this fence again."
 echo "relocated worktree of B: ${W}"

@@ -1992,9 +1992,19 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
         if (!decision) why = `milestone-container create of "${name}" in ${project} follows no unspent create decision announced by resolve_milestone_identity.ts for that project and title`;
         else spent.add(decision.path);
       } else {
-        const keys = subjectKeys(c).filter(inRunContainers);
-        if (subjectKeys(c).length === 0) why = "ticket write names no ticket key the hook could resolve";
-        else if (keys.length > 0) {
+        const subjects = subjectKeys(c);
+        const keys = subjects.filter(inRunContainers);
+        if (subjects.length === 0) why = "ticket write names no ticket key the hook could resolve";
+        else if (keys.length === 0) {
+          // THE THIRD CASE, which used to fall through to `why = null` and grade
+          // as gated: every key this write names is outside the run's own
+          // containers. No receipt can make someone else's ticket this
+          // repository's, so this is a finding on its own terms rather than an
+          // ownership question. Unreachable on Linear, where `inRunContainers`
+          // is true for every key because the run has one team.
+          const containers = [b.run.container, b.run.repointFrom ?? ""].filter((x) => x !== "").join(", ");
+          why = `write on ${subjects.join(", ")} names no ticket in this run's containers (${containers}), so it is a write on a ticket outside this run`;
+        } else {
           const roots = new Set<Root>([s.root, ...before.map((a) => rootOfPath(a.path)).filter((r): r is Root => r !== null)]);
           const labelsOnly = bareTool(c.name) === "editJiraIssue" && Object.keys((c.input.fields ?? {}) as object).every((k) => k === "labels");
           const owned = (k: string): boolean => {
@@ -2414,7 +2424,7 @@ const INPLACE = /(?:^|[;&|(]\s*|\bdo\s+)(?:perl\s+-\S*i|sed\s+(?:-\S+\s+)*-i|ed\
 /** A redirection and the word it writes to: `> f`, `>>f`, `1> f`. `2>&1` names `&1`, not a file. */
 const REDIRECT = /(?:^|\s)\d?>>?\s*("?)([^\s"'|&;]+)/g;
 
-const unquote = (t: string): string => t.replace(/^['"]|['"]$/g, "");
+const unquote = (t: string): string => t.replace(/^[('"]+|['"]$/g, "");
 
 /**
  * Writes a step's own PROMPT orders into the other root, by scenario and path.
@@ -2466,8 +2476,15 @@ interface SiblingWrite {
  * indistinguishable from the live one by text alone; it is reported rather than
  * silently resolved in either direction.
  */
-function shellWriteInto(cmd: string, other: string, own: string, namesOther: boolean): SiblingWrite | null {
-  const isOtherPath = (p: string): boolean => p === other || p.startsWith(`${other}/`);
+function shellWriteInto(cmd: string, other: string, own: string, namesOther: boolean, otherName?: string): SiblingWrite | null {
+  const isOtherPath = (p: string): boolean =>
+    p === other ||
+    p.startsWith(`${other}/`) ||
+    // A traversal out of its own root lands in the sibling without ever naming
+    // its token: `<B>/../dpt-shared-jira-a/CLAUDE.md`. The sibling's DIRECTORY
+    // NAME is distinctive enough to carry the rule, and the by-design crossings
+    // use the token (`git -C <B>`), never the name.
+    (otherName !== undefined && otherName !== "" && new RegExp(`(?:^|/)${otherName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:/|$)`).test(p));
   const isOwnPath = (p: string): boolean => p === own || p.startsWith(`${own}/`);
   if (namesOther && INPLACE.test(cmd)) {
     return { target: cmd.replace(/\s+/g, " ").slice(0, 120), via: "an in-place editor over a target it names indirectly", permittable: false };
@@ -2545,7 +2562,7 @@ function siblingFileWrites(b: LiveBundle): LiveFinding[] {
       // calls made this guard blind to the shape it was built for, and disagreed
       // with the rest of this module, which grades Bash by `exitCode`.
       const cmd = cmdOf(c);
-      const w = shellWriteInto(cmd, other, own, names(cmd));
+      const w = shellWriteInto(cmd, other, own, names(cmd), b.roots[other === "<A>" ? "A" : "B"]?.name);
       if (w === null) continue;
       if (w.permittable && permits.some((re) => re.test(w.target))) continue;
       const status = c.result.isError || (c.result.exitCode !== null && c.result.exitCode !== 0) ? ` (the command failed — exit ${c.result.exitCode ?? "unknown"} — after writing)` : "";

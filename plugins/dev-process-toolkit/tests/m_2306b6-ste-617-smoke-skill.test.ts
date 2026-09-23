@@ -48,7 +48,8 @@ import { AUTO_ANSWERS_OPEN, extractAutoAnswers, resolveInterviewAnswer } from ".
 import { HARNESS_SKILL_RELATIVE_PATHS } from "../adapters/_shared/src/harness_artifact_paths";
 import { runRequiresInputSentinelCoverageProbe } from "../adapters/_shared/src/requires_input_sentinel_coverage";
 import { scanCandidateCheckSkills } from "../adapters/_shared/src/scan_candidate_check_skills";
-import { AUDIT_REQUEST_FIELDS, parseMarker } from "../adapters/_shared/src/shared_tracker_live_grader";
+import { AUDIT_REQUEST_FIELDS, gradeBundle, parseMarker } from "../adapters/_shared/src/shared_tracker_live_grader";
+import { buildPassingBundle as buildLiveBundle, clone as cloneBundle, removeSessions, sessionsOf } from "./_live_bundle_fixtures";
 import { classify as classifyLines, isSpawnFence, parseFences, type Fence } from "./_spawn_fences";
 import {
   baseEnv as stubEnv,
@@ -632,6 +633,30 @@ function cleanupFencesIn(text: string): Fence[] {
  *   ids:   the `--delete` is handed `"$@"`, built as one `--session` per id
  *          read from the run ledger for leg shared-<tracker>; no window flags.
  */
+/**
+ * The `if` that gates the cleanup delete: the nearest unclosed one above `at`,
+ * with no `else`/`elif`/`fi` in between, returned as the document wrote it.
+ *
+ * Extracted from `cleanupViolations` so the join row can EXECUTE the same
+ * recovered line rather than parse the prose a second time — a second parse
+ * would be green whatever the grader does, which is the whole failure this
+ * closes. Pure extraction: the walk is unchanged, and `cleanupViolations`
+ * asserts exactly what it asserted before.
+ */
+function cleanupGateOpener(lines: readonly string[], at: number): string | null {
+  let depth = 0;
+  for (let i = at - 1; i >= 0; i--) {
+    const l = lines[i]!.trim();
+    if (/^fi\b/.test(l)) depth++;
+    else if (/^(?:else|elif)\b/.test(l) && depth === 0) break;
+    else if (/^if\b/.test(l)) {
+      if (depth === 0) return l;
+      depth--;
+    }
+  }
+  return null;
+}
+
 function cleanupViolations(text: string): string[] {
   const all = cleanupFencesIn(text);
   if (all.length !== 1) return [`count: ${all.length} fences call smoke_session_cleanup.ts --delete, not one`];
@@ -642,20 +667,7 @@ function cleanupViolations(text: string): string[] {
   if (runs.length !== 1) return [...v, `gate: ${runs.length} executed --delete lines, not one`];
   const del = runs[0]!;
   // gate — the nearest unclosed `if` above the delete, with no else/elif/fi in between, compares OUTCOME to pass.
-  let depth = 0;
-  let opener: string | null = null;
-  for (let i = del.i - 1; i >= 0; i--) {
-    const l = f.lines[i]!.trim();
-    if (/^fi\b/.test(l)) depth++;
-    else if (/^(?:else|elif)\b/.test(l) && depth === 0) break;
-    else if (/^if\b/.test(l)) {
-      if (depth === 0) {
-        opener = l;
-        break;
-      }
-      depth--;
-    }
-  }
+  const opener = cleanupGateOpener(f.lines, del.i);
   if (opener === null) v.push("gate: the --delete is not inside an if branch; it runs on any outcome");
   else if (!/^if \[ "\$\{OUTCOME\}" = "?pass"? \]; then$/.test(opener)) v.push(`gate: the --delete's branch is not the pass verdict: ${opener}`);
   if (!code.some(({ l }) => /^OUTCOME=\$\(.*smoke_verdict\.ts["']?\s+outcome\b.*--artifact\b/.test(l.trim()))) v.push("gate: OUTCOME is not read from the verdict artifact");
@@ -1006,11 +1018,15 @@ function gitRepo(dir: string, files: Record<string, string>): void {
 }
 
 /** Run a non-spawning operator fence from a file, /tmp rebased into `tmp`, with real git and bun. */
-function runOperatorFence(body: string, tmp: string, cwd: string): { code: number; out: string; err: string } {
+function runOperatorFence(body: string, tmp: string, cwd: string, env: Record<string, string> = {}): { code: number; out: string; err: string } {
   expect(body, "an operator fence starts no child").not.toMatch(/\bclaude\s+-p\b/);
   const file = join(tmp, `fence-${Math.random().toString(36).slice(2)}.sh`);
   writeFileSync(file, body.replaceAll("<tracker>", "jira").replaceAll("/tmp/", `${tmp}/`));
-  return sh(cwd, ["bash", file], { PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}` });
+  // CLAUDE_CONFIG_DIR is redirected into the sandbox by DEFAULT, not by the
+  // caller remembering to: `sh` inherits `process.env`, and the S11 fence writes
+  // a workspace-trust entry, so an unguarded run would edit the operator's real
+  // ~/.claude-st/.claude.json from a test.
+  return sh(cwd, ["bash", file], { PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}`, CLAUDE_CONFIG_DIR: join(tmp, "config"), ...env });
 }
 
 function expectNfr10(err: string, tail = false): void {
@@ -3986,5 +4002,180 @@ describe("M_2306b6 (M6) — the untested --strict-mcp-config fails cheaply, at s
     const m = text.replace(/read `\/tmp\/dpt-shared-<tracker>-1-S8\.log` for one `mcp__` call/, "check that the step worked");
     expect(m, "control: the sentence is found").not.toBe(text);
     expect(section(m, /^## Phase 3/)).not.toMatch(/1-S8\.log/);
+  });
+});
+
+// ===========================================================================
+// P2 + P4 (audit round 2) — the two fences stage what the RUN leaves behind
+// ===========================================================================
+//
+// P4: the A-idle fence staged `specs/frs` and then asserted A's whole tree was
+// clean. Every other thing a live run legitimately leaves in A — the `.dpt/`
+// receipts its own front-door runs write, an edit to its plan — therefore
+// refused the fence mid-run, against real trackers, at step 14. The fix is to
+// STAGE what the run leaves, never to relax the assertion: a clean-tree check
+// that stopped checking cleanliness would hide a genuinely dirty tree later.
+//
+// P2: nothing ever staged `specs/plan` in B, and the grader reads plans from
+// `git ls-files`, so B's plan was invisible at Phase 6 and S3's join had no
+// common milestone token — a 26-step live run failing on bookkeeping rather
+// than on shared-tracker behaviour.
+describe("P2 + P4 — the S5 fences commit the plan and the receipts a live run leaves", () => {
+  test("RUN (P4) — with a `.dpt/` receipt and a plan edit present, the A-idle fence commits them and its clean-tree assertion holds", () => {
+    withIdleASandbox(({ tmp, a }) => {
+      // What step 8's `sibling_release.ts --offer` and step 6's plan write leave.
+      mkdirSync(join(a, ".dpt", "ledger", "receipts", "sid-1"), { recursive: true });
+      writeFileSync(join(a, ".dpt", "ledger", "receipts", "sid-1", "r.json"), JSON.stringify({ kind: "offer" }));
+      mkdirSync(join(a, "specs", "plan"), { recursive: true });
+      writeFileSync(join(a, "specs", "plan", "M_span01.md"), "---\nstatus: active\nspans_repos:\n  - B\n---\n\n## M_span01 — Span\n");
+      const r = runOperatorFence(oneFence(docText(), IDLE_A_TAG).body.replace(/^SPAN_TOKEN=.*$/m, 'SPAN_TOKEN="M_span01"'), tmp, a);
+      expect(r.code, `${r.out}\n${r.err}`).toBe(0);
+      expect(sh(a, ["git", "status", "--porcelain"]).out.trim(), "the tree is clean because the fence COMMITTED them").toBe("");
+      const tracked = sh(a, ["git", "ls-files"]).out;
+      expect(tracked, "A's plan is tracked").toContain("specs/plan/M_span01.md");
+      expect(tracked, "and so are the receipts the run wrote").toContain(".dpt/ledger/receipts/sid-1/r.json");
+    });
+  }, 60_000);
+
+  test("RUN (P2) — the B archive fence leaves B's plan TRACKED, which is where the grader reads plans from", () => {
+    withArchiveSandbox(({ tmp, b, body }) => {
+      mkdirSync(join(b, "specs", "plan"), { recursive: true });
+      writeFileSync(join(b, "specs", "plan", "M_span01.md"), "---\nstatus: active\nspans_repos:\n  - A\n---\n\n## M_span01 — Span\n");
+      const r = runOperatorFence(body, tmp, b);
+      expect(r.code, `${r.out}\n${r.err}`).toBe(0);
+      expect(sh(b, ["git", "ls-files"]).out, "B's plan is tracked, so `git ls-files` shows it to readRepo").toContain("specs/plan/M_span01.md");
+    });
+  }, 60_000);
+
+  test("CONTROL — the assertion is NOT relaxed: a file the fences do not stage still refuses", () => {
+    withIdleASandbox(({ tmp, a }) => {
+      writeFileSync(join(a, "stray.txt"), "not something a run leaves\n");
+      const r = runOperatorFence(oneFence(docText(), IDLE_A_TAG).body.replace(/^SPAN_TOKEN=.*$/m, 'SPAN_TOKEN="M_span01"'), tmp, a);
+      expect(r.code, "an unexplained dirty file still stops the fence").not.toBe(0);
+      expect(r.err).toMatch(/a-tree-dirty/);
+    });
+  }, 60_000);
+});
+
+// P3 (audit round 2) — the relocated checkout is TRUSTED before a child stands in it.
+//
+// Step 19's session starts in `<B>/.s11/relocated`, which does not exist until the S11
+// setup fence creates it mid-run, so the pre-flight's trust check — which covers the two
+// roots and tells the operator to accept the dialog there — cannot have covered it. If
+// workspace trust gates a headless child's settings, S11 lands not-observed, and by
+// AC-STE-617.8 a not-observed scenario fails the whole run: a wasted 26-step leg against
+// real trackers. Whether that gate exists was NOT determined; seeding costs one jq write
+// and removes the question either way, which is the cheaper side of an unknown.
+describe("P3 — the S11 worktree is trusted when it is made, and untrusted again when the scratch is cleared", () => {
+  const trustOf = (configDir: string, path: string): unknown => {
+    const f = join(configDir, ".claude.json");
+    if (!existsSync(f)) return undefined;
+    return (JSON.parse(readFileSync(f, "utf-8")).projects ?? {})[path]?.hasTrustDialogAccepted;
+  };
+
+  test("RUN — after the setup fence, the relocated path carries hasTrustDialogAccepted, and the run's own config is the only one written", () => {
+    withS11Sandbox(({ tmp, b, body }) => {
+      const config = join(tmp, "config");
+      const r = runOperatorFence(body, tmp, b);
+      expect(r.code, `${r.out}\n${r.err}`).toBe(0);
+      const w = realpathSync(join(b, ".s11", "relocated"));
+      expect(trustOf(config, w), "the relocated checkout is trusted").toBe(true);
+    });
+  }, 60_000);
+
+  test("RUN — Phase 0.5 drops the stale entry for a path it deletes, and leaves the ROOTS' own trust alone", () => {
+    // Reuses the shipped Phase 0.5 sandbox rather than a third hand-rolled one:
+    // it is the setup that already satisfies the fence's cwd and plan checks.
+    withPhase05(({ sb, toolkit, parent }) => {
+      const config = join(sb.root, "cfg");
+      mkdirSync(config, { recursive: true });
+      const rootA = join(parent, "dpt-shared-jira-a");
+      const relocated = join(parent, "dpt-shared-jira-b", ".s11", "relocated");
+      mkdirSync(relocated, { recursive: true });
+      writeFileSync(join(config, ".claude.json"), JSON.stringify({ projects: { [rootA]: { hasTrustDialogAccepted: true }, [relocated]: { hasTrustDialogAccepted: true } } }));
+      const r = runStubScript(sb, phase05Script(sb, toolkit), { ...stubEnv(sb), CLAUDE_CONFIG_DIR: config });
+      expect(r.exitCode, `${r.out}\n${r.err}`).toBe(0);
+      const trust = (p: string): unknown => (JSON.parse(readFileSync(join(config, ".claude.json"), "utf-8")).projects ?? {})[p]?.hasTrustDialogAccepted;
+      expect(trust(relocated), "the stale relocated entry is gone with the path it named").toBeUndefined();
+      expect(trust(rootA), "the root's own trust, which the operator accepted by hand, is untouched").toBe(true);
+    });
+  }, 60_000);
+});
+
+// ===========================================================================
+// THE JOIN — the property that keeps a not-observed run's transcripts alive
+// ===========================================================================
+//
+// Two conditions, in two different SUBJECTS, hold this together: AC.8 (the
+// GRADER'S CODE makes a not-observed scenario count as a failure) and AC.15
+// (the OPERATOR DOCUMENT gates the cleanup delete on `OUTCOME = pass`). Their
+// conjunction is why the transcripts that separate "the prompt never asked"
+// from "the child did not comply" survive exactly when that question arises.
+// Each half was graded on its own; the CONJUNCTION was graded by nothing, so
+// either could change with both suites green and the reason would be gone.
+//
+// The row runs the real grader for the outcome and EXECUTES the document's own
+// recovered gate line against it, so neither half is restated here. A second
+// regex over the prose would have been green whatever the grader did.
+//
+// WHAT THIS DOES NOT COVER, deliberately: executing the opener with a synthetic
+// then/else grades the CONDITION only. That the real else-branch keeps the
+// sessions and prints the manual cleanup command remains `cleanupViolations`'
+// job — do not retire those arms believing this row subsumes them.
+describe("the JOIN — a not-observed run never reaches the cleanup delete", () => {
+  /** The document's own gate line, or a failure: an absent gate must RED, never no-op. */
+  function gateOpener(): string {
+    const fences = fencesTagged(docText(), "# shared-tracker-smoke: session cleanup");
+    expect(fences.length, "exactly one cleanup fence").toBe(1);
+    const lines = fences[0]!.lines;
+    const at = lines.findIndex((l) => /smoke_session_cleanup\.ts/.test(l) && /--delete\b/.test(l) && !/^\s*(?:#|echo\b)/.test(l));
+    expect(at, "the fence runs the delete").toBeGreaterThanOrEqual(0);
+    const opener = cleanupGateOpener(lines, at);
+    expect(opener, "the delete is gated by an `if` — an unrecoverable gate is a failure, not a skip").not.toBeNull();
+    return opener!;
+  }
+
+  /** Which branch the DOCUMENT's own gate takes for `outcome`, decided by bash. */
+  function branchFor(outcome: string): string {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "ste617-join-")));
+    try {
+      const script = join(dir, "gate.sh");
+      writeFileSync(script, `OUTCOME=${JSON.stringify(outcome)}\n${gateOpener()}\n  echo DELETED\nelse\n  echo KEPT\nfi\n`);
+      const r = sh(dir, ["bash", script]);
+      expect(r.code, `${r.out}\n${r.err}`).toBe(0);
+      return r.out.trim();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  test("HARM SIDE — a bundle carrying one not-observed scenario grades non-pass, and the document's gate KEEPS the sessions", () => {
+    const b = buildLiveBundle("jira");
+    const c = cloneBundle(b);
+    removeSessions(c, sessionsOf(c, "S16").map((x) => x.sessionId));
+    const v = gradeBundle(c, { behaviourDigestNow: c.run.behaviourDigest.digest });
+    // MEASURED from the grader, never asserted into the fixture.
+    expect(v.scenarios.S16?.outcome, "the scenario with no session is not-observed").toBe("not-observed");
+    expect(v.outcome, "and a not-observed scenario makes the run non-pass").not.toBe("pass");
+    expect(branchFor(v.outcome), "so the transcripts that answer the prompt-vs-compliance question survive").toBe("KEPT");
+  }, 60_000);
+
+  test("PERMIT SIDE — an all-observed passing bundle grades pass, and the same gate DELETES", () => {
+    const b = buildLiveBundle("jira");
+    const v = gradeBundle(b, { behaviourDigestNow: b.run.behaviourDigest.digest });
+    expect(v.outcome, "control: the untouched fixture passes").toBe("pass");
+    expect(branchFor(v.outcome)).toBe("DELETED");
+  }, 60_000);
+
+  test("MUTATION — a gate loosened to run on any outcome stops keeping them, and this row says so", () => {
+    // The mutation is applied to the RECOVERED line, which is what the row reads.
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "ste617-join-m-")));
+    try {
+      const script = join(dir, "gate.sh");
+      writeFileSync(script, `OUTCOME="fail"\nif [ -n "\${OUTCOME}" ]; then\n  echo DELETED\nelse\n  echo KEPT\nfi\n`);
+      expect(sh(dir, ["bash", script]).out.trim(), "a loosened gate deletes on a failing run").toBe("DELETED");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
