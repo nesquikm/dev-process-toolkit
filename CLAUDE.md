@@ -26,7 +26,9 @@ plugins/dev-process-toolkit/             → The plugin
                                            pre-pr-spec-review blocks `gh pr create`,
                                            pre-tracker-write-gate blocks shared-container
                                            tracker writes that skipped the deciding commands
-├── scripts/                             → Migration helpers named by /upgrade and by probe remedies
+├── scripts/                             → One-shot migration helpers named by probe remedies. NOT by /upgrade:
+                                           that skill owns no migration list and walks the registry at
+                                           adapters/_shared/src/migrations/ instead
 ├── docs/                                → Methodology, skill anatomy, adaptation guide, patterns
 └── examples/                            → Per-stack configs (typescript-node, bun-typescript, flutter-dart, kotlin, python, plugin — `plugin` is this repo's own stack)
 ```
