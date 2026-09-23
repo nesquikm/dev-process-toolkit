@@ -287,6 +287,23 @@ const userMessageText = (r: RawRecord): string => blocksText(r.message?.content)
 
 /** The working directory the first record carrying one names ("" when none does). */
 const cwdOf = (recs: RawRecord[]): string => recs.find((r) => typeof r.cwd === "string")?.cwd ?? "";
+/**
+ * The LATEST parseable `timestamp` in a transcript's records, or `NaN` when it
+ * carries none. The latest rather than the first, so a session that began
+ * before a run started and was still alive when it did is dated INSIDE the run
+ * and stays visible: AC.15 says such a session is "never silently kept or
+ * deleted", so the uncertain case must be loud. `NaN` means "this transcript
+ * cannot be dated", which every caller must read as "do not filter it out".
+ */
+const lastTimestampOf = (recs: RawRecord[]): number => {
+  let out = Number.NaN;
+  for (const r of recs) {
+    if (typeof r.timestamp !== "string") continue;
+    const t = Date.parse(r.timestamp);
+    if (Number.isFinite(t) && (!Number.isFinite(out) || t > out)) out = t;
+  }
+  return out;
+};
 
 type Rewriter = (s: string) => string;
 
@@ -814,15 +831,50 @@ export function extractBundle(o: ExtractOptions): ExtractResult {
   }
   if (findings.length > 0) return { ok: false, verdict: { outcome: "abort", findings } };
 
-  // AC.15 — a transcript filed under a throwaway root's slug whose cwd is that root, but which the ledger lacks.
+  // AC.15 — a transcript filed under a throwaway root's slug whose cwd is that
+  // root, but which the ledger lacks.
+  //
+  // SCOPED TO THIS RUN (live leg 3, 2026-09-23). The AC's subject is "a session
+  // whose transcript's cwd is one of THE RUN'S throwaway roots but which the
+  // ledger lacks" — a child of THIS run spawned outside the ledger, which is a
+  // real integrity failure. A session from an EARLIER run in the same reusable
+  // paths is not that, and counting it defeats the check rather than serving
+  // it: leg 3 inherited 8 such sessions from legs 1 and 2, leg 4 would have
+  // inherited those 8 plus leg 3's own, and it compounds every leg until any
+  // re-run on the same roots is failed before it starts. The signal drowns in
+  // its own history, which is how a check gets muted.
+  //
+  // The start time was already being received (`--started-at-ms`) and used for
+  // exactly one thing: rendering `run.startedAt` in the artifact. It never
+  // reached the predicate that needed it.
+  //
+  // Deliberately NOT fixed by having Phase 0.5 wipe the transcript directories:
+  // that would destroy legs 1-3's records, and leg 3's are the only evidence of
+  // the announcement-blindness defect in the wild. Evidence outranks
+  // convenience, and a fix that deletes prior evidence to make a check pass is
+  // the wrong direction twice.
   const ledgered = new Set(o.ledgerSessionIds);
   const slugs = [A, real(A), B, real(B)].map((p) => p.replace(/[^A-Za-z0-9]/g, "-"));
+  const runStartMs = Date.parse(o.run.startedAt);
   const unledgeredSessions: string[] = [];
   for (const [sid, path] of mains) {
     if (ledgered.has(sid)) continue;
     const slug = basename(dirname(path));
     if (!slugs.some((s) => slug.startsWith(s))) continue;
-    if (rootOf(cwdOf(readJsonl(path)?.records ?? [])) !== null) unledgeredSessions.push(sid);
+    const recs = readJsonl(path)?.records ?? [];
+    if (rootOf(cwdOf(recs)) === null) continue;
+    // A session whose LAST recorded activity precedes this run's start cannot
+    // be a child of it. The LAST timestamp rather than the first, so a session
+    // that began earlier and was still alive when this run started is still
+    // named: the AC says such a session is "never silently kept or deleted",
+    // so every uncertain case stays LOUD. When the run carries no parseable
+    // start (`startedAt` is "" whenever `--started-at-ms` was absent or
+    // unparseable) or a transcript carries no timestamp at all, nothing is
+    // filtered and today's behaviour stands — this narrows the scan, and can
+    // never widen it into silence.
+    const lastAt = lastTimestampOf(recs);
+    if (Number.isFinite(runStartMs) && Number.isFinite(lastAt) && lastAt < runStartMs) continue;
+    unledgeredSessions.push(sid);
   }
   unledgeredSessions.sort();
 

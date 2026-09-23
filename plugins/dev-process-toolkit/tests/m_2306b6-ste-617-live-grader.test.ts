@@ -717,7 +717,7 @@ describe("extraction — sidechains, persisted tool_results, missing and unledge
     });
   });
 
-  function copyTranscript(m: Materialized, from: string, newSid: string, cwd: string): void {
+  function copyTranscript(m: Materialized, from: string, newSid: string, cwd: string, at?: string): void {
     const src = readFileSync(m.transcripts[from]!, "utf-8");
     const dir = join(m.configDir, "projects", slugOf(cwd));
     mkdirSync(dir, { recursive: true });
@@ -728,6 +728,9 @@ describe("extraction — sidechains, persisted tool_results, missing and unledge
         const r = JSON.parse(l);
         r.sessionId = newSid;
         r.cwd = cwd;
+        // `at` re-dates EVERY record, so the transcript's latest timestamp is
+        // `at` — the value the unledgered scan reads.
+        if (at !== undefined) r.timestamp = at;
         return JSON.stringify(r);
       });
     writeFileSync(join(dir, `${newSid}.jsonl`), out.join("\n") + "\n");
@@ -745,6 +748,52 @@ describe("extraction — sidechains, persisted tool_results, missing and unledge
       expect(findingsOf(v, "unledgered-session").some((f) => JSON.stringify(f).includes(stray))).toBe(true);
     });
   });
+  // AC-STE-617.15, scoped by the run's own start (live leg 3, 2026-09-23). The
+  // throwaway roots are REUSED across legs, so every child of every earlier leg
+  // sits in the same directories forever. Leg 3 inherited 8; leg 4 would have
+  // inherited those plus leg 3's, and any re-run on the same paths would be
+  // failed before it started. These two rows differ in ONE variable — the
+  // transcript's timestamp against `run.startedAt` — because a fix that merely
+  // silenced the finding would pass a one-sided test and delete the guard.
+  test("a transcript from an EARLIER run in the same reusable roots is not listed: its last activity precedes this run's start", () => {
+    withTmp("ste617-unl-old-", (d) => {
+      const m = materialize(b, d);
+      const stray = sid(201);
+      // One hour before the run's recorded start.
+      const before = new Date(Date.parse(b.run.startedAt) - 3_600_000).toISOString();
+      copyTranscript(m, session(b, "S16").sessionId, stray, m.roots.A, before);
+      const bundle = extractedBundle(extractFor(m));
+      expect(bundle.unledgeredSessions).toEqual([]);
+      expect(codes(grade(bundle))).not.toContain("unledgered-session");
+    });
+  });
+
+  test("PERMIT TWIN — the SAME transcript dated after this run's start is still listed and still fails the run", () => {
+    withTmp("ste617-unl-new-", (d) => {
+      const m = materialize(b, d);
+      const stray = sid(202);
+      // One hour after the same start — the only difference from the row above.
+      const after = new Date(Date.parse(b.run.startedAt) + 3_600_000).toISOString();
+      copyTranscript(m, session(b, "S16").sessionId, stray, m.roots.A, after);
+      const bundle = extractedBundle(extractFor(m));
+      expect(bundle.unledgeredSessions).toEqual([stray]);
+      const v = grade(bundle);
+      expect(v.outcome).toBe("fail");
+      expect(findingsOf(v, "unledgered-session").some((f) => JSON.stringify(f).includes(stray))).toBe(true);
+    });
+  });
+
+  test("an undatable transcript is still listed — the filter narrows the scan and can never widen it into silence", () => {
+    withTmp("ste617-unl-undated-", (d) => {
+      const m = materialize(b, d);
+      const stray = sid(203);
+      // Every record's timestamp is unparseable, so the scan cannot date it.
+      // AC.15 says such a session is never SILENTLY kept, so it stays loud.
+      copyTranscript(m, session(b, "S16").sessionId, stray, m.roots.A, "not-a-date");
+      expect(extractedBundle(extractFor(m)).unledgeredSessions).toEqual([stray]);
+    });
+  });
+
   test("PERMIT TWIN — the same unledgered transcript under a cwd outside the run's roots is not listed", () => {
     withTmp("ste617-unl-ok-", (d) => {
       const m = materialize(b, d);
