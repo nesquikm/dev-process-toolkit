@@ -883,3 +883,100 @@ describe("M_685ff6 review — row 7: an archive on a ref that is not checked out
     T,
   );
 });
+
+// M_2306b6 (STE-616) — a refusal must not induce the harm it exists to prevent.
+//
+// MEASURED LIVE, 2026-09-23. A smoke child rooted in the peer repository ran
+// this command and met row 3's refusal: `--peer <A> declares jira_issue_type
+// (none), not Task`. The refusal named a file, named a disagreement, and named
+// no action the child could legally take — so the child took the illegal one
+// and edited `<A>/CLAUDE.md` with a `perl -0pi` loop over both roots. The
+// binding check induced a cross-repository write.
+//
+// Every peer-naming refusal is graded here, not row 3 alone: the same sentence
+// shape is written six times across rows 2, 3 and 5, and this milestone has
+// already shipped seven defects whose common cause was fixing one path and not
+// its twin.
+describe("M_2306b6 — a peer-naming refusal leaves this operator a legal path", () => {
+  /** The defects of one reason line, or [] when the rule does not apply to it. */
+  function peerRefusalDefects(reason: string, peer: string): string[] {
+    if (!reason.includes(peer)) return []; // names no peer: this rule has nothing to say
+    const out: string[] = [];
+    if (!/do not edit/i.test(reason)) out.push("names a peer path without saying that peer is not this run's to edit");
+    if (!reason.includes(`re-run without --peer ${peer}`)) out.push("offers no action this operator can take alone");
+    return out;
+  }
+
+  const LEGS: Array<[string, GlacyOpts]> = [
+    ["row 2 — the peer declares no repo_tag", { b: { repoTag: undefined } }],
+    ["row 2 — the peer declares the same repo_tag", { b: { repoTag: "glacy-be" } }],
+    ["row 2 — the peer is bound to another project", { b: { project: "GX" } }],
+    ["row 3 — the peer declares a different issue type", { b: { issueType: "Bug" } }],
+    ["row 3 — the peer declares NO issue type (the live shape)", { b: { issueType: undefined } }],
+    ["row 5 — the peer's mcp entry points elsewhere", { peerUrl: "https://other.invalid/mcp" }],
+  ];
+
+  for (const [name, opts] of LEGS) {
+    test(
+      `${name}: still REFUSES, and its reason names the peer as not ours to edit plus an action we can take`,
+      withGlacy(opts, (g) => {
+        const out = runRepoint(g.args()).stdout;
+        const line = rowLines(out).find((l) => l.includes(g.b));
+        expect(line, `no row named the peer:\n${out}`).toBeDefined();
+        expect(line!).toMatch(/REFUSE/);
+        expect(peerRefusalDefects(line!, g.b), line).toEqual([]);
+      }),
+      T,
+    );
+  }
+
+  test("PERMIT — the all-agreeing run still passes every row (the rewording changed no verdict)", withGlacy({}, (g) => {
+    const r = runRepoint(g.args());
+    expect(verdict(r.stdout, 2)).toBe("PASS");
+    expect(verdict(r.stdout, 3)).toBe("PASS");
+    expect(verdict(r.stdout, 5)).toBe("PASS");
+  }), T);
+
+  test("CONTROL — the wording the live run actually met fails this rule, on both counts", () => {
+    expect(peerRefusalDefects("--peer /tmp/peer declares jira_issue_type (none), not Task", "/tmp/peer")).toEqual([
+      "names a peer path without saying that peer is not this run's to edit",
+      "offers no action this operator can take alone",
+    ]);
+  });
+
+  test(
+    "the FLAG-shape refusals still refuse and still offer the always-available action, deliberately without the do-not-edit clause",
+    withGlacy({}, (g) => {
+      for (const [peer, expected] of [
+        [join(g.lst, "no-such-dir"), "does not exist"],
+        [join(g.lst, "projects.json"), "is not a directory"],
+        [g.lst, "has no CLAUDE.md"],
+      ] as const) {
+        const out = runRepoint(g.args({}, [peer])).stdout;
+        const line = rowLines(out).find((l) => l.includes(peer));
+        expect(line, `no row named ${peer}:\n${out}`).toBeDefined();
+        expect(line!).toMatch(/REFUSE/);
+        expect(line!).toContain(expected);
+        expect(line!).toContain(`re-run without --peer ${peer}`);
+        // No declaration is in dispute here, so the do-not-edit clause would be
+        // noise — the difference is deliberate, and recorded rather than assumed.
+        expect(line!).not.toContain("do not edit");
+      }
+    }),
+    T,
+  );
+
+  test("SOURCE PIN — no ninth peer sentence is written by hand: every `--peer <path>` reason comes from one of the two helpers", () => {
+    const src = readFileSync(join(import.meta.dir, "..", "adapters", "_shared", "src", "repoint_tracker_binding.ts"), "utf-8");
+    const sites = src.split("\n").map((l, i) => [i + 1, l] as const).filter(([, l]) => l.includes("--peer ${"));
+    expect(sites.map(([n]) => n).length, sites.map(([n, l]) => `${n}: ${l.trim()}`).join("\n")).toBe(2);
+    expect(src).toContain("function peerRefusal(");
+    expect(src).toContain("const peerFlagRefusal =");
+  });
+
+  test("CONTROL — the rule is vacuous for a refusal that names no peer, and stops being vacuous when one is named", () => {
+    const own = "this repository declares no jira_issue_type";
+    expect(peerRefusalDefects(own, "/tmp/peer")).toEqual([]);
+    expect(peerRefusalDefects(`${own} (--peer /tmp/peer)`, "/tmp/peer").length).toBe(2);
+  });
+});

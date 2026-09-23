@@ -272,16 +272,43 @@ function readConfigStatuses(root: string): Input<string[]> {
   }
 }
 
+/**
+ * A refusal about what a PEER repository declares.
+ *
+ * MEASURED LIVE (2026-09-23): row 3 refused with `--peer <A> declares
+ * jira_issue_type (none), not Task`. It named a disagreement and a file, and
+ * named no action the running session could legally take — so the session took
+ * the illegal one and edited the peer's CLAUDE.md. A guard's refusal INDUCED
+ * the cross-repository write it exists to make visible.
+ *
+ * Every such reason is built here, so the six sites cannot drift apart: each
+ * names what the peer declares, an action available to this repository's
+ * operator alone, and the one action that is always available — dropping the
+ * flag. `--peer` is an assertion about a repository this run does not own.
+ */
+function peerRefusal(path: string, observed: string, remedy: string): string {
+  return `--peer ${path} ${observed}. ${remedy}; do not edit ${path} from here — a peer's CLAUDE.md belongs to that repository's operator — or re-run without --peer ${path}, which checks this repository alone.`;
+}
+
+/**
+ * A refusal about the `--peer` FLAG rather than about what the peer declares.
+ * It carries the always-available action and deliberately not the do-not-edit
+ * clause: there is no declaration in dispute, and on a path that does not
+ * exist the clause would be noise.
+ */
+const peerFlagRefusal = (path: string, observed: string): string =>
+  `--peer ${path} ${observed}; name an existing peer root, or re-run without --peer ${path}.`;
+
 /** A peer root: an existing directory holding a CLAUDE.md. */
 function readPeer(path: string): Input<string> {
   let isDir = false;
   try {
     isDir = statSync(path).isDirectory();
   } catch {
-    return failed(`--peer ${path} does not exist`);
+    return failed(peerFlagRefusal(path, "does not exist"));
   }
-  if (!isDir) return failed(`--peer ${path} is not a directory`);
-  if (!existsSync(join(path, "CLAUDE.md"))) return failed(`--peer ${path} has no CLAUDE.md, so its binding cannot be checked`);
+  if (!isDir) return failed(peerFlagRefusal(path, "is not a directory"));
+  if (!existsSync(join(path, "CLAUDE.md"))) return failed(peerFlagRefusal(path, "has no CLAUDE.md, so its binding cannot be checked"));
   return { ok: true, value: path };
 }
 
@@ -410,18 +437,18 @@ async function decideRow2(args: RepointArgs, binding: Input<WorkspaceBinding>, p
     if (!peer.ok) return row(2, "REFUSE", peer.reason);
     const path = peer.value;
     const theirs = await probe25Violations(path);
-    if (theirs !== undefined) return row(2, "REFUSE", `--peer ${path}: probe #25 reports: ${theirs}`);
+    if (theirs !== undefined) return row(2, "REFUSE", peerRefusal(path, `reports probe #25 violations: ${theirs}`, "That peer's own operator repairs its binding"));
     let pb: WorkspaceBinding;
     try {
       pb = readWorkspaceBinding(join(path, "CLAUDE.md"), args.mode);
     } catch (e) {
-      return row(2, "REFUSE", `--peer ${path}: ${firstLine(e)}`);
+      return row(2, "REFUSE", peerRefusal(path, `has an unreadable binding: ${firstLine(e)}`, "That peer's own operator repairs it"));
     }
     if (pb.project !== args.newProject) {
-      return row(2, "REFUSE", `--peer ${path} binds project ${pb.project ?? "(none)"}, not ${args.newProject}`);
+      return row(2, "REFUSE", peerRefusal(path, `binds project ${pb.project ?? "(none)"}, not ${args.newProject}`, `Repoint this repository to the project that peer binds, or have that peer's operator repoint it to ${args.newProject}`));
     }
-    if (pb.repoTag === undefined) return row(2, "REFUSE", `--peer ${path} declares no repo_tag`);
-    if (pb.repoTag === tag) return row(2, "REFUSE", `--peer ${path} declares the same repo_tag ${tag}`);
+    if (pb.repoTag === undefined) return row(2, "REFUSE", peerRefusal(path, "declares no repo_tag", "That peer is not bootstrapped for a shared container: its own operator declares a repo_tag there"));
+    if (pb.repoTag === tag) return row(2, "REFUSE", peerRefusal(path, `declares the same repo_tag ${tag}, which no two repositories in one container may share`, "Change THIS repository's repo_tag to one nothing else uses"));
   }
   return row(2, "PASS", peers.length === 0 ? "peers=0 (not checked)" : `peers=${peers.length}, each bound to ${args.newProject} under a distinct tag`);
 }
@@ -443,7 +470,13 @@ function decideRow3(args: RepointArgs, peers: Input<string>[]): RowResult {
     if (!peer.ok) return row(3, "REFUSE", peer.reason);
     const theirs = subsectionValue(join(peer.value, "CLAUDE.md"), "jira", "jira_issue_type");
     if (theirs !== own) {
-      return row(3, "REFUSE", `--peer ${peer.value} declares jira_issue_type ${theirs ?? "(none)"}, not ${own}`);
+      return row(
+        3,
+        "REFUSE",
+        theirs === undefined
+          ? peerRefusal(peer.value, `declares no jira_issue_type, and this repository declares ${own}`, "That peer is not bootstrapped for this shared space: its own operator declares it")
+          : peerRefusal(peer.value, `declares jira_issue_type ${theirs}, and this repository declares ${own}`, `Set THIS repository's jira_issue_type to ${theirs} if the peer is right, or have that peer's operator change theirs`),
+      );
     }
   }
   return row(3, "PASS", `jira_issue_type ${own} is offered by ${args.newProject}${peers.length > 0 ? " and declared by every peer" : ""}`);
@@ -459,9 +492,9 @@ function decideRow5(args: RepointArgs, peers: Input<string>[]): RowResult {
     if (!peer.ok) return row(5, "REFUSE", peer.reason);
     const theirName = readTaskTrackingSection(join(peer.value, "CLAUDE.md"))["mcp_server"];
     const theirs = mcpEntryUrl(peer.value, theirName);
-    if (!theirs.ok) return row(5, "REFUSE", `--peer ${peer.value}: ${theirs.reason}`);
+    if (!theirs.ok) return row(5, "REFUSE", peerRefusal(peer.value, `has an unreadable mcp entry: ${theirs.reason}`, "That peer's own operator repairs it"));
     if (theirs.value !== own.value) {
-      return row(5, "REFUSE", `--peer ${peer.value} entry ${theirName} points at ${theirs.value}, not ${own.value}`);
+      return row(5, "REFUSE", peerRefusal(peer.value, `has its ${theirName} entry pointing at ${theirs.value}, not ${own.value}`, "Point THIS repository's entry at that URL if the peer is right, or have that peer's operator change theirs"));
     }
     spellings.add(theirName!);
   }

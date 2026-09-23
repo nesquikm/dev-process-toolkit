@@ -20,15 +20,38 @@ Two repositories, `../dpt-shared-<tracker>-a` (A) and `../dpt-shared-<tracker>-b
 - `--old-client <plugin dir>` defaults to the newest cached plugin that lacks the tracker-write hook.
 - `--keep` skips the teardown prompts.
 
-**Three client shapes, isolated by `--plugin-dir`.** Every child loads its plugin through `--plugin-dir`, which shadows the installed copy of the same plugin. The tree under test serves the normal scenarios. A scratch copy that differs only in its `plugin.json` version serves the below-floor client. The `--old-client` directory serves the old client. The intruder gets a plugin directory with no tracker-write hook registered. Isolation is graded, not assumed: the old client and the intruder carry no tracker-write hook, so a hook refusal in either session is `isolation-broken`.
+**Three client shapes, isolated by `--plugin-dir`.** Every child loads its plugin through `--plugin-dir`, which shadows the installed copy of the same plugin. The tree under test serves the normal scenarios. A scratch copy that differs only in its `plugin.json` version serves the below-floor client. The `--old-client` directory serves the old client. The intruder gets a plugin directory with no hooks at all, named `dev-process-toolkit` like the others: `--plugin-dir` shadows an installed plugin only by name, so under any other name the installed toolkit would load beside it with its hook (the 2026-09-23 Jira run lost its intruder that way). Isolation is graded, not assumed: the old client and the intruder carry no tracker-write hook, so a hook refusal in either session is `isolation-broken`.
 
 **Paths.** Every per-run scratch path is `/tmp/dpt-shared-<tracker>-…`. The run state lives in `/tmp/dpt-shared-<tracker>-run.env`, which every fence after Phase 0.5 sources. Each such fence reads it only through the same run-state preamble, the lines between `# run-state preamble: begin` and `# run-state preamble: end`, byte-identical in every fence. The two lines above the preamble declare what that fence needs: `RUN_STATE_NEEDS` on every run, and `RUN_STATE_NEEDS_LINEAR` on a Linear run as well. The preamble refuses `run-state-missing` in the NFR-10 shape, before the fence does anything, when the run state is missing or unreadable, when its `TRACKER` is not exactly `jira` or `linear` and the tracker the fence was written for, or when a declared variable is empty. An empty path variable would otherwise mean "here" to `git -C` and `cd`, or "/" as a path prefix, so every variable a fence interpolates into such a place is declared. Substitute `<tracker>` before you write a fence to its file.
+
+## Running a fence
+
+Run every fence from THIS FILE, never from the text a session has loaded. The loader substitutes the invocation's arguments for this document's positional parameters before the text reaches a session, so a fence copied from the loaded skill runs with its `$1`, `$2` and `$3` already replaced: refusals print an empty message and every `case` reads the wrong word. Measured on 2026-09-23, when a refusal read `/shared-tracker-smoke: ` and named nothing. Each fence carries a canary and refuses `loader-substituted` when it happens, before doing anything, so this is a stop rather than a silent misrun.
+
+Extract the fence by its tag comment — its first `# shared-tracker-smoke: …` line — and run the file:
+
+```bash
+# shared-tracker-smoke: extract one fence from this document and run it
+SKILL=.claude/skills/shared-tracker-smoke/SKILL.md
+TAG='# shared-tracker-smoke: pre-flight'    # the fence you want, by its tag comment
+TICKS=$(printf '\140\140\140')            # the fence delimiter, spelled so this fence can name it
+# A fence is identified by its FIRST tag line, never by text anywhere inside it: this fence
+# names other fences' tags, and a contains-match would hand you this one and recurse.
+awk -v tag="${TAG}" -v t="${TICKS}" '
+  $0 == t "bash" { buf = ""; first = ""; inb = 1; next }
+  inb && $0 == t { if (first != "" && index(first, tag) == 1) printf "%s", buf; inb = 0; next }
+  inb { if (first == "" && $0 ~ /^# shared-tracker-smoke:/) first = $0; buf = buf $0 "\n" }
+' "${SKILL}" > /tmp/dpt-fence.sh
+[ -s /tmp/dpt-fence.sh ] || { echo "no fence carries the tag ${TAG}" >&2; exit 1; }
+# Substitute <tracker> (and any other <…> placeholder the fence documents) in /tmp/dpt-fence.sh, then:
+bash /tmp/dpt-fence.sh
+```
 
 ## Phase 0 — Pre-approval
 
 Nothing here calls a tracker. Run this fence from the toolkit checkout's top level, print its output, and wait for the operator to type approval. A tracker other than `jira` or `linear` refuses `tracker-unknown` before any plan is written. On a Jira run without `--jira-repoint-from` it prints `S8 skipped: repoint-space-not-given`. The numbers are derived by command, never typed: `spawnCeiling(tracker)` is the tracker's live steps plus the two audits.
 
-**The item counts are the tracker's own.** The registry holds a Linear issue budget but no Jira item count, so the fence derives both from the tracker items the § Phase 3 steps create on the expected path, listed once in `CREATES` below, and checks the Linear column against the registry's `LINEAR_ISSUE_BUDGET` (a drift refuses). The two trackers differ in one item: the S3 span milestone is an Epic on Jira, which is an issue, and a milestone on Linear, which is not. The S8 legacy item is not created on a Jira run without `--jira-repoint-from`. The worst case adds each live scenario's `worstCaseExtraIssues` from the registry — one item each for S6, S7 and S14, whose guards, if broken, would let one create through — so on Linear it equals `linearWorstCase()`.
+**The item counts are the tracker's own.** The registry holds a Linear issue budget but no Jira item count, so the fence derives both from the tracker items the § Phase 3 steps create on the expected path, listed once in `CREATES` below, and checks the Linear column against the registry's `LINEAR_ISSUE_BUDGET` (a drift refuses). The two trackers differ in the milestone: on Jira a milestone is an Epic, which is an issue, and on Linear it is a milestone, which is not. So on Jira every FR that names a milestone nothing has created yet costs TWO items, the FR and that milestone's Epic — measured on 2026-09-23, when step 1 on an empty DST2 created Epic `DST2-1` besides FR `DST2-2`, and the table, counting the FR alone, had told the operator to expect one. The S8 legacy item is not created on a Jira run without `--jira-repoint-from`. The worst case adds each live scenario's `worstCaseExtraIssues` from the registry — one item each for S6, S7 and S14, whose guards, if broken, would let one create through — so on Linear it equals `linearWorstCase()`.
 
 ```bash
 # shared-tracker-smoke: phase 0 — the plan the operator approves
@@ -52,12 +75,12 @@ const skip = t === "jira" && !process.env.REPOINT;
 const ceiling = r.spawnCeiling(t);
 // The tracker items the Phase 3 steps create on the expected path.
 const CREATES = [
-  { id: "S8", what: "S8 legacy item (step 1)", jira: 1, linear: 1 },
-  { id: "intruder", what: "intruder untagged item (step 3)", jira: 1, linear: 1 },
-  { id: "S1", what: "S1 same-title FRs (steps 4-5)", jira: 2, linear: 2 },
+  { id: "S8", what: "S8 legacy item (step 1): its FR, and on Jira the Epic of the new milestone it names", jira: 2, linear: 1 },
+  { id: "intruder", what: "intruder untagged item (step 3): a bare issue, in no milestone", jira: 1, linear: 1 },
+  { id: "S1", what: "S1 same-title FRs (steps 4-5): two FRs, and on Jira a new milestone Epic for each", jira: 4, linear: 2 },
   { id: "S3", what: "S3 span milestone (step 6): a Jira Epic; a Linear milestone, not an issue", jira: 1, linear: 0 },
-  { id: "S2", what: "S2 joined-title FRs (steps 10-11)", jira: 2, linear: 2 },
-  { id: "S10", what: "S10 old-client FR (step 20)", jira: 1, linear: 1 },
+  { id: "S2", what: "S2 joined-title FRs (steps 10-11): two FRs inside the milestone S3 already created, so no new Epic", jira: 2, linear: 2 },
+  { id: "S10", what: "S10 old-client FR (step 20): its FR, and on Jira its new milestone Epic", jira: 2, linear: 1 },
 ];
 const linearAll = CREATES.reduce((n, c) => n + c.linear, 0);
 if (linearAll !== r.LINEAR_ISSUE_BUDGET) {
@@ -108,6 +131,15 @@ Only this tracker's paths are touched, so a run on the other tracker in another 
 
 ```bash
 # shared-tracker-smoke: phase 0.5 — stale scratch out, run state in
+# loader canary: this document's text reaches a session with the invocation's arguments already
+# substituted for its positional parameters, so a fence RUN FROM THE LOADED TEXT would refuse with an
+# empty message and read the wrong word in every `case`. The left side below is spelled so the loader
+# rewrites it and the right side so it cannot, which is why the two agree only off disk. The right
+# side spells its dollar as an octal escape, which also keeps the line free of the two characters a
+# string replacement would read as "everything after the match".
+LOADER_CANARY='$1'
+LOADER_EXPECT="$(printf '\044')1"
+[ "${LOADER_CANARY}" = "${LOADER_EXPECT}" ] || { printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=fence, check=loader-substituted, tracker=<tracker>\n' "this fence was copied from the loaded skill text, where the loader had already substituted its positional parameters; nothing was run and nothing was written." "take the fence from the document on disk instead: extract it from .claude/skills/shared-tracker-smoke/SKILL.md into a file (§ Running a fence) and run that file." >&2; exit 1; }
 TRACKER="<tracker>"
 refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=0.5, check=%s, tracker=%s\n' "$2" "$3" "$1" "${TRACKER}" >&2
@@ -178,7 +210,7 @@ Every refusal below comes before any spawn and before any tracker write, and eac
 
 **The tracker answers come from this session, saved before the fence runs.** The fence cannot call MCP. Before running it, make these READ calls from this operator session and save each answer, verbatim, into the answers directory `/tmp/dpt-shared-<tracker>-answers`:
 
-- `second-server-read.json` — one read call on the second server name (`claude_ai_Atlassian` for Jira, `claude_ai_Linear` for Linear) that returns something: `getAccessibleAtlassianResources` on Jira (a bare array) or `list_teams` on Linear, saved verbatim. If the call errors, save `{"error": "<the error text>"}`. An empty answer (`{}`, `[]`, `null`) is refused like an error: a read that returns nothing proves nothing.
+- `second-server-read.json` — one read call on the second server name (`claude_ai_Atlassian` for Jira, `claude_ai_Linear` for Linear) that returns something: `getAccessibleAtlassianResources` on Jira (a bare array) or `list_teams` on Linear, saved verbatim. If the call errors, save `{"error": "<the error text>"}`. An empty answer (`{}`, `[]`, `null`) is refused like an error: a read that returns nothing proves nothing. **The second name is not registered by default** (measured 2026-09-23): this operator session cannot make that read until the server is added under that exact name, normally at user scope. Adding it there reaches every session on this machine, so before `--strict-mcp-config` it also loaded into every child and changed what the run was testing; every spawn now passes that flag, so a child sees only the servers its `--mcp-config` names.
 - Jira: `jira-space-<KEY>.json`, the answer of `mcp__atlassian__getVisibleJiraProjects(searchString: <KEY>)` (`{"values":[…],…}`), and `jira-createmeta-<KEY>.json`, the answer of `mcp__atlassian__getJiraProjectIssueTypesMetadata(projectIdOrKey: <KEY>)` (`{"issueTypes":[…],…}`), each saved verbatim, for the shared space and, when given, the repoint-from space.
 - Linear: `linear-team.json`, the answer of `mcp__linear__get_team(query: <LINEAR_TEAM>)`, saved verbatim. It carries the team's `id` and display `name` but no `key` field, so the fence checks that `LINEAR_TEAM` is key-shaped and that the answer is an object with a non-empty string `id` and no `error`.
 
@@ -190,6 +222,15 @@ The only `bun` the fence runs is the grader's read-only `digest`; it starts no `
 
 ```bash
 # shared-tracker-smoke: pre-flight
+# loader canary: this document's text reaches a session with the invocation's arguments already
+# substituted for its positional parameters, so a fence RUN FROM THE LOADED TEXT would refuse with an
+# empty message and read the wrong word in every `case`. The left side below is spelled so the loader
+# rewrites it and the right side so it cannot, which is why the two agree only off disk. The right
+# side spells its dollar as an octal escape, which also keeps the line free of the two characters a
+# string replacement would read as "everything after the match".
+LOADER_CANARY='$1'
+LOADER_EXPECT="$(printf '\044')1"
+[ "${LOADER_CANARY}" = "${LOADER_EXPECT}" ] || { printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=fence, check=loader-substituted, tracker=<tracker>\n' "this fence was copied from the loaded skill text, where the loader had already substituted its positional parameters; nothing was run and nothing was written." "take the fence from the document on disk instead: extract it from .claude/skills/shared-tracker-smoke/SKILL.md into a file (§ Running a fence) and run that file." >&2; exit 1; }
 refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=pre-flight, check=%s, tracker=%s\n' "$2" "$3" "$1" "${TRACKER:-unset}" >&2
   exit 1
@@ -285,6 +326,12 @@ if [ "${TRACKER}" = jira ]; then
     jq -e '[.issueTypes[]?.name | ascii_downcase] | index("task") != null' "${A}/jira-createmeta-${KEY}.json" >/dev/null 2>&1 \
       || refuse jira-no-task "the Jira space ${KEY} offers no task issue type." "use a space whose create metadata offers Epic and Task."
   done
+  # The type's EXACT spelling, from the shared space's measured answer: the repoint check compares
+  # `jira_issue_type` against that list byte for byte, so "Task" typed by hand would refuse on a
+  # space that spells it "task". Both declarations get this value at bootstrap.
+  ISSUE_TYPE=$(jq -r '[.issueTypes[]?.name | select(ascii_downcase == "task")] | first' "${A}/jira-createmeta-${JIRA_PROJECT}.json")
+  [ -n "${ISSUE_TYPE}" ] && [ "${ISSUE_TYPE}" != null ] \
+    || refuse jira-no-task "the Jira space ${JIRA_PROJECT} offers no task issue type to declare." "use a space whose create metadata offers Epic and Task."
 else
   # The binding records the team KEY (team: <KEY>), so a display name or an issue key refuses here.
   printf '%s' "${LINEAR_TEAM}" | grep -Eqx '[A-Z][A-Z0-9]*' \
@@ -302,6 +349,7 @@ fi
   printf 'DIGEST_AT_START=%s\n' "${DIGEST}"
   printf 'LINEAR_TEAM=%q\n' "$([ "${TRACKER}" = linear ] && echo "${LINEAR_TEAM}")"
   printf 'LINEAR_TEAM_ID=%q\n' "${LINEAR_TEAM_ID:-}"
+  printf 'ISSUE_TYPE=%q\n' "${ISSUE_TYPE:-}"
   # The answers directory this pre-flight read, so § Linear containers reads Phase 2's answers from the same place.
   printf 'PREFLIGHT_ANSWERS=%q\n' "$(cd "${A}" && pwd -P)"
 } > "/tmp/dpt-shared-${TRACKER}-preflight.env"
@@ -322,6 +370,15 @@ set -e
 RUN_STATE_NEEDS="TRACKER NONCE TOPLEVEL ROOT_A ROOT_B PLUGIN_TREE PLUGIN_BELOW_FLOOR PLUGIN_INTRUDER"
 RUN_STATE_NEEDS_LINEAR=""
 # run-state preamble: begin — the same lines in every fence that reads the run state
+# loader canary: this document's text reaches a session with the invocation's arguments already
+# substituted for its positional parameters, so a fence RUN FROM THE LOADED TEXT would refuse with an
+# empty message and read the wrong word in every `case`. The left side below is spelled so the loader
+# rewrites it and the right side so it cannot, which is why the two agree only off disk. The right
+# side spells its dollar as an octal escape, which also keeps the line free of the two characters a
+# string replacement would read as "everything after the match".
+LOADER_CANARY='$1'
+LOADER_EXPECT="$(printf '\044')1"
+[ "${LOADER_CANARY}" = "${LOADER_EXPECT}" ] || { printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=fence, check=loader-substituted, tracker=<tracker>\n' "this fence was copied from the loaded skill text, where the loader had already substituted its positional parameters; nothing was run and nothing was written." "take the fence from the document on disk instead: extract it from .claude/skills/shared-tracker-smoke/SKILL.md into a file (§ Running a fence) and run that file." >&2; exit 1; }
 RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
 run_state_refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
@@ -355,6 +412,12 @@ if [ "${TRACKER}" = linear ] && [ -z "${LINEAR_TEAM}" ]; then
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=bootstrap, check=linear-team-unset, tracker=%s\n' "LINEAR_TEAM is empty on a Linear run; nothing was written." "the key comes from the pre-flight env, not from your shell: run Phase 1 (pre-flight) again for this Linear run so it records the key it checks, then this bootstrap again." "${TRACKER}" >&2
   exit 1
 fi
+# The same rule on Jira: the issue type comes from the pre-flight's measurement of the shared space,
+# never retyped, and both declarations carry it so the repoint step has nothing to refuse about the peer.
+if [ "${TRACKER}" = jira ] && [ -z "${ISSUE_TYPE}" ]; then
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=bootstrap, check=issue-type-unset, tracker=%s\n' "ISSUE_TYPE is empty on a Jira run; nothing was written." "the type comes from the pre-flight env, not from your shell: run Phase 1 (pre-flight) again for this Jira run so it records the type it measured, then this bootstrap again." "${TRACKER}" >&2
+  exit 1
+fi
 # SHARED and PRE are typed by hand above and flow into both declarations: an empty or unfilled one refuses here,
 # before any write. That they name real projects in LINEAR_TEAM is checked by § Linear containers, from saved answers.
 case "${SHARED}" in
@@ -379,9 +442,10 @@ mkdir -p "${PLUGIN_BELOW_FLOOR}"
 git -C "${TOPLEVEL}" ls-files -z -- plugins/dev-process-toolkit | (cd "${TOPLEVEL}" && xargs -0 tar -cf -) | tar -xf - -C "${PLUGIN_BELOW_FLOOR}" --strip-components 2
 git -C "${PLUGIN_TREE}" ls-files > "/tmp/dpt-shared-${TRACKER}-tracked-files.txt"
 jq --arg v "0.0.1" '.version = $v' "${PLUGIN_TREE}/.claude-plugin/plugin.json" > "${PLUGIN_BELOW_FLOOR}/.claude-plugin/plugin.json"
-# The intruder: a plugin directory with no hooks at all.
+# The intruder: a plugin directory with no hooks at all, named dev-process-toolkit so --plugin-dir shadows
+# the installed toolkit, which --plugin-dir replaces by name only; under another name its hook loads too.
 mkdir -p "${PLUGIN_INTRUDER}/.claude-plugin"
-printf '{"name":"dpt-shared-intruder","version":"0.0.1"}\n' > "${PLUGIN_INTRUDER}/.claude-plugin/plugin.json"
+printf '{"name":"dev-process-toolkit","version":"0.0.1"}\n' > "${PLUGIN_INTRUDER}/.claude-plugin/plugin.json"
 
 for SIDE in A B; do
   ROOT=$([ "${SIDE}" = A ] && echo "${ROOT_A}" || echo "${ROOT_B}")
@@ -399,13 +463,27 @@ for SIDE in A B; do
       exit 1
     fi
   else
-    bun "${WRITE_BINDING}" "${ROOT}" "${TRACKER}" --project "${PROJECT}" --shared "${TAG}"
+    # Both sides declare the issue type the pre-flight measured. An undeclared peer is what the
+    # first live Jira leg (2026-09-23) met at repoint row 3, and the child answered that refusal
+    # by editing the PEER's CLAUDE.md. A fully declared pair gives no child that reason.
+    bun "${WRITE_BINDING}" "${ROOT}" "${TRACKER}" --project "${PROJECT}" --issue-type "${ISSUE_TYPE}" --shared "${TAG}"
+    TYPE_LINES=$(awk '$0 == "### Jira" { inside = 1; next } inside && /^#/ { exit } inside && /^jira_issue_type[[:space:]]*:/' "${ROOT}/CLAUDE.md")
+    if [ "${TYPE_LINES}" != "jira_issue_type: ${ISSUE_TYPE}" ]; then
+      printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=bootstrap, check=binding-issue-type-missing, side=%s, tracker=%s\n' "${ROOT}/CLAUDE.md does not carry exactly jira_issue_type: ${ISSUE_TYPE} under ### Jira (found: ${TYPE_LINES:-none}); the repoint step would refuse, naming the other root." "fix the binding write so both declarations carry jira_issue_type: ${ISSUE_TYPE}, then start the run again by the one legal path: § Phase 5 — Teardown if it is owed, then Phase 0.5, Phase 1 (pre-flight) and Phase 2; never Phase 0.5 and the bootstrap alone, since Phase 0.5 deletes the pre-flight env and mints a new nonce." "${SIDE}" "${TRACKER}" >&2
+      exit 1
+    fi
   fi
   if [ "${SIDE}" = B ]; then
     jq -n --arg a "${SERVER}" --arg b "${SECOND}" --argjson s "${SERVER_JSON}" '{mcpServers: {($a): $s, ($b): $s}}' > "/tmp/dpt-shared-${TRACKER}-mcp-${SIDE}.json"
   else
     jq -n --arg a "${SERVER}" --argjson s "${SERVER_JSON}" '{mcpServers: {($a): $s}}' > "/tmp/dpt-shared-${TRACKER}-mcp-${SIDE}.json"
   fi
+  # The same file inside the root, where the repoint step's row 5 looks for it: that row compares
+  # THIS repository's `mcp_server:` entry with the peer's, and an absent file is a refusal naming
+  # the other root — the shape that sent a child into the sibling on the first live Jira leg.
+  # It is data for the checks and never live configuration: every spawn names its servers with
+  # --mcp-config and --strict-mcp-config, so no child loads this file or is asked to approve it.
+  cp "/tmp/dpt-shared-${TRACKER}-mcp-${SIDE}.json" "${ROOT}/.mcp.json"
   # Each side may cd into, and write into, its sibling (S12, S17); S11 makes a declaration unreadable with chmod.
   jq -n --arg a "${SERVER}" --arg b "${SECOND}" --arg other "$([ "${SIDE}" = A ] && echo "${ROOT_B}" || echo "${ROOT_A}")" \
     '{permissions: {allow: ["Bash(bun:*)", "Bash(git:*)", "Bash(gh:*)", "Bash(cd:*)", "Bash(chmod:*)", "mcp__\($a)__*", "mcp__\($b)__*"], additionalDirectories: [$other]}}' > "${ROOT}/.claude/settings.json"
@@ -441,6 +519,15 @@ A missing, unreadable or error answer refuses the same way. It opens with the ru
 RUN_STATE_NEEDS="TRACKER"
 RUN_STATE_NEEDS_LINEAR="NONCE SHARED PRE LINEAR_TEAM PREFLIGHT_ANSWERS"
 # run-state preamble: begin — the same lines in every fence that reads the run state
+# loader canary: this document's text reaches a session with the invocation's arguments already
+# substituted for its positional parameters, so a fence RUN FROM THE LOADED TEXT would refuse with an
+# empty message and read the wrong word in every `case`. The left side below is spelled so the loader
+# rewrites it and the right side so it cannot, which is why the two agree only off disk. The right
+# side spells its dollar as an octal escape, which also keeps the line free of the two characters a
+# string replacement would read as "everything after the match".
+LOADER_CANARY='$1'
+LOADER_EXPECT="$(printf '\044')1"
+[ "${LOADER_CANARY}" = "${LOADER_EXPECT}" ] || { printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=fence, check=loader-substituted, tracker=<tracker>\n' "this fence was copied from the loaded skill text, where the loader had already substituted its positional parameters; nothing was run and nothing was written." "take the fence from the document on disk instead: extract it from .claude/skills/shared-tracker-smoke/SKILL.md into a file (§ Running a fence) and run that file." >&2; exit 1; }
 RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
 run_state_refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
@@ -485,7 +572,7 @@ echo "linear containers ok: projects ${SHARED} and ${PRE}, labels shr-${NONCE}-a
 
 Phase 6's `extract` refuses to write a bundle holding a home-directory path, an email address, an account id or a tracker site host, and a bundle re-extracted after a fix changes its digest. A leak found only at Phase 6 therefore throws away the whole run. So, right after bootstrap and before the first scenario spawn, this fence runs the same `extract` over the bootstrap state, into a throwaway directory under `/tmp`, never into the fixtures tree. When it reports a privacy refusal it refuses in the NFR-10 shape, before any child starts and before any budget is spent. It also refuses when `extract` fails for any other reason, since Phase 6 would fail the same way. It starts no child and writes nothing to the tracker. On Linear, Phase 2's project and label creates have already made teardown owed, so a refusal sends the operator to § Phase 5 — Teardown.
 
-**What it cannot see.** This dry run checks the bootstrap state only: the ledger holds no session yet, so no child transcript and no tracker answer passes through it. A leak in a child's tool_result can only surface later. Phase 6's `extract` is the real privacy pass over the run; this dry run only catches what bootstrap alone would leak (the roots, the receipts, the git history).
+**What each pass can see.** Run before the first spawn, this dry run checks the bootstrap state only: the ledger holds no session yet, so no child transcript and no tracker answer passes through it, and it catches only what bootstrap alone would leak (the roots, the receipts, the git history). That is why § Phase 3 says to run it again after step 1, when the ledger holds one real child transcript: the first live Jira run (2026-09-23) refused its bundle at Phase 6 on 41 personal-data matches in ordinary child records, a class the early pass cannot see by construction. The second pass catches that class after ONE step instead of after twenty-six. Phase 6's `extract` remains the pass over the whole run.
 
 **Run it from a file.** Write the fence to a file and run `bash <file>`; never feed it to `bash`, `sh` or `zsh` through stdin.
 
@@ -494,6 +581,15 @@ Phase 6's `extract` refuses to write a bundle holding a home-directory path, an 
 RUN_STATE_NEEDS="TRACKER TOPLEVEL DPT_SMOKE_RUN_ID NONCE ROOT_A ROOT_B DIGEST_AT_START SHARED PLUGIN_BELOW_FLOOR RUN_START_MS"
 RUN_STATE_NEEDS_LINEAR="PRE LINEAR_TEAM"
 # run-state preamble: begin — the same lines in every fence that reads the run state
+# loader canary: this document's text reaches a session with the invocation's arguments already
+# substituted for its positional parameters, so a fence RUN FROM THE LOADED TEXT would refuse with an
+# empty message and read the wrong word in every `case`. The left side below is spelled so the loader
+# rewrites it and the right side so it cannot, which is why the two agree only off disk. The right
+# side spells its dollar as an octal escape, which also keeps the line free of the two characters a
+# string replacement would read as "everything after the match".
+LOADER_CANARY='$1'
+LOADER_EXPECT="$(printf '\044')1"
+[ "${LOADER_CANARY}" = "${LOADER_EXPECT}" ] || { printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=fence, check=loader-substituted, tracker=<tracker>\n' "this fence was copied from the loaded skill text, where the loader had already substituted its positional parameters; nothing was run and nothing was written." "take the fence from the document on disk instead: extract it from .claude/skills/shared-tracker-smoke/SKILL.md into a file (§ Running a fence) and run that file." >&2; exit 1; }
 RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
 run_state_refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
@@ -514,6 +610,11 @@ refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=privacy-dry-run, check=%s, tracker=%s\n' "$2" "$3" "$1" "${TRACKER:-unset}" >&2
   exit 1
 }
+# How many children the ledger already holds: the first pass covers the bootstrap state alone, a later
+# pass covers every child transcript so far, and the refusal must not claim no child was started.
+LEDGER_OUT=$(bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/smoke_run_ledger.ts" sessions --project-root "${TOPLEVEL}" --run "${DPT_SMOKE_RUN_ID}" --leg "shared-${TRACKER}") \
+  || refuse ledger-unreadable "the run ledger for run ${DPT_SMOKE_RUN_ID} could not be read; a failed read is not zero sessions." "fix what the ledger read names, then run this fence again."
+LEDGERED=$(printf '%s' "${LEDGER_OUT}" | grep -c .)
 DRY_OUT="/tmp/dpt-shared-${TRACKER}-dry-run/"
 DRY_ERR="/tmp/dpt-shared-${TRACKER}-dry-run.err"
 rm -rf "${DRY_OUT}"
@@ -529,7 +630,7 @@ if bun "${TOPLEVEL}/plugins/dev-process-toolkit/adapters/_shared/src/shared_trac
 else
   sed 's/^/  extract: /' "${DRY_ERR}"
   if grep -q 'holds personal data' "${DRY_ERR}"; then
-    refuse privacy-leak "the dry-run extract over the bootstrap state refused its bundle for personal data (the matches are listed above); no child was started." "make the grader rewrite what it names (committed, since the pre-flight refuses a dirty tree), then start the run again by the legal path: on Linear § Phase 5 — Teardown first, since Phase 2's project and label creates made it owed, then Phase 0.5, Phase 1 (pre-flight), Phase 2 and this dry run; never Phase 2 alone, since the bootstrap cannot run over repositories it already made."
+    refuse privacy-leak "the dry-run extract over the bootstrap state refused its bundle for personal data (the matches are listed above); ${LEDGERED} children have already run (no child was started when that count is 0)." "make the grader rewrite what it names (committed, since the pre-flight refuses a dirty tree), then start the run again by the legal path: on Linear § Phase 5 — Teardown first, since Phase 2's project and label creates made it owed, then Phase 0.5, Phase 1 (pre-flight), Phase 2 and this dry run; never Phase 2 alone, since the bootstrap cannot run over repositories it already made."
   fi
   refuse dry-run-failed "the dry-run extract over the bootstrap state failed (its error is listed above), so Phase 6 would fail too; no child was started." "fix what the extract names, then run this dry run again; on Linear run § Phase 5 — Teardown if you abandon the run, since Phase 2's project and label creates made it owed."
 fi
@@ -542,6 +643,8 @@ One `claude -p` child per scenario step, serial: start a step, wait for it to ex
     dpt-shared-tracker-scenario: <marker>[ client=<client>]
 
 `<marker>` is a registry id or one of the reserved markers `audit` and `intruder`; `client=` is omitted for the tree under test and is `below-floor`, `old-client` or `intruder` otherwise. The grader maps each ledgered session to exactly one scenario from that line in its transcript's first user message.
+
+**After step 1, run § Privacy dry run again, before step 2.** The same fence, over a ledger that now holds one real child transcript. The pass before the first spawn sees the bootstrap state alone; this one sees a child's own records, which is where the first live Jira run's 41 personal-data matches lived. Catching that class after one step costs one fence; catching it at Phase 6 costs the whole leg, which is what happened on 2026-09-23.
 
 **The ceiling.** The run starts at most `SPAWN_CEILING` children (the registry's live steps plus the two audits). The fence counts the run ledger before every spawn and refuses instead of spawning when one more child would exceed it.
 
@@ -623,6 +726,15 @@ rm -f /tmp/dpt-shared-<tracker>-step.pid  # first, before anything can refuse: t
 RUN_STATE_NEEDS="TRACKER TOPLEVEL DPT_SMOKE_RUN_ID SPAWN_CEILING ROOT_A ROOT_B PLUGIN_TREE PLUGIN_BELOW_FLOOR PLUGIN_INTRUDER OLD_CLIENT"
 RUN_STATE_NEEDS_LINEAR=""
 # run-state preamble: begin — the same lines in every fence that reads the run state
+# loader canary: this document's text reaches a session with the invocation's arguments already
+# substituted for its positional parameters, so a fence RUN FROM THE LOADED TEXT would refuse with an
+# empty message and read the wrong word in every `case`. The left side below is spelled so the loader
+# rewrites it and the right side so it cannot, which is why the two agree only off disk. The right
+# side spells its dollar as an octal escape, which also keeps the line free of the two characters a
+# string replacement would read as "everything after the match".
+LOADER_CANARY='$1'
+LOADER_EXPECT="$(printf '\044')1"
+[ "${LOADER_CANARY}" = "${LOADER_EXPECT}" ] || { printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=fence, check=loader-substituted, tracker=<tracker>\n' "this fence was copied from the loaded skill text, where the loader had already substituted its positional parameters; nothing was run and nothing was written." "take the fence from the document on disk instead: extract it from .claude/skills/shared-tracker-smoke/SKILL.md into a file (§ Running a fence) and run that file." >&2; exit 1; }
 RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
 run_state_refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
@@ -709,10 +821,11 @@ claude -p \
   --session-id "${SID_STEP}" \
   --output-format stream-json --verbose \
   --plugin-dir "${STEP_PLUGIN}" \
-  --mcp-config "/tmp/dpt-shared-${TRACKER}-mcp-${STEP_MCP}.json" \
+  --mcp-config "/tmp/dpt-shared-${TRACKER}-mcp-${STEP_MCP}.json" --strict-mcp-config \
   > "/tmp/dpt-shared-${TRACKER}-${STEP_NAME}.log" 2>&1 <<PROMPT_EOF &
 <dpt:auto-approve>v1</dpt:auto-approve>
 ${MARKER_LINE}
+The toolkit under test is ${STEP_PLUGIN}. Run every toolkit script from exactly that path, as bun "${STEP_PLUGIN}/adapters/_shared/src/<name>.ts", and never from a plugin cache, an installed copy, or a path you resolve yourself: \$CLAUDE_PLUGIN_ROOT is empty inside a Bash call, so a bare script name is yours to resolve, and resolving it elsewhere grades a version nobody is testing.
 ${STEP_PROMPT}
 
 <dpt:answers>v1
@@ -772,6 +885,15 @@ Step 10 leaves A's own S2 FR active in the span milestone. `/ship-milestone` ref
 RUN_STATE_NEEDS="TRACKER ROOT_A PLUGIN_TREE"
 RUN_STATE_NEEDS_LINEAR=""
 # run-state preamble: begin — the same lines in every fence that reads the run state
+# loader canary: this document's text reaches a session with the invocation's arguments already
+# substituted for its positional parameters, so a fence RUN FROM THE LOADED TEXT would refuse with an
+# empty message and read the wrong word in every `case`. The left side below is spelled so the loader
+# rewrites it and the right side so it cannot, which is why the two agree only off disk. The right
+# side spells its dollar as an octal escape, which also keeps the line free of the two characters a
+# string replacement would read as "everything after the match".
+LOADER_CANARY='$1'
+LOADER_EXPECT="$(printf '\044')1"
+[ "${LOADER_CANARY}" = "${LOADER_EXPECT}" ] || { printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=fence, check=loader-substituted, tracker=<tracker>\n' "this fence was copied from the loaded skill text, where the loader had already substituted its positional parameters; nothing was run and nothing was written." "take the fence from the document on disk instead: extract it from .claude/skills/shared-tracker-smoke/SKILL.md into a file (§ Running a fence) and run that file." >&2; exit 1; }
 RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
 run_state_refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
@@ -832,6 +954,15 @@ The S5 permit twin (step 15) needs B idle on the span milestone: no active FR bo
 RUN_STATE_NEEDS="TRACKER ROOT_B PLUGIN_TREE"
 RUN_STATE_NEEDS_LINEAR=""
 # run-state preamble: begin — the same lines in every fence that reads the run state
+# loader canary: this document's text reaches a session with the invocation's arguments already
+# substituted for its positional parameters, so a fence RUN FROM THE LOADED TEXT would refuse with an
+# empty message and read the wrong word in every `case`. The left side below is spelled so the loader
+# rewrites it and the right side so it cannot, which is why the two agree only off disk. The right
+# side spells its dollar as an octal escape, which also keeps the line free of the two characters a
+# string replacement would read as "everything after the match".
+LOADER_CANARY='$1'
+LOADER_EXPECT="$(printf '\044')1"
+[ "${LOADER_CANARY}" = "${LOADER_EXPECT}" ] || { printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=fence, check=loader-substituted, tracker=<tracker>\n' "this fence was copied from the loaded skill text, where the loader had already substituted its positional parameters; nothing was run and nothing was written." "take the fence from the document on disk instead: extract it from .claude/skills/shared-tracker-smoke/SKILL.md into a file (§ Running a fence) and run that file." >&2; exit 1; }
 RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
 run_state_refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
@@ -890,6 +1021,15 @@ S11's step runs in `<B>/.s11/relocated`: a git worktree of B at another path, de
 RUN_STATE_NEEDS="TRACKER ROOT_B"
 RUN_STATE_NEEDS_LINEAR=""
 # run-state preamble: begin — the same lines in every fence that reads the run state
+# loader canary: this document's text reaches a session with the invocation's arguments already
+# substituted for its positional parameters, so a fence RUN FROM THE LOADED TEXT would refuse with an
+# empty message and read the wrong word in every `case`. The left side below is spelled so the loader
+# rewrites it and the right side so it cannot, which is why the two agree only off disk. The right
+# side spells its dollar as an octal escape, which also keeps the line free of the two characters a
+# string replacement would read as "everything after the match".
+LOADER_CANARY='$1'
+LOADER_EXPECT="$(printf '\044')1"
+[ "${LOADER_CANARY}" = "${LOADER_EXPECT}" ] || { printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=fence, check=loader-substituted, tracker=<tracker>\n' "this fence was copied from the loaded skill text, where the loader had already substituted its positional parameters; nothing was run and nothing was written." "take the fence from the document on disk instead: extract it from .claude/skills/shared-tracker-smoke/SKILL.md into a file (§ Running a fence) and run that file." >&2; exit 1; }
 RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
 run_state_refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
@@ -944,6 +1084,15 @@ rm -f /tmp/dpt-shared-<tracker>-step.pid  # first, before anything can refuse: t
 RUN_STATE_NEEDS="TRACKER TOPLEVEL DPT_SMOKE_RUN_ID SPAWN_CEILING NONCE ROOT_A PLUGIN_TREE"
 RUN_STATE_NEEDS_LINEAR=""
 # run-state preamble: begin — the same lines in every fence that reads the run state
+# loader canary: this document's text reaches a session with the invocation's arguments already
+# substituted for its positional parameters, so a fence RUN FROM THE LOADED TEXT would refuse with an
+# empty message and read the wrong word in every `case`. The left side below is spelled so the loader
+# rewrites it and the right side so it cannot, which is why the two agree only off disk. The right
+# side spells its dollar as an octal escape, which also keeps the line free of the two characters a
+# string replacement would read as "everything after the match".
+LOADER_CANARY='$1'
+LOADER_EXPECT="$(printf '\044')1"
+[ "${LOADER_CANARY}" = "${LOADER_EXPECT}" ] || { printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=fence, check=loader-substituted, tracker=<tracker>\n' "this fence was copied from the loaded skill text, where the loader had already substituted its positional parameters; nothing was run and nothing was written." "take the fence from the document on disk instead: extract it from .claude/skills/shared-tracker-smoke/SKILL.md into a file (§ Running a fence) and run that file." >&2; exit 1; }
 RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
 run_state_refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
@@ -1013,7 +1162,7 @@ claude -p \
   --session-id "${SID_AUDIT}" \
   --output-format stream-json --verbose \
   --plugin-dir "${PLUGIN_TREE}" \
-  --mcp-config "/tmp/dpt-shared-${TRACKER}-mcp-A.json" \
+  --mcp-config "/tmp/dpt-shared-${TRACKER}-mcp-A.json" --strict-mcp-config \
   > "/tmp/dpt-shared-${TRACKER}-audit-${AUDIT_PASS}.log" 2>&1 <<PROMPT_EOF &
 <dpt:auto-approve>v1</dpt:auto-approve>
 dpt-shared-tracker-scenario: audit
@@ -1066,6 +1215,15 @@ The grader turns the ledgered sessions' transcripts, both audits included, into 
 RUN_STATE_NEEDS="TRACKER TOPLEVEL DPT_SMOKE_RUN_ID NONCE ROOT_A ROOT_B DIGEST_AT_START PLUGIN_BELOW_FLOOR RUN_START_MS"
 RUN_STATE_NEEDS_LINEAR=""
 # run-state preamble: begin — the same lines in every fence that reads the run state
+# loader canary: this document's text reaches a session with the invocation's arguments already
+# substituted for its positional parameters, so a fence RUN FROM THE LOADED TEXT would refuse with an
+# empty message and read the wrong word in every `case`. The left side below is spelled so the loader
+# rewrites it and the right side so it cannot, which is why the two agree only off disk. The right
+# side spells its dollar as an octal escape, which also keeps the line free of the two characters a
+# string replacement would read as "everything after the match".
+LOADER_CANARY='$1'
+LOADER_EXPECT="$(printf '\044')1"
+[ "${LOADER_CANARY}" = "${LOADER_EXPECT}" ] || { printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=fence, check=loader-substituted, tracker=<tracker>\n' "this fence was copied from the loaded skill text, where the loader had already substituted its positional parameters; nothing was run and nothing was written." "take the fence from the document on disk instead: extract it from .claude/skills/shared-tracker-smoke/SKILL.md into a file (§ Running a fence) and run that file." >&2; exit 1; }
 RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
 run_state_refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2
@@ -1124,6 +1282,15 @@ The STE-593 delete mode, on `pass` only, after extraction, handed exactly the ru
 RUN_STATE_NEEDS="TRACKER TOPLEVEL DPT_SMOKE_RUN_ID VERDICT_FILE"
 RUN_STATE_NEEDS_LINEAR=""
 # run-state preamble: begin — the same lines in every fence that reads the run state
+# loader canary: this document's text reaches a session with the invocation's arguments already
+# substituted for its positional parameters, so a fence RUN FROM THE LOADED TEXT would refuse with an
+# empty message and read the wrong word in every `case`. The left side below is spelled so the loader
+# rewrites it and the right side so it cannot, which is why the two agree only off disk. The right
+# side spells its dollar as an octal escape, which also keeps the line free of the two characters a
+# string replacement would read as "everything after the match".
+LOADER_CANARY='$1'
+LOADER_EXPECT="$(printf '\044')1"
+[ "${LOADER_CANARY}" = "${LOADER_EXPECT}" ] || { printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=fence, check=loader-substituted, tracker=<tracker>\n' "this fence was copied from the loaded skill text, where the loader had already substituted its positional parameters; nothing was run and nothing was written." "take the fence from the document on disk instead: extract it from .claude/skills/shared-tracker-smoke/SKILL.md into a file (§ Running a fence) and run that file." >&2; exit 1; }
 RUN_ENV="/tmp/dpt-shared-<tracker>-run.env"
 run_state_refuse() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=run-state, check=run-state-missing, tracker=<tracker>\n' "$1" "restore the line by hand from its source (Phase 0's plan /tmp/dpt-shared-<tracker>-plan.env, the pre-flight env /tmp/dpt-shared-<tracker>-preflight.env, or the values Phase 2 recorded) and run this fence again; never re-run Phase 0.5 mid-run, which mints a new nonce and wipes this run's scratch. This fence started nothing and wrote nothing. If the run state cannot be restored and /tmp/dpt-shared-<tracker>-teardown-owed exists, run § Phase 5 — Teardown now, then start a new run from Phase 0." >&2

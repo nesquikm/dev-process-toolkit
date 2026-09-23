@@ -1002,3 +1002,92 @@ describe("STE-603 hardening — boundary refusals from the Pass 2 review", () =>
     });
   });
 });
+
+// ====================================================== M_2306b6 (STE-616)
+
+// `jira_issue_type` gets a writer.
+//
+// WHY. The shared-tracker smoke bootstrap wrote both repositories' bindings
+// through this one writer, which had no way to declare `jira_issue_type`, so
+// neither side declared it. On the first live Jira leg (2026-09-23) the S8
+// child ran the repoint command with `--peer <A>`, met row 3's refusal that
+// the peer declares none, and satisfied it by editing the PEER's CLAUDE.md
+// with a `perl -0pi` loop over both roots. Three things had to be true for
+// that write: an undeclared peer, a refusal naming no legal remedy, and
+// nothing grading the write. This is the first of the three.
+//
+// The key is Jira's: `### Linear` has no issue type, and asking for one there
+// is a mistake the writer names rather than writes.
+describe("M_2306b6 — the writer declares jira_issue_type, so a bootstrap can", () => {
+  const ISSUE_LINE = (v: string) => `jira_issue_type: ${v}`;
+  const sub = (root: string) => readFileSync(join(root, "CLAUDE.md"), "utf-8");
+
+  test("front door: --issue-type Task writes the key under ### Jira, after project", async () => {
+    await withRoots(async ({ a, b }) => {
+      claudeMd(a, { mode: "jira", project: "GF" });
+      const r = await runWriter(a, ["jira", "--project", "GF", "--issue-type", "Task", "--shared", TAG], b, FLOOR);
+      expect(r.code, r.stderr).toBe(0);
+      const text = sub(a);
+      expect(text).toContain(ISSUE_LINE("Task"));
+      expect(text.indexOf("project: GF")).toBeLessThan(text.indexOf(ISSUE_LINE("Task")));
+      expect(count(text, ISSUE_LINE("Task"))).toBe(1);
+      // The repoint command's row 3 reads it through the same locator.
+      expect(readWorkspaceBinding(join(a, "CLAUDE.md"), "jira").project).toBe("GF");
+    });
+  }, 30_000);
+
+  test("re-running is idempotent, and a changed value replaces the line rather than adding one", async () => {
+    await withRoots(async ({ a, b }) => {
+      claudeMd(a, { mode: "jira", project: "GF" });
+      for (const v of ["Task", "Task", "Bug"]) {
+        const r = await runWriter(a, ["jira", "--project", "GF", "--issue-type", v], b, FLOOR);
+        expect(r.code, r.stderr).toBe(0);
+      }
+      const text = sub(a);
+      expect(count(text, "jira_issue_type:")).toBe(1);
+      expect(text).toContain(ISSUE_LINE("Bug"));
+    });
+  }, 30_000);
+
+  test("PRECONDITION ABSENT — omitting --issue-type leaves an existing declaration exactly as it was", async () => {
+    await withRoots(async ({ a, b }) => {
+      claudeMd(a, { mode: "jira", project: "GF" });
+      expect((await runWriter(a, ["jira", "--project", "GF", "--issue-type", "Story"], b, FLOOR)).code).toBe(0);
+      const before = readFileSync(join(a, "CLAUDE.md"), "utf-8");
+      const r = await runWriter(a, ["jira", "--project", "GF", "--shared", TAG], b, FLOOR);
+      expect(r.code, r.stderr).toBe(0);
+      const after = sub(a);
+      expect(after).toContain(ISSUE_LINE("Story"));
+      expect(count(after, "jira_issue_type:")).toBe(1);
+      expect(before.split("\n").filter((l) => l.startsWith("jira_issue_type"))).toEqual(
+        after.split("\n").filter((l) => l.startsWith("jira_issue_type")),
+      );
+    });
+  }, 30_000);
+
+  test("REFUSE — an empty --issue-type is never written, and the file stays byte-identical", async () => {
+    await withRoots(async ({ a, b }) => {
+      claudeMd(a, { mode: "jira", project: "GF" });
+      const path = join(a, "CLAUDE.md");
+      const before = readFileSync(path);
+      const r = await runWriter(a, ["jira", "--project", "GF", "--issue-type", ""], b, FLOOR);
+      expect(r.code, r.stderr).toBe(1);
+      expect(r.stdout).toBe("");
+      expectThreeLine(r.stderr);
+      expect(readFileSync(path).equals(before)).toBe(true);
+    });
+  }, 30_000);
+
+  test("REFUSE — --issue-type on a Linear binding is a named mistake, not a written key", async () => {
+    await withRoots(async ({ a, b }) => {
+      claudeMd(a, { mode: "linear", team: "STE", project: "DPT" });
+      const path = join(a, "CLAUDE.md");
+      const before = readFileSync(path);
+      const r = await runWriter(a, ["linear", "--project", "DPT", "--team", "STE", "--issue-type", "Task"], b, FLOOR);
+      expect(r.code, r.stderr).toBe(1);
+      expect(r.stderr).toContain("jira_issue_type");
+      expectThreeLine(r.stderr);
+      expect(readFileSync(path).equals(before)).toBe(true);
+    });
+  }, 30_000);
+});

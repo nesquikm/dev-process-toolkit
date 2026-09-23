@@ -1606,14 +1606,31 @@ describe("fifth audit, the standing rule — Phase 0 and Phase 0.5 refuse when a
 });
 
 describe("audit item 9 — Phase 0's expected and worst-case item counts are the tracker's own", () => {
-  test("jira with --jira-repoint-from: 8 expected Jira items (the S3 Epic counted), 11 at worst (+ S6, S7, S14)", () => {
+  // MEASURED LIVE (2026-09-23): step 1 on an empty DST2 created Epic DST2-1
+  // BESIDES FR DST2-2 — on Jira an FR whose milestone does not exist yet mints
+  // that milestone's Epic, and an Epic is an issue. The table counted the FR
+  // alone, so every Jira count was low: S8 1→2, S1 2→4 (two FRs, two new
+  // milestones), S10 1→2. S2 stays 2 — its FRs go into the milestone S3
+  // already created — and S3 stays 1, the Epic itself. Linear is unchanged: a
+  // Linear milestone is not an issue.
+  test("jira with --jira-repoint-from: 12 expected Jira items (each new milestone's Epic counted), 15 at worst (+ S6, S7, S14)", () => {
     const p = runPhase0("jira", "DST2");
-    expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS]).toEqual(["8", "11"]);
+    expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS]).toEqual(["12", "15"]);
     expect(p.ITEM_UNIT).toMatch(/Jira/);
   });
-  test("jira without the flag: the S8 legacy item is not created — 7 expected, 10 at worst", () => {
+  test("jira without the flag: the S8 legacy item and its Epic are not created — 10 expected, 13 at worst", () => {
     const p = runPhase0("jira", undefined);
-    expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS, p.S8]).toEqual(["7", "10", "skipped"]);
+    expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS, p.S8]).toEqual(["10", "13", "skipped"]);
+  });
+  test("the Jira rows say WHY they cost two, and the rows that do not are named too", () => {
+    const boot = oneFence(docText(), "# shared-tracker-smoke: phase 0 —").body;
+    for (const id of ["S8", "S1", "S10"]) {
+      const row = boot.split("\n").find((l) => l.includes(`id: "${id}"`));
+      expect(row, `a CREATES row for ${id}`).toBeDefined();
+      expect(row!, `${id} says why it costs an Epic`).toMatch(/Epic/);
+    }
+    const s2 = boot.split("\n").find((l) => l.includes('id: "S2"'))!;
+    expect(s2, "S2 says why it does NOT mint one").toMatch(/already|joined/);
   });
   test("linear: the registry's LINEAR_ISSUE_BUDGET and linearWorstCase() — no Epic, a milestone is not an issue", async () => {
     const reg = await import("../adapters/_shared/src/shared_tracker_scenarios");
@@ -1636,7 +1653,7 @@ console.log(\`WORST_CASE_ITEMS=\${r.linearWorstCase()}\`);
 `;
     const mutated = text.replace(f.body, `${f.body.slice(0, start)}${old}${f.body.slice(end)}`);
     const p = runPhase0("jira", "DST2", mutated);
-    expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS]).not.toEqual(["8", "11"]);
+    expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS]).not.toEqual(["12", "15"]);
   });
 });
 
@@ -2273,7 +2290,35 @@ describe("MEDIUM-F — the privacy dry run is named for what it checks: bootstra
     const sec = section(docText(), /^### Privacy dry run\b/);
     expect(sec).toMatch(/checks the bootstrap state only/);
     expect(sec).toMatch(/the ledger holds no session yet/);
-    expect(sec).toMatch(/Phase 6's `extract` is the real privacy pass/);
+    expect(sec).toMatch(/Phase 6's `extract` remains the pass over the whole run/);
+  });
+});
+
+// --- the dry run runs a SECOND time, once a child transcript exists ---------
+//
+// The first live Jira leg refused its bundle at Phase 6 on 41 personal-data
+// matches in ordinary child records. Audit 5 had already called the early dry
+// run near-vacuous, because it runs before any child exists and cannot see that
+// class; the run proved the limit exactly. The same fence, run again after the
+// FIRST step, covers one real child transcript, so the class is caught after one
+// step instead of after twenty-six.
+describe("the privacy dry run is run again after the first step, and says so", () => {
+  test("Phase 3 orders a second dry-run pass after step 1, before step 2", () => {
+    const sec = section(docText(), /^## Phase 3\b/);
+    expect(sec).toMatch(/run § Privacy dry run again/);
+    expect(sec).toMatch(/before step 2/);
+  });
+  test("the dry run's prose names both passes and what each can see", () => {
+    const sec = section(docText(), /^### Privacy dry run\b/);
+    expect(sec).toMatch(/checks the bootstrap state only/);
+    expect(sec).toMatch(/run it again after step 1/);
+    expect(sec).toMatch(/one real child transcript/);
+  });
+  test("its refusal does not claim no child was started when the ledger holds one", () => {
+    const body = oneFence(docText(), DRY_RUN_TAG).body;
+    expect(body).toMatch(/LEDGERED/);
+    expect(body).toMatch(/no child was started/);
+    expect(body).toMatch(/children have already run/);
   });
 });
 
@@ -2531,11 +2576,13 @@ interface BootRun {
   code: number;
   err: string;
   md: { A: string | null; B: string | null };
+  /** Whether each root ended up with the `.mcp.json` the repoint row 5 check reads. */
+  mcp: { A: boolean; B: boolean };
 }
 
 /** The bootstrap fence RUN under the stub, with the real binding writer; both CLAUDE.md files it left. */
-function runBootstrap(text: string, tracker: "jira" | "linear"): BootRun {
-  let res: BootRun = { code: -1, err: "", md: { A: null, B: null } };
+function runBootstrap(text: string, tracker: "jira" | "linear", preflightExtra = tracker === "jira" ? "ISSUE_TYPE=Task\n" : ""): BootRun {
+  let res: BootRun = { code: -1, err: "", md: { A: null, B: null }, mcp: { A: false, B: false } };
   withStub((sb) => {
     const linear = tracker === "linear";
     const plugin = join(sb.work, "plugins", "dev-process-toolkit");
@@ -2544,7 +2591,7 @@ function runBootstrap(text: string, tracker: "jira" | "linear"): BootRun {
     writeStubRunEnv(sb, { TRACKER: tracker, PLUGIN_TREE: plugin });
     if (linear) writeFileSync(join(sb.tmp, "dpt-shared-linear-run.env"), readFileSync(join(sb.tmp, "dpt-shared-jira-run.env"), "utf-8"));
     // The pre-flight records the team key it checked beside its id; the bootstrap reads both, never a retyped key.
-    writeFileSync(join(sb.tmp, `dpt-shared-${tracker}-preflight.env`), `FLOOR=${FLOOR}\n${linear ? `LINEAR_TEAM=STE\nLINEAR_TEAM_ID=${liveShape("linear", "get_team").id}\n` : "LINEAR_TEAM=''\n"}`);
+    writeFileSync(join(sb.tmp, `dpt-shared-${tracker}-preflight.env`), `FLOOR=${FLOOR}\n${linear ? `LINEAR_TEAM=STE\nLINEAR_TEAM_ID=${liveShape("linear", "get_team").id}\n` : "LINEAR_TEAM=''\n"}${preflightExtra}`);
     if (linear) writeJson(join(sb.home, ".claude-st", "plugins", "marketplaces", "claude-plugins-official", "external_plugins", "linear", ".mcp.json"), { linear: { type: "http", url: "https://mcp.linear.invalid/mcp" } });
     // The binding writer runs for real; every other bun call goes to the harness stub.
     const harnessBun = join(sb.root, "bun-harness");
@@ -2573,7 +2620,7 @@ function runBootstrap(text: string, tracker: "jira" | "linear"): BootRun {
       const p = join(sb.root, side, "CLAUDE.md");
       return existsSync(p) ? readFileSync(p, "utf-8") : null;
     };
-    res = { code: r.exitCode, err: r.err, md: { A: md("A"), B: md("B") } };
+    res = { code: r.exitCode, err: r.err, md: { A: md("A"), B: md("B") }, mcp: { A: existsSync(join(sb.root, "A", ".mcp.json")), B: existsSync(join(sb.root, "B", ".mcp.json")) } };
   });
   return res;
 }
@@ -3537,5 +3584,354 @@ describe("the audit prompt names its read-back tool and forbids any other search
 describe("Phase 0 states that no child may be relaunched", () => {
   test("the Phase 0 printout carries the no-relaunch line", () => {
     expect(docText()).toMatch(/echo "no child may be relaunched: the spawn ceiling covers every step and both audits exactly/);
+  });
+});
+
+// ===========================================================================
+// M_2306b6 — the bootstrap declares what the repoint check reads
+// ===========================================================================
+//
+// MEASURED LIVE, 2026-09-23. The S8 child, rooted in B, ran the repoint
+// command with `--peer <A>` and met row 3 refusing because the PEER declares
+// no `jira_issue_type`. Neither root declared one: the bootstrap wrote both
+// bindings through a writer that had no such key. The child satisfied the
+// refusal by editing `<A>/CLAUDE.md`.
+//
+// A child that has no reason to reach into the sibling does not reach into it.
+// Both roots are therefore fully declared before the first spawn, and both are
+// given the `.mcp.json` row 5 reads. That file is data for the checks, never
+// live configuration: every spawn already names its servers with
+// `--mcp-config`, and `--strict-mcp-config` keeps the in-root file from being
+// loaded (and from stalling a headless child on a project-scope approval).
+function bootstrapDeclarationViolations(text: string): string[] {
+  const v: string[] = [];
+  const boot = oneFence(text, "# shared-tracker-smoke: bootstrap").body;
+  if (!/--issue-type "\$\{ISSUE_TYPE\}"/.test(boot)) v.push("bootstrap does not pass --issue-type to the binding writer on a Jira run");
+  if (!/check=binding-issue-type-missing/.test(boot)) v.push("bootstrap does not verify that the Jira binding carries jira_issue_type");
+  if (!/"\$\{ROOT\}\/\.mcp\.json"/.test(boot)) v.push("bootstrap does not write .mcp.json into each root, which is what the repoint row 5 check reads");
+  const spawns = [...text.matchAll(/--mcp-config [^\n]*/g)].map((m) => m[0]!);
+  if (spawns.length === 0) v.push("no spawn names --mcp-config at all");
+  for (const s of spawns) {
+    if (!/--strict-mcp-config/.test(s)) v.push(`a spawn passes --mcp-config without --strict-mcp-config: ${s.slice(0, 60)}`);
+  }
+  return v;
+}
+
+describe("M_2306b6 — the bootstrap declares everything the repoint check reads", () => {
+  test("both roots are fully declared, carry the .mcp.json row 5 reads, and no spawn loads it", () => {
+    expect(bootstrapDeclarationViolations(docText())).toEqual([]);
+  });
+
+  test("MUTATION — a bootstrap that drops --issue-type is red", () => {
+    const m = docText().replace(/--issue-type "\$\{ISSUE_TYPE\}"/, "");
+    expect(bootstrapDeclarationViolations(m)).toContain("bootstrap does not pass --issue-type to the binding writer on a Jira run");
+  });
+
+  test("MUTATION — a bootstrap that writes the declaration but never checks it landed is red", () => {
+    const m = docText().replace(/check=binding-issue-type-missing/g, "check=something-else");
+    expect(bootstrapDeclarationViolations(m)).toContain("bootstrap does not verify that the Jira binding carries jira_issue_type");
+  });
+
+  test("MUTATION — a bootstrap that leaves .mcp.json only in /tmp is red", () => {
+    const m = docText().replace(/"\$\{ROOT\}\/\.mcp\.json"/g, '"/tmp/elsewhere.json"');
+    expect(bootstrapDeclarationViolations(m)).toContain("bootstrap does not write .mcp.json into each root, which is what the repoint row 5 check reads");
+  });
+
+  test("MUTATION — a spawn that loads the project .mcp.json (no --strict-mcp-config) is red", () => {
+    const m = docText().replace(/ --strict-mcp-config/, "");
+    expect(bootstrapDeclarationViolations(m).some((x) => x.startsWith("a spawn passes --mcp-config without"))).toBe(true);
+  });
+
+  test("CONTROL — the check is not vacuous: the document names at least two --mcp-config spawns", () => {
+    expect([...docText().matchAll(/--mcp-config /g)].length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("M_2306b6 — the bootstrap fence RUN: both Jira declarations carry the measured issue type", () => {
+  const jiraSub = (md: string): string[] => {
+    const lines = md.split("\n");
+    const i = lines.indexOf("### Jira");
+    if (i < 0) return [];
+    let j = i + 1;
+    while (j < lines.length && !/^#/.test(lines[j]!)) j++;
+    return lines.slice(i + 1, j);
+  };
+
+  test("RUN (jira) — each declaration carries jira_issue_type, and each root carries the .mcp.json row 5 reads", () => {
+    const r = runBootstrap(docText(), "jira");
+    expect(r.code, r.err).toBe(0);
+    for (const side of ["A", "B"] as const) {
+      expect(r.md[side], `${side} has a CLAUDE.md`).not.toBeNull();
+      expect(jiraSub(r.md[side]!), side).toContain("jira_issue_type: Task");
+      expect(r.mcp[side], `${side} has .mcp.json`).toBe(true);
+    }
+  }, 60_000);
+
+  test("PRECONDITION ABSENT (jira) — no ISSUE_TYPE in the pre-flight env: refuses by name, before either root is written", () => {
+    const r = runBootstrap(docText(), "jira", "");
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("check=issue-type-unset");
+    expect(r.md.A, "nothing was written").toBeNull();
+    expect(r.md.B, "nothing was written").toBeNull();
+  }, 60_000);
+
+  test("TWIN (linear) — a Linear run declares no issue type and is not asked for one, and still gets its .mcp.json", () => {
+    const r = runBootstrap(docText(), "linear");
+    expect(r.code, r.err).toBe(0);
+    for (const side of ["A", "B"] as const) {
+      expect(r.md[side]!).not.toContain("jira_issue_type");
+      expect(r.mcp[side], `${side} has .mcp.json`).toBe(true);
+    }
+  }, 60_000);
+});
+
+// ===========================================================================
+// M_2306b6 (F3) — a fence copied from the LOADED skill text refuses itself
+// ===========================================================================
+//
+// MEASURED LIVE (2026-09-23). The skill loader substitutes the invocation's
+// arguments for `$0`..`$3` throughout the document body before the text
+// reaches the model. Every fence here uses positional parameters — `refuse`
+// and `run_state_refuse` take their message, remedy and check that way — so a
+// fence run from the LOADED text runs with those already expanded: refusals
+// print empty messages, and a `case "$1" in` reads the wrong word. Fences must
+// be taken from the file on disk.
+//
+// The guard is a canary, and it is two-sided on purpose: the left side is
+// spelled `$1` so the loader rewrites it, the right side is assembled from
+// two pieces the loader cannot match, so the two agree ONLY when the text came
+// off disk. A guard whose both sides the loader rewrote would pass either way.
+const CANARY_LEFT = `LOADER_CANARY='$1'`;
+const CANARY_TEST = `[ "\${LOADER_CANARY}" = "\${LOADER_EXPECT}" ]`;
+
+function loaderGuardViolations(text: string): string[] {
+  const v: string[] = [];
+  const fences = [...text.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1]!);
+  if (fences.length < 10) v.push(`only ${fences.length} bash fences found — the scan is not reading the document`);
+  for (const body of fences) {
+    const tag = body.split("\n").find((l) => l.startsWith("# shared-tracker-smoke:")) ?? "(untagged fence)";
+    const usesPositional = /\$\{?[123]\b/.test(body);
+    if (!usesPositional) continue;
+    if (!body.includes(CANARY_LEFT) || !body.includes(CANARY_TEST)) {
+      v.push(`${tag.slice(0, 60)}: uses positional parameters with no loader canary`);
+      continue;
+    }
+    const guardAt = body.indexOf(CANARY_LEFT);
+    const firstUse = body.search(/\$\{?[123]\b/);
+    if (firstUse < guardAt) v.push(`${tag.slice(0, 60)}: the loader canary comes after the first positional use`);
+  }
+  return v;
+}
+
+describe("M_2306b6 (F3) — every fence that uses positional parameters carries the loader canary", () => {
+  test("the document is clean", () => {
+    expect(loaderGuardViolations(docText())).toEqual([]);
+  });
+
+  test("CONTROL — the scan is not vacuous: it sees fences, and most of them use positional parameters", () => {
+    const fences = [...docText().matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1]!);
+    expect(fences.length).toBeGreaterThanOrEqual(12);
+    expect(fences.filter((b) => /\$\{?[123]\b/.test(b)).length).toBeGreaterThanOrEqual(10);
+  });
+
+  test("MUTATION — a fence whose canary is removed is named", () => {
+    const m = docText().replace(CANARY_LEFT, "LOADER_CANARY=x");
+    expect(loaderGuardViolations(m).length).toBeGreaterThan(0);
+  });
+
+  test("MUTATION — a one-sided canary (both halves spelled so the loader rewrites them) is named", () => {
+    const m = docText().replaceAll(`LOADER_EXPECT="$(printf '\\044')1"`, `LOADER_EXPECT='$1'`).replaceAll(CANARY_TEST, `[ "\${LOADER_CANARY}" = "$1" ]`);
+    expect(loaderGuardViolations(m).length).toBeGreaterThan(0);
+  });
+
+  test("RUN — the preamble as the LOADER would hand it over refuses by name, having done nothing", () => {
+    const body = oneFence(docText(), "# shared-tracker-smoke: audit").body;
+    withStub((sb) => {
+      // What the loader does to the document text: its arguments replace $0..$3.
+      const loaded = body.replace(/\$\{?([0123])\b\}?/g, "");
+      const r = runStubScript(sb, rebaseIntoStub(loaded.replaceAll("<tracker>", "jira"), sb), stubEnv(sb));
+      expect(r.exitCode).not.toBe(0);
+      expect(r.err).toContain("check=loader-substituted");
+    });
+  }, 30_000);
+
+  test("PERMIT — the same fence taken from disk gets past the canary (it refuses later, for its own reasons)", () => {
+    const body = oneFence(docText(), "# shared-tracker-smoke: audit").body;
+    withStub((sb) => {
+      const r = runStubScript(sb, rebaseIntoStub(body.replaceAll("<tracker>", "jira"), sb), stubEnv(sb));
+      expect(r.err).not.toContain("check=loader-substituted");
+    });
+  }, 30_000);
+});
+
+// ===========================================================================
+// M_2306b6 (F4) — every child is told, absolutely, which toolkit it is testing
+// ===========================================================================
+//
+// MEASURED LIVE (2026-09-23). Step 2's prompt said to repoint "with
+// `repoint_tracker_binding.ts`", naming no path. `$CLAUDE_PLUGIN_ROOT` is
+// empty inside a child's Bash call, so the child resolved the name itself and
+// ran the copy in `~/.claude-st/plugins/cache/.../2.89.0` — a released
+// version, not the tree under test. The leg graded code nobody was testing.
+//
+// The fence therefore states the path in the prompt it hands over, and states
+// it as the value of that step's own client (`tree`, `below-floor`,
+// `old-client`, `intruder`), since each of those IS the toolkit under test for
+// its step.
+function pluginPathViolations(text: string, steps: number[]): string[] {
+  const v: string[] = [];
+  for (const n of steps) {
+    withCaptureStub((sb) => {
+      writeStubRunEnv(sb, {});
+      const script = stepFenceFor(text, n, sb);
+      if (Array.isArray(script)) {
+        v.push(...script);
+        return;
+      }
+      const r = runStubScript(sb, script, stubEnv(sb));
+      const prompts = childPrompts(sb);
+      if (r.exitCode !== 0 || prompts.length !== 1) {
+        v.push(`step ${n}: the fence did not start exactly one child (exit ${r.exitCode})`);
+        return;
+      }
+      const prompt = prompts[0]!;
+      const row = stepRows(text).find((x) => x.nums.includes(n))!;
+      // The path each client resolves to, read from the run state this run wrote — never guessed here.
+      const expected = {
+        tree: join(sb.work, "plugins", "dev-process-toolkit"),
+        "below-floor": join(sb.root, "below"),
+        "old-client": join(sb.root, "old"),
+        intruder: join(sb.root, "intruder"),
+      }[row.client] ?? null;
+      if (!/never from a plugin cache/.test(prompt)) v.push(`step ${n}: the prompt does not forbid resolving the toolkit path itself`);
+      if (/\$\{?STEP_PLUGIN\}?/.test(prompt)) v.push(`step ${n}: the prompt hands over the literal \${STEP_PLUGIN}, unexpanded`);
+      if (expected !== null && !prompt.includes(expected)) v.push(`step ${n}: the prompt does not name this step's toolkit path (${expected})`);
+      if (expected === null) v.push(`step ${n}: the step table names a client this check does not know (${row.client})`);
+    });
+  }
+  return v;
+}
+
+describe("M_2306b6 (F4) — the step prompt names the toolkit under test by absolute path", () => {
+  test("RUN: all 26 steps", () => {
+    expect(pluginPathViolations(docText(), ALL_STEPS)).toEqual([]);
+  }, 180_000);
+
+  test("MUTATION — a fence whose prompt drops the path line is red on every step it is checked on", () => {
+    const text = docText();
+    const f = oneFence(text, STEP_TAG);
+    const mutated = f.body.split("\n").filter((l) => !/never from a plugin cache/.test(l)).join("\n");
+    expect(mutated, "control: the line is found").not.toBe(f.body);
+    expect(pluginPathViolations(text.replace(f.body, mutated), [1, 16]).length).toBeGreaterThanOrEqual(2);
+  }, 60_000);
+
+  test("MUTATION — a path handed over unexpanded (quoted heredoc) is red", () => {
+    const text = docText();
+    const f = oneFence(text, STEP_TAG);
+    const mutated = f.body.replace("<<PROMPT_EOF &", "<<'PROMPT_EOF' &");
+    expect(mutated, "control: the heredoc is found").not.toBe(f.body);
+    expect(pluginPathViolations(text.replace(f.body, mutated), [1]).length).toBeGreaterThan(0);
+  }, 60_000);
+});
+
+// ===========================================================================
+// M_2306b6 (F5) — every stub client is named `dev-process-toolkit`
+// ===========================================================================
+//
+// MEASURED LIVE (2026-09-23), RUN-FATAL. The intruder stub was named
+// `dpt-shared-intruder`. `--plugin-dir` shadows an installed plugin BY NAME,
+// so the user-enabled `dev-process-toolkit` (installed from this working
+// tree) loaded beside it, hook and all: the intruder's create was refused
+// twice by `pre-tracker-write-gate`, which the grader reads as
+// `isolation-broken`, and the item S4 and S13 need was never created. The
+// below-floor and old-client stubs were already named `dev-process-toolkit`,
+// which is exactly why they shadowed correctly and nobody noticed.
+describe("M_2306b6 (F5) — the stub plugin directories are named so --plugin-dir shadows the installed toolkit", () => {
+  /** Manifests the bootstrap writes by hand: [variable, name]. */
+  const handWritten = (boot: string): Array<[string, string]> =>
+    // `\\n` matches the two characters the document holds — a backslash and an n —
+    // inside the printf format, not a line break.
+    [...boot.matchAll(/printf '\{"name":"([^"]+)"[^\n]*\\n' > "\$\{(PLUGIN_[A-Z_]+)\}\/\.claude-plugin\/plugin\.json"/g)].map((m) => [m[2]!, m[1]!]);
+  /** Manifests DERIVED from the tree's own manifest, which already carries the name. */
+  const derived = (boot: string): string[] =>
+    [...boot.matchAll(/jq [^\n]*'\.version = \$v'[^\n]*"\$\{PLUGIN_TREE\}\/\.claude-plugin\/plugin\.json" > "\$\{(PLUGIN_[A-Z_]+)\}\/\.claude-plugin\/plugin\.json"/g)].map((m) => m[1]!);
+
+  const boot = () => oneFence(docText(), "# shared-tracker-smoke: bootstrap").body;
+
+  test("every stub manifest is named dev-process-toolkit — written so, or derived from the tree's own", () => {
+    const b = boot();
+    for (const [variable, name] of handWritten(b)) expect(name, `${variable} must shadow by name`).toBe("dev-process-toolkit");
+    // A derived manifest changes `.version` only, so it keeps the tree's name; that the
+    // tree's name is the plugin's own is the shipped manifest's business, asserted here.
+    expect(derived(b), "the below-floor stub is derived from the tree's manifest").toContain("PLUGIN_BELOW_FLOOR");
+    expect(JSON.parse(readFileSync(join(pluginRoot, ".claude-plugin", "plugin.json"), "utf-8")).name).toBe("dev-process-toolkit");
+  });
+
+  test("CONTROL — both stubs are accounted for, each by the shape that writes it", () => {
+    const b = boot();
+    expect([...handWritten(b).map(([v]) => v), ...derived(b)].sort()).toEqual(["PLUGIN_BELOW_FLOOR", "PLUGIN_INTRUDER"]);
+  });
+
+  test("MUTATION — an intruder stub named anything else is named by the check", () => {
+    const m = boot().replace('printf \'{"name":"dev-process-toolkit","version":"0.0.1"}', 'printf \'{"name":"dpt-shared-intruder","version":"0.0.1"}');
+    expect(m, "control: the intruder manifest line is found").not.toBe(boot());
+    expect(handWritten(m).some(([, n]) => n !== "dev-process-toolkit")).toBe(true);
+  });
+
+  test("MUTATION — a below-floor stub written by hand instead of derived is no longer accounted for", () => {
+    const m = boot().replace(/jq --arg v "0\.0\.1" '\.version = \$v'[^\n]*\n/, "");
+    expect(m, "control: the derive line is found").not.toBe(boot());
+    expect(derived(m)).not.toContain("PLUGIN_BELOW_FLOOR");
+  });
+
+  test("the document says WHY the name is load-bearing, where the isolation claim is made", () => {
+    expect(docText()).toMatch(/shadows an installed plugin only by name/i);
+  });
+});
+
+describe("M_2306b6 (F3) — the refusal's remedy names a section that exists, and its extractor cannot extract itself", () => {
+  const TICKS = "`".repeat(3);
+  const sectionFence = () => oneFence(docText(), "# shared-tracker-smoke: extract one fence").body;
+
+  /** The awk PROGRAM the section documents: the lines between the opening and closing quote. */
+  function awkProgram(body: string): string {
+    const lines = body.split("\n");
+    const open = lines.findIndex((l) => l.startsWith("awk -v tag="));
+    expect(open, "the section runs awk").toBeGreaterThanOrEqual(0);
+    const close = lines.findIndex((l, i) => i > open && l.startsWith("' \"${SKILL}\""));
+    expect(close, "the awk program is quoted closed").toBeGreaterThan(open);
+    return lines.slice(open + 1, close).join("\n");
+  }
+
+  /** Run an awk program over the real document, exactly as the section tells the operator to. */
+  function extract(program: string, tag: string): string {
+    const r = spawnSync("awk", ["-v", `tag=${tag}`, "-v", `t=${TICKS}`, program, DOC], { encoding: "utf-8" });
+    expect(r.status, r.stderr).toBe(0);
+    return r.stdout;
+  }
+  const firstTagLine = (body: string): string => body.split("\n").find((l) => l.startsWith("# shared-tracker-smoke:")) ?? "(untagged)";
+
+  test("the remedy names § Running a fence, and that heading is in the document", () => {
+    const text = docText();
+    expect(text).toContain("(§ Running a fence)");
+    expect(text.split("\n").some((l) => /^##\s+Running a fence\s*$/.test(l)), "a `## Running a fence` heading exists").toBe(true);
+  });
+
+  test("RUN — the documented extractor hands back the fence whose FIRST tag line was asked for", () => {
+    const got = extract(awkProgram(sectionFence()), "# shared-tracker-smoke: pre-flight");
+    expect(got.length, "something was extracted").toBeGreaterThan(100);
+    expect(firstTagLine(got)).toBe("# shared-tracker-smoke: pre-flight");
+    expect(got, "and it is the fence the operator asked for").toContain("check=loader-substituted");
+  });
+
+  test("MUTATION — a contains-match extractor hands back ITSELF: the recursion this shape closes", () => {
+    const program = awkProgram(sectionFence());
+    const contains = program
+      .replace('buf = ""; first = ""; inb = 1', 'buf = ""; inb = 1')
+      .replace('if (first != "" && index(first, tag) == 1)', "if (index(buf, tag))")
+      .replace(/if \(first == "" && \$0 ~ \/\^# shared-tracker-smoke:\/\) first = \$0; /, "");
+    expect(contains, "control: the mutation changed the program").not.toBe(program);
+    const got = extract(contains, "# shared-tracker-smoke: pre-flight");
+    expect(firstTagLine(got), "a contains-match hands back the extractor itself").toContain("extract one fence");
   });
 });
