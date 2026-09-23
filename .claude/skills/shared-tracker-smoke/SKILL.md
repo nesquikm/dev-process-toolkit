@@ -51,7 +51,7 @@ bash /tmp/dpt-fence.sh
 
 Nothing here calls a tracker. Run this fence from the toolkit checkout's top level, print its output, and wait for the operator to type approval. A tracker other than `jira` or `linear` refuses `tracker-unknown` before any plan is written. On a Jira run without `--jira-repoint-from` it prints `S8 skipped: repoint-space-not-given`. The numbers are derived by command, never typed: `spawnCeiling(tracker)` is the tracker's live steps plus the two audits.
 
-**The item counts are the tracker's own.** The registry holds a Linear issue budget but no Jira item count, so the fence derives both from the tracker items the § Phase 3 steps create on the expected path, listed once in `CREATES` below, and checks the Linear column against the registry's `LINEAR_ISSUE_BUDGET` (a drift refuses). The two trackers differ in the milestone: on Jira a milestone is an Epic, which is an issue, and on Linear it is a milestone, which is not. So on Jira every FR that names a milestone nothing has created yet costs TWO items, the FR and that milestone's Epic — measured on 2026-09-23, when step 1 on an empty DST2 created Epic `DST2-1` besides FR `DST2-2`, and the table, counting the FR alone, had told the operator to expect one. The S8 legacy item is not created on a Jira run without `--jira-repoint-from`. The worst case adds each live scenario's `worstCaseExtraIssues` from the registry — one item each for S6, S7 and S14, whose guards, if broken, would let one create through — so on Linear it equals `linearWorstCase()`.
+**The item counts are the tracker's own.** The registry holds a Linear issue budget but no Jira item count, so the fence derives both from the tracker items the § Phase 3 steps create on the expected path, listed once in `CREATES` below, and checks the Linear column against the registry's `LINEAR_ISSUE_BUDGET` (a drift refuses). The two trackers differ in the milestone: on Jira a milestone is an Epic, which is an issue, and on Linear it is a milestone, which is not. So on Jira every FR that names a milestone nothing has created yet costs TWO items, the FR and that milestone's Epic — measured on 2026-09-23, when step 1 on an empty DST2 created Epic `DST2-1` besides FR `DST2-2`, and the table, counting the FR alone, had told the operator to expect one. The S8 legacy item is not created on a Jira run without `--jira-repoint-from`. The worst case adds each live scenario's `worstCaseExtraIssues` from the registry — one item each for S6, S7 and S14, whose guards, if broken, would let one create through — so on Linear it equals `linearWorstCase()`. That field counts LINEAR issues, so the Jira worst case takes the same re-costing the expected path did: S6's create is an FR answered with the next free milestone, so on Jira it would mint that milestone's Epic as well and costs two, while S7's bare issue and S14's Epic cost one each.
 
 ```bash
 # shared-tracker-smoke: phase 0 — the plan the operator approves
@@ -89,10 +89,17 @@ if (linearAll !== r.LINEAR_ISSUE_BUDGET) {
 }
 const expected = CREATES.filter((c) => !(skip && c.id === "S8")).reduce((n, c) => n + c[t], 0);
 const extra = r.SHARED_TRACKER_SCENARIOS.filter((s) => s.live && s.trackers.includes(t)).reduce((n, s) => n + s.worstCaseExtraIssues, 0);
+// worstCaseExtraIssues counts LINEAR issues, as the registry says. On Jira the same
+// re-costing the expected path needed applies: S6 worst case is an FR answered with
+// "accept the recommended next free milestone" (the answer steps 1, 4-5 and 20 give),
+// so it would mint that milestone Epic too and cost two. S7 creates a bare issue and
+// S14 a milestone Epic, one each.
+const JIRA_WORST_EXTRA_EPIC = ["S6"];
+const extraJira = extra + r.SHARED_TRACKER_SCENARIOS.filter((s) => s.live && s.trackers.includes(t) && JIRA_WORST_EXTRA_EPIC.includes(s.id)).length;
 console.log(`SPAWN_CEILING=${ceiling}`);
 console.log(`EXPECTED_CHILDREN=${ceiling - (skip ? s8.liveSteps : 0)}`);
 console.log(`EXPECTED_ITEMS=${expected}`);
-console.log(`WORST_CASE_ITEMS=${t === "linear" ? r.linearWorstCase() : expected + extra}`);
+console.log(`WORST_CASE_ITEMS=${t === "linear" ? r.linearWorstCase() : expected + extraJira}`);
 console.log(`ITEM_UNIT="${t === "linear" ? "Linear issues (the free-plan budget)" : "Jira issues, the S3 Epic included"}"`);
 console.log(`S8=${skip ? "skipped" : "run"}`);
 ') || { echo "/shared-tracker-smoke: phase 0 could not derive the plan from the registry; nothing was approved." >&2; exit 1; }
@@ -299,6 +306,12 @@ fi
 [ -n "${OLD_CLIENT}" ] || refuse old-client-none "no cached dev-process-toolkit version lacks the tracker-write hook." "pass --old-client <plugin dir> naming a plugin copy older than ${FLOOR} without the hook."
 OLD_V=$(jq -r '.version // empty' "${OLD_CLIENT}/.claude-plugin/plugin.json" 2>/dev/null)
 [ -n "${OLD_V}" ] || refuse old-client-none "the old client ${OLD_CLIENT} has no readable plugin manifest." "pass --old-client <plugin dir> naming a plugin copy older than ${FLOOR} without the hook."
+# --plugin-dir shadows an installed plugin BY NAME (the property the 2026-09-23 run
+# lost its intruder to). The old client is the one shape the bootstrap does not write,
+# so its name is checked here rather than assumed.
+OLD_NAME=$(jq -r '.name // empty' "${OLD_CLIENT}/.claude-plugin/plugin.json" 2>/dev/null)
+[ "${OLD_NAME}" = dev-process-toolkit ] \
+  || refuse old-client-not-named "the old client ${OLD_CLIENT} is named ${OLD_NAME:-none}, not dev-process-toolkit, so --plugin-dir would load it BESIDE the installed toolkit instead of shadowing it, and the installed hook would grade this session." "pass --old-client <plugin dir> whose .claude-plugin/plugin.json is named dev-process-toolkit."
 version_below "${OLD_V}" "${FLOOR}" || refuse old-client-not-below-floor "the old client ${OLD_CLIENT} is ${OLD_V}, not below the floor ${FLOOR}." "pass --old-client <plugin dir> naming a plugin copy older than ${FLOOR}."
 if has_hook "${OLD_CLIENT}"; then
   refuse old-client-has-hook "the old client ${OLD_CLIENT} registers the tracker-write hook." "pass --old-client <plugin dir> naming a plugin copy whose hooks/hooks.json has no pre-tracker-write-gate."
@@ -645,6 +658,8 @@ One `claude -p` child per scenario step, serial: start a step, wait for it to ex
 `<marker>` is a registry id or one of the reserved markers `audit` and `intruder`; `client=` is omitted for the tree under test and is `below-floor`, `old-client` or `intruder` otherwise. The grader maps each ledgered session to exactly one scenario from that line in its transcript's first user message.
 
 **After step 1, run § Privacy dry run again, before step 2.** The same fence, over a ledger that now holds one real child transcript. The pass before the first spawn sees the bootstrap state alone; this one sees a child's own records, which is where the first live Jira run's 41 personal-data matches lived. Catching that class after one step costs one fence; catching it at Phase 6 costs the whole leg, which is what happened on 2026-09-23.
+
+**Also after step 1: check the child could reach its tracker at all.** `--strict-mcp-config` is new and has never run live (it was added so the operator's user-scope registration of the second server name stops loading into every child). If it is wrong, a child gets NO tracker server and the failure is silent-looking: step 1 creates no item, and its log holds no `mcp__` tool call at all. So before step 2, read `/tmp/dpt-shared-<tracker>-1-S8.log` for one `mcp__` call and confirm the step's item exists in the tracker. Zero calls means the config, not the guard under test: stop the leg there rather than spending twenty-five more steps on a run whose children cannot write. One child, one check, at the first step that writes.
 
 **The ceiling.** The run starts at most `SPAWN_CEILING` children (the registry's live steps plus the two audits). The fence counts the run ledger before every spawn and refuses instead of spawning when one more child would exceed it.
 

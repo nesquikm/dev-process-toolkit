@@ -300,8 +300,8 @@ function writeJson(p: string, v: unknown): void {
   writeFileSync(p, JSON.stringify(v, null, 2));
 }
 
-function cachedPlugin(dir: string, version: string, withHook: boolean): string {
-  writeJson(join(dir, ".claude-plugin", "plugin.json"), { name: "dev-process-toolkit", version });
+function cachedPlugin(dir: string, version: string, withHook: boolean, name = "dev-process-toolkit"): string {
+  writeJson(join(dir, ".claude-plugin", "plugin.json"), { name, version });
   writeJson(join(dir, "hooks", "hooks.json"), {
     hooks: {
       PreToolUse: [
@@ -529,6 +529,19 @@ describe("AC.2 — pre-flight refusals: non-zero, three-line NFR-10 shape, zero 
         cachedPlugin(join(sb.root, "oc-hooked"), "2.86.0", true);
       },
     },
+    {
+      // M_2306b6 audit round 1 (M2): `--plugin-dir` shadows BY NAME, so an old
+      // client under any other name loads BESIDE the installed toolkit and its
+      // hook grades the session — run-fatal, and the one client shape the
+      // bootstrap does not write, so nothing else checks it.
+      name: "old-client-not-named — OLD_CLIENT is a hook-less copy under another name",
+      tracker: "jira",
+      env: { TRACKER: "jira" },
+      arrange: (sb) => {
+        cachedPlugin(join(sb.root, "oc-misnamed"), "2.86.0", false, "dpt-old-client");
+      },
+      check: "old-client-not-named",
+    },
     { name: "digest-unavailable — the behaviour digest cannot be computed", tracker: "jira", env: { TRACKER: "jira", STUB_DIGEST_FAIL: "1" } },
     { name: "second-server-silent — no answer from the second server name", tracker: "jira", env: { TRACKER: "jira" }, arrange: (sb) => rmSync(join(sb.answers, "second-server-read.json")) },
     { name: "second-server-error — the second server name answered an error", tracker: "linear", env: { TRACKER: "linear" }, arrange: (sb) => writeJson(join(sb.answers, "second-server-read.json"), { error: "unauthenticated" }) },
@@ -564,6 +577,7 @@ describe("AC.2 — pre-flight refusals: non-zero, three-line NFR-10 shape, zero 
   const oldClientDir: Record<string, string> = {
     "old-client-not-below-floor — OLD_CLIENT is at the floor": "oc-floor",
     "old-client-has-hook — OLD_CLIENT carries the tracker-write hook": "oc-hooked",
+    "old-client-not-named — OLD_CLIENT is a hook-less copy under another name": "oc-misnamed",
   };
   for (const c of cases) {
     test(`refusal — ${c.name}`, () => {
@@ -1613,14 +1627,20 @@ describe("audit item 9 — Phase 0's expected and worst-case item counts are the
   // milestones), S10 1→2. S2 stays 2 — its FRs go into the milestone S3
   // already created — and S3 stays 1, the Epic itself. Linear is unchanged: a
   // Linear milestone is not an issue.
-  test("jira with --jira-repoint-from: 12 expected Jira items (each new milestone's Epic counted), 15 at worst (+ S6, S7, S14)", () => {
+  // The worst case needed the SAME correction as the expected path, and did not
+  // get it in round 1: `worstCaseExtraIssues` counts LINEAR issues (the registry
+  // says so). On Jira, S6's broken-guard create is an FR answered with "accept
+  // the recommended next free milestone" — the same answer as steps 1, 4-5 and
+  // 20 — so it mints that milestone's Epic too and costs 2, not 1. S7 creates a
+  // bare issue (1) and S14's is a milestone Epic (1): 4, not 3.
+  test("jira with --jira-repoint-from: 12 expected Jira items (each new milestone's Epic counted), 16 at worst (S6 costs two)", () => {
     const p = runPhase0("jira", "DST2");
-    expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS]).toEqual(["12", "15"]);
+    expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS]).toEqual(["12", "16"]);
     expect(p.ITEM_UNIT).toMatch(/Jira/);
   });
-  test("jira without the flag: the S8 legacy item and its Epic are not created — 10 expected, 13 at worst", () => {
+  test("jira without the flag: the S8 legacy item and its Epic are not created — 10 expected, 14 at worst", () => {
     const p = runPhase0("jira", undefined);
-    expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS, p.S8]).toEqual(["10", "13", "skipped"]);
+    expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS, p.S8]).toEqual(["10", "14", "skipped"]);
   });
   test("the Jira rows say WHY they cost two, and the rows that do not are named too", () => {
     const boot = oneFence(docText(), "# shared-tracker-smoke: phase 0 —").body;
@@ -1631,6 +1651,8 @@ describe("audit item 9 — Phase 0's expected and worst-case item counts are the
     }
     const s2 = boot.split("\n").find((l) => l.includes('id: "S2"'))!;
     expect(s2, "S2 says why it does NOT mint one").toMatch(/already|joined/);
+    // The worst-case supplement is named where it is applied, with its reason.
+    expect(boot, "the Jira worst case says WHICH scenario costs two").toMatch(/S6/);
   });
   test("linear: the registry's LINEAR_ISSUE_BUDGET and linearWorstCase() — no Epic, a milestone is not an issue", async () => {
     const reg = await import("../adapters/_shared/src/shared_tracker_scenarios");
@@ -1653,7 +1675,7 @@ console.log(\`WORST_CASE_ITEMS=\${r.linearWorstCase()}\`);
 `;
     const mutated = text.replace(f.body, `${f.body.slice(0, start)}${old}${f.body.slice(end)}`);
     const p = runPhase0("jira", "DST2", mutated);
-    expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS]).not.toEqual(["12", "15"]);
+    expect([p.EXPECTED_ITEMS, p.WORST_CASE_ITEMS]).not.toEqual(["12", "16"]);
   });
 });
 
@@ -3884,6 +3906,19 @@ describe("M_2306b6 (F5) — the stub plugin directories are named so --plugin-di
     expect(derived(m)).not.toContain("PLUGIN_BELOW_FLOOR");
   });
 
+  test("M2 — the old client is name-checked too: shadowing is by NAME, and it is the one client shape the stub check cannot see", () => {
+    const pf = oneFence(docText(), "# shared-tracker-smoke: pre-flight").body;
+    expect(pf, "the pre-flight reads the old client's manifest name").toMatch(/old-client-not-named|\.name \/\/ empty/);
+    expect(pf, "and refuses when it is not dev-process-toolkit").toContain("old-client-not-named");
+  });
+
+  test("MUTATION — a pre-flight that checks only version and hook is red on the name check", () => {
+    const pf = oneFence(docText(), "# shared-tracker-smoke: pre-flight").body;
+    const m = pf.split("\n").filter((l) => !l.includes("old-client-not-named")).join("\n");
+    expect(m, "control: the name check is found").not.toBe(pf);
+    expect(m).not.toContain("old-client-not-named");
+  });
+
   test("the document says WHY the name is load-bearing, where the isolation claim is made", () => {
     expect(docText()).toMatch(/shadows an installed plugin only by name/i);
   });
@@ -3933,5 +3968,23 @@ describe("M_2306b6 (F3) — the refusal's remedy names a section that exists, an
     expect(contains, "control: the mutation changed the program").not.toBe(program);
     const got = extract(contains, "# shared-tracker-smoke: pre-flight");
     expect(firstTagLine(got), "a contains-match hands back the extractor itself").toContain("extract one fence");
+  });
+});
+
+describe("M_2306b6 (M6) — the untested --strict-mcp-config fails cheaply, at step 1", () => {
+  test("the document tells the operator what a broken MCP config looks like and where to stop", () => {
+    const text = docText();
+    const phase3 = section(text, /^## Phase 3/);
+    expect(phase3, "it names the flag").toContain("--strict-mcp-config");
+    expect(phase3, "it names the observable: no mcp__ call in the step's own log").toMatch(/mcp__/);
+    expect(phase3, "it names the step's log").toMatch(/1-S8\.log/);
+    expect(phase3, "and it says to stop rather than spend the rest of the leg").toMatch(/stop the leg/i);
+  });
+
+  test("MUTATION — a document that names the flag but not the observable is red", () => {
+    const text = docText();
+    const m = text.replace(/read `\/tmp\/dpt-shared-<tracker>-1-S8\.log` for one `mcp__` call/, "check that the step worked");
+    expect(m, "control: the sentence is found").not.toBe(text);
+    expect(section(m, /^## Phase 3/)).not.toMatch(/1-S8\.log/);
   });
 });
