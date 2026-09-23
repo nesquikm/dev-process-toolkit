@@ -59,7 +59,13 @@ import {
 // same verdict a TypeScript one already did.
 // ---------------------------------------------------------------------------
 
-const FR_RE = /^specs\/frs\/.*\.md$/;
+// ACTIVE FRs only. `.*` used to cross the `archive/` segment, so filing a
+// finished FR — the archive move `/implement` Phase 4 performs — was read as
+// staging new work and demanded TDD evidence for a markdown record: there is no
+// test to run red and no FR to `/tdd`, so the refusal named no path the session
+// could take. Measured live on 2026-09-23, where it aborted a 26-step leg.
+// Archived records are frozen history, the same rule every other walk applies.
+const FR_RE = /^specs\/frs\/(?!archive\/)[^/]*\.md$/;
 
 // Spec-only carve-out patterns. Every staged path must match at least one of
 // these AND none may match the src/test patterns below for `spec-only`.

@@ -33,8 +33,17 @@ export interface PlanTaskFrCoverageReport {
  *  `- [ ]`, `- [x]`, `- [deferred]`, `- [foo]` … the marker is the
  *  capture group; downstream logic categorises it. */
 const TASK_LINE_RE = /^\s*-\s*\[(?<marker>[^\]]*)\]\s+(?<body>.+)$/;
-/** Inline FR-link suffix: `— STE-NNN` (em-dash or hyphen, then ID). */
-const INLINE_FR_LINK_RE = /[—-]\s+([A-Z]+-\d+)\s*$/;
+/**
+ * Inline FR-link suffix: `— STE-NNN` (em-dash or hyphen, then ID).
+ *
+ * `[A-Z][A-Z0-9]*`, not `[A-Z]+`: a Jira project key may carry a digit, and the
+ * narrower shape silently rejected `DST2-4` — this programme's own repoint-from
+ * space — so a task that correctly linked its FR was reported as backing none.
+ * Measured on live leg 2, 2026-09-23. The same grammar decides `FrRow.trackerId`
+ * below; the two are the probe's one definition of a tracker key.
+ */
+const TRACKER_KEY = "[A-Z][A-Z0-9]*-\\d+";
+const INLINE_FR_LINK_RE = new RegExp(`[—-]\\s+(${TRACKER_KEY})\\s*$`);
 
 interface FrRow {
   trackerId: string | null;
@@ -95,7 +104,7 @@ function parseFrRows(content: string): FrRow[] {
     if (/^[-:]+$/.test(tracker)) continue; // header-divider row
     if (tracker.toLowerCase() === "fr") continue; // header
     rows.push({
-      trackerId: /^[A-Z]+-\d+$/.test(tracker) ? tracker : null,
+      trackerId: new RegExp(`^${TRACKER_KEY}$`).test(tracker) ? tracker : null,
       title,
     });
   }

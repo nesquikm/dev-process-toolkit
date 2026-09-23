@@ -1594,3 +1594,142 @@ describe("AC-STE-614.13 — the receipt is load-bearing in the /tdd suite's proc
     expect(r.stderr).toContain("Refusing:");
   });
 });
+
+// D2 (live leg 2, 2026-09-23) — an ARCHIVED FR is not new work.
+//
+// MEASURED LIVE, and the defect that aborted the leg. `FR_RE` is
+// `^specs/frs/.*\.md$`, whose `.*` crosses the `archive/` segment, so filing a
+// finished FR — the archive move `/implement` Phase 4 performs — was read as
+// staging new work and demanded TDD evidence:
+//
+//   Refusing: no TDD evidence for the staged test path
+//   specs/frs/archive/DST2-4.md: neither a dev-process-toolkit:tdd Skill
+//   tool_use nor a red-before proof covering it was found in this session.
+//
+// Neither remedy can be satisfied for an archived markdown record: there is no
+// test to run red and no FR to /tdd. The child met a refusal with no legal path,
+// concluded deadlock, and the repoint chained into the same call never ran.
+//
+// THE CONTRAST IS THE FINDING. Step 1 met a refusal from the tracker-write gate
+// for a chained command too — but that one NAMED the offending shape and the
+// plain-command form, so the child retried unchained and passed. One refusal
+// teaches, the other blocks.
+describe("D2 — staging an ARCHIVED FR is bookkeeping, not new work", () => {
+  test("archived FR staged BESIDE a non-spec file (the live shape) + no /tdd evidence → exit 0", async () => {
+    // The FR-ONLY carve-out must not be what makes this pass: the live commit
+    // also staged the binding and the receipts, so the staged set was not
+    // FR-only and fell through to the tdd-required classification.
+    await initRepoWithStaged({
+      "specs/frs/archive/DST2-4.md": "---\ntitle: x\nstatus: archived\narchived_at: 2026-09-23T00:00:00Z\n---\n\n# x\n",
+      "CLAUDE.md": "# B\n\n## Task Tracking\n\nmode: jira\n",
+      ".dpt/ledger/receipts/s1/r.json": "{}\n",
+    });
+    const transcript = writeTranscript([{ type: "tool_use", name: "Bash", input: { command: "ls" } }]);
+    const r = await runModule(JSON.stringify({
+      session_id: "s1",
+      transcript_path: transcript,
+      cwd: repoDir,
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "git commit -m 'docs(specs): archive DST2-4'" },
+    }));
+    expect(r.exitCode, `${r.stdout}\n${r.stderr}`).toBe(0);
+  });
+
+  test("PERMIT TWIN — an ACTIVE FR still requires the evidence, so the carve-out is about the archive and nothing else", async () => {
+    await initRepoWithStaged({
+      "specs/frs/DST2-4.md": "---\ntitle: x\nstatus: active\n---\n\n# x\n",
+      "src/thing.ts": "export const a = 1;\n",
+      "src/thing.test.ts": "import { test } from \"bun:test\";\ntest(\"a\", () => {});\n",
+    });
+    const transcript = writeTranscript([{ type: "tool_use", name: "Bash", input: { command: "ls" } }]);
+    const r = await runModule(JSON.stringify({
+      session_id: "s1",
+      transcript_path: transcript,
+      cwd: repoDir,
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "git commit -m wip" },
+    }));
+    expect(r.exitCode, "an active FR staged beside a test still demands TDD evidence").toBe(2);
+  });
+
+  test("an archived FR staged BESIDE a real test still requires the evidence — the test is the trigger, not the record", async () => {
+    await initRepoWithStaged({
+      "specs/frs/archive/DST2-4.md": "---\ntitle: x\nstatus: archived\narchived_at: 2026-09-23T00:00:00Z\n---\n\n# x\n",
+      "src/thing.test.ts": "import { test } from \"bun:test\";\ntest(\"a\", () => {});\n",
+    });
+    const transcript = writeTranscript([{ type: "tool_use", name: "Bash", input: { command: "ls" } }]);
+    const r = await runModule(JSON.stringify({
+      session_id: "s1",
+      transcript_path: transcript,
+      cwd: repoDir,
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "git commit -m wip" },
+    }));
+    expect(r.exitCode).toBe(2);
+  });
+});
+
+// D2, second half — a refusal that blocks a chain says so.
+//
+// The live child's repoint sat in the same Bash call as its commits. The hook
+// refused the call, the repoint never ran, and nothing in the refusal said that
+// — so the child read a blocked commit as a deadlock rather than as "the rest
+// of your command did not happen, retry it on its own".
+describe("D2 — a refusal that blocks a CHAINED call says the rest did not run", () => {
+  const stagedRefusingSet = {
+    "specs/frs/DST2-9.md": "---\ntitle: x\nstatus: active\n---\n\n# x\n",
+    "src/thing.test.ts": "import { test } from \"bun:test\";\ntest(\"a\", () => {});\n",
+  };
+
+  test("a chained command's refusal carries the note", async () => {
+    await initRepoWithStaged(stagedRefusingSet);
+    const transcript = writeTranscript([{ type: "tool_use", name: "Bash", input: { command: "ls" } }]);
+    const r = await runModule(JSON.stringify({
+      session_id: "s1",
+      transcript_path: transcript,
+      cwd: repoDir,
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "git add -A && git commit -m wip ; bun run repoint.ts" },
+    }));
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr, "it names what else was blocked").toMatch(/blocked the WHOLE command/);
+    expect(r.stderr, "and what to do about it").toMatch(/re-run those parts/);
+  });
+
+  test("CONTROL — a PLAIN command's refusal does NOT carry it, so the note is about chaining and not decoration", async () => {
+    await initRepoWithStaged(stagedRefusingSet);
+    const transcript = writeTranscript([{ type: "tool_use", name: "Bash", input: { command: "ls" } }]);
+    const r = await runModule(JSON.stringify({
+      session_id: "s1",
+      transcript_path: transcript,
+      cwd: repoDir,
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "git commit -m wip" },
+    }));
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).not.toMatch(/blocked the WHOLE command/);
+  });
+
+  test("the refusal stays a three-line NFR-10 block in both cases", async () => {
+    await initRepoWithStaged(stagedRefusingSet);
+    const transcript = writeTranscript([{ type: "tool_use", name: "Bash", input: { command: "ls" } }]);
+    for (const command of ["git commit -m wip", "git add -A && git commit -m wip"]) {
+      const r = await runModule(JSON.stringify({
+        session_id: "s1",
+        transcript_path: transcript,
+        cwd: repoDir,
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command },
+      }));
+      const lines = r.stderr.trim().split("\n").filter((l) => l.trim() !== "");
+      expect(lines.length, `${command}: ${r.stderr}`).toBe(3);
+      expect(lines[1]!).toMatch(/^Remedy: /);
+    }
+  });
+});

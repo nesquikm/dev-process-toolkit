@@ -22,7 +22,7 @@ The orchestrator passes you (in its prompt body):
 ## Procedure
 
 1. **Read** the topic from `$ARGUMENTS`.
-2. **Read** `specs/deps.yaml` at the consumer repo root. If the file is **absent** or contains **zero entries**, take the vacuous-exit path (see below) — emit an empty `deps-research-result` fenced block (banner + open fence + close fence, no content lines) and stop.
+2. **Read** `specs/deps.yaml` at the consumer repo root. If the file is **absent** or contains **zero entries**, take the vacuous-exit path (see below) — emit the canonical block with every section header present and the literal bullet `- (none found)` under each, and stop.
 3. **Resolve** each manifest entry's sibling path (entries' `path` always starts with `../`).
 4. **Glob** each resolved sibling path's `docs/` tree (Diátaxis shape: `docs/tutorials/`, `docs/how-to/`, `docs/reference/`, `docs/explanation/`). Silently skip entries whose checkout is missing on disk and list them under the optional `## Missing deps` subsection.
 5. **Scan** each present package's matched `docs/` files for topic overlap (keyword + title match; LLM-quality ranking). For `## API Surface Highlights`: lift verbatim signature snippets from `docs/reference/` (never paraphrase). For `## Reusable Patterns`: lift decisions / patterns from `docs/explanation/`.
@@ -44,7 +44,9 @@ Restated for the LLM running in this forked context — the parent skill consume
 
 ## Vacuous-exit path
 
-When `specs/deps.yaml` is **absent** OR contains **zero entries**, emit an empty `deps-research-result` fenced block (banner line + open fence + close fence, zero content lines between the fences) and stop. The orchestrator and parent skill both detect this empty-block shape and skip the seed without surfacing a shape violation. This is the deterministic vacuous-exit contract — do not synthesize bullets, do not omit the banner, do not omit the fences.
+When `specs/deps.yaml` is **absent** OR contains **zero entries**, emit the CANONICAL block — banner, open fence, all three `## ` section headers in order, the literal bullet `- (none found)` under each, close fence — and stop.
+
+**Why not an empty block.** This section used to prescribe banner + open fence + close fence with no content lines. `parseDepsResearchBlock` REJECTS that shape: it requires the three canonical headings and answers `expected 3 canonical `## ` headings …, found 0`, so the vacuous exit the document ordered was a shape violation by the parser that grades it, and `agents/deps-researcher.md` prescribed a third shape again (`- (none found)`). Two of the three artifacts already agreed; this one was the odd one out, so it moved rather than the parser — loosening the parser would have made an empty block indistinguishable from a fork that died mid-emit. Do not synthesize FINDINGS, do not omit the banner, do not omit the fences, and do not omit the headers.
 
 ## Branch-gate exemption
 

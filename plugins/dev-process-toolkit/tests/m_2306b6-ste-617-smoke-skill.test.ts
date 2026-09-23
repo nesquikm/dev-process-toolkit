@@ -85,14 +85,32 @@ function frontmatter(text: string): string {
   return m![1]!;
 }
 
-/** The region under the first heading matching `re`, through the next heading of the same or a higher level. */
+/**
+ * The region under the first heading matching `re`, through the next heading of
+ * the same or a higher level.
+ *
+ * FENCED BLOCKS ARE NOT HEADINGS. A bash comment inside a ```bash fence starts
+ * with `# ` too, so without this the walk read `# one fence — \`phase 0\` hits …`
+ * as a Phase 0 heading and handed back the extractor fence. Measured 2026-09-23,
+ * when a comment added to the document broke two AC.18 rows that had nothing to
+ * do with it.
+ */
 function section(text: string, re: RegExp): string {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
-  const i = lines.findIndex((l) => /^#{1,6}\s/.test(l) && re.test(l));
+  let fenced = false;
+  const isHeading = (l: string): boolean => {
+    if (/^\s*```/.test(l)) {
+      fenced = !fenced;
+      return false;
+    }
+    return !fenced && /^#{1,6}\s/.test(l);
+  };
+  const headingAt = lines.map(isHeading);
+  const i = lines.findIndex((l, k) => headingAt[k] === true && re.test(l));
   expect(i, `a heading matching ${re}`).toBeGreaterThanOrEqual(0);
   const level = /^(#+)/.exec(lines[i]!)![1]!.length;
   let j = i + 1;
-  while (j < lines.length && !(new RegExp(`^#{1,${level}}\\s`).test(lines[j]!))) j++;
+  while (j < lines.length && !(headingAt[j] === true && new RegExp(`^#{1,${level}}\\s`).test(lines[j]!))) j++;
   return lines.slice(i, j).join("\n");
 }
 
@@ -3975,6 +3993,55 @@ describe("M_2306b6 (F3) — the refusal's remedy names a section that exists, an
     expect(got, "and it is the fence the operator asked for").toContain("check=loader-substituted");
   });
 
+  // D3 (live leg 2) — a SHORTENED tag matches more than one fence, and the
+  // extractor used to concatenate them silently. Measured: `phase 0` hits Phase
+  // 0 and Phase 0.5, `extract` hits Phase 6 and the extractor itself, `S5` hits
+  // both S5 fences; every FULL tag the run uses hits exactly one. It already
+  // bit — an operator extracted `phase 0` and ran Phase 0.5 before the approval
+  // gate Phase 0 exists to hold — and an `extract` match ends in this fence's own
+  // `bash /tmp/dpt-fence.sh`, which would re-run whatever was extracted last.
+  test("RUN — an ambiguous tag refuses, names the count and every match, and writes NOTHING", () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "ste617-d3-")));
+    try {
+      const out = join(dir, "dpt-fence.sh");
+      // EVERY occurrence of the path, not just the redirect: leaving the `[ -s … ]`
+      // check pointing at the original file is precisely the slip that made a
+      // single-match tag read "no fence carries" during the live leg.
+      const body = sectionFence().replaceAll("/tmp/dpt-fence.sh", out).replace(/bash /g, "true ");
+      for (const tag of ["# shared-tracker-smoke: phase 0", "# shared-tracker-smoke: extract", "# shared-tracker-smoke: S5"]) {
+        const script = join(dir, "run.sh");
+        writeFileSync(script, body.replace(/^TAG=.*$/m, `TAG=${JSON.stringify(tag)}`).replace(/^SKILL=.*$/m, `SKILL=${JSON.stringify(DOC)}`));
+        const r = sh(dir, ["bash", script]);
+        expect(r.code, `${tag}: expected a refusal\n${r.out}`).not.toBe(0);
+        expect(r.err, `${tag}: names the ambiguity`).toMatch(/matches 2 fences, not exactly one/);
+        expect(r.err, `${tag}: lists what it matched`).toMatch(/The matches were:/);
+        expect(existsSync(out), `${tag}: nothing was extracted`).toBe(false);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  test("RUN — PERMIT TWIN: every FULL tag the run uses matches exactly one fence and extracts it", () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "ste617-d3p-")));
+    try {
+      const out = join(dir, "dpt-fence.sh");
+      const body = sectionFence().replaceAll("/tmp/dpt-fence.sh", out).replace(/bash /g, "true ");
+      const tags = [...docText().matchAll(/^# shared-tracker-smoke: [^\n]+$/gm)].map((m) => m[0]!);
+      expect(tags.length, "the document has tagged fences to try").toBeGreaterThanOrEqual(10);
+      for (const tag of tags) {
+        rmSync(out, { force: true });
+        const script = join(dir, "run.sh");
+        writeFileSync(script, body.replace(/^TAG=.*$/m, `TAG=${JSON.stringify(tag)}`).replace(/^SKILL=.*$/m, `SKILL=${JSON.stringify(DOC)}`));
+        const r = sh(dir, ["bash", script]);
+        expect(r.code, `${tag}: a full tag is unambiguous\n${r.err}`).toBe(0);
+        expect(existsSync(out), `${tag}: it extracted a fence`).toBe(true);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   test("MUTATION — a contains-match extractor hands back ITSELF: the recursion this shape closes", () => {
     const program = awkProgram(sectionFence());
     const contains = program
@@ -4177,5 +4244,106 @@ describe("the JOIN — a not-observed run never reaches the cleanup delete", () 
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// D5 (live leg 2) — the bootstrap repos satisfy the gate they must commit through.
+//
+// Probe #18 (`claudemd-docs-section-present`) is error-severity on any
+// toolkit-MANAGED tree, and a tree is managed when its CLAUDE.md carries a real
+// `## Task Tracking` heading — which the bootstrap writes. It wrote no `## Docs`,
+// so every gated commit in both throwaway repos was refused. That is a procedure
+// blocker, not a nuisance: the scenarios commit constantly.
+//
+// The fix is the BOOTSTRAP, not the probe. The probe is right — a toolkit-managed
+// tree should carry the section — and relaxing a shipped gate so a harness can
+// commit would be repairing the wrong side, which is this milestone's signature
+// mistake stated as a rule.
+describe("D5 — the bootstrap writes the `## Docs` section /setup would have written", () => {
+  const docsSection = (md: string): string[] => {
+    const lines = md.split("\n");
+    const i = lines.findIndex((l) => /^##\s+Docs\s*$/.test(l));
+    if (i < 0) return [];
+    let j = i + 1;
+    while (j < lines.length && !/^##\s/.test(lines[j]!)) j++;
+    return lines.slice(i, j);
+  };
+
+  for (const tracker of ["jira", "linear"] as const) {
+    test(`RUN (${tracker}) — both roots carry a real ## Docs section with the three canonical keys`, () => {
+      const r = runBootstrap(docText(), tracker);
+      expect(r.code, r.err).toBe(0);
+      for (const side of ["A", "B"] as const) {
+        const md = r.md[side];
+        expect(md, `${side} has a CLAUDE.md`).not.toBeNull();
+        const section = docsSection(md!);
+        expect(section.length, `${side} carries a ## Docs heading`).toBeGreaterThan(0);
+        for (const key of ["user_facing_mode:", "packages_mode:", "changelog_ci_owned:"]) {
+          expect(section.join("\n"), `${side} declares ${key}`).toContain(key);
+        }
+      }
+    }, 60_000);
+  }
+
+  test("RUN — the probe that blocked every gated commit now passes on the bootstrap output", async () => {
+    const r = runBootstrap(docText(), "jira");
+    expect(r.code, r.err).toBe(0);
+    const probe = await import("../adapters/_shared/src/claudemd_docs_section");
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "ste617-d5-")));
+    try {
+      writeFileSync(join(dir, "CLAUDE.md"), r.md.A!);
+      const report = await probe.runClaudeMdDocsSectionProbe(dir);
+      expect(report.violations, "probe #18 is satisfied by the bootstrap's own output").toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  test("CONTROL — the same probe still fails on a CLAUDE.md WITHOUT the section, so the row above is not vacuous", async () => {
+    const probe = await import("../adapters/_shared/src/claudemd_docs_section");
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "ste617-d5c-")));
+    try {
+      writeFileSync(join(dir, "CLAUDE.md"), "# x\n\n## Task Tracking\n\nmode: jira\n");
+      expect((await probe.runClaudeMdDocsSectionProbe(dir)).violations.length).toBeGreaterThan(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// D1 (live leg 2) — the step-2 prompt tells the child what row 7 actually reads.
+//
+// MEASURED: row 7 PASSES on the working-tree archive — verified by importing the
+// module and calling routeRepoint + decideRows directly, with B's state hash
+// identical before and after (the CLI is NOT a read-only probe: writeRepoint
+// runs on all-PASS). The child did not know that, committed to satisfy what it
+// assumed row 7 wanted, chained the repoint after the commits, met the commit
+// gate's refusal, and concluded deadlock without ever running the repoint.
+//
+// The repair is the PROMPT, not the gate. Row 7 works; repairing it would be
+// repairing the thing that is right.
+describe("D1 — step 2's prompt says the working-tree archive suffices and the repoint runs unchained", () => {
+  const step2 = (text: string): string => {
+    const row = stepRows(text).find((r) => r.nums.includes(2));
+    expect(row, "the step table has step 2").toBeDefined();
+    return row!.prompt;
+  };
+
+  test("it says no commit is required, and why", () => {
+    const p = step2(docText());
+    expect(p, "names what row 7 reads").toMatch(/working tree/i);
+    expect(p, "says a commit is not required").toMatch(/no commit is required/i);
+  });
+
+  test("it tells the child a blocked commit is not a deadlock, and to run the repoint unchained", () => {
+    const p = step2(docText());
+    expect(p).toMatch(/blocked the whole command/i);
+    expect(p, "and says to run it on its own").toMatch(/its own command|on its own/i);
+  });
+
+  test("MUTATION — the old prompt, which said neither, is red on both counts", () => {
+    const old = "Repoint B into the shared container with `repoint_tracker_binding.ts`; when it refuses, fix what it names and repoint again.";
+    expect(old).not.toMatch(/no commit is required/i);
+    expect(old).not.toMatch(/blocked the whole command/i);
   });
 });

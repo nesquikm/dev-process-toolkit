@@ -213,3 +213,73 @@ describe("STE-122 post-write self-check (AC-STE-122.3)", () => {
     }
   });
 });
+
+// D4 (live leg 2, 2026-09-23) — the self-check's scope was narrower than its
+// contract.
+//
+// Its docstring promises to catch "the LLM hand-rolled YAML", and it ran probe
+// 13 alone — which decides the PRESENCE or ABSENCE of `id:` and never looks at
+// any other key. So a file whose tracker block and timestamp were written as the
+// literal word `undefined` passed the check that exists to catch exactly that.
+// (The committed file in the live run was correct, so nothing was corrupted; the
+// defect is the check, not the output.)
+describe("D4 — the post-write self-check rejects `undefined`-valued frontmatter", () => {
+  const handRolledUndefined = [
+    "---",
+    "title: S8 legacy item",
+    "milestone: M_DST2_1",
+    "status: active",
+    "archived_at: null",
+    "tracker:",
+    "  undefined: undefined",
+    "created_at: undefined",
+    "---",
+    "",
+    "# S8 legacy item",
+    "",
+  ].join("\n");
+
+  test("a tracker block and a timestamp written as the word `undefined` are rejected", async () => {
+    const ctx = makeProject({ mode: "linear", frFiles: { "STE-999.md": handRolledUndefined } });
+    try {
+      await expect(runFrontmatterShapeCheck(ctx.root, ctx.frPaths["STE-999.md"]!)).rejects.toThrow(FRFrontmatterShapeError);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("PERMIT TWIN — a canonical file still passes, so the check did not become a blanket refusal", async () => {
+    const canonical = [
+      "---",
+      "title: S8 legacy item",
+      "milestone: M_DST2_1",
+      "status: active",
+      "archived_at: null",
+      "tracker:",
+      "  linear: STE-999",
+      "created_at: 2026-09-23T00:00:00Z",
+      "---",
+      "",
+      "# S8 legacy item",
+      "",
+    ].join("\n");
+    const ctx = makeProject({ mode: "linear", frFiles: { "STE-999.md": canonical } });
+    try {
+      await expect(runFrontmatterShapeCheck(ctx.root, ctx.frPaths["STE-999.md"]!)).resolves.toBeUndefined();
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test("the rejection names the offending key, so the remedy is actionable", async () => {
+    const ctx = makeProject({ mode: "linear", frFiles: { "STE-999.md": handRolledUndefined } });
+    try {
+      await runFrontmatterShapeCheck(ctx.root, ctx.frPaths["STE-999.md"]!);
+      throw new Error("expected a refusal");
+    } catch (e) {
+      expect(String((e as Error).message)).toMatch(/created_at|tracker/);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+});
