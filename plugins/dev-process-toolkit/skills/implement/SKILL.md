@@ -1,7 +1,7 @@
 ---
 name: implement
 description: Implement a feature or fix end-to-end. Analyzes the request, builds in TDD order, runs gate checks, self-reviews with bounded loops, and reports for human approval before committing.
-argument-hint: '<milestone, task description, issue number, "next", or "all">'
+argument-hint: '<milestone, task description, issue number, "next", or "all"> [--code-only]'
 ---
 
 # Implement
