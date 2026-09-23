@@ -1,7 +1,7 @@
 ---
 name: spec-write
 description: Guide the user through writing or completing spec files (requirements, technical spec, testing spec, plan). Use after /setup to fill in specs before implementation, or to update existing specs.
-argument-hint: '[--no-tech] [requirements | technical | testing | plan | all]'
+argument-hint: '[--no-tech] [--fetch | --no-fetch] [requirements | technical | testing | plan | all]'
 ---
 
 # Spec Write
