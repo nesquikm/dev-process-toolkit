@@ -42,8 +42,14 @@ function refuseField(field: string, key: string | undefined): never {
   throw new Error(`container page: required field \`${field}\` is missing on ticket ${key ?? "<unknown>"}`);
 }
 
+// A tracker answers `description: null` for a ticket that has none: requested and
+// empty, which reads as no back-link. Only an absent description was never requested.
+const NULLABLE_SHARED = new Set(["description"]);
+
 function requireShared(obj: Record<string, unknown>, fields: string[], key: string): void {
-  for (const f of fields) if (obj[f] === undefined || obj[f] === null) refuseField(f, key);
+  for (const f of fields) {
+    if (obj[f] === undefined || (obj[f] === null && !NULLABLE_SHARED.has(f))) refuseField(f, key);
+  }
 }
 
 function str(v: unknown): string | undefined {

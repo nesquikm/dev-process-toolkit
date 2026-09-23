@@ -749,6 +749,10 @@ export function extractBundle(o: ExtractOptions): ExtractResult {
   const rw: Rewriter = (s) => {
     let t = s;
     for (const [tok, re] of boundary) t = t.replace(re, tok);
+    // Then the personal-data classes the first live run leaked, each to an
+    // identity token. The PROJECTION stops producing them; `privacyViolations`
+    // is untouched and stays the fail-closed check over whatever remains.
+    for (const [re, tok] of REDACTIONS) t = t.replace(re, tok);
     return t;
   };
   const within = (cwd: string, root: string) => cwd === root || cwd.startsWith(`${root}/`);
@@ -2383,6 +2387,85 @@ function teardownIncomplete(b: LiveBundle): LiveFinding[] {
  * team is refused here too, never graded by shape: the grader does not rely on
  * `extract` (or the skill) having refused it first.
  */
+/** File-writing tool calls: the tools whose input names the file they write. */
+const FILE_WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+
+/** Shell words that write the paths handed to them as arguments. */
+const ARG_WRITERS = /^(?:tee|cp|mv|rm|mkdir|rmdir|touch|chmod|chown|install|dd|ln|truncate)$/;
+/** Words that may stand in front of the verb without being it. */
+const PREFIX_WORDS = /^(?:sudo|env|nohup|time|command|exec|do|then|else|\{)$/;
+/**
+ * In-place editors. Their file list is frequently INDIRECT — the live shape
+ * passed `"$R/CLAUDE.md"` inside a loop over both roots — so these are matched
+ * against the whole command, and the other root counts wherever it is named.
+ */
+const INPLACE = /(?:^|[;&|(]\s*|\bdo\s+)(?:perl\s+-\S*i|sed\s+(?:-\S+\s+)*-i|ed\s)/;
+/** A redirection and the word it writes to: `> f`, `>>f`, `1> f`. `2>&1` names `&1`, not a file. */
+const REDIRECT = /(?:^|\s)\d?>>?\s*("?)([^\s"'|&;]+)/g;
+
+const unquote = (t: string): string => t.replace(/^['"]|['"]$/g, "");
+
+/**
+ * Does this command write a path under `other`? TARGET-aware on purpose: a
+ * command that merely NAMES the sibling (`cat <A>/CLAUDE.md`, `git -C <A>
+ * status`, `bun run …/gate_receipt.ts gate-check <A>`) is not a write, and an
+ * earlier "names it anywhere" rule flagged all of those — the root tokens are
+ * spelled `<A>`/`<B>`, so even the redirect arm matched their own `>`.
+ *
+ * NAMED LIMIT: the in-place arm is not target-aware, because the live shape's
+ * target was a loop variable. A command that edits its OWN root in place while
+ * naming the other root anywhere is therefore flagged. That shape is
+ * indistinguishable from the live one by text alone; it is reported rather than
+ * silently resolved in either direction.
+ */
+function shellWritesInto(cmd: string, isOther: (path: string) => boolean, namesOther: boolean): boolean {
+  if (namesOther && INPLACE.test(cmd)) return true;
+  for (const seg of cmd.split(/\n|;|&&|\|\||\||&/)) {
+    for (const m of seg.matchAll(REDIRECT)) if (isOther(unquote(m[2]!))) return true;
+    const toks = seg.trim().split(/\s+/).filter(Boolean);
+    let i = 0;
+    while (i < toks.length && PREFIX_WORDS.test(unquote(toks[i]!))) i++;
+    if (!ARG_WRITERS.test(unquote(toks[i] ?? ""))) continue;
+    for (const t of toks.slice(i + 1)) if (!t.startsWith("-") && isOther(unquote(t))) return true;
+  }
+  return false;
+}
+
+/**
+ * AC-STE-617.20(a): the harm in its FILE form — a child writing into the OTHER
+ * repository. Observed live (2026-09-23): a child rooted in B ran a `perl -0pi`
+ * loop over both roots and edited A's CLAUDE.md, to satisfy a repoint refusal
+ * whose reason named the peer. The tracker-write hook gates tracker writes and
+ * the commit and PR predicates grade git, so nothing graded this. The ungated
+ * clients are exempt, as everywhere: the isolation check owns them.
+ */
+function siblingFileWrites(b: LiveBundle): LiveFinding[] {
+  const out: LiveFinding[] = [];
+  for (const s of b.sessions) {
+    if (UNGATED_CLIENTS.includes(s.client)) continue;
+    const other = s.root === "A" ? "<B>" : s.root === "B" ? "<A>" : null;
+    if (other === null) continue;
+    const names = (v: unknown): boolean => typeof v === "string" && new RegExp(`${other}(?=/|$|[^\\w.-])`).test(v);
+    const isOther = (p: string): boolean => p === other || p.startsWith(`${other}/`);
+    for (const c of s.calls) {
+      if (c.result.isError) continue;
+      const tool = c.name.split("__").at(-1) ?? c.name;
+      if (FILE_WRITE_TOOLS.has(tool)) {
+        if (names(c.input.file_path) || names(c.input.notebook_path)) {
+          out.push({ code: "sibling-file-write", session: s.sessionId, tool: c.name, detail: `${c.ref}: a session rooted in <${s.root}> wrote ${String(c.input.file_path ?? c.input.notebook_path)}, a file of ${other}` });
+        }
+        continue;
+      }
+      if (c.name !== "Bash") continue;
+      const cmd = cmdOf(c);
+      if (shellWritesInto(cmd, isOther, names(cmd))) {
+        out.push({ code: "sibling-file-write", session: s.sessionId, tool: c.name, detail: `${c.ref}: a session rooted in <${s.root}> ran a writing command naming ${other}: ${cmd.replace(/\s+/g, " ").slice(0, 120)}` });
+      }
+    }
+  }
+  return out;
+}
+
 function teamConjunctInert(b: LiveBundle): LiveFinding[] {
   if (b.run.tracker !== "linear") return [];
   const want = b.run.linearTeam;
@@ -2418,6 +2501,7 @@ export function gradeBundle(b: LiveBundle, o: GradeOptions): LiveVerdict {
     ...teardownIncomplete(b),
     ...itemsOutsideSpaces(b),
     ...teamConjunctInert(b),
+    ...siblingFileWrites(b),
     ...reg.findings,
   ];
   for (const s of b.unledgeredSessions ?? []) {
@@ -2459,6 +2543,24 @@ const PRIVACY_PATTERNS: ReadonlyArray<{ pattern: string; re: RegExp }> = [
   { pattern: "linear.app/<workspace>", re: /\blinear\.app\/[A-Za-z0-9_-]+/g },
   { pattern: "/Users/<name>", re: /\/Users\/[^/\s"'`]+/g },
   { pattern: "/home/<name>", re: /\/home\/[^/\s"'`]+/g },
+];
+
+/**
+ * What the projection rewrites, in order, and to what. Ordered because a host
+ * rewritten first would leave an email's local part behind (`someone@<site>`
+ * matches no email pattern). Every token is an identity: no predicate reads a
+ * host, an address or an account id, and a home path keeps its tail, so the
+ * grade loses nothing. A run's own roots are rewritten BEFORE these, so a path
+ * under A or B keeps its own token.
+ */
+const REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g, "<email>"],
+  [/\b\d{6}:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g, "<account-id>"],
+  [/(?<![0-9A-Fa-f])[0-9a-f]{24}(?![0-9A-Fa-f])/g, "<account-id>"],
+  [/\b[A-Za-z0-9-]+\.atlassian\.net\b/g, "<site>"],
+  [/\blinear\.app\/[A-Za-z0-9_-]+/g, "linear.app/<workspace>"],
+  [/\/Users\/[^/\s"'`]+/g, "<home>"],
+  [/\/home\/[^/\s"'`]+/g, "<home>"],
 ];
 
 export function privacyViolations(b: unknown): PrivacyViolation[] {
