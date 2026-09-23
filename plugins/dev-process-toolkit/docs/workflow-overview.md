@@ -132,7 +132,7 @@ flowchart TD
     gate{"Phase 2 gate-check (kill switch)<br/>typecheck + lint + tests + 85 probes"}:::eval
     debug["/debug — root-cause loop"]:::skill
     stageA{"Stage A — spec compliance (in-process)"}:::eval
-    stageB["Stage B — code-reviewer FORK<br/>Pass 1 spec → Pass 2 quality (fail-fast)"]:::fork
+    stageB["Stage B — code-reviewer subagent (Agent call, not a context fork)<br/>Pass 1 spec → Pass 2 quality (fail-fast)"]:::fork
     stageC{"Stage C — hardening (round 1 only)"}:::eval
     decide{"decision matrix"}:::gate
     pass["PASSED / WITH NOTES → commit-approval (step 15)"]:::skill
@@ -149,7 +149,7 @@ flowchart TD
 
 ## 5. Ship + artifact lifecycle (detail)
 
-`/docs --quick` stages one fragment per FR during Build. `/ship-milestone` runs preflight, invokes `/docs --commit` and then `/docs --full` to fold the staged fragments into the canonical tree and regenerate it, bumps the four release files, and lands one human-approved commit (no push). `/spec-archive` is the manual archive escape hatch; `/pr` opens the pull request.
+`/docs --quick` stages one fragment per FR during Build. `/ship-milestone` runs preflight, invokes `/docs --commit` and then `/docs --full` to fold the staged fragments into the canonical tree and regenerate it, bumps every file the host's `## Release Files` block lists, and lands one human-approved commit (no push). `/spec-archive` is the manual archive escape hatch; `/pr` opens the pull request.
 
 The PR has a hook of its own: `pre-pr-spec-review` refuses a pull-request creation unless `/dev-process-toolkit:spec-review` ran as a Skill tool_use in this session. It reads the command through the same shell recogniser the commit gates use rather than matching a prefix, so `gh pr create` and gh's `pr new` alias are **recognised** behind a `cd`, a subshell, a `&&` chain, `env`, `command`, a nested `bash -c` or a `$(…)` substitution, while `gh pr list`, `gh api …/pulls`, `hub pull-request` and a `--help` run create nothing and are out of scope. It exits 2 like the commit-side pair, and it grades this session's transcript plus the review's receipt for the checkout the request **is opened from** — a review done by hand, in an earlier session, or in a sibling checkout does not clear it. A request that names a repository no remote of that checkout matches is refused even with the evidence in hand; one whose target cannot be placed at all is opened with a `Reminder:`. See [`docs/hooks-reference.md`](hooks-reference.md).
 
@@ -168,7 +168,7 @@ flowchart TD
     gShip{"preflight<br/>no unshipped FR · clean tree · tests green"}:::gate
     docscf["/docs --commit then --full<br/>(invoked by ship)"]:::skill
     aTree[("docs/ canonical tree")]:::artifact
-    aRel[("plugin.json · marketplace.json<br/>CHANGELOG · README 'Latest:'")]:::artifact
+    aRel[("Release Files entries<br/>e.g. plugin.json · CHANGELOG · README 'Latest:'")]:::artifact
     gDiff{"unified-diff approval (y/N)"}:::gate
     commit["release commit on release/vX.Y.Z<br/>(no push — user action)"]:::skill
 
@@ -181,7 +181,7 @@ flowchart TD
     ship --> gShip -->|"pass"| docscf
     aPending -.->|"merged"| docscf
     docscf -->|"merge + regenerate (atomic)"| aTree
-    ship -->|"bump 4 files"| aRel
+    ship -->|"bump Release Files"| aRel
     aTree --> gDiff
     aRel --> gDiff
     gDiff -->|"approved"| commit
@@ -293,7 +293,7 @@ flowchart TD
 | requireCommittableBranch (STE-228) | ship/archive/setup/spec-write/deps | created/edited→checkout -b | declined → git reset rollback |
 | Archive diff-preview approval | /spec-archive | explicit y | reject → restart step 0a |
 | Archive drift Pass A/B | /spec-archive (post-commit) | high/medium rows | advisory only, never blocks |
-| /setup Socratic prompt loop | /setup 7b-7e | one Q/turn, 4 fixed sites | requires-input → RequiresInputRefusedError |
+| /setup Socratic prompt loop | /setup 7b-7e, 7g | one Q/turn, 5 fixed sites | requires-input → RequiresInputRefusedError |
 | bun prereq / MCP live test / 8a audit | /setup | bun>=1.2 · live call · audit | NFR-10 hard-stop / stay mode:none |
 | Provider no-op guard | claimLock/releaseLock | one post-write re-fetch | updatedAt not advanced → TrackerWriteNoOpError |
 | /deliver argument + resume classify | /deliver pre-Phase-1 | one classifier call each; six resume states | no plan on disk / shipped / parked → NFR-10 refuse |
@@ -333,6 +333,7 @@ flowchart TD
 | marketplace.json (plugins[0].version) | /ship-milestone | bump | Ship |
 | CHANGELOG.md (## [X.Y.Z] section) | /ship-milestone | bump | Ship |
 | README.md ("Latest:" line) | /ship-milestone | bump (regex, optional) | Ship |
+| any other `## Release Files` entry (this repo: specs/requirements.md) | /ship-milestone | bump (per its `kind`) | Ship |
 | release commit (no push) | /ship-milestone | commit | Ship |
 | tracker ticket (in_review when the move goes forward, else a reported skip; + PR URL) | /pr | tracker (best-effort) | Ship |
 

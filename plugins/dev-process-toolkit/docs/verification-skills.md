@@ -118,7 +118,9 @@ a fixed discovery precedence:
    or whose frontmatter carries `verify: true`. Exactly one candidate ⇒
    `/implement` *offers to adopt* it and writes `verify_skill` into your
    CLAUDE.md on accept. It never silently runs an undeclared skill.
-3. **None** — zero candidates and no declared skill ⇒ `/implement` *offers to
+3. **Ambiguous** — several candidates ⇒ `/implement` lists them and asks which
+   to adopt; it never guesses.
+4. **None** — zero candidates and no declared skill ⇒ `/implement` *offers to
    scaffold* a stub (see below), or to adopt the built-in `visual-check` for a
    small web project. Decline ⇒ it proceeds with a "no verification
    configured" note.

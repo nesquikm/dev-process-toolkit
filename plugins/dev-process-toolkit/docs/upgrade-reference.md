@@ -61,6 +61,9 @@ entry to be named by a plan.
 | `index.ts` | The `MigrationEntry` type, the ordered `MIGRATIONS` list, and `validateRegistry` — the load-time invariants |
 | `legacy_paths.ts` | Retired-path **single source of truth** — the sole non-test composer of retired literals |
 | `entries/<id>.ts` | One migration each: detector + fix |
+| `monolith_split.ts` | The `kind: "assisted"` monolithic-`requirements.md` → per-FR split entry, kept outside `entries/` |
+| `consumer_files.ts` | Shared primitives every entry uses to read and heal the consumer's tree |
+| `coverage.ts` | Migration-coverage enforcement — the `/ship-milestone` pre-flight that a plan's `migration:` declaration resolves |
 
 ### `legacy_paths.ts` is the only place retired literals live
 
@@ -205,14 +208,15 @@ naming exactly what it rewrites, **even when the auto-approve marker
 pre-authorizes the batch commit; it never relaxes this flag — the same principle
 by which the marker is read but never relaxes a `requires-input:` gate.
 
-Two entries carry it today. `permission-shapes`, because it rewrites the user's
+Three entries carry it today. `permission-shapes`, because it rewrites the user's
 **security** configuration (the `permissions.allow` allowlist and MCP server
 entries). And `mode-none-sequential-milestone`, because its filesystem-only
 detector cannot use git and therefore cannot tell a genuinely legacy plan from a
 mis-named fresh one — it offers to repair both, a set deliberately wider than
 the one the git-keyed gate probe #73 fails on, so the operator reviews the
 per-plan evidence rows and approves or declines with that scope in front of
-them. Treat the flag as the general rail, not a special case for either.
+them. And `linear-team-key`, because it rewrites the project's Linear `team:`
+binding from a key it infers from the repository's own bound FR files. Treat the flag as the general rail, not a special case for any one of them.
 
 Declining a flagged entry drops that one entry from the batch and leaves the rest
 intact; the run continues.

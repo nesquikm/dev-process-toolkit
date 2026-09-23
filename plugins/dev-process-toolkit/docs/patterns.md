@@ -534,7 +534,7 @@ The retry prompt **injects only raw failing-test output** — no orchestrator-si
 - **One FR, one file, one repo-stable identity**. Each functional requirement lives at `specs/frs/<Provider.filenameFor(spec)>`. In `mode: none`, a Crockford base32 ULID (26 chars) minted locally at creation time lives in frontmatter `id:` and the filename uses its 6-char short-ULID tail. In tracker mode, the tracker ID is the canonical identity — frontmatter carries `tracker.<key>: <tracker-id>` with no `id:` line, and the filename is `<tracker-id>.md`.
 - **Stems preserved across archival**. `/implement` Phase 4 and `/spec-archive` run `git mv specs/frs/<name> specs/frs/archive/<name>` — the same base name. `/setup --migrate` mode transitions are the only rename path, since the target mode may use a different filename shape.
 - **Tracker IDs as attributes AND as filename stems (tracker mode)**. `tracker.linear`, `tracker.jira`, `tracker.github` are frontmatter fields — zero-to-many. In tracker mode, the active adapter's ticket ID doubles as the filename stem via `Provider.filenameFor(spec)`. Multi-tracker FRs: the driver's primary tracker wins the filename; other tracker refs are frontmatter-only. Cross-tracker reconciliation is out of scope (the frontmatter is a fact store, not a reconciler).
-- **Provider interface**. `LocalProvider` + `TrackerProvider` implement the base `Provider` contract (`getMetadata`, `sync`, `getUrl`, `claimLock`, `releaseLock`, `getTicketStatus`, `filenameFor`); `mintId` is on a separate `IdentityMinter` sub-interface that only `LocalProvider` implements. Skills inject the Provider — they never branch on "tracker configured vs. not," and accidental `mintId()` calls on tracker-mode code paths become TypeScript errors.
+- **Provider interface**. `LocalProvider` + `TrackerProvider` implement the base `Provider` contract (`mode`, `listMilestones`, `listActiveFRs`, `getMetadata`, `sync`, `getUrl`, `claimLock`, `releaseLock`, `getTicketStatus`, `filenameFor`); `mintId` is on a separate `IdentityMinter` sub-interface that only `LocalProvider` implements. Skills inject the Provider — they never branch on "tracker configured vs. not," and accidental `mintId()` calls on tracker-mode code paths become TypeScript errors.
 - **Per-milestone plan files**. `specs/plan/<M#>.md` replaces the monolithic `plan.md`. Once `status: active`, the plan file is frozen — edits require a `plan/<M#>-replan-<N>` branch.
 - **Move-based archival**. `git mv` for the path change + frontmatter `status` flip in a single atomic commit. Disjoint paths per ULID ⇒ no merge conflicts.
 
@@ -610,13 +610,13 @@ When two trackers share a project prefix (e.g., Linear workspace `FOO` and Jira 
 - The resulting FR pile looks overwhelming on first scan (M15 had 15 FRs). The "Finding #N of M" frontmatter + one bundled milestone keep it auditable.
 - Not every deviation is a hardening candidate. Some are genuine feature requests or rare-edge-case nits that belong in later milestones — classify per Pattern 15 (Spec Deviation Classification) before filing.
 
-**Cross-refs**: an early dogfood milestone in this plugin's own spec tree captured ~15 FRs (14 findings + 1 release; note that `specs/` is gitignored in the plugin source repo, so the milestone archive lives in the maintainer workspace, not in the shipped plugin bundle), Pattern 15 (Spec Deviation Classification — the filter that separates hardening findings from feature work), Pattern 21 (Spec Breakout Protocol — the escalation path when dogfood findings exceed 3 `contradicts` / `infeasible` deviations).
+**Cross-refs**: an early dogfood milestone in this plugin's own spec tree captured ~15 FRs (14 findings + 1 release; `specs/` is tracked in the plugin source repo but sits outside the shipped plugin bundle, so the milestone archive is in the repository, not in what users install), Pattern 15 (Spec Deviation Classification — the filter that separates hardening findings from feature work), Pattern 21 (Spec Breakout Protocol — the escalation path when dogfood findings exceed 3 `contradicts` / `infeasible` deviations).
 
 ## Pattern 26: Socratic Prompting {#pattern-socratic-prompting}
 
 When a skill needs more than one piece of input from the user, ask one question per turn and wait for the answer before asking the next — even when the questions look independent, even at phase transitions, even when the user is being responsive. Batching prompts trades operator clarity for token-efficiency the LLM does not actually need.
 
-**Where this rule fires.** Any skill that prompts at multiple sites within a single invocation: `/brainstorm` (clarifying questions), `/spec-write` (per-section author flow), `/setup` (steps 7b–7e: tracker mode → branch template → docs modes → release files). Single-prompt skills (`/implement` worktree question, `/ship-milestone` approval, `/gate-check` no-CLAUDE.md fallback, `/docs` no operator prompts) are out of scope by construction — there is no second question to batch with.
+**Where this rule fires.** Any skill that prompts at multiple sites within a single invocation: `/brainstorm` (clarifying questions), `/spec-write` (per-section author flow), `/setup` (steps 7b–7e and 7g: tracker mode → branch template → docs modes → release files → token stats). Single-prompt skills (`/implement` worktree question, `/ship-milestone` approval, `/gate-check` no-CLAUDE.md fallback, `/docs` no operator prompts) are out of scope by construction — there is no second question to batch with.
 
 **Rationalization-prevention table.** The one-at-a-time rule fails most often when the user is responsive and the LLM rationalizes batching as efficient. Watch for these excuses:
 
@@ -757,7 +757,7 @@ The canonical precedents are STE-225 (the original `/tdd` decomposition that int
 | Loop | Class | Fork shape |
 |---|---|---|
 | `/tdd` | canonical | orchestrator + four forked child skills (test-writer / implementer / refactorer / spec-reviewer), each paired with a read-only or writer subagent |
-| `/spec-review` | canonical | orchestrator + forked auditor subagent emitting `spec-review-result`; fix dispatched into another fork |
+| `/spec-review` | canonical (audit half only) | orchestrator + forked auditor subagent emitting `spec-review-result`; it reports and does not remediate — no fix fork is dispatched (its tools exclude Write/Edit) |
 | `/implement` Phase 3 Stage B | legacy (in-process fix) | orchestrator audits and applies the fix in the same context — no second fork |
 | `/simplify` | legacy (no fork at all) | audit + fix run in the same main-context turn; no Skill tool, no `<role>-result` fence |
 
