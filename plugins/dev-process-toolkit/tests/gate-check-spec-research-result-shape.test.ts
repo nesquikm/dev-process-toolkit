@@ -14,7 +14,7 @@
 // stays green.
 
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dptRoot, scratchDir } from "../adapters/_shared/src/dpt_paths";
@@ -356,5 +356,44 @@ describe("spec_research_result_shape — constants", () => {
       "## Prior Decisions",
       "## Reusable ACs / Patterns",
     ]);
+  });
+});
+
+// R2 (docs audit, 2026-09-23) — DEFERRED, and this row keeps it from being lost.
+//
+// `/gate-check`'s probe #41 entry calls `commit_producing_skill_branch_gate` a
+// colocated sibling "added in M61". That module exists and NO numbered entry
+// registers it, so nothing runs it, and a reader checking whether the branch
+// gate is guarded finds a sentence saying yes. The sentence is still there.
+//
+// WHY IT IS STILL THERE. Correcting it edits `skills/gate-check/SKILL.md`, which
+// AC-STE-618.8 freezes byte-for-byte against the kickoff except ONE permitted
+// line — and the closed list of amendments across this milestone already holds
+// two, so mine would be the third, the point at which this FR's own recorded
+// threshold says to rethink the pin rather than widen it. I had made the edit;
+// the pin refused it, and I reverted rather than amending a closed list for my
+// own convenience — the same call as declining to raise the probe #81 pin for
+// my own change an hour earlier. The correction travels to the follow-on
+// milestone WITH the registration it belongs to, which is one coherent change
+// instead of prose now and behaviour later.
+//
+// This row therefore asserts the DEFECT, not the fix. When the follow-on
+// milestone corrects the sentence, this row reds and must be rewritten — which
+// is how a deferral stays visible instead of becoming a forgotten TODO.
+describe("R2 — DEFERRED: gate-check still claims a probe that does not run", () => {
+  const skill = () => readFileSync(join(import.meta.dir, "..", "skills", "gate-check", "SKILL.md"), "utf-8");
+
+  test("MEASURED — the module exists and no numbered entry registers it", () => {
+    const root = join(import.meta.dir, "..");
+    expect(existsSync(join(root, "adapters", "_shared", "src", "commit_producing_skill_branch_gate.ts")), "the module ships").toBe(true);
+    const numbered = skill().split("\n").filter((l) => /^\d+\.\s+\*\*`/.test(l));
+    expect(numbered.length, "the document has a numbered probe list").toBeGreaterThan(50);
+    expect(numbered.filter((l) => /^\d+\.\s+\*\*`commit_producing_skill_branch_gate`\*\*/.test(l)), "none registers it").toEqual([]);
+  });
+
+  test("DOCUMENTED AS UNFIXED — the false 'colocated' claim is still in the shipped document; correcting it is the follow-on milestone's, with the registration", () => {
+    expect(skill(), "if this reds, the claim was corrected and this row is stale — rewrite it rather than deleting it").toContain(
+      "colocated with the `commit_producing_skill_branch_gate` probe",
+    );
   });
 });

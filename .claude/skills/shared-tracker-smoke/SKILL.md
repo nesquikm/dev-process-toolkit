@@ -37,6 +37,26 @@ TAG='# shared-tracker-smoke: pre-flight'    # the fence you want, by its tag com
 TICKS=$(printf '\140\140\140')            # the fence delimiter, spelled so this fence can name it
 # A fence is identified by its FIRST tag line, never by text anywhere inside it: this fence
 # names other fences' tags, and a contains-match would hand you this one and recurse.
+#
+# AN AMBIGUOUS TAG REFUSES. The match is by prefix, so a SHORTENED tag can hit more than
+# one fence — `phase 0` hits Phase 0 and Phase 0.5, `extract` hits Phase 6 and this fence,
+# `S5` hits both S5 fences. Concatenating them used to be silent: on 2026-09-23 an operator
+# extracted `phase 0` and ran Phase 0.5 BEFORE the approval gate Phase 0 exists to hold, and
+# an `extract` match would have ended in this fence's own `bash /tmp/dpt-fence.sh`, re-running
+# whatever was extracted last, at the step that produces the evidence. So: count the matches,
+# and refuse rather than write a file when the count is not exactly one.
+MATCHES=$(awk -v tag="${TAG}" -v t="${TICKS}" '
+  $0 == t "bash" { first = ""; inb = 1; next }
+  inb && $0 == t { if (first != "" && index(first, tag) == 1) print first; inb = 0; next }
+  inb { if (first == "" && $0 ~ /^# shared-tracker-smoke:/) first = $0 }
+' "${SKILL}")
+COUNT=$(printf '%s' "${MATCHES}" | grep -c . || true)
+if [ "${COUNT}" != 1 ]; then
+  printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=extract-fence, check=tag-ambiguous, tracker=<tracker>\n' \
+    "the tag ${TAG} matches ${COUNT} fences, not exactly one; nothing was extracted and nothing was run." \
+    "use the fence's FULL first tag line. The matches were:${MATCHES:+$(printf '\n  %s' ${MATCHES})}" >&2
+  exit 1
+fi
 awk -v tag="${TAG}" -v t="${TICKS}" '
   $0 == t "bash" { buf = ""; first = ""; inb = 1; next }
   inb && $0 == t { if (first != "" && index(first, tag) == 1) printf "%s", buf; inb = 0; next }
@@ -478,7 +498,11 @@ for SIDE in A B; do
   PROJECT=$([ "${SIDE}" = B ] && [ -n "${PRE}" ] && echo "${PRE}" || echo "${SHARED}")
   mkdir -p "${ROOT}/specs/frs" "${ROOT}/specs/plan" "${ROOT}/.claude"
   git -C "${ROOT}" init -q -b main
-  printf '# dpt-shared-%s-%s\n\n## Task Tracking\n\nmode: %s\nmcp_server: %s\n' "${TRACKER}" "${SIDE}" "${TRACKER}" "${SERVER}" > "${ROOT}/CLAUDE.md"
+  # `## Docs` too: probe #18 is error-severity on any tree the toolkit MANAGES, and a
+  # `## Task Tracking` heading is what makes a tree managed — so a bootstrap that wrote
+  # the one and not the other refused every gated commit in both repositories (measured
+  # on live leg 2, 2026-09-23). The three keys are /setup's own, from the template.
+  printf '# dpt-shared-%s-%s\n\n## Task Tracking\n\nmode: %s\nmcp_server: %s\n\n## Docs\n\nuser_facing_mode: false\npackages_mode: false\nchangelog_ci_owned: false\n' "${TRACKER}" "${SIDE}" "${TRACKER}" "${SERVER}" > "${ROOT}/CLAUDE.md"
   # On Linear every create takes its team from the declaration's team:, so the key goes in; Jira takes no team.
   if [ "${TRACKER}" = linear ]; then
     bun "${WRITE_BINDING}" "${ROOT}" "${TRACKER}" --project "${PROJECT}" --shared "${TAG}" --team "${LINEAR_TEAM}"
@@ -680,7 +704,7 @@ One `claude -p` child per scenario step, serial: start a step, wait for it to ex
 | # | marker | root | client | the step's prompt |
 |---|---|---|---|---|
 | 1 | S8 | B | tree | Create one FR titled `<nonce> S8 legacy item` in B's current container through `/spec-write`. (Skipped with S8 on a Jira run without `--jira-repoint-from`.) |
-| 2 | S8 | B | tree | Repoint B into the shared container with `repoint_tracker_binding.ts`; when it refuses, fix what it names and repoint again. |
+| 2 | S8 | B | tree | Repoint B into the shared container with `repoint_tracker_binding.ts`; when it refuses, fix what it names and repoint again. Row 7 reads the WORKING TREE, so archiving the step-1 FR by moving the file is enough and NO COMMIT is required for the repoint to pass — if you commit anyway and a commit gate refuses, that refusal blocked the whole command, so run the repoint on its own afterwards rather than treating it as a deadlock. Run the repoint as its own command, never chained after a git command. |
 | 3 | intruder | A | intruder | Create one issue titled `<nonce> intruder untagged item` in the shared container. |
 | 4–5 | S1 | A, then B | tree | Create an FR titled `<nonce> S1 same title` through `/spec-write`. |
 | 6 | S3 | A | tree | Plan a milestone titled `<nonce> S3 span` spanning B, through `/spec-write`. |

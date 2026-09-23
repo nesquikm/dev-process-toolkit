@@ -13,7 +13,9 @@
 // flags the just-written file, it throws `FRFrontmatterShapeError` with NFR-10
 // canonical shape. Probe-13 stays at gate time as the safety net.
 
-import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
+import { normalizeFrontmatterSource } from "./frontmatter";
 import { runIdentityModeConditionalProbe } from "./identity_mode_conditional";
 
 export interface FRFrontmatterInput {
@@ -144,6 +146,39 @@ export function buildFRFrontmatter(
 }
 
 /**
+ * Frontmatter keys whose value is the literal word `undefined`, nested keys
+ * included (`tracker.undefined`). Reads the file's own bytes rather than a
+ * parsed object, because the shape this catches is a template that wrote the
+ * word out — a parser would hand back the STRING "undefined" and lose which key
+ * carried it.
+ */
+function frontmatterUndefinedKeys(frFilePath: string): string[] {
+  let text: string;
+  try {
+    text = readFileSync(frFilePath, "utf-8");
+  } catch {
+    return []; // an unreadable file is the probe's to report, not this scan's
+  }
+  // Through the shared normalizer, not a local CRLF replace: a BOM'd file would
+  // otherwise fail the opener match and read as "no frontmatter", and the
+  // structural sweep in the suite exists to catch exactly that hand-roll.
+  const m = /^---\n([\s\S]*?)\n---/.exec(normalizeFrontmatterSource(text));
+  if (!m) return [];
+  const out: string[] = [];
+  let parent = "";
+  for (const line of m[1]!.split("\n")) {
+    const kv = /^(\s*)([A-Za-z0-9_.-]+)\s*:\s*(.*)$/.exec(line);
+    if (!kv) continue;
+    const [, indent, key, value] = kv as unknown as [string, string, string, string];
+    const nested = indent.length > 0;
+    if (!nested) parent = key;
+    const name = nested ? `${parent}.${key}` : key;
+    if (key === "undefined" || value.trim() === "undefined") out.push(name);
+  }
+  return out;
+}
+
+/**
  * /spec-write post-write self-check (AC-STE-121.3). Runs probe-13's
  * `runIdentityModeConditionalProbe` against the just-written FR file.
  * Throws `FRFrontmatterShapeError` (NFR-10 canonical shape) if violations
@@ -158,6 +193,23 @@ export async function runFrontmatterShapeCheck(
   projectRoot: string,
   frFilePath: string,
 ): Promise<void> {
+  // The probe below decides the PRESENCE or ABSENCE of `id:` and looks at no
+  // other key, so this check's promise to catch "the LLM hand-rolled YAML" was
+  // wider than what it did: a file carrying `tracker:\n  undefined: undefined`
+  // and `created_at: undefined` passed it (measured on live leg 2, 2026-09-23).
+  // The literal word `undefined` in a value is never something a writer emits —
+  // it is a template that interpolated a missing variable — so it is refused
+  // here by name, before the probe runs.
+  const undefinedKeys = frontmatterUndefinedKeys(frFilePath);
+  if (undefinedKeys.length > 0) {
+    throw new FRFrontmatterShapeError(
+      [
+        `Refusing: ${relative(projectRoot, frFilePath)} carries the literal value \`undefined\` for: ${undefinedKeys.join(", ")}. A frontmatter value is never the word undefined; a template interpolated a variable it did not have.`,
+        `Remedy: call buildFRFrontmatter(spec, trackerBinding?) from adapters/_shared/src/fr_frontmatter.ts and retry`,
+        `Context: mode=spec-write, ticket=unbound, skill=spec-write, hook=post-write-self-check`,
+      ].join("\n"),
+    );
+  }
   const report = await runIdentityModeConditionalProbe(projectRoot);
   const target = resolve(frFilePath);
   const scoped = report.violations.filter((v) => resolve(v.file) === target);
