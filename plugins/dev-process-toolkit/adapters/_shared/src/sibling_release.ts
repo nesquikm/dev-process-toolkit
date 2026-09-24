@@ -185,8 +185,60 @@ function joinPages(listing: unknown, adapter: "jira" | "linear"): JoinedListing 
   return r.ok ? { items: r.items, last: r.last } : { error: r.reason };
 }
 
+/**
+ * Named ONCE, at the single exit every sibling remedy passes through, rather
+ * than inside each case — so a case added later inherits it and cannot
+ * reintroduce the defect by omission.
+ *
+ * WHY IT EXISTS (live leg 7, 2026-09-24). Every remedy below names an act in
+ * ANOTHER repository, and every one of them is good advice to a human operator,
+ * who understands without being told that "in sibling X" means going there and
+ * working as that repository. They became defects the moment the skill's rule 4
+ * told every child to fix what a refusal names: `spans_repos.ts`'s equivalent
+ * remedy said "write specs/plan/<M>.md in the sibling repository first", a
+ * child rooted in A obeyed it literally, wrote into B, and the
+ * `sibling-file-write` guard correctly flagged the run.
+ *
+ * Neither the child nor the guard was at fault. The remedy named WHAT must
+ * exist and not WHO must create it, and the acts named here are larger than a
+ * file write — bootstrapping a repository, binding FRs, editing another
+ * repository's CLAUDE.md.
+ *
+ * The general form, which is the same finding as rule 4 invalidating the
+ * predicates arriving from the other side: A RULE THAT MAKES CHILDREN ACT ON
+ * PROSE TURNS EVERY PIECE OF PROSE THEY CAN REACH INTO AN INTERFACE. None of
+ * this toolkit's NFR-10 remedies were written as one.
+ */
+export const FROM_ITS_OWN_SESSION = " — the sibling's own operator does this from that repository's session, never from here";
+
 /** Refusal #4's remedy for one held (non-idle) sibling — one per state. */
-function heldRemedy(s: DeclaredSibling, milestone: string): string {
+/**
+ * The states whose remedy is an act on THIS repository, so the actor clause
+ * would misdirect rather than clarify.
+ *
+ * Named as a SET rather than tested as "not idle", because the general rule —
+ * these remedies name acts in another repository — is true of eight of the ten
+ * and false of two, and a blanket append tells the reader to go elsewhere for a
+ * change only they can make, in a file only they own. That is worse than the
+ * defect being fixed: the original wording was right and under-specified; a
+ * blanket clause makes it wrong.
+ *
+ *   idle             — no act at all, the remedy is empty
+ *   unlocatable      — correct THIS repository's `spans_repos:` path
+ *   not-a-repository — point THIS repository's `spans_repos:` path elsewhere
+ *
+ * A state added later that is genuinely local joins this set deliberately,
+ * rather than inheriting a clause that sends its reader away.
+ */
+const LOCAL_ACT_STATES: ReadonlySet<string> = new Set(["idle", "unlocatable", "not-a-repository"]);
+
+export function heldRemedy(s: DeclaredSibling, milestone: string): string {
+  const act = heldRemedyAct(s, milestone);
+  return LOCAL_ACT_STATES.has(s.state) ? act : `${act}${FROM_ITS_OWN_SESSION}`;
+}
+
+/** The act each held state calls for, WITHOUT the actor clause `heldRemedy` appends. */
+function heldRemedyAct(s: DeclaredSibling, milestone: string): string {
   switch (s.state) {
     case "busy":
       return `finish sibling ${s.name}'s active FRs bound to ${milestone}`;

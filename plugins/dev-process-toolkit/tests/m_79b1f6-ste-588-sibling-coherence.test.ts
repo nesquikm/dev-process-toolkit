@@ -1,3 +1,4 @@
+import { heldRemedy, FROM_ITS_OWN_SESSION } from "../adapters/_shared/src/sibling_release.ts";
 // M_79b1f6 / STE-588 — the ship-coherence gate grades a milestone's sibling half.
 //
 // THE DEFECT, stated once: probe #63 graded a shipped (archived, stamped) plan
@@ -959,5 +960,48 @@ describe("AC-STE-588.13 — the three violation reasons are distinct", () => {
         expect(reason, `the ${own} reason also says "${other}" — not identifiable alone`).not.toContain(other);
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Live leg 7 (2026-09-24) — a remedy that named a file but not its writer.
+//
+// `spans_repos.ts` refused a declaration with "write specs/plan/<M>.md in the
+// sibling repository first". A child rooted in A obeyed it literally, wrote
+// into B, and `sibling-file-write` correctly flagged the run. The remedy was
+// never bad advice — it is good advice to a human operator, who knows without
+// being told that "in the sibling repository" means going there. It became a
+// defect when the skill's rule 4 told every child to fix what a refusal names:
+// a rule that makes children act on prose turns every piece of prose they can
+// reach into an interface.
+//
+// `heldRemedy` renders EVERY held-sibling remedy through one switch, so the
+// actor clause is appended once at its exit and a case added later inherits it.
+// These rows exist because a blanket append is wrong for the two states whose
+// remedy acts on THIS repository — and because the first implementation of this
+// fix excluded only `idle`, which would have told a reader to go elsewhere for
+// a change only they can make.
+// ---------------------------------------------------------------------------
+describe("heldRemedy — the actor clause reaches cross-repository acts and not local ones", () => {
+  const sib = (state: string) =>
+    ({ name: "sib-b", declaredPath: "../sib-b", root: "/tmp/sib-b", state }) as unknown as Parameters<typeof heldRemedy>[0];
+
+  test("a CROSS-REPOSITORY act carries the actor clause", () => {
+    for (const state of ["no-plan", "busy", "not-started", "not-toolkit-managed", "different-container", "unreadable", "one-sided"]) {
+      expect(heldRemedy(sib(state), "M_X_1"), `${state} should name who acts`).toContain(FROM_ITS_OWN_SESSION);
+    }
+  });
+
+  test("REFUSAL TWIN — a LOCAL act does NOT carry it: the reader owns that change", () => {
+    // Both edit THIS repository's own `spans_repos:` key. Telling their reader
+    // that "the sibling's own operator does this" sends them away from a file
+    // only they own, which is worse than the under-specification being fixed.
+    for (const state of ["unlocatable", "not-a-repository"]) {
+      expect(heldRemedy(sib(state), "M_X_1"), `${state} is a local act`).not.toContain(FROM_ITS_OWN_SESSION);
+    }
+  });
+
+  test("an idle sibling has no remedy at all, and gains no clause", () => {
+    expect(heldRemedy(sib("idle"), "M_X_1")).toBe("");
   });
 });

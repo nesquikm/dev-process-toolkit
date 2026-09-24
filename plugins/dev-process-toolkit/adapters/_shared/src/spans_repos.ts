@@ -391,7 +391,7 @@ export async function verifySpan(input: DeclareSpanInput): Promise<VerifiedSpan>
   if (!isToolkitManaged(siblingPath)) {
     throw declareRefusal(
       `to declare spans_repos — the sibling ${shown(siblingPath)} is not toolkit-managed (its CLAUDE.md carries no toolkit signal).`,
-      "run /dev-process-toolkit:setup in the sibling repository first.",
+      "the sibling repository's own operator runs /dev-process-toolkit:setup there, from its own session — do not bootstrap it from here.",
       "phase=sibling-claude-md, check=toolkit-managed",
     );
   }
@@ -465,7 +465,7 @@ export async function verifySpan(input: DeclareSpanInput): Promise<VerifiedSpan>
   if (plans.length === 0) {
     throw declareRefusal(
       `to declare spans_repos — the sibling ${shown(siblingRoot)} holds no plan for milestone ${oneLine(milestone)} (live or archived) in any worktree, local branch or remote-tracking ref.`,
-      `write specs/plan/${oneLine(milestone)}.md in the sibling repository first — a span joins a milestone both repositories plan.`,
+      `have the sibling repository plan ${oneLine(milestone)} from ITS OWN session — do not write into ${shown(siblingRoot)} from here; a span joins a milestone both repositories plan, and each plans its own.`,
       `phase=sibling-plan, check=plan-exists, milestone=${oneLine(milestone)}`,
     );
   }
