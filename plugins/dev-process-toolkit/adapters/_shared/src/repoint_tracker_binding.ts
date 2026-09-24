@@ -600,9 +600,22 @@ function decideRow1(args: RepointArgs): RowResult {
 
 /**
  * `--statuses`: Linear the measured list_issue_statuses answer — a BARE array,
- * the whole list (read by `tracker_answer.ts`); Jira a hand-assembled
- * `{ statuses: [{ name }], isLast: true }` — no Atlassian MCP tool lists a
- * project's statuses, so its completeness is asserted, never proven.
+ * the whole list (read by `tracker_answer.ts`); Jira a
+ * `{ statuses: [{ name }], isLast: true }` wrapper around an answer that IS
+ * fetchable and should be FETCHED rather than typed.
+ *
+ * This comment used to say no Atlassian MCP tool lists a project's statuses.
+ * That was wrong, and wrong in a way that cost a live leg: `adapters/jira.md`
+ * declares `list_project_statuses: true`, `tracker_config_proposal.ts` consumes
+ * that declaration, and two paths are specified there — `allowedValues`
+ * introspection for company-managed projects and `getTransitionsForJiraIssue`
+ * → `to.name` for team-managed ones. A child reading the old sentence built the
+ * listing by hand, and a hand-built gate input reads as fabricated evidence.
+ *
+ * Its COMPLETENESS is a different claim and is still asserted, never proven:
+ * no tracker proves a listing is the whole listing, so `isLast` stays the
+ * session's word here exactly as it was (see COMPLETENESS_ASSERTED_MARKER).
+ * Fetching the contents did not close that, and nothing below changed.
  */
 function readStatuses(args: RepointArgs): Input<string[]> {
   if (args.mode === "linear") return readMeasuredList("--statuses", args.statuses, "linear:list_issue_statuses", "name");
