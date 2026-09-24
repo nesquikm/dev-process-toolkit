@@ -29,6 +29,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameS
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { CHILD_LISTING_REJECTED } from "./sibling_release.ts";
+
 import { milestoneLabel } from "./attach_project_milestone";
 import { resolveInterviewAnswer } from "./auto_answers";
 import { normalizeTitleForCompare } from "./create_idempotency_probe";
@@ -946,9 +948,26 @@ function gradeScenarios(b: LiveBundle): Record<string, LiveScenarioOutcome> {
       out[s.id] = { outcome: "not-observed", reason: "no ledgered session carries this scenario's marker", refs: [] };
       continue;
     }
-    const silent = own.find((x) => x.calls.length === 0);
-    if (silent) {
-      out[s.id] = { outcome: "not-observed", reason: `session ${silent.sessionId} recorded no tool call`, refs: [] };
+    // ONE silent session used to preempt the WHOLE scenario, including the work
+    // its other sessions did correctly. Measured on live leg 6 (2026-09-24):
+    // S10's tree session ran the detector and emitted
+    // `warning unowned-container-ticket: DST-86` — exactly its property — and
+    // none of it was graded, because a DIFFERENT session under the same marker
+    // made zero calls. So the scenario could not be graded AT ALL while one
+    // client was inert, however well the rest performed.
+    //
+    // Worse, whether that happened was not deterministic: leg 4's old client
+    // made one call and the predicate was reached; leg 6's made none and it was
+    // not. Same prompt, different failure mode, decided by what the child
+    // happened to do.
+    //
+    // Now it preempts only when EVERY session is silent — then there is truly
+    // nothing to grade. A partially silent scenario reaches its predicate, and
+    // the predicate says what it finds; several already treat a session that
+    // attempted nothing as `not-observed` in their own words, which is a more
+    // accurate sentence than this one could be.
+    if (own.every((x) => x.calls.length === 0)) {
+      out[s.id] = { outcome: "not-observed", reason: `no session of this scenario recorded a tool call (${own.map((x) => x.sessionId).join(", ")})`, refs: [] };
       continue;
     }
     const refs = own.flatMap((x) => x.calls.map((c) => c.ref));
@@ -1414,8 +1433,25 @@ const orphanListing: Predicate = (b, own) => {
   const intruders = intruderKeys(b);
   for (const r of ["A", "B"] as const) {
     const sib = new Set(b.repos[r === "A" ? "B" : "A"].frBindings.map((f) => f.key));
-    const runs = own.filter((s) => s.root === r).flatMap((s) => moduleRuns(s, "container_ownership.ts", "list"));
-    if (runs.length === 0) return fail(`no orphan listing is recorded in <${r}>`);
+    // Only runs that PRODUCED a listing. A refused run printed no table, so it
+    // is evidence of nothing — exactly as a refused front-door run writes no
+    // receipt. Grading it failed the scenario for a NON-EVENT.
+    //
+    // Measured live (leg 6, 2026-09-24): root A ran this three times —
+    // exit 1 "required field 'description' is missing", exit 1 "required field
+    // 'creator' is missing", then exit 0 printing `unowned=1`, which is
+    // perfect. The loop below failed on the first and never reached the third.
+    // That is the skill's own rule 4 — "a refusal is information; fix what it
+    // names and retry" — PUNISHED BY THE PREDICATE, and the two were written
+    // the same afternoon. Third guard-with-no-legal-path in one milestone.
+    //
+    // NOT relaxed to "some run passes": that would let a bad listing hide
+    // behind a good one. Every run that produced a listing is still graded.
+    const runs = own
+      .filter((s) => s.root === r)
+      .flatMap((s) => moduleRuns(s, "container_ownership.ts", "list"))
+      .filter((c) => c.result.exitCode === 0 && !c.result.isError);
+    if (runs.length === 0) return fail(`no successful orphan listing is recorded in <${r}>`);
     for (const c of runs) {
       const rows = new Map<string, string>();
       for (const m of c.result.text.matchAll(/^\|\s*([^|\s]+)\s*\|\s*([^|\s]+)\s*\|/gm)) rows.set(m[1]!, m[2]!);
@@ -1442,16 +1478,54 @@ const orphanListing: Predicate = (b, own) => {
 };
 
 /** S5 — A's busy-sibling run exits 1 naming B with no commit during it; its permit twin, after B's archive, exits 0. */
+/**
+ * Does `text` name repository B — by EITHER identifier?
+ *
+ * AC-STE-617.10 says the run "exits 1 NAMING B", not naming B's directory, and
+ * a repository has two names in this run: its root directory (`dpt-shared-…-b`)
+ * and its declared repo tag (`shr-<nonce>-b`). `sibling_release.ts` renders the
+ * TAG, because that is what `spans_repos` declarations carry — measured on live
+ * leg 6: "M_DST_91 spans a sibling that still holds active work —
+ * shr-shrc57f9b6c-b is busy". Demanding the directory name was stricter than
+ * the AC and failed a correct refusal.
+ *
+ * Accepting both is not a weakening: they are two names for one subject, and
+ * the predicate still requires the refusal to identify B rather than anything
+ * else. Shared by S5 and S14 because BOTH tested the directory name — fixing
+ * one would have left the other failing for the identical reason the moment
+ * step 8 started producing a real hold.
+ */
+const namesSiblingB = (text: string, b: LiveBundle): boolean => text.includes(b.roots.B.name) || text.includes(b.roots.B.tag);
+
 const siblingBusyShip: Predicate = (b, own) => {
   const RUN = "sibling_release.ts";
   const busy = own[0]!;
   const refusal = moduleRuns(busy, RUN)[0];
   if (!refusal) return notObserved(`session ${busy.sessionId} never ran sibling_release.ts (its /ship-milestone stopped earlier)`);
-  if (refusal.result.exitCode !== 1 || !refusal.result.text.includes(b.roots.B.name)) return fail(`${refusal.ref}: the busy-sibling run exited ${refusal.result.exitCode} without refusing on ${b.roots.B.name}`);
+  if (refusal.result.exitCode !== 1 || !namesSiblingB(refusal.result.text, b)) return fail(`${refusal.ref}: the busy-sibling run exited ${refusal.result.exitCode} without refusing on ${b.roots.B.name} (or its tag ${b.roots.B.tag})`);
   const end = nextAt(busy, refusal);
   const landed = b.repos.A.commits.find((k) => inStep(k.at, refusal.at, end));
   if (landed) return fail(`A's history gained "${landed.subject}" during the busy-sibling step`);
-  const twin = own.slice(1).flatMap((s) => moduleRuns(s, RUN)).find((c) => ms(c.at) > ms(refusal.at));
+  // The permit twin is the first run after the refusal THAT REACHED A RELEASE
+  // DECISION. A run this module rejected on its input listing never got that
+  // far, so grading it grades a non-event — the S4 principle, fourth instance.
+  //
+  // Measured on live leg 6: the child ran this three times after the refusal —
+  // rejected for a missing `description`, rejected for a missing `creator`,
+  // then `Spans: … | children=2`, exit 0. It read each refusal, fixed what it
+  // named and retried, which is what the skill's rule 4 tells it to do, and
+  // `.find()` graded the first attempt.
+  //
+  // The discriminator is the module's OWN exported marker rather than prose
+  // this file matches on: both kinds of refusal exit 1, so the exit code cannot
+  // separate them, and a phrase copied here would drift the day that module
+  // rewords itself. What is NOT filtered is a run that reached the decision and
+  // refused — that would be the widening, and a busy or one-sided refusal in
+  // the twin's place must still fail.
+  const twin = own
+    .slice(1)
+    .flatMap((s) => moduleRuns(s, RUN))
+    .find((c) => ms(c.at) > ms(refusal.at) && !c.result.text.includes(CHILD_LISTING_REJECTED));
   if (!twin) return fail("no permit twin of the busy-sibling run is recorded");
   if (twin.result.exitCode !== 0) return fail(`${twin.ref}: the permit twin exited ${twin.result.exitCode}`);
   if (!b.repos.B.commits.some((k) => /archive/i.test(k.subject) && ms(k.at) <= ms(twin.at))) return fail("the permit twin ran before B's FR was archived");
@@ -1579,8 +1653,28 @@ const oldClient: Predicate = (b, own) => {
   const intruders = intruderKeys(b);
   if (intruders.length === 0) return fail("the intruder created no item for the detector to recall");
   for (const k of [...intruders, ...createdBy(old)]) if (!flagged.has(k)) return fail(`the detector does not flag ${k}`);
+  // `taggedKeys` is computed from the END-OF-RUN tree, and the detector ran at
+  // step 21. Step 22 then imports the intruder's item and writes an FR binding
+  // it — so a later step of the same run retroactively made an earlier correct
+  // reading look wrong. Measured on live leg 6: the detector flagged DST-86,
+  // which carried no tag and no binding when it ran, and `B/specs/frs/DST-86.md`
+  // exists only because step 22 created it.
+  //
+  // THE GENERAL FORM, because this is the second instance tonight: a predicate
+  // comparing an observation from step N against state gathered at step 28 is
+  // measuring two different worlds. The first was the unledgered-session scan
+  // counting every historical session forever, fixed by scoping it to the run's
+  // own start.
+  //
+  // The intruder's own keys are excluded rather than the whole check relaxed.
+  // They are this scenario's CONTROL — the tickets that are untagged by
+  // construction and that the detector is supposed to flag — so a binding the
+  // run itself created for one of them says nothing about whether the detector
+  // was right. Every other key still fails the check, so a detector that flags
+  // a genuinely tagged ticket is still caught.
   const tagged = taggedKeys(b);
-  for (const k of flagged) if (tagged.has(k)) return fail(`the detector flags ${k}, which carries a declared tag`);
+  const control = new Set(intruderKeys(b));
+  for (const k of flagged) if (tagged.has(k) && !control.has(k)) return fail(`the detector flags ${k}, which carries a declared tag`);
   return attempts.length === 0 ? { outcome: "pass", reason: "old-client-stopped" } : PASS;
 };
 
@@ -1667,11 +1761,14 @@ const zeroWriteJoin: Predicate = (b, own) => {
   if (!created) return fail(`no create into ${joinKey} succeeds after B's join`);
   const held = own.filter((s) => s.root === "A").flatMap((s) => moduleRuns(s, "sibling_release.ts")).filter((c) => ms(c.at) < joinAt);
   if (held.length === 0) return fail("A's sibling_release.ts run before B's back-reference is not recorded");
-  for (const c of held) if (c.result.exitCode !== 1 || !c.result.text.includes(b.roots.B.name) || !/one-sided/.test(c.result.text)) return fail(`${c.ref}: A's release was not held naming ${b.roots.B.name} one-sided`);
+  for (const c of held) if (c.result.exitCode !== 1 || !namesSiblingB(c.result.text, b) || !/one-sided/.test(c.result.text)) return fail(`${c.ref}: A's release was not held naming ${b.roots.B.name} (or its tag ${b.roots.B.tag}) one-sided`);
   return PASS;
 };
 
 /** S16 — each root's typed door refuses naming the decision front door, probe #73 errors on M999.md, no tracker call. */
+/** The hand-written milestone this scenario is about; a run that never names it examined no milestone. */
+const M999_TOKEN = "M999";
+
 function reportsM999(text: string): boolean {
   try {
     const v = JSON.parse(text) as { violations?: Array<{ severity?: unknown; file?: unknown }> };
@@ -1683,9 +1780,38 @@ function reportsM999(text: string): boolean {
 const newNumericMilestone: Predicate = (_b, own) => {
   for (const r of ["A", "B"] as const) {
     const ss = own.filter((s) => s.root === r);
-    const doors = ss.flatMap((s) => moduleRuns(s, "next_free_milestone_number.ts"));
-    const probes = ss.flatMap((s) => moduleRuns(s, "plan_identity_mode_conditional.ts"));
-    if (doors.length === 0 || probes.length === 0) return fail(`<${r}> records no typed door run or no probe #73 run`);
+    // Same repair as S4, same reason, measured in the same leg: root A's door
+    // ran once with a usage error (exit 1, "without a specs directory and an
+    // `M<N>` token") and once correctly (exit 1, naming the decision front
+    // door). The loop below failed on the usage error and never reached the
+    // real one. A run that never reached the check is not a door check.
+    //
+    // The door's property IS an exit-1 refusal naming the front door, so the
+    // filter cannot be `exitCode === 0` here — it is "the run that carries the
+    // property", which for the door means it named the front door, and for the
+    // probe means it produced a report at all. Every carrying run is still
+    // graded; a wrong one cannot hide behind a right one.
+    // Filtered by WHICH SUBJECT THE RUN EXAMINED — a process fact — and NOT by
+    // whether it reported what this scenario wants, which would be circular and
+    // would let a bad run hide behind a good one. Both filters admit a wrong
+    // answer about the right subject, so a door that failed to refuse and a
+    // probe that missed the violation are still graded and still fail.
+    //
+    // A door run is graded when the milestone token was SUPPLIED TO IT — read
+    // from the command's own arguments, which is as close to "what was this run
+    // asked to do" as the record gets. Leg 6's root A ran `--help` first and
+    // then the real invocation; reading usage is not a door check. A probe run reporting `"mode":"none"` examined a
+    // tree that was not in tracker mode, and this scenario's property is about
+    // tracker mode. Both were recorded in root A on leg 6 alongside the correct
+    // runs, and grading them failed the scenario for what the child did BEFORE
+    // it read the refusal and retried — which the skill's rule 4 tells it to do.
+    const doors = ss
+      .flatMap((s) => moduleRuns(s, "next_free_milestone_number.ts"))
+      .filter((c) => (toolkitModuleRun(cmdOf(c))?.args ?? []).some((a) => a.includes(M999_TOKEN)));
+    const probes = ss
+      .flatMap((s) => moduleRuns(s, "plan_identity_mode_conditional.ts"))
+      .filter((c) => !/"mode"\s*:\s*"none"/.test(c.result.text));
+    if (doors.length === 0 || probes.length === 0) return fail(`<${r}> records no typed door run naming the decision front door, or no probe #73 run that reported`);
     for (const c of doors) if (c.result.exitCode !== 1 || !/resolve_milestone_identity/.test(c.result.text)) return fail(`${c.ref}: the typed door exited ${c.result.exitCode} without naming the decision front door`);
     for (const c of probes) if (!reportsM999(c.result.text)) return fail(`${c.ref}: probe #73 does not report M999.md as an error`);
   }
