@@ -83,8 +83,27 @@ export interface RowResult {
   asserted?: AssertedInput[];
 }
 
-/** An input no tracker tool lists, so its completeness can only be asserted by the session. */
-export type AssertedInput = "statuses" | "labels";
+/**
+ * An input whose COMPLETENESS the session asserts rather than the tracker proves.
+ *
+ * The older wording here said "an input no tracker tool lists", which was true
+ * when it was written and is not true now: Jira statuses ARE listable, through
+ * the adapter's declared `list_project_statuses` capability. That correction
+ * landed in `docs/setup-reference.md` and in `readStatuses` below, and this
+ * comment one file away kept describing the world before it.
+ *
+ * Three states, deliberately distinguished, because collapsing them is how a
+ * weaker claim gets laundered into a stronger one's wording:
+ *   - `labels`              — genuinely unlistable; no Atlassian tool lists them.
+ *   - `statuses`            — a full listing; plausibly complete, unprovably so.
+ *   - `statuses:transitions`— derived from ONE issue's available transitions, so
+ *     it is the set reachable from that issue's current state: PARTIAL BY
+ *     CONSTRUCTION, not merely unproven. Row 4 refuses when the config lacks a
+ *     status the listing names, so a shorter list is strictly EASIER to pass —
+ *     which makes recording this distinctly a correctness matter and not
+ *     bookkeeping.
+ */
+export type AssertedInput = "statuses" | "labels" | "statuses:transitions";
 
 /**
  * Appended to every printed row line that relied on an asserted-complete
@@ -617,14 +636,48 @@ function decideRow1(args: RepointArgs): RowResult {
  * session's word here exactly as it was (see COMPLETENESS_ASSERTED_MARKER).
  * Fetching the contents did not close that, and nothing below changed.
  */
-function readStatuses(args: RepointArgs): Input<string[]> {
-  if (args.mode === "linear") return readMeasuredList("--statuses", args.statuses, "linear:list_issue_statuses", "name");
+function readStatuses(args: RepointArgs): Input<{ names: string[]; from: AssertedInput }> {
+  if (args.mode === "linear") {
+    const m = readMeasuredList("--statuses", args.statuses, "linear:list_issue_statuses", "name");
+    return m.ok ? { ok: true, value: { names: m.value, from: "statuses" } } : m;
+  }
   const json = readJson("--statuses", args.statuses);
   if (!json.ok) return json;
   const label = `--statuses ${args.statuses}`;
-  const rows = namedRows(label, json.value, "statuses", "name");
+  const o = json.value as Record<string, unknown>;
+  // BOTH documented Jira shapes are accepted, because both are what the tracker
+  // actually returns and the session must not have to bridge them by hand.
+  // `adapters/jira.md` names two paths: `getJiraIssueTypeMetaWithFields`
+  // `allowedValues` for a company-managed project, and
+  // `getTransitionsForJiraIssue` -> `to.name` for a team-managed one. The second
+  // answers `{ transitions: [{ to: { name } }] }`, which carries no `statuses`
+  // array and no `isLast`.
+  //
+  // Live leg 5 (2026-09-24) aborted at step 2 on exactly that: the child fetched
+  // the documented answer, this function rejected its shape, and the only way
+  // past was to reshape a fetched file — which the skill's own rule 2 forbids.
+  // A guard with no legal path causes the failure it exists to prevent, and this
+  // was the second instance of that class in one milestone. The projection now
+  // lives HERE, in one tested place, instead of in twenty-six prompts.
+  if (Array.isArray(o.transitions)) {
+    const names: string[] = [];
+    for (const row of o.transitions) {
+      const to = isObject(row) ? row.to : undefined;
+      const name = isObject(to) ? to.name : undefined;
+      if (typeof name !== "string" || name.trim() === "") {
+        return failed(`${label} is a transitions answer whose rows do not all carry a \`to.name\`; save the raw getTransitionsForJiraIssue answer verbatim.`);
+      }
+      if (!names.includes(name)) names.push(name);
+    }
+    if (names.length === 0) return failed(`${label} is a transitions answer with no transitions; a status list cannot be derived from it.`);
+    // No `notLastPage` check: a transitions answer carries no paging and is
+    // partial by construction, which the caller records rather than pretends away.
+    return { ok: true, value: { names, from: "statuses:transitions" } };
+  }
+  const rows = namedRows(label, o, "statuses", "name");
   if (!rows.ok) return rows;
-  return notLastPage(label, json.value as Record<string, unknown>) ?? rows;
+  const last = notLastPage(label, o);
+  return last ?? { ok: true, value: { names: rows.value, from: "statuses" } };
 }
 
 /** Mark a row that relied on an asserted-complete input: the marker on its line, the input on the row. */
@@ -637,14 +690,19 @@ function decideRow4(args: RepointArgs): RowResult {
   const statuses = readStatuses(args);
   const config = readConfigStatuses(args.projectRoot);
   if (!statuses.ok) return row(4, "REFUSE", statuses.reason);
-  // From here the row relies on the status list: asserted in Jira, proven in Linear.
-  const mark = (r: RowResult): RowResult => (args.mode === "jira" ? assertedRow(r, "statuses") : r);
-  if (!config.ok) return mark(row(4, "REFUSE", `${config.reason}; statuses missing: ${statuses.value.join(", ")}`));
-  const missing = statuses.value.filter((s) => !config.value.includes(s));
+  const names = statuses.value.names;
+  // From here the row relies on the status list: asserted in Jira, proven in
+  // Linear. The ASSERTED INPUT carries WHICH Jira shape it came from, because a
+  // full listing and a one-issue transitions subset are different epistemic
+  // states and one marker for both launders the weaker into the stronger. Row 4
+  // refuses on a status the config LACKS, so a shorter list is easier to pass.
+  const mark = (r: RowResult): RowResult => (args.mode === "jira" ? assertedRow(r, statuses.value.from) : r);
+  if (!config.ok) return mark(row(4, "REFUSE", `${config.reason}; statuses missing: ${names.join(", ")}`));
+  const missing = names.filter((s) => !config.value.includes(s));
   const r4 =
     missing.length > 0
       ? row(4, "REFUSE", `specs/tracker-config.yaml lacks ${args.newProject} statuses: ${missing.join(", ")}`)
-      : row(4, "PASS", `config statuses ${config.value.join(", ")} cover ${args.newProject}'s ${statuses.value.join(", ")}`);
+      : row(4, "PASS", `config statuses ${config.value.join(", ")} cover ${args.newProject}'s ${names.join(", ")}`);
   return { ...mark(r4), statusSnapshot: [...config.value] };
 }
 

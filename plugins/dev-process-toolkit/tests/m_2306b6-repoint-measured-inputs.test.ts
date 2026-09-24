@@ -128,6 +128,72 @@ describe("rows 4 and 6 (Jira) — completeness the session asserts, never the tr
     }),
     T,
   );
+  // Live leg 5 (2026-09-24) aborted at step 2 here. The child fetched the
+  // DOCUMENTED Jira answer for a team-managed project — `getTransitionsForJiraIssue`
+  // -> `to.name`, per `adapters/jira.md` — saved it verbatim, and this flag
+  // rejected its shape. The only way past was to reshape a fetched file, which
+  // the skill's rule 2 forbids, so the child refused and said so. A guard with
+  // no legal path causes the failure it exists to prevent; second instance of
+  // that class in this milestone. The projection now lives in the module.
+  //
+  // The literal payload below is the shape the child actually saved.
+  const TRANSITIONS = {
+    expand: "transitions",
+    transitions: GF_STATUSES.map((name, i) => ({ id: String(i + 1), to: { name } })),
+  };
+
+  test(
+    "row 4: the DOCUMENTED transitions answer is accepted — and marked as the one-issue subset it is",
+    withGlacy((g) => {
+      const r = runRepoint(g.args({ "--statuses": g.listing("s.json", TRANSITIONS) }));
+      expect(verdict(r.stdout, 4), rowLine(r.stdout, 4)).toBe("PASS");
+      // It carries the marker, like any asserted input...
+      expect(rowLine(r.stdout, 4)).toContain(MARKER());
+    }),
+    T,
+  );
+  test(
+    "...and the receipt distinguishes it from a FULL listing, because the two are different claims",
+    withGlacy((g) => {
+      const r = runRepoint(g.args({ "--statuses": g.listing("s.json", TRANSITIONS) }));
+      expect(r.code, `${r.stdout}\n${r.stderr}`).toBe(0);
+      const receipt = JSON.parse(readFileSync(receiptFiles(g.a)[0]!, "utf-8"));
+      // A transitions answer is the set reachable from ONE issue's current
+      // state — PARTIAL BY CONSTRUCTION, not merely unproven. Row 4 refuses on
+      // a status the config LACKS, so a shorter list is strictly easier to
+      // pass: recording which shape the claim rested on is a correctness
+      // matter, not bookkeeping. One marker for both would launder the weaker
+      // claim into the stronger one's wording.
+      expect(receipt.evidence.assertedCompleteness).toEqual(["statuses:transitions", "labels"]);
+    }),
+    T,
+  );
+  test(
+    "REFUSAL TWIN — a transitions answer whose rows carry no `to.name` refuses: accepting the shape is not accepting anything",
+    withGlacy((g) => {
+      const r = runRepoint(g.args({ "--statuses": g.listing("s.json", { expand: "transitions", transitions: [{ id: "1", to: {} }] }) }));
+      expect(verdict(r.stdout, 4), rowLine(r.stdout, 4)).toBe("REFUSE");
+    }),
+    T,
+  );
+  test(
+    "REFUSAL TWIN — an EMPTY transitions answer refuses: no status list can be derived from it",
+    withGlacy((g) => {
+      const r = runRepoint(g.args({ "--statuses": g.listing("s.json", { expand: "transitions", transitions: [] }) }));
+      expect(verdict(r.stdout, 4), rowLine(r.stdout, 4)).toBe("REFUSE");
+    }),
+    T,
+  );
+  test(
+    "NON-REGRESSION — a FULL listing still reports `statuses`, not the transitions marker",
+    withGlacy((g) => {
+      const r = runRepoint(g.args({ "--statuses": g.listing("s.json", { statuses: GF_STATUSES.map((name, i) => ({ id: String(i + 1), name })), isLast: true }) }));
+      const receipt = JSON.parse(readFileSync(receiptFiles(g.a)[0]!, "utf-8"));
+      expect(receipt.evidence.assertedCompleteness).toEqual(["statuses", "labels"]);
+    }),
+    T,
+  );
+
   test(
     "twin: the status list with no isLast claim refuses",
     withGlacy((g) => {
