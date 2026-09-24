@@ -1575,6 +1575,140 @@ describe("AC.17 — audit completeness", () => {
 // ===========================================================================
 
 describe("AC.10 — scenario predicates, both orders", () => {
+  // S1 (live leg 4, 2026-09-24). `createdTitles` collects the title of EVERY
+  // successful create and has no issue-type filter, so the milestone EPIC's
+  // title enters the set beside the FR titles. `sameTitle` then requires two
+  // NON-Epic items per title, which an Epic title can never have — so S1 failed
+  // by construction on every run that minted a milestone, which is every run.
+  // One collector is type-blind and its consumer is type-strict, and nothing
+  // reconciled them.
+  //
+  // Fixed in the CONSUMER, not the collector: `createdTitles`' other caller
+  // (`sameTitleBindsDifferentKeys`) looks FR bindings up BY TITLE, so an Epic
+  // title finds nothing there and a type-aware collector would buy it nothing
+  // while changing a shared helper for one caller's benefit.
+  function mintEpicInto(b: LiveBundle, marker: string, epicTitle: string, inAudit: boolean, issueType = "Epic") {
+    const s = session(b, marker);
+    const epic = {
+      key: "DST-9001", summary: epicTitle, labels: [] as string[], status: "To Do",
+      parent: null, milestone: null, issueType, kind: "issue" as const, container: b.run.container,
+    };
+    s.calls.push({
+      ref: `${s.sessionId}:toolu_epic`,
+      at: new Date(Date.parse(s.calls.at(-1)!.at) + 1000).toISOString(),
+      name: `${serverPrefix("jira", "A")}createJiraIssue`,
+      input: { cloudId: "cloud-dst", projectKey: b.run.container, issueTypeName: issueType, summary: epicTitle },
+      result: { isError: false, text: "created", exitCode: 0, items: [epic], lastPage: null },
+      sidechain: false,
+    } as never);
+    if (inAudit) {
+      const audit = b.sessions.find((x) => x.marker === "audit")!;
+      audit.calls[0]!.result.items = [...(audit.calls[0]!.result.items ?? []), epic] as never;
+    }
+    return epicTitle;
+  }
+
+  // The quiet half of the compound-command refusal (live leg 4): 20 real module
+  // runs were discarded and the instrument said nothing, so "no detector run is
+  // recorded" read as "the child never ran it". The refusal STAYS — a recorded
+  // exitCode belongs to the command's last segment, and seven consumers gate on
+  // an exact exit code — but it now speaks.
+  function pushBash(b: LiveBundle, marker: string, ref: string, command: string) {
+    const s = session(b, marker);
+    s.calls.push({
+      ref: `${s.sessionId}:${ref}`,
+      at: new Date(Date.parse(s.calls.at(-1)!.at) + 1000).toISOString(),
+      name: "Bash",
+      input: { command, description: "run" },
+      result: { isError: false, text: "ok", exitCode: 0, items: null, lastPage: null },
+      sidechain: false,
+    } as never);
+  }
+  const REAL_RUN = 'bun "<toolkit>/plugins/dev-process-toolkit/adapters/_shared/src/tracker_local_reconciliation_drift.ts" <A> /tmp/p1.json';
+
+  test("a module run behind a trailing `echo` is OBSERVED as discarded — and does not change the verdict", () => {
+    const clean = grade(buildPassingBundle("jira"));
+    const b = buildPassingBundle("jira");
+    // Verbatim shape from leg 4, echo included: the idiom that hid 20 runs.
+    pushBash(b, "S4", "toolu_disc", `${REAL_RUN}; echo "exit=$?"`);
+    const v = grade(b);
+    expect((v.observations ?? []).some((o) => o.code === "discarded-module-run")).toBe(true);
+    expect(String((v.observations ?? []).map((o) => o.detail))).toContain("tracker_local_reconciliation_drift.ts");
+    expect(v.outcome, "an observation must never change a verdict").toBe(clean.outcome);
+    expect(codes(v)).not.toContain("discarded-module-run");
+  });
+
+  test("REFUSAL TWIN — a PLAIN run is not reported as discarded, because nothing discarded it", () => {
+    const b = buildPassingBundle("jira");
+    pushBash(b, "S4", "toolu_plain", REAL_RUN);
+    expect((grade(b).observations ?? []).some((o) => o.code === "discarded-module-run")).toBe(false);
+  });
+
+  test("the SAME defect through git is observed too: two subcommands in one call, only the first read", () => {
+    const b = buildPassingBundle("jira");
+    // Verbatim shape from S17: the merge is credited, the aliased commit after
+    // the `;` is invisible, because gitSubcommand returns the FIRST match for
+    // the whole string. Different mechanism from the module case — here the
+    // exit code is irrelevant — so it is reported separately.
+    pushBash(b, "S4", "toolu_git2", 'git -C <B> merge --no-ff feature-s17 -m "m"; echo "exit=$?"; git -C <B> ci --allow-empty -m "aliased"');
+    const obs = grade(b).observations ?? [];
+    expect(obs.some((o) => o.code === "discarded-git-run")).toBe(true);
+    expect(String(obs.map((o) => o.detail))).toContain("merge");
+  });
+
+  test("REFUSAL TWIN — ONE git subcommand per call is not observed, however many echoes ride with it", () => {
+    const b = buildPassingBundle("jira");
+    pushBash(b, "S4", "toolu_git1", 'git -C <B> merge --no-ff feature-s17 -m "m"; echo "exit=$?"');
+    expect((grade(b).observations ?? []).some((o) => o.code === "discarded-git-run")).toBe(false);
+  });
+
+  test("REFUSAL TWIN — a heredoc WRITING that command is data, not a discarded run", () => {
+    const b = buildPassingBundle("jira");
+    // The conflation this programme lost five separate times: a command inside
+    // a `cat > file <<EOF` body is being written, not run.
+    pushBash(b, "S4", "toolu_heredoc", `cat > /tmp/x.sh <<'EOF'\n${REAL_RUN}\nEOF`);
+    expect((grade(b).observations ?? []).some((o) => o.code === "discarded-module-run")).toBe(false);
+  });
+
+  // S4's recall half is a loop over the intruder's keys, and over an empty list
+  // it never executes. On live leg 4 the intruder created nothing, so "names
+  // the intruder as unattributed" passed VACUOUSLY inside a scenario that
+  // failed for an unrelated reason — the vacuity was invisible because the
+  // scenario was already red.
+  test("S4 — with no intruder item the recall half is never exercised, and the scenario says so instead of passing it", () => {
+    const b = buildPassingBundle("jira");
+    const intruder = b.sessions.find((x) => x.marker === "intruder")!;
+    // Remove only the intruder's creates: every other check of S4 still runs.
+    intruder.calls = intruder.calls.filter((c) => !/create|save_issue/i.test(c.name)) as never;
+    const v = grade(b);
+    expect(v.scenarios.S4!.outcome).toBe("not-observed");
+    expect(String(v.scenarios.S4!.reason)).toContain("never exercised");
+  });
+
+  test("PERMIT TWIN — with the intruder's item present S4 passes, and the recall half is what it passed on", () => {
+    expect(failing(grade(buildPassingBundle("jira")))).not.toContain("S4");
+  });
+
+  test("S1 — a title created by the milestone EPIC is not an FR title and does not fail S1", () => {
+    const b = buildPassingBundle("jira");
+    mintEpicInto(b, "S1", title("S1 milestone"), true);
+    expect(failing(grade(b))).not.toContain("S1");
+  });
+
+  test("REFUSAL TWIN — a NON-Epic create whose title the audit does not hold still fails S1", () => {
+    const b = buildPassingBundle("jira");
+    // Differs in exactly one variable: the issue type. A non-Epic title with no
+    // matching audit items is a real problem and must keep failing.
+    mintEpicInto(b, "S1", title("S1 stray task"), false, "Task");
+    expect(failing(grade(b))).toContain("S1");
+  });
+
+  test("REFUSAL TWIN — an EPIC title the audit does NOT hold still fails S1: the skip needs the Epic in evidence", () => {
+    const b = buildPassingBundle("jira");
+    mintEpicInto(b, "S1", title("S1 unseen milestone"), false);
+    expect(failing(grade(b))).toContain("S1");
+  });
+
   test("S13 ORDER — the import AFTER the answered `Import <KEY>` passes; the import BEFORE the answer fails S13", () => {
     const b = buildPassingBundle("jira");
     const s = session(b, "S13");

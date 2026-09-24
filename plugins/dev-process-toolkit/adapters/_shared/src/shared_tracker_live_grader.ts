@@ -184,6 +184,14 @@ export interface LiveVerdict {
    * was proven; null when the run made no repoint (S8 the named skip).
    */
   assertedCompleteness: string[] | null;
+  /**
+   * Records the grade deliberately did NOT act on. Never affects `outcome` —
+   * that is the point: an observation reports something a reader of a failing
+   * verdict needs in order to interpret it, without becoming a second way to
+   * fail a run. Optional, so a bundle graded before this field existed stays
+   * readable.
+   */
+  observations?: LiveFinding[];
 }
 
 export interface GradeOptions {
@@ -1352,6 +1360,23 @@ const sameTitle: Predicate = (b, own) => {
   const audit = [...auditItems(b).values()];
   for (const t of titles) {
     const items = audit.filter((i) => i.kind === "issue" && i.issueType !== "Epic" && i.summary === t);
+    // A title whose only creator was an EPIC is not an FR title (live leg 4,
+    // 2026-09-24). `createdTitles` is type-BLIND — it collects every successful
+    // create, which is what its other caller wants — while this consumer is
+    // type-STRICT, requiring two NON-Epic items. A scenario that mints a
+    // milestone therefore put the Epic's title into the set, no non-Epic item
+    // could ever carry it, and S1 failed by construction on every run that
+    // minted one, which is every run.
+    //
+    // The reconciliation lives HERE rather than in the collector: the other
+    // caller looks FR bindings up BY TITLE, so an Epic title finds nothing
+    // there and a type-aware collector would change a shared helper for one
+    // caller's benefit while fixing nothing for the other.
+    //
+    // The Epic must be IN EVIDENCE to earn the skip. A title the audit holds
+    // under no type at all is a real problem — something was created and never
+    // read back — and keeps failing on the count below.
+    if (items.length === 0 && audit.some((i) => i.kind === "issue" && i.issueType === "Epic" && i.summary === t)) continue;
     // An item read without its labels is not untagged: it cannot be counted either way (`auditFieldsAbsent` aborts the run on it).
     const unlabelled = items.find((i) => i.absent?.includes("labels"));
     if (unlabelled) return notObserved(`the audit read ${unlabelled.key || "an item"} titled "${t}" without its labels, so its tag cannot be counted`);
@@ -1397,6 +1422,21 @@ const orphanListing: Predicate = (b, own) => {
       for (const [key, cls] of rows) if (sib.has(key) && cls === "ours") return fail(`<${r}>'s listing claims its sibling's ${key} as its own`);
       for (const u of intruders) if (rows.get(u) !== "unowned") return fail(`<${r}>'s listing does not name the intruder's ${u} as unattributed`);
     }
+  }
+  // The recall half of this scenario is `for (const u of intruders)`, and over
+  // an EMPTY list that loop never executes — so on live leg 4, where the
+  // intruder created nothing, "names the intruder as unattributed" was
+  // satisfied VACUOUSLY while S4 failed for an unrelated reason. One silent
+  // fixture did not merely fail the scenarios that depend on it; it silently
+  // satisfied a clause in one that does not.
+  //
+  // Placed LAST on purpose: every check above keeps its own failure reason, so
+  // this narrows nothing and only speaks when the scenario would otherwise
+  // have passed on half its property. `not-observed` rather than `fail`
+  // because the recall was not contradicted — it was never exercised, and this
+  // codebase already treats an unobserved property as a failing outcome.
+  if (intruders.length === 0) {
+    return notObserved("the intruder created no item, so this scenario's unattributed-recall half was never exercised");
   }
   return PASS;
 };
@@ -2347,6 +2387,93 @@ function createKeyUnreadable(b: LiveBundle): LiveFinding[] {
  * means the isolation broke; and the
  * intruder's items must be present in the first audit's read-back.
  */
+/** The shell operators that put a second command in one call — the same set `chainedCallNote` recognises. */
+const SEGMENT_SPLIT = /(?:&&|\|\||[;|\n])/;
+/** A `bun`-led segment naming the toolkit module directory — the OBSERVATION's permissive matcher, never the grade's. */
+const MODULE_SEGMENT = /^bun\s+(?:run\s+)?\S*\/adapters\/_shared\/src\/([\w.-]+\.ts)/;
+
+/**
+ * Commands that CONTAIN a toolkit module run but were not read as one, because
+ * the run is not the whole command (live leg 4, 2026-09-24: 20 of them).
+ *
+ * This is an OBSERVATION and never a finding. The refusal itself is CORRECT and
+ * is deliberately left alone: a recorded `exitCode` belongs to the command's
+ * LAST segment, so `bun <module>; echo "exit=$?"` records the echo's zero, and
+ * seven consumers of `moduleRuns` gate on an exact exit code (`!== 1`, `!== 0`).
+ * Accepting such a command would hand them the echo's status as the module's —
+ * they would not start passing, they would start FAILING WITH A CONFIDENT WRONG
+ * REASON, which is worse than a discard because nothing about the answer says
+ * the wrong question was asked.
+ *
+ * What was wrong was the SILENCE. Twenty real runs vanished in one leg and the
+ * instrument said nothing, so "no detector run is recorded" read as "the child
+ * never ran it" when the child had run it and appended an echo. Now the same
+ * verdict carries the reason beside it.
+ *
+ * A command carrying a heredoc is skipped entirely. A `bun <module>` line
+ * INSIDE a `cat > file <<EOF` body is data being written, not a command being
+ * run — the distinction this module's own `toolkitModuleRun` docstring states,
+ * and the one that has been lost five separate times in this programme by
+ * readers who knew it. Skipping under-reports rather than over-reports, which
+ * is the right direction for a signal whose whole purpose is to be trusted.
+ */
+function discardedModuleRuns(b: LiveBundle): LiveFinding[] {
+  const out: LiveFinding[] = [];
+  for (const s of b.sessions) {
+    for (const c of s.calls) {
+      if (c.name !== "Bash") continue;
+      const cmd = cmdOf(c);
+      if (cmd === "" || cmd.includes("<<") || toolkitModuleRun(cmd) !== null) continue;
+      const segs = cmd.split(SEGMENT_SPLIT);
+      // STRICT WHERE IT GRADES, PERMISSIVE WHERE IT EXPLAINS. Deliberately NOT
+      // `toolkitModuleRun` here. That predicate is strict because a wrong
+      // admission becomes a confident wrong verdict — but reusing it would make
+      // this channel blind wherever the predicate is blind, which is the exact
+      // silence the channel exists to end. A command reaching its module
+      // through a shell variable (`T=…; bun "$T/adapters/_shared/src/x.ts"`)
+      // has no absolute target, so the predicate returns null, the run is
+      // discarded, and a `toolkitModuleRun`-derived observation would say
+      // nothing about it.
+      //
+      // The asymmetry is the point: a false positive here costs a reader one
+      // line, a false negative costs what leg 4 cost. So the observation asks
+      // only whether a segment is a `bun` command naming the module directory.
+      const mod = segs.map((x) => MODULE_SEGMENT.exec(x.trim())?.[1] ?? null).find((x) => x !== null) ?? null;
+      if (mod !== null) {
+        out.push({
+          code: "discarded-module-run",
+          session: s.sessionId,
+          detail: `${c.ref}: this command runs ${mod}, but not as ONE plain invocation, so no predicate read it as a run of it`,
+        });
+      }
+      // The SAME defect through a different mechanism (S17, live leg 4).
+      // `gitSubcommand` runs one regex over the whole string and returns the
+      // FIRST subcommand, so `git merge …; git ci …` resolves to `merge` and
+      // the aliased commit after the `;` is invisible — the predicate credits
+      // the merge and reports the alias missing. Note the reason here is NOT
+      // the exit code: one command yields one subcommand. Two mechanisms, one
+      // habit, so both are reported or a child fixes half of it.
+      // Only the FIRST git subcommand is read, so the loss is a LATER segment
+      // carrying a git run that writes. Read-only pairs (`git status; git
+      // diff`) lose nothing — no predicate reads them — and reporting them
+      // would have made half this channel's first outing false positives, which
+      // is what a reader stops trusting. `isReadOnlyGit` refuses a multi-git
+      // string by design, so it is asked per SEGMENT.
+      const gitSegs = segs.filter((x) => gitSubcommand(x) !== null);
+      const gitSubs = gitSegs.map(gitSubcommand).filter((x) => x !== null);
+      const lostWrites = gitSegs.slice(1).some((x) => !isReadOnlyGit(x.trim()));
+      if (gitSegs.length > 1 && lostWrites) {
+        out.push({
+          code: "discarded-git-run",
+          session: s.sessionId,
+          detail: `${c.ref}: this command runs ${gitSubs.length} git subcommands (${gitSubs.join(", ")}), and only the first is read`,
+        });
+      }
+    }
+  }
+  return out;
+}
+
 function isolationBroken(b: LiveBundle): LiveFinding[] {
   const out: LiveFinding[] = [];
   for (const s of b.sessions) {
@@ -2739,6 +2866,8 @@ export function gradeBundle(b: LiveBundle, o: GradeOptions): LiveVerdict {
     graderDigest: graderDigest(),
     linearBudget: budget,
     assertedCompleteness: b.run.skips?.some((k) => k.id === "S8") ? null : assertedInputs(declarationReceipt(b, sessionsMarked(b, "S8"))?.receipt ?? null),
+    // Deliberately NOT in `findings` and NOT in the `outcome` above.
+    observations: discardedModuleRuns(b),
   };
 }
 
