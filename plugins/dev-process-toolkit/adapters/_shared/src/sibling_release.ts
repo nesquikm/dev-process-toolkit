@@ -263,6 +263,19 @@ export interface ChildrenGrade {
 }
 
 /**
+ * The phrase a refusal carries when this module rejected its INPUT LISTING and
+ * therefore never reached a release decision.
+ *
+ * Exported so the live grader can tell "refused on its input" from "reached the
+ * decision and refused on a sibling" WITHOUT matching prose it does not own.
+ * Both refusals exit 1, so the exit code cannot separate them, and a predicate
+ * that cannot tell them apart grades a non-event — which failed S5's permit
+ * twin on live leg 6 after the child read two refusals, fixed what each named,
+ * and succeeded on its third attempt.
+ */
+export const CHILD_LISTING_REJECTED = "'s child listing cannot prove it is complete —";
+
+/**
  * Grade the undeclared side of a shared-container release (STE-610): the
  * milestone's children as the tracker listed them — a Jira Epic's child issues,
  * or a Linear project's issues filtered to the milestone by their
@@ -286,7 +299,7 @@ export function gradeChildren(input: {
   const context = `milestone=${milestone}, listing=${source}, adapter=${adapter}`;
   const incomplete = (verdict: string, count: number | null): ChildrenGrade => ({
     refusal: shipRefusal(
-      `${milestone}'s child listing cannot prove it is complete — ${verdict}`,
+      `${milestone}${CHILD_LISTING_REJECTED} ${verdict}`,
       `save ${milestone}'s children as the tracker returns them — one page, or the JSON array of every page in order (Linear: page with \`cursor\` until \`hasNextPage\` is false, with \`includeArchived: true\`) — and pass it as --children <listingFile>`,
       context,
     ),
