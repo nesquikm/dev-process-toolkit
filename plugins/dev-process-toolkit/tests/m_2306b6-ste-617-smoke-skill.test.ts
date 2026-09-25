@@ -4402,3 +4402,43 @@ describe("STE-616 — the step rules reach every child through the step fence", 
     for (const h of RULE_HEADS) expect(p).not.toContain(h);
   }, 30_000);
 });
+
+// M_2306b6 / STE-616 — rows whose predicate needs a tracker ATTEMPT say so.
+//
+// S9, S11 and S13 are graded on the tracker-write hook's refusal arriving as a
+// write's tool_result; a session that attempts no write is `not-observed`.
+// Leg 8's S9 and S11 children stopped at `ticket_ownership.ts decide` →
+// foreign-repo, and its S13 child stopped at `importFromTracker`'s LOCAL
+// `sibling` refusal before any tracker call. Row 20 told its child both to
+// create an FR and not to write to the tracker; the operator dropped the
+// prohibition, since S10's property is an old client's untagged write.
+describe("STE-616 — rows 18, 19, 20 and 22 name the act their predicate grades", () => {
+  const rowFor = (text: string, n: number) => {
+    const r = stepRows(text).find((x) => x.nums.includes(n));
+    if (!r) throw new Error(`no step-table row for step ${n}`);
+    return r.prompt;
+  };
+  test("rows 18 (S9) and 19 (S11) tell the child to attempt the write past the ownership refusal", () => {
+    const text = docText();
+    for (const n of [18, 19]) {
+      const p = rowFor(text, n);
+      expect(p, `row ${n}`).toMatch(/ANYWAY/);
+      expect(p, `row ${n}`).toContain("foreign-repo");
+      expect(p, `row ${n}`).toContain("not-observed");
+    }
+  });
+  test("row 22's obligation (2) is a real label-sync write made past importFromTracker's local refusal", () => {
+    const p = rowFor(docText(), 22);
+    const two = p.slice(p.indexOf("**(2)**"), p.indexOf("**(3)**"));
+    expect(two).toContain("importFromTracker");
+    expect(two).toContain("sibling");
+    expect(two).toContain("editJiraIssue");
+    expect(two).toMatch(/ANYWAY/);
+  });
+  test("row 20 creates its FR and no longer forbids the tracker write; the plugin.json read stays", () => {
+    const p = rowFor(docText(), 20);
+    expect(p).toContain("Create one FR titled");
+    expect(p).toContain("plugin.json");
+    expect(p).not.toMatch(/Do NOT write to the tracker/i);
+  });
+});
