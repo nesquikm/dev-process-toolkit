@@ -2801,7 +2801,45 @@ const PREFIX_WORDS = /^(?:sudo|env|nohup|time|command|exec|do|then|else|\{)$/;
  * passed `"$R/CLAUDE.md"` inside a loop over both roots — so these are matched
  * against the whole command, and the other root counts wherever it is named.
  */
-const INPLACE = /(?:^|[;&|(]\s*|\bdo\s+)(?:perl\s+-\S*i|sed\s+(?:-\S+\s+)*-i|ed\s)/;
+const INPLACE = /^\(?(?:(?:sudo|env|nohup|time|command|exec|do|then|else|\{)\s+)*(?:perl\s+-\S*i|sed\s+(?:-\S+\s+)*-i|ed\s)/;
+
+/**
+ * STE-616 — a command's segments, split on the UNQUOTED separators (newline,
+ * `;`, `&&`, `||`, `|`, `&`). Quote-aware because an in-place editor's own
+ * expression routinely carries a `|` (`sed "s|<B>|x|"`), and splitting inside it
+ * would cut the editor away from the target it names.
+ */
+function shellSegments(cmd: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let q: "'" | '"' | null = null;
+  for (let i = 0; i < cmd.length; i++) {
+    const ch = cmd[i]!;
+    if (q !== null) {
+      if (ch === q) q = null;
+      else if (ch === "\\" && q === '"' && i + 1 < cmd.length) {
+        cur += ch + cmd[++i];
+        continue;
+      }
+      cur += ch;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      q = ch;
+      cur += ch;
+      continue;
+    }
+    if (ch === "\n" || ch === ";" || ch === "&" || ch === "|") {
+      if ((ch === "&" || ch === "|") && cmd[i + 1] === ch) i++;
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out.map((x) => x.trim()).filter(Boolean);
+}
 /** A redirection and the word it writes to: `> f`, `>>f`, `1> f`. `2>&1` names `&1`, not a file. */
 const REDIRECT = /(?:^|\s)\d?>>?\s*("?)([^\s"'|&;]+)/g;
 
@@ -2851,11 +2889,13 @@ interface SiblingWrite {
  * near the redirect — and step 23's own prompt (`cd <B> && gh pr create`)
  * primes every child on exactly that shape.
  *
- * NAMED LIMIT: the in-place arm is not target-aware, because the live shape's
- * target was a loop variable. A command that edits its OWN root in place while
- * naming the other root anywhere is therefore flagged. That shape is
- * indistinguishable from the live one by text alone; it is reported rather than
- * silently resolved in either direction.
+ * NAMED LIMIT: the in-place arm is target-aware per SEGMENT only, because the
+ * live shape's target was a loop variable. An in-place edit of its OWN root
+ * whose own segment names the other root (`sed -i "s|<B>|x|" <A>/CLAUDE.md`),
+ * or whose target is indirect while the command names the other root anywhere,
+ * is therefore flagged. Those shapes are indistinguishable from the live one
+ * by text alone; they are reported rather than silently resolved in either
+ * direction.
  */
 function shellWriteInto(cmd: string, other: string, own: string, namesOther: boolean, otherName?: string): SiblingWrite | null {
   const isOtherPath = (p: string): boolean =>
@@ -2867,8 +2907,25 @@ function shellWriteInto(cmd: string, other: string, own: string, namesOther: boo
     // use the token (`git -C <B>`), never the name.
     (otherName !== undefined && otherName !== "" && new RegExp(`(?:^|/)${otherName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:/|$)`).test(p));
   const isOwnPath = (p: string): boolean => p === own || p.startsWith(`${own}/`);
-  if (namesOther && INPLACE.test(cmd)) {
-    return { target: cmd.replace(/\s+/g, " ").slice(0, 120), via: "an in-place editor over a target it names indirectly", permittable: false };
+  // The in-place arm, one SEGMENT at a time. A segment is flagged when it names
+  // the other root itself, or when its target is indirect (a variable, a
+  // command substitution, an unquoted glob) and the command names the other
+  // root anywhere — the founding loop, whose `"$R/CLAUDE.md"` took `<B>` from
+  // the `for` segment before it. A literal target in a segment that never names
+  // the sibling is not a write into it, whatever a later command names: leg 8
+  // flagged `sed -i … /tmp/dst-106.json` because `<B>` was an argument on the
+  // next line. And matching the WHOLE command against a `^`-anchored pattern
+  // missed an editor on any line after the first.
+  const segNamesOther = (seg: string): boolean =>
+    new RegExp(`${other.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=/|$|[^\\w.-])`).test(seg) ||
+    (otherName !== undefined && otherName !== "" && new RegExp(`(?:^|/)${otherName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:/|$|["'\\s])`).test(seg));
+  for (const seg of shellSegments(cmd)) {
+    if (!INPLACE.test(seg)) continue;
+    const noSingle = seg.replace(/'[^']*'/g, "");
+    const indirect = /[$`]/.test(noSingle) || /[*?]/.test(noSingle.replace(/"[^"]*"/g, ""));
+    if (segNamesOther(seg) || (indirect && namesOther)) {
+      return { target: seg.replace(/\s+/g, " ").slice(0, 120), via: "an in-place editor over a target it names indirectly", permittable: false };
+    }
   }
 
   // "own" is where the step started it; `cd` moves it, and a relative write
