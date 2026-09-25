@@ -1828,6 +1828,63 @@ describe("AC.10 — scenario predicates, both orders", () => {
     commitA(b, "chore(release): v0.2.0", new Date(Date.parse(twin) - 5000).toISOString());
     expect(failing(grade(b))).toContain("S5");
   });
+  // Live Linear leg 2 (shr15b24814): step 1's child named its PRE milestone
+  // exactly like its FR, the audit read that milestone with container "" (a
+  // Linear milestone answer names no project), and S8's duplicate check, which
+  // reads "" as the shared container, called the legacy item's own milestone a
+  // duplicate FR. A duplicate is an item of the SAME class: an FR recreated
+  // beside the legacy FR, or a second milestone container beside its milestone.
+  const containerTwin = (b: LiveBundle, title: string, container: string): void =>
+    addToAudit(b, {
+      key: b.run.tracker === "jira" ? "DST-192" : "71d73ec9-614f-40eb-836e-733fca6438f0",
+      summary: title,
+      labels: [],
+      status: "",
+      parent: null,
+      milestone: null,
+      issueType: b.run.tracker === "jira" ? "Epic" : null,
+      kind: b.run.tracker === "jira" ? "issue" : "milestone",
+      container,
+    });
+  for (const t of ["jira", "linear"] as const) {
+    test(`${t}: S8 — a milestone container titled like the legacy FR (Linear leg 2's shape) is not a duplicate of it`, () => {
+      const b = buildPassingBundle(t);
+      const legacy = createdKeys(session(b, "S8"))[0]!;
+      const orig = audits(b)[0]!.calls.flatMap((c) => c.result.items ?? []).find((i) => i.key === legacy)!;
+      containerTwin(b, orig.summary, t === "jira" ? b.run.container : "");
+      expect(grade(b).scenarios.S8?.outcome, grade(b).scenarios.S8?.reason).toBe("pass");
+    });
+    test(`${t}: S8 CONTROL — a same-titled ISSUE in the shared container still fails`, () => {
+      const b = buildPassingBundle(t);
+      const legacy = createdKeys(session(b, "S8"))[0]!;
+      const orig = audits(b)[0]!.calls.flatMap((c) => c.result.items ?? []).find((i) => i.key === legacy)!;
+      addToAudit(b, { ...orig, key: t === "jira" ? "DST-193" : "STE-993", container: b.run.container });
+      expect(grade(b).scenarios.S8?.outcome).toBe("fail");
+      expect(grade(b).scenarios.S8?.reason).toMatch(/duplicates the legacy item's title/);
+    });
+    test(`${t}: S8 CONTROL — an issue read WITHOUT its container still counts as shared (fail closed)`, () => {
+      const b = buildPassingBundle(t);
+      const legacy = createdKeys(session(b, "S8"))[0]!;
+      const orig = audits(b)[0]!.calls.flatMap((c) => c.result.items ?? []).find((i) => i.key === legacy)!;
+      addToAudit(b, { ...orig, key: t === "jira" ? "DST-194" : "STE-994", container: "" });
+      expect(grade(b).scenarios.S8?.outcome).toBe("fail");
+    });
+    // The same kind-blind shape, twice more: S6 and S11 fail on ANY audit item
+    // titled like a refused create attempt, so a milestone that merely shares
+    // the title would red them. Their attempts create issues.
+    test(`${t}: S6 — a milestone container titled like the below-floor write is not the write landing`, () => {
+      const b = buildPassingBundle(t);
+      containerTwin(b, title("S6 below-floor write"), t === "jira" ? b.run.container : "");
+      expect(grade(b).scenarios.S6?.outcome, grade(b).scenarios.S6?.reason).toBe("pass");
+    });
+    test(`${t}: S6 CONTROL — an ISSUE titled like the below-floor write still fails`, () => {
+      const b = buildPassingBundle(t);
+      const legacy = createdKeys(session(b, "S8"))[0]!;
+      const orig = audits(b)[0]!.calls.flatMap((c) => c.result.items ?? []).find((i) => i.key === legacy)!;
+      addToAudit(b, { ...orig, key: t === "jira" ? "DST-195" : "STE-995", summary: title("S6 below-floor write"), container: b.run.container });
+      expect(grade(b).scenarios.S6?.outcome).toBe("fail");
+    });
+  }
   // Live Linear leg 1 (shr8f740e57): step 5's S1 child joined A's same-title
   // milestone, so B's FIRST join receipt was not S14's span join. joinAt fell
   // before step 7 and the refused attach was graded as never having happened.

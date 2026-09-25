@@ -1218,6 +1218,19 @@ function hookRefusal(c: ToolCall): string | null {
 const hasNoId = (c: ToolCall): boolean => c.input.id === undefined || c.input.id === null || c.input.id === "";
 /** The keys a call's tracker answer names. */
 const itemKeys = (c: ToolCall): string[] => (c.result.items ?? []).map((i) => i.key);
+/**
+ * What an item IS for a title comparison: a milestone container (a Linear
+ * milestone or project, a Jira Epic) or an issue. Two items of different
+ * classes can share a title without either duplicating the other. Live Linear
+ * leg 2: step 1's PRE milestone was named exactly like its FR, and S8 read it
+ * as a duplicate FR. A Linear milestone answer names no project, so its
+ * container is "", which the duplicate check reads as the shared container.
+ */
+const itemClass = (i: TrackerItem): "container" | "issue" => (i.kind !== "issue" || i.issueType === "Epic" ? "container" : "issue");
+/** The class a create ATTEMPT would make: a `save_milestone` or a Jira Epic is a container; anything else an issue. */
+const attemptClass = (c: ToolCall): "container" | "issue" =>
+  bareTool(c.name) === "save_milestone" || str(c.input.issueTypeName) === "Epic" ? "container" : "issue";
+
 /** The title a create call's input gives (`summary` on Jira, `title` on Linear), or "". */
 const createTitle = (c: ToolCall): string =>
   typeof c.input.summary === "string" ? c.input.summary : typeof c.input.title === "string" ? c.input.title : "";
@@ -1588,9 +1601,10 @@ const belowFloor: Predicate = (b, own) => {
   if (!refused.some((c) => SECOND_SERVER.test(serverOf(c.name)))) return fail("no hook refusal is recorded on the second server name");
   const created = createdBy(own);
   if (created.length > 0) return fail(`the below-floor session created ${created.join(", ")}`);
-  const titles = new Set(writes.filter(isCreateAttempt).map(createTitle).filter(Boolean));
-  if (titles.size === 0) return notObserved("no below-floor write was a titled create, so the audit holds nothing to count it by");
-  const inAudit = [...auditItems(b).values()].find((i) => titles.has(i.summary));
+  const shapes = new Set(writes.filter(isCreateAttempt).filter((c) => createTitle(c) !== "").map((c) => `${attemptClass(c)}:${createTitle(c)}`));
+  if (shapes.size === 0) return notObserved("no below-floor write was a titled create, so the audit holds nothing to count it by");
+  // Same class and title (`itemClass`): a milestone that merely shares the title is not the write landing.
+  const inAudit = [...auditItems(b).values()].find((i) => shapes.has(`${itemClass(i)}:${i.summary}`));
   if (inAudit) return fail(`the audit reads ${inAudit.key}, titled like the below-floor write`);
   if (b.run.belowFloorDigest !== b.run.behaviourDigest.digest) return fail("the below-floor copy's behaviour digest differs from the tree under test's");
   return PASS;
@@ -1624,8 +1638,8 @@ const relocatedCheckout: Predicate = (b, own) => {
   if (!writes.some((c) => /CLAUDE\.md/.test(c.result.text) && /cannot be read|unreadable/i.test(c.result.text))) return fail("no refusal names the relocated checkout's CLAUDE.md as unreadable");
   const created = createdBy(own);
   if (created.length > 0) return fail(`the relocated checkout created ${created.join(", ")}`);
-  const titles = new Set(writes.filter(isCreateAttempt).map(createTitle).filter(Boolean));
-  const inAudit = [...auditItems(b).values()].find((i) => titles.has(i.summary));
+  const shapes = new Set(writes.filter(isCreateAttempt).filter((c) => createTitle(c) !== "").map((c) => `${attemptClass(c)}:${createTitle(c)}`));
+  const inAudit = [...auditItems(b).values()].find((i) => shapes.has(`${itemClass(i)}:${i.summary}`));
   if (inAudit) return fail(`the audit reads ${inAudit.key}, titled like a relocated-checkout create`);
   return PASS;
 };
@@ -1677,7 +1691,8 @@ const repoint: Predicate = (b, own) => {
     const legacy = audit.get(k);
     if (!legacy) return fail(`the legacy key ${k} does not resolve in the audit`);
     // An item read without its container is not proven to be elsewhere: it counts as in the shared one.
-    const dup = [...audit.values()].find((i) => i.key !== k && (i.container === b.run.container || i.container === "") && i.summary === legacy.summary);
+    // Same class only (`itemClass`): a milestone titled like the legacy FR is not a duplicate FR.
+    const dup = [...audit.values()].find((i) => i.key !== k && itemClass(i) === itemClass(legacy) && (i.container === b.run.container || i.container === "") && i.summary === legacy.summary);
     if (dup) return fail(`${dup.key} in the shared container duplicates the legacy item's title`);
   }
   return PASS;
@@ -1716,7 +1731,7 @@ const oldClient: Predicate = (b, own) => {
   // still runs first and can still fail the scenario.
   const audit = auditItems(b);
   const declared = [b.roots.A.tag, b.roots.B.tag];
-  const isContainer = (i: TrackerItem | undefined) => i !== undefined && (i.kind !== "issue" || i.issueType === "Epic");
+  const isContainer = (i: TrackerItem | undefined) => i !== undefined && itemClass(i) === "container";
   const oldKeys = createdBy(old);
   const owed = oldKeys.filter((k) => {
     const i = audit.get(k);

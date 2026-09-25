@@ -757,6 +757,15 @@ function readCreateReceipt(path: string, sessionId: string, adapter: WorkspaceAd
  * one turn cannot both take one receipt, however their hooks interleave. The
  * gated call's own tool_use never spends (it is where the walk stops); when it
  * is absent from the transcript it is taken to come after every other create.
+ *
+ * A create whose RECORDED result proves it never reached the tracker (`neverRan`:
+ * a hook or permission refusal, a user rejection, a 4xx) took nothing, so it
+ * spends nothing. Live Linear leg 2, step 17: a create matching its receipt was
+ * refused by this hook for want of an attach-target receipt, the walk spent the
+ * receipt on it anyway, and the corrected create was refused as "spent" with no
+ * legal path left (`decide --attempt retry-1` answered miss). A create with no
+ * result yet (a pending parallel sibling) or an ambiguous one (a timeout, a 5xx)
+ * still spends, exactly as before.
  */
 function createsBefore(
   lines: string[],
@@ -764,10 +773,18 @@ function createsBefore(
   gatedId: string | undefined,
   kind: CreateKind = TICKET_CREATES,
 ): Array<{ line: number; shape: CreateShape }> {
+  const neverReached = new Set<string>();
+  for (const p of parseLines(lines)) {
+    if (!p) continue;
+    for (const b of p.blocks) {
+      if (b.type === "tool_result" && typeof b.tool_use_id === "string" && b.is_error === true && neverRan(p, b)) neverReached.add(b.tool_use_id);
+    }
+  }
   const out: Array<{ line: number; shape: CreateShape }> = [];
   for (let idx = 0; idx < lines.length; idx++) {
     for (const b of contentBlocks(lines[idx]!)) {
       if (gatedId !== undefined && b.id === gatedId) return out;
+      if (typeof b.id === "string" && neverReached.has(b.id)) continue;
       const c = kind.pick(b, adapter);
       if (c) out.push({ line: idx, shape: kind.shape(c) });
     }
