@@ -40,6 +40,8 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { decideMilestoneMint, type JiraDecisionRow, type LinearDecisionRow } from "../adapters/_shared/src/milestone_token";
+import { milestoneGateSentence } from "../adapters/_shared/src/resolve_milestone_identity";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -1360,6 +1362,68 @@ function createdKeysContractViolations(text: string): string[] {
   return v;
 }
 
+/**
+ * No step's milestone answer may reach a decision with no safe default. Live
+ * Jira leg 11 aborted at step 5: B's S1 answer was "accept the recommended next
+ * free milestone", /spec-write named the milestone after the FR, A's step 4 had
+ * already made a milestone of that title, and resolve_milestone_identity.ts
+ * decided a TITLE join in a shared container, whose default is forbidden. The
+ * child refused, correctly. The same answer was applied as a join on leg 10 and
+ * ignored on Linear leg 2, so the outcome was child judgement.
+ *
+ * This walks the answers table in step order and puts every FR step's answer
+ * through the module's own decision (`decideMilestoneMint`) and default rule
+ * (`milestoneGateSentence`, shared: true), against the milestone titles the
+ * earlier answers created. "Accept the recommended…" is modelled at its worst,
+ * a milestone titled after the FR, which is exactly what leg 11's child met.
+ * Step 1 runs in B's pre-repoint container, so it is kept out of the shared one.
+ */
+function forbiddenDefaultSteps(text: string, tracker: "jira" | "linear"): string[] {
+  const nonce = "shrtest01";
+  const fill = (x: string) => x.replaceAll("<nonce>", nonce);
+  const shared: string[] = [];
+  const v: string[] = [];
+  const rows = answerRows(text).flatMap((r) => r.nums.map((n) => ({ n, r })));
+  rows.sort((a, b) => a.n - b.n);
+  for (const { n, r } of rows) {
+    const created = /^create the new milestone (.+?)(?:,|$)/.exec(r.milestone);
+    const recommended = /^accept the recommended/.test(r.milestone);
+    const title = created ? fill(created[1]!.trim()) : recommended ? fill(r.feature_summary) : null;
+    if (title === null || n === 1) continue;
+    const listing =
+      tracker === "jira"
+        ? shared.map((name, i): JiraDecisionRow => ({ key: `DST-${900 + i}`, name, statusCategory: "new", labels: [] }))
+        : shared.map((name, i): LinearDecisionRow => ({ id: `5f3a9c${(i + 1).toString(16).padStart(2, "0")}-7d2e-4f00-9a00-${(i + 1).toString(16).padStart(12, "0")}`, name }));
+    const decision = tracker === "jira"
+      ? decideMilestoneMint({ mode: "jira", project: "DST", rows: listing as JiraDecisionRow[], title })
+      : decideMilestoneMint({ mode: "linear", project: "dpt-shared-x", rows: listing as LinearDecisionRow[], title });
+    const { forbidden } = milestoneGateSentence({ mode: tracker, project: "DST", title, decision, rows: listing, shared: true });
+    if (forbidden) v.push(`step ${n}: its milestone answer "${r.milestone}" reaches a ${decision.act} via ${"via" in decision ? decision.via : "?"} with a forbidden default`);
+    if (decision.act === "create") shared.push(title);
+  }
+  return v;
+}
+
+describe("no step's milestone answer reaches a decision with a forbidden default", () => {
+  for (const t of ["jira", "linear"] as const) {
+    test(`${t}: the document's answers table`, () => {
+      expect(forbiddenDefaultSteps(docText(), t)).toEqual([]);
+    });
+  }
+  test("MUTATION — the leg-11 answers (steps 4-5 both 'accept the recommended next free milestone') are red at step 5", () => {
+    const text = docText();
+    const lines = text.split("\n");
+    const at = lines.findIndex((l) => /^\| step 4 \|/.test(l));
+    expect(at, "control: step 4's answers row is found").toBeGreaterThan(0);
+    const next = lines.findIndex((l) => /^\| step 5 \|/.test(l));
+    expect(next, "control: step 5's answers row is found").toBe(at + 1);
+    lines.splice(at, 2, "| step 4–5 | `<nonce> S1 same title` | accept the recommended next free milestone | Skip every orphan; import nothing |");
+    const m = lines.join("\n");
+    expect(forbiddenDefaultSteps(m, "jira")).toEqual(['step 5: its milestone answer "accept the recommended next free milestone" reaches a join via title with a forbidden default']);
+    expect(forbiddenDefaultSteps(m, "linear")).toEqual(['step 5: its milestone answer "accept the recommended next free milestone" reaches a join via title with a forbidden default']);
+  });
+});
+
 describe("the step table uses only placeholders a driver is told how to fill", () => {
   test("the document's step table", () => {
     expect(undefinedPlaceholders(docText())).toEqual([]);
@@ -2253,7 +2317,8 @@ describe("live-run item 1 — every step prompt carries a sanctioned answers blo
   }, 60_000);
   test("MUTATION — a create step whose feature_summary is not its title is red (the grader counts FRs by title)", () => {
     const text = docText();
-    const s1 = answerRowLine(text, 4);
+    // Step 5's own row: since live Jira leg 11, steps 4 and 5 answer different milestones and no longer share one.
+    const s1 = answerRowLine(text, 5);
     const m = text.replace(s1, s1.replace("`<nonce> S1 same title`", "a same-title FR for S1"));
     expect(m).not.toBe(text);
     expect(answersViolations(m, [5])).toEqual([`step 5: feature_summary is "a same-title FR for S1", not the title its prompt names ("${FILL.nonce} S1 same title")`]);
