@@ -1328,6 +1328,64 @@ describe("every tracker tool the step table names is qualified, and both tracker
   });
 });
 
+/**
+ * Every `<…>` placeholder the step table uses is one the driver is told how to
+ * fill (§ Running a step's list). The first Linear leg's driver met three that
+ * were not: row 8's `<listingFile>`, and rows 9 and 22's `<KEY>`, which a driver
+ * can only guess at (row 22's is the intruder's key; row 9's is a key the CHILD
+ * reads from its own listing, which no driver knows in advance on Linear). The
+ * defined set is read from the paragraph itself, so adding a placeholder means
+ * defining it there. `M<N>` is notation for a typed milestone, not a placeholder.
+ */
+function undefinedPlaceholders(text: string): string[] {
+  const para = text.split("\n").find((l) => l.startsWith("Before you write a prompt into the step fence, fill in every"));
+  if (para === undefined) return ["the placeholder paragraph of § Running a step is missing"];
+  const defined = new Set([...para.matchAll(/`(<[^`<>]+>)`/g)].map((m) => m[1]!));
+  const v: string[] = [];
+  for (const r of stepRows(text)) {
+    for (const m of r.prompt.replaceAll("M<N>", "").matchAll(/<[^<>\n|]{1,40}>/g)) {
+      if (!defined.has(m[0])) v.push(`step ${r.nums.join("–")}: ${m[0]} is not a placeholder § Running a step defines`);
+    }
+  }
+  return [...new Set(v)];
+}
+
+/** The created-keys list is issue keys only: a Linear milestone id in it makes the audit's get_issue 400. */
+function createdKeysContractViolations(text: string): string[] {
+  const v: string[] = [];
+  const line = text.split("\n").find((l) => l.startsWith("Before running it, write to `/tmp/dpt-shared-<tracker>-created-keys.txt`"));
+  if (line === undefined) return ["the created-keys instruction is missing"];
+  if (!/ISSUE keys/.test(line) || !/never a milestone id/.test(line)) v.push("the created-keys instruction does not say it holds issue keys only, never a Linear milestone id");
+  if (/per created milestone id/.test(text)) v.push("a milestone read is keyed on created milestone ids, which the created-keys list never holds");
+  return v;
+}
+
+describe("the step table uses only placeholders a driver is told how to fill", () => {
+  test("the document's step table", () => {
+    expect(undefinedPlaceholders(docText())).toEqual([]);
+  });
+  test("MUTATION — the Linear leg 1 rows (row 8's <listingFile>, row 22's Import <KEY>) are red", () => {
+    const text = docText();
+    const m = text
+      .replace("--children /tmp/dpt-shared-<tracker>-scratch-<nonce>-8-S14/children.json` once", "--children <listingFile>` once")
+      .replace("the printed `Import <intruder key>` label.", "the printed `Import <KEY>` label.");
+    expect(m, "control: both rows are found").not.toBe(text);
+    expect(undefinedPlaceholders(m)).toEqual(["step 8: <listingFile> is not a placeholder § Running a step defines", "step 22: <KEY> is not a placeholder § Running a step defines"]);
+  });
+});
+
+describe("the audit's created-keys list holds issue keys only", () => {
+  test("the document", () => {
+    expect(createdKeysContractViolations(docText())).toEqual([]);
+  });
+  test("MUTATION — the Linear leg 1 wording (per created milestone id above) is red", () => {
+    const text = docText();
+    const m = text.replace("once per milestone id in that list_milestones answer whose name contains ${NONCE}", "once per created milestone id above");
+    expect(m, "control: the milestone read is found").not.toBe(text);
+    expect(createdKeysContractViolations(m)).toContain("a milestone read is keyed on created milestone ids, which the created-keys list never holds");
+  });
+});
+
 describe("rule 1 — no step row prescribes a chained command", () => {
   test("every backticked command in the step table is one operation", () => {
     expect(chainedCommandRows(docText())).toEqual([]);
@@ -2340,7 +2398,7 @@ describe("live-run item 3 — the second Linear audit reads both throwaway proje
 // --- HIGH-E: the first Linear audit reads the milestones the grader grades S3 by
 
 /** The milestone-read line of an audit prompt: the listing tool, the project, the per-key read tool. */
-const MILESTONE_READ_RE = /^Then read the shared project's milestones: call mcp__linear__(\w+) once for the project named (\S+), and call mcp__linear__(\w+) once per created milestone id above \(project \S+, query the id\)\. These calls take no field list\.$/m;
+const MILESTONE_READ_RE = /^Then read the shared project's milestones: call mcp__linear__(\w+) once for the project named (\S+), and call mcp__linear__(\w+) once per milestone id in that list_milestones answer whose name contains \S+ \(project \S+, query the id\)\. These calls take no field list\.$/m;
 
 function milestoneReadViolations(text: string): string[] {
   const v: string[] = [];

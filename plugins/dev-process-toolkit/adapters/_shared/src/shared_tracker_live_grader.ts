@@ -35,6 +35,7 @@ import { milestoneLabel } from "./attach_project_milestone";
 import { resolveInterviewAnswer } from "./auto_answers";
 import { normalizeTitleForCompare } from "./create_idempotency_probe";
 import { readTrackerItem, readTrackerPage } from "./tracker_answer";
+import { milestoneIdFromEpicKey, milestoneIdFromLinearMilestone } from "./milestone_token";
 
 import {
   linearWorstCase,
@@ -1815,14 +1816,44 @@ const claimAndImport: Predicate = (b, own) => {
   return PASS;
 };
 
+/** The milestone token a joined container key derives to — the derivation the decision front door prints as `milestoneId=`; "" when it does not derive. */
+function joinedToken(tracker: SharedTrackerId, key: string): string {
+  try {
+    return tracker === "jira" ? milestoneIdFromEpicKey(key) : milestoneIdFromLinearMilestone(key);
+  } catch {
+    return "";
+  }
+}
+
 /** S14 — B's attach before its join exits 1 with no create after it; A's release is held one-sided before B's back-reference. */
 const zeroWriteJoin: Predicate = (b, own) => {
-  const join = receiptsOf(b, "B").find((r) => r.kind === "milestone-decision" && r.evidence.act === "join");
-  if (!join) return fail("B's join decision is not recorded");
+  // THE join is the join into S14's OWN span milestone, never B's first join.
+  // Live Linear leg 1 (shr8f740e57): step 5's S1 child accepted the recommended
+  // milestone and JOINED A's same-title M_6c28ed, so B's first join receipt was
+  // step 5's. joinAt then fell before step 7, the refused attach was filtered
+  // out as "after the join", and a correct run failed. The span milestone is
+  // read from what S14's own runs name: the milestone A's release names (its
+  // third argument) and the plan B's attach binds. A join receipt belongs to it
+  // when the milestone id its key derives to is one of those tokens.
+  const spanTokens = new Set<string>();
+  for (const c of own.filter((s) => s.root === "A").flatMap((s) => moduleRuns(s, "sibling_release.ts"))) {
+    const token = toolkitModuleRun(cmdOf(c))?.args[2];
+    if (token) spanTokens.add(token);
+  }
+  for (const c of own.filter((s) => s.root === "B").flatMap((s) => moduleRuns(s, "attach_project_milestone.ts"))) {
+    for (const a of toolkitModuleRun(cmdOf(c))?.args ?? []) {
+      const plan = /\/specs\/plan\/([^/]+)\.md$/.exec(a);
+      if (plan) spanTokens.add(plan[1]!);
+    }
+  }
+  if (spanTokens.size === 0) return fail("S14's own runs name no span milestone (no sibling_release.ts milestone, no plan an attach binds)");
+  const joins = receiptsOf(b, "B").filter((r) => r.kind === "milestone-decision" && r.evidence.act === "join" && spanTokens.has(joinedToken(b.run.tracker, str(r.evidence.key))));
+  if (joins.length === 0) return fail(`B's join decision into the span milestone (${[...spanTokens].join(", ")}) is not recorded`);
   // Announced by its writer's run (resolve_milestone_identity.ts), with its bytes' sha256: an echoed line is no announcement.
-  const joinAts = b.sessions.filter((s) => s.root === "B").flatMap(announcements).filter((a) => announces(a, join)).map((a) => a.at);
+  const joinAts = b.sessions.filter((s) => s.root === "B").flatMap(announcements).filter((a) => joins.some((j) => announces(a, j))).map((a) => a.at);
   if (joinAts.length === 0) return fail("B's join decision was never announced by its writer");
   const joinAt = Math.min(...joinAts);
+  const join = joins[0]!;
   const attaches = own.filter((s) => s.root === "B").flatMap((s) => moduleRuns(s, "attach_project_milestone.ts").map((c) => ({ s, c }))).filter(({ c }) => ms(c.at) < joinAt);
   if (attaches.length === 0) return fail("B's attach-target run before its join is not recorded");
   for (const { s, c } of attaches) {

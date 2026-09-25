@@ -1828,6 +1828,59 @@ describe("AC.10 — scenario predicates, both orders", () => {
     commitA(b, "chore(release): v0.2.0", new Date(Date.parse(twin) - 5000).toISOString());
     expect(failing(grade(b))).toContain("S5");
   });
+  // Live Linear leg 1 (shr8f740e57): step 5's S1 child joined A's same-title
+  // milestone, so B's FIRST join receipt was not S14's span join. joinAt fell
+  // before step 7 and the refused attach was graded as never having happened.
+  // `plantEarlierJoin` reproduces that shape: an announced, unrelated join by B,
+  // made in S1's B session, recorded ahead of the span join.
+  const OTHER_MILESTONE: Record<"jira" | "linear", string> = { jira: "DST-150", linear: "6c28ed40-2bc7-46bf-9936-961e92fd13f0" };
+  const plantEarlierJoin = (b: LiveBundle): void => {
+    const s1b = session(b, "S1", 1);
+    if (!b.repos.B.receipts.readable) throw new Error("fixture: B's receipts are unreadable");
+    const span = b.repos.B.receipts.records.find((r) => r.kind === "milestone-decision" && r.evidence.act === "join")!;
+    const key = OTHER_MILESTONE[b.run.tracker];
+    const r = {
+      ...span,
+      path: `<B>/.dpt/ledger/receipts/${s1b.sessionId}/early-join.json`,
+      sessionId: s1b.sessionId,
+      sha256: "e".repeat(64),
+      subject: title("S1 same title"),
+      evidence: { ...span.evidence, act: "join", via: "title", key, joinKey: undefined, name: title("S1 same title") },
+    };
+    b.repos.B.receipts.records.unshift(r);
+    const last = s1b.calls.at(-1)!;
+    s1b.calls.push({
+      ...last,
+      ref: `${s1b.sessionId}:toolu_earlyjoin`,
+      at: new Date(Date.parse(last.at) + 1000).toISOString(),
+      name: "Bash",
+      input: { command: `bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/resolve_milestone_identity.ts" <B> ${b.run.tracker} ${b.run.container} <B>/.dpt/tmp/listing-s1.json --title "${title("S1 same title")}"` },
+      result: { isError: false, text: `act=join\nvia=title\nkey=${key}\ndpt-receipt: ${r.path} sha256:${r.sha256}`, exitCode: 0, items: null, lastPage: null },
+    });
+  };
+  for (const t of ["jira", "linear"] as const) {
+    test(`${t}: S14 — an earlier, unrelated join by B (step 5's S1 join) is not S14's join; the span join still grades the refused attach`, () => {
+      const b = buildPassingBundle(t);
+      plantEarlierJoin(b);
+      expect(grade(b).scenarios.S14?.outcome, grade(b).scenarios.S14?.reason).toBe("pass");
+    });
+    test(`${t}: S14 CONTROL — with that earlier join planted, a span join that has no refused attach before it still fails`, () => {
+      const b = buildPassingBundle(t);
+      plantEarlierJoin(b);
+      const attach = session(b, "S14").calls.find((c) => /attach_project_milestone\.ts/.test(String(c.input.command ?? "")))!;
+      attach.at = new Date(Date.parse(session(b, "S2", 1).calls[0]!.at) + 500).toISOString();
+      expect(grade(b).scenarios.S14?.outcome).toBe("fail");
+      expect(grade(b).scenarios.S14?.reason).toMatch(/attach-target run before its join is not recorded/);
+    });
+  }
+  test("S14 CONTROL — a B join into ANOTHER milestone alone is not the span join: S14 fails naming the span milestone", () => {
+    const b = buildPassingBundle("jira");
+    if (!b.repos.B.receipts.readable) throw new Error("fixture: B's receipts are unreadable");
+    const span = b.repos.B.receipts.records.find((r) => r.kind === "milestone-decision" && r.evidence.act === "join")!;
+    span.evidence = { ...span.evidence, key: OTHER_MILESTONE.jira };
+    expect(grade(b).scenarios.S14?.outcome).toBe("fail");
+    expect(grade(b).scenarios.S14?.reason).toMatch(/join decision into the span milestone \(M_/);
+  });
   test("S17 — a run that is its session's last call does not land by a LATER step's commit into B", () => {
     const b = buildPassingBundle("jira");
     const aliased = b.repos.B.commits.find((k) => k.subject === "s17: aliased commit")!;
