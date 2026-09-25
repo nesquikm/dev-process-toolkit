@@ -751,7 +751,8 @@ Ten keys are the same on every step and are written in the fence. The three belo
 | step 1 | `<nonce> S8 legacy item` | accept the recommended next free milestone | Skip every orphan; import nothing |
 | step 2 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
 | step 3 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
-| step 4–5 | `<nonce> S1 same title` | accept the recommended next free milestone | Skip every orphan; import nothing |
+| step 4 | `<nonce> S1 same title` | create the new milestone `<nonce> S1 repo A` | Skip every orphan; import nothing |
+| step 5 | `<nonce> S1 same title` | create the new milestone `<nonce> S1 repo B` | Skip every orphan; import nothing |
 | step 6 | none — plan the milestone only; create no FR | create the new milestone `<nonce> S3 span`, spanning `<B>` | Skip every orphan; import nothing |
 | step 7 | none — this step creates nothing | none — this step decides no join | Skip every orphan; import nothing |
 | step 8 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
@@ -770,6 +771,8 @@ Ten keys are the same on every step and are written in the fence. The three belo
 | step 23 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
 | step 24 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
 | step 25–26 | none — this step creates no FR | none — this step creates no FR | Skip every orphan; import nothing |
+
+Steps 4 and 5 name DIFFERENT milestones on purpose. S1 is about two FRs of one title, not about their milestone, and `CREATES` charges each repository its own new milestone. Answered "accept the recommended next free milestone", B's /spec-write named its milestone after the FR, met A's step-4 milestone of that same title, and `resolve_milestone_identity.ts` decided a title join in a shared container, whose default is forbidden. On live Jira leg 11 the child refused there (correctly) and step 5 created nothing; on leg 10 the same answer was applied as a join, and on Linear leg 2 it minted a duplicate title. A distinct title makes step 5 a plain create with an allowed default on both trackers, and leaves S14's scoped span join (the only join B then makes before S2) undisturbed. A test runs every step's milestone answer through the module's own decision and fails on any forbidden default.
 
 ### Running a step
 
