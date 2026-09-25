@@ -458,7 +458,7 @@ export async function verifySpan(input: DeclareSpanInput): Promise<VerifiedSpan>
     if (!(e instanceof SiblingReadError)) throw e;
     throw declareRefusal(
       `to declare spans_repos — the sibling ${shown(siblingRoot)} cannot be read from git: ${oneLine(e.message)}.`,
-      "repair the sibling repository so git can read it, then declare again.",
+      `have the sibling repository repaired from ITS OWN session so git can read it — do not repair ${shown(siblingRoot)} from here — then declare again.`,
       "phase=sibling-plan, check=git-read",
     );
   }

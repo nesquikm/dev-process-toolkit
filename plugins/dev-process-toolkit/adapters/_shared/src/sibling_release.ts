@@ -233,9 +233,29 @@ export const FROM_ITS_OWN_SESSION = " — the sibling's own operator does this f
 const LOCAL_ACT_STATES: ReadonlySet<string> = new Set(["idle", "unlocatable", "not-a-repository"]);
 
 export function heldRemedy(s: DeclaredSibling, milestone: string): string {
+  const mixed = MIXED_REMEDIES[s.state];
+  if (mixed) return `${mixed.sibling(s)}${FROM_ITS_OWN_SESSION}; or, in this repository, ${mixed.local(s)}`;
   const act = heldRemedyAct(s, milestone);
   return LOCAL_ACT_STATES.has(s.state) ? act : `${act}${FROM_ITS_OWN_SESSION}`;
 }
+
+/**
+ * STE-616 — the two states whose remedy offers an act in the sibling OR an
+ * edit to THIS repository's `spans_repos:`. A single clause appended at the end
+ * sat after the local half and sent its reader away from a file only they own;
+ * a per-state boolean cannot say "the first half is theirs, the second yours",
+ * so each half is spelled separately and the clause is placed between them.
+ */
+const MIXED_REMEDIES: Readonly<Record<string, { sibling: (s: DeclaredSibling) => string; local: (s: DeclaredSibling) => string }>> = {
+  "not-toolkit-managed": {
+    sibling: (s) => `run /dev-process-toolkit:setup in sibling ${s.name}`,
+    local: () => `point its path under ${SPANS_REPOS_KEY}: at the toolkit-managed checkout`,
+  },
+  "different-container": {
+    sibling: (s) => `bind sibling ${s.name} to this repository's tracker project in its CLAUDE.md`,
+    local: () => `drop it from ${SPANS_REPOS_KEY}:`,
+  },
+};
 
 /** The act each held state calls for, WITHOUT the actor clause `heldRemedy` appends. */
 function heldRemedyAct(s: DeclaredSibling, milestone: string): string {
@@ -251,9 +271,9 @@ function heldRemedyAct(s: DeclaredSibling, milestone: string): string {
     case "not-a-repository":
       return `point ${s.name}'s path under ${SPANS_REPOS_KEY}: at the sibling's git checkout, not a plain directory`;
     case "not-toolkit-managed":
-      return `run /dev-process-toolkit:setup in sibling ${s.name}, or point its path under ${SPANS_REPOS_KEY}: at the toolkit-managed checkout`;
     case "different-container":
-      return `bind sibling ${s.name} to this repository's tracker project in its CLAUDE.md, or drop it from ${SPANS_REPOS_KEY}:`;
+      // Mixed: rendered from MIXED_REMEDIES by `heldRemedy`, never from here.
+      return "";
     case "unreadable":
       return `repair sibling ${s.name} so it can be read — every git worktree, branch and remote-tracking ref, and its CLAUDE.md tracker declaration`;
     case "one-sided":
