@@ -1900,8 +1900,10 @@ for (const t of TRACKERS) {
     // so its Task was TAGGED, and its Epic is a milestone container, which the
     // detector excludes by design. The predicate demanded a flag on both, and
     // AC.12's own second clause forbids flagging the first. Recall is owed on
-    // what the old client left untagged; when that is nothing, the premise did
-    // not hold and the half is not-observed (still a failure), never a pass.
+    // what the old client left untagged. When the old client wrote, created at
+    // least one item and left NONE untagged, the operator's ruling (AC.12, after
+    // leg 9) names the outcome `old-client-tagged`, graded like
+    // `old-client-stopped`: recall on the intruder's item alone, never skipped.
     const oldSession = (b: LiveBundle) => sessionsOf(b, "S10").find((s) => s.client === "old-client")!;
     const detectorOf = (b: LiveBundle) => sessionsOf(b, "S10").find((s) => s.client === "tree")!.calls[0]!;
     const unflag = (b: LiveBundle, k: string) => {
@@ -1913,16 +1915,31 @@ for (const t of TRACKERS) {
         if (t === "jira") i.issueType = "Epic";
         else i.kind = "milestone";
       });
-    test("LEG 9 — an old client that wrote only a container and a TAGGED ticket is not-observed naming the premise, never a fail on the container", () => {
-      const b = buildPassingBundle(t, { oldClientWrites: 2 });
+    /** Leg 9's shape: the old client wrote a container and a TAGGED ticket, and the detector flagged neither. */
+    const leg9Shape = (b: LiveBundle): { task: string; epic: string } => {
       const [task, epic] = createdKeys(oldSession(b)) as [string, string];
       editAuditItem(b, task, (i) => void (i.labels = [TAG_A]));
       makeContainer(b, epic);
       unflag(b, task);
       unflag(b, epic);
+      return { task, epic };
+    };
+    test("LEG 9 — an old client that wrote only a container and a TAGGED ticket passes as the named outcome old-client-tagged, naming each item", () => {
+      const b = buildPassingBundle(t, { oldClientWrites: 2 });
+      const { task, epic } = leg9Shape(b);
       const s10 = grade(b).scenarios.S10;
-      expect(s10?.outcome).toBe("not-observed");
-      expect(s10?.reason).toMatch(/no untagged ticket/);
+      expect(s10?.outcome).toBe("pass");
+      expect(s10?.reason).toMatch(/^old-client-tagged\b/);
+      expect(s10?.reason).toContain(`${epic}: a milestone container`);
+      expect(s10?.reason).toContain(`${task}: tagged`);
+    });
+    test("CONTROL — under old-client-tagged, a detector missing the intruder's item fails S10 (recall is never skipped)", () => {
+      const b = buildPassingBundle(t, { oldClientWrites: 2 });
+      leg9Shape(b);
+      const det = detectorOf(b);
+      det.result.text = det.result.text.split("\n").filter((l) => !/intruder untagged item/.test(l)).join("\n");
+      expect(grade(b).scenarios.S10?.outcome).toBe("fail");
+      expect(grade(b).scenarios.S10?.reason).toMatch(/does not flag/);
     });
     test("PERMIT TWIN — a container the old client made is owed no flag; its untagged ticket, flagged, passes S10", () => {
       const b = buildPassingBundle(t, { oldClientWrites: 2 });

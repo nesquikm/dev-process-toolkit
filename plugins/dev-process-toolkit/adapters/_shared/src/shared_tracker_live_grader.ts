@@ -1682,7 +1682,14 @@ const repoint: Predicate = (b, own) => {
   return PASS;
 };
 
-/** S10 — the detector, afterwards, flags the intruder's and the old client's items and no tagged item. */
+/**
+ * S10 — the detector, afterwards, flags the intruder's item and every UNTAGGED,
+ * non-container item the old client created, and no tagged item. Two named
+ * passes carry a reason (AC-STE-617.12), and both grade recall on the
+ * intruder's item alone, never skipped: `old-client-stopped` (zero write
+ * attempts) and `old-client-tagged` (it wrote, and every item it created is a
+ * milestone container or carries a declared tag).
+ */
 const oldClient: Predicate = (b, own) => {
   const old = own.filter((s) => s.client === "old-client");
   const attempts = old.flatMap((s) => s.calls.filter(isTrackerWrite));
@@ -1699,11 +1706,13 @@ const oldClient: Predicate = (b, own) => {
   // reason). Live leg 9 demanded a flag on both: the 2.86.0 old client applied
   // A's default_labels to its Task, and its Epic is a container.
   //
-  // When the old client created items and NONE of them is owed, this half's
-  // premise, an old client writing untagged, did not hold. That is reported
-  // as not-observed, which still fails the run. It is not graded as a pass,
-  // because `old-client-stopped` is the AC's only named pass for an old client
-  // that left nothing untagged, and it covers a client that attempted nothing.
+  // When the old client wrote, created at least one item and NONE of them is
+  // owed, it did not do what this scenario's premise assumed: every client
+  // since M31 applies `default_labels`, so it tags its tickets, and its Epics
+  // are containers. The operator's ruling after leg 9 (AC-STE-617.12) names
+  // that outcome `old-client-tagged`, graded like `old-client-stopped`: recall
+  // on the intruder's item alone, never skipped, so the intruder check below
+  // still runs first and can still fail the scenario.
   const audit = auditItems(b);
   const declared = [b.roots.A.tag, b.roots.B.tag];
   const isContainer = (i: TrackerItem | undefined) => i !== undefined && (i.kind !== "issue" || i.issueType === "Epic");
@@ -1712,9 +1721,10 @@ const oldClient: Predicate = (b, own) => {
     const i = audit.get(k);
     return !isContainer(i) && !(i?.labels ?? []).some((l) => declared.includes(l));
   });
-  if (oldKeys.length > 0 && owed.length === 0) {
-    return notObserved(`the old client wrote no untagged ticket for the detector to recall (${oldKeys.map((k) => `${k}: ${isContainer(audit.get(k)) ? "a milestone container" : "tagged"}`).join(", ")}), so this scenario's premise did not hold`);
-  }
+  const oldClientTagged =
+    attempts.length > 0 && oldKeys.length > 0 && owed.length === 0
+      ? `old-client-tagged: ${oldKeys.map((k) => `${k}: ${isContainer(audit.get(k)) ? "a milestone container" : "tagged"}`).join(", ")}`
+      : null;
   for (const k of [...intruders, ...owed]) if (!flagged.has(k)) return fail(`the detector does not flag ${k}`);
   // `taggedKeys` is computed from the END-OF-RUN tree, and the detector ran at
   // step 21. Step 22 then imports the intruder's item and writes an FR binding
@@ -1738,7 +1748,8 @@ const oldClient: Predicate = (b, own) => {
   const tagged = taggedKeys(b);
   const control = new Set(intruderKeys(b));
   for (const k of flagged) if (tagged.has(k) && !control.has(k)) return fail(`the detector flags ${k}, which carries a declared tag`);
-  return attempts.length === 0 ? { outcome: "pass", reason: "old-client-stopped" } : PASS;
+  if (attempts.length === 0) return { outcome: "pass", reason: "old-client-stopped" };
+  return oldClientTagged === null ? PASS : { outcome: "pass", reason: oldClientTagged };
 };
 
 /** S12 — commit and PR into B refused by the hooks before B's evidence; after it the commit lands and the PR meets gh. */
