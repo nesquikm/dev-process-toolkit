@@ -1444,7 +1444,7 @@ describe("the audit's created-keys list holds issue keys only", () => {
   });
   test("MUTATION — the Linear leg 1 wording (per created milestone id above) is red", () => {
     const text = docText();
-    const m = text.replace("once per milestone id in that list_milestones answer whose name contains ${NONCE}", "once per created milestone id above");
+    const m = text.replace("once per milestone id in those list_milestones answers whose name contains ${NONCE}", "once per created milestone id above");
     expect(m, "control: the milestone read is found").not.toBe(text);
     expect(createdKeysContractViolations(m)).toContain("a milestone read is keyed on created milestone ids, which the created-keys list never holds");
   });
@@ -2463,7 +2463,7 @@ describe("live-run item 3 — the second Linear audit reads both throwaway proje
 // --- HIGH-E: the first Linear audit reads the milestones the grader grades S3 by
 
 /** The milestone-read line of an audit prompt: the listing tool, the project, the per-key read tool. */
-const MILESTONE_READ_RE = /^Then read the shared project's milestones: call mcp__linear__(\w+) once for the project named (\S+), and call mcp__linear__(\w+) once per milestone id in that list_milestones answer whose name contains \S+ \(project \S+, query the id\)\. These calls take no field list\.$/m;
+const MILESTONE_READ_RE = /^Then read the milestones of both projects this run created: call mcp__linear__(\w+) once for the project named (\S+) and once for the project named (\S+), and call mcp__linear__(\w+) once per milestone id in those list_milestones answers whose name contains \S+ \(the project it was listed in, query the id\)\. These calls take no field list\.$/m;
 
 function milestoneReadViolations(text: string): string[] {
   const v: string[] = [];
@@ -2480,8 +2480,13 @@ function milestoneReadViolations(text: string): string[] {
         if (m !== null || /list_milestones|get_milestone/.test(r.prompt)) v.push(`${tracker} audit ${pass}: the prompt reads milestones, which the contract does not ask of it`);
       } else if (m === null) v.push(`${tracker} audit ${pass}: the prompt does not read the shared project's milestones`);
       else {
-        if (JSON.stringify({ list: m[1], get: m[3] }) !== JSON.stringify(want)) v.push(`${tracker} audit ${pass}: the prompt reads milestones with ${m[1]} and ${m[3]}, not the contract's ${want.list} and ${want.get}`);
-        if (m[2] !== PROJECTS.SHARED) v.push(`${tracker} audit ${pass}: the prompt lists the milestones of ${m[2]}, not the shared project ${PROJECTS.SHARED}`);
+        if (JSON.stringify({ list: m[1], get: m[4] }) !== JSON.stringify(want)) v.push(`${tracker} audit ${pass}: the prompt reads milestones with ${m[1]} and ${m[4]}, not the contract's ${want.list} and ${want.get}`);
+        // Every project the run creates milestones in: step 1's S8 milestone lives in PRE (B's pre-repoint
+        // project), and auditIncomplete requires the FIRST audit to read every created key. Live Linear
+        // leg 2 found the shared-only read would miss it; leg 1 escaped only by a driver's hand edit.
+        const listed = [m[2], m[3]].sort();
+        const want2 = [PROJECTS.SHARED, PROJECTS.PRE].sort();
+        if (JSON.stringify(listed) !== JSON.stringify(want2)) v.push(`${tracker} audit ${pass}: the prompt lists the milestones of ${listed.join(" and ")}, not of every project the run created (${want2.join(" and ")})`);
       }
     }
   }
@@ -2510,6 +2515,9 @@ describe("HIGH-E — the audit reads the milestones the grader's S3 predicate gr
     const dropped = text.replace(f.body, f.body.replace("\n${MILESTONE_READS}\n", "\n"));
     expect(dropped).not.toBe(text);
     expect(milestoneReadViolations(dropped)).toEqual(["linear audit 1: the prompt does not read the shared project's milestones"]);
+    const noPre = text.replace(f.body, f.body.replace(" and once for the project named ${PRE}, and call", ", and call"));
+    expect(noPre, "control: the PRE milestone read is found").not.toBe(text);
+    expect(milestoneReadViolations(noPre)).toEqual(["linear audit 1: the prompt does not read the shared project's milestones"]);
     const other = text.replace(f.body, f.body.replace("call mcp__linear__list_milestones once", "call mcp__linear__list_projects once"));
     expect(other).not.toBe(text);
     expect(milestoneReadViolations(other)).toEqual(["linear audit 1: the prompt reads milestones with list_projects and get_milestone, not the contract's list_milestones and get_milestone"]);
