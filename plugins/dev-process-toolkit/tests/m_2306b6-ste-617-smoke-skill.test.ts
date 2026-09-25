@@ -4347,3 +4347,58 @@ describe("D1 — step 2's prompt says the working-tree archive suffices and the 
     expect(old).not.toMatch(/blocked the whole command/i);
   });
 });
+
+// M_2306b6 / STE-616 — the step rules reach every child, because the FENCE
+// carries them.
+//
+// Rules 1-4 lived in § Phase 3 prose that said they were "here rather than
+// repeated per row", and nothing put them into a child's prompt: leg 7's driver
+// pasted them by hand, leg 8's followed the document and did not, and leg 8
+// recorded 41 discarded-run observations from children never told. A rule that
+// depends on a driver remembering to paste it is not a rule.
+describe("STE-616 — the step rules reach every child through the step fence", () => {
+  const RULE_HEADS = [
+    "ONE OPERATION PER BASH CALL",
+    "FETCH EVERY LISTING; NEVER FABRICATE ONE",
+    "RUN A MODULE DIRECTLY; NEVER THROUGH A WRAPPER",
+    "A REFUSAL IS INFORMATION",
+  ];
+  const promptFor = (text: string, n: number): string => {
+    let prompt = "";
+    withCaptureStub((sb) => {
+      writeStubRunEnv(sb, {});
+      const script = stepFenceFor(text, n, sb);
+      if (Array.isArray(script)) throw new Error(script.join("; "));
+      const r = runStubScript(sb, script, stubEnv(sb));
+      const ps = childPrompts(sb);
+      expect(ps.length, `step ${n}: exit ${r.exitCode}: ${r.err}`).toBe(1);
+      prompt = ps[0]!;
+    });
+    return prompt;
+  };
+
+  test("a child's prompt carries the four rules, the omission clause and a nonce-scoped scratch dir (steps 1, 16, 22)", () => {
+    const text = docText();
+    for (const n of [1, 16, 22]) {
+      const p = promptFor(text, n);
+      for (const h of RULE_HEADS) expect(p, `step ${n}: ${h}`).toContain(h);
+      expect(p, `step ${n}: rule 2's third case`).toContain("Omitting or adding fields is neither fabricating nor projecting");
+      expect(p, `step ${n}: its scratch dir names the run's nonce and the step`).toMatch(new RegExp(`dpt-shared-jira-scratch-shr0000abcd-${n}-S\\d+/`));
+    }
+  }, 60_000);
+
+  test("the rules have ONE home, inside the step fence — no prose copy a driver must remember to paste", () => {
+    const text = docText();
+    expect(text.split("ONE OPERATION PER BASH CALL").length - 1, "written once").toBe(1);
+    expect(oneFence(text, STEP_TAG).body).toContain("ONE OPERATION PER BASH CALL");
+    expect(text).not.toContain("here rather than repeated per row");
+  });
+
+  test("MUTATION — a fence that stops interpolating the rules hands a child none of them", () => {
+    const text = docText();
+    const mutated = text.replace(/^\$\{STEP_RULES\}\n/m, "");
+    expect(mutated, "the mutation applied").not.toBe(text);
+    const p = promptFor(mutated, 1);
+    for (const h of RULE_HEADS) expect(p).not.toContain(h);
+  }, 30_000);
+});
