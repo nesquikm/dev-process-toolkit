@@ -1046,6 +1046,15 @@ export interface MaterializeOptions {
   persistRefs?: string[];
   /** Persisted refs whose pointer FILE is not written. */
   dropPersistedFiles?: string[];
+  /**
+   * How a persisted result's pointer reads. `persisted-output` is the Bash
+   * form; `mcp-token-limit` is what the harness writes for an MCP answer over
+   * the token limit (measured on live leg 9, 2026-09-25: a plain-string
+   * tool_result, `Error: result (N characters) exceeds maximum allowed
+   * tokens. Output has been saved to <file>.`, the file holding the answer's
+   * raw JSON). Default `persisted-output`.
+   */
+  persistShape?: "persisted-output" | "mcp-token-limit";
   /** The Jira answer shape the transcripts record (`trackerAnswer`); default `plain`. */
   jiraShape?: JiraShape;
 }
@@ -1384,7 +1393,10 @@ export function materialize(bundle: LiveBundle, base: string, o: MaterializeOpti
           mkdirSync(dirname(file), { recursive: true });
           writeFileSync(file, full);
         }
-        content = `<persisted-output>\nOutput too large (${Math.ceil(full.length / 1024)}KB). Full output saved to: ${file}\n\nPreview (first 2KB):\n${full.slice(0, 40)}\n...\n</persisted-output>`;
+        content =
+          o.persistShape === "mcp-token-limit"
+            ? `Error: result (${full.length.toLocaleString("en-US")} characters) exceeds maximum allowed tokens. Output has been saved to ${file}.\nFormat: JSON with schema: {issues: {nodes: [{...}]}}\n- For targeted queries (find a value, filter by field): use jq on the file directly.\n`
+            : `<persisted-output>\nOutput too large (${Math.ceil(full.length / 1024)}KB). Full output saved to: ${file}\n\nPreview (first 2KB):\n${full.slice(0, 40)}\n...\n</persisted-output>`;
       }
       target.push({
         ...base0,

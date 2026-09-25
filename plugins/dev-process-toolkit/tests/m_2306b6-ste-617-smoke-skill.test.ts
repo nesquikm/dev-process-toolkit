@@ -1077,6 +1077,17 @@ function s14Violations(text: string): string[] {
   if (!(s2[0]!.nums.at(-1)! > join[0]!.nums[0]!)) v.push("S2's create in B does not follow B's join");
   if (!/S14's permit twin/.test(s2[0]!.prompt)) v.push("S2's B create is not named as S14's permit twin (S14 spends no extra issue)");
   if (!/spans_repos\.ts\b.*--declare <A>/.test(join[0]!.prompt)) v.push("B's join step never makes B's plan name A back");
+  // The hold needs A's plan to name B BEFORE step 8. `--declare` cannot do it
+  // at step 6 (B holds no plan until step 7, and it writes both sides at
+  // once), so the plan step hand-writes A's own side and nothing in B. Live
+  // legs 6-9 ran without this: step 8 found no sibling to hold, and the one
+  // leg that held (7) got there by A writing B's plan.
+  const plan = rowsOf(text, "S3", "A");
+  if (plan.length !== 1) return [...v, `expected one S3/A row, found ${plan.length}`];
+  const pp = plan[0]!.prompt;
+  if (!(plan[0]!.nums[0]! < a[0]!.nums[0]!)) v.push("A's plan step does not precede A's held release");
+  if (!/spans_repos:/.test(pp) || !pp.includes("shr-<nonce>-a: .") || !pp.includes("shr-<nonce>-b: ../dpt-shared-<tracker>-b")) v.push("A's plan step does not make A's own plan name B in spans_repos before the held release");
+  if (!/[Ww]rite nothing in B/.test(pp)) v.push("A's plan step does not forbid writing B's plan (B must not name A back before step 8)");
   return v;
 }
 
@@ -1092,6 +1103,11 @@ describe("audit item 1 — S14's steps are the grader's S14 predicate, in its or
   test("MUTATION — A's release step without the before-the-back-reference clause is red", () => {
     const m = withRowPrompt(docText(), "S14", "A", "Run `sibling_release.ts` for the span milestone.");
     expect(s14Violations(m)).toContain("A's S14 step is not placed before B's plan names A back");
+  });
+  test("MUTATION — the old step 6 (plan \"spanning B\" with no declaration A can legally write) is red", () => {
+    const m = withRowPrompt(docText(), "S3", "A", "Plan a milestone titled `<nonce> S3 span` spanning B, through `/spec-write`.");
+    expect(s14Violations(m)).toContain("A's plan step does not make A's own plan name B in spans_repos before the held release");
+    expect(s14Violations(m)).toContain("A's plan step does not forbid writing B's plan (B must not name A back before step 8)");
   });
 });
 
@@ -1190,7 +1206,7 @@ function s12s17Violations(text: string): string[] {
   const s12 = rowsOf(text, "S12", "A");
   const s17 = rowsOf(text, "S17", "A");
   if (s12.length !== 1 || s17.length !== 1) return [`expected one S12 and one S17 row rooted in A, found ${s12.length} and ${s17.length}`];
-  v.push(...refusedThenPermitted(s12[0]!.prompt, [/git -C <B> commit\b/, /cd <B> && gh pr create\b/], GATE_EVIDENCE, "S12"));
+  v.push(...refusedThenPermitted(s12[0]!.prompt, [/git -C <B> commit\b/, /env -C <B> gh pr create\b/], GATE_EVIDENCE, "S12"));
   v.push(...refusedThenPermitted(s17[0]!.prompt, [/git -C <B> merge --no-ff feature-s17\b/, /git -C <B> ci\b/], GATE_EVIDENCE, "S17"));
   if (!/\/dev-process-toolkit:spec-review <B>/.test(s12[0]!.prompt)) v.push("S12: the PR into B has no spec-review evidence to meet after B's gate evidence");
   if (!/no other git command that writes into <B>/.test(s17[0]!.prompt)) v.push("S17: the prompt does not forbid other writing git runs into B (the grader grades every one)");
@@ -1199,6 +1215,71 @@ function s12s17Violations(text: string): string[] {
   if (!/git -C "\$\{ROOT_B\}" branch feature-s17/.test(boot)) v.push("bootstrap does not create B's feature-s17 branch to merge");
   return v;
 }
+
+/**
+ * Rule 1 (one operation per Bash call, no `&&`, no `;`) now reaches every
+ * child through the step fence, so a row that PRESCRIBES a chained command
+ * leaves the child no legal way to obey both. Live leg 9's S12 child ran
+ * `cd <B>` as its own call and then a bare `gh pr create`: the PR went into B,
+ * and the grader, which reads B from the command text, saw no PR into B. Legs
+ * 6 and 7 passed the same row only because no rule reached their children.
+ * A backticked span that starts with a command and chains a second one is the
+ * defect; a quoted fragment such as `; echo "exit=$?"` is an anti-example.
+ */
+function chainedCommandRows(text: string): string[] {
+  const v: string[] = [];
+  for (const r of stepRows(text)) {
+    const spans = r.prompt.split("`").filter((_, i) => i % 2 === 1);
+    for (const span of spans) if (/^(?:cd|git|gh|bun|env)\b/.test(span) && /&&|;/.test(span)) v.push(`step ${r.nums.join("–")}: \`${span}\` chains two operations, which rule 1 forbids`);
+  }
+  return v;
+}
+
+/**
+ * Row 25-26 is ONE cell handed to two children, A's (step 25) and B's (step
+ * 26). It used to say the scenario is graded "in BOTH roots", and live leg 9's
+ * A-rooted child did both halves from A, writing B's M999.md: a cross-repository
+ * write the grader correctly reported as `sibling-file-write`. A shared row
+ * must confine each child to its own root.
+ */
+function sharedS16RowViolations(text: string): string[] {
+  const rows = rowsOf(text, "S16");
+  if (rows.length !== 1) return [`expected one S16 row, found ${rows.length}`];
+  const p = rows[0]!.prompt;
+  const v: string[] = [];
+  if (/BOTH roots/.test(p)) v.push("S16: the shared row tells one child the scenario is graded in BOTH roots");
+  if (!/this session's own repository only/i.test(p)) v.push("S16: the shared row does not confine each child to its own repository");
+  return v;
+}
+
+describe("S16's shared row confines each child to its own root", () => {
+  test("the document's S16 row", () => {
+    expect(sharedS16RowViolations(docText())).toEqual([]);
+  });
+  test("MUTATION — the leg-9 row (graded on BOTH module runs in BOTH roots) is red", () => {
+    const m = withRowPrompt(docText(), "S16", "A, then B", "TWO obligations. **(1)** Run the typed `M<N>` door and write `specs/plan/M999.md` by hand. **(2)** Run gate probe #73. The scenario is graded on BOTH module runs in BOTH roots.");
+    expect(sharedS16RowViolations(m)).toEqual([
+      "S16: the shared row tells one child the scenario is graded in BOTH roots",
+      "S16: the shared row does not confine each child to its own repository",
+    ]);
+  });
+});
+
+describe("rule 1 — no step row prescribes a chained command", () => {
+  test("every backticked command in the step table is one operation", () => {
+    expect(chainedCommandRows(docText())).toEqual([]);
+  });
+  test("MUTATION — the old S12 prompt (`cd <B> && gh pr create`) is red", () => {
+    const text = docText();
+    const m = text.replaceAll("`env -C <B> gh pr create --title s12 --body s12`", "`cd <B> && gh pr create --title s12 --body s12`");
+    expect(m, "control: the S12 PR command is found").not.toBe(text);
+    expect(chainedCommandRows(m).some((x) => /^step 23: `cd <B> && gh pr create/.test(x))).toBe(true);
+  });
+  test("CONTROL — a quoted anti-example fragment is not a prescribed command", () => {
+    expect(chainedCommandRows(docText()).some((x) => /echo "exit/.test(x))).toBe(false);
+    expect(docText()).toContain('`; echo "exit=$?"`');
+  });
+});
 
 describe("audit item 3 — S12 and S17 each create B's gate evidence between the refused and the permitted attempts", () => {
   test("the document's S12 and S17 prompts, and bootstrap's alias and topic branch", () => {

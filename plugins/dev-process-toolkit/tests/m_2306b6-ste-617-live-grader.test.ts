@@ -698,6 +698,28 @@ describe("extraction — sidechains, persisted tool_results, missing and unledge
       expect({ outcome: r.outcome, findings: r.findings }).toEqual({ outcome: "pass", findings: [] });
     });
   });
+  // Live leg 9 (2026-09-25): two Epic listings (29 Epics, 62-112 KB) came back
+  // in the MCP form of the pointer, which the Bash-form pattern never matched.
+  // The grader kept the pointer text as the answer, read no items and no last
+  // page, and reported `unlisted-decision` on two decisions whose listing the
+  // session HAD fetched. The container only grows, so each leg makes it likelier.
+  test("an MCP answer persisted over the token limit is graded from its saved file, never from the pointer text", () => {
+    withTmp("ste617-ptr-mcp-", (d) => {
+      const m = materialize(b, d, { persistRefs: [lastPage.ref], persistShape: "mcp-token-limit" });
+      const raw = readFileSync(m.transcripts[audit1.sessionId]!, "utf-8");
+      expect(raw, "control: the audit's last page is stored as an MCP pointer").toContain("exceeds maximum allowed tokens. Output has been saved to ");
+      const r = gradeExtracted(extractFor(m));
+      expect({ outcome: r.outcome, findings: r.findings }).toEqual({ outcome: "pass", findings: [] });
+    });
+  });
+  test("an MCP pointer whose saved file is missing aborts naming the session", () => {
+    withTmp("ste617-ptr-mcp-x-", (d) => {
+      const m = materialize(b, d, { persistRefs: [lastPage.ref], dropPersistedFiles: [lastPage.ref], persistShape: "mcp-token-limit" });
+      const r = gradeExtracted(extractFor(m));
+      expect(r.outcome).toBe("abort");
+      expect(r.findings.some((f) => f.code === "tool-result-missing" && f.session === audit1.sessionId), JSON.stringify(r.findings)).toBe(true);
+    });
+  });
   test("a pointer whose tool-results file is missing aborts naming the session", () => {
     withTmp("ste617-ptr-x-", (d) => {
       const m = materialize(b, d, { persistRefs: [lastPage.ref], dropPersistedFiles: [lastPage.ref] });
@@ -1779,6 +1801,39 @@ describe("AC.10 — scenario predicates, both orders", () => {
     expect(v.scenarios.S5?.outcome).toBe("not-observed");
     expect(v.outcome).toBe("fail");
   });
+  // Live leg 9 (2026-09-25): the busy refusal was its session's LAST call, so
+  // "until the next call in the session" was +Infinity and step 20's commit,
+  // eleven minutes and seven steps later, was graded as landing during step 14.
+  // Steps run serially, so a step also ends where the next session begins.
+  const lastCallRefusal = (b: LiveBundle) => {
+    const busy = session(b, "S5");
+    const at = busy.calls.findIndex((c) => /sibling_release\.ts/.test(String(c.input.command ?? "")));
+    busy.calls = busy.calls.slice(0, at + 1);
+  };
+  const commitA = (b: LiveBundle, subject: string, at: string) => {
+    b.repos.A.commits.push({ subject, at });
+    b.repos.A.commits.sort((x, y) => Date.parse(x.at) - Date.parse(y.at));
+  };
+  test("S5 — a refusal that is its session's last call does not own a LATER step's commit into A", () => {
+    const b = buildPassingBundle("jira");
+    lastCallRefusal(b);
+    const later = session(b, "S10").calls[0]!.at;
+    commitA(b, "chore(specs): write FR fr-s10", new Date(Date.parse(later) + 1000).toISOString());
+    expect(failing(grade(b))).not.toContain("S5");
+  });
+  test("S5 CONTROL — with the refusal last, a commit into A before the next step begins still fails S5", () => {
+    const b = buildPassingBundle("jira");
+    lastCallRefusal(b);
+    const twin = session(b, "S5", 1).calls[0]!.at;
+    commitA(b, "chore(release): v0.2.0", new Date(Date.parse(twin) - 5000).toISOString());
+    expect(failing(grade(b))).toContain("S5");
+  });
+  test("S17 — a run that is its session's last call does not land by a LATER step's commit into B", () => {
+    const b = buildPassingBundle("jira");
+    const aliased = b.repos.B.commits.find((k) => k.subject === "s17: aliased commit")!;
+    aliased.at = new Date(Date.parse(session(b, "S16").calls[0]!.at) + 1000).toISOString();
+    expect(failing(grade(b))).toContain("S17");
+  });
   test("S3 — B's decision recorded as act create (not a join by key) fails S3", () => {
     const b = buildPassingBundle("jira");
     const s = session(b, "S3", 1);
@@ -1840,6 +1895,50 @@ for (const t of TRACKERS) {
     });
     test("PERMIT TWIN — an old client that wrote is graded on recall and carries no old-client-stopped reason", () => {
       expect(grade(buildPassingBundle(t)).scenarios.S10?.reason).toBeUndefined();
+    });
+    // Live leg 9 (2026-09-25): the 2.86.0 old client applied A's default_labels,
+    // so its Task was TAGGED, and its Epic is a milestone container, which the
+    // detector excludes by design. The predicate demanded a flag on both, and
+    // AC.12's own second clause forbids flagging the first. Recall is owed on
+    // what the old client left untagged; when that is nothing, the premise did
+    // not hold and the half is not-observed (still a failure), never a pass.
+    const oldSession = (b: LiveBundle) => sessionsOf(b, "S10").find((s) => s.client === "old-client")!;
+    const detectorOf = (b: LiveBundle) => sessionsOf(b, "S10").find((s) => s.client === "tree")!.calls[0]!;
+    const unflag = (b: LiveBundle, k: string) => {
+      const det = detectorOf(b);
+      det.result.text = det.result.text.split("\n").filter((l) => !l.includes(`unowned-container-ticket: ${k} `)).join("\n");
+    };
+    const makeContainer = (b: LiveBundle, k: string) =>
+      editAuditItem(b, k, (i) => {
+        if (t === "jira") i.issueType = "Epic";
+        else i.kind = "milestone";
+      });
+    test("LEG 9 — an old client that wrote only a container and a TAGGED ticket is not-observed naming the premise, never a fail on the container", () => {
+      const b = buildPassingBundle(t, { oldClientWrites: 2 });
+      const [task, epic] = createdKeys(oldSession(b)) as [string, string];
+      editAuditItem(b, task, (i) => void (i.labels = [TAG_A]));
+      makeContainer(b, epic);
+      unflag(b, task);
+      unflag(b, epic);
+      const s10 = grade(b).scenarios.S10;
+      expect(s10?.outcome).toBe("not-observed");
+      expect(s10?.reason).toMatch(/no untagged ticket/);
+    });
+    test("PERMIT TWIN — a container the old client made is owed no flag; its untagged ticket, flagged, passes S10", () => {
+      const b = buildPassingBundle(t, { oldClientWrites: 2 });
+      const [, epic] = createdKeys(oldSession(b)) as [string, string];
+      makeContainer(b, epic);
+      unflag(b, epic);
+      expect(failing(grade(b))).not.toContain("S10");
+    });
+    test("CONTROL — beside a container, an untagged old-client ticket the detector misses still fails S10", () => {
+      const b = buildPassingBundle(t, { oldClientWrites: 2 });
+      const [task, epic] = createdKeys(oldSession(b)) as [string, string];
+      makeContainer(b, epic);
+      unflag(b, epic);
+      unflag(b, task);
+      expect(grade(b).scenarios.S10?.outcome).toBe("fail");
+      expect(grade(b).scenarios.S10?.reason).toContain(`does not flag ${task}`);
     });
     test("old-client-stopped never skips recall: a detector missing the intruder's item fails S10", () => {
       const b = buildPassingBundle(t, { oldClientWrites: 0 });

@@ -519,7 +519,18 @@ function projectAnswer(tracker: SharedTrackerId, tool: string, text: string): Pr
 export const ORPHAN_CONSENT_ANSWER_KEY = "tracker_orphan_import";
 const GRADED_ANSWER_KEYS: readonly string[] = [ORPHAN_CONSENT_ANSWER_KEY];
 
-const POINTER = /^<persisted-output>[\s\S]*?Full output saved to: ([^\n]+)\n/;
+/**
+ * A tool_result the harness persisted to a file, in either measured form: the
+ * Bash `<persisted-output>` block, or an MCP answer over the token limit
+ * (live leg 9, 2026-09-25: `Error: result (N characters) exceeds maximum
+ * allowed tokens. Output has been saved to <file>.`, the file holding the raw
+ * answer). Only the Bash form was matched before, so two Epic listings were
+ * graded from the pointer text and read as no listing at all.
+ */
+const POINTERS: readonly RegExp[] = [
+  /^<persisted-output>[\s\S]*?Full output saved to: ([^\n]+)\n/,
+  /^Error: result \([\d,]+ characters\) exceeds maximum allowed tokens\. Output has been saved to ([^\n]+)\.\n/,
+];
 const EXIT_PREFIX = /^Exit code (\d+)\n?/;
 
 interface RawUse {
@@ -589,7 +600,7 @@ function parseSession(
     // what the call did is unknown, so it is never graded as an error or a success.
     if (!res) return abort("tool-result-missing", `session ${sid}: tool_use ${u.id} (${u.name}) has no tool_result`);
     let text = blocksText(res.content);
-    const ptr = POINTER.exec(text);
+    const ptr = POINTERS.map((p) => p.exec(text)).find((m) => m !== null);
     if (ptr) {
       try {
         text = readFileSync(ptr[1]!.trim(), "utf-8");
@@ -1162,14 +1173,26 @@ function moduleRuns(s: BundleSession, module: string, subcommand?: string): Tool
   });
 }
 const ms = (at: string): number => Date.parse(at);
-/** A commit time (whole seconds) falls in a call's step: from its second to the next call in the session. */
+/** A commit time (whole seconds) falls in a call's step: from its second to `nextAt`. */
 const inStep = (commitAt: string, from: string, to: number): boolean => {
   const t = ms(commitAt);
   return t >= Math.floor(ms(from) / 1000) * 1000 && t < to;
 };
-function nextAt(s: BundleSession, c: ToolCall): number {
+/**
+ * Where a call's step ends: the next call in its own session, or — when it is
+ * that session's last call — the first call of the next session to begin.
+ * Steps run serially, so the next session's start is where this one's session
+ * had ended. Without that second bound a last call's window was +Infinity:
+ * live leg 9's busy refusal owned step 20's commit, eleven minutes later.
+ */
+function nextAt(b: LiveBundle, s: BundleSession, c: ToolCall): number {
   const later = s.calls.filter((x) => ms(x.at) > ms(c.at)).map((x) => ms(x.at));
-  return later.length > 0 ? Math.min(...later) : Number.POSITIVE_INFINITY;
+  const nextSession = b.sessions
+    .filter((x) => x !== s && x.calls.length > 0)
+    .map((x) => Math.min(...x.calls.map((y) => ms(y.at))))
+    .filter((t) => t > ms(c.at));
+  const bounds = [...later, ...nextSession];
+  return bounds.length > 0 ? Math.min(...bounds) : Number.POSITIVE_INFINITY;
 }
 
 /**
@@ -1383,7 +1406,7 @@ function gateEvidenceAt(b: LiveBundle, own: BundleSession[]): string | null {
   return ats.sort((x, y) => ms(x) - ms(y))[0] ?? null;
 }
 
-const landsInB = (b: LiveBundle, s: BundleSession, c: ToolCall): boolean => b.repos.B.commits.some((k) => inStep(k.at, c.at, nextAt(s, c)));
+const landsInB = (b: LiveBundle, s: BundleSession, c: ToolCall): boolean => b.repos.B.commits.some((k) => inStep(k.at, c.at, nextAt(b, s, c)));
 
 /**
  * S1, S2 — two nonce FR items per title, one per repository's tag; the FR
@@ -1520,7 +1543,7 @@ const siblingBusyShip: Predicate = (b, own) => {
   const refusal = moduleRuns(busy, RUN)[0];
   if (!refusal) return notObserved(`session ${busy.sessionId} never ran sibling_release.ts (its /ship-milestone stopped earlier)`);
   if (refusal.result.exitCode !== 1 || !namesSiblingB(refusal.result.text, b)) return fail(`${refusal.ref}: the busy-sibling run exited ${refusal.result.exitCode} without refusing on ${b.roots.B.name} (or its tag ${b.roots.B.tag})`);
-  const end = nextAt(busy, refusal);
+  const end = nextAt(b, busy, refusal);
   const landed = b.repos.A.commits.find((k) => inStep(k.at, refusal.at, end));
   if (landed) return fail(`A's history gained "${landed.subject}" during the busy-sibling step`);
   // The permit twin is the first run after the refusal THAT REACHED A RELEASE
@@ -1669,7 +1692,30 @@ const oldClient: Predicate = (b, own) => {
   const flagged = new Set(runs.flatMap((c) => [...c.result.text.matchAll(/^warning unowned-container-ticket: (\S+)/gm)].map((m) => m[1]!)));
   const intruders = intruderKeys(b);
   if (intruders.length === 0) return fail("the intruder created no item for the detector to recall");
-  for (const k of [...intruders, ...createdBy(old)]) if (!flagged.has(k)) return fail(`the detector does not flag ${k}`);
+  // Recall is owed on what the old client left UNTAGGED, read from the tracker
+  // (the audit), and never on a milestone container. AC-STE-617.12's second
+  // clause forbids flagging a tagged item, and the detector files containers
+  // apart by design (row 3 tells the intruder never to make an Epic for that
+  // reason). Live leg 9 demanded a flag on both: the 2.86.0 old client applied
+  // A's default_labels to its Task, and its Epic is a container.
+  //
+  // When the old client created items and NONE of them is owed, this half's
+  // premise, an old client writing untagged, did not hold. That is reported
+  // as not-observed, which still fails the run. It is not graded as a pass,
+  // because `old-client-stopped` is the AC's only named pass for an old client
+  // that left nothing untagged, and it covers a client that attempted nothing.
+  const audit = auditItems(b);
+  const declared = [b.roots.A.tag, b.roots.B.tag];
+  const isContainer = (i: TrackerItem | undefined) => i !== undefined && (i.kind !== "issue" || i.issueType === "Epic");
+  const oldKeys = createdBy(old);
+  const owed = oldKeys.filter((k) => {
+    const i = audit.get(k);
+    return !isContainer(i) && !(i?.labels ?? []).some((l) => declared.includes(l));
+  });
+  if (oldKeys.length > 0 && owed.length === 0) {
+    return notObserved(`the old client wrote no untagged ticket for the detector to recall (${oldKeys.map((k) => `${k}: ${isContainer(audit.get(k)) ? "a milestone container" : "tagged"}`).join(", ")}), so this scenario's premise did not hold`);
+  }
+  for (const k of [...intruders, ...owed]) if (!flagged.has(k)) return fail(`the detector does not flag ${k}`);
   // `taggedKeys` is computed from the END-OF-RUN tree, and the detector ran at
   // step 21. Step 22 then imports the intruder's item and writes an FR binding
   // it — so a later step of the same run retroactively made an earlier correct
