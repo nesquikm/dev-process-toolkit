@@ -1177,7 +1177,7 @@ echo "relocated worktree of B: ${W}"
 
 ## Phase 4 — Audit
 
-A read-only child runs the fixed nonce query this fence writes into its prompt, pages it to the last page, then reads back by key every item any scenario's tool_results report as created. It requests exactly the fields the grader counts by: `summary, labels, status, parent, issuetype, project` on Jira, `id, title, labels, status, project, projectMilestone` on Linear. An answer without `labels` or `project` could not be attributed to a repository or a container. On Linear the first audit also reads the shared project's milestones, with `list_milestones` and one `get_milestone` per milestone id in that answer whose name carries the nonce, since S3 is graded by the milestone containers the audit holds and an issue search never returns a milestone. Those two calls take no field list. On Jira a milestone is an Epic, which the issue search and read-backs already return. The grader's `AUDIT_REQUEST_FIELDS` declares all of this, and a test holds this fence's prompt equal to it. The grader checks that the query it ran is byte-equal to the one written here, that it reached its last page, and that its answer holds every created key; otherwise the run aborts as `audit-incomplete`.
+A read-only child runs the fixed nonce query this fence writes into its prompt, pages it to the last page, then reads back by key every item any scenario's tool_results report as created. It requests exactly the fields the grader counts by: `summary, labels, status, parent, issuetype, project` on Jira, `id, title, labels, status, project, projectMilestone` on Linear. An answer without `labels` or `project` could not be attributed to a repository or a container. On Linear the first audit also reads the milestones of both projects the run created, the shared one and B's pre-repoint one (step 1's S8 milestone lives there), with one `list_milestones` per project and one `get_milestone` per milestone id in those answers whose name carries the nonce, since S3 is graded by the milestone containers the audit holds and an issue search never returns a milestone. Those two calls take no field list. On Jira a milestone is an Epic, which the issue search and read-backs already return. The grader's `AUDIT_REQUEST_FIELDS` declares all of this, and a test holds this fence's prompt equal to it. The grader checks that the query it ran is byte-equal to the one written here, that it reached its last page, and that its answer holds every created key; otherwise the run aborts as `audit-incomplete`.
 
 Before running it, write to `/tmp/dpt-shared-<tracker>-created-keys.txt` every key a step log's create answer returned, one per line. These are ISSUE keys, read back with the issue-read tool: on Jira every created key, Epics included (an Epic is an issue); on Linear never a milestone id, which `get_issue` refuses with a 400 — the first Linear audit reads milestones from its own `list_milestones` answer instead.
 
@@ -1232,12 +1232,14 @@ refuse_audit() {
   printf '/shared-tracker-smoke: %s\nRemedy: %s\nContext: skill=shared-tracker-smoke, phase=audit, check=%s, pass=%s, tracker=%s\n' "$2" "$3" "$1" "${AUDIT_PASS}" "${TRACKER:-unset}" >&2
   exit 1
 }
-# An issue search never returns a milestone: the first Linear audit lists the shared project's milestones (AUDIT_REQUEST_FIELDS.linear.milestone).
+# An issue search never returns a milestone: the first Linear audit lists the milestones of EVERY project the run
+# created milestones in (AUDIT_REQUEST_FIELDS.linear.milestone). Step 1's S8 milestone lives in PRE, B's pre-repoint
+# project, and the first audit must read every created key; live Linear leg 2 found a shared-only read missed it.
 MILESTONE_READS=""
 if [ "${TRACKER}" = linear ] && [ "${AUDIT_PASS}" = 1 ]; then
-  [ -n "${SHARED:-}" ] \
-    || refuse_audit projects-unknown "the run state names no shared project (SHARED=${SHARED:-unset}); the first audit could not read its milestones, so it was not started." "restore SHARED in /tmp/dpt-shared-${TRACKER}-run.env from Phase 2's project creates, then run the audit again."
-  MILESTONE_READS="Then read the shared project's milestones: call mcp__linear__list_milestones once for the project named ${SHARED}, and call mcp__linear__get_milestone once per milestone id in that list_milestones answer whose name contains ${NONCE} (project ${SHARED}, query the id). These calls take no field list."
+  [ -n "${SHARED:-}" ] && [ -n "${PRE:-}" ] \
+    || refuse_audit projects-unknown "the run state names no shared project (SHARED=${SHARED:-unset}) or no pre-repoint project (PRE=${PRE:-unset}); the first audit could not read their milestones, so it was not started." "restore SHARED and PRE in /tmp/dpt-shared-${TRACKER}-run.env from Phase 2's project creates, then run the audit again."
+  MILESTONE_READS="Then read the milestones of both projects this run created: call mcp__linear__list_milestones once for the project named ${SHARED} and once for the project named ${PRE}, and call mcp__linear__get_milestone once per milestone id in those list_milestones answers whose name contains ${NONCE} (the project it was listed in, query the id). These calls take no field list."
 fi
 # Linear teardown completes two projects, and an issue listing never reads a project: the second audit reads both back by name.
 PROJECT_READS=""
