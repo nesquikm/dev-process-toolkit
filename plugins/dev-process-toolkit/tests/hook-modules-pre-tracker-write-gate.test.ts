@@ -982,6 +982,26 @@ describe("AC-STE-607.3 — a create needs a matching, unspent create receipt in 
     });
   }
 
+  // Live Linear leg 2, step 17: the first create matching the receipt was
+  // REFUSED by this hook (no attach-target receipt yet). The spending walk
+  // counted it anyway, so after the child fixed what the refusal named, its
+  // corrected create was refused as "spent" and `decide --attempt retry-1`
+  // answered "miss": no legal create was left. Only a create that may have
+  // reached the tracker spends a receipt; one whose recorded result PROVES it
+  // never ran (a hook or permission refusal, a 4xx) took nothing.
+  for (const [label, result] of [
+    ["refused by this hook", "PreToolUse:mcp__atlassian__createJiraIssue hook error: [x]: Refusing: createJiraIssue in <BE>: no attach-target receipt resolved the milestone container."],
+    ["rejected by the tracker with a 400", "Error: 400 Bad Request — the field `parent` is required"],
+  ] as const) {
+    test(`NOT spent: a first matching create ${label} took nothing — the corrected retry → exit 0`, async () => {
+      const s = new Session();
+      withAttachTarget(s, w.be, { scratch: w.scratch });
+      s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+      s.mcp(JIRA("createJiraIssue"), jiraCreate(), result, true);
+      expectPermit(await create(s));
+    });
+  }
+
   // The retry leg is graded on receipts the REAL `decide` writes: see
   // "M_947c79 review — the shared retry leg" below. A shared retry never
   // yields a create receipt, so no synthetic one is announced here.
@@ -3245,6 +3265,25 @@ describe("AC-STE-608.10 hardening — one create decision authorises ONE contain
     );
     expectPermit(first!);
     expectRefusal(second!, /spent/, RESOLVE);
+  }, 30_000);
+
+  // The same walk spends milestone decisions: a refused Epic create must not take its decision either.
+  test("NOT spent: an Epic create REFUSED by this hook took nothing — the next Epic create on that decision → exit 0", async () => {
+    const w = makeWorld();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    s.mcp(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), "PreToolUse:mcp__atlassian__createJiraIssue hook error: [x]: Refusing: createJiraIssue in <BE>: refused for another reason.", true);
+    expectPermit(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 30_000);
+
+  test("CONTROL: an Epic create that SUCCEEDED spent its decision — the next one → exit 2 as spent", async () => {
+    const w = makeWorld();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    s.mcp(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { id: "10150", key: "GF-150", self: "https://glacy.atlassian.net/rest/api/3/issue/10150" }, false);
+    expectRefusal(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }), /spent|may have made/);
   }, 30_000);
 
   test("control: two decisions, two pending Epic creates → both permitted", async () => {
