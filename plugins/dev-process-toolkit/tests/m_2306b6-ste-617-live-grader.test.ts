@@ -4664,3 +4664,88 @@ describe("no skipped, todo or conditional test forms in this suite", () => {
     for (const f of forms) expect(src.includes(f), f).toBe(false);
   });
 });
+
+// M_2306b6 / STE-616 — display names are personal data too.
+//
+// Jira answers carry `displayName` under creator / reporter / assignee, and the
+// toolkit's own modules echo it: `container_ownership.ts list` prints an Owner
+// column, the reconciliation probe writes `(class unowned, owner <name>)`, and a
+// child's own `jq` projection re-keys it. Measured on the five committed bundles
+// and leg 8's: one person's name, 3 to 293 times per bundle, a minority of them
+// under the `displayName` key itself. So the rule is STRUCTURAL at the source
+// and HARVESTED downstream: every value the run's own transcripts carried under
+// a `displayName` key is redacted wherever it is echoed — never a regex for a
+// particular name.
+describe("STE-616 — display names are redacted wherever a run echoes them", () => {
+  const NAME = "Ada Q. Tester";
+
+  function inject(m: Materialized, rows: Array<{ id: string; tool: string; input: Record<string, unknown>; out: string }>): void {
+    const sid = m.ledger[0]!;
+    const file = join(m.configDir, "projects", slugOf(m.roots.B), `${sid}.jsonl`);
+    const at = "2026-09-23T09:00:00.000Z";
+    const recs = rows.flatMap((r) => [
+      { type: "assistant", sessionId: sid, timestamp: at, message: { role: "assistant", content: [{ type: "tool_use", id: r.id, name: r.tool, input: r.input }] } },
+      { type: "user", sessionId: sid, timestamp: at, message: { role: "user", content: [{ tool_use_id: r.id, type: "tool_result", content: r.out }] } },
+    ]);
+    appendFileSync(file, recs.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  }
+
+  const answer = JSON.stringify({ issues: [{ key: "DST-900", fields: { summary: "x", labels: [], creator: { accountId: "<account-id>", displayName: NAME }, reporter: { displayName: NAME } } }], isLast: true });
+  const listing = `| Key | Class | Owner | Toolkit-written | Title |\n|---|---|---|---|---|\n| DST-900 | unowned | ${NAME} | no | x |`;
+
+  test("the name is gone from the bundle — under the key, in the Owner column, and in prose — and the bundle passes the refusal", () => {
+    withTmp("ste616-names-", (d) => {
+      const m = materialize(buildPassingBundle("jira"), d);
+      inject(m, [
+        { id: "toolu_dn1", tool: "mcp__atlassian__searchJiraIssuesUsingJql", input: { jql: "project = DST" }, out: answer },
+        { id: "toolu_dn2", tool: "Bash", input: { command: "bun x.ts list", description: "x" }, out: listing },
+        { id: "toolu_dn3", tool: "Bash", input: { command: "bun y.ts", description: "x" }, out: `warning tracker-orphan DST-900 (class unowned, owner ${NAME})` },
+      ]);
+      const b = extractedBundle(extractFor(m));
+      const blob = JSON.stringify(b);
+      expect(blob, "the injected rows reached the bundle").toContain("DST-900");
+      expect(blob).not.toContain(NAME);
+      expect(blob).toContain("<display-name>");
+      expect(grader().privacyViolations(b)).toEqual([]);
+    });
+  });
+
+  test("CONTROL — a name the tracker never returned as a displayName is not rewritten (the rule is harvested, not a word list)", () => {
+    withTmp("ste616-names-ctl-", (d) => {
+      const m = materialize(buildPassingBundle("jira"), d);
+      inject(m, [{ id: "toolu_dn4", tool: "Bash", input: { command: "echo x", description: "x" }, out: `a note mentioning ${NAME}` }]);
+      const blob = JSON.stringify(extractedBundle(extractFor(m)));
+      expect(blob).toContain(NAME);
+      expect(blob).not.toContain("<display-name>");
+    });
+  });
+
+  test("the key-structural rule redacts a displayName value in plain and escaped JSON", () => {
+    const g = grader() as unknown as { redactPersonalData: (s: string) => string };
+    for (const s of [`{"displayName":"${NAME}"}`, `{"displayName": "${NAME}"}`, JSON.stringify({ t: `{"displayName":"${NAME}"}` })]) {
+      const out = g.redactPersonalData(s);
+      expect(out, s).not.toContain(NAME);
+      expect(out, s).toContain("<display-name>");
+    }
+  });
+
+  test("the refusal flags an unredacted displayName value, and does not flag the token", () => {
+    const g = grader();
+    expect(g.privacyViolations({ t: `{"displayName":"${NAME}"}` }).map((v) => v.pattern)).toContain("displayName value");
+    expect(g.privacyViolations({ t: JSON.stringify({ t: `{"displayName":"${NAME}"}` }) }).map((v) => v.pattern)).toContain("displayName value");
+    expect(g.privacyViolations({ t: `{"displayName":"<display-name>"}` })).toEqual([]);
+  });
+
+  test("S4 stays gradeable with the Owner column redacted: its predicate reads Key and Class only", () => {
+    const b = buildPassingBundle("jira");
+    let rewritten = 0;
+    for (const s of b.sessions) for (const c of s.calls) {
+      if (typeof c.result.text === "string" && c.result.text.includes("| Key | Class | Owner |")) {
+        c.result.text = c.result.text.replace(/^(\|[^|]+\|[^|]+\|)\s*unknown\s*\|/gm, "$1 <display-name> |");
+        rewritten++;
+      }
+    }
+    expect(rewritten, "the fixture carries listings to rewrite").toBeGreaterThan(0);
+    expect(grade(b).scenarios.S4?.outcome).toBe("pass");
+  });
+});

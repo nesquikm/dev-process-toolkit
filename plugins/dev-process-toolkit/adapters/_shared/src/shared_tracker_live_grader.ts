@@ -784,9 +784,27 @@ export function extractBundle(o: ExtractOptions): ExtractResult {
   // Anchored at a path boundary, so a sibling path that only shares a root's
   // prefix (`<root>-scratch/…`) is never rewritten into the root token.
   const boundary = pairs.map(([tok, p]) => [tok, new RegExp(`${p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=/|$|[^\\w.-])`, "g")] as const);
+  // STE-616: the display names this run's own transcripts carried, harvested
+  // before any session is projected so an echo that precedes the answer it came
+  // from is redacted too.
+  const idx = indexTranscripts(o.configDirs);
+  const ledgeredIds = new Set(o.ledgerSessionIds);
+  const displayNames = harvestDisplayNames(
+    idx.files
+      .filter((f) => ledgeredIds.has(f.sid))
+      .map((f) => {
+        try {
+          return readFileSync(f.path, "utf-8");
+        } catch {
+          return "";
+        }
+      })
+      .join("\n"),
+  );
   const rw: Rewriter = (s) => {
     let t = s;
     for (const [tok, re] of boundary) t = t.replace(re, tok);
+    t = redactDisplayNames(t, displayNames);
     // Then the personal-data classes the first live run leaked, each to an
     // identity token. The PROJECTION stops producing them; `privacyViolations`
     // is untouched and stays the fail-closed check over whatever remains.
@@ -797,7 +815,6 @@ export function extractBundle(o: ExtractOptions): ExtractResult {
   const rootOf = (cwd: string): Root | null =>
     within(cwd, A) || within(cwd, real(A)) ? "A" : within(cwd, B) || within(cwd, real(B)) ? "B" : null;
 
-  const idx = indexTranscripts(o.configDirs);
   const mains = new Map<string, string>();
   const sides = new Map<string, string[]>();
   for (const f of idx.files) {
@@ -3015,7 +3032,42 @@ const PRIVACY_PATTERNS: ReadonlyArray<{ pattern: string; re: RegExp }> = [
   { pattern: "linear.app/<workspace>", re: /\blinear\.app\/[A-Za-z0-9_-]+/g },
   { pattern: "/Users/<name>", re: /\/Users\/[^/\s"'`]+/g },
   { pattern: "/home/<name>", re: /\/home\/[^/\s"'`]+/g },
+  // STE-616: keyed on the FIELD, at any escaping depth (a tracker answer is often
+  // JSON inside a JSON string). The token itself is the one value allowed.
+  { pattern: "displayName value", re: /(\\*)"displayName\1"\s*:\s*\1"(?!<display-name>)[^"\\]+\1"/g },
 ];
+
+/**
+ * STE-616 — a `displayName` field and its value, at any escaping depth: `\1` is
+ * the run of backslashes in front of the key's opening quote, so plain JSON,
+ * JSON-in-a-string and deeper nestings all match with their own quoting.
+ */
+const DISPLAY_NAME_FIELD = /(\\*)"displayName\1"(\s*:\s*)\1"([^"\\]+)\1"/g;
+
+/**
+ * Every value `text` carries under a `displayName` key, the redaction token
+ * excluded. A display name is personal data wherever it travels afterwards, and
+ * the toolkit's own modules carry it into places no key names: the orphan
+ * listing's Owner column, the reconciliation probe's `owner <name>` prose, a
+ * child's own re-keyed projection. So the values are HARVESTED from what the
+ * tracker answered and redacted by value — the rule is the field, never a list
+ * of particular names.
+ */
+export function harvestDisplayNames(text: string): string[] {
+  const out = new Set<string>();
+  for (const m of text.matchAll(DISPLAY_NAME_FIELD)) {
+    const v = m[3]!.trim();
+    if (v !== "" && v !== "<display-name>") out.add(v);
+  }
+  return [...out];
+}
+
+/** Rewrite every occurrence of each harvested name to the token, longest first so a name inside another keeps no tail. */
+export function redactDisplayNames(text: string, names: readonly string[]): string {
+  let t = text;
+  for (const n of [...names].sort((a, b) => b.length - a.length)) t = t.split(n).join("<display-name>");
+  return t;
+}
 
 /**
  * What the projection rewrites, in order, and to what. Ordered because a host
@@ -3033,6 +3085,7 @@ const REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\blinear\.app\/[A-Za-z0-9_-]+/g, "linear.app/<workspace>"],
   [/\/Users\/[^/\s"'`]+/g, "<home>"],
   [/\/home\/[^/\s"'`]+/g, "<home>"],
+  [DISPLAY_NAME_FIELD, '$1"displayName$1"$2$1"<display-name>$1"'],
 ];
 
 /**
