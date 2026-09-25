@@ -3035,6 +3035,9 @@ const PRIVACY_PATTERNS: ReadonlyArray<{ pattern: string; re: RegExp }> = [
   // STE-616: keyed on the FIELD, at any escaping depth (a tracker answer is often
   // JSON inside a JSON string). The token itself is the one value allowed.
   { pattern: "displayName value", re: /(\\*)"displayName\1"\s*:\s*\1"(?!<display-name>)[^"\\]+\1"/g },
+  // Linear flattens a person to a STRING under these keys (measured live
+  // shapes). `me` is an input value, and `<…>` a placeholder or the token.
+  { pattern: "user name value", re: /(\\*)"(?:createdBy|assignee|creator|reporter|lead|updatedBy)\1"\s*:\s*\1"(?!me\1"|<)[^"\\]+\1"/g },
 ];
 
 /**
@@ -3042,7 +3045,14 @@ const PRIVACY_PATTERNS: ReadonlyArray<{ pattern: string; re: RegExp }> = [
  * the run of backslashes in front of the key's opening quote, so plain JSON,
  * JSON-in-a-string and deeper nestings all match with their own quoting.
  */
-const DISPLAY_NAME_FIELD = /(\\*)"displayName\1"(\s*:\s*)\1"([^"\\]+)\1"/g;
+const DISPLAY_NAME_FIELD = /(\\*)"(displayName|createdBy|assignee|creator|reporter|lead|updatedBy)\1"(\s*:\s*)\1"(?!me\1"|<)([^"\\]+)\1"/g;
+
+/** The keys under which a tracker answer names a PERSON: Jira's `displayName`, and Linear's flattened user fields. */
+const PERSON_KEYS: ReadonlySet<string> = new Set(["displayName", "createdBy", "assignee", "creator", "reporter", "lead", "updatedBy"]);
+
+/** A harvested value that is a person's name rather than an input keyword, a placeholder or an id. */
+const isPersonName = (v: string): boolean =>
+  v.length >= 2 && v !== "me" && !v.startsWith("<") && /\p{L}/u.test(v) && !/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(v) && !/^[0-9a-f]{24}$/.test(v);
 
 /**
  * Every value `text` carries under a `displayName` key, the redaction token
@@ -3055,17 +3065,63 @@ const DISPLAY_NAME_FIELD = /(\\*)"displayName\1"(\s*:\s*)\1"([^"\\]+)\1"/g;
  */
 export function harvestDisplayNames(text: string): string[] {
   const out = new Set<string>();
-  for (const m of text.matchAll(DISPLAY_NAME_FIELD)) {
-    const v = m[3]!.trim();
-    if (v !== "" && v !== "<display-name>") out.add(v);
+  const take = (v: unknown): void => {
+    if (typeof v === "string" && isPersonName(v.trim())) out.add(v.trim());
+  };
+  // Structurally first: every JSON document on a line, and every JSON document
+  // nested inside one of its strings (a tool_result's content is JSON text), so
+  // a person held as an OBJECT (`lead: {name}`) is read by key, not by shape.
+  const walk = (v: unknown, depth: number): void => {
+    if (depth > 8) return;
+    if (typeof v === "string") {
+      const t = v.trimStart();
+      if (t.startsWith("{") || t.startsWith("[")) {
+        try {
+          walk(JSON.parse(t), depth + 1);
+        } catch {
+          // not JSON: prose, read by the field pattern below
+        }
+      }
+      return;
+    }
+    if (Array.isArray(v)) {
+      for (const x of v) walk(x, depth + 1);
+      return;
+    }
+    if (v && typeof v === "object") {
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+        if (PERSON_KEYS.has(k)) {
+          take(x);
+          if (x && typeof x === "object" && !Array.isArray(x)) {
+            take((x as Record<string, unknown>)["name"]);
+            take((x as Record<string, unknown>)["displayName"]);
+          }
+        }
+        walk(x, depth + 1);
+      }
+    }
+  };
+  for (const line of text.split("\n")) {
+    try {
+      walk(JSON.parse(line), 0);
+    } catch {
+      // not a JSON line
+    }
   }
+  // Then textually, for a field quoted in a command or in prose (a child's
+  // heredoc building a dict), at any escaping depth.
+  for (const m of text.matchAll(DISPLAY_NAME_FIELD)) take(m[4]!);
   return [...out];
 }
 
 /** Rewrite every occurrence of each harvested name to the token, longest first so a name inside another keeps no tail. */
 export function redactDisplayNames(text: string, names: readonly string[]): string {
   let t = text;
-  for (const n of [...names].sort((a, b) => b.length - a.length)) t = t.split(n).join("<display-name>");
+  // Bounded by non-word characters, so a short name never rewrites a longer
+  // word that merely contains it (`Ann` inside `Annual`).
+  for (const n of [...names].sort((a, b) => b.length - a.length)) {
+    t = t.replace(new RegExp(`(?<![\\p{L}\\p{N}_])${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}_])`, "gu"), "<display-name>");
+  }
   return t;
 }
 
@@ -3085,7 +3141,7 @@ const REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\blinear\.app\/[A-Za-z0-9_-]+/g, "linear.app/<workspace>"],
   [/\/Users\/[^/\s"'`]+/g, "<home>"],
   [/\/home\/[^/\s"'`]+/g, "<home>"],
-  [DISPLAY_NAME_FIELD, '$1"displayName$1"$2$1"<display-name>$1"'],
+  [DISPLAY_NAME_FIELD, '$1"$2$1"$3$1"<display-name>$1"'],
 ];
 
 /**
