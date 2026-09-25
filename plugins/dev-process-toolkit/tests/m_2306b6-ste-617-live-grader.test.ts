@@ -4749,3 +4749,64 @@ describe("STE-616 — display names are redacted wherever a run echoes them", ()
     expect(grade(b).scenarios.S4?.outcome).toBe("pass");
   });
 });
+
+// M_2306b6 / STE-616 — Linear's people are harvested too.
+//
+// The Linear MCP flattens a user to a STRING under `createdBy` / `assignee`
+// (measured: tests/fixtures/live-shapes/linear/{get_issue,list_issues,save_issue}),
+// and a project `lead` is an object — never under Jira's `displayName` key. A
+// Linear leg's bundle would have carried the operator's name past a refusal that
+// only reads `displayName`. Two-sided: a string that was never a user field is
+// left alone, and the literal `me` a save_issue input may carry is never
+// harvested, or every "me" in the bundle would be rewritten.
+describe("STE-616 — Linear user fields are redacted wherever a run echoes them", () => {
+  const NAME = "Grace B. Hopper";
+
+  function injectLinear(m: Materialized, rows: Array<{ id: string; tool: string; input: Record<string, unknown>; out: string }>): void {
+    const sid = m.ledger[0]!;
+    const file = join(m.configDir, "projects", slugOf(m.roots.B), `${sid}.jsonl`);
+    const at = "2026-09-23T09:00:00.000Z";
+    const recs = rows.flatMap((r) => [
+      { type: "assistant", sessionId: sid, timestamp: at, message: { role: "assistant", content: [{ type: "tool_use", id: r.id, name: r.tool, input: r.input }] } },
+      { type: "user", sessionId: sid, timestamp: at, message: { role: "user", content: [{ tool_use_id: r.id, type: "tool_result", content: r.out }] } },
+    ]);
+    appendFileSync(file, recs.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  }
+
+  test("createdBy / assignee strings and a lead object are gone from the bundle, echoes included, and the bundle passes the refusal", () => {
+    withTmp("ste616-linear-", (d) => {
+      const m = materialize(buildPassingBundle("linear"), d);
+      injectLinear(m, [
+        { id: "toolu_ln1", tool: "mcp__linear__list_issues", input: { project: "p" }, out: JSON.stringify({ issues: [{ id: "STE-900", title: "x", labels: [], createdBy: NAME, createdById: "2d5a2118-0000-4000-8000-00000000000f", assignee: NAME }], hasNextPage: false }) },
+        { id: "toolu_ln2", tool: "mcp__linear__get_project", input: { query: "p" }, out: JSON.stringify({ id: "p", name: "Shared", lead: { name: NAME, email: "grace@acme-sandbox.io" } }) },
+        { id: "toolu_ln3", tool: "Bash", input: { command: "bun x.ts list", description: "x" }, out: `| Key | Class | Owner | Toolkit-written | Title |\n|---|---|---|---|---|\n| STE-900 | unowned | ${NAME} | no | x |` },
+      ]);
+      const b = extractedBundle(extractFor(m));
+      const blob = JSON.stringify(b);
+      expect(blob, "the injected rows reached the bundle").toContain("STE-900");
+      expect(blob).not.toContain(NAME);
+      expect(blob, "the lead's email is caught by the email class").not.toContain("grace@acme-sandbox.io");
+      expect(blob).toContain("<display-name>");
+      expect(grader().privacyViolations(b)).toEqual([]);
+    });
+  });
+
+  test("CONTROL — `me`, a placeholder and a title are never harvested, and a short name never rewrites a longer word", () => {
+    const g = grader() as unknown as { harvestDisplayNames: (s: string) => string[]; redactDisplayNames: (s: string, n: readonly string[]) => string };
+    const text = JSON.stringify({ assignee: "me", createdBy: "<person>", title: "Grace notes", lead: { name: "Ann" } });
+    expect(g.harvestDisplayNames(text).sort()).toEqual(["Ann"]);
+    expect(g.redactDisplayNames("Annual report by Ann, Ann's draft", ["Ann"])).toBe("Annual report by <display-name>, <display-name>'s draft");
+    expect(g.redactDisplayNames("some message for me", g.harvestDisplayNames(JSON.stringify({ assignee: "me" })))).toBe("some message for me");
+  });
+
+  test("the key-structural rule and the refusal cover Linear's user strings; `me` and the token pass", () => {
+    const g = grader() as unknown as { redactPersonalData: (s: string) => string; privacyViolations: (b: unknown) => Array<{ pattern: string }> };
+    for (const k of ["createdBy", "assignee"]) {
+      const s = `{"${k}":"${NAME}"}`;
+      expect(g.redactPersonalData(s), s).not.toContain(NAME);
+      expect(g.privacyViolations({ t: s }).map((v) => v.pattern), s).toContain("user name value");
+      expect(g.privacyViolations({ t: JSON.stringify({ t: s }) }).map((v) => v.pattern), `${s} escaped`).toContain("user name value");
+    }
+    expect(g.privacyViolations({ t: `{"assignee":"me","createdBy":"<display-name>"}` })).toEqual([]);
+  });
+});
