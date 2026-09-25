@@ -1265,6 +1265,69 @@ describe("S16's shared row confines each child to its own root", () => {
   });
 });
 
+/**
+ * The step table serves BOTH trackers, so a tracker tool it names must say which
+ * tracker it belongs to. The first Linear leg's driver found rows 9 and 22 naming
+ * Jira-only tools bare — a Linear child told to save a `searchJiraIssuesUsingJql`
+ * answer has no legal way to comply. The tool names are read from the captured
+ * MCP inventory, never typed here. A name that exists on only one tracker must
+ * carry that tracker's qualifier nearby ("on Jira" / "on Linear"), and a row that
+ * names one tracker's tool must also name the other's, so neither leg is left
+ * without the call it has to make. The window is deliberately a neighbourhood,
+ * not a sentence parser: row 2 qualifies a list ("`--statuses` on Jira comes
+ * from … `getJiraIssueTypeMetaWithFields` … `getTransitionsForJiraIssue`").
+ */
+function trackerToolViolations(text: string): string[] {
+  const inv = JSON.parse(readFileSync(join(pluginRoot, "adapters", "_shared", "data", "tracker-tool-inventory.json"), "utf-8")) as {
+    servers: Record<string, { tools: string[] | Record<string, unknown> }>;
+  };
+  const names = (srv: string): Set<string> => {
+    const t = inv.servers[srv]!.tools;
+    return new Set(Array.isArray(t) ? t : Object.keys(t));
+  };
+  const jira = names("atlassian");
+  const linear = names("linear");
+  const v: string[] = [];
+  for (const r of stepRows(text)) {
+    const step = r.nums.join("–");
+    const named = { jira: new Set<string>(), linear: new Set<string>() };
+    for (const m of r.prompt.matchAll(/[A-Za-z_][A-Za-z0-9_]+/g)) {
+      const w = m[0];
+      const side = jira.has(w) && !linear.has(w) ? "jira" : linear.has(w) && !jira.has(w) ? "linear" : null;
+      if (side === null) continue;
+      named[side].add(w);
+      const around = (r.prompt.slice(Math.max(0, m.index! - 260), m.index!) + " " + r.prompt.slice(m.index! + w.length, m.index! + w.length + 60)).toLowerCase();
+      if (!around.includes(side === "jira" ? "on jira" : "on linear")) v.push(`step ${step}: \`${w}\` is ${side === "jira" ? "Jira" : "Linear"}-only and carries no "on ${side === "jira" ? "Jira" : "Linear"}" qualifier`);
+    }
+    if (named.jira.size > 0 && named.linear.size === 0) v.push(`step ${step}: names Jira's ${[...named.jira].join(", ")} but no Linear tool`);
+    if (named.linear.size > 0 && named.jira.size === 0) v.push(`step ${step}: names Linear's ${[...named.linear].join(", ")} but no Jira tool`);
+  }
+  return [...new Set(v)];
+}
+
+describe("every tracker tool the step table names is qualified, and both trackers get one", () => {
+  test("the document's step table", () => {
+    expect(trackerToolViolations(docText())).toEqual([]);
+  });
+  test("MUTATION — the leg-9 row 9 (a bare `searchJiraIssuesUsingJql`, no Linear listing) is red", () => {
+    const text = docText();
+    const at = text.indexOf("**save the raw `searchJiraIssuesUsingJql` answer verbatim**");
+    const end = text.indexOf(")", at);
+    expect(at, "control: row 9's listing clause is found").toBeGreaterThan(0);
+    const m = text.slice(0, at) + "**save the raw `searchJiraIssuesUsingJql` answer verbatim**" + text.slice(end + 1);
+    expect(trackerToolViolations(m)).toEqual([
+      'step 9: `searchJiraIssuesUsingJql` is Jira-only and carries no "on Jira" qualifier',
+      "step 9: names Jira's searchJiraIssuesUsingJql but no Linear tool",
+    ]);
+  });
+  test("MUTATION — a Linear clause with no qualifier is red too (the rule is symmetric)", () => {
+    const text = docText();
+    const m = text.replace("(`editJiraIssue` on Jira; on Linear, `save_issue`", "(`editJiraIssue` on Jira; `save_issue`");
+    expect(m, "control: row 18's Linear clause is found").not.toBe(text);
+    expect(trackerToolViolations(m).some((x) => /^step 18: `save_issue` is Linear-only/.test(x))).toBe(true);
+  });
+});
+
 describe("rule 1 — no step row prescribes a chained command", () => {
   test("every backticked command in the step table is one operation", () => {
     expect(chainedCommandRows(docText())).toEqual([]);
