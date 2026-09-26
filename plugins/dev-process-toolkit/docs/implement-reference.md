@@ -164,7 +164,7 @@ Fires only on a **milestone-scope** invocation (`/implement M<N>`) that shipped 
 
 1. **Invocation shape.** Skip entirely if `$ARGUMENTS` is a single-FR arg (a tracker ID, a ULID, a URL), the literal `all` / `remaining`, or empty / no arg. Only an `M<N>` arg qualifies.
 2. **Milestone completeness.** Re-read `specs/plan/M<N>.md`; confirm every listed FR transitioned from `status: active` to `status: archived` during this run. If any FR remains active or any FR's gate-check failed this session (partial success), skip entirely.
-3. **Sibling release gate.** Run the front door on the milestone's plan: `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/sibling_release.ts <projectRoot> <planFile> M<N>`, where `<planFile>` is `specs/plan/archive/M<N>.md` once archived, else `specs/plan/M<N>.md`. Exit 1 ⇒ print its stderr refusal and stop — no prompt, no hint, no chain; the refusal names its own cause. Exit 0 ⇒ continue.
+3. **Sibling release gate.** Run the front door on the milestone's plan: `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/sibling_release.ts <projectRoot> <planFile> M<N> --offer`, where `<planFile>` is `specs/plan/archive/M<N>.md` once archived, else `specs/plan/M<N>.md`. Exit 1 ⇒ print its stderr refusal and stop — no prompt, no hint, no chain; the refusal names its own cause. Exit 0 ⇒ continue.
 4. **TTY.** Check whether stdin is a TTY (proxy: interactive Claude Code session accepting user replies). Non-TTY / CI / piped stdin ⇒ print the manual-command hint, do not prompt, do not read stdin.
 
 If all four pass, print the prompt and read one line from stdin.
@@ -194,7 +194,7 @@ If the user accepts but `/ship-milestone` fails to start (skill not registered, 
 
 ```
 /implement: attempted to chain into /ship-milestone but it failed to start: <error>.
-Remedy: verify the skill is installed (check plugins/dev-process-toolkit/.claude-plugin/plugin.json), then run /ship-milestone M<N> manually.
+Remedy: verify the plugin is installed and the skill is enabled — `claude /plugin list` lists installed plugins and their skills. Then run /ship-milestone M<N> manually.
 Context: milestone=M<N>, chain=ship-milestone, skill=implement
 ```
 
@@ -206,6 +206,7 @@ Context: milestone=M<N>, chain=ship-milestone, skill=implement
 | `all` / `remaining` / no arg | silent skip — no prompt, no hint |
 | Any FR in `specs/plan/M<N>.md` still `status: active` | silent skip — milestone isn't done |
 | Any FR's gate-check failed this run | silent skip — partial success |
+| Scaffolding milestone (no FR files for `M<N>`, or plan frontmatter `kind: scaffolding`) | silent skip — no chain prompt, scaffolding gets no release bump |
 | Sibling release gate refuses (exit 1) | print the front door's refusal — no prompt, no hint, no chain |
 | Non-TTY stdin (CI, piped input) | print hint, no prompt, no stdin read |
 | All conditions met | print prompt, accept `y`/`yes` (chain) or anything else (hint + exit 0) |

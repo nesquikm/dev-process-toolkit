@@ -113,19 +113,28 @@ function jiraTicket(o: JiraOpts): Record<string, unknown> {
   };
 }
 
-/** One Linear `get_issue` result. */
+/**
+ * One Linear issue answer in the measured shape (tests/fixtures/live-shapes/
+ * linear/save_issue.create.json): keyed by top-level `id` (`STE-900`, no
+ * `identifier`), its `team` the team's DISPLAY name, never its key.
+ */
 function linearTicket(o: { key: string; labels?: string[]; project?: string; team?: string }): Record<string, unknown> {
   return {
     id: o.key,
-    identifier: o.key,
     title: `Issue ${o.key}`,
     labels: [...(o.labels ?? [])],
     description: "Filed from the board.",
     createdBy: "Someone",
     project: o.project ?? "DPT",
-    team: o.team ?? "STE",
-    state: "Backlog",
+    team: o.team ?? "Example Team Display Name",
+    status: "Backlog",
   };
+}
+
+/** A measured wrapped Jira `getJiraIssue` answer around `ticket` (tests/fixtures/live-shapes/jira/get.wrapped.json). */
+function wrappedJiraGet(ticket: Record<string, unknown>): Record<string, unknown> {
+  const pin = JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "live-shapes", "jira", "get.wrapped.json"), "utf-8")).answer;
+  return { ...pin, issues: { nodes: [ticket] } };
 }
 
 let ticketSeq = 0;
@@ -799,7 +808,7 @@ describe("AC-STE-606.10 — budgets", () => {
 // bytes, and a Linear ticket that carries no team cannot be proven this team's.
 // ===========================================================================
 
-describe("STE-606 hardening — committed bytes vouch, and an absent team refuses", () => {
+describe("STE-606 hardening — committed bytes vouch, and the team is read from the key", () => {
   test("a tracked FR file edited on disk to bind a sibling's key does not vouch for it (control: the committed key stays owned)", async () => {
     await withSharedGitRoots((_fe, be) => {
       boundFr(be, "GB-41");
@@ -811,14 +820,47 @@ describe("STE-606 hardening — committed bytes vouch, and an absent team refuse
     });
   });
 
-  test("a Linear ticket carrying no team refuses as foreign-project (control: the same ticket with this team is owned)", async () => {
+  // The measured Linear answer carries its team as a DISPLAY name; the team
+  // KEY is the identifier's prefix (`linearTeamKeyOf`, a named assumption).
+  test("a Linear ticket of this team (its live display-name `team`, key prefix STE) is owned", async () => {
     await withRoots((_fe, be) => {
       declareLinear(be, BE_TAG);
       gitInit(be);
-      const noTeam = linearTicket({ key: "STE-990", labels: [BE_TAG] });
-      delete (noTeam as Record<string, unknown>).team;
-      expect(verdictOf(be, noTeam)).toBe("foreign-project");
       expect(verdictOf(be, linearTicket({ key: "STE-990", labels: [BE_TAG] }))).toBe("owned");
+    });
+  });
+
+  test("twin: a Linear ticket keyed in another team (prefix OPS) refuses as foreign-project, whatever its `team` display name says", async () => {
+    await withRoots((_fe, be) => {
+      declareLinear(be, BE_TAG);
+      gitInit(be);
+      expect(verdictOf(be, linearTicket({ key: "OPS-990", labels: [BE_TAG], team: "STE" }))).toBe("foreign-project");
+    });
+  });
+
+  test("twin: a Linear ticket whose id carries no team key (a uuid) is refused, never owned", async () => {
+    await withRoots((_fe, be) => {
+      declareLinear(be, BE_TAG);
+      gitInit(be);
+      const run = decide(be, writeTicket(linearTicket({ key: "0884f88d-f761-4ccd-b360-5e40cac85451", labels: [BE_TAG] })));
+      expect(run.code, run.stdout).not.toBe(0);
+      expect(verdictJson(run)).toBeNull();
+    });
+  });
+
+  test("a wrapped Jira getJiraIssue answer is unwrapped: BE's tagged ticket in it is owned (twin: FE's is foreign-repo)", async () => {
+    await withSharedGitRoots((_fe, be) => {
+      expect(verdictOf(be, wrappedJiraGet(jiraTicket({ key: "GF-111", labels: [BE_TAG] })))).toBe("owned");
+      expect(verdictOf(be, wrappedJiraGet(jiraTicket({ key: "GF-101", labels: [FE_TAG] })))).toBe("foreign-repo");
+    });
+  });
+
+  test("an answer in no measured shape (a wrapped answer holding two nodes) is refused", async () => {
+    await withSharedGitRoots((_fe, be) => {
+      const two = { ...wrappedJiraGet(jiraTicket({ key: "GF-111", labels: [BE_TAG] })), issues: { nodes: [jiraTicket({ key: "GF-111" }), jiraTicket({ key: "GF-112" })] } };
+      const run = decide(be, writeTicket(two));
+      expect(run.code, run.stdout).not.toBe(0);
+      expect(run.stderr).toContain("not one item");
     });
   });
 });
@@ -889,6 +931,41 @@ describe("M_947c79 review — AC-STE-606.3 on production code", () => {
       await importFromTracker("jira", "GF-121", provider, join(be, "specs"), async () => "M_GF_85", ownership as never);
       const sync = driver.writes.find((w) => w.op === "upsertTicketMetadata");
       expect(sync?.labels).toEqual(["milestone-7", BE_TAG]);
+    });
+  });
+
+  test("a wrapped Jira getJiraIssue answer (the measured shape) is unwrapped: the ADOPTED unowned ticket in it is tagged on its sync", async () => {
+    await withSharedGitRoots(async (_fe, be) => {
+      const ticket = wrappedJiraGet(jiraTicket({ key: "GF-121", labels: ["milestone-7"] }));
+      const driver = new RecordingDriver(be, "GF-121");
+      const provider = new TrackerProvider({ driver, currentUser: "be-dev", resolveTrackerRef: async (x: string) => x.replace(/^jira:/, "") });
+      await importFromTracker("jira", "GF-121", provider, join(be, "specs"), async () => "M_GF_85", ticketImportOwnershipOf(be, ticket) as never);
+      expect(driver.writes.find((w) => w.op === "upsertTicketMetadata")?.labels).toEqual(["milestone-7", BE_TAG]);
+    });
+  });
+
+  test("twin: a wrapped answer holding a sibling's ticket refuses the import before any write", async () => {
+    await withSharedGitRoots(async (_fe, be) => {
+      const ticket = wrappedJiraGet(jiraTicket({ key: "GF-101", labels: [FE_TAG] }));
+      const driver = new RecordingDriver(be, "GF-101");
+      const provider = new TrackerProvider({ driver, currentUser: "be-dev", resolveTrackerRef: async (x: string) => x.replace(/^jira:/, "") });
+      await expect(
+        importFromTracker("jira", "GF-101", provider, join(be, "specs"), async () => "M_GF_85", ticketImportOwnershipOf(be, ticket) as never),
+      ).rejects.toThrow(/sibling/);
+      expect(driver.writes).toEqual([]);
+    });
+  });
+
+  test("an answer in no measured shape (a wrapped answer holding two nodes) refuses the import before any write", async () => {
+    await withSharedGitRoots(async (_fe, be) => {
+      const one = wrappedJiraGet(jiraTicket({ key: "GF-121", labels: [] }));
+      const two = { ...one, issues: { nodes: [jiraTicket({ key: "GF-121" }), jiraTicket({ key: "GF-122" })] } };
+      const driver = new RecordingDriver(be, "GF-121");
+      const provider = new TrackerProvider({ driver, currentUser: "be-dev", resolveTrackerRef: async (x: string) => x.replace(/^jira:/, "") });
+      await expect(
+        importFromTracker("jira", "GF-121", provider, join(be, "specs"), async () => "M_GF_85", ticketImportOwnershipOf(be, two) as never),
+      ).rejects.toThrow(/not one item/);
+      expect(driver.writes).toEqual([]);
     });
   });
 

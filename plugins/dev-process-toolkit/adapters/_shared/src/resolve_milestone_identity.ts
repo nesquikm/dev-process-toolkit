@@ -62,6 +62,7 @@ import { join, resolve } from "node:path";
 import { adoptOrMintMilestoneId, type MilestoneMinter } from "./adopt_or_mint_milestone_id";
 import { checkVersionFloor, nfr10Message, runningDptVersion } from "./dpt_version";
 import { mergeMilestoneLabel } from "./attach_project_milestone";
+import { LINEAR_MILESTONE_WINDOW, readTrackerPage } from "./tracker_answer";
 import { announceReceipt, oneLine, printable, writeReceipt } from "./tracker_receipts";
 import { readWorkspaceBinding } from "./workspace_binding";
 import { verifySpan } from "./spans_repos";
@@ -434,11 +435,11 @@ class FrontDoorRefusal extends Error {
 }
 
 /**
- * The most rows one Linear `list_milestones` answer returns (measured: the 50
- * newest, with no paging signal). A listing of exactly this many may be the
- * window rather than the project.
+ * The most rows one Linear `list_milestones` answer returns — defined once, in
+ * `tracker_answer.ts`, and re-exported here for this module's importers. A
+ * full window may be the window rather than the project.
  */
-export const LINEAR_MILESTONE_WINDOW = 50;
+export { LINEAR_MILESTONE_WINDOW } from "./tracker_answer";
 
 const FRONT_DOOR_USAGE =
   "resolve_milestone_identity.ts <projectRoot> <jira|linear> <project> <listingFile> --title <title> | --join-key <key> [--sibling <path>]";
@@ -493,6 +494,12 @@ function parseFrontDoorArgs(argv: readonly string[]): FrontDoorArgs {
 export interface ReadListing {
   sha256: string;
   rowKeys: string[];
+  /**
+   * False when the listing may not hold every container: a Linear milestones
+   * answer of a full LINEAR_MILESTONE_WINDOW rows. A Jira listing that does
+   * not prove it is the last page is refused instead, so it is always true.
+   */
+  complete: boolean;
   jiraRows?: (JiraDecisionRow & { statusName?: string })[];
   linearRows?: LinearDecisionRow[];
 }
@@ -540,33 +547,35 @@ export function readListingFile(args: Pick<FrontDoorArgs, "mode" | "project" | "
       context,
     );
 
+  // Both listings are read by the one reader of tracker answers
+  // (`tracker_answer.ts`): an answer in no observed shape is not a listing.
+  const read = readTrackerPage(args.mode, parsed, "milestones");
+  if (!read.ok) throw shape(read.reason);
+
   if (args.mode === "linear") {
-    if (!isObject(parsed) || !Array.isArray(parsed.milestones)) throw shape("it has no `milestones` array");
     const rows: LinearDecisionRow[] = [];
-    for (const m of parsed.milestones as unknown[]) {
-      if (!isObject(m) || typeof m.id !== "string" || m.id === "" || typeof m.name !== "string") {
+    for (const m of read.page.items) {
+      if (typeof m.id !== "string" || m.id === "" || typeof m.name !== "string") {
         throw shape("a milestone row carries no string `id` and `name`");
       }
       rows.push({ id: m.id, name: m.name });
     }
-    return { sha256, rowKeys: rows.map((r) => r.id!), linearRows: rows };
+    return { sha256, rowKeys: rows.map((r) => r.id!), linearRows: rows, complete: read.page.last };
   }
 
-  if (!isObject(parsed) || !Array.isArray(parsed.issues)) throw shape("it has no `issues` array");
-  const token = parsed.nextPageToken;
-  // A page that does not SAY it is the last one has not proven the container
-  // absent: `isLast` must be the boolean `true`, as `create_idempotency_probe`
-  // requires of the same Jira search answer.
-  if (parsed.isLast !== true || (token !== undefined && token !== null && token !== "")) {
+  // A page that does not PROVE it is the last one has not proven the container
+  // absent — the rule create_idempotency_probe applies to the same Jira search
+  // answer, in either of its shapes.
+  if (!read.page.last) {
     throw new FrontDoorRefusal(
-      `Refusing: the listing file ${args.listingFile} is not the last page of the Epic search (isLast=${String(parsed.isLast)}, nextPageToken=${token === undefined || token === null ? "absent" : "present"}) — a later page may hold the container this decision would miss.`,
+      `Refusing: the listing file ${args.listingFile} is not the last page of the Epic search (it hands the cursor ${oneLine(read.page.next ?? "")} for a page after it) — a later page may hold the container this decision would miss.`,
       `page the search to the end and save one listing holding every Epic, then decide again.`,
       context,
     );
   }
   const rows: (JiraDecisionRow & { statusName?: string })[] = [];
-  for (const issue of parsed.issues as unknown[]) {
-    if (!isObject(issue) || typeof issue.key !== "string" || issue.key === "" || !isObject(issue.fields)) {
+  for (const issue of read.page.items) {
+    if (typeof issue.key !== "string" || issue.key === "" || !isObject(issue.fields)) {
       throw shape("an issue row carries no `key` and `fields`");
     }
     const key = issue.key;
@@ -601,7 +610,7 @@ export function readListingFile(args: Pick<FrontDoorArgs, "mode" | "project" | "
       ...(labels !== undefined ? { labels } : {}),
     });
   }
-  return { sha256, rowKeys: rows.map((r) => r.key), jiraRows: rows };
+  return { sha256, rowKeys: rows.map((r) => r.key), jiraRows: rows, complete: true };
 }
 
 /**
@@ -649,7 +658,7 @@ async function runDecisionFrontDoor(argv: readonly string[]): Promise<string[]> 
   // LIN-7 (M_685ff6 review): Linear's list_milestones answers at most
   // LINEAR_MILESTONE_WINDOW rows and proves nothing about the rest, so a
   // listing of exactly that many may be the window, not the project.
-  const possiblyCapped = args.mode === "linear" && rowCount === LINEAR_MILESTONE_WINDOW;
+  const possiblyCapped = !listing.complete;
   const listingLine =
     args.mode === "jira"
       ? `${rowCount} rows, ${listing.jiraRows!.filter((r) => r.statusCategory === "done").length} closed excluded`

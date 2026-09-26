@@ -1,0 +1,90 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-11",
+    "method": "recorded-transcript",
+    "request": {
+      "cloudId": "96bffaef-cf5d-4dbf-a170-3d700df9bc83",
+      "projectKey": "GB",
+      "issueTypeName": "Epic",
+      "summary": "Shopping country on the server",
+      "contentFormat": "markdown",
+      "description": "<elided>"
+    },
+    "note": "WRAPPED shape, recorded from the claude.ai Atlassian connector (the same server family flips shape; mcp__atlassian search is recorded both ways)"
+  },
+  "answer": {
+    "issues": {
+      "nodes": [
+        {
+          "expand": "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations",
+          "id": "63514",
+          "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issue/63514",
+          "key": "GB-40",
+          "fields": {
+            "summary": "Shopping country on the server",
+            "issuetype": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issuetype/11105",
+              "id": "11105",
+              "description": "Epics track collections of related bugs, stories, and tasks.",
+              "iconUrl": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/2/universal_avatar/view/type/issuetype/avatar/10307?size=medium",
+              "name": "Epic",
+              "subtask": false,
+              "avatarId": 10307,
+              "entityId": "8a7ee02c-6e6d-4479-a7a4-105dd0f98dcb",
+              "hierarchyLevel": 1
+            },
+            "project": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/project/11154",
+              "id": "11154",
+              "key": "GB",
+              "name": "Glacy BE",
+              "projectTypeKey": "software",
+              "simplified": true,
+              "avatarUrls": {
+                "48x48": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10425",
+                "24x24": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10425?size=small",
+                "16x16": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10425?size=xsmall",
+                "32x32": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10425?size=medium"
+              }
+            },
+            "description": "Milestone epic.\n\nServer half of glacy-app-fe GF-86 (FE miles…",
+            "assignee": null,
+            "status": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/status/11538",
+              "description": "",
+              "iconUrl": "https://example-site.invalid/images/icons/statuses/generic.png",
+              "name": "To Do",
+              "id": "11538",
+              "statusCategory": {
+                "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/statuscategory/2",
+                "id": 2,
+                "key": "new",
+                "colorName": "blue-gray",
+                "name": "To Do"
+              }
+            }
+          },
+          "webUrl": "https://example-site.invalid/browse/GB-40"
+        }
+      ]
+    },
+    "context": {
+      "atlassianAccountId": "<account-id>",
+      "cloudId": "96bffaef-cf5d-4dbf-a170-3d700df9bc83",
+      "clientName": "localhost",
+      "mcpClientName": "claude-code",
+      "toolName": "createJiraIssue",
+      "endpoint": "v1:streamable-http",
+      "sessionId": "r7-b9edf38a-e40a-471a-8535-6c0f4b33fce4",
+      "invocationId": "63c2f8a3-d68e-4f5a-93bb-5a22a820f907",
+      "env": "prod",
+      "featureFlags": {
+        "mcp-app-v2-primary": false,
+        "analytics-jira-mcp-app": true,
+        "mcp-jira-instrumentation-phase-1": false,
+        "ken-4811-4724-jira-mcp-status-assignee-fields": false,
+        "jira-mcp-app-loading-skeleton-and-error-case": false
+      }
+    }
+  }
+}

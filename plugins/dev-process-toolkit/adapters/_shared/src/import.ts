@@ -26,19 +26,23 @@ import { join } from "node:path";
 import { acPrefix } from "./ac_prefix";
 import { stripLinearACFences } from "../../linear/src/format_description";
 import type { FRSpec, Provider } from "./provider";
-import { classifyTicket, normalizeContainerPage } from "./container_ownership";
+import { classifyTicket, normalizeContainerItems, normalizeContainerPage } from "./container_ownership";
+import { readTrackerItem } from "./tracker_answer";
 import { readWorkspaceBinding } from "./workspace_binding";
 
 /**
  * STE-605 — optional ownership context. With it, a `sibling` or `container`
  * key refuses before any write, and in a shared repository an `unowned`
  * ticket is claimed: its labels are written as the union of its current
- * labels (read from `pages`) and this repository's tag, on the same sync.
+ * labels (read from `pages`, or from the one fetched `ticket`) and this
+ * repository's tag, on the same sync.
  */
 export interface ImportOwnershipContext {
   projectRoot: string;
   /** Parsed container page JSON (the read the ticket's labels come from). */
   pages: unknown[];
+  /** One fetched ticket's raw answer (`ticketImportOwnership`), read as an item, never as a page. */
+  ticket?: unknown;
 }
 
 /**
@@ -49,7 +53,7 @@ export interface ImportOwnershipContext {
  * without it the adoption is recorded locally and never on the ticket.
  */
 export function ticketImportOwnership(projectRoot: string, ticket: unknown): ImportOwnershipContext {
-  return { projectRoot, pages: [{ issues: [ticket] }] };
+  return { projectRoot, pages: [], ticket };
 }
 
 /** Returns the label set to write on the sync, or undefined to leave labels untouched. Throws on refusal. */
@@ -61,9 +65,19 @@ function ownershipLabels(trackerKey: string, trackerId: string, ctx: ImportOwner
   // Strict when shared: a page lacking `labels` must refuse, never read as
   // "no labels" — the claim below writes the union, and an empty read would
   // replace the ticket's real labels with the tag alone.
-  const ticket = ctx.pages
-    .flatMap((p) => normalizeContainerPage(p, trackerKey, binding.shared))
-    .find((t) => t.key === trackerId);
+  // One fetched ticket is read by the shared reader (`tracker_answer.ts`): a
+  // plain or wrapped Jira answer, a Linear answer keyed by `id`. An answer in
+  // no measured shape refuses before any write.
+  const items: Record<string, unknown>[] = [];
+  if (ctx.ticket !== undefined) {
+    const read = readTrackerItem(trackerKey, ctx.ticket);
+    if (!read.ok) throw new Error(`importFromTracker: the fetched ticket ${trackerId} cannot be read: ${read.reason} — refusing`);
+    items.push(read.item);
+  }
+  const ticket = [
+    ...ctx.pages.flatMap((p) => normalizeContainerPage(p, trackerKey, binding.shared)),
+    ...normalizeContainerItems(items, trackerKey, binding.shared),
+  ].find((t) => t.key === trackerId);
   if (ticket === undefined) {
     if (binding.shared) {
       throw new Error(`importFromTracker: ${trackerId} is not on the pages read; its labels cannot be merged — refusing`);

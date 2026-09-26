@@ -12,9 +12,10 @@ default) never reads this document — the `mode: none` branch runs unchanged.
 
 ## Core contract (read first)
 
-- **Opt-in question near end of flow.** The question ships just before
-  spec-file generation (step 8 in `skills/setup/SKILL.md`). Default is
-  `none`; skipping or pressing Enter keeps `mode: none`.
+- **Opt-in question near end of flow.** The question is step 7b in
+  `skills/setup/SKILL.md`, just before spec-file generation (step 8). It has
+  **no default** (`requires-input`): the operator answers it, and an
+  autonomous run must pre-bake the answer (`--tracker=<mode>`) or be refused.
 - **Recording.** A recorded mode adds a `## Task Tracking` section to
   `CLAUDE.md` per Schema L (technical-spec §3 Cross-Skill Schema Definitions). Absence ≡ `none`
  — `/setup` never writes a `mode: none` line.
@@ -33,7 +34,7 @@ default) never reads this document — the `mode: none` branch runs unchanged.
 
 | Task | Section in this doc |
 |------|---------------------|
-| C.1 — Mode question (default `none`, skippable) | The tracker-mode question |
+| C.1 — Mode question (no default; `requires-input`) | The tracker-mode question |
 | C.2 — Bun install check, hard-stop | Bun prerequisite check |
 | C.3 — MCP detection via `claude mcp list` + dry-run settings.json diff | MCP detection |
 | C.4 — settings.json confirm + write on approval | MCP detection |
@@ -42,20 +43,20 @@ default) never reads this document — the `mode: none` branch runs unchanged.
 
 ## The tracker-mode question
 
-Ask exactly once, near the end of `/setup` (after CLAUDE.md is drafted but
-before it's written):
+Ask exactly once, near the end of `/setup` — step 7b, after step 5 has
+generated CLAUDE.md; a tracker answer is written into it by step 7f:
 
 > ```
 > Task Tracking (optional): where do ACs live?
->   1. none (default — ACs stay local in specs/frs/<short-ULID>.md)
+>   1. none (ACs stay local in specs/frs/<short-ULID>.md)
 >   2. linear
 >   3. jira
 >   4. custom (copy adapters/_template)
 >
-> [1-4, default 1]:
+> [1-4, no default]:
 > ```
 
-If the user picks `1` or skips, do NOT add `## Task Tracking` to CLAUDE.md.
+If the user picks `1`, do NOT add `## Task Tracking` to CLAUDE.md.
 Continue the existing fresh-setup flow. If the user picks 2–4,
 proceed through the remaining tracker-mode steps in order.
 
@@ -244,8 +245,8 @@ prompt once:
 
 ## `/setup --migrate` entry
 
-When invoked as `/setup --migrate`, skip steps 1–7 (project detection,
-scaffolding, template write) and route directly into tracker-mode
+When invoked as `/setup --migrate`, skip steps 1–8 (project detection,
+scaffolding, template write, spec creation) and route directly into tracker-mode
 switching — see `skills/setup/SKILL.md` § 0b for the inline
 procedure covering current-mode detection and target-mode prompt. The
 single commit that lands the mode flip is the audit trail; if the switch

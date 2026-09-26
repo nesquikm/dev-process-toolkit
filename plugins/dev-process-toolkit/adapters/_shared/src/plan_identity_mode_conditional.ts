@@ -1054,3 +1054,18 @@ export async function runPlanIdentityModeConditionalProbe(
     violations,
   };
 }
+
+// STE-616 AC-STE-616.20 — probe #73's command-line front door. Prints the
+// report as one JSON line on stdout and exits 1 when any row has error
+// severity, else 0; a usage error exits 2. `import.meta.main` is false on
+// import, so the module stays side-effect free for its importers.
+if (import.meta.main) {
+  const projectRoot = process.argv[2];
+  if (projectRoot === undefined) {
+    console.error("usage: plan_identity_mode_conditional.ts <projectRoot>");
+    process.exit(2);
+  }
+  const report = await runPlanIdentityModeConditionalProbe(projectRoot);
+  console.log(JSON.stringify(report));
+  process.exit(report.violations.some((v) => v.severity === "error") ? 1 : 0);
+}

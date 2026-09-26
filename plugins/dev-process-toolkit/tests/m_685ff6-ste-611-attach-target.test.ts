@@ -767,6 +767,41 @@ describe("AC-STE-611.2 — the front door resolves, prints and writes one attach
   }, 30_000);
 });
 
+// The measured `list_milestones` answer (tests/fixtures/live-shapes/linear/
+// list_milestones.json) holds exactly LINEAR_MILESTONE_WINDOW rows with no
+// paging field: a full window proves nothing about the milestones past it, so
+// a grandfathered numeric name missing from it is NOT proven absent — its
+// object-create would duplicate a milestone that lies past the window.
+describe("M_2306b6 — a name miss in a listing not proven complete never decides a create", () => {
+  const liveWindow = (): Array<{ id: string; name: string }> =>
+    JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "live-shapes", "linear", "list_milestones.json"), "utf-8")).answer.milestones;
+
+  test("a numeric name missing from the full measured 50-row window refuses, naming the window (no receipt)", () => {
+    const { root, plan } = repo("linear", "M86", "Jira Support");
+    const scratch = tempDir("door-scratch");
+    const rows = liveWindow().filter((m) => m.name !== "M86 — Jira Support");
+    expect(rows.length).toBe(50);
+    const r = runDoor([root, "linear", "DPT", plan, listing(scratch, { milestones: rows })], root);
+    expectRefused(r, root, "50");
+  }, 30_000);
+
+  test("twin: the same name found inside the full window resolves (surface=object)", () => {
+    const { root, plan } = repo("linear", "M86", "Jira Support");
+    const scratch = tempDir("door-scratch");
+    const rows = liveWindow();
+    rows[49] = { ...rows[49]!, name: "M86 — Jira Support" };
+    const r = runDoor([root, "linear", "DPT", plan, listing(scratch, { milestones: rows })], root);
+    expectResolved(r, root, ["surface=object"]);
+  }, 30_000);
+
+  test("twin: a miss in a 49-row listing (complete) still decides object-create", () => {
+    const { root, plan } = repo("linear", "M86", "Jira Support");
+    const scratch = tempDir("door-scratch");
+    const r = runDoor([root, "linear", "DPT", plan, listing(scratch, { milestones: liveWindow().slice(0, 49) })], root);
+    expectResolved(r, root, ["surface=object-create"]);
+  }, 30_000);
+});
+
 describe("AC-STE-611.2 — every refusal exits 1, stderr only, no receipt", () => {
   test("a permanent refusal (Epic-keyed miss) → exit 1 with the refusal on stderr", () => {
     const { root, plan } = repo("jira", "M_GF_78", "Waiting States II");

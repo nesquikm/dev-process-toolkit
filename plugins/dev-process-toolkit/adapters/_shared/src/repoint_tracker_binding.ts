@@ -65,6 +65,7 @@ import {
   type WorkspaceAdapterKey,
   type WorkspaceBinding,
 } from "./workspace_binding";
+import { readCompleteList, readTrackerPage, type CompleteListTool } from "./tracker_answer";
 
 export type RowVerdict = "PASS" | "REFUSE" | "NOT-APPLICABLE";
 
@@ -74,7 +75,42 @@ export interface RowResult {
   reason: string;
   /** Row 4 only: the tracker config's statuses, the snapshot the `repoint` receipt records. */
   statusSnapshot?: string[];
+  /**
+   * The inputs whose completeness this row relied on as ASSERTED by the
+   * session (an `isLast: true` the session wrote), not proven by the tracker —
+   * the receipt's `assertedCompleteness`. Absent when every input was proven.
+   */
+  asserted?: AssertedInput[];
 }
+
+/**
+ * An input whose COMPLETENESS the session asserts rather than the tracker proves.
+ *
+ * The older wording here said "an input no tracker tool lists", which was true
+ * when it was written and is not true now: Jira statuses ARE listable, through
+ * the adapter's declared `list_project_statuses` capability. That correction
+ * landed in `docs/setup-reference.md` and in `readStatuses` below, and this
+ * comment one file away kept describing the world before it.
+ *
+ * Three states, deliberately distinguished, because collapsing them is how a
+ * weaker claim gets laundered into a stronger one's wording:
+ *   - `labels`              — genuinely unlistable; no Atlassian tool lists them.
+ *   - `statuses`            — a full listing; plausibly complete, unprovably so.
+ *   - `statuses:transitions`— derived from ONE issue's available transitions, so
+ *     it is the set reachable from that issue's current state: PARTIAL BY
+ *     CONSTRUCTION, not merely unproven. Row 4 refuses when the config lacks a
+ *     status the listing names, so a shorter list is strictly EASIER to pass —
+ *     which makes recording this distinctly a correctness matter and not
+ *     bookkeeping.
+ */
+export type AssertedInput = "statuses" | "labels" | "statuses:transitions";
+
+/**
+ * Appended to every printed row line that relied on an asserted-complete
+ * input. Fixed and greppable: a reader can tell asserted from proven without
+ * the FR. A row reading only measured inputs never carries it.
+ */
+export const COMPLETENESS_ASSERTED_MARKER = "[completeness asserted by the session, not proven by the tracker]";
 
 export interface RepointArgs {
   projectRoot: string;
@@ -159,30 +195,54 @@ function namedRows(label: string, v: unknown, arrayKey: string, field: string): 
   return { ok: true, value: out };
 }
 
-/** A `{ <arrayKey>: [{ <field>: string }] }` listing file, reduced to that field's values. */
-function readNamedRows(flag: string, path: string | undefined, arrayKey: string, field: string): Input<string[]> {
-  const json = readJson(flag, path);
-  if (!json.ok) return json;
-  return namedRows(`${flag} ${path}`, json.value, arrayKey, field);
-}
-
-/** A paged Jira listing that is not its last page cannot prove absence. */
+/**
+ * A hand-assembled Jira listing (no Atlassian MCP tool lists a project's
+ * statuses or labels) must itself CLAIM `isLast: true`; a missing claim
+ * cannot prove absence. The claim is the session's assertion, never the
+ * tracker's proof — the row that relies on it carries the marker.
+ */
 function notLastPage(label: string, v: Record<string, unknown>): Input<never> | undefined {
   return v.isLast === true ? undefined : failed(`${label} is not the last page (isLast is not true)`);
 }
 
-/** `--projects`: Jira `{ values: [{ key }], isLast: true }`, Linear `{ projects: [{ name }] }`. */
-function readProjects(args: RepointArgs): Input<string[]> {
-  if (args.mode === "linear") return readNamedRows("--projects", args.projects, "projects", "name");
-  const json = readJson("--projects", args.projects);
+/**
+ * One measured list answer (`readCompleteList`, tracker_answer.ts), proven
+ * whole by the tracker or refused, reduced to each row's `field`.
+ */
+function readMeasuredList(flag: string, path: string | undefined, tool: CompleteListTool, field: string): Input<string[]> {
+  const json = readJson(flag, path);
   if (!json.ok) return json;
-  const label = `--projects ${args.projects}`;
-  const rows = namedRows(label, json.value, "values", "key");
-  if (!rows.ok) return rows;
-  return notLastPage(label, json.value as Record<string, unknown>) ?? rows;
+  const label = `${flag} ${path}`;
+  const read = readCompleteList(tool, json.value);
+  if (!read.ok) return failed(`${label} is not a ${tool.split(":")[1]} answer: ${read.reason}`);
+  if (!read.complete) return failed(`${label} does not prove it holds the whole list`);
+  return namedRows(label, { rows: read.items }, "rows", field);
 }
 
-/** `--labels` (Jira): `{ values: ["label", …], isLast: true }`. */
+/**
+ * `--projects`, both measured and read by the shared reader
+ * (`tracker_answer.ts`): Jira the getVisibleJiraProjects answer `{ …, isLast,
+ * values: [{ key }] }`, proven whole by `isLast`; Linear the list_projects
+ * answer `{ projects: [{ name }], hasNextPage, cursor? }`, proven its last page.
+ */
+function readProjects(args: RepointArgs): Input<string[]> {
+  if (args.mode === "linear") {
+    const json = readJson("--projects", args.projects);
+    if (!json.ok) return json;
+    const label = `--projects ${args.projects}`;
+    const read = readTrackerPage("linear", json.value, "projects");
+    if (!read.ok) return failed(`${label} is not a list_projects answer: ${read.reason}`);
+    if (!read.page.last) return failed(`${label} is not the last page (hasNextPage is true)`);
+    return namedRows(label, { projects: read.page.items }, "projects", "name");
+  }
+  return readMeasuredList("--projects", args.projects, "jira:getVisibleJiraProjects", "key");
+}
+
+/**
+ * `--labels` (Jira): `{ values: ["label", …], isLast: true }`, hand-assembled —
+ * no Atlassian MCP tool lists a project's labels, so its completeness is the
+ * session's assertion (row 6 carries COMPLETENESS_ASSERTED_MARKER).
+ */
 function readLabels(path: string | undefined): Input<string[]> {
   const json = readJson("--labels", path);
   if (!json.ok) return json;
@@ -231,16 +291,43 @@ function readConfigStatuses(root: string): Input<string[]> {
   }
 }
 
+/**
+ * A refusal about what a PEER repository declares.
+ *
+ * MEASURED LIVE (2026-09-23): row 3 refused with `--peer <A> declares
+ * jira_issue_type (none), not Task`. It named a disagreement and a file, and
+ * named no action the running session could legally take — so the session took
+ * the illegal one and edited the peer's CLAUDE.md. A guard's refusal INDUCED
+ * the cross-repository write it exists to make visible.
+ *
+ * Every such reason is built here, so the six sites cannot drift apart: each
+ * names what the peer declares, an action available to this repository's
+ * operator alone, and the one action that is always available — dropping the
+ * flag. `--peer` is an assertion about a repository this run does not own.
+ */
+function peerRefusal(path: string, observed: string, remedy: string): string {
+  return `--peer ${path} ${observed}. ${remedy}; do not edit ${path} from here — a peer's CLAUDE.md belongs to that repository's operator — or re-run without --peer ${path}, which checks this repository alone.`;
+}
+
+/**
+ * A refusal about the `--peer` FLAG rather than about what the peer declares.
+ * It carries the always-available action and deliberately not the do-not-edit
+ * clause: there is no declaration in dispute, and on a path that does not
+ * exist the clause would be noise.
+ */
+const peerFlagRefusal = (path: string, observed: string): string =>
+  `--peer ${path} ${observed}; name an existing peer root, or re-run without --peer ${path}.`;
+
 /** A peer root: an existing directory holding a CLAUDE.md. */
 function readPeer(path: string): Input<string> {
   let isDir = false;
   try {
     isDir = statSync(path).isDirectory();
   } catch {
-    return failed(`--peer ${path} does not exist`);
+    return failed(peerFlagRefusal(path, "does not exist"));
   }
-  if (!isDir) return failed(`--peer ${path} is not a directory`);
-  if (!existsSync(join(path, "CLAUDE.md"))) return failed(`--peer ${path} has no CLAUDE.md, so its binding cannot be checked`);
+  if (!isDir) return failed(peerFlagRefusal(path, "is not a directory"));
+  if (!existsSync(join(path, "CLAUDE.md"))) return failed(peerFlagRefusal(path, "has no CLAUDE.md, so its binding cannot be checked"));
   return { ok: true, value: path };
 }
 
@@ -369,25 +456,29 @@ async function decideRow2(args: RepointArgs, binding: Input<WorkspaceBinding>, p
     if (!peer.ok) return row(2, "REFUSE", peer.reason);
     const path = peer.value;
     const theirs = await probe25Violations(path);
-    if (theirs !== undefined) return row(2, "REFUSE", `--peer ${path}: probe #25 reports: ${theirs}`);
+    if (theirs !== undefined) return row(2, "REFUSE", peerRefusal(path, `reports probe #25 violations: ${theirs}`, "That peer's own operator repairs its binding"));
     let pb: WorkspaceBinding;
     try {
       pb = readWorkspaceBinding(join(path, "CLAUDE.md"), args.mode);
     } catch (e) {
-      return row(2, "REFUSE", `--peer ${path}: ${firstLine(e)}`);
+      return row(2, "REFUSE", peerRefusal(path, `has an unreadable binding: ${firstLine(e)}`, "That peer's own operator repairs it"));
     }
     if (pb.project !== args.newProject) {
-      return row(2, "REFUSE", `--peer ${path} binds project ${pb.project ?? "(none)"}, not ${args.newProject}`);
+      return row(2, "REFUSE", peerRefusal(path, `binds project ${pb.project ?? "(none)"}, not ${args.newProject}`, `Repoint this repository to the project that peer binds, or have that peer's operator repoint it to ${args.newProject}`));
     }
-    if (pb.repoTag === undefined) return row(2, "REFUSE", `--peer ${path} declares no repo_tag`);
-    if (pb.repoTag === tag) return row(2, "REFUSE", `--peer ${path} declares the same repo_tag ${tag}`);
+    if (pb.repoTag === undefined) return row(2, "REFUSE", peerRefusal(path, "declares no repo_tag", "That peer is not bootstrapped for a shared container: its own operator declares a repo_tag there"));
+    if (pb.repoTag === tag) return row(2, "REFUSE", peerRefusal(path, `declares the same repo_tag ${tag}, which no two repositories in one container may share`, "Change THIS repository's repo_tag to one nothing else uses"));
   }
   return row(2, "PASS", peers.length === 0 ? "peers=0 (not checked)" : `peers=${peers.length}, each bound to ${args.newProject} under a distinct tag`);
 }
 
-/** Row 3 (Jira): `jira_issue_type` declared, offered by `--issue-types`, and the same at every peer. */
+/**
+ * Row 3 (Jira): `jira_issue_type` declared, offered by `--issue-types` (the
+ * measured getJiraProjectIssueTypesMetadata answer, proven whole), and the
+ * same at every peer.
+ */
 function decideRow3(args: RepointArgs, peers: Input<string>[]): RowResult {
-  const types = readNamedRows("--issue-types", args.issueTypes, "issueTypes", "name");
+  const types = readMeasuredList("--issue-types", args.issueTypes, "jira:getJiraProjectIssueTypesMetadata", "name");
   if (!types.ok) return row(3, "REFUSE", types.reason);
   const own = subsectionValue(join(args.projectRoot, "CLAUDE.md"), "jira", "jira_issue_type");
   if (own === undefined) return row(3, "REFUSE", "this repository declares no jira_issue_type");
@@ -398,7 +489,13 @@ function decideRow3(args: RepointArgs, peers: Input<string>[]): RowResult {
     if (!peer.ok) return row(3, "REFUSE", peer.reason);
     const theirs = subsectionValue(join(peer.value, "CLAUDE.md"), "jira", "jira_issue_type");
     if (theirs !== own) {
-      return row(3, "REFUSE", `--peer ${peer.value} declares jira_issue_type ${theirs ?? "(none)"}, not ${own}`);
+      return row(
+        3,
+        "REFUSE",
+        theirs === undefined
+          ? peerRefusal(peer.value, `declares no jira_issue_type, and this repository declares ${own}`, "That peer is not bootstrapped for this shared space: its own operator declares it")
+          : peerRefusal(peer.value, `declares jira_issue_type ${theirs}, and this repository declares ${own}`, `Set THIS repository's jira_issue_type to ${theirs} if the peer is right, or have that peer's operator change theirs`),
+      );
     }
   }
   return row(3, "PASS", `jira_issue_type ${own} is offered by ${args.newProject}${peers.length > 0 ? " and declared by every peer" : ""}`);
@@ -414,9 +511,9 @@ function decideRow5(args: RepointArgs, peers: Input<string>[]): RowResult {
     if (!peer.ok) return row(5, "REFUSE", peer.reason);
     const theirName = readTaskTrackingSection(join(peer.value, "CLAUDE.md"))["mcp_server"];
     const theirs = mcpEntryUrl(peer.value, theirName);
-    if (!theirs.ok) return row(5, "REFUSE", `--peer ${peer.value}: ${theirs.reason}`);
+    if (!theirs.ok) return row(5, "REFUSE", peerRefusal(peer.value, `has an unreadable mcp entry: ${theirs.reason}`, "That peer's own operator repairs it"));
     if (theirs.value !== own.value) {
-      return row(5, "REFUSE", `--peer ${peer.value} entry ${theirName} points at ${theirs.value}, not ${own.value}`);
+      return row(5, "REFUSE", peerRefusal(peer.value, `has its ${theirName} entry pointing at ${theirs.value}, not ${own.value}`, "Point THIS repository's entry at that URL if the peer is right, or have that peer's operator change theirs"));
     }
     spellings.add(theirName!);
   }
@@ -520,18 +617,93 @@ function decideRow1(args: RepointArgs): RowResult {
   return row(1, "PASS", `project ${args.newProject} is listed`);
 }
 
+/**
+ * `--statuses`: Linear the measured list_issue_statuses answer — a BARE array,
+ * the whole list (read by `tracker_answer.ts`); Jira a
+ * `{ statuses: [{ name }], isLast: true }` wrapper around an answer that IS
+ * fetchable and should be FETCHED rather than typed.
+ *
+ * This comment used to say no Atlassian MCP tool lists a project's statuses.
+ * That was wrong, and wrong in a way that cost a live leg: `adapters/jira.md`
+ * declares `list_project_statuses: true`, `tracker_config_proposal.ts` consumes
+ * that declaration, and two paths are specified there — `allowedValues`
+ * introspection for company-managed projects and `getTransitionsForJiraIssue`
+ * → `to.name` for team-managed ones. A child reading the old sentence built the
+ * listing by hand, and a hand-built gate input reads as fabricated evidence.
+ *
+ * Its COMPLETENESS is a different claim and is still asserted, never proven:
+ * no tracker proves a listing is the whole listing, so `isLast` stays the
+ * session's word here exactly as it was (see COMPLETENESS_ASSERTED_MARKER).
+ * Fetching the contents did not close that, and nothing below changed.
+ */
+function readStatuses(args: RepointArgs): Input<{ names: string[]; from: AssertedInput }> {
+  if (args.mode === "linear") {
+    const m = readMeasuredList("--statuses", args.statuses, "linear:list_issue_statuses", "name");
+    return m.ok ? { ok: true, value: { names: m.value, from: "statuses" } } : m;
+  }
+  const json = readJson("--statuses", args.statuses);
+  if (!json.ok) return json;
+  const label = `--statuses ${args.statuses}`;
+  const o = json.value as Record<string, unknown>;
+  // BOTH documented Jira shapes are accepted, because both are what the tracker
+  // actually returns and the session must not have to bridge them by hand.
+  // `adapters/jira.md` names two paths: `getJiraIssueTypeMetaWithFields`
+  // `allowedValues` for a company-managed project, and
+  // `getTransitionsForJiraIssue` -> `to.name` for a team-managed one. The second
+  // answers `{ transitions: [{ to: { name } }] }`, which carries no `statuses`
+  // array and no `isLast`.
+  //
+  // Live leg 5 (2026-09-24) aborted at step 2 on exactly that: the child fetched
+  // the documented answer, this function rejected its shape, and the only way
+  // past was to reshape a fetched file — which the skill's own rule 2 forbids.
+  // A guard with no legal path causes the failure it exists to prevent, and this
+  // was the second instance of that class in one milestone. The projection now
+  // lives HERE, in one tested place, instead of in twenty-six prompts.
+  if (Array.isArray(o.transitions)) {
+    const names: string[] = [];
+    for (const row of o.transitions) {
+      const to = isObject(row) ? row.to : undefined;
+      const name = isObject(to) ? to.name : undefined;
+      if (typeof name !== "string" || name.trim() === "") {
+        return failed(`${label} is a transitions answer whose rows do not all carry a \`to.name\`; save the raw getTransitionsForJiraIssue answer verbatim.`);
+      }
+      if (!names.includes(name)) names.push(name);
+    }
+    if (names.length === 0) return failed(`${label} is a transitions answer with no transitions; a status list cannot be derived from it.`);
+    // No `notLastPage` check: a transitions answer carries no paging and is
+    // partial by construction, which the caller records rather than pretends away.
+    return { ok: true, value: { names, from: "statuses:transitions" } };
+  }
+  const rows = namedRows(label, o, "statuses", "name");
+  if (!rows.ok) return rows;
+  const last = notLastPage(label, o);
+  return last ?? { ok: true, value: { names: rows.value, from: "statuses" } };
+}
+
+/** Mark a row that relied on an asserted-complete input: the marker on its line, the input on the row. */
+function assertedRow(r: RowResult, input: AssertedInput): RowResult {
+  return { ...r, reason: `${r.reason} ${COMPLETENESS_ASSERTED_MARKER}`, asserted: [input] };
+}
+
 /** Row 4: the tracker config covers the new project's statuses; the row carries the config's status snapshot. */
 function decideRow4(args: RepointArgs): RowResult {
-  const statuses = readNamedRows("--statuses", args.statuses, "statuses", "name");
+  const statuses = readStatuses(args);
   const config = readConfigStatuses(args.projectRoot);
   if (!statuses.ok) return row(4, "REFUSE", statuses.reason);
-  if (!config.ok) return row(4, "REFUSE", `${config.reason}; statuses missing: ${statuses.value.join(", ")}`);
-  const missing = statuses.value.filter((s) => !config.value.includes(s));
+  const names = statuses.value.names;
+  // From here the row relies on the status list: asserted in Jira, proven in
+  // Linear. The ASSERTED INPUT carries WHICH Jira shape it came from, because a
+  // full listing and a one-issue transitions subset are different epistemic
+  // states and one marker for both launders the weaker into the stronger. Row 4
+  // refuses on a status the config LACKS, so a shorter list is easier to pass.
+  const mark = (r: RowResult): RowResult => (args.mode === "jira" ? assertedRow(r, statuses.value.from) : r);
+  if (!config.ok) return mark(row(4, "REFUSE", `${config.reason}; statuses missing: ${names.join(", ")}`));
+  const missing = names.filter((s) => !config.value.includes(s));
   const r4 =
     missing.length > 0
       ? row(4, "REFUSE", `specs/tracker-config.yaml lacks ${args.newProject} statuses: ${missing.join(", ")}`)
-      : row(4, "PASS", `config statuses ${config.value.join(", ")} cover ${args.newProject}'s ${statuses.value.join(", ")}`);
-  return { ...r4, statusSnapshot: [...config.value] };
+      : row(4, "PASS", `config statuses ${config.value.join(", ")} cover ${args.newProject}'s ${names.join(", ")}`);
+  return { ...mark(r4), statusSnapshot: [...config.value] };
 }
 
 /**
@@ -547,6 +719,12 @@ function decideRow6(args: RepointArgs, labels: Input<string[]> | undefined, cont
     key = (p) => milestoneLabel(p.token);
   } else {
     if (!containers.ok) return row(6, "REFUSE", containers.reason);
+    // A full list_milestones window proves nothing about the milestones past
+    // it (the shared reader's completeness, via readListingFile): a collision
+    // there would be unseen, so the row cannot pass on it.
+    if (!containers.value.complete) {
+      return row(6, "REFUSE", `--containers holds ${containers.value.rowKeys.length} milestones — a full list_milestones window, which proves nothing past it — so no collision can be ruled out`);
+    }
     taken = new Set((containers.value.linearRows ?? []).map((r) => r.name));
     key = (p) => {
       try {
@@ -558,10 +736,12 @@ function decideRow6(args: RepointArgs, labels: Input<string[]> | undefined, cont
   }
   const collide = numericPlans(args.projectRoot, false).filter((p) => taken.has(key(p)));
   const overlap = numericPlans(args.projectRoot, true).filter((p) => taken.has(key(p))).length;
+  // The Jira label list is hand-assembled: the row relies on its asserted completeness.
+  const mark = (r: RowResult): RowResult => (labels !== undefined ? assertedRow(r, "labels") : r);
   if (collide.length > 0) {
-    return row(6, "REFUSE", `active numeric plan(s) collide with ${args.newProject}: ${collide.map((p) => `${p.token} (${key(p)})`).join(", ")}`);
+    return mark(row(6, "REFUSE", `active numeric plan(s) collide with ${args.newProject}: ${collide.map((p) => `${p.token} (${key(p)})`).join(", ")}`));
   }
-  return row(6, "PASS", `no active numeric plan collides; overlap=${overlap} archived tokens (legacy history)`);
+  return mark(row(6, "PASS", `no active numeric plan collides; overlap=${overlap} archived tokens (legacy history)`));
 }
 
 /**
@@ -648,6 +828,9 @@ export function writeRepoint(args: RepointArgs, oldProject: string, rows: RowRes
         statusSnapshot,
         trackerConfig: join("specs", "tracker-config.yaml"),
         rows: rows.map((r) => ({ row: r.row, verdict: r.verdict })),
+        // Each input whose completeness the session asserted rather than the
+        // tracker proved (COMPLETENESS_ASSERTED_MARKER on its row line).
+        assertedCompleteness: rows.flatMap((r) => r.asserted ?? []),
       },
     });
   } catch (e) {

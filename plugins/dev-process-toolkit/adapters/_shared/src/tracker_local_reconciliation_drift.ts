@@ -38,6 +38,7 @@ import {
   foreignLabels,
   listOrphans,
   normalizeContainerPage,
+  readContainerListing,
   readPages,
 } from "./container_ownership";
 import { evaluatePlanOnlyEligibility } from "./plan_only_archival";
@@ -59,8 +60,7 @@ export interface DriftViolation {
     | "duplicate-local-binding"
     | "unowned-container-ticket"
     | "bound-ticket-untagged"
-    | "numeric-milestone-shared"
-    | "container-partial";
+    | "numeric-milestone-shared";
   severity: "warning" | "error";
   note: string;
 }
@@ -107,7 +107,13 @@ function readContainerView(projectRoot: string, pages: unknown[]): ContainerView
   const binding = readWorkspaceBinding(join(projectRoot, "CLAUDE.md"), adapter);
   // Strict when shared, at the point the tickets are built — never relying on
   // `listOrphans` below happening to refuse the same malformed page first.
-  const all = pages.flatMap((p) => normalizeContainerPage(p, adapter, binding.shared));
+  // STE-616 AC-STE-616.7 — a listing is complete when it is one unbroken chain
+  // whose final page proves nothing follows (readContainerListing); a broken
+  // chain throws, and an incomplete listing is refused, never graded as a warning.
+  const { tickets: all, last } = readContainerListing(pages, adapter, binding.shared);
+  if (!last) {
+    throw new Error(`container page ${pages.length} of ${pages.length} is not the last page of its listing; the listing is incomplete and was not graded.`);
+  }
   const listing = listOrphans(projectRoot, pages);
   const bound = new Set(readLocalFRBindings(join(projectRoot, "specs")).flatMap((b) => b.trackerIds));
 
@@ -143,13 +149,7 @@ function readContainerView(projectRoot: string, pages: unknown[]): ContainerView
     kind: "container-excluded",
     note: `read ${c.read} ticket(s): ${c.sibling} sibling excluded, ${c.containers} container(s) excluded.`,
   });
-  if (!listing.complete) {
-    violations.push({
-      kind: "container-partial",
-      severity: "warning",
-      note: "The container page set is incomplete (a page is not the last); orphan rows may be missing.",
-    });
-  } else if (c.read === 0) {
+  if (c.read === 0) {
     info.push({ kind: "container-empty", note: "The container page is empty and complete; no tracker tickets to reconcile." });
   }
   return { tickets, violations, info };
@@ -385,6 +385,35 @@ if (import.meta.main) {
   }
   try {
     const containerPages = readPages(pagePaths);
+    // STE-616 AC-STE-616.7 — a listing the detector cannot complete is a
+    // named refusal naming the page: a page that is not a listing page (a
+    // transport-error body), or a final page that is not the last.
+    if (containerPages.length > 0) {
+      const adapter = adapterOf(projectRoot);
+      const binding = readWorkspaceBinding(join(projectRoot, "CLAUDE.md"), adapter);
+      containerPages.forEach((page, i) => {
+        try {
+          normalizeContainerPage(page, adapter, binding.shared);
+        } catch (e) {
+          console.log(`error container-unreadable: ${pagePaths[i]}: ${(e as Error).message}; the listing cannot be completed and was not graded.`);
+          process.exit(1);
+        }
+      });
+      const last = containerPages.length - 1;
+      let listing: { last: boolean };
+      try {
+        listing = readContainerListing(containerPages, adapter, binding.shared);
+      } catch (e) {
+        // Every page read on its own above, so what failed is the chain: a
+        // dropped, reordered or repeated page — the listing is incomplete.
+        console.log(`error container-partial: ${(e as Error).message}; the listing is incomplete and was not graded.`);
+        process.exit(1);
+      }
+      if (!listing.last) {
+        console.log(`error container-partial: ${pagePaths[last]} is not the last page of its listing; the listing is incomplete and was not graded.`);
+        process.exit(1);
+      }
+    }
     const provider = {
       mode: "tracker",
       listActiveFRs: async () => [],

@@ -16,7 +16,7 @@
 // synchronously from the invoking checkout.
 
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 
@@ -443,6 +443,28 @@ describe("AC-STE-610.3 — idempotence and conflict", () => {
       const r = spawnDoor(SPANS_DOOR, [p.planA, MILESTONE, p.a]);
       expect(r.status, describeRun(r)).toBe(0);
       expect(r.stdout).toBe("");
+    });
+  }, 30_000);
+});
+
+// M_2306b6 / STE-616 — the git-read refusal names WHO repairs the sibling.
+//
+// "repair the sibling repository so git can read it" named an act in another
+// repository and no actor, and escaped the sweep that fixed seven others because
+// it reads "the sibling repository so git", not "in sibling". A child told to
+// fix what a refusal names would repair B from A.
+describe("STE-616 — the sibling git-read refusal names who acts", () => {
+  test("an unreadable sibling object store refuses, telling the reader the sibling's own session repairs it", async () => {
+    await withPair(async (p) => {
+      const objects = join(p.b, ".git", "objects");
+      const dirs = readdirSync(objects).filter((d) => /^[0-9a-f]{2}$/.test(d));
+      expect(dirs.length, "the fixture has loose objects to hide").toBeGreaterThan(0);
+      for (const d of dirs) chmodSync(join(objects, d), 0o000);
+      try {
+        expectRefusedWritingNothing(p, () => runDeclare(p.a, p.planA, MILESTONE, p.b), "cannot be read from git", /never from here|from ITS OWN session|own session/);
+      } finally {
+        for (const d of dirs) chmodSync(join(objects, d), 0o755);
+      }
     });
   }, 30_000);
 });

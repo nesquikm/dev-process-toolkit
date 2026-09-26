@@ -1,0 +1,70 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-21",
+    "method": "read-only-call",
+    "request": {
+      "id": "STE-618"
+    },
+    "note": "a fetched issue: same key (top-level id) and team-as-display-name as the create answer, plus stateHistory"
+  },
+  "answer": {
+    "id": "STE-618",
+    "uuid": "e2308c9f-bbd0-4f5a-a19e-5eb6c68d3972",
+    "title": "The programme's release waits for a passing live proof",
+    "description": "## Summary\n\nA live proof is only worth something if the rele…",
+    "projectMilestone": {
+      "id": "2306b61c-037f-455f-97f2-4997b8fb0b60",
+      "name": "Proven Live"
+    },
+    "priority": {
+      "value": 0,
+      "name": "No priority"
+    },
+    "url": "https://linear.app/<workspace>/issue/STE-618/the-programmes-release-waits-for-a-passing-live-proof",
+    "gitBranchName": "<user>/ste-618-the-programmes-release-waits-for-a-passing-live-proof",
+    "createdAt": "2026-09-18T13:32:12.168Z",
+    "updatedAt": "2026-09-21T12:47:41.159Z",
+    "archivedAt": null,
+    "completedAt": null,
+    "startedAt": "2026-09-21T12:47:41.114Z",
+    "canceledAt": null,
+    "dueDate": null,
+    "slaStartedAt": null,
+    "slaMediumRiskAt": null,
+    "slaHighRiskAt": null,
+    "slaBreachesAt": null,
+    "status": "In Progress",
+    "statusType": "started",
+    "labels": [],
+    "attachments": [],
+    "documents": [],
+    "stateHistory": [
+      {
+        "state": {
+          "id": "69e2cc01-54d0-44ad-b262-554a0bb1c798",
+          "name": "Backlog",
+          "type": "backlog"
+        },
+        "startedAt": "2026-09-18T13:32:12.168Z",
+        "endedAt": "2026-09-21T12:47:41.152Z"
+      },
+      {
+        "state": {
+          "id": "4cb3b7df-7f22-4b28-a337-89db237d37f0",
+          "name": "In Progress",
+          "type": "started"
+        },
+        "startedAt": "2026-09-21T12:47:41.152Z",
+        "endedAt": null
+      }
+    ],
+    "createdBy": "<person>",
+    "createdById": "2d5a2118-bdc2-46b1-ac82-25778e3fc401",
+    "assignee": "<person>",
+    "assigneeId": "2d5a2118-bdc2-46b1-ac82-25778e3fc401",
+    "project": "DPT — Dev Process Toolkit",
+    "projectId": "3e811102-7f34-4fdd-90ba-850a07d6b90b",
+    "team": "Example Team Display Name",
+    "teamId": "e1181251-2fe2-42b2-9a69-288a28732554"
+  }
+}

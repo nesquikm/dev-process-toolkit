@@ -59,7 +59,13 @@ import {
 // same verdict a TypeScript one already did.
 // ---------------------------------------------------------------------------
 
-const FR_RE = /^specs\/frs\/.*\.md$/;
+// ACTIVE FRs only. `.*` used to cross the `archive/` segment, so filing a
+// finished FR — the archive move `/implement` Phase 4 performs — was read as
+// staging new work and demanded TDD evidence for a markdown record: there is no
+// test to run red and no FR to `/tdd`, so the refusal named no path the session
+// could take. Measured live on 2026-09-23, where it aborted a 26-step leg.
+// Archived records are frozen history, the same rule every other walk applies.
+const FR_RE = /^specs\/frs\/(?!archive\/)[^/]*\.md$/;
 
 // Spec-only carve-out patterns. Every staged path must match at least one of
 // these AND none may match the src/test patterns below for `spec-only`.
@@ -99,7 +105,30 @@ const predicatesFor = (entry: StackLayoutEntry): LayoutPredicates =>
 const isTddRequiredPath = (
   path: string,
   isTest: (p: string) => boolean,
-): boolean => FR_RE.test(path) || isTest(path);
+  entry: StackLayoutEntry,
+): boolean => FR_RE.test(path) || (isTest(path) && !isDataFixture(path, entry));
+
+const FIXTURES_DIR_RE = /(^|\/)fixtures\//;
+
+/**
+ * STE-616 — DATA in a `fixtures/` directory is not a test. The layout calls
+ * everything in the test tree test material, which the spec-only carve-out
+ * still reads; but the /tdd trigger asks "was a test written", and a JSON
+ * evidence bundle a live smoke captured has no red to prove. Demanding one
+ * deadlocked the smoke's own pre-flight, which requires the bundle committed.
+ *
+ * Narrow on purpose: a file whose NAME is a test (the stack's test globs), or
+ * whose extension is one of the stack's SOURCE extensions, keeps the
+ * requirement even inside `fixtures/` — code there is code.
+ */
+const isDataFixture = (path: string, entry: StackLayoutEntry): boolean => {
+  if (!FIXTURES_DIR_RE.test(path)) return false;
+  if (entry.layout.sourceExtensions.some((ext) => path.endsWith(ext))) return false;
+  // Globs only: the same builder with no test directories answers "is this
+  // file NAMED like a test", which is the question a fixtures dir leaves open.
+  const byName = buildLayoutPredicates({ ...entry.layout, testDirs: [] }).isTest;
+  return !byName(path);
+};
 
 export type StagedClassification =
   | "spec-only"
@@ -177,7 +206,7 @@ export function classifyStagedPathsForEntry(
   if (!hasSrcOrTest && allSpec) {
     return "spec-only";
   }
-  if (paths.some((p) => isTddRequiredPath(p, isTest))) {
+  if (paths.some((p) => isTddRequiredPath(p, isTest, entry))) {
     return "tdd-required";
   }
   return "no-fr";
@@ -384,7 +413,7 @@ if (import.meta.main) {
   // `spec-only` or `stack-unknown` and has already exited above — so this is a
   // narrowing of a state the classifier has ruled out, not an unchecked guess.
   const { isTest } = predicatesFor(entry!);
-  const required = staged.filter((p) => isTddRequiredPath(p, isTest));
+  const required = staged.filter((p) => isTddRequiredPath(p, isTest, entry!));
   const exemptFlags = await Promise.all(required.map((p) => isExemptPlaceholder(p, repoRoot)));
   if (required.length > 0 && exemptFlags.every(Boolean)) {
     process.exit(0);

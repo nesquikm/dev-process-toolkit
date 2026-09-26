@@ -114,6 +114,25 @@ export function oneLine(text: string): string {
  * by a second announcement. The exit code is unchanged and the action still
  * runs; only the words reach the operator.
  */
+/**
+ * The sentence a refusal owes when it blocks a CHAINED command.
+ *
+ * A PreToolUse refusal blocks the WHOLE Bash call, so everything chained after
+ * the refused part never ran — and the refusal used to say nothing about it.
+ * Measured live 2026-09-23: a child's `git … && git … ; cd … ; repoint …` was
+ * refused, the child could not tell that its repoint had not run, and concluded
+ * deadlock. Empty for a plain command, so a refusal that blocks nothing else
+ * says nothing else.
+ */
+export function chainedCallNote(command: unknown): string {
+  if (typeof command !== "string") return "";
+  // `&&`, `||`, `;`, a pipe, or a newline: anything that puts a second command
+  // in the same call. A `&&` inside quotes is not worth parsing for — the note
+  // is advisory and over-stating it costs a sentence, not a verdict.
+  if (!/(?:&&|\|\||;|\||\n)/.test(command)) return "";
+  return " This refusal blocked the WHOLE command, so anything chained after it did not run either — re-run those parts as their own commands once this is satisfied.";
+}
+
 export function emitNFR10(
   verdict: "Refusing" | "Reminder",
   why: string,
@@ -1137,7 +1156,7 @@ export function requireTddEvidence(
     `run /${skill}; or, for an audit-driven fix with no FR, run those ` +
       `tests against the pre-change bytes and record the red result in this ` +
       `session as a line reading \`${proofForm}\` ` +
-      `naming every staged test path it covers.`,
+      `naming every staged test path it covers.${chainedCallNote(payload.tool_input?.command)}`,
     skill,
     hook,
   );

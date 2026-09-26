@@ -1,0 +1,35 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-21",
+    "method": "read-only-call",
+    "request": {},
+    "note": "a BARE array of accessible sites (id, url, name, scopes, avatarUrl) — one of the read calls the pre-flight's second-server check accepts"
+  },
+  "answer": [
+    {
+      "id": "96bffaef-cf5d-4dbf-a170-3d700df9bc83",
+      "url": "https://example-site.invalid",
+      "name": "example-site",
+      "scopes": [
+        "read:comment:confluence",
+        "read:confluence-user",
+        "read:page:confluence",
+        "read:space:confluence",
+        "search:confluence",
+        "write:comment:confluence",
+        "write:page:confluence"
+      ],
+      "avatarUrl": "https://settings-cdn-bifrost.prod-east.frontend.public.atl-paas.net/assets/avatars/240/triangle.png"
+    },
+    {
+      "id": "96bffaef-cf5d-4dbf-a170-3d700df9bc83",
+      "url": "https://example-site.invalid",
+      "name": "example-site",
+      "scopes": [
+        "read:jira-work",
+        "write:jira-work"
+      ],
+      "avatarUrl": "https://settings-cdn-bifrost.prod-east.frontend.public.atl-paas.net/assets/avatars/240/triangle.png"
+    }
+  ]
+}

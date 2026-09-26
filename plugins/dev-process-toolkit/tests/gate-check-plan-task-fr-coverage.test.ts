@@ -125,3 +125,47 @@ describe("STE-376 union grammar — epic-keyed plans stay inside the walk", () =
     }
   });
 });
+
+// D6 (live leg 2, 2026-09-23) — a Jira project key may carry a DIGIT.
+//
+// Reported as "the probe knows STE-NNN only". Measured, that is not the cause:
+// the grammar was `[A-Z]+-\d+`, which accepts STE-618 and DST-4 and silently
+// rejects DST2-4, because `[A-Z]+` cannot match a key with a digit in it. This
+// programme's own repoint-from space is DST2, so every task in B's plan that
+// correctly linked its FR was reported as having no backing row.
+describe("D6 — the FR-link grammar accepts a project key with a digit in it", () => {
+  const plan = (task: string, key: string) =>
+    `---\nmilestone: M_DST2_1\nstatus: active\n---\n\n## M_DST2_1 — Smoke\n\n| FR | Title | Tracker |\n|----|-------|---------|\n| ${key} | S8 legacy item | jira:\`${key}\` |\n\n**Tasks:**\n\n- [ ] ${task}\n`;
+
+  for (const key of ["DST2-4", "DST-4", "STE-618", "A1B2-7"]) {
+    test(`an explicit inline link to ${key} backs its task`, async () => {
+      const root = makeFixture();
+      try {
+        writeFileSync(join(root, "specs", "plan", "M_DST2_1.md"), plan(`Create the item — ${key}`, key));
+        expect((await runPlanTaskFrCoverageProbe(root)).violations).toEqual([]);
+      } finally {
+        cleanup(root);
+      }
+    });
+  }
+
+  test("CONTROL — the walk still flags a task that links nothing, so the rows above are not passing on an empty scan", async () => {
+    const root = makeFixture();
+    try {
+      writeFileSync(join(root, "specs", "plan", "M_DST2_1.md"), plan("something with no link and no matching title", "DST2-4"));
+      expect((await runPlanTaskFrCoverageProbe(root)).violations.length).toBe(1);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test("CONTROL — a key shape that is NOT a tracker key is still not a link (a bare word, a lowercase key)", async () => {
+    const root = makeFixture();
+    try {
+      writeFileSync(join(root, "specs", "plan", "M_DST2_1.md"), plan("create the item — dst2-4", "DST2-4"));
+      expect((await runPlanTaskFrCoverageProbe(root)).violations.length, "lowercase is not a tracker key").toBe(1);
+    } finally {
+      cleanup(root);
+    }
+  });
+});

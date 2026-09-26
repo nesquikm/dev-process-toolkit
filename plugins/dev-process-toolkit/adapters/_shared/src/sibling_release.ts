@@ -19,7 +19,8 @@ import {
   spanningSiblingState,
   trackerAdapterKey,
 } from "./active_plan_ship_ready";
-import { normalizeContainerPage, readJsonFile } from "./container_ownership";
+import { normalizeContainerItems, readJsonFile } from "./container_ownership";
+import { readTrackerListing } from "./tracker_answer";
 import { parseFrontmatter } from "./frontmatter";
 import { milestoneIdFromLinearMilestone } from "./milestone_token";
 import { SPANS_REPOS_KEY, SpansReposError, readSpansReposDeclaration } from "./spans_repos";
@@ -161,87 +162,103 @@ export async function siblingShipGate(input: {
   return { refusal: null, footer, unchecked };
 }
 
-/** Does the page itself say it is the last one? Absent or non-boolean signals do not. */
-function pageProvesLast(page: unknown, adapter: "jira" | "linear"): boolean {
-  const j = (page ?? {}) as Record<string, unknown>;
-  if (adapter === "jira") return j["isLast"] === true;
-  return (j["pageInfo"] as { hasNextPage?: unknown } | undefined)?.hasNextPage === false;
+/** A child listing read whole: every page's items, and whether its final page proves it is the last. */
+interface JoinedListing {
+  items: Record<string, unknown>[];
+  last: boolean;
 }
 
 /**
- * A child listing may be the JSON array of every page the tracker returned,
- * in order (M_685ff6 review: a Linear project past one 250-row page could
- * never release). Joined into one page when each page but the last says it
- * is not the last (Jira `isLast: false`; Linear `pageInfo.hasNextPage: true`
- * with an `endCursor`, no cursor repeated) and the last proves it is. A
- * single page object is returned as it is; a malformed array is the reason
- * it cannot be joined.
+ * A child listing may be one page, or the JSON array of every page the
+ * tracker returned, in order (M_685ff6 review: a Linear project past one
+ * 250-row page could never release). Every page is read by the shared reader
+ * (`tracker_answer.ts`), so the one rule for "not the last" is its canonical
+ * `next`: each page but the last must hand one, never one an earlier page
+ * handed, and page n>1 must record as its `requestCursor` exactly the `next`
+ * of page n-1. A page the reader cannot read, a broken chain or a key on two
+ * pages is the reason the listing cannot be joined. Whether the FINAL page
+ * proves it is the last is returned as `last`, for the caller to grade.
  */
-function joinPages(listing: unknown, adapter: "jira" | "linear"): { page: unknown } | { error: string } {
-  if (!Array.isArray(listing)) return { page: listing };
-  if (listing.length === 0) return { error: "it is an empty array of pages" };
-  const issues: unknown[] = [];
-  const cursors = new Set<string>();
-  const keys = new Set<string>();
-  let previousEnd: string | null = null;
-  for (let i = 0; i < listing.length; i++) {
-    const p = listing[i] as Record<string, unknown> | null;
-    const n = i + 1;
-    if (p === null || typeof p !== "object" || Array.isArray(p) || !Array.isArray(p["issues"])) {
-      return { error: `page ${n} of ${listing.length} carries no issues array` };
-    }
-    // The pages chain (M_685ff6 review r2): each page after the first records
-    // the cursor it was requested with, and it is the previous page's end.
-    // The MCP answer does not carry it, so the session writes it as it saves
-    // each page — a dropped page then shows as a broken link.
-    if (i > 0) {
-      const requested = p["requestCursor"];
-      if (typeof requested !== "string" || requested === "") {
-        return { error: `page ${n} of ${listing.length} records no requestCursor — the cursor it was requested with` };
-      }
-      if (requested !== previousEnd) {
-        return {
-          error: `page ${n} was requested with ${oneLine(requested)}, but page ${i} ended at ${oneLine(previousEnd ?? "")} — a page between them is missing`,
-        };
-      }
-    }
-    for (const row of p["issues"] as unknown[]) {
-      const r = (row ?? {}) as Record<string, unknown>;
-      const key = typeof r["key"] === "string" ? r["key"] : typeof r["identifier"] === "string" ? r["identifier"] : null;
-      if (key === null) continue;
-      if (keys.has(key)) return { error: `the key ${oneLine(key)} appears on more than one page — a page is duplicated` };
-      keys.add(key);
-    }
-    const last = i === listing.length - 1;
-    if (last) {
-      if (!pageProvesLast(p, adapter)) {
-        return { error: `its final page (page ${n}) does not prove it is the last page (Jira \`isLast: true\`, Linear \`pageInfo.hasNextPage: false\`)` };
-      }
-    } else if (adapter === "jira") {
-      if (p["isLast"] !== false) return { error: `page ${n} of ${listing.length} does not say more pages follow (\`isLast: false\`)` };
-      const token = p["nextPageToken"];
-      if (typeof token !== "string" || token === "") {
-        return { error: `page ${n} of ${listing.length} carries no nextPageToken for the page after it` };
-      }
-      previousEnd = token;
-    } else {
-      const info = p["pageInfo"] as { hasNextPage?: unknown; endCursor?: unknown } | undefined;
-      if (info?.hasNextPage !== true || typeof info.endCursor !== "string" || info.endCursor === "") {
-        return { error: `page ${n} of ${listing.length} does not say more pages follow (\`pageInfo.hasNextPage: true\` with its \`endCursor\`)` };
-      }
-      if (cursors.has(info.endCursor)) {
-        return { error: `page ${n} repeats the endCursor ${oneLine(info.endCursor)} of an earlier page` };
-      }
-      cursors.add(info.endCursor);
-      previousEnd = info.endCursor;
-    }
-    issues.push(...(p["issues"] as unknown[]));
-  }
-  return { page: { ...(listing[listing.length - 1] as Record<string, unknown>), issues } };
+function joinPages(listing: unknown, adapter: "jira" | "linear"): JoinedListing | { error: string } {
+  if (Array.isArray(listing) && listing.length === 0) return { error: "it is an empty array of pages" };
+  const r = readTrackerListing(adapter, Array.isArray(listing) ? listing : [listing]);
+  return r.ok ? { items: r.items, last: r.last } : { error: r.reason };
 }
 
+/**
+ * Named ONCE, at the single exit every sibling remedy passes through, rather
+ * than inside each case — so a case added later inherits it and cannot
+ * reintroduce the defect by omission.
+ *
+ * WHY IT EXISTS (live leg 7, 2026-09-24). Every remedy below names an act in
+ * ANOTHER repository, and every one of them is good advice to a human operator,
+ * who understands without being told that "in sibling X" means going there and
+ * working as that repository. They became defects the moment the skill's rule 4
+ * told every child to fix what a refusal names: `spans_repos.ts`'s equivalent
+ * remedy said "write specs/plan/<M>.md in the sibling repository first", a
+ * child rooted in A obeyed it literally, wrote into B, and the
+ * `sibling-file-write` guard correctly flagged the run.
+ *
+ * Neither the child nor the guard was at fault. The remedy named WHAT must
+ * exist and not WHO must create it, and the acts named here are larger than a
+ * file write — bootstrapping a repository, binding FRs, editing another
+ * repository's CLAUDE.md.
+ *
+ * The general form, which is the same finding as rule 4 invalidating the
+ * predicates arriving from the other side: A RULE THAT MAKES CHILDREN ACT ON
+ * PROSE TURNS EVERY PIECE OF PROSE THEY CAN REACH INTO AN INTERFACE. None of
+ * this toolkit's NFR-10 remedies were written as one.
+ */
+export const FROM_ITS_OWN_SESSION = " — the sibling's own operator does this from that repository's session, never from here";
+
 /** Refusal #4's remedy for one held (non-idle) sibling — one per state. */
-function heldRemedy(s: DeclaredSibling, milestone: string): string {
+/**
+ * The states whose remedy is an act on THIS repository, so the actor clause
+ * would misdirect rather than clarify.
+ *
+ * Named as a SET rather than tested as "not idle", because the general rule —
+ * these remedies name acts in another repository — is true of eight of the ten
+ * and false of two, and a blanket append tells the reader to go elsewhere for a
+ * change only they can make, in a file only they own. That is worse than the
+ * defect being fixed: the original wording was right and under-specified; a
+ * blanket clause makes it wrong.
+ *
+ *   idle             — no act at all, the remedy is empty
+ *   unlocatable      — correct THIS repository's `spans_repos:` path
+ *   not-a-repository — point THIS repository's `spans_repos:` path elsewhere
+ *
+ * A state added later that is genuinely local joins this set deliberately,
+ * rather than inheriting a clause that sends its reader away.
+ */
+const LOCAL_ACT_STATES: ReadonlySet<string> = new Set(["idle", "unlocatable", "not-a-repository"]);
+
+export function heldRemedy(s: DeclaredSibling, milestone: string): string {
+  const mixed = MIXED_REMEDIES[s.state];
+  if (mixed) return `${mixed.sibling(s)}${FROM_ITS_OWN_SESSION}; or, in this repository, ${mixed.local(s)}`;
+  const act = heldRemedyAct(s, milestone);
+  return LOCAL_ACT_STATES.has(s.state) ? act : `${act}${FROM_ITS_OWN_SESSION}`;
+}
+
+/**
+ * STE-616 — the two states whose remedy offers an act in the sibling OR an
+ * edit to THIS repository's `spans_repos:`. A single clause appended at the end
+ * sat after the local half and sent its reader away from a file only they own;
+ * a per-state boolean cannot say "the first half is theirs, the second yours",
+ * so each half is spelled separately and the clause is placed between them.
+ */
+const MIXED_REMEDIES: Readonly<Record<string, { sibling: (s: DeclaredSibling) => string; local: (s: DeclaredSibling) => string }>> = {
+  "not-toolkit-managed": {
+    sibling: (s) => `run /dev-process-toolkit:setup in sibling ${s.name}`,
+    local: () => `point its path under ${SPANS_REPOS_KEY}: at the toolkit-managed checkout`,
+  },
+  "different-container": {
+    sibling: (s) => `bind sibling ${s.name} to this repository's tracker project in its CLAUDE.md`,
+    local: () => `drop it from ${SPANS_REPOS_KEY}:`,
+  },
+};
+
+/** The act each held state calls for, WITHOUT the actor clause `heldRemedy` appends. */
+function heldRemedyAct(s: DeclaredSibling, milestone: string): string {
   switch (s.state) {
     case "busy":
       return `finish sibling ${s.name}'s active FRs bound to ${milestone}`;
@@ -254,9 +271,9 @@ function heldRemedy(s: DeclaredSibling, milestone: string): string {
     case "not-a-repository":
       return `point ${s.name}'s path under ${SPANS_REPOS_KEY}: at the sibling's git checkout, not a plain directory`;
     case "not-toolkit-managed":
-      return `run /dev-process-toolkit:setup in sibling ${s.name}, or point its path under ${SPANS_REPOS_KEY}: at the toolkit-managed checkout`;
     case "different-container":
-      return `bind sibling ${s.name} to this repository's tracker project in its CLAUDE.md, or drop it from ${SPANS_REPOS_KEY}:`;
+      // Mixed: rendered from MIXED_REMEDIES by `heldRemedy`, never from here.
+      return "";
     case "unreadable":
       return `repair sibling ${s.name} so it can be read — every git worktree, branch and remote-tracking ref, and its CLAUDE.md tracker declaration`;
     case "one-sided":
@@ -318,10 +335,24 @@ export interface ChildrenGrade {
 }
 
 /**
+ * The phrase a refusal carries when this module rejected its INPUT LISTING and
+ * therefore never reached a release decision.
+ *
+ * Exported so the live grader can tell "refused on its input" from "reached the
+ * decision and refused on a sibling" WITHOUT matching prose it does not own.
+ * Both refusals exit 1, so the exit code cannot separate them, and a predicate
+ * that cannot tell them apart grades a non-event — which failed S5's permit
+ * twin on live leg 6 after the child read two refusals, fixed what each named,
+ * and succeeded on its third attempt.
+ */
+export const CHILD_LISTING_REJECTED = "'s child listing cannot prove it is complete —";
+
+/**
  * Grade the undeclared side of a shared-container release (STE-610): the
  * milestone's children as the tracker listed them — a Jira Epic's child issues,
- * or a Linear project's issues filtered to the milestone by identifier. The
- * listing refuses when it is malformed, not the last page, empty, or missing
+ * or a Linear project's issues filtered to the milestone by their
+ * project-milestone id. The listing refuses when it is malformed, not the last
+ * page, empty, or missing
  * any of `ownKeys` (this repository's FR tickets bound to the milestone are
  * children by construction). A child carrying neither `repoTag` nor a
  * `declaredTags` entry refuses unless `partial` is set.
@@ -340,7 +371,7 @@ export function gradeChildren(input: {
   const context = `milestone=${milestone}, listing=${source}, adapter=${adapter}`;
   const incomplete = (verdict: string, count: number | null): ChildrenGrade => ({
     refusal: shipRefusal(
-      `${milestone}'s child listing cannot prove it is complete — ${verdict}`,
+      `${milestone}${CHILD_LISTING_REJECTED} ${verdict}`,
       `save ${milestone}'s children as the tracker returns them — one page, or the JSON array of every page in order (Linear: page with \`cursor\` until \`hasNextPage\` is false, with \`includeArchived: true\`) — and pass it as --children <listingFile>`,
       context,
     ),
@@ -348,37 +379,31 @@ export function gradeChildren(input: {
   });
   const joined = joinPages(input.listing, adapter === "jira" ? "jira" : "linear");
   if ("error" in joined) return incomplete(joined.error, null);
-  const listing = joined.page;
   // A Linear project's issues belong to the milestone only when their
   // milestone identifier derives to its token: the tracker has no such filter.
-  let page = listing;
-  const issues = (listing as { issues?: unknown } | null)?.issues;
-  if (adapter === "linear" && Array.isArray(issues)) {
-    page = {
-      ...(listing as Record<string, unknown>),
-      issues: issues.filter((row) => {
-        const id = (row as { projectMilestone?: { id?: unknown } } | null)?.projectMilestone?.id;
-        try {
-          return typeof id === "string" && milestoneIdFromLinearMilestone(id) === milestone;
-        } catch {
-          return false;
-        }
-      }),
-    };
-  }
-  let children: ReturnType<typeof normalizeContainerPage>;
+  const items =
+    adapter === "linear"
+      ? joined.items.filter((row) => {
+          const id = (row as { projectMilestone?: { id?: unknown } | null }).projectMilestone?.id;
+          try {
+            return typeof id === "string" && milestoneIdFromLinearMilestone(id) === milestone;
+          } catch {
+            return false;
+          }
+        })
+      : joined.items;
+  let children: ReturnType<typeof normalizeContainerItems>;
   try {
-    children = normalizeContainerPage(page, adapter, true);
+    children = normalizeContainerItems(items, adapter, true);
   } catch (error) {
     return incomplete(`it is malformed: ${(error as Error).message}`, null);
   }
-  // A release reads completeness from the page's OWN signal: a page that does
-  // not say it is the last one has not proved the child list complete (the
-  // rule create_idempotency_probe applies to the same MCP answers).
-  // pageProvesLast is strictly stronger than container_ownership's fail-open
-  // pageIsLast (which a missing signal passes), so it alone decides here.
-  if (!pageProvesLast(listing, adapter)) {
-    return incomplete("it does not prove it is the last page of the listing (Jira `isLast: true`, Linear `pageInfo.hasNextPage: false`)", null);
+  // A release reads completeness from the page's OWN signal, through the one
+  // rule every reader shares (`tracker_answer.ts`, which container_ownership's
+  // pageIsLast also reads): a final page that does not prove it is the last
+  // has not proved the child list complete.
+  if (!joined.last) {
+    return incomplete("its final page does not prove it is the last page of the listing (Jira `isLast: true` or wrapped `hasNextPage: false`, Linear `hasNextPage: false`)", null);
   }
   if (children.length === 0) {
     return incomplete("children=0 — a release needs at least one archived FR, whose ticket is a child", 0);

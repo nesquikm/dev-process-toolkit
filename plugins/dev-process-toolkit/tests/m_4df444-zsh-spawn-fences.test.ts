@@ -16,7 +16,15 @@
 // bash run already passes, so the test pins shell-independence, not a new
 // behaviour. `claude` and `bun` are stubbed exactly as the STE-594 harness does.
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+
+
+// The 5 s default per-test timeout kills a spawned child under gate load and
+// surfaces as an exit code of -1 with an empty stderr (M_2306b6 audit round 1,
+// M5 — same mechanism as `create-front-door-shared`). This budget is per test,
+// so it costs nothing on a healthy machine and cannot hide a real hang: a module
+// that never returns still fails, 60 s later.
+setDefaultTimeout(60_000);
 import { randomUUID } from "node:crypto";
 import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

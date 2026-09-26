@@ -35,7 +35,15 @@
 // letter), and the announcement legs the derivation would have driven are
 // graded here directly (AC-STE-607.10).
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+
+
+// The 5 s default per-test timeout kills a spawned child under gate load and
+// surfaces as an exit code of -1 with an empty stderr (M_2306b6 audit round 1,
+// M5 — same mechanism as `create-front-door-shared`). This budget is per test,
+// so it costs nothing on a healthy machine and cannot hide a real hang: a module
+// that never returns still fails, 60 s later.
+setDefaultTimeout(60_000);
 import {
   chmodSync,
   copyFileSync,
@@ -70,7 +78,7 @@ const ADAPTERS_SRC = join(PLUGIN_ROOT, "adapters", "_shared", "src");
 const HOOK = "pre-tracker-write-gate";
 const MODULE_PATH = join(PLUGIN_ROOT, "templates", "hooks", "_lib", "hooks", `${HOOK}.ts`);
 const HOOKS_JSON = join(PLUGIN_ROOT, "hooks", "hooks.json");
-const INVENTORY = join(PLUGIN_ROOT, "tests", "fixtures", "tracker-tool-inventory.json");
+const INVENTORY = join(PLUGIN_ROOT, "adapters", "_shared", "data", "tracker-tool-inventory.json");
 
 const SESSION = "s-607-main";
 const OTHER_SESSION = "s-607-other";
@@ -356,6 +364,11 @@ class Session {
     );
   }
 
+  /** An operator user message carrying `t` as its text. */
+  userText(t: string): void {
+    this.lines.push(JSON.stringify({ type: "user", sessionId: SESSION, message: { role: "user", content: t } }));
+  }
+
   bash(command: string, output: string, isError = false): string {
     const id = this.toolUse("Bash", { command, description: "run" });
     this.toolResult(id, output, isError);
@@ -563,6 +576,10 @@ function expectRefusal(r: Run, ...needles: Array<string | RegExp>): void {
 
 const CLOUD = "glacy.atlassian.net";
 const JIRA = (t: string) => `mcp__atlassian__${t}`;
+
+/** A measured tracker answer, deep-copied from tests/fixtures/live-shapes/<tracker>/<name>.json. */
+const liveShape = (tracker: "jira" | "linear", name: string): Record<string, any> =>
+  structuredClone(JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "live-shapes", tracker, `${name}.json`), "utf-8")).answer);
 const LINEAR = (t: string) => `mcp__linear__${t}`;
 
 interface JiraCreate {
@@ -965,6 +982,26 @@ describe("AC-STE-607.3 — a create needs a matching, unspent create receipt in 
     });
   }
 
+  // Live Linear leg 2, step 17: the first create matching the receipt was
+  // REFUSED by this hook (no attach-target receipt yet). The spending walk
+  // counted it anyway, so after the child fixed what the refusal named, its
+  // corrected create was refused as "spent" and `decide --attempt retry-1`
+  // answered "miss": no legal create was left. Only a create that may have
+  // reached the tracker spends a receipt; one whose recorded result PROVES it
+  // never ran (a hook or permission refusal, a 4xx) took nothing.
+  for (const [label, result] of [
+    ["refused by this hook", "PreToolUse:mcp__atlassian__createJiraIssue hook error: [x]: Refusing: createJiraIssue in <BE>: no attach-target receipt resolved the milestone container."],
+    ["rejected by the tracker with a 400", "Error: 400 Bad Request — the field `parent` is required"],
+  ] as const) {
+    test(`NOT spent: a first matching create ${label} took nothing — the corrected retry → exit 0`, async () => {
+      const s = new Session();
+      withAttachTarget(s, w.be, { scratch: w.scratch });
+      s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+      s.mcp(JIRA("createJiraIssue"), jiraCreate(), result, true);
+      expectPermit(await create(s));
+    });
+  }
+
   // The retry leg is graded on receipts the REAL `decide` writes: see
   // "M_947c79 review — the shared retry leg" below. A shared retry never
   // yields a create receipt, so no synthetic one is announced here.
@@ -1083,6 +1120,43 @@ describe("AC-STE-607.4 — a ticket write needs a subject its target owns", () =
       const s = new Session();
       announce(s);
       s.ask(c.key, c.verb, { answer: `${c.verb} ${c.key}` });
+      expectRefusal(await act(s, c.key), c.key);
+    });
+
+    // D-8 (shipped in v2.89.0): the sanctioned answers block is the headless
+    // twin of the ask above, and it must be exactly as strict — the value is
+    // consent only when it EQUALS `<verb> <KEY>`. Before the fix this arm
+    // accepted any value that merely NAMED the key, so `Skip <KEY>` — the
+    // operator's refusal — was read as consent.
+    const answersBlock = (value: string, marker = true) =>
+      `${marker ? "<dpt:auto-approve>v1</dpt:auto-approve>\n" : ""}<dpt:answers>v1\ntracker_orphan_import: ${value}\n</dpt:answers>`;
+
+    test(`${c.kind} receipt with an answers block \`${c.verb} ${c.key}\` before the announcement → exit 0`, async () => {
+      const s = new Session();
+      s.userText(answersBlock(`${c.verb} ${c.key}`));
+      announce(s);
+      expectPermit(await act(s, c.key));
+    });
+
+    for (const [label, value, marker] of [
+      ["the decline value", `Skip ${c.key}`, true],
+      ["free text naming the key", `not ${c.key}, ask me later`, true],
+      ["the label quoted inside other text", `${c.verb} ${c.key}? not sure`, true],
+      ["consent to another key", `${c.verb} GF-999`, true],
+      ["the exact label without the auto-approve marker", `${c.verb} ${c.key}`, false],
+    ] as const) {
+      test(`${c.kind} receipt with an answers block of ${label} → exit 2`, async () => {
+        const s = new Session();
+        s.userText(answersBlock(value, marker));
+        announce(s);
+        expectRefusal(await act(s, c.key), c.key);
+      });
+    }
+
+    test(`${c.kind} receipt with the answers block positioned AFTER the announcement → exit 2`, async () => {
+      const s = new Session();
+      announce(s);
+      s.userText(answersBlock(`${c.verb} ${c.key}`));
       expectRefusal(await act(s, c.key), c.key);
     });
   }
@@ -2193,13 +2267,37 @@ describe("M_947c79 review — only the CREATED key is session-created (AC-STE-60
     expectRefusal(await runHook(JIRA("transitionJiraIssue"), transition("GF-101"), { cwd: w.be, transcript }), "GF-101");
   }, 30_000);
 
-  test("a Linear create result names the created identifier; an echoed parent identifier is not created", async () => {
+  // The measured Linear create answer (tests/fixtures/live-shapes/linear/
+  // save_issue.create.json) keys the ticket by top-level `id` — `STE-619`, with
+  // no `identifier` — and echoes other keys only inside its prose fields.
+  test("a Linear create result (the measured shape) names the created `id`; a key echoed elsewhere is not created", async () => {
     const root = linearRepo(BE_TAG);
     const s = new Session();
-    s.mcp(LINEAR("save_issue"), { team: "OPS", title: "X" }, { id: "u-1", identifier: "STE-900", parent: { identifier: "STE-5" } });
+    const answer = { ...liveShape("linear", "save_issue.create"), id: "STE-900", description: "Follows STE-5." };
+    s.mcp(LINEAR("save_issue"), { team: "OPS", title: "X" }, answer);
     const transcript = s.save(tempDir("linear-created"));
     expectPermit(await runHook(LINEAR("save_comment"), { issueId: "STE-900", body: "hi" }, { cwd: root, transcript }));
     expectRefusal(await runHook(LINEAR("save_comment"), { issueId: "STE-5", body: "hi" }, { cwd: root, transcript }), "STE-5");
+  }, 30_000);
+
+  test("a wrapped Jira create result (the measured shape) names its one node's key as created (control: an echoed parent key is not)", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    const answer = liveShape("jira", "create.wrapped");
+    answer.issues.nodes[0].key = "GF-150";
+    answer.issues.nodes[0].fields.parent = { key: "GF-101" };
+    s.mcp(JIRA("createJiraIssue"), jiraCreate(), answer);
+    const transcript = s.save(w.scratch);
+    expectPermit(await runHook(JIRA("transitionJiraIssue"), transition("GF-150"), { cwd: w.be, transcript }));
+    expectRefusal(await runHook(JIRA("transitionJiraIssue"), transition("GF-101"), { cwd: w.be, transcript }), "GF-101");
+  }, 30_000);
+
+  test("CONTROL — a create result in no measured shape names nothing created (a Linear `identifier` with a uuid `id`)", async () => {
+    const root = linearRepo(BE_TAG);
+    const s = new Session();
+    s.mcp(LINEAR("save_issue"), { team: "OPS", title: "X" }, { id: "0884f88d-f761-4ccd-b360-5e40cac85451", identifier: "STE-900" });
+    const transcript = s.save(tempDir("linear-unmeasured"));
+    expectRefusal(await runHook(LINEAR("save_comment"), { issueId: "STE-900", body: "hi" }, { cwd: root, transcript }), "STE-900");
   }, 30_000);
 });
 
@@ -3067,6 +3165,32 @@ describe("AC-STE-608.10 (f) — every other container kind is refused, except th
     expect(peakHooksInFlight).toBeLessThanOrEqual(HOOK_SPAWN_LIMIT);
   }, 60_000);
 
+  // `create_issue_label` is DEPRECATED by the Linear MCP itself ("use
+  // `save_issue_label`, which can also update labels"), so a model following
+  // the MCP's own description creates the repo tag with `save_issue_label` and
+  // no `id`. The permit covers both tools; an `id` still means a rename and is
+  // refused, and any other name is still refused (the rows above).
+  test("permit: save_issue_label with NO id whose name equals the target's repo_tag → exit 0 (the MCP's non-deprecated create)", async () => {
+    const root = linearRepo(BE_TAG);
+    const transcript = new Session().save(tempDir("lin-608-save-tag"));
+    expectPermit(await runSh(LINEAR("save_issue_label"), { name: BE_TAG, teamId: "e1181251-2fe2-42b2-9a69-288a28732554" }, { cwd: root, transcript }));
+  }, 30_000);
+
+  // Only a PLAIN label: a label group (`isGroup: true`), or a label nested under
+  // a group (`parent`), named like the repo tag has no honest use and is refused.
+  for (const [label, input] of [
+    ["save_issue_label creating a label GROUP named the repo tag", { name: BE_TAG, teamId: "e1181251-2fe2-42b2-9a69-288a28732554", isGroup: true }],
+    ["save_issue_label nesting the repo tag under a parent group", { name: BE_TAG, teamId: "e1181251-2fe2-42b2-9a69-288a28732554", parent: "some-group" }],
+    ["create_issue_label creating a label GROUP named the repo tag", { name: BE_TAG, team: "STE", isGroup: true }],
+  ] as const) {
+    test(`forbid: ${label} → exit 2`, async () => {
+      const root = linearRepo(BE_TAG);
+      const transcript = new Session().save(tempDir("lin-608-group"));
+      const tool = label.startsWith("save") ? "save_issue_label" : "create_issue_label";
+      expectRefusal(await runSh(LINEAR(tool), { ...input }, { cwd: root, transcript }), RESOLVE, /label/i);
+    }, 30_000);
+  }
+
   test("permit: create_issue_label whose name equals the target's repo_tag → exit 0", async () => {
     const root = linearRepo(BE_TAG);
     const transcript = new Session().save(tempDir("lin-608-tag"));
@@ -3141,6 +3265,25 @@ describe("AC-STE-608.10 hardening — one create decision authorises ONE contain
     );
     expectPermit(first!);
     expectRefusal(second!, /spent/, RESOLVE);
+  }, 30_000);
+
+  // The same walk spends milestone decisions: a refused Epic create must not take its decision either.
+  test("NOT spent: an Epic create REFUSED by this hook took nothing — the next Epic create on that decision → exit 0", async () => {
+    const w = makeWorld();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    s.mcp(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), "PreToolUse:mcp__atlassian__createJiraIssue hook error: [x]: Refusing: createJiraIssue in <BE>: refused for another reason.", true);
+    expectPermit(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 30_000);
+
+  test("CONTROL: an Epic create that SUCCEEDED spent its decision — the next one → exit 2 as spent", async () => {
+    const w = makeWorld();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    s.mcp(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { id: "10150", key: "GF-150", self: "https://glacy.atlassian.net/rest/api/3/issue/10150" }, false);
+    expectRefusal(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }), /spent|may have made/);
   }, 30_000);
 
   test("control: two decisions, two pending Epic creates → both permitted", async () => {

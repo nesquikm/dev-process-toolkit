@@ -327,15 +327,21 @@ function withoutLive(runSet: Set<string>, live: Set<string>): Set<string> {
 // window inference
 // ---------------------------------------------------------------------------
 
-interface TranscriptIndex {
+export interface TranscriptIndex {
   /** Every sid with a transcript file or transcript subdir in any config dir. */
   sids: Set<string>;
-  files: { sid: string; path: string }[];
+  /**
+   * Every main transcript `<slug>/<sid>.jsonl`, and every subagent sidechain
+   * `<slug>/<sid>/subagents/agent-*.jsonl` filed under its PARENT's sid with
+   * `sidechain: true` (STE-617).
+   */
+  files: { sid: string; path: string; sidechain?: boolean }[];
 }
 
-function indexTranscripts(configDirs: string[]): TranscriptIndex {
+/** One walk of `<cfg>/projects/<slug>/`, descending only into `<sid>/subagents/`. */
+export function indexTranscripts(configDirs: string[]): TranscriptIndex {
   const sids = new Set<string>();
-  const files: { sid: string; path: string }[] = [];
+  const files: { sid: string; path: string; sidechain?: boolean }[] = [];
   for (const dir of projectDirs(configDirs)) {
     for (const e of listDir(dir)) {
       const sid = e.isFile() ? transcriptSid(e.name) : null;
@@ -344,6 +350,12 @@ function indexTranscripts(configDirs: string[]): TranscriptIndex {
         files.push({ sid, path: join(dir, e.name) });
       } else if (e.isDirectory()) {
         sids.add(e.name);
+        const sub = join(dir, e.name, "subagents");
+        for (const a of listDir(sub)) {
+          if (a.isFile() && a.name.startsWith("agent-") && a.name.endsWith(".jsonl")) {
+            files.push({ sid: e.name, path: join(sub, a.name), sidechain: true });
+          }
+        }
       }
     }
   }
@@ -534,7 +546,7 @@ function wholeDptDirs(ctx: PlanContext): Set<string> {
 function inferWindowSessions(roots: CleanupRoots, w: CleanupWindow, runCwds: string[]): Set<string> {
   const idx = indexTranscripts(roots.configDirs);
   const out = new Set<string>();
-  for (const t of idx.files) if (ruleA(t.path, w)) out.add(t.sid);
+  for (const t of idx.files) if (!t.sidechain && ruleA(t.path, w)) out.add(t.sid);
   for (const sid of ruleB(roots, idx.sids, runCwds, w)) out.add(sid);
   return out;
 }

@@ -280,9 +280,21 @@ const PROBE_MODULES = {
 // (named by AC-STE-608.16), AC-STE-481.4 and AC-STE-441.1 (both fixtures held an
 // untracked sequential plan under `mode: linear`). Every `mode: jira` and
 // `mode: none` leg passed unchanged.
+// ── Re-record #4, M_2306b6/STE-616 (`planIdentity` only; `identity` untouched).
+//
+// AC-STE-616.20 adds a command-line front door to the module — an
+// `if (import.meta.main)` block that runs the probe over a project root and
+// prints its report as one JSON line — because probe #73 had none and AC.3 of
+// that FR bars importing it. The edit is BEHAVIOUR-NEUTRAL for every caller
+// that imports the module. Evidence, per the protocol above: the module's
+// eight behavioural suites (gate-check-identity-mode-conditional, gate-check-
+// plan-identity-mode-conditional, m116-424, m119-441, m119-442, m120-443,
+// m126-481, m137-plan-narrative-provenance), run in a worktree of 230148c9
+// against the OLD module and then the NEW one: 305 pass / 0 fail / 825
+// `expect()` calls both ways.
 const PROBE_MODULE_SHA256 = {
   identity: "ea2ca90d8e00c119bea9cd02c30d23b58f7a4a076ed7557800cb1db0e6d63326",
-  planIdentity: "09dd77c384e9854ff58994c11b7bdcfba6e236d9e553c7b2aab579ba66011124",
+  planIdentity: "bc05926f91dd1c9d2bd0c62e8d51af1973169655ae751b585a17a2d60341b02d",
 } as const;
 
 /** The two canonical probe sentences the retired assertions demanded verbatim. */

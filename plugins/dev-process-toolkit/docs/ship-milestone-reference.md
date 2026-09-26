@@ -106,12 +106,9 @@ Empty FR list is still a minor bump, labelled `default minor bump (no FRs in mil
 
 ## Expected-modified set
 
-The set of files `/ship-milestone` is allowed to stage is pinned at:
+The set of files `/ship-milestone` is allowed to stage is derived, not hard-coded:
 
-- `plugins/dev-process-toolkit/.claude-plugin/plugin.json`
-- `.claude-plugin/marketplace.json`
-- `CHANGELOG.md`
-- `README.md`
+- every `path` listed in the host's `## Release Files` block (in this repository: `plugin.json`, `marketplace.json`, `CHANGELOG.md`, `README.md` and `specs/requirements.md`)
 - every file under `docs/` (for the two `/docs` invocations in step 5)
 - the resolved plan path — `specs/plan/M<N>.md`, or `specs/plan/archive/M<N>.md` on the archive-fallback leg — for the `shipped_in` frontmatter stamp
 

@@ -7,7 +7,12 @@
 // the injected `fetchPage` is the only seam — no network, no auth.
 //
 // listMilestones drives pagination by calling fetchPage(0), fetchPage(1), …
-// accumulating each page's issues. Every label matching the milestone-token
+// Each page is the RAW `searchJiraIssuesUsingJql` answer, read by the shared
+// reader (`adapters/_shared/src/tracker_answer.ts`) in either measured shape —
+// plain `{ issues, isLast, nextPageToken? }` or wrapped `{ context, issues:
+// { nodes, pageInfo } }` — and each row is the measured `{ key, fields }`. A
+// page in no measured shape is a genuine failure (fail-soft, below). The
+// scan accumulates each page's rows. Every label matching the milestone-token
 // union (^milestone-(M<N>|M_<epic-key>)$, STE-376 AC-STE-376.3) contributes
 // its captured bare token. The result is deduped: numeric tokens first,
 // ascending by numeric part, then epic-keyed tokens (lexicographic) — the
@@ -22,34 +27,30 @@ import {
   isMilestoneToken,
   milestoneIdFromEpicKey,
 } from "../../_shared/src/milestone_token";
+import { readTrackerPage } from "../../_shared/src/tracker_answer";
 
-export interface JiraLabelledIssue {
-  labels?: string[];
-}
-
-export interface JiraSearchPage {
-  issues: JiraLabelledIssue[];
-  isLast?: boolean;
-}
+/**
+ * One raw `searchJiraIssuesUsingJql` answer, as the MCP server returned it —
+ * never pre-digested: the shared reader decides whether it is readable.
+ */
+export type JiraSearchPage = unknown;
 
 export type JiraSearchPageFetcher = (page: number) => Promise<JiraSearchPage>;
 
 // STE-375 AC-STE-375.3 — Epic-enumeration leg. The injected seam over the
 // `issuetype = Epic` JQL (`searchJiraIssuesUsingJql`, paginated like the
-// label leg). Milestone Epics are selected CLIENT-SIDE: an Epic counts iff
-// its summary's first whitespace-delimited word parses under the shared
-// milestone-token union grammar. Each match contributes `M_<epic-key>` (key
-// verbatim) — never a full labelled-task scan.
-export interface JiraEpicSearchPage {
-  epics: { key: string; summary?: string }[];
-  isLast?: boolean;
-}
+// label leg), returning the same raw answers. Milestone Epics are selected
+// CLIENT-SIDE: an Epic counts iff its `fields.summary`'s first
+// whitespace-delimited word parses under the shared milestone-token union
+// grammar. Each match contributes `M_<epic-key>` (key verbatim) — never a
+// full labelled-task scan.
+export type JiraEpicSearchPage = unknown;
 
 export type JiraEpicPageFetcher = (page: number) => Promise<JiraEpicSearchPage>;
 
 /**
- * Documented default pagination cap. Bounds the scan when no page reports
- * `isLast` so a never-terminating fetcher can never run away; also doubles as
+ * Documented default pagination cap. Bounds the scan when no page proves it is
+ * the last, so a never-terminating fetcher can never run away; also doubles as
  * the loop bound the test suite relies on. Used when `opts.pageCap` is omitted.
  */
 export const MILESTONE_PAGE_CAP = 50;
@@ -60,22 +61,31 @@ export const MILESTONE_PAGE_CAP = 50;
 // so malformed labels (`milestone-M_`, `milestone-M5-extra`) stay rejected.
 const MILESTONE_LABEL = new RegExp(`^milestone-(${MILESTONE_TOKEN_SOURCE})$`);
 
+/** A row's `fields` object, or an empty one. */
+function fieldsOf(row: Record<string, unknown>): Record<string, unknown> {
+  const f = row["fields"];
+  return f !== null && typeof f === "object" && !Array.isArray(f) ? (f as Record<string, unknown>) : {};
+}
+
 /**
  * Shared pagination driver for both enumeration legs: calls `fetch(0)`,
- * `fetch(1)`, … up to `cap` pages, feeding each page to `onPage` and stopping
- * early when a page reports `isLast`. Returns `true` on a clean isLast
- * finish, `false` when the cap was exhausted first — the caller surfaces the
- * possible truncation (AC-STE-339.2: no silent cap).
+ * `fetch(1)`, … up to `cap` pages, reading each answer through the shared
+ * reader and feeding its rows to `onRows`, stopping early when a page proves
+ * it is the last. An answer the reader cannot read throws (the caller's
+ * fail-soft). Returns `true` on a proven-last finish, `false` when the cap was
+ * exhausted first — the caller surfaces the possible truncation (AC-STE-339.2:
+ * no silent cap).
  */
-async function scanPages<P extends { isLast?: boolean }>(
-  fetch: (page: number) => Promise<P>,
+async function scanPages(
+  fetch: (page: number) => Promise<unknown>,
   cap: number,
-  onPage: (result: P) => void,
+  onRows: (rows: Record<string, unknown>[]) => void,
 ): Promise<boolean> {
   for (let page = 0; page < cap; page++) {
-    const result = await fetch(page);
-    onPage(result);
-    if (result.isLast) return true;
+    const read = readTrackerPage("jira", await fetch(page));
+    if (!read.ok) throw new Error(`listMilestones: page ${page}: ${read.reason}`);
+    onRows(read.page.items);
+    if (read.page.last) return true;
   }
   return false;
 }
@@ -97,19 +107,20 @@ export async function listMilestones(
     // milestones, AND the milestone-M_<key> label the Epic mint writes: it is
     // the only route to a freshly minted Epic whose summary does not yet lead
     // with a milestone token. The epic leg below is the primary enumeration.
-    const reachedLast = await scanPages(fetchPage, cap, (result) => {
-      for (const issue of result.issues) {
-        for (const label of issue.labels ?? []) {
-          const match = label.match(MILESTONE_LABEL);
+    const reachedLast = await scanPages(fetchPage, cap, (rows) => {
+      for (const issue of rows) {
+        const labels = fieldsOf(issue)["labels"];
+        for (const label of Array.isArray(labels) ? labels : []) {
+          const match = typeof label === "string" ? label.match(MILESTONE_LABEL) : null;
           if (match) found.add(match[1]!);
         }
       }
     });
     // scanPages only returns false by exhausting the cap, so later pages may
     // have been dropped — surface it (AC-STE-339.2: no silent truncation).
-    // A clean isLast finish logs nothing.
+    // A proven-last finish logs nothing.
     if (!reachedLast && log) {
-      log(`listMilestones: stopped at page cap ${cap}; more pages may have been dropped (no isLast reached).`);
+      log(`listMilestones: stopped at page cap ${cap}; more pages may have been dropped (no page proved it was the last).`);
     }
 
     // Epic-enumeration leg (AC-STE-375.3): same pagination + cap discipline
@@ -118,28 +129,29 @@ export async function listMilestones(
     // each contributes `M_<epic-key>` into the same deduping union.
     const fetchEpicPage = opts?.fetchEpicPage;
     if (fetchEpicPage) {
-      const epicReachedLast = await scanPages(fetchEpicPage, cap, (result) => {
-        for (const epic of result.epics) {
-          const firstWord = epic.summary?.trim().split(/\s+/)[0] ?? "";
+      const epicReachedLast = await scanPages(fetchEpicPage, cap, (rows) => {
+        for (const epic of rows) {
+          const summary = fieldsOf(epic)["summary"];
+          const firstWord = typeof summary === "string" ? (summary.trim().split(/\s+/)[0] ?? "") : "";
           if (!isMilestoneToken(firstWord)) continue;
           // Canonical id via the shared sanitizer (key `DPT-500` →
           // `M_DPT_500`) — the SAME identity /spec-write mints and the
           // parent-sanitize membership check compares against. A malformed
           // or empty key skips this Epic; it never degrades the leg.
           try {
-            found.add(milestoneIdFromEpicKey(epic.key));
+            found.add(milestoneIdFromEpicKey(String(epic["key"] ?? "")));
           } catch {
             continue;
           }
         }
       });
       if (!epicReachedLast && log) {
-        log(`listMilestones: epic scan stopped at page cap ${cap}; more pages may have been dropped (no isLast reached).`);
+        log(`listMilestones: epic scan stopped at page cap ${cap}; more pages may have been dropped (no page proved it was the last).`);
       }
     }
   } catch {
-    // Fail-soft: a throwing/rejecting fetcher (either leg, at any page)
-    // degrades the whole scan to [].
+    // Fail-soft: a throwing/rejecting fetcher, or an answer the shared reader
+    // cannot read (either leg, at any page), degrades the whole scan to [].
     return [];
   }
 

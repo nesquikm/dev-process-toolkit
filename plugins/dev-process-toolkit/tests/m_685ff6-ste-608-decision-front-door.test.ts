@@ -17,7 +17,15 @@
 //            project: { key } } }], isLast }
 //   linear — a `list_milestones` answer: { milestones: [{ id, name, ... }] }
 
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+
+
+// The 5 s default per-test timeout kills a spawned child under gate load and
+// surfaces as an exit code of -1 with an empty stderr (M_2306b6 audit round 1,
+// M5 — same mechanism as `create-front-door-shared`). This budget is per test,
+// so it costs nothing on a healthy machine and cannot hide a real hang: a module
+// that never returns still fails, 60 s later.
+setDefaultTimeout(60_000);
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";

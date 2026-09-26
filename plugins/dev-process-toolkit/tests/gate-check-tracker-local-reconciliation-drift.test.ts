@@ -310,11 +310,15 @@ describe("AC-STE-605.6: probe #49 front door over shared pages", () => {
     });
   });
 
-  test("container-partial: an incomplete page set is a warning", async () => {
+  test("container-partial: a page set whose final page is not the last is refused (exit 1) naming that page, never a warning", async () => {
     await withTwoRoots((fe) => {
       declareJira(fe, FE_TAG);
-      const run = runProbeFrontDoor(fe, [ste605Page(jiraPage(TWO_REPO, false))]);
-      expect(run.stdout).toContain("container-partial");
+      const page = ste605Page(jiraPage(TWO_REPO, false));
+      const run = runProbeFrontDoor(fe, [page]);
+      expect(run.code, `the incomplete listing must be refused with a non-zero exit\n${run.stdout}${run.stderr}`).toBe(1);
+      expect(run.stdout).toMatch(/^error container-partial: /m);
+      expect(run.stdout, "the refusal names the not-last page by its path").toContain(`container-partial: ${page} `);
+      expect(run.stdout).not.toMatch(/^warning container-partial/m);
       expect(run.stdout).not.toContain("container-empty");
     });
   });

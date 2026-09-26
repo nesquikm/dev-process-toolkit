@@ -1,0 +1,115 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-11",
+    "method": "recorded-transcript",
+    "request": {
+      "cloudId": "96bffaef-cf5d-4dbf-a170-3d700df9bc83",
+      "issueIdOrKey": "GB-41",
+      "contentFormat": "markdown",
+      "responseContentFormat": "markdown",
+      "fields": "<elided>"
+    },
+    "note": "WRAPPED edit answer, recorded from the claude.ai Atlassian connector"
+  },
+  "answer": {
+    "issues": {
+      "nodes": [
+        {
+          "expand": "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations",
+          "id": "63515",
+          "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issue/63515",
+          "key": "GB-41",
+          "fields": {
+            "summary": "Shopping country — a profile field, its write, and silent IP…",
+            "issuetype": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/issuetype/11108",
+              "id": "11108",
+              "description": "",
+              "iconUrl": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/2/universal_avatar/view/type/issuetype/avatar/10315?size=medium",
+              "name": "Story",
+              "subtask": false,
+              "avatarId": 10315,
+              "entityId": "ae9ece23-2412-425f-b3d9-508e66f0b2a6",
+              "hierarchyLevel": 0
+            },
+            "components": [],
+            "created": "2026-09-11T11:10:38.497+0200",
+            "description": "Server half of glacy-app-fe **GF-86** (shopping country). Sp…",
+            "project": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/project/11154",
+              "id": "11154",
+              "key": "GB",
+              "name": "Glacy BE",
+              "projectTypeKey": "software",
+              "simplified": true,
+              "avatarUrls": {
+                "48x48": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10425",
+                "24x24": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10425?size=small",
+                "16x16": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10425?size=xsmall",
+                "32x32": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10425?size=medium"
+              }
+            },
+            "reporter": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/user?accountId=<account-id>",
+              "accountId": "<account-id>",
+              "emailAddress": "<email>",
+              "avatarUrls": {
+                "48x48": "https://avatar.invalid/x.png",
+                "24x24": "https://avatar.invalid/x.png",
+                "16x16": "https://avatar.invalid/x.png",
+                "32x32": "https://avatar.invalid/x.png"
+              },
+              "displayName": "<person>",
+              "active": true,
+              "timeZone": "Europe/Prague",
+              "accountType": "atlassian"
+            },
+            "priority": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/priority/3",
+              "iconUrl": "https://example-site.invalid/images/icons/priorities/medium_new.svg",
+              "name": "Medium",
+              "id": "3"
+            },
+            "resolution": null,
+            "labels": [],
+            "assignee": null,
+            "updated": "2026-09-11T11:43:20.177+0200",
+            "status": {
+              "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/status/11538",
+              "description": "",
+              "iconUrl": "https://example-site.invalid/images/icons/statuses/generic.png",
+              "name": "To Do",
+              "id": "11538",
+              "statusCategory": {
+                "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/statuscategory/2",
+                "id": 2,
+                "key": "new",
+                "colorName": "blue-gray",
+                "name": "To Do"
+              }
+            }
+          },
+          "webUrl": "https://example-site.invalid/browse/GB-41"
+        }
+      ]
+    },
+    "context": {
+      "atlassianAccountId": "<account-id>",
+      "cloudId": "96bffaef-cf5d-4dbf-a170-3d700df9bc83",
+      "clientName": "localhost",
+      "mcpClientName": "claude-code",
+      "toolName": "editJiraIssue",
+      "endpoint": "v1:streamable-http",
+      "sessionId": "r7-66e096aa-a3b9-4c4f-bbed-814dc1b3af40",
+      "invocationId": "5acf72eb-8e54-4899-84e5-fb7ec5ba1c26",
+      "env": "prod",
+      "featureFlags": {
+        "mcp-app-v2-primary": false,
+        "analytics-jira-mcp-app": true,
+        "mcp-jira-instrumentation-phase-1": false,
+        "ken-4811-4724-jira-mcp-status-assignee-fields": false,
+        "jira-mcp-app-loading-skeleton-and-error-case": false
+      }
+    }
+  }
+}

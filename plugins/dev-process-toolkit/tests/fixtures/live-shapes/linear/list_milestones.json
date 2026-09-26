@@ -1,0 +1,358 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-21",
+    "method": "read-only-call",
+    "request": {
+      "project": "DPT — Dev Process Toolkit"
+    },
+    "note": "no paging field at all; exactly 50 rows although the project holds more — the window LINEAR_MILESTONE_WINDOW names; all rows kept"
+  },
+  "answer": {
+    "milestones": [
+      {
+        "id": "37ec6010-a00f-4abf-8552-bf8166c20c41",
+        "name": "M111: Legacy-monolith signaling",
+        "description": "Close the two-facet gap from the 2026-07-21 report-issue gis…",
+        "progress": 100,
+        "sortOrder": 96679
+      },
+      {
+        "id": "bb4e34a3-9fb5-4272-8f31-77b94b9a8052",
+        "name": "M112 — Non-tty smoke-driver hard gate against leg-stranding",
+        "description": "Single-FR harness-hardening milestone (M95/M96/M98 precedent…",
+        "progress": 100,
+        "sortOrder": 97658
+      },
+      {
+        "id": "eb612632-f032-4ec6-adf7-8dfe3f8c65d4",
+        "name": "M113 — Milestone-name emit canonicalization",
+        "description": "Emit-side canonicalization so /spec-write emits em-dash mile…",
+        "progress": 100,
+        "sortOrder": 98752
+      },
+      {
+        "id": "60408fc5-c1c4-4e32-9070-b8b20afd64c6",
+        "name": "M114 — Linear acceptance-criteria checkboxes",
+        "description": "Restore the Linear acceptance-criteria completion-state roun…",
+        "progress": 100,
+        "sortOrder": 99797
+      },
+      {
+        "id": "0d2c2c2d-db2b-4473-8993-d166bf53fff9",
+        "name": "M115 — Tracker-less milestone identity minting",
+        "description": "Replace client-picked sequential milestone numbers with opaq…",
+        "progress": 100,
+        "sortOrder": 100742
+      },
+      {
+        "id": "500c3460-2cd0-42b7-b60a-ddd249db740e",
+        "name": "M116 — Headless Conformance Unblock",
+        "description": "Close the eight high-severity findings from the 2026-07-27 `…",
+        "progress": 100,
+        "sortOrder": 101653
+      },
+      {
+        "id": "4bdd267f-8962-4000-95ee-64b8cafe8266",
+        "name": "M117 — Smoke-Driver Hygiene",
+        "description": "The ten medium-severity and three low-severity findings from…",
+        "progress": 100,
+        "sortOrder": 102720
+      },
+      {
+        "id": "d303eb56-0a86-412b-ab9d-66925987f451",
+        "name": "M118 — Unmanaged-Tree Probe Guards",
+        "description": "Stop /gate-check from failing a project the toolkit does not…",
+        "progress": 100,
+        "sortOrder": 103708
+      },
+      {
+        "id": "130406d7-bda3-4fc7-a1af-6730dcd68fb0",
+        "name": "M119 — Mode-None Milestone Identity Enforcement",
+        "description": "Close the `mode: none` milestone-identity gap on all three s…",
+        "progress": 100,
+        "sortOrder": 104798
+      },
+      {
+        "id": "7f03781d-a021-49dc-8f10-8f29cee48bf1",
+        "name": "M120 — Jira Milestone-Identity Enforcement",
+        "description": "Close the `mode: jira` half of the milestone-identity gap th…",
+        "progress": 100,
+        "sortOrder": 105773
+      },
+      {
+        "id": "acfb5237-d666-4a98-a539-1b13bdbcca53",
+        "name": "M121 — Tracker-less Conformance Coverage",
+        "description": "Make `mode: none` — the default tracker configuration for ev…",
+        "progress": 100,
+        "sortOrder": 106710
+      },
+      {
+        "id": "be8e5105-9253-4b12-9219-d5c0e9e5e30c",
+        "name": "M122 — Ship-Ready Milestone Nudge",
+        "description": "Warning-severity gate probe naming ship-ready active plans (…",
+        "progress": 100,
+        "sortOrder": 107803
+      },
+      {
+        "id": "cfd7368b-173c-4f7a-88da-08f31d0d8fa1",
+        "name": "M123 — Deliver Pipeline Orchestrator",
+        "description": "/deliver: inline Socratic phases + one fresh visible spawned…",
+        "progress": 100,
+        "sortOrder": 108742
+      },
+      {
+        "id": "edc6ef02-389f-476b-b611-82ed9b5f1915",
+        "name": "M124 — Best-Practice Sources",
+        "description": "Curated specs/best-practices.yaml catalog (twin of the deps …",
+        "progress": 100,
+        "sortOrder": 109814
+      },
+      {
+        "id": "87a2e58d-5b2e-44c5-a8ac-af2abcb1cf26",
+        "name": "M125 — Template-Source Bootstrap",
+        "description": "/setup --template: read-only analyzer inventories a template…",
+        "progress": 100,
+        "sortOrder": 110821
+      },
+      {
+        "id": "172f6235-ab85-4b8b-8e08-d55e2672d407",
+        "name": "M126 — Shipped-Surface Conformance Fixes",
+        "description": "The seven 2026-08-16 conformance findings that reach real do…",
+        "progress": 100,
+        "sortOrder": 111741
+      },
+      {
+        "id": "699fa2d3-d9d3-4649-83ea-e93ba4067c8e",
+        "name": "M127 — Fixture Falsifiability",
+        "description": "The eight 2026-08-16 conformance findings that are assertion…",
+        "progress": 100,
+        "sortOrder": 112688
+      },
+      {
+        "id": "8ca80b6b-441b-41fc-bba0-05827fb56948",
+        "name": "M128 — Driver Verdict Integrity",
+        "description": "The two 2026-08-16 driver-level findings in `.claude/skills/…",
+        "progress": 100,
+        "sortOrder": 113664
+      },
+      {
+        "id": "d233b7da-e717-41f2-ad22-42408801fdec",
+        "name": "M129 — Deliver Pipeline Contract Repair and Resume",
+        "description": "Seven-FR milestone repairing the `/deliver` orchestrator con…",
+        "progress": 100,
+        "sortOrder": 114668
+      },
+      {
+        "id": "7e90b517-9c22-4f8c-a27a-1305a1d6835e",
+        "name": "M130 — FR-Scoped Delivery",
+        "description": "Four-FR milestone giving /deliver true FR-scoped delivery. T…",
+        "progress": 100,
+        "sortOrder": 115622
+      },
+      {
+        "id": "5591f3c4-ceee-4267-abc8-424e0ce9a708",
+        "name": "M131 — Runnability Contract",
+        "description": "Five-FR milestone making the agentic drive mandatory when th…",
+        "progress": 100,
+        "sortOrder": 116669
+      },
+      {
+        "id": "3a125089-6dc2-4fc7-870e-c737a4cfbdd7",
+        "name": "M132 — Evidence Ledger and E2E Authoring",
+        "description": "Five-FR milestone making completion provable rather than ass…",
+        "progress": 100,
+        "sortOrder": 117718
+      },
+      {
+        "id": "3e37bbf4-f650-46d3-a9f1-03c228f68e46",
+        "name": "M133 — Executable Delivery Decisions",
+        "description": "Five-FR milestone making /deliver's ceremony placement execu…",
+        "progress": 100,
+        "sortOrder": 118757
+      },
+      {
+        "id": "5ce61aa1-2ee6-4438-a2a0-382f6e94087d",
+        "name": "M134 — Reachable Workers",
+        "description": "Three-FR milestone giving every worker the delivery pipeline…",
+        "progress": 100,
+        "sortOrder": 119825
+      },
+      {
+        "id": "55dac360-e9f1-4cf5-9e93-5ee636b7f87a",
+        "name": "M135 — Epic Binding Convergence",
+        "description": "Close the Jira Epic-keyed milestone binding defect: the atta…",
+        "progress": 100,
+        "sortOrder": 120910
+      },
+      {
+        "id": "e75542c6-3875-410b-a6f4-e70231903456",
+        "name": "M136 — The Ratchet That Never Ran",
+        "description": "Make M132's skip ratchet execute. Its write side has never f…",
+        "progress": 100,
+        "sortOrder": 121812
+      },
+      {
+        "id": "9605ec08-4dbb-421c-ac7d-31a894b8b82b",
+        "name": "M137 — Say Less",
+        "description": "Cut length on the three human-facing surfaces: live stage ou…",
+        "progress": 100,
+        "sortOrder": 122793
+      },
+      {
+        "id": "62390f89-7381-400c-87b6-f4f5b59db116",
+        "name": "M138 — Bootstrap identity",
+        "description": "A tracker-less project bootstrapped by /setup lands its plan…",
+        "progress": 100,
+        "sortOrder": 123823
+      },
+      {
+        "id": "41d5aa02-1fdb-4a32-a339-b59b1ee8438b",
+        "name": "M139 — Tracker-First Linear Milestones",
+        "description": "Jira derives a milestone identity from the Epic the tracker …",
+        "progress": 100,
+        "sortOrder": 124766
+      },
+      {
+        "id": "f986b43f-5cd2-4924-bcfa-07d7fb75ad00",
+        "name": "M140 — External link liveness",
+        "description": "Specs cite external resources that rot silently — a design f…",
+        "progress": 100,
+        "sortOrder": 125851
+      },
+      {
+        "id": "dd0fb1a3-fe5b-40ea-82c3-591d2a2e1b91",
+        "name": "M141 — Release tooling front doors",
+        "description": "Three release-ceremony defects share one cause: the modules …",
+        "progress": 100,
+        "sortOrder": 126864
+      },
+      {
+        "id": "d988779d-84cc-4de0-a883-22597ca7c391",
+        "name": "M142 — Stack-Aware TDD Hook",
+        "description": "The bundled TDD-orchestrator hook recognises only TypeScript…",
+        "progress": 100,
+        "sortOrder": 127870
+      },
+      {
+        "id": "912dd677-b90b-4a2a-a4a1-497b8a9e95a7",
+        "name": "M143 — Chains That Continue",
+        "description": "The delivery pipeline stops at every phase boundary. Each st…",
+        "progress": 100,
+        "sortOrder": 128837
+      },
+      {
+        "id": "dc2ecb6c-610a-47b9-95d2-31c8b25fec3f",
+        "name": "M_dc2ecb — Release ceremony integrity",
+        "description": "The release ceremony writes every surface it claims to write…",
+        "progress": 100,
+        "sortOrder": 129871
+      },
+      {
+        "id": "8f8e25ac-fc69-4282-a0bf-ac39fd4254b3",
+        "name": "M_8f8e25 — Pins that punish the right direction",
+        "description": "A guard should not fail when the thing it guards gets better…",
+        "progress": 100,
+        "sortOrder": 130826
+      },
+      {
+        "id": "f040b589-4f08-473e-a7bb-6858f16955fb",
+        "name": "M_f040b5 — What conformance found",
+        "description": "Nine findings from the 2026-09-05 conformance run against v2…",
+        "progress": 100,
+        "sortOrder": 131813
+      },
+      {
+        "id": "645517a1-9e47-4f51-95bd-e1c5f7797319",
+        "name": "M_645517 — Docs that describe the shipped thing",
+        "description": "A documentation audit across every surface — README, CLAUDE.…",
+        "progress": 100,
+        "sortOrder": 132827
+      },
+      {
+        "id": "a414312a-bbc1-4273-871e-399075e1ec57",
+        "name": "M_a41431 — Gates that announce themselves",
+        "description": "Three PreToolUse hooks refuse an action unless a specific Sk…",
+        "progress": 100,
+        "sortOrder": 133886
+      },
+      {
+        "id": "a8e09a5d-0fcf-4816-90a7-9926efce813b",
+        "name": "Gates That Mind Their Own Subject",
+        "description": "Four follow-ups from M_a41431 (v2.80.5 \"Herald\"):\n\n* FR-1 — …",
+        "progress": 100,
+        "sortOrder": 134911
+      },
+      {
+        "id": "840a062c-99bd-470a-8da4-3a892b1717a5",
+        "name": "Writes That Ask First",
+        "description": "Harden every outward tracker write so two git repos can safe…",
+        "progress": 100,
+        "sortOrder": 135913
+      },
+      {
+        "id": "8f07e094-342f-4b79-814c-a60b88ee5aef",
+        "name": "One Milestone, Two Homes",
+        "progress": 100,
+        "sortOrder": 136958
+      },
+      {
+        "id": "79b1f619-adb6-4edf-bdd6-63583e8c2e2d",
+        "name": "Releases That Know Their Sibling",
+        "progress": 100,
+        "sortOrder": 137973
+      },
+      {
+        "id": "4df4443e-912a-4321-9aec-ebcb50b3b3ff",
+        "name": "Runs that clean up after themselves",
+        "progress": 100,
+        "sortOrder": 139030
+      },
+      {
+        "id": "0c14d051-a887-4928-9b4e-d4b85e6e1d96",
+        "name": "Design References That Get Read",
+        "progress": 100,
+        "sortOrder": 140053
+      },
+      {
+        "id": "f1f5695c-8247-4c83-8ad7-fb1a285f81f9",
+        "name": "Guards That Grade The Right Tree",
+        "progress": 100,
+        "sortOrder": 141012
+      },
+      {
+        "id": "862e042c-fa8b-4355-9364-b2d3b175a7bc",
+        "name": "One Approval, One Act",
+        "progress": 100,
+        "sortOrder": 142061
+      },
+      {
+        "id": "947c7985-fa29-4bac-ae4e-48f018b89cf0",
+        "name": "Declared and Owned",
+        "description": "Shared-tracker programme, milestone 1 of 4. A repository dec…",
+        "progress": 100,
+        "sortOrder": 143013
+      },
+      {
+        "id": "685ff608-54e0-4a0c-b36f-2bf4e77bc739",
+        "name": "Honest Join, Closed Gate",
+        "description": "Shared-tracker programme, milestone 2 of 4. Milestone mint n…",
+        "progress": 100,
+        "sortOrder": 144103
+      },
+      {
+        "id": "85e84651-c0b1-4d08-823b-25dc661b76b6",
+        "name": "Hooks by Repo",
+        "description": "Shared-tracker programme, milestone 3 of 4. The commit and p…",
+        "progress": 100,
+        "sortOrder": 145156
+      },
+      {
+        "id": "2306b61c-037f-455f-97f2-4997b8fb0b60",
+        "name": "Proven Live",
+        "description": "Shared-tracker programme, milestone 4 of 4. One offline two-…",
+        "progress": 25,
+        "sortOrder": 146244
+      }
+    ]
+  }
+}

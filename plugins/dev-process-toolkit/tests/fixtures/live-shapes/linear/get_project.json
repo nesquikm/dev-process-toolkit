@@ -1,0 +1,54 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-21",
+    "method": "read-only-call",
+    "request": {
+      "query": "DPT — Dev Process Toolkit"
+    },
+    "note": "status is {id,name,type}; teams carry key"
+  },
+  "answer": {
+    "id": "3e811102-7f34-4fdd-90ba-850a07d6b90b",
+    "uuid": "3e811102-7f34-4fdd-90ba-850a07d6b90b",
+    "icon": ":toolbox:",
+    "color": "#bec2c8",
+    "name": "DPT — Dev Process Toolkit",
+    "summary": "Claude Code plugin marketplace for bootstrapping SDD + TDD w…",
+    "description": "Claude Code plugin that ships a Spec-Driven Development (SDD…",
+    "url": "https://linear.app/<workspace>/project/dpt-dev-process-toolkit-1664374adf4c",
+    "resourceCount": 0,
+    "createdAt": "2026-04-22T07:15:19.742Z",
+    "updatedAt": "2026-08-24T09:16:42.271Z",
+    "startedAt": null,
+    "completedAt": null,
+    "canceledAt": null,
+    "startDate": null,
+    "startDateResolution": null,
+    "targetDate": null,
+    "targetDateResolution": null,
+    "priority": {
+      "value": 0,
+      "name": "No priority"
+    },
+    "labels": [],
+    "initiatives": [],
+    "lead": {},
+    "leadTeam": {
+      "id": "e1181251-2fe2-42b2-9a69-288a28732554",
+      "name": "Example Team Display Name",
+      "key": "STE"
+    },
+    "status": {
+      "id": "e3a66f93-36a5-4f6c-a479-77e49f1b638c",
+      "name": "Backlog",
+      "type": "backlog"
+    },
+    "teams": [
+      {
+        "id": "e1181251-2fe2-42b2-9a69-288a28732554",
+        "name": "Example Team Display Name",
+        "key": "STE"
+      }
+    ]
+  }
+}

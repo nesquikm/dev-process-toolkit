@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.90.0] — 2026-09-26 — "Proven Live"
+
+### Added
+
+- Two repositories on one tracker double, with every guard shown able to fail (STE-616)
+- A live two-repository smoke, graded from the harness records (STE-617)
+- The programme's release waits for a passing live proof (STE-618). This release ships behind two passing live runs, one on Jira and one on Linear, re-graded by the test suite against the code being released.
+
+### Fixed
+
+- A tracker write the hook refused no longer uses up the receipt its corrected retry needs
+- An answer such as "Skip DST-9" is no longer read as consent to import DST-9
+- The repoint front door accepts both documented shapes of a Jira status listing
+- Tracker answers are read in the shape the server actually sends
+- A remedy that needs work in a sibling repository now says whose session does it
+- The TDD commit hook no longer asks JSON data fixtures to prove they failed first
+- `/spec-write` lists render their items again after a colon
+
+### Known defects
+
+- **A milestone created from a stale listing makes a duplicate container (D-4).** Two repositories sharing one container can race: B lists it, A creates the milestone, B's decision (which saw no milestone) answers create, and the tracker-write hook permits B's create because it cannot re-read the tracker. The result is two containers with one title. This is a write the programme exists to stop, and it goes through; the fix changes the hook's contract and is the first FR of the next milestone.
+- **`/gate-check`'s probe #41 entry says a probe registers `commit_producing_skill_branch_gate`; none does (D-12).** This release ships that false sentence knowingly: the correction was written and then reverted, because this milestone's own byte-identity freeze on `skills/gate-check/SKILL.md` refused it rather than widen its list of permitted amendments.
+- Measured and pinned, not repaired here (STE-616): the sibling ship gate reads "archived on some ref" as "archived on every ref" (D-2); the repoint's resume route skips its checks (D-3); three hook refusals name the wrong cause for a relocated checkout's receipt, an unreadable receipt directory and another session's receipt (D-5 to D-7).
+
+Total test count at release: 17290 tests, 0 failures, 0 errors.
+
 ## [2.89.0] — 2026-09-20 — "Provenance"
 
 ### Changed

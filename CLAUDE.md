@@ -11,8 +11,8 @@ This repo is a **Claude Code plugin marketplace** containing one plugin. The plu
 ```
 .claude-plugin/marketplace.json          → Marketplace catalog
 .claude/skills/                          → This repo's own maintainer-only skills — NOT shipped in the plugin.
-                                           Holds the declared `verify_skill` (see ## Verification below); 29 skills
-                                           ship across the two roots, and only the 27 below are the plugin's.
+                                           Holds the declared `verify_skill` (see ## Verification below);
+                                           30 skills ship across the two roots, and only the 27 below are the plugin's.
 plugins/dev-process-toolkit/             → The plugin
 ├── .claude-plugin/plugin.json           → Plugin manifest
 ├── skills/                              → 27 slash commands (18 user-invocable + 9 dispatch — seven of the nine are dispatch-only fork children: the four TDD child skills `tdd-write-test|tdd-implement|tdd-refactor|tdd-spec-review`, the `spec-research` and `deps-research` child skills, and the `spec-review-audit` child skill carry `user-invocable: false` and run only as orchestrator forks (`/dev-process-toolkit:tdd` for the TDD four; `/dev-process-toolkit:spec-research` forked from `/brainstorm` and `/spec-write`; `/dev-process-toolkit:deps-research` forked from `/brainstorm` and `/spec-write`; `/dev-process-toolkit:spec-review-audit` forked from `/spec-review`). The other two, `/upgrade` and `setup-template`, are NOT fork children — `/upgrade` carries `user-invocable: false` only to stay off the slash menu, stays model-invocable, and is discovered through `/gate-check` probe #69 (`upgrade_staleness`) instead of a menu slot, while `setup-template` is dispatched exclusively by `/setup --template`. The `/deps` and `/best-practices` skills are the user-invocable manifest management surfaces.)
@@ -26,7 +26,9 @@ plugins/dev-process-toolkit/             → The plugin
                                            pre-pr-spec-review blocks `gh pr create`,
                                            pre-tracker-write-gate blocks shared-container
                                            tracker writes that skipped the deciding commands
-├── scripts/                             → Migration helpers named by /upgrade and by probe remedies
+├── scripts/                             → One-shot migration helpers named by probe remedies. NOT by /upgrade:
+                                           that skill owns no migration list and walks the registry at
+                                           adapters/_shared/src/migrations/ instead
 ├── docs/                                → Methodology, skill anatomy, adaptation guide, patterns
 └── examples/                            → Per-stack configs (typescript-node, bun-typescript, flutter-dart, kotlin, python, plugin — `plugin` is this repo's own stack)
 ```

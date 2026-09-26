@@ -9,6 +9,7 @@
 // invariants at module load. Retired path literals live exclusively in
 // `./legacy_paths` — the entries import them, never compose them.
 
+import { linearTeamKey } from "./entries/linear_team_key";
 import { m104LegacyState } from "./entries/m104_legacy_state";
 import { modeNoneSequentialMilestone } from "./entries/mode_none_sequential_milestone";
 import { permissionShapes } from "./entries/permission_shapes";
@@ -106,6 +107,7 @@ export const MIGRATIONS: MigrationEntry[] = [
   m104LegacyState, // 2.46.0
   modeNoneSequentialMilestone, // 2.59.0
   verificationRunKeys, // 2.70.0
+  linearTeamKey, // 2.90.0
 ];
 
 validateRegistry(MIGRATIONS);

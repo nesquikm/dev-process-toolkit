@@ -7,10 +7,12 @@
 //
 // run for a release requires `--children <listingFile>`: for Jira the milestone
 // Epic's child issues as `searchJiraIssuesUsingJql` returns them
-// ({ issues: [{ key, fields: { labels, ... } }], isLast }); for Linear the
-// project's `list_issues` answer ({ issues: [{ identifier, labels,
-// projectMilestone: { id }, ... }], pageInfo: { hasNextPage } }), filtered to the
-// milestone by its identifier. A missing, unreadable, malformed or not-last-page
+// ({ issues: [{ key, fields: { labels, ... } }], isLast }, or the wrapped
+// shape the same server also answers); for Linear the project's `list_issues`
+// answer in its measured shape ({ issues: [{ id, labels, projectMilestone:
+// { id }, ... }], hasNextPage, cursor? } — no `pageInfo`, no `identifier`),
+// filtered to the milestone by its project-milestone id. A missing,
+// unreadable, malformed or not-last-page
 // listing refuses; so does one omitting this repository's own FR tickets bound
 // to the milestone, and so does `children=0`. A child carrying neither this
 // repository's tag nor a declared sibling's tag refuses without `--partial`,
@@ -112,25 +114,25 @@ function jiraChild(key: string, labels: string[]): Record<string, unknown> {
   };
 }
 
+/** One Linear `list_issues` row in the measured shape: keyed by `id`, `team` a display name. */
 function linearIssue(key: string, labels: string[], milestoneUuid = LINEAR_UUID): Record<string, unknown> {
   return {
-    id: `id-${key}`,
-    identifier: key,
+    id: key,
     title: `Child ${key}`,
     description: `Source: specs/frs/${key}.md`,
-    createdBy: { name: "Fixture Author" },
+    createdBy: "Fixture Author",
     labels,
-    project: { name: LINEAR.project },
+    project: LINEAR.project,
     projectMilestone: { id: milestoneUuid, name: `Milestone ${milestoneUuid.slice(0, 6)}` },
-    team: { name: "STE" },
+    team: "Example Team Display Name",
   };
 }
 
-/** A complete page of `children` in the tracker's shape. */
+/** A page of `children` in the tracker's measured shape; `last: false` hands the cursor for the next. */
 function page(mode: Mode, children: Record<string, unknown>[], last = true): unknown {
   return mode === "jira"
-    ? { issues: children, isLast: last }
-    : { issues: children, pageInfo: { hasNextPage: !last } };
+    ? { issues: children, isLast: last, ...(last ? {} : { nextPageToken: "t-next" }) }
+    : { issues: children, hasNextPage: !last, ...(last ? {} : { cursor: "c-next" }) };
 }
 
 function child(mode: Mode, which: "own" | "sibling" | string, labels: string[]): Record<string, unknown> {
@@ -373,7 +375,7 @@ describe("AC-STE-610.6 hardening — a page must prove it is the last page", () 
     });
   }, 30_000);
 
-  test("Linear: a child page with no pageInfo refuses as incomplete", async () => {
+  test("Linear: a child page with no hasNextPage refuses as incomplete", async () => {
     await withChildren("linear", (t) => {
       expectRefused(gate(t, "--children", save(t, { issues: accounted("linear") })));
     });
@@ -390,7 +392,7 @@ describe("AC-STE-610.6 hardening — a page must prove it is the last page", () 
 // ===========================================================================
 // M_685ff6 pre-PR review — a large Linear project pages its children. The
 // listing may be the JSON array of every cursor page, in order: each page but
-// the last says it is not (Linear `hasNextPage: true` with its `endCursor`,
+// the last says it is not (Linear `hasNextPage: true` with its `cursor`,
 // Jira `isLast: false`) and the last proves it is. Red on 07655a75, where an
 // array is not a page at all and a project past one page can never release.
 // ===========================================================================
@@ -400,7 +402,8 @@ describe("M_685ff6 review — a paged child listing is read whole", () => {
   // cursor it was requested with (`requestCursor`), so the pages chain.
   const linearPage = (issues: Record<string, unknown>[], next: string | null, requested?: string): unknown => ({
     issues,
-    pageInfo: next === null ? { hasNextPage: false, endCursor: "end" } : { hasNextPage: true, endCursor: next },
+    hasNextPage: next !== null,
+    ...(next !== null ? { cursor: next } : {}),
     ...(requested !== undefined ? { requestCursor: requested } : {}),
   });
   // Amended by the M_685ff6 review r2: every page's filler carries its own
@@ -447,7 +450,7 @@ describe("M_685ff6 review — a paged child listing is read whole", () => {
     });
   }, 30_000);
 
-  test("Linear: a page repeated (the same endCursor twice) refuses", async () => {
+  test("Linear: a page repeated (the same cursor twice) refuses", async () => {
     await withChildren("linear", (t) => {
       const pages = [
         linearPage([child("linear", "own", [TAG_A])], "c1"),
@@ -468,22 +471,51 @@ describe("M_685ff6 review — a paged child listing is read whole", () => {
 });
 
 describe("M_685ff6 review — refusal #4's prose says how to page a Linear listing", () => {
-  test("the refusal #4 line orders includeArchived and cursor paging to hasNextPage false", () => {
+  const refusal4 = (): string => {
     const skill = readFileSync(join(import.meta.dir, "..", "skills", "ship-milestone", "SKILL.md"), "utf-8");
-    const line = skill.split("\n").find((l) => l.startsWith("4. **Sibling not provably idle**")) ?? "";
-    expect(line).not.toBe("");
-    expect(line).toContain("includeArchived: true");
-    expect(line).toContain("endCursor");
-    expect(line).toMatch(/until `hasNextPage` is false/);
+    return skill.split("\n").find((l) => l.startsWith("4. **Sibling not provably idle**")) ?? "";
+  };
+  /**
+   * The measured paging model (tests/fixtures/live-shapes/): a Linear page
+   * hands a top-level `cursor` (there is no `endCursor`), and Jira pages in
+   * either of its two shapes — plain `nextPageToken`, wrapped
+   * `issues.pageInfo.endCursor`. Returns what the line gets wrong.
+   */
+  const pagingViolations = (line: string): string[] => {
+    const v: string[] = [];
+    if (!line.includes("includeArchived: true")) v.push("no includeArchived: true");
+    if (!line.includes("top-level `cursor`")) v.push("Linear paging does not name the top-level `cursor`");
+    if (/previous page's `endCursor`/.test(line)) v.push("Linear paging names an `endCursor` (the invented pageInfo model)");
+    if (!/until `hasNextPage` is false/.test(line)) v.push("no until `hasNextPage` is false");
+    if (!line.includes("`nextPageToken`")) v.push("the plain Jira shape's `nextPageToken` is not named");
+    if (!line.includes("`issues.pageInfo.endCursor`")) v.push("the wrapped Jira shape's `issues.pageInfo.endCursor` is not named");
     // M_685ff6 review r2: each page after the first records its requestCursor.
-    expect(line).toContain("`requestCursor`");
+    if (!line.includes("`requestCursor`")) v.push("no `requestCursor`");
+    return v;
+  };
+
+  test("the refusal #4 line orders includeArchived and top-level cursor paging to hasNextPage false, naming both Jira shapes", () => {
+    const line = refusal4();
+    expect(line).not.toBe("");
+    expect(pagingViolations(line)).toEqual([]);
+  });
+
+  test("MUTATION — the line reverted to the invented `previous page's endCursor` wording is red", () => {
+    const line = refusal4();
+    const reverted = line.replace("the previous page's top-level `cursor`", "the previous page's `endCursor`");
+    expect(reverted, "the mutation must apply").not.toBe(line);
+    expect(pagingViolations(reverted)).toEqual([
+      "Linear paging does not name the top-level `cursor`",
+      "Linear paging names an `endCursor` (the invented pageInfo model)",
+    ]);
   });
 });
 
 describe("M_685ff6 review r2 — paged child listings chain", () => {
   const lp = (issues: Record<string, unknown>[], next: string | null, requested?: string): unknown => ({
     issues,
-    pageInfo: next === null ? { hasNextPage: false, endCursor: "end" } : { hasNextPage: true, endCursor: next },
+    hasNextPage: next !== null,
+    ...(next !== null ? { cursor: next } : {}),
     ...(requested !== undefined ? { requestCursor: requested } : {}),
   });
 
@@ -515,7 +547,7 @@ describe("M_685ff6 review r2 — paged child listings chain", () => {
     });
   }, 30_000);
 
-  test("Linear: a repeated endCursor with distinct keys (a page that did not advance) refuses", async () => {
+  test("Linear: a repeated cursor with distinct keys (a page that did not advance) refuses", async () => {
     await withChildren("linear", (t) => {
       const pages = [
         lp([child("linear", "own", [TAG_A])], "c1"),

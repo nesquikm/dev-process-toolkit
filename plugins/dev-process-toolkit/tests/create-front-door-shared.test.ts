@@ -25,7 +25,18 @@
 // The pre-change bytes (`ac1f3cb`) are extracted with `git show` for the
 // undeclared-parity leg (AC.7) and the old-client leg (AC.10).
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+
+
+// MEASURED (M_2306b6 audit round 1, M5): this suite spawns `bun run <module>` for
+// almost every test, and Bun's default per-test timeout is 5 s. Under the load of
+// the full 653-file gate a spawn that normally takes ~200 ms can exceed it; Bun
+// then kills the child, `exitCode` is null, and the run surfaced as `code = -1`
+// with an empty stderr — a failure that looked like the module crashing and was
+// diagnosable only by re-running. It is the same load-dependent 5 s timeout this
+// milestone already root-caused once (the word-cap population test). The budget
+// below is per test, not per suite, so it costs nothing on a healthy machine.
+setDefaultTimeout(60_000);
 import { Glob } from "bun";
 import {
   existsSync,
@@ -100,10 +111,17 @@ function runModule(args: string[], env: Record<string, string> = {}): Run {
     stdout: "pipe",
     stderr: "pipe",
   });
+  // `exitCode` is null when the child was KILLED BY A SIGNAL, and collapsing that
+  // into -1 with an empty stderr is why a `-1` here has been undiagnosable: the
+  // assertion printed nothing about the cause. The signal is surfaced in the
+  // stderr the assertions carry, so the next occurrence names itself instead of
+  // being re-run until it passes.
+  const signal = proc.signalCode ?? null;
+  const stderr = proc.stderr.toString();
   return {
     code: proc.exitCode ?? -1,
     stdout: proc.stdout.toString(),
-    stderr: proc.stderr.toString(),
+    stderr: signal === null ? stderr : `${stderr}\n[the child was killed by ${signal}; it did not exit on its own — this is a HARNESS or machine-load failure, not a module verdict]`,
   };
 }
 
@@ -174,6 +192,10 @@ const NUMERIC: Container = { milestoneLabel: "milestone-M46" };
 const LINEAR_MS_ID = "ms-3fa85f64";
 const LINEAR_MS: Container = { linearMilestone: LINEAR_MS_ID };
 const TITLE = "The reward banner - repainted light";
+/** The team's display name, as a measured Linear row carries `team` (never the key "STE"). */
+const LINEAR_TEAM_NAME = "Example Team Display Name";
+/** A Linear page in the measured shape: top-level `hasNextPage`, a `cursor` only when more follow. */
+const lpage = (issues: unknown[], cursor: string | null = null) => ({ issues, hasNextPage: cursor !== null, ...(cursor === null ? {} : { cursor }) });
 
 function declareJira(root: string, tag: string | null): void {
   if (tag === null) claudeMd(root, { mode: "jira", project: "GF" });
@@ -345,7 +367,7 @@ class MemJira {
   }
 
   /** Honour every conjunct. Unknown JQL throws. */
-  search(jql: string): { issues: unknown[]; isLast: boolean } {
+  search(jql: string): { issues: unknown[]; isLast: boolean; nextPageToken?: string } {
     const q = parseJql(jql);
     const phrases = q.phrase === undefined ? [] : [q.phrase, unescapeOnce(q.phrase)];
     const hits = this.tickets.filter((t) => {
@@ -358,7 +380,8 @@ class MemJira {
       }
       return true;
     });
-    return { issues: hits.map(jiraRow), isLast: !this.capped };
+    // A capped page hands its `nextPageToken`, as the measured plain page does.
+    return { issues: hits.map(jiraRow), isLast: !this.capped, ...(this.capped ? { nextPageToken: "t-next" } : {}) };
   }
 
   /** The create a decision authorised, carrying `createPayload` as-is. */
@@ -406,6 +429,7 @@ function jiraPage(tickets: Partial<JiraTicket>[], isLast = true) {
       } as JiraTicket),
     ),
     isLast,
+    ...(isLast ? {} : { nextPageToken: "t-next" }),
   };
 }
 
@@ -413,9 +437,14 @@ function jiraPage(tickets: Partial<JiraTicket>[], isLast = true) {
 // In-memory Linear honouring every `list_issues` argument it accepts.
 // ===========================================================================
 
+/**
+ * A Linear `list_issues` row in the measured shape (tests/fixtures/live-shapes/
+ * linear/list_issues.last.json): keyed by top-level `id` (no `identifier`);
+ * `team` is the team's DISPLAY name — the filter takes the key, which the row
+ * carries only as its id's prefix.
+ */
 interface LinearIssue {
   id: string;
-  identifier: string;
   title: string;
   labels: string[];
   projectMilestone: { id: string; name: string } | null;
@@ -433,11 +462,10 @@ class MemLinear {
     this.seq += 1;
     const issue: LinearIssue = {
       id: `STE-${this.seq}`,
-      identifier: `STE-${this.seq}`,
       labels: [],
       projectMilestone: null,
       project: "DPT",
-      team: "STE",
+      team: LINEAR_TEAM_NAME,
       ...i,
     };
     this.issues.push(issue);
@@ -449,12 +477,12 @@ class MemLinear {
     if ("projectMilestone" in args) throw new Error("list_issues: unknown input projectMilestone");
     if ("query" in args) throw new Error("list_issues: `query` is ranked relevance, never a filter");
     const hits = this.issues.filter((i) => {
-      if (args.team !== undefined && i.team !== args.team) return false;
+      if (args.team !== undefined && !i.id.startsWith(`${args.team}-`)) return false;
       if (args.project !== undefined && i.project !== args.project) return false;
       if (args.label !== undefined && !i.labels.includes(args.label)) return false;
       return true;
     });
-    return { issues: hits, pageInfo: { hasNextPage: this.capped, endCursor: null } };
+    return { issues: hits, hasNextPage: this.capped, ...(this.capped ? { cursor: "c-next" } : {}) };
   }
 
   createFrom(payload: Record<string, any>, title: string): LinearIssue {
@@ -771,15 +799,14 @@ describe("AC-STE-604.2 — decide forbids over a two-repo shared Epic", () => {
         issues: [
           {
             id: "STE-990",
-            identifier: "STE-990",
             title: TITLE,
             labels: ["glacy-fe"],
             projectMilestone: { id: LINEAR_MS_ID, name: "M" },
             project: "DPT",
-            team: "STE",
+            team: LINEAR_TEAM_NAME,
           },
         ],
-        pageInfo: { hasNextPage: false, endCursor: null },
+        hasNextPage: false,
       };
       const d = jsonLine(decide(b, [writePage(page)], TITLE, LINEAR_MS, "fast"));
       expect(d.outcome).toBe("refused");
@@ -861,7 +888,7 @@ describe("AC-STE-604.3 — decide permits, and records what it decided", () => {
   test("Linear: createPayload sets the milestone and forwards the tag", () => {
     withRoots((_a, b) => {
       declareLinear(b, "glacy-be");
-      const page = { issues: [], pageInfo: { hasNextPage: false, endCursor: null } };
+      const page = lpage([]);
       const d = jsonLine(decide(b, [writePage(page)], TITLE, LINEAR_MS, "fast"));
       expect(d.outcome).toBe("create");
       expect(d.createPayload.milestone).toBe(LINEAR_MS_ID);
@@ -931,7 +958,7 @@ describe("AC-STE-604.4 — own-ticket retry: the create carries its container", 
       linear.createFrom(fast.createPayload, TITLE);
       const retry = linearRound(a, linear, TITLE, LINEAR_MS, "retry-1").decision;
       expect(retry.outcome).toBe("reused");
-      expect(retry.key).toBe(linear.issues[0]!.identifier);
+      expect(retry.key).toBe(linear.issues[0]!.id);
       expect(linear.creates).toBe(1);
     });
   });
@@ -973,8 +1000,9 @@ describe("AC-STE-604.5 — page cap and the retry-3 fall-through", () => {
     test(`Linear (${tag ?? "undeclared"}): hasNextPage: true on the last page, no match, is page-cap`, () => {
       withRoots((_a, b) => {
         declareLinear(b, tag);
-        const first = { issues: [], pageInfo: { hasNextPage: true, endCursor: "c1" } };
-        const last = { issues: [], pageInfo: { hasNextPage: true, endCursor: "c2" } };
+        const first = lpage([], "c1");
+        // Saved as the docs order it: the page after the first records the cursor it was fetched with.
+        const last = { ...lpage([], "c2"), requestCursor: "c1" };
         const d = jsonLine(
           decide(b, [writePage(first), writePage(last)], TITLE, LINEAR_MS, "retry-3"),
         );
@@ -990,15 +1018,14 @@ describe("AC-STE-604.5 — page cap and the retry-3 fall-through", () => {
       declareLinear(b, "glacy-be");
       const hit = {
         id: "STE-977",
-        identifier: "STE-977",
         title: TITLE,
         labels: ["glacy-be"],
         projectMilestone: { id: LINEAR_MS_ID, name: "M" },
         project: "DPT",
-        team: "STE",
+        team: LINEAR_TEAM_NAME,
       };
-      const first = { issues: [hit], pageInfo: { hasNextPage: true, endCursor: "c1" } };
-      const last = { issues: [], pageInfo: { hasNextPage: false, endCursor: null } };
+      const first = lpage([hit], "c1");
+      const last = { ...lpage([]), requestCursor: "c1" };
       const d = jsonLine(decide(b, [writePage(first), writePage(last)], TITLE, LINEAR_MS, "fast"));
       expect(d.outcome).toBe("reused");
       expect(d.key).toBe("STE-977");
@@ -1149,31 +1176,37 @@ describe("AC-STE-604.6 — unreadable input refuses", () => {
     });
   });
 
-  test("a Linear page without `pageInfo`", () => {
+  test("a Linear page in no measured shape — no top-level `hasNextPage`, or the invented `pageInfo`", () => {
     withRoots((_a, b) => {
       declareLinear(b, "glacy-be");
       expectRefusal(jsonLine(decide(b, [writePage({ issues: [] })], TITLE, LINEAR_MS, "fast")));
+      expectRefusal(jsonLine(decide(b, [writePage({ issues: [], pageInfo: { hasNextPage: false, endCursor: null } })], TITLE, LINEAR_MS, "fast")));
     });
   });
 
-  // Stage C hardening (AUDIT advisory): the team conjunct must be checkable
-  // on every row. A row without `team` used to SKIP that conjunct — a sibling
-  // team's same-titled issue would have been reused. Control: the same row
-  // carrying this repository's team is reused.
-  test("a Linear candidate without `team` refuses; the same row with its team is reused (control)", () => {
+  // The team conjunct must be checkable on every row. A Linear row's `team` is
+  // the team's DISPLAY name, so the conjunct reads the key from the row's id
+  // prefix (`linearTeamKeyOf`): an id that yields no prefix refuses as
+  // unreadable, an id in another team violates the query. Control: the same
+  // row keyed in this repository's team is reused, whatever `team` it carries.
+  test("a Linear candidate whose id carries no team key refuses; another team's key violates the query; this team's key is reused (control)", () => {
     withRoots((_a, b) => {
       declareLinear(b, "glacy-be");
       const row = {
         id: "STE-976",
-        identifier: "STE-976",
         title: TITLE,
         labels: ["glacy-be"],
         projectMilestone: { id: LINEAR_MS_ID, name: "M" },
         project: "DPT",
+        team: LINEAR_TEAM_NAME,
       };
-      const page = (issue: object) => ({ issues: [issue], pageInfo: { hasNextPage: false, endCursor: null } });
-      expectRefusal(jsonLine(decide(b, [writePage(page(row))], TITLE, LINEAR_MS, "fast")));
-      const ok = jsonLine(decide(b, [writePage(page({ ...row, team: "STE" }))], TITLE, LINEAR_MS, "fast"));
+      const uuid = jsonLine(decide(b, [writePage(lpage([{ ...row, id: "0884f88d-f761-4ccd-b360-5e40cac85451" }]))], TITLE, LINEAR_MS, "fast"));
+      expectRefusal(uuid);
+      expect(uuid.reason).toBe("page-unreadable");
+      const other = jsonLine(decide(b, [writePage(lpage([{ ...row, id: "OPS-976", team: "STE" }]))], TITLE, LINEAR_MS, "fast"));
+      expectRefusal(other);
+      expect(other.reason).toBe("page-violates-query");
+      const ok = jsonLine(decide(b, [writePage(lpage([row]))], TITLE, LINEAR_MS, "fast"));
       expect(ok.outcome).toBe("reused");
       expect(ok.key).toBe("STE-976");
     });

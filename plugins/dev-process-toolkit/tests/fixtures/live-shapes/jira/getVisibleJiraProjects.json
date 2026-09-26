@@ -1,0 +1,62 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-21",
+    "method": "read-only-call",
+    "request": {
+      "cloudId": "96bffaef-cf5d-4dbf-a170-3d700df9bc83",
+      "searchString": "DST",
+      "expandIssueTypes": false,
+      "action": "view"
+    },
+    "note": "plain REST page: values + isLast (+ total/startAt/maxResults)"
+  },
+  "answer": {
+    "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/project/search?maxResults=50&query=DST&action=view&startAt=0",
+    "maxResults": 50,
+    "startAt": 0,
+    "total": 2,
+    "isLast": true,
+    "values": [
+      {
+        "expand": "description,lead,issueTypes,url,projectKeys,permissions,insight",
+        "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/project/10953",
+        "id": "10953",
+        "key": "DST",
+        "name": "DPT Smoke Test",
+        "avatarUrls": {
+          "48x48": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10417",
+          "24x24": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10417?size=small",
+          "16x16": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10417?size=xsmall",
+          "32x32": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10417?size=medium"
+        },
+        "projectTypeKey": "software",
+        "simplified": true,
+        "style": "next-gen",
+        "isPrivate": false,
+        "properties": {},
+        "entityId": "8a432336-476e-4184-8a26-57bf0392609f",
+        "uuid": "8a432336-476e-4184-8a26-57bf0392609f"
+      },
+      {
+        "expand": "description,lead,issueTypes,url,projectKeys,permissions,insight",
+        "self": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/project/11254",
+        "id": "11254",
+        "key": "DST2",
+        "name": "DPT Smoke Test 2",
+        "avatarUrls": {
+          "48x48": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10407",
+          "24x24": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10407?size=small",
+          "16x16": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10407?size=xsmall",
+          "32x32": "https://api.atlassian.com/ex/jira/96bffaef-cf5d-4dbf-a170-3d700df9bc83/rest/api/3/universal_avatar/view/type/project/avatar/10407?size=medium"
+        },
+        "projectTypeKey": "software",
+        "simplified": true,
+        "style": "next-gen",
+        "isPrivate": false,
+        "properties": {},
+        "entityId": "01c0c0dd-7d94-4632-b413-37bbbea3b8c8",
+        "uuid": "01c0c0dd-7d94-4632-b413-37bbbea3b8c8"
+      }
+    ]
+  }
+}

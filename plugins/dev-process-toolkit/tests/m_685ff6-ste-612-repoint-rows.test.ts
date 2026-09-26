@@ -39,6 +39,7 @@ import {
   rowLine,
   rowLines,
   runRepoint,
+  linearStatuses,
   statusListing,
   verdict,
   writeFr,
@@ -424,9 +425,9 @@ describe("AC-STE-612.2 — row 3: the issue type is reconciled", () => {
         };
         const r = runRepoint([
           f.a, "linear", "New Proj",
-          "--projects", w("p.json", { projects: [{ id: "p-1", name: "New Proj" }] }),
+          "--projects", w("p.json", { projects: [{ id: "p-1", name: "New Proj" }], hasNextPage: false }),
           "--containers", w("c.json", { milestones: [] }),
-          "--statuses", w("s.json", statusListing(["Todo", "In Progress", "Done"])),
+          "--statuses", w("s.json", linearStatuses(["Todo", "In Progress", "Done"])),
         ]);
         expect(verdict(r.stdout, 3)).toBe("NOT-APPLICABLE");
       } finally {
@@ -587,7 +588,11 @@ describe("AC-STE-612.3 — row 6: no active numeric plan collides", () => {
     T,
   );
 
-  const linearRow6 = async (containerName: string): Promise<string> => {
+  const linearRow6 = async (
+    containerName: string,
+    extraRows: Array<{ id: string; name: string }> = [],
+    projects: unknown = { projects: [{ id: "p-1", name: "New Proj" }], hasNextPage: false },
+  ): Promise<string> => {
     const f = makeSpanFixture("M_ste612_l6");
     const lst = mkdtempSync(join(tmpdir(), "dpt-ste612-l6-"));
     try {
@@ -603,9 +608,9 @@ describe("AC-STE-612.3 — row 6: no active numeric plan collides", () => {
       };
       return runRepoint([
         f.a, "linear", "New Proj",
-        "--projects", w("p.json", { projects: [{ id: "p-1", name: "New Proj" }] }),
-        "--containers", w("c.json", { milestones: [{ id: "550e8400-e29b-41d4-a716-446655440000", name: containerName }] }),
-        "--statuses", w("s.json", statusListing(["Todo", "In Progress", "Done"])),
+        "--projects", w("p.json", projects),
+        "--containers", w("c.json", { milestones: [{ id: "550e8400-e29b-41d4-a716-446655440000", name: containerName }, ...extraRows] }),
+        "--statuses", w("s.json", linearStatuses(["Todo", "In Progress", "Done"])),
       ]).stdout;
     } finally {
       f.cleanup();
@@ -618,6 +623,31 @@ describe("AC-STE-612.3 — row 6: no active numeric plan collides", () => {
   }, T);
   test("row 6 pass leg (Linear): no milestone of that name → PASS", async () => {
     const out = await linearRow6("Something Else");
+    expect(verdict(out, 6)).toBe("PASS");
+  }, T);
+  // The measured list_milestones answer holds at most LINEAR_MILESTONE_WINDOW
+  // rows with no paging field: a full window proves nothing past it, so a
+  // collision there is unseen and the row cannot pass.
+  const liveWindow = (): Array<{ id: string; name: string }> =>
+    JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "live-shapes", "linear", "list_milestones.json"), "utf-8")).answer.milestones;
+  test("row 6 refuse leg (Linear): a full 50-row window with no colliding name → REFUSE, naming the window", async () => {
+    const out = await linearRow6("Something Else", liveWindow().slice(0, 49));
+    expect(verdict(out, 6)).toBe("REFUSE");
+    expect(out).toMatch(/^6 REFUSE .*50/m);
+  }, T);
+  // Row 1 (Linear): the measured list_projects answer pages at the top level.
+  test("row 1 (Linear): a list_projects page saying more follow (hasNextPage + cursor) → REFUSE; its last page → PASS (twin)", async () => {
+    const more = await linearRow6("Something Else", [], { projects: [{ id: "p-1", name: "New Proj" }], hasNextPage: true, cursor: "c2" });
+    expect(verdict(more, 1)).toBe("REFUSE");
+    const last = await linearRow6("Something Else");
+    expect(verdict(last, 1)).toBe("PASS");
+  }, T);
+  test("row 1 (Linear): an unrecorded shape (no hasNextPage, or the invented pageInfo) → REFUSE", async () => {
+    expect(verdict(await linearRow6("Something Else", [], { projects: [{ id: "p-1", name: "New Proj" }] }), 1)).toBe("REFUSE");
+    expect(verdict(await linearRow6("Something Else", [], { projects: [{ id: "p-1", name: "New Proj" }], pageInfo: { hasNextPage: false } }), 1)).toBe("REFUSE");
+  }, T);
+  test("row 6 pass leg (Linear): 49 rows with no colliding name → PASS (the window is not full)", async () => {
+    const out = await linearRow6("Something Else", liveWindow().slice(0, 48));
     expect(verdict(out, 6)).toBe("PASS");
   }, T);
 });
@@ -741,9 +771,9 @@ describe("AC-STE-612.4 — row 7: no active plan or FR is left in the old contai
       if (!resolves) expect(headSemanticsFlip(f.a, "linear", "New Proj").flipped).toBe(true); // pre-change sibling
       const r = runRepoint([
         f.a, "linear", "New Proj",
-        "--projects", w("p.json", { projects: [{ id: "p-1", name: "New Proj" }] }),
+        "--projects", w("p.json", { projects: [{ id: "p-1", name: "New Proj" }], hasNextPage: false }),
         "--containers", w("c.json", { milestones: [{ id: milestoneId, name: "Spans" }] }),
-        "--statuses", w("s.json", statusListing(["Todo", "In Progress", "Done"])),
+        "--statuses", w("s.json", linearStatuses(["Todo", "In Progress", "Done"])),
       ]);
       if (resolves) {
         expect(verdict(r.stdout, 7)).toBe("PASS");
@@ -852,4 +882,101 @@ describe("M_685ff6 review — row 7: an archive on a ref that is not checked out
     }),
     T,
   );
+});
+
+// M_2306b6 (STE-616) — a refusal must not induce the harm it exists to prevent.
+//
+// MEASURED LIVE, 2026-09-23. A smoke child rooted in the peer repository ran
+// this command and met row 3's refusal: `--peer <A> declares jira_issue_type
+// (none), not Task`. The refusal named a file, named a disagreement, and named
+// no action the child could legally take — so the child took the illegal one
+// and edited `<A>/CLAUDE.md` with a `perl -0pi` loop over both roots. The
+// binding check induced a cross-repository write.
+//
+// Every peer-naming refusal is graded here, not row 3 alone: the same sentence
+// shape is written six times across rows 2, 3 and 5, and this milestone has
+// already shipped seven defects whose common cause was fixing one path and not
+// its twin.
+describe("M_2306b6 — a peer-naming refusal leaves this operator a legal path", () => {
+  /** The defects of one reason line, or [] when the rule does not apply to it. */
+  function peerRefusalDefects(reason: string, peer: string): string[] {
+    if (!reason.includes(peer)) return []; // names no peer: this rule has nothing to say
+    const out: string[] = [];
+    if (!/do not edit/i.test(reason)) out.push("names a peer path without saying that peer is not this run's to edit");
+    if (!reason.includes(`re-run without --peer ${peer}`)) out.push("offers no action this operator can take alone");
+    return out;
+  }
+
+  const LEGS: Array<[string, GlacyOpts]> = [
+    ["row 2 — the peer declares no repo_tag", { b: { repoTag: undefined } }],
+    ["row 2 — the peer declares the same repo_tag", { b: { repoTag: "glacy-be" } }],
+    ["row 2 — the peer is bound to another project", { b: { project: "GX" } }],
+    ["row 3 — the peer declares a different issue type", { b: { issueType: "Bug" } }],
+    ["row 3 — the peer declares NO issue type (the live shape)", { b: { issueType: undefined } }],
+    ["row 5 — the peer's mcp entry points elsewhere", { peerUrl: "https://other.invalid/mcp" }],
+  ];
+
+  for (const [name, opts] of LEGS) {
+    test(
+      `${name}: still REFUSES, and its reason names the peer as not ours to edit plus an action we can take`,
+      withGlacy(opts, (g) => {
+        const out = runRepoint(g.args()).stdout;
+        const line = rowLines(out).find((l) => l.includes(g.b));
+        expect(line, `no row named the peer:\n${out}`).toBeDefined();
+        expect(line!).toMatch(/REFUSE/);
+        expect(peerRefusalDefects(line!, g.b), line).toEqual([]);
+      }),
+      T,
+    );
+  }
+
+  test("PERMIT — the all-agreeing run still passes every row (the rewording changed no verdict)", withGlacy({}, (g) => {
+    const r = runRepoint(g.args());
+    expect(verdict(r.stdout, 2)).toBe("PASS");
+    expect(verdict(r.stdout, 3)).toBe("PASS");
+    expect(verdict(r.stdout, 5)).toBe("PASS");
+  }), T);
+
+  test("CONTROL — the wording the live run actually met fails this rule, on both counts", () => {
+    expect(peerRefusalDefects("--peer /tmp/peer declares jira_issue_type (none), not Task", "/tmp/peer")).toEqual([
+      "names a peer path without saying that peer is not this run's to edit",
+      "offers no action this operator can take alone",
+    ]);
+  });
+
+  test(
+    "the FLAG-shape refusals still refuse and still offer the always-available action, deliberately without the do-not-edit clause",
+    withGlacy({}, (g) => {
+      for (const [peer, expected] of [
+        [join(g.lst, "no-such-dir"), "does not exist"],
+        [join(g.lst, "projects.json"), "is not a directory"],
+        [g.lst, "has no CLAUDE.md"],
+      ] as const) {
+        const out = runRepoint(g.args({}, [peer])).stdout;
+        const line = rowLines(out).find((l) => l.includes(peer));
+        expect(line, `no row named ${peer}:\n${out}`).toBeDefined();
+        expect(line!).toMatch(/REFUSE/);
+        expect(line!).toContain(expected);
+        expect(line!).toContain(`re-run without --peer ${peer}`);
+        // No declaration is in dispute here, so the do-not-edit clause would be
+        // noise — the difference is deliberate, and recorded rather than assumed.
+        expect(line!).not.toContain("do not edit");
+      }
+    }),
+    T,
+  );
+
+  test("SOURCE PIN — no ninth peer sentence is written by hand: every `--peer <path>` reason comes from one of the two helpers", () => {
+    const src = readFileSync(join(import.meta.dir, "..", "adapters", "_shared", "src", "repoint_tracker_binding.ts"), "utf-8");
+    const sites = src.split("\n").map((l, i) => [i + 1, l] as const).filter(([, l]) => l.includes("--peer ${"));
+    expect(sites.map(([n]) => n).length, sites.map(([n, l]) => `${n}: ${l.trim()}`).join("\n")).toBe(2);
+    expect(src).toContain("function peerRefusal(");
+    expect(src).toContain("const peerFlagRefusal =");
+  });
+
+  test("CONTROL — the rule is vacuous for a refusal that names no peer, and stops being vacuous when one is named", () => {
+    const own = "this repository declares no jira_issue_type";
+    expect(peerRefusalDefects(own, "/tmp/peer")).toEqual([]);
+    expect(peerRefusalDefects(`${own} (--peer /tmp/peer)`, "/tmp/peer").length).toBe(2);
+  });
 });

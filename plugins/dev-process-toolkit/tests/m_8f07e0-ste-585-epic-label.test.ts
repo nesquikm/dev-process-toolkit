@@ -222,7 +222,8 @@ async function mintedLabel(): Promise<string | undefined> {
   return labels[0]?.label;
 }
 
-const labelPage = (labels: string[]) => async (_page: number) => ({ issues: [{ labels }], isLast: true });
+/** A raw, measured-shape `searchJiraIssuesUsingJql` answer holding one row that carries `labels`. */
+const labelPage = (labels: string[]) => async (_page: number) => ({ issues: [{ key: "GF-900", fields: { labels } }], isLast: true });
 
 describe("AC-STE-585.6 — the minted label round-trips through listMilestones", () => {
   test("the recorded label reads back as [{ name: M_GF_78 }]; malformed neighbours read back as []", async () => {
@@ -245,7 +246,7 @@ describe("AC-STE-585.7 — the same milestone through both legs is deduped, not 
 
     const listed = await listMilestones(labelPage([written as string]), {
       fetchEpicPage: async (_page: number) => ({
-        epics: [{ key: EPIC_KEY, summary: `${MILESTONE_ID} — ${TITLE}` }],
+        issues: [{ key: EPIC_KEY, fields: { summary: `${MILESTONE_ID} — ${TITLE}` } }],
         isLast: true,
       }),
     });
