@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.90.0] — 2026-09-26 — "Proven Live"
+
+### Added
+
+- Two repositories on one tracker double, with every guard shown able to fail (STE-616)
+- A live two-repository smoke, graded from the harness records (STE-617)
+- The programme's release waits for a passing live proof (STE-618). This release ships behind two passing live runs, one on Jira and one on Linear, re-graded by the test suite against the code being released.
+
+### Fixed
+
+- A tracker write the hook refused no longer uses up the receipt its corrected retry needs
+- An answer such as "Skip DST-9" is no longer read as consent to import DST-9
+- The repoint front door accepts both documented shapes of a Jira status listing
+- Tracker answers are read in the shape the server actually sends
+- A remedy that needs work in a sibling repository now says whose session does it
+- The TDD commit hook no longer asks JSON data fixtures to prove they failed first
+- `/spec-write` lists render their items again after a colon
+
+Total test count at release: 17290 tests, 0 failures, 0 errors.
+
 ## [2.89.0] — 2026-09-20 — "Provenance"
 
 ### Changed
