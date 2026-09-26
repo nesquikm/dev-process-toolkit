@@ -24,6 +24,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The TDD commit hook no longer asks JSON data fixtures to prove they failed first
 - `/spec-write` lists render their items again after a colon
 
+### Known defects
+
+- **A milestone created from a stale listing makes a duplicate container (D-4).** Two repositories sharing one container can race: B lists it, A creates the milestone, B's decision (which saw no milestone) answers create, and the tracker-write hook permits B's create because it cannot re-read the tracker. The result is two containers with one title. This is a write the programme exists to stop, and it goes through; the fix changes the hook's contract and is the first FR of the next milestone.
+- **`/gate-check`'s probe #41 entry says a probe registers `commit_producing_skill_branch_gate`; none does (D-12).** This release ships that false sentence knowingly: the correction was written and then reverted, because this milestone's own byte-identity freeze on `skills/gate-check/SKILL.md` refused it rather than widen its list of permitted amendments.
+- Measured and pinned, not repaired here (STE-616): the sibling ship gate reads "archived on some ref" as "archived on every ref" (D-2); the repoint's resume route skips its checks (D-3); three hook refusals name the wrong cause for a relocated checkout's receipt, an unreadable receipt directory and another session's receipt (D-5 to D-7).
+
 Total test count at release: 17290 tests, 0 failures, 0 errors.
 
 ## [2.89.0] — 2026-09-20 — "Provenance"
